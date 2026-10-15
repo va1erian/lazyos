@@ -192,9 +192,10 @@ order on the manifest's real dependency graph (every dependent before its
 dependency, tiers in order) and on a dependency cycle.
 
 **End to end** ([`tools/shutdown/`](../tools/shutdown/README.md)):
-`python tools/shutdown/run.py` builds the desktop image and boots it twice on a
-fresh data disk: the Terminal writes a file to `/data` and types `shutdown`;
-the second boot reads the file back, finds `/data` clean, and reboots through
+`python tools/shutdown/run.py` builds the desktop image and boots it twice (no
+data disk: nothing lives under `/data` since F4): the Terminal writes a nonce to
+the session account's home (`/home/<name>`) and types `shutdown`;
+the second boot reads the nonce back, finds the volume clean, and reboots through
 LazyShell's start menu. `judge.py` checks each serial log (below);
 `test_judge.py` proves the judge fails when it should. The two standalone
 session scripts drive the same paths without the judge:

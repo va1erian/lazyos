@@ -5,20 +5,21 @@ LazyOS is a hobby operating system written in Rust (`no_std`, target
 no ambient authority, every privileged action is a capability or a
 policy-checked message, and denials are explained rather than silent.
 
-It boots from a legacy-BIOS disk image (UEFI and real PCs are planned in
-[`docs/real-pc-boot-plan.md`](docs/real-pc-boot-plan.md)), renders to a
+It boots from a legacy-BIOS disk image; a USB-stick image boots UEFI or legacy
+BIOS firmware on a real PC ([`docs/real-pc-boot-plan.md`](docs/real-pc-boot-plan.md),
+[`docs/usb-stick.md`](docs/usb-stick.md)). It renders to a
 framebuffer, and runs a preemptive multitasking kernel with a VFS (a
 read/write ext2 OS volume at `/`, a read-only FAT `/boot`, in-memory `/tmp`
 and `/transient`, and an optional ext2 home volume at `/home`), and a growing
-set of userspace services. It also has a Linux ABI bridge so static
-`x86_64-unknown-linux-musl` binaries can run.
+set of userspace services. It also has a Linux ABI bridge so
+`x86_64-unknown-linux-musl` binaries — static or dynamically linked — can run.
 
 ## Architecture
 
 ```
   apps / xui-app        sh, top, sysmon, fabricmon, ...
   ───────────────────────────────────────────────────────
-  system services       init  logd  healthd  keyd  accounts
+  system services       init  logd  healthd  keyd  accountsd
   (user/src/bin)        clipboardd  mimed  sysmond  xuid (compositor)
   ───────────────────────────────────────────────────────
   messengerd + libs/messenger   capability-based IPC / pub-sub
@@ -170,9 +171,9 @@ LazyOS is small enough to be understood and audited by one person; keep it that 
 **File size limit: 500 lines**
 - New and modified source files must stay **under 500 lines**. Split by
   responsibility into modules rather than growing a file past the limit.
-- Existing files over the limit are being split; see the tracking issue
-  [va1erian/lazyos#194](https://github.com/va1erian/lazyos/issues/194). Do not
-  make an oversized file bigger; extract a module when you touch it.
+- Every hand-written file is under the limit today, and the CI check's
+  allowlist is empty (`tools/check_file_length.py`, issue #484). Do not make an
+  oversized file bigger; extract a module when you touch it.
 
 ## License
 

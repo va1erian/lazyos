@@ -1,6 +1,6 @@
 # Wi-Fi prerequisites (everything but the driver)
 
-> **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
+> **Status: draft, revision 1 (2026-10-09). WP0-WP3 are built; WP4 (the station half) and WP5 are partly built and WP6 is partly built (`libs/fwload` and the firmware fetch tool; the USB device interface is not). See section 4.**
 > [wifi-plan.md](wifi-plan.md) answers whether LazyOS can get Wi-Fi from
 > the MT7925 driver (yes) and stages the whole job (W0–W6). This plan takes
 > everything in that job that is **not the chip driver** (`wifid`'s
@@ -45,8 +45,8 @@ for the non-driver rows.
 
 | Piece | State today | Gap for Wi-Fi |
 |---|---|---|
-| `netd` | One interface: `IFNAME = "eth0"` (`user/src/bin/netd/service.rs`), one smoltcp `Interface`, one NIC client (`netd/nic.rs`), config from `sys/net/eth0/*`, topics `system/net/eth0/*`, a `Routes` method | N interfaces, interfaces appearing and vanishing at runtime, a route and DNS choice across them, re-DHCP when a link comes back on a different network |
-| NIC naming | Registry name is the constant `os.lazy.net.nic` (`user/src/messenger/net.rs`); `libs/devmatch` relies on it being unique ("first matching device wins, later ones `busy`") | One name per interface, and a kind (wired/wireless) in `NicInfo` |
+| `netd` | Several interfaces (WP1): one smoltcp `Interface` and NIC client each, config from `sys/net/<if>/*`, topics `system/net/<if>/*`, a `Routes` method, wired metric 100 / wireless 600 | built; a card that appears or vanishes is detached/attached at runtime |
+| NIC naming | Registry name is per interface, `os.lazy.net.nic/<ifname>` (WP1); `libs/devmatch` picks the name | built (`NicInfo.kind` marks wired from wireless) |
 | `nic.v1` | 802.3 frames over `framering`, link state in `Notify`, one client | Unchanged for data (the chip does 802.3 ↔ 802.11 encap). No change needed beyond naming |
 | USB | `usbd` claims **every** xHCI controller, has hubs, hot-plug, multiple controllers, and **bulk pipes** (`libs/xhci/src/tests/bulk.rs`; USB storage in `usbd/msc.rs`). Every class driver lives inside `usbd`; no interface lets another process reach a device | A device interface, or Wi-Fi code inside `usbd`. wifi-plan's W1 shortcut ("`wifid` claims a second `qemu-xhci`") **no longer works**: `usbd` takes that controller too |
 | PCI | MSI and MSI-X exist (`irq_enable` returns 0/1/2, [architecture/interrupts.md](architecture/interrupts.md)) | For the M.2 card only: extended config space, ASPM. Out of scope here |

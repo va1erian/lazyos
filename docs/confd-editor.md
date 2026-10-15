@@ -65,12 +65,11 @@ path.
 ## Registration
 
 `xui-app/Cargo.toml` (`[[bin]] name = "xui-confd"`, workspace member and
-dependency), `tools/xui/build.py` (`xui-confd.elf`), `build.rs` (`confd` →
-`XCONFD`, in `DOCUMENT_XUI_APPS`, so it ships on demand and is not
-autostarted), `user/src/bin/init/apps.rs` (`xui_app("confd", "Config",
-"/system/bin/confd-editor")`); the desktop menu's built-in list is `deskmenu::defaults()`
-(`libs/deskmenu`), where `("confd", "Config")` goes last so the rows the
-screenshot sessions click by coordinate keep their positions.
+dependency), `tools/xui/build.py` (`xui-confd.elf`), `build_support/xui_embed.rs`
+(`xui-confd.elf` in `DOCUMENT_XUI_APPS`, so it ships with the desktop), and the
+core package `os.lazy.confd` (`xui-app/packages/confd/`, listed in
+`tools/xui/core_packages.py`): `pkgd` installs it, and its manifest's menu row
+is what the desktop shows (`deskmenu::defaults()` returns no built-in rows).
 
 ## Verification
 

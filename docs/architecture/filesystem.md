@@ -536,6 +536,6 @@ F4 (issue #508) put the services on the tree: `confd` in `/conf` (seeded once
 from `/data/confd`), `logd` journals and `pkg.log` in `/logs`, `pkgd` in `/apps`
 and `/docs/apps`, `lazyrad` in the user's home (`$HOME/projects`,
 `$HOME/.apps/lazyrad`, an installed app's `$HOME/.apps/<system_name>`). Open:
-symlinks, cross-mount rename, page cache, resizing an existing OS image, the
+symlinks, cross-mount rename, resizing an existing OS image, the
 rest of F4 (the `admin`/`user` accounts, `$HOME`) and F5 to F7 (packages, the ABI overlay, migrating and
 removing `/data`).

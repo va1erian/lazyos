@@ -231,7 +231,7 @@ default nothing is autostarted (`LAZYOS_XUI_AUTOSTART` lists the stems to open,
 LazyShell's start menu (grouped by package category) or desktop icons (each
 package's own icon) (issue #157).
 `sysmon`/`fabricmon`/`counter` pick client mode via `LazyOSBackend::connect`;
-the new `xui-term` hosts BusyBox `sh` over a pipe pair (issue #254). The desktop
+the new `xui-term` hosts BusyBox `sh` on a pseudo-terminal (issue #254). The desktop
 image also ships the migrated document apps **Editor**, **Paint** and **Files**
 (on demand rather than autostarted): Files opens a
 text file in the Editor through `mimed`'s open-with registry. The desktop profile starts no

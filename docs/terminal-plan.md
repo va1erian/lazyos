@@ -108,7 +108,6 @@ the Config app and `rhai` (`sys::confd::set`) all change open windows at once.
 | `paste/confirm_multiline` | bool | `true` | ask before pasting text with newlines |
 | `bell` | str | `visual` | `none`, `visual`, `sound`, `notify` |
 | `window/size` | str | (unset) | initial columns x rows, e.g. `80x24`; unset, `window/last_size` or the window decides |
-| `shell` | str | (BusyBox `sh`) | a program path, validated through `libs/fhs` |
 
 Zoom (`Ctrl+=`, `Ctrl+-`, `Ctrl+0`) is per window and not stored.
 
@@ -375,9 +374,8 @@ are no longer a gap (JetBrains Mono Bold, Italic, BoldItalic ship).
   title report `CSI 21 t`, no DECRQSS of arbitrary strings).
 - OSC 52 read is never supported; write is opt-in.
 - Links open only on `Ctrl+click`, only through `mimed`, and the menu shows
-  the target first.
-- `shell` from confd is a path under `/system/bin` or the user's home, run
-  with no extra privilege (the Terminal has none to give).
+  the target first. The shell is the shipped `/system/bin/busybox`
+  (`busybox sh -i`), run with no extra privilege (the Terminal has none to give).
 
 ## 6. Verification
 

@@ -316,7 +316,7 @@ Same policy as `platform-plan.md` section 6 and `AGENTS.md`:
 | The shell needs surface events the protocol lacks | land the append-only display-protocol additions before the taskbar, and test both with and without a shell |
 | No app launch path (`init` has no launch method) | resolved: `os.lazy.init.Launch` with the session-owner check landed (#158) |
 | XUI keyboard focus gap (#151) | resolved: focus routing landed with client mode (#168); the scripted session types into an `Edit` |
-| The task table filling up | resolved: `MAX_TASKS` is 256 (#204 and later), so the services, `xuid` and the desktop apps fit together |
+| The task table filling up | resolved: `MAX_TASKS` is 1024 (#204 and later; raised from 256 by #774), so the services, `xuid` and the desktop apps fit together |
 | Heavy `std`/xui binaries and slow TCG boot | keep LazyShell lean (no app code linked in), measure boot in CI, use late capture timestamps |
 | Session grants too broad or a session leak | default deny, an explicit tested session set, and a logout test that proves child reaping |
 | Theme/DPI divergence | one theme format, fixed 96 DPI in S5; scaling is best-effort in S5.3 |

@@ -105,7 +105,7 @@ per-task thread pointer, restored on every context switch.
 
 **Native entry decisions** (`process/gate.rs`)
 
-- `syscall_dispatch(regs)` sees `rax` = syscall number; `0` exits, 1-5 and 7-32 are
+- `syscall_dispatch(regs)` sees `rax` = syscall number; `0` exits, 1-5 and 7-35 are
   dispatched (6, the old command-line spawn, is retired) (see [processes.md](processes.md), [ipc-fabric.md](ipc-fabric.md),
   [display.md](display.md)); unknown numbers return `u64::MAX`.
 - Every user pointer, native or Linux, is validated against the caller's page

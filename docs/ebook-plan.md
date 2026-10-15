@@ -65,7 +65,7 @@ there to keep the space roughly proportional to the substance.
 | 0 Front matter | Preface, how to read, building the book and the OS | 10 | |
 | I The machine | 1-4 | 50 | `kernel/` ~72k lines (+74k of tests) |
 | II Running Linux programs | 5 | 18 | `kernel/src/process/linux/` ~10.7k |
-| III Messenger | 6-9 | 56 | `kernel/src/ipc/` ~11k, `libs/messenger`, `idl/` (30 interfaces), `tools/midlc` |
+| III Messenger | 6-9 | 56 | `kernel/src/ipc/` ~11k, `libs/messenger`, `idl/` (46 interfaces in 33 `.midl` files), `tools/midlc` |
 | IV Services | 10 | 14 | `user/src/bin/` ~63k |
 | V Pixels | 11-12 | 34 | `user/src/bin/xuid/` (37 files), `xui-app/src/backend/` |
 | VI The desktop | 13 | 16 | `xui-app/crates/shell`, `xui-app/src/shell` |
@@ -107,7 +107,7 @@ Figure: a fork, before and after the first write. Key files:
 `kernel/src/mem/{frames,vma,cow,heap,slab}.rs`, `kernel/src/quota/`.
 
 **3. Tasks, time and waiting** (13 pp.)
-256 task slots, the strict-class stride scheduler with weights, the context
+1024 task slots, the strict-class stride scheduler with weights, the context
 switch (`task/switch.rs`), per-task FPU state, wait queues and `wait_any`,
 signals with Linux `rt_sigframe` delivery, the tty line discipline and ptys.
 The "interrupts off in syscalls" design and its poll points

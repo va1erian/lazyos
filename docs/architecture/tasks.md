@@ -86,7 +86,7 @@ ISR that performs context switches.
   at every state, class, insertion and removal change. Selection,
   `virtual_now`, the reclaim flagging, `wait4`'s reap and the signal sweep
   visit only those slots, so a scheduler entry costs the runnable count, not
-  256; renormalization scans the table only when a charged pass reaches the
+  the 1024 slots; renormalization scans the table only when a charged pass reaches the
   ceiling. Test builds compare the masks with a full scan at every entry and
   panic on a difference (`runq_suite` also checks the pick against the old
   full scan over 20000 random transitions).
@@ -160,7 +160,7 @@ ISR that performs context switches.
   on `wait::TERMINAL`.
 - fd table (`task/fdtable.rs`): a growable `FdTable` per task, starting with
   0/1/2 (the task terminal) and doubling on demand up to `limit.fd_max`
-  descriptors (Linux's `RLIMIT_NOFILE`, 1024 by default;
+  descriptors (Linux's `RLIMIT_NOFILE`, 8192 by default;
   [limits.md](limits.md)). Growth is fallible: a full table (or an exhausted
   heap) fails the `open`/`dup` with `EMFILE`, and `dup2` to a descriptor at or
   past the limit is `EBADF`. The table's API (look up, install lowest, put,
@@ -221,7 +221,7 @@ ISR that performs context switches.
   `wake_task_with` cancels it, both under the task table (lock order `TASKS`
   then `TIMERS`). `expire_deadlines` pops only the due entries; an entry
   whose task is no longer blocked with that same deadline (stopped, finished,
-  replaced) is dropped. Scheduler entries no longer scan all 256 slots.
+  replaced) is dropped. Scheduler entries no longer scan all 1024 slots.
 - The deadline timer (`arch::event_timer`): with the PIT as the tick, the
   local APIC timer (otherwise unused) runs one-shot on vector `0x31`, armed
   for the earliest deadline if it falls inside the current tick period; a

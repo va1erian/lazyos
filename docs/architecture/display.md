@@ -15,7 +15,7 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
 | `kernel/src/cursor.rs` | Mouse cursor sprite overlay |
 | `kernel/src/input/{keyboard,mouse}.rs` | PS/2 drivers (IRQ1/IRQ12) |
 | `kernel/src/mux.rs` | Terminal multiplexer: paints task windows, Tab focus |
-| `kernel/src/display.rs`, `display/buffers.rs` | Display device grant, syscall 12, input event queue; shared-buffer ops 4-6 |
+| `kernel/src/display.rs`, `display/{abi,screen,input}.rs` | Display device grant, syscall 12, input event queue; surface buffers are created over the `messenger` syscall |
 | `kernel/src/display/{bochs,modecfg,modeset}.rs` | Mode setting on QEMU's std VGA from `display.mode` (HiDPI) |
 | `user/src/bin/xuid.rs`, `xdemo.rs` | Compositor and demo app (issue #113) |
 | `user/src/bin/dragdemo.rs` | Drag & drop demo pair (issue #145) |
@@ -634,11 +634,10 @@ one-tick receive per window (docs/performance-plan.md P3.8). Timers run on the
 monotonic nanosecond clock (`WAIT_DEADLINE_NS`), so a 16 ms timer fires every
 16 ms, not at the tick after it, and keeps its cadence without bursting after
 a stall. `LazyOSBackend::watch_fd` adds one Linux descriptor to the park
-(`WAIT_FD`), `watch_endpoint` adds endpoints the app serves or follows (the
-shell's `os.lazy.shell` endpoint, its compositor link, topic doorbells from
-`platform::topicwatch`), and `wake_at` a one-shot deadline; the primary
-window hears any of them as a `Timer` event with id `FD_TIMER`
-(`backend/watch.rs`). A message posted to a window (`Backend::wake`) runs one
+(`WAIT_FD`); the shell's `os.lazy.shell` endpoint, its compositor link and topic
+doorbells (`platform::topic_feed`) are followed through the app's own event
+endpoints, and the primary window hears a wake as a `Timer` event with id `FD_TIMER`
+(`backend/event_loop.rs`). A message posted to a window (`Backend::wake`) runs one
 more pass before the loop parks. With nothing due the park lasts up to 10 s,
 a safety net only. LazyShell has no repeating timer: it wakes for those
 sources and when its clock text next changes (docs/performance-plan.md P7).

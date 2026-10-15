@@ -2,7 +2,7 @@
 
 > GPU, HDMI audio and hardware decode for this box: [kabylake-gpu-plan.md](kabylake-gpu-plan.md).
 >
-> **Status: draft, revision 1 (2026-10-09). Nothing here is built.**
+> **Status: draft, revision 1 (2026-10-09). The platform pieces it surveys are built, and this box boots to the desktop on real hardware ([`compat/hardware.md`](compat/hardware.md)); its RTL8822CE Wi-Fi works natively.**
 > The mini PC meant to be an Intel N150 with an I226-V
 > ([n150-driver-plan.md](n150-driver-plan.md), [i226-driver-plan.md](i226-driver-plan.md))
 > arrived as a 7th-generation Core i3 box with Realtek networking and a SATA
@@ -16,7 +16,8 @@
 
 1. **Two drivers, then the install.** The box should boot LazyOS from the USB
    stick with what exists today (UEFI, framebuffer, xHCI, LAPIC timer, ACPI
-   S5, all built for the N150 plan; none yet run on real hardware). To *live*
+   S5, all built for the N150 plan and since run on this box; see
+   [`compat/kabylake/boot-1/`](compat/kabylake/boot-1/NOTES.md)). To *live*
    on the box it needs an **AHCI** driver (its only disk is a SATA SSD behind
    the PCH's AHCI controller; there is no NVMe) and an **RTL8111H** Ethernet
    back end for `netdrv`. The install path is the NVMe install plan's N2–N4
@@ -70,7 +71,7 @@ Platform facts that matter:
 - **Interrupts:** an I/O APIC (id 2) and an HPET exist; LazyOS uses the I/O
   APIC from the MADT and MSI/MSI-X for drivers
   ([interrupts.md](architecture/interrupts.md)).
-- **Function count:** 15, well under the device table's 32.
+- **Function count:** 15, well under the device table's 128.
 - **CPU:** 2 cores / 4 threads; LazyOS runs on CPU 0 (SMP is platform S8).
 
 ## 3. What to build

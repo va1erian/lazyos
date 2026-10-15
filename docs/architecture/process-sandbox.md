@@ -114,7 +114,7 @@ a program, a process or a socket, followed to the VFS.
 | `execve` | read + `x` bit only | refused outright; the image is loaded before the label applies |
 | native programs (`top`, `confctl`, ...) run by `execve` as a child | inherited creds and label | refused (`may_spawn`) |
 | `fork`/`vfork`/`clone`/`spawnv` | child inherits the label | refused |
-| `mmap` of a file | `ENODEV` (only memfd and anonymous memory) | unchanged. **When file-backed mmap lands it must take its permission from the `open` and never resolve a path again** |
+| `mmap` of a file | folded through the descriptor's `open` rights (`map_fd` never resolves a path); a regular file maps `MAP_PRIVATE`/`MAP_SHARED`, a snapshot descriptor (e.g. `/proc`) copies privately but `MAP_SHARED` is `ENODEV` | the gate judges the fd the caller already holds |
 | `memfd_create` + `execve("/proc/self/fd/N")` / `execveat` | no `/proc/self/fd` open, `execveat` is `ENOSYS`; `execve` refused anyway | unchanged |
 | `ptrace`, `process_vm_readv/writev`, `kcmp`, `mount`, `umount2`, `chroot`, `unshare`, `setns`, `io_uring_setup`, `userfaultfd`, `clone3`, `name_to_handle_at`/`open_by_handle_at` (a file named without a path), `openat2` | `ENOSYS` | unchanged, and **pinned by a test** (`confine_dangerous_calls_stay_unimplemented`): implementing one means gating it |
 | `ioctl(TIOCSTI)` on an inherited terminal | not implemented | unchanged (nothing to inject with); standard input is `/dev/null` for a confined image anyway |

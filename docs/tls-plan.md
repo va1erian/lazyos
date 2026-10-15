@@ -2,7 +2,8 @@
 
 Status: **T0 to T3 built** (2026-10-03): `curl`, `wget` and `fetch` fetch
 HTTPS pages with verified certificates (`LAZYOS_TLS=1`, `run_demo.py --tls`,
-judged by `tools/net/tls_run.py`); T4 (IMAP) and T5 are not started.
+judged by `tools/net/tls_run.py`); T5's SNTP (in `timed`) is built, and IMAP is
+exercised by the Mail app ([`mail.md`](mail.md), `LAZYOS_MAIL=1`); T4's `imapc` was not built.
 Decisions taken: a Gmail test account with an app password exists, the
 password is typed on the real keyboard path (§6.4), and the TLS stack must be
 **GPLv2-compatible** (the NetSurf port, GPL-2.0-only, LazyWeb, links it: [lazyweb.md](lazyweb.md)), which ruled
@@ -59,7 +60,7 @@ Related: [networking-plan.md](networking-plan.md),
 | Sockets across threads | a thread gets its own descriptor table: a socket opened before `thread::spawn` is not visible in the new thread | same |
 | Throughput and latency | *(performance plan P4)* `netd` is woken by a kernel doorbell instead of its tick: a `connect` takes 0.5-1 ms on the local link; bulk TCP measures about 70 MB/s out and 130-190 MB/s in under WHPX (`tools/net/bulk.py`, `docs/perf/network.md`). Before P4 the table read "about 1.6 MB/s", a figure derived from the code; the first measurement found 50-60 MB/s under load and 10-13 ms per `connect` | `kernel/src/ipc/inet/bell.rs`, `user/src/bin/netd/inet/flow.rs` |
 | Entropy | kernel ChaCha20 pool behind Linux `getrandom` (seeded from `RDRAND` and timing) and native syscall 26 | `kernel/src/entropy.rs` |
-| Wall clock | RTC read once at boot plus PIT uptime; `clock_settime` with `CAP_SYS_TIME`; **no NTP**. A garbage RTC falls back to 2026-01-01 | `kernel/src/wallclock.rs` |
+| Wall clock | RTC read once at boot plus PIT uptime, stepped by `timed`'s SNTP client when the network is up ([ntp-plan.md](ntp-plan.md)); `clock_settime` with `CAP_SYS_TIME`. A garbage RTC falls back to 2026-01-01 | `kernel/src/wallclock.rs` |
 | FPU/SIMD state | `XSAVE`/`XRSTOR` per task (x87, SSE, AVX; `CR4.OSXSAVE` and `XCR0` set at boot when the CPU has them, issue #822), `FXSAVE` otherwise; AES-NI, `PCLMULQDQ` and AVX/AVX2 code work | `kernel/src/task/fpu.rs`, `kernel/src/arch/cpu.rs` |
 | Crypto in tree | `libs/crypto` (SHA-256, HMAC, HKDF, Argon2id; `keyd`'s primitives). No AEAD, no public-key | `libs/crypto/src/lib.rs` |
 | `keyd` | `Verify`, `Sign` (HMAC), `Wrap`/`Unwrap`, `Random`, `Generate`, `List`; no asymmetric keys, no per-user sealing yet | `idl/keyd.midl`, [security-model.md](security-model.md) §8 |

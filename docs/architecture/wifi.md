@@ -245,7 +245,7 @@ invariants after every step
 
 ### `wlanmd` and `wifictl`
 
-`wlanmd` (`user/src/bin/wlanmd.rs`, `wlanmd/{radio,service,sessions,store}.rs`)
+`wlanmd` (`user/src/bin/wlanmd.rs`, `wlanmd/{radio,service,store}.rs`)
 runs as `_wlan` with no capabilities in `LAZYOS_WIFI=1` images (which need
 `LAZYOS_NETD=1`; `init` row after `confd` and `keyd`). It reads the profiles
 from `confd` (again every 10 s; a read that fails keeps the profiles known,
