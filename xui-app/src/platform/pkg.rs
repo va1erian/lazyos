@@ -28,8 +28,12 @@ use messenger_generated::errors::ERROR_FIELD;
 /// keep a stalled package service from holding the UI thread hostage; the
 /// Installer's screens explain a `-ETIMEDOUT` as "pkgd did not answer".
 const TASK_TICKS: u64 = 1_200;
-/// The install/uninstall itself (`pkgd` writes `/apps`).
-const INSTALL_TICKS: u64 = 6_000;
+/// The install/uninstall itself (`pkgd` writes `/apps`): a slow machine
+/// (TCG, a big package) gets two minutes and an explicit "pkgd did not
+/// answer" instead of an unbounded park on the UI thread; a timed-out
+/// install still completes on disk, and a retry finds the app installed
+/// (`pkgd.Installed`) rather than racing a second unpack.
+const INSTALL_TICKS: u64 = 12_000;
 
 /// Resolves `pkgd` and performs one bounded call, turning a missing service, a
 /// refused request and a dead peer into the same friendly error shape. A refusal shows
@@ -39,11 +43,7 @@ fn call(method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
 }
 
 /// [`call`] with its own bound (the install's).
-fn call_within(
-    method: u32,
-    body: Vec<u8>,
-    ticks: u64,
-) -> Result<libmessenger::Parcel, String> {
+fn call_within(method: u32, body: Vec<u8>, ticks: u64) -> Result<libmessenger::Parcel, String> {
     let service = Service::connect(NAME)
         .map_err(|code| format!("The package service (pkgd) is unavailable (errno {code})."))?;
     service
@@ -92,21 +92,20 @@ pub fn install(path: &str) -> Result<Installed, String> {
         body,
         INSTALL_TICKS,
     ) {
-            Ok(reply) => reply,
-            Err(error)
-                if -error.code == crate::sys::errno::EPERM
-                    && error.message.contains("core app") =>
-            {
-                return install_as_admin(path);
-            }
-            Err(error) if error.message.is_empty() => {
-                return Err(format!(
-                    "The package service refused the request (errno {}).",
-                    error.code
-                ))
-            }
-            Err(error) => return Err(error.message),
-        };
+        Ok(reply) => reply,
+        Err(error)
+            if -error.code == crate::sys::errno::EPERM && error.message.contains("core app") =>
+        {
+            return install_as_admin(path);
+        }
+        Err(error) if error.message.is_empty() => {
+            return Err(format!(
+                "The package service refused the request (errno {}).",
+                error.code
+            ))
+        }
+        Err(error) => return Err(error.message),
+    };
     let decoded = wire::decode_install_reply(&reply.body)
         .map_err(|_| "pkgd sent a reply this app cannot read.".to_owned())?;
     Ok(installed_from_wire(decoded.app))

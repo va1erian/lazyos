@@ -229,7 +229,16 @@ impl MenuPage {
             Err(error) => format!("Could not change the menu: {error}"),
         }
     }
+}
 
+/// The serial evidence a `Save` leaves behind, for the worker thread's
+/// answer too (the marker lives here so the evidence site does not move;
+/// see `finish` in `app/elevated.rs`).
+pub fn report_saved(entries: usize) {
+    println!("SETTINGS:MENU:SAVED:{entries}");
+}
+
+impl MenuPage {
     /// Write the draft in one request.
     fn save(&mut self, store: &dyn ConfigStore) -> String {
         if !self.unsaved() {
@@ -237,7 +246,7 @@ impl MenuPage {
         }
         match menu_ops::save(store, &self.list) {
             Ok(()) => {
-                println!("SETTINGS:MENU:SAVED:{}", self.list.len());
+                report_saved(self.list.len());
                 self.saved = self.list.clone();
                 let at = self.entries.selected();
                 self.refresh(at);

@@ -34,10 +34,27 @@ pub(super) fn take_outcome(txn_id: u64) -> Result<Outcome, Error> {
 /// through the [`completion`](super) queue's `WAIT_CALLS` doorbell
 /// (issue #725).
 pub fn await_reply_now(txn_id: u64) -> Result<Vec<u8>, Error> {
+    assert_caller(txn_id)?;
     match take_outcome(txn_id)? {
         Outcome::Done(outcome) => outcome,
         Outcome::Pending(..) => Err(Error::WouldBlock),
     }
+}
+
+/// `Err(NotCaller)` for a transaction another task began, else nothing: the
+/// check at the syscall edge (issue #725 review). Transaction ids are a
+/// global counter above the registry slot, so an id is guessable and a
+/// foreign task must never observe or consume somebody else's reply:
+/// `cancel` and the wait set's `[WAIT_ITEM_CALL]` resolver enforce the
+/// same.
+pub(super) fn assert_caller(txn_id: u64) -> Result<(), Error> {
+    let me = task::current();
+    let mut channels = CHANNELS.lock();
+    let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
+    if channel.txns[index].caller != me {
+        return Err(Error::NotCaller);
+    }
+    Ok(())
 }
 
 /// Mark a pending transaction expired. A no-op if it already has another
@@ -45,25 +62,26 @@ pub fn await_reply_now(txn_id: u64) -> Result<Vec<u8>, Error> {
 /// deadline is not actually due: the caller may have parked on an earlier
 /// deadline that a poll's receipt has since replaced.
 pub(super) fn expire_transaction(txn_id: u64) {
-    let mut channels = CHANNELS.lock();
-    let Some((channel, index)) = channels.txn_mut(txn_id) else {
-        return;
+    let caller = {
+        let mut channels = CHANNELS.lock();
+        let Some((channel, index)) = channels.txn_mut(txn_id) else {
+            return;
+        };
+        if channel.txns[index].state != TxnState::Pending {
+            return;
+        }
+        if channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline > task::ticks())
+        {
+            return;
+        }
+        let txn = &channel.txns[index];
+        let poll = txn.poll && !txn.served;
+        time_out(channel, index, poll)
     };
-    if channel.txns[index].state != TxnState::Pending {
-        return;
-    }
-    if channel.txns[index]
-        .deadline
-        .is_some_and(|deadline| deadline > task::ticks())
-    {
-        return;
-    }
-    let txn = &channel.txns[index];
-    let poll = txn.poll && !txn.served;
-    let caller = txn.caller;
-    time_out(channel, index, poll);
-    // The registry lock is released with `channels`, so the recording (and
-    // the wake it may ring) cannot invert against it.
+    // The registry lock is released, so the recording (and the wake it may
+    // ring) cannot invert against it.
     completion::record(caller, txn_id);
 }
 

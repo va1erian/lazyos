@@ -161,7 +161,10 @@ fn op_call_drain(args: &MsgArgs) -> Result<MsgResult, i64> {
     if args.buf_cap == 0 {
         return Err(errno::EINVAL);
     }
-    let slice = args.buf_cap as usize / 8;
+    // The queue can never hold more than `completion::CAPACITY` entries,
+    // so this is the most the op ever fills (an untrusted `buf_cap`
+    // allocates nothing larger).
+    let slice = (args.buf_cap as usize / 8).min(channels::completion::CAPACITY);
     // `access_range` on the caller's buffer first (the block's rule).
     access_range(args.buf_ptr, slice * 8, true)?;
     let mut ids = alloc::vec![0u64; slice];
@@ -172,6 +175,9 @@ fn op_call_drain(args: &MsgArgs) -> Result<MsgResult, i64> {
             .iter()
             .flat_map(|id| id.to_le_bytes())
             .collect();
+        // The ids are consumed before this write, so a faulting buffer
+        // (a pre-validated range never faults for a legitimate caller)
+        // would lose them: documented, not recovered.
         copy_out(args.buf_ptr, &bytes[..count * 8])?;
     }
     Ok(MsgResult {

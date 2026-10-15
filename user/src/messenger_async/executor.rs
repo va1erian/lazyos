@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use crate::messenger::errno;
+use crate::messenger::wait::{MAX_ENDPOINTS, WAIT_CALLS};
 
 // ---------------------------------------------------------------------------
 // Minimal executor and waker
@@ -54,25 +55,25 @@ const IDLE_PARK_NS: u64 = 1_000_000;
 /// the pruned future was dropped (or its task died), and its id would
 /// otherwise turn every later wait into a failed one.
 fn park_pending() -> bool {
-    use crate::messenger::wait::{wait_items, WaitItem, MAX_ENDPOINTS};
+    use crate::messenger::wait::{wait_items, WaitItem};
     let items = super::future::pending::items();
     if items.is_empty() {
         return false;
     }
-    match wait_items(&items, 0, None) {
+    match wait_items(&items, WAIT_CALLS as u64, None) {
         // Nothing is taken; one pass of `pass` reads what became ready.
         Ok(_) => true,
         Err(error) if error.errno() == Some(-errno::ENOENT) => {
             let ids = super::future::pending::ids();
             for txn in ids {
                 let probe = [WaitItem::Call(txn)];
-                let set = MAX_ENDPOINTS as usize;
-                let _ = set;
-                if wait_items(&probe, 0, Some(0)).is_err() {
-                    // Unknown to the kernel: the registry entry is gone
-                    // (its task died). Never tracked again by the future
-                    // it belonged to.
-                    super::future::pending::untrack(txn);
+                if let Err(error) = wait_items(&probe, 0, Some(0)) {
+                    // A pending transaction answers only `-ETIMEDOUT` on a
+                    // zero deadline; the vanished ones (their task died)
+                    // are the only entries worth untracking.
+                    if error.errno() == Some(-errno::ENOENT) {
+                        super::future::pending::untrack(txn);
+                    }
                 }
             }
             true

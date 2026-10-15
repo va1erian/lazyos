@@ -148,7 +148,7 @@ impl SettingsApp {
                 self.pages.menu.load(self.store.as_ref());
                 self.status.set_text(&match outcome {
                     Ok(entries) => {
-                        println!("SETTINGS:MENU:SAVED:{entries}");
+                        crate::menu_page::report_saved(entries);
                         String::from("Menu saved.")
                     }
                     Err(error) => format!("Menu not saved: {error}"),
@@ -194,6 +194,8 @@ impl SettingsApp {
     ) -> String {
         let detached = self.system.detached();
         if matches!(msg, MenuMsg::Save) && self.pages.menu.unsaved() && detached.is_some() {
+            // TODO(issue #720): edits made while the prompt is up are
+            // dropped by the reload in `finish`; offer them again instead.
             let draft = self.pages.menu.draft().to_vec();
             let entries = draft.len();
             self.with_system(ui, detached, move |machine, _system| {

@@ -171,9 +171,10 @@ pub(super) mod pending {
         TRACKED.lock().retain(|tracked| *tracked != txn);
     }
 
-    /// The tracked transactions, oldest first, at most [`MAX_ENDPOINTS`]
-    /// (the extra ones are descended with the next wait: they end by
-    /// deadline or the queue's own record).
+    /// The tracked transactions, oldest first, at most [`MAX_ENDPOINTS`] per
+    /// wait: the wait arms the kernel's `WAIT_CALLS` doorbell beside them, so
+    /// a completion outside the window still returns the park (the ids only
+    /// carry the rescan; the doorbell is what covers everything).
     pub(in crate::messenger_async) fn items() -> Vec<WaitItem> {
         let tracked = TRACKED.lock();
         tracked

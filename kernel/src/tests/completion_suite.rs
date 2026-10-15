@@ -425,9 +425,35 @@ pub fn soak() -> Result<(), String> {
     rig.teardown()
 }
 
+/// Another task's check is refused without observing the outcome; the
+/// transaction ids are a global counter, so a foreign id is guessable and
+/// only the caller's task may consume a reply (issue #725 review). The
+/// call stays the client's own, and its teardown clears it.
+pub fn foreign_check_refused() -> Result<(), String> {
+    let rig = rig()?;
+    CALL_COUNT.store(1, Ordering::Relaxed);
+    rig.begin();
+    let txn = rig.take_request(0)?;
+    match channels::await_reply_now(txn) {
+        Err(ChannelError::NotCaller) => {}
+        other => check!(false, "a foreign check gave {other:?}"),
+    }
+    // The parking form refuses the same way, before any park.
+    match channels::await_reply(txn) {
+        Err(ChannelError::NotCaller) => {}
+        other => check!(false, "a foreign await gave {other:?}"),
+    }
+    check!(
+        channels::await_reply_now(txn).is_err(),
+        "the foreign check must not consume the call"
+    );
+    rig.teardown()
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("ipc_completion_reply", completes_on_reply),
     ("ipc_completion_deadlines", deadlines_and_cancels),
     ("ipc_completion_peer_death", peer_death),
+    ("ipc_completion_foreign_check", foreign_check_refused),
     ("ipc_completion_soak", soak),
 ];

@@ -38,14 +38,17 @@ fn earlier_ns(earliest: Option<u64>, deadline: Option<u64>) -> Option<u64> {
 }
 
 /// Finished transactions kept for one task before the oldest is dropped.
-const CAPACITY: usize = 64;
+pub const CAPACITY: usize = 64;
 
 /// The entries of every task slot, in completion order.
 static QUEUES: [Mutex<VecDeque<u64>>; task::MAX_TASKS] =
     [const { Mutex::new(VecDeque::new()) }; task::MAX_TASKS];
 
-fn queue(slot: usize) -> &'static Mutex<VecDeque<u64>> {
-    QUEUES.get(slot).unwrap_or(&QUEUES[0])
+/// The queue of `slot`, or `None` for a slot no task owns (the scalar
+/// callers all come from the task table, so it would be a table bug);
+/// answering with another slot's queue would poison it.
+fn queue(slot: usize) -> Option<&'static Mutex<VecDeque<u64>>> {
+    QUEUES.get(slot)
 }
 
 /// Record that `caller`'s call `txn_id` ended (any terminal state): one
@@ -56,7 +59,10 @@ fn queue(slot: usize) -> &'static Mutex<VecDeque<u64>> {
 /// released on each terminal-transition path.
 pub fn record(caller: usize, txn_id: u64) {
     {
-        let mut entries = queue(caller).lock();
+        let Some(queue) = queue(caller) else {
+            return;
+        };
+        let mut entries = queue.lock();
         if entries.len() >= CAPACITY {
             entries.pop_front();
         }
@@ -75,7 +81,7 @@ pub fn record(caller: usize, txn_id: u64) {
 /// Whether `me`'s queue holds anything (the wait's doorbell: level, like
 /// `WAIT_CHILD`).
 pub fn ready(me: usize) -> bool {
-    !queue(me).lock().is_empty()
+    queue(me).is_some_and(|queue| !queue.lock().is_empty())
 }
 
 /// The earliest deadline of `me`'s still-pending calls, `None` when none is
@@ -129,7 +135,10 @@ pub(super) fn expire_due(me: usize) {
 /// Take up to `out.len()` finished transactions of `me`, oldest first; the
 /// entries are consumed.
 pub fn take(me: usize, out: &mut [u64]) -> usize {
-    let mut entries = queue(me).lock();
+    let Some(queue) = queue(me) else {
+        return 0;
+    };
+    let mut entries = queue.lock();
     let count = out.len().min(entries.len());
     for taken in out.iter_mut().take(count) {
         *taken = entries.pop_front().unwrap_or_default();
@@ -141,11 +150,13 @@ pub fn take(me: usize, out: &mut [u64]) -> usize {
 /// reused slot never inherits a dead task's entries (they would wake it for
 /// transactions that are not its own).
 pub fn forget(slot: usize) {
-    queue(slot).lock().clear();
+    if let Some(queue) = queue(slot) {
+        queue.lock().clear();
+    }
 }
 
 /// Entries still held and every slot's count (tests).
 #[cfg(lazyos_tests)]
 pub fn len(slot: usize) -> usize {
-    queue(slot).lock().len()
+    queue(slot).map_or(0, |queue| queue.lock().len())
 }
