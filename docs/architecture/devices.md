@@ -18,7 +18,7 @@ interface (see [`docs/driver-plan.md`](../driver-plan.md)). The device manager
 | `kernel/src/dev/resources.rs` | typed resources: `Bar { index, kind, base, len, is_64, prefetchable }`, `Irq { line }` |
 | `kernel/src/dev/pci.rs` | PCI config mechanism 1 (0xCF8/0xCFC): enumerate, BAR decode + write-ones sizing, command register, capability walk, interrupt line |
 | `kernel/src/dev/bus.rs` | `Bus` trait + `PciBus`, builds `DeviceInfo` rows from bus enumeration |
-| `kernel/src/dev/table.rs` | fixed `MAX_DEVICES = 32` table; `owner: Option<TaskSlot>` + `generation` |
+| `kernel/src/dev/table.rs` | fixed `MAX_DEVICES = 128` table; `owner: Option<TaskSlot>` + `generation` |
 | `kernel/src/dev/driver.rs` | `Driver` trait (`matches` / `attach` / `detach`) and the static `DRIVERS` table |
 | `kernel/src/dev/irq.rs` | ISR-side `dispatch(line)` (lock-free), kernel `fn(line)` handlers, which lines are routable |
 | `kernel/src/dev/intx.rs`, `dev/intx/service.rs` | The bottom half (task context, or the line's interrupt when it stopped lock-free code) and the shared-INTx contract: rounds, ack deadline, `missed` recovery |
@@ -209,7 +209,7 @@ suite covers it with the reserved mouse line and a `0xFF` line.
 **Boot line.** On a successful enumeration the kernel prints
 `DEV:ENUM:PASS:<n> devices (<pci> PCI, <drivers> attached)`; an enumeration that
 found no PCI function prints `DEV:ENUM:FAIL:no PCI devices enumerated`, and one
-that found more functions than the 32-entry table holds prints
+that found more functions than the 128-entry table holds prints
 `DEV:ENUM:FAIL:device table full, <n> PCI function(s) dropped`.
 
 Three more boot lines come from `dev::selfcheck` after the IDT is loaded:

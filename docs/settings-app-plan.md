@@ -66,8 +66,8 @@ directory and persistence (`Info`).
 
 **App.** `xui-app/crates/settings` (host-testable model + reducer + schema) and
 `xui-app/src/bin/settings.rs`. Sidebar is an `IconView` with a `SectionsModel`
-(Appearance, Windows & Taskbar, Time & Date, Keyboard, About). Color input is
-preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
+(Appearance, Windows, Keyboard, Menu, Hidden apps, Time & Date, About,
+Accounts, Default apps). Color input is preset swatches plus RGB sliders. Registration: `xui-app/Cargo.toml`,
 `tools/xui/build.py`, `build.rs`, `user/src/bin/init/apps.rs` and the core
 package's menu `category` (the start menu is LazyShell's since issue #157; it
 was `user/src/bin/xuid/menu.rs`).
@@ -86,7 +86,7 @@ was `user/src/bin/xuid/menu.rs`).
 
 Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
 
-**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed upstream in `va1erian/xui` (#248, `58c1a6e`); `xui-app` is pinned to that rev.
+**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed upstream in `va1erian/xui` (#248, `58c1a6e`, included in the current pin `e9d4ede3`).
 
 ## Verification
 

@@ -1,7 +1,7 @@
-# Allocators: kernel heap, slab, user bump
+# Allocators: kernel heap, slab, user heap
 
 **What it is.** The three allocators in the tree: the kernel's general heap, the
-kernel object slab allocator, and the ring-3 bump allocator.
+kernel object slab allocator, and the ring-3 size-class allocator.
 
 **Key files**
 
@@ -10,7 +10,7 @@ kernel object slab allocator, and the ring-3 bump allocator.
 | `kernel/src/mem/heap.rs` | `#[global_allocator] IrqSafeHeap(LockedHeap)` (`linked_list_allocator`, lock held with interrupts off, issue #382) |
 | `kernel/src/mem/slab.rs` | Size-class slab allocator with owner accounting |
 | `libs/membook/src/slab.rs` | The bookkeeping both slabs build on: size classes, the intrusive free list (`Class`), owner ledgers; host-tested with a seeded soak and run under Miri (`.github/workflows/miri.yml`, issue #485) |
-| `user/src/heap.rs` | Bump allocator over the `sbrk` syscall |
+| `user/src/heap.rs` | Size-class free lists over a bump region grown by `sbrk` |
 | `kernel/src/tests/heap_suite.rs`, `kernel/src/tests/slab_suite.rs` | `heap_suite`, `slab_suite` coverage |
 
 **Kernel heap** (`heap.rs`)
@@ -75,12 +75,14 @@ Decisions and limits:
 - Lock order: `SLAB` is a leaf; the heap fallback is called outside it, so no
   lock cycle exists.
 
-**User bump allocator** (`user/src/heap.rs`)
+**User size-class allocator** (`user/src/heap.rs`)
 
 - `CHUNK = 64 KiB` requested from the kernel per refill via `sys::sbrk`.
-- `dealloc` is a no-op: memory is reclaimed only when the program exits. Long
-  loops must reuse buffers (the userspace Messenger API exposes `*_with` variants
-  for exactly this).
+- Small requests (up to `MAX_CLASS` = 1 MiB, alignment up to 4 KiB) are rounded
+  to a power-of-two size class; a freed block returns to its class's free list
+  and the next request of that class reuses it, so long-running services reach a
+  steady state. Larger or over-aligned blocks come straight from the bump region
+  and are reclaimed only when the program exits.
 - `#[alloc_error_handler]` prints the failing request size without allocating and
   exits with status 1.
 

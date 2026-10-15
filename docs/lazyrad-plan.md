@@ -410,8 +410,9 @@ client are implemented; P4 onward is not. The LazyRAD half lives on LazyRAD's
     IDE before using its keyboard shortcuts.
 - **Clipboard:** needs no LazyRAD seam; xui routes it through the backend.
 - **Rhai/getrandom:** with `default-features = false` only a build-time proc-macro
-  pulls `getrandom`; nothing at runtime. One xui rev (`58c1a6e`) and one Rhai
-  (`=1.26.1`) in both repos.
+  pulls `getrandom`; nothing at runtime. One Rhai (`=1.26.1`) in both repos;
+  xui itself is pinned per repo (`xui-app` at `e9d4ede3`, `lazyrad-os` held at
+  `93592fdc`; `tools/xui/check_pin.py` tracks the lag).
 
 **Other findings**
 

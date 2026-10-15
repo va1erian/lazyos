@@ -1,6 +1,6 @@
 # Plan: netbooting LazyOS from a home registry
 
-> **Status: draft, revision 3 (2026-10-12). Nothing here is built.**
+> **Status: draft, revision 3 (2026-10-12). N1 (the payload) and N2's registry/push tooling are built (`tools/netboot/`); the harness, the reboot loop and the state volume (N3-N5) are not.**
 > Revision 3 follows the merge of native Wi-Fi (#776,
 > [`wifi-rtw88-plan.md`](wifi-rtw88-plan.md) §5.6: the Kaby Lake box joins a
 > WPA2 network on 5 GHz with `wifid`, `wlanmd` and `netd`). The destination

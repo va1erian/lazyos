@@ -296,7 +296,7 @@ What the code does that the draft above did not say, or does differently:
   answering). `tools/net/vfio_box.sh` is R3's script.
 - **Not done:** the cargo-fuzz target and `fuzz/seeds/rtl8168` (the seeded
   hostile-chip test `seeded_traffic_with_a_hostile_chip` runs in `cargo test`);
-  `docs/compat/hardware.md` (it does not exist yet); every *to confirm* in §3.1
+  `docs/compat/hardware.md`; every *to confirm* in §3.1
   stays so until `survey` has run on the box. The descriptor layout, error bit
   positions and register offsets are the ones the family's open drivers agree
   on, written from an understanding of them, not copied.

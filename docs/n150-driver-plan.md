@@ -1,6 +1,6 @@
 # Drivers for Intel N150 mini PCs — exploration and plan
 
-> **Status: exploratory, revision 1 (2026-10-04). Nothing here is built.**
+> **Status: exploratory, revision 1 (2026-10-04). The platform pieces it surveys are built, and other machines have booted on real hardware; the N150 has no row yet.**
 > The box bought for it turned out to be a Kaby Lake i3-7100U; its plan is
 > [kabylake-box-plan.md](kabylake-box-plan.md). This plan still applies to a
 > real N150.
@@ -26,9 +26,9 @@ PC), [usb-stick.md](usb-stick.md), [networking-plan.md](networking-plan.md),
    UEFI boot, the GOP framebuffer (write-combined, logical screen), the LAPIC
    timer with ACPI calibration (the PIT is clock-gated on Intel parts this
    recent), the xHCI controller with keyboards, mice, hubs and USB storage,
-   and ACPI S5 shutdown are all built (real-PC plan H0–H4). None of it has a
-   real-hardware row yet (there is no `docs/compat/hardware.md`); the N150
-   box would be the first, which is step K0 below.
+   and ACPI S5 shutdown are all built (real-PC plan H0-H4). Two machines now
+   have rows in `docs/compat/hardware.md`, neither the N150; the N150
+   box would be the first N150 row, which is step K0 below.
 2. **The missing drivers, in the order a full-time box needs them:**
    internal storage (NVMe, owned by the install work; AHCI as a fallback),
    **MSI interrupts** (so PCIe devices stop being polled), **one wired

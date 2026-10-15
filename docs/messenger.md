@@ -493,8 +493,8 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 | Interface | Purpose |
 |---|---|
-| `os.lazy.messenger.registry.v1` | ListServices, GetService, ListInterfaces, GetInterface, WhoOwns |
-| `os.lazy.messenger.topics.v1` | ListTopics, ListSubscribers, GetRetained, Tail(filter) |
+| `os.lazy.messenger.registry.v1` | Register, Resolve, Connect, Connected, Unregister, List |
+| `os.lazy.messenger.topics.v1` | Publish, Subscribe, Unsubscribe, NextEvent, Ack, ListTopics, Stats, Ping, Bell |
 
 Both are in `idl/`. The kernel-side slice is live: the `messenger` syscall's
 `STATS` op serves a versioned `FabricStats` snapshot (services, endpoints,

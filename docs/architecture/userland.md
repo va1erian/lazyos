@@ -252,7 +252,7 @@ size, memory and boot-marker numbers. Until the pilot lands, `fetch`
 supervised service.
 
 **Status.** Working: all bins build; services boot under `LAZYOS_SERVICES=1`
-(the task table has 256 slots, so the drag & drop and shell-probe demos fit
+(the task table has 1024 slots, so the drag & drop and shell-probe demos fit
 next to the services), and the `LAZYOS_DESKTOP=1` profile
 (#217) runs the same services plus the compositor and its apps while keeping the
 demo/evidence programs out; sync and async Messenger APIs plus

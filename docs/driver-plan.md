@@ -11,9 +11,9 @@ Related: [platform-plan.md](platform-plan.md) §4.2 ("Driver model"),
 [security-model.md](security-model.md), [messenger.md](messenger.md),
 [architecture/block-devices.md](architecture/block-devices.md).
 
-## 1. Where we are
+## 1. Where we started (before D0; [architecture/drivers.md](architecture/drivers.md) is what is built now)
 
-- Drivers today are three **in-kernel singletons** (`kernel/src/block/`: ATA
+- Drivers then were three **in-kernel singletons** (`kernel/src/block/`: ATA
   PIO, legacy virtio-blk, config-mechanism-1 PCI). No shared driver
   abstraction beyond `BlockDevice`; the block registry is a fixed array.
 - PCI: enumerate + read BAR only. No BAR sizing/mapping, no command-register

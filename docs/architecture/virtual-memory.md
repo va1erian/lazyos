@@ -7,7 +7,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 
 | Path | Role |
 |---|---|
-| `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
+| `kernel/src/mem/vma/` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
 | `kernel/src/mem/pagefault.rs` | `demand_fault`, `cow_fault` (`Resolve`: handled, refused, out of frames) |
 | `kernel/src/mem/uspace.rs` | `unmap_range`, `protect_range`, user table construction |
 | `kernel/src/mem/oom.rs` | `kill_current`: a fault with no frame to give ends the process with `SIGKILL` |
@@ -16,12 +16,12 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
 | `kernel/src/task/mod.rs` | `Bump` state (`task/mod.rs`): per-PML4 `brk` and `mmap_next` |
 
-**Types** (`vma.rs`)
+**Types** (`vma/types.rs`)
 
 | Item | Values |
 |---|---|
 | `Prot` | `READ=1`, `WRITE=2`, `EXEC=4` (numeric values match Linux `PROT_*`) |
-| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon` |
+| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon`, `FilePrivate`, `FileShared` |
 | `Vma` | page-aligned `start < end`, `prot`, `kind` |
 
 - VMAs are keyed by PML4 **physical** address in `SPACES: Mutex<Vec<Space>>`, so
@@ -97,7 +97,7 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
 
 - VMA granularity is one page (4 KiB); there are no huge user mappings.
 - The registry keeps `Task` unchanged; moving it into an `AddressSpace` field is
-  a pure refactor noted in `vma.rs`.
+  a pure refactor noted in `vma/`.
 - `munmap`/`mprotect`/fault resolution all agree because they share this list.
 
 **Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`,

@@ -238,7 +238,7 @@ PCI address (`lspci -nn | grep -i ethernet`).
 
 | Command | Answers |
 |---|---|
-| `lspci -nn` | every function's id (I0, K0; also counts them against `MAX_DEVICES` = 32) |
+| `lspci -nn` | every function's id (I0, K0; also counts them against the device table's `MAX_DEVICES` = 128) |
 | `sudo lspci -vvv -s <bdf>` | BAR sizes and widths, MSI/MSI-X capabilities and vector count, ASPM state on the link, the PCIe capability |
 | `ethtool -i <if>`, `ethtool <if>` | NVM/firmware version; advertised and linked modes (does the NVM default advertise 2500?) |
 | `sudo ethtool --show-eee <if>` | whether EEE is on by default |
@@ -294,8 +294,8 @@ n150-driver-plan P2), VLAN filtering, EEE on, a second port on dual-NIC boxes
    has no ECAM yet to turn it off (n150-driver-plan P2). The all-ones check
    keeps a lost device from hanging the driver; if it happens on the box,
    ECAM and an ASPM override move ahead of I5.
-4. **Device table size.** `MAX_DEVICES` is 32; a PCH plus two NICs, Wi-Fi and
-   NVMe may come close. K0 checks for `DEV:ENUM:FAIL:device table full`.
+4. **Device table size.** `MAX_DEVICES` is 128, so a PCH plus two NICs, Wi-Fi and
+   NVMe fit comfortably. K0 still checks for `DEV:ENUM:FAIL:device table full`.
 5. **Firmware sharing the PHY.** On vPro parts (LM) the management engine
    may hold the semaphore; the V has no ME on the NIC *inferred*. Bounded
    waits make it an error, not a hang.

@@ -77,7 +77,7 @@ syscall shim.
 | 11 | `quota(buf)` | per-uid usage/limit block |
 | 12 | `display(op, ...)` | display grant (see [display.md](display.md)) |
 | 13 | `tasks(buf)` | read-only scheduler snapshot (`task/introspect.rs`; MCP bridge phase 2) |
-| 14 | `system_stats(op, buf, cap)` | uptime, idle ticks, frame/slab/heap counters, block-cache and slab frames (v5) and the task table for `top`/`sysmond`/System Monitor (`sysinfo.rs`, #144) |
+| 14 | `system_stats(op, buf, cap)` | uptime, idle ticks, frame/slab/heap counters, block-cache and slab frames (v7) and the task table for `top`/`sysmond`/System Monitor (`sysinfo.rs`, #144) |
 | 15-20 | `stat`, `readdir`, `write_file`, `mkdir`, `unlink`, `rename` (path args) | path-based native VFS calls for the shell (`process/fsops.rs`, #6); FAT is read-only (`-EROFS`), `/tmp` is writable; `-errno` on failure |
 | 21 | `power(op, arg)` | `0` reboot, `1` power-off (sync, then stop), `2` arm the shutdown watchdog (`arg` = the stop the kernel forces 30 s later if the machine is still up); `CAP_SYS_ADMIN` only, checked before the op; `init` is the only caller, after its orderly shutdown ([../shutdown.md](../shutdown.md); `process/power.rs`, `power_watchdog.rs`) |
 | 22 | `fsync(path)` | flush the mount holding the file to its block device (`process/fsops.rs`, #260) |
@@ -137,7 +137,7 @@ syscall gets its number and wrapper there, never a private `asm!` block.
   label they land on, so a task cannot relabel or unlabel itself or hand a peer
   another label (`-EPERM`). `load_image`
   maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
-  eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x0800_0000`
+  eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x7f00_0000_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
 
 **`spawnv`** (syscall 31, `process/spawnv.rs`, fs F3 / issue #507). The one
@@ -477,10 +477,9 @@ round 4; tests are `linux_compat_suite/{scmrights,memfd}.rs` and the
 epoll/eventfd, `UnixStream`/seqpacket; matrix published by CI), native
 supervision loop (`init`, app `Launch`), and real programs built from pinned
 sources (`tools/linuxapps/build.py`, `LAZYOS_LINUXAPPS=1`): dash, sqlite3,
-jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps: dynamic
-linking; `rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`;
-`SIGTTIN`/`SIGTTOU`; memfd seals and `MAP_SHARED` of
-regular files; the umask is global, not per process. `alarm`, `setitimer`/`getitimer` and POSIX timers
+jq and ripgrep, each a bench row, plus the `compat` fixture. Gaps:
+`rt_sigtimedwait`; `timerfd`/`signalfd`/`inotify`; `SIGTTIN`/`SIGTTOU`; memfd
+seals; the umask is global, not per process. `alarm`, `setitimer`/`getitimer` and POSIX timers
 (`timer_create` with `SIGEV_SIGNAL`/`SIGEV_THREAD_ID`/`SIGEV_NONE`) exist
 (issue #535: `task/itimer.rs`, `process/linux/timers.rs`; wall-clock timers
 share the deadline timer, CPU-time timers are charged per scheduler tick, so
