@@ -21,12 +21,6 @@ window (`tools/webkit/appjudge.py`, whose pixel helpers are used here):
 
 from __future__ import annotations
 
-import sys as _sys
-from pathlib import Path as _Path
-
-_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))
-import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
-
 import importlib.util
 import re
 import sys
@@ -37,7 +31,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.append(str(ROOT / "tools" / "web"))
 sys.path.append(str(ROOT / "tools" / "screenshot"))
+sys.path.append(str(ROOT / "tools"))
 sys.path.insert(0, str(HERE))
+import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
 import session_pointer  # noqa: E402
 import sites  # noqa: E402
 
