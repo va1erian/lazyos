@@ -49,6 +49,19 @@ emusic-frontend-portable = { git = "https://github.com/va1erian/emusic", rev = "
 emusic-lazyaudio = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7" }
 emusic-player = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7", default-features = false }
 
+# While va1erian/emusic's frontend pins xui 93592fd (the LAGGING state in
+# tools/xui/check_pin.py) and `xui-app` is already ahead, every xui package this
+# graph pulls is patched back to the held revision, so one `xui_core` links.
+# The `www.` alias keeps the patch's source distinct from this manifest's own
+# xui dependency (cargo refuses a patch that points to the same source).
+# Drop this table when the emusic pin moves.
+[patch."https://github.com/va1erian/xui"]
+xui = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+
 [profile.release]
 opt-level = 2
 lto = "thin"

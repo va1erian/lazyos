@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """Move every xui pin to one new revision, then check it.
 
-Bumping by hand means editing a dozen manifests, refreshing three lockfiles and
+Bumping by hand means editing a dozen manifests, refreshing every lockfile and
 remembering `docs/xui-plan.md`. This does all of it:
 
     python tools/xui/bump_pin.py <rev|branch|main>     # a SHA, or what to resolve
     python tools/xui/bump_pin.py main --dry-run        # show what would change
-    python tools/xui/bump_pin.py <rev> --skip lazyrad-os
+    python tools/xui/bump_pin.py <rev> --skip lazyrad-os --skip emusic
 
 It resolves the revision through GitHub (`gh api`) to a full SHA, rewrites the
-`rev` of every `va1erian/xui` git dependency in every `Cargo.toml`, runs
+`rev` of every `va1erian/xui` git dependency in every `Cargo.toml` (and the
+`Cargo.toml.in` template Quake's build writes its manifest from), runs
 `cargo update` for the xui packages in each workspace that has a lockfile, and
-finishes with `check_pin.py`. `lazyrad-os` also pins LazyRAD (a repository with
-its own xui pin): bump LazyRAD first and give its commit with `--lazyrad`,
-or `--skip lazyrad-os` until it has caught up (and list it in `LAGGING` of
-`check_pin.py`).
+finishes with `check_pin.py`. `lazyrad-os` and `emusic` also fetch repositories
+that pin xui themselves (LazyRAD, emusic's frontend): bump those first and give
+LazyRAD's commit with `--lazyrad`, or `--skip lazyrad-os --skip emusic` until
+they have caught up, listing them in `LAGGING` of `check_pin.py` (each holds its
+graph at the old revision with a `[patch]`).
 """
 
 from __future__ import annotations
@@ -33,7 +35,10 @@ LAZYRAD_DEP = re.compile(r'(git\s*=\s*"https://github\.com/va1erian/lazyrad"[^\n
 # The `rev = "<sha>"` docs/xui-plan.md quotes.
 DOC_REV = re.compile(r'(rev = ")([0-9a-f]{40})(")')
 # The workspaces with a lockfile of their own (relative to the root).
-WORKSPACES = ["xui-app", "doom", "emusic", "lazyrad-os"]
+WORKSPACES = ["xui-app", "doom", "emusic", "lazyrad-os", "srb2kart"]
+# The manifest names a pin can sit in: Quake's `Cargo.toml.in` is a template
+# `tools/quake/build.py` writes into the assembled crate.
+MANIFESTS = ("Cargo.toml", "Cargo.toml.in")
 
 
 def resolve(repo: str, ref: str) -> str:
@@ -52,12 +57,13 @@ def resolve(repo: str, ref: str) -> str:
 
 def manifests(skip: set[str]) -> list[Path]:
     found = []
-    for path in sorted(ROOT.rglob("Cargo.toml")):
-        parts = path.relative_to(ROOT).parts
-        if SKIP_DIRS & set(parts) or parts[0] in skip:
-            continue
-        found.append(path)
-    return found
+    for name in MANIFESTS:
+        for path in ROOT.rglob(name):
+            parts = path.relative_to(ROOT).parts
+            if SKIP_DIRS & set(parts) or parts[0] in skip:
+                continue
+            found.append(path)
+    return sorted(found)
 
 
 def rewrite(paths: list[Path], pattern: re.Pattern[str], rev: str, dry: bool) -> int:

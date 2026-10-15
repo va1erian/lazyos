@@ -742,6 +742,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "filepolicy"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1253,7 +1260,7 @@ source = "git+https://github.com/va1erian/lazyrad?rev=fbd3fc417b2fae0a56c15ae3fe
 dependencies = [
  "lazyrad-project",
  "thiserror",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
  "xui-core",
  "xui-form",
 ]
@@ -1275,7 +1282,7 @@ dependencies = [
  "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "xui-canvas",
- "xui-code-editor 0.1.0 (git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
  "xui-core",
  "xui-form",
 ]
@@ -1766,6 +1773,7 @@ name = "pkgstore"
 version = "0.1.0"
 dependencies = [
  "fhs",
+ "filepolicy",
  "lazyos-crypto",
  "lazypkg",
  "messenger-generated",
@@ -2385,6 +2393,10 @@ dependencies = [
 
 [[package]]
 name = "sndpolicy"
+version = "0.1.0"
+
+[[package]]
+name = "sntp"
 version = "0.1.0"
 
 [[package]]
@@ -3133,7 +3145,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -3152,7 +3164,7 @@ dependencies = [
 [[package]]
 name = "xui-code-editor"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
 dependencies = [
  "regex",
  "ropey",
@@ -3170,7 +3182,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -3206,7 +3218,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
 dependencies = [
  "xui-core",
 ]
@@ -3241,7 +3253,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
 dependencies = [
  "serde",
  "serde_json",
@@ -3259,6 +3271,7 @@ dependencies = [
  "deskmenu",
  "fhs",
  "inputmap",
+ "sntp",
  "timezone",
  "uitheme",
  "xui-core",

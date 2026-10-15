@@ -173,7 +173,7 @@ Landed in `xui-app/` (a standalone static-musl workspace built by
 
 Text uses the bundled `DroidSans.ttf` (Apache-2.0, see `assets/fonts/README.md`) via `include_bytes!` (the Terminal alone switches to JetBrains Mono for its fixed grid).
 `xui-core` and `xui-canvas` are git dependencies on `va1erian/xui`, pinned to
-the same `rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"` (see
+the same `rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da"` (see
 `xui-app/Cargo.toml`). `xui-canvas` is built with `default-features = false`: that
 turns off its `winit-backend` feature (winit/softbuffer/glutin/glow/arboard/
 windows/xui-gpu) and leaves the pure tiny-skia/cosmic-text software painter
@@ -183,10 +183,12 @@ without scanning the system font directories or memory-mapping files — LazyOS'
 Linux ABI has anonymous `mmap` only), per-line horizontal alignment for
 natural-width runs, and `Surface::pixels` for a clone-free present. `xui-icons`
 (explorer's optional `village-icons`) is the git dependency at the same rev.
-There is no vendored copy and no `[patch]`.
+There is no vendored copy and no `[patch]` in `xui-app/`; a workspace held in
+`LAGGING` carries one, see below.
 
 **Bumping the pinned rev:** `python tools/xui/bump_pin.py <rev|branch>` does all of
-this (add `--lazyrad <ref>` for `lazyrad-os`'s LazyRAD pin, `--dry-run` to preview);
+this (add `--lazyrad <ref>` for `lazyrad-os`'s LazyRAD pin, `--skip emusic
+--skip lazyrad-os` while those are held in `LAGGING`, `--dry-run` to preview);
 by hand: both `xui-core` and `xui-canvas` (and the dev-only
 `xui-canvas` plus optional `xui-icons` in the `crates/*` manifests) MUST move to
 the same new commit together, or two different `xui_core` versions end up in the
@@ -196,9 +198,14 @@ only the three xui packages, and re-run
 `cargo tree --target x86_64-unknown-linux-musl | grep -E
 'winit|softbuffer|glutin|glow|arboard|xui-gpu'` to confirm the windowing crates
 are still absent.
-`doom/` and `lazyrad-os/` pin the same commit (and LazyRAD's own workspace does, so `lazyrad-os` needs no `[patch]`);
-`python tools/xui/check_pin.py` (run by CI) fails when any manifest or lockfile
-disagrees, and lists a workspace that has to wait (`LAGGING`) with the reason.
+`doom/`, `srb2kart/` and the `quake/` manifest template pin the same commit, and
+so do `lazyrad-os/` and `emusic/` whenever they are not held in `LAGGING` of
+`tools/xui/check_pin.py` (their own repositories pin xui themselves). A held
+workspace still builds: its manifest carries a `[patch]` pinning every xui
+package back to the held revision, so `xui-app`'s path dependency resolves to it
+too. `python tools/xui/check_pin.py` (run by CI) fails when any manifest or
+lockfile disagrees, and lists a workspace that has to wait (`LAGGING`) with the
+reason.
 
 **Compositor client (M3a, issue #168)** — `src/bin/client.rs` (`xui-client`)
 runs the same counter + an `Edit` text field as a `xuid` client:

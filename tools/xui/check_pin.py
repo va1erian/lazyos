@@ -2,13 +2,14 @@
 """Check that every manifest and lockfile pins one xui revision (W5.5).
 
 lazyOS builds xui from git in several standalone workspaces (`xui-app`,
-`doom`, `lazyrad-os`), each with its own `Cargo.toml` and `Cargo.lock`. Two
-revisions in one image mean two copies of `xui_core` whose types do not mix,
-and a bump that misses one workspace is easy to make. This script finds every
-`va1erian/xui` git dependency (including `[patch]` entries and the `www.`
-alias a patch uses to point at the same repository) and every xui package a
-lockfile resolved, and fails when they disagree or when a dependency has no
-`rev`.
+`doom`, `emusic`, `lazyrad-os`, `srb2kart`), each with its own `Cargo.toml` and
+`Cargo.lock`, plus the `quake/Cargo.toml.in` template Quake's build writes its
+manifest from. Two revisions in one image mean two copies of `xui_core` whose
+types do not mix, and a bump that misses one workspace is easy to make. This
+script finds every `va1erian/xui` git dependency (including `[patch]` entries
+and the `www.` alias a patch uses to point at the same repository) and every
+xui package a lockfile resolved, and fails when they disagree or when a
+dependency has no `rev`.
 
 A workspace that cannot move yet is listed in `LAGGING` with the revision it
 is held at and why; it must stay exactly there, and the entry must go once the
@@ -44,7 +45,18 @@ XUI_URL = re.compile(r"^(?:git\+)?https://(?:www\.)?github\.com/va1erian/xui(?:\
 
 # Workspaces held at an older revision: directory (relative to the root, `/`
 # separated) -> (revision, reason).
-LAGGING: dict[str, tuple[str, str]] = {}
+LAGGING: dict[str, tuple[str, str]] = {
+    "emusic": (
+        "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6",
+        "va1erian/emusic's portable frontend pins this xui itself (a13c7cd, and "
+        "main 3f464ee still does); bump the emusic pin once it has moved",
+    ),
+    "lazyrad-os": (
+        "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6",
+        "va1erian/lazyrad's workspace pins this xui itself (fbd3fc4, and main "
+        "b24f9ee still does); bump LazyRAD first",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -112,16 +124,16 @@ def find_pins(root: Path) -> list[Pin]:
     for directory, subdirs, files in os.walk(root):
         subdirs[:] = sorted(d for d in subdirs if d not in SKIP_DIRS)
         for name in sorted(files):
-            if name not in ("Cargo.toml", "Cargo.lock"):
+            if name not in ("Cargo.toml", "Cargo.toml.in", "Cargo.lock"):
                 continue
             file = Path(directory) / name
             rel = file.relative_to(root).as_posix()
             with open(file, "rb") as handle:
                 parsed = tomllib.load(handle)
-            if name == "Cargo.toml":
-                pins.extend(manifest_pins(rel, parsed))
-            else:
+            if name == "Cargo.lock":
                 pins.extend(lock_pins(rel, parsed))
+            else:
+                pins.extend(manifest_pins(rel, parsed))
     return pins
 
 
