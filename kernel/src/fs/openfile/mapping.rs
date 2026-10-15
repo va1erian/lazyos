@@ -378,6 +378,12 @@ impl Inode {
             // Another task's write-back of these pages, in flight.
             let mut spins = 0u32;
             while self.cache.flushing_in(first, last) {
+                // A killed task stops waiting for another task's write-back
+                // (which finishes without it): it must reach its syscall
+                // return, and a spinning flush wait would keep it here.
+                if crate::task::signal::fatal_pending() {
+                    break;
+                }
                 spins += 1;
                 if spins > 100_000 {
                     return Err(FsError::Io);

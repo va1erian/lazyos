@@ -191,7 +191,15 @@ fn service_keeps_the_port_with_interrupts_off() -> Result<(), String> {
     serial::watch_interrupt_locks(true);
     // As the multiplexer calls it: interrupts on.
     x86_64::instructions::interrupts::enable();
-    serial::service();
+    // One call is bounded in time (SERVICE_TICKS) and may leave a full ring
+    // half sent, as the loop that calls it expects: call it until the ring is
+    // empty, which `report` waits for.
+    for _ in 0..1000 {
+        serial::service();
+        if serial::queued_len() == 0 {
+            break;
+        }
+    }
     x86_64::instructions::interrupts::disable();
     let violations = serial::watch_interrupt_locks(false);
     crate::trace::capture::clear();

@@ -70,16 +70,14 @@ pub fn sched_update<E>(
     decide: impl FnOnce(SchedTarget) -> Result<SchedState, E>,
 ) -> Result<(), UpdateError<E>> {
     let mut tasks = TASKS.lock();
+    let leader = family::leader_of(&tasks, slot);
     let task = tasks
         .get_mut(slot)
         .and_then(|task| task.as_mut())
         .ok_or(UpdateError::NoSuchTask)?;
     let target = SchedTarget {
         state: task.linux.sched,
-        leader: match task.linux.tgid {
-            0 => slot,
-            leader => leader,
-        },
+        leader,
         // The credential table has its own lock, taken after the task table's
         // everywhere (task creation stamps it under this one).
         cred: credentials::of(slot),

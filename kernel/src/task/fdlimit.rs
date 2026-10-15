@@ -11,14 +11,6 @@
 
 use super::*;
 
-/// The process (thread group) a slot belongs to: its leader's slot.
-fn process_of(task: &Task, slot: usize) -> usize {
-    match task.linux.tgid {
-        0 => slot,
-        leader => leader,
-    }
-}
-
 /// Why a `(soft, hard)` request was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LimitError {
@@ -53,16 +45,26 @@ pub fn set_nofile_limits(soft: usize, hard: usize) -> Result<(), LimitError> {
     }
     let mut tasks = TASKS.lock();
     let me = current();
-    let leader = process_of(tasks[me].as_ref().ok_or(LimitError::NotPermitted)?, me);
-    let current_hard = tasks[me].as_ref().map_or(0, |task| task.fds.hard_limit());
+    let leader = family::leader_of(&tasks, me);
+    let current_hard = tasks[me]
+        .as_ref()
+        .ok_or(LimitError::NotPermitted)?
+        .fds
+        .hard_limit();
     if hard > current_hard {
         return Err(LimitError::NotPermitted);
     }
-    for (slot, task) in tasks.iter_mut().enumerate() {
-        if let Some(task) = task {
-            if process_of(task, slot) == leader && task.state != TaskState::Done {
-                task.fds.set_limits(soft, hard);
-            }
+    let members: Vec<usize> = (0..MAX_TASKS)
+        .filter(|&slot| {
+            tasks[slot]
+                .as_ref()
+                .is_some_and(|task| task.state != TaskState::Done)
+                && family::leader_of(&tasks, slot) == leader
+        })
+        .collect();
+    for slot in members {
+        if let Some(task) = tasks[slot].as_mut() {
+            task.fds.set_limits(soft, hard);
         }
     }
     Ok(())

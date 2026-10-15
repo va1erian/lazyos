@@ -26,10 +26,9 @@ pub(super) fn root_of(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
     while let Some(task) = tasks[index].as_ref() {
         // A thread's terminal is its process's: follow the thread group to
         // its leader, then the parents.
-        match (task.parent, task.linux.tgid) {
-            (0, 0) => break,
-            (0, leader) if leader != index => index = leader,
-            (0, _) => break,
+        match (task.parent, family::leader_of(tasks, index)) {
+            (0, leader) if leader == index => break,
+            (0, leader) => index = leader,
             (parent, _) => index = parent,
         }
     }

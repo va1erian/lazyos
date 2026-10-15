@@ -3,8 +3,14 @@
 //
 // Markers (one line each, on stdout, after the window's prefix: WEBKIT:W5 or WEBPLUS;
 // tools/webkit/appjudge.py and tools/webplus/judge.py read them):
-//   WEBPROCESS:UP:<pid>       the page's WebProcess is running (after the first load)
-//   NETWORKPROCESS:UP:<pid>   the NetworkProcess is running
+//   WEBPROCESS:UP:<pid>       the page's WebProcess is running (printed again when its id changes)
+//   NETWORKPROCESS:UP:<pid>   the NetworkProcess is running (a replacement prints its own)
+//   WEBPROCESS:GONE:<pid>:<reason>    the page's process ended (crash, memory, cpu, requested)
+//   WEBPROCESS:UNRESPONSIVE:<pid> / WEBPROCESS:RESPONSIVE:<pid>   WebKit's 6 s ping went unanswered, or
+//                                                                 was answered again
+//   NETWORKPROCESS:GONE:<pid>:<reason>  the NetworkProcess crashed, ran out of memory or time, or did
+//                                       not answer and WebKit replaced it (WebKit's C API calls all of
+//                                       those but the first three "crash")
 // The ones that name a page (LOAD, TITLE, JS, CLICK, INPUT, and the URL in FAIL) print only in
 // an image built with the UI probe (sayHarness), and a window that prints them itself
 // (LZW_FEATURE_OWN_MARKERS) has none of them from here.
@@ -21,6 +27,7 @@
 //                             process and its children took since the UI process started
 
 #include <WebKit/WKContext.h>
+#include <WebKit/WKProcessTerminationReason.h>
 #include <WebKit/WKErrorRef.h>
 #include <WebKit/WKFramePolicyListener.h>
 #include <WebKit/WKNavigationActionRef.h>
@@ -54,15 +61,58 @@ std::string activeUrl()
     return text;
 }
 
+// Tells the window whether the page's process answers WebKit's pings, as WebKit says now (also when a
+// process the window has not heard of appears, and when a page commits: a stale "not responding" must
+// not make Reload or Stop end a healthy process).
+static void reportResponsiveness()
+{
+    const bool responsive = WKPageIsWebProcessResponsive(E.page);
+    E.unresponsive = !responsive;
+    lzw_ui_page_responsive(responsive ? 1 : 0);
+}
+
 void rememberChildren()
 {
-    const pid_t web = WKPageGetProcessIdentifier(E.page);
-    if (web > 0)
-        E.webPid = static_cast<int>(web);
+    if (!E.page)
+        return;
+    // A process is announced when WebKit names an id the launcher has started and not seen end, and it
+    // is another launch than the one announced (the kernel gives the lowest free slot, so a replacement
+    // often takes the dead process's id: the id alone cannot tell). An id the launcher does not hold is a
+    // stale answer (WebKit names a process after it ended): not announced, not remembered.
+    const int web = static_cast<int>(WKPageGetProcessIdentifier(E.page));
+    const unsigned webOrdinal = web > 0 ? processOrdinal("web", web) : 0;
+    if (webOrdinal && (web != E.webPidShown || webOrdinal != E.webOrdinalShown)) {
+        E.webPid = web;
+        E.webPidShown = web;
+        E.webOrdinalShown = webOrdinal;
+        say("WEBPROCESS:UP:%d", web);
+        // A process the window has not heard of: whatever it was told of the last one (not answering)
+        // does not hold for this one.
+        reportResponsiveness();
+    }
     WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
-    const pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
-    if (network > 0)
-        E.networkPid = static_cast<int>(network);
+    const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
+    const unsigned networkOrdinal = network > 0 ? processOrdinal("network", network) : 0;
+    if (networkOrdinal && (network != E.networkPidShown || networkOrdinal != E.networkOrdinalShown)) {
+        E.networkPid = network;
+        E.networkPidShown = network;
+        E.networkOrdinalShown = networkOrdinal;
+        say("NETWORKPROCESS:UP:%d", network);
+    }
+}
+
+const char* terminationReason(uint32_t reason)
+{
+    switch (reason) {
+    case kWKProcessTerminationReasonExceededMemoryLimit:
+        return "memory";
+    case kWKProcessTerminationReasonExceededCPULimit:
+        return "cpu";
+    case kWKProcessTerminationReasonRequestedByClient:
+        return "requested";
+    default:
+        return "crash";
+    }
 }
 
 std::string committedUrl()
@@ -87,12 +137,14 @@ std::string pageTitle()
 
 void postState()
 {
-    // The WebProcess exists as soon as the page does: when did it come up?
+    // The WebProcess exists as soon as the page does: when did it come up? A process that replaced
+    // another (a crash, a recovery) or a new NetworkProcess is noticed here as well.
     static bool webProcessSeen = false;
     if (!webProcessSeen && WKPageGetProcessIdentifier(E.page) > 0) {
         webProcessSeen = true;
         say("INFO:TIME:webprocess=%ld", elapsedMs());
     }
+    rememberChildren();
     std::string url = activeUrl();
     std::string committed = committedUrl();
     std::string title = pageTitle();
@@ -108,18 +160,6 @@ void postState()
 namespace {
 
 // ---- the page's news ------------------------------------------------------------------
-
-void reportProcessesOnce()
-{
-    if (E.processesReported)
-        return;
-    E.processesReported = true;
-    rememberChildren();
-    if (E.webPid > 0)
-        say("WEBPROCESS:UP:%d", E.webPid);
-    if (E.networkPid > 0)
-        say("NETWORKPROCESS:UP:%d", E.networkPid);
-}
 
 // The guest's RAM, in MiB, after each load: what three processes of tens of MB and a page cost.
 void reportMemory()
@@ -201,6 +241,7 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
     E.saveNext = false; // a page was committed: whatever was to be saved is not this
     E.commitMs = elapsedMs();
     E.committedSincePaint = true;
+    reportResponsiveness();
     // After redirects the committed address is the one that counts, and it is known before the page's
     // first subresource is asked for.
     blockingSettle();
@@ -224,7 +265,7 @@ void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
         sayInput();
     }
     readTitleBySript();
-    reportProcessesOnce();
+    rememberChildren();
     say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
         finished, finished - E.navStartMs);
     reportMemory();
@@ -283,15 +324,60 @@ void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, 
     didFail("provisional", error);
 }
 
-void webProcessDidCrash(WKPageRef, const void*)
+// The page's process ended: WebKit says why. The window blanks the page and says so, except when the
+// window itself asked (lzw_engine_recover): then the process is replaced by a reload, or the page stays
+// stopped.
+void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const void*)
 {
+    say("WEBPROCESS:GONE:%d:%s", E.webPidShown, terminationReason(reason));
+    lzw_launcher_reap();
+    // A crashed process the kernel has not finished with yet is still the launcher's: keep collecting.
+    processCrashed("web", E.webPidShown);
     dropDialogs();
     E.loading = false;
+    E.unresponsive = false;
+    lzw_ui_page_responsive(1);
+    invalidatePaint();
+    if (E.recovering && reason == kWKProcessTerminationReasonRequestedByClient) {
+        const bool reload = E.recoverReload;
+        E.recovering = false;
+        E.recoverReload = false;
+        if (reload) {
+            E.error.clear();
+            E.crashed = false;
+            postState();
+            // After WebKit has finished with this termination: a reload now would start in the dead process.
+            onMain([] { WKPageReload(E.page); });
+            return;
+        }
+        E.crashed = true;
+        E.error = "The page was stopped because it was not responding. Reload (F5) starts it again.";
+        say("FAIL:webprocess:stopped");
+        postState();
+        return;
+    }
+    E.recovering = false;
     E.crashed = true;
     E.error = "The page's process stopped. Reload (F5) starts it again.";
-    invalidatePaint();
     say("FAIL:webprocess:crashed");
     postState();
+}
+
+// WebKit's 6 s ping of the WebProcess went unanswered, or was answered after all.
+void responsivenessChanged(const void*)
+{
+    const bool responsive = WKPageIsWebProcessResponsive(E.page);
+    say("WEBPROCESS:%s:%d", responsive ? "RESPONSIVE" : "UNRESPONSIVE", static_cast<int>(WKPageGetProcessIdentifier(E.page)));
+    reportResponsiveness();
+}
+
+// The NetworkProcess ended. WebKit also kills the one that did not answer for 6 s and starts another
+// on demand, so this is the line that says a download or a page load lost its process.
+void networkProcessDidCrash(WKContextRef, WKProcessID pid, WKProcessTerminationReason reason, const void*)
+{
+    say("NETWORKPROCESS:GONE:%d:%s", static_cast<int>(pid), terminationReason(reason));
+    lzw_launcher_reap();
+    processCrashed("network", static_cast<int>(pid));
 }
 
 void stateChanged(const void*) { postState(); }
@@ -320,7 +406,7 @@ void installClients()
     navigation.didFinishNavigation = didFinishNavigation;
     navigation.didFailNavigation = didFailNavigation;
     navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
-    navigation.webProcessDidCrash = webProcessDidCrash;
+    navigation.webProcessDidTerminate = webProcessDidTerminate;
     // What the content rule lists did (issue #845): the count of blocked loads (patch 0018).
     if (has(LZW_FEATURE_BLOCKING))
         navigation.contentRuleListNotification = contentRuleListNotification;
@@ -334,7 +420,16 @@ void installClients()
     state.didChangeEstimatedProgress = stateChanged;
     state.didChangeCanGoBack = stateChanged;
     state.didChangeCanGoForward = stateChanged;
+    state.didChangeWebProcessIsResponsive = responsivenessChanged;
     WKPageSetPageStateClient(E.page, &state.base);
+}
+
+void installContextClient()
+{
+    static WKContextClientV4 client = { };
+    client.base.version = 4;
+    client.networkProcessDidCrashWithDetails = networkProcessDidCrash;
+    WKContextSetClient(E.context, &client.base);
 }
 
 } // namespace webkitapp

@@ -120,7 +120,7 @@ under 10 ms of UI-process CPU, and U2 holds on the animation fixture with the wi
 
 ### P2. Stop the spin and keep the desktop responsive (3 days; H2, H3, H4)
 
-1. **Throttle rendering in the engine.** A LazyOS patch (`0020`; 0018 and 0019 are the content rule list patches) to the classic drawing area so `scheduleDisplay` waits
+1. **Throttle rendering in the engine.** A LazyOS patch (`0022`; `0018` and `0019` are the content rule list patches, `0020` and `0021` the unresponsive-page ones) to the classic drawing area so `scheduleDisplay` waits
    a frame interval (33 ms by default; the interval is a preference the window can raise, up to 100 ms, while the
    page is hidden or the machine is loaded) instead of a 0 s timer; then check what `requestAnimationFrame`, CSS
    animation and `DOMTimer` do with it (the page-level knobs that exist in the C API: `WKPreferencesSetDOMTimersThrottlingEnabled`,
@@ -152,6 +152,15 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
 1. **`fallocate` (285).** Implement mode 0 on ext2 (reserve blocks, or just extend) or return `EOPNOTSUPP` (what
    Linux says for a file system without it, and what WTF accepts). Then make a five-site run print **no**
    `ENOSYS`, and keep that as a harness check (`tools/webplus/perf.py` fails on any). Half a day, big for H8.
+   *Found (issue #864): not yet.* Answering `EOPNOTSUPP` (WTF accepts it) makes the cache store bodies as blobs,
+   and blobs need **hard links**: `BlobStorage::add` links each blob under two names and `synchronize()` deletes
+   every blob with `st_nlink == 1` at the next start. `link` is `EPERM` and `st_nlink` is always 1 here, so
+   the blobs vanish and a revisit refetches what the inline path used to serve (the LazyWeb+ harness's
+   cache-hit check fails). The shared-mmap body path itself is proven (`linux_filemap_cache_body_*`: create,
+   `ftruncate`, `MAP_SHARED` write, `mprotect(PROT_READ)`, `msync`, unmap, read back, remount, a soak). So the
+   order is: hard links on ext2 (issue #871: an `ext2fs` link operation, VFS `link`, open-file and page-cache
+   identity by inode rather than path, `unlink_open` parking when `nlink > 1`, a real `st_nlink`; unlink's
+   decrement is in `ext2fs` already), then `fallocate` (`EOPNOTSUPP`).
 2. **Demand-paged, shared executables.** Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged
    in only where used, and a second WebProcess shares the first's text. Expected: exec in well under a second.

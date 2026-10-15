@@ -218,6 +218,7 @@ impl Browser {
                     self.trace(&format!("BLOCK:LIST:{id}:{}", status.name()));
                     self.blocker.list_result(&id, status);
                 }
+                Event::PageResponsive(responsive) => self.page_responsive(ui, responsive),
                 Event::Blocked(count) => {
                     // The count starts again with every commit, our own pages' included; what
                     // `about:blocker` and the shield report is the web page browsed last.

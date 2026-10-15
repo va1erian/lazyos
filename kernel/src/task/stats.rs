@@ -97,7 +97,7 @@ pub fn stats_snapshot() -> TaskStats {
         snapshot.rows[slot] = StatsRow {
             present: true,
             pid: slot,
-            ppid: task.parent,
+            ppid: super::family::ppid(&tasks, slot),
             state: task.state,
             class: task.class,
             weight: task.weight,

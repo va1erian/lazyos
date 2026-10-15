@@ -146,6 +146,9 @@ struct Inner {
     blocked: u32,
     lists: Vec<ListInfo>,
     persist: Arc<dyn Persist>,
+    /// The user changed a setting since this blocker was made: what `attach` finds stored no
+    /// longer replaces them.
+    touched: bool,
     commands: Option<Sender<Cmd>>,
     /// Told when a list's state changes on the worker's thread (the window redraws).
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -156,6 +159,10 @@ struct Inner {
 #[derive(Clone)]
 pub struct Blocker {
     inner: Arc<Mutex<Inner>>,
+    /// Held from the moment a settings snapshot is taken until it is saved, so two saves (a change
+    /// and `attach`'s) reach the store in the order their snapshots were taken: the newer wins. Taken
+    /// before `inner`, and never by the policy callback, which only takes `inner`.
+    saves: Arc<Mutex<()>>,
 }
 
 impl Blocker {
@@ -183,15 +190,53 @@ impl Blocker {
                 blocked: 0,
                 lists,
                 persist,
+                touched: false,
                 commands: None,
                 wake: None,
             })),
+            saves: Arc::new(Mutex::new(())),
         }
     }
 
     /// A blocker that keeps nothing.
     pub fn volatile() -> Blocker {
         Blocker::new(Arc::new(Volatile))
+    }
+
+    /// Hands a blocker made without its store (settings at their defaults) the store that is ready
+    /// now: from here on `persist` keeps the settings. The ones it holds replace the defaults unless
+    /// the user changed something meanwhile, and then what the user chose is what is saved (a change
+    /// made before the store came was kept nowhere). Until then navigations ran on the defaults.
+    /// Opening the store can wait for a service, so it is done on a thread of its own, never on
+    /// WebKit's main thread. The window is woken.
+    pub fn attach(&self, persist: Arc<dyn Persist>) {
+        let stored = persist.load();
+        let saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
+        let (wake, chosen) = {
+            let mut guard = self.lock();
+            guard.persist = Arc::clone(&persist);
+            let chosen = guard.touched.then(|| guard.settings.clone());
+            if chosen.is_none() {
+                let Inner {
+                    settings, lists, ..
+                } = &mut *guard;
+                *settings = stored;
+                for list in lists.iter_mut() {
+                    list.enabled = !settings.lists_off.contains(list.id);
+                }
+            }
+            (guard.wake.clone(), chosen)
+        };
+        // A save may be a call to a service: with the settings lock released (`saves` keeps another
+        // save from passing this one).
+        if let Some(settings) = chosen {
+            persist.save(&settings);
+        }
+        // The window's wake-up runs with no lock of ours held: it may call back into the blocker.
+        drop(saves);
+        if let Some(wake) = wake {
+            wake();
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -222,19 +267,21 @@ impl Blocker {
     }
 
     fn change(&self, change: impl FnOnce(&mut Settings)) {
+        let _saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
         let (saved, persist) = {
             let mut guard = self.lock();
             let Inner {
                 settings,
                 lists,
-                persist,
+                touched,
                 ..
             } = &mut *guard;
             change(settings);
             for list in lists.iter_mut() {
                 list.enabled = !settings.lists_off.contains(list.id);
             }
-            (settings.clone(), Arc::clone(persist))
+            *touched = true;
+            (guard.settings.clone(), Arc::clone(&guard.persist))
         };
         // A save may be a call to a service: it runs with the lock released, which the engine's
         // policy callback (on its run loop) takes for every navigation.

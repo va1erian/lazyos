@@ -12,12 +12,14 @@ mod fault_storm;
 mod frames_and_cow;
 mod layout;
 mod oom;
+mod table_parents;
 mod vma;
 
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
 pub(super) use layout::*;
 pub(super) use oom::*;
+pub(super) use table_parents::*;
 pub(super) use vma::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -40,6 +42,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "mem_pte_chain_walks_to_the_leaf",
         pte_chain_walks_to_the_leaf,
+    ),
+    (
+        "mem_remapped_cow_pages_keep_writable_parents",
+        remapped_cow_pages_keep_writable_parents,
+    ),
+    (
+        "mem_mprotect_over_a_fresh_region_keeps_writable_parents",
+        mprotect_over_a_fresh_region_keeps_writable_parents,
+    ),
+    (
+        "mem_writable_leaves_repair_read_only_parents",
+        writable_leaves_repair_read_only_parents,
+    ),
+    (
+        "mem_soak_remap_after_fork_keeps_writable_parents",
+        soak_remap_after_fork_keeps_writable_parents,
     ),
     ("mem_regions_merge_hostile_maps", regions_merge_hostile_maps),
     (
