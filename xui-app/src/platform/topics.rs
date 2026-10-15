@@ -70,7 +70,7 @@ impl topics::Publish for Broker {
         .map_err(|error| PublishError::Topic(topics::TopicError::Encode(error)))?;
         let broker = Service::try_connect(BROKER).ok_or(PublishError::Errno(-2))?;
         let reply = broker
-            .call_within(
+            .call(
                 wire::INTERFACE_ID,
                 wire::METHOD_PUBLISH,
                 ERROR_FIELD,

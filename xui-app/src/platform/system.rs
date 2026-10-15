@@ -47,13 +47,31 @@ impl OsSystem {
     }
 
     fn call(&self, method: u32, body: Vec<u8>) -> Result<libmessenger::Parcel, String> {
+        self.call_within(method, body, READ_TICKS)
+    }
+
+    /// [`Self::call`] with its own bound: a write may wait for the network
+    /// (a sync now) or for the machine to take it.
+    fn call_within(
+        &self,
+        method: u32,
+        body: Vec<u8>,
+        ticks: u64,
+    ) -> Result<libmessenger::Parcel, String> {
         let service =
             Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
         service
-            .call(wire::INTERFACE_ID, method, ERROR_FIELD, body)
+            .call(wire::INTERFACE_ID, method, ERROR_FIELD, body, ticks)
             .map_err(describe)
     }
 }
+
+/// How long a read call waits for `timed` (PIT ticks, 2 s): `Now` and the
+/// NTP status answer from memory.
+const READ_TICKS: u64 = 200;
+/// Writes (set the clock, the zone, ask for a sync): a fresh sync reaches
+/// the network, so more room, but still bounded.
+const WRITE_TICKS: u64 = 1_500;
 
 /// `ENETUNREACH`: `SyncNow` with no address (the stack's own code).
 const ENETUNREACH: i64 = 101;
@@ -168,6 +186,17 @@ fn pictures_in(dir: &str) -> Vec<String> {
 }
 
 impl System for OsSystem {
+    /// A worker thread builds the same kind of connection, with its own
+    /// endpoints ([`xui_settings::system::System::detached`]): the Time
+    /// page's machine writes run there.
+    fn detached(&self) -> Option<xui_settings::system::Detached> {
+        use std::sync::Arc;
+        Some(Arc::new(|| {
+            let system: Box<dyn xui_settings::system::System> = Box::new(OsSystem);
+            system
+        }))
+    }
+
     fn wallpapers(&self) -> Vec<String> {
         pictures_in(fhs::share::WALLPAPERS)
     }
@@ -190,7 +219,8 @@ impl System for OsSystem {
             .map_err(|_| String::from("bad time"))?;
         let service =
             Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        match service.call(wire::INTERFACE_ID, wire::METHOD_SETTIME, ERROR_FIELD, body) {
+        match service.call(wire::INTERFACE_ID, wire::METHOD_SETTIME, ERROR_FIELD, body, WRITE_TICKS)
+        {
             Ok(_) => Ok(()),
             Err(code) if -code == errno::EPERM => {
                 super::elevd::request("time.set", &[&unix.to_string()])
@@ -217,6 +247,7 @@ impl System for OsSystem {
         self.call(wire::METHOD_SYNCNOW, Vec::new()).map(|_| ())
     }
 
+    /// Unchanged; see the doc on the trait method (a worker builds its own).
     fn set_zone(&self, zone: &str) -> Result<(), String> {
         let body = wire::encode_set_zone_args(&wire::SetZoneArgs {
             name: zone.to_owned(),
@@ -224,7 +255,13 @@ impl System for OsSystem {
         .map_err(|_| String::from("bad zone name"))?;
         let service =
             Service::connect(NAME).map_err(|_| String::from("time service unavailable"))?;
-        match service.call(wire::INTERFACE_ID, wire::METHOD_SETZONE, ERROR_FIELD, body) {
+        match service.call(
+            wire::INTERFACE_ID,
+            wire::METHOD_SETZONE,
+            ERROR_FIELD,
+            body,
+            WRITE_TICKS,
+        ) {
             Ok(_) => Ok(()),
             // A machine setting, like the clock: a session asks an
             // administrator, and `timed` follows the confd key `elevd` writes.

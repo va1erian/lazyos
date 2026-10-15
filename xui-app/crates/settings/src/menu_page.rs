@@ -132,6 +132,12 @@ impl MenuPage {
         self.list != self.saved
     }
 
+    /// The draft as it stands, for the worker thread that will save it
+    /// (a machine write, and it waits on an administrator: issue #720).
+    pub fn draft(&self) -> &[Entry] {
+        &self.list
+    }
+
     /// Rebuild both lists from the working state, selecting entry `select`.
     fn refresh(&mut self, select: Option<usize>) {
         let rows: Vec<String> = self.list.iter().map(menu_ops::row_text).collect();
@@ -223,7 +229,16 @@ impl MenuPage {
             Err(error) => format!("Could not change the menu: {error}"),
         }
     }
+}
 
+/// The serial evidence a `Save` leaves behind, for the worker thread's
+/// answer too (the marker lives here so the evidence site does not move;
+/// see `finish` in `app/elevated.rs`).
+pub fn report_saved(entries: usize) {
+    println!("SETTINGS:MENU:SAVED:{entries}");
+}
+
+impl MenuPage {
     /// Write the draft in one request.
     fn save(&mut self, store: &dyn ConfigStore) -> String {
         if !self.unsaved() {
@@ -231,7 +246,7 @@ impl MenuPage {
         }
         match menu_ops::save(store, &self.list) {
             Ok(()) => {
-                println!("SETTINGS:MENU:SAVED:{}", self.list.len());
+                report_saved(self.list.len());
                 self.saved = self.list.clone();
                 let at = self.entries.selected();
                 self.refresh(at);

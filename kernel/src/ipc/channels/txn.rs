@@ -28,27 +28,61 @@ pub(super) fn take_outcome(txn_id: u64) -> Result<Outcome, Error> {
     }))
 }
 
+/// A terminal transaction's reply or failure **now**, without the park that
+/// [`await_reply`] is (`Issue::WouldBlock` while it is open): the shape a
+/// completion-driven future polls with, its wakeup already delivered
+/// through the [`completion`](super) queue's `WAIT_CALLS` doorbell
+/// (issue #725).
+pub fn await_reply_now(txn_id: u64) -> Result<Vec<u8>, Error> {
+    assert_caller(txn_id)?;
+    match take_outcome(txn_id)? {
+        Outcome::Done(outcome) => outcome,
+        Outcome::Pending(..) => Err(Error::WouldBlock),
+    }
+}
+
+/// `Err(NotCaller)` for a transaction another task began, else nothing: the
+/// check at the syscall edge (issue #725 review). Transaction ids are a
+/// global counter above the registry slot, so an id is guessable and a
+/// foreign task must never observe or consume somebody else's reply:
+/// `cancel` and the wait set's `[WAIT_ITEM_CALL]` resolver enforce the
+/// same.
+pub(super) fn assert_caller(txn_id: u64) -> Result<(), Error> {
+    let me = task::current();
+    let mut channels = CHANNELS.lock();
+    let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
+    if channel.txns[index].caller != me {
+        return Err(Error::NotCaller);
+    }
+    Ok(())
+}
+
 /// Mark a pending transaction expired. A no-op if it already has another
 /// terminal outcome, so a reply racing the deadline wins, and a no-op if its
 /// deadline is not actually due: the caller may have parked on an earlier
 /// deadline that a poll's receipt has since replaced.
 pub(super) fn expire_transaction(txn_id: u64) {
-    let mut channels = CHANNELS.lock();
-    let Some((channel, index)) = channels.txn_mut(txn_id) else {
-        return;
+    let caller = {
+        let mut channels = CHANNELS.lock();
+        let Some((channel, index)) = channels.txn_mut(txn_id) else {
+            return;
+        };
+        if channel.txns[index].state != TxnState::Pending {
+            return;
+        }
+        if channel.txns[index]
+            .deadline
+            .is_some_and(|deadline| deadline > task::ticks())
+        {
+            return;
+        }
+        let txn = &channel.txns[index];
+        let poll = txn.poll && !txn.served;
+        time_out(channel, index, poll)
     };
-    if channel.txns[index].state != TxnState::Pending {
-        return;
-    }
-    if channel.txns[index]
-        .deadline
-        .is_some_and(|deadline| deadline > task::ticks())
-    {
-        return;
-    }
-    let txn = &channel.txns[index];
-    let poll = txn.poll && !txn.served;
-    time_out(channel, index, poll);
+    // The registry lock is released, so the recording (and the wake it may
+    // ring) cannot invert against it.
+    completion::record(caller, txn_id);
 }
 
 /// Test hook (issue #62 harness): run the timer's deadline sweep and mark every
@@ -58,18 +92,24 @@ pub(super) fn expire_transaction(txn_id: u64) {
 #[cfg(lazyos_tests)]
 pub fn expire_deadlines(now: u64) {
     task::harness::expire_deadlines(now);
-    let mut channels = CHANNELS.lock();
-    for channel in channels.iter_mut() {
-        for index in 0..channel.txns.len() {
-            let txn = &channel.txns[index];
-            if txn.state == TxnState::Pending
-                && txn.deadline.is_some_and(|deadline| deadline <= now)
-            {
-                let poll = txn.poll && !txn.served;
-                time_out(channel, index, poll);
+    let mut ended: Vec<(usize, u64)> = Vec::new();
+    {
+        let mut channels = CHANNELS.lock();
+        for channel in channels.iter_mut() {
+            for index in 0..channel.txns.len() {
+                let txn = &channel.txns[index];
+                if txn.state == TxnState::Pending
+                    && txn.deadline.is_some_and(|deadline| deadline <= now)
+                {
+                    let (poll, caller, id) = (txn.poll && !txn.served, txn.caller, txn.id);
+                    let _ = time_out(channel, index, poll);
+                    ended.push((caller, id));
+                }
             }
         }
     }
-    drop(channels);
+    for (caller, txn_id) in ended {
+        completion::record(caller, txn_id);
+    }
     MESSENGER.notify_all();
 }

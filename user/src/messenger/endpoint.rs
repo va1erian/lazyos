@@ -130,6 +130,24 @@ impl Endpoint {
         Parcel::decode(buf.filled(result.bytes)?).map_err(Error::Parcel)
     }
 
+    /// A terminal [`Endpoint::begin_call`] transaction's reply or failure
+    /// **now**, without the park [`Endpoint::await_reply`] is: the errno
+    /// `EAGAIN` while it is still open (issue #725). The wakeup rides the
+    /// completion queue ([`take_calls`](super::wait) and the `WAIT_CALLS`
+    /// doorbell), not this call.
+    pub fn await_reply_now(&self, txn_id: u64) -> Result<Parcel> {
+        let mut buf = ReplyBuffer::new();
+        let args = MsgArgs {
+            txn_id,
+            buf_ptr: buf.ptr(),
+            buf_cap: buf.capacity(),
+            ..MsgArgs::default()
+        };
+        let mut result = MsgResult::default();
+        syscall(op::CALL_CHECK, &args, &mut result)?;
+        Parcel::decode(buf.filled(result.bytes)?).map_err(Error::Parcel)
+    }
+
     /// Answer a pending transaction with `reply` (the server side of a call).
     pub fn reply(&self, txn_id: u64, reply: &Parcel) -> Result<()> {
         let bytes = encode(reply)?;

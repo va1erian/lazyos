@@ -60,6 +60,13 @@ pub trait System {
     /// Switch the system time zone (persisted by the service). The same
     /// rule as [`System::set_time`]: a machine setting.
     fn set_zone(&self, zone: &str) -> Result<(), String>;
+    /// How a worker thread builds its own connection to the services
+    /// ([`System::set_time`] may wait for an administrator): `None` when the
+    /// impl must stay on the calling thread (host tests and previews, whose
+    /// in-memory system never prompts), the default.
+    fn detached(&self) -> Option<Detached> {
+        None
+    }
     /// What the network time client is doing, or `None` when the time
     /// service is unreachable.
     fn ntp_status(&self) -> Option<NtpStatus> {
@@ -91,6 +98,10 @@ pub trait System {
         Vec::new()
     }
 }
+
+/// How a worker thread builds its own [`System`] (the endpoints resolve
+/// per thread); the same shape as [`crate::store::Detached`].
+pub type Detached = std::sync::Arc<dyn Fn() -> Box<dyn System> + Send + Sync>;
 
 /// The image id the kernel appends to `/proc/version` (` image <id>`,
 /// `kernel/src/process/linux/procinfo.rs`), when it names one: 1 to 64 of

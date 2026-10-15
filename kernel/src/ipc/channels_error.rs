@@ -47,6 +47,9 @@ pub enum Error {
     /// The request's object list is not what its interface and method
     /// declare in `.midl` (length, kinds or order; issue #516).
     UndeclaredObject,
+    /// The transaction is still open (`await_reply_now`, issue #725): the
+    /// caller polls again later.
+    WouldBlock,
 }
 
 impl Error {
@@ -78,6 +81,7 @@ impl Error {
                 "an object of the message is not of the kind its slot declares"
             }
             Error::UndeclaredObject => "this request's objects are not what its method declares",
+            Error::WouldBlock => "the transaction is still open",
         }
     }
 }

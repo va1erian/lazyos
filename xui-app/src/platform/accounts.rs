@@ -52,7 +52,7 @@ fn encode_error(_: impl core::fmt::Debug) -> Refusal {
 /// The accounts, and whether the machine still waits for its owner (the
 /// first-boot setup).
 pub fn list() -> Result<(Vec<Account>, bool), Refusal> {
-    let reply = service()?.call_detailed_within(
+    let reply = service()?.call_detailed(
         wire::INTERFACE_ID,
         wire::METHOD_LISTUSERS,
         ERROR_FIELD,
@@ -84,7 +84,7 @@ pub fn create_owner(name: &str, secret: &str) -> Result<(), Refusal> {
     })
     .map_err(encode_error)?;
     service()?
-        .call_detailed_within(
+        .call_detailed(
             wire::INTERFACE_ID,
             wire::METHOD_CREATE,
             ERROR_FIELD,
@@ -103,7 +103,7 @@ pub fn change_own_password(name: &str, old: &str, secret: &str) -> Result<(), Re
     })
     .map_err(encode_error)?;
     service()?
-        .call_detailed_within(
+        .call_detailed(
             wire::INTERFACE_ID,
             wire::METHOD_SETPASSWORD,
             ERROR_FIELD,

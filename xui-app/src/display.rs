@@ -40,6 +40,12 @@ use messenger_generated::errors::ERROR_FIELD;
 /// makes the race one-sided; the retry keeps a manual boot robust.
 const CONNECT_TICKS: u64 = 600;
 
+/// PIT ticks every display call waits (1 s): the compositor answers from
+/// memory, but a queue packed with startup traffic or a hung `xuid` must
+/// not park a UI thread for ever (issue #720). Callers that need more (the
+/// shell's own calls) use [`Client::call_until`] with their own deadline.
+const CALL_TICKS: u64 = 100;
+
 /// PIT ticks the cosmetic `HintOpenOrigin` call may wait for a reply. A hung
 /// compositor must not stall opening a folder window, so the hint is
 /// best-effort and gives up after half a second.
@@ -298,14 +304,14 @@ impl Client {
         self.call(&parcel).map(|_| ())
     }
 
-    /// One synchronous call on the compositor endpoint; a structured error
-    /// reply becomes its negative errno.
+    /// One synchronous call on the compositor endpoint, bounded like every
+    /// UI-thread call: a structured error reply becomes its negative errno.
     fn call(&self, parcel: &Parcel) -> Result<Parcel, i64> {
-        self.call_until(parcel, 0)
+        self.call_until(parcel, sys::clock_ticks().saturating_add(CALL_TICKS))
     }
 
-    /// Like [`Client::call`], bounded by `deadline` (an absolute PIT tick; `0`
-    /// waits forever).
+    /// Like [`Client::call`], bounded by `deadline` (an absolute PIT tick;
+    /// `0` never ends: the shell's own form, which times itself).
     fn call_until(&self, parcel: &Parcel, deadline: u64) -> Result<Parcel, i64> {
         self.call_into(parcel, &mut [0u8; 256], deadline)
     }

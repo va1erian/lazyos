@@ -215,6 +215,7 @@ mod boot_trace_suite;
 mod bufops;
 mod child_process_suite;
 mod chmod_suite;
+mod completion_suite;
 mod confd_suite;
 mod confine_suite;
 mod connect_suite;
@@ -340,6 +341,7 @@ const SUITE: &[&[(&str, Test)]] = &[
     waitset_suite::CASES,
     waitset_ext_suite::CASES,
     waitset_call_suite::CASES,
+    completion_suite::CASES,
     endpoint_fd_suite::CASES,
     acl_suite::CASES,
     credentials_suite::CASES,

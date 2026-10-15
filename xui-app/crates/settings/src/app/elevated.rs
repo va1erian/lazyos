@@ -8,6 +8,11 @@ use xui_core::app::Ui;
 use xui_core::HasText;
 
 use super::{say, user_theme, ConfigStore, Msg, SettingsApp, UserTheme};
+use crate::menu_ops;
+use crate::menu_page::MenuMsg;
+use crate::store::Detached;
+use crate::system::Detached as DetachedSystem;
+use crate::time_page::TimeMsg;
 
 /// What a change that waited on an administrator (or a slow service) reports
 /// back from its worker thread, ready to show.
@@ -17,6 +22,12 @@ pub enum Done {
     Theme(std::result::Result<user_theme::Published, String>),
     /// The status line after the keyboard layout was made the default.
     Keyboard(String),
+    /// The Time & Date page: a machine change a worker performed, or why it
+    /// did not.
+    Time(std::result::Result<String, String>),
+    /// The Menu page: how many entries the saved menu holds, or why the
+    /// save was refused.
+    Menu(std::result::Result<usize, String>),
     /// The worker ended without an answer (it panicked).
     Lost,
 }
@@ -124,6 +135,120 @@ impl SettingsApp {
                     .load(self.store.as_ref(), self.machine.as_ref());
                 say(&self.status, text);
             }
+            // Show what is in effect, not what was refused, then the answer.
+            Done::Time(outcome) => {
+                self.pages
+                    .time
+                    .load(self.store.as_ref(), self.system.as_ref());
+                self.status.set_text(&match outcome {
+                    Ok(text) | Err(text) => text,
+                });
+            }
+            Done::Menu(outcome) => {
+                self.pages.menu.load(self.store.as_ref());
+                self.status.set_text(&match outcome {
+                    Ok(entries) => {
+                        crate::menu_page::report_saved(entries);
+                        String::from("Menu saved.")
+                    }
+                    Err(error) => format!("Menu not saved: {error}"),
+                });
+            }
+        }
+    }
+
+    /// The Time page's message: a machine write waits on an administrator
+    /// at the prompt, so it runs on the worker thread and returns as
+    /// `Msg::Done` (issue #720); the page answers everything else itself.
+    pub(super) fn time_update(
+        &mut self,
+        ui: &Ui<Msg>,
+        msg: TimeMsg,
+        store: &dyn ConfigStore,
+    ) -> String {
+        let detached = self.system.detached();
+        match self
+            .pages
+            .time
+            .change(&msg, store, self.system.as_ref())
+            .filter(|_| detached.is_some())
+        {
+            Some(change) => {
+                self.with_system(ui, detached, move |machine, system| {
+                    Done::Time(crate::time_page::run(change, machine, system))
+                });
+                String::new()
+            }
+            None => self.pages.time.update(msg, store, self.system.as_ref()),
+        }
+    }
+
+    /// The Menu page's message: **Save** is a machine write (it waits on an
+    /// administrator), so it runs on a worker thread and comes back as
+    /// `Msg::Done`; every other message only edits the draft.
+    pub(super) fn menu_update(
+        &mut self,
+        ui: &Ui<Msg>,
+        msg: MenuMsg,
+        store: &dyn ConfigStore,
+    ) -> String {
+        let detached = self.system.detached();
+        if matches!(msg, MenuMsg::Save) && self.pages.menu.unsaved() && detached.is_some() {
+            // TODO(issue #720): edits made while the prompt is up are
+            // dropped by the reload in `finish`; offer them again instead.
+            let draft = self.pages.menu.draft().to_vec();
+            let entries = draft.len();
+            self.with_system(ui, detached, move |machine, _system| {
+                Done::Menu(crate::menu_ops::save(machine, &draft).map(|()| entries))
+            });
+            String::new()
+        } else {
+            self.pages.menu.update(msg, store)
+        }
+    }
+
+    /// Run a machine change that needs its own `System` on the worker (the
+    /// Time and Menu pages: the clock and zone go to `timed` and can wait
+    /// for an administrator, story #720): like [`SettingsApp::elevated`],
+    /// but `job` also gets the page's system connection. When either the
+    /// store or the system cannot be rebuilt on a worker thread (host
+    /// tests), the job runs on the calling thread as before.
+    pub(super) fn with_system<F>(&mut self, ui: &Ui<Msg>, system: Option<DetachedSystem>, job: F)
+    where
+        F: FnOnce(&dyn ConfigStore, &dyn crate::system::System) -> Done + Send + 'static,
+    {
+        if self.busy {
+            return self
+                .status
+                .set_text("Still waiting for the previous change to be approved.");
+        }
+        let detached: Option<Detached> = self.machine.detached();
+        let (Some(detached), Some(system)) = (detached, system) else {
+            let done = job(self.machine.as_ref(), self.system.as_ref());
+            return self.finish(done, ui);
+        };
+        let proxy = ui.proxy();
+        let spawned = std::thread::Builder::new()
+            .name("settings-elevated".into())
+            .spawn(move || {
+                let mut answer = Answer(Some(proxy));
+                // The worker's own copies: the UI's are `Rc`s, and a thread
+                // resolves its service endpoints anyway.
+                let machine: Rc<dyn ConfigStore> = Rc::from(detached());
+                let system = system();
+                let done = job(machine.as_ref(), system.as_ref());
+                if let Some(proxy) = answer.0.take() {
+                    let _ = proxy.send(Msg::Done(done));
+                }
+            });
+        match spawned {
+            Ok(_) => {
+                self.busy = true;
+                self.status.set_text(WAITING);
+            }
+            Err(error) => self
+                .status
+                .set_text(&format!("Could not start the change: {error}")),
         }
     }
 }

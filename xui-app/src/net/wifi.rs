@@ -88,7 +88,7 @@ impl Error {
 fn call(method: u32, body: Vec<u8>) -> Result<Vec<u8>, Error> {
     let service = Service::try_connect(NAME).ok_or(Error::NotRunning)?;
     service
-        .call_within(wire::INTERFACE_ID, method, ERROR_FIELD, body, CALL_TICKS)
+        .call(wire::INTERFACE_ID, method, ERROR_FIELD, body, CALL_TICKS)
         .map(|reply| reply.body)
         .map_err(Error::Code)
 }

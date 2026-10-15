@@ -60,7 +60,7 @@ fn call(
 ) -> Result<Vec<u8>, Error> {
     let endpoint = Service::try_connect(service).ok_or(Error::NotRunning)?;
     endpoint
-        .call_within(interface, method, ERROR_FIELD, body, CALL_TICKS)
+        .call(interface, method, ERROR_FIELD, body, CALL_TICKS)
         .map(|reply| reply.body)
         .map_err(Error::Code)
 }

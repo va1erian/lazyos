@@ -306,4 +306,138 @@ impl TimePage {
             .map_err(|error| format!("Could not set the time: {error}"))?;
         Ok(String::from("Date and time set."))
     }
+
+    /// The machine change `msg` names, checked against what is in effect,
+    /// ready for [`run`] on a worker thread; `None` leaves the message to
+    /// [`TimePage::update`] (it writes nothing, or its friendly refusal is
+    /// a read only).
+    pub fn change(
+        &self,
+        msg: &TimeMsg,
+        store: &dyn ConfigStore,
+        system: &dyn System,
+    ) -> Option<Change> {
+        match msg {
+            TimeMsg::Clock24(on) => Some(Change::Clock24(*on)),
+            TimeMsg::Seconds(on) => Some(Change::Seconds(*on)),
+            TimeMsg::Auto(on) => Some(Change::Auto(*on)),
+            TimeMsg::ApplyServers => Some(Change::Servers(self.servers.text())),
+            TimeMsg::ApplyZone => {
+                let zone = self.zones.selected().and_then(|i| timezone::ZONES.get(i))?;
+                // "Already this zone" costs a read, which asks nobody.
+                if system.now().is_some_and(|now| now.zone == zone.name) {
+                    return None;
+                }
+                Some(Change::Zone(zone.name.to_owned()))
+            }
+            TimeMsg::Apply => {
+                // Only while a time client could put it back: switched on
+                // and networked, as in the page's own answer.
+                let acting = time_ops::ntp_enabled(store)
+                    && system.ntp_status().is_some_and(|status| {
+                        !matches!(
+                            status.state,
+                            NtpState::Disabled | NtpState::WaitingForNetwork
+                        )
+                    });
+                if acting {
+                    return None;
+                }
+                // A typo is answered by the page; a well-formed request
+                // waits for the administrator on the worker.
+                let zone = system
+                    .now()
+                    .and_then(|now| timezone::find(&now.zone))
+                    .unwrap_or_else(timezone::default_zone);
+                time_ops::typed_instant(zone, &self.date.text(), &self.time.text())
+                    .is_ok()
+                    .then(|| Change::Clock(self.date.text(), self.time.text()))
+            }
+            TimeMsg::Now | TimeMsg::Zone(_) | TimeMsg::SyncNow => None,
+        }
+    }
+}
+
+/// A machine change the Time page raised, captured on the UI thread and run
+/// on the worker thread ([`run`]): every one of them asks an administrator
+/// at the prompt, which the window must not spend standing still (issue
+/// #720). The friendly guards (already this zone, the clock is set
+/// automatically, a typo) are checked on the calling thread first, so a
+/// change that would only report is never taken.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Change {
+    Clock24(bool),
+    Seconds(bool),
+    /// Switch automatic time.
+    Auto(bool),
+    /// Store the server list as typed in its field.
+    Servers(String),
+    /// Switch to this zone name.
+    Zone(String),
+    /// Set the clock from the typed date and local time.
+    Clock(String, String),
+}
+
+/// Run a captured change against a worker thread's store and connection,
+/// and say what it left in effect. Takes the *machine* store: the page's
+/// `sys/**` writes go through `elevd` there.
+pub fn run(
+    change: Change,
+    store: &dyn ConfigStore,
+    system: &dyn System,
+) -> std::result::Result<String, String> {
+    match change {
+        Change::Clock24(on) => time_ops::set_clock24(store, on).map(|_| {
+            String::from(if on {
+                "Clock shows 24-hour time."
+            } else {
+                "Clock shows 12-hour time."
+            })
+        }),
+        Change::Seconds(on) => time_ops::set_show_seconds(store, on).map(|_| {
+            String::from(if on {
+                "Clock shows seconds."
+            } else {
+                "Clock hides seconds."
+            })
+        }),
+        Change::Auto(on) => time_ops::set_ntp_enabled(store, on).map(|_| {
+            String::from(if on {
+                "The clock is set automatically when there is a network."
+            } else {
+                "The clock is set by hand."
+            })
+        }),
+        Change::Servers(text) => {
+            time_ops::set_ntp_servers(store, &text).map(|_| String::from("Time servers saved."))
+        }
+        Change::Zone(zone) => system
+            .set_zone(&zone)
+            .map(|()| format!("Time zone set to {zone}.")),
+        // The zone is read once more: the prompt may have taken long enough
+        // for it to change, and `timed` answers in its own zone.
+        Change::Clock(date, time) => {
+            let zone = system
+                .now()
+                .and_then(|now| timezone::find(&now.zone))
+                .unwrap_or_else(timezone::default_zone);
+            let unix = time_ops::typed_instant(zone, &date, &time)?;
+            if unix < sntp::CLOCK_FLOOR_UNIX {
+                // `timed` would refuse it too; say why, in the user's terms.
+                let floor = time_ops::fields(&crate::system::Now {
+                    unix: sntp::CLOCK_FLOOR_UNIX,
+                    offset: 0,
+                    zone: String::from("UTC"),
+                });
+                return Err(format!(
+                    "The clock cannot be set earlier than {} (UTC).",
+                    floor.0
+                ));
+            }
+            system
+                .set_time(unix)
+                .map(|()| String::from("Date and time set."))
+                .map_err(|error| format!("Could not set the time: {error}"))
+        }
+    }
 }

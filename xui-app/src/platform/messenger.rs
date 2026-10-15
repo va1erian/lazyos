@@ -113,8 +113,12 @@ impl Service {
         Some(Service { name, endpoint })
     }
 
-    /// One synchronous call on the service; a structured error field `error_id`
-    /// in the reply becomes its negative errno.
+    /// One synchronous call on the service, bounded by `ticks` PIT ticks
+    /// (give up with `-ETIMEDOUT` afterwards): a call whose UI must not
+    /// freeze behind a stalled or missing service. `0` counts as `1`: a
+    /// deadline-less call needs [`Service::call_unbounded`] and a worker
+    /// thread. A structured error field `error_id` in the reply becomes its
+    /// negative errno.
     ///
     /// A dead peer (`-EPIPE`, or `-ENOENT` from a reaped registration) evicts
     /// the cached endpoint so a later call resolves the service again.
@@ -124,8 +128,9 @@ impl Service {
         method: u32,
         error_id: u16,
         body: Vec<u8>,
+        ticks: u64,
     ) -> Result<Parcel, i64> {
-        self.call_detailed(interface, method, error_id, body)
+        self.call_detailed(interface, method, error_id, body, ticks)
             .map_err(|error| error.code)
     }
 
@@ -133,49 +138,6 @@ impl Service {
     /// caller that shows the refusal to the user (the package installer shows
     /// why `pkgd` declined).
     pub fn call_detailed(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-    ) -> Result<Parcel, CallError> {
-        self.call_at(interface, method, error_id, body, 0)
-    }
-
-    /// [`Service::call`] that gives up at `deadline` (an absolute PIT tick;
-    /// `0` waits forever) with `-ETIMEDOUT`, for a caller whose UI must not
-    /// freeze behind a stalled service (the desktop shell).
-    pub fn call_until(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        deadline: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_at(interface, method, error_id, body, deadline)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call`] that gives up with `-ETIMEDOUT` after `ticks` PIT
-    /// ticks, for a caller on the UI thread that must not wait forever on a
-    /// peer that accepted the request but never answers (the Task Manager's
-    /// once-a-second snapshots).
-    pub fn call_within(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        ticks: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_detailed_within(interface, method, error_id, body, ticks)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call_within`] keeping the service's friendly error text
-    /// (the print spooler's refusals reach LazyWriter's status line).
-    pub fn call_detailed_within(
         &self,
         interface: u64,
         method: u32,
@@ -189,6 +151,49 @@ impl Service {
             .saturating_add(ticks.max(1))
             .max(sys::EXPIRED_DEADLINE + 1);
         self.call_at(interface, method, error_id, body, deadline)
+    }
+
+    /// [`Service::call_until`] bounded by an absolute PIT tick (`0` waits
+    /// forever): the shell's own form, which already knows its window. A
+    /// deadline-less use is a UI-thread caller — see
+    /// [`Service::call_unbounded`] — and must not grow here.
+    pub fn call_until(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, i64> {
+        self.call_at(interface, method, error_id, body, deadline)
+            .map_err(|error| error.code)
+    }
+
+    /// A deadline-less call: never on the UI thread, which parks until the
+    /// service answers and cannot repaint while it waits. The tree's worker
+    /// threads (Settings' machine writes, Files' paste) may call it; every
+    /// UI-thread site in `xui-app` is [`Service::call`] or stricter, which
+    /// the `tools/xui/check_call_bounds.py` CI step enforces.
+    pub fn call_unbounded(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+    ) -> Result<Parcel, i64> {
+        self.call_detailed_unbounded(interface, method, error_id, body)
+            .map_err(|error| error.code)
+    }
+
+    /// [`Service::call_unbounded`] keeping the service's friendly error text.
+    pub fn call_detailed_unbounded(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+    ) -> Result<Parcel, CallError> {
+        self.call_at(interface, method, error_id, body, 0)
     }
 
     /// [`Service::call_within`] whose request carries `objects` (what the

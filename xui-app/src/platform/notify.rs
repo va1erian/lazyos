@@ -107,7 +107,7 @@ pub fn close(id: u64) -> Result<(), i64> {
     let service = Service::try_connect(NAME).ok_or(-errno::ENOENT)?;
     let body = wire::encode_close_args(&wire::CloseArgs { id }).map_err(|_| -errno::EINVAL)?;
     service
-        .call_within(
+        .call(
             wire::INTERFACE_ID,
             wire::METHOD_CLOSE,
             ERROR_FIELD,
@@ -135,7 +135,7 @@ pub fn post(notice: &Notice) -> Result<u64, i64> {
         timeout: notice.timeout_ms,
     })
     .map_err(|_| -errno::EINVAL)?;
-    let reply = service.call_within(
+    let reply = service.call(
         wire::INTERFACE_ID,
         wire::METHOD_NOTIFY,
         ERROR_FIELD,

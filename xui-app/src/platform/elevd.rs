@@ -55,7 +55,7 @@ fn request_within(
         code: -errno::EINVAL,
         message: String::from("the request could not be encoded"),
     })?;
-    let reply = service.call_detailed_within(
+    let reply = service.call_detailed(
         wire::INTERFACE_ID,
         wire::METHOD_REQUEST,
         ERROR_FIELD,
@@ -81,7 +81,7 @@ pub fn describe(error: &CallError) -> String {
 /// End this program's standing approvals (best effort).
 pub fn release() {
     if let Some(service) = Service::try_connect(NAME) {
-        let _ = service.call_within(
+        let _ = service.call(
             wire::INTERFACE_ID,
             wire::METHOD_RELEASE,
             ERROR_FIELD,

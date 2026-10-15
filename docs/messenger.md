@@ -248,7 +248,12 @@ history are in [`architecture/ipc-core.md`](architecture/ipc-core.md),
 
 `msg_send(handle, method, parcel, flags=ONE_WAY)` enqueues and returns
 immediately. Guarantees: at-most-once per boot; ordering preserved per sender→
-receiver channel; no reply.
+receiver channel; no reply. For callers that do not want to park on a reply
+at all, split `call` (`begin_call` + `await_reply`) extends to true
+completion: every terminal transition lands on the caller's completion
+queue, whose `WAIT_CALLS` doorbell one `wait` names beside endpoints,
+timers and the `WAIT_FD` descriptor, and `CALL_CHECK`/`CALL_DRAIN` take
+the outcomes — [`docs/architecture/call-completion.md`](architecture/call-completion.md).
 
 ### 7.2 Topics
 
