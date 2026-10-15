@@ -112,6 +112,9 @@ fn lines_are_whole_or_absent() -> Result<(), String> {
 /// loses nothing; against a consumer that takes nothing it loses whole lines.
 fn program_write_waits_for_room() -> Result<(), String> {
     let port = serial::divert_for_test(64);
+    // The write needs a few thousand bytes of room, drained 32 at a round: a
+    // slow host does not manage that within the real wait of five ticks.
+    serial::scale_waits_for_test(50);
     let kernel = kernel_line(200);
     while serial::queued_len() < RING - 2048 - 300 {
         serial::_write_str(&kernel);

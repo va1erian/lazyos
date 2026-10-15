@@ -167,6 +167,9 @@ fn mirror_returns_to_a_killed_caller() -> Result<(), String> {
 /// backlog and its bytes are out, and not before.
 fn mirror_waits_for_its_own_bytes() -> Result<(), String> {
     let port = serial::divert_for_test(64);
+    // 2000 bytes at 64 a call is about sixty rounds of UART accesses: a slow
+    // host does not get through them in the write's two ticks.
+    serial::scale_waits_for_test(50);
     let text = line(400);
     for _ in 0..5 {
         serial::_write_str(&text);
