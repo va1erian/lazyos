@@ -106,8 +106,7 @@ const DRAIN_OWN_MAX: usize = 1024;
 /// Most rounds the kernel task's drain runs per pass (a ring's worth of
 /// chunks), so even a caller that cannot let a tick in ends.
 const MIRROR_MAX_ROUNDS: usize = tx::Tx::CAPACITY / tx::CHUNK + 8;
-/// Timer ticks (10 ms) of real time, measured on the TSC, a program write
-/// waits for its own bytes to go out.
+/// Ticks (10 ms, real time on the TSC) a program write waits for its own bytes.
 const MIRROR_WAIT_TICKS: u64 = 2;
 /// Ticks of real time a program write waits for room in the ring before it
 /// drops lines.
@@ -403,6 +402,8 @@ fn count_dropped(bytes: usize) {
 
 /// TSC cycles in `ticks` timer ticks (a guess before the timer is calibrated).
 fn cycles_in_ticks(ticks: u64) -> u64 {
+    #[cfg(lazyos_tests)]
+    let ticks = ticks * testhooks::WAIT_SCALE.load(Ordering::Relaxed);
     match crate::arch::clock::cycles_per_tick() {
         0 => ticks * 30_000_000,
         per_tick => per_tick * ticks,
