@@ -421,7 +421,33 @@ fn final_line_survives_a_held_lock() -> Result<(), String> {
     Ok(())
 }
 
+/// A program line whose newline comes later (`ls` ends its last entry that
+/// way) is ended before a trace, which then starts at column 0.
+fn trace_does_not_glue_to_a_program_tail() -> Result<(), String> {
+    let port = serial::divert_for_test(0);
+    serial::mirror(b"PROG:tail without a newline");
+    serial::write_trace(b"TRACETEST:own line\n");
+    serial::mirror(b"\n");
+    let (lines, ends) = ring_lines();
+    drop(port);
+    check!(ends, "the ring ends in the middle of a line");
+    let lines: Vec<&str> = lines
+        .iter()
+        .map(String::as_str)
+        .filter(|l| !l.is_empty())
+        .collect();
+    check!(
+        lines == ["PROG:tail without a newline", "TRACETEST:own line"],
+        "the trace was glued to the program's line: {lines:?}"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
+    (
+        "serial_ring_trace_does_not_glue_to_a_program_tail",
+        trace_does_not_glue_to_a_program_tail,
+    ),
     (
         "serial_ring_lines_are_whole_or_absent",
         lines_are_whole_or_absent,
