@@ -293,25 +293,50 @@ impl Drop for Listener {
     }
 }
 
-/// A [`Listener`]'s readiness, which any thread may wait on. Once the listener is closed (dropped,
-/// or the shell restarted) it reads ready for ever: the poll then finds out.
+/// A [`Listener`]'s readiness, which any thread may wait on. Once the shell's end is closed (it
+/// restarted) or the listener is dropped, it reads [`Readiness::Hangup`].
 pub struct Watch {
     fd: std::os::fd::OwnedFd,
 }
 
+/// What a [`Watch::wait`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    /// An event is queued: poll the listener.
+    Ready,
+    /// The shell's end is closed (it restarted) or the channel is gone: the listener is dead, and
+    /// a poll would find nothing for ever (the descriptor stays readable).
+    Hangup,
+    /// Nothing within the time given, or the wait failed (treated as nothing, never as news, so a
+    /// broken descriptor cannot make the caller spin).
+    Idle,
+}
+
 impl Watch {
-    /// Parks the calling thread until an event may be waiting or `timeout` passes. True when the
-    /// listener should be polled.
-    pub fn wait(&self, timeout: std::time::Duration) -> bool {
+    /// Parks the calling thread until an event is waiting, the channel hangs up, or `timeout`
+    /// passes. Level-triggered: a queued event stays [`Readiness::Ready`] until it is received.
+    pub fn wait(&self, timeout: std::time::Duration) -> Readiness {
         use std::os::fd::AsRawFd;
-        let Ok(fd) = u32::try_from(self.fd.as_raw_fd()) else {
-            return true;
+        let mut entry = libc::pollfd {
+            fd: self.fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
         };
-        let nanos = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
-        let deadline = sys::monotonic_ns().saturating_add(nanos);
-        match sys::msg_wait_any_ns(&[], lazyos_sys::msg::wait_fd(fd), deadline) {
-            Ok(_) => true,
-            Err(code) => code != -errno::ETIMEDOUT,
+        let millis = libc::c_int::try_from(timeout.as_millis()).unwrap_or(libc::c_int::MAX);
+        // SAFETY: one `pollfd` that lives for the call; the kernel writes only its `revents`.
+        let found = unsafe { libc::poll(&mut entry, 1, millis) };
+        if found <= 0 {
+            return Readiness::Idle;
+        }
+        if entry.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            // Events the shell queued before it went may still be there (POLLIN | POLLHUP): the
+            // caller takes them with a last poll before it drops the listener.
+            return Readiness::Hangup;
+        }
+        if entry.revents & libc::POLLIN != 0 {
+            Readiness::Ready
+        } else {
+            Readiness::Idle
         }
     }
 }

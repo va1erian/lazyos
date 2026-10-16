@@ -219,7 +219,8 @@ def perform(qmp: Qmp, action: str, step: dict, serial: SerialLog | None = None,
         qmp.key_up(step["key_up"])
     elif action == "mouse_move":
         dx, dy = step["mouse_move"]
-        qmp.mouse_move(dx, dy)
+        # `delay`: seconds after each PS/2 packet (a real mouse reports at 200 Hz: 0.005).
+        qmp.mouse_move(dx, dy, delay=float(step.get("delay", 0.02)))
     elif action == "mouse_down":
         qmp.mouse_down(step["mouse_down"])
     elif action == "mouse_up":

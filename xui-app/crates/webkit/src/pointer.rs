@@ -6,10 +6,11 @@
 //! only fills one slot (the latest position, buttons and modifiers), and one task is queued while
 //! the slot is pending; that task delivers whatever the slot holds when it runs.
 //!
-//! Order is kept: a press, a release or a wheel first takes the pending move out of the slot and
+//! Order is kept: a press, a release, a wheel or a key first takes the pending move out of the slot and
 //! queues it as an event of its own, ahead of itself, and makes the task already queued for the slot
 //! a no-op (each task carries the number of the slot's turn it was queued for). A move after that
-//! queues a new task, behind the press.
+//! queues a new task, behind the press. Other calls (a resize, the focus, a load) do not touch the
+//! slot: a move may reach the page before one of those queued earlier, which nothing depends on.
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

@@ -2,6 +2,7 @@
 //! trait: each queues work for WebKit's main thread and returns.
 
 use std::ffi::{c_char, c_int, c_void};
+use std::sync::OnceLock;
 
 use crate::abi::c_string;
 use crate::engine::{Button, Engine, MouseKind, NotifyAnswer};
@@ -32,6 +33,8 @@ extern "C" {
     fn lzw_engine_blocking_load(id: *const c_char);
     fn lzw_engine_blocking_compile(id: *const c_char, json: *const c_char);
     fn lzw_engine_blocking_forget(id: *const c_char);
+    // Defined by the window's crate (`window_ffi.rs`, `xui-app/webplus`).
+    fn lzw_ui_say(line: *const c_char);
 }
 
 /// The pointer moves waiting for WebKit's main thread (issue #890): one slot, one task.
@@ -51,6 +54,30 @@ extern "C" fn deliver_move(context: *mut c_void) {
             )
         }
     }
+}
+
+/// Whether moves are merged (issue #890). Only an image built with the UI probe reads
+/// `<profile>/pointer-mode`: `each` forwards every move as before, so a harness can compare the two
+/// in one image (as `paint-mode` does for painting, `webkit/port/app/paint.cpp`). Read once, at the
+/// first move, and said as `INFO:POINTER:mode=merged|each`.
+fn merging() -> bool {
+    static MERGING: OnceLock<bool> = OnceLock::new();
+    *MERGING.get_or_init(|| {
+        let each = xui_app::probe::enabled()
+            && std::env::var_os("LAZYOS_WEBKIT_PROFILE")
+                .and_then(|profile| {
+                    std::fs::read_to_string(std::path::Path::new(&profile).join("pointer-mode")).ok()
+                })
+                .is_some_and(|text| text.trim() == "each");
+        let line = c_string(if each {
+            "INFO:POINTER:mode=each"
+        } else {
+            "INFO:POINTER:mode=merged"
+        });
+        // SAFETY: a NUL-terminated string that outlives the call; the window copies it.
+        unsafe { lzw_ui_say(line.as_ptr()) };
+        !each
+    })
 }
 
 /// Queues the move still waiting in the slot ahead of another pointer event, so the page sees the
@@ -106,15 +133,19 @@ impl Engine for FfiEngine {
     }
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32) {
         if matches!(kind, MouseKind::Move) {
-            let update = Move { button, x, y, mods };
-            if let Some(turn) = MOVES.offer(update) {
-                // SAFETY: `deliver_move` takes the turn number back as the context; no pointer is
-                // dereferenced.
-                unsafe { lzw_engine_run_on_main(deliver_move, turn as *mut c_void) }
+            if merging() {
+                let update = Move { button, x, y, mods };
+                if let Some(turn) = MOVES.offer(update) {
+                    // SAFETY: `deliver_move` takes the turn number back as the context; no pointer
+                    // is dereferenced.
+                    unsafe { lzw_engine_run_on_main(deliver_move, turn as *mut c_void) }
+                }
+                return;
             }
-            return;
+        } else {
+            // A move is not a gesture: it must not let a page start a program.
+            crate::gesture::stamp();
         }
-        crate::gesture::stamp();
         flush_move();
         // SAFETY: plain integers.
         unsafe { lzw_engine_mouse(kind.code(), button.code(), x, y, mods) }
@@ -125,6 +156,8 @@ impl Engine for FfiEngine {
         unsafe { lzw_engine_wheel(x, y, ticks_x, ticks_y, mods) }
     }
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32) {
+        // A key after a move reaches the page after it (a Shift held while hovering, a drag).
+        flush_move();
         if press {
             crate::gesture::stamp();
         }

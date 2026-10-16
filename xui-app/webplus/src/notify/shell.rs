@@ -16,7 +16,7 @@
 //! restarted, and its toasts with it), every toast still open is reported closed, so a lost
 //! `Closed` cannot keep the worker waiting for ever.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -40,9 +40,12 @@ pub enum Event {
         toast: u64,
         reason: Reason,
     },
-    /// The event channel is gone (the shell restarted): nothing more will be heard of the toasts
-    /// posted so far, and the shell no longer shows them.
-    Lost,
+    /// Event channel `channel` is gone (the shell restarted): nothing more will be heard of the
+    /// toasts posted while it was there, and the shell no longer shows them. Toasts posted on a
+    /// newer channel are not concerned.
+    Lost {
+        channel: u64,
+    },
 }
 
 /// A toast the shell took.
@@ -50,8 +53,9 @@ pub enum Event {
 pub struct Posted {
     /// The shell's id for it.
     pub toast: u64,
-    /// The event channel was there when it was posted, so its click and its close will be heard.
-    pub heard: bool,
+    /// The event channel that was there when it was posted (each new one has a higher number), so
+    /// its click and its close will be heard; `None` without one.
+    pub heard: Option<u64>,
 }
 
 /// The shell, as the worker uses it: the platform's notification client (`xui_app::platform::notify`
@@ -126,8 +130,8 @@ impl Drop for ShellWorker {
 }
 
 fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>, wake: &dyn Fn()) {
-    // Toasts made and not yet reported closed.
-    let mut open: HashSet<u64> = HashSet::new();
+    // Toasts made and not yet reported closed, with the event channel that will tell of them.
+    let mut open: HashMap<u64, u64> = HashMap::new();
     loop {
         let job = if open.is_empty() {
             inbox.recv().map_err(|_| RecvTimeoutError::Disconnected)
@@ -138,8 +142,8 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
         match job {
             Ok(Job::Post(key, toast)) => match shell.post(&toast) {
                 Ok(posted) => {
-                    if posted.heard {
-                        open.insert(posted.toast);
+                    if let Some(channel) = posted.heard {
+                        open.insert(posted.toast, channel);
                     }
                     news.push(ShellNews::Posted {
                         key,
@@ -149,7 +153,7 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
                 Err(_) => news.push(ShellNews::Failed { key }),
             },
             Ok(Job::Close(toast)) => {
-                if open.remove(&toast) {
+                if open.remove(&toast).is_some() {
                     shell.close(toast);
                 }
             }
@@ -164,11 +168,19 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
                         open.remove(&toast);
                         news.push(ShellNews::Closed { toast, reason });
                     }
-                    Event::Lost => {
-                        news.extend(open.drain().map(|toast| ShellNews::Closed {
-                            toast,
-                            reason: Reason::Restart,
-                        }));
+                    Event::Lost { channel } => {
+                        let gone: Vec<u64> = open
+                            .iter()
+                            .filter(|(_, heard)| **heard == channel)
+                            .map(|(toast, _)| *toast)
+                            .collect();
+                        for toast in gone {
+                            open.remove(&toast);
+                            news.push(ShellNews::Closed {
+                                toast,
+                                reason: Reason::Restart,
+                            });
+                        }
                     }
                 }
             }
@@ -181,7 +193,7 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
         }
     }
     let began = Instant::now();
-    for toast in open {
+    for toast in open.into_keys() {
         if began.elapsed() > CLEAN_UP {
             break;
         }
@@ -218,6 +230,8 @@ mod tests {
         refuse: bool,
         /// Posts are made with no event channel.
         deaf: bool,
+        /// The event channel posts are heard on.
+        channel: u64,
         next: u64,
         waits: u32,
     }
@@ -234,7 +248,7 @@ mod tests {
             script.posted.push(toast.title.clone());
             Ok(Posted {
                 toast: script.next,
-                heard: !script.deaf,
+                heard: (!script.deaf).then_some(script.channel),
             })
         }
         fn close(&mut self, toast: u64) {
@@ -369,7 +383,11 @@ mod tests {
             (seen == 2).then_some(())
         });
         assert!(!settled(&script), "waits for news while toasts are up");
-        script.lock().unwrap().events = vec![Event::Lost];
+        // A toast posted on the shell's next channel is not the old channel's to close.
+        script.lock().unwrap().channel = 1;
+        worker.post(3, toast("c.test"));
+        eventually(|| Some(worker.drain()).filter(|n| !n.is_empty()));
+        script.lock().unwrap().events = vec![Event::Lost { channel: 0 }];
         let mut news = Vec::new();
         eventually(|| {
             news.extend(worker.drain());
@@ -391,6 +409,16 @@ mod tests {
                     reason: Reason::Restart
                 }
             ]
+        );
+        assert!(!settled(&script), "toast 3 is still waited for");
+        script.lock().unwrap().events = vec![Event::Lost { channel: 1 }];
+        let news = eventually(|| Some(worker.drain()).filter(|n| !n.is_empty()));
+        assert_eq!(
+            news,
+            vec![ShellNews::Closed {
+                toast: 3,
+                reason: Reason::Restart
+            }]
         );
         assert!(settled(&script), "nothing left to wait for");
     }

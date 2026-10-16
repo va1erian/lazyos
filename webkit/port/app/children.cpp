@@ -214,7 +214,9 @@ int shutdownChildren()
 
     // A grace period for the processes to flush and exit, then SIGKILL of each group, repeated every
     // step: a thread that is inside the kernel is not killed until the call returns (issue #858).
-    // Collecting is the launcher's (under its lock); each child's end arrives as an event.
+    // Collecting is the launcher's (under its lock); each child's end arrives as an event, after the
+    // lock is released and possibly from a reaper thread that is delivering (issue #891), so a step
+    // may see it one step late; the loop's give-up bound is far longer than a step.
     const long began = monotonicMs();
     for (;;) {
         lzw_launcher_reap();

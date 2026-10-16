@@ -31,44 +31,46 @@ impl Saver {
         self.shared.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Queues `settings` for `persist`, replacing a snapshot that is still waiting, and returns at
-    /// once. Callers hand snapshots over in the order they were taken (the blocker does it under its
-    /// settings lock), so the last one written is the newest.
-    pub fn submit(&self, persist: Arc<dyn Persist>, settings: Settings) {
-        let start = {
-            let mut state = self.lock();
-            state.pending = Some((persist, settings));
-            !std::mem::replace(&mut state.running, true)
-        };
-        if !start {
-            return;
-        }
+    /// Queues `settings` for `persist`, replacing a snapshot that is still waiting. Callers hand
+    /// snapshots over in the order they were taken (the blocker does it under its settings lock), so
+    /// the last one written is the newest. True when the caller must call [`Saver::start`] (after
+    /// releasing its own lock: starting a thread is not something to do under it).
+    #[must_use]
+    pub fn submit(&self, persist: Arc<dyn Persist>, settings: Settings) -> bool {
+        let mut state = self.lock();
+        state.pending = Some((persist, settings));
+        !std::mem::replace(&mut state.running, true)
+    }
+
+    /// Starts the thread that writes what [`Saver::submit`] queued.
+    pub fn start(&self) {
         let saver = self.clone();
         let spawned = thread::Builder::new()
             .name(String::from("blocksave"))
             .spawn(move || saver.run());
         if spawned.is_err() {
             // No thread (task_max, memory): the snapshot stays queued for the next change or the
-            // flush at the end, which write it. Never here: the caller holds the settings lock.
+            // flush at the end, which write it.
             self.lock().running = false;
+            self.shared.1.notify_all();
         }
     }
 
-    /// Writes snapshots until none is waiting.
+    /// Writes snapshots until none is waiting. `running` is put down however this ends, a store
+    /// that panics included, so a later change is still written.
     fn run(&self) {
+        struct Done<'a>(&'a Saver);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.lock().running = false;
+                self.0.shared.1.notify_all();
+            }
+        }
+        let _done = Done(self);
         loop {
-            let next = {
-                let mut state = self.lock();
-                match state.pending.take() {
-                    Some(next) => next,
-                    None => {
-                        state.running = false;
-                        self.shared.1.notify_all();
-                        return;
-                    }
-                }
+            let Some((persist, settings)) = self.lock().pending.take() else {
+                return;
             };
-            let (persist, settings) = next;
             persist.save(&settings);
         }
     }
@@ -78,14 +80,18 @@ impl Saver {
     pub fn flush(&self, limit: Duration) -> bool {
         let until = Instant::now() + limit;
         let mut state = self.lock();
-        if !state.running && state.pending.is_some() {
-            // Queued when no thread could start: written now, on the flushing thread.
-            state.running = true;
-            drop(state);
-            self.run();
-            state = self.lock();
-        }
-        while state.running {
+        loop {
+            if !state.running && state.pending.is_some() {
+                // Queued when no thread could start: written now, on the flushing thread.
+                state.running = true;
+                drop(state);
+                self.run();
+                state = self.lock();
+                continue;
+            }
+            if !state.running {
+                return true;
+            }
             let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 return false;
@@ -97,6 +103,5 @@ impl Saver {
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
         }
-        true
     }
 }

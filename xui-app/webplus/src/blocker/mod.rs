@@ -214,12 +214,13 @@ impl Blocker {
     /// WebKit's main thread. The window is woken.
     pub fn attach(&self, persist: Arc<dyn Persist>) {
         let stored = persist.load();
+        let mut start = false;
         let wake = {
             let mut guard = self.lock();
             guard.persist = Arc::clone(&persist);
             if guard.touched {
                 // Written by the saver, queued under the lock: a later change's snapshot follows it.
-                self.saver.submit(persist, guard.settings.clone());
+                start = self.saver.submit(persist, guard.settings.clone());
             } else {
                 let Inner {
                     settings, lists, ..
@@ -231,6 +232,9 @@ impl Blocker {
             }
             guard.wake.clone()
         };
+        if start {
+            self.saver.start();
+        }
         // The window's wake-up runs with no lock of ours held: it may call back into the blocker.
         if let Some(wake) = wake {
             wake();
@@ -273,20 +277,25 @@ impl Blocker {
     /// Applies `change` at once and queues the save: a save is calls to a service, and this runs on
     /// the window's thread (issue #894), so it is written by the saver's thread instead.
     fn change(&self, change: impl FnOnce(&mut Settings)) {
-        let mut guard = self.lock();
-        let Inner {
-            settings,
-            lists,
-            touched,
-            persist,
-            ..
-        } = &mut *guard;
-        change(settings);
-        for list in lists.iter_mut() {
-            list.enabled = !settings.lists_off.contains(list.id);
+        let start = {
+            let mut guard = self.lock();
+            let Inner {
+                settings,
+                lists,
+                touched,
+                persist,
+                ..
+            } = &mut *guard;
+            change(settings);
+            for list in lists.iter_mut() {
+                list.enabled = !settings.lists_off.contains(list.id);
+            }
+            *touched = true;
+            self.saver.submit(Arc::clone(persist), settings.clone())
+        };
+        if start {
+            self.saver.start();
         }
-        *touched = true;
-        self.saver.submit(Arc::clone(persist), settings.clone());
     }
 
     pub fn set_enabled(&self, on: bool) {
