@@ -4,55 +4,44 @@ A content rule list (ENABLE_CONTENT_EXTENSIONS, LazyWeb+'s ad blocker, issue #84
 into a file, mapped, and handed to the WebProcess and the NetworkProcess as shared memory:
 API::createExtension (APIContentRuleListStore.cpp) asks the mapped NetworkCache::Data for
 tryCreateSharedMemory(). The curl backend defines that only for Windows (a file mapping
-handle), so WebKit's UI process did not link with content extensions on. The GLib backend
-keeps the mapped file's descriptor next to the map and wraps both as SharedMemory; the curl
-one dropped the descriptor in adoptMap. It now keeps it (m_fileHandle, as GLib's does) and
-wraps the map the same way on Unix-domain-socket platforms (LazyOS), where SharedMemory::wrapMap
-does not close the descriptor (the Data's handle does) and createHandle sends a duplicate.
+handle), so WebKit's UI process did not link with content extensions on.
 
---- a/Source/WebKit/NetworkProcess/cache/NetworkCacheData.h
-+++ b/Source/WebKit/NetworkProcess/cache/NetworkCacheData.h
-@@ -108,6 +108,8 @@
- #endif
- #if USE(CURL)
-     Box<Variant<Vector<uint8_t>, FileSystem::MappedFileData>> m_buffer;
-+    // LazyOS: kept with the map so it can be shared with another process (tryCreateSharedMemory).
-+    Box<FileSystem::FileHandle> m_fileHandle;
- #endif
-     bool m_isMap { false };
- };
+On Unix-domain-socket platforms (LazyOS) the mapped bytes are copied into shared memory of
+their own (SharedMemory::allocate: a memfd the SharedMemory owns, with its mapping), the copy
+the other processes map. adoptMap is left as upstream has it: it closes the file's descriptor.
+An earlier version of this patch kept that descriptor in every mapped Data, as GLib's backend
+does, and wrapped it (issue #892): a NetworkProcess then held one descriptor per mapped cache
+entry, on the way to fd_max, and the SharedMemory named the Data's descriptor and mapping, so
+one that outlived the Data (a WebCompiledContentRuleListData copy outliving its
+API::ContentRuleList, which destroys its mapped file first) would have named a closed
+descriptor and an unmapped range. The copy owns everything it names and lives as long as its
+last reference; it costs one copy of the compiled list in the UI process, made when a list is
+compiled or looked up. Only the UI process calls this: ENABLE_SHAREABLE_RESOURCE, the cache's
+other caller, is off in this port.
+
 --- a/Source/WebKit/NetworkProcess/cache/NetworkCacheDataCurl.cpp
 +++ b/Source/WebKit/NetworkProcess/cache/NetworkCacheDataCurl.cpp
-@@ -108,9 +108,11 @@
- Data Data::adoptMap(FileSystem::MappedFileData&& mappedFile, FileSystem::FileHandle&& fileHandle)
- {
-     ASSERT(mappedFile);
--    fileHandle = { };
--
--    return { WTF::move(mappedFile) };
-+    // LazyOS: the handle stays with the map, so the map can be shared with another process
-+    // (tryCreateSharedMemory below: a content rule list travels to the web processes that way).
-+    Data data { WTF::move(mappedFile) };
-+    data.m_fileHandle = Box<FileSystem::FileHandle>::create(WTF::move(fileHandle));
-+    return data;
- }
- 
- #if ENABLE(SHAREABLE_RESOURCE) && OS(WINDOWS)
-@@ -126,6 +128,19 @@
+@@ -126,6 +126,25 @@
      return WebCore::SharedMemory::map({ WTF::move(newHandle), size() }, WebCore::SharedMemory::Protection::ReadOnly);
  }
  #endif
 +
 +#if USE(UNIX_DOMAIN_SOCKETS)
++// LazyOS: shared memory of its own holding a copy of the mapped bytes. It owns its descriptor and
++// its mapping, so nothing it names depends on how long this Data lives, and the Data keeps no
++// descriptor (adoptMap closes it, as upstream does: a mapped cache entry costs none, issue #892).
 +RefPtr<WebCore::SharedMemory> Data::tryCreateSharedMemory() const
 +{
-+    if (isNull() || !isMap() || !m_fileHandle || !m_fileHandle->isValid())
++    if (isNull() || !isMap())
 +        return nullptr;
 +
-+    auto& mapped = std::get<FileSystem::MappedFileData>(*m_buffer);
-+    // The wrapper does not close the descriptor (this Data's handle does); createHandle sends a
-+    // duplicate to the process that maps it.
-+    return WebCore::SharedMemory::wrapMap(const_cast<uint8_t*>(mapped.span().data()), mapped.size(), m_fileHandle->platformHandle());
++    auto bytes = span();
++    RefPtr memory = WebCore::SharedMemory::allocate(bytes.size());
++    if (!memory)
++        return nullptr;
++
++    memcpySpan(memory->mutableSpan(), bytes);
++    return memory;
 +}
 +#endif
  

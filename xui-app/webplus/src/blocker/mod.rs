@@ -19,16 +19,19 @@
 
 pub mod lists;
 pub mod page;
+pub mod saver;
 pub mod update;
 pub mod worker;
 
 use std::collections::BTreeSet;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use xui_webkit::abi::ListStatus;
 
 pub use lists::{ListSpec, LISTS};
+use saver::Saver;
 use worker::Cmd;
 
 /// What the user chose.
@@ -91,7 +94,8 @@ impl Settings {
     }
 }
 
-/// Where [`Settings`] are kept. Called from the window's thread and the engine's.
+/// Where [`Settings`] are kept. `load` is called by whoever makes or attaches the blocker, `save`
+/// only by the [`Saver`]'s thread, never the window's.
 pub trait Persist: Send + Sync {
     fn load(&self) -> Settings;
     fn save(&self, settings: &Settings);
@@ -159,10 +163,9 @@ struct Inner {
 #[derive(Clone)]
 pub struct Blocker {
     inner: Arc<Mutex<Inner>>,
-    /// Held from the moment a settings snapshot is taken until it is saved, so two saves (a change
-    /// and `attach`'s) reach the store in the order their snapshots were taken: the newer wins. Taken
-    /// before `inner`, and never by the policy callback, which only takes `inner`.
-    saves: Arc<Mutex<()>>,
+    /// Writes the settings on a thread of its own (a save is calls to a service). Snapshots are
+    /// handed to it under `inner`, in the order they were taken, so the newer always wins.
+    saver: Saver,
 }
 
 impl Blocker {
@@ -194,7 +197,7 @@ impl Blocker {
                 commands: None,
                 wake: None,
             })),
-            saves: Arc::new(Mutex::new(())),
+            saver: Saver::default(),
         }
     }
 
@@ -211,12 +214,13 @@ impl Blocker {
     /// WebKit's main thread. The window is woken.
     pub fn attach(&self, persist: Arc<dyn Persist>) {
         let stored = persist.load();
-        let saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
-        let (wake, chosen) = {
+        let wake = {
             let mut guard = self.lock();
             guard.persist = Arc::clone(&persist);
-            let chosen = guard.touched.then(|| guard.settings.clone());
-            if chosen.is_none() {
+            if guard.touched {
+                // Written by the saver, queued under the lock: a later change's snapshot follows it.
+                self.saver.submit(persist, guard.settings.clone());
+            } else {
                 let Inner {
                     settings, lists, ..
                 } = &mut *guard;
@@ -225,18 +229,18 @@ impl Blocker {
                     list.enabled = !settings.lists_off.contains(list.id);
                 }
             }
-            (guard.wake.clone(), chosen)
+            guard.wake.clone()
         };
-        // A save may be a call to a service: with the settings lock released (`saves` keeps another
-        // save from passing this one).
-        if let Some(settings) = chosen {
-            persist.save(&settings);
-        }
         // The window's wake-up runs with no lock of ours held: it may call back into the blocker.
-        drop(saves);
         if let Some(wake) = wake {
             wake();
         }
+    }
+
+    /// Waits up to `limit` for the settings changed so far to be written: the window is closing and
+    /// the process exits next. True when they all were.
+    pub fn flush(&self, limit: Duration) -> bool {
+        self.saver.flush(limit)
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -266,26 +270,23 @@ impl Blocker {
         self.lock().settings.clone()
     }
 
+    /// Applies `change` at once and queues the save: a save is calls to a service, and this runs on
+    /// the window's thread (issue #894), so it is written by the saver's thread instead.
     fn change(&self, change: impl FnOnce(&mut Settings)) {
-        let _saves = self.saves.lock().unwrap_or_else(PoisonError::into_inner);
-        let (saved, persist) = {
-            let mut guard = self.lock();
-            let Inner {
-                settings,
-                lists,
-                touched,
-                ..
-            } = &mut *guard;
-            change(settings);
-            for list in lists.iter_mut() {
-                list.enabled = !settings.lists_off.contains(list.id);
-            }
-            *touched = true;
-            (guard.settings.clone(), Arc::clone(&guard.persist))
-        };
-        // A save may be a call to a service: it runs with the lock released, which the engine's
-        // policy callback (on its run loop) takes for every navigation.
-        persist.save(&saved);
+        let mut guard = self.lock();
+        let Inner {
+            settings,
+            lists,
+            touched,
+            persist,
+            ..
+        } = &mut *guard;
+        change(settings);
+        for list in lists.iter_mut() {
+            list.enabled = !settings.lists_off.contains(list.id);
+        }
+        *touched = true;
+        self.saver.submit(Arc::clone(persist), settings.clone());
     }
 
     pub fn set_enabled(&self, on: bool) {

@@ -272,9 +272,47 @@ impl Listener {
     }
 }
 
+impl Listener {
+    /// A descriptor that becomes readable when an event is queued on this channel (or it hangs up),
+    /// for another thread to wait on: a handle is its thread's own, a descriptor is the process's
+    /// (docs/architecture/endpoint-fd.md). The thread that listened still does the [`poll`]ing.
+    ///
+    /// [`poll`]: Listener::poll
+    pub fn watch(&self) -> Result<Watch, i64> {
+        use std::os::fd::FromRawFd;
+        let raw = lazyos_sys::msg::endpoint_fd(self.channel, true)?;
+        // SAFETY: the kernel just opened `raw` in this process's table for this value alone.
+        let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+        Ok(Watch { fd })
+    }
+}
+
 impl Drop for Listener {
     fn drop(&mut self) {
         let _ = sys::msg_close(self.channel);
+    }
+}
+
+/// A [`Listener`]'s readiness, which any thread may wait on. Once the listener is closed (dropped,
+/// or the shell restarted) it reads ready for ever: the poll then finds out.
+pub struct Watch {
+    fd: std::os::fd::OwnedFd,
+}
+
+impl Watch {
+    /// Parks the calling thread until an event may be waiting or `timeout` passes. True when the
+    /// listener should be polled.
+    pub fn wait(&self, timeout: std::time::Duration) -> bool {
+        use std::os::fd::AsRawFd;
+        let Ok(fd) = u32::try_from(self.fd.as_raw_fd()) else {
+            return true;
+        };
+        let nanos = u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX);
+        let deadline = sys::monotonic_ns().saturating_add(nanos);
+        match sys::msg_wait_any_ns(&[], lazyos_sys::msg::wait_fd(fd), deadline) {
+            Ok(_) => true,
+            Err(code) => code != -errno::ETIMEDOUT,
+        }
     }
 }
 

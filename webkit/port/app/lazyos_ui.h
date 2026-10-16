@@ -93,6 +93,11 @@ int lzw_ui_features(void);
 // The prefix of every marker the UI process prints ("WEBKIT:W5", "WEBPLUS"), a static string.
 const char* lzw_ui_marker_prefix(void);
 
+// Writes "<prefix>:<line>" as one line on the window's trace channel (one write, so another
+// thread's line cannot land inside it; LAZYOS_TRACE=0 and the trace mask apply). Any thread; `line`
+// is copied before this returns and has no newline.
+void lzw_ui_say(const char* line);
+
 // The directory for cookies and site data (LZW_FEATURE_PROFILE), created, or NULL for none. A
 // static string, valid for the process's life. Called on the main thread before WebKit starts.
 const char* lzw_ui_profile_dir(void);
@@ -215,6 +220,9 @@ void lzw_engine_resize(int width, int height);
 // kind: 0 down, 1 up, 2 move. button: -1 none, 0 left, 1 middle, 2 right (WKEventMouseButton).
 // mods: WKEventModifiers (shift 1, control 2, alt 4, meta 8).
 void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods);
+// The same event, handed to the page at once: on WebKit's main thread only (the window's merged
+// pointer moves, issue #890, are delivered from a task lzw_engine_run_on_main queued).
+void lzw_engine_mouse_now(int kind, int button, int x, int y, uint32_t mods);
 
 // A wheel step at (x, y), in xui's convention: ticks_y > 0 scrolls up, ticks_x > 0 scrolls right
 // (WebKit's own is positive = up and positive = left: the engine flips x).

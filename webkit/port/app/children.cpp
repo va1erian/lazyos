@@ -154,8 +154,8 @@ void pumpReaping()
 {
     if (pumping.exchange(true))
         return;
-    // pthread_create, not std::thread: this is on WebKit's call path (possibly under the launcher's lock)
-    // and a thread that cannot start (task_max, memory) must not throw or abort the UI process.
+    // pthread_create, not std::thread: this is on WebKit's call path and a thread that cannot start
+    // (task_max, memory) must not throw or abort the UI process.
     pthread_attr_t attributes;
     pthread_attr_init(&attributes);
     pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
@@ -252,7 +252,7 @@ extern "C" {
 
 // The launcher's report (ProcessLauncherLazyOS.cpp declares it weak, so the stand-alone programs that
 // link WebKit without this file print to stderr instead). Any thread: the launching one, or the
-// short-lived reaper of each child.
+// short-lived reaper of each child; never under the launcher's lock (issue #891), one at a time.
 void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2)
 {
     using namespace webkitapp;
@@ -282,7 +282,8 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
         return;
     }
     // exit / signal / vanish: no longer the launcher's to signal, and not ours to end. The launcher
-    // reports each child once, under its lock: the reaper's thread and `lzw_launcher_reap` cannot both.
+    // reports each child once (it is taken off its list under its lock: the reaper's thread and
+    // `lzw_launcher_reap` cannot both), after the lock is released, in the order the lock saw them.
     bool known = false;
     bool quiet = false;
     {
