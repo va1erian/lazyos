@@ -35,7 +35,7 @@
 // and exits non-zero when the list does not compile. Without the variable nothing changes.
 //
 // Descriptor mode (issue #867, monitor.cpp): with WEBKIT_SMOKE_FDS=<n> the program first holds n
-// descriptors, so every IPC socket of the run is above 1024, and tests the IPC socket monitor's loop
+// descriptors, so the IPC sockets to the engine processes are above 1024 on both sides, and tests the IPC socket monitor's loop
 // on such a socket (WEBKIT:W4:FDS:..., WEBKIT:W4:MONITOR:PASS:...). The harnesses set it.
 
 #include <WebKit/WKBase.h>

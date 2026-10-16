@@ -4,7 +4,8 @@
 // (ConnectionUnix.cpp, patch 0022). It used to wait with select() on an fd_set, which cannot hold a
 // descriptor of 1024 or more (FD_SET wrote past it, and LazyOS's select answers EINVAL, which the loop
 // retried at once). With WEBKIT_SMOKE_FDS=<n> the program holds n close-on-exec descriptors before
-// WebKit starts, so the rest of the run is WebKit's IPC above 1024 in all three processes, and first
+// WebKit starts, so the rest of the run is WebKit's IPC above 1024 between the UI process and both
+// engine processes, on both sides (the engines inherit their end at its number), and first
 // runs the monitor's loop itself (the same header ConnectionUnix.cpp includes) on a socket pair above
 // 1024, the way a connection uses it:
 //

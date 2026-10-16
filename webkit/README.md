@@ -50,8 +50,9 @@ profile directory, so its NetworkProcess keeps its cookie jar (`cookie.jar.db`) 
 it inherits (the scratch directory there, the launcher's directory on LazyOS); the browser (`webkit-app`)
 gives its children a profile directory under `$HOME/.apps` (below). `webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
 `--accel none`). Both runs set `WEBKIT_SMOKE_FDS=1100` (`port/smoke/monitor.cpp`, issue #867): the program
-holds that many descriptors first, so every IPC socket of the run is above 1024 in all three processes,
-and tests the IPC socket monitor's loop on such a socket (`WEBKIT:W4:FDS:...`, `WEBKIT:W4:MONITOR:PASS:...`,
+holds that many descriptors first, so the UI process's IPC sockets are above 1024, and so is each engine
+process's connection to the UI process (inherited at the same number; the WebProcess-NetworkProcess
+connection is made in the engines and stays low), and tests the IPC socket monitor's loop on such a socket (`WEBKIT:W4:FDS:...`, `WEBKIT:W4:MONITOR:PASS:...`,
 both required by the judge).
 
 LazyOS has no file-backed `mmap` yet, and the port's Skia compiles W3's

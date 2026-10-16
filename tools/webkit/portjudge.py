@@ -28,9 +28,9 @@ guest painted the same bitmap: the checksum and the ink must be equal, which sho
 layout, Skia and the fonts compute the same page on LazyOS as on Linux. Without the host run the
 verdict is a failure (``port.py --require`` makes it).
 
-Both runs hold `HELD_DESCRIPTORS` descriptors first (``WEBKIT_SMOKE_FDS``, issue #867), so WebKit's IPC
-sockets are above 1024 in the UI process and in the engine processes (which inherit their ends at the
-same numbers), and the IPC socket monitor's loop is tested on such a socket before WebKit starts: the
+Both runs hold `HELD_DESCRIPTORS` descriptors first (``WEBKIT_SMOKE_FDS``, issue #867), so the IPC
+connections between the UI process and the engine processes are above 1024 on both sides (the engines
+inherit their ends at the same numbers; their connection to each other stays low), and the IPC socket monitor's loop is tested on such a socket before WebKit starts: the
 FDS line must show the next descriptor above 1024 and the MONITOR line a socket above 1024 that saw
 every message and the close.
 """

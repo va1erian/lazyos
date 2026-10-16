@@ -96,7 +96,15 @@ the send. curl itself already uses poll() (HAVE_POLL, lib/select.c).
      void destroyHandle();
 --- a/Source/WebCore/platform/network/curl/CurlStreamScheduler.cpp
 +++ b/Source/WebCore/platform/network/curl/CurlStreamScheduler.cpp
-@@ -157,33 +157,34 @@
+@@ -27,6 +27,7 @@
+ #include "CurlStreamScheduler.h"
+ #include <wtf/TZoneMallocInlines.h>
+ #include <wtf/Threading.h>
++#include <unistd.h>
+ 
+ #if USE(CURL)
+ 
+@@ -157,33 +158,37 @@
  void CurlStreamScheduler::workerThread()
  {
      ASSERT(!isMainThread());
@@ -146,6 +154,9 @@ the send. curl itself already uses poll() (HAVE_POLL, lib/select.c).
 +        do
 +            rc = ::poll(fds.mutableSpan().data(), fds.size(), pollTimeoutMS);
 +        while (rc == -1 && errno == EINTR);
++        // poll() itself failed (too many sockets, no memory): wait the period anyway, never spin.
++        if (rc == -1)
++            usleep(pollTimeoutMS * 1000);
 +
 +        for (size_t i = 0; rc > 0 && i < fds.size(); ++i) {
 +            if (fds[i].revents)

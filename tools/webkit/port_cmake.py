@@ -60,6 +60,9 @@ def options() -> dict[str, str]:
         # The Notifications API (docs/lazywebplus.md): on, explicitly, so a build tree configured
         # before it was (the cache keeps the first default) is configured again.
         "ENABLE_NOTIFICATIONS": "ON",
+        # Content extensions (LazyWeb+'s ad blocker, #845): OptionsLazyOS.cmake's default is ON, but a
+        # tree configured before it kept OFF and built a browser whose blocker has no store.
+        "ENABLE_CONTENT_EXTENSIONS": "ON",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],
         "CMAKE_AR": wrap["zar"], "CMAKE_RANLIB": wrap["zranlib"],
         "CMAKE_C_FLAGS": flags, "CMAKE_CXX_FLAGS": f"{flags} {simd_flags()} -std=c++2b",
