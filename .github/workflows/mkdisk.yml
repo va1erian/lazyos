@@ -56,6 +56,7 @@ jobs:
         run: |
           python tools/webkit/test_judge.py
           python tools/webkit/test_port_judge.py
+          python tools/webkit/test_port_tree.py
           python tools/webkit/test_app_judge.py
           python tools/webkit/test_buildkit.py
           python tools/webkit/test_registry.py

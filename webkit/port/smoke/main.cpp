@@ -33,6 +33,10 @@
 //   WEBKIT:BLOCK:BLOCKED:<n>:NOTIFY:<m>          loads a rule blocked, notifications in all
 //
 // and exits non-zero when the list does not compile. Without the variable nothing changes.
+//
+// Descriptor mode (issue #867, monitor.cpp): with WEBKIT_SMOKE_FDS=<n> the program first holds n
+// descriptors, so the IPC sockets to the engine processes are above 1024 on both sides, and tests the IPC socket monitor's loop
+// on such a socket (WEBKIT:W4:FDS:..., WEBKIT:W4:MONITOR:PASS:...). The harnesses set it.
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -54,6 +58,8 @@
 #include <WebKit/WKView.h>
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
+
+#include "monitor.h"
 
 #include <fontconfig/fontconfig.h>
 #include <pthread.h>
@@ -476,6 +482,7 @@ int main(int argc, char** argv)
     pthread_detach(guard);
 
     elapsedMs();
+    smoke::runDescriptorMode();
     WKRunLoopInitializeMain();
     state.upMs = elapsedMs();
     say("WEBKIT:W4:UP");

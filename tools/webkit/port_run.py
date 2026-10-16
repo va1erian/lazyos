@@ -83,8 +83,10 @@ def session(command: str, timeout: float) -> list[dict]:
 
 def smoke_command(session_timeout: float) -> str:
     """The shell command: the program's own watchdog (90 s by default) must not fire before the
-    harness gives up, so it is told to wait a little less than the session does."""
-    return f"WEBKIT_SMOKE_TIMEOUT={max(90, int(session_timeout) - 30)} webkit-smoke"
+    harness gives up, so it is told to wait a little less than the session does. It holds
+    descriptors first, as the host run does (``portjudge.HELD_DESCRIPTORS``, issue #867)."""
+    return (f"WEBKIT_SMOKE_FDS={portjudge.HELD_DESCRIPTORS} "
+            f"WEBKIT_SMOKE_TIMEOUT={max(90, int(session_timeout) - 30)} webkit-smoke")
 
 
 def boot(args: argparse.Namespace, out: Path, command: str) -> tuple[bool, str]:

@@ -60,6 +60,9 @@ def options() -> dict[str, str]:
         # The Notifications API (docs/lazywebplus.md): on, explicitly, so a build tree configured
         # before it was (the cache keeps the first default) is configured again.
         "ENABLE_NOTIFICATIONS": "ON",
+        # Content extensions (LazyWeb+'s ad blocker, #845): OptionsLazyOS.cmake's default is ON, but a
+        # tree configured before it kept OFF and built a browser whose blocker has no store.
+        "ENABLE_CONTENT_EXTENSIONS": "ON",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],
         "CMAKE_AR": wrap["zar"], "CMAKE_RANLIB": wrap["zranlib"],
         "CMAKE_C_FLAGS": flags, "CMAKE_CXX_FLAGS": f"{flags} {simd_flags()} -std=c++2b",
@@ -214,7 +217,7 @@ def host_reference() -> bool:
                                      ignore_cleanup_errors=True) as scratch:
         try:
             done = subprocess.run([str(HOST_BIN / "webkit-smoke")], capture_output=True, text=True,
-                                  timeout=300, cwd=scratch)
+                                  timeout=300, cwd=scratch, env=smoke_environment())
         except subprocess.TimeoutExpired as error:
             raise BuildError("the host reference run of webkit-smoke timed out after 300 s:\n"
                              + _tail(error.stdout)) from error
@@ -224,6 +227,12 @@ def host_reference() -> bool:
     REFERENCE.write_text(done.stdout)
     wkpins.log("host reference run passed")
     return True
+
+
+def smoke_environment() -> dict[str, str]:
+    """The host run's environment: the descriptor mode the guest's run uses too (issue #867)."""
+    import portjudge
+    return dict(os.environ, WEBKIT_SMOKE_FDS=str(portjudge.HELD_DESCRIPTORS))
 
 
 def _tail(output: str | bytes | None) -> str:

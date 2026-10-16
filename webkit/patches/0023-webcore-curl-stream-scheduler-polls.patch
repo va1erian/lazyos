@@ -1,0 +1,167 @@
+WebCore: the curl WebSocket scheduler waits with poll(), and waits every pass (issue #867).
+
+CurlStreamScheduler::workerThread put every WebSocket's socket in three stack fd_sets and select()ed with
+one timeval it reused: select() writes the time left back, so once a wait had run out every later one
+returned at once, and the thread spun for as long as a WebSocket was open. A stream whose socket was gone
+(it failed or the server closed it; the stream stays listed until the page destroys it) was not waited on
+at all: with no socket the loop never slept. A socket of descriptor 1024 or more overflowed the sets.
+
+Now each pass polls the streams' sockets (POLLIN and POLLPRI, POLLOUT while data waits) for up to the same
+20 ms, with or without a socket, and hands each stream what poll() reported for its own socket: input, a
+hangup, an error or a stale descriptor go to the receive (which reports the end or the failure), output to
+the send. curl itself already uses poll() (HAVE_POLL, lib/select.c).
+
+--- a/Source/WebCore/platform/network/curl/CurlStream.cpp
++++ b/Source/WebCore/platform/network/curl/CurlStream.cpp
+@@ -88,46 +88,37 @@
+     m_sendBuffers.append(std::make_pair(WTF::move(buffer), length));
+ }
+ 
+-void CurlStream::appendMonitoringFd(fd_set& readfds, fd_set& writefds, fd_set& exceptfds, int& maxfd)
++std::optional<struct pollfd> CurlStream::monitoringFd()
+ {
+     ASSERT(!isMainThread());
+ 
+     if (!m_curlHandle)
+-        return;
++        return std::nullopt;
+ 
+     auto socket = m_curlHandle->getActiveSocket();
+     if (!socket.has_value()) {
+         notifyFailure(socket.error());
+-        return;
++        return std::nullopt;
+     }
+ 
+-    FD_SET(*socket, &readfds);
+-    FD_SET(*socket, &exceptfds);
+-
++    struct pollfd entry = { static_cast<int>(*socket), POLLIN | POLLPRI, 0 };
+     if (m_sendBuffers.size())
+-        FD_SET(*socket, &writefds);
+-
+-    if (maxfd < static_cast<int>(*socket))
+-        maxfd = *socket;
++        entry.events |= POLLOUT;
++    return entry;
+ }
+ 
+-void CurlStream::tryToTransfer(const fd_set& readfds, const fd_set& writefds, const fd_set& exceptfds)
++void CurlStream::tryToTransfer(short revents)
+ {
+     ASSERT(!isMainThread());
+ 
+     if (!m_curlHandle)
+         return;
+ 
+-    auto socket = m_curlHandle->getActiveSocket();
+-    if (!socket.has_value()) {
+-        notifyFailure(socket.error());
+-        return;
+-    }
+-
+-    if (FD_ISSET(*socket, &readfds) || FD_ISSET(*socket, &exceptfds))
++    // A hangup, an error or a stale descriptor: the receive reports it (or the end of the stream).
++    if (revents & (POLLIN | POLLPRI | POLLHUP | POLLERR | POLLNVAL))
+         tryToReceive();
+ 
+-    if (FD_ISSET(*socket, &writefds))
++    if (revents & POLLOUT)
+         tryToSend();
+ }
+ 
+--- a/Source/WebCore/platform/network/curl/CurlStream.h
++++ b/Source/WebCore/platform/network/curl/CurlStream.h
+@@ -26,6 +26,8 @@
+ #pragma once
+ 
+ #include "CurlContext.h"
++#include <optional>
++#include <poll.h>
+ #include <wtf/TZoneMalloc.h>
+ #include <wtf/URL.h>
+ #include <wtf/UniqueArray.h>
+@@ -66,8 +68,10 @@
+ 
+     void send(UniqueArray<uint8_t>&&, size_t);
+ 
+-    void appendMonitoringFd(fd_set&, fd_set&, fd_set&, int&);
+-    void tryToTransfer(const fd_set&, const fd_set&, const fd_set&);
++    // The socket to wait for and what for (input, and output while data waits); none without one.
++    std::optional<struct pollfd> monitoringFd();
++    // What poll() reported for that socket.
++    void tryToTransfer(short revents);
+ 
+ private:
+     void destroyHandle();
+--- a/Source/WebCore/platform/network/curl/CurlStreamScheduler.cpp
++++ b/Source/WebCore/platform/network/curl/CurlStreamScheduler.cpp
+@@ -27,6 +27,7 @@
+ #include "CurlStreamScheduler.h"
+ #include <wtf/TZoneMallocInlines.h>
+ #include <wtf/Threading.h>
++#include <unistd.h>
+ 
+ #if USE(CURL)
+ 
+@@ -157,33 +158,37 @@
+ void CurlStreamScheduler::workerThread()
+ {
+     ASSERT(!isMainThread());
+-    static const int selectTimeoutMS = 20;
+-    struct timeval timeout { 0, selectTimeoutMS * 1000};
++    // poll(), not select() (LazyOS, issue #867): an fd_set holds descriptors below 1024 only, and
++    // select() wrote the time left back into the one timeval every pass reused, so once a wait had
++    // run out every later one returned at once. A stream with no socket (it failed, or ended) was
++    // not waited on at all. Either way this thread spun while a WebSocket was open. Every pass now
++    // waits up to the period, with or without a socket.
++    static const int pollTimeoutMS = 20;
+ 
+     while (m_runThread) {
+         executeTasks();
+ 
+-        int rc = 0;
+-        fd_set readfds;
+-        fd_set writefds;
+-        fd_set exceptfds;
+-
+-        do {
+-            int maxfd = -1;
+-
+-            FD_ZERO(&readfds);
+-            FD_ZERO(&writefds);
+-            FD_ZERO(&exceptfds);
+-
+-            for (auto& stream : m_streamList.values())
+-                stream->appendMonitoringFd(readfds, writefds, exceptfds, maxfd);
+-
+-            if (maxfd >= 0)
+-                rc = ::select(maxfd + 1, &readfds, &writefds, &exceptfds, &timeout);
+-        } while (rc == -1 && errno == EINTR);
+-
+-        for (auto& stream : m_streamList.values())
+-            stream->tryToTransfer(readfds, writefds, exceptfds);
++        Vector<struct pollfd> fds;
++        Vector<CurlStream*> streams;
++        for (auto& stream : m_streamList.values()) {
++            if (auto entry = stream->monitoringFd()) {
++                fds.append(*entry);
++                streams.append(stream.get());
++            }
++        }
++
++        int rc;
++        do
++            rc = ::poll(fds.mutableSpan().data(), fds.size(), pollTimeoutMS);
++        while (rc == -1 && errno == EINTR);
++        // poll() itself failed (too many sockets, no memory): wait the period anyway, never spin.
++        if (rc == -1)
++            usleep(pollTimeoutMS * 1000);
++
++        for (size_t i = 0; rc > 0 && i < fds.size(); ++i) {
++            if (fds[i].revents)
++                streams[i]->tryToTransfer(fds[i].revents);
++        }
+ 
+         stopThreadIfNoMoreJobRunning();
+     }
