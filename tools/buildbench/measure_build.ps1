@@ -59,15 +59,20 @@ param(
 $ErrorActionPreference = "Stop"
 # The `cmd /c "..."` lines rely on 5.1's quoting; PowerShell 7.3+ escapes otherwise.
 $PSNativeCommandArgumentPassing = "Legacy"
-$Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+# Native exit codes are checked by hand (a profile may turn this on in 7.3+).
+$PSNativeCommandUseErrorActionPreference = $false
+$Root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")).Path
 $BuildDirs = @("target", "xui-app\target", "rhai-host\target", "vendor\bootloader\target")
 $SaveRoot = Join-Path $Root "shots\.buildbench-saved"
 $BusyboxDir = "target\abi\busybox"
+# Written into every directory the benchmark creates: only those are deleted.
+$Marker = ".buildbench"
 # Variables that change what is built; cleared for the run, then restored.
 $ClearedEnv = '^(LAZYOS_|LAZYRAD_|RUSTFLAGS$|RUSTDOCFLAGS$|CARGO_ENCODED_RUSTFLAGS$|CARGO_PROFILE_|' +
-              'CARGO_INCREMENTAL$|CARGO_TARGET_DIR$|CARGO_BUILD_|RUSTC_WRAPPER$|RUSTC_WORKSPACE_WRAPPER$|' +
-              'CARGO_NET_OFFLINE$|CARGO_TERM_)'
+              'CARGO_INCREMENTAL$|CARGO_TARGET_|CARGO_BUILD_|CARGO_UNSTABLE_|RUSTC_WRAPPER$|' +
+              'RUSTC_WORKSPACE_WRAPPER$|RUSTUP_TOOLCHAIN$|CARGO_NET_OFFLINE$|CARGO_TERM_|CARGO_LOG$|RUST_LOG$)'
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
+$Started = Get-Date
 
 function Say([string]$Text, [string]$Color = "Cyan") { Write-Host $Text -ForegroundColor $Color }
 
@@ -114,13 +119,33 @@ function Get-MachineInfo {
     }
 }
 
-function Test-ConfigWrapper {
-    $home_ = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
-    $files = @("$home_\config.toml", "$home_\config", "$Root\.cargo\config.toml", "$Root\.cargo\config")
-    foreach ($file in $files) {
-        if ((Test-Path $file) -and (Select-String -Path $file -Pattern '^\s*rustc-(workspace-)?wrapper\s*=' -Quiet)) {
-            Fail "$file sets a rustc wrapper (sccache?); comment it out so every run really compiles"
+# Every cargo config file cargo reads for this tree: the repository's, its
+# parents' and CARGO_HOME's.
+function Get-CargoConfigs {
+    $dirs = @()
+    $dir = $Root
+    while ($dir) { $dirs += Join-Path $dir ".cargo"; $dir = Split-Path -Parent $dir }
+    $dirs += $(if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" })
+    foreach ($d in ($dirs | Select-Object -Unique)) {
+        foreach ($name in @("config.toml", "config")) {
+            $file = Join-Path $d $name
+            if (Test-Path -LiteralPath $file -PathType Leaf) { $file }
         }
+    }
+}
+
+# A wrapper (sccache) or another target directory makes a run not clean; the
+# other settings change what is built and only need the same value on both
+# machines.
+function Test-CargoConfig {
+    foreach ($file in Get-CargoConfigs) {
+        if ($file -eq (Join-Path $Root ".cargo\config.toml")) { continue }
+        if (Select-String -LiteralPath $file -Pattern '^\s*(build\.)?(rustc-(workspace-)?wrapper|target-dir)\s*=' -Quiet) {
+            Fail "$file sets a rustc wrapper or target-dir; comment it out so every run really compiles"
+        }
+        $other = Select-String -LiteralPath $file -Pattern '^\s*(build\.)?(rustflags|incremental|jobs)\s*=|^\s*\[profile' |
+            ForEach-Object { $_.Line.Trim() }
+        if ($other) { Say "warning: $file sets $($other -join ', '): keep it the same on both machines" Yellow }
     }
 }
 
@@ -136,50 +161,84 @@ function Assert-Ready {
         $names = ($busy | Select-Object -ExpandProperty ProcessName -Unique) -join ", "
         Fail "$names running: it competes for the CPU and locks files in target\; close it first"
     }
-    Test-ConfigWrapper
+    Test-CargoConfig
 }
 
 function Get-SavedPath([string]$Rel) { Join-Path $SaveRoot ($Rel -replace '\\', '__') }
 
-function Remove-Tree([string]$Path) {
-    if (-not (Test-Path $Path)) { return }
-    cmd /c "rd /s /q `"$Path`"" | Out-Null
-    if (Test-Path $Path) { Fail "could not delete $Path (a file is in use?)" }
+function Test-BenchDir([string]$Path) { Test-Path -LiteralPath (Join-Path $Path $Marker) -PathType Leaf }
+
+# Deletes a directory the benchmark made (never one without its marker).
+# Retries: a build stopped by Ctrl+C can hold files for a moment.
+function Remove-BenchDir([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if (-not (Test-BenchDir $Path)) { throw "$Path was not made by the benchmark; not deleting it" }
+    for ($try = 0; $try -lt 5 -and (Test-Path -LiteralPath $Path); $try++) {
+        if ($try) { Start-Sleep -Seconds 3 }
+        cmd /c "rd /s /q `"$Path`" >nul 2>nul"
+    }
+    if (Test-Path -LiteralPath $Path) { throw "could not delete $Path (a file is in use?)" }
 }
 
 function Save-BuildDirs {
     New-Item -ItemType Directory -Path $SaveRoot | Out-Null
     foreach ($rel in $BuildDirs) {
         $path = Join-Path $Root $rel
-        if (-not (Test-Path $path)) { continue }
+        if (-not (Test-Path -LiteralPath $path)) { continue }
         Say "  setting aside $rel"
-        try { Move-Item $path (Get-SavedPath $rel) }
+        try { [IO.Directory]::Move($path, (Get-SavedPath $rel)) }
         catch { Fail "could not move $path aside ($($_.Exception.Message)); is a file open?" }
     }
 }
 
-# Deletes what the benchmark built and moves the originals back.
-function Restore-BuildDirs {
-    if (-not (Test-Path $SaveRoot)) { return }
+# Waits for build processes started by this run (Ctrl+C reaches them late).
+function Wait-BuildProcesses {
+    for ($i = 0; $i -lt 30; $i++) {
+        $left = @(Get-Process -Name "cargo", "rustc", "python", "cmd" -ErrorAction SilentlyContinue |
+            Where-Object { try { $_.Id -ne $PID -and $_.StartTime -gt $Started } catch { $false } })
+        if (-not $left.Count) { return }
+        Start-Sleep -Seconds 1
+    }
+}
+
+# Deletes what the benchmark built and moves the originals back. A directory
+# that may have been used since (not made by the benchmark, or any directory
+# when -Restore runs after an interrupted run) is moved aside, never deleted.
+function Restore-BuildDirs([switch]$KeepCurrent) {
+    if (-not (Test-Path -LiteralPath $SaveRoot)) { return }
     Say "Putting the original build directories back"
+    Wait-BuildProcesses
     foreach ($rel in $BuildDirs) {
         $saved = Get-SavedPath $rel
-        if (-not (Test-Path $saved)) { continue }
+        if (-not (Test-Path -LiteralPath $saved)) { continue }
         $path = Join-Path $Root $rel
-        Remove-Tree $path
-        Move-Item $saved $path
+        if ((Test-Path -LiteralPath $path) -and ($KeepCurrent -or -not (Test-BenchDir $path))) {
+            $base = "$path.after-buildbench-$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+            $aside = $base
+            for ($n = 2; Test-Path -LiteralPath $aside; $n++) { $aside = "$base.$n" }
+            [IO.Directory]::Move($path, $aside)
+            Say "  $rel may hold work done since the benchmark; kept as $aside (delete it if not)" Yellow
+        }
+        Remove-BenchDir $path
+        [IO.Directory]::Move($saved, $path)
     }
-    Remove-Item -Force -Recurse $SaveRoot
+    # Not recursive: fails rather than delete anything left in it.
+    Remove-Item -LiteralPath $SaveRoot
 }
 
 function Clear-BenchDirs {
-    foreach ($rel in $BuildDirs) { Remove-Tree (Join-Path $Root $rel) }
+    foreach ($rel in $BuildDirs) {
+        $path = Join-Path $Root $rel
+        Remove-BenchDir $path
+        New-Item -ItemType Directory -Force -Path $path | Out-Null
+        New-Item -ItemType File -Path (Join-Path $path $Marker) | Out-Null
+    }
     # The cached BusyBox is a Docker build, not part of the measurement.
     $cached = Join-Path (Get-SavedPath "target") ($BusyboxDir -replace '^target\\', '')
-    if (Test-Path $cached) {
+    if (Test-Path -LiteralPath $cached) {
         $dest = Join-Path $Root $BusyboxDir
         New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Get-ChildItem $cached -File | Copy-Item -Destination $dest
+        Get-ChildItem -LiteralPath $cached -File | Copy-Item -Destination $dest
     }
 }
 
@@ -198,11 +257,15 @@ function Initialize-Downloads {
     Invoke-Untimed "cargo fetch (root)" "cargo fetch --quiet"
     Invoke-Untimed "cargo fetch (xui-app)" "cargo fetch --quiet --manifest-path xui-app\Cargo.toml"
     Invoke-Untimed "cargo fetch (rhai-host)" "cargo fetch --quiet --manifest-path rhai-host\Cargo.toml"
-    Invoke-Untimed "cargo fetch (bootloader)" "cargo fetch --quiet --manifest-path vendor\bootloader\Cargo.toml" -Optional
+    # The bootloader's build.rs installs this crate (`cargo install --path uefi
+    # --locked`); its BIOS stages and -Zbuild-std's crates only -WarmUp caches.
+    Invoke-Untimed "cargo fetch (UEFI bootloader)" "cargo fetch --quiet --manifest-path vendor\bootloader\uefi\Cargo.toml" -Optional
     # Only a binary built with the current configuration is used as is; a
-    # stale one would make the timed build try Docker again.
-    $probe = "import sys; sys.path.insert(0, 'tools/abi'); import busybox; " +
-             "busybox.ensure_busybox(); sys.exit(0 if busybox._cached() else 1)"
+    # stale one would make the timed build try Docker again. LAZYOS_BUSYBOX,
+    # when it names a file, is what run_demo.py uses instead.
+    $probe = "import os, sys; sys.path.insert(0, 'tools/abi'); import busybox; " +
+             "explicit = os.path.isfile(os.environ.get('LAZYOS_BUSYBOX', '')); " +
+             "explicit or busybox.ensure_busybox(); sys.exit(0 if explicit or busybox._cached() else 1)"
     Invoke-Untimed "BusyBox (cached, or built once in Docker)" "python -c `"$probe`""
 }
 
@@ -225,8 +288,8 @@ function Get-Phase([string]$Line, $State) {
 # A line that means the image is missing a part, though the build succeeded.
 function Get-Problem([string]$Line) {
     if ($Line -match '^warning: (rhai did not build|no linker for the musl target|.*rhai unavailable)') { return "no rhai" }
-    if ($Line -match 'busybox: (no musl-gcc|build unavailable|could not rebuild)') { return "busybox rebuilt" }
-    if ($Line -match 'offline' -and $Line -match '(error|failed|unable|not found|no matching)') { return "offline" }
+    if ($Line -match '^busybox: (?!reused)') { return "busybox rebuilt" }
+    if ($Line -match '--offline was specified|offline mode|\(--offline\)') { return "offline" }
     return $null
 }
 
@@ -278,8 +341,8 @@ function Invoke-TimedBuild([string]$LogFile) {
     [pscustomobject]@{ Exit = $exit; Total = $total; Phases = $phases; Problems = @($state.Problems.Keys) }
 }
 
-function Add-ResultRow($Info, [int]$Run, $Result, [string]$CsvFile) {
-    $row = [pscustomobject][ordered]@{
+function New-ResultRow($Info, [int]$Run, $Result) {
+    [pscustomobject][ordered]@{
         date       = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         label      = $Label
         cpu        = $Info.Cpu
@@ -302,6 +365,26 @@ function Add-ResultRow($Info, [int]$Run, $Result, [string]$CsvFile) {
         xui_s      = Format-Number $Result.Phases.xui
         image_s    = Format-Number $Result.Phases.image
     }
+}
+
+function Get-CsvHeader($Row) { ($Row.PSObject.Properties.Name | ForEach-Object { "`"$_`"" }) -join "," }
+
+# results.csv, or a numbered sibling when an older version of this script
+# wrote it with other columns (Export-Csv -Append refuses those).
+function Select-CsvFile($Info) {
+    $empty = [pscustomobject]@{ Exit = 0; Total = 0; Problems = @(); Phases = @{ setup = 0; rhai = 0; xui = 0; image = 0 } }
+    $header = Get-CsvHeader (New-ResultRow $Info 0 $empty)
+    for ($n = 1; ; $n++) {
+        $name = if ($n -eq 1) { "results.csv" } else { "results-$n.csv" }
+        $file = Join-Path $ResultsDir $name
+        if (-not (Test-Path -LiteralPath $file)) { return $file }
+        $first = "$(Get-Content -LiteralPath $file -TotalCount 1 -Encoding UTF8)".TrimStart([char]0xFEFF)
+        if ($first -eq $header) { return $file }
+    }
+}
+
+function Add-ResultRow($Info, [int]$Run, $Result, [string]$CsvFile) {
+    $row = New-ResultRow $Info $Run $Result
     try {
         $row | Export-Csv -Path $CsvFile -Append -NoTypeInformation -Encoding UTF8
     } catch {
@@ -367,11 +450,11 @@ function Invoke-Runs($Info, [string]$CsvFile) {
 # --- main ------------------------------------------------------------------
 
 if ($Restore) {
-    if (-not (Test-Path $SaveRoot)) { Say "nothing to restore" Green; exit 0 }
-    Restore-BuildDirs
+    if (-not (Test-Path -LiteralPath $SaveRoot)) { Say "nothing to restore" Green; exit 0 }
+    Restore-BuildDirs -KeepCurrent
     exit 0
 }
-if (Test-Path $SaveRoot) {
+if (Test-Path -LiteralPath $SaveRoot) {
     Fail "an interrupted run left the build directories in $SaveRoot; run with -Restore first"
 }
 Assert-Ready
@@ -382,7 +465,9 @@ Say "LazyOS clean-build benchmark" Green
 "  commit   {0}    {1}" -f $info.Commit, $info.Rustc | Write-Host
 "  image    {0}{1}, {2} run(s){3}, jobs: {4}" -f $Image, $(if ($Release) { " (release)" } else { "" }), $Runs,
     $(if ($WarmUp) { " + warm-up" } else { "" }), $(if ($Jobs -gt 0) { $Jobs } else { "default" }) | Write-Host
-$cleared = @(Get-ChildItem env: | Where-Object { $_.Name -match $ClearedEnv } | Select-Object -ExpandProperty Name)
+# LAZYOS_BUSYBOX only names a prebuilt binary; it does not change the work.
+$cleared = @(Get-ChildItem env: | Where-Object { $_.Name -match $ClearedEnv -and $_.Name -ne "LAZYOS_BUSYBOX" } |
+    Select-Object -ExpandProperty Name)
 if ($cleared.Count) { "  cleared  {0}" -f ($cleared -join ", ") | Write-Host }
 
 if (-not $Yes) {
@@ -392,14 +477,15 @@ if (-not $Yes) {
 }
 
 New-Item -ItemType Directory -Force -Path $ResultsDir | Out-Null
-$csv = Join-Path $ResultsDir "results.csv"
+$csv = Select-CsvFile $info
 
 $savedEnv = @{}
 foreach ($name in $cleared + @("CARGO_BUILD_JOBS", "CARGO_NET_OFFLINE", "CARGO_TERM_COLOR",
                                "CARGO_TERM_PROGRESS_WHEN", "PYTHONUNBUFFERED", "PYTHONIOENCODING")) {
     $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
 }
-$savedEncoding = [Console]::OutputEncoding
+$savedEncoding = $null
+try { $savedEncoding = [Console]::OutputEncoding } catch { }
 $exitCode = 0
 try {
     foreach ($name in $cleared) { [Environment]::SetEnvironmentVariable($name, $null, "Process") }
@@ -407,7 +493,8 @@ try {
     $env:CARGO_TERM_PROGRESS_WHEN = "never"
     $env:PYTHONUNBUFFERED = "1"
     $env:PYTHONIOENCODING = "utf-8"
-    [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+    # Python's output is UTF-8 now; no console (ISE) is fine too.
+    try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false) } catch { }
     if ($Jobs -gt 0) { $env:CARGO_BUILD_JOBS = "$Jobs" }
 
     Initialize-Downloads
@@ -416,10 +503,17 @@ try {
     Show-Summary $results $csv
     if ($results.Count -lt $Runs -or @($results | Where-Object { -not (Test-Usable $_) }).Count) { $exitCode = 1 }
 } finally {
-    Restore-BuildDirs
-    [Console]::OutputEncoding = $savedEncoding
+    # The session first: a failed restore below must not leave it changed.
+    if ($savedEncoding) { try { [Console]::OutputEncoding = $savedEncoding } catch { } }
     foreach ($name in $savedEnv.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], "Process")
+    }
+    try {
+        Restore-BuildDirs
+    } catch {
+        Write-Host "error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "the originals are still in $SaveRoot; run with -Restore to put them back" -ForegroundColor Red
+        $exitCode = 1
     }
 }
 exit $exitCode
