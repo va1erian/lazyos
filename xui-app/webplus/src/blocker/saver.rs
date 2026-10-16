@@ -59,17 +59,29 @@ impl Saver {
     /// Writes snapshots until none is waiting. `running` is put down however this ends, a store
     /// that panics included, so a later change is still written.
     fn run(&self) {
-        struct Done<'a>(&'a Saver);
-        impl Drop for Done<'_> {
+        // Puts `running` down if a save panics; the normal end does it itself, under the same lock
+        // that finds nothing waiting, so a snapshot queued in between is never left without a writer.
+        struct Unwinding<'a>(&'a Saver);
+        impl Drop for Unwinding<'_> {
             fn drop(&mut self) {
-                self.0.lock().running = false;
-                self.0.shared.1.notify_all();
+                if thread::panicking() {
+                    self.0.lock().running = false;
+                    self.0.shared.1.notify_all();
+                }
             }
         }
-        let _done = Done(self);
+        let _unwinding = Unwinding(self);
         loop {
-            let Some((persist, settings)) = self.lock().pending.take() else {
-                return;
+            let (persist, settings) = {
+                let mut state = self.lock();
+                match state.pending.take() {
+                    Some(next) => next,
+                    None => {
+                        state.running = false;
+                        self.shared.1.notify_all();
+                        return;
+                    }
+                }
             };
             persist.save(&settings);
         }

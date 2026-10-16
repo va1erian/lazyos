@@ -43,7 +43,15 @@ impl Listening {
     /// is one.
     fn listen(&mut self) -> Option<u64> {
         if self.listener.is_some() {
-            return Some(self.channel);
+            let watch = WATCH.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if !watch.is_some_and(|watch| watch.wait(Duration::ZERO) == Readiness::Hangup) {
+                return Some(self.channel);
+            }
+            // The shell went and the worker's look has not seen it yet: a new toast goes to the new
+            // shell, so it is heard on a new channel. The old channel's toasts are reported lost.
+            let events = self.poll(true);
+            look().news.extend(events);
+            LOOKED.notify_all();
         }
         if self.retry_at.is_some_and(|at| Instant::now() < at) {
             return None;
@@ -147,6 +155,8 @@ impl Shell for LazyShell {
             replaces: toast.replaces,
             ..notify::Notice::new(notify::Level::Info, &toast.title, &toast.body)
         };
+        // An empty look about earlier toasts must not delay the first wait for this one.
+        look().empty = false;
         let (heard, posted) = on_main("notify.post", move || {
             let heard = LISTENING.with(|state| state.borrow_mut().listen());
             (heard, notify::post(&notice))

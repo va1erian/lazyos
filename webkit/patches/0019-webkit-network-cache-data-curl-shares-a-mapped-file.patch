@@ -18,7 +18,7 @@ The wrapper must not outlive the Data whose map it names. API::ContentRuleList i
 of both (WebCompiledContentRuleList, holding the SharedMemory, has no other owner in the UI
 process; the copies of its data made to send it to a process are encoded at once, which
 duplicates the descriptor, and dropped), and its members are reordered so the compiled list is
-destroyed before the mapped file.
+destroyed before the mapped file; its destructor asserts that nothing else holds the compiled list.
 
 --- a/Source/WebKit/NetworkProcess/cache/NetworkCacheData.h
 +++ b/Source/WebKit/NetworkProcess/cache/NetworkCacheData.h
@@ -169,7 +169,7 @@ destroyed before the mapped file.
  
 --- a/Source/WebKit/UIProcess/API/APIContentRuleList.cpp
 +++ b/Source/WebKit/UIProcess/API/APIContentRuleList.cpp
-@@ -36,8 +36,8 @@
+@@ -36,12 +36,17 @@
  namespace API {
  
  ContentRuleList::ContentRuleList(Ref<WebKit::WebCompiledContentRuleList>&& contentRuleList, WebKit::NetworkCache::Data&& mappedFile)
@@ -180,3 +180,13 @@ destroyed before the mapped file.
  {
  }
  
+-ContentRuleList::~ContentRuleList() = default;
++ContentRuleList::~ContentRuleList()
++{
++    // LazyOS (patch 0019): the compiled list's SharedMemory wraps m_mappedFile's map and descriptor
++    // without owning them, so nothing may keep the compiled list once this goes.
++    RELEASE_ASSERT(m_compiledRuleList->hasOneRef());
++}
+ 
+ const WTF::String& ContentRuleList::name() const
+ {
