@@ -66,7 +66,8 @@ fn merging() -> bool {
         let each = xui_app::probe::enabled()
             && std::env::var_os("LAZYOS_WEBKIT_PROFILE")
                 .and_then(|profile| {
-                    std::fs::read_to_string(std::path::Path::new(&profile).join("pointer-mode")).ok()
+                    std::fs::read_to_string(std::path::Path::new(&profile).join("pointer-mode"))
+                        .ok()
                 })
                 .is_some_and(|text| text.trim() == "each");
         let line = c_string(if each {
