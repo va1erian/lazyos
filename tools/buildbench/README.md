@@ -50,14 +50,14 @@ The `.cmd` wrapper runs the script without changing the execution policy.
    rebuild) is marked in `problems` and left out of the median. A CSV written
    with other columns is left alone and the rows go to `results-2.csv`.
 5. **Restores** the original directories, also after a failure or Ctrl+C. A
-   build directory this script did not make is moved aside as
-   `<dir>.after-buildbench-<time>`, never deleted. If the window was closed
+   build directory this script did not make is moved aside into
+   `shots\buildbench-after\`, never deleted. If the window was closed
    mid-run, `measure_build.cmd -Restore` puts the originals back (and moves
    whatever is there now aside). Do not `git clean -fdx` before that:
    `shots\` is ignored by git.
 
 A build directory that did not exist before the benchmark keeps the last run's
-output.
+output (with its `.buildbench` marker).
 
 ## Phases
 
@@ -74,9 +74,9 @@ output.
 
 - Same commit (recorded; `+dirty` flags local changes), same toolchain, same
   power plan, same `-Image`/`-Release`/`-Jobs`.
-- The script clears `LAZYOS_*` (except `LAZYOS_BUSYBOX`), `RUSTFLAGS`,
-  `CARGO_PROFILE_*`, `CARGO_TARGET_*`, `RUSTUP_TOOLCHAIN` and wrapper
-  variables for the run, refuses a `rustc-wrapper` or `target-dir` in a cargo
+- The script clears `LAZYOS_*` (except `LAZYOS_BUSYBOX`), `LAZYRAD_*`,
+  `RUSTFLAGS`, `RUSTC`, `CARGO_PROFILE_*`, `CARGO_TARGET_*`, `CARGO_BUILD_*`,
+  `RUSTUP_TOOLCHAIN` and wrapper variables for the run, refuses a `rustc-wrapper` or `target-dir` in a cargo
   config file, and warns about `rustflags`, `jobs`, `incremental` or
   `[profile]` there.
 - Windows Defender scanning `target\` slows Rust builds a lot: exclude the

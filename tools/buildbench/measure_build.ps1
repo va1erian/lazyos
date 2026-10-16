@@ -70,7 +70,7 @@ $Marker = ".buildbench"
 # Variables that change what is built; cleared for the run, then restored.
 $ClearedEnv = '^(LAZYOS_|LAZYRAD_|RUSTFLAGS$|RUSTDOCFLAGS$|CARGO_ENCODED_RUSTFLAGS$|CARGO_PROFILE_|' +
               'CARGO_INCREMENTAL$|CARGO_TARGET_|CARGO_BUILD_|CARGO_UNSTABLE_|RUSTC_WRAPPER$|' +
-              'RUSTC_WORKSPACE_WRAPPER$|RUSTUP_TOOLCHAIN$|CARGO_NET_OFFLINE$|CARGO_TERM_|CARGO_LOG$|RUST_LOG$)'
+              'RUSTC$|RUSTC_WORKSPACE_WRAPPER$|RUSTUP_TOOLCHAIN$|CARGO_NET_OFFLINE$|CARGO_TERM_|CARGO_LOG$|RUST_LOG$)'
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 $Started = Get-Date
 
@@ -139,10 +139,11 @@ function Get-CargoConfigs {
 # machines.
 function Test-CargoConfig {
     foreach ($file in Get-CargoConfigs) {
-        if ($file -eq (Join-Path $Root ".cargo\config.toml")) { continue }
         if (Select-String -LiteralPath $file -Pattern '^\s*(build\.)?(rustc-(workspace-)?wrapper|target-dir)\s*=' -Quiet) {
             Fail "$file sets a rustc wrapper or target-dir; comment it out so every run really compiles"
         }
+        # The repository's own settings are part of the build being measured.
+        if ($file -eq (Join-Path $Root ".cargo\config.toml")) { continue }
         $other = Select-String -LiteralPath $file -Pattern '^\s*(build\.)?(rustflags|incremental|jobs)\s*=|^\s*\[profile' |
             ForEach-Object { $_.Line.Trim() }
         if ($other) { Say "warning: $file sets $($other -join ', '): keep it the same on both machines" Yellow }
@@ -213,7 +214,10 @@ function Restore-BuildDirs([switch]$KeepCurrent) {
         if (-not (Test-Path -LiteralPath $saved)) { continue }
         $path = Join-Path $Root $rel
         if ((Test-Path -LiteralPath $path) -and ($KeepCurrent -or -not (Test-BenchDir $path))) {
-            $base = "$path.after-buildbench-$((Get-Date).ToString('yyyyMMdd-HHmmss'))"
+            # Under shots\ (ignored by git), on the same volume, so a rename.
+            $base = Join-Path $Root ("shots\buildbench-after\" + ($rel -replace '\\', '__') + "-" +
+                                     (Get-Date).ToString('yyyyMMdd-HHmmss'))
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $base) | Out-Null
             $aside = $base
             for ($n = 2; Test-Path -LiteralPath $aside; $n++) { $aside = "$base.$n" }
             [IO.Directory]::Move($path, $aside)
@@ -263,9 +267,10 @@ function Initialize-Downloads {
     # Only a binary built with the current configuration is used as is; a
     # stale one would make the timed build try Docker again. LAZYOS_BUSYBOX,
     # when it names a file, is what run_demo.py uses instead.
+    # run_demo.py calls ensure_busybox() even then, so it runs here, untimed.
     $probe = "import os, sys; sys.path.insert(0, 'tools/abi'); import busybox; " +
              "explicit = os.path.isfile(os.environ.get('LAZYOS_BUSYBOX', '')); " +
-             "explicit or busybox.ensure_busybox(); sys.exit(0 if explicit or busybox._cached() else 1)"
+             "busybox.ensure_busybox(); sys.exit(0 if explicit or busybox._cached() else 1)"
     Invoke-Untimed "BusyBox (cached, or built once in Docker)" "python -c `"$probe`""
 }
 
@@ -288,7 +293,7 @@ function Get-Phase([string]$Line, $State) {
 # A line that means the image is missing a part, though the build succeeded.
 function Get-Problem([string]$Line) {
     if ($Line -match '^warning: (rhai did not build|no linker for the musl target|.*rhai unavailable)') { return "no rhai" }
-    if ($Line -match '^busybox: (?!reused)') { return "busybox rebuilt" }
+    if ($Line -match '^busybox: (downloading|building|built|could not rebuild)') { return "busybox rebuilt" }
     if ($Line -match '--offline was specified|offline mode|\(--offline\)') { return "offline" }
     return $null
 }
@@ -377,7 +382,7 @@ function Select-CsvFile($Info) {
     for ($n = 1; ; $n++) {
         $name = if ($n -eq 1) { "results.csv" } else { "results-$n.csv" }
         $file = Join-Path $ResultsDir $name
-        if (-not (Test-Path -LiteralPath $file)) { return $file }
+        if (-not (Test-Path -LiteralPath $file) -or (Get-Item -LiteralPath $file).Length -eq 0) { return $file }
         $first = "$(Get-Content -LiteralPath $file -TotalCount 1 -Encoding UTF8)".TrimStart([char]0xFEFF)
         if ($first -eq $header) { return $file }
     }
@@ -386,7 +391,7 @@ function Select-CsvFile($Info) {
 function Add-ResultRow($Info, [int]$Run, $Result, [string]$CsvFile) {
     $row = New-ResultRow $Info $Run $Result
     try {
-        $row | Export-Csv -Path $CsvFile -Append -NoTypeInformation -Encoding UTF8
+        $row | Export-Csv -LiteralPath $CsvFile -Append -NoTypeInformation -Encoding UTF8
     } catch {
         Say "warning: could not write $CsvFile (open in Excel?): $($_.Exception.Message)" Yellow
         $row | Format-List | Out-String | Write-Host
@@ -413,9 +418,9 @@ function Show-Summary($Results, [string]$CsvFile) {
         "  best {0}  median {1}  mean {2}" -f (Format-Duration $ok[0]), (Format-Duration $median),
             (Format-Duration $mean) | Write-Host
     }
-    if (Test-Path $CsvFile) {
+    if (Test-Path -LiteralPath $CsvFile) {
         Say "`nAll runs so far ($CsvFile):" Green
-        Import-Csv $CsvFile | Format-Table date, label, cpu, threads, commit, image, run, exit_code, problems,
+        Import-Csv -LiteralPath $CsvFile | Format-Table date, label, cpu, threads, commit, image, run, exit_code, problems,
             total_s, rhai_s, xui_s, image_s -AutoSize | Out-String | Write-Host
     }
 }
