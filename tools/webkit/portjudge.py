@@ -6,6 +6,8 @@ should. A marker the guest never printed is a failure, not a pass; so is a
 
 Markers, in the order the program prints them::
 
+    WEBKIT:W4:FDS:held=<n>:next=<fd>      (descriptor mode, issue #867: the run's IPC is above 1024)
+    WEBKIT:W4:MONITOR:PASS:fd=<fd>:messages=<n>:wakeups=<n>:close_ms=<ms>:invalidate_ms=<ms>
     WEBKIT:W4:UP
     WEBKIT:W4:WEBPROCESS:UP:<pid>        WEBKIT:W4:NETWORKPROCESS:UP:<pid>
     WEBKIT:W4:LOAD:about:blank           WEBKIT:W4:LOAD:<data url>
@@ -25,6 +27,12 @@ static musl executables; ``target/webkit/smoke.host.txt``). The judge requires t
 guest painted the same bitmap: the checksum and the ink must be equal, which shows WebKit's
 layout, Skia and the fonts compute the same page on LazyOS as on Linux. Without the host run the
 verdict is a failure (``port.py --require`` makes it).
+
+Both runs hold `HELD_DESCRIPTORS` descriptors first (``WEBKIT_SMOKE_FDS``, issue #867), so WebKit's IPC
+sockets are above 1024 in the UI process and in the engine processes (which inherit their ends at the
+same numbers), and the IPC socket monitor's loop is tested on such a socket before WebKit starts: the
+FDS line must show the next descriptor above 1024 and the MONITOR line a socket above 1024 that saw
+every message and the close.
 """
 
 from __future__ import annotations
@@ -36,6 +44,12 @@ TITLE = "hello lazyos"
 DATA_URL_PREFIX = "data:text/html,"
 #: The stages in order, for `reached`.
 STAGES = ("UP", "WEBPROCESS", "NETWORKPROCESS", "LOAD", "TITLE", "PAINT", "PASS")
+#: ``WEBKIT_SMOKE_FDS`` of the host's and the guest's run: enough that every later descriptor is
+#: above 1024 (FD_SETSIZE).
+HELD_DESCRIPTORS = 1100
+FD_SETSIZE = 1024
+#: The monitor test's peer sends this many messages before it closes.
+MONITOR_MESSAGES = 3
 
 
 @dataclass(frozen=True)
@@ -89,9 +103,26 @@ def ink(serial: str) -> str | None:
     return found[-1] if found else None
 
 
+def descriptors(serial: str) -> list[Verdict]:
+    """The descriptor mode's two lines: the run is above 1024, and the monitor test passed."""
+    held = re.findall(r"^WEBKIT:W4:FDS:held=(\d+):next=(-?\d+)\s*$", serial, re.M)
+    next_fd = int(held[-1][1]) if held else -1
+    verdicts = [Verdict(f"WEBKIT:W4:FDS: the run's descriptors are above {FD_SETSIZE}",
+                        next_fd >= FD_SETSIZE, f"held {held[-1][0]}, next {next_fd}" if held else "no FDS line")]
+    found = re.findall(r"^WEBKIT:W4:MONITOR:PASS:fd=(\d+):messages=(\d+):wakeups=(\d+):"
+                       r"close_ms=(\d+):invalidate_ms=(\d+)\s*$", serial, re.M)
+    ok = bool(found) and int(found[-1][0]) >= FD_SETSIZE and int(found[-1][1]) == MONITOR_MESSAGES
+    detail = ("fd={} messages={} wakeups={} close={} ms invalidate={} ms".format(*found[-1])
+              if found else "no MONITOR:PASS line")
+    verdicts.append(Verdict(f"WEBKIT:W4:MONITOR: a socket above {FD_SETSIZE} sees its messages and its close",
+                            ok, detail))
+    return verdicts
+
+
 def judge(serial: str, host: str | None = None) -> list[Verdict]:
     """Verdicts for one boot; `host` is the build host's own run of the same program, if any."""
-    verdicts = [Verdict("WEBKIT:W4:UP", has_line(serial, "WEBKIT:W4:UP"))]
+    verdicts = descriptors(serial)
+    verdicts.append(Verdict("WEBKIT:W4:UP", has_line(serial, "WEBKIT:W4:UP")))
     for name in ("WEBPROCESS", "NETWORKPROCESS"):
         pids = [p for p in lines(serial, f"WEBKIT:W4:{name}:UP:") if p.isdigit() and int(p) > 0]
         verdicts.append(Verdict(f"WEBKIT:W4:{name}:UP", bool(pids), f"pid {pids[-1]}" if pids else ""))

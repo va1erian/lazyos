@@ -65,11 +65,32 @@ def git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
+def patched_paths(patches: list[Path]) -> set[str]:
+    """The tree paths the patches change (their ``+++ b/<path>`` lines)."""
+    paths = set()
+    for patch in patches:
+        for line in patch.read_text(errors="replace").splitlines():
+            if line.startswith("+++ b/"):
+                paths.add(line[len("+++ b/"):].split("\t")[0].strip())
+    return paths
+
+
+def applied_patches(tree: Path) -> list[Path]:
+    done = tree / ".lazyos-patched"
+    names = set(done.read_text().split()) if done.is_file() else set()
+    return [p for p in patch_files() if p.name in names]
+
+
 def fetch_upstream(tree: Path) -> None:
-    """Download the files `upstream.txt` lists into `tree`, each checked by its blob digest."""
+    """Download the files `upstream.txt` lists into `tree`, each checked by its blob digest.
+
+    Runs before the patches, which may change these files too (patch 0023 changes the curl port's
+    WebSocket scheduler): a file that an applied patch changed is kept as it is, not fetched again.
+    """
+    patched = patched_paths(applied_patches(tree))
     for sha, path in upstream_files():
         target = tree / path
-        if target.is_file() and git_blob_sha1(target.read_bytes()) == sha:
+        if target.is_file() and (path in patched or git_blob_sha1(target.read_bytes()) == sha):
             continue
         wkpins.log(f"fetching {path}")
         try:
@@ -123,8 +144,8 @@ def prepare() -> Path:
             wkpins.log("an applied patch changed: extracting the tree again")
             shutil.rmtree(TREE / wkpins.jsc_pins.WEBKIT.topdir, ignore_errors=True)
     tree = toolenv.extract(archive, wkpins.jsc_pins.WEBKIT, TREE)
-    apply_patches(tree)
     fetch_upstream(tree)
+    apply_patches(tree)
     written = lay_overlay(tree)
     if written:
         wkpins.log(f"{written} port file(s) written into the tree")

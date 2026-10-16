@@ -49,7 +49,10 @@ that painted nothing, or has no host run to compare with, fails the judge. `webk
 profile directory, so its NetworkProcess keeps its cookie jar (`cookie.jar.db`) in the working directory
 it inherits (the scratch directory there, the launcher's directory on LazyOS); the browser (`webkit-app`)
 gives its children a profile directory under `$HOME/.apps` (below). `webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
-`--accel none`).
+`--accel none`). Both runs set `WEBKIT_SMOKE_FDS=1100` (`port/smoke/monitor.cpp`, issue #867): the program
+holds that many descriptors first, so every IPC socket of the run is above 1024 in all three processes,
+and tests the IPC socket monitor's loop on such a socket (`WEBKIT:W4:FDS:...`, `WEBKIT:W4:MONITOR:PASS:...`,
+both required by the judge).
 
 LazyOS has no file-backed `mmap` yet, and the port's Skia compiles W3's
 `lazyos_mmap` shim (`tools/webkit/skiabuild/lazyos_mmap.c`, linked from
@@ -76,6 +79,7 @@ stack is libsoup). The glue is therefore:
 | `port/tree/Source/WebKit/WebProcess/InjectedBundle/lazyos/InjectedBundleLazyOS.cpp` | injected bundles are shared libraries; the programs are static executables: refused with a message |
 | `port/tree/Source/WebKit/UIProcess/API/C/lazyos/WPELoaderLazyOS.cpp` | the `_wpe_loader_interface` that statically linked libwpe asks its backend for: no backend, so no objects (libwpe then uses its in-process pasteboard) |
 | `port/app/{main,engine}.cpp`, `lazyos_ui.h` | `webkit-app`, the desktop UI process (W5, below) |
+| `port/tree/Source/WebKit/Platform/IPC/unix/SocketMonitorLazyOS.h` | the IPC connection's socket monitor loop (`poll()`, patch `0022`), header-only so `port/smoke/monitor.cpp` tests the same code |
 | `port/smoke/main.cpp` | `webkit-smoke`, the headless UI process: C API only, one `WEBKIT:W4:*` line per step (`tools/webkit/portjudge.py` lists them), plus `INFO` lines for the fonts Fontconfig sees, the glyphs as text and timings |
 | `port/fonts.conf.in` | Fontconfig's configuration in the image (`/system/etc/fonts/fonts.conf`), a template: `port_cmake.py` fills in the font and cache directories from `libs/fhs` and writes `target/webkit/fonts.conf`, which the image build embeds. The program paths and the CA bundle path reach the C++ as `-D` macros from the same source (`tools/webkit/fhspaths.py`) |
 | `patches/` | changes to the tarball, applied in name order after `tools/jsc/patches/webkit` (below) |
@@ -123,6 +127,8 @@ LazyOS-gated (they only matter to `PORT=LazyOS`).
 | `0019-webkit-network-cache-data-curl-shares-a-mapped-file` | with content extensions on, the UI process needs `NetworkCache::Data::tryCreateSharedMemory()` to hand a compiled rule list to the web processes; the curl backend defines it for Windows only. It now keeps the mapped file's handle (as the GLib backend does) and wraps the map as `SharedMemory` on Unix-domain-socket platforms |
 | `0020-webkit-c-api-says-whether-the-web-process-responds` | `WKPageIsWebProcessResponsive`: the page state client says that the answer to WebKit's 6 s ping changed, not which way; LazyWeb+'s "page not responding" bar needs the value (issue #862) |
 | `0021-webkit-the-proxy-of-an-ended-web-process-is-kept` | `WebProcessProxy::processDidTerminateOrFailedToLaunch` keeps a reference to the dead proxy and counts them (`lzw_proxy_kept`, `PROCESS:KEPT`): destroying it when the page is loaded again in a new process aborts the UI process (`crashDueToCheckedPtrToDeadObject`, a thread-safe CheckedPtr count that is already zero), cause not found; not tied to the embedder's calls, to the page being unresponsive, or to timing (issue #862). Covers web processes only: a replaced NetworkProcess's proxy is not kept, and nothing shows that its destruction is safe or not |
+| `0022-webkit-ipc-socket-monitor-polls` | the PlayStation path's `SocketMonitor` thread (one per IPC connection, on since `0003`) waited with `select()` on a stack `fd_set`: a descriptor of 1024 or more (a long session with a large HTTP cache: `0019` keeps one open per mapped entry) overflowed the set, and LazyOS's `EINVAL` for `nfds > 1024` made the loop spin without ever seeing the connection close. The loop is now `IPC::LazyOS::monitorSocket` (`port/tree/.../Platform/IPC/unix/SocketMonitorLazyOS.h`): `poll()`, a hangup or error is a close, a descriptor let go of ends the thread, one wait lasts at most 1 s (issue #867) |
+| `0023-webcore-curl-stream-scheduler-polls` | the curl port's WebSocket thread (`CurlStreamScheduler::workerThread`) used `select()` with one reused `timeval`, which `select()` counts down to zero, so after the first timeout every wait returned at once, and it never waited at all while a stream had no socket: a NetworkProcess core spun for as long as a page kept a WebSocket. It now `poll()`s the sockets for up to 20 ms every pass. The curl files are fetched (`port/upstream.txt`), so `port_tree.py` fetches before it patches and never fetches a file an applied patch changed |
 
 `OptionsLazyOS.cmake` also turns `ENABLE_CONTENT_EXTENSIONS` on (it is off in `WebKitFeatures.cmake` and only the GTK and
 iOS ports enable it), which changes `cmakeconfig.h` and so rebuilds every translation unit of the three programs.

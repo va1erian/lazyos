@@ -214,7 +214,7 @@ def host_reference() -> bool:
                                      ignore_cleanup_errors=True) as scratch:
         try:
             done = subprocess.run([str(HOST_BIN / "webkit-smoke")], capture_output=True, text=True,
-                                  timeout=300, cwd=scratch)
+                                  timeout=300, cwd=scratch, env=smoke_environment())
         except subprocess.TimeoutExpired as error:
             raise BuildError("the host reference run of webkit-smoke timed out after 300 s:\n"
                              + _tail(error.stdout)) from error
@@ -224,6 +224,12 @@ def host_reference() -> bool:
     REFERENCE.write_text(done.stdout)
     wkpins.log("host reference run passed")
     return True
+
+
+def smoke_environment() -> dict[str, str]:
+    """The host run's environment: the descriptor mode the guest's run uses too (issue #867)."""
+    import portjudge
+    return dict(os.environ, WEBKIT_SMOKE_FDS=str(portjudge.HELD_DESCRIPTORS))
 
 
 def _tail(output: str | bytes | None) -> str:
