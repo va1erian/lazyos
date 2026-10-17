@@ -19,6 +19,8 @@ python tools/webplus/notify_session.py --write             # regenerate tools/sc
 python tools/webplus/hang_run.py                           # a page that hangs: the bar, Wait, Reload, Stop; build, boot, judge (shots/webplus-hang)
 python tools/webplus/test_hang_judge.py                    # its judge fails when it should; its session is current
 python tools/webplus/hang_session.py --write               # regenerate tools/screenshot/examples/lazywebplus_hang.json
+python tools/webplus/live_run.py --build --home-disk target/home.img --url https://www.theverge.com/ --url https://www.cnn.com/ --url https://www.nasa.gov/   # real sites, a /home disk: does the browser hang or abort? (verdict from PERF:CPU, LOCK:WAIT, WEBPROCESS:UNRESPONSIVE, WEBPLUS:CRASH)
+python tools/webplus/test_live.py                           # its verdict, on the lines of a real hang
 python tools/webplus/frame_run.py [--perf]                    # where a scroll frame goes at 2560x1440: CPU by process, paint stages, the kernel's present_mpx
 python tools/webplus/test_frame.py                           # its reader and session; the scroll page is current
 python tools/webplus/scroll_page.py --write                  # regenerate fixtures/theoldnet.com/webplus/scroll.html

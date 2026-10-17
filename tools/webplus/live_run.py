@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Load real sites in LazyWeb+ and say whether the browser hangs (docs/lazywebplus.md, issue #861 style).
+
+Boots the image of the last `run.py` or `frame_run.py` (QEMU's user network reaches the real internet),
+opens each address in turn, waits, and reads the serial log for the signs of the hang a first visit to a
+heavy page showed: the page's process unresponsive (`WEBPROCESS:UNRESPONSIVE`), a process busy in the
+kernel for whole `PERF:CPU` periods (the NetworkProcess in ext2: `kernel=` over 40), a lock held for
+seconds (`LOCK:WAIT`), a stuck call (`SCHED:STUCK`) and the cache's `ENOSYS 285 fallocate`.
+
+    python tools/webplus/live_run.py                              # google, wikipedia, ars technica
+    python tools/webplus/live_run.py --url https://example.org/ --wait 60
+    python tools/webplus/live_run.py --judge-only shots/webplus-live/serial.log
+
+Needs the artifacts and ports of `run.py` (the host servers are not used, but the image's test CA is).
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent.parent
+for sub in ("tools/web", "tools/abi", "tools"):
+    sys.path.insert(0, str(ROOT / sub))
+sys.path.insert(0, str(HERE))
+
+_spec = importlib.util.spec_from_file_location("webplus_run", HERE / "run.py")
+webplus_run = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(webplus_run)
+
+import certs  # noqa: E402
+import judge  # noqa: E402
+import session  # noqa: E402
+
+DEFAULT_URLS = ["https://www.google.com/", "https://en.wikipedia.org/wiki/LazyOS", "https://arstechnica.com/"]
+
+
+def live_session(urls: list[str], wait: float, timeout: float) -> list[dict]:
+    steps = [*session.boot_gates(timeout), {"wait_for": f"{judge.P}:LOAD:{judge.START}", "timeout": timeout}]
+    for index, url in enumerate(urls):
+        steps += [
+            *session.navigate(url, f"{judge.P}:NAV:", timeout=60),
+            {"wait": wait},
+            {"shot": f"site{index}"},
+        ]
+    return steps
+
+
+def verdict(text: str) -> tuple[list[str], list[str]]:
+    """(findings that mean a hang, other facts) from a serial log."""
+    hang, facts = [], []
+    if "WEBPLUS:WEBPROCESS:UNRESPONSIVE" in text:
+        hang.append("the page's process was reported unresponsive (WEBPROCESS:UNRESPONSIVE)")
+    for tgid, pct, user, kernel, comm in re.findall(
+            r"PERF:CPU tgid=(\d+) pct=(\d+) user=(\d+) kernel=(\d+) class=\S+ demotions=\d+ comm=(\S*)", text):
+        if int(kernel) >= 40:
+            hang.append(f"{comm} (tgid {tgid}) spent {kernel}% of the core in the kernel for a whole period")
+    waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) .*? ms=(\d+) comm=(\S+)", text)
+    for lock, holder, thread, ms, comm in waits:
+        if int(ms) >= 500:
+            hang.append(f"{comm} waited {ms} ms for {lock}, held by {holder}")
+    for line in re.findall(r"SCHED:STUCK [^\n]*", text):
+        if "abi=linux nr=59 " not in line:  # a slow execve of a 100 MB program is the known start-up cost
+            hang.append(line[:160])
+    fall = re.findall(r"ENOSYS 285 fallocate count=(\d+)", text)
+    if fall:
+        facts.append(f"fallocate answered ENOSYS {fall[-1]} times")
+    return sorted(set(hang)), facts
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--out", default="shots/webplus-live")
+    parser.add_argument("--url", action="append", help="an address to open (repeat); default: three heavy pages")
+    parser.add_argument("--wait", type=float, default=45.0, help="seconds to watch after each page")
+    parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
+    parser.add_argument("--qemu")
+    parser.add_argument("--memory", default=webplus_run.limits.BIG_APP_MEMORY)
+    parser.add_argument("--step-timeout", type=float, default=300.0)
+    parser.add_argument("--home-disk", metavar="IMG", help="attach this /home volume (label lazyhome), as run_demo.py does; a copy is used")
+    parser.add_argument("--build", action="store_true",
+                        help="build the image first with no test host mappings: the real CA bundle and the real filter list")
+    parser.add_argument("--mode", default="2560x1440", help="the display mode of a built image")
+    parser.add_argument("--judge-only", metavar="SERIAL_LOG")
+    args = parser.parse_args(argv)
+    if args.judge_only:
+        text = Path(args.judge_only).read_text(errors="replace")
+    else:
+        out = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+        out.mkdir(parents=True, exist_ok=True)
+        if args.build:
+            # The harness image maps the sites' names (and easylist.to) to host stand-ins that this run does
+            # not serve: a page that is meant to come from the internet times out. A plain image does not.
+            error = webplus_run.build_image({"LAZYOS_DISPLAY_MODE": args.mode}, False)
+            if error:
+                print(f"{judge.P}:LIVE:FAIL {error}")
+                return 1
+        if not webplus_run.IMAGE.is_file():
+            print(f"{judge.P}:LIVE:FAIL no image: build one first (python tools/webplus/run.py or frame_run.py)")
+            return 1
+        home = None
+        if args.home_disk:
+            import shutil
+            home = str(out / "home.img")
+            shutil.copyfile(args.home_disk, home)
+        ok, text = webplus_run.run_session(live_session(args.url or DEFAULT_URLS, args.wait, args.step_timeout), out, args,
+                                           home_disk=home)
+        print(f"session {'ok' if ok else 'FAILED (it may have stopped on a marker; read the log)'}")
+    hang, facts = verdict(text)
+    for fact in facts:
+        print(f"  note: {fact}")
+    for finding in hang:
+        print(f"  HANG: {finding}")
+    print(f"{judge.P}:LIVE:" + ("FAIL" if hang else "PASS"))
+    return 1 if hang else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

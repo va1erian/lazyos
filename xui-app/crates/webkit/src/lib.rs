@@ -23,6 +23,8 @@ pub mod keys;
 pub mod mailbox;
 pub mod parts;
 pub mod taskstat;
+#[cfg(test)]
+mod tests_damage;
 pub mod view;
 
 #[cfg(feature = "window")]

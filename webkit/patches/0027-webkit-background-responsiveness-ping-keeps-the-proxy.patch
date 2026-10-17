@@ -1,0 +1,26 @@
+WebKit: the background responsiveness ping does not destroy the proxy it pings.
+
+BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired pings the process with a
+reference of its own. If the process is already gone the ping ends it and that reference is the last,
+so the WebProcessProxy is destroyed inside its own timer callback, and destroying one aborts the UI
+process on this port (crashDueToCheckedPtrToDeadObject, the family of patch 0021): The Verge, CNN
+and NASA opened in a row did it every time. One reference is leaked per ping, as 0021 does for a
+process that ended. The timer stays: it is what notices a page that spins while nothing is asked of it.
+
+--- a/Source/WebKit/UIProcess/BackgroundProcessResponsivenessTimer.cpp
++++ b/Source/WebKit/UIProcess/BackgroundProcessResponsivenessTimer.cpp
+@@ -91,6 +91,14 @@
+     ASSERT(!m_timeoutTimer.isActive());
+ 
+     m_timeoutTimer.startOneShot(responsivenessTimeout);
++    // LazyOS: the proxy outlives this call. When the process is already gone (a web process that exited
++    // cleanly, a service worker's) the ping ends it, and the reference `protect` takes below is then the
++    // last one: the proxy is destroyed inside this callback, and destroying a WebProcessProxy aborts the
++    // UI process on this port (crashDueToCheckedPtrToDeadObject; patch 0021). Seen every time after The
++    // Verge, CNN and NASA were opened in a row. One reference is leaked per ping (the interval doubles
++    // from 20 s, so a handful an hour); the ping is what finds a page that spins without being asked
++    // anything (the window's "not responding" bar), so the timer stays.
++    m_webProcessProxy->ref();
+     protect(m_webProcessProxy)->send(Messages::WebProcess::BackgroundResponsivenessPing(), 0);
+ }
+ 

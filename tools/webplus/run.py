@@ -104,7 +104,7 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
 
 
 def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str, ...] = (),
-                qemu_args: tuple[str, ...] = ()) -> tuple[bool, str]:
+                qemu_args: tuple[str, ...] = (), home_disk: str | None = None) -> tuple[bool, str]:
     """Drive the guest; (session ok, serial log text). `expected_failures` are `WEBPLUS:FAIL:` texts a
     session provokes on purpose (the hung-page harness stops a page's process); `qemu_args` go to
     QEMU as they are (a second QMP port for `sample.py`)."""
@@ -125,6 +125,8 @@ def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str
     if args.qemu:
         command += ["--qemu", args.qemu]
     command += [f"--extra-arg={arg}" for arg in qemu_args]
+    if home_disk:
+        command += ["--home-disk", home_disk]
     code = subprocess.call(command, cwd=ROOT, stdout=subprocess.DEVNULL)
     log = out / "serial.log"
     return code == 0, log.read_text(errors="replace") if log.is_file() else ""
