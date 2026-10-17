@@ -117,9 +117,8 @@ pub(super) struct Identity {
 }
 
 pub(super) fn identity(claimed: &Claimed) -> Result<Identity, StepError> {
-    let word = |offset, width| {
-        dev::cfg_read(claimed.handle, offset, width).map_err(|e| ("pci-config", e))
-    };
+    let word =
+        |offset, width| dev::cfg_read(claimed.handle, offset, width).map_err(|e| ("pci-config", e));
     let subsystem = word(SUBSYSTEM, 4)?;
     Ok(Identity {
         revision: word(REVISION, 1)? as u8,

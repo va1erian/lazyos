@@ -43,8 +43,8 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use gen9gfx::adopt::{self, Adopted, RegFile};
-use user::trace::{self, Channel};
 use user::sys;
+use user::trace::{self, Channel};
 
 #[path = "gpud/bar.rs"]
 mod bar;
@@ -71,12 +71,7 @@ fn device_arg() -> Option<u64> {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     match sys::cred_get(None) {
-        Ok(cred) => trace::line!(
-            Channel::Gpu,
-            "CRED uid={} caps={:#x}",
-            cred.uid,
-            cred.caps
-        ),
+        Ok(cred) => trace::line!(Channel::Gpu, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Gpu, "CRED unavailable (errno {errno})"),
     }
     let wanted = device_arg();
@@ -149,9 +144,8 @@ fn adopt_and_serve(
     // SAFETY: `device::map` mapped the whole BAR, `len` bytes, uncached; the
     // mapping lives until the claim ends with this task, which never exits
     // on purpose (the module docs).
-    let mut regs = unsafe {
-        bar::ReadOnlyBar::new(base, len, claimed.row.vendor, claimed.row.device)
-    };
+    let mut regs =
+        unsafe { bar::ReadOnlyBar::new(base, len, claimed.row.vendor, claimed.row.device) };
     let file = RegFile::read(&mut regs);
     report::registers(&file);
     if file.looks_dead() {
@@ -182,9 +176,8 @@ fn adopt_and_serve(
         device: claimed.row.device,
         revision: identity.revision,
     };
-    serve::run(serve::state(&facts, &adopted, fb.as_ref())).map_err(|why| {
-        Failure("serve", alloc::string::String::from(why))
-    })
+    serve::run(serve::state(&facts, &adopted, fb.as_ref()))
+        .map_err(|why| Failure("serve", alloc::string::String::from(why)))
 }
 
 /// Park for good after a failure, the claim held.

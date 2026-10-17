@@ -171,18 +171,18 @@ pub fn entry_for(function: &Function) -> Option<&'static Entry> {
 }
 
 /// [`entry_for`] with `extra` entries after [`MANIFEST`]'s.
-pub fn entry_for_with(
-    function: &Function,
-    extra: &'static [Entry],
-) -> Option<&'static Entry> {
-    MANIFEST.iter().chain(extra).find(|entry| match entry.matches {
-        Match::Ids { vendor, devices } => {
-            function.vendor == vendor && devices.contains(&function.device)
-        }
-        Match::Class { class, subclass } => {
-            function.class == class && function.subclass == subclass
-        }
-    })
+pub fn entry_for_with(function: &Function, extra: &'static [Entry]) -> Option<&'static Entry> {
+    MANIFEST
+        .iter()
+        .chain(extra)
+        .find(|entry| match entry.matches {
+            Match::Ids { vendor, devices } => {
+                function.vendor == vendor && devices.contains(&function.device)
+            }
+            Match::Class { class, subclass } => {
+                function.class == class && function.subclass == subclass
+            }
+        })
 }
 
 /// One driver start the manifest asks for.
