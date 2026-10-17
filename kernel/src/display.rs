@@ -71,7 +71,7 @@ pub use input::{
     push_pointer_move, push_pointer_wheel,
 };
 #[cfg(lazyos_tests)]
-pub use present::{chunk_rows, damage_rows, test_hooks as present_hooks};
+pub use present::{chunk_rows, damage_pixels, damage_rows, test_hooks as present_hooks};
 pub use screen::{init, init_requested};
 
 /// Sentinel for "no compositor bound".
@@ -193,7 +193,10 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::PRESENT => {
             let started = crate::perf::rdtsc();
             let result = present::present(a1);
-            crate::perf::presented(started);
+            #[cfg(lazyos_perf)]
+            crate::perf::presented(started, present::damage_pixels(a1));
+            #[cfg(not(lazyos_perf))]
+            crate::perf::presented(started, 0);
             result
         }
         op::SET_LAYOUT => order::set(a1),

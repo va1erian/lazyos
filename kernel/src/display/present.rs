@@ -69,6 +69,22 @@ fn grant() -> Option<(u64, usize, usize, usize)> {
     })
 }
 
+/// The pixels a `present` of `packed` copies: its rectangle clamped to the
+/// screen exactly as [`present`] clamps it (0 for one the screen does not
+/// contain, or when the caller holds no grant). The perf hook divides a
+/// present's time by this, so a full frame and a cursor are comparable.
+#[cfg_attr(not(any(lazyos_perf, lazyos_tests)), allow(dead_code))]
+pub fn damage_pixels(packed: u64) -> u64 {
+    let Some((_, _, width, height)) = grant() else {
+        return 0;
+    };
+    let (x, y, w, h) = unpack(packed);
+    if x >= width || y >= height {
+        return 0;
+    }
+    (w.min(width - x) as u64) * (h.min(height - y) as u64)
+}
+
 /// syscall 12 op 3: blit a damage rectangle from the screen buffer to the
 /// real framebuffer. The rectangle is clamped to the screen; only the owner
 /// may present; an unmapped damage range is `-EFAULT` (the chunks above it

@@ -1,5 +1,7 @@
 # Kaby Lake GPU support (HD Graphics 620)
 
+> **Re-scoped 2026-10-17: the goal is the whole OS at 60 fps at 1440p, LazyWeb+ first (§11, with a measured baseline). Read §11 before §4: it changes the order.**
+>
 > **Status: draft, revision 4 (2026-10-13). The Linux-side G0 survey ran on the box and settled most of §2 (§2.1); the hardware-independent prep is built (survey script, `libs/gen9gfx` parsers, now also tested against the box's real EDID and VBT; §10). No kernel, `user/` or `idl/` code yet.**
 > Goals: (1) mode setting, (2) audio over HDMI, (3) richer video,
 > (4) hardware graphics acceleration where achievable, all on the i3-7100U
@@ -493,3 +495,98 @@ neither the kernel, `user/`, `idl/` nor `build.rs`.
    00:02.0, then `set_scanout` in the kernel). Its first job is the same read
    as step 1, decoded with `libs/gen9gfx::regs` and reported as `GPU:*`
    markers.
+
+## 11. Re-scoped goal: 60 fps at 1440p, LazyWeb+ first (2026-10-17)
+
+**The goal changed** (maintainer, 2026-10-17): the whole OS at 60 fps on the
+box's native 2560x1440, with **LazyWeb+ (WebKit) the primary target**. 3D,
+video decode, audio and mode setting are out of scope. That drops G2, G4 and
+M1/M2 from the critical path and leaves G1, G5 (flips and vblank, without the
+video plane), G6 (zero-copy scanout, hardware cursor) and, only if the
+numbers ask for it, G3/G7/G8. The order below is by what is **measured**.
+
+### 11.1 Measured baseline (QEMU, WHPX, one run each; not the box)
+
+`python tools/webplus/frame_run.py --perf` builds LazyWeb+ at 2560x1440
+(scale 2: a 1280x720 layout), loads a long text page
+(`webplus/scroll.html`, 600 lines, no script), turns the wheel for 25 s and
+reads the guest's own counters. The window is 2000x900 pixels (1.8 Mpx).
+
+| Measured | Value |
+|---|---|
+| Paints | 22.9 a second, **every one the whole window** (`px` = 1.80 Mpx each) |
+| CPU, of the one core | LazyWeb+ UI process 44 to 46%, `xuid` 14%, WebProcess 6%: about **28 ms of CPU per frame** all told |
+| UI process, paint thread (`INFO:PAINT`) | `WKPagePaint` 5.5 to 5.8 ms, conversion 0.7 to 0.9, hand-over 1.2 to 1.5: 8 to 10 ms a paint |
+| Wheel to first damage report | 15 ms average, 75 ms worst |
+| Kernel present copy (`PERF:present_mpx`) | 437 µs per Mpx at p50, 946 at p99, so about 0.8 ms for this window and 1.6 ms for a whole 3.7 Mpx frame; RAM to RAM under QEMU |
+
+Read from those numbers (inference, not counters):
+
+- **The UI process spends about 20 ms a frame, and its counted paint stages
+  are 8 to 10 of them**, so roughly half is the xui window thread (building
+  the `Image`, its premultiply and opaque scan, the copy into the slot; no
+  counter covers it yet, see `lazywebplus-performance-plan.md` §8).
+- **`xuid` costs about 6 ms a frame, of which the kernel copy is under
+  1 ms**: the rest, about 5 ms, is composition in user space.
+- **A plain scroll is not damage-limited.** The page area scrolled is a few
+  hundred pixels of new rows, yet the whole window is painted, converted,
+  copied, composed and presented each time. Everything per-pixel on the path
+  is therefore paid about 7 times over what a scroll needs.
+- At 60 fps one core has **16.7 ms** a frame for all of it. The baseline
+  above is 28 ms on a fast host; the i3-7100U will be slower. No GPU stage
+  closes that gap by itself.
+
+A caution that cost a run: the first runs read "worst wheel to damage 420 ms,
+every few seconds". That was the harness, not the system: WebKit's `tall.html`
+has about 39 notches of travel, and a wheel turn that moves nothing paints
+nothing (the counter forgets it after 0.5 s). `scroll.html` is long enough,
+and `frame_run.py` turns round before the end of the page.
+
+### 11.2 What the GPU stages can and cannot buy here
+
+| Stage | Removes | Measured share it addresses | Verdict |
+|---|---|---|---|
+| Damage-limited scroll in the WebKit port (**not GPU**: paint the exposed rows, move the rest) | most of every per-pixel stage above | up to about 7x of the paint thread, window thread, compose and present for a scroll | **first**, software, verifiable in QEMU; see `lazywebplus-performance-plan.md` P1 |
+| G6 zero-copy scanout | the kernel's copy into the framebuffer | 0.8 ms of a 1.8 Mpx frame under QEMU; **unknown on the box** (write-combining) | **decided by one number from the box**, below |
+| G5 flips at vblank | tearing, frame pacing | none of the CPU cost | cheap once G1 has vblank; makes 60 fps *visible* |
+| Hardware cursor plane (G6) | the cursor's save-under and two presents per move | small per move | do with G6 |
+| G7 blitter, G8 render kernels | copies and blends done by the CPU | the 5 ms of composition, if it were copies | **not yet**: they need G3 (the largest, riskiest stage) and compose is not known to be copy-bound |
+
+**Rule for G6.** On the box, `PERF:present_mpx` p50 times the window's
+megapixels, plus the same for the 3.7 Mpx of a full-screen change, against the
+16.7 ms frame. If a 1.8 Mpx present costs under about 1.5 ms there (the same
+order as QEMU), G6 buys little and the work is software. If it is several
+milliseconds (a write-combining aperture that is slow), G6 is the first GPU
+stage. Do not start G3 before that number and a compose profile exist.
+
+### 11.3 The box run that decides it (needs you)
+
+Build a stick with the kernel perf hook and the full logical screen, with
+`dbgd` so nothing needs a serial port. `LAZYOS_PERF` has no launcher flag (only
+`tools/perf/run.py` builds it); through the environment `run_demo.py` should
+pass it to `cargo build`, but that route is **untested**:
+
+```bash
+LAZYOS_PERF=1 LAZYOS_DISPLAY_MAX=2560x1440 python tools/run_demo.py --lazywebplus --dbgd --usb-image --build-only
+# boot the box, open LazyWeb+, load a long page, turn the wheel for 20 s, then from the host:
+python tools/dbg/dbgctl.py --host <ip> log --lines 400 | grep -E "PERF:(present_mpx|present|CPU)"
+python tools/dbg/dbgctl.py --host <ip> log --source programs --lines 400 | grep INFO:PAINT
+```
+
+Wanted: `PERF:present_mpx` (n, p50, p99), `PERF:CPU` for the UI process, `xuid`
+and the WebProcess, and the `INFO:PAINT` lines. Compare with 11.1. Any page
+longer than the window will do (`tools/web/fixtures/theoldnet.com/webplus/scroll.html`
+if the box can reach a host serving it).
+
+### 11.4 Status of the implementation for this goal
+
+- **Merged and building**: `gpud` G1 (read-only, `LAZYOS_GEN9GFX=1`) on current
+  main; `cargo test -p gen9gfx -p gpupolicy -p devmatch` passes; a console image
+  with `LAZYOS_GEN9GFX=1 LAZYOS_NETD=1` builds. **Not run on the box.**
+- **Built for the measurement**: `tools/webplus/frame_run.py` (+
+  `test_frame.py`, `scroll_page.py`), the kernel's `present_mpx` metric
+  (`LAZYOS_PERF=1`; kernel test `display_present_damage_pixels`, the display
+  suite passes 50 of 50).
+- **Not built yet** (honestly): vblank, `set_scanout`, CRC, any display write,
+  G3 and everything after it. None of it is justified by the numbers above
+  until the box answers 11.3.

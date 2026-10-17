@@ -25,6 +25,7 @@ Metrics (see `kernel/src/perf/mod.rs` for exactly where each is stamped):
     ipc_rt         in-kernel Messenger echo round trip (no context switch)
     sleep_1ms      a 1 ms sleep of the kernel task, request -> return
     present        the compositor's present syscall, start to return
+    present_mpx    the same, per million pixels copied (presents of 64k pixels or more only)
     sched          one scheduler entry (tick, park or yield), start to return
     wake_run       any task-to-task wake -> the woken task runs
     msg_rt         cross-process Messenger Ping round trip (msgbench, user rdtsc)
@@ -61,7 +62,7 @@ from qemu_qmp import (  # noqa: E402
 
 REPORT_DIR = ROOT / "docs" / "perf"
 METRICS = (
-    "irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms", "present",
+    "irq_wake", "input_read", "input_present", "irqoff", "ipc_rt", "sleep_1ms", "present", "present_mpx",
     "sched", "wake_run", "msg_rt",
     "report", "input_present_rpt", "usb_input_present",
 )

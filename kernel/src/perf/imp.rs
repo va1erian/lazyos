@@ -13,6 +13,11 @@ static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
 static SLEEP_1MS: Samples = Samples::new();
 static PRESENT: Samples = Samples::new();
+/// Cycles a present of at least [`MPX_MIN_PIXELS`] pixels takes per million pixels, so the table's
+/// microseconds read as "microseconds per megapixel": the cost of the framebuffer copy itself.
+static PRESENT_MPX: Samples = Samples::new();
+/// Smaller presents (a cursor) are mostly fixed cost and would drown the per-pixel figure.
+const MPX_MIN_PIXELS: u64 = 64 * 1024;
 static SCHED: Samples = Samples::new();
 static WAKE_RUN: Samples = Samples::new();
 /// How long one report took to print, and the `input_present` samples whose
@@ -178,8 +183,15 @@ pub fn input_read(count: usize) {
     }
 }
 
-pub fn presented(started: u64) {
-    record(&PRESENT, rdtsc().wrapping_sub(started));
+pub fn presented(started: u64, pixels: u64) {
+    let cycles = rdtsc().wrapping_sub(started);
+    record(&PRESENT, cycles);
+    if pixels >= MPX_MIN_PIXELS {
+        record(
+            &PRESENT_MPX,
+            (u128::from(cycles) * 1_000_000 / u128::from(pixels)) as u64,
+        );
+    }
     let usb = USB_POINTER_READ.swap(0, Ordering::Relaxed);
     if usb != 0 {
         record(&USB_INPUT_PRESENT, rdtsc().wrapping_sub(usb));
@@ -311,6 +323,7 @@ pub fn service() {
         ("ipc_rt", &IPC_RT),
         ("sleep_1ms", &SLEEP_1MS),
         ("present", &PRESENT),
+        ("present_mpx", &PRESENT_MPX),
         ("sched", &SCHED),
         ("wake_run", &WAKE_RUN),
         ("report", &REPORT),

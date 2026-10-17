@@ -91,6 +91,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "display_present_damage_rows_arithmetic",
         present_damage_rows_arithmetic,
     ),
+    ("display_present_damage_pixels", present_damage_pixels),
     ("display_present_one_pixel", present_one_pixel),
     ("display_present_partial_unmap", present_partial_unmap),
     ("display_present_small_soak", present_small_soak),

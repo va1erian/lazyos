@@ -4,7 +4,7 @@
 //! that touch it, and a soak of many thousands of small presents.
 
 use super::*;
-use crate::display::{damage_rows, op, INFO_WORDS};
+use crate::display::{damage_pixels, damage_rows, op, INFO_WORDS};
 
 pub(super) const EFAULT: i64 = 14;
 pub(super) const PAGE: u64 = 4096;
@@ -132,6 +132,47 @@ pub fn present_damage_rows_arithmetic() -> Result<(), String> {
     Ok(())
 }
 
+/// The pixel count the perf hook divides by is the rectangle `present`
+/// copies: clamped to the screen, zero for one outside it or with no grant.
+pub fn present_damage_pixels() -> Result<(), String> {
+    let screen = bind_screen()?;
+    let (width, height) = (screen.width, screen.height);
+    let pack = |x: usize, y: usize, w: usize, h: usize| {
+        x as u64 | (y as u64) << 16 | (w as u64) << 32 | (h as u64) << 48
+    };
+    check!(
+        damage_pixels(pack(0, 0, width, height)) == (width * height) as u64,
+        "whole screen"
+    );
+    check!(damage_pixels(pack(3, 4, 1, 1)) == 1, "one pixel");
+    check!(
+        damage_pixels(pack(width - 10, height - 5, 500, 500)) == 50,
+        "clamped at the bottom right"
+    );
+    check!(damage_pixels(pack(width, 0, 4, 4)) == 0, "x off screen");
+    check!(damage_pixels(pack(0, height, 4, 4)) == 0, "y off screen");
+    check!(damage_pixels(pack(0, 0, 0, 9)) == 0, "zero width");
+    check!(damage_pixels(pack(0, 0, 9, 0)) == 0, "zero height");
+    // Every packing the compositor can send, against the plain clamp.
+    for round in 0..50_000usize {
+        let (x, y) = ((round * 37) % (width + 40), (round * 101) % (height + 40));
+        let (w, h) = ((round * 7) % (width * 2), (round * 13) % (height * 2));
+        let expected = if x >= width || y >= height {
+            0
+        } else {
+            (w.min(width - x) * h.min(height - y)) as u64
+        };
+        let got = damage_pixels(pack(x, y, w, h));
+        check!(
+            got == expected,
+            "round {round}: {got} != {expected} for ({x},{y} {w}x{h})"
+        );
+    }
+    unbind_screen()?;
+    // Not the owner any more: nothing to count.
+    check!(damage_pixels(pack(0, 0, 8, 8)) == 0, "no grant");
+    Ok(())
+}
 /// A 1x1 present of a mapped buffer succeeds and lands where it was drawn,
 /// including the last row and column (the source slice starts at row `y`).
 pub fn present_one_pixel() -> Result<(), String> {

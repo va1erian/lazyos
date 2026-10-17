@@ -28,6 +28,7 @@ syscall number of the longest interrupts-off stretch.
 | `ipc_rt` | in-kernel `begin_call` | `await_reply` returns (no context switch) | 2000 echoes, once, 15 s after boot |
 | `sleep_1ms` | the kernel task asks for a 1 ms sleep | the sleep returns | 200 sleeps, once, 17 s after boot |
 | `present` | the display owner's `present` syscall starts | it returns, breaths between chunks included (P3.2) | every frame the compositor shows during the run |
+| `present_mpx` | the same | the same, divided by the pixels copied: the table's microseconds are microseconds **per megapixel**, for presents of 64k pixels or more. The cost of the framebuffer copy itself (write-combining on a real PC, RAM under QEMU), comparable between a full frame and a window | frames of 64k pixels or more only (none while only the cursor moves) |
 | `sched` | a scheduler entry (tick, park, yield) | it returns the stack to resume | everything the boot and the run do |
 | `wake_run` | any task wakes another (not only an interrupt) | the woken task is put on the CPU | everything the boot and the run do |
 | `msg_rt` | `msgbench` enters a `Ping` call (user `rdtsc`) | the call returns with the server's reply | 20000 round trips between two user processes, once, 19 s after boot |

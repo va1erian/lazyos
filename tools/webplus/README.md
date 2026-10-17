@@ -19,6 +19,9 @@ python tools/webplus/notify_session.py --write             # regenerate tools/sc
 python tools/webplus/hang_run.py                           # a page that hangs: the bar, Wait, Reload, Stop; build, boot, judge (shots/webplus-hang)
 python tools/webplus/test_hang_judge.py                    # its judge fails when it should; its session is current
 python tools/webplus/hang_session.py --write               # regenerate tools/screenshot/examples/lazywebplus_hang.json
+python tools/webplus/frame_run.py [--perf]                    # where a scroll frame goes at 2560x1440: CPU by process, paint stages, the kernel's present_mpx
+python tools/webplus/test_frame.py                           # its reader and session; the scroll page is current
+python tools/webplus/scroll_page.py --write                  # regenerate fixtures/theoldnet.com/webplus/scroll.html
 python tools/webplus/sample.py record --port 5555 --out s.tsv   # where the guest's CPU goes: CR3 + RIP at 30 Hz over a second QMP port
 python tools/webplus/sample.py report s.tsv [--cr3 HEX --elf PROGRAM]   # by process, then by function (needs binutils' addr2line)
 python tools/webplus/test_sample.py                        # its parser and summary

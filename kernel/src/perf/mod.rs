@@ -151,11 +151,12 @@ pub fn input_read(_count: usize) {
     imp::input_read(_count);
 }
 
-/// The display owner's `present`, begun at TSC `started`, returned.
+/// The display owner's `present` of `_pixels` pixels, begun at TSC `started`,
+/// returned.
 #[inline(always)]
-pub fn presented(_started: u64) {
+pub fn presented(_started: u64, _pixels: u64) {
     #[cfg(lazyos_perf)]
-    imp::presented(_started);
+    imp::presented(_started, _pixels);
 }
 
 /// A syscall entered with interrupts off (`nr` for the report).

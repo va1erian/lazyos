@@ -309,6 +309,10 @@ longer filling the view white under a frame that covers it (`xui-app/crates/webk
 when its alphas are all 255 (one pass, auto-vectorised) and take `opaque` from the same pass; at 2560x1250 that
 pass is the largest controllable cost left on the window thread.
 
+### The frame at 2560x1440, with the window and the compositor counted (2026-10-17)
+
+The paint thread's counters above leave out the window thread, `xuid` and the kernel. `python tools/webplus/frame_run.py [--perf]` (scroll page `webplus/scroll.html`, 2560x1440 at scale 2, a 2000x900 window, WHPX) adds them from `PERF:CPU` and the kernel's `PERF:present_mpx`: **about 28 ms of CPU per frame at 23 paints a second, and every paint is the whole window** (1.80 Mpx), for a scroll that exposes a few hundred pixels. The UI process is 44 to 46% of the core, of which the counted paint stages are only 8 to 10 ms a paint: the rest is the window thread, still uncounted. This is the case for P1 item 1 (damage) applied to scrolling (a blit-scroll of the persistent bitmap and a paint of the exposed rows), ahead of any GPU stage. The numbers and what they mean for the GPU plan are in [`kabylake-gpu-plan.md`](kabylake-gpu-plan.md) §11.
+
 ### A build trap: two checkouts, one Docker volume (found when this change was first tried)
 
 `webkit/README.md` says two checkouts must not build WebKit in the same Docker volume. The quiet failure is not a
