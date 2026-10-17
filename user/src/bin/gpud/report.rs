@@ -125,7 +125,7 @@ pub(super) fn adopted(state: &Adopted, fb: Option<&FbMap>) {
         pipe.pixel_clock_khz.unwrap_or(0),
         pipe.refresh_millihz().unwrap_or(0),
         pipe.source
-            .map_or(false, |(w, h)| (w, h) == (pipe.h.active, pipe.v.active))
+            .is_some_and(|(w, h)| (w, h) == (pipe.h.active, pipe.v.active))
     );
     trace::line!(
         Channel::Gpu,
