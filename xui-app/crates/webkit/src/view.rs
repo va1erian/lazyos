@@ -6,11 +6,11 @@
 //! top-left corner over white, never stretched.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, Result, TimerId, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
@@ -60,20 +60,22 @@ struct State {
     meter: RefCell<Meter>,
     /// When the wheel event that moved the picture ahead arrived, until it is drawn.
     wheel_at: Cell<Option<Instant>>,
+    /// The timer that gives up on a picture shown ahead; it runs only while one is.
+    settle: Cell<Option<TimerId>>,
 }
 
 pub struct PageView<M: 'static> {
-    control: Control<M>,
+    control: Rc<Control<M>>,
     state: Rc<RefCell<State>>,
     engine: Rc<dyn Engine>,
 }
 
 impl<M: Clone + 'static> PageView<M> {
     pub fn new(ui: &Ui<M>, engine: Rc<dyn Engine>, hooks: Hooks<M>) -> Result<PageView<M>> {
-        let control = Control::new(
+        let control = Rc::new(Control::new(
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
-        )?;
+        )?);
         let state: Rc<RefCell<State>> = Rc::default();
         {
             let state = Rc::clone(&state);
@@ -100,26 +102,18 @@ impl<M: Clone + 'static> PageView<M> {
         }
         {
             let (ui, id) = (ui.clone(), control.id());
-            let state = Rc::clone(&state);
-            control.set_timer(SETTLE_TICK_MS, move || {
-                if let Ok(state) = state.try_borrow() {
-                    if state.spec.borrow_mut().tick(speculate::now_ms()) {
-                        ui.invalidate(id);
-                    }
-                }
-                None
-            });
-        }
-        {
-            let (ui, id) = (ui.clone(), control.id());
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
+            let arm = {
+                let (weak, state) = (Rc::downgrade(&control), Rc::clone(&state));
+                move || arm_settle(&weak, &state)
+            };
             let Hooks {
                 is_shortcut,
                 clicked,
                 right_click,
             } = hooks;
             control.on_events(move |event| {
-                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, event);
+                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, &arm, event);
                 match (event, &right_click) {
                     (
                         Event::MouseDown {
@@ -309,6 +303,32 @@ fn notches(delta: i16) -> i32 {
     }
 }
 
+/// Starts the timer that gives up on a picture shown ahead of the page (`speculate.rs`). It stops
+/// itself once nothing is ahead, so an idle page costs no wakeups.
+fn arm_settle<M: Clone + 'static>(control: &Weak<Control<M>>, state: &Rc<RefCell<State>>) {
+    let (Some(strong), Ok(held)) = (control.upgrade(), state.try_borrow()) else {
+        return;
+    };
+    if held.settle.get().is_some() {
+        return;
+    }
+    let (weak, state) = (control.clone(), Rc::clone(state));
+    let timer = strong.set_timer(SETTLE_TICK_MS, move || {
+        let control = weak.upgrade()?;
+        let state = state.try_borrow().ok()?;
+        if state.spec.borrow_mut().tick(speculate::now_ms()) {
+            control.invalidate();
+        }
+        if !state.spec.borrow().is_ahead() {
+            if let Some(timer) = state.settle.take() {
+                control.kill_timer(timer);
+            }
+        }
+        None
+    });
+    held.settle.set(timer);
+}
+
 /// What a mouse event does to the engine, and to the capture of the pointer.
 fn handle<M: 'static>(
     ui: &Ui<M>,
@@ -316,6 +336,7 @@ fn handle<M: 'static>(
     state: &RefCell<State>,
     engine: &dyn Engine,
     is_shortcut: &IsShortcut,
+    arm: &dyn Fn(),
     event: &Event,
 ) {
     let Ok(state) = state.try_borrow() else {
@@ -392,6 +413,7 @@ fn handle<M: 'static>(
                     state.wheel_at.set(Some(Instant::now()));
                 }
                 ui.invalidate(id);
+                arm();
             }
         }
         Event::CaptureChanged => state.held.set(None),

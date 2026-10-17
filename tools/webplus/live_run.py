@@ -61,6 +61,11 @@ def live_session(urls: list[str], wait: float, timeout: float, scroll: float = 0
     return steps
 
 
+#: SIGILL, SIGABRT, SIGBUS, SIGFPE, SIGSEGV: a program that ended by one of these crashed.
+CRASH_SIGNALS = (4, 6, 7, 8, 11)
+BROWSER_PROGRAMS = ("lazywebplus.elf", "webprocess", "networkprocess", "WebProcess", "NetworkProcess")
+
+
 def verdict(text: str) -> tuple[list[str], list[str]]:
     """(findings that mean a hang, other facts) from a serial log."""
     hang, facts = [], []
@@ -70,6 +75,11 @@ def verdict(text: str) -> tuple[list[str], list[str]]:
             r"PERF:CPU tgid=(\d+) pct=(\d+) user=(\d+) kernel=(\d+) class=\S+ demotions=\d+ comm=(\S*)", text):
         if int(kernel) >= 40:
             hang.append(f"{comm} (tgid {tgid}) spent {kernel}% of the core in the kernel for a whole period")
+    # A browser program that died of a signal that means a bug (abort, segv, ...): patch 0027's UI abort
+    # was exactly this, and nothing else in the verdict would have seen it.
+    for tgid, sig, comm in re.findall(r"PROC:EXIT tgid=(\d+) \S+ status=\S+ sig=(\d+) \S+ \S+ \S+ comm=(\S+)", text):
+        if int(sig) in CRASH_SIGNALS and comm in BROWSER_PROGRAMS:
+            hang.append(f"{comm} (tgid {tgid}) died of signal {sig}")
     waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) .*? ms=(\d+) comm=(\S+)", text)
     for lock, holder, thread, ms, comm in waits:
         if int(ms) >= 500:

@@ -12,7 +12,8 @@ spinning threads kept the main thread, which answers the wheel, waiting (docs/la
 preempted holder blocks only its own. Slots are interchangeable (any thread may free into any), so
 this costs a little fragmentation and nothing else.
 
-`apply()` edits the toolchain in place and is idempotent: the container is new for every build, so
+`apply()` edits the toolchain in place (in the container, the pip wheel of the image; with `--no-docker` on a host
+it edits that host's installed `ziglang`, permanently, which is what that flag asks for) and is idempotent: the container is new for every build, so
 `port_cmake.build` calls it each time. A program linked before the fix keeps the old allocator
 (ninja cannot see a change inside the toolchain), so `stale()` names the ones to link again
 (`VERSION` is recorded per program in the work volume).

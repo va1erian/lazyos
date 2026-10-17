@@ -329,7 +329,7 @@ every step (megabytes, with the page faults, on a kernel that maps every large b
 |---|---|
 | `webkit/patches/0024` | `WKPageSetUpdateCallback`: each update's scrolled rectangle, offset and repainted rectangles, with no "whole view" report while it is set; `BackingStore::scroll` moves the pixels in place |
 | `xui-app/crates/webkit/src/damage.rs` | `Pending`: the updates between two paints as one scroll and at most eight rectangles, or a whole frame (two different scrolled areas, a scroll further than the area, rectangles covering four fifths); pending rectangles move with a scroll, in both places (a superset, never a subset) |
-| `.../mailbox.rs`, `abi.rs`, `ffi.rs` | `lzw_ui_frame_delta` and `lzw_paint_*`; deltas queue behind the picture they belong to under one lock; a window too far behind, or without a picture, is answered "send a whole frame" |
+| `.../mailbox.rs`, `ffi_paint.rs` | `lzw_ui_frame_delta` and `lzw_paint_*`; deltas queue behind the picture they belong to under one lock; a window too far behind, or without a picture, is answered "send a whole frame" |
 | `.../parts.rs`, `view.rs` | the picture is the first whole frame plus the rectangles painted since, each an image with an offset and a clip; a scroll moves offsets and clips, so xui draws the images it has already prepared and only the exposed rows are new; past 32 parts a whole frame replaces them |
 | `webkit/port/app/paint.cpp` | asks for the plan, paints only its rectangles, sends a delta; `legacy` mode (`<profile>/paint-mode`) keeps the old whole-frame path for comparison |
 | `xui-app/webplus/src/frameclock.rs` | `INFO:WINDOW` once a second: updates, apply and draw time on the window thread, parts |
@@ -350,10 +350,19 @@ the same numbers within 1%).** `python tools/webplus/frame_run.py --perf`:
 |---|---|---|
 | CPU per painted frame | **28.7 ms** (66% of the core at 22.9 paints a second) | **17.0 ms** (45% at 26.6 a second) |
 | sustainable frames a second on this core | about 35 | about 59 |
-| paints that were whole frames | all | 1 or 2 of about 585 |
+| paints that were whole frames | all | 1 or 2 of about 585 to 665 (26.6 a second for 25 s) |
 | pixels sent per paint | 1.80 Mpx | 0.17 to 0.18 Mpx |
 | window thread, per update | about 10 ms (inferred) | apply 47 us, draw 2.1 ms (`INFO:WINDOW`), at most 22 parts |
 | the engine's check against a whole paint | not run | 21 to 106 checks, 0 differed |
+
+**How the CPU figure is made, and what it leaves out.** `frame_run.py` adds up the per-process averages of `PERF:CPU`
+lines, which the kernel prints only for processes at or above 20% of the core and only the busiest five, and each
+average is over the looks where that process appeared. It is a thresholded estimate: a process that is busy only
+now and then counts for more than it used, and one below 20% (after the change the page's process and `xuid` sit
+near it) not at all. The before/after pair is made the same way, so the *difference* is meaningful, the absolute
+17.0 ms is not a clean budget, and the split in the paragraph above it is from the stage counters, not from this sum.
+The probe image also runs the engine check below (a whole `WKPagePaint`, a conversion and a compare on the first delta
+of every second and every 30th after: about 1% of the core), which `PERF:CPU` counts and `INFO:PAINT` stages do not.
 
 The check is the one that matters for trust: in a probe image the UI process keeps the picture the window should have
 and, every 30th delta, compares it with a whole paint from WebKit's backing store (`paint.cpp`, "the check"; a
@@ -458,7 +467,11 @@ page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure number
 * **When the page does not follow** (the end of the page, a box that scrolls by itself, a handler that cancels
   the wheel): a burst the page has not moved for 900 ms is dropped and that direction is not shown ahead until the
   page moves; whatever is left 500 ms after the last notch or update is dropped (500: the page's slowest answer
-  seen was 450 ms, and a shorter settle made the picture jump back and then forward).
+  seen was 450 ms, and a shorter settle made the picture jump back and then forward). Only an update that moved the
+  page's offset counts as the page answering: a video or an ad that keeps repainting must not keep a shift alive. The
+  100 ms timer that does the dropping runs only while the picture is ahead (an idle page costs no wakeups). Every
+  number the web process sends (offsets, scrolls, rectangles) is clamped at the C ABI and combined with saturating or
+  64-bit arithmetic (`tests/speculate.rs`, "hostile offsets"); patch 0029 does the same for `BackingStore::scroll`.
 * **The scroll bar stays put.** WebKit paints its 7 px scroll bar into the page's picture, so shifting the picture
   dragged the thumb ahead and back on every answer. The picture's last 7 columns (`SCROLLBAR` in `picture.rs`) are
   drawn unshifted: the thumb moves only when the page does.
@@ -516,9 +529,12 @@ wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40` wi
 The WebProcess (all threads) used 44-50% of the CPU, about half of it the main thread, so the main thread ran for
 roughly 10 s and *waited* for 12.5 s: it was runnable behind other tasks for more than half the time it wanted to
 run. The page's answer to a wheel notch (wheel-to-damage, 70 ms on average) is that thread's serial work, so a CPU of
-its own would take it to about 45% of that at best (a 2x ceiling). The guest was not saturated (about 23% idle with
-the sampler on, which slows it, 55% before the scroll): the wait is queueing among eight busy-ish tasks and the
-scheduler's slices, not a lack of cycles, which is why a policy change can get part of it without SMP.
+its own would take it to about 45% of that at best (a 2x ceiling, and only if none of the wait is behind the page's
+own helper threads or its IPC peers, which the ledger cannot tell apart). The guest was not saturated (about 23% idle
+with the sampler on, which slows it, 55% before the scroll), so some of the wait is queueing among eight busy-ish
+tasks and the scheduler's slices, which a policy change might move without SMP. A policy change reorders the queue and
+creates no cycles: what it gives the main thread it takes from another task, so item 1 below is an experiment, not a
+promise.
 
 **What SMP is.** The kernel is single-CPU by design (`docs/architecture.md`, `virtual-memory.md`, S8 of the
 platform plan). A second CPU is not a switch: AP bring-up (INIT-SIPI, per-CPU GDT/TSS/stacks, LAPIC timers), per-CPU

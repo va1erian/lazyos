@@ -192,6 +192,7 @@ pub fn ioapic_mask_table_matches_chip() -> Result<(), String> {
     );
     Ok(())
 }
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_ioapic_routes_every_line", ioapic_routes_every_line),
     ("dev_ioapic_entry_encoding", ioapic_entry_encoding),

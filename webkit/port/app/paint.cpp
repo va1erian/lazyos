@@ -534,7 +534,10 @@ void schedulePaint()
 
 void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
 {
-    paintedScroll = latestScroll;
+    // Without the update callback (the legacy path) this is the only notice of an update. With it, a
+    // stray call between an offset message and its update must not relabel pixels that are older.
+    if (mode().legacy)
+        paintedScroll = latestScroll;
     if (mode().legacy)
         lzw_paint_full();
     else

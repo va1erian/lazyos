@@ -43,6 +43,16 @@ class Verdict(unittest.TestCase):
         self.assertIn("SCHED:STUCK", text)
         self.assertEqual(facts, ["fallocate answered ENOSYS 39 times"])
 
+    def test_a_browser_program_that_aborts_is_a_finding_and_a_clean_exit_or_a_kill_is_not(self):
+        abort = "PROC:EXIT tgid=39 thread=39/fork status=134 sig=6 by=- parent=30 cpu_ms=900 comm=webprocess\n"
+        self.assertEqual(live_run.verdict(abort)[0], ["webprocess (tgid 39) died of signal 6"])
+        segv = "PROC:EXIT tgid=30 thread=30/main status=139 sig=11 by=- parent=1 cpu_ms=5 comm=lazywebplus.elf\n"
+        self.assertEqual(live_run.verdict(segv)[0], ["lazywebplus.elf (tgid 30) died of signal 11"])
+        killed = "PROC:EXIT tgid=39 thread=39/fork status=0 sig=15 by=1 parent=30 cpu_ms=900 comm=webprocess\n"
+        clean = "PROC:EXIT tgid=39 thread=39/fork status=0 sig=- by=- parent=30 cpu_ms=900 comm=webprocess\n"
+        other = "PROC:EXIT tgid=40 thread=40/fork status=134 sig=6 by=- parent=20 cpu_ms=9 comm=busybox\n"
+        self.assertEqual(live_run.verdict(killed + clean + other)[0], [])
+
     def test_a_busy_but_healthy_log_is_clean(self):
         hang, facts = live_run.verdict(HEALTHY)
         self.assertEqual((hang, facts), ([], []))

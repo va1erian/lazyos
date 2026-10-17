@@ -135,6 +135,42 @@ fn a_wheel_event_of_nothing_is_nothing() {
     assert_eq!(s.shift(), 0);
 }
 
+#[test]
+fn updates_that_do_not_scroll_do_not_keep_the_picture_ahead() {
+    // A page that moved 50 px of the 120 asked, then only repaints (a video, an ad, a carousel).
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(3 * DOWN, 10);
+    assert_eq!(s.shift(), 3 * LINE_PX);
+    s.report(1050, 60);
+    assert_eq!(s.shift(), 70);
+    for t in (100..2000).step_by(16) {
+        s.report(1050, t);
+        s.tick(t);
+    }
+    assert_eq!(
+        s.shift(),
+        0,
+        "the page said its last word at 60 ms: dropped {SETTLE_MS} ms later"
+    );
+    assert_eq!(s.counters().snaps, 1);
+}
+
+#[test]
+fn hostile_offsets_neither_panic_nor_leave_the_picture_adrift() {
+    let mut s = Speculation::default();
+    s.report(i32::MIN, 0);
+    s.wheel(DOWN, 1);
+    s.report(i32::MAX, 2);
+    assert!(s.shift().abs() <= MAX_AHEAD);
+    s.report(i32::MIN, 3);
+    assert!(s.shift().abs() <= MAX_AHEAD);
+    s.wheel(UP, 4);
+    s.report(0, 5);
+    s.report(i32::MAX, 6);
+    s.report(-1, 7);
+    assert!(s.shift().abs() <= MAX_AHEAD);
+}
 /// A tiny deterministic generator (no dependency for a test).
 struct Rng(u64);
 

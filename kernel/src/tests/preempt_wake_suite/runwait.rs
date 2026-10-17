@@ -6,8 +6,12 @@ use super::*;
 use crate::perf::runwait::Ledger;
 use crate::task::MAX_TASKS;
 
+/// The ledgers are statics: one is 28 KiB, too much for a test task's kernel stack.
+static RULES: Ledger = Ledger::new();
+static SOAK: Ledger = Ledger::new();
+
 pub(super) fn runwait_ledger_rules() -> Result<(), String> {
-    let ledger = Ledger::new();
+    let ledger = &RULES;
     ledger.run(3, 500);
     check!(
         ledger.totals(3) == (0, 0, 0),
@@ -50,7 +54,7 @@ pub(super) fn runwait_ledger_rules() -> Result<(), String> {
 }
 
 pub(super) fn runwait_ledger_soak() -> Result<(), String> {
-    let ledger = Ledger::new();
+    let ledger = &SOAK;
     let mut rng = 0x9E37_79B9_7F4A_7C15u64;
     let mut next = move || {
         rng ^= rng << 13;

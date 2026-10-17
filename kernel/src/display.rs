@@ -191,10 +191,13 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
         op::PRESENT => {
+            // Counted before the clock starts: the grant lookup is not part of what a present costs.
+            #[cfg(lazyos_perf)]
+            let pixels = present::damage_pixels(a1);
             let started = crate::perf::rdtsc();
             let result = present::present(a1);
             #[cfg(lazyos_perf)]
-            crate::perf::presented(started, present::damage_pixels(a1));
+            crate::perf::presented(started, pixels);
             #[cfg(not(lazyos_perf))]
             crate::perf::presented(started, 0);
             result

@@ -93,7 +93,10 @@ impl Speculation {
             self.counters.blocked += 1;
             return dropped;
         }
-        let floor = self.actual.map_or(-MAX_AHEAD, |top| (-top).max(-MAX_AHEAD));
+        // Never above the top of the page; an offset that is not one (negative) allows nothing upward.
+        let floor = self
+            .actual
+            .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-MAX_AHEAD, 0));
         let next = (self.pending + step).clamp(floor, MAX_AHEAD);
         if next == self.pending {
             return dropped;
@@ -110,14 +113,17 @@ impl Speculation {
     /// An update arrived whose pixels were painted at the main frame's scroll offset `offset`.
     /// Returns whether what is shown ahead changed.
     pub fn report(&mut self, offset: i32, now_ms: u64) -> bool {
-        self.last_ms = now_ms;
         let Some(before) = self.actual.replace(offset) else {
+            self.last_ms = now_ms;
             return false;
         };
-        let moved_by = offset - before;
+        let moved_by = offset.saturating_sub(before);
         if moved_by == 0 {
+            // An update that did not scroll (a video, an animation, a carousel) is not the page
+            // answering the wheel: it must not keep what is ahead from being given up on.
             return false;
         }
+        self.last_ms = now_ms;
         self.blocked = 0;
         if self.pending == 0 {
             return false;
@@ -125,7 +131,9 @@ impl Speculation {
         self.moved = true;
         let ahead = self.pending;
         // The page went the other way, or further than was asked: nothing to show ahead of it.
-        self.pending = if moved_by.signum() == ahead.signum() && moved_by.abs() < ahead.abs() {
+        self.pending = if moved_by.signum() == ahead.signum()
+            && moved_by.unsigned_abs() < ahead.unsigned_abs()
+        {
             ahead - moved_by
         } else {
             0

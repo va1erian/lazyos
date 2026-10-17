@@ -151,8 +151,8 @@ impl Parts {
             if !landed.is_empty() {
                 moved.push(Part {
                     image: part.image,
-                    x: part.x + scroll.dx,
-                    y: part.y + scroll.dy,
+                    x: part.x.saturating_add(scroll.dx),
+                    y: part.y.saturating_add(scroll.dy),
                     clip: landed,
                 });
             }

@@ -54,7 +54,7 @@ pub(crate) fn paint(canvas: &mut dyn Canvas, picture: &Parts, ahead: i32, offset
         let top = bounds.top + dy;
         let bottom = bounds.top + height as i32 + dy;
         // The page row at the view's top is where the page will be once it has done what is ahead.
-        let page_top = offset + ahead;
+        let page_top = offset.saturating_add(ahead);
         if top > bounds.top {
             checkerboard(
                 canvas,

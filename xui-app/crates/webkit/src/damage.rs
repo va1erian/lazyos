@@ -233,7 +233,10 @@ impl Pending {
 
     fn note_scroll(&mut self, area: IRect, dx: i32, dy: i32) {
         let area = area.intersect(&self.bounds());
-        if area.is_empty() || dx.abs() >= area.width() || dy.abs() >= area.height() {
+        if area.is_empty()
+            || i64::from(dx.unsigned_abs()) >= i64::from(area.width())
+            || i64::from(dy.unsigned_abs()) >= i64::from(area.height())
+        {
             // Moved further than it is wide: nothing of it stays in view.
             self.note_full();
             return;
@@ -241,8 +244,8 @@ impl Pending {
         match &mut self.scroll {
             None => self.scroll = Some(Scroll { area, dx, dy }),
             Some(scroll) if scroll.area == area => {
-                scroll.dx += dx;
-                scroll.dy += dy;
+                scroll.dx = scroll.dx.saturating_add(dx);
+                scroll.dy = scroll.dy.saturating_add(dy);
             }
             // A second scrolled area: they cannot be told as one move.
             Some(_) => {
@@ -262,7 +265,9 @@ impl Pending {
             self.add(rect);
         }
         if let Some(scroll) = &self.scroll {
-            if scroll.dx.abs() >= area.width() || scroll.dy.abs() >= area.height() {
+            if i64::from(scroll.dx.unsigned_abs()) >= i64::from(area.width())
+                || i64::from(scroll.dy.unsigned_abs()) >= i64::from(area.height())
+            {
                 self.note_full();
             } else if scroll.dx == 0 && scroll.dy == 0 {
                 self.scroll = None;

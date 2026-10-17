@@ -58,7 +58,7 @@ pub unsafe extern "C" fn lzw_ui_frame_delta(
 /// `lzw_ui_frame_delta`): page pixels, `x` unused (the window shows the picture ahead vertically).
 #[no_mangle]
 pub extern "C" fn lzw_ui_scroll_offset(_x: c_int, y: c_int) {
-    mailbox::global().set_scroll_offset(y);
+    mailbox::global().set_scroll_offset(sane(y));
 }
 
 /// What the page changed since the last paint (the updates WebKit reported), kept in the form
@@ -116,9 +116,19 @@ pub unsafe extern "C" fn lzw_paint_update(
     } else {
         rects_from_ints(unsafe { std::slice::from_raw_parts(rects, count * 4) })
     };
+    // What the page's process says is not trusted to be a sane view coordinate: past the limit a
+    // scroll is more than any view and becomes a whole repaint, and sums of these cannot overflow.
+    let area = IRect::new(sane(sx), sane(sy), sane(sw), sane(sh));
     with_pending(0, 0, |pending| {
-        pending.note_update(IRect::new(sx, sy, sw, sh), dx, dy, &rects);
+        pending.note_update(area, sane(dx), sane(dy), &rects);
     });
+}
+
+/// The largest coordinate or scroll the paint path believes (a view is thousands of pixels).
+const LIMIT: c_int = 1 << 24;
+
+fn sane(value: c_int) -> c_int {
+    value.clamp(-LIMIT, LIMIT)
 }
 
 /// What the next paint has to do, forgotten once asked: 0 nothing changed, 1 paint and send the

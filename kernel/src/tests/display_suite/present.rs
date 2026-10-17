@@ -173,6 +173,7 @@ pub fn present_damage_pixels() -> Result<(), String> {
     check!(damage_pixels(pack(0, 0, 8, 8)) == 0, "no grant");
     Ok(())
 }
+
 /// A 1x1 present of a mapped buffer succeeds and lands where it was drawn,
 /// including the last row and column (the source slice starts at row `y`).
 pub fn present_one_pixel() -> Result<(), String> {
