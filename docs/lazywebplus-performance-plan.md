@@ -440,3 +440,34 @@ and `tools/webplus/cpu_profile.py` (the 30 Hz sampler's recording by function). 
   (88 ms against 92 ms), because the spinners were using time nothing else wanted.
 * **Fixed:** the I/O APIC redirection entry was read back (four VM exits) every time the timer interrupt asked
   whether a line was masked; 20% of wall-clock samples. `arch/ioapic.rs` keeps a table of what it wrote.
+
+## Scrolling ahead of the page (checkerboard)
+
+The page answers a wheel notch 70 ms later on average on Ars Technica, 480 ms at worst, so a notch used to
+be seen that late. The window now moves the picture it has at once, as the first smartphone browsers did, and
+leaves what that uncovers as a checkerboard (64 px squares, light grey, fixed to the page's rows) until the
+page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure numbers), `picture.rs` (drawing),
+`view.rs` (wheel in, timer, update in).
+
+* **What "ahead" is.** A plain vertical wheel adds 40 px a notch (WebKit's line step) to `pending`. Each update
+  carries the main frame's scroll offset its pixels were painted at (patch 0028, `WKPageSetScrollOffsetCallback`:
+  `PageDidScroll` arrives just before the update that repaints for it, on one connection; `paint.cpp` notes the
+  offset at each update and `lzw_ui_scroll_offset` sends it with the post, staged in the mailbox under the frame's
+  lock so it always goes with its pixels). A change of that offset is the page having done that much: `pending`
+  gives it back. Never more than 480 px ahead, and never above the page's top.
+* **When the page does not follow** (the end of the page, a box that scrolls by itself, a handler that cancels
+  the wheel): a burst the page has not moved for 900 ms is dropped and that direction is not shown ahead until the
+  page moves; whatever is left 500 ms after the last notch or update is dropped (500: the page's slowest answer
+  seen was 450 ms, and a shorter settle made the picture jump back and then forward).
+* **Known costs.** What is fixed to the window (a sticky header) moves with the picture until the page answers,
+  then jumps back. The first burst at the end of a page shows a short checkerboard before it is dropped. A click
+  during the shift lands a few tens of pixels off for as long as it lasts.
+* **Measured** (`live_run.py --scroll 40` on real Ars Technica, 2560x1440, QEMU/WHPX, `INFO:SPEC`): a notch is
+  drawn 7.9 ms after it arrives on average (142 ms worst, a busy window thread) against the page's 69 ms average
+  (483 ms worst); 353 shifts, no jump back; on the synthetic page 5 ms against 10 ms. The page still paints at
+  the same 5-12 paints a second, so the checkerboard is what shows between: this is responsiveness, not more
+  frames, and not less work for the page.
+* **Tests.** `tests/speculate.rs` (rules, a 400-seed simulation of a late, bursty page with limits, mutation-checked),
+  `tests/scroll_ahead.rs` (the pixels: shifted picture with a checkerboard strip, exact again after the answer,
+  nothing for a modified wheel or up from the top; `XUI_SNAPSHOT=<dir>` keeps the picture).
+  `INFO:SPEC:shifts:snaps:snap_px:blocked:w2s=<avg>/<max us>:ahead` once a second while in use.

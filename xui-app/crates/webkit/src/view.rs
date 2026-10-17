@@ -10,18 +10,19 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Canvas, Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_core::{Color, Image, Key, Modifiers, MouseButton};
+use xui_core::{Image, Key, Modifiers, MouseButton};
 
-use crate::damage::IRect;
 use crate::engine::{Button, Engine, MouseKind};
 use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
 use crate::mailbox::{Frame, Update};
 use crate::parts::Parts;
+use crate::picture;
+use crate::speculate::{self, Meter, Speculation};
 
 /// Whether a key is one of the window's own.
 pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
@@ -39,6 +40,8 @@ pub struct Hooks<M> {
 
 /// xui's wheel unit: 120 for one notch (`WHEEL_DELTA`).
 const NOTCH: i32 = 120;
+/// How often a picture shown ahead of the page is checked for being given up on.
+const SETTLE_TICK_MS: u32 = 100;
 
 #[derive(Default)]
 struct State {
@@ -52,6 +55,11 @@ struct State {
     held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
     mods: Cell<u32>,
+    /// How far the picture is shown ahead of the page (`speculate.rs`).
+    spec: RefCell<Speculation>,
+    meter: RefCell<Meter>,
+    /// When the wheel event that moved the picture ahead arrived, until it is drawn.
+    wheel_at: Cell<Option<Instant>>,
 }
 
 pub struct PageView<M: 'static> {
@@ -72,13 +80,35 @@ impl<M: Clone + 'static> PageView<M> {
             control.set_painter(Rc::new(move |canvas| {
                 if let Ok(state) = state.try_borrow() {
                     let started = Instant::now();
-                    paint(canvas, &state);
+                    let (ahead, offset) = {
+                        let spec = state.spec.borrow();
+                        (spec.shift(), spec.actual().unwrap_or(0))
+                    };
+                    picture::paint(canvas, &state.picture, ahead, offset);
+                    if let Some(at) = state.wheel_at.take() {
+                        if ahead != 0 {
+                            let us = at.elapsed().as_micros() as u64;
+                            state.meter.borrow_mut().drawn(us);
+                        }
+                    }
                     let (us, draws) = state.drawn.get();
                     state
                         .drawn
                         .set((us + started.elapsed().as_micros() as u64, draws + 1));
                 }
             }));
+        }
+        {
+            let (ui, id) = (ui.clone(), control.id());
+            let state = Rc::clone(&state);
+            control.set_timer(SETTLE_TICK_MS, move || {
+                if let Ok(state) = state.try_borrow() {
+                    if state.spec.borrow_mut().tick(speculate::now_ms()) {
+                        ui.invalidate(id);
+                    }
+                }
+                None
+            });
         }
         {
             let (ui, id) = (ui.clone(), control.id());
@@ -117,7 +147,7 @@ impl<M: Clone + 'static> PageView<M> {
     pub fn show(&self, frame: Frame) -> Vec<u8> {
         self.apply(Update {
             full: Some(frame),
-            deltas: Vec::new(),
+            ..Update::default()
         })
         .spare
     }
@@ -131,11 +161,13 @@ impl<M: Clone + 'static> PageView<M> {
         let mut spare = Vec::new();
         let mut resync = false;
         let mut changed = false;
+        let scroll_y = update.scroll_y;
         if let Some(frame) = update.full {
             match Image::from_rgba(frame.width, frame.height, frame.rgba) {
                 Ok(image) => spare = state.picture.set_full(image),
                 Err(_) => {
                     state.picture.clear();
+                    state.spec.borrow_mut().reset();
                     resync = true;
                 }
             }
@@ -149,6 +181,9 @@ impl<M: Clone + 'static> PageView<M> {
             changed = true;
         }
         resync |= state.picture.is_fragmented();
+        if let Some(y) = scroll_y {
+            changed |= state.spec.borrow_mut().report(y, speculate::now_ms());
+        }
         drop(state);
         if changed {
             self.control.invalidate();
@@ -160,6 +195,7 @@ impl<M: Clone + 'static> PageView<M> {
     pub fn clear(&self) {
         let had = !self.state.borrow().picture.is_empty();
         self.state.borrow_mut().picture.clear();
+        self.state.borrow().spec.borrow_mut().reset();
         if had {
             self.control.invalidate();
         }
@@ -174,6 +210,20 @@ impl<M: Clone + 'static> PageView<M> {
     /// How many images the picture on show is made of (for the window's counters).
     pub fn picture_parts(&self) -> usize {
         self.state.borrow().picture.len()
+    }
+
+    /// The `INFO:SPEC:` line for the last second, when the picture was moved ahead of the page in it.
+    pub fn spec_line(&self) -> Option<String> {
+        let state = self.state.borrow();
+        let (counters, ahead) = {
+            let spec = state.spec.borrow();
+            (spec.counters(), spec.shift())
+        };
+        let line = state
+            .meter
+            .borrow_mut()
+            .line(speculate::now_ms(), counters, ahead);
+        line
     }
 
     /// The time spent drawing the picture (microseconds) and the draws, since the last call.
@@ -226,57 +276,10 @@ impl<M: Clone + 'static> Placeable<M> for PageView<M> {
         let size = (rect.width().max(1), rect.height().max(1));
         let state = self.state.borrow();
         if state.size.replace(size) != size {
+            state.spec.borrow_mut().reset();
             self.engine.resize(size.0, size.1);
         }
     }
-}
-
-fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let bounds = canvas.bounds();
-    canvas.push_clip(bounds);
-    // White only where the picture does not reach (a window being resized): a frame is opaque and
-    // covers the view, and filling under it was a whole extra pass over every repaint.
-    let (width, height) = state.picture.size();
-    let covered = !state.picture.is_empty()
-        && width as i32 >= bounds.width()
-        && height as i32 >= bounds.height();
-    if !covered {
-        canvas.fill_rect(bounds, Color::rgb(255, 255, 255));
-    }
-    let frame = IRect::new(0, 0, width as i32, height as i32);
-    for part in state.picture.parts() {
-        let shown = part.visible(&frame);
-        if shown.is_empty() {
-            continue;
-        }
-        let whole = IRect::new(
-            part.x,
-            part.y,
-            part.image.width() as i32,
-            part.image.height() as i32,
-        );
-        let at = Rect::new(
-            bounds.left + whole.x0,
-            bounds.top + whole.y0,
-            bounds.left + whole.x1,
-            bounds.top + whole.y1,
-        );
-        if shown == whole {
-            canvas.draw_image(&part.image, at);
-        } else {
-            // Only part of this image is on show: a picture that scrolled, or a patch that was
-            // partly covered. Drawn whole, behind a clip.
-            canvas.push_clip(Rect::new(
-                bounds.left + shown.x0,
-                bounds.top + shown.y0,
-                bounds.left + shown.x1,
-                bounds.top + shown.y1,
-            ));
-            canvas.draw_image(&part.image, at);
-            canvas.pop_clip();
-        }
-    }
-    canvas.pop_clip();
 }
 
 /// What [`PageView::apply`] leaves for the window to do.
@@ -379,6 +382,17 @@ fn handle<M: 'static>(
             let ticks = notches(delta);
             let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
             engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
+            // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
+            // page has answered (a modified wheel zooms or scrolls sideways).
+            if !horizontal
+                && modifier_bits(modifiers) == 0
+                && state.spec.borrow_mut().wheel(ticks, speculate::now_ms())
+            {
+                if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
+                    state.wheel_at.set(Some(Instant::now()));
+                }
+                ui.invalidate(id);
+            }
         }
         Event::CaptureChanged => state.held.set(None),
         Event::SetFocus => engine.focus(true),

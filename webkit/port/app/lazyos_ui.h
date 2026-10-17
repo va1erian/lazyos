@@ -124,6 +124,12 @@ void lzw_ui_frame(const uint8_t* rgba, int width, int height);
 // make no sense): the next frame to send is a whole one, lzw_ui_frame.
 int lzw_ui_frame_delta(const uint8_t* rgba, int width, int height, const int* scroll, const int* rects, int count);
 
+// The main frame's scroll offset (page pixels) of the pixels the next lzw_ui_frame or lzw_ui_frame_delta
+// carries: what WKPageSetScrollOffsetCallback last said before the update they come from. Call it just
+// before posting; it belongs to that one post. The window shows its picture ahead of the page by what
+// the wheel has asked for and the offset says the page has not done yet (speculate.rs).
+void lzw_ui_scroll_offset(int x, int y);
+
 // What the page changed, kept by the window's library in the form a paint needs (the rules are
 // Rust, tested against a model of WebKit's backing store: xui-app/crates/webkit/src/damage.rs).
 // Only the engine's thread calls these.

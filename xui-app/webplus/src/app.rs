@@ -375,6 +375,9 @@ impl Browser {
             ) {
                 crate::marker(&line);
             }
+            if let Some(line) = self.page.spec_line() {
+                crate::marker(&line);
+            }
             if applied.resync {
                 self.mailbox.request_full();
             }

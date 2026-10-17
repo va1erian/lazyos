@@ -22,6 +22,8 @@ pub mod gesture;
 pub mod keys;
 pub mod mailbox;
 pub mod parts;
+mod picture;
+pub mod speculate;
 pub mod taskstat;
 #[cfg(test)]
 mod tests_damage;

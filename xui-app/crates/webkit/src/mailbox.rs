@@ -77,6 +77,9 @@ impl Delta {
 pub struct Update {
     pub full: Option<Frame>,
     pub deltas: Vec<Delta>,
+    /// The main frame's scroll offset (page pixels, vertical) the newest of these pixels were
+    /// painted at, when the engine said (`set_scroll_offset`).
+    pub scroll_y: Option<i32>,
 }
 
 /// Deltas the window may be behind by: past this (or past a frame's worth of pixels) the engine
@@ -110,6 +113,11 @@ struct Slot {
     /// delta was refused or the window gave its picture up: deltas are answered with "send a
     /// whole frame" until one arrives.
     has_base: bool,
+    /// The offset the engine named for the post it is about to make, and the one of the newest
+    /// post the window has not collected. Moved together under this lock, so an offset always
+    /// goes with the pixels it was named for.
+    staged_scroll: Option<i32>,
+    scroll_y: Option<i32>,
 }
 
 #[derive(Default)]
@@ -188,6 +196,9 @@ impl Mailbox {
         slot.deltas.clear();
         slot.delta_bytes = 0;
         slot.has_base = true;
+        if let Some(y) = slot.staged_scroll.take() {
+            slot.scroll_y = Some(y);
+        }
     }
 
     /// The engine repainted part of the page: `delta` applies to the picture the window has.
@@ -211,9 +222,19 @@ impl Mailbox {
             }
             slot.delta_bytes += bytes;
             slot.deltas.push(delta);
+            if let Some(y) = slot.staged_scroll.take() {
+                slot.scroll_y = Some(y);
+            }
         }
         self.announce_frame();
         false
+    }
+
+    /// The main frame's scroll offset of the pixels the engine posts next (the engine says it
+    /// just before posting): it goes with that post (the engine names one before every post, so a
+    /// refused post leaves nothing stale).
+    pub fn set_scroll_offset(&self, y: i32) {
+        lock(&self.frame).staged_scroll = Some(y);
     }
 
     /// The window cannot apply deltas to what it shows (too many parts, a refused delta): the
@@ -262,6 +283,7 @@ impl Mailbox {
         Some(Update {
             full,
             deltas: std::mem::take(&mut slot.deltas),
+            scroll_y: slot.scroll_y.take(),
         })
     }
 

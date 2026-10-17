@@ -1,0 +1,76 @@
+WebKit: the UI process can tell the client the main frame's scroll offset.
+
+WKPageSetScrollOffsetCallback reports `PageDidScroll`, the message the page's process sends before each
+update that scrolled (WebChromeClient::scroll), with the main frame's scroll offset. The message and the
+update that follows arrive in order on one connection, so a client that notes the offset at each update
+(WKPageSetUpdateCallback) knows the offset its backing store's pixels were painted at. LazyWeb+ uses it to
+scroll the picture it shows ahead of the page, and to know how much of that the page has since done.
+
+--- a/Source/WebKit/UIProcess/WebPageProxy.cpp
++++ b/Source/WebKit/UIProcess/WebPageProxy.cpp
+@@ -11278,8 +11278,20 @@
+     });
+ }
+ 
++using PageScrollObserver = void (*)(WebPageProxy&, const WebCore::IntPoint&);
++static PageScrollObserver s_pageScrollObserver;
++
++// LazyOS: WKPageSetScrollOffsetCallback's hook (API/C/playstation/WKPagePrivatePlayStation.cpp).
++void setPageScrollObserver(PageScrollObserver observer)
++{
++    s_pageScrollObserver = observer;
++}
++
+ void WebPageProxy::pageDidScroll(const WebCore::IntPoint& scrollOffset)
+ {
++    if (auto observer = s_pageScrollObserver)
++        observer(*this, scrollOffset);
++
+     m_uiClient->pageDidScroll(this);
+ 
+     if (RefPtr pageClient = this->pageClient())
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -91,6 +91,27 @@
+ }
+ #endif
+ 
++namespace WebKit {
++using PageScrollObserver = void (*)(WebPageProxy&, const WebCore::IntPoint&);
++void setPageScrollObserver(PageScrollObserver);
++}
++
++static WKPageScrollOffsetCallback s_scrollOffsetCallback;
++static void* s_scrollOffsetCallbackContext;
++
++static void forwardScrollOffset(WebKit::WebPageProxy& page, const WebCore::IntPoint& offset)
++{
++    if (auto callback = s_scrollOffsetCallback)
++        callback(WebKit::toAPI(&page), offset.x(), offset.y(), s_scrollOffsetCallbackContext);
++}
++
++void WKPageSetScrollOffsetCallback(WKPageRef, WKPageScrollOffsetCallback callback, void* context)
++{
++    s_scrollOffsetCallback = callback;
++    s_scrollOffsetCallbackContext = context;
++    WebKit::setPageScrollObserver(callback ? forwardScrollOffset : nullptr);
++}
++
+ void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback callback, void* context)
+ {
+ #if !USE(GRAPHICS_LAYER_WC)
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
+@@ -48,6 +48,12 @@
+ typedef void (*WKPageUpdateCallback)(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* rects, size_t rectCount, void* context);
+ WK_EXPORT void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback, void* context);
+ 
++// LazyOS: the main frame's scroll offset (page pixels), told each time the page's process says it
++// scrolled, before the update that repaints for it (the two arrive in order). A client that scrolls
++// its picture ahead of the page compares it with the offset the picture was painted at.
++typedef void (*WKPageScrollOffsetCallback)(WKPageRef, int x, int y, void* context);
++WK_EXPORT void WKPageSetScrollOffsetCallback(WKPageRef, WKPageScrollOffsetCallback, void* context);
++
+ // LazyOS: where WKPagePaint's time goes, summed in microseconds since the process began, into
+ // `out[0..count)`: 0 calls, 1 the whole call, 2 making the surface and its canvas, 3 endPrinting,
+ // 4 the drawing area's paint (the backing store's), 5 of which the snapshot of the backing store's

@@ -277,6 +277,15 @@ bool shadowAgrees()
     return false;
 }
 
+// The main frame's scroll offset (patch 0028): the newest the page's process told, and the one in force at
+// the newest update, which is the offset the backing store's pixels were painted at (the page's process
+// sends the offset before the update that repaints for it, on the same connection).
+struct ScrollOffset {
+    int x { 0 };
+    int y { 0 };
+};
+ScrollOffset latestScroll, paintedScroll;
+
 void requestPaint(long long now);
 
 void paintNow(void*)
@@ -308,6 +317,8 @@ void paintNow(void*)
     if (plan == LZW_PAINT_NOTHING)
         return;
     paint.lastStartUs = t0;
+    // The offset these pixels were painted at goes with them (the window shows the picture ahead of it).
+    lzw_ui_scroll_offset(paintedScroll.x, paintedScroll.y);
 
     long long painted = 0;
     long long t1 = t0, t2 = t0, t3 = t0;
@@ -474,9 +485,15 @@ void noteReport(long long now)
     requestPaint(now);
 }
 
+void pageScrolled(WKPageRef, int x, int y, void*)
+{
+    latestScroll = { x, y };
+}
+
 // An update from the page's process (WKPageSetUpdateCallback): what scrolled and what was repainted.
 void pageUpdated(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* updateRects, size_t count, void*)
 {
+    paintedScroll = latestScroll;
     int ints[64 * 4];
     int n = 0;
     for (size_t i = 0; i < count && n < 64; ++i, ++n) {
@@ -501,6 +518,7 @@ void pageUpdated(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect
 void installPaintObserver()
 {
     lzw_paint_resize(E.width, E.height);
+    WKPageSetScrollOffsetCallback(E.page, pageScrolled, nullptr);
     // The legacy path wants WebKit's own "the whole view needs display" for any update that scrolled.
     if (!mode().legacy)
         WKPageSetUpdateCallback(E.page, pageUpdated, nullptr);
@@ -516,6 +534,7 @@ void schedulePaint()
 
 void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
 {
+    paintedScroll = latestScroll;
     if (mode().legacy)
         lzw_paint_full();
     else

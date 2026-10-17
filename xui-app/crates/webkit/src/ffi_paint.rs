@@ -54,6 +54,13 @@ pub unsafe extern "C" fn lzw_ui_frame_delta(
     }
 }
 
+/// The main frame's scroll offset of the pixels the engine posts next (`lzw_ui_frame` or
+/// `lzw_ui_frame_delta`): page pixels, `x` unused (the window shows the picture ahead vertically).
+#[no_mangle]
+pub extern "C" fn lzw_ui_scroll_offset(_x: c_int, y: c_int) {
+    mailbox::global().set_scroll_offset(y);
+}
+
 /// What the page changed since the last paint (the updates WebKit reported), kept in the form
 /// the next paint uses: [`lzw_paint_plan`]. Only the engine's thread calls these.
 static PENDING: std::sync::Mutex<Option<Pending>> = std::sync::Mutex::new(None);
