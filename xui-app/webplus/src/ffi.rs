@@ -11,7 +11,6 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -49,6 +48,9 @@ const HANDOFF_WINDOW: Duration = Duration::from_millis(3000);
 /// The window size asked of the compositor: short enough that the status bar clears the taskbar of
 /// a 720p desktop.
 const WINDOW: (i32, i32) = (1000, 540);
+
+/// How long a closing window waits for the ad blocker's settings to reach `confd`.
+const SETTINGS_FLUSH: Duration = Duration::from_secs(3);
 
 /// What the three threads of the process share: made once, by whichever call comes first (the UI
 /// process asks for the profile directory before it starts the window).
@@ -108,6 +110,18 @@ pub extern "C" fn lzw_ui_features() -> c_int {
 #[no_mangle]
 pub extern "C" fn lzw_ui_marker_prefix() -> *const c_char {
     c"WEBPLUS".as_ptr()
+}
+
+/// One marker line of the UI process, without the prefix (`webkit/port/app/log.cpp`): written as
+/// one line on the window's trace channel. Any thread.
+///
+/// # Safety
+/// `line` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_say(line: *const c_char) {
+    // SAFETY: by this function's contract.
+    let line = unsafe { text(line) };
+    crate::marker(&line);
 }
 
 /// Where the engine keeps cookies and site data (`$HOME/.apps/os.lazy.lazywebplus`), or null
@@ -336,7 +350,7 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
         }
         // The shell's toasts for web notifications, on a thread of their own that wakes this window.
         let proxy = ui.proxy();
-        let toasts = ShellWorker::spawn(LazyShell, move || {
+        let toasts = ShellWorker::spawn(LazyShell::default(), move || {
             let _ = proxy.send(Msg::Shell);
         })
         .map(|worker| Rc::new(worker) as Rc<dyn Toasts>);
@@ -377,6 +391,10 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
     let left = !stop_children();
     if left {
         crate::marker("CHILD:curl:ALIVE");
+    }
+    // A switch flipped just before the window closed is written before the process exits.
+    if !shared.blocker.flush(SETTINGS_FLUSH) {
+        crate::marker("BLOCK:SETTINGS:FAIL:flush:timeout");
     }
     let status = c_int::from(xui_app::launch::finish(
         xui_app::trace::Channel::Webplus,

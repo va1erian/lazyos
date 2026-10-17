@@ -17,12 +17,20 @@ namespace webkitapp {
 
 namespace {
 
+// The whole line is formatted here and written by the window in one go (issue #891): say() runs on
+// WebKit's main thread, the launcher's reaper threads and the window's, and a line printed in three
+// writes could be torn by another. A line longer than the buffer is cut, never split.
 void print(const char* format, va_list args)
 {
-    printf("%s:", lzw_ui_marker_prefix());
-    vprintf(format, args);
-    printf("\n");
-    fflush(stdout);
+    char line[1024];
+    const int length = vsnprintf(line, sizeof line, format, args);
+    if (length < 0)
+        return;
+    for (char* at = line; *at; ++at) {
+        if (*at == '\n' || *at == '\r')
+            *at = ' ';
+    }
+    lzw_ui_say(line);
 }
 
 } // namespace

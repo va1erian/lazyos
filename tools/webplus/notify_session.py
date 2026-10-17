@@ -45,7 +45,7 @@ BOX = {"ask": (180, 35), "post": (180, 125), "burst": (180, 215), "away": (180, 
 MINIMIZE_AT = (454, 0)
 #: The first row's *Forget* button on `about:lazyweb`, in page pixels (measured from a screenshot; the newest decision is the
 #: first row; the page's table puts the button at the right end of its row).
-FORGET_AT = (839, 340)
+FORGET_AT = (839, 317)
 
 
 def caption(title: str) -> str:

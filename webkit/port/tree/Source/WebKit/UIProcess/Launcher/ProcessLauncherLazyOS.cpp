@@ -47,7 +47,8 @@
 // group and asks to be killed with its parent (PR_SET_PDEATHSIG; refused with EINVAL until the
 // kernel supports it), so a kill of the group ends whatever it started. Every launch, exit and
 // terminate is reported to the embedder (`lzw_launcher_event`, webkit/port/app/children.cpp), which
-// prints one line for each (issue #862); without an embedder it goes to stderr.
+// prints one line for each (issue #862); without an embedder it goes to stderr. Reports are queued
+// under the lock and delivered, in that order, once it is released (issue #891).
 
 #include "config.h"
 #include "ProcessLauncher.h"
@@ -99,7 +100,7 @@ static const char* typeName(ProcessLauncher::ProcessType type)
     }
 }
 
-static void report(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail = 0, int detail2 = 0)
+static void deliver(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail, int detail2)
 {
     if (lzw_launcher_event) {
         lzw_launcher_event(typeName(type), static_cast<int>(pid), event, detail, detail2);
@@ -142,6 +143,60 @@ static HashMap<const ProcessLauncher*, uint64_t>& launchGenerations()
     return generations;
 }
 
+// The reports, queued under `s_childrenLock` in the order the lock saw the events and delivered after
+// it is released (issue #891): the embedder prints a line for each, and a slow console must not hold
+// the lock every reap and kill takes. Order matters: the embedder's list of processes follows the
+// reports, and an id is reused at once (an exit reported after the next launch of the same id would
+// drop the new process). So one thread at a time delivers, oldest first, and a thread that finds
+// another delivering leaves its reports to it.
+struct Report {
+    ProcessLauncher::ProcessType type;
+    pid_t pid;
+    const char* event;
+    int detail;
+    int detail2;
+};
+static Vector<Report>& pendingReports()
+{
+    static NeverDestroyed<Vector<Report>> reports;
+    return reports;
+}
+static Lock s_deliverLock;
+
+// Queues a report; the caller holds `s_childrenLock` and calls `deliverReports()` after releasing it.
+static void reportLocked(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail = 0, int detail2 = 0)
+{
+    pendingReports().append({ type, pid, event, detail, detail2 });
+}
+
+static void deliverReports()
+{
+    for (;;) {
+        if (!s_deliverLock.tryLock())
+            return; // the thread delivering takes ours too: it looks again after it lets go
+        Vector<Report> batch;
+        {
+            Locker locker { s_childrenLock };
+            batch = std::exchange(pendingReports(), { });
+        }
+        for (auto& report : batch)
+            deliver(report.type, report.pid, report.event, report.detail, report.detail2);
+        s_deliverLock.unlock();
+        Locker locker { s_childrenLock };
+        if (pendingReports().isEmpty())
+            return;
+    }
+}
+
+static void report(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail = 0, int detail2 = 0)
+{
+    {
+        Locker locker { s_childrenLock };
+        reportLocked(type, pid, event, detail, detail2);
+    }
+    deliverReports();
+}
+
 // How often the reaper looks at its child, in microseconds: a finished child is a zombie for
 // at most this long.
 static constexpr useconds_t reapPollInterval = 50 * 1000;
@@ -160,22 +215,22 @@ static bool collectLocked(pid_t pid, LiveChild child)
     if (result == pid) {
         liveChildren().remove(pid);
         if (WIFSIGNALED(status))
-            report(child.type, pid, "signal", WTERMSIG(status));
+            reportLocked(child.type, pid, "signal", WTERMSIG(status));
         else
-            report(child.type, pid, "exit", WEXITSTATUS(status));
+            reportLocked(child.type, pid, "exit", WEXITSTATUS(status));
         return true;
     }
     if (result == -1 && error == ECHILD) {
         if (kill(pid, 0) == -1 && errno == ESRCH) {
             liveChildren().remove(pid);
-            report(child.type, pid, "vanish");
+            reportLocked(child.type, pid, "vanish");
             return true;
         }
         return false;
     }
     if (result == -1 && error != EINTR) {
         liveChildren().remove(pid); // not a child of this process at all: nothing to signal or wait for
-        report(child.type, pid, "vanish");
+        reportLocked(child.type, pid, "vanish");
         return true;
     }
     return false;
@@ -186,12 +241,15 @@ static bool collectLocked(pid_t pid, LiveChild child)
 // process ended).
 extern "C" void lzw_launcher_reap()
 {
-    Locker locker { s_childrenLock };
-    Vector<std::pair<pid_t, LiveChild>> children;
-    for (auto& entry : liveChildren())
-        children.append({ entry.key, entry.value });
-    for (auto& entry : children)
-        collectLocked(entry.first, entry.second);
+    {
+        Locker locker { s_childrenLock };
+        Vector<std::pair<pid_t, LiveChild>> children;
+        for (auto& entry : liveChildren())
+            children.append({ entry.key, entry.value });
+        for (auto& entry : children)
+            collectLocked(entry.first, entry.second);
+    }
+    deliverReports();
 }
 
 // Signals every live child under the launcher's lock (the shutdown's SIGTERM and SIGKILL: a signal may
@@ -225,13 +283,17 @@ static void reapInBackground(pid_t pid, uint64_t generation)
 {
     Thread::create("ProcessLauncher reaper"_s, [pid, generation] {
         for (;;) {
+            bool collected = false;
             {
                 Locker locker { s_childrenLock };
                 auto found = liveChildren().find(pid);
                 if (found == liveChildren().end() || found->value.generation != generation)
                     return;
-                if (collectLocked(pid, LiveChild { found->value }))
-                    return;
+                collected = collectLocked(pid, LiveChild { found->value });
+            }
+            if (collected) {
+                deliverReports();
+                return;
             }
             usleep(reapPollInterval);
         }
@@ -317,8 +379,10 @@ void ProcessLauncher::launchProcess()
         generation = ++s_nextGeneration;
         liveChildren().set(pid, LiveChild { m_launchOptions.processType, generation });
         launchGenerations().set(this, generation);
+        // Queued with the entry: the launch is reported before anything the reaper finds.
+        reportLocked(m_launchOptions.processType, pid, "launch");
     }
-    report(m_launchOptions.processType, pid, "launch");
+    deliverReports();
     reapInBackground(pid, generation);
     close(socketPair.client.release()); // the child holds its end now
 
@@ -351,10 +415,12 @@ void ProcessLauncher::terminateProcess()
             int pidError = -1;
             if (groupError)
                 pidError = kill(m_processID, SIGKILL) == 0 ? 0 : errno;
-            report(m_launchOptions.processType, m_processID, "terminate", groupError, pidError);
+            reportLocked(m_launchOptions.processType, m_processID, "terminate", groupError, pidError);
         } else
-            report(m_launchOptions.processType, m_processID, "terminate", -1, -1);
+            reportLocked(m_launchOptions.processType, m_processID, "terminate", -1, -1);
     }
+    // Printed with the lock released: WebKit's terminate() does not wait for a slow console.
+    deliverReports();
     m_processID = 0;
 }
 

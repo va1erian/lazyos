@@ -54,6 +54,7 @@ fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_somet
     blocker.attach(late.clone());
     assert!(!blocker.settings().enabled);
     blocker.set_enabled(true);
+    assert!(blocker.flush(WAIT));
     assert_eq!(
         late.1.lock().unwrap().as_ref().map(|s| s.enabled),
         Some(true)
@@ -68,11 +69,16 @@ fn a_store_that_arrives_late_replaces_the_defaults_unless_the_user_changed_somet
     assert!(blocker.settings().enabled);
     assert!(blocker.site_excepted("example.com"));
     // What the user chose before the store came is saved there at once, not lost.
+    assert!(blocker.flush(WAIT));
     let saved = late.1.lock().unwrap().clone().expect("saved on attach");
     assert!(saved.enabled && saved.exceptions.contains("example.com"));
     blocker.set_enabled(false);
+    assert!(blocker.flush(WAIT));
     assert!(!late.1.lock().unwrap().clone().unwrap().enabled);
 }
+
+/// How long a test waits for the saver.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// A store whose first save waits for the test to let it finish, and which keeps every save in order.
 struct Gated {
@@ -124,8 +130,60 @@ fn a_change_made_while_attach_saves_is_saved_after_it() {
     release_tx.send(()).unwrap();
     attaching.join().unwrap();
     changing.join().unwrap();
+    assert!(blocker.flush(WAIT));
     assert_eq!(*gated.saves.lock().unwrap(), vec![true, false]);
     assert!(!blocker.settings().enabled);
+}
+
+#[test]
+fn a_change_takes_effect_at_once_and_is_never_saved_on_the_callers_thread() {
+    struct Threads(Mutex<Vec<std::thread::ThreadId>>);
+    impl Persist for Threads {
+        fn load(&self) -> Settings {
+            Settings::default()
+        }
+        fn save(&self, _settings: &Settings) {
+            self.0.lock().unwrap().push(std::thread::current().id());
+        }
+    }
+    let store = Arc::new(Threads(Mutex::new(Vec::new())));
+    let blocker = Blocker::new(store.clone());
+    blocker.set_enabled(false);
+    assert!(
+        !blocker.decide("https://example.com/"),
+        "in effect before any save"
+    );
+    blocker.set_site_excepted("example.com", true);
+    blocker.set_list_enabled("easylist", false);
+    assert!(blocker.flush(WAIT));
+    let threads = store.0.lock().unwrap();
+    assert!(!threads.is_empty());
+    let me = std::thread::current().id();
+    assert!(
+        threads.iter().all(|t| *t != me),
+        "saved on the caller's thread"
+    );
+}
+
+#[test]
+fn switches_flipped_during_a_save_end_in_one_save_of_the_last_choice() {
+    let (started, started_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release) = std::sync::mpsc::channel();
+    let gated = Arc::new(Gated {
+        saves: std::sync::Mutex::new(Vec::new()),
+        started,
+        release: std::sync::Mutex::new(release),
+    });
+    let blocker = Blocker::new(gated.clone());
+    blocker.set_enabled(false);
+    started_rx.recv().unwrap();
+    // The first save is stuck in the store; the user flips the switch nine more times.
+    for at in 0..9 {
+        blocker.set_enabled(at % 2 == 0);
+    }
+    release_tx.send(()).unwrap();
+    assert!(blocker.flush(WAIT));
+    assert_eq!(*gated.saves.lock().unwrap(), vec![false, true]);
 }
 
 #[test]
@@ -235,8 +293,10 @@ fn every_change_is_saved_and_the_saved_settings_load_again() {
     blocker.set_enabled(false);
     blocker.set_site_excepted("a.example", true);
     blocker.set_list_enabled("easylist", false);
+    assert!(blocker.flush(WAIT));
     let saved = store.0.lock().unwrap();
-    assert_eq!(saved.len(), 3);
+    // Quick changes may be written as one save: the last one holds them all.
+    assert!((1..=3).contains(&saved.len()), "{}", saved.len());
     let last = saved.last().unwrap();
     assert!(!last.enabled && last.lists_off.contains("easylist"));
     assert_eq!(last.exceptions_text(), "a.example kept.example");

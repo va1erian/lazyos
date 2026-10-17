@@ -272,9 +272,72 @@ impl Listener {
     }
 }
 
+impl Listener {
+    /// A descriptor that becomes readable when an event is queued on this channel (or it hangs up),
+    /// for another thread to wait on: a handle is its thread's own, a descriptor is the process's
+    /// (docs/architecture/endpoint-fd.md). The thread that listened still does the [`poll`]ing.
+    ///
+    /// [`poll`]: Listener::poll
+    pub fn watch(&self) -> Result<Watch, i64> {
+        use std::os::fd::FromRawFd;
+        let raw = lazyos_sys::msg::endpoint_fd(self.channel, true)?;
+        // SAFETY: the kernel just opened `raw` in this process's table for this value alone.
+        let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+        Ok(Watch { fd })
+    }
+}
+
 impl Drop for Listener {
     fn drop(&mut self) {
         let _ = sys::msg_close(self.channel);
+    }
+}
+
+/// A [`Listener`]'s readiness, which any thread may wait on. Once the shell's end is closed (it
+/// restarted) or the listener is dropped, it reads [`Readiness::Hangup`].
+pub struct Watch {
+    fd: std::os::fd::OwnedFd,
+}
+
+/// What a [`Watch::wait`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Readiness {
+    /// An event is queued: poll the listener.
+    Ready,
+    /// The shell's end is closed (it restarted) or the channel is gone: the listener is dead, and
+    /// a poll would find nothing for ever (the descriptor stays readable).
+    Hangup,
+    /// Nothing within the time given, or the wait failed (treated as nothing, never as news, so a
+    /// broken descriptor cannot make the caller spin).
+    Idle,
+}
+
+impl Watch {
+    /// Parks the calling thread until an event is waiting, the channel hangs up, or `timeout`
+    /// passes. Level-triggered: a queued event stays [`Readiness::Ready`] until it is received.
+    pub fn wait(&self, timeout: std::time::Duration) -> Readiness {
+        use std::os::fd::AsRawFd;
+        let mut entry = libc::pollfd {
+            fd: self.fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let millis = libc::c_int::try_from(timeout.as_millis()).unwrap_or(libc::c_int::MAX);
+        // SAFETY: one `pollfd` that lives for the call; the kernel writes only its `revents`.
+        let found = unsafe { libc::poll(&mut entry, 1, millis) };
+        if found <= 0 {
+            return Readiness::Idle;
+        }
+        if entry.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+            // Events the shell queued before it went may still be there (POLLIN | POLLHUP): the
+            // caller takes them with a last poll before it drops the listener.
+            return Readiness::Hangup;
+        }
+        if entry.revents & libc::POLLIN != 0 {
+            Readiness::Ready
+        } else {
+            Readiness::Idle
+        }
     }
 }
 

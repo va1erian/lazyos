@@ -6,38 +6,68 @@
 //! belongs to the thread that made it): the shell's `os.lazy.notify` endpoint and the one event
 //! channel (`Listen`) the shell keeps per app.
 //!
-//! The worker asks for the event channel before its first toast, polls it while any toast it
-//! made is up (and sleeps when none is), and takes its toasts down when it is dropped: closing the
-//! browser closes its notifications, which have nothing left to answer to.
+//! The worker asks for the event channel before its first toast and, while any toast it made is
+//! up, waits for the channel to have news (issue #893: never a timer that wakes the busy main
+//! thread); with none up it sleeps on its inbox. It takes its toasts down when it is dropped:
+//! closing the browser closes its notifications, which have nothing left to answer to.
+//!
+//! Only a toast posted while the event channel was there is waited for: one posted without it
+//! (the shell refused `Listen`) can never be heard of. When the channel is lost (the shell
+//! restarted, and its toasts with it), every toast still open is reported closed, so a lost
+//! `Closed` cannot keep the worker waiting for ever.
 
-use std::collections::HashSet;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::collections::HashMap;
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use super::{Reason, ShellNews, Toasts};
 use crate::transfers::Toast;
 
-/// How often the event channel is looked at while a toast is up.
-const POLL: Duration = Duration::from_millis(100);
+/// The longest the worker waits for the shell's news before it looks at its inbox again, while a
+/// toast is up: how late a post or a close can be then. The wait itself is on this thread only.
+const WAIT: Duration = Duration::from_millis(100);
 /// How long a closing window spends taking its toasts down, at most.
 const CLEAN_UP: Duration = Duration::from_millis(1500);
 
 /// What happened to a toast, from the shell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
-    Activated { toast: u64 },
-    Closed { toast: u64, reason: Reason },
+    Activated {
+        toast: u64,
+    },
+    Closed {
+        toast: u64,
+        reason: Reason,
+    },
+    /// Event channel `channel` is gone (the shell restarted): nothing more will be heard of the
+    /// toasts posted while it was there, and the shell no longer shows them. Toasts posted on a
+    /// newer channel are not concerned.
+    Lost {
+        channel: u64,
+    },
+}
+
+/// A toast the shell took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Posted {
+    /// The shell's id for it.
+    pub toast: u64,
+    /// The event channel that was there when it was posted (each new one has a higher number), so
+    /// its click and its close will be heard; `None` without one.
+    pub heard: Option<u64>,
 }
 
 /// The shell, as the worker uses it: the platform's notification client (`xui_app::platform::notify`
 /// on LazyOS).
 pub trait Shell: Send + 'static {
-    /// Shows `toast`; the shell's id for it. Asks for the event channel first when it has none.
-    fn post(&mut self, toast: &Toast) -> Result<u64, String>;
+    /// Shows `toast`. Asks for the event channel first when it has none.
+    fn post(&mut self, toast: &Toast) -> Result<Posted, String>;
     /// Takes a toast down.
     fn close(&mut self, toast: u64);
-    /// What happened to the toasts since the last call.
+    /// Parks the worker until the event channel may have news, or `timeout` passes.
+    fn wait(&mut self, timeout: Duration);
+    /// What happened to the toasts since the last call; cheap when [`Shell::wait`] found nothing.
     fn poll(&mut self) -> Vec<Event>;
 }
 
@@ -100,25 +130,30 @@ impl Drop for ShellWorker {
 }
 
 fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>, wake: &dyn Fn()) {
-    // Toasts made and not yet reported closed.
-    let mut open: HashSet<u64> = HashSet::new();
+    // Toasts made and not yet reported closed, with the event channel that will tell of them.
+    let mut open: HashMap<u64, u64> = HashMap::new();
     loop {
         let job = if open.is_empty() {
             inbox.recv().map_err(|_| RecvTimeoutError::Disconnected)
         } else {
-            inbox.recv_timeout(POLL)
+            next_job(&mut shell, inbox)
         };
         let mut news = Vec::new();
         match job {
             Ok(Job::Post(key, toast)) => match shell.post(&toast) {
-                Ok(id) => {
-                    open.insert(id);
-                    news.push(ShellNews::Posted { key, toast: id });
+                Ok(posted) => {
+                    if let Some(channel) = posted.heard {
+                        open.insert(posted.toast, channel);
+                    }
+                    news.push(ShellNews::Posted {
+                        key,
+                        toast: posted.toast,
+                    });
                 }
                 Err(_) => news.push(ShellNews::Failed { key }),
             },
             Ok(Job::Close(toast)) => {
-                if open.remove(&toast) {
+                if open.remove(&toast).is_some() {
                     shell.close(toast);
                 }
             }
@@ -133,6 +168,20 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
                         open.remove(&toast);
                         news.push(ShellNews::Closed { toast, reason });
                     }
+                    Event::Lost { channel } => {
+                        let gone: Vec<u64> = open
+                            .iter()
+                            .filter(|(_, heard)| **heard == channel)
+                            .map(|(toast, _)| *toast)
+                            .collect();
+                        for toast in gone {
+                            open.remove(&toast);
+                            news.push(ShellNews::Closed {
+                                toast,
+                                reason: Reason::Restart,
+                            });
+                        }
+                    }
                 }
             }
         }
@@ -144,12 +193,27 @@ fn run(mut shell: impl Shell, inbox: &Receiver<Job>, outbox: &Sender<ShellNews>,
         }
     }
     let began = Instant::now();
-    for toast in open {
+    for toast in open.into_keys() {
         if began.elapsed() > CLEAN_UP {
             break;
         }
         shell.close(toast);
     }
+}
+
+/// The next job while a toast is up: one already waiting, else one that came while the worker
+/// waited (at most [`WAIT`]) for the shell's news. A timeout means "look at the shell".
+fn next_job(shell: &mut impl Shell, inbox: &Receiver<Job>) -> Result<Job, RecvTimeoutError> {
+    match inbox.try_recv() {
+        Ok(job) => return Ok(job),
+        Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+        Err(TryRecvError::Empty) => {}
+    }
+    shell.wait(WAIT);
+    inbox.try_recv().map_err(|error| match error {
+        TryRecvError::Empty => RecvTimeoutError::Timeout,
+        TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
+    })
 }
 
 #[cfg(test)]
@@ -164,27 +228,46 @@ mod tests {
         closed: Vec<u64>,
         events: Vec<Event>,
         refuse: bool,
+        /// Posts are made with no event channel.
+        deaf: bool,
+        /// The event channel posts are heard on.
+        channel: u64,
         next: u64,
+        waits: u32,
     }
 
     struct Fake(Arc<Mutex<Script>>);
 
     impl Shell for Fake {
-        fn post(&mut self, toast: &Toast) -> Result<u64, String> {
+        fn post(&mut self, toast: &Toast) -> Result<Posted, String> {
             let mut script = self.0.lock().unwrap();
             if script.refuse {
                 return Err(String::from("busy"));
             }
             script.next += 1;
             script.posted.push(toast.title.clone());
-            Ok(script.next)
+            Ok(Posted {
+                toast: script.next,
+                heard: (!script.deaf).then_some(script.channel),
+            })
         }
         fn close(&mut self, toast: u64) {
             self.0.lock().unwrap().closed.push(toast);
         }
+        fn wait(&mut self, timeout: Duration) {
+            self.0.lock().unwrap().waits += 1;
+            thread::sleep(timeout.min(Duration::from_millis(5)));
+        }
         fn poll(&mut self) -> Vec<Event> {
             std::mem::take(&mut self.0.lock().unwrap().events)
         }
+    }
+
+    /// Whether the worker stopped waiting on the shell: its count of waits stays still.
+    fn settled(script: &Arc<Mutex<Script>>) -> bool {
+        let before = script.lock().unwrap().waits;
+        thread::sleep(Duration::from_millis(60));
+        script.lock().unwrap().waits == before
     }
 
     fn toast(title: &str) -> Toast {
@@ -286,6 +369,72 @@ mod tests {
         let mut closed = script.lock().unwrap().closed.clone();
         closed.sort_unstable();
         assert_eq!(closed, vec![1, 3]);
+    }
+
+    #[test]
+    fn a_lost_event_channel_closes_every_open_toast_and_the_waiting_stops() {
+        let script = Arc::new(Mutex::new(Script::default()));
+        let worker = ShellWorker::spawn(Fake(Arc::clone(&script)), || {}).unwrap();
+        worker.post(1, toast("a.test"));
+        worker.post(2, toast("b.test"));
+        let mut seen = 0;
+        eventually(|| {
+            seen += worker.drain().len();
+            (seen == 2).then_some(())
+        });
+        assert!(!settled(&script), "waits for news while toasts are up");
+        // A toast posted on the shell's next channel is not the old channel's to close.
+        script.lock().unwrap().channel = 1;
+        worker.post(3, toast("c.test"));
+        eventually(|| Some(worker.drain()).filter(|n| !n.is_empty()));
+        script.lock().unwrap().events = vec![Event::Lost { channel: 0 }];
+        let mut news = Vec::new();
+        eventually(|| {
+            news.extend(worker.drain());
+            (news.len() == 2).then_some(())
+        });
+        news.sort_by_key(|n| match n {
+            ShellNews::Closed { toast, .. } => *toast,
+            _ => u64::MAX,
+        });
+        assert_eq!(
+            news,
+            vec![
+                ShellNews::Closed {
+                    toast: 1,
+                    reason: Reason::Restart
+                },
+                ShellNews::Closed {
+                    toast: 2,
+                    reason: Reason::Restart
+                }
+            ]
+        );
+        assert!(!settled(&script), "toast 3 is still waited for");
+        script.lock().unwrap().events = vec![Event::Lost { channel: 1 }];
+        let news = eventually(|| Some(worker.drain()).filter(|n| !n.is_empty()));
+        assert_eq!(
+            news,
+            vec![ShellNews::Closed {
+                toast: 3,
+                reason: Reason::Restart
+            }]
+        );
+        assert!(settled(&script), "nothing left to wait for");
+    }
+
+    #[test]
+    fn a_toast_posted_without_the_event_channel_is_not_waited_for() {
+        let script = Arc::new(Mutex::new(Script {
+            deaf: true,
+            ..Script::default()
+        }));
+        let worker = ShellWorker::spawn(Fake(Arc::clone(&script)), || {}).unwrap();
+        worker.post(1, toast("a.test"));
+        let news = eventually(|| Some(worker.drain()).filter(|n| !n.is_empty()));
+        assert_eq!(news, vec![ShellNews::Posted { key: 1, toast: 1 }]);
+        assert!(settled(&script));
+        assert_eq!(script.lock().unwrap().waits, 0);
     }
 
     #[test]

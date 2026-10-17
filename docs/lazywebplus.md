@@ -484,9 +484,17 @@ stopped, with a message; Reload or a new address starts it again). Patch `0020` 
 (host-tested), the bar `src/app/hang.rs`, the tests `tests/hang.rs`.
 
 Calls into WebKit's main thread: a worker thread that needs an answer (a toast's id) waits on its own thread and
-a slow wait prints `STALL:on_main`; the shell's event channel is polled by a job that is posted and not waited
-for (one outstanding at a time), and `confd` is connected to on a thread of its own (`Blocker::attach`), not on
-WebKit's main thread, which is where `lzw_ui_profile_dir` first asks for the shared state.
+a slow wait prints `STALL:on_main`. The shell's event channel is a handle of the main thread, but the toast
+worker waits on its readiness descriptor (`notify::Watch`, docs/architecture/endpoint-fd.md) and posts a look
+at it to the main thread only when it has news (one outstanding at a time; issue #893: it used to be every
+100 ms while a toast was up); a toast posted without the channel is not waited for, and a lost channel reports
+every open toast closed. `confd` is connected to on a thread of its own (`Blocker::attach`), not on WebKit's
+main thread, which is where `lzw_ui_profile_dir` first asks for the shared state, and the ad blocker's
+switches are saved by a thread of their own (`blocker/saver.rs`, issue #894): a change applies at once, and
+quick changes end in one save of the last. Pointer moves are merged while the main thread is busy (one slot,
+one queued task; `xui-app/crates/webkit/src/pointer.rs`, issue #890). The UI process's lines, the launcher's
+included, are formatted whole and written by the window's trace channel in one write (`lzw_ui_say`), never
+under the launcher's lock (issue #891).
 
 ## Testing
 
