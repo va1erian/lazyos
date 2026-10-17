@@ -53,7 +53,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
 | `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/storage, tools/webkit, tools/webplus, tools/wifi | programs |
-| `LOCK` | `Lock` | `lock` | kernel, kernel suite | - | programs |
+| `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/webplus | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
 | `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
@@ -82,9 +82,9 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NETTOOLS` | `Nettools` | `nettools` | xui-app | sessions | programs |
 | `NICCTL` | `Nicctl` | `nicctl` | user | tools/net | programs |
 | `NSLOOKUP` | `Nslookup` | `nslookup` | user | tools/net | programs |
-| `PAINT` | `Paint` | `paint` | xui-app | sessions | programs |
+| `PAINT` | `Paint` | `paint` | xui-app | sessions, tools/webplus | programs |
 | `PDF` | `Pdf` | `pdf` | xui-app | sessions | programs |
-| `PERF` | `Perf` | `perf` | kernel, kernel suite, user | - | programs |
+| `PERF` | `Perf` | `perf` | kernel, kernel suite, user | tools/webplus | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
 | `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
@@ -93,7 +93,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `REMOVABLE` | `Removable` | `removable` | xui-app | tools/storage | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
-| `SCHED` | `Sched` | `sched` | kernel, kernel suite | - | programs |
+| `SCHED` | `Sched` | `sched` | kernel, kernel suite | tools/webplus | programs |
 | `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/install, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py, tools/web, tools/webplus | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
 | `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/webplus | programs |
@@ -108,7 +108,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/web | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/web, tools/webplus | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite, other, xui-app | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |
