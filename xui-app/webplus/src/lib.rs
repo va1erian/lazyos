@@ -30,6 +30,7 @@ pub mod chrome;
 pub mod context;
 pub mod dialogs;
 pub mod downloads;
+pub mod frameclock;
 pub mod handoff;
 pub mod hang;
 pub mod indicators;

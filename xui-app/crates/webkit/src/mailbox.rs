@@ -10,6 +10,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
+use crate::damage::{IRect, Scroll};
 use crate::events::{Event, Events};
 
 /// What the engine reports about the page.
@@ -46,6 +47,42 @@ pub struct Frame {
     pub rgba: Vec<u8>,
 }
 
+/// A rectangle of the picture, repainted: top-down RGBA, opaque, `rect.width() * rect.height()`
+/// pixels.
+#[derive(Debug)]
+pub struct Patch {
+    pub rect: IRect,
+    pub rgba: Vec<u8>,
+}
+
+/// A change to the picture the window already has, from a frame of `size`: the part of it inside
+/// `scroll.area` moves by the offset, then the patches are laid over it, in order.
+#[derive(Debug)]
+pub struct Delta {
+    pub size: (u32, u32),
+    pub scroll: Option<Scroll>,
+    pub patches: Vec<Patch>,
+}
+
+impl Delta {
+    fn bytes(&self) -> usize {
+        self.patches.iter().map(|patch| patch.rgba.len()).sum()
+    }
+}
+
+/// What the window collects: a whole new picture (if one was posted) and then the deltas posted
+/// after it, oldest first. Taken together under one lock, so the deltas always belong to the
+/// picture they follow.
+#[derive(Debug, Default)]
+pub struct Update {
+    pub full: Option<Frame>,
+    pub deltas: Vec<Delta>,
+}
+
+/// Deltas the window may be behind by: past this (or past a frame's worth of pixels) the engine
+/// is told to send a whole frame instead, which is no more work than applying them.
+const MAX_PENDING_DELTAS: usize = 16;
+
 /// Why the window should look at the mailbox.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Notice {
@@ -66,6 +103,13 @@ type Notify = Box<dyn Fn(Notice) + Send + Sync>;
 struct Slot {
     frame: Frame,
     fresh: bool,
+    /// Deltas posted since `frame` that the window has not collected, oldest first.
+    deltas: Vec<Delta>,
+    delta_bytes: usize,
+    /// The window has (or is about to get) a whole picture to apply deltas to. False after a
+    /// delta was refused or the window gave its picture up: deltas are answered with "send a
+    /// whole frame" until one arrives.
+    has_base: bool,
 }
 
 #[derive(Default)]
@@ -140,6 +184,42 @@ impl Mailbox {
         slot.frame.rgba.clear();
         slot.frame.rgba.extend_from_slice(rgba);
         slot.fresh = true;
+        // A whole picture supersedes every delta before it, and gives later ones a base.
+        slot.deltas.clear();
+        slot.delta_bytes = 0;
+        slot.has_base = true;
+    }
+
+    /// The engine repainted part of the page: `delta` applies to the picture the window has.
+    /// Returns true when it was not queued and the engine must send a whole frame next (the
+    /// window has no picture to apply it to, is too far behind, or the sizes disagree).
+    pub fn post_delta(&self, delta: Delta) -> bool {
+        {
+            let mut slot = lock(&self.frame);
+            let size = (slot.frame.width, slot.frame.height);
+            let frame_bytes = size.0 as usize * size.1 as usize * 4;
+            if !slot.has_base || delta.size != size {
+                slot.has_base = false;
+                return true;
+            }
+            let bytes = delta.bytes();
+            if slot.deltas.len() >= MAX_PENDING_DELTAS || slot.delta_bytes + bytes > frame_bytes {
+                slot.deltas.clear();
+                slot.delta_bytes = 0;
+                slot.has_base = false;
+                return true;
+            }
+            slot.delta_bytes += bytes;
+            slot.deltas.push(delta);
+        }
+        self.announce_frame();
+        false
+    }
+
+    /// The window cannot apply deltas to what it shows (too many parts, a refused delta): the
+    /// next delta the engine posts is answered with "send a whole frame".
+    pub fn request_full(&self) {
+        lock(&self.frame).has_base = false;
     }
 
     /// The second half: wake the window unless a wake is already on its way.
@@ -157,23 +237,38 @@ impl Mailbox {
         }
     }
 
-    /// The newest frame, if one arrived since the last call. `spare` is the
-    /// previous picture's buffer, handed back to be reused.
-    pub fn take_frame(&self, spare: Vec<u8>) -> Option<Frame> {
+    /// What arrived since the last call: the newest whole picture, if there is one, and the
+    /// deltas posted after it. `spare` is the previous picture's buffer, handed back to be reused
+    /// for the next whole picture.
+    pub fn take_update(&self, spare: Vec<u8>) -> Option<Update> {
         let mut slot = lock(&self.frame);
         // Cleared under the lock `store_frame` takes: a frame stored after this point sets
         // the flag again and wakes the window, one stored before it is the one taken below.
         self.frame_waiting.store(false, Ordering::Release);
-        if !slot.fresh {
+        if !slot.fresh && slot.deltas.is_empty() {
             return None;
         }
-        slot.fresh = false;
-        let rgba = std::mem::replace(&mut slot.frame.rgba, spare);
-        Some(Frame {
-            width: slot.frame.width,
-            height: slot.frame.height,
-            rgba,
+        let full = if std::mem::take(&mut slot.fresh) {
+            let rgba = std::mem::replace(&mut slot.frame.rgba, spare);
+            Some(Frame {
+                width: slot.frame.width,
+                height: slot.frame.height,
+                rgba,
+            })
+        } else {
+            None
+        };
+        slot.delta_bytes = 0;
+        Some(Update {
+            full,
+            deltas: std::mem::take(&mut slot.deltas),
         })
+    }
+
+    /// The newest whole picture only (what the tests of the hand-over are about).
+    #[cfg(test)]
+    fn take_frame(&self, spare: Vec<u8>) -> Option<Frame> {
+        self.take_update(spare).and_then(|update| update.full)
     }
 
     /// The newest page state, if it changed since the last call.

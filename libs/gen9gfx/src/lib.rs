@@ -37,6 +37,7 @@ pub mod adopt;
 pub mod cea;
 pub mod edid;
 pub mod eld;
+pub mod fbmap;
 pub mod hdmi_audio;
 pub mod mmio;
 pub mod regs;

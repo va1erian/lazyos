@@ -32,6 +32,8 @@ class Summary(unittest.TestCase):
         self.assertRegex(table, r"xuid\s+1\s+21\s+9\s+12")
         self.assertNotIn("fork", table)
         self.assertIn("60 paints", table)
+        # 60 + 21 + 58 / 2 looks: WebProcess 60, xuid 21 -> 81% busy over 60 paints in 2 s = 30 a second.
+        self.assertIn("CPU per painted frame: 27.0 ms", table)
         self.assertIn("0.90 Mpx a paint", table)
         self.assertRegex(table, r"wk\s+1000 us a paint")
         self.assertIn("worst", table)
@@ -41,6 +43,26 @@ class Summary(unittest.TestCase):
         table, _ = frame_run.summarise(LOG + line)
         self.assertIn("n=12 p50=1500.0 p90=1900.5 p99=2400.0 max=3100.0", table)
         self.assertNotIn("present_mpx", frame_run.summarise(LOG)[0])
+
+    def test_window_thread_and_delta_counts_are_shown(self):
+        extra = ("WEBPLUS:INFO:WINDOW:updates=20:full=2:apply=4000:draws=22:draw=44000:max=9000:parts=7\n"
+                 "WEBPLUS:INFO:PAINT:mode=fast:n=10:needs=10:px=900000:clear=0:wk=5000:swz=900:post=1000:"
+                 "avg=700:max=900:lat=1:wheel=5:mouse=0:w2d=1000/2000:full=2:delta=8:scroll=7\n")
+        table, _ = frame_run.summarise(LOG + extra)
+        self.assertIn("20 updates, 2 whole", table)
+        self.assertIn("apply 200 us an update", table)
+        self.assertIn("draw 2000 us a draw", table)
+        self.assertIn("up to 7 parts", table)
+        self.assertIn("2 whole frames, 8 deltas, 7 of them scrolls", table)
+
+    def test_a_picture_that_differed_from_a_whole_paint_fails_the_run(self):
+        good = LOG + "WEBPLUS:INFO:PAINT:mode=fast:n=3:needs=3:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:mouse=0:w2d=1/1:full=1:delta=2:scroll=2:checks=2:bad=0\n"
+        table, ok = frame_run.summarise(good)
+        self.assertTrue(ok)
+        self.assertIn("2 checks, 0 differed", table)
+        table, ok = frame_run.summarise(good + "WEBPLUS:FAIL:PAINT:MISMATCH:pixels=3:first=1,2:view=10x10\n")
+        self.assertFalse(ok)
+        self.assertIn("differed from a whole paint", table)
 
     def test_nothing_busy_is_not_enough(self):
         table, enough = frame_run.summarise("WEBPLUS:TITLE:WebPlus scroll\n")

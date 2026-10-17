@@ -38,6 +38,7 @@ use crate::blocker::{self, Blocker};
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
+use crate::frameclock::FrameClock;
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
@@ -147,6 +148,8 @@ pub struct Browser {
     /// Back, Forward and loading as last shown (a button repaints when set).
     buttons: Cell<Option<[bool; 3]>>,
     frames: u64,
+    /// What the window thread spends on the page, printed once a second (`INFO:WINDOW:`).
+    clock: FrameClock,
     /// The status bar's shown text (for the tests).
     shown: RefCell<String>,
 }
@@ -239,6 +242,7 @@ impl Browser {
             spare: Vec::new(),
             buttons: Cell::new(None),
             frames: 0,
+            clock: FrameClock::default(),
             shown: RefCell::new(String::new()),
         };
         let first = url.unwrap_or_else(|| browser.internal.start());
@@ -352,13 +356,31 @@ impl Browser {
     }
 
     fn show_frame(&mut self, ui: &Ui<Msg>) {
-        if let Some(frame) = self.mailbox.take_frame(std::mem::take(&mut self.spare)) {
+        if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
             if self.state.crashed {
                 // A picture painted just before the page's process went away.
-                self.spare = frame.rgba;
+                self.spare = update.full.map(|frame| frame.rgba).unwrap_or_default();
                 return;
             }
-            self.spare = self.page.show(frame);
+            let full = update.full.is_some();
+            let started = Instant::now();
+            let applied = self.page.apply(update);
+            let took = started.elapsed();
+            if let Some(line) = self.clock.record(
+                started + took,
+                took,
+                full,
+                self.page.picture_parts(),
+                self.page.take_draw_time(),
+            ) {
+                crate::marker(&line);
+            }
+            if applied.resync {
+                self.mailbox.request_full();
+            }
+            if !applied.spare.is_empty() {
+                self.spare = applied.spare;
+            }
             self.frames += 1;
             // The first frame, and the first after the window changed size: where the controls are.
             let page = ui.bounds(self.page.id());

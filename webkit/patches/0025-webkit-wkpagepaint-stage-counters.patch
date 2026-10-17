@@ -1,0 +1,121 @@
+WebKit: counters for where WKPagePaint's time goes.
+
+A paint of one pixel from the backing store cost about 3 ms and a paint of the whole window about
+5 ms, so most of a WKPagePaint is a fixed price per call. `WKPageGetPaintStats` returns the microseconds
+spent, summed since the process began, in the call as a whole, in making the wrapping surface and
+canvas, in `endPrinting`, in the drawing area's paint, and inside the backing store's paint in the
+snapshot of its surface and in the `drawImage` of that snapshot (`SkSurface::draw` split into its
+two steps, which draw identically). Six clock reads per paint.
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -37,6 +37,7 @@
+ #include <WebCore/Region.h>
+ #include <wpe/wpe.h>
+ #include <span>
++#include <time.h>
+ #include <vector>
+ 
+ #if USE(CAIRO)
+@@ -50,6 +51,23 @@
+ #if USE(GRAPHICS_LAYER_WC)
+ #include "DrawingAreaProxyWC.h"
+ #endif
++
++namespace WebKit {
++unsigned long long lazyosPaintStats[8];
++
++unsigned long long lazyosPaintClock()
++{
++    struct timespec now;
++    clock_gettime(CLOCK_MONOTONIC, &now);
++    return static_cast<unsigned long long>(now.tv_sec) * 1000000ULL + static_cast<unsigned long long>(now.tv_nsec) / 1000ULL;
++}
++}
++
++void WKPageGetPaintStats(unsigned long long* out, int count)
++{
++    for (int i = 0; out && i < count && i < 8; ++i)
++        out[i] = WebKit::lazyosPaintStats[i];
++}
+ 
+ #if !USE(GRAPHICS_LAYER_WC)
+ static WKPageUpdateCallback s_updateCallback;
+@@ -260,6 +278,7 @@
+     auto paintRect = WebKit::toIntRect(wkPaintRect);
+     if (!surfaceData || surfaceSize.isEmpty())
+         return;
++    const auto paintStarted = WebKit::lazyosPaintClock();
+ 
+ #if USE(CAIRO)
+     const cairo_format_t format = CAIRO_FORMAT_ARGB32;
+@@ -273,9 +292,11 @@
+     auto surface = SkSurfaces::WrapPixels(info, surfaceData, info.minRowBytes(), nullptr);
+     auto ctx = surface->getCanvas();
+ #endif
++    const auto surfaceMade = WebKit::lazyosPaintClock();
+     auto page = WebKit::toImpl(pageRef);
+     auto& backgroundColor = page->backgroundColor();
+     page->endPrinting();
++    const auto printingEnded = WebKit::lazyosPaintClock();
+ 
+     if (auto* drawingArea = page->drawingArea()) {
+         // FIXME: We should port WebKit1's rect coalescing logic here.
+@@ -290,6 +311,12 @@
+             drawPageBackground(ctx, backgroundColor, rect);
+     } else
+         drawPageBackground(ctx, backgroundColor, paintRect);
++    const auto painted = WebKit::lazyosPaintClock();
++    WebKit::lazyosPaintStats[0] += 1;
++    WebKit::lazyosPaintStats[1] += painted - paintStarted;
++    WebKit::lazyosPaintStats[2] += surfaceMade - paintStarted;
++    WebKit::lazyosPaintStats[3] += printingEnded - surfaceMade;
++    WebKit::lazyosPaintStats[4] += painted - printingEnded;
+ 
+ #if USE(CAIRO)
+     cairo_destroy(ctx);
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
+@@ -48,6 +48,12 @@
+ typedef void (*WKPageUpdateCallback)(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* rects, size_t rectCount, void* context);
+ WK_EXPORT void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback, void* context);
+ 
++// LazyOS: where WKPagePaint's time goes, summed in microseconds since the process began, into
++// `out[0..count)`: 0 calls, 1 the whole call, 2 making the surface and its canvas, 3 endPrinting,
++// 4 the drawing area's paint (the backing store's), 5 of which the snapshot of the backing store's
++// surface, 6 and the drawImage of it; 7 is not used.
++WK_EXPORT void WKPageGetPaintStats(unsigned long long* out, int count);
++
+ #ifdef __cplusplus
+ }
+ #endif
+--- a/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
++++ b/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
+@@ -37,6 +37,10 @@
+ 
+ namespace WebKit {
+ 
++// LazyOS: where WKPagePaint's time goes (WKPageGetPaintStats).
++extern unsigned long long lazyosPaintStats[8];
++unsigned long long lazyosPaintClock();
++
+ BackingStore::BackingStore(const WebCore::IntSize& size, float deviceScaleFactor)
+     : m_size(size)
+     , m_deviceScaleFactor(deviceScaleFactor)
+@@ -58,7 +62,15 @@
+     scaledRect.scale(m_deviceScaleFactor);
+     cr->clipIRect(scaledRect);
+     SkSamplingOptions option { SkFilterMode::kLinear };
+-    m_surface->draw(cr, 0, 0, option, nullptr);
++    // SkSurface::draw, in its two steps, timed.
++    const auto snapshotStarted = lazyosPaintClock();
++    auto image = m_surface->makeImageSnapshot();
++    const auto drawStarted = lazyosPaintClock();
++    if (image)
++        cr->drawImage(image.get(), 0, 0, option, nullptr);
++    const auto drawEnded = lazyosPaintClock();
++    lazyosPaintStats[5] += drawStarted - snapshotStarted;
++    lazyosPaintStats[6] += drawEnded - drawStarted;
+     cr->restore();
+ }
+ 

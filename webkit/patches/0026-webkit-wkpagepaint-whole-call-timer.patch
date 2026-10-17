@@ -1,0 +1,20 @@
+WebKit: WKPagePaint's stat 7 is the whole call, destructors included.
+
+Stat 1 stops before the function returns, and the Skia surface and canvas it made are destroyed
+after that. A timer declared first is destroyed last.
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -278,6 +278,12 @@
+     auto paintRect = WebKit::toIntRect(wkPaintRect);
+     if (!surfaceData || surfaceSize.isEmpty())
+         return;
++    // Declared before everything that has a destructor, so it is destroyed after all of them: stat 7
++    // is the whole call as its caller sees it, destructors included.
++    struct CallTimer {
++        unsigned long long started { WebKit::lazyosPaintClock() };
++        ~CallTimer() { WebKit::lazyosPaintStats[7] += WebKit::lazyosPaintClock() - started; }
++    } callTimer;
+     const auto paintStarted = WebKit::lazyosPaintClock();
+ 
+ #if USE(CAIRO)

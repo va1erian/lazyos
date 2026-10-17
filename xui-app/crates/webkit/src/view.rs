@@ -7,6 +7,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Instant;
 
 use xui_core::app::Ui;
 use xui_core::backend::{Canvas, Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
@@ -15,10 +16,12 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Color, Image, Key, Modifiers, MouseButton};
 
+use crate::damage::IRect;
 use crate::engine::{Button, Engine, MouseKind};
 use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
-use crate::mailbox::Frame;
+use crate::mailbox::{Frame, Update};
+use crate::parts::Parts;
 
 /// Whether a key is one of the window's own.
 pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
@@ -39,7 +42,10 @@ const NOTCH: i32 = 120;
 
 #[derive(Default)]
 struct State {
-    image: Option<Image>,
+    /// The picture on show: the last whole frame and what was painted over it since.
+    picture: Parts,
+    /// Microseconds spent drawing the picture, and how many draws, since the window last asked.
+    drawn: Cell<(u64, u32)>,
     /// The size last told to the engine.
     size: Cell<(i32, i32)>,
     /// The button held since a press in the view, for moves and captures.
@@ -65,7 +71,12 @@ impl<M: Clone + 'static> PageView<M> {
             let state = Rc::clone(&state);
             control.set_painter(Rc::new(move |canvas| {
                 if let Ok(state) = state.try_borrow() {
+                    let started = Instant::now();
                     paint(canvas, &state);
+                    let (us, draws) = state.drawn.get();
+                    state
+                        .drawn
+                        .set((us + started.elapsed().as_micros() as u64, draws + 1));
                 }
             }));
         }
@@ -101,24 +112,54 @@ impl<M: Clone + 'static> PageView<M> {
         })
     }
 
-    /// Shows a new frame; the previous picture's buffer, to reuse for the next
+    /// Shows a new whole frame; the previous picture's buffer, to reuse for the next
     /// one, is returned.
     pub fn show(&self, frame: Frame) -> Vec<u8> {
+        self.apply(Update {
+            full: Some(frame),
+            deltas: Vec::new(),
+        })
+        .spare
+    }
+
+    /// Shows what the engine painted: a whole new frame, if there is one, then each delta on top
+    /// of the picture. [`Applied`] gives back the buffer the old picture left and whether the
+    /// picture can no longer follow the engine (a delta it could not apply, too many parts): the
+    /// window then asks the mailbox for a whole frame (`Mailbox::request_full`).
+    pub fn apply(&self, update: Update) -> Applied {
         let mut state = self.state.borrow_mut();
-        let spare = state
-            .image
-            .take()
-            .map(Image::into_pixels)
-            .unwrap_or_default();
-        state.image = Image::from_rgba(frame.width, frame.height, frame.rgba).ok();
+        let mut spare = Vec::new();
+        let mut resync = false;
+        let mut changed = false;
+        if let Some(frame) = update.full {
+            match Image::from_rgba(frame.width, frame.height, frame.rgba) {
+                Ok(image) => spare = state.picture.set_full(image),
+                Err(_) => {
+                    state.picture.clear();
+                    resync = true;
+                }
+            }
+            changed = true;
+        }
+        for delta in update.deltas {
+            if !state.picture.apply(delta) {
+                resync = true;
+                break;
+            }
+            changed = true;
+        }
+        resync |= state.picture.is_fragmented();
         drop(state);
-        self.control.invalidate();
-        spare
+        if changed {
+            self.control.invalidate();
+        }
+        Applied { spare, resync }
     }
 
     /// Shows the blank page again (the page's process is gone).
     pub fn clear(&self) {
-        let had = self.state.borrow_mut().image.take().is_some();
+        let had = !self.state.borrow().picture.is_empty();
+        self.state.borrow_mut().picture.clear();
         if had {
             self.control.invalidate();
         }
@@ -126,11 +167,18 @@ impl<M: Clone + 'static> PageView<M> {
 
     /// The size of the picture on show.
     pub fn picture_size(&self) -> Option<(u32, u32)> {
-        self.state
-            .borrow()
-            .image
-            .as_ref()
-            .map(|image| (image.width(), image.height()))
+        let state = self.state.borrow();
+        (!state.picture.is_empty()).then(|| state.picture.size())
+    }
+
+    /// How many images the picture on show is made of (for the window's counters).
+    pub fn picture_parts(&self) -> usize {
+        self.state.borrow().picture.len()
+    }
+
+    /// The time spent drawing the picture (microseconds) and the draws, since the last call.
+    pub fn take_draw_time(&self) -> (u64, u32) {
+        self.state.borrow().drawn.take()
     }
 
     pub fn focus(&self) {
@@ -188,22 +236,56 @@ fn paint(canvas: &mut dyn Canvas, state: &State) {
     canvas.push_clip(bounds);
     // White only where the picture does not reach (a window being resized): a frame is opaque and
     // covers the view, and filling under it was a whole extra pass over every repaint.
-    let covered = state.image.as_ref().is_some_and(|image| {
-        image.width() as i32 >= bounds.width() && image.height() as i32 >= bounds.height()
-    });
+    let (width, height) = state.picture.size();
+    let covered = !state.picture.is_empty()
+        && width as i32 >= bounds.width()
+        && height as i32 >= bounds.height();
     if !covered {
         canvas.fill_rect(bounds, Color::rgb(255, 255, 255));
     }
-    if let Some(image) = &state.image {
-        let picture = Rect::new(
-            bounds.left,
-            bounds.top,
-            bounds.left + image.width() as i32,
-            bounds.top + image.height() as i32,
+    let frame = IRect::new(0, 0, width as i32, height as i32);
+    for part in state.picture.parts() {
+        let shown = part.visible(&frame);
+        if shown.is_empty() {
+            continue;
+        }
+        let whole = IRect::new(
+            part.x,
+            part.y,
+            part.image.width() as i32,
+            part.image.height() as i32,
         );
-        canvas.draw_image(image, picture);
+        let at = Rect::new(
+            bounds.left + whole.x0,
+            bounds.top + whole.y0,
+            bounds.left + whole.x1,
+            bounds.top + whole.y1,
+        );
+        if shown == whole {
+            canvas.draw_image(&part.image, at);
+        } else {
+            // Only part of this image is on show: a picture that scrolled, or a patch that was
+            // partly covered. Drawn whole, behind a clip.
+            canvas.push_clip(Rect::new(
+                bounds.left + shown.x0,
+                bounds.top + shown.y0,
+                bounds.left + shown.x1,
+                bounds.top + shown.y1,
+            ));
+            canvas.draw_image(&part.image, at);
+            canvas.pop_clip();
+        }
     }
     canvas.pop_clip();
+}
+
+/// What [`PageView::apply`] leaves for the window to do.
+#[derive(Debug, Default)]
+pub struct Applied {
+    /// The previous whole picture's buffer, to be filled again by the next frame.
+    pub spare: Vec<u8>,
+    /// The picture cannot follow the engine any more: ask for a whole frame.
+    pub resync: bool,
 }
 
 fn button_of(button: MouseButton) -> Button {

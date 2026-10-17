@@ -313,6 +313,63 @@ pass is the largest controllable cost left on the window thread.
 
 The paint thread's counters above leave out the window thread, `xuid` and the kernel. `python tools/webplus/frame_run.py [--perf]` (scroll page `webplus/scroll.html`, 2560x1440 at scale 2, a 2000x900 window, WHPX) adds them from `PERF:CPU` and the kernel's `PERF:present_mpx`: **about 28 ms of CPU per frame at 23 paints a second, and every paint is the whole window** (1.80 Mpx), for a scroll that exposes a few hundred pixels. The UI process is 44 to 46% of the core, of which the counted paint stages are only 8 to 10 ms a paint: the rest is the window thread, still uncounted. This is the case for P1 item 1 (damage) applied to scrolling (a blit-scroll of the persistent bitmap and a paint of the exposed rows), ahead of any GPU stage. The numbers and what they mean for the GPU plan are in [`kabylake-gpu-plan.md`](kabylake-gpu-plan.md) §11.
 
+### Scroll as a delta (2026-10-17): what was built, and what is not yet measured
+
+**Cause, read from WebKit's source (`DrawingAreaProxyCoordinatedGraphics::incorporateUpdate`).** The web process
+already paints only what a scroll exposed, and the UI process already scrolls its backing store itself. But an update
+that scrolled is reported to the page as *the whole view needs display*, so `paint.cpp` copied (`WKPagePaint`),
+converted and handed on 1.8 Mpx per step; the window then built a new image from them, which xui premultiplies and
+scans in full (an image never changes, and a frame stream never hits its cache); `xuid` composed and presented the
+whole window. `BackingStore::scroll` also allocated, read and wrote back a bitmap the size of the scrolled area for
+every step (megabytes, with the page faults, on a kernel that maps every large block).
+
+**What changed.**
+
+| Where | Change |
+|---|---|
+| `webkit/patches/0024` | `WKPageSetUpdateCallback`: each update's scrolled rectangle, offset and repainted rectangles, with no "whole view" report while it is set; `BackingStore::scroll` moves the pixels in place |
+| `xui-app/crates/webkit/src/damage.rs` | `Pending`: the updates between two paints as one scroll and at most eight rectangles, or a whole frame (two different scrolled areas, a scroll further than the area, rectangles covering four fifths); pending rectangles move with a scroll, in both places (a superset, never a subset) |
+| `.../mailbox.rs`, `abi.rs`, `ffi.rs` | `lzw_ui_frame_delta` and `lzw_paint_*`; deltas queue behind the picture they belong to under one lock; a window too far behind, or without a picture, is answered "send a whole frame" |
+| `.../parts.rs`, `view.rs` | the picture is the first whole frame plus the rectangles painted since, each an image with an offset and a clip; a scroll moves offsets and clips, so xui draws the images it has already prepared and only the exposed rows are new; past 32 parts a whole frame replaces them |
+| `webkit/port/app/paint.cpp` | asks for the plan, paints only its rectangles, sends a delta; `legacy` mode (`<profile>/paint-mode`) keeps the old whole-frame path for comparison |
+| `xui-app/webplus/src/frameclock.rs` | `INFO:WINDOW` once a second: updates, apply and draw time on the window thread, parts |
+
+**Verified (host).** `cargo test -p xui-webkit` includes `tests/scroll_model.rs`: a model of WebKit's backing store (move
+the area, then paint the update's rectangles, exactly as `BackingStoreSkia.cpp` does) drives the real accumulator, the
+mailbox and the parts through 400 seeded random sequences (scrolls of a whole view, of part of it, sideways, further
+than the area, loose rectangles, the engine and the window running at different paces) and compares the picture with the
+store pixel for pixel; breaking the accumulator's move of pending rectangles, or the sign of a part's offset, fails it
+at the first seed. `tests/scroll_view.rs` renders the real `Browser` offscreen and reads pixels back. What the model
+takes from WebKit (the direction of the offset, that the exposed rows are in the update's rectangles) is read from the
+source above, not run: the engine run (below) is what checks it.
+
+**Measured (QEMU, WHPX, 2560x1440 at scale 2, the 2000x900 window scrolled on `webplus/scroll.html` for 25 s; two runs,
+the same numbers within 1%).** `python tools/webplus/frame_run.py --perf`:
+
+| | before (whole frames) | after (deltas) |
+|---|---|---|
+| CPU per painted frame | **28.7 ms** (66% of the core at 22.9 paints a second) | **17.0 ms** (45% at 26.6 a second) |
+| sustainable frames a second on this core | about 35 | about 59 |
+| paints that were whole frames | all | 1 or 2 of about 585 |
+| pixels sent per paint | 1.80 Mpx | 0.17 to 0.18 Mpx |
+| window thread, per update | about 10 ms (inferred) | apply 47 us, draw 2.1 ms (`INFO:WINDOW`), at most 22 parts |
+| the engine's check against a whole paint | not run | 21 to 106 checks, 0 differed |
+
+The check is the one that matters for trust: in a probe image the UI process keeps the picture the window should have
+and, every 30th delta, compares it with a whole paint from WebKit's backing store (`paint.cpp`, "the check"; a
+difference is `FAIL:PAINT:MISMATCH` and the harness fails). It held what the host model had to take from WebKit's source
+(the direction of the offset, that the exposed rows are among the update's rectangles) against the real engine.
+
+**A trap in the stage times.** `INFO:PAINT`'s `wk`, `swz` and `post` are wall time around each call, and on one CPU
+the scheduler runs other tasks (the window, the compositor, the page's process) inside them. A one-pixel `WKPagePaint`
+read 3 ms there, while counters inside WebKit (patches `0025`, `0026`, `INFO:WKPAINT`) put the call, destructors
+included, at about 64 us. Read the cost of a change from CPU per frame (`PERF:CPU` with the paint rate, which
+`frame_run.py` prints), not from the stages; a first reading of this work as "the paint got slower" was this.
+
+**What is left per frame (17 ms, on a fast host).** `xuid` about 6.8 ms (compose and present of a window that still
+changes whole on screen, of which the kernel's copy is about 0.8), the UI process about 8 ms (the window's 2.2, the
+paint thread's 2 to 3, the main thread's `incorporateUpdate`: the IPC, the in-place scroll and the strip's paint, which
+nothing counts yet), the page's process about 2.3 ms. The compositor is now the largest single piece.
 ### A build trap: two checkouts, one Docker volume (found when this change was first tried)
 
 `webkit/README.md` says two checkouts must not build WebKit in the same Docker volume. The quiet failure is not a

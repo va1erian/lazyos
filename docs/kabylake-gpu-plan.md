@@ -542,6 +542,16 @@ has about 39 notches of travel, and a wheel turn that moves nothing paints
 nothing (the counter forgets it after 0.5 s). `scroll.html` is long enough,
 and `frame_run.py` turns round before the end of the page.
 
+### 11.1a After the scroll work (2026-10-17, same harness)
+
+The first item of 11.2 was built (`lazywebplus-performance-plan.md`, "Scroll as a delta"): CPU per painted frame fell
+from **28.7 to 17.0 ms**, a ceiling of about 59 frames a second on this host's one core (two runs, within 1%). The
+parts that did not move are the ones no WebKit or window change touches: `xuid` is now the largest single piece (about
+6.8 ms a frame for composing and presenting a window that still changes whole on screen), the page's process about
+2.3 ms, the kernel's copy into the framebuffer 0.8 ms under QEMU. So the order below holds, and its second item has
+moved up: **what stands between this box and 60 fps at 1440p is the compositor and the present, on a slower core**, and
+that is where a GPU stage would act. The decisive number is still the box's `PERF:present_mpx`.
+
 ### 11.2 What the GPU stages can and cannot buy here
 
 | Stage | Removes | Measured share it addresses | Verdict |

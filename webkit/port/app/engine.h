@@ -205,6 +205,9 @@ void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef, co
 void schedulePaint();
 // The view's own callback: the rectangle that changed is the one painted.
 void viewNeedsDisplay(WKViewRef view, WKRect rect, const void* clientInfo);
+// Asks the page for what each update scrolled and repainted (WKPageSetUpdateCallback, patch 0024),
+// once the view exists and has its size. Without it the page reports the whole view for a scroll.
+void installPaintObserver();
 // Input counted for the once-a-second INFO:PAINT line (a wheel turn also starts the clock the line's
 // `w2d` is measured with).
 void notePointer(bool wheel);

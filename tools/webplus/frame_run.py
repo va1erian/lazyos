@@ -108,7 +108,7 @@ def summarise(text: str) -> tuple[str, bool]:
                 average, _, worst = value.partition("/")
                 paint["w2d_avg_us"].append(float(average or 0))
                 paint["w2d_max_us"].append(float(worst or 0))
-            elif key in ("n", "needs", "px", "clear", "wk", "swz", "post", "avg", "max", "wheel", "mouse"):
+            elif key in ("n", "needs", "px", "clear", "wk", "swz", "post", "avg", "max", "wheel", "mouse", "full", "delta", "scroll", "checks", "bad"):
                 if value.lstrip("-").isdigit():
                     paint[key].append(float(value))
     lines = []
@@ -125,7 +125,27 @@ def summarise(text: str) -> tuple[str, bool]:
         n, p50, p90, p99, worst = mpx[-1]
         lines.append(f"Kernel present copy, microseconds per megapixel (PERF:present_mpx, an image built with --perf): "
                      f"n={n} p50={p50} p90={p90} p99={p99} max={worst}")
-    lines.append("UI process paint stages, per second while painting (INFO:PAINT)")
+    window = defaultdict(list)
+    for line in re.findall(r"INFO:WINDOW:(\S+)", text):
+        for field in line.split(":"):
+            key, _, value = field.partition("=")
+            if value.isdigit():
+                window[key].append(int(value))
+    updates = sum(window.get("updates", []))
+    if updates:
+        draws = max(1, sum(window["draws"]))
+        lines.append(f"Window thread (INFO:WINDOW): {updates} updates, {sum(window['full']):.0f} whole; "
+                     f"apply {sum(window['apply']) / updates:.0f} us an update, "
+                     f"draw {sum(window['draw']) / draws:.0f} us a draw, worst {max(window['max']):.0f} us, "
+                     f"up to {max(window['parts'])} parts")
+    seconds_painting = len(paint.get("n", []))
+    paints_total = sum(paint.get("n", []))
+    if cpu and paints_total and seconds_painting:
+        busy = sum(sum(r[0] for r in rows) / len(rows) for rows in cpu.values())
+        rate = paints_total / seconds_painting
+        lines.append(f"CPU per painted frame: {busy * 10 / rate:.1f} ms ({busy:.0f}% of the core over {rate:.1f} paints a second); "
+                     f"sustainable ceiling about {1000 / (busy * 10 / rate):.0f} frames a second")
+    lines.append("UI process paint stages, per second while painting (INFO:PAINT; wall time, see paint.cpp: other tasks run inside it)")
     seconds = len(paint.get("n", []))
     paints = sum(paint.get("n", []))
     if paints:
@@ -135,12 +155,20 @@ def summarise(text: str) -> tuple[str, bool]:
         for key in ("clear", "wk", "swz", "post"):
             lines.append(f"  {key:<6}{sum(paint[key]) / paints:>9.0f} us a paint")
         lines.append(f"  total {sum(paint['avg']) / seconds:>9.0f} us a paint (average of the per-second averages)")
+        if paint.get("checks"):
+            lines.append(f"  engine check against a whole paint: {sum(paint['checks']):.0f} checks, {sum(paint.get('bad', [])):.0f} differed")
+        if paint.get("delta") or paint.get("full"):
+            lines.append(f"  {sum(paint.get('full', [])):.0f} whole frames, {sum(paint.get('delta', [])):.0f} deltas, "
+                         f"{sum(paint.get('scroll', [])):.0f} of them scrolls")
         if paint.get("w2d_avg_us"):
             lines.append(f"  wheel to first damage report: {sum(paint['w2d_avg_us']) / len(paint['w2d_avg_us']) / 1000:.1f} ms "
                          f"average, {max(paint['w2d_max_us']) / 1000:.1f} ms worst")
     else:
         lines.append("  (no INFO:PAINT line)")
-    return "\n".join(lines), bool(paints)
+    mismatches = len(re.findall(r"FAIL:PAINT:MISMATCH", text))
+    if mismatches:
+        lines.append(f"  FAIL: {mismatches} delta picture(s) differed from a whole paint (FAIL:PAINT:MISMATCH)")
+    return "\n".join(lines), bool(paints) and not mismatches
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,6 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pause", type=float, default=PAUSE, help="seconds between steps")
     parser.add_argument("--mode", default=DEFAULT_MODE, help="the display mode (LAZYOS_DISPLAY_MODE)")
     parser.add_argument("--step-timeout", type=float, default=300.0)
+    parser.add_argument("--sample-port", type=int, help="record CR3 and RIP at 30 Hz over this QMP port to <out>/samples.tsv (tools/webplus/sample.py report)")
     parser.add_argument("--perf", action="store_true", help="build with LAZYOS_PERF=1 for the kernel's present_mpx metric")
     parser.add_argument("--judge-only", metavar="SERIAL_LOG")
     args = parser.parse_args(argv)
@@ -184,10 +213,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{judge.P}:FRAME:FAIL {error}")
             return 1
     served = sites.Sites(files.leaf_cert, files.leaf_key, closer_port=judge.CLOSER_PORT)
+    qemu_args: tuple[str, ...] = ()
+    sampler = None
+    if args.sample_port:
+        qemu_args = ("-qmp", f"tcp:127.0.0.1:{args.sample_port},server=on,wait=off")
+        sampler = subprocess.Popen([sys.executable, str(HERE / "sample.py"), "record", "--port", str(args.sample_port),
+                                    "--out", str(out / "samples.tsv"), "--seconds", "900"], cwd=ROOT)
     try:
-        ok, text = webplus_run.run_session(frame_session(args.seconds, args.step_timeout, args.notches, args.pause), out, args)
+        ok, text = webplus_run.run_session(frame_session(args.seconds, args.step_timeout, args.notches, args.pause), out, args,
+                                           qemu_args=qemu_args)
     finally:
         served.close()
+        if sampler:
+            sampler.terminate()
     table, enough = summarise(text)
     print(f"mode {args.mode}, wheel {args.seconds:.0f} s, session {'ok' if ok else 'FAILED'}")
     print(table)
