@@ -498,3 +498,68 @@ second), as merging intends when the thread keeps up. The warm-cache reload last
 boots than between modes. Merging pays off only where the main thread stalls while the pointer moves (H4): HiDPI,
 TCG or a slow real PC, a cold profile, a page busier than Ars behind its consent dialog. Those are the next runs
 (`--accel none`, a `LAZYOS_DISPLAY_MODE=2560x1440` image).
+
+## 10. Would SMP help, and what to do first (2026-10-17)
+
+**Measured.** `PERF:runwait` (new, `LAZYOS_PERF=1`, `kernel/src/perf/runwait.rs`): per task, the time between
+becoming runnable (woken, or preempted with work left) and being run. Live Ars Technica at 2560x1440, 38 s of
+wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40` with `LAZYOS_PERF=1`):
+
+| task | waited runnable | share of the window | waits | mean wait |
+|---|---|---|---|---|
+| WebProcess main thread (slot 36) | 12.5 s | 33% | 24 967 | 0.5 ms |
+| the WebProcess's other threads (JIT, GC, workers) | 5-12 s each | 10-32% | 5 000-25 000 | 0.2-1 ms |
+| `lazyshell` (the desktop shell) | 7.8 s | 20% | 25 703 (670 a second) | 0.3 ms |
+| `lazywebplus.elf` (the window) | 3.9 s | 10% | 17 080 | 0.2 ms |
+| `netdrv` | 17.8 s | 46% | 3 366 | 5 ms |
+
+The WebProcess (all threads) used 44-50% of the CPU, about half of it the main thread, so the main thread ran for
+roughly 10 s and *waited* for 12.5 s: it was runnable behind other tasks for more than half the time it wanted to
+run. The page's answer to a wheel notch (wheel-to-damage, 70 ms on average) is that thread's serial work, so a CPU of
+its own would take it to about 45% of that at best (a 2x ceiling). The guest was not saturated (about 23% idle with
+the sampler on, which slows it, 55% before the scroll): the wait is queueing among eight busy-ish tasks and the
+scheduler's slices, not a lack of cycles, which is why a policy change can get part of it without SMP.
+
+**What SMP is.** The kernel is single-CPU by design (`docs/architecture.md`, `virtual-memory.md`, S8 of the
+platform plan). A second CPU is not a switch: AP bring-up (INIT-SIPI, per-CPU GDT/TSS/stacks, LAPIC timers), per-CPU
+run queues and `CURRENT` (the task table's one lock is held across a scheduling decision), a TLB shootdown on every
+PTE change (`protect_range`, `cow_fault`, `unmap_range`, `remap_page`), the page cache's lock-free "no store can land
+while the kernel holds the lock" arguments and the fault epoch (`virtual-memory.md` lists them), interrupt routing to
+the boot CPU, and a review of every place that relies on one CPU for mutual exclusion: 154 interrupts-off sections
+and 264 `static mut`/`Mutex` uses in 856 kernel files, with interrupt-context holders among them. It is the plan's
+XL, high-risk stage. The i3-7100U has 2 cores and 4 threads, so the payoff is real there: the main thread, the UI
+process and the compositor could run at once (today four serial stages in four processes share one CPU).
+
+**Verdict.** Yes, SMP would help more than anything left on the list, plausibly 1.5-2x on wheel-to-damage and a
+deeper pipeline of paint, convert, draw and composite. It is also the most expensive item and its gain is an upper
+bound (the table counts waits behind the page's own helper threads, which would still need a CPU). Do the cheap
+policy experiments below first: they test the same claim (that waiting, not work, is the problem) for days not months.
+
+### Follow-ups, ranked by value for the effort
+
+1. **Run the page's main thread ahead of its helpers and of idle-ish services** (hours to days; kernel + `init`). The
+   table says the main thread waits as long as it runs, among tasks that mostly do little. A priority class for the
+   visible window's UI and WebProcess main threads (the stride scheduler has `interactive`; `inputd` and `xuid` use
+   it), and `JSC_numberOfDFGCompilerThreads=1`, `JSC_numberOfGCMarkers=1`, `useConcurrentJIT=0` for a one-CPU guest
+   (the helper threads only add switches there). Measure with `PERF:runwait` and `w2d`: the first run of this plan's
+   claim that waiting is the cost.
+2. **Wake storms.** `lazyshell` is woken about 670 times a second and `netdrv` polls (46% runnable) while the page
+   scrolls; each wake can preempt the main thread. `PERF:sched` already counts wakes per task: find what wakes them
+   (the desktop's scan thread, timers, polling) and make them event-driven or slower. Cheap and it helps every page.
+3. **Keep the scroll delta when the page has fixed elements** (days; WebKit patch + `damage.rs`). 340 of 430 scrolling
+   paints on Ars were whole frames, so the WebProcess repaints and ships 1.5 Mpx a step. Scroll the picture and repaint
+   only the fixed layers' rectangles (`LocalFrameView::scrollContentsFastPath`'s viewport-constrained branch).
+4. **The page's idle burn** (25-50% of the CPU with no input: JS timers, ads, GC). Throttle what a visible but idle
+   page may do: `requestAnimationFrame` and timer clamping when nothing is interacting, fewer JIT tiers, a smaller
+   heap. A lever on every site; needs care not to break video and animation.
+5. **The window thread's draw** (9-12 ms per draw at 2560x1440, `INFO:WINDOW`): xui prepares an image it has not seen
+   before; reuse a picture's image across draws and upload only the patches. Then **`xuid`'s 8-11%** and the kernel
+   present copy (`PERF:present_mpx`, 0.4 ms a megapixel on the host; the G6 decision wants the box's number).
+6. **Cheaper memory primitives in the kernel** (`compiler_builtins` `set_bytes`/`copy_forward` were 5-7% of samples
+   in kernel mode while scrolling): `rep stosb`/`movsb` with ERMS, or AVX for page zeroing and copies.
+7. **Shown-ahead polish**: the fixed header moves with the picture until the page answers; a horizontal scroll bar
+   moves too; a click during the shift lands off. Split the picture by layer once the page can report the fixed ones.
+8. **Box measurements.** Nothing here was run on the Kaby Lake box: `PERF:present_mpx`, `PERF:CPU`, `PERF:runwait`,
+   `INFO:PAINT`, `INFO:WINDOW`, `INFO:SPEC` during 20 s of scrolling decide G6 (`kabylake-gpu-plan.md` section 11)
+   and whether item 1 is enough.
+9. **SMP** (above), after 1 and 2 have said how much of the wait a policy leaves.

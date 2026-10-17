@@ -14,9 +14,11 @@ use crate::task::wait::WaitQueue;
 use crate::task::{PriorityClass, TaskState, WaitKind};
 
 mod irq_latency;
+mod runwait;
 mod same_class;
 
 pub(super) use irq_latency::*;
+use runwait::{runwait_ledger_rules, runwait_ledger_soak};
 use same_class::same_class_wake_bounded;
 
 /// Where the test threads park.
@@ -382,4 +384,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_preempt_same_class_wake_bounded",
         same_class_wake_bounded,
     ),
+    ("task_runwait_ledger_rules", runwait_ledger_rules),
+    ("task_runwait_ledger_soak", runwait_ledger_soak),
 ];

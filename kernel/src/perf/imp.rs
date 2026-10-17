@@ -95,6 +95,7 @@ pub fn lines_posting(raised: u64) {
 pub fn on_wake(slot: usize, current: usize) {
     super::wakeups::woke(slot);
     if slot != current {
+        super::runwait::LEDGER.ready(slot, rdtsc());
         if let Some(stamp) = WOKEN_AT.get(slot) {
             let _ = stamp.compare_exchange(0, rdtsc(), Ordering::Relaxed, Ordering::Relaxed);
         }
@@ -113,8 +114,13 @@ pub fn on_wake(slot: usize, current: usize) {
     }
 }
 
-pub fn on_run(slot: usize) {
+pub fn on_run(slot: usize, prev: usize, prev_runnable: bool) {
     super::wakeups::ran(slot);
+    let now = rdtsc();
+    super::runwait::LEDGER.run(slot, now);
+    if prev != slot && prev_runnable {
+        super::runwait::LEDGER.ready(prev, now);
+    }
     if let Some(woken) = WOKEN_AT.get(slot) {
         let at = woken.swap(0, Ordering::Relaxed);
         if at != 0 {
@@ -339,6 +345,7 @@ pub fn service() {
         }
     }
     super::wakeups::report(now);
+    super::runwait::report(now, per_tick);
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);
