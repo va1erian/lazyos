@@ -19,6 +19,7 @@ import buildkit
 import toolenv
 import fhspaths
 import wkpins
+import zigfix
 from toolenv import BuildError, run
 
 BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
@@ -94,10 +95,21 @@ def configure(tree: Path) -> None:
 def build(tree: Path, jobs: int, targets: list[str]) -> dict[str, str]:
     """Run ninja for `targets`; strip the programs into ``OUT/bin``; name to path."""
     configure(tree)
+    # The allocator patch lives in the toolchain, which ninja does not watch: a program linked
+    # before it (or before a newer version of it) is removed so the link runs again.
+    if zigfix.apply():
+        wkpins.log("zig: SmpAllocator now has at least %d slots (tools/webkit/zigfix.py)" % zigfix.MIN_SLOTS)
+    record = BUILD / ".lazyos-allocator.json"
+    old = zigfix.stale(record, targets)
+    for name in old:
+        (BUILD / "bin" / OUTPUTS.get(name, name)).unlink(missing_ok=True)
+    if old:
+        wkpins.log("linking again with the fixed allocator: " + ", ".join(old))
     began = time.monotonic()
     run(["ninja", "-C", str(BUILD), f"-j{jobs}", "-k", "0", *targets], BUILD, "webkit port build",
         env=buildkit.pkg_env())
     wkpins.log(f"ninja finished in {time.monotonic() - began:.0f} s")
+    zigfix.mark(record, targets)
     return collect(targets)
 
 

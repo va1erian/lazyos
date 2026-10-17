@@ -415,3 +415,28 @@ which is when its pages become copy-on-write. The fix would be in `kernel/src/me
 `map_to_with_table_flags(..., PRESENT | WRITABLE | USER_ACCESSIBLE)` for user tables, and repair existing parents.
 A user-space mitigation (allocating the mailbox Vec afresh instead of growing it) avoids `mremap` but not the cause,
 and the WebProcess (JavaScriptCore reallocates large buffers all the time) is exposed to it too.
+
+## Scroll latency on a real page (Ars Technica, 2560x1440, one CPU)
+
+Measured with `tools/webplus/live_run.py --build --scroll 40 --sample-port N` (the real site over the host's network)
+and `tools/webplus/cpu_profile.py` (the 30 Hz sampler's recording by function). QEMU/WHPX, one host, one guest CPU.
+
+* **The UI side is not the limit.** A paint costs about 5 ms in the UI process and a window draw about 9 ms;
+  `INFO:PAINT` stage times are wall time on one CPU, so judge by CPU. What a wheel notch waits for is the
+  WebProcess: wheel-to-first-damage averages 88-92 ms and reaches 450 ms (`w2d`), and a notch is one paint,
+  so scrolling runs at 5-12 paints a second however fast the rest is.
+* **The WebProcess uses 25-50% of the CPU with no input at all** (the page's own timers and ads), and about twice
+  that while scrolling. By function it is JavaScript and GC first (about half when idle, a third to a half while
+  scrolling: LLInt, DFG compiles, marking), then WebCore layout and paint, then Skia (`bilerp_clamp_8888`: images
+  scaled on every paint). There is no single hot function.
+* **Whole frames:** 340 of 430 scrolling paints were whole frames (the page has fixed elements, so
+  `LocalFrameView::scrollContentsFastPath` repaints); a page without them (`webplus/scroll.html`) is all deltas.
+  Open: keep the scroll delta and repaint only the fixed elements' rects.
+* **Fixed, but not the limiter:** zig's `malloc` (`std.heap.SmpAllocator`) has one slot per CPU behind a spin mutex
+  that never yields, and the guest reports one CPU. A thread preempted inside `malloc` made every other thread
+  that allocated spin for a whole time slice: 17-19% of the WebProcess's user samples were in `Thread.lock`. The
+  build now patches the toolchain to at least 16 slots (`tools/webkit/zigfix.py`, applied by `port_cmake.build`,
+  which links the programs again once). The samples in `Thread.lock` went to zero; wheel-to-damage did not change
+  (88 ms against 92 ms), because the spinners were using time nothing else wanted.
+* **Fixed:** the I/O APIC redirection entry was read back (four VM exits) every time the timer interrupt asked
+  whether a line was masked; 20% of wall-clock samples. `arch/ioapic.rs` keeps a table of what it wrote.
