@@ -33,19 +33,30 @@ webplus_run = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(webplus_run)
 
 import certs  # noqa: E402
+import frame_run  # noqa: E402  (its wheel steps)
 import judge  # noqa: E402
 import session  # noqa: E402
 
 DEFAULT_URLS = ["https://www.google.com/", "https://en.wikipedia.org/wiki/LazyOS", "https://arstechnica.com/"]
 
 
-def live_session(urls: list[str], wait: float, timeout: float) -> list[dict]:
+def live_session(urls: list[str], wait: float, timeout: float, scroll: float = 0.0, caption: str = "") -> list[dict]:
+    """Opens each address and watches; with `scroll`, turns the wheel for that many seconds over the last page
+    (`caption` is its window title: the pointer is put in the page through it)."""
     steps = [*session.boot_gates(timeout), {"wait_for": f"{judge.P}:LOAD:{judge.START}", "timeout": timeout}]
     for index, url in enumerate(urls):
         steps += [
             *session.navigate(url, f"{judge.P}:NAV:", timeout=60),
             {"wait": wait},
             {"shot": f"site{index}"},
+        ]
+    if scroll > 0:
+        steps += [
+            {"move_to": {"window": caption, "widget": "page_origin", "offset": list(session.WHEEL_AT)}, "timeout": 60},
+            {"wait": 1.0},
+            *frame_run.scroll_steps(scroll),
+            {"shot": "scrolled"},
+            {"wait": 5.0},
         ]
     return steps
 
@@ -81,6 +92,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--qemu")
     parser.add_argument("--memory", default=webplus_run.limits.BIG_APP_MEMORY)
     parser.add_argument("--step-timeout", type=float, default=300.0)
+    parser.add_argument("--scroll", type=float, default=0.0, help="turn the wheel this many seconds over the last page")
+    parser.add_argument("--caption", default="", help="the last page's window title (`<title> - LazyWeb+`), for --scroll")
+    parser.add_argument("--sample-port", type=int, help="record CR3 and RIP at 30 Hz over this QMP port to <out>/samples.tsv")
     parser.add_argument("--home-disk", metavar="IMG", help="attach this /home volume (label lazyhome), as run_demo.py does; a copy is used")
     parser.add_argument("--build", action="store_true",
                         help="build the image first with no test host mappings: the real CA bundle and the real filter list")
@@ -107,8 +121,20 @@ def main(argv: list[str] | None = None) -> int:
             import shutil
             home = str(out / "home.img")
             shutil.copyfile(args.home_disk, home)
-        ok, text = webplus_run.run_session(live_session(args.url or DEFAULT_URLS, args.wait, args.step_timeout), out, args,
-                                           home_disk=home)
+        qemu_args: tuple[str, ...] = ()
+        sampler = None
+        if args.sample_port:
+            import subprocess
+            qemu_args = ("-qmp", f"tcp:127.0.0.1:{args.sample_port},server=on,wait=off")
+            sampler = subprocess.Popen([sys.executable, str(HERE / "sample.py"), "record", "--port", str(args.sample_port),
+                                        "--out", str(out / "samples.tsv"), "--seconds", "1800"], cwd=ROOT)
+        try:
+            ok, text = webplus_run.run_session(
+                live_session(args.url or DEFAULT_URLS, args.wait, args.step_timeout, args.scroll, args.caption), out, args,
+                qemu_args=qemu_args, home_disk=home)
+        finally:
+            if sampler:
+                sampler.terminate()
         print(f"session {'ok' if ok else 'FAILED (it may have stopped on a marker; read the log)'}")
     hang, facts = verdict(text)
     for fact in facts:
