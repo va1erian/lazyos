@@ -156,7 +156,7 @@ impl RegFile {
         self.add(mmio, &n("TRANS_VTOTAL"), t + regs::trans::VTOTAL, true);
         self.add(mmio, &n("TRANS_VBLANK"), t + regs::trans::VBLANK, true);
         self.add(mmio, &n("TRANS_VSYNC"), t + regs::trans::VSYNC, true);
-        self.add(mmio, &n("PIPESRC"), t + regs::trans::PIPESRC, false);
+        self.add(mmio, &n("PIPESRC"), t + regs::TRANS_PIPESRC, false);
         self.add(mmio, &n("TRANS_DDI_FUNC_CTL"), t + regs::trans::DDI_FUNC_CTL, true);
         self.add(mmio, &n("VIDEO_DIP_CTL"), t + 0x200, true);
         self.add(mmio, &n("PLANE_CTL_1"), p + plane1::CTL, true);
@@ -419,7 +419,7 @@ fn decode_pipe(file: &RegFile, pipe: u32) -> Option<ActivePipe> {
     // `PIPESRC` is not in the box's dump; take it only if it agrees with
     // the transcoder's active size (a wrong offset reads another register).
     let source = {
-        let source = regs::pipesrc_size(file.get(t + regs::trans::PIPESRC));
+        let source = regs::pipesrc_size(file.get(t + regs::TRANS_PIPESRC));
         (source == (h.active, v.active)).then_some(source)
     };
     Some(ActivePipe {
