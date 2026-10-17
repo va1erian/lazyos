@@ -474,3 +474,27 @@ page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure number
   `tests/scroll_ahead.rs` (the pixels: shifted picture with a checkerboard strip, exact again after the answer,
   nothing for a modified wheel or up from the top; `XUI_SNAPSHOT=<dir>` keeps the picture).
   `INFO:SPEC:shifts:snaps:snap_px:blocked:w2s=<avg>/<max us>:ahead` once a second while in use.
+
+## 9. Merged pointer moves on Ars Technica (2026-10-17, issue #890)
+
+**Method.** `python tools/webplus/pointer_bench.py`: one image (LazyWeb+, the UI probe, the real Mozilla roots), five
+boots on WHPX, 4 GiB, 1280x720, window 1000x540. Each boot writes `<profile>/pointer-mode` (`each`: every move
+forwarded as before #890; `merged`: one slot, one queued task), opens https://arstechnica.com/ (the 228-partner
+consent dialog on top), reloads it with F5 while the pointer sweeps the page in one-packet steps at about 200 Hz, and
+sweeps it again 10 s after the load. Boot 0 warms the cache and the ad blocker's lists and is not counted; the others
+alternate. The numbers are the browser's own: `INFO:PAINT` (`mouse=`: events WebKit handled; it now also prints
+for a second with only pointer events), `INFO:MAINLAG`/`STALL:main`, `INFO:CPU`, `UI:STALL`.
+
+| phase | mode | boots | events handled/s | paints/s | `WKPagePaint` ms/s | UI CPU % | web CPU % | main-thread lags >= 250 ms | `UI:STALL` |
+|---|---|---|---|---|---|---|---|---|---|
+| reload (3-5 s) | each | 2 | 104, 52 | 1.8 | 5.0 | 42 | 31 | 0 | 0.5 |
+| reload (3-5 s) | merged | 2 | 69, 48 | 1.2 | 8.1 | 41 | 29 | 0 | 0 |
+| settled (15 s) | each | 2 | 150 | 0.1 | 0.0 | 0 | 0 | 0 | 0 |
+| settled (15 s) | merged | 2 | 150 | 0.1 | 0.1 | 0 | 0 | 0 | 0 |
+
+**What it says.** In this configuration the change is not measurable. WebKit's main thread never fell 250 ms behind in
+either mode, so moves did not pile up: settled, both modes handed WebKit every move the sweep made (about 150 a
+second), as merging intends when the thread keeps up. The warm-cache reload lasts only 3-5 s and varies more between
+boots than between modes. Merging pays off only where the main thread stalls while the pointer moves (H4): HiDPI,
+TCG or a slow real PC, a cold profile, a page busier than Ars behind its consent dialog. Those are the next runs
+(`--accel none`, a `LAZYOS_DISPLAY_MODE=2560x1440` image).

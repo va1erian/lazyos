@@ -37,6 +37,10 @@
 // Descriptor mode (issue #867, monitor.cpp): with WEBKIT_SMOKE_FDS=<n> the program first holds n
 // descriptors, so the IPC sockets to the engine processes are above 1024 on both sides, and tests the IPC socket monitor's loop
 // on such a socket (WEBKIT:W4:FDS:..., WEBKIT:W4:MONITOR:PASS:...). The harnesses set it.
+//
+// Cache mode (issue #892, cache.cpp, tools/webkit/cachecheck.py): with WEBKIT_SMOKE_CACHE=<dir> the page
+// keeps an HTTP cache in <dir>/cache, and the run ends by counting the NetworkProcess's descriptors
+// (WEBKIT:CACHE:FDS:...).
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -59,6 +63,7 @@
 #include <WebKit/WKViewClient.h>
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
+#include "cache.h"
 #include "monitor.h"
 
 #include <fontconfig/fontconfig.h>
@@ -111,6 +116,8 @@ struct State {
     long rulesStartMs { 0 };
     int blocked { 0 };
     int notifications { 0 };
+    // Cache mode: the page's own data store (the context's otherwise).
+    WKWebsiteDataStoreRef dataStore { nullptr };
 } state;
 
 void say(const char* format, ...) __attribute__((format(printf, 1, 2)));
@@ -269,6 +276,12 @@ void contentRuleListNotification(WKPageRef, WKURLRef, WKArrayRef, WKArrayRef not
     }
 }
 
+pid_t networkProcess()
+{
+    WKWebsiteDataStoreRef store = state.dataStore ? state.dataStore : WKContextGetWebsiteDataStore(state.context);
+    return store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
+}
+
 void reportProcesses()
 {
     pid_t web = WKPageGetProcessIdentifier(state.page);
@@ -276,8 +289,7 @@ void reportProcesses()
         say("WEBKIT:W4:WEBPROCESS:UP:%d", static_cast<int>(web));
     else
         fail("webprocess", "no WebProcess is running");
-    WKWebsiteDataStoreRef store = WKContextGetWebsiteDataStore(state.context);
-    pid_t network = store ? WKWebsiteDataStoreGetNetworkProcessIdentifier(store) : 0;
+    pid_t network = networkProcess();
     if (network > 0 && kill(network, 0) == 0)
         say("WEBKIT:W4:NETWORKPROCESS:UP:%d", static_cast<int>(network));
     else
@@ -333,6 +345,7 @@ void paintAndFinish(void*)
         state.titleMs, elapsedMs());
     if (!state.rulesFile.empty())
         say("WEBKIT:BLOCK:BLOCKED:%d:NOTIFY:%d", state.blocked, state.notifications);
+    smoke::reportCacheDescriptors(networkProcess());
     say("WEBKIT:W4:PASS");
     WKRunLoopStopMain();
 }
@@ -512,6 +525,9 @@ int main(int argc, char** argv)
         if (!state.store)
             fail("rules", "this WebKit has no content extensions");
     }
+    state.dataStore = smoke::cacheStore();
+    if (state.dataStore)
+        WKPageConfigurationSetWebsiteDataStore(pageConfiguration, state.dataStore);
     state.view = WKViewCreate(pageConfiguration);
     if (!state.view)
         fail("page", "WKViewCreate returned null");

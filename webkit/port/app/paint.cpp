@@ -155,7 +155,7 @@ void report(long long now)
         stats.windowStartUs = now;
     if (now - stats.windowStartUs < 1000000)
         return;
-    if (stats.paints || stats.needs || stats.wheels) {
+    if (stats.paints || stats.needs || stats.wheels || stats.mice) {
         say("INFO:PAINT:mode=%s:n=%ld:needs=%ld:px=%lld:clear=%lld:wk=%lld:swz=%lld:post=%lld:avg=%lld:max=%lld:lat=%lld:"
             "wheel=%ld:mouse=%ld:w2d=%lld/%lld:full=%ld:delta=%ld:scroll=%ld:checks=%ld:bad=%ld:wkcalls=%ld:wkmax=%lld",
             mode().legacy ? "legacy" : "fast", stats.paints, stats.needs, stats.pixels, stats.clearUs, stats.paintUs,

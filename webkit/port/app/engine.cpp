@@ -301,17 +301,22 @@ void lzw_engine_resize(int width, int height)
     });
 }
 
+void lzw_engine_mouse_now(int kind, int button, int x, int y, uint32_t mods)
+{
+    notePointer(false);
+    WKEventType type = kind == 0 ? kWKEventMouseDown : kind == 1 ? kWKEventMouseUp : kWKEventMouseMove;
+    WKEventMouseButton which = button == 0 ? kWKEventMouseButtonLeftButton
+        : button == 1                      ? kWKEventMouseButtonMiddleButton
+        : button == 2                      ? kWKEventMouseButtonRightButton
+                                           : kWKEventMouseButtonNoButton;
+    WKPageHandleMouseEvent(E.page, WKMouseEventMake(type, which, WKPointMake(x, y), 1, mods));
+}
+
 void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
 {
-    onMain([=] {
-        notePointer(false);
-        WKEventType type = kind == 0 ? kWKEventMouseDown : kind == 1 ? kWKEventMouseUp : kWKEventMouseMove;
-        WKEventMouseButton which = button == 0 ? kWKEventMouseButtonLeftButton
-            : button == 1                      ? kWKEventMouseButtonMiddleButton
-            : button == 2                      ? kWKEventMouseButtonRightButton
-                                               : kWKEventMouseButtonNoButton;
-        WKPageHandleMouseEvent(E.page, WKMouseEventMake(type, which, WKPointMake(x, y), 1, mods));
-    });
+    // Moves reach here only as the one the window took out of its slot ahead of a press, a release
+    // or a wheel (xui-webkit's pointer.rs): the others come through lzw_engine_mouse_now.
+    onMain([=] { lzw_engine_mouse_now(kind, button, x, y, mods); });
 }
 
 void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)

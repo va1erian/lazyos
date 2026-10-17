@@ -23,6 +23,7 @@ pub mod keys;
 pub mod mailbox;
 pub mod parts;
 mod picture;
+pub mod pointer;
 pub mod speculate;
 pub mod taskstat;
 #[cfg(test)]

@@ -33,6 +33,18 @@ pub extern "C" fn lzw_ui_marker_prefix() -> *const c_char {
     c"WEBKIT:W5".as_ptr()
 }
 
+/// One marker line of the UI process, without the prefix (`webkit/port/app/log.cpp`):
+/// `WEBKIT:W5:<line>`, one write on the trace channel. Any thread.
+///
+/// # Safety
+/// `line` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_say(line: *const c_char) {
+    // SAFETY: by this function's contract.
+    let line = unsafe { crate::ffi::text(line) };
+    xui_app::trace::line!(xui_app::trace::Channel::Webkit, "W5:{line}");
+}
+
 /// Where the engine keeps cookies and site data: nowhere (null), so nothing is persisted.
 #[no_mangle]
 pub extern "C" fn lzw_ui_profile_dir() -> *const c_char {
