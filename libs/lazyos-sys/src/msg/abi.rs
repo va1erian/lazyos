@@ -55,6 +55,13 @@ pub mod op {
     pub const ENDPOINT_FD: u64 = 21;
     /// `flags` of [`ENDPOINT_FD`]: open the descriptor close-on-exec.
     pub const ENDPOINT_FD_CLOEXEC: u64 = 1;
+    /// A terminal transaction's reply or failure now, without the park of
+    /// [`CALL_AWAIT`]: `-EAGAIN` while it is still open (issue #725).
+    pub const CALL_CHECK: u64 = 25;
+    /// Take finished-but-unwatched transaction ids out of this task's
+    /// completion queue (issue #725): up to `buf_cap / 8` words, `value` the
+    /// count.
+    pub const CALL_DRAIN: u64 = 26;
     /// Create a shared buffer of `parcel_len` bytes, mapped into the caller
     /// (`docs/messenger-core-plan.md` 3.4): `value` is the handle, `aux`
     /// the address, `bytes` the size.
@@ -104,6 +111,10 @@ pub const WAIT_CHILD: u64 = 8;
 /// Doorbell: the Linux descriptor in bits 32..63 of the flags is readable
 /// (or hung up).
 pub const WAIT_FD: u64 = 16;
+/// Doorbell: one of the caller's own calls ended and waits in its
+/// completion queue (issue #725). One flag covers every call in flight,
+/// beside endpoints, timers and the [`WAIT_FD`] descriptor.
+pub const WAIT_CALLS: u64 = 32;
 /// Where [`WAIT_FD`]'s descriptor sits in the flags.
 pub const WAIT_FD_SHIFT: u32 = 32;
 /// Flag: the deadline is absolute monotonic nanoseconds
@@ -119,6 +130,8 @@ pub const INET_READY: u64 = 1 << 61;
 pub const CHILD_READY: u64 = 1 << 60;
 /// Ready-mask bit: the [`WAIT_FD`] descriptor is readable or hung up.
 pub const FD_READY: u64 = 1 << 59;
+/// Ready-mask bit: the completion queue holds a finished call.
+pub const CALLS_READY: u64 = 1 << 58;
 
 /// The syscall request block; the kernel's `MsgArgs`.
 #[repr(C)]

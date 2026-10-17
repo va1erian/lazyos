@@ -163,9 +163,12 @@ pub fn begin_call_owned(
 /// Every wakeup is treated as advisory: the transaction is re-checked under
 /// the registry lock and the caller parks again if the outcome is not terminal
 /// yet. A `TimedOut` wake marks the transaction expired, so a reply arriving
-/// after the deadline is refused instead of delivered.
+/// after the deadline is refused instead of delivered. Only the transaction's
+/// own task may await it ([`assert_caller`], issue #725 review): an id is a
+/// global counter and a foreign task must never consume its reply.
 pub fn await_reply(txn_id: u64) -> Result<Vec<u8>, Error> {
     let me = task::current();
+    assert_caller(txn_id)?;
     loop {
         let deadline = match take_outcome(txn_id)? {
             Outcome::Done(outcome) => {
@@ -244,6 +247,10 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
         release_pending(channel, caller);
         caller
     };
+    // The completion queue learns of the end beside the wake: a loop that
+    // parked in `wait` with `WAIT_CALLS` instead of `await_reply` resumes
+    // from the doorbell and takes the reply through its own later click.
+    completion::record(caller, txn_id);
     // Only the caller waits for this outcome (in `await_reply`, or still
     // parked by `begin_call`); it runs as soon as the replier parks (P6.2).
     hand_off_to(wake([caller]));
@@ -254,18 +261,25 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
 /// [`await_reply`] ends with [`Error::Canceled`].
 pub fn cancel(txn_id: u64) -> Result<(), Error> {
     let me = task::current();
-    let mut channels = CHANNELS.lock();
-    let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
-    if channel.txns[index].caller != me {
-        return Err(Error::NotCaller);
+    {
+        let mut channels = CHANNELS.lock();
+        let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
+        if channel.txns[index].caller != me {
+            return Err(Error::NotCaller);
+        }
+        if channel.txns[index].state != TxnState::Pending {
+            return Err(Error::NoTransaction);
+        }
+        channel.txns[index].state = TxnState::Canceled;
+        channel.cancels += 1;
+        release_pending(channel, me);
     }
-    if channel.txns[index].state != TxnState::Pending {
-        return Err(Error::NoTransaction);
-    }
-    channel.txns[index].state = TxnState::Canceled;
-    channel.cancels += 1;
-    release_pending(channel, me);
+    // The registry lock is released (like `reply` and the close paths), so
+    // the recording (and the wake it may ring) cannot invert against it.
     // The canceller is the caller, which is running; `await_reply` sees the
-    // Canceled outcome on its next check without any wake.
+    // Canceled outcome on its next check without any wake, and the
+    // completion queue still records the end: an unparked caller's future
+    // reports itself from the queue.
+    completion::record(me, txn_id);
     Ok(())
 }

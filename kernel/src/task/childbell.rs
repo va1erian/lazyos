@@ -47,15 +47,38 @@ pub fn disarm(me: usize) {
     }
 }
 
-/// A child of `parent` finished: wake `parent` if it is parked on the bell.
-/// Takes the Messenger queue and task-table locks: call with neither held
-/// (the exit paths call it next to their `CHILD_EXIT` notification).
+/// A child of `parent`'s process finished: wake every thread of that process
+/// that is parked on the bell (a child belongs to the process, so any of its
+/// threads may be the one waiting). Takes the Messenger queue and task-table
+/// locks: call with neither held (the exit paths call it next to their
+/// `CHILD_EXIT` notification). Nothing allocates and nothing is locked when no
+/// task is parked on the bell, which is nearly always.
 pub fn ring(parent: usize) {
-    let Some((word, mask)) = bit(parent) else {
+    for (index, word) in ARMED.iter().enumerate() {
+        let mut armed = word.load(Ordering::Acquire);
+        while armed != 0 {
+            let bit_index = armed.trailing_zeros() as usize;
+            armed &= armed - 1;
+            let slot = index * 64 + bit_index;
+            if slot == parent || in_process_of(slot, parent) {
+                ring_slot(slot);
+            }
+        }
+    }
+}
+
+/// Whether `slot` and `parent` are threads of one process.
+fn in_process_of(slot: usize, parent: usize) -> bool {
+    super::family::same_process(&TASKS.lock(), slot, parent)
+}
+
+/// Wake `slot` if it is parked on the bell.
+fn ring_slot(slot: usize) {
+    let Some((word, mask)) = bit(slot) else {
         return;
     };
     if word.fetch_and(!mask, Ordering::AcqRel) & mask != 0 {
-        crate::ipc::channels::wake_parked(parent);
+        crate::ipc::channels::wake_parked(slot);
     }
 }
 
@@ -65,12 +88,15 @@ pub fn armed(slot: usize) -> bool {
     bit(slot).is_some_and(|(word, mask)| word.load(Ordering::Acquire) & mask != 0)
 }
 
-/// Whether `me` has a finished child it has not reaped yet.
+/// Whether `me`'s process has a finished child it has not reaped yet.
 fn has_finished_child(me: usize) -> bool {
-    TASKS.lock().iter().enumerate().any(|(slot, task)| {
+    let tasks = TASKS.lock();
+    tasks.iter().enumerate().any(|(slot, task)| {
         slot != me
-            && task
-                .as_ref()
-                .is_some_and(|task| task.parent == me && task.state == TaskState::Done)
+            && task.as_ref().is_some_and(|task| {
+                task.state == TaskState::Done
+                    && super::family::is_child_of(&tasks, me, task)
+                    && super::family::reapable(&tasks, slot, task)
+            })
     })
 }

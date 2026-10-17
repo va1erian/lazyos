@@ -16,11 +16,24 @@
 //!
 //! * once the `Interactive` class has used [`BUDGET_TICKS`] of a window, each
 //!   `Interactive` task that runs is demoted to `Normal` for the rest of it
-//!   (the budget is the class's, so several small tasks are bounded too);
-//! * a `Normal` task that has run [`NORMAL_BUDGET_TICKS`] of a window is
-//!   demoted to `Background` for the rest of it: every other `Normal` task
-//!   now outranks it, while it still gets the CPU whenever nothing else wants
-//!   it, so an otherwise idle machine loses nothing.
+//!   (the budget is the class's, so several small tasks are bounded too) -
+//!   except the input path: a task marked by [`mark_input`] (the input
+//!   consumer and the drivers that publish to it) runs its first
+//!   [`INPUT_SHARE_TICKS`] of a window outside the class's budget, from a
+//!   pool of [`INPUT_POOL_TICKS`] a window, so a heavy compositor frame
+//!   does not take the input driver down with it (issue #860);
+//! * a `Normal` *process* that has run [`NORMAL_BUDGET_TICKS`] of a window,
+//!   all its threads together (one booking per process, `BOOKINGS`), has every
+//!   runnable thread demoted to `Background` for the rest of it (a thread
+//!   asleep at that moment joins on its first tick after waking): every other `Normal` task now outranks them, while they
+//!   still get the CPU whenever nothing else wants it, so an otherwise idle
+//!   machine loses nothing. Counting per thread let a process with N busy
+//!   threads take N times the CPU of a single-threaded peer.
+//!
+//! Ticks taken inside interrupt windows (`arch::irq_window`) and ticks that
+//! land on a finished or parked task are handled by `schedule::charge_tick`
+//! and `schedule::charge_window_ticks`: the first reach the guard like any
+//! other, the second never do.
 //!
 //! A demoted task gets its class back at the window's end, so a priority
 //! inversion (a demoted task holding what a higher one waits for) lasts at
@@ -36,14 +49,25 @@ pub const WINDOW_TICKS: u64 = 10;
 /// Ticks of a window the `Interactive` class may use, all its tasks together,
 /// before the task that is running is demoted.
 pub const BUDGET_TICKS: u64 = 5;
-/// Ticks of a window one `Normal` task may use before it is demoted.
+/// Ticks of a window one `Normal` process (all its threads together) may use
+/// before it is demoted.
 pub const NORMAL_BUDGET_TICKS: u8 = 6;
+/// Ticks of a window a task marked by [`mark_input`] may run outside the
+/// `Interactive` budget: a keystroke or a pointer move is a tick or two.
+pub const INPUT_SHARE_TICKS: u8 = 3;
+/// Ticks of a window all input tasks together may run outside the budget; past
+/// it (or past their own share) they are charged like any `Interactive` task.
+pub const INPUT_POOL_TICKS: u64 = 3;
 
 /// Per-task guard state, kept in [`Task`].
 #[derive(Clone, Copy, Debug)]
 pub struct State {
     /// Ticks run this window while `Normal`.
     used: u8,
+    /// Ticks run this window while `Interactive`.
+    interactive: u8,
+    /// On the input path ([`mark_input`]).
+    input: bool,
     /// The class to give back at the window's end while demoted.
     home: Option<PriorityClass>,
     /// The weight to give back with it (a configured one, `set_weight`).
@@ -52,17 +76,47 @@ pub struct State {
     demotions: u32,
     /// Demotions already reported ([`report`]).
     reported: u32,
+    /// The process was already named by a first-demotion line: this task's
+    /// demotions wait for the process's next summary.
+    quiet: bool,
+    /// Timer ticks that found the task in ring 3 (`PERF:CPU`'s user share).
+    user_ticks: u64,
 }
 
 impl State {
     pub const fn new() -> State {
         State {
             used: 0,
+            interactive: 0,
+            input: false,
             home: None,
             weight: 0,
             demotions: 0,
             reported: 0,
+            quiet: false,
+            user_ticks: 0,
         }
+    }
+
+    /// The task is no longer on the input path (its source or consumer was
+    /// closed, or it ran another program).
+    pub fn clear_input(&mut self) {
+        self.input = false;
+    }
+
+    /// A timer tick found the task in user mode.
+    pub fn note_user_tick(&mut self) {
+        self.user_ticks = self.user_ticks.saturating_add(1);
+    }
+
+    /// Ticks spent in user mode since the task started.
+    pub fn user_ticks(&self) -> u64 {
+        self.user_ticks
+    }
+
+    /// Demotions since the task started.
+    pub fn demotions(&self) -> u32 {
+        self.demotions
     }
 
     /// The class the task holds when the guard is not acting: its own while
@@ -75,6 +129,7 @@ impl State {
     pub(super) fn assigned(&mut self) {
         self.home = None;
         self.used = 0;
+        self.interactive = 0;
     }
 
     /// Assign `weight` to the task whose live weight is `live`: while demoted
@@ -112,8 +167,105 @@ impl State {
 static POSITION: AtomicU64 = AtomicU64::new(0);
 /// Ticks the `Interactive` class has used this window.
 static CLASS_USED: AtomicU64 = AtomicU64::new(0);
-/// Demotions since boot.
+/// Ticks the input path has used outside the budget this window.
+static INPUT_USED: AtomicU64 = AtomicU64::new(0);
+/// Demotions since boot (a process demoted as a whole counts once).
 static DEMOTIONS: AtomicU64 = AtomicU64::new(0);
+
+/// Processes the per-window ledger follows. A window books at most
+/// [`WINDOW_TICKS`] ticks (position rolls the window at the tenth), each to one
+/// process, so there is always room: no fallback is needed.
+const LEDGER: usize = 16;
+const _: () = assert!(LEDGER >= WINDOW_TICKS as usize, "the ledger could fill up");
+
+/// One process's ticks this window, kept so charging a tick is one lookup
+/// instead of a walk over the task table with interrupts off (issue #860).
+struct Booking {
+    /// The address space (0: free). Set once per window per process.
+    pml4: AtomicU64,
+    used: AtomicU64,
+    /// The process went over its budget and was demoted this window.
+    over: AtomicBool,
+}
+
+static BOOKINGS: [Booking; LEDGER] = [const {
+    Booking {
+        pml4: AtomicU64::new(0),
+        used: AtomicU64::new(0),
+        over: AtomicBool::new(false),
+    }
+}; LEDGER];
+
+/// Book one tick to process `pml4`; its ticks this window and whether it has
+/// already been demoted this window.
+fn book(pml4: u64) -> (u64, bool) {
+    let mut free = None;
+    for entry in &BOOKINGS {
+        match entry.pml4.load(Ordering::Relaxed) {
+            key if key == pml4 => {
+                let used = entry.used.fetch_add(1, Ordering::Relaxed) + 1;
+                return (used, entry.over.load(Ordering::Relaxed));
+            }
+            0 if free.is_none() => free = Some(entry),
+            _ => {}
+        }
+    }
+    // Room is guaranteed by the assertion above; should it ever not be, the
+    // first entry is shared rather than a process left unbooked.
+    let entry = free.unwrap_or(&BOOKINGS[0]);
+    entry.pml4.store(pml4, Ordering::Relaxed);
+    entry.used.store(1, Ordering::Relaxed);
+    entry.over.store(false, Ordering::Relaxed);
+    (1, false)
+}
+
+/// The address space `pml4` is gone (its page table frame is freed and may be
+/// handed out again within this window): forget what it was booked.
+pub(super) fn forget(pml4: u64) {
+    for entry in &BOOKINGS {
+        if entry.pml4.load(Ordering::Relaxed) == pml4 {
+            entry.pml4.store(0, Ordering::Relaxed);
+            entry.used.store(0, Ordering::Relaxed);
+            entry.over.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Ticks process `pml4` has been booked this window (the suite).
+#[cfg(lazyos_tests)]
+pub fn booked_for_test(pml4: u64) -> Option<u64> {
+    BOOKINGS
+        .iter()
+        .find(|e| e.pml4.load(Ordering::Relaxed) == pml4)
+        .map(|e| e.used.load(Ordering::Relaxed))
+}
+
+/// Whether task `slot` is marked as on the input path (the suite).
+#[cfg(lazyos_tests)]
+pub fn is_input_for_test(slot: usize) -> bool {
+    TASKS.lock()[slot]
+        .as_ref()
+        .is_some_and(|task| task.guard.input)
+}
+
+/// Mark process `pml4` demoted for this window.
+fn mark_over(pml4: u64) {
+    if let Some(entry) = BOOKINGS
+        .iter()
+        .find(|e| e.pml4.load(Ordering::Relaxed) == pml4)
+    {
+        entry.over.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Forget every booking (a window ended).
+fn clear_bookings() {
+    for entry in &BOOKINGS {
+        entry.pml4.store(0, Ordering::Relaxed);
+        entry.used.store(0, Ordering::Relaxed);
+        entry.over.store(false, Ordering::Relaxed);
+    }
+}
 /// Whether the guard acts. Always on, except that the kernel test suites
 /// that check the stride scheduler's own shares switch it off.
 static ENABLED: AtomicBool = AtomicBool::new(cfg!(not(lazyos_tests)));
@@ -135,6 +287,29 @@ pub fn set_enabled(on: bool) {
 pub fn reset_window() {
     POSITION.store(0, Ordering::Relaxed);
     CLASS_USED.store(0, Ordering::Relaxed);
+    INPUT_USED.store(0, Ordering::Relaxed);
+    clear_bookings();
+}
+
+/// Ticks into the current window (the replay tests).
+#[cfg(lazyos_tests)]
+pub fn position_for_test() -> u64 {
+    POSITION.load(Ordering::Relaxed)
+}
+
+/// Demotions task `slot` has had since it started (the suite).
+#[cfg(lazyos_tests)]
+pub fn task_demotions_for_test(slot: usize) -> u32 {
+    TASKS.lock()[slot]
+        .as_ref()
+        .map_or(0, |task| task.guard.demotions)
+}
+
+/// Start the window `ticks` ticks in (the replay tests start anywhere).
+#[cfg(lazyos_tests)]
+pub fn set_position_for_test(ticks: u64) {
+    reset_window();
+    POSITION.store(ticks, Ordering::Relaxed);
 }
 
 /// One timer tick was charged to `cur` (`ran`: it was runnable, not parked).
@@ -152,34 +327,129 @@ pub(super) fn on_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, ran: bo
     if position >= WINDOW_TICKS {
         POSITION.store(0, Ordering::Relaxed);
         CLASS_USED.store(0, Ordering::Relaxed);
+        INPUT_USED.store(0, Ordering::Relaxed);
+        clear_bookings();
         new_window(tasks);
     }
 }
 
-/// Book one run tick to `cur` and demote it if it is past a budget.
+/// `ticks` timer ticks were taken inside interrupt windows (a long syscall
+/// with interrupts off) and belong to `cur`: charge them like ordinary ticks,
+/// without letting the replay cross more than one window boundary. The
+/// ticks that fit in the current window are booked to it; if it ends, the
+/// rest (at most a window less one) are booked to the fresh one, so a task
+/// that ran a whole window inside a syscall ends it charged for a whole
+/// window, not for the 0-9 ticks the replay left after rolling windows.
+pub(super) fn on_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, ticks: u64) {
+    if !ENABLED.load(Ordering::Relaxed) || ticks == 0 {
+        return;
+    }
+    // The kernel task's own windows (the flusher's write-back, the serial
+    // drain: kernel sections in the multiplexer, slot 0, `Interactive`) are
+    // the machine's work, not a client's: they move the window along and are
+    // charged to nobody, or a long flush would hand the whole class budget to
+    // the kernel and demote `xuid` on its first tick.
+    let ran = cur != KERNEL_TASK;
+    let remaining = WINDOW_TICKS - POSITION.load(Ordering::Relaxed).min(WINDOW_TICKS - 1);
+    let now = ticks.min(remaining);
+    for _ in 0..now {
+        on_tick(tasks, cur, ran);
+    }
+    for _ in 0..(ticks - now).min(WINDOW_TICKS - 1) {
+        on_tick(tasks, cur, ran);
+    }
+}
+
+/// Book one run tick to `cur` and demote what is past a budget.
+///
+/// * `Interactive`: the class has [`BUDGET_TICKS`] a window, all its tasks
+///   together. Once they are used, the task that is running is demoted,
+///   unless it is on the input path and within its [`INPUT_SHARE_TICKS`]:
+///   the input driver must not drop out because the compositor, compositing
+///   a big frame, spent the budget (issue #860).
+/// * `Normal`: the budget is the *process's*, all its threads together
+///   ([`NORMAL_BUDGET_TICKS`]); past it every `Normal` thread of the process is
+///   demoted, so a process with many busy threads cannot take more CPU than
+///   one with a single thread.
 fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
     let Some(task) = tasks[cur].as_mut() else {
         return;
     };
     let class = task.class;
-    let target = match class {
+    match class {
         PriorityClass::Interactive => {
+            task.guard.interactive = task.guard.interactive.saturating_add(1);
+            if task.guard.input
+                && task.guard.interactive <= INPUT_SHARE_TICKS
+                && INPUT_USED.fetch_add(1, Ordering::Relaxed) < INPUT_POOL_TICKS
+            {
+                return; // the input path's own share: not the class's
+            }
             let used = CLASS_USED.fetch_add(1, Ordering::Relaxed) + 1;
-            (used > BUDGET_TICKS).then_some(PriorityClass::Normal)
+            if used > BUDGET_TICKS {
+                demote(tasks, cur, PriorityClass::Normal, true);
+            }
         }
         PriorityClass::Normal => {
             task.guard.used = task.guard.used.saturating_add(1);
-            (task.guard.used > NORMAL_BUDGET_TICKS).then_some(PriorityClass::Background)
+            let pml4 = task.pml4;
+            let budget = u64::from(NORMAL_BUDGET_TICKS);
+            let (used, already) = book(pml4);
+            let over = used > budget;
+            if already {
+                // The process was demoted this window and this thread was
+                // asleep for it: it runs, so it joins the demotion.
+                demote(tasks, cur, PriorityClass::Background, false);
+            } else if over {
+                demote_process(tasks, cur, pml4);
+            }
         }
-        _ => None,
-    };
-    if let Some(target) = target {
-        task.guard.demote(class, task.weight);
-        task.class = target;
-        task.weight = target.default_weight();
-        DEMOTIONS.fetch_add(1, Ordering::Relaxed);
-        runq::sync(tasks, cur);
+        _ => {}
     }
+}
+
+/// Demote the **runnable** `Normal` threads of `pml4` to `Background` for the
+/// window: `cur` (which ran the tick that went over) and the threads that
+/// compete for the CPU. A thread asleep or finished is left alone: it holds no
+/// CPU, and one that wakes is demoted by its first tick (`charge`). The
+/// process counts as one demotion.
+fn demote_process(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, pml4: u64) {
+    mark_over(pml4);
+    DEMOTIONS.fetch_add(1, Ordering::Relaxed);
+    let normal = |tasks: &[Option<Task>; MAX_TASKS], slot: usize| {
+        tasks[slot]
+            .as_ref()
+            .is_some_and(|task| task.pml4 == pml4 && task.class == PriorityClass::Normal)
+    };
+    // `cur` ran the tick (it may have just blocked, so it is not necessarily
+    // in the run queue)...
+    if normal(tasks, cur) {
+        demote(tasks, cur, PriorityClass::Background, false);
+    }
+    // ...the rest are the runnable `Normal` tasks the run queue indexes: the
+    // cost is the number of them, not the size of the table, which matters
+    // with the task table locked and interrupts off (a snapshot, so demoting
+    // while walking it is fine).
+    for slot in runq::runnable(PriorityClass::Normal.rank() as usize).iter() {
+        if slot != cur && normal(tasks, slot) {
+            demote(tasks, slot, PriorityClass::Background, false);
+        }
+    }
+}
+
+/// Move `slot` down to `target` until the window ends; `count` it as a
+/// demotion of its own.
+fn demote(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, target: PriorityClass, count: bool) {
+    let Some(task) = tasks[slot].as_mut() else {
+        return;
+    };
+    task.guard.demote(task.class, task.weight);
+    task.class = target;
+    task.weight = target.default_weight();
+    if count {
+        DEMOTIONS.fetch_add(1, Ordering::Relaxed);
+    }
+    runq::sync(tasks, slot);
 }
 
 /// A window ended: clear every budget and give demoted tasks their class back.
@@ -189,6 +459,7 @@ fn new_window(tasks: &mut [Option<Task>; MAX_TASKS]) {
             continue;
         };
         task.guard.used = 0;
+        task.guard.interactive = 0;
         if let Some(home) = task.guard.home.take() {
             task.class = home;
             task.weight = task.guard.weight;
@@ -197,29 +468,24 @@ fn new_window(tasks: &mut [Option<Task>; MAX_TASKS]) {
     }
 }
 
-/// Lines for the tasks demoted since the last report, at most one per task and
-/// one report per second: `SCHED:GUARD:DEMOTED task=<name> slot=<n> total=<n>`.
-/// Task context only (it takes the serial lock): the multiplexer loop calls it.
-pub fn report() {
-    static LAST: AtomicU64 = AtomicU64::new(0);
-    let now = ticks();
-    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < 100 || demotions() == 0 {
-        return;
-    }
-    LAST.store(now, Ordering::Relaxed);
-    let mut lines: Vec<(&'static str, usize, u32)> = Vec::new();
-    {
-        let mut tasks = TASKS.lock();
-        for (slot, entry) in tasks.iter_mut().enumerate() {
-            if let Some(task) = entry.as_mut() {
-                if task.guard.demotions != task.guard.reported {
-                    task.guard.reported = task.guard.demotions;
-                    lines.push((task.name, slot, task.guard.demotions));
-                }
-            }
-        }
-    }
-    for (name, slot, total) in lines {
-        crate::serial_println!("SCHED:GUARD:DEMOTED task={name} slot={slot} total={total}");
+/// Mark `slot` as on the input path: the input consumer, or a driver that
+/// publishes to it (`input::rawsys`). Its first few ticks of every window do
+/// not count against the `Interactive` class, so a compositor spending the
+/// class's budget on a big frame does not demote it with itself.
+pub fn mark_input(slot: usize) {
+    if let Some(task) = TASKS.lock()[slot].as_mut() {
+        task.guard.input = true;
     }
 }
+
+/// `slot` closed its input source or consumer: it is an ordinary task again.
+pub fn unmark_input(slot: usize) {
+    if let Some(task) = TASKS.lock()[slot].as_mut() {
+        task.guard.clear_input();
+    }
+}
+
+mod report;
+#[cfg(lazyos_tests)]
+pub use report::collect_for_test;
+pub use report::report;

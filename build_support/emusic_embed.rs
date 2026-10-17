@@ -23,7 +23,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_EMUSIC");
     let path = manifest_dir.join(PACKAGE);
     // Watched even when missing: a package built later triggers an image rebuild.
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     if std::env::var_os("LAZYOS_EMUSIC").as_deref() != Some(OsStr::new("1")) {
         return;
     }

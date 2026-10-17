@@ -1,0 +1,169 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "WEBPLUS:UP",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "WEBPLUS:LOAD:about:start",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:BLOCK:READY:easylist",
+  "timeout": 300.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webplus/blocker.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBPLUS:LOAD:https://theoldnet.com/webplus/blocker.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:blocker:ad=blocked,tracker=blocked,script=blocked,allowed=loaded,logo=loaded",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "40_blocked"
+ },
+ {
+  "click_at": {
+   "window": "blocker:ad=blocked,tracker=blocked,script=blocked,allowed=loaded,logo=loaded - LazyWeb+",
+   "widget": "shield"
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:LOAD:about:blocker",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "41_blocker_page"
+ },
+ {
+  "click_at": {
+   "window": "Ad blocker - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    562,
+    169
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:BLOCK:SITE:theoldnet.com:OFF",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "42_site_off"
+ },
+ {
+  "click_at": {
+   "window": "Ad blocker - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    134,
+    203
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:LOAD:https://theoldnet.com/webplus/blocker.html",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:blocker:ad=loaded,tracker=loaded,script=loaded,allowed=loaded,logo=loaded",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "43_whole"
+ },
+ {
+  "click_at": {
+   "window": "blocker:ad=loaded,tracker=loaded,script=loaded,allowed=loaded,logo=loaded - LazyWeb+",
+   "widget": "shield"
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:LOAD:about:blocker",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "44_before_update"
+ },
+ {
+  "click_at": {
+   "window": "Ad blocker - LazyWeb+",
+   "widget": "page_origin",
+   "offset": [
+    894,
+    271
+   ]
+  },
+  "timeout": 300.0,
+  "until": "WEBPLUS:BLOCK:UPDATE:easylist:NOTMODIFIED",
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "45_updated"
+ },
+ {
+  "click_at": {
+   "target": "title:Ad blocker - LazyWeb+",
+   "offset": [
+    491,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "WEBPLUS:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 9.0
+ },
+ {
+  "quit": true
+ }
+]

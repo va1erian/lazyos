@@ -490,7 +490,7 @@ harness (`--live` is the opt-in bridge run).
 | Provider registration + parking | built for blocks | the FUSE provider copies `kernel/src/block/provider.rs`'s design |
 | `readdir`/`stat`/`open` for ABI programs | built | the FUSE mount lands in the ABI table too, so `cat`/`cp` work |
 | File writes from the client | unnecessary | unlike the earlier draft, the mount does local I/O; the daemon never writes the local filesystem |
-| Wall clock | RTC + PIT, no NTP | NTLMv2 timestamp and SMB2 `SystemTime`; a wrong clock is reported as such |
+| Wall clock | RTC read at boot; `timed` steps it from SNTP when the network is up ([ntp-plan.md](ntp-plan.md)) | NTLMv2 timestamp and SMB2 `SystemTime`; a wrong clock is reported as such |
 | Entropy | syscall 26 | client challenge and `ClientGuid` |
 | 16 KiB per socket call | built | one SMB2 `READ`/`WRITE` per round trip; a several-MiB file is many round trips at ~1.6 MB/s |
 

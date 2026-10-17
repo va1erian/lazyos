@@ -445,3 +445,22 @@ pub fn hold_for_test(path: &str) -> Option<alloc::boxed::Box<dyn core::any::Any>
 pub fn open_files() -> usize {
     OPEN.lock().len()
 }
+
+/// The names of every open file at or under `prefix` (whole components).
+/// Mappings keep a file registered after its descriptor closed, so this sees
+/// what a descriptor scan of the task table does not.
+pub fn paths_under(prefix: &str) -> alloc::vec::Vec<String> {
+    let prefix = Path::parse(prefix).to_path_string();
+    let mut found = alloc::vec::Vec::new();
+    for inode in OPEN.lock().iter() {
+        // Looked at in place: only a match is cloned, and only so many.
+        let path = inode.path.lock();
+        if crate::task::holders::is_under(&path, &prefix) {
+            found.push(path.clone());
+            if found.len() >= crate::task::holders::MAX_HOLDERS {
+                break;
+            }
+        }
+    }
+    found
+}

@@ -7,7 +7,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 
 | Path | Role |
 |---|---|
-| `kernel/src/mem/vma.rs` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
+| `kernel/src/mem/vma/` | `Vma`, `Prot`, `Kind`, global per-PML4 registry, list ops |
 | `kernel/src/mem/pagefault.rs` | `demand_fault`, `cow_fault` (`Resolve`: handled, refused, out of frames) |
 | `kernel/src/mem/uspace.rs` | `unmap_range`, `protect_range`, user table construction |
 | `kernel/src/mem/oom.rs` | `kill_current`: a fault with no frame to give ends the process with `SIGKILL` |
@@ -16,12 +16,12 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | `kernel/src/process/mod.rs:263` | Native `sbrk` (syscall 4) and VMA recording |
 | `kernel/src/task/mod.rs` | `Bump` state (`task/mod.rs`): per-PML4 `brk` and `mmap_next` |
 
-**Types** (`vma.rs`)
+**Types** (`vma/types.rs`)
 
 | Item | Values |
 |---|---|
 | `Prot` | `READ=1`, `WRITE=2`, `EXEC=4` (numeric values match Linux `PROT_*`) |
-| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon` |
+| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon`, `FilePrivate`, `FileShared` |
 | `Vma` | page-aligned `start < end`, `prot`, `kind` |
 
 - VMAs are keyed by PML4 **physical** address in `SPACES: Mutex<Vec<Space>>`, so
@@ -49,6 +49,16 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
   is mapped eagerly only where the loader wrote the start frame.
 - A write fault on a present `COW_BIT` page takes `cow_fault` first; a protection
   violation is never a missing page, so it falls through to `SIGSEGV`.
+- **The leaf decides, the parents never restrict** (issue #853). A CPU takes the lowest R/W bit of
+  the whole walk, so every PML4, PDPT and PD entry above a user leaf is writable and user-accessible
+  (`try_map_page_in` maps with `map_to_with_table_flags`, because `map_to` would derive the parents from the
+  leaf: the first read-only leaf in an untouched 2 MiB region, such as a moved COW page from `mremap` or a
+  read-faulted `PROT_READ` or shared file page, made read-only parents, and the later in-place change of the
+  leaf by `cow_resolve`, `mprotect` or a shared page's first store faulted again with nothing to resolve).
+  An existing parent that lacks a flag has it added by the next mapping, and the in-place paths call
+  `make_walk_writable` as defence in depth (no table this kernel builds has a read-only parent, and page
+  tables do not survive a reboot: it is not a migration). Tests: `mem_suite/table_parents.rs` and
+  `ext2_suite/data_fds/filemap/parents.rs` assert it with `parents_writable`.
 
 **User memory layout**
 
@@ -87,7 +97,7 @@ Both ABIs share one layout (`process/layout.rs`) inside the private window
 
 - VMA granularity is one page (4 KiB); there are no huge user mappings.
 - The registry keeps `Task` unchanged; moving it into an `AddressSpace` field is
-  a pure refactor noted in `vma.rs`.
+  a pure refactor noted in `vma/`.
 - `munmap`/`mprotect`/fault resolution all agree because they share this list.
 
 **Status.** Working: COW fork, demand-zero, split/merge/protect, `mmap`/`brk`,

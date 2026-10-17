@@ -595,7 +595,10 @@ The network mount service (docs/smb-plan.md §3.4): `mountd` starts and
 | `mount(name, host, port, user, password, kind, share)` | `Mount(name: String, host: String, port: U32, user: String, password: String, kind: String, share: String) -> (path: String)` | The mount's name: it is served at `path`, `/mnt/<name>`. |
 | `unmount(name)` | `Unmount(name: String) -> ()` | Stop the mount `name` and forget it (a failed one is just forgotten). |
 | `list()` | `List() -> (mounts: Array<MountInfo>)` | Every mount the service knows about, in the order they were asked for. |
+| `volumes()` | `Volumes() -> (volumes: Array<VolumeInfo>)` | The disk, `usb<n>`: what `Eject` names. |
+| `eject(disk, force)` | `Eject(disk: String, force: Bool) -> (state: String, detail: String)` | Eject the volume on `disk` (`usb<n>`): flush, close and unmount it, |
 | `new_mount_info()` | struct `MountInfo` | a `MountInfo` at its zero value |
+| `new_volume_info()` | struct `VolumeInfo` | a `VolumeInfo` at its zero value |
 
 ## `sys::net_nic`
 

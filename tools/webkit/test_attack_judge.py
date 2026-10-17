@@ -273,9 +273,32 @@ class AgreementTests(unittest.TestCase):
         self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.lazywebplus", "write:$HOME/Downloads"])
         self.assertEqual(judge.expected("os.lazy.lazywebplus")["networkprocess"]["write_downloads"].kind, "allowed")
         self.assertEqual(plus["app"]["system_name"], "os.lazy.lazywebplus")
+        def covered(rule: str, rules: list[str]) -> bool:
+            # The app's rule is the child's path or a directory above it, with the same verb.
+            verb, path = rule.split(":", 1)
+            return any(
+                r.split(":", 1)[0] == verb
+                and (path == r.split(":", 1)[1] or path.startswith(r.split(":", 1)[1].rstrip("/") + "/"))
+                for r in rules)
+
         for table in plus["processes"].values():
-            self.assertLessEqual(set(table["files"]), set(plus["permissions"]["files"]))
+            for rule in table["files"]:
+                self.assertTrue(covered(rule, plus["permissions"]["files"]), rule)
             self.assertLessEqual(set(table["network"]), set(plus["permissions"]["network"]))
+
+    def test_the_ad_blockers_updater_may_fetch_and_write_only_the_lists_folder(self) -> None:
+        plus = tomllib.loads(PLUS_MANIFEST.read_text(encoding="utf-8"))
+        table = plus["processes"]["listupdate"]
+        self.assertEqual(table["program"], fhspaths.program("CURL"))
+        self.assertEqual(table["interfaces"], [])
+        self.assertEqual(table["network"], ["outbound"])
+        writes = [r for r in table["files"] if r.startswith("write:")]
+        self.assertEqual(writes, ["write:$HOME/.apps/os.lazy.lazywebplus/lists"])
+        # No cookie jar, no Downloads: the profile's other folders are not its to touch.
+        for rule in table["files"]:
+            self.assertNotIn("Downloads", rule)
+            self.assertNotIn("cookie", rule)
+        self.assertIn("os.lazy.confd.v1", plus["permissions"]["interfaces"])
 
 
 if __name__ == "__main__":

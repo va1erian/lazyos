@@ -29,7 +29,7 @@ default = ["window"]
 window = []
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
 
 # The compositor-client backend (`LazyOSBackend`) is only used by the C ABI,
 # which is built for LazyOS only.
@@ -39,4 +39,4 @@ xui-app = { path = "../.." }
 lazyos-sys = { path = "../../../libs/lazyos-sys", features = ["std"] }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }

@@ -29,17 +29,14 @@ pub fn find(manifest_dir: &Path) -> Option<PathBuf> {
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_RHAI");
     // Watched even when missing: an ELF built later triggers an image rebuild.
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join(BUILT).display()
-    );
+    crate::os_image::rerun_if_changed(&manifest_dir.join(BUILT));
     if std::env::var_os("LAZYOS_INIT").is_some() {
         return;
     }
     match find(manifest_dir) {
         Some(path) => {
             println!("cargo:warning=LAZYOS_RHAI embedded: {}", path.display());
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(&path);
             sink.add_file(fhs::bin::RHAI, path);
         }
         None => println!(

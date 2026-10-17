@@ -1,0 +1,17 @@
+# LazyWeb+'s ad blocker core (issue #845): Adblock Plus filter lists to WebKit
+# content-rule-list JSON. No UI and no LazyOS calls, so it builds and is tested
+# (conversion cases, a differential check against an independent filter matcher
+# and seeded fuzz) on the host.
+[package]
+name = "lazyadblock"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "Adblock Plus filter lists to WebKit content-rule lists for LazyWeb+"
+
+[dependencies]
+
+[dev-dependencies]
+# Parses the converter's output in the tests (it never writes JSON through it).
+serde_json = "1"

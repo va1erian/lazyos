@@ -212,13 +212,16 @@ pub fn carry_kill(old: u64, new: u64) {
         procs
             .iter()
             .find(|state| state.pml4 == old && state.pending & bit(SIGKILL) != 0)
-            .map(|state| state.group_exit)
+            .map(|state| (state.group_exit, state.kill_at_ns))
     });
-    let Some(exit) = exit else {
+    let Some((exit, began)) = exit else {
         return;
     };
     with_signals(new, |state| {
         state.pending |= bit(SIGKILL);
+        if state.kill_at_ns == 0 {
+            state.kill_at_ns = began;
+        }
         if state.group_exit.is_none() {
             state.group_exit = exit;
         }

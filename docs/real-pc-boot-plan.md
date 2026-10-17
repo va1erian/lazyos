@@ -62,8 +62,8 @@ seam named in the phases; none is needed to boot.
 | Kernel reads its files | from the boot FAT partition through the ATA driver | a RAM-resident copy of the same file set |
 | Ramdisk (#5) | `LAZYOS_RAMDISK=<fat image>` is loaded by the bootloader and registered as `ram0` *after* ATA/virtio; `fs::init` falls through to it; `Fat16::open` accepts a bare image | build the ramdisk from the build's own file table instead of an external file; make `ram0` the normal root on real hardware |
 | FAT | FAT12/16 read-only, long names (`fs/fat/lfn.rs`); FAT32 refused (#248) | force FAT16 when formatting the payload volume so a large image never silently becomes FAT32 |
-| Memory map | `mem::init` keeps at most `MAX_REGIONS = 32` usable regions and silently `break`s past that | coalesce adjacent regions, raise the cap, log the total |
-| PCI | config mechanism 1, bridge walk, `MAX_DEVICES = 32`; overflow prints `DEV:ENUM:FAIL:device table full` | a table sized for a laptop (64+ functions) or a counted overflow that still attaches drivers |
+| Memory map | `mem::init` sorts, coalesces and page-aligns the firmware map into at most `MAX_REGIONS = 128` usable regions, dropping (and counting) the smallest past that | done: adjacent regions coalesce and the cap is 128 |
+| PCI | config mechanism 1, bridge walk, device table `MAX_DEVICES = 128`; overflow prints `DEV:ENUM:FAIL:device table full` | done: the table holds 128 functions (ECAM is a later track) |
 | ATA probe | polled `wait_not_busy`/`wait_for_data` loops bounded at 1 M reads; a status of 0 bails early | treat a status of `0xFF` (floating bus, no IDE controller in AHCI mode) as "absent" before any wait; see #449 |
 | i8042 | `mouse::init` waits are bounded (100 k polls) so a missing controller cannot hang boot; no controller self-test | detect absence once, skip mouse init, log it |
 | Serial | `uart_16550` on COM1 unconditionally; an absent port reads `0xFF`, so `send` does not block | detect absence (scratch-register test), keep logging into a RAM ring regardless |

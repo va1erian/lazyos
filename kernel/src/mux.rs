@@ -61,8 +61,13 @@ pub fn run() -> ! {
         // An orderly shutdown that never reached `power` (docs/shutdown.md):
         // past the armed deadline the kernel forces the stop itself.
         crate::process::power::watchdog::service();
+        // Name the tasks the CPU guard demoted (`task::guard`). A kernel
+        // section: its serial lines open interrupt windows like a syscall's.
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::task::guard::report));
         // Name the tasks the Interactive CPU guard demoted (`task::guard`).
         without_interrupts(crate::task::guard::report);
+        // Name a process that was sent SIGKILL and has not finished (#858).
+        without_interrupts(crate::task::signal::killwatch::service);
         // Report each disk's request counters after a burst of I/O, and
         // write cached filesystem data back every few seconds. Both take
         // spin locks (the serial port, the VFS) that syscalls take with
@@ -75,15 +80,29 @@ pub fn run() -> ! {
         without_interrupts(|| crate::arch::irqoff::kernel_section(crate::fs::flusher::service));
         // `PERF:` latency lines (LAZYOS_PERF=1 images only).
         crate::perf::service();
-        // Serial output a preempted writer left queued (P5).
+        // Freeze forensics (issue #861): exits, stuck tasks, busy processes.
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::task::forensics::service));
+        // Repeats of an unimplemented syscall, counted (`process::linux::enosys`).
+        without_interrupts(|| {
+            crate::arch::irqoff::kernel_section(crate::process::linux::enosys::report)
+        });
+        // Serial output the writers left queued, and the count of bytes that
+        // did not fit (P5, issue #857). Interrupts are on here.
         crate::serial::service();
+        // ...and what it dropped, said with interrupts off like every other
+        // line a task prints (the drain above takes the port with them on).
+        without_interrupts(|| crate::arch::irqoff::kernel_section(crate::serial::report));
+        let serial_backlog = crate::serial::backlog();
         // A bound compositor owns the screen and input: stop painting entirely
         // and park like any idle task. The check also notices a compositor that
         // exited without unbinding, so this mux is always the fallback.
         if crate::display::bound() {
             yielded = true;
             back = None;
-            task::idle(task::ticks() + BOUND_IDLE_TICKS);
+            // A backlog in the serial ring is drained at the next tick, not
+            // after the long idle.
+            let idle = if serial_backlog { 1 } else { BOUND_IDLE_TICKS };
+            task::idle(task::ticks() + idle);
             continue;
         }
         if yielded {

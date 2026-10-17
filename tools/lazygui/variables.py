@@ -29,6 +29,8 @@ def make_vars() -> dict:
         "limits": s(value=""),
         "display_mode": s(value=""),
         "display_max": s(value=""),
+        # run_demo --sample-port: a QMP socket for tools/webplus/sample.py (#861).
+        "sample_port": s(value=""),
         "assets": s(value=""),
         # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
         # the image's default (the login screen on the desktop).
@@ -62,6 +64,7 @@ def make_vars() -> dict:
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),
+        "usb_sticks": s(value=""),
         "reset_os": b(value=False),
         "desktop": b(value=False),
         "services": b(value=False),

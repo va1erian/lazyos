@@ -17,7 +17,7 @@ name = "LazyWeb+"
 system_name = "os.lazy.lazywebplus"
 author = "LazyOS"
 version = "0.1.0"
-description = "Browse the web with WebKit: JavaScript, HTML, CSS and images over HTTP and HTTPS. The page process is sandboxed: it reads only fonts, has no network, no access to your files and no windows of its own. The network process may reach the network, keep cookies in your LazyWeb+ profile folder (.apps/os.lazy.lazywebplus) and save downloads to your Downloads folder"
+description = "Browse the web with WebKit: JavaScript, HTML, CSS and images over HTTP and HTTPS, with a built-in ad blocker. The page process is sandboxed: it reads only fonts, has no network, no access to your files and no windows of its own. The network process may reach the network, keep cookies in your LazyWeb+ profile folder (.apps/os.lazy.lazywebplus) and save downloads to your Downloads folder. The ad blocker's filter lists are downloaded by a separate process that may reach the network and write only the lists folder of that profile"
 category = "internet"
 
 [entry]
@@ -60,6 +60,10 @@ interfaces = [
     "os.lazy.input.v1",
     "os.lazy.mimed.v1",
     "os.lazy.notify.v1",
+    # The ad blocker's switches (the global one, the sites left alone) are `confd` keys under
+    # `user/<uid>/lazywebplus/blocker/`: out of the reach of the engine's processes, which may
+    # write the profile folder.
+    "os.lazy.confd.v1",
 ]
 network = ["outbound"]
 # What persists (cookies, site storage, the history) is kept below the app's own per-user folder,
@@ -104,4 +108,19 @@ files = [
     "read:/etc/ssl/certs/ca-certificates.crt",
     "write:$HOME/.apps/os.lazy.lazywebplus",
     "write:$HOME/Downloads",
+]
+
+# The ad blocker's list updates (issue #845): `curl`, started by the window on a schedule, fetches
+# the filter lists. It may reach the network (names, the host table, the CA bundle) and write the
+# lists folder of the profile, and nothing else: no cookie jar, no Downloads, no interface. It sends
+# no cookies and no referrer, so a list server cannot tie a request to the browsing profile.
+[processes.listupdate]
+program = "/system/bin/curl"
+interfaces = []
+network = ["outbound"]
+files = [
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+    "write:$HOME/.apps/os.lazy.lazywebplus/lists",
 ]

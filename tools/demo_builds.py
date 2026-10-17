@@ -114,12 +114,22 @@ def build_webkit_port() -> bool:
             and required("the WebKit port", "webkit/port.py", ("--require",)))
 
 
+def build_webkit_processes() -> bool:
+    """The bundle and the two engine processes a browser starts (`WebProcess`,
+    `NetworkProcess`), in Docker. Not `webkit-smoke` and its host reference run,
+    which only the console proof (`--webkit-port`) judges: they cost a program
+    of 107 MiB to strip and a headless page load in the container on every run."""
+    return (required("the WebKit dependency bundle", "webkit/deps.py", ("--require",))
+            and required("the WebKit engine processes", "webkit/port.py",
+                         ("--require", "--only", "WebProcess", "NetworkProcess")))
+
+
 def build_webkit() -> bool:
     """The WebKit browser (`--webkit`): the bundle and the port's processes, then
     the app (the window's static library and the UI process, `tools/webkit/app.py`),
     all in Docker, then the xui apps, whose build packages `xui-webkit.elf` as the
     core package `os.lazy.webkit`; a missing Docker or download stops the run."""
-    return (build_webkit_port()
+    return (build_webkit_processes()
             and required("the WebKit app", "webkit/app.py", ("--require",))
             and build_xui_apps())
 
@@ -129,7 +139,7 @@ def build_lazywebplus() -> bool:
     LazyWeb's window and the UI process (`tools/webkit/app.py --plus`), all in Docker, then the
     xui apps, whose build packages `xui-lazywebplus.elf` as the core package
     `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
-    return (build_webkit_port()
+    return (build_webkit_processes()
             and required("the LazyWeb+ app", "webkit/app.py", ("--require", "--plus"))
             and build_xui_apps())
 

@@ -382,3 +382,34 @@ fn hostile_requests_never_reach_the_tree() {
     }
     assert_eq!(fs.node_count(), 1);
 }
+
+#[test]
+fn provider_info_round_trips_and_refuses_bad_names() {
+    use crate::wire::{ProviderInfo, MAX_MOUNT_NAME, PROVIDER_ALIVE, PROVIDER_WORDS};
+    for name in ["A", "MY_STICK", "a-b.c", &"x".repeat(MAX_MOUNT_NAME)] {
+        let info = ProviderInfo {
+            id: 3,
+            owner: 77,
+            state: PROVIDER_ALIVE,
+            name: name.into(),
+        };
+        assert_eq!(ProviderInfo::from_words(&info.to_words()), Some(info));
+    }
+    // A name length past the record, a name with a slash, an empty one.
+    let mut words = [0u64; PROVIDER_WORDS];
+    words[3] = MAX_MOUNT_NAME as u64 + 1;
+    assert_eq!(ProviderInfo::from_words(&words), None);
+    words[3] = 2;
+    words[4] = u64::from_le_bytes(*b"a/\0\0\0\0\0\0");
+    assert_eq!(ProviderInfo::from_words(&words), None);
+    words[3] = 0;
+    assert_eq!(ProviderInfo::from_words(&words), None);
+    // An over-long name is cut to the limit by the writer, never overflowing.
+    let long = ProviderInfo {
+        id: 0,
+        owner: 0,
+        state: 0,
+        name: "y".repeat(MAX_MOUNT_NAME + 20),
+    };
+    assert_eq!(long.to_words()[3], MAX_MOUNT_NAME as u64);
+}

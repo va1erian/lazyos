@@ -196,7 +196,7 @@ version = "0.11.17"
 dependencies = [
  "anyhow",
  "bootloader-boot-config",
- "fatfs",
+ "fatfs 0.3.6",
  "gpt 3.1.0",
  "llvm-tools",
  "mbrman",
@@ -227,7 +227,7 @@ dependencies = [
  "dbgwire",
  "ed25519-dalek",
  "ext2fs",
- "fatfs",
+ "fatfs 0.3.6",
  "fhs",
  "fwload",
  "getrandom",
@@ -578,6 +578,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "fatfs"
+version = "0.4.0"
+source = "git+https://github.com/rafalh/rust-fatfs?rev=2aefc2a027ce94ed0671752814dac203f0450e11#2aefc2a027ce94ed0671752814dac203f0450e11"
+dependencies = [
+ "bitflags 2.13.2",
+ "log",
+]
+
+[[package]]
+name = "fatvol"
+version = "0.1.0"
+dependencies = [
+ "fatfs 0.4.0",
+ "fused",
+ "gpt 0.1.0",
+]
+
+[[package]]
 name = "fhs"
 version = "0.1.0"
 dependencies = [
@@ -882,7 +900,7 @@ dependencies = [
  "bootloader",
  "ed25519-dalek",
  "ext2fs",
- "fatfs",
+ "fatfs 0.3.6",
  "fhs",
  "fwload",
  "getrandom",
@@ -921,7 +939,7 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "ext2fs",
- "fatfs",
+ "fatfs 0.3.6",
  "fhs",
  "getrandom",
  "gpt 0.1.0",
@@ -1744,6 +1762,7 @@ dependencies = [
  "e1000",
  "eapol",
  "elevpolicy",
+ "fatvol",
  "fhs",
  "font-atlas",
  "framering",

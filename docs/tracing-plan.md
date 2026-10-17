@@ -9,7 +9,7 @@ Owner: whoever picks up the tracking issue.
 What T0/T1 settled while landing, where it differs from the text below:
 
 - The mask has 128 bits (two words), not 64: the catalogue is already 100
-  channels. `sysinfo` (version 6) carries the two words; `dbgd`'s `sysinfo`
+  channels. `sysinfo` (version 6 when this landed; 7 now) carries the two words; `dbgd`'s `sysinfo`
   lists the names as `trace_channels`.
 - A channel can be **opt-in**: `label` is not in the default mask, so an image
   built with `LAZYOS_TRACE=1` alone does not print every refusal; the old

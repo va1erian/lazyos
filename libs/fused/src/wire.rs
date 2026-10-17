@@ -4,7 +4,8 @@
 //!   rdi = op, rsi/rdx/r10/r8 = a1..a4; every return is a value or -errno
 //!
 //!   op 0 REGISTER(name, len, flags)  mount a new provider at /mnt/<name>
-//!                                    (flags: FLAG_RO, FLAG_NOEXEC) -> id
+//!                                    (flags: FLAG_RO, FLAG_NOEXEC,
+//!                                    FLAG_MEDIA: /media/<name>) -> id
 //!   op 1 NEXT(id, req, data, cap | deadline << 32)
 //!                                    wait until `deadline` (absolute ticks,
 //!                                    capped at now + 1 s) for a request;
@@ -16,7 +17,27 @@
 //!                                    bytes at `data`
 //!   op 3 UNREGISTER(id)              unmount: pending and later requests
 //!                                    fail with EIO
+//!   op 4 LIST(out, cap)              write up to cap / PROVIDER_WORDS * 8
+//!                                    [`ProviderInfo`] records of the live
+//!                                    removable-media providers -> count
+//!   op 5 STOP(id, force, owner)      ask the media provider `id`, registered
+//!                                    by task `owner`, to finish and unmount
+//!                                    itself ([`STOP_PENDING`] from its NEXT,
+//!                                    once its queue is empty); without
+//!                                    `force` refused with EBUSY while a file
+//!                                    is open on it
+//!   op 6 HOLDERS(id, out, cap, owner) who holds a file open on provider
+//!                                    `id` (registered by `owner`), as text
+//!                                    lines -> bytes written
 //! ```
+//!
+//! `LIST`, `STOP` and `HOLDERS` are the supervisor's (`mountd`, or root: not
+//! another provider daemon, which parses hostile input, and not only the
+//! registrant); every other op is the registrant's. The `owner` is the pid
+//! `LIST` reported with the id, so an id another daemon took in between is
+//! not stopped by mistake. A provider asked to stop refuses every new request
+//! (EIO) while it finishes what it already took, so nothing new can land on
+//! a volume that is being flushed for removal.
 //!
 //! A request names its file by path (relative to the mount root, `""` is the
 //! root) or, with [`FLAG_NODE`] in its op word, by the `(ino, generation)` a
@@ -29,14 +50,84 @@ pub mod sys_op {
     pub const NEXT: u64 = 1;
     pub const REPLY: u64 = 2;
     pub const UNREGISTER: u64 = 3;
+    pub const LIST: u64 = 4;
+    pub const STOP: u64 = 5;
+    pub const HOLDERS: u64 = 6;
+}
+
+/// What `NEXT` returns when no request is queued and a `STOP` was asked for
+/// (1 is a request, 0 nothing came).
+pub const STOP_PENDING: u64 = 2;
+
+/// Words in one [`ProviderInfo`] record: id, owner, state, name length, then
+/// [`MAX_MOUNT_NAME`] bytes of name.
+pub const PROVIDER_WORDS: usize = 4 + MAX_MOUNT_NAME / 8;
+/// [`ProviderInfo::state`] bit: the provider's daemon is alive.
+pub const PROVIDER_ALIVE: u64 = 1;
+/// [`ProviderInfo::state`] bit: a `STOP` was accepted; the provider is
+/// finishing.
+pub const PROVIDER_STOPPING: u64 = 2;
+
+/// One removable-media provider, as `LIST` reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderInfo {
+    /// The id every other op names it by.
+    pub id: u64,
+    /// The task that registered it (the daemon's pid).
+    pub owner: u64,
+    /// `PROVIDER_*` bits.
+    pub state: u64,
+    /// The mount's name: it is served at `/media/<name>`.
+    pub name: alloc::string::String,
+}
+
+impl ProviderInfo {
+    /// The record as `LIST` writes it.
+    pub fn to_words(&self) -> [u64; PROVIDER_WORDS] {
+        let mut words = [0u64; PROVIDER_WORDS];
+        let name = self.name.as_bytes();
+        let len = name.len().min(MAX_MOUNT_NAME);
+        words[0] = self.id;
+        words[1] = self.owner;
+        words[2] = self.state;
+        words[3] = len as u64;
+        for (index, chunk) in name[..len].chunks(8).enumerate() {
+            let mut bytes = [0u8; 8];
+            bytes[..chunk.len()].copy_from_slice(chunk);
+            words[4 + index] = u64::from_le_bytes(bytes);
+        }
+        words
+    }
+
+    /// Decode a record; `None` when the name is longer than a mount name or
+    /// not a valid one (the kernel never writes either).
+    pub fn from_words(words: &[u64; PROVIDER_WORDS]) -> Option<ProviderInfo> {
+        let len = usize::try_from(words[3])
+            .ok()
+            .filter(|&n| n <= MAX_MOUNT_NAME)?;
+        let mut bytes = [0u8; MAX_MOUNT_NAME];
+        for (index, word) in words[4..].iter().enumerate() {
+            bytes[index * 8..index * 8 + 8].copy_from_slice(&word.to_le_bytes());
+        }
+        let name = core::str::from_utf8(&bytes[..len]).ok()?;
+        valid_mount_name(name.as_bytes()).then(|| ProviderInfo {
+            id: words[0],
+            owner: words[1],
+            state: words[2],
+            name: alloc::string::String::from(name),
+        })
+    }
 }
 
 /// REGISTER flag: the mount is read-only (the VFS refuses writes first).
 pub const FLAG_RO: u64 = 1;
 /// REGISTER flag: nothing on the mount is executed.
 pub const FLAG_NOEXEC: u64 = 2;
+/// REGISTER flag: mount at `/media/<name>` (removable media) instead of
+/// `/mnt/<name>`.
+pub const FLAG_MEDIA: u64 = 4;
 /// Every REGISTER flag.
-pub const FLAGS_ALL: u64 = FLAG_RO | FLAG_NOEXEC;
+pub const FLAGS_ALL: u64 = FLAG_RO | FLAG_NOEXEC | FLAG_MEDIA;
 
 /// The largest data one request or reply carries (a longer read or write is
 /// split into requests of at most this).

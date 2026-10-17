@@ -1,6 +1,6 @@
 # LazyOS Wi-Fi — exploration and plan (blue sky)
 
-> **Status: exploratory, revision 1 (2026-10-02). Nothing here is built.**
+> **Status: exploratory, revision 1 (2026-10-02). The MT7925 path described here is not built; the Wi-Fi that ships is a different chip, the RTL8822CE driver ([wifi-rtw88-plan.md](wifi-rtw88-plan.md)).**
 > This answers one question: can LazyOS get Wi-Fi by extracting driver code
 > from the Linux kernel (or the BSDs), licence permitting, once networking is
 > fully working? The target device is a MediaTek **MT7925** (Wi-Fi 7, M.2

@@ -103,6 +103,7 @@ pub fn reset() {
     drop(removed);
     for slot in 1..super::MAX_TASKS {
         crate::process::forget_task_args(slot);
+        super::yieldlock::forget_wait(slot);
     }
     // A reschedule a removed task's wake asked for has nobody to run: left
     // set, the next interrupt a test takes would switch to a slot that no
@@ -295,7 +296,12 @@ pub fn reference_pick() -> usize {
 pub fn simulate_tick() -> usize {
     let mut tasks = TASKS.lock();
     let cur = super::current();
+    // A simulated tick is not time that passed: whatever idle count the
+    // charge books is given back, or `sysinfo` would see more idle ticks than
+    // uptime (a finished current task is an idle tick since issue #860).
+    let idle = super::IDLE_TICKS.load(core::sync::atomic::Ordering::Relaxed);
     super::schedule::charge_tick(&mut tasks, cur);
+    super::IDLE_TICKS.store(idle, core::sync::atomic::Ordering::Relaxed);
     // Same flagging the real tick does (issue #133): finished parentless
     // tasks are handed to `reclaim_pending`, the current one only when the
     // tick actually switches away from it.
@@ -396,7 +402,7 @@ pub fn frame_base(slot: usize) -> Option<u64> {
 }
 
 /// The saved-frame pointer of `slot`.
-fn frame_of(slot: usize) -> Option<u64> {
+pub(super) fn frame_of(slot: usize) -> Option<u64> {
     TASKS.lock()[slot].as_ref().map(|task| task.rsp)
 }
 

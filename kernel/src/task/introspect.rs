@@ -109,11 +109,12 @@ impl TaskSnapshot {
         let tasks = TASKS.lock();
         let rows = tasks
             .iter()
-            .map(|slot| match slot {
+            .enumerate()
+            .map(|(index, slot)| match slot {
                 Some(task) => TaskRow {
                     live: true,
                     pid: 0, // filled by the caller from the slot index; see `snapshot_words`.
-                    ppid: task.parent as u64,
+                    ppid: super::family::ppid(&tasks, index) as u64,
                     pgid: task.pgid as u64,
                     sid: task.sid as u64,
                     state: state_tag(task.state),

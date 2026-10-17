@@ -30,7 +30,7 @@ trait, a fixed registry with a selected boot device, and four drivers.
 | `is_writable` | whether `write_sectors` can succeed (default: false) |
 | `check_range` | shared bounds validation via `check_range(...)` |
 
-- Registry: fixed array of `&'static dyn BlockDevice`, `MAX_DEVICES = 24`, no
+- Registry: fixed array of `&'static dyn BlockDevice`, `MAX_DEVICES = 32`, no
   heap. Drivers are `'static` singletons (`ata::probe`, `virtio::probe`).
 - `init()` is a thin wrapper over `dev::init` (device core, #239). The one-shot
   guards are `dev::INITED` (enumeration) and `dev::driver::PROBED` (driver
@@ -58,9 +58,10 @@ trait, a fixed registry with a selected boot device, and four drivers.
 - Several virtio-blk functions are independent devices: each `Slot` owns its
   queue and its request slots' control blocks, so a boot disk and a data disk
   never share ring state. The registry names them in PCI enumeration order.
-- Virtio negotiates no feature bits and detects but does not drive modern-only
-  devices (`1af4:1042`), which need BAR mapping in the kernel page table (next
-  step, `virtio.rs` module docs).
+- Virtio negotiates no feature bits and drives both the modern (virtio 1.x)
+  transport, including modern-only devices (`1af4:1042`) whose BARs are mapped
+  into the kernel page table, and a legacy-only function through its I/O window
+  (`kernel/src/block/virtio/`).
 - DMA (docs/performance-plan.md P5): the device reads and writes the
   caller's own buffers. The kernel heap maps scattered frames and a stack
   slice can straddle pages, so `virtio/plan.rs` cuts a transfer into requests
@@ -236,8 +237,9 @@ at `block::init`. Details: [usb-storage.md](usb-storage.md).
 
 **Status.** Working: ATA reads (default QEMU image), virtio-blk reads/writes on
 several functions with sleeping waits and several requests in flight, PCI
-enumeration. Open: modern virtio (memory BAR), an interrupt-driven virtio-blk
-(needs a PIC line a kernel handler can share with a user-space claimant),
-AHCI/NVMe, ATA writes. Tests: `virtio_suite`, `block_sleep_suite` (planner
+enumeration, modern virtio, AHCI (SATA) and NVMe. Open: an interrupt-driven
+virtio-blk (needs a PIC line a kernel handler can share with a user-space
+claimant), ATA writes. Tests: `virtio_suite`, `virtio_modern_suite`, `ahci_suite`,
+`nvme_suite`, `block_sleep_suite` (planner
 rules and soak, kernel threads parked in the driver beside a spinning caller,
 a killed waiter, four threads on one cached ext2 volume).

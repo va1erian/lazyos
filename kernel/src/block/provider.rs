@@ -34,13 +34,17 @@
 //! [`DEAD_AFTER_TIMEOUTS`] timeouts in a row, or when the provider dies or
 //! reports the medium gone, the disk is dead and every request, pending and
 //! future, fails at once with [`BlockError::Io`]. A mount on a dead disk
-//! stays mounted and fails its I/O (it degrades; nothing hangs).
+//! stays mounted and fails its I/O (it degrades; nothing hangs). A dead
+//! disk's slot goes to the next registration once nothing refers to it
+//! (`lifecycle.rs`: generations, claims, reclaim).
 //!
 //! The requester holds the filesystem's locks while it waits; those are
 //! `task::relax::YieldMutex`es, so other tasks give the CPU away instead of
 //! spinning. A context that holds the task table cannot park at all and its
 //! request fails ([`crate::task::relax::can_block`]).
 
+mod lifecycle;
+pub(crate) mod rawsys;
 pub(crate) mod readcache;
 mod request;
 pub mod sys;
@@ -49,11 +53,18 @@ pub mod test_clock;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::{BlockDevice, BlockError, SECTOR_SIZE};
+use super::{BlockDevice, BlockError};
 use crate::task::{self, wait::WaitQueue, WaitKind, WakeReason};
 
-/// How many providers can register per boot (a dead disk's slot is never
-/// reused: mounts may still hold it).
+pub use lifecycle::{
+    claim, handle, list, mark_in_use, raw_flush, raw_read, raw_write, register, release, resolve,
+    RawError,
+};
+#[cfg(lazyos_tests)]
+pub use lifecycle::{read_as_generation, write_as_generation};
+
+/// How many disks can be registered at once (the slot of a dead one is
+/// reused once nothing refers to it: `lifecycle.rs`).
 pub const MAX_PROVIDERS: usize = 8;
 /// The largest single request, and the size of each disk's bounce buffer.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
@@ -151,8 +162,17 @@ struct State {
     bounce: Vec<u8>,
     next_tag: u64,
     timeouts: u32,
-    /// Whether the late-mount path has scanned this disk's partitions.
+    /// Whether the late-mount path has scanned this disk's partitions (its
+    /// slot is then never reclaimed: views and a mount refer to it).
     scanned: bool,
+    /// Bumped at every registration of the slot: an operation started on an
+    /// earlier disk never reaches a later one (`lifecycle.rs`).
+    generation: u64,
+    /// The task that holds the exclusive raw claim on the disk, if any.
+    claim: Option<usize>,
+    /// The kernel mounted a volume through this disk (the late `/home`
+    /// mount): no daemon may claim it raw, and its slot is never reused.
+    in_use: bool,
     stats: Stats,
 }
 
@@ -194,6 +214,9 @@ impl UserDisk {
                 next_tag: 0,
                 timeouts: 0,
                 scanned: false,
+                generation: 0,
+                claim: None,
+                in_use: false,
                 stats: Stats {
                     requests: 0,
                     errors: 0,
@@ -251,53 +274,6 @@ fn now() -> u64 {
     task::ticks() + test_clock::offset()
 }
 
-/// Register a disk of `sectors` 512-byte sectors served by task `owner`.
-/// Returns its id (the `n` of `usb<n>`).
-pub fn register(owner: usize, sectors: u64, writable: bool) -> Result<usize, ProviderError> {
-    if sectors == 0 || sectors.checked_mul(SECTOR_SIZE as u64).is_none() {
-        return Err(ProviderError::Invalid);
-    }
-    let disk = DISKS
-        .iter()
-        .find(|disk| {
-            let mut state = disk.state.lock();
-            if state.registered {
-                return false;
-            }
-            // Claim the slot before the lock drops, so two registrations
-            // cannot take the same one.
-            state.registered = true;
-            true
-        })
-        .ok_or(ProviderError::Full)?;
-    {
-        let mut state = disk.state.lock();
-        state.bounce.resize(MAX_REQUEST_BYTES, 0);
-        state.owner = owner;
-        state.sectors = sectors;
-        state.writable = writable;
-        state.alive = true;
-        state.scanned = false;
-        // Nothing of a disk that used this slot before may be served.
-        disk.cache.lock().clear();
-        // Tags carry the slot, so one disk's tag never matches another's.
-        state.next_tag = (disk.index as u64) << 56;
-    }
-    // The registry never forgets a device; a slot the test suite recycles
-    // is already there under its name.
-    let known = super::device(NAMES[disk.index]).is_some();
-    if !known && super::register(disk).is_err() {
-        disk.state.lock().alive = false;
-        return Err(ProviderError::Full);
-    }
-    serial_println!(
-        "block: {} registered by task {owner}: {sectors} sectors ({})",
-        NAMES[disk.index],
-        if writable { "rw" } else { "ro" }
-    );
-    Ok(disk.index)
-}
-
 /// Take the next request of disk `id` for its provider `owner`, waiting
 /// until `deadline` (absolute ticks) for one. A write's data is handed to
 /// `copy_out` first; if that fails the request stays queued.
@@ -309,6 +285,14 @@ pub fn next(
 ) -> Result<Option<Request>, ProviderError> {
     let disk = disk(id).ok_or(ProviderError::NotOwner)?;
     loop {
+        // A task a fatal signal is about to end (a `SIGTERM` is acted on at
+        // the syscall return, not at the send) takes no request and stops
+        // waiting for one: it would die holding it, between the two halves of
+        // an operation, and it must reach its syscall return. Asked outside
+        // the slot's lock: the signal tables sit after the task table.
+        if task::signal::must_unwind(owner) {
+            return Ok(None);
+        }
         {
             let mut state = disk.state.lock();
             if state.owner != owner || !state.alive {
@@ -324,13 +308,7 @@ pub fn next(
                 return Ok(Some(request));
             }
         }
-        // A killed provider stops waiting for work (nothing of its is in
-        // flight here) so it reaches its syscall return and dies.
-        if now() >= deadline
-            || !task::relax::can_block()
-            || test_clock::serving()
-            || task::signal::killed(task::current())
-        {
+        if now() >= deadline || !task::relax::can_block() || test_clock::serving() {
             return Ok(None);
         }
         park(&disk.work, deadline);
@@ -418,6 +396,8 @@ pub fn teardown_task(slot: usize) {
             wake_all(disk);
         }
     }
+    // A dead filesystem daemon's claims go with it.
+    lifecycle::release_task(slot);
 }
 
 fn wake_all(disk: &UserDisk) {
@@ -487,6 +467,9 @@ pub fn stats(id: usize) -> Option<(Stats, bool)> {
 /// request is never abandoned, so the request slot and the filesystem state
 /// around it stay consistent, and the release path always runs.
 fn park(queue: &WaitQueue, deadline: u64) {
+    if test_clock::parked() {
+        return;
+    }
     let enabled = x86_64::instructions::interrupts::are_enabled();
     x86_64::instructions::interrupts::disable();
     let ticks = deadline.saturating_sub(test_clock::offset());

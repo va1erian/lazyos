@@ -20,7 +20,6 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use crate::os_disk::{self, SECTOR};
 use crate::os_image::format_uuid;
 use crate::os_layout::Account;
 use crate::usb_payload::{self, Payload};
@@ -37,12 +36,7 @@ pub fn enabled() -> bool {
 
 /// Build `image` from the made `payload` and the accounts (for the home
 /// volume). Prints one summary warning.
-pub fn build(
-    payload: &Payload,
-    out_dir: &Path,
-    image: &Path,
-    accounts: &[Account],
-) -> Result<(), String> {
+pub fn build(payload: &Payload, image: &Path, accounts: &[Account]) -> Result<(), String> {
     let started = Instant::now();
     let stick_settings = usb_stick::Settings {
         home_size: usb_payload::size(
@@ -59,19 +53,26 @@ pub fn build(
     for (path, bytes) in installer_files()? {
         builder.set_file_contents(path, bytes);
     }
-    let boot_image = out_dir.join("usb-boot.img");
-    builder
-        .create_bios_image(&boot_image)
-        .map_err(|e| format!("the stick's boot part: {e:#}"))?;
-    let mut boot = std::fs::read(&boot_image).map_err(|e| e.to_string())?;
-    let (_, start, sectors) = os_disk::mbr_entry(&boot, 2).ok_or("the boot part has no MBR")?;
-    let fat = boot
-        .get_mut((start * SECTOR) as usize..((start + sectors) * SECTOR) as usize)
-        .ok_or("the boot part is shorter than its FAT partition")?;
-    usb_fat::tidy(fat).map_err(|e| format!("the stick's FAT partition: {e}"))?;
+    // The bootloader writes the FAT partition into this file where it will
+    // live, and the stick is made of the file itself (renamed into place):
+    // the ramdisk is written once into the image, not copied between files.
+    let boot_image = image.with_extension("img.tmp");
+    let boot = match builder.create_bios_image_file(&boot_image) {
+        Ok(file) => file,
+        Err(error) => {
+            let _ = std::fs::remove_file(&boot_image);
+            return Err(format!("the stick's boot part: {error:#}"));
+        }
+    };
     let home = usb_stick::home_dirs(accounts);
-    let stick = usb_stick::compose(image, &boot, &stick_settings, &home)?;
-    let _ = std::fs::remove_file(&boot_image);
+    let stick = usb_stick::compose_file(
+        image,
+        &boot_image,
+        boot,
+        &stick_settings,
+        &home,
+        usb_fat::tidy_file,
+    )?;
 
     println!(
         "cargo:warning=USB stick image {}: ramdisk {} MiB (RAM root {} MiB, {}), \
@@ -112,7 +113,7 @@ fn installer_files() -> Result<Vec<(String, Vec<u8>)>, String> {
     ];
     let mut files = Vec::new();
     for (path, source) in sources {
-        println!("cargo:rerun-if-changed={}", source.display());
+        crate::os_image::rerun_if_changed(&source);
         let bytes = std::fs::read(&source).map_err(|e| {
             format!(
                 "LAZYOS_INSTALLER=1 needs {} ({e}); run `python tools/install/build.py`",

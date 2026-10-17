@@ -41,6 +41,11 @@ extern "C" {
 // The Notifications API: WebKit's provider and the page's permission requests,
 // lzw_ui_notify_* / lzw_engine_notify_*.
 #define LZW_FEATURE_NOTIFICATIONS 64
+// Content blocking (issue #845): rule lists compiled into a store below the profile directory and
+// attached to the page; lzw_ui_blocking decides per main-frame navigation whether they apply.
+// Needs LZW_FEATURE_PROFILE (the store lives in the profile) and a WebKit built with content
+// extensions (ENABLE_CONTENT_EXTENSIONS, OptionsLazyOS.cmake).
+#define LZW_FEATURE_BLOCKING 128
 
 // ---- decisions (lzw_ui_navigate) ----
 
@@ -67,6 +72,13 @@ extern "C" {
 #define LZW_CURSOR_RESIZE_V 6
 #define LZW_CURSOR_RESIZE_NWSE 7
 #define LZW_CURSOR_RESIZE_NESW 8
+
+// What became of a rule list (lzw_ui_blocking_list).
+#define LZW_BLOCK_READY 0         // stored, attached to the page
+#define LZW_BLOCK_NOT_STORED 1    // lzw_engine_blocking_load: nothing stored under that id
+#define LZW_BLOCK_STALE 2         // stored by an older WebKit format: compile it again
+#define LZW_BLOCK_COMPILE_FAILED 3 // the JSON was refused (WebKit's parser; one bad rule fails a list)
+#define LZW_BLOCK_UNAVAILABLE 4   // no store: no profile, or no content extensions in this build
 
 // JavaScript dialogs (lzw_ui_dialog).
 #define LZW_DIALOG_ALERT 0
@@ -120,6 +132,11 @@ void lzw_ui_state(const char* url, const char* title, int loading, int can_back,
 // run loop: it must not block.
 int lzw_ui_navigate(const char* url, int kind, int user_gesture, const char* committed_url);
 
+// The page's WebProcess stopped answering WebKit's responsiveness pings (responsive 0), or answers
+// again (1), or is gone (1: there is nothing left to wait for). The window may offer a way out
+// (lzw_engine_recover). Runs on the run loop and must not block.
+void lzw_ui_page_responsive(int responsive);
+
 // LZW_FEATURE_PAGE_UI: the pointer is over a link (its absolute URL), or no longer ("").
 void lzw_ui_hover(const char* url);
 // LZW_FEATURE_PAGE_UI: the page wants this pointer shape (LZW_CURSOR_*).
@@ -171,6 +188,18 @@ void lzw_ui_notify_permission_request(const char* origin, int user_gesture);
 // The pending permission requests of `origin` were refused by the UI process itself (their page
 // started another navigation, or its process went): they need no answer.
 void lzw_ui_notify_permission_gone(const char* origin);
+
+// LZW_FEATURE_BLOCKING: whether the rule lists apply to a page whose main-frame address is url (the
+// user's switch, their exceptions, a one-shot "reload without blocking"). Called on the run loop for
+// every main-frame navigation, redirects included, before the load starts; a pure decision that must
+// not block. Non-zero: apply.
+int lzw_ui_blocking(const char* url);
+// LZW_FEATURE_BLOCKING: what became of rule list id after lzw_engine_blocking_load or _compile
+// (LZW_BLOCK_*). Attached to the page already when it is LZW_BLOCK_READY.
+void lzw_ui_blocking_list(const char* id, int status);
+// LZW_FEATURE_BLOCKING: the number of loads the lists blocked on the page on show, since it
+// committed (0 when a page commits).
+void lzw_ui_blocked(int count);
 
 // ---- implemented by the engine (C++) ----
 
@@ -226,6 +255,16 @@ void lzw_engine_notify_forget(const char* origin);
 // window's calls to it are made from here.
 void lzw_engine_run_on_main(void (*task)(void* context), void* context);
 
+// LZW_FEATURE_BLOCKING: attaches rule list `id` from the store (a list compiled earlier, so a start
+// pays no compile). The result comes as lzw_ui_blocking_list.
+void lzw_engine_blocking_load(const char* id);
+// LZW_FEATURE_BLOCKING: compiles `json` (a WebKit content-rule list, NUL-terminated and copied) as
+// list `id`, stores it and attaches it, replacing a list of that id. Compiles on WebKit's work queue;
+// the result comes as lzw_ui_blocking_list.
+void lzw_engine_blocking_compile(const char* id, const char* json);
+// LZW_FEATURE_BLOCKING: detaches list `id` and removes it from the store.
+void lzw_engine_blocking_forget(const char* id);
+
 // Creates the context, the page and the view; must run on the main thread, before
 // WKRunLoopRunMain(). Returns 0 on success. With LZW_FEATURE_PROFILE the website data store lives in
 // lzw_ui_profile_dir().
@@ -234,10 +273,48 @@ int lzw_engine_start(void);
 // Ends WKRunLoopRunMain() (callable from any thread).
 void lzw_engine_quit(void);
 
-// After WKRunLoopRunMain() returned, on the main thread: ends the WebProcess and the
-// NetworkProcess (SIGTERM, then SIGKILL after a grace period), waits for them and prints
-// <prefix>:CHILD:<web|network>:<pid>:GONE|ALIVE for each.
+// After WKRunLoopRunMain() returned, on the main thread: ends every engine process the launcher
+// started (SIGTERM, then SIGKILL of each one's process group, retried every 100 ms for up to 10 s),
+// waits for them and prints <prefix>:CHILD:<web|network>:<pid>:GONE|ALIVE:term=<rc>:kill=<rc>:wait=<rc>
+// for each. Returns how many are left.
 int lzw_engine_shutdown(void);
+
+// The ids of the page's WebProcess and of the NetworkProcess as WebKit last said them (0: none
+// yet). Callable from any thread: the window's heartbeat reads their CPU use.
+void lzw_engine_children(int* web, int* network);
+
+// The page's WebProcess does not answer (it is stuck) and the person chose a way out: its process is
+// ended, and with reload non-zero the page is loaded again in a fresh one; else the page stays
+// stopped (lzw_ui_state's `crashed`) until the next load.
+void lzw_engine_recover(int reload);
+
+// WebKit's launcher reports every engine process it starts, collects or kills here (a weak
+// symbol there: the stand-alone programs that link WebKit without this file print to stderr).
+// type: "web" or "network"; event: "launch", "fail" (detail: errno), "exit" (detail: status),
+// "signal" (detail: signal), "vanish", "terminate" (detail, detail2: errno of kill(-pid) and
+// of kill(pid), 0 when sent, -1 when not tried). Any thread.
+void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2);
+
+// Implemented by WebKit's launcher (ProcessLauncherLazyOS.cpp): collects, on the calling thread and under
+// the launcher's lock (the one that orders every reap against every kill), the engine processes that are
+// over, and reports each through lzw_launcher_event. WebKit's main thread calls it when WebKit says a
+// process ended: until the kernel makes children per process (issue #859) only the thread that forked a
+// child can wait for it.
+void lzw_launcher_reap(void);
+
+// Implemented by WebKit's launcher: sends `signal` to every live child under the launcher's lock (to the
+// child's process group first when `group` is non-zero, then to the process). Fills `pids` and `codes` (0:
+// sent, else the errno negated) for up to `capacity` children and returns how many are live. The shutdown's
+// only way to signal: an id that was collected (and may be reused) is never named.
+int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capacity);
+
+// WebKit keeps the proxy of every web process that ended alive (patch 0021: destroying it aborts the UI
+// process); `kept` counts them since the start. Prints PROCESS:KEPT:<pid>:<kept>. Weak in WebKit.
+void lzw_proxy_kept(int pid, int kept);
+
+// Whether WebKit's run loop has begun to turn (any thread): a ping posted before it would be late
+// through no fault of the loop.
+int lzw_engine_running(void);
 
 #ifdef __cplusplus
 }

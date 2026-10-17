@@ -61,6 +61,8 @@ mod accounts_tests;
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
+mod bench_tests;
+#[cfg(test)]
 mod dbgd_tests;
 #[cfg(test)]
 mod f3_layout_tests;
@@ -95,9 +97,13 @@ mod srb2kart_tests;
 #[cfg(test)]
 mod state_tests;
 #[cfg(test)]
+mod stick_file_tests;
+#[cfg(test)]
 mod tls_files_tests;
 #[cfg(test)]
 mod trace_tests;
+#[cfg(test)]
+mod update_tests;
 #[cfg(test)]
 mod usb_root_tests;
 #[cfg(test)]

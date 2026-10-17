@@ -117,7 +117,7 @@ impl Slot {
             pages: [const { Page::new() }; PAGES],
             device: AhciDisk {
                 index,
-                state: YieldMutex::new(None),
+                state: YieldMutex::named("ahci", None),
                 sectors: AtomicU64::new(0),
                 expect_read: Expect::new(),
                 expect_write: Expect::new(),

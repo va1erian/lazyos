@@ -44,11 +44,22 @@ class LazyWebPlusTests(unittest.TestCase):
         self.assertNotIn("--lazywebplus", demo_argv(lazywebplus=True, skip_build=True))
         self.assertIn("--net", demo_argv(lazywebplus=True, skip_build=False))
 
+    def test_the_ad_blockers_updates_bring_the_https_tools(self) -> None:
+        """The blocker fetches its lists with `curl` (a child under its own label, issue #845)."""
+        env = catalog.build_env({**self.base(), "lazywebplus": True})
+        self.assertEqual(env.get("LAZYOS_TLS"), "1")
+        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", lazywebplus=True)
+        self.assertTrue(cfg["tls"])
+        self.assertIn("--tls", demo_argv(lazywebplus=True, tls=True, skip_build=False))
+        steps = catalog.app_steps({"lazywebplus": True, "tls": True})
+        self.assertIn("tools/nettls/build.py", [s["argv"][1] for s in steps])
+
     def test_it_builds_the_bundle_the_port_the_plus_app_then_packages_it(self) -> None:
         steps = catalog.app_steps({"lazywebplus": True})
         self.assertEqual([s["argv"][1] for s in steps],
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py"])
         self.assertIn("--plus", steps[2]["argv"])
+        self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
 
     def test_the_quota_and_the_volume_are_the_big_app_ones(self) -> None:
         from lazygui import osvolume

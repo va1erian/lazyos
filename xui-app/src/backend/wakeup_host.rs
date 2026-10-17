@@ -18,7 +18,10 @@ pub(super) struct Wakeup;
 
 impl Wakeup {
     pub(super) fn new() -> io::Result<Wakeup> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "no epoll on this host"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "no epoll on this host",
+        ))
     }
 
     pub(super) fn waker(&self) -> Waker {

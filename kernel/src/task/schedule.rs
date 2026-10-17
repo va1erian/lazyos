@@ -91,6 +91,9 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     let mut tasks = TASKS.lock();
     if let Some(task) = tasks[cur].as_mut() {
         task.rsp = current_rsp;
+        if tick && code_segment & 3 == 3 {
+            task.guard.note_user_tick();
+        }
     }
     #[cfg(lazyos_tests)]
     runq::verify(&tasks);
@@ -264,7 +267,10 @@ pub fn expire_due() {
 /// entries consume no timer period and are not charged at all.
 pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
     match tasks[cur].as_mut() {
-        Some(task) if !matches!(task.state, TaskState::Blocked { .. }) => {
+        // A `Done` task stays `cur` as the idle fallback (`pick_next`, the
+        // `hlt` loop of `exit_cpu`) until something else is runnable: it is
+        // not running, so it is charged nothing (issue #860).
+        Some(task) if !matches!(task.state, TaskState::Blocked { .. } | TaskState::Done) => {
             // Charge across ticks without a switch too, so `cpu_usage`
             // reports real per-task CPU time.
             task.cpu_ticks = task.cpu_ticks.saturating_add(1);
@@ -296,8 +302,13 @@ fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
         }
         None => {
             super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
+            return;
         }
     }
+    // The guard counts them too: a long syscall that runs with interrupts
+    // off was invisible to it. Bounded to one window boundary: a call that
+    // took a second is a window of budget, not a hundred (`on_window_ticks`).
+    super::guard::on_window_ticks(tasks, cur, ticks);
 }
 
 /// A tick landed in the code segment `code_segment` while `cur` was the

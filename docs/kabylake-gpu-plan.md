@@ -425,8 +425,8 @@ Still open (answer at G0/G1, none blocks starting):
 
 **Status (2026-10-13): G1's read-only skeleton is built (`gpud`, `idl/gpu.midl`, `libs/gen9gfx::adopt`, switch `LAZYOS_GEN9GFX=1`, `run_demo.py --gen9gfx`); it has not run on the box yet, and no QEMU model of the GPU exists.**
 
-Hardware-independent work and the Linux-side G0; none of it touches the
-kernel, `user/`, `idl/` or `build.rs`, and nothing has run under LazyOS yet.
+Hardware-independent work and the Linux-side G0; the G0 prep itself touches
+neither the kernel, `user/`, `idl/` nor `build.rs`.
 
 - **G0, Linux side: done once, with two gaps.** `tools/boot/survey_gpu.sh`
   ran on the box on 2026-10-13 and its output is in

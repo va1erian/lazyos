@@ -227,6 +227,9 @@ pub fn spawn_thread_sharing(
     let mut tasks = TASKS.lock();
     let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let creator = current();
+    // The creator's leader, validated: a thread left over from a program that
+    // exec'd must not hand its new thread a stale leader slot.
+    let leader = family::leader_of(&tasks, creator);
     let parent = tasks[creator].as_mut().ok_or("no parent task")?;
     // The thread's table starts as a copy of its creator's (and stays equal to
     // it under `CLONE_FILES`, see `fdshare`). A shared table is paid for once
@@ -237,7 +240,7 @@ pub fn spawn_thread_sharing(
         parent.fds.fork_copy()
     };
     let fds = fds.ok_or("out of memory or descriptor quota (thread)")?;
-    let linux = linuxstate::for_thread(parent, creator, share);
+    let linux = linuxstate::for_thread(parent, leader, share);
     let pml4 = parent.pml4;
     // A thread stays in its process's group and session (#59: threads do not
     // get a new one), so only a process can create a group or session.

@@ -7,7 +7,7 @@
  "kernel/src/arch/fault_storm.rs": 1,
  "kernel/src/dev/msi.rs": 1,
  "kernel/src/process/linux/slow.rs": 1,
- "kernel/src/task/guard.rs": 1,
+ "kernel/src/task/guard/report.rs": 1,
  "lazyrad-os/src/playdev.rs": 5,
  "libs/rtw88/src/bringup/tests.rs": 1,
  "nettls/src/tls/mod.rs": 1,
@@ -123,7 +123,6 @@
  "xui-app/web/src/handoff.rs": 3,
  "xui-app/web/src/main.rs": 1,
  "xui-app/web/src/transfers.rs": 3,
- "xui-app/webplus/src/app.rs": 1,
  "xui-app/webplus/src/app/events.rs": 4,
  "xui-app/webplus/src/ffi.rs": 1,
  "xui-app/webplus/src/lib.rs": 1

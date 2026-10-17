@@ -5,8 +5,11 @@ use xui_core::widget::{HasText, Placeable};
 
 use super::{Browser, Msg};
 use crate::address::{self, START};
+use crate::blocker::site_of;
+use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
-use crate::pages::{Command as PageCommand, ABOUT, DOWNLOADS, HISTORY};
+use crate::hang::Answer as HangAnswer;
+use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 
 impl Browser {
     pub(super) fn page_command(&mut self, command: PageCommand) {
@@ -38,7 +41,71 @@ impl Browser {
                     self.open(ABOUT);
                 }
             }
+            PageCommand::BlockerEnabled(on) => {
+                self.blocker.set_enabled(on);
+                if on {
+                    // Nothing was fetched or loaded while it was off.
+                    self.blocker.send(WorkerCmd::ListsChanged);
+                }
+                self.trace(&format!("BLOCK:ENABLED:{}", if on { "ON" } else { "OFF" }));
+                self.blocker_page_changed();
+            }
+            PageCommand::Site { site, excepted } => {
+                if self.blocker.set_site_excepted(&site, excepted).is_some() {
+                    crate::named_marker(&format!(
+                        "BLOCK:SITE:{site}:{}",
+                        if excepted { "OFF" } else { "ON" }
+                    ));
+                }
+                self.blocker_page_changed();
+            }
+            PageCommand::List { id, on } => {
+                self.blocker.set_list_enabled(&id, on);
+                self.blocker_page_changed();
+            }
+            PageCommand::UpdateLists => {
+                self.blocker.send(WorkerCmd::UpdateNow);
+                self.set_status("Updating the ad blocker's lists");
+            }
+            PageCommand::ReloadUnblocked => self.reload_unblocked(),
+            PageCommand::OpenSite => {
+                if let Some(url) = self.site_url.clone() {
+                    self.open(&url);
+                }
+            }
         }
+    }
+
+    /// A setting of the ad blocker changed: the shield follows, and the page that shows it is built
+    /// again.
+    fn blocker_page_changed(&mut self) {
+        self.update_shield();
+        if self.showing(BLOCKER) {
+            self.open(BLOCKER);
+        }
+    }
+
+    /// A list changed state on the worker's thread.
+    pub(super) fn blocker_changed(&mut self) {
+        self.update_shield();
+        if self.showing(BLOCKER) && !self.state.loading {
+            self.open(BLOCKER);
+        }
+    }
+
+    /// Loads the page browsed last again, once, with the blocker off for its site, until the
+    /// browser leaves it.
+    fn reload_unblocked(&mut self) {
+        let Some(url) = self.site_url.clone() else {
+            self.set_status("There is no web page to reload");
+            return;
+        };
+        if let Some(site) = site_of(&url) {
+            self.blocker.skip_once(&site);
+            crate::named_marker(&format!("BLOCK:RELOAD:UNBLOCKED:{site}"));
+        }
+        self.set_status("Reloading without ad blocking");
+        self.open(&url);
     }
 
     pub(super) fn clear_history(&mut self) {
@@ -66,6 +133,9 @@ impl Browser {
             Command::Close => ui.close(),
             Command::Back => self.engine.back(),
             Command::Forward => self.engine.forward(),
+            // A page that does not answer cannot reload or stop itself: end its process.
+            Command::Reload if self.hang.stuck() => self.hang_answer(ui, HangAnswer::Reload),
+            Command::Stop if self.hang.stuck() => self.hang_answer(ui, HangAnswer::Stop),
             Command::Reload => self.reload(),
             Command::Stop => {
                 self.stopping = self.loading.get();
@@ -77,6 +147,8 @@ impl Browser {
             Command::ClearHistory => self.clear_history(),
             Command::ShowDownloads => self.open(DOWNLOADS),
             Command::About => self.open(ABOUT),
+            Command::Blocker => self.open(BLOCKER),
+            Command::ReloadUnblocked => self.reload_unblocked(),
             Command::OpenLink => {
                 if let Some(link) = self.context.link().map(str::to_string) {
                     // As a click does: a page command is run (from our own pages only), anything

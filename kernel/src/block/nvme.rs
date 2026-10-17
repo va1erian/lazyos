@@ -97,7 +97,7 @@ impl Slot {
             pages: [const { Page::new() }; PAGES],
             device: NvmeDisk {
                 index,
-                state: YieldMutex::new(None),
+                state: YieldMutex::named("nvme", None),
                 sectors: AtomicU64::new(0),
                 expect_read: Expect::new(),
                 expect_write: Expect::new(),

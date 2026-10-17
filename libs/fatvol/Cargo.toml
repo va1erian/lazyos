@@ -1,0 +1,21 @@
+[package]
+name = "fatvol"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A FAT12/16/32 volume (long names, read-write) as a user-space filesystem: rust-fatfs over a write-back sector cache, served through libs/fused. Pure no_std + alloc, host-tested"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "fatvol"
+path = "src/lib.rs"
+
+[dependencies]
+fused = { path = "../fused" }
+# MBR and GPT reading, hostile-input safe, shared with the kernel.
+gpt = { path = "../gpt" }
+# rust-fatfs (MIT) at a pinned commit of its 0.4 line: the crates.io 0.3
+# release needs `core_io`, which does not build on a current nightly. No
+# `chrono` and no `std`: the time source is `clock::Clock`, and `log` stays
+# silent (no `log_level_*` feature).
+fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "2aefc2a027ce94ed0671752814dac203f0450e11", default-features = false, features = ["alloc", "lfn", "unicode"] }

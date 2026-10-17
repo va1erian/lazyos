@@ -90,8 +90,13 @@ impl LazyOSBackend {
             format!("window={}", window.raw())
         });
         // A wake drains the message queue; widget mappers enqueue while an
-        // input record is being routed, so this runs after every batch.
+        // input record is being routed, so this runs after every batch. The
+        // async call lane rides the same pass: completions the doorbell (or
+        // a pass past its own drain) reported are handed over here, so a
+        // callback lands its message before this tick's `Wake`, and its
+        // cost reads in the same `update` stall measurement as the rest.
         let began = stall::start();
+        super::calls::drain();
         self.deliver(window, WidgetId::NONE, &Event::Wake);
         self.fire_timers(window);
         // Timer messages joined the queue after the wake above; drain them in
@@ -147,9 +152,11 @@ impl LazyOSBackend {
         };
         let deadline = next_timer.unwrap_or(u64::MAX).min(now.saturating_add(idle));
         // With a doorbell the wait names the set holding it and the watched
-        // descriptor; without one, the watched descriptor itself.
+        // descriptor; without one, the watched descriptor itself. Calls the
+        // app began (issue #725) ring beside both: the loop wakes for each
+        // completion and the tick's drain hands them to the callbacks.
         let wakeup = self.wakeup.get().and_then(Option::as_ref);
-        let flags = match wakeup {
+        let mut flags = match wakeup {
             Some(wakeup) => {
                 if wakeup.watch(self.watched_fd.get()).is_err() {
                     self.watched_fd.set(None);
@@ -161,6 +168,9 @@ impl LazyOSBackend {
                 None => 0,
             },
         };
+        if super::calls::in_flight() {
+            flags |= sys::WAIT_CALLS;
+        }
         if count == 0 && flags == 0 {
             sys::sleep_millis(deadline.saturating_sub(now).div_ceil(1_000_000));
             return;

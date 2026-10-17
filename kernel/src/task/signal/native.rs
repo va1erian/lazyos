@@ -43,6 +43,29 @@ pub fn native_fatal_pending(slot: usize) -> Option<u8> {
     None
 }
 
+/// Whether a kernel wait of task `slot` must stop parking and return so the
+/// task reaches the syscall return that ends it: a kill is pending, or a
+/// default-fatal signal ([`native_fatal_pending`]) that its return would act
+/// on. A wait that holds nothing of the kernel's (a provider daemon's wait
+/// for its next request) checks this before it parks again after an
+/// `Interrupted` wake: a `SIGTERM` wakes the sleeper but is not a kill, so
+/// checking [`killed`](super::killed) alone re-parked the task until its
+/// own deadline and let it take a request it was about to die with.
+pub fn must_unwind(slot: usize) -> bool {
+    slot != KERNEL_TASK && (super::killed(slot) || native_fatal_pending(slot).is_some())
+}
+
+/// Whether the **current** task is being killed: a loop that can last in
+/// kernel context calls this and unwinds when it holds nothing, so the task
+/// reaches the syscall return that ends it. A runnable thread with a kernel
+/// frame is not ended by `SIGKILL` itself ([`kill_process`](super::kill_process)),
+/// so a kernel loop that never looked would keep its process alive for as
+/// long as it spins (issue #858). Cheap: a task-table slot lookup and a scan
+/// of the (short) process list.
+pub fn fatal_pending() -> bool {
+    must_unwind(current())
+}
+
 /// End the current native task if a default-fatal signal is pending, like
 /// the timer sweep would have; returns otherwise. Called by the native
 /// syscall gate after every call.

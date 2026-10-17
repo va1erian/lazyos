@@ -108,7 +108,7 @@ impl PrintService {
         let service = Service::connect(NAME).map_err(|_| {
             "Printing needs the print service (printd), which is not running".to_owned()
         })?;
-        match service.call_detailed_within(INTERFACE, method, ERROR_FIELD, body, CALL_TICKS) {
+        match service.call_detailed(INTERFACE, method, ERROR_FIELD, body, CALL_TICKS) {
             Ok(reply) => Ok(reply.body),
             Err(error) if !error.message.is_empty() => Err(error.message),
             Err(error) if error.code == -ETIMEDOUT => {

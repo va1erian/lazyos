@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use xui_app::backend::LazyOSBackend;
 
 use crate::abi::{
-    byte_count, c_string, frame_geometry, notify_permission, notify_show, page_state,
+    byte_count, c_string, frame_geometry, notify_permission, notify_show, page_state, ListStatus,
 };
 use crate::engine::{Button, DialogKind, Engine, MouseKind, NotifyAnswer};
 use crate::events::{CursorKind, Event};
@@ -36,6 +36,7 @@ extern "C" {
     fn lzw_engine_load(url: *const c_char);
     fn lzw_engine_reload();
     fn lzw_engine_stop();
+    fn lzw_engine_recover(reload: c_int);
     fn lzw_engine_back();
     fn lzw_engine_forward();
     fn lzw_engine_resize(width: c_int, height: c_int);
@@ -51,6 +52,9 @@ extern "C" {
     fn lzw_engine_notify_closed(id: u64);
     fn lzw_engine_notify_permission(origin: *const c_char, answer: c_int);
     fn lzw_engine_notify_forget(origin: *const c_char);
+    fn lzw_engine_blocking_load(id: *const c_char);
+    fn lzw_engine_blocking_compile(id: *const c_char, json: *const c_char);
+    fn lzw_engine_blocking_forget(id: *const c_char);
 }
 
 /// The engine behind the C++ functions.
@@ -70,6 +74,10 @@ impl Engine for FfiEngine {
     fn stop(&self) {
         // SAFETY: no arguments.
         unsafe { lzw_engine_stop() }
+    }
+    fn recover(&self, reload: bool) {
+        // SAFETY: a plain integer.
+        unsafe { lzw_engine_recover(c_int::from(reload)) }
     }
     fn back(&self) {
         // SAFETY: no arguments.
@@ -141,6 +149,21 @@ impl Engine for FfiEngine {
         let origin = c_string(origin);
         // SAFETY: `origin` is a NUL-terminated string that outlives the call; the C++ side copies it.
         unsafe { lzw_engine_notify_forget(origin.as_ptr()) }
+    }
+    fn blocking_load(&self, id: &str) {
+        let id = c_string(id);
+        // SAFETY: `id` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_blocking_load(id.as_ptr()) }
+    }
+    fn blocking_compile(&self, id: &str, json: &str) {
+        let (id, json) = (c_string(id), c_string(json));
+        // SAFETY: both are NUL-terminated strings that outlive the call; the C++ side copies them.
+        unsafe { lzw_engine_blocking_compile(id.as_ptr(), json.as_ptr()) }
+    }
+    fn blocking_forget(&self, id: &str) {
+        let id = c_string(id);
+        // SAFETY: `id` is a NUL-terminated string that outlives the call; the C++ side copies it.
+        unsafe { lzw_engine_blocking_forget(id.as_ptr()) }
     }
 }
 
@@ -291,6 +314,13 @@ pub unsafe extern "C" fn lzw_ui_state(
     mailbox::global().post_state(state);
 }
 
+/// The page's WebProcess stopped answering WebKit's responsiveness pings (`responsive` 0), answers
+/// again (1), or is gone (1: nothing is left to wait for).
+#[no_mangle]
+pub extern "C" fn lzw_ui_page_responsive(responsive: c_int) {
+    mailbox::global().post_event(Event::PageResponsive(responsive != 0));
+}
+
 /// The pointer is over a link (`url`), or no longer (empty).
 ///
 /// # Safety
@@ -348,6 +378,26 @@ pub unsafe extern "C" fn lzw_ui_download_fail(id: u64, reason: *const c_char) {
     // SAFETY: by this function's contract.
     let reason = unsafe { text(reason) };
     mailbox::global().post_event(Event::DownloadFailed { id, reason });
+}
+
+/// Rule list `id` became ready, or did not (`ListStatus::code`).
+///
+/// # Safety
+/// `id` must be null or a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_blocking_list(id: *const c_char, status: c_int) {
+    // SAFETY: by this function's contract.
+    let id = unsafe { text(id) };
+    mailbox::global().post_event(Event::BlockingList {
+        id,
+        status: ListStatus::from_code(status),
+    });
+}
+
+/// The number of loads the rule lists blocked on the page on show.
+#[no_mangle]
+pub extern "C" fn lzw_ui_blocked(count: c_int) {
+    mailbox::global().post_event(Event::Blocked(u32::try_from(count).unwrap_or(0)));
 }
 
 /// A page opened a JavaScript dialog; the answer comes back through `lzw_engine_dialog_reply`.

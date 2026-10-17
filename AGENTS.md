@@ -175,8 +175,17 @@ never does (it has no fsck), so until a rebuild every boot of such an image
 prints `ext2: ... was not cleanly unmounted`. Damage no crash leaves fails the
 build before anything is written (copy your files off, then reset);
 `LAZYOS_UPDATE_DAMAGED_OS=1` updates such a volume anyway, at the risk of an
-updated file reusing a damaged user file's block. Changing
-`LAZYOS_OS_SIZE` on an existing image needs the reset. Do not rebuild while QEMU
+updated file reusing a damaged user file's block. An update that runs out of
+room first removes the files an interrupted build left in `/system/{bin,lib,share,packages}`
+and `/docs/os` (no manifest lists them; `build_support/os_update.rs`), then
+fails with the sizes and the remedy. The default size is `512M` plus `512M` for
+SRB2Kart and `512M` for the WebKit browsers (`1536M` with both). Changing
+`LAZYOS_OS_SIZE` on an existing image needs the reset. A build that changed
+nothing does not rewrite the image (`build_support/os_track.rs`: a missing
+optional output is watched through its directory, never as a missing file, which
+cargo takes for "always changed"), and the build tools write an output only
+when its bytes changed (`tools/outfile.py`); keep both when adding an
+embed or a tool. Do not rebuild while QEMU
 has the image open (the build fails with a message). CI sets `LAZYOS_RESET_OS=1`
 everywhere. ext2 is case-sensitive: look names up exactly as stored, through
 `libs/fhs`. Host tests: `cargo test -p build-support-tests`.
@@ -647,6 +656,8 @@ GPLv2-compatible crates into them: `python tools/nettls/licenses.py --lazywebplu
 tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots it twice (the second finds the
 first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
 and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
+The harness boots four times: a third and a fourth boot judge the ad blocker (below), and a run needs
+`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazywebplus` brings.
 
 A page's **Notifications API** works (#839, `webkit/port/app/notify.cpp`, `xui-app/webplus/src/notify*`): a
 bar in the browser asks once per site (`notify.tsv` in the profile), and an allowed site's notifications are
@@ -658,10 +669,30 @@ thread other than the process's first. `python tools/webplus/notify_run.py` is i
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
 python tools/xui/build.py                                                                         # the package
-python tools/webplus/run.py --accel auto                                                          # boot twice, judge
+python tools/webplus/run.py --accel auto                                                          # boot four times, judge
 python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
-python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
+python tools/webplus/hang_run.py --accel auto                                                     # a page that hangs: the bar, Wait, Reload, Stop (#862)
+python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py && python tools/webplus/test_hang_judge.py     && cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit
 ```
+
+**The ad blocker** (issue #845, [`docs/lazywebplus.md`](docs/lazywebplus.md) "Blocking ads"): WebKit content
+extensions (on in `OptionsLazyOS.cmake`; patches `0018` and `0019`), `xui-app/crates/adblock` (Adblock Plus lists
+to WebKit rule lists; strict: one pattern WebKit refuses fails a whole list), `xui-app/webplus/src/blocker/`
+(settings in `confd`, the per-navigation decision, the list worker, `about:blocker`) and a `curl` child under
+the `listupdate` label. The filter list is fetched at runtime and never committed or shipped. Check a
+converter change against the real engine, not only the tests: `python tools/webkit/blockcheck.py --list
+FILE` (the port's `webkit-smoke` in rules mode; needs the build volume of `tools/webkit/port.py`).
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock       # unit, conversion, differential, fuzz
+FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock --release
+python tools/webkit/blockcheck.py --list easylist.txt              # compile it with WebKit (Docker)
+python tools/webplus/test_blocker_judge.py                         # the harness's judge fails when it should
+```
+
+The web harnesses bind host ports 80/81/443, and Windows lets a second process bind a port that is already
+listening: two harness runs at once (two agents) silently corrupt each other (certificate errors, an empty
+request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a run.
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
@@ -891,6 +922,13 @@ the client libraries `xui_app::tray` (Rust xui apps) or `libs/trayclient`. The
 sample `os.lazy.traydemo` ships only in `LAZYOS_TRAYDEMO=1` desktop images
 (`run_demo.py --traydemo`, the launcher's *Tray demo* checkbox). Markers:
 `SHELL:TRAY:SET|CLEAR|RESTORED|DENY`, `TRAYDEMO:*`.
+
+The **Removable Drives** applet (`os.lazy.removable`,
+`xui-app/src/bin/removable.rs`, shipped with `LAZYOS_USB=1` desktops) shows USB
+sticks: notices as the tooltip and `Attention`, the mounted count as a badge, a
+menu with Open and Eject per drive (`eject` is its command-line twin;
+[`docs/architecture/usb-storage.md`](docs/architecture/usb-storage.md)); its
+session is `python tools/storage/removable_run.py`.
 
 A package with `[entry] resident = true` is a *resident app*: it runs once
 per session, may live with no window (`xui_app::resident`: a windowless loop,
@@ -1440,6 +1478,37 @@ have their own harness, `tools/storage/README.md`:
 python tools/storage/run.py              # two boots: write /home/user on the stick, power off, read it back; e2fsck
 python tools/storage/test_judge.py       # the judge fails when it should
 cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
+```
+
+## FAT sticks at `/media` (`fatfuse`, `libs/fatvol`)
+
+A FAT12/16/32 stick plugged in while someone is logged in is mounted by
+`mountd` at `/media/<label>` through a `fatfuse` daemon (a FUSE provider that
+holds a raw claim on the disk, `docs/architecture/usb-storage.md` "Removable
+volumes"; plan and what differs from it: `docs/usb-hotplug-plan.md` "As
+built"). The FAT code is `libs/fatvol` (`rust-fatfs` pinned, plus boot-sector
+validation, a write-back sector cache, MBR/GPT discovery), host-tested; the
+`fatstick` example makes and reads sticks without `mkfs.fat`. A kernel disk
+slot (`usb<n>`) is reused after an unplug: an operation takes the slot's
+**generation** when it starts and fails once the slot holds another disk, so
+never keep a `&'static` reference to a provider disk for longer than one
+operation (the late `/home` mount is the one holder, and pins its slot).
+
+```bash
+cargo test -p fatvol -p mounttable                                  # the library and the automount rules
+cargo test -p fatvol --release soak -- --ignored                    # a long model soak
+cargo run -p fatvol --example fatstick -- make s.img --label X --file a.txt=hi
+LAZYOS_BUSYBOX=<busybox> python tools/storage/fat_run.py            # build, plug, use, pull, replug, power off, judge
+LAZYOS_TEST_FILTER=provider python tools/test/run.py --accel none   # slot reuse, generations, claims
+```
+
+`fat_run.py` plugs the stick in over QMP (`blockdev-add` + `device_add`: QEMU
+drops a `-drive` when its device is pulled), writes, pulls it, plugs it in
+again and reads the host copy with the same library and `fsck.fat -n`
+(Docker). Daemons are ended with `SIGKILL` by `mountd`: a `SIGTERM` to a
+native daemon parked in its provider `NEXT` was seen not to land before the
+power-off sync.
+
 ## Networking in an interactive boot
 
 `python tools/run_demo.py --net` (the launcher: *Networking* on the Simple

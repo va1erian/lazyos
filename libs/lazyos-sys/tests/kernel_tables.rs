@@ -157,6 +157,8 @@ fn the_messenger_ops_match_the_kernel_abi() {
         ("OP_BUFFER_CREATE", msg::op::BUFFER_CREATE),
         ("OP_BUFFER_MAP", msg::op::BUFFER_MAP),
         ("OP_BUFFER_CLOSE", msg::op::BUFFER_CLOSE),
+        ("OP_CALL_CHECK", msg::op::CALL_CHECK),
+        ("OP_CALL_DRAIN", msg::op::CALL_DRAIN),
         ("ENDPOINT_FD_CLOEXEC", msg::op::ENDPOINT_FD_CLOEXEC),
         ("CLOSE_RELEASE", msg::op::CLOSE_RELEASE),
         ("RECV_SENDER_ID", msg::op::RECV_SENDER_ID),
@@ -169,7 +171,7 @@ fn the_messenger_ops_match_the_kernel_abi() {
         assert_eq!(value_of(theirs), value, "{name}");
     }
     let op_count = table.keys().filter(|name| name.starts_with("OP_")).count();
-    assert_eq!(op_count, 24, "a new kernel op needs a name in msg::op");
+    assert_eq!(op_count, 26, "a new kernel op needs a name in msg::op");
 }
 
 #[test]
@@ -182,6 +184,7 @@ fn the_wait_flags_match_the_kernel() {
         ("WAIT_INET", msg::WAIT_INET),
         ("WAIT_CHILD", msg::WAIT_CHILD),
         ("WAIT_FD", msg::WAIT_FD),
+        ("WAIT_CALLS", msg::WAIT_CALLS),
         ("WAIT_DEADLINE_NS", msg::WAIT_DEADLINE_NS),
         ("WAIT_FD_SHIFT", u64::from(msg::WAIT_FD_SHIFT)),
         ("RAW_INPUT_READY", msg::RAW_INPUT_READY),
@@ -189,6 +192,7 @@ fn the_wait_flags_match_the_kernel() {
         ("INET_READY", msg::INET_READY),
         ("CHILD_READY", msg::CHILD_READY),
         ("FD_READY", msg::FD_READY),
+        ("CALLS_READY", msg::CALLS_READY),
     ];
     for (name, value) in ours {
         let theirs = table

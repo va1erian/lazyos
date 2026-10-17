@@ -62,6 +62,9 @@ members = [
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
+    # LazyWeb+'s ad blocker core (docs/lazywebplus.md, issue #845): filter lists to
+    # WebKit content-rule lists; portable and host-tested.
+    "crates/adblock",
 ]
 
 [dependencies]
@@ -70,11 +73,11 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }
 # The rich-text widget LazyWriter edits with (issue #533), with its native JSON
 # format (`serde`). Same revision as `xui-core`, so one `xui_core` links.
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", features = ["serde"] }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", features = ["serde"] }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -175,7 +178,7 @@ deskmenu = { path = "../libs/deskmenu" }
 # would silently replace with DHCP.
 netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
 
 # The cursor sprites, to check the shapes the backend asks for can be drawn.
 [dev-dependencies]
@@ -387,3 +390,7 @@ path = "src/bin/lazysky.rs"
 [[bin]]
 name = "xui-about"
 path = "src/bin/about.rs"
+
+[[bin]]
+name = "xui-removable"
+path = "src/bin/removable.rs"

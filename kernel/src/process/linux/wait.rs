@@ -20,7 +20,10 @@ const WEXITED: u64 = 4;
 const WCONTINUED: u64 = 8;
 const WNOWAIT: u64 = 0x0100_0000;
 /// `__WNOTHREAD`, `__WALL`, `__WCLONE`: thread-selection modifiers. LazyOS
-/// threads are never children, so they change nothing.
+/// threads are never children, so `__WALL`/`__WCLONE` change nothing.
+/// `__WNOTHREAD` (wait only for children of the calling *thread*) is accepted
+/// and ignored: every wait covers the children of the whole process, which is
+/// what a thread pool that reaps from a dedicated thread needs (issue #859).
 const W_THREAD_BITS: u64 = 0x2000_0000 | 0x4000_0000 | 0x8000_0000;
 
 /// `struct rusage` is 144 bytes on x86_64.

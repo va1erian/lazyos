@@ -45,6 +45,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 APP = ROOT / "lazyrad-os"
 MANIFEST = APP / "Cargo.toml"
 TARGET = "x86_64-unknown-linux-musl"
@@ -245,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for bin, source in sources:
         dest = dest_path(BINS[bin])
-        dest.write_bytes(source.read_bytes())
+        copy_if_changed(source, dest)
         built[bin] = str(dest)
         print(f"{bin}: {dest} ({dest.stat().st_size} bytes)", file=sys.stderr)
     if set(bins) == set(BINS):

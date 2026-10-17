@@ -14,7 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import portjudge  # noqa: E402
 
 URL = "data:text/html,<title>hello lazyos</title><p>x</p>"
+FDS = "WEBKIT:W4:FDS:held=1100:next=1103"
+MONITOR = "WEBKIT:W4:MONITOR:PASS:fd=1103:messages=3:wakeups=4:close_ms=3:invalidate_ms=1"
 GOOD = f"""boot noise
+{FDS}
+{MONITOR}
 WEBKIT:W4:UP
 WEBKIT:W4:LOAD:about:blank
 WEBKIT:W4:LOAD:{URL}
@@ -70,6 +74,19 @@ class PortJudgeTests(unittest.TestCase):
                              ("WEBKIT:W4:TITLE:hello lazyos\n", "WEBKIT:W4:TITLE:hello lazyos"),
                              ("WEBKIT:W4:PASS\n", "WEBKIT:W4:PASS")):
             self.assertIn(name, failed(GOOD.replace(marker, "")), marker)
+
+    def test_the_descriptor_mode_is_required(self) -> None:
+        fds = "WEBKIT:W4:FDS: the run's descriptors are above 1024"
+        monitor = "WEBKIT:W4:MONITOR: a socket above 1024 sees its messages and its close"
+        self.assertEqual(failed(GOOD.replace(FDS + "\n", "")), {fds})
+        self.assertEqual(failed(GOOD.replace(MONITOR + "\n", "")), {monitor})
+        # The descriptors were held, but too few: the run's IPC was below 1024.
+        self.assertEqual(failed(GOOD.replace("next=1103", "next=900")), {fds})
+        self.assertIn(monitor, failed(GOOD.replace("fd=1103", "fd=900")))
+        self.assertIn(monitor, failed(GOOD.replace("messages=3", "messages=2")))
+        # The monitor test's own failure.
+        log = GOOD.replace(MONITOR, "WEBKIT:W4:FAIL:monitor:the monitor did not see the peer close within 5 s")
+        self.assertEqual(failed(log), {monitor, "no failure lines"})
 
     def test_a_wrong_title_fails(self) -> None:
         self.assertIn("WEBKIT:W4:TITLE:hello lazyos", failed(GOOD.replace("TITLE:hello lazyos", "TITLE:oops")))

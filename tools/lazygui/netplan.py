@@ -20,7 +20,7 @@ import qemu_net  # noqa: E402  (the QEMU network arguments run_demo and the tool
 
 def wants_tls(cfg: dict) -> bool:
     """Whether the image carries the HTTPS clients (LAZYOS_TLS)."""
-    return bool(cfg.get("tls") or cfg.get("lazyweb"))
+    return bool(cfg.get("tls") or cfg.get("lazyweb") or cfg.get("lazywebplus"))
 
 
 def wants_net(cfg: dict) -> bool:

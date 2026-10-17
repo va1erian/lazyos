@@ -30,6 +30,7 @@ pub mod launch;
 pub mod net;
 pub mod platform;
 pub mod probe;
+pub mod removable;
 pub mod resident;
 pub mod server;
 pub mod services;

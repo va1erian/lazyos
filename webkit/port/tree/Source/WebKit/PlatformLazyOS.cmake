@@ -169,8 +169,9 @@ endif ()
 
 # The headless UI process: a program that drives WebKit through the C API
 # (webkit/port/smoke/, docs W4). Linked like the auxiliary processes.
-add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp")
-target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers")
+add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp" "${LAZYOS_PORT_DIR}/smoke/monitor.cpp")
+# monitor.cpp tests the IPC socket monitor's own header (SocketMonitorLazyOS.h, issue #867).
+target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${WEBKIT_DIR}/Platform/IPC/unix")
 target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR} ${Fontconfig_INCLUDE_DIRS})
 target_compile_definitions(webkit-smoke PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
@@ -187,6 +188,8 @@ set(_lazyos_app_sources
     "${LAZYOS_PORT_DIR}/app/policy.cpp"
     "${LAZYOS_PORT_DIR}/app/uiclient.cpp"
     "${LAZYOS_PORT_DIR}/app/notify.cpp"
+    "${LAZYOS_PORT_DIR}/app/children.cpp"
+    "${LAZYOS_PORT_DIR}/app/blocking.cpp"
     "${LAZYOS_PORT_DIR}/app/paint.cpp"
     "${LAZYOS_PORT_DIR}/app/log.cpp"
 )

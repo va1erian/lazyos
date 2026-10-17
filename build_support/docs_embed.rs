@@ -181,15 +181,9 @@ fn read_file(path: &Path) -> Result<Vec<u8>, String> {
 pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     // A directory is watched recursively, so an added or removed doc triggers a
     // rebuild; the root files are watched separately (outside `docs/`).
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest_dir.join(DISK_ROOT).display()
-    );
+    crate::os_image::rerun_if_changed(&manifest_dir.join(DISK_ROOT));
     for name in ROOT_DOCS {
-        println!(
-            "cargo:rerun-if-changed={}",
-            manifest_dir.join(name).display()
-        );
+        crate::os_image::rerun_if_changed(&manifest_dir.join(name));
     }
 
     let docs = match collect(manifest_dir) {

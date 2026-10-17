@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use xui_app::installer::Installed;
 use xui_core::backend::TimerId;
 
 /// One application message.
@@ -48,4 +49,7 @@ pub enum Msg {
     Quit,
     /// A timer fired; the install timer uses this to run outside the click.
     Tick(TimerId),
+    /// The async install when it finished (the lane's own `Msg`,
+    /// issue #725): the install's result and nothing else but the answer.
+    InstallDone(Result<Installed, String>),
 }

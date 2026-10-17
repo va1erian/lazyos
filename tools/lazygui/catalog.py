@@ -23,6 +23,7 @@ from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa
                         SIMPLE_OPTIONS, group_switches, simple_config)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
+from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .netplan import dbgd_argv, dbgd_env, net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
@@ -71,53 +72,9 @@ MODES = [
      "target/xui."),
 ]
 
-# (file, label, switches, xui-app) - `switches` are the image build switches a
-# script needs; `xui-app` names the viewer to embed via LAZYOS_XUI_APP. A
-# `desktop` script (the document apps) instead boots the desktop profile with
-# every desktop app embedded and only `xui-app` autostarted (`term` for the
-# scripts that only wait for the Terminal: nothing opens at boot by default).
-SCRIPTS = [
-    ("type_and_shot.json", "Type & shot (input smoke test)", (), None),
-    ("multitask_demo.json", "Multitask (two windows, Tab focus)", (), None),
-    ("fs_demo.json", "Filesystem (ls / cat)", (), None),
-    ("window_demo.json", "Window move / scroll", (), None),
-    ("mouse_demo.json", "Mouse move", (), None),
-    ("services_demo.json", "Services (health / log / registry)", ("services",), None),
-    ("login_demo.json", "Login & accounts", ("services",), None),
-    ("apps_demo.json", "App launch & open-with", ("services",), None),
-    ("dnd_drop.json", "Drag & drop (drop)", ("xuid",), None),
-    ("dnd_cancel.json", "Drag & drop (cancel)", ("xuid",), None),
-    ("xuid_wm.json", "XUID window manager", ("xuid",), None),
-    ("xuid_shell.json", "XUID shell protocol (Alt+F4/Tab)", ("xuid", "shellprobe"), None),
-    ("xui_counter.json", "XUI app: counter (click to increment)", ("xuid",), "counter"),
-    ("xui_sysmon.json", "XUI app: sysmon (tasks, memory, services)", ("xuid", "services"), "sysmon"),
-    ("xui_fabricmon.json", "XUI app: fabricmon (services)", ("xuid", "services"), "fabricmon"),
-    ("xui_client.json", "XUI app: compositor client (window/focus)", ("xuid", "xui_client"), "client"),
-    ("xui_editor.json", "XUI app: Editor (type, save)", ("desktop",), "editor"),
-    ("xui_paint.json", "XUI app: Paint (draw, save PNG)", ("desktop",), "paint"),
-    ("xui_paint_editor.json", "XUI app: Paint editor (layers, text, gradient, ORA, PNG)",
-        ("desktop",), "paint"),
-    ("xui_files.json", "XUI app: Files (browse, open)", ("desktop",), "files"),
-    ("xui_writer.json", "XUI app: LazyWriter (format, save, export)", ("desktop",), "writer"),
-    ("xui_archiver.json", "XUI app: Archiver (open, extract, create, drag to Files)",
-     ("desktop",), "archiver"),
-    ("xui_settings.json", "XUI app: Settings (menu, colours, layout)", ("desktop",), "term"),
-    ("shell_demo.json", "LazyShell (taskbar, start menu, restart)", ("desktop",), "term"),
-    ("xui_settings_time.json", "XUI app: Settings (time, clock format, light mode)",
-     ("desktop",), "term"),
-    ("xui_settings_hidden.json", "XUI app: Settings (hide an app from the start menu)",
-     ("desktop",), "term"),
-    ("xui_calc.json", "XUI app: Calculator", ("desktop",), "calc"),
-    ("xui_pdf.json", "XUI app: PDF Viewer", ("desktop",), "pdf"),
-    ("tray.json", "Tray icons (Tray Demo)", ("desktop",), "term"),
-    ("lazyrad_pictures.json", "Picture Viewer (open, page, rotate, zoom)", ("desktop",), "term"),
-    ("xui_golf.json", "XUI app: LazyGolf", ("desktop",), "golf"),
-    ("xui_video.json", "XUI app: Video Player", ("desktop",), "video"),
-    ("xui_about.json", "XUI app: About LazyOS", ("desktop",), "about"),
-]
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -150,9 +107,17 @@ def check_limits(cfg: dict) -> None:
 
 
 def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
-    """The "Build image" button's steps and environment (``ValueError`` on bad limits)."""
-    osvolume.check(cfg, IMAGE)
-    return app_steps(cfg) + [cargo_step(cfg)], build_env(cfg)
+    """The "Build image" button's steps and environment (``ValueError`` on bad limits).
+
+    The button runs `cargo build` itself, not `run_demo.py` (which would
+    recreate a too small OS volume), so the recreate is in the environment: the
+    launcher asked first (`datavol.confirm_reset_os`). Without it the build ran
+    for its whole length and failed at the last step, "resizing is not supported".
+    """
+    env = build_env(cfg)
+    if osvolume.reset_on_build_button(cfg, IMAGE):
+        env["LAZYOS_RESET_OS"] = "1"
+    return app_steps(cfg) + [cargo_step(cfg)], env
 
 
 def build_env(cfg: dict) -> dict[str, str]:
@@ -198,6 +163,11 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg["busybox"]:
         env["LAZYOS_BUSYBOX"] = cfg["busybox"]
     env.update(osvolume.env(cfg, IMAGE))  # fit the OS volume; never resize one
+    if osvolume.reset_on_run(cfg, IMAGE):
+        # "Recreate the OS volume", the first-boot setup, or a volume too small
+        # for the selection. The demo also passes `--reset-os` to `run_demo.py`;
+        # the other modes run `cargo build` themselves, and ignored the box.
+        env["LAZYOS_RESET_OS"] = "1"
     if cfg.get("cli"):
         env["LAZYOS_CLI"] = "1"
     if cfg.get("lazyrad"):
@@ -230,6 +200,11 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_MODPLAYER"] = "1"
         env["LAZYOS_LAZYRAD"] = "1"
         env["LAZYRAD_SAMPLES"] = lazyrad_samples(cfg.get("lazyrad_samples", ""))
+    if cfg.get("usb_sticks", "").strip():
+        # Sticks plugged into the guest (`--usb-stick`): the driver, and a
+        # services session that starts it and the automount.
+        env["LAZYOS_USB"] = "1"
+        env.setdefault("LAZYOS_SERVICES", "1")
     if cfg.get("usb_image") or cfg.get("installer"):
         # Also writes target/lazyos-usb.img, the real-PC USB stick image
         # (docs/usb-stick.md); the run itself still boots target/lazyos.img.
@@ -325,6 +300,17 @@ def _script(cfg: dict) -> tuple:
     return SCRIPTS[cfg["script"]]
 
 
+def sample_argv(cfg: dict) -> list[str]:
+    """`--sample-port N` for the Advanced tab's "Sample port" (a QEMU argument,
+    so it applies with "Skip build" too); empty means none."""
+    port = str(cfg.get("sample_port") or "").strip()
+    if not port:
+        return []
+    if not port.isdigit() or not 1024 <= int(port) <= 65535:
+        raise ValueError(f"Sample port must be a number from 1024 to 65535, not {port!r}")
+    return ["--sample-port", port]
+
+
 def build_plan(cfg: dict) -> list[dict]:
     """Turn a configuration dict into an ordered list of steps."""
     check_limits(cfg)
@@ -416,6 +402,8 @@ def build_plan(cfg: dict) -> list[dict]:
             argv.append("--no-home-disk")
         if cfg.get("data_disk", False):
             argv += ["--data-disk", cfg.get("data_path") or DATA_IMAGE]
+        for stick in shlex.split(cfg.get("usb_sticks", "") or ""):
+            argv += ["--usb-stick", stick]
         # Recreate the OS volume (apps, settings, logs) instead of updating it; it needs a
         # build, so "Skip build" wins. run_demo asks before erasing and has no terminal
         # here, so the GUI asks first (datavol.confirm_reset_os) and passes --yes for it.
@@ -425,6 +413,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # A virtio-net card on QEMU's user network with the forwards; run_demo
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)
+        argv += sample_argv(cfg)  # a QMP socket for tools/webplus/sample.py (#861)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

@@ -144,8 +144,46 @@ fn handle_op(op: u64, args: &MsgArgs) -> Result<MsgResult, i64> {
         OP_BUFFER_CREATE => bufop::op_buffer_create(args),
         OP_BUFFER_MAP => bufop::op_buffer_map(args),
         OP_BUFFER_CLOSE => bufop::op_buffer_close(args),
+        OP_CALL_CHECK => op_call_check(args),
+        OP_CALL_DRAIN => op_call_drain(args),
         _ => Err(errno::EINVAL),
     }
+}
+
+/// [`OP_CALL_CHECK`]: the terminal outcome, without parking.
+fn op_call_check(args: &MsgArgs) -> Result<MsgResult, i64> {
+    let reply = channels::await_reply_now(args.txn_id).map_err(channel_errno)?;
+    write_reply(args, &reply)
+}
+
+/// [`OP_CALL_DRAIN`]: the finished transactions of the completion queue.
+fn op_call_drain(args: &MsgArgs) -> Result<MsgResult, i64> {
+    if args.buf_cap == 0 {
+        return Err(errno::EINVAL);
+    }
+    // The queue can never hold more than `completion::CAPACITY` entries,
+    // so this is the most the op ever fills (an untrusted `buf_cap`
+    // allocates nothing larger).
+    let slice = (args.buf_cap as usize / 8).min(channels::completion::CAPACITY);
+    // `access_range` on the caller's buffer first (the block's rule).
+    access_range(args.buf_ptr, slice * 8, true)?;
+    let mut ids = alloc::vec![0u64; slice];
+    let me = crate::task::current();
+    let count = channels::completion::take(me, ids.as_mut());
+    if count > 0 {
+        let bytes: alloc::vec::Vec<u8> = ids[..count]
+            .iter()
+            .flat_map(|id| id.to_le_bytes())
+            .collect();
+        // The ids are consumed before this write, so a faulting buffer
+        // (a pre-validated range never faults for a legitimate caller)
+        // would lose them: documented, not recovered.
+        copy_out(args.buf_ptr, &bytes[..count * 8])?;
+    }
+    Ok(MsgResult {
+        value: count as u64,
+        ..MsgResult::default()
+    })
 }
 
 /// Read a request parcel, bounded by the wire limit before any copying. This
@@ -420,6 +458,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
+        WouldBlock => errno::EAGAIN,
         BadTransfer | UnsupportedTransfer | UndeclaredObject | WrongObjectKind => errno::EINVAL,
     }
 }

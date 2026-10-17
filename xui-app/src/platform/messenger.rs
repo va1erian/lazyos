@@ -14,7 +14,7 @@
 //! call that finds the peer gone evicts the entry so the next call re-resolves
 //! a restarted service.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 
@@ -40,6 +40,25 @@ thread_local! {
     /// Endpoints resolved by this task, one per service name. Never closed, so
     /// the service's endpoint outlives every individual call.
     static SERVICES: RefCell<Vec<Cached>> = const { RefCell::new(Vec::new()) };
+    /// Threads the tree's worker closures run on (`mark_worker`): the
+    /// deadline-less call forms are theirs, and the platform clients use
+    /// the marker to keep the same API bounded on UI threads.
+    static WORKER: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Mark the current thread as one of the tree's worker threads (no UI
+/// loop runs here): a deadline-less [`Service::call_unbounded`] is only
+/// legitimate on them, and the UI-thread paths they share the code with
+/// consult [`worker_thread`] to keep the bounded shape.
+pub fn mark_worker() {
+    WORKER.with(|worker| worker.set(true));
+}
+
+/// Whether the calling thread was marked with [`mark_worker`]: false on
+/// every UI thread, which is what keeps the platform client's per-call
+/// budgets the default.
+pub fn worker_thread() -> bool {
+    WORKER.with(Cell::get)
 }
 
 fn cached(name: &str) -> Option<u64> {
@@ -113,8 +132,12 @@ impl Service {
         Some(Service { name, endpoint })
     }
 
-    /// One synchronous call on the service; a structured error field `error_id`
-    /// in the reply becomes its negative errno.
+    /// One synchronous call on the service, bounded by `ticks` PIT ticks
+    /// (give up with `-ETIMEDOUT` afterwards): a call whose UI must not
+    /// freeze behind a stalled or missing service. `0` counts as `1`: a
+    /// deadline-less call needs [`Service::call_unbounded`] and a worker
+    /// thread. A structured error field `error_id` in the reply becomes its
+    /// negative errno.
     ///
     /// A dead peer (`-EPIPE`, or `-ENOENT` from a reaped registration) evicts
     /// the cached endpoint so a later call resolves the service again.
@@ -124,8 +147,9 @@ impl Service {
         method: u32,
         error_id: u16,
         body: Vec<u8>,
+        ticks: u64,
     ) -> Result<Parcel, i64> {
-        self.call_detailed(interface, method, error_id, body)
+        self.call_detailed(interface, method, error_id, body, ticks)
             .map_err(|error| error.code)
     }
 
@@ -133,49 +157,6 @@ impl Service {
     /// caller that shows the refusal to the user (the package installer shows
     /// why `pkgd` declined).
     pub fn call_detailed(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-    ) -> Result<Parcel, CallError> {
-        self.call_at(interface, method, error_id, body, 0)
-    }
-
-    /// [`Service::call`] that gives up at `deadline` (an absolute PIT tick;
-    /// `0` waits forever) with `-ETIMEDOUT`, for a caller whose UI must not
-    /// freeze behind a stalled service (the desktop shell).
-    pub fn call_until(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        deadline: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_at(interface, method, error_id, body, deadline)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call`] that gives up with `-ETIMEDOUT` after `ticks` PIT
-    /// ticks, for a caller on the UI thread that must not wait forever on a
-    /// peer that accepted the request but never answers (the Task Manager's
-    /// once-a-second snapshots).
-    pub fn call_within(
-        &self,
-        interface: u64,
-        method: u32,
-        error_id: u16,
-        body: Vec<u8>,
-        ticks: u64,
-    ) -> Result<Parcel, i64> {
-        self.call_detailed_within(interface, method, error_id, body, ticks)
-            .map_err(|error| error.code)
-    }
-
-    /// [`Service::call_within`] keeping the service's friendly error text
-    /// (the print spooler's refusals reach LazyWriter's status line).
-    pub fn call_detailed_within(
         &self,
         interface: u64,
         method: u32,
@@ -189,6 +170,115 @@ impl Service {
             .saturating_add(ticks.max(1))
             .max(sys::EXPIRED_DEADLINE + 1);
         self.call_at(interface, method, error_id, body, deadline)
+    }
+
+    /// [`Service::call_until`] bounded by an absolute PIT tick (`0` waits
+    /// forever): the shell's own form, which already knows its window. A
+    /// deadline-less use is a UI-thread caller — see
+    /// [`Service::call_unbounded`] — and must not grow here.
+    pub fn call_until(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+    ) -> Result<Parcel, i64> {
+        self.call_at(interface, method, error_id, body, deadline)
+            .map_err(|error| error.code)
+    }
+
+    /// A deadline-less call: never on the UI thread, which parks until the
+    /// service answers and cannot repaint while it waits. The tree's worker
+    /// threads (Settings' machine writes, Files' paste) may call it; every
+    /// UI-thread site in `xui-app` is [`Service::call`] or stricter, which
+    /// the `tools/xui/check_call_bounds.py` CI step enforces.
+    pub fn call_unbounded(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+    ) -> Result<Parcel, i64> {
+        self.call_detailed_unbounded(interface, method, error_id, body)
+            .map_err(|error| error.code)
+    }
+
+    /// [`Service::call_unbounded`] keeping the service's friendly error text.
+    pub fn call_detailed_unbounded(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+    ) -> Result<Parcel, CallError> {
+        self.call_at(interface, method, error_id, body, 0)
+    }
+
+    /// Begin a call and keep the window paintable while the service works
+    /// (issue #725's UI integration): the request goes out now and
+    /// [`on_done`] — on the UI thread, at the tick the kernel's
+    /// `WAIT_CALLS` doorbell gave the loop — carries the reply, with the
+    /// service's structured error resolved just like
+    /// [`Service::call_detailed`] would have. `deadline` is an absolute PIT
+    /// tick, `0` waits for ever: the caller who began it is not parked, so
+    /// only the app's own patience for a still-open call is a bound. The
+    /// lane runs on the thread the backend's loop runs on (the only one
+    /// whose `tick` drains it); a call begun elsewhere waits for a drain
+    /// that thread never makes, so do not.
+    ///
+    /// The begin's own errors are transport failures (a dead peer evicts
+    /// the cached endpoint, as for [`Service::call`]); they arrive in
+    /// [`on_done`]'s result.
+    pub fn call_async(
+        &self,
+        interface: u64,
+        method: u32,
+        error_id: u16,
+        body: Vec<u8>,
+        deadline: u64,
+        on_done: Box<dyn FnOnce(Result<Parcel, CallError>)>,
+    ) -> Result<(), i64> {
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: libmessenger::flags::ALLOW_NESTED,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            objects: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        if parcel.encode(&mut bytes).is_err() {
+            return Err(-errno::EINVAL);
+        }
+        crate::backend::calls::begin(
+            self.endpoint,
+            &bytes,
+            deadline,
+            Box::new(move |result| {
+                on_done(match result {
+                    Ok(reply) => match error_field(&reply, error_id) {
+                        Some(call_error) => Err(call_error),
+                        None => Ok(reply),
+                    },
+                    Err(code) => Err(CallError {
+                        code,
+                        message: String::new(),
+                    }),
+                })
+            }),
+        )
+        .map_err(|code| {
+            if code == -errno::EPIPE || code == -errno::ENOENT {
+                forget(self.name);
+            }
+            code
+        })
     }
 
     /// [`Service::call_within`] whose request carries `objects` (what the

@@ -16,7 +16,7 @@ surface used by every address space.
 | `kernel/src/mem/mod.rs` | Kernel tables, `init`, `map_kernel_range`, re-exports |
 | `kernel/src/mem/regions.rs` | The usable regions: firmware map merged, sorted, page aligned |
 | `kernel/src/mem/layout.rs` | The shared virtual layout (user window, shared-buffer window, kernel half) |
-| `kernel/src/mem/vma.rs` | Per-address-space VMA list (see [virtual-memory.md](virtual-memory.md)) |
+| `kernel/src/mem/vma/` | Per-address-space VMA list (see [virtual-memory.md](virtual-memory.md)) |
 | `kernel/src/mem/heap.rs`, `slab.rs` | Kernel allocators (see [allocators.md](allocators.md)) |
 
 **Allocator model** (`Frames`, `mem/frames.rs`)

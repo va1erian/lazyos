@@ -119,6 +119,10 @@ pub trait Engine {
     fn load(&self, url: &str);
     fn reload(&self);
     fn stop(&self);
+    /// The page's process does not answer ([`Event::PageResponsive`](crate::events::Event::PageResponsive)
+    /// said so) and the person chose a way out: its process is ended, and with `reload` the page is
+    /// loaded again in a fresh one; without, it stays stopped until the next load.
+    fn recover(&self, reload: bool);
     fn back(&self);
     fn forward(&self);
     /// The page view's size changed.
@@ -157,6 +161,14 @@ pub trait Engine {
     /// Forgets what the engine knows about `origin`'s decision (`Notification.permission` is
     /// `default` again): a decision the person revoked.
     fn notify_forget(&self, origin: &str);
+    /// Attaches the rule list `id` the store already holds (compiled by an earlier run); the
+    /// result is an [`Event::BlockingList`](crate::events::Event::BlockingList).
+    fn blocking_load(&self, id: &str);
+    /// Compiles `json` (a WebKit content-rule list) as rule list `id`, stores and attaches it;
+    /// compiling takes a while, so the result comes later as an `Event::BlockingList`.
+    fn blocking_compile(&self, id: &str, json: &str);
+    /// Detaches rule list `id` and removes it from the store.
+    fn blocking_forget(&self, id: &str);
 }
 
 /// One call an engine received, for tests.
@@ -165,6 +177,7 @@ pub enum Call {
     Load(String),
     Reload,
     Stop,
+    Recover(bool),
     Back,
     Forward,
     Resize(i32, i32),
@@ -180,6 +193,10 @@ pub enum Call {
     NotifyClosed(u64),
     NotifyPermission(String, NotifyAnswer),
     NotifyForget(String),
+    BlockingLoad(String),
+    /// The id and the JSON's length: a recording keeps no megabytes.
+    BlockingCompile(String, usize),
+    BlockingForget(String),
 }
 
 /// An engine that records its calls.
@@ -213,6 +230,9 @@ impl Engine for Recorder {
     }
     fn stop(&self) {
         self.push(Call::Stop);
+    }
+    fn recover(&self, reload: bool) {
+        self.push(Call::Recover(reload));
     }
     fn back(&self) {
         self.push(Call::Back);
@@ -258,6 +278,15 @@ impl Engine for Recorder {
     }
     fn notify_forget(&self, origin: &str) {
         self.push(Call::NotifyForget(origin.to_string()));
+    }
+    fn blocking_load(&self, id: &str) {
+        self.push(Call::BlockingLoad(id.to_string()));
+    }
+    fn blocking_compile(&self, id: &str, json: &str) {
+        self.push(Call::BlockingCompile(id.to_string(), json.len()));
+    }
+    fn blocking_forget(&self, id: &str) {
+        self.push(Call::BlockingForget(id.to_string()));
     }
 }
 

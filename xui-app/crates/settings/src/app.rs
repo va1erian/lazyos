@@ -425,16 +425,19 @@ impl App for SettingsApp {
                     .keyboard
                     .update(msg, store, self.machine.as_ref()),
             ),
-            Msg::Time(msg) => say(
-                &self.status,
-                self.pages.time.update(msg, store, self.system.as_ref()),
-            ),
+            Msg::Time(msg) => {
+                let text = self.time_update(ui, msg, store);
+                say(&self.status, text);
+            }
             Msg::AboutRefresh => self.pages.about.load(self.system.as_ref()),
             Msg::Accounts(msg) => say(
                 &self.status,
                 self.pages.accounts.update(msg, self.accounts.as_ref()),
             ),
-            Msg::Menu(msg) => say(&self.status, self.pages.menu.update(msg, store)),
+            Msg::Menu(msg) => {
+                let text = self.menu_update(ui, msg, store);
+                say(&self.status, text);
+            }
             Msg::Hidden(msg) => say(&self.status, self.pages.hidden.update(msg, store)),
             Msg::Defaults(msg) => say(&self.status, self.pages.defaults.update(msg, store)),
         }

@@ -1,9 +1,12 @@
 # LazyOS networking — exploration and plan
 
-Status: **N0 and N1 built** (2026-09-30): the NIC interface is real MIDL,
+Status: **N0-N5 built** (N0/N1 landed 2026-09-30, `netd`/the Linux `AF_INET`
+shim and several cards later): the NIC interface is real MIDL (`idl/net.midl`),
 `libs/framering`, `libs/virtio-net` and `libs/nicdrv` exist with host tests and
 fuzzing, the queue cap is resolved, and `netdrv` brings up a virtio-net card in
-QEMU with a packet-capture-judged harness. N2 and later are not built; see
+QEMU with a packet-capture-judged harness; `netd` (smoltcp) serves DHCP,
+TCP/UDP/DNS and the tools below, and a machine can have several cards. Not
+built: loopback, IPv6, a firewall, service daemons, remote Messenger. See
 §10.1 for the state of each stage and §13 for what the plan got wrong. What is built is described in
 [architecture/networking.md](architecture/networking.md).
 Scope: the shortest credible path from "no network" to basic tools working
@@ -37,12 +40,12 @@ Related: [driver-plan.md](driver-plan.md) (D5, the NIC driver),
 
 | Piece | State today | Evidence |
 |---|---|---|
-| Network stack, `AF_INET` | none; `socket()` returns `EAFNOSUPPORT` for anything but `AF_UNIX` | `kernel/src/process/linux/socket.rs` |
+| Network stack, `AF_INET` | done (N5): `AF_INET` and `AF_UNIX` sockets reach `netd`; anything else is `EAFNOSUPPORT` | `kernel/src/ipc/inet/`, `kernel/src/process/linux/socket.rs` |
 | Device core, `dev_*` syscall 23, INTx to userspace, DMA pool | done (D1–D4) | [architecture/devices.md](architecture/devices.md) |
 | Modern virtio-PCI transport, split virtqueues | done, host tested, used by `sndd` | `libs/virtio` |
 | A real virtio-net interrupt reaching a userspace claimant | proven on `pc` and `q35` (test only, legacy device, raw `pio`) | `dev_irq_real_device_end_to_end`, `tools/test/run.py --nic` |
 | NIC driver, `devd`, `_net` uid, driver manifest | done (`devd` and the e1000 with issue #497) | issues #241, #497 |
-| `os.lazy.net.nic.v1` | **prose only**: `docs/idl/os.lazy.net.nic.v1.md` exists from D0, but there is no `idl/*.midl` for it and no entry in `idl/manifest.json` | `idl/` |
+| `os.lazy.net.nic.v1` | defined in `idl/net.midl`, served per interface as `os.lazy.net.nic/<ifname>` (there is no bare `os.lazy.net.nic`) | `idl/net.midl` |
 | Driver config keys | specified (`net/<drv>/mtu`, `rx_ring_entries`, `mac_override`, ...) | [driver-config-plan.md](driver-config-plan.md) §2 |
 | Linux fd layer | `Fd` enum with pipes, `AF_UNIX` stream/seqpacket pairs, listeners, `poll`, `epoll` with edge generations | `kernel/src/task/fdtypes.rs`, `kernel/src/ipc/epoll.rs` |
 | BusyBox | `defconfig` static build already runs on the shim; its network applets are compiled in and simply fail at `socket()` | `tools/abi/busybox.py` |
@@ -361,8 +364,8 @@ What falls out once it works:
 - Not covered: netlink and the `SIOCGIF*` ioctls, so BusyBox `ifconfig`/`route`
   will not work; `netctl` is the supported tool.
 
-Also note `FD_COUNT` is 16 per task: enough for the tools here, tight for any
-real server.
+Also note the descriptor table follows `limit.fd_max` (8192 by default), so
+the tools here have ample room rather than the 16-fd cap of an earlier draft.
 
 ### 7.3 Authority and policy
 
@@ -488,8 +491,8 @@ network) builds on the same interfaces.
 8. **smoltcp TCP limits** (no SACK/timestamps, one connection per listening
    socket). Acceptable for the goal; the fallback if it ever is not would be
    vendoring Netstack3's core, which is a large project.
-9. **Task and fd budgets.** Two more always-on services (driver, `netd`) and
-   16 fds per task. Fine now (`MAX_TASKS` is 256); revisit for servers.
+9. **Task and fd budgets.** Two more always-on services (driver, `netd`).
+   Fine now (`MAX_TASKS` is 1024, `limit.fd_max` 8192); revisit for servers.
 10. **Trusted DMA driver.** Unchanged from driver-plan D5; the split in §4.1
     keeps the parser out of that trust domain.
 

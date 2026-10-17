@@ -212,9 +212,14 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-changed=build_support/wifi_embed.rs");
     let manifest = manifest_dir.join(MANIFEST);
     let cache = manifest_dir.join(CACHE);
-    // Watched even when unused: a fetch or a bump reruns the build.
-    println!("cargo:rerun-if-changed={}", manifest.display());
-    println!("cargo:rerun-if-changed={}", cache.display());
+    // Watched even when unused: a fetch or a bump reruns the build. The cache
+    // only once a fetch has made it (a missing path is always "changed" to
+    // cargo, and nothing is lost: without it `LAZYOS_WIFI=1` fails the build,
+    // and its variable is watched).
+    crate::os_image::rerun_if_changed(&manifest);
+    if cache.exists() {
+        crate::os_image::rerun_if_changed(&cache);
+    }
     if !enabled() {
         return;
     }
@@ -228,7 +233,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     let files =
         firmware_files(&pins, SWITCH, &cache).unwrap_or_else(|why| panic!("LAZYOS_WIFI=1: {why}"));
     for (dest, source) in files {
-        println!("cargo:rerun-if-changed={}", source.display());
+        crate::os_image::rerun_if_changed(&source);
         sink.add_file(&dest, source);
     }
 }

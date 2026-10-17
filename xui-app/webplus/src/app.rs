@@ -18,7 +18,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use xui_core::app::{App, Ui};
 use xui_core::backend::Result;
 use xui_core::geometry::Rect;
-use xui_core::icon::Lucide;
 use xui_core::widget::{Button, DialogAction, Edit, HasText, Label, Menu, Placeable, ProgressBar};
 use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
@@ -26,21 +25,26 @@ use xui_webkit::view::PageView;
 
 mod commands;
 mod events;
+mod hang;
 mod host;
 mod notifications;
+mod shield;
+mod status;
 
 pub use host::{Host, Probe, Setup};
 
 use crate::address;
+use crate::blocker::{self, Blocker};
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
+use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
 use crate::marker_text;
 use crate::notify::{BarAnswer, Notifications};
-use crate::pages::{self, ABOUT, DOWNLOADS, HISTORY};
+use crate::pages::{self, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -77,8 +81,12 @@ pub enum Msg {
     Dialog(DialogAction),
     /// The person answered the bar a site's request to notify them shows.
     NotifyAnswer(BarAnswer),
+    /// The person answered the bar a page that does not respond shows.
+    Hang(HangAnswer),
     /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
     Shell,
+    /// A list of the ad blocker changed state on the worker's thread.
+    BlockerChanged,
 }
 
 /// The window's widgets and state.
@@ -91,6 +99,7 @@ pub struct Browser {
     forward: Rc<Button<Msg>>,
     reload: Rc<Button<Msg>>,
     throbber: Rc<Throbber>,
+    shield: Rc<Button<Msg>>,
     status: Rc<Label<Msg>>,
     badge: Rc<Badge>,
     download_label: Rc<Label<Msg>>,
@@ -98,6 +107,8 @@ pub struct Browser {
     dialogs: Dialogs,
     /// The permission bar and what it is asking about.
     bar: notifications::Bar,
+    /// The "not responding" bar and its question.
+    hang: hang::Bar,
     notifications: Notifications,
     /// When the window was built: the clock the notification limits run on.
     started: Instant,
@@ -106,6 +117,11 @@ pub struct Browser {
     visits: Visits,
     transfers: Transfers,
     internal: Internal,
+    blocker: Blocker,
+    /// The web page browsed last (not one of our own): what the ad blocker's "this site" means.
+    site_url: Option<String>,
+    /// What the shield shows now (blocked, applies, ready): touched only on a change.
+    shield_shown: Cell<Option<(u32, bool, bool)>>,
     host: Host,
     /// The page as the engine last reported it.
     state: PageState,
@@ -128,11 +144,10 @@ pub struct Browser {
     announced: Cell<(i32, i32)>,
     /// The previous picture's buffer, reused for the next frame.
     spare: Vec<u8>,
-    /// Back, Forward and loading as last shown: setting a button repaints it, and state arrives
-    /// many times a second.
+    /// Back, Forward and loading as last shown (a button repaints when set).
     buttons: Cell<Option<[bool; 3]>>,
     frames: u64,
-    /// Whether the status bar's shown text is the one in `message`/`hover`, for the tests.
+    /// The status bar's shown text (for the tests).
     shown: RefCell<String>,
 }
 
@@ -151,6 +166,7 @@ impl Browser {
             internal,
             permissions,
             toasts,
+            blocker,
             host,
         } = setup;
         let loading = Rc::new(Cell::new(false));
@@ -162,6 +178,10 @@ impl Browser {
         ))?;
 
         let proxy = ui.proxy();
+        let blocker_proxy = ui.proxy();
+        blocker.on_change(move || {
+            let _ = blocker_proxy.send(Msg::BlockerChanged);
+        });
         mailbox.set_notify(move |notice| {
             let _ = proxy.send(match notice {
                 Notice::Frame => Msg::Frame,
@@ -188,12 +208,14 @@ impl Browser {
             forward: widgets.forward.get(),
             reload: widgets.reload.get(),
             throbber: widgets.throbber.get(),
+            shield: widgets.shield.get(),
             status: widgets.status.get(),
             badge: widgets.badge.get(),
             download_label: widgets.download_label.get(),
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
             bar: notifications::Bar::new(&widgets),
+            hang: hang::Bar::new(&widgets),
             notifications: Notifications::new(permissions, toasts),
             started: Instant::now(),
             engine,
@@ -201,6 +223,9 @@ impl Browser {
             visits,
             transfers,
             internal,
+            blocker,
+            site_url: None,
+            shield_shown: Cell::new(None),
             host,
             state: PageState::default(),
             caption: APP_NAME.to_owned(),
@@ -221,6 +246,8 @@ impl Browser {
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
+        browser.hang.start_hidden(ui);
+        browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
     }
@@ -245,78 +272,6 @@ impl Browser {
         self.shown.borrow().clone()
     }
 
-    fn trace(&self, line: &str) {
-        if self.host.traces {
-            println!("WEBPLUS:{line}");
-        }
-    }
-
-    fn set_loading(&mut self, on: bool) {
-        self.loading.set(on);
-        self.throbber.set_spinning(on);
-    }
-
-    /// Shows `text` in the status bar until something replaces it; a link under the pointer is
-    /// shown over it.
-    fn set_status(&mut self, text: &str) {
-        self.message = text.to_owned();
-        self.refresh_status();
-    }
-
-    fn refresh_status(&self) {
-        let text = if self.hover.is_empty() {
-            &self.message
-        } else {
-            &self.hover
-        };
-        if *self.shown.borrow() != *text {
-            self.status.set_text(text);
-            self.shown.replace(text.clone());
-        }
-    }
-
-    /// The address the bar shows for the engine's `url`: our pages by name.
-    fn shown_url(&self, url: &str) -> String {
-        self.internal.shown(url).to_owned()
-    }
-
-    /// Enables Back, Forward and Stop, and turns Reload into Stop while a page
-    /// loads, touching them only when that changed.
-    fn update_buttons(&self) {
-        let state = [
-            self.state.can_back,
-            self.state.can_forward,
-            self.state.loading,
-        ];
-        if self.buttons.replace(Some(state)) == Some(state) {
-            return;
-        }
-        self.back.set_enabled(state[0]);
-        self.forward.set_enabled(state[1]);
-        let (icon, tip) = if state[2] {
-            (Lucide::X, "Stop (Esc)")
-        } else {
-            (Lucide::RefreshCw, "Reload (F5)")
-        };
-        self.reload.set_icon(Some(icon));
-        let _ = self.reload.set_tooltip(tip);
-        self.menu.set_enabled(Command::Back.id(), state[0]);
-        self.menu.set_enabled(Command::Forward.id(), state[1]);
-        self.menu.set_enabled(Command::Stop.id(), state[2]);
-    }
-
-    /// Shows the running downloads in the status bar, or hides that part.
-    fn update_downloads(&self, ui: &Ui<Msg>) {
-        let summary = self.transfers.summary();
-        ui.set_visible(self.download_label.id(), summary.is_some());
-        let percent = summary.as_ref().and_then(|s| s.percent);
-        ui.set_visible(self.download_bar.id(), percent.is_some());
-        if let Some(summary) = summary {
-            self.download_label.set_text(&summary.text);
-            self.download_bar.set_value(percent.unwrap_or(0));
-        }
-    }
-
     /// Builds one of the browser's own pages as it stands now.
     fn build_page(&mut self, name: &'static str) -> String {
         let html = match name {
@@ -329,6 +284,12 @@ impl Browser {
                 env!("CARGO_PKG_VERSION"),
                 &self.notifications.permissions().sites(),
             ),
+            BLOCKER => blocker::page::blocker(&blocker::page::Report {
+                settings: self.blocker.settings(),
+                lists: self.blocker.lists(),
+                site: self.site_url.as_deref().and_then(blocker::site_of),
+                blocked: self.blocker.blocked(),
+            }),
             _ => return self.internal.start(),
         };
         self.internal.build(name, &html)
@@ -417,6 +378,7 @@ impl Browser {
             ("back", ui.bounds(self.back.id())),
             ("forward", ui.bounds(self.forward.id())),
             ("reload", ui.bounds(self.reload.id())),
+            ("shield", ui.bounds(self.shield.id())),
             ("page", page),
             (
                 "page_origin",
@@ -426,6 +388,9 @@ impl Browser {
         // The bar's own controls, while it is up: a session answers it by name.
         if self.bar.shown().is_some() {
             named.extend(self.bar.controls(ui));
+        }
+        if self.hang.visible() {
+            named.extend(self.hang.controls(ui));
         }
         for (name, rect) in named {
             (self.host.probe)(&self.caption, name, rect);
@@ -485,6 +450,7 @@ impl App for Browser {
                 }
             }
             Msg::PageMenu(x, y) => self.show_context(ui, (x, y)),
+            Msg::BlockerChanged => self.blocker_changed(),
             Msg::Dialog(action) => {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine
@@ -492,6 +458,7 @@ impl App for Browser {
                 }
             }
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
+            Msg::Hang(answer) => self.hang_answer(ui, answer),
             Msg::Shell => self.shell_news(ui),
         }
         self.update_buttons();

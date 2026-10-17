@@ -11,6 +11,7 @@ from qemu_qmp import DEFAULT_MEMORY  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
+import qemu_serial  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import WEBKIT_LIMITS, add_limit_option, big_app, build_limits, with_defaults  # noqa: E402
@@ -36,6 +37,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--release", action="store_true",
                         help="build the optimized release profile (slower in QEMU)")
     parser.add_argument("--headless", action="store_true", help="no display window")
+    qemu_serial.add_arguments(parser)
     parser.add_argument("--image", default=str(default_image), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
@@ -141,6 +143,14 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="also write target/lazyos-usb.img, the image for a real PC's "
                              "USB stick (LAZYOS_USB_IMAGE=1 LAZYOS_USB=1, a services session; docs/usb-stick.md); the run "
                              "still boots target/lazyos.img (tools/boot/run.py boots the stick)")
+    parser.add_argument("--usb-stick", action="append", default=[], metavar="PATH",
+                        help="plug a USB stick image into the guest's xHCI controller "
+                             "(repeatable; created as an empty 64 MiB FAT32 stick, label LAZYFAT, "
+                             "if missing). Builds with LAZYOS_USB=1 (usbd, a services session): "
+                             "a FAT stick is mounted at /media/<label> once you are logged in "
+                             "(docs/architecture/usb-storage.md). The devices are `usbstick<n>`, "
+                             "so QEMU's monitor (Ctrl-A c) can `device_del usbstick0` and "
+                             "`device_add usb-storage,bus=xhci.0,drive=ustk0,id=usbstick0`")
     parser.add_argument("--installer", action="store_true",
                         help="put lazyos-install on the USB stick (LAZYOS_INSTALLER=1; implies "
                              "--usb-image; builds it with tools/install/build.py): from Linux it "
@@ -315,8 +325,9 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.setup)
-    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network.
-    args.tls = args.tls or args.lazyweb or args.mail
+    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
+    # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
+    args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus
     args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is

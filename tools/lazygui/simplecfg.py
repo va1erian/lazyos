@@ -26,7 +26,7 @@ SIMPLE_INTERFACES = [
 #: a LazyRAD app) and Dev; the Picture Viewer is always in a Desktop image.
 SIMPLE_GROUPS = (
     ("games", "Games", "LazyGolf, Doom, Quake, SRB2Kart (fetches Kart Krew's ~220 MB game data; "
-                       "1G OS volume; never publish the image) and the LazyRAD brickbreaker.",
+                       "1G OS volume, 1.5G beside a browser; never publish the image) and the LazyRAD brickbreaker.",
      ("doom", "quake", "srb2kart", "lazyrad")),
     ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
      ("emusic", "modplayer")),
@@ -43,7 +43,7 @@ SIMPLE_GROUPS = (
                    "(turns Networking on).",
      ("lazyweb", "mail", "lazysky")),
     ("webkit", "WebKit", "The WebKit browser, a port of the real engine: three programs of about "
-                         "108 MB, 4 GiB of RAM and a 1 GiB OS volume; builds in Docker (turns "
+                         "108 MB, 4 GiB of RAM and a 1 GiB OS volume (1.5 GiB with SRB2Kart); builds in Docker (turns "
                          "Networking on).",
      ("webkit",)),
     ("lazywebplus", "LazyWeb+", "LazyWeb's browser window on the WebKit engine: JavaScript and the "
@@ -114,7 +114,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     lazysky = desktop and lazysky
     webkit = desktop and webkit
     lazywebplus = desktop and lazywebplus
-    tls = tls or lazyweb or (desktop and mail)
+    # LazyWeb+'s ad blocker updates its lists with `curl` (issue #845).
+    tls = tls or lazyweb or lazywebplus or (desktop and mail)
     cfg = dict(base)
     cfg.update({
         "mode": "Interactive demo",

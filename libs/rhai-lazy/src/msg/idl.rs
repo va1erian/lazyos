@@ -2248,7 +2248,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.mount.v1",
         id: 0x9d456629506ac305,
-        doc: "The network mount service (docs/smb-plan.md §3.4): `mountd` starts and\nsupervises one user-space filesystem daemon per mount (`ftpfuse` for an\nFTP server, `smbfuse` for an SMB share),\neach serving `/mnt/<name>` through the FUSE mechanism, so a program that\nmay not register a filesystem itself (an installed app has no\ncapabilities) can still ask for one.\n\nA mount belongs to its requester: its files are reported as owned by the\ncaller's kernel-stamped uid and gid, and only that uid (or root) may\nunmount it. `Mount` answers at once with the mount in state `connecting`;\nthe daemon then logs in and the state becomes `mounted`, or `failed` with\na reason in `detail`. Callers poll `List`. A failed mount stays listed\nuntil it is unmounted, so its reason can be read. Failures of a request\nitself are returned as a structured error field (errno-style code,\nfriendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in\nuse, `ENOENT` for an unknown name, `EPERM` for another user's mount,\n`EAGAIN` when every slot is taken.",
+        doc: "The network mount service (docs/smb-plan.md §3.4): `mountd` starts and\nsupervises one user-space filesystem daemon per mount (`ftpfuse` for an\nFTP server, `smbfuse` for an SMB share),\neach serving `/mnt/<name>` through the FUSE mechanism, so a program that\nmay not register a filesystem itself (an installed app has no\ncapabilities) can still ask for one.\n\nA mount belongs to its requester: its files are reported as owned by the\ncaller's kernel-stamped uid and gid, and only that uid (or root) may\nunmount it. `Mount` answers at once with the mount in state `connecting`;\nthe daemon then logs in and the state becomes `mounted`, or `failed` with\na reason in `detail`. Callers poll `List`. A failed mount stays listed\nuntil it is unmounted, so its reason can be read. Failures of a request\nitself are returned as a structured error field (errno-style code,\nfriendly text): `EINVAL` for a malformed argument, `EEXIST` for a name in\nuse, `ENOENT` for an unknown name, `EPERM` for another user's mount,\n`EAGAIN` when every slot is taken.\n\nThe service also automounts removable volumes (docs/usb-hotplug-plan.md):\na FAT USB stick plugged in while someone is logged in is served at\n`/media/<label>` by a `fatfuse` as that user. `Volumes` lists them and\n`Eject` finishes one: the daemon flushes everything, closes the filesystem\n(the dirty flag is cleared) and unmounts, and only then is the stick safe\nto pull. An eject is refused while a file is open on the volume, and the\nrefusal says who holds it.",
         methods: &[
             Method {
                 name: "Mount",
@@ -2277,12 +2277,35 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[Field { name: "mounts", id: 1, ty: Ty::Array(&Ty::Struct("MountInfo")) }],
                 objects: &[],
             },
+            Method {
+                name: "Volumes",
+                id: 2053774420,
+                oneway: false,
+                doc: "The disk, `usb<n>`: what `Eject` names.\nThe mount's name, the volume's label made safe for a path; empty\nuntil the volume is mounted.\nWhere it is mounted, `/media/<name>`; empty until mounted.\n`starting` (a daemon is looking for a volume), `mounted`,\n`ejecting`, `ejected` (flushed and unmounted: safe to pull),\n`removed` (the stick was pulled while mounted), `unsupported`\n(no FAT volume on it) or `failed` (see `detail`).\nWhy, for `failed`, `unsupported` and `removed`; empty otherwise.\nThe session user it belongs to: its files' owner.\nThe stick is not write protected.\nThe removable volumes of the caller (all of them for root), oldest\nplug first. An ended volume stays listed until its stick is pulled,\nso its outcome can be read.",
+                params: &[],
+                returns: &[Field { name: "volumes", id: 1, ty: Ty::Array(&Ty::Struct("VolumeInfo")) }],
+                objects: &[],
+            },
+            Method {
+                name: "Eject",
+                id: 819391126,
+                oneway: false,
+                doc: "Eject the volume on `disk` (`usb<n>`): flush, close and unmount it,\nthen let the stick be pulled. Answers at once; the answer's `state`\nis `ejecting` (poll `Volumes` for `ejected`), `ejected` (nothing was\nmounted, or it already was), or `busy` with the holders in `detail`:\none line per program and open file or working directory. `force`\nejects anyway: open files then fail with an I/O error. Failures of the\nrequest itself are `ENOENT` (no such disk), `EPERM` (another user's\nvolume), `EINVAL` (not a disk name) and `EAGAIN` (still starting:\nask again in a moment).",
+                params: &[Field { name: "disk", id: 1, ty: Ty::String }, Field { name: "force", id: 2, ty: Ty::Bool }],
+                returns: &[Field { name: "state", id: 1, ty: Ty::String }, Field { name: "detail", id: 2, ty: Ty::String }],
+                objects: &[],
+            },
         ],
         structs: &[
             Struct {
                 name: "MountInfo",
                 doc: "One mount the service knows about.",
                 fields: &[Field { name: "name", id: 1, ty: Ty::String }, Field { name: "kind", id: 2, ty: Ty::String }, Field { name: "host", id: 3, ty: Ty::String }, Field { name: "port", id: 4, ty: Ty::U32 }, Field { name: "user", id: 5, ty: Ty::String }, Field { name: "path", id: 6, ty: Ty::String }, Field { name: "state", id: 7, ty: Ty::String }, Field { name: "detail", id: 8, ty: Ty::String }, Field { name: "owner", id: 9, ty: Ty::U32 }, Field { name: "share", id: 10, ty: Ty::String }],
+            },
+            Struct {
+                name: "VolumeInfo",
+                doc: "One removable volume the service knows about.",
+                fields: &[Field { name: "disk", id: 1, ty: Ty::String }, Field { name: "name", id: 2, ty: Ty::String }, Field { name: "path", id: 3, ty: Ty::String }, Field { name: "state", id: 4, ty: Ty::String }, Field { name: "detail", id: 5, ty: Ty::String }, Field { name: "owner", id: 6, ty: Ty::U32 }, Field { name: "writable", id: 7, ty: Ty::Bool }],
             },
         ],
         enums: &[],

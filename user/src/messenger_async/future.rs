@@ -13,10 +13,16 @@ use super::Parcel;
 /// A request/response transaction as a future.
 ///
 /// The first poll (or [`Call::begin`]) encodes the request and registers it
-/// with `OP_CALL_BEGIN`; the poll that finds the transaction still open parks
-/// the task in `OP_CALL_AWAIT` until the reply is queued. [`Call::cancel`]
-/// answers any later poll with `-ECANCELED` through `OP_CANCEL`, or marks an
-/// unstarted call canceled so it is never sent.
+/// with `OP_CALL_BEGIN`; the polls after it check the transaction without
+/// parking (`OP_CALL_CHECK`, issue #725) and return
+/// [`Poll::Pending`](core::task::Poll::Pending) while it is open, so a
+/// composed future stays in charge of the task. The wakeup is the kernel's
+/// completion queue ([`wait::WAIT_CALLS`](crate::messenger::wait), the
+/// executor's park): the poll that changed nothing does not set a waker, so
+/// the *executor* is what re-polls after the wait reports the call's
+/// completion. [`Call::cancel`] answers any later poll with `-ECANCELED`
+/// through `OP_CANCEL`, or marks an unstarted call canceled so it is never
+/// sent.
 pub struct Call {
     endpoint: Endpoint,
     request: Option<Parcel>,
@@ -84,6 +90,7 @@ impl Call {
             return Ok(());
         };
         let txn = self.endpoint.begin_call(&request, self.deadline)?;
+        pending::track(txn);
         self.txn = Some(txn);
         Ok(())
     }
@@ -97,8 +104,84 @@ impl Future for Call {
         if let Err(error) = this.register() {
             return Poll::Ready(Err(error));
         }
-        let txn = this.txn.expect("a registered call owns a transaction id");
-        Poll::Ready(this.endpoint.await_reply(txn))
+        let Some(txn) = this.txn else {
+            // Nothing left to send and nothing sent: cancelled before it
+            // could register.
+            return Poll::Ready(Err(Error::Errno(-errno::ECANCELED)));
+        };
+        // The non-parking check (OP_CALL_CHECK): a terminal transaction's
+        // outcome, or `Pending` with the wakeup on the completion queue.
+        // `EAGAIN` is WouldBlock's errno; every other failure is the round's
+        // end (the call leaves the registry either way).
+        match this.endpoint.await_reply_now(txn) {
+            Ok(reply) => {
+                pending::untrack(txn);
+                Poll::Ready(Ok(reply))
+            }
+            Err(error) if error.errno() == Some(-errno::EAGAIN) => Poll::Pending,
+            Err(error) => {
+                pending::untrack(txn);
+                Poll::Ready(Err(error))
+            }
+        }
+    }
+}
+
+impl Drop for Call {
+    /// Deregister the future's transaction from the executor's park: the
+    /// call stays in the kernel's registry until it ends (or the task dies),
+    /// but a future that is dropped mid-flight can never deliver its reply,
+    /// so nothing must keep waiting for it here.
+    fn drop(&mut self) {
+        if let Some(txn) = self.txn.take() {
+            pending::untrack(txn);
+        }
+    }
+}
+
+/// The transactions of this task's leaf `Call` futures, tracked so the
+/// executor knows what its park may wait on (the kernel's `WAIT_CALLS`
+/// doorbell covers them all; the ids are only what could still arrive). One
+/// global table: a leaf that resolves untracks itself, and a transaction
+/// only its own caller can await makes a stale entry harmless (the
+/// executor's wait checks and prunes the vanished ones).
+pub(super) mod pending {
+    use alloc::vec::Vec;
+    use spin::Mutex;
+
+    use crate::messenger::wait::{WaitItem, MAX_ENDPOINTS};
+
+    static TRACKED: Mutex<Vec<u64>> = Mutex::new(Vec::new());
+
+    /// Add `txn`, once (a poll that re-registers is one call).
+    pub(in crate::messenger_async) fn track(txn: u64) {
+        let mut tracked = TRACKED.lock();
+        if !tracked.contains(&txn) {
+            tracked.push(txn);
+        }
+    }
+
+    /// The tracked ids, for the executor's stale repair.
+    pub(in crate::messenger_async) fn ids() -> Vec<u64> {
+        TRACKED.lock().clone()
+    }
+
+    /// A poll resolved `txn`: it can wake nobody any more.
+    pub(in crate::messenger_async) fn untrack(txn: u64) {
+        TRACKED.lock().retain(|tracked| *tracked != txn);
+    }
+
+    /// The tracked transactions, oldest first, at most [`MAX_ENDPOINTS`] per
+    /// wait: the wait arms the kernel's `WAIT_CALLS` doorbell beside them, so
+    /// a completion outside the window still returns the park (the ids only
+    /// carry the rescan; the doorbell is what covers everything).
+    pub(in crate::messenger_async) fn items() -> Vec<WaitItem> {
+        let tracked = TRACKED.lock();
+        tracked
+            .iter()
+            .take(MAX_ENDPOINTS)
+            .map(|txn| WaitItem::Call(*txn))
+            .collect()
     }
 }
 

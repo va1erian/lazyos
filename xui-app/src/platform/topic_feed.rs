@@ -140,7 +140,7 @@ fn subscribe(filter: &str, qos: u32, depth: u32) -> Result<u64, i64> {
         depth,
     })
     .map_err(|_| -errno::EINVAL)?;
-    let reply = broker()?.call_within(
+    let reply = broker()?.call(
         wire::INTERFACE_ID,
         wire::METHOD_SUBSCRIBE,
         ERROR_FIELD,

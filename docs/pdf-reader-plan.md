@@ -147,7 +147,7 @@ A PDF is untrusted input, and PDF is a rich format for attacks.
   reference-chain length, operators per page render (with cancellation, so a
   pathological page shows "this page took too long" instead of hanging), image
   dimensions against the memory budget. A budget hit fails that page, never
-  the app, and prints `PDF:PAGE:FAIL:<n>:<reason>`.
+  the app, and prints `PDF:PAGE:FAIL:<page>`.
 * **No active content.** JavaScript, `Launch`, `SubmitForm`, `ImportData`,
   `GoToR` to other files and embedded files are ignored. `URI` actions only go
   to `mimed` after the user confirms the URL, and only for `http`, `https` and

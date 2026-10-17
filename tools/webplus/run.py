@@ -54,6 +54,7 @@ import session  # noqa: E402
 import busybox  # noqa: E402
 import certs  # noqa: E402
 import denies  # noqa: E402
+import blocker  # noqa: E402  (the ad blocker's boots and judge)
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 
@@ -61,6 +62,8 @@ PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
 BIN = ROOT / "target" / "webkit" / "bin"
 ELF = ROOT / "target" / "xui" / "xui-lazywebplus.elf"
+#: `curl`, which the ad blocker's list updates run (LAZYOS_TLS=1; tools/nettls/build.py).
+CURL_ELF = ROOT / "target" / "nettls" / "fetch.elf"
 HOME = "/home/user"
 APP_DIR = f"{HOME}/.apps/os.lazy.lazywebplus"
 #: Switches a previous build may have left in the caller's environment.
@@ -71,10 +74,11 @@ STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_LA
 
 def built() -> str | None:
     """An error message when what the image needs is not built, else None."""
-    missing = [str(p.relative_to(ROOT)) for p in (BIN / "WebProcess", BIN / "NetworkProcess", ELF) if not p.is_file()]
+    missing = [str(p.relative_to(ROOT)) for p in (BIN / "WebProcess", BIN / "NetworkProcess", ELF, CURL_ELF)
+               if not p.is_file()]
     if missing:
         return (f"not built: {', '.join(missing)} (python tools/webkit/deps.py, port.py, app.py --plus; "
-                "then python tools/xui/build.py)")
+                "then python tools/xui/build.py; python tools/nettls/build.py for curl)")
     return None
 
 
@@ -85,6 +89,7 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
         return "no BusyBox for the shell (see tools/abi/busybox.py)"
     env = {k: v for k, v in os.environ.items() if k not in STALE}
     env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
+               LAZYOS_TLS="1",
                LAZYOS_XUI_AUTOSTART="lazywebplus", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_BUSYBOX=str(shell), **extra,
                **limits.limit_env(limits.with_defaults(list(limits.WEBKIT_LIMITS), limits.BIG_APP_LIMITS)))
@@ -98,8 +103,10 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     return None if IMAGE.is_file() else f"{IMAGE} was not built"
 
 
-def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
-    """Drive the guest; (session ok, serial log text)."""
+def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str, ...] = ()) -> tuple[bool, str]:
+    """Drive the guest; (session ok, serial log text). `expected_failures` are `WEBPLUS:FAIL:` texts a
+    session provokes on purpose (the hung-page harness stops a page's process)."""
+    allowed = "".join(f"|{re.escape(text)}" for text in expected_failures)
     out.mkdir(parents=True, exist_ok=True)
     for stale in ["serial.log", "net.pcap", "summary.json", *(p.name for p in out.glob("shot_*.png"))]:
         (out / stale).unlink(missing_ok=True)
@@ -110,7 +117,7 @@ def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
                "--net", "--net-forward", "none", "--net-pcap", str(out / "net.pcap"),
                "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
                # Every failure but the one load the session breaks on purpose.
-               "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)})",
+               "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)}{allowed})",
                "--fail-on", rf"{judge.P}:(BIND|RUN):FAIL", "--fail-on", rf"{judge.P}:QUIT:FAIL",
                "--fail-on", rf"{judge.P}:DOWNLOAD:FAIL"]
     if args.qemu:
@@ -179,13 +186,18 @@ def sizes() -> str:
     return ", ".join(parts)
 
 
-def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dict) -> int:
-    """Judge both boots. `firsts` and `seconds`: {"ok", "text"}; `records`: (first, second) request
-    records; `profile`: {"files", "history_first", "history_second"}."""
+def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dict,
+            ads: dict | None = None) -> int:
+    """Judge the boots. `firsts` and `seconds`: {"ok", "text"}; `records`: (first, second) request
+    records; `profile`: {"files", "history_first", "history_second"}; `ads`: the ad blocker's two
+    boots, {"blocker": {"ok", "text", "record"}, "persisted": {...}} (issue #845), or None."""
     first, second = firsts["text"], seconds["text"]
-    ok = report("SESSION", "both boots ran to their end",
+    boots = [("first", firsts), ("second", seconds)]
+    if ads:
+        boots += [("blocker", ads["blocker"]), ("persisted", ads["persisted"])]
+    ok = report("SESSION", f"all {len(boots)} boots ran to their end",
                 [f"the {name} boot's session did not finish (see its summary.json)"
-                 for name, boot in (("first", firsts), ("second", seconds)) if not boot["ok"]])
+                 for name, boot in boots if not boot["ok"]])
     ok = report("BROWSER", "up, every page loaded with its title, script and forms worked",
                 judge.judge_start(first) + judge.judge_pages(first)) and ok
     ok = report("DIALOGS", "alert, confirm and prompt drawn, answered from the keyboard, answers reached the page",
@@ -200,6 +212,16 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
     ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
+    if ads:
+        ok = report("BLOCKLIST", "the list was fetched, converted and compiled, and became ready",
+                    blocker.judge_lists_first(first)) and ok
+        ok = report("BLOCKER", "ads blocked, the site excepted, the page whole, Update now got a 304",
+                    blocker.judge_blocker_boot(ads["blocker"]["text"])) and ok
+        ok = report("PERSISTED", "the exception outlived the boot; the list came from the store",
+                    blocker.judge_persisted_boot(ads["persisted"]["text"])) and ok
+        ok = report("ADSERVERS", "each blocked resource was asked for once, after the exception",
+                    blocker.judge_blocker_servers(records[0], ads["blocker"]["record"],
+                                                  ads["persisted"]["record"])) and ok
     region = judge.window_region(first)
     pictures = shots(out / "first")
     by_name = {p.name: p for p in pictures}
@@ -213,9 +235,10 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     grown = judge.window_region(first, last=True)
     ok = report("MAXIMIZED", f"the page is painted to the right edge of the maximized window {grown}",
                 judge.judge_maximized(by_name.get("shot_22_maximized.png"), grown)) and ok
-    ok = report("QUIT", "both boots closed the window, both children were ended and reaped",
-                judge.judge_quit(first) + judge.judge_quit(second)) and ok
-    denied = sorted(set(re.findall(r"LABEL:DENY[^\r\n]*", first + second)))
+    quits = [first, second] + ([ads["blocker"]["text"], ads["persisted"]["text"]] if ads else [])
+    ok = report("QUIT", f"all {len(quits)} boots closed the window, both children were ended and reaped",
+                [p for text in quits for p in judge.judge_quit(text)]) and ok
+    denied = sorted(set(re.findall(r"LABEL:DENY[^\r\n]*", "".join(quits))))
     if denied:
         print(f"{judge.P}:INFO:LABEL:DENY {len(denied)} distinct line(s) (package permissions to derive):")
         for line in denied[:40]:
@@ -250,12 +273,17 @@ def main(argv: list[str] | None = None) -> int:
         saved = Path(args.judge_only)
         profile = json.loads((saved / "profile.json").read_text(encoding="utf-8"))
         files = {name: (bytes.fromhex(hexed) if hexed is not None else None) for name, hexed in profile["files"].items()}
+        ads = None
+        if (saved / "blocker" / "serial.log").is_file() and (saved / "persisted" / "serial.log").is_file():
+            ads = {name: {"ok": True, "text": (saved / name / "serial.log").read_text(errors="replace"),
+                          "record": load_record(saved / name / "requests.json")}
+                   for name in ("blocker", "persisted")}
         return verdict(saved, {"ok": True, "text": (saved / "first" / "serial.log").read_text(errors="replace")},
                        {"ok": True, "text": (saved / "second" / "serial.log").read_text(errors="replace")},
                        (load_record(saved / "first" / "requests.json"),
                         load_record(saved / "second" / "requests.json")),
                        {"files": files, "history_first": profile["history_first"],
-                        "history_second": profile["history_second"]})
+                        "history_second": profile["history_second"]}, ads)
     out.mkdir(parents=True, exist_ok=True)
     problem = built()
     if problem:
@@ -286,20 +314,35 @@ def main(argv: list[str] | None = None) -> int:
         history_first = read_history()
         files_after_first = read_profile()
         ok_second, text_second = run_session(session.second(args.step_timeout), out / "second", args)
-        all_record = served.snapshot()
+        second_end = served.snapshot()
         history_second = read_history()
+        # The ad blocker's boots (issue #845): the page blocked, the site excepted, the page whole;
+        # then the boot after, which finds the exception.
+        ok_blocker, text_blocker = run_session(blocker.blocker_boot(args.step_timeout), out / "blocker", args)
+        blocker_end = served.snapshot()
+        ok_persisted, text_persisted = run_session(blocker.persisted_boot(args.step_timeout), out / "persisted", args)
+        all_record = served.snapshot()
     finally:
         served.close()
-    second_record = sites.Record(all_record.requests[len(first_record.requests):],
-                                 all_record.handshakes[len(first_record.handshakes):])
+
+    def between(low, high) -> sites.Record:
+        return sites.Record(high.requests[len(low.requests):], high.handshakes[len(low.handshakes):])
+
+    second_record = between(first_record, second_end)
+    blocker_record = between(second_end, blocker_end)
+    persisted_record = between(blocker_end, all_record)
     save_record(out / "first" / "requests.json", first_record)
     save_record(out / "second" / "requests.json", second_record)
+    save_record(out / "blocker" / "requests.json", blocker_record)
+    save_record(out / "persisted" / "requests.json", persisted_record)
     (out / "profile.json").write_text(json.dumps({
         "files": {name: (data.hex() if data is not None else None) for name, data in files_after_first.items()},
         "history_first": history_first, "history_second": history_second}, indent=1), encoding="utf-8")
     return verdict(out, {"ok": ok_first, "text": text_first}, {"ok": ok_second, "text": text_second},
                    (first_record, second_record),
-                   {"files": files_after_first, "history_first": history_first, "history_second": history_second})
+                   {"files": files_after_first, "history_first": history_first, "history_second": history_second},
+                   {"blocker": {"ok": ok_blocker, "text": text_blocker, "record": blocker_record},
+                    "persisted": {"ok": ok_persisted, "text": text_persisted, "record": persisted_record}})
 
 
 if __name__ == "__main__":

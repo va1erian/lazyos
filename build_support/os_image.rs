@@ -31,10 +31,17 @@ mod os_compose;
 mod os_source;
 #[path = "os_state.rs"]
 mod os_state;
+#[path = "os_track.rs"]
+mod os_track;
+#[path = "os_update.rs"]
+mod os_update;
 #[path = "trace_cfg.rs"]
 pub mod trace_cfg;
 
 use os_compose::{create, update};
+// The embed modules' (the image build's); `lazyos-install` has none.
+#[allow(unused_imports)]
+pub use os_track::{lap, report, rerun_if_changed};
 // `VolumeFile` is lazyos-install's (tools/install); the image build has none.
 #[allow(unused_imports)]
 pub use os_source::{Source, VolumeFile};
@@ -361,11 +368,14 @@ pub fn ensure_journal(volume: &Ext2, blocks: Option<u32>) -> Result<(), String> 
 ///
 /// With `old` (an update): delete what the old manifest placed and the new one
 /// does not (files are unlinked, directories removed only when empty, so
-/// anything a user keeps there survives), apply the directory table (seed
+/// anything a user keeps there survives), then record the paths about to be
+/// written ([`os_update::with_new`]: an update that dies from here on leaves
+/// nothing the next one cannot find), apply the directory table (seed
 /// directories only while the account database is seeded, `os_state.rs`),
-/// then write every file of `files`
-/// (replace = truncate + write), and finally the manifest, then flush. A path
-/// that is in neither manifest is never touched.
+/// then write every file of `files` (a file that already holds the bytes is
+/// left alone, so a rebuild that changed one program rewrites one program),
+/// and finally the manifest, then flush. A path that is in neither manifest is
+/// never touched.
 pub fn write_volume(
     volume: &Ext2,
     old: Option<&Manifest>,
@@ -386,6 +396,9 @@ pub fn write_volume(
             | Err(Ext2Error::IsDir) => {}
             Err(error) => return Err(volume_error(&format!("remove {path}"), error)),
         }
+    }
+    if let Some(old) = old {
+        os_update::write_manifest(volume, &os_update::with_new(old, &manifest), stamp)?;
     }
     for dir in dirs.iter().filter(|dir| !dir.seed) {
         volume
@@ -418,6 +431,10 @@ pub fn write_volume(
             .mkdir_p(if parent.is_empty() { "/" } else { parent }, 0o755, 0, 0)
             .map_err(|e| volume_error(&format!("mkdir {parent}"), e))?;
         let bytes = file.source.read(&file.path)?;
+        if old.is_some() && os_update::has_content(volume, file, &bytes) {
+            os_update::set_placement(volume, file)?;
+            continue;
+        }
         let Placement { uid, gid, .. } = file.placement;
         volume
             .write_file(&file.path, &bytes, file.mode, uid, gid, stamp)
@@ -426,17 +443,7 @@ pub fn write_volume(
     // Everything else is on the disk before the manifest that lists it: the
     // cache would otherwise write them back together.
     volume.flush().map_err(|e| volume_error("flush", e))?;
-    volume
-        .write_file(
-            MANIFEST_PATH,
-            manifest.to_text().as_bytes(),
-            0o644,
-            0,
-            0,
-            stamp,
-        )
-        .map_err(|e| volume_error("write the manifest", e))?;
-    volume.flush().map_err(|e| volume_error("flush", e))?;
+    os_update::write_manifest(volume, &manifest, stamp)?;
     Ok(manifest)
 }
 

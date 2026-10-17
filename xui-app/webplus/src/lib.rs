@@ -16,6 +16,8 @@
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
 //! - [`notify`]: web notifications: per-site permission, the limits, the shell's toasts.
+//! - [`blocker`]: the ad blocker's settings, its decision per navigation, its lists and their
+//!   updates (issue #845).
 //! - [`internal`]: those pages as the `data:` URLs the engine shows.
 //!
 //! The window itself ([`app`], [`chrome`]) is driven offscreen against a recording engine in
@@ -23,11 +25,13 @@
 
 pub mod address;
 pub mod app;
+pub mod blocker;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
 pub mod downloads;
 pub mod handoff;
+pub mod hang;
 pub mod indicators;
 pub mod internal;
 pub mod keys;
@@ -52,8 +56,19 @@ pub fn allow_named_markers(on: bool) {
 /// Prints `WEBPLUS:<line>` when named markers are allowed.
 pub fn named_marker(line: &str) {
     if NAMED_MARKERS.load(std::sync::atomic::Ordering::Relaxed) {
-        println!("WEBPLUS:{line}");
+        marker(line);
     }
+}
+
+/// Prints `WEBPLUS:<line>`: a marker that names no page, address or file. The one place this
+/// crate's evidence lines are printed from (the trace ratchet counts it once).
+pub fn marker(line: &str) {
+    // On LazyOS through the trace API (one write per line, the channel's mask); a host build, where
+    // the tests run, has no console to write.
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    xui_app::trace::line!(xui_app::trace::Channel::Webplus, "{line}");
+    #[cfg(not(all(target_os = "linux", target_env = "musl")))]
+    println!("WEBPLUS:{line}");
 }
 
 /// `text` fit for one serial marker line: control characters (a title can

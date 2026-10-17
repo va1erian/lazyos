@@ -96,7 +96,7 @@ Checked against `main` at `aabf64d` (lazyos) and `c2552af` (xui).
 | Offscreen rendering to RGBA | Built: `OffscreenBackend`, `RgbaImage` on tiny-skia | xui `crates/xui-canvas` |
 | Pages | Built (#548): `PageSetup` in dip (96 per inch), A4/Letter, portrait/landscape, margins, page breaks; zoom is a layout DPI | xui `crates/xui-rich-text/src/model/page.rs`, `layout/pages.rs`; [xui-writer.md](xui-writer.md) |
 | USB | `usbd`: xHCI, hubs, HID, mass storage with bulk endpoints; no printer class | `user/src/bin/usbd/class.rs`, `msc.rs` |
-| TLS | Exploratory plan, not built (not needed here) | [tls-plan.md](tls-plan.md) |
+| TLS | Built (`LAZYOS_TLS=1`, [tls-plan.md](tls-plan.md)); the print path does not need it | [tls-plan.md](tls-plan.md) |
 
 ## 4. Routes compared
 

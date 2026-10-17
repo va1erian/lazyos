@@ -52,9 +52,15 @@ pub const WAIT_CHILD: u64 = 8;
 /// Doorbell: the Linux descriptor in bits 32..63 of the flags is readable
 /// (or hung up).
 pub const WAIT_FD: u64 = 16;
+/// Doorbell: one of the caller's own calls ended and waits in its
+/// completion queue (`completion.rs`, issue #725). The queue answers this
+/// wait for every in-flight call at once, so an event loop composes its
+/// calls with endpoints, timers and descriptors without naming each
+/// transaction.
+pub const WAIT_CALLS: u64 = 32;
 /// Every doorbell [`wait_any`] knows.
 pub const WAIT_DOORBELLS: u64 =
-    WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_CHILD | WAIT_FD;
+    WAIT_RAW_INPUT | WAIT_DISPLAY_KEYS | WAIT_INET | WAIT_CHILD | WAIT_FD | WAIT_CALLS;
 /// Flag: the deadline is absolute monotonic nanoseconds, not PIT ticks.
 pub const WAIT_DEADLINE_NS: u64 = 1 << 24;
 /// Where [`WAIT_FD`]'s descriptor sits in the flags.
@@ -69,6 +75,9 @@ pub const INET_READY: u64 = 1 << 61;
 pub const CHILD_READY: u64 = 1 << 60;
 /// Bit of the ready mask that means "the [`WAIT_FD`] descriptor is readable".
 pub const FD_READY: u64 = 1 << 59;
+/// Bit of the ready mask that means "the caller's completion queue holds a
+/// finished call".
+pub const CALLS_READY: u64 = 1 << 58;
 
 /// Tasks parked in [`wait_any`] on a descriptor ([`WAIT_FD`]).
 static FD_WATCHERS: [AtomicBool; task::MAX_TASKS] =
@@ -150,11 +159,23 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
         *item = resolve_item(word, me)?;
     }
     let items = &items[..handles.len()];
+    // A `WAIT_CALLS` waiter's own pending calls bound the park too (and
+    // their ends are the doorbell's content), even though the set does not
+    // name them.
+    let calls_bound = (doorbells & WAIT_CALLS != 0)
+        .then(|| completion::caller_deadline(me))
+        .flatten();
     // Everything below parks in nanoseconds; the caller's deadline is ticks
     // unless it asked otherwise.
     let deadline_ns = deadline.map(|d| if in_ns { d } else { task::ticks_to_ns(d) });
     loop {
         let (mut ready, call_deadline) = ready_or_register(items, me);
+        if doorbells & WAIT_CALLS != 0 && completion::ready(me) {
+            // Nothing to arm (the queue is level; `record` rings a parked
+            // task directly): just its ready bit.
+            ready |= CALLS_READY;
+        }
+        let call_deadline = earlier(call_deadline, calls_bound);
         match arm_doorbells(doorbells, fd, me) {
             Ok(rung) => ready |= rung,
             Err(error) => {
@@ -178,6 +199,11 @@ pub fn wait_any(handles: &[u64], flags: u64, deadline: Option<u64>) -> Result<u6
                 return Err(Error::TimedOut);
             }
             expire_due_calls(items);
+            // The doorbell's calls too: parked on `WAIT_CALLS`, none of
+            // them was named.
+            if doorbells & WAIT_CALLS != 0 {
+                completion::expire_due(me);
+            }
             let due = deadline_ns.is_some_and(|d| d <= crate::arch::clock::monotonic_ns());
             if due && !any_call_ready(items) {
                 return Err(Error::TimedOut);
@@ -273,6 +299,11 @@ fn arm_doorbells(doorbells: u64, fd: Option<usize>, me: usize) -> Result<u64, Er
     }
     if doorbells & WAIT_CHILD != 0 && crate::task::childbell::arm(me) {
         ready |= CHILD_READY;
+    }
+    if doorbells & WAIT_CALLS != 0 && super::completion::ready(me) {
+        // Nothing to arm: the queue is level, and its `record` ring wakes a
+        // parked task directly.
+        ready |= CALLS_READY;
     }
     Ok(ready)
 }

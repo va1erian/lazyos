@@ -156,7 +156,7 @@ pub fn fetch() -> Services {
 fn call(name: &'static str, interface: u64, method: u32) -> Result<Vec<u8>, i64> {
     let service = Service::try_connect(name).ok_or(-errno::ENOENT)?;
     service
-        .call_within(interface, method, ERROR_FIELD, Vec::new(), CALL_TICKS)
+        .call(interface, method, ERROR_FIELD, Vec::new(), CALL_TICKS)
         .map(|reply| reply.body)
 }
 

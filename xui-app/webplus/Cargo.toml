@@ -29,17 +29,21 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
 # The seam: the engine trait, the mailbox, the page view and the C ABI shared with the W5
 # window, without that window.
 xui-webkit = { path = "../crates/webkit", default-features = false }
+# The ad blocker's converter (Adblock Plus lists to WebKit rule lists; MIT, no dependencies).
+lazyadblock = { path = "../crates/adblock" }
 
 # The compositor client, `mimed` and the notification service are LazyOS's: the platform glue
 # (`src/ffi.rs`) is built for LazyOS only, everything else runs on any host.
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 xui-app = { path = ".." }
+# The settings store seam (`ConfigStore`), over which the blocker's switches live in `confd`.
+xui-settings = { path = "../crates/settings" }
 # The app's data folder (`app_data_dir`), the Downloads and scratch folders.
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }

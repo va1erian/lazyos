@@ -123,6 +123,19 @@ xui-core = {{ git = "https://www.github.com/va1erian/xui", rev = "{OLD}" }}
         status, out = self.run_check()
         self.assertEqual(status, 0, out)
 
+    def test_a_manifest_template_is_checked(self):
+        # Quake's `Cargo.toml.in` is written into the assembled crate by its
+        # build, so its pin must move with the others; a `{ROOT}` placeholder
+        # inside a string must not stop it from being parsed.
+        self.write("xui-app/Cargo.toml", manifest(NEW))
+        self.write(
+            "quake/Cargo.toml.in",
+            manifest(OLD) + 'fhs = { path = "{ROOT}/libs/fhs" }\n',
+        )
+        status, out = self.run_check()
+        self.assertEqual(status, 1)
+        self.assertIn("quake/Cargo.toml.in: dependencies.xui-core", out)
+
     def test_build_output_is_not_searched(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))
         self.write("xui-app/target/debug/build/x/Cargo.toml", manifest(OLD))

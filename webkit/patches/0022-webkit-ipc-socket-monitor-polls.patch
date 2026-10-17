@@ -1,0 +1,55 @@
+WebKit: the IPC socket monitor waits with poll(), not select() (LazyOS, issue #867).
+
+The PlayStation path's SocketMonitor thread, which patch 0003 turns on, watched each IPC connection with
+select(fd + 1, ...) on a stack fd_set. A descriptor of 1024 or more (a long session with a large HTTP
+cache: patch 0019 keeps one descriptor open per mapped cache entry, and fd_max is 8192) made FD_SET write
+past the set, undefined behaviour in the UI, Web and Network processes, and LazyOS answers EINVAL for
+nfds > 1024, which the loop retried at once: a spin that never saw the connection close.
+
+The loop is now IPC::LazyOS::monitorSocket (SocketMonitorLazyOS.h, laid over the tree from
+webkit/port/tree/; webkit-smoke tests the same header above descriptor 1024): poll() on POLLIN, a hangup
+or an error the read leaves open is a close, a descriptor the connection let go of (or replaced) while the
+thread waited ends the thread, and one wait lasts at most a second, so an invalidated connection's monitor
+also ends where closing a descriptor does not wake a poll on it.
+
+--- a/Source/WebKit/Platform/IPC/unix/ConnectionUnix.cpp
++++ b/Source/WebKit/Platform/IPC/unix/ConnectionUnix.cpp
+@@ -46,6 +46,10 @@
+ #include <wtf/Threading.h>
+ #include <wtf/UniStdExtras.h>
+ 
++#if PLATFORM(LAZYOS)
++#include "SocketMonitorLazyOS.h"
++#endif
++
+ #if OS(DARWIN)
+ #define MSG_NOSIGNAL 0
+ #endif
+@@ -336,22 +340,12 @@
+     m_isConnected = true;
+ 
+ #if PLATFORM(LAZYOS)
++    // poll(), not select() on an fd_set: a long session's descriptors pass 1024 (SocketMonitorLazyOS.h).
+     m_socketMonitor = Thread::create("SocketMonitor"_s, [protectedThis] {
+-        {
+-            int fd;
+-            while ((fd = protectedThis->socketDescriptor()) != -1) {
+-                int maxFd = fd;
+-                fd_set fdSet;
+-                FD_ZERO(&fdSet);
+-                FD_SET(fd, &fdSet);
+-
+-                if (-1 != select(maxFd + 1, &fdSet, 0, 0, 0)) {
+-                    if (FD_ISSET(fd, &fdSet))
+-                        protectedThis->readyReadHandler();
+-                }
+-            }
+-
+-        }
++        LazyOS::monitorSocket(
++            [&] { return protectedThis->socketDescriptor(); },
++            [&] { protectedThis->readyReadHandler(); },
++            [&] { protectedThis->connectionDidClose(); });
+     });
+     return;
+ #endif

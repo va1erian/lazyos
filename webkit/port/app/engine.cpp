@@ -15,6 +15,7 @@
 #include <WebKit/WKGeometry.h>
 #include <WebKit/WKPage.h>
 #include <WebKit/WKPageConfigurationRef.h>
+#include <WebKit/WKPagePrivate.h>
 #include <WebKit/WKPagePrivatePlayStation.h>
 #include <WebKit/WKRunLoop.h>
 #include <WebKit/WKString.h>
@@ -26,13 +27,10 @@
 #include <WebKit/WKWebsiteDataStoreRef.h>
 
 #include <errno.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include "engine.h"
 #include "lazyos_ui.h"
@@ -201,6 +199,8 @@ int lzw_engine_start(void)
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, E.context);
     WKPageConfigurationSetWebsiteDataStore(pageConfiguration, dataStore);
+    // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
+    startBlocking(pageConfiguration, profileDirectory());
     E.store = dataStore; // the page configuration keeps it alive
     WKRelease(dataStore);
     E.view = WKViewCreate(pageConfiguration);
@@ -222,67 +222,35 @@ int lzw_engine_start(void)
     WKViewSetVisible(E.view, true);
 
     installClients();
+    installContextClient();
     if (has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_NOTIFICATIONS))
         installUiClient();
     return 0;
 }
 
+int lzw_engine_running(void) { return E.running ? 1 : 0; }
+
 void lzw_engine_quit(void) { WKRunLoopCallOnMainThread([](void*) { WKRunLoopStopMain(); }, nullptr); }
 
-// Is `pid` gone? Reaps it when it is our child; a process that is not ours (or already reaped by
-// WebKit's own launcher) is gone when the kernel has no such id.
-static bool gone(int pid)
-{
-    int status = 0;
-    const pid_t reaped = waitpid(pid, &status, WNOHANG);
-    if (reaped == pid)
-        return true;
-    return reaped < 0 && errno == ECHILD && kill(pid, 0) < 0 && errno == ESRCH;
-}
+int lzw_engine_shutdown(void) { return shutdownChildren(); }
 
-int lzw_engine_shutdown(void)
+void lzw_engine_recover(int reload)
 {
-    struct Child {
-        const char* name;
-        int pid;
-        bool exited;
-    } children[] = { { "web", 0, false }, { "network", 0, false } };
-    if (E.page && E.context)
-        rememberChildren();
-    children[0].pid = E.webPid;
-    children[1].pid = E.networkPid;
-    for (auto& child : children) {
-        if (child.pid > 0)
-            kill(child.pid, SIGTERM);
-    }
-    // A grace period for the processes to flush and exit; whatever is left is killed.
-    for (int round = 0; round < 2; ++round) {
-        for (int waited = 0; waited < 150; ++waited) {
-            bool all = true;
-            for (auto& child : children) {
-                if (child.pid > 0 && !child.exited)
-                    child.exited = gone(child.pid);
-                all = all && (child.pid <= 0 || child.exited);
-            }
-            if (all)
-                break;
-            usleep(20 * 1000);
+    onMain([reload] {
+        if (!E.page)
+            return;
+        if (WKPageGetProcessIdentifier(E.page) <= 0) {
+            // No process to end (it is gone already): reload starts one.
+            if (reload)
+                WKPageReload(E.page);
+            return;
         }
-        if (round == 0) {
-            for (auto& child : children) {
-                if (child.pid > 0 && !child.exited)
-                    kill(child.pid, SIGKILL);
-            }
-        }
-    }
-    int left = 0;
-    for (auto& child : children) {
-        if (child.pid <= 0)
-            continue;
-        say("CHILD:%s:%d:%s", child.name, child.pid, child.exited ? "GONE" : "ALIVE");
-        left += child.exited ? 0 : 1;
-    }
-    return left;
+        E.recovering = true;
+        E.recoverReload = reload != 0;
+        say("WEBPROCESS:RECOVER:%d:%s", static_cast<int>(WKPageGetProcessIdentifier(E.page)), reload ? "reload" : "stop");
+        // The termination comes back as webProcessDidTerminate (clients.cpp), which carries on.
+        WKPageTerminate(E.page);
+    });
 }
 
 void lzw_engine_load(const char* url)
@@ -335,6 +303,7 @@ void lzw_engine_resize(int width, int height)
 void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
 {
     onMain([=] {
+        notePointer(false);
         WKEventType type = kind == 0 ? kWKEventMouseDown : kind == 1 ? kWKEventMouseUp : kWKEventMouseMove;
         WKEventMouseButton which = button == 0 ? kWKEventMouseButtonLeftButton
             : button == 1                      ? kWKEventMouseButtonMiddleButton
@@ -347,6 +316,7 @@ void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
 void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
 {
     onMain([=] {
+        notePointer(true);
         // One call per notch: the page takes the sign of each axis and scrolls a line step.
         for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
             WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));

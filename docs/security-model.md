@@ -383,9 +383,10 @@ issue #241).
 Charges and releases happen at the choke points (`handles::open`, channel
 enqueue/dequeue, `shared::create`, `mmap`/`brk`, `dev::dma_alloc`), keyed by the task's stamped
 uid, so two processes of one user share one limit. A refusal is a friendly
-`ERR_QUOTA` carrying the resource name, current usage and limit. Defaults live
-in `quota::DEFAULT_LIMITS` (uid 0 stays uncapped until login stamps a real
-uid); policy sets limits with `quota::set_limit`, and native syscall 11 reads
+`ERR_QUOTA` carrying the resource name, current usage and limit. Defaults are
+`quota::default_limits_regular()`, with `quota::ROOT_LIMITS` for uid 0 (uid 0
+stays uncapped until login stamps a real uid); policy sets limits with
+`quota::set_limit`, and native syscall 11 reads
 the caller's usage/limits read-only.
 
 Profiles are **compiled by `messengerd`/`init` from manifests + admin policy** and

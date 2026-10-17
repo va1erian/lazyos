@@ -50,7 +50,7 @@ pub fn dir() -> PathBuf {
 pub fn built(dir: &Path) -> Vec<CorePackage> {
     let list = dir.join(LIST);
     // Tracked even when missing, so building the packages later is picked up.
-    println!("cargo:rerun-if-changed={}", list.display());
+    crate::os_image::rerun_if_changed(&list);
     let Ok(text) = std::fs::read_to_string(&list) else {
         return Vec::new();
     };
@@ -75,7 +75,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
             autostart: (dir.join(auto), auto_digest.into()),
         };
         for (path, _) in [&package.plain, &package.autostart] {
-            println!("cargo:rerun-if-changed={}", path.display());
+            crate::os_image::rerun_if_changed(path);
             if !path.is_file() {
                 panic!(
                     "{} lists {}, which is missing; rerun `python tools/xui/build.py`",
@@ -92,7 +92,7 @@ pub fn built(dir: &Path) -> Vec<CorePackage> {
 /// The resident tray applets (docs/tray-plan.md T3): they open with every
 /// session of an image that ships them, whatever `LAZYOS_XUI_AUTOSTART`
 /// says, as the taskbar's own volume and network icons.
-pub const APPLETS: &[&str] = &["volume", "netstatus"];
+pub const APPLETS: &[&str] = &["volume", "netstatus", "removable"];
 
 /// The short ids to open at boot: what `LAZYOS_XUI_AUTOSTART` names
 /// (comma-separated, each a short id (`terminal`), an xui binary stem
@@ -180,6 +180,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         "video",
         // About LazyOS: About LazyOS, with a real-time 3D renderer.
         "about",
+        // Removable Drives: the USB sticks' tray applet, shipped with the
+        // USB stack (`LAZYOS_USB=1`, `xui_embed`).
+        "removable",
     ];
     CORE.contains(&short_of(stem))
 }

@@ -188,8 +188,8 @@ impl App for Installer {
                 if self.model.can_install() && self.install_timer.is_none() {
                     self.model.install_started();
                     dirty = true;
-                    // Defer the blocking call by a tick so the progress screen
-                    // paints before it runs.
+                    // Defer the call by a tick so the progress screen paints
+                    // before `pkgd` starts unpacking.
                     self.install_timer = Some(ui.set_timer(1));
                 }
             }
@@ -198,19 +198,30 @@ impl App for Installer {
                     self.install_timer = None;
                     ui.kill_timer(id);
                     if let Some(Request::Install(path)) = self.model.take_pending() {
-                        match pkg::install(&path) {
-                            Ok(app) => {
-                                println!("INSTALLER:INSTALL:PASS {}", clean(&app.system_name));
-                                self.model.install_ok(app);
-                            }
-                            Err(reason) => {
-                                println!("INSTALLER:INSTALL:FAIL {}", clean(&reason));
-                                self.model.install_failed(reason);
-                            }
-                        }
-                        dirty = true;
+                        // The install rides the backend's async call lane
+                        // (issue #725): the window stays live while `pkgd`
+                        // works, and the answer returns as
+                        // `Msg::InstallDone` (an outright refusal of the
+                        // call itself reports the same way).
+                        let answer = ui.proxy();
+                        let _ = pkg::install_async(&path, move |result| {
+                            let _ = answer.send(Msg::InstallDone(result));
+                        });
                     }
                 }
+            }
+            Msg::InstallDone(result) => {
+                match result {
+                    Ok(app) => {
+                        println!("INSTALLER:INSTALL:PASS {}", clean(&app.system_name));
+                        self.model.install_ok(app);
+                    }
+                    Err(reason) => {
+                        println!("INSTALLER:INSTALL:FAIL {}", clean(&reason));
+                        self.model.install_failed(reason);
+                    }
+                }
+                dirty = true;
             }
             Msg::AskRemove(system_name) => {
                 let target = self
@@ -336,14 +347,19 @@ fn main() -> ExitCode {
         return develop::main(path);
     }
     let start = argv::file_arg(std::env::args_os());
-    launch::run(xui_app::trace::Channel::Installer, "Installer", WINDOW, move |ui, backend| {
-        // Resizable; the screens' layouts follow the client area. The
-        // minimum keeps the consent screen's lists readable.
-        backend.set_size_hints(480, 360, 0, 0);
-        backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
-        Installer::build(ui, start).map_err(|error| {
-            println!("INSTALLER:BUILD:FAIL:{error}");
-            BackendError::Other(error)
-        })
-    })
+    launch::run(
+        xui_app::trace::Channel::Installer,
+        "Installer",
+        WINDOW,
+        move |ui, backend| {
+            // Resizable; the screens' layouts follow the client area. The
+            // minimum keeps the consent screen's lists readable.
+            backend.set_size_hints(480, 360, 0, 0);
+            backend.on_first_frame(|| println!("INSTALLER:UP:PASS"));
+            Installer::build(ui, start).map_err(|error| {
+                println!("INSTALLER:BUILD:FAIL:{error}");
+                BackendError::Other(error)
+            })
+        },
+    )
 }

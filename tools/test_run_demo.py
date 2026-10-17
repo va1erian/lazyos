@@ -271,6 +271,8 @@ class MainTests(RunDemoCase):
         self.assertNotIn("LAZYOS_WEBKIT", self.builds[-1])
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+        # The ad blocker updates its lists with `curl` (issue #845).
+        self.assertEqual(self.builds[-1].get("LAZYOS_TLS"), "1")
         self.assertEqual(command[command.index("-m") + 1], "4G")
         self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
 

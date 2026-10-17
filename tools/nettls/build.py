@@ -40,6 +40,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from outfile import copy_if_changed  # noqa: E402
 CRATE = ROOT / "nettls"
 TARGET = "x86_64-unknown-linux-musl"
 OUT_DIR = ROOT / "target" / "nettls"
@@ -109,7 +111,10 @@ def build(debug: bool) -> Path | None:
         raise SystemExit(1)
     output = CRATE / "target" / TARGET / ("debug" if debug else "release") / BIN
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy(output, ELF)  # keeps the executable bit for host runs
+    # Only a changed program is written (the image build watches its time);
+    # the mode follows it either way, for host runs.
+    copy_if_changed(output, ELF)
+    shutil.copymode(output, ELF)
     log(f"{ELF} ({ELF.stat().st_size} bytes)")
     return ELF
 

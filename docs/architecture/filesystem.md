@@ -473,10 +473,21 @@ an update may replace or delete. `build_support/os_image.rs::plan` decides:
 2. **Update** otherwise, keeping the UUID: rewrite LBA 0..131072 (the MBR with
    all three entries, stage 2, the FAT with a `lazyos.cfg` carrying that UUID),
    open the volume, delete the old-manifest paths the new list lacks (files are
-   unlinked, directories removed only when empty), write every file of the new
-   list (truncate + write), write the manifest last, flush. A path in neither
-   manifest is never touched, which is what preserves `/apps`, `/conf`, `/logs`,
-   `/docs/apps`, `/home`, `/data` contents and anything a user created.
+   unlinked, directories removed only when empty), write a manifest that lists
+   the old paths *and* the new ones (so an update that dies halfway leaves
+   nothing the next one cannot find), write every file of the new list that is
+   not already there byte for byte (truncate + write; one already there only
+   gets its mode and owner), write the final manifest last, flush. A path in
+   neither manifest is never touched, which is what preserves `/apps`, `/conf`,
+   `/logs`, `/docs/apps`, `/home`, `/data` contents and anything a user created.
+   The one exception is a full volume: when an update runs out of room, the
+   files in `/system/{bin,lib,share,packages}` and `/docs/os` (the trees only
+   the build writes) that neither manifest lists (what an older build left
+   when it died before it wrote its manifest) are removed and the update runs
+   again; with none to remove the build fails, saying how big the volume is and
+   how to make a larger one. The image file is written without `fsync` (QEMU
+   reads it back through the host's cache) and is sparse on NTFS, so extending it
+   does not write the zeros between its end and the last block group.
 3. A different `LAZYOS_OS_SIZE` on a valid image is an error that says to set
    `LAZYOS_RESET_OS=1` (no resize). An update opens the file exclusively and
    fails with a "stop QEMU and retry" message when something holds it.
@@ -525,6 +536,6 @@ F4 (issue #508) put the services on the tree: `confd` in `/conf` (seeded once
 from `/data/confd`), `logd` journals and `pkg.log` in `/logs`, `pkgd` in `/apps`
 and `/docs/apps`, `lazyrad` in the user's home (`$HOME/projects`,
 `$HOME/.apps/lazyrad`, an installed app's `$HOME/.apps/<system_name>`). Open:
-symlinks, cross-mount rename, page cache, resizing an existing OS image, the
+symlinks, cross-mount rename, resizing an existing OS image, the
 rest of F4 (the `admin`/`user` accounts, `$HOME`) and F5 to F7 (packages, the ABI overlay, migrating and
 removing `/data`).

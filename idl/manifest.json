@@ -1362,6 +1362,16 @@
         "name": "List",
         "id": 220805025,
         "oneway": false
+      },
+      {
+        "name": "Volumes",
+        "id": 2053774420,
+        "oneway": false
+      },
+      {
+        "name": "Eject",
+        "id": 819391126,
+        "oneway": false
       }
     ],
     "topics": []

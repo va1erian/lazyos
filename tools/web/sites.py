@@ -70,6 +70,48 @@ COOKIE_VALUE = "kept"
 NOTIFY_PATH = "/webplus/notify.html"
 
 
+#: LazyWeb+'s ad blocker harness (tools/webplus, issue #845): the list host the browser fetches
+#: EasyList from (a small list of ours stands in), and the two hosts of the "ad network" its rules
+#: name. They answer over HTTPS like the real ones.
+LIST_HOST = "easylist.to"
+LIST_PATH = "/easylist/easylist.txt"
+LIST_ETAG = '"harness-1"'
+LIST_MODIFIED = "Tue, 13 Oct 2026 12:47:00 GMT"
+AD_HOSTS = ("ads.adnet.test", "tracker.adnet.test")
+#: The one script of the ad host the list excepts (`@@||ads.adnet.test/allowed.js`).
+AD_ALLOWED_PATH = "/allowed.js"
+#: A 1x1 GIF, for the ad host's pictures.
+PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
+
+
+def easylist_text() -> bytes:
+    """The harness's list: the ad network and the tracker blocked, one script excepted, one
+    element-hiding line (counted and not used), and padding so it is long enough to be a list."""
+    lines = [
+        "[Adblock Plus 2.0]",
+        "! Title: LazyOS harness list",
+        "! Expires: 1 hour (update frequency)",
+        "||ads.adnet.test^$third-party",
+        "||tracker.adnet.test^",
+        "@@||ads.adnet.test/allowed.js",
+        "example.com##.ad-slot",
+        *(f"! padding {n}" for n in range(80)),
+    ]
+    return ("\n".join(lines) + "\n").encode()
+
+
+def ad_response(path: str) -> tuple[list[tuple[str, str]], bytes]:
+    """What an ad host answers: a script for `.js`, a picture for anything else. Never cached, so
+    every load reaches the host and the request log is the truth."""
+    if path.split("?")[0] == AD_ALLOWED_PATH:
+        return [("Content-Type", "application/javascript"), ("Cache-Control", "no-store")], \
+            b"window.allowedLoaded = true;\n"
+    if path.split("?")[0].endswith(".js"):
+        return [("Content-Type", "application/javascript"), ("Cache-Control", "no-store")], \
+            b"window.adLoaded = true;\n"
+    return [("Content-Type", "image/gif"), ("Cache-Control", "no-store")], PIXEL
+
+
 def echo_page(path: str) -> bytes:
     """The page `ECHO_PATH` answers with: the query's `q`, escaped, as title and heading."""
     text = html.escape(parse_qs(urlsplit(path).query).get("q", [""])[0])
@@ -119,6 +161,8 @@ class Request:
     sni: str | None = None
     #: The Cookie header the request carried (the persistence check of tools/webplus).
     cookie: str = ""
+    #: `If-None-Match` or `If-Modified-Since`: a conditional request (the list's update check).
+    conditional: str = ""
 
 
 @dataclass
@@ -172,7 +216,9 @@ class Handler(BaseHTTPRequestHandler):
             record.requests.append(Request(scheme, host, self.command, self.path, status,
                                            self.headers.get("User-Agent", ""),
                                            getattr(self.connection, "lazyweb_sni", None),
-                                           self.headers.get("Cookie", "")))
+                                           self.headers.get("Cookie", ""),
+                                           self.headers.get("If-None-Match", "")
+                                           or self.headers.get("If-Modified-Since", "")))
         self.send_response(status)
         for name, value in headers:
             self.send_header(name, value)
@@ -200,6 +246,15 @@ class Handler(BaseHTTPRequestHandler):
             if copy is None:
                 return 404, [("Content-Type", "text/html")], b"<html><body>404</body></html>\n"
             return 200, [("Content-Type", copy[0]), ("Cache-Control", "max-age=604800")], copy[1]
+        if scheme == "https" and host == LIST_HOST and self.path.split("?")[0] == LIST_PATH:
+            headers = [("Content-Type", "text/plain; charset=utf-8"), ("ETag", LIST_ETAG),
+                       ("Last-Modified", LIST_MODIFIED)]
+            if self.headers.get("If-None-Match") == LIST_ETAG:
+                return 304, headers, b""
+            return 200, headers, easylist_text()
+        if scheme == "https" and host in AD_HOSTS:
+            headers, payload = ad_response(self.path)
+            return 200, headers, payload
         if scheme == "https" and host in OLDNET_HOSTS and self.path.split("?")[0] == ECHO_PATH:
             return 200, [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")], \
                 echo_page(self.path)

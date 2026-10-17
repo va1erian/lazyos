@@ -28,7 +28,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     embed_test_packages(sink);
     let path = manifest_dir.join(PACKAGE);
     // Watched even when missing: a package built later triggers an image rebuild.
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     if std::env::var_os("LAZYOS_MODPLAYER").as_deref() != Some(OsStr::new("1")) {
         return;
     }
@@ -57,7 +57,7 @@ fn embed_test_packages(sink: &mut dyn Sink) {
         return;
     };
     for path in std::env::split_paths(&list).filter(|p| !p.as_os_str().is_empty()) {
-        println!("cargo:rerun-if-changed={}", path.display());
+        crate::os_image::rerun_if_changed(&path);
         let name = path
             .file_name()
             .and_then(OsStr::to_str)

@@ -74,9 +74,10 @@ reload, and read the programs log afterwards. Without the switch they answer
 
 ## Limits
 
-No file writes, no register poking, no kernel reload. `pci.config` and
-`mmio.read` do not exist (drivers own those). No TLS: do not use across an
-untrusted network.
+No file writes, no kernel reload. `pci_config` reads a function's 64-byte
+config header on any `dbgd` image (and 256 bytes with `LAZYOS_DBGD_MMIO=1`);
+`mmio_read` needs `LAZYOS_DBGD_MMIO=1` and stays inside the allowlisted ranges.
+No TLS: do not use across an untrusted network.
 
 ## Extending it
 

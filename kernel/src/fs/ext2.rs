@@ -97,7 +97,7 @@ impl Ext2 {
         Ok(Ext2 {
             volume,
             device: device.name(),
-            gate: volio::Gate::new(()),
+            gate: volio::Gate::named("ext2", ()),
             io: shared,
         })
     }

@@ -207,8 +207,10 @@ impl Selector {
         (items, slots, Some(crate::sys::clock() + 1))
     }
 
-    /// Finish call `index`, which the wait reported ready: its await returns
-    /// at once with the reply or the error that ended it.
+    /// Finish call `index`, which the wait reported ready: its check
+    /// resolves at once with the reply or the error that ended it (a
+    /// `Pending` from a registered call would contradict the ready bit, so
+    /// the shape only stays total).
     fn finish_call(&mut self, index: usize) -> Event {
         let mut call = self.calls[index]
             .take()

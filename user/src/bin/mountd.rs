@@ -18,6 +18,11 @@
 //! crash does not (they are this task's children, not `init`'s): after a
 //! restart their mounts keep working but are no longer listed.
 //!
+//! Removable volumes (`mountd/volumes.rs`, `mountd/removable.rs`): a FAT
+//! stick is served at `/media/<label>` by a `fatfuse` per stick;
+//! `Volumes` lists them and `Eject` has the daemon flush, close and unmount
+//! its volume, so that the stick can be pulled.
+//!
 //! Serial lines: `MOUNTD:READY`, `MOUNTD:START <name> kind=<kind> pid=<pid>`,
 //! `MOUNTD:UP <name>`, `MOUNTD:FAIL <name> <reason>`, `MOUNTD:STOP <name>`.
 
@@ -28,6 +33,10 @@ extern crate alloc;
 
 #[path = "mountd/handler.rs"]
 mod handler;
+#[path = "mountd/removable.rs"]
+mod removable;
+#[path = "mountd/volumes.rs"]
+mod volumes;
 
 use alloc::format;
 use alloc::string::String;
@@ -69,19 +78,27 @@ fn run() -> messenger::Result<()> {
     services::init::notify_ready();
 
     let mut table = Table::new();
+    let mut automount = volumes::Automount::new();
     // One receive buffer for the life of the service.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
         housekeeping(&mut table);
+        automount.step();
         let polling = table.connecting().next().is_some();
-        let deadline = polling.then(|| sys::clock() + POLL_TICKS);
+        let deadline = [
+            polling.then(|| sys::clock() + POLL_TICKS),
+            automount.deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let ready = match wait::wait_any(&[server], wait::WAIT_CHILD, deadline) {
             Ok(ready) => ready,
             Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => 0,
             Err(error) => return Err(error),
         };
         if ready & wait::CHILD_READY != 0 {
-            reap(&mut table);
+            reap(&mut table, &mut automount);
         }
         if ready & 1 == 0 {
             continue;
@@ -92,12 +109,13 @@ fn run() -> messenger::Result<()> {
             Err(error) => return Err(error),
         };
         if let Some(reason) = lifecycle::stop_requested(&message) {
-            stop_all(&table, &reason);
+            stop_all(&table, &mut automount, &reason);
             return Ok(());
         }
-        let reply = handler::dispatch(&mut table, &message).unwrap_or_else(|error| {
-            services::error_reply(message.interface_id(), message.method(), error)
-        });
+        let reply =
+            handler::dispatch(&mut table, &mut automount, &message).unwrap_or_else(|error| {
+                services::error_reply(message.interface_id(), message.method(), error)
+            });
         if let Some(txn) = message.txn {
             // A caller whose deadline passed is a normal race, not a failure.
             let _ = server.reply(txn, &reply);
@@ -128,8 +146,11 @@ fn housekeeping(table: &mut Table) {
 }
 
 /// Reap every finished child; a daemon of ours fails its mount.
-fn reap(table: &mut Table) {
+fn reap(table: &mut Table, automount: &mut volumes::Automount) {
     while let Some((pid, status)) = sys::wait(sys::clock().max(1)) {
+        if automount.exited(pid, status) {
+            continue;
+        }
         if let Some(entry) = table.exited(pid, status) {
             let reason = entry.state.detail();
             trace::line!(trace::Channel::Mountd, "FAIL {} {reason}", entry.name);
@@ -137,12 +158,15 @@ fn reap(table: &mut Table) {
     }
 }
 
-/// The lifecycle stop: end every daemon. Their mounts then fail every call
-/// until the kernel takes them out, which is moments before power-off.
-fn stop_all(table: &Table, reason: &str) {
+/// The lifecycle stop: end every daemon. A network daemon has nothing
+/// unsaved and is signalled; a volume daemon is asked to flush its stick
+/// and unmount (a `SIGKILL` could land in the middle of a FAT update) and is
+/// waited for, a bounded while, before the service goes.
+fn stop_all(table: &Table, automount: &mut volumes::Automount, reason: &str) {
     for pid in table.daemons() {
         let _ = sys::kill(pid, sys::SIG_TERM);
     }
+    automount.shutdown();
     trace::line!(trace::Channel::Mountd, "STOP reason=\"{reason}\"");
 }
 

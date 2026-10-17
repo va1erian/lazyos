@@ -54,7 +54,7 @@ fn embed_shell(sink: &mut dyn Sink) {
             .join("target")
             .join("xui")
             .join(file);
-        println!("cargo:rerun-if-changed={}", path.display());
+        crate::os_image::rerun_if_changed(&path);
         if !path.is_file() {
             panic!(
                 "{what} ({}) is not built; run `python tools/xui/build.py`, \
@@ -176,6 +176,11 @@ const NETWORK_XUI_APPS: &[&str] = &[
     "xui-netdrives.elf",
 ];
 
+/// The removable-drives tray applet, shipped by a desktop image that has the
+/// USB stack (`LAZYOS_USB=1`, docs/usb-hotplug-plan.md G): without `usbd`
+/// there is nothing for it to show.
+const USB_XUI_APPS: &[&str] = &["xui-removable.elf"];
+
 /// Mail (esMail, docs/mail.md), shipped by `LAZYOS_MAIL=1` desktop images:
 /// `python tools/xui/build.py --mail` builds it (`run_demo.py --mail` does
 /// both), and a missing one fails such a build.
@@ -218,6 +223,13 @@ pub fn rerun_if_changed() {
     }
 }
 
+/// Whether this build has the USB stack, which brings the removable-drives
+/// applet.
+fn usb_stack() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB");
+    std::env::var_os("LAZYOS_USB").as_deref() == Some(OsStr::new("1"))
+}
+
 /// Whether this build has the network stack, which brings the network apps.
 fn network_stack() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_NETD");
@@ -254,6 +266,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .chain(DOCUMENT_XUI_APPS)
             .chain(OPTIONAL_XUI_APPS)
             .chain(NETWORK_XUI_APPS.iter().filter(|_| network_stack()))
+            .chain(USB_XUI_APPS.iter().filter(|_| usb_stack()))
             .chain(MAIL_XUI_APPS.iter().filter(|_| mail_app()))
             .chain(TRAYDEMO_XUI_APPS.iter().filter(|_| traydemo_app()))
             .map(|name| dir.join(name))
@@ -278,7 +291,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         }
         // Tracked even when missing: Cargo reruns while a listed path does not
         // exist, so an app built later is picked up without changing the env.
-        println!("cargo:rerun-if-changed={}", app.display());
+        crate::os_image::rerun_if_changed(&app);
         let is_core = crate::core_packages::is_core_stem(&stem);
         if is_core || !app.is_file() {
             let what = if is_core {
@@ -319,13 +332,13 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     // `LAZYOS_LAZYSKY=1`, `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1`,
     // `LAZYOS_PICTURES=1`); asking for one without having built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
-    println!("cargo:rerun-if-changed={}", lazyweb_elf.display());
+    crate::os_image::rerun_if_changed(&lazyweb_elf);
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
-    println!("cargo:rerun-if-changed={}", lazysky_elf.display());
+    crate::os_image::rerun_if_changed(&lazysky_elf);
     let webkit_elf = dir.join(crate::webkit_embed::ELF);
-    println!("cargo:rerun-if-changed={}", webkit_elf.display());
+    crate::os_image::rerun_if_changed(&webkit_elf);
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
-    println!("cargo:rerun-if-changed={}", lazywebplus_elf.display());
+    crate::os_image::rerun_if_changed(&lazywebplus_elf);
     let requested = [
         (
             crate::lazyrad_embed::enabled(),
@@ -382,7 +395,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
 /// the build rather than the boot.
 fn embed_printd(sink: &mut dyn Sink, dir: &std::path::Path) {
     let path = dir.join(PRINTD_ELF);
-    println!("cargo:rerun-if-changed={}", path.display());
+    crate::os_image::rerun_if_changed(&path);
     if !path.is_file() {
         panic!(
             "LAZYOS_DESKTOP=1 with LAZYOS_NETD=1 needs the print spooler ({}); \
@@ -407,7 +420,7 @@ pub fn embed_sample_packages(sink: &mut dyn Sink) {
     for (built, destination) in [("pkgdemo.lzp", fhs::share::PKGDEMO)] {
         let path = dir.join(built);
         // Tracked even when missing, so building it later is picked up.
-        println!("cargo:rerun-if-changed={}", path.display());
+        crate::os_image::rerun_if_changed(&path);
         if path.is_file() {
             println!(
                 "cargo:warning=sample package embedded: {} as {destination}",

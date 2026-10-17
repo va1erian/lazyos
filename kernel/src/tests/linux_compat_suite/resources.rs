@@ -141,8 +141,14 @@ pub fn prctl_and_madvise() -> Result<(), String> {
         "NO_NEW_PRIVS"
     );
     check!(
-        sys(PRCTL, &[1, 9]) == EINVAL,
-        "a parent-death signal was accepted"
+        sys(PRCTL, &[1, 65]) == EINVAL,
+        "an out-of-range parent-death signal was accepted"
+    );
+    check!(sys(PRCTL, &[1, 9]) == 0, "PDEATHSIG SIGKILL refused");
+    let mut sig = 0i32;
+    check!(
+        sys(PRCTL, &[2, &mut sig as *mut i32 as u64]) == 0 && sig == 9,
+        "PR_GET_PDEATHSIG read back {sig}"
     );
     check!(sys(PRCTL, &[1, 0]) == 0, "PDEATHSIG 0 refused");
     check!(

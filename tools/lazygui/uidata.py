@@ -19,11 +19,13 @@ def advanced_cfg(ui) -> dict:
         "home_disk": ui.v["home_disk"].get(),
         "data_path": ui.v["data_path"].get().strip(),
         "data_disk": ui.v["data_disk"].get(),
+        "usb_sticks": ui.v["usb_sticks"].get().strip(),
         "reset_os": ui.v["reset_os"].get(),
         "memory": ui.v["memory"].get().strip(),
         "limits": ui.v["limits"].get().strip(),
         "display_mode": ui.v["display_mode"].get().strip(),
         "display_max": ui.v["display_max"].get().strip(),
+        "sample_port": ui.v["sample_port"].get().strip(),
         "assets": ui.v["assets"].get().strip(),
         "autologin": ui.v["autologin"].get().strip(), "setup": ui.v["setup"].get(),
         "times": ui.v["times"].get().strip(),
@@ -77,7 +79,8 @@ def advanced_cfg(ui) -> dict:
                                                           "wifi", "wifi_sim")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
-        "tls": ui.v["tls"].get() or ui.v["mail"].get(),
+        # LazyWeb+'s ad blocker updates its lists with curl.
+        "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazywebplus"].get(),
         "journal": ui.v["journal"].get(),
         **{app: ui.v[app].get() for app in ("lazyweb", "lazysky", "mail", "traydemo", "pictures")},
         "script": SCRIPTS.index(names[0]) if names else 0,

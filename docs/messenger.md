@@ -248,7 +248,12 @@ history are in [`architecture/ipc-core.md`](architecture/ipc-core.md),
 
 `msg_send(handle, method, parcel, flags=ONE_WAY)` enqueues and returns
 immediately. Guarantees: at-most-once per boot; ordering preserved per sender→
-receiver channel; no reply.
+receiver channel; no reply. For callers that do not want to park on a reply
+at all, split `call` (`begin_call` + `await_reply`) extends to true
+completion: every terminal transition lands on the caller's completion
+queue, whose `WAIT_CALLS` doorbell one `wait` names beside endpoints,
+timers and the `WAIT_FD` descriptor, and `CALL_CHECK`/`CALL_DRAIN` take
+the outcomes — [`docs/architecture/call-completion.md`](architecture/call-completion.md).
 
 ### 7.2 Topics
 
@@ -488,8 +493,8 @@ All introspection is *itself* Messenger interfaces, subject to policy:
 
 | Interface | Purpose |
 |---|---|
-| `os.lazy.messenger.registry.v1` | ListServices, GetService, ListInterfaces, GetInterface, WhoOwns |
-| `os.lazy.messenger.topics.v1` | ListTopics, ListSubscribers, GetRetained, Tail(filter) |
+| `os.lazy.messenger.registry.v1` | Register, Resolve, Connect, Connected, Unregister, List |
+| `os.lazy.messenger.topics.v1` | Publish, Subscribe, Unsubscribe, NextEvent, Ack, ListTopics, Stats, Ping, Bell |
 
 Both are in `idl/`. The kernel-side slice is live: the `messenger` syscall's
 `STATS` op serves a versioned `FabricStats` snapshot (services, endpoints,

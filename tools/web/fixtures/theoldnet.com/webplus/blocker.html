@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>blocker:waiting</title>
+</head>
+<body style="font:20px sans-serif">
+<h1>Ad blocker page</h1>
+<p>An ad picture, a tracking pixel and two scripts from the ad network, and a picture of our own.</p>
+<img id="ad" src="https://ads.adnet.test/banner.gif" width="120" height="40">
+<img id="tracker" src="https://tracker.adnet.test/pixel.gif" width="20" height="20">
+<img id="logo" src="/images/logo.png" width="120" height="40">
+<script src="https://ads.adnet.test/ad.js"></script>
+<script src="https://ads.adnet.test/allowed.js"></script>
+<script>
+// A blocked load fires no `error` event in WebKit, so the outcome is read after `load`: a
+// picture that decoded has a width, a script that ran left its flag.
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    var picture = function (id) { return document.getElementById(id).naturalWidth > 0 ? 'loaded' : 'blocked'; };
+    var seen = {
+      ad: picture('ad'),
+      tracker: picture('tracker'),
+      script: window.adLoaded === true ? 'loaded' : 'blocked',
+      allowed: window.allowedLoaded === true ? 'loaded' : 'blocked',
+      logo: picture('logo')
+    };
+    var order = ['ad', 'tracker', 'script', 'allowed', 'logo'];
+    document.title = 'blocker:' + order.map(function (k) { return k + '=' + seen[k]; }).join(',');
+  }, 800);
+});
+</script>
+</body>
+</html>

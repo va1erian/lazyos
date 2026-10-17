@@ -116,8 +116,8 @@ A forward and `10.0.2.2` combine: from the guest, `http://10.0.2.2:8080/` goes
 out to the host's forwarded port and straight back in to Net Tools' own server
 (the scripted session `net_apps.json` checks exactly that). The same goes for the `ftp` client (`ftp 10.0.2.2:2121 user=NAME pass=SECRET`)
 and any other server on the host. Name lookups (`nslookup example.com`, Net
-Tools' Look up) go through `10.0.2.3`; there is no TLS on LazyOS yet, so web
-fetches are `http://` only.
+Tools' Look up) go through `10.0.2.3`. Net Tools fetches over `http://`; the
+HTTPS clients (`curl`/`wget`/`fetch`, `LAZYOS_TLS=1`) are a separate image.
 
 ## Configuring the guest's address
 
@@ -192,5 +192,5 @@ for an address, and the host reaches it directly, no forwards needed.
 | The browser waits, then fails | Net Tools is not open, or its server was stopped (its window says which). The page is served by the app |
 | Net Tools says "no address yet" | DHCP takes a second or two after boot; the headline updates by itself |
 | "the network stack is not running" | The image was built without the stack: boot with `--net` (or tick Networking) |
-| `https://` refused | No TLS on LazyOS yet; use `http://` |
+| `https://` refused in Net Tools | Net Tools fetches over `http://` only; use the `curl`/`wget`/`fetch` clients (`LAZYOS_TLS=1`) for HTTPS |
 | A connection to a closed host port hangs instead of failing | QEMU's user network on Windows does not answer it with a reset; the client times out |

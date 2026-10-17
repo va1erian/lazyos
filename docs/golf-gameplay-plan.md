@@ -334,8 +334,8 @@ Host-first (`cargo test --manifest-path xui-app/Cargo.toml -p xui-golf`):
 
 QEMU smoke test: `tools/screenshot/examples/xui_golf_play.json`
 (`LAZYOS_XUI_AUTOSTART=golf`), drives Space/arrow keys through a shot and
-a putt; markers `GOLF:SHOT:<hole>:<stroke>:<club>:<carry>`,
-`GOLF:LAND:<material>`, `GOLF:HOLED:<hole>:<strokes>`, judged with
+a putt; markers `GOLF:SHOT:<hole>:<stroke>:<club>:power=<p>`,
+`GOLF:LAND:<hole>:<stroke>:<material>:carry=<m>`, `GOLF:HOLED:<hole>:<strokes>:par=<par>`, judged with
 `pngstats.py` like the existing `xui_golf.json`.
 
 ## 10a. Status

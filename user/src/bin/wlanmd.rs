@@ -33,8 +33,6 @@ extern crate alloc;
 mod radio;
 #[path = "wlanmd/service.rs"]
 mod service;
-#[path = "wlanmd/sessions.rs"]
-mod sessions;
 #[path = "wlanmd/store.rs"]
 mod store;
 
@@ -47,8 +45,8 @@ use user::messenger::{self, errno, registry, wait, Endpoint, Error};
 use user::sys;
 
 use radio::Slot;
-use sessions::Logins;
 use store::Store;
+use user::logins::Logins;
 
 /// Ticks (100 Hz) between looks at the registry for radios.
 const DISCOVER_TICKS: u64 = 100;
@@ -106,7 +104,7 @@ fn run() -> messenger::Result<()> {
     let mut daemon = Daemon {
         radios: Vec::new(),
         store: Store::new(),
-        logins: Logins::new(),
+        logins: Logins::new(user::trace::Channel::Wlanmd),
         scans: Vec::new(),
         next_refresh: 0,
         bus: None,

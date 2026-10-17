@@ -16,12 +16,13 @@ Examples
     python tools/run_demo.py --reset-home    # wipe the home volume (target/home.img) first
     python tools/run_demo.py --reset-os      # wipe the OS volume too (asks first; LAZYOS_RESET_OS=1 build)
     python tools/run_demo.py --no-home-disk  # boot with only the boot disk
+    python tools/run_demo.py --usb-stick target/stick.img  # a FAT USB stick, mounted at /media/<label> after login
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
+    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial in a file; QMP for tools/webplus/sample.py
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen
-    python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --doom          # desktop + /system/share/samples/doom.lzp
     python tools/run_demo.py --emusic        # desktop + /system/share/samples/emusic.lzp, with sound
     python tools/run_demo.py --modplayer     # desktop + LazyRAD + /system/share/samples/modplayer.lzp, with sound
@@ -43,6 +44,7 @@ Examples
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
     python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
+    python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --gen9gfx       # gpud: adopt and report the Intel GPU's display state (docs/kabylake-gpu-plan.md)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
@@ -85,9 +87,12 @@ from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # no
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
+import qemu_serial  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui import osvolume  # noqa: E402
-from demo_qemu import device_env, sound_args  # noqa: E402
+from demo_qemu import (  # noqa: E402
+    USB_APPS, boot_disk_args, device_env, sound_args, usb_desktop, usb_env, usb_sticks,
+)
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
@@ -375,7 +380,7 @@ def main(argv: list[str]) -> int:
             # The simulated radio brings the stack, so the Network app (with
             # its Wi-Fi page) and the Network Status applet too.
             needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi_sim else [])
-                      + (TRAYDEMO_APPS if args.traydemo else []))
+                      + (TRAYDEMO_APPS if args.traydemo else []) + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
         if args.mail:
@@ -386,6 +391,7 @@ def main(argv: list[str]) -> int:
         if args.traydemo:
             # Built with the other xui apps above (`TRAYDEMO_APPS`).
             env["LAZYOS_TRAYDEMO"] = "1"
+        env.update(usb_env(args.usb_stick, args.desktop))
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the
             # target PC may have no PS/2 port (the build refuses otherwise).
@@ -438,31 +444,19 @@ def main(argv: list[str]) -> int:
         if not prepare_data_disk(data_disk, args.reset_data, args.yes):
             return 1
 
+    stick_args = usb_sticks(args.usb_stick)  # makes a missing image
+    if stick_args is None:
+        return 1
     qemu = find_qemu(args.qemu)
-    command = [
-        qemu,
-        "-m", args.memory,
-        "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-        "-serial", "mon:stdio",
-    ]
-    # virtio-blk is DMA-based; the IDE/PIO path costs a VM exit per 16 bits read,
-    # which made loading the ~2.7 MB desktop ELFs take tens of seconds.
-    if args.disk == "virtio":
-        command += ["-drive", f"format=raw,file={image},if=none,id=boot",
-                    "-device", "virtio-blk-pci,drive=boot"]
-    elif args.disk == "ahci":
-        # Its own AHCI controller (works on every machine type), the image the
-        # only disk on it: the kernel must find it as ahci0.
-        command += ["-device", "ahci,id=ahcib",
-                    "-drive", f"format=raw,file={image},if=none,id=boot",
-                    "-device", "ide-hd,drive=boot,bus=ahcib.0"]
-    else:
-        command += ["-drive", f"format=raw,file={image}"]
+    command = [qemu, "-m", args.memory, "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+               *qemu_serial.qemu_args(args)]
+    command += boot_disk_args(args.disk, image)
     # Same order as the screenshot tools: boot, data, then home.
     if data_disk:
         command += data_disk_args(data_disk)
     if home_disk:
         command += home_disk_args(home_disk)
+    command += stick_args
     if args.sound:
         command += sound_args(args.sound, args.sound_card)
     if args.net:
@@ -490,7 +484,7 @@ def main(argv: list[str]) -> int:
 
     print("running:", " ".join(command), flush=True)
     try:
-        return subprocess.call(command)
+        return qemu_serial.run(command, args)
     finally:
         simnet.stop(fake_ap)
 

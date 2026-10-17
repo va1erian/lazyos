@@ -83,6 +83,15 @@ jobs:
       - run: python tools/xui/test_check_pin.py
       - run: python tools/xui/check_pin.py
 
+  ui-call-bounds:
+    # Every Messenger call on a UI thread carries a deadline (issue #720);
+    # `call_unbounded` needs an allowlist entry with a reason.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/xui/check_call_bounds.py
+      - run: python tools/xui/test_check_call_bounds.py
+
   lint:
     runs-on: ubuntu-latest
     steps:

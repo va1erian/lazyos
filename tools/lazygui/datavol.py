@@ -82,14 +82,17 @@ def reset(path: str, busy: bool) -> tuple[bool, str] | None:
     return True, f"Home volume reset: {mkdisk.status(target).describe()}"
 
 
-def confirm_reset_os(cfg: dict) -> bool:
+def confirm_reset_os(cfg: dict, build_button: bool = False) -> bool:
     """Ask before a run that recreates the OS volume; ``True`` when the run may go on.
 
-    Mirrors the plan rule in ``catalog.build_plan``: the flag only takes effect
-    in the interactive demo, and not with "Skip build".
+    Mirrors the rule that puts the recreate in the run's environment
+    (``catalog.build_env``, ``catalog.image_build``): a mode that builds the
+    image and is not on "Skip build"; ``build_button`` is the "Build image"
+    button, which builds whatever the mode says.
     """
-    if not (osvolume.reset_wanted(cfg, osvolume.DEFAULT_IMAGE) and not cfg.get("skip_build")
-            and cfg.get("mode") == "Interactive demo"):
+    wants = (osvolume.reset_on_build_button if build_button
+             else osvolume.reset_on_run)(cfg, osvolume.DEFAULT_IMAGE)
+    if not wants:
         return True
     return messagebox.askyesno("Recreate the OS volume", reset_os_question(cfg))
 

@@ -79,6 +79,16 @@ pending default-fatal signal on its way out (`task::signal::deliver_native`),
 and `recv` returns instead of parking again when woken by one. Every service
 now exits on `SIGTERM`; the whole stop takes about half a second under WHPX.
 
+The same rule covers the daemons that wait for a request in the kernel: a
+filesystem daemon in `fuse::next` (`ftpfuse`, `smbfuse`, `fatfuse`) and a disk
+provider in `provider::next` (`usbd`). Both used to leave that wait for
+`SIGKILL` alone, so a `SIGTERM` woke the daemon, which parked again until the
+wait's own deadline (1 s) and could take a request it then died holding.
+`task::signal::must_unwind` (a kill, or a default-fatal signal the syscall
+return would act on) now ends the wait first and the daemon takes no request on
+its way out. A stick's `fatfuse` is not ended by a signal at all (`mountd`
+asks it to stop, docs/architecture/usb-storage.md); the signal is the fallback.
+
 ### What is not stopped by `init`
 
 `xuid` (and the kernel's console programs) are spawned by the kernel, not
@@ -155,6 +165,10 @@ stubbed under `lazyos_tests`):
   `task_signal_soak_native_sigterm` (1 500 generations): a native task's
   pending `SIGTERM` is fatal at its syscall return, ignored signals are
   consumed, a Linux task is left to its own path, and nothing leaks.
+- `fuse_signal_term_*` and `provider_signal_term_*` (each with a 3 000-round
+  soak): a daemon parked in `NEXT` with a fatal signal pending leaves the wait
+  without parking and takes no queued request; an ignored or blocked signal
+  leaves the wait alone.
 - `native_exec_lookup_maps_names_to_files`: `shutdown`, `poweroff`, `halt` and
   `reboot` reach `/system/bin/powerctl` with the right preset argument, and never
   shadow a real file.
@@ -178,9 +192,10 @@ order on the manifest's real dependency graph (every dependent before its
 dependency, tiers in order) and on a dependency cycle.
 
 **End to end** ([`tools/shutdown/`](../tools/shutdown/README.md)):
-`python tools/shutdown/run.py` builds the desktop image and boots it twice on a
-fresh data disk: the Terminal writes a file to `/data` and types `shutdown`;
-the second boot reads the file back, finds `/data` clean, and reboots through
+`python tools/shutdown/run.py` builds the desktop image and boots it twice (no
+data disk: nothing lives under `/data` since F4): the Terminal writes a nonce to
+the session account's home (`/home/<name>`) and types `shutdown`;
+the second boot reads the nonce back, finds the volume clean, and reboots through
 LazyShell's start menu. `judge.py` checks each serial log (below);
 `test_judge.py` proves the judge fails when it should. The two standalone
 session scripts drive the same paths without the judge:

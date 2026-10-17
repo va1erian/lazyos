@@ -21,7 +21,7 @@ impl Pipe {
             }
             End::Write => {
                 if events & POLLOUT != 0
-                    && self.space_for(&ring, 1)
+                    && self.space_to_write(&ring)
                     && self.readers.load(Ordering::Acquire) > 0
                 {
                     revents |= POLLOUT;

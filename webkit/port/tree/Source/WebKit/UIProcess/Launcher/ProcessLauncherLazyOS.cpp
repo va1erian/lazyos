@@ -40,6 +40,14 @@
 // has collected it, and both the collecting (waitpid with WNOHANG, polled: LazyOS has no
 // waitid with WNOWAIT to wait without reaping) and `terminateProcess`'s kill happen under one
 // lock, so a kill only ever reaches a child that is still running or a zombie.
+//
+// A child that the reaper's thread cannot wait for (until issue #859 a child belongs to the thread
+// that forked it, and this is not it: waitpid answers ECHILD) is not dropped for that: it stays
+// until the kernel has no such id, so terminate() still reaches it. Each child is its own process
+// group and asks to be killed with its parent (PR_SET_PDEATHSIG; refused with EINVAL until the
+// kernel supports it), so a kill of the group ends whatever it started. Every launch, exit and
+// terminate is reported to the embedder (`lzw_launcher_event`, webkit/port/app/children.cpp), which
+// prints one line for each (issue #862); without an embedder it goes to stderr.
 
 #include "config.h"
 #include "ProcessLauncher.h"
@@ -50,10 +58,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <wtf/HashSet.h>
+#include <wtf/HashMap.h>
+#include <wtf/Vector.h>
 #include <wtf/Lock.h>
 #include <wtf/Locker.h>
 #include <wtf/NeverDestroyed.h>
@@ -70,7 +80,33 @@
 #error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
 #endif
 
+// The embedder's report (webkit/port/app/children.cpp). Weak: webkit-smoke and the other programs
+// that link WebKit without it print to stderr. type: "web" or "network"; event: "launch", "fail"
+// (detail: errno), "exit" (detail: status), "signal" (detail: signal), "vanish", "terminate"
+// (detail, detail2: errno of kill(-pid) and of kill(pid), 0 when sent, -1 when not tried).
+extern "C" __attribute__((weak)) void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2);
+
 namespace WebKit {
+
+static const char* typeName(ProcessLauncher::ProcessType type)
+{
+    switch (type) {
+    case ProcessLauncher::ProcessType::Network:
+        return "network";
+    case ProcessLauncher::ProcessType::Web:
+    default:
+        return "web";
+    }
+}
+
+static void report(ProcessLauncher::ProcessType type, pid_t pid, const char* event, int detail = 0, int detail2 = 0)
+{
+    if (lzw_launcher_event) {
+        lzw_launcher_event(typeName(type), static_cast<int>(pid), event, detail, detail2);
+        return;
+    }
+    fprintf(stderr, "WebKit: %s process %d: %s %d %d\n", typeName(type), static_cast<int>(pid), event, detail, detail2);
+}
 
 // Where `init` finds the programs when the embedder did not say (WKContextConfigurationSetWebProcessPath).
 static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
@@ -84,39 +120,119 @@ static const char* defaultProcessPath(ProcessLauncher::ProcessType type)
     }
 }
 
-// The children that are not reaped yet, and the lock that orders a reap against a kill.
+// The children that are not reaped yet, and the lock that orders every reap against every kill. A
+// launch gets a generation number: LazyOS ids are task slots and are reused at once, so a thread
+// that watches "its" child must be able to tell that the id now belongs to a newer one.
+struct LiveChild {
+    ProcessLauncher::ProcessType type;
+    uint64_t generation;
+};
 static Lock s_childrenLock;
-static HashSet<pid_t>& liveChildren()
+static HashMap<pid_t, LiveChild>& liveChildren()
 {
-    static NeverDestroyed<HashSet<pid_t>> children;
+    static NeverDestroyed<HashMap<pid_t, LiveChild>> children;
     return children;
+}
+static uint64_t s_nextGeneration;
+// The generation of the child each launcher started (under s_childrenLock): a launcher may signal only
+// the child it started, never a newer one that took the same id.
+static HashMap<const ProcessLauncher*, uint64_t>& launchGenerations()
+{
+    static NeverDestroyed<HashMap<const ProcessLauncher*, uint64_t>> generations;
+    return generations;
 }
 
 // How often the reaper looks at its child, in microseconds: a finished child is a zombie for
 // at most this long.
 static constexpr useconds_t reapPollInterval = 50 * 1000;
 
-// Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
-// its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child.
-static void reapInBackground(pid_t pid)
+// Collects `pid` if it is over, and takes it off the list: the one place a child is waited for
+// (the reaper thread's polls and `lzw_launcher_reap`), always under `s_childrenLock`, so no kill
+// can name an id that was collected (and may be somebody else's now) and no report names the wrong
+// process. Returns whether the child is gone. A child this thread cannot wait for (until the
+// kernel makes children per process, issue #859, a child belongs to the thread that forked it) is
+// over when the kernel has no such id.
+static bool collectLocked(pid_t pid, LiveChild child)
 {
-    Thread::create("ProcessLauncher reaper"_s, [pid] {
+    int status = 0;
+    const pid_t result = waitpid(pid, &status, WNOHANG);
+    const int error = result == -1 ? errno : 0;
+    if (result == pid) {
+        liveChildren().remove(pid);
+        if (WIFSIGNALED(status))
+            report(child.type, pid, "signal", WTERMSIG(status));
+        else
+            report(child.type, pid, "exit", WEXITSTATUS(status));
+        return true;
+    }
+    if (result == -1 && error == ECHILD) {
+        if (kill(pid, 0) == -1 && errno == ESRCH) {
+            liveChildren().remove(pid);
+            report(child.type, pid, "vanish");
+            return true;
+        }
+        return false;
+    }
+    if (result == -1 && error != EINTR) {
+        liveChildren().remove(pid); // not a child of this process at all: nothing to signal or wait for
+        report(child.type, pid, "vanish");
+        return true;
+    }
+    return false;
+}
+
+// Collects every child that is over: for the embedder's thread that forked them, which can wait for
+// them where the reaper's threads cannot (webkit/port/app/children.cpp calls it when WebKit says a
+// process ended).
+extern "C" void lzw_launcher_reap()
+{
+    Locker locker { s_childrenLock };
+    Vector<std::pair<pid_t, LiveChild>> children;
+    for (auto& entry : liveChildren())
+        children.append({ entry.key, entry.value });
+    for (auto& entry : children)
+        collectLocked(entry.first, entry.second);
+}
+
+// Signals every live child under the launcher's lock (the shutdown's SIGTERM and SIGKILL: a signal may
+// only name an id that is still the child's, never one that was collected and reused). With `group` the
+// child's process group first, the process itself if there is no such group. Fills `pids` and `codes`
+// (0: sent, else the errno negated) for up to `capacity` children, and returns how many are live.
+extern "C" int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capacity)
+{
+    Locker locker { s_childrenLock };
+    int count = 0;
+    for (auto& entry : liveChildren()) {
+        const pid_t pid = entry.key;
+        int code = 0;
+        if (group && kill(-pid, signal) == 0)
+            code = 0;
+        else
+            code = kill(pid, signal) == 0 ? 0 : -errno;
+        if (count < capacity) {
+            pids[count] = static_cast<int>(pid);
+            codes[count] = code;
+        }
+        ++count;
+    }
+    return count;
+}
+
+// Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
+// its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child; it
+// ends when its child is collected, by it or by anyone else, or when the id belongs to a newer launch.
+static void reapInBackground(pid_t pid, uint64_t generation)
+{
+    Thread::create("ProcessLauncher reaper"_s, [pid, generation] {
         for (;;) {
-            int status = 0;
-            pid_t result;
             {
                 Locker locker { s_childrenLock };
-                result = waitpid(pid, &status, WNOHANG);
-                if (result == pid || (result == -1 && errno != EINTR))
-                    liveChildren().remove(pid); // reaped (or not ours any more): no kill may name it
+                auto found = liveChildren().find(pid);
+                if (found == liveChildren().end() || found->value.generation != generation)
+                    return;
+                if (collectLocked(pid, LiveChild { found->value }))
+                    return;
             }
-            if (result == pid) {
-                if (WIFSIGNALED(status))
-                    fprintf(stderr, "WebKit: auxiliary process %d killed by signal %d\n", static_cast<int>(pid), WTERMSIG(status));
-                return;
-            }
-            if (result == -1 && errno != EINTR)
-                return;
             usleep(reapPollInterval);
         }
     })->detach();
@@ -148,7 +264,9 @@ void ProcessLauncher::launchProcess()
 
     pid_t pid = fork();
     if (pid < 0) {
-        fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(errno));
+        const int error = errno;
+        fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(error));
+        report(m_launchOptions.processType, 0, "fail", error);
         // Finish the launch without a connection (an invalid identifier, as the other launchers do
         // when they cannot start the process): the proxy stops waiting for a launch that never was.
         RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
@@ -157,6 +275,11 @@ void ProcessLauncher::launchProcess()
         return;
     }
     if (!pid) {
+        // Its own process group (a kill of the group ends whatever it started), and a SIGKILL when
+        // this process dies: the kernel refuses the second with EINVAL until issue #859, which is
+        // tolerated. Both are plain system calls, safe between fork and exec.
+        setpgid(0, 0);
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
         // chdir is async-signal-safe; a profile that cannot be entered leaves the directory as it is.
         if (profile) {
             int ignored = chdir(profile);
@@ -182,13 +305,21 @@ void ProcessLauncher::launchProcess()
     }
 
     m_processID = pid;
+    // The parent's half of the group change as well: a kill of the group may come before the child
+    // has run (the usual pair of calls; it fails harmlessly once the child has exec'd).
+    setpgid(pid, pid);
+    uint64_t generation;
     {
         // Entered before the reaper exists, so the reaper (and a later kill) always find it. Not
-        // taken around the fork: the child must not touch a lock that another thread may hold.
+        // taken around the fork: the child must not touch a lock that another thread may hold. An
+        // entry of the same id that is still here is a child nobody noticed ending: it is replaced.
         Locker locker { s_childrenLock };
-        liveChildren().add(pid);
+        generation = ++s_nextGeneration;
+        liveChildren().set(pid, LiveChild { m_launchOptions.processType, generation });
+        launchGenerations().set(this, generation);
     }
-    reapInBackground(pid);
+    report(m_launchOptions.processType, pid, "launch");
+    reapInBackground(pid, generation);
     close(socketPair.client.release()); // the child holds its end now
 
     // We've finished launching the process, message back to the main run loop.
@@ -209,9 +340,20 @@ void ProcessLauncher::terminateProcess()
 
     {
         // Only a child the reaper has not collected: a collected pid may be someone else's now.
+        // The group first (the child made itself its leader), then the process itself if there was
+        // no such group; what each said is reported (issue #862: a terminate that sent nothing
+        // left a busy NetworkProcess running beside its replacement).
         Locker locker { s_childrenLock };
-        if (liveChildren().contains(m_processID))
-            kill(m_processID, SIGKILL);
+        auto found = liveChildren().find(m_processID);
+        const uint64_t mine = launchGenerations().take(this);
+        if (found != liveChildren().end() && mine && found->value.generation == mine) {
+            const int groupError = kill(-m_processID, SIGKILL) == 0 ? 0 : errno;
+            int pidError = -1;
+            if (groupError)
+                pidError = kill(m_processID, SIGKILL) == 0 ? 0 : errno;
+            report(m_launchOptions.processType, m_processID, "terminate", groupError, pidError);
+        } else
+            report(m_launchOptions.processType, m_processID, "terminate", -1, -1);
     }
     m_processID = 0;
 }

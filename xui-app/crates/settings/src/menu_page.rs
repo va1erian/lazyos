@@ -132,6 +132,12 @@ impl MenuPage {
         self.list != self.saved
     }
 
+    /// The draft as it stands, for the worker thread that will save it
+    /// (a machine write, and it waits on an administrator: issue #720).
+    pub fn draft(&self) -> &[Entry] {
+        &self.list
+    }
+
     /// Rebuild both lists from the working state, selecting entry `select`.
     fn refresh(&mut self, select: Option<usize>) {
         let rows: Vec<String> = self.list.iter().map(menu_ops::row_text).collect();
@@ -223,6 +229,27 @@ impl MenuPage {
             Err(error) => format!("Could not change the menu: {error}"),
         }
     }
+}
+
+/// The serial evidence a `Save` leaves behind, for the worker thread's
+/// answer too (the marker lives here so the evidence site does not move;
+/// see `finish` in `app/elevated.rs`).
+pub fn report_saved(entries: usize) {
+    println!("SETTINGS:MENU:SAVED:{entries}");
+}
+
+impl MenuPage {
+    /// The machine write a worker was doing finished: re-read the stored
+    /// menu into `saved` WITHOUT replacing the draft, so edits the user
+    /// made while the prompt was open remain on the page to save again
+    /// (issue #720's follow-up). Only a successful save reloads `apps`
+    /// with it (the menu editor only reorders and renames when
+    /// `init` cannot be reached, so a registry change does not disturb
+    /// the draft).
+    pub fn saved_in_background(&mut self, store: &dyn ConfigStore) {
+        self.saved = menu_ops::load(store);
+        self.refresh(Some(self.entries.selected().unwrap_or(0)));
+    }
 
     /// Write the draft in one request.
     fn save(&mut self, store: &dyn ConfigStore) -> String {
@@ -231,7 +258,7 @@ impl MenuPage {
         }
         match menu_ops::save(store, &self.list) {
             Ok(()) => {
-                println!("SETTINGS:MENU:SAVED:{}", self.list.len());
+                report_saved(self.list.len());
                 self.saved = self.list.clone();
                 let at = self.entries.selected();
                 self.refresh(at);

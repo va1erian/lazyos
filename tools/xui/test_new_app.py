@@ -34,6 +34,7 @@ REGISTRIES = [
     "tools/xui/core_packages.py",
     "tools/run_demo.py",
     "tools/lazygui/catalog.py",
+    "tools/lazygui/scripts.py",
     "tools/screenshot/examples/core_apps.json",
     "xui-app/crates/app-icons/src/lib.rs",
     "libs/tracefmt/src/channel.rs",

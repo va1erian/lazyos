@@ -98,7 +98,7 @@ class Launcher:
         self._check(g, "LazyRAD IDE + player (LAZYOS_LAZYRAD)", "lazyrad")
         self._check(g, "Doom package in /system/share/samples (LAZYOS_DOOM)", "doom")
         self._check(g, "Quake package in /system/share/samples (LAZYOS_QUAKE)", "quake")
-        self._check(g, "SRB2Kart package + game data (LAZYOS_SRB2KART; 1G OS volume)", "srb2kart")
+        self._check(g, "SRB2Kart package + game data (LAZYOS_SRB2KART; 1G OS volume, 1.5G with a browser)", "srb2kart")
         self._check(g, "emusic package in /system/share/samples (LAZYOS_EMUSIC)", "emusic")
         self._check(g, "LazyRAD MOD player package in /system/share/samples (LAZYOS_MODPLAYER)",
                     "modplayer")
@@ -169,6 +169,11 @@ class Launcher:
                         variable=self.v["data_disk"]).pack(side="left")
         ttk.Entry(row, textvariable=self.v["data_path"]).pack(side="left", fill="x",
                                                               expand=True, padx=(6, 0))
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 2))
+        ttk.Label(row, text="USB sticks (FAT images, mounted at /media; paths separated by "
+                  "spaces, made if missing):").pack(side="left")
+        ttk.Entry(row, textvariable=self.v["usb_sticks"]).pack(side="left", fill="x",
+                                                               expand=True, padx=(6, 0))
         row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=(0, 6))
         ttk.Checkbutton(row, text="Recreate the OS volume (erases installed apps, settings, "
                         "logs and /data; needs a build)",
@@ -194,6 +199,7 @@ class Launcher:
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
         self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
+        self._field(g, "Sample port:", "sample_port", 8)  # QMP port for webplus/sample.py: CR3+RIP during a freeze (#861)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         self._field(g, "Autologin:", "autologin", 12)  # user: no login screen (#623)
         self._field(g, "Netboot key:", "netboot_key", 44)  # key.sec for manifest.sig; empty = unsigned
@@ -352,6 +358,9 @@ class Launcher:
             self._log(f"(plan error: {exc})\n", "fail")
             return
         if not self.runner.busy:
+            if not datavol.confirm_reset_os(self.cfg(), build_button=True):
+                self._log("OS volume reset cancelled.\n", "fail")
+                return
             self._begin(len(steps), "Build image")
             self.runner.start(steps, env, ROOT)
 
