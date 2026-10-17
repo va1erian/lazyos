@@ -102,7 +102,8 @@ impl RegFile {
             if if pipe == 0 { pw1 } else { pw2 } {
                 file.read_pipe(mmio, pipe);
             } else {
-                file.gated.push(format!("PIPE_{}", PIPE_NAMES[pipe as usize]));
+                file.gated
+                    .push(format!("PIPE_{}", PIPE_NAMES[pipe as usize]));
             }
         }
         if pw1 {
@@ -127,7 +128,12 @@ impl RegFile {
             file.add(mmio, "AUD_MISC_CTRL_A", regs::AUD_MISC_CTRL_A, false);
             file.add(mmio, "AUD_VID_DID", regs::AUD_VID_DID, false);
             file.add(mmio, "AUD_RATE_CAP", regs::AUD_RATE_CAP, false);
-            file.add(mmio, "AUD_DIP_ELD_CTRL_ST_A", regs::AUD_DIP_ELD_CTRL_ST_A, false);
+            file.add(
+                mmio,
+                "AUD_DIP_ELD_CTRL_ST_A",
+                regs::AUD_DIP_ELD_CTRL_ST_A,
+                false,
+            );
             file.add(mmio, "AUD_PIN_ELD_CP_VLD", regs::AUD_PIN_ELD_CP_VLD, false);
         } else {
             file.gated.push(String::from("AUDIO"));
@@ -157,7 +163,12 @@ impl RegFile {
         self.add(mmio, &n("TRANS_VBLANK"), t + regs::trans::VBLANK, true);
         self.add(mmio, &n("TRANS_VSYNC"), t + regs::trans::VSYNC, true);
         self.add(mmio, &n("PIPESRC"), t + regs::TRANS_PIPESRC, false);
-        self.add(mmio, &n("TRANS_DDI_FUNC_CTL"), t + regs::trans::DDI_FUNC_CTL, true);
+        self.add(
+            mmio,
+            &n("TRANS_DDI_FUNC_CTL"),
+            t + regs::trans::DDI_FUNC_CTL,
+            true,
+        );
         self.add(mmio, &n("VIDEO_DIP_CTL"), t + 0x200, true);
         self.add(mmio, &n("PLANE_CTL_1"), p + plane1::CTL, true);
         self.add(mmio, &n("PLANE_STRIDE_1"), p + plane1::STRIDE, true);
@@ -190,9 +201,13 @@ impl RegFile {
     /// ones for the always-on power well registers is not there (a function
     /// with memory decode off, or a dead link).
     pub fn looks_dead(&self) -> bool {
-        [regs::PWR_WELL_CTL_BIOS, regs::PWR_WELL_CTL_DRIVER, regs::CDCLK_CTL]
-            .iter()
-            .all(|&offset| self.get(offset) == u32::MAX)
+        [
+            regs::PWR_WELL_CTL_BIOS,
+            regs::PWR_WELL_CTL_DRIVER,
+            regs::CDCLK_CTL,
+        ]
+        .iter()
+        .all(|&offset| self.get(offset) == u32::MAX)
     }
 }
 

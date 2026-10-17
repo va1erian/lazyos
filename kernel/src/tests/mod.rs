@@ -12,8 +12,7 @@
 //! TEST:SUMMARY:PASS=<n> FAIL=<n>
 //! ```
 //!
-//! `tools/test/run.py` parses those lines and turns them into
-//! `docs/test/report.md` + `docs/test/report.json`.
+//! `tools/test/run.py` turns those lines into `docs/test/report.md` + `report.json`.
 //!
 //! The suite is split one file per subsystem under this directory (issue
 //! #194), grouped here into [`SUITE`] in the order they must run: task tests

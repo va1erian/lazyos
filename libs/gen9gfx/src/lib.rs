@@ -56,6 +56,8 @@ mod tests_eld;
 #[cfg(test)]
 mod tests_real;
 #[cfg(test)]
+mod tests_regs;
+#[cfg(test)]
 mod tests_vbt;
 
 pub use mmio::Mmio;
