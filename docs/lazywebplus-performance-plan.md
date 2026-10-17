@@ -459,6 +459,9 @@ page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure number
   the wheel): a burst the page has not moved for 900 ms is dropped and that direction is not shown ahead until the
   page moves; whatever is left 500 ms after the last notch or update is dropped (500: the page's slowest answer
   seen was 450 ms, and a shorter settle made the picture jump back and then forward).
+* **The scroll bar stays put.** WebKit paints its 7 px scroll bar into the page's picture, so shifting the picture
+  dragged the thumb ahead and back on every answer. The picture's last 7 columns (`SCROLLBAR` in `picture.rs`) are
+  drawn unshifted: the thumb moves only when the page does.
 * **Known costs.** What is fixed to the window (a sticky header) moves with the picture until the page answers,
   then jumps back. The first burst at the end of a page shows a short checkerboard before it is dropped. A click
   during the shift lands a few tens of pixels off for as long as it lasts.

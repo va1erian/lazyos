@@ -123,7 +123,9 @@ fn a_notch_moves_the_picture_at_once_and_leaves_a_checkerboard_below() {
     let shown = run(|stage, _, _, at| wheel(stage, at, -1, Modifiers::default()));
     // `XUI_SNAPSHOT=<dir>` keeps the picture to look at.
     if Gallery::from_env().dir().is_some() {
-        Gallery::from_env().save("scroll_ahead", "one_notch", &shown.image).unwrap();
+        Gallery::from_env()
+            .save("scroll_ahead", "one_notch", &shown.image)
+            .unwrap();
     }
     let (w, h) = shown.size;
     for y in [0, 1, 100, h / 2, h - STEP - 1] {
@@ -132,10 +134,25 @@ fn a_notch_moves_the_picture_at_once_and_leaves_a_checkerboard_below() {
             row_colour(y + STEP),
             "row {y} is what was {STEP} rows lower"
         );
+        assert_eq!(
+            shown.at(w - 8, y),
+            row_colour(y + STEP),
+            "the page ends where the scroll bar begins"
+        );
+    }
+    // The page's scroll bar is in its picture and stays where the page is: only the page moves it.
+    for y in [0, 1, h / 2, h - STEP, h - 1] {
+        for x in [w - 7, w - 4, w - 1] {
+            assert_eq!(
+                shown.at(x, y),
+                row_colour(y),
+                "scroll bar column {x} at row {y} did not move"
+            );
+        }
     }
     let mut seen = [false; 2];
     for y in (h - STEP)..h {
-        for x in (0..w).step_by(7) {
+        for x in (0..w - 7).step_by(7) {
             let pixel = shown.at(x, y);
             assert!(
                 pixel == LIGHT || pixel == DARK,
