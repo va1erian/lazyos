@@ -13,4 +13,4 @@ folder with the evidence.
 | Machine | Year | Firmware | CPU | RAM | Framebuffer | `HW:` verdicts | Input | Result | Evidence |
 |---|---|---|---|---|---|---|---|---|---|
 | Mini PC (i3-7100U, SATA SSD, RTL8111H) | 2026 | UEFI | i3-7100U | 8 GiB | 2560x1440 (HDMI), 1080p logical | boots to desktop; `netdrv` and `sndd` start | USB keyboard and mouse after the control-transfer chain fix | **works** with laggy windows; see notes | [`kabylake/boot-1/`](kabylake/boot-1/NOTES.md) |
-| Mini PC (MAGICNUC AS1, Ryzen 5 3501U, SATA SSD, 2x RTL8168h) | 2026 | UEFI | Ryzen 5 3501U (Raven2) | 8 GiB (3 GiB to the GPU) | 1280x960 GOP | loader reset loop fixed (interrupts off after ExitBootServices); desktop reached | not yet recorded | **boots** with the vendored loader; rest unchecked | [`amd-nuc/`](amd-nuc/README.md) |
+| Mini PC (CHUWI LarkBox X, i3-1220P, NVMe + SATA SSD, 2x RTL8168h, AX101 Wi-Fi) | 2026 | UEFI | i3-1220P (Alder Lake-P) | 32 GiB | not yet booted (Linux: 2560x1440 on HDMI) | — | not yet booted | **surveyed only**: the Linux survey is collected, the stick has not run on it yet | [`alderlake/README.md`](alderlake/README.md) |

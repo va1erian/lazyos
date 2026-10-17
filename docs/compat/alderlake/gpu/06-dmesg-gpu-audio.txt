@@ -1,0 +1,73 @@
+# dmesg | grep -i -E "i915|snd_hda|hdmi|dmc|guc|huc|audio|eld|vbt|opregion|stolen|gtt|ggtt|aperture|DDI|lspcon|dp_aux"
+[    0.427963] pci 0000:00:02.0: Adding to iommu group 0
+[    0.428421] pci 0000:00:00.0: Adding to iommu group 1
+[    0.428431] pci 0000:00:06.0: Adding to iommu group 2
+[    0.428443] pci 0000:00:0d.0: Adding to iommu group 3
+[    0.428455] pci 0000:00:14.0: Adding to iommu group 4
+[    0.428462] pci 0000:00:14.2: Adding to iommu group 4
+[    0.428470] pci 0000:00:14.3: Adding to iommu group 5
+[    0.428482] pci 0000:00:15.0: Adding to iommu group 6
+[    0.428489] pci 0000:00:15.1: Adding to iommu group 6
+[    0.428498] pci 0000:00:16.0: Adding to iommu group 7
+[    0.428506] pci 0000:00:17.0: Adding to iommu group 8
+[    0.428519] pci 0000:00:19.0: Adding to iommu group 9
+[    0.428526] pci 0000:00:19.1: Adding to iommu group 9
+[    0.428543] pci 0000:00:1c.0: Adding to iommu group 10
+[    0.428556] pci 0000:00:1c.6: Adding to iommu group 11
+[    0.428568] pci 0000:00:1e.0: Adding to iommu group 12
+[    0.428576] pci 0000:00:1e.3: Adding to iommu group 12
+[    0.428593] pci 0000:00:1f.0: Adding to iommu group 13
+[    0.428601] pci 0000:00:1f.3: Adding to iommu group 13
+[    0.428609] pci 0000:00:1f.4: Adding to iommu group 13
+[    0.428616] pci 0000:00:1f.5: Adding to iommu group 13
+[    0.428626] pci 0000:01:00.0: Adding to iommu group 14
+[    0.428635] pci 0000:02:00.0: Adding to iommu group 15
+[    0.428643] pci 0000:03:00.0: Adding to iommu group 16
+[    2.511012] Adding 524284k swap on /swapfile.  Priority:-1 extents:1 across:524284k SS
+[    3.298068] i915 0000:00:02.0: [drm] Found alderlake_p (device ID 46b3) integrated display version 13.00 stepping D0
+[    3.298777] i915 0000:00:02.0: [drm] VT-d active for gfx access
+[    3.340957] i915 0000:00:02.0: vgaarb: deactivate vga console
+[    3.341067] i915 0000:00:02.0: [drm] Using Transparent Hugepages
+[    3.344697] i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io+mem,decodes=io:owns=io+mem
+[    3.345183] i915 0000:00:02.0: [drm] DMC 1 mmio[0]/0x5f074 incorrect (expected 0x96fc0, current 0x0)
+[    3.345187] WARNING: drivers/gpu/drm/i915/display/intel_dmc.c:706 at assert_dmc_loaded+0x29b/0x470 [i915], CPU#5: (udev-worker)/425
+[    3.345424] Modules linked in: snd_rawmidi(+) kvm(+) snd_seq ee1004 irqbypass iwlmvm(+) snd_seq_device cmdlinepart snd_timer spi_nor i2c_i801 rapl snd mtd mei_pxp mei_hdcp wmi_bmof intel_cstate i2c_smbus i915(+) soundcore mac80211 spi_intel_pci i2c_mux spi_intel libarc4 drm_buddy btusb ttm intel_pmc_core drm_display_helper btmtk pmt_telemetry btrtl iwlwifi btbcm pmt_discovery btintel pmt_class cec intel_pmc_ssram_telemetry intel_pmc_pwrm_telemetry intel_hid mei_me acpi_tad bluetooth intel_vsec sparse_keymap acpi_pad rc_core mei cfg80211 i2c_algo_bit igen6_edac joydev input_leds mac_hid sch_fq_codel lp ppdev parport msr efi_pstore dmi_sysfs autofs4 btrfs libblake2b raid6_pq xor hid_generic usbhid hid nvme nvme_core spi_pxa2xx_platform dw_dmac dw_dmac_core 8250_dw spi_pxa2xx_core r8169 aesni_intel nvme_keyring serio_raw realtek gf128mul nvme_auth phy_package video intel_lpss_pci ahci pinctrl_tigerlake intel_lpss wmi libahci idma64
+[    3.345501] RIP: 0010:assert_dmc_loaded+0x2b4/0x470 [i915]
+[    3.345748]  intel_dmc_enable_pipe+0xeb/0x350 [i915]
+[    3.345855] i915 0000:00:02.0: [drm] Finished loading DMC firmware i915/adlp_dmc.bin (v2.20)
+[    3.345947]  intel_modeset_setup_hw_state+0x24f/0x6f0 [i915]
+[    3.346150]  intel_display_driver_probe_nogem+0x14c/0x1e0 [i915]
+[    3.346348]  i915_driver_probe+0x166/0x4e0 [i915]
+[    3.346478]  i915_pci_probe+0xc2/0x120 [i915]
+[    3.346645]  i915_pci_register_driver+0x23/0x30 [i915]
+[    3.346762]  i915_init+0x3e/0x100 [i915]
+[    3.346877]  ? __pfx_init_module+0x10/0x10 [i915]
+[    3.354665] i915 0000:00:02.0: [drm] GT0: GuC firmware i915/adlp_guc_70.bin version 70.49.4
+[    3.354674] i915 0000:00:02.0: [drm] GT0: HuC firmware i915/tgl_huc.bin version 7.9.3
+[    3.371966] i915 0000:00:02.0: [drm] GT0: HuC: authenticated for all workloads
+[    3.372420] i915 0000:00:02.0: [drm] GT0: GUC: submission enabled
+[    3.372424] i915 0000:00:02.0: [drm] GT0: GUC: SLPC enabled
+[    3.372859] i915 0000:00:02.0: [drm] GT0: GUC: RC enabled
+[    3.373950] mei_pxp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_pxp_tee_component_ops [i915])
+[    3.374163] i915 0000:00:02.0: [drm] Protected Xe Path (PXP) protected content support initialized
+[    3.374169] mei_hdcp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+[    3.379980] i915 0000:00:02.0: [drm] Registered 4 planes with drm panic
+[    3.389539] [drm] Initialized i915 1.6.0 for 0000:00:02.0 on minor 1
+[    3.429752] fbcon: i915drmfb (fb0) is primary device
+[    3.429761] i915 0000:00:02.0: [drm] fb0: i915drmfb frame buffer device
+[    3.806941] snd_hda_intel 0000:00:1f.3: enabling device (0000 -> 0002)
+[    3.807129] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+[    3.835459] snd_hda_codec_conexant hdaudioC0D0: SN6140: BIOS auto-probing.
+[    3.836058] snd_hda_codec_conexant hdaudioC0D0: autoconfig for SN6140: line_outs=1 (0x17/0x0/0x0/0x0/0x0) type:speaker
+[    3.836064] snd_hda_codec_conexant hdaudioC0D0:    speaker_outs=0 (0x0/0x0/0x0/0x0/0x0)
+[    3.836067] snd_hda_codec_conexant hdaudioC0D0:    hp_outs=1 (0x16/0x0/0x0/0x0/0x0)
+[    3.836069] snd_hda_codec_conexant hdaudioC0D0:    mono: mono_out=0x0
+[    3.836070] snd_hda_codec_conexant hdaudioC0D0:    inputs:
+[    3.836072] snd_hda_codec_conexant hdaudioC0D0:      Mic=0x19
+[    3.836074] snd_hda_codec_conexant hdaudioC0D0:      Internal Mic=0x1a
+[    3.855777] audit: type=1400 audit(1792263823.882:10): apparmor="STATUS" operation="profile_load" profile="unconfined" name="babeld" pid=700 comm="apparmor_parser"
+[    3.870422] input: HDA Intel PCH HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input13
+[    3.870456] input: HDA Intel PCH HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input14
+[    3.870489] input: HDA Intel PCH HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input15
+[    3.870524] input: HDA Intel PCH HDMI/DP,pcm=9 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input16
+# exit 0

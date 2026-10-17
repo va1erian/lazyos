@@ -1,0 +1,80 @@
+# ls -l /lib/firmware/i915 2>&1 | grep -i -E "kbl|skl|glk" ; ls -l /usr/lib/firmware/i915 2>&1 | grep -i -E "kbl|skl|glk"
+-rw-r--r-- 1 root root   2480 Sep 15 09:21 glk_dmc_ver1_04.bin.zst
+-rw-r--r-- 1 root root  77439 Sep 15 09:21 glk_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79327 Sep 15 09:21 glk_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  81199 Sep 15 09:21 glk_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85818 Sep 15 09:21 glk_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95678 Sep 15 09:21 glk_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87645 Sep 15 09:21 glk_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  71782 Sep 15 09:21 glk_huc_4.0.0.bin.zst
+-rw-r--r-- 1 root root  70208 Sep 15 09:21 glk_huc_ver03_01_2893.bin.zst
+-rw-r--r-- 1 root root   2451 Sep 15 09:21 kbl_dmc_ver1_01.bin.zst
+-rw-r--r-- 1 root root   2554 Sep 15 09:21 kbl_dmc_ver1_04.bin.zst
+lrwxrwxrwx 1 root root     23 Sep 15 09:21 kbl_dmc_ver1.bin.zst -> kbl_dmc_ver1_01.bin.zst
+-rw-r--r-- 1 root root  77220 Sep 15 09:21 kbl_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79423 Sep 15 09:21 kbl_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  81248 Sep 15 09:21 kbl_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85868 Sep 15 09:21 kbl_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95735 Sep 15 09:21 kbl_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87671 Sep 15 09:21 kbl_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  64751 Sep 15 09:21 kbl_guc_ver9_14.bin.zst
+-rw-r--r-- 1 root root  66706 Sep 15 09:21 kbl_guc_ver9_39.bin.zst
+-rw-r--r-- 1 root root  71772 Sep 15 09:21 kbl_huc_4.0.0.bin.zst
+-rw-r--r-- 1 root root  68374 Sep 15 09:21 kbl_huc_ver02_00_1810.bin.zst
+-rw-r--r-- 1 root root   2522 Sep 15 09:21 skl_dmc_ver1_23.bin.zst
+-rw-r--r-- 1 root root   2556 Sep 15 09:21 skl_dmc_ver1_26.bin.zst
+-rw-r--r-- 1 root root   2582 Sep 15 09:21 skl_dmc_ver1_27.bin.zst
+lrwxrwxrwx 1 root root     23 Sep 15 09:21 skl_dmc_ver1.bin.zst -> skl_dmc_ver1_26.bin.zst
+-rw-r--r-- 1 root root  76821 Sep 15 09:21 skl_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79084 Sep 15 09:21 skl_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  80869 Sep 15 09:21 skl_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85494 Sep 15 09:21 skl_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95344 Sep 15 09:21 skl_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87264 Sep 15 09:21 skl_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  38692 Sep 15 09:21 skl_guc_ver1.bin.zst
+-rw-r--r-- 1 root root  57394 Sep 15 09:21 skl_guc_ver4.bin.zst
+-rw-r--r-- 1 root root  59232 Sep 15 09:21 skl_guc_ver6_1.bin.zst
+lrwxrwxrwx 1 root root     22 Sep 15 09:21 skl_guc_ver6.bin.zst -> skl_guc_ver6_1.bin.zst
+-rw-r--r-- 1 root root  66613 Sep 15 09:21 skl_guc_ver9_33.bin.zst
+-rw-r--r-- 1 root root  54632 Sep 15 09:21 skl_huc_2.0.0.bin.zst
+-rw-r--r-- 1 root root  56457 Sep 15 09:21 skl_huc_ver01_07_1398.bin.zst
+-rw-r--r-- 1 root root   2480 Sep 15 09:21 glk_dmc_ver1_04.bin.zst
+-rw-r--r-- 1 root root  77439 Sep 15 09:21 glk_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79327 Sep 15 09:21 glk_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  81199 Sep 15 09:21 glk_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85818 Sep 15 09:21 glk_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95678 Sep 15 09:21 glk_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87645 Sep 15 09:21 glk_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  71782 Sep 15 09:21 glk_huc_4.0.0.bin.zst
+-rw-r--r-- 1 root root  70208 Sep 15 09:21 glk_huc_ver03_01_2893.bin.zst
+-rw-r--r-- 1 root root   2451 Sep 15 09:21 kbl_dmc_ver1_01.bin.zst
+-rw-r--r-- 1 root root   2554 Sep 15 09:21 kbl_dmc_ver1_04.bin.zst
+lrwxrwxrwx 1 root root     23 Sep 15 09:21 kbl_dmc_ver1.bin.zst -> kbl_dmc_ver1_01.bin.zst
+-rw-r--r-- 1 root root  77220 Sep 15 09:21 kbl_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79423 Sep 15 09:21 kbl_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  81248 Sep 15 09:21 kbl_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85868 Sep 15 09:21 kbl_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95735 Sep 15 09:21 kbl_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87671 Sep 15 09:21 kbl_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  64751 Sep 15 09:21 kbl_guc_ver9_14.bin.zst
+-rw-r--r-- 1 root root  66706 Sep 15 09:21 kbl_guc_ver9_39.bin.zst
+-rw-r--r-- 1 root root  71772 Sep 15 09:21 kbl_huc_4.0.0.bin.zst
+-rw-r--r-- 1 root root  68374 Sep 15 09:21 kbl_huc_ver02_00_1810.bin.zst
+-rw-r--r-- 1 root root   2522 Sep 15 09:21 skl_dmc_ver1_23.bin.zst
+-rw-r--r-- 1 root root   2556 Sep 15 09:21 skl_dmc_ver1_26.bin.zst
+-rw-r--r-- 1 root root   2582 Sep 15 09:21 skl_dmc_ver1_27.bin.zst
+lrwxrwxrwx 1 root root     23 Sep 15 09:21 skl_dmc_ver1.bin.zst -> skl_dmc_ver1_26.bin.zst
+-rw-r--r-- 1 root root  76821 Sep 15 09:21 skl_guc_32.0.3.bin.zst
+-rw-r--r-- 1 root root  79084 Sep 15 09:21 skl_guc_33.0.0.bin.zst
+-rw-r--r-- 1 root root  80869 Sep 15 09:21 skl_guc_49.0.1.bin.zst
+-rw-r--r-- 1 root root  85494 Sep 15 09:21 skl_guc_62.0.0.bin.zst
+-rw-r--r-- 1 root root  95344 Sep 15 09:21 skl_guc_69.0.3.bin.zst
+-rw-r--r-- 1 root root  87264 Sep 15 09:21 skl_guc_70.1.1.bin.zst
+-rw-r--r-- 1 root root  38692 Sep 15 09:21 skl_guc_ver1.bin.zst
+-rw-r--r-- 1 root root  57394 Sep 15 09:21 skl_guc_ver4.bin.zst
+-rw-r--r-- 1 root root  59232 Sep 15 09:21 skl_guc_ver6_1.bin.zst
+lrwxrwxrwx 1 root root     22 Sep 15 09:21 skl_guc_ver6.bin.zst -> skl_guc_ver6_1.bin.zst
+-rw-r--r-- 1 root root  66613 Sep 15 09:21 skl_guc_ver9_33.bin.zst
+-rw-r--r-- 1 root root  54632 Sep 15 09:21 skl_huc_2.0.0.bin.zst
+-rw-r--r-- 1 root root  56457 Sep 15 09:21 skl_huc_ver01_07_1398.bin.zst
+# exit 0

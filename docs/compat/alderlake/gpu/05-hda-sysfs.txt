@@ -1,0 +1,8 @@
+# d=/sys/bus/pci/devices/0000:00:1f.3; for f in vendor device subsystem_vendor subsystem_device class; do printf '%s: ' $f; cat $d/$f 2>&1; done; readlink $d/driver 2>&1
+vendor: 0x8086
+device: 0x51c8
+subsystem_vendor: 0x14f1
+subsystem_device: 0x03fa
+class: 0x040100
+../../../bus/pci/drivers/snd_hda_intel
+# exit 0

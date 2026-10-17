@@ -1,0 +1,13 @@
+DMC initialized: yes
+fw loaded: yes
+path: i915/adlp_dmc.bin
+Pipe A fw needed: yes
+Pipe A fw loaded: yes
+Pipe B fw needed: yes
+Pipe B fw loaded: yes
+version: 2.20
+DC3 -> DC5 count: 0
+DC5 -> DC6 count: 0
+program base: 0x0c0a4040
+ssp base: 0x00086fc0
+htp: 0x01240108

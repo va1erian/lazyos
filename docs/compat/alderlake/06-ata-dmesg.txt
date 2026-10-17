@@ -1,0 +1,75 @@
+# dmesg | grep -i -E "ahci|ata[0-9]|scsi|sd[a-z]|nvme|sata"
+[    0.005822] ACPI: RSDP 0x00000000439B1014 000024 (v02 ALASKA)
+[    0.005826] ACPI: XSDT 0x00000000439B0728 00010C (v01 ALASKA A M I    01072009 AMI  01000013)
+[    0.005833] ACPI: DSDT 0x00000000438AB000 088476 (v02 ALASKA A M I    01072009 INTL 20200717)
+[    0.005839] ACPI: SSDT 0x0000000043936000 00038C (v02 PmaxDv Pmax_Dev 00000001 INTL 20200717)
+[    0.005841] ACPI: SSDT 0x00000000438A4000 005D34 (v02 CpuRef CpuSsdt  00003000 INTL 20200717)
+[    0.005843] ACPI: SSDT 0x00000000438A1000 002BA7 (v02 SaSsdt SaSsdt   00003000 INTL 20200717)
+[    0.005844] ACPI: SSDT 0x000000004389D000 0033E9 (v02 INTEL  IgfxSsdt 00003000 INTL 20200717)
+[    0.005846] ACPI: SSDT 0x000000004388F000 00D85E (v02 INTEL  TcssSsdt 00001000 INTL 20200717)
+[    0.005852] ACPI: SSDT 0x000000004388B000 001F1A (v02 ALASKA Ther_Rvp 00001000 INTL 20200717)
+[    0.005856] ACPI: SDEV 0x000000004388A000 000046 (v01                 00000000      00000000)
+[    0.005861] ACPI: SSDT 0x0000000043884000 002A83 (v02 ALASKA PtidDevc 00001000 INTL 20200717)
+[    0.005862] ACPI: SSDT 0x000000004387A000 0093E7 (v02 ALASKA TbtTypeC 00000000 INTL 20200717)
+[    0.005867] ACPI: SSDT 0x0000000043876000 00190A (v02 ALASKA UsbCTabl 00001000 INTL 20200717)
+[    0.005872] ACPI: SSDT 0x0000000043873000 000F1C (v02 INTEL  xh_adlLP 00000000 INTL 20200717)
+[    0.005874] ACPI: SSDT 0x000000004386F000 0039DA (v02 SocGpe SocGpe   00003000 INTL 20200717)
+[    0.005875] ACPI: SSDT 0x000000004386B000 0039DA (v02 SocCmn SocCmn   00003000 INTL 20200717)
+[    0.005884] ACPI: Reserving DSDT table memory at [mem 0x438ab000-0x43933475]
+[    0.005886] ACPI: Reserving SSDT table memory at [mem 0x43936000-0x4393638b]
+[    0.005886] ACPI: Reserving SSDT table memory at [mem 0x438a4000-0x438a9d33]
+[    0.005887] ACPI: Reserving SSDT table memory at [mem 0x438a1000-0x438a3ba6]
+[    0.005887] ACPI: Reserving SSDT table memory at [mem 0x4389d000-0x438a03e8]
+[    0.005887] ACPI: Reserving SSDT table memory at [mem 0x4388f000-0x4389c85d]
+[    0.005889] ACPI: Reserving SSDT table memory at [mem 0x4388b000-0x4388cf19]
+[    0.005890] ACPI: Reserving SDEV table memory at [mem 0x4388a000-0x4388a045]
+[    0.005891] ACPI: Reserving SSDT table memory at [mem 0x43884000-0x43886a82]
+[    0.005891] ACPI: Reserving SSDT table memory at [mem 0x4387a000-0x438833e6]
+[    0.005892] ACPI: Reserving SSDT table memory at [mem 0x43876000-0x43877909]
+[    0.005894] ACPI: Reserving SSDT table memory at [mem 0x43873000-0x43873f1b]
+[    0.005894] ACPI: Reserving SSDT table memory at [mem 0x4386f000-0x438729d9]
+[    0.005894] ACPI: Reserving SSDT table memory at [mem 0x4386b000-0x4386e9d9]
+[    0.237196] ACPI: SSDT 0xFFFF8E21C173EC00 000394 (v02 PmRef  Cpu0Cst  00003001 INTL 20200717)
+[    0.238425] ACPI: SSDT 0xFFFF8E21C2EF2000 00053F (v02 PmRef  Cpu0Ist  00003000 INTL 20200717)
+[    0.239668] ACPI: SSDT 0xFFFF8E21C0374200 0001AB (v02 PmRef  Cpu0Psd  00003000 INTL 20200717)
+[    0.240825] ACPI: SSDT 0xFFFF8E21C2EF7800 0004B5 (v02 PmRef  Cpu0Hwp  00003000 INTL 20200717)
+[    0.242451] ACPI: SSDT 0xFFFF8E21C2EFA000 001BAF (v02 PmRef  ApIst    00003000 INTL 20200717)
+[    0.243412] ACPI: SSDT 0xFFFF8E21C2EF8000 001038 (v02 PmRef  ApHwp    00003000 INTL 20200717)
+[    0.244183] ACPI: SSDT 0xFFFF8E21C2EFC000 001349 (v02 PmRef  ApPsd    00003000 INTL 20200717)
+[    0.246940] ACPI: SSDT 0xFFFF8E21C1740000 000FBB (v02 PmRef  ApCst    00003000 INTL 20200717)
+[    0.256189] ACPI: \_SB_.PC00.LPCB.H_EC: Boot DSDT EC used to handle transactions
+[    0.388398] ACPI: \_SB_.PC00.LPCB.H_EC: Boot DSDT EC initialization complete
+[    0.389339] SCSI subsystem initialized
+[    0.441467] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 242)
+[    0.694993] ahci 0000:00:17.0: AHCI vers 0001.0301, 32 command slots, 6 Gbps, SATA mode
+[    0.695000] ahci 0000:00:17.0: 1/1 ports implemented (port mask 0x2)
+[    0.695001] ahci 0000:00:17.0: flags: 64bit ncq sntf pm clo only pio slum part deso sadm sds 
+[    0.695272] scsi host0: ahci
+[    0.695420] scsi host1: ahci
+[    0.695446] ata1: DUMMY
+[    0.695452] ata2: SATA max UDMA/133 abar m2048@0x50702000 port 0x50702180 irq 141 lpm-pol 3
+[    1.016196] ata2: SATA link up 6.0 Gbps (SStatus 133 SControl 300)
+[    1.016803] ata2.00: ATA-11: G534N 256G, HDFEF3.4, max UDMA/133
+[    1.017001] ata2.00: 500118192 sectors, multi 16: LBA48 NCQ (depth 32), AA
+[    1.018201] ata2.00: Features: Dev-Sleep DIPM
+[    1.019108] ata2.00: configured for UDMA/133
+[    1.029248] ahci 0000:00:17.0: port does not support device sleep
+[    1.029588] scsi 1:0:0:0: Direct-Access     ATA      G534N 256G       F3.4 PQ: 0 ANSI: 5
+[    1.030294] sd 1:0:0:0: Attached scsi generic sg0 type 0
+[    1.030374] sd 1:0:0:0: [sda] 500118192 512-byte logical blocks: (256 GB/238 GiB)
+[    1.030398] sd 1:0:0:0: [sda] Write Protect is off
+[    1.030403] sd 1:0:0:0: [sda] Mode Sense: 00 3a 00 00
+[    1.030429] sd 1:0:0:0: [sda] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    1.030476] sd 1:0:0:0: [sda] Preferred minimum I/O size 512 bytes
+[    1.052497]  sda: sda1 sda2 sda3 sda4
+[    1.053498] sd 1:0:0:0: [sda] Attached SCSI disk
+[    1.075006] nvme 0000:01:00.0: platform quirk: setting simple suspend
+[    1.075100] nvme nvme0: pci function 0000:01:00.0
+[    1.081429] nvme nvme0: passthrough uses implicit buffer lengths
+[    1.083043] nvme nvme0: 8/0/0 default/read/poll queues
+[    1.085101]  nvme0n1: p1 p2
+[    1.443772] EXT4-fs (nvme0n1p2): mounted filesystem REDACTED-GUID ro with ordered data mode. Quota mode: none.
+[    2.501262] EXT4-fs (nvme0n1p2): re-mounted REDACTED-GUID r/w.
+[    3.345424] Modules linked in: snd_rawmidi(+) kvm(+) snd_seq ee1004 irqbypass iwlmvm(+) snd_seq_device cmdlinepart snd_timer spi_nor i2c_i801 rapl snd mtd mei_pxp mei_hdcp wmi_bmof intel_cstate i2c_smbus i915(+) soundcore mac80211 spi_intel_pci i2c_mux spi_intel libarc4 drm_buddy btusb ttm intel_pmc_core drm_display_helper btmtk pmt_telemetry btrtl iwlwifi btbcm pmt_discovery btintel pmt_class cec intel_pmc_ssram_telemetry intel_pmc_pwrm_telemetry intel_hid mei_me acpi_tad bluetooth intel_vsec sparse_keymap acpi_pad rc_core mei cfg80211 i2c_algo_bit igen6_edac joydev input_leds mac_hid sch_fq_codel lp ppdev parport msr efi_pstore dmi_sysfs autofs4 btrfs libblake2b raid6_pq xor hid_generic usbhid hid nvme nvme_core spi_pxa2xx_platform dw_dmac dw_dmac_core 8250_dw spi_pxa2xx_core r8169 aesni_intel nvme_keyring serio_raw realtek gf128mul nvme_auth phy_package video intel_lpss_pci ahci pinctrl_tigerlake intel_lpss wmi libahci idma64
+[    4.811204] block nvme0n1: No UUID available providing old NGUID
+# exit 0

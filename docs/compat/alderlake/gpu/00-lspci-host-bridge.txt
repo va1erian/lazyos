@@ -1,0 +1,22 @@
+# lspci -vvv -nn -D -s 00:00.0
+0000:00:00.0 Host bridge [0600]: Intel Corporation Alder Lake-U15 Host and DRAM Controller [8086:4601] (rev 04)
+	DeviceName: Onboard - Other
+	Control: I/O- Mem+ BusMaster+ SpecCycle- MemWINV- VGASnoop- ParErr- Stepping- SERR- FastB2B- DisINTx-
+	Status: Cap+ 66MHz- UDF- FastB2B+ ParErr- DEVSEL=fast >TAbort- <TAbort- <MAbort+ >SERR- <PERR- INTx-
+	Latency: 0
+	IOMMU group: 1
+	Capabilities: [e0] Vendor Specific Information: Intel Capabilities v1
+		CapA: Peg60Dis- Peg12Dis+ Peg11Dis+ Peg10Dis+ PeLWUDis- DmiWidth=x4
+		      EccDis+ ForceEccEn- VTdDis- DmiG2Dis- PegG2Dis- DDRMaxSize=Unlimited
+		      1NDis- CDDis- DDPCDis+ X2APICEn+ PDCDis- IGDis- CDID=0 CRID=4
+		      DDROCCAP- OCEn- DDRWrtVrefEn- DDR3LEn-
+		CapB: ImguDis- OCbySSKUCap- OCbySSKUEn- SMTCap+ CacheSzCap 0x0
+		      SoftBinCap- DDR3MaxFreqWithRef100=1400MHz PegG3Dis-
+		      PkgTyp- AddGfxEn- AddGfxCap- PegX16Dis+ DmiG3Dis- GmmDis-
+		      DDR3MaxFreq=2932MHz LPDDR3En-
+		CapC: PegG4Dis- DDR4MaxFreq=0MHz LPDDREn+ LPDDR4MaxFreq=Unlimited LPDDR4En+
+		      QClkGvDis- SgxDis+ BClkOC=Disabled IddDis- Pipe3Dis- Gear1MaxFreq=Unlimited
+	Kernel driver in use: igen6_edac
+	Kernel modules: igen6_edac
+
+# exit 0

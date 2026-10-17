@@ -1,0 +1,26 @@
+# for d in /dev/sd? /dev/nvme?n?; do [ -b "$d" ] && fdisk -l "$d" 2>&1; done
+Disk /dev/sda: 238,47 GiB, 256060514304 bytes, 500118192 sectors
+Disk model: G534N 256G      
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: REDACTED-GUID
+
+Device         Start       End   Sectors   Size Type
+/dev/sda1       2048    206847    204800   100M EFI System
+/dev/sda2     206848    239615     32768    16M Microsoft reserved
+/dev/sda3     239616 498069503 497829888 237,4G Microsoft basic data
+/dev/sda4  498069504 500117503   2048000  1000M Windows recovery environment
+Disk /dev/nvme0n1: 238,47 GiB, 256060514304 bytes, 500118192 sectors
+Disk model: PNY CS1030 250GB SSD
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: gpt
+Disk identifier: REDACTED-GUID
+
+Device          Start       End   Sectors   Size Type
+/dev/nvme0n1p1   4096    618495    614400   300M EFI System
+/dev/nvme0n1p2 618496 500118119 499499624 238,2G Linux filesystem
+# exit 0

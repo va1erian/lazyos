@@ -1,0 +1,102 @@
+# dmesg | grep -i -E "i915|drm|efifb|simpledrm|fb0|framebuffer|vgaarb|BAR"
+[    0.006780] Booting paravirtualized kernel on bare hardware
+[    0.119363] Spectre V1 : Mitigation: usercopy/swapgs barriers and __user pointer sanitization
+[    0.119367] Spectre V2 : mitigation: Enabling conditional Indirect Branch Prediction Barrier
+[    0.307652] pci 0000:00:02.0: BAR 0 [mem 0x6000000000-0x6000ffffff 64bit]
+[    0.307654] pci 0000:00:02.0: BAR 2 [mem 0x4000000000-0x400fffffff 64bit pref]
+[    0.307656] pci 0000:00:02.0: BAR 4 [io  0x5000-0x503f]
+[    0.307695] pci 0000:00:02.0: VF BAR 0 [mem 0x00000000-0x00ffffff 64bit]
+[    0.307696] pci 0000:00:02.0: VF BAR 0 [mem 0x00000000-0x06ffffff 64bit]: contains BAR 0 for 7 VFs
+[    0.307699] pci 0000:00:02.0: VF BAR 2 [mem 0x00000000-0x1fffffff 64bit pref]
+[    0.307700] pci 0000:00:02.0: VF BAR 2 [mem 0x00000000-0xdfffffff 64bit pref]: contains BAR 2 for 7 VFs
+[    0.308627] pci 0000:00:0d.0: BAR 0 [mem 0x6001110000-0x600111ffff 64bit]
+[    0.309383] pci 0000:00:14.0: BAR 0 [mem 0x6001100000-0x600110ffff 64bit]
+[    0.310138] pci 0000:00:14.2: BAR 0 [mem 0x6001128000-0x600112bfff 64bit]
+[    0.310143] pci 0000:00:14.2: BAR 2 [mem 0x6001134000-0x6001134fff 64bit]
+[    0.310422] pci 0000:00:14.3: BAR 0 [mem 0x6001124000-0x6001127fff 64bit]
+[    0.311136] pci 0000:00:15.0: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.321538] pci 0000:00:15.1: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.332530] pci 0000:00:16.0: BAR 0 [mem 0x6001131000-0x6001131fff 64bit]
+[    0.333215] pci 0000:00:17.0: BAR 0 [mem 0x50700000-0x50701fff]
+[    0.333218] pci 0000:00:17.0: BAR 1 [mem 0x50703000-0x507030ff]
+[    0.333220] pci 0000:00:17.0: BAR 2 [io  0x5090-0x5097]
+[    0.333223] pci 0000:00:17.0: BAR 3 [io  0x5080-0x5083]
+[    0.333225] pci 0000:00:17.0: BAR 4 [io  0x5060-0x507f]
+[    0.333227] pci 0000:00:17.0: BAR 5 [mem 0x50702000-0x507027ff]
+[    0.333707] pci 0000:00:19.0: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.344347] pci 0000:00:19.1: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.357131] pci 0000:00:1e.0: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.367556] pci 0000:00:1e.3: BAR 0 [mem 0x00000000-0x00000fff 64bit]
+[    0.378912] pci 0000:00:1f.3: BAR 0 [mem 0x6001120000-0x6001123fff 64bit]
+[    0.378923] pci 0000:00:1f.3: BAR 4 [mem 0x6001000000-0x60010fffff 64bit]
+[    0.379174] pci 0000:00:1f.4: BAR 0 [mem 0x600112c000-0x600112c0ff 64bit]
+[    0.379181] pci 0000:00:1f.4: BAR 4 [io  0xefa0-0xefbf]
+[    0.379498] pci 0000:00:1f.5: BAR 0 [mem 0xfe010000-0xfe010fff]
+[    0.379673] pci 0000:01:00.0: BAR 0 [mem 0x50600000-0x50603fff 64bit]
+[    0.380116] pci 0000:02:00.0: BAR 0 [io  0x4000-0x40ff]
+[    0.380122] pci 0000:02:00.0: BAR 2 [mem 0x50504000-0x50504fff 64bit]
+[    0.380126] pci 0000:02:00.0: BAR 4 [mem 0x50500000-0x50503fff 64bit]
+[    0.380643] pci 0000:03:00.0: BAR 0 [io  0x3000-0x30ff]
+[    0.380649] pci 0000:03:00.0: BAR 2 [mem 0x50404000-0x50404fff 64bit]
+[    0.380653] pci 0000:03:00.0: BAR 4 [mem 0x50400000-0x50403fff 64bit]
+[    0.412674] pci 0000:00:1f.5: BAR 0 [mem 0xfe010000-0xfe010fff]: can't claim; no compatible bridge window
+[    0.413189] pci 0000:00:02.0: vgaarb: setting as boot VGA device
+[    0.413191] pci 0000:00:02.0: vgaarb: bridge control possible
+[    0.413192] pci 0000:00:02.0: vgaarb: VGA device added: decodes=io+mem,owns=io+mem,locks=none
+[    0.413196] vgaarb: loaded
+[    0.427015] pci 0000:00:02.0: VF BAR 2 [mem 0x4020000000-0x40ffffffff 64bit pref]: assigned
+[    0.427020] pci 0000:00:02.0: VF BAR 0 [mem 0x4010000000-0x4016ffffff 64bit]: assigned
+[    0.427023] pci 0000:00:15.0: BAR 0 [mem 0x4017000000-0x4017000fff 64bit]: assigned
+[    0.427038] pci 0000:00:15.1: BAR 0 [mem 0x4017001000-0x4017001fff 64bit]: assigned
+[    0.427051] pci 0000:00:19.0: BAR 0 [mem 0x4017002000-0x4017002fff 64bit]: assigned
+[    0.427063] pci 0000:00:19.1: BAR 0 [mem 0x4017003000-0x4017003fff 64bit]: assigned
+[    0.427075] pci 0000:00:1e.0: BAR 0 [mem 0x4017004000-0x4017004fff 64bit]: assigned
+[    0.427086] pci 0000:00:1e.3: BAR 0 [mem 0x4017005000-0x4017005fff 64bit]: assigned
+[    0.427097] pci 0000:00:1f.5: BAR 0 [mem 0x50704000-0x50704fff]: assigned
+[    0.460191] ACPI: bus type drm_connector registered
+[    0.477485] simple-framebuffer simple-framebuffer.0: [drm] Registered 1 planes with drm panic
+[    0.477511] [drm] Initialized simpledrm 1.0.0 for simple-framebuffer.0 on minor 0
+[    0.478040] simple-framebuffer simple-framebuffer.0: [drm] fb0: simpledrmdrmfb frame buffer device
+[    0.695452] ata2: SATA max UDMA/133 abar m2048@0x50702000 port 0x50702180 irq 141 lpm-pol 3
+[    2.259356] systemd[1]: systemd 261.3-0ubuntu3 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +LIBARCHIVE)
+[    2.480312] systemd[1]: modprobe@drm.service - Load Kernel Module drm skipped, unmet condition check ConditionKernelModuleLoaded=!drm
+[    2.773265] caller igen6_pvt_setup+0x59/0x140 [igen6_edac] mapping multiple BARs
+[    2.773318] caller igen6_pvt_setup+0x59/0x140 [igen6_edac] mapping multiple BARs
+[    2.773379] caller igen6_pvt_setup+0xde/0x140 [igen6_edac] mapping multiple BARs
+[    2.773389] caller igen6_register_mcis+0x8e/0x2b0 [igen6_edac] mapping multiple BARs
+[    3.298068] i915 0000:00:02.0: [drm] Found alderlake_p (device ID 46b3) integrated display version 13.00 stepping D0
+[    3.298777] i915 0000:00:02.0: [drm] VT-d active for gfx access
+[    3.340957] i915 0000:00:02.0: vgaarb: deactivate vga console
+[    3.341067] i915 0000:00:02.0: [drm] Using Transparent Hugepages
+[    3.344697] i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io+mem,decodes=io:owns=io+mem
+[    3.345183] i915 0000:00:02.0: [drm] DMC 1 mmio[0]/0x5f074 incorrect (expected 0x96fc0, current 0x0)
+[    3.345187] WARNING: drivers/gpu/drm/i915/display/intel_dmc.c:706 at assert_dmc_loaded+0x29b/0x470 [i915], CPU#5: (udev-worker)/425
+[    3.345424] Modules linked in: snd_rawmidi(+) kvm(+) snd_seq ee1004 irqbypass iwlmvm(+) snd_seq_device cmdlinepart snd_timer spi_nor i2c_i801 rapl snd mtd mei_pxp mei_hdcp wmi_bmof intel_cstate i2c_smbus i915(+) soundcore mac80211 spi_intel_pci i2c_mux spi_intel libarc4 drm_buddy btusb ttm intel_pmc_core drm_display_helper btmtk pmt_telemetry btrtl iwlwifi btbcm pmt_discovery btintel pmt_class cec intel_pmc_ssram_telemetry intel_pmc_pwrm_telemetry intel_hid mei_me acpi_tad bluetooth intel_vsec sparse_keymap acpi_pad rc_core mei cfg80211 i2c_algo_bit igen6_edac joydev input_leds mac_hid sch_fq_codel lp ppdev parport msr efi_pstore dmi_sysfs autofs4 btrfs libblake2b raid6_pq xor hid_generic usbhid hid nvme nvme_core spi_pxa2xx_platform dw_dmac dw_dmac_core 8250_dw spi_pxa2xx_core r8169 aesni_intel nvme_keyring serio_raw realtek gf128mul nvme_auth phy_package video intel_lpss_pci ahci pinctrl_tigerlake intel_lpss wmi libahci idma64
+[    3.345501] RIP: 0010:assert_dmc_loaded+0x2b4/0x470 [i915]
+[    3.345748]  intel_dmc_enable_pipe+0xeb/0x350 [i915]
+[    3.345855] i915 0000:00:02.0: [drm] Finished loading DMC firmware i915/adlp_dmc.bin (v2.20)
+[    3.345947]  intel_modeset_setup_hw_state+0x24f/0x6f0 [i915]
+[    3.346142]  ? drm_modeset_lock_all_ctx+0x19b/0x220
+[    3.346146]  ? drm_warn_on_modeset_not_all_locked.part.0+0x5e/0xa0
+[    3.346150]  intel_display_driver_probe_nogem+0x14c/0x1e0 [i915]
+[    3.346348]  i915_driver_probe+0x166/0x4e0 [i915]
+[    3.346470]  ? drm_privacy_screen_get+0x198/0x1b0
+[    3.346478]  i915_pci_probe+0xc2/0x120 [i915]
+[    3.346645]  i915_pci_register_driver+0x23/0x30 [i915]
+[    3.346762]  i915_init+0x3e/0x100 [i915]
+[    3.346877]  ? __pfx_init_module+0x10/0x10 [i915]
+[    3.354665] i915 0000:00:02.0: [drm] GT0: GuC firmware i915/adlp_guc_70.bin version 70.49.4
+[    3.354674] i915 0000:00:02.0: [drm] GT0: HuC firmware i915/tgl_huc.bin version 7.9.3
+[    3.371966] i915 0000:00:02.0: [drm] GT0: HuC: authenticated for all workloads
+[    3.372420] i915 0000:00:02.0: [drm] GT0: GUC: submission enabled
+[    3.372424] i915 0000:00:02.0: [drm] GT0: GUC: SLPC enabled
+[    3.372859] i915 0000:00:02.0: [drm] GT0: GUC: RC enabled
+[    3.373950] mei_pxp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_pxp_tee_component_ops [i915])
+[    3.374163] i915 0000:00:02.0: [drm] Protected Xe Path (PXP) protected content support initialized
+[    3.374169] mei_hdcp 0000:00:16.0-REDACTED-GUID: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+[    3.379980] i915 0000:00:02.0: [drm] Registered 4 planes with drm panic
+[    3.389539] [drm] Initialized i915 1.6.0 for 0000:00:02.0 on minor 1
+[    3.429752] fbcon: i915drmfb (fb0) is primary device
+[    3.429761] i915 0000:00:02.0: [drm] fb0: i915drmfb frame buffer device
+[    3.807129] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+# exit 0

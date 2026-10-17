@@ -1,0 +1,33 @@
+                  Start     End    Size
+Pipe A
+  Plane1              0    4041    4041
+  Plane2              0       0       0
+  Plane3              0       0       0
+  Plane4              0       0       0
+  Plane5              0       0       0
+  Plane8           4041    4096      55
+  Cursor           4041    4096      55
+Pipe B
+  Plane1              0       0       0
+  Plane2              0       0       0
+  Plane3              0       0       0
+  Plane4              0       0       0
+  Plane5              0       0       0
+  Plane8              0       0       0
+  Cursor              0       0       0
+Pipe C
+  Plane1              0       0       0
+  Plane2              0       0       0
+  Plane3              0       0       0
+  Plane4              0       0       0
+  Plane5              0       0       0
+  Plane8              0       0       0
+  Cursor              0       0       0
+Pipe D
+  Plane1              0       0       0
+  Plane2              0       0       0
+  Plane3              0       0       0
+  Plane4              0       0       0
+  Plane5              0       0       0
+  Plane8              0       0       0
+  Cursor              0       0       0

@@ -1,0 +1,78 @@
+# cat /proc/asound/cards; echo; ls /proc/asound; for c in /proc/asound/card*/codec#*; do echo "== $c"; head -30 "$c"; done
+ 0 [PCH            ]: HDA-Intel - HDA Intel PCH
+                      HDA Intel PCH at 0x6001120000 irq 169
+
+card0
+cards
+devices
+hwdep
+modules
+oss
+PCH
+pcm
+seq
+timers
+version
+== /proc/asound/card0/codec#0
+Codec: Conexant SN6140
+Address: 0
+AFG Function Id: 0x1 (unsol 1)
+Vendor Id: 0x14f11f87
+Subsystem Id: 0x14f103fa
+Revision Id: 0x100100
+No Modem Function Group found
+Default PCM:
+    rates [0x540]: 48000 96000 192000
+    bits [0xa]: 16 24
+    formats [0x1]: PCM
+Default Amp-In caps: N/A
+Default Amp-Out caps: N/A
+State of AFG node 0x01:
+  Power states:  D0 D1 D2 D3 D3cold S3D3cold CLKSTOP EPSS
+  Power: setting=D0, actual=D0
+GPIO: io=5, o=0, i=0, unsolicited=1, wake=1
+  IO[0]: enable=0, dir=0, wake=0, sticky=0, data=0, unsol=0
+  IO[1]: enable=0, dir=0, wake=0, sticky=0, data=0, unsol=0
+  IO[2]: enable=0, dir=0, wake=0, sticky=0, data=0, unsol=0
+  IO[3]: enable=0, dir=0, wake=0, sticky=0, data=0, unsol=0
+  IO[4]: enable=0, dir=0, wake=0, sticky=0, data=0, unsol=0
+Node 0x10 [Audio Output] wcaps 0xc1d: Stereo Amp-Out R/L
+  Control: name="Headphone Playback Volume", index=0, device=0
+    ControlAmp: chs=3, dir=Out, idx=0, ofs=0
+  Control: name="Headphone Playback Switch", index=0, device=0
+    ControlAmp: chs=3, dir=Out, idx=0, ofs=0
+  Device: name="SN6140 Analog", type="Audio", device=0
+  Amp-Out caps: ofs=0x4a, nsteps=0x4a, stepsize=0x03, mute=1
+  Amp-Out vals:  [0x80 0x80]
+== /proc/asound/card0/codec#2
+Codec: Intel Alderlake-P HDMI
+Address: 2
+AFG Function Id: 0x1 (unsol 0)
+Vendor Id: 0x8086281c
+Subsystem Id: 0x80860101
+Revision Id: 0x100000
+No Modem Function Group found
+Default PCM:
+    rates [0x0]:
+    bits [0x0]:
+    formats [0x0]:
+Default Amp-In caps: N/A
+Default Amp-Out caps: N/A
+State of AFG node 0x01:
+  Power states:  D0 D3 CLKSTOP EPSS
+  Power: setting=D0, actual=D0, Clock-stop-OK
+GPIO: io=0, o=0, i=0, unsolicited=0, wake=0
+Node 0x03 [Audio Output] wcaps 0x6611: 8-Channels Digital
+  Converter: stream=15, channel=0
+  Digital: Enabled KAE
+  Digital category: 0x0
+  IEC Coding Type: 0x0
+  PCM:
+    rates [0x7f0]: 32000 44100 48000 88200 96000 176400 192000
+    bits [0x1a]: 16 24 32
+    formats [0x5]: PCM AC3
+  Power states:  D0 D3 EPSS
+  Power: setting=D0, actual=D0
+Node 0x04 [Pin Complex] wcaps 0x40778d: 8-Channels Digital Amp-Out CP
+  Amp-Out caps: ofs=0x00, nsteps=0x00, stepsize=0x00, mute=1
+# exit 0
