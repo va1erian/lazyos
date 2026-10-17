@@ -1,0 +1,43 @@
+# dmesg | grep -i -E "tsc|hpet|clocksource|lapic|apic timer|pmtmr|mwait|c-state|intel_idle"
+[    0.000000] tsc: Detected 2000.000 MHz processor
+[    0.000000] tsc: Detected 1996.800 MHz TSC
+[    0.005847] ACPI: HPET 0x0000000043935000 000038 (v01 ALASKA A M I    01072009 AMI  01000013)
+[    0.005888] ACPI: Reserving HPET table memory at [mem 0x43935000-0x43935037]
+[    0.006692] ACPI: LAPIC_NMI (acpi_id[0x01] high edge lint[0x1])
+[    0.006693] ACPI: LAPIC_NMI (acpi_id[0x02] high edge lint[0x1])
+[    0.006693] ACPI: LAPIC_NMI (acpi_id[0x03] high edge lint[0x1])
+[    0.006693] ACPI: LAPIC_NMI (acpi_id[0x04] high edge lint[0x1])
+[    0.006694] ACPI: LAPIC_NMI (acpi_id[0x05] high edge lint[0x1])
+[    0.006694] ACPI: LAPIC_NMI (acpi_id[0x06] high edge lint[0x1])
+[    0.006695] ACPI: LAPIC_NMI (acpi_id[0x07] high edge lint[0x1])
+[    0.006695] ACPI: LAPIC_NMI (acpi_id[0x08] high edge lint[0x1])
+[    0.006695] ACPI: LAPIC_NMI (acpi_id[0x09] high edge lint[0x1])
+[    0.006696] ACPI: LAPIC_NMI (acpi_id[0x0a] high edge lint[0x1])
+[    0.006696] ACPI: LAPIC_NMI (acpi_id[0x0b] high edge lint[0x1])
+[    0.006696] ACPI: LAPIC_NMI (acpi_id[0x0c] high edge lint[0x1])
+[    0.006697] ACPI: LAPIC_NMI (acpi_id[0x0d] high edge lint[0x1])
+[    0.006697] ACPI: LAPIC_NMI (acpi_id[0x0e] high edge lint[0x1])
+[    0.006698] ACPI: LAPIC_NMI (acpi_id[0x0f] high edge lint[0x1])
+[    0.006698] ACPI: LAPIC_NMI (acpi_id[0x10] high edge lint[0x1])
+[    0.006698] ACPI: LAPIC_NMI (acpi_id[0x11] high edge lint[0x1])
+[    0.006699] ACPI: LAPIC_NMI (acpi_id[0x12] high edge lint[0x1])
+[    0.006699] ACPI: LAPIC_NMI (acpi_id[0x13] high edge lint[0x1])
+[    0.006700] ACPI: LAPIC_NMI (acpi_id[0x14] high edge lint[0x1])
+[    0.006700] ACPI: LAPIC_NMI (acpi_id[0x15] high edge lint[0x1])
+[    0.006700] ACPI: LAPIC_NMI (acpi_id[0x16] high edge lint[0x1])
+[    0.006701] ACPI: LAPIC_NMI (acpi_id[0x17] high edge lint[0x1])
+[    0.006701] ACPI: LAPIC_NMI (acpi_id[0x00] high edge lint[0x1])
+[    0.006743] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+[    0.006754] TSC deadline timer available
+[    0.006782] clocksource: refined-jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1910969940391419 ns
+[    0.112657] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.113007] hpet: HPET dysfunctional in PC10. Force disabled.
+[    0.113087] DMAR-IR: HPET id 0 under DRHD base 0xfed91000
+[    0.119180] clocksource: tsc-early: mask: 0xffffffffffffffff max_cycles: 0x3990bec8342, max_idle_ns: 881590769617 ns
+[    0.119355] process: using mwait in idle threads
+[    0.413383] clocksource: Switched to clocksource tsc-early
+[    0.422922] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    0.430642] clocksource: tsc: mask: 0xffffffffffffffff max_cycles: 0x3990bec8342, max_idle_ns: 881590769617 ns
+[    0.430725] clocksource: Switched to clocksource tsc
+[    0.452937] hpet_acpi_probe: no address or irqs in _CRS
+# exit 0

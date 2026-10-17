@@ -1,0 +1,34 @@
+# dmesg | grep -i "i915"
+[    3.298068] i915 0000:00:02.0: [drm] Found alderlake_p (device ID 46b3) integrated display version 13.00 stepping D0
+[    3.298777] i915 0000:00:02.0: [drm] VT-d active for gfx access
+[    3.340957] i915 0000:00:02.0: vgaarb: deactivate vga console
+[    3.341067] i915 0000:00:02.0: [drm] Using Transparent Hugepages
+[    3.344697] i915 0000:00:02.0: vgaarb: VGA decodes changed: olddecodes=io+mem,decodes=io:owns=io+mem
+[    3.345183] i915 0000:00:02.0: [drm] DMC 1 mmio[0]/0x5f074 incorrect (expected 0x96fc0, current 0x0)
+[    3.345187] WARNING: drivers/gpu/drm/i915/display/intel_dmc.c:706 at assert_dmc_loaded+0x29b/0x470 [i915], CPU#5: (udev-worker)/425
+[    3.345424] Modules linked in: snd_rawmidi(+) kvm(+) snd_seq ee1004 irqbypass iwlmvm(+) snd_seq_device cmdlinepart snd_timer spi_nor i2c_i801 rapl snd mtd mei_pxp mei_hdcp wmi_bmof intel_cstate i2c_smbus i915(+) soundcore mac80211 spi_intel_pci i2c_mux spi_intel libarc4 drm_buddy btusb ttm intel_pmc_core drm_display_helper btmtk pmt_telemetry btrtl iwlwifi btbcm pmt_discovery btintel pmt_class cec intel_pmc_ssram_telemetry intel_pmc_pwrm_telemetry intel_hid mei_me acpi_tad bluetooth intel_vsec sparse_keymap acpi_pad rc_core mei cfg80211 i2c_algo_bit igen6_edac joydev input_leds mac_hid sch_fq_codel lp ppdev parport msr efi_pstore dmi_sysfs autofs4 btrfs libblake2b raid6_pq xor hid_generic usbhid hid nvme nvme_core spi_pxa2xx_platform dw_dmac dw_dmac_core 8250_dw spi_pxa2xx_core r8169 aesni_intel nvme_keyring serio_raw realtek gf128mul nvme_auth phy_package video intel_lpss_pci ahci pinctrl_tigerlake intel_lpss wmi libahci idma64
+[    3.345501] RIP: 0010:assert_dmc_loaded+0x2b4/0x470 [i915]
+[    3.345748]  intel_dmc_enable_pipe+0xeb/0x350 [i915]
+[    3.345855] i915 0000:00:02.0: [drm] Finished loading DMC firmware i915/adlp_dmc.bin (v2.20)
+[    3.345947]  intel_modeset_setup_hw_state+0x24f/0x6f0 [i915]
+[    3.346150]  intel_display_driver_probe_nogem+0x14c/0x1e0 [i915]
+[    3.346348]  i915_driver_probe+0x166/0x4e0 [i915]
+[    3.346478]  i915_pci_probe+0xc2/0x120 [i915]
+[    3.346645]  i915_pci_register_driver+0x23/0x30 [i915]
+[    3.346762]  i915_init+0x3e/0x100 [i915]
+[    3.346877]  ? __pfx_init_module+0x10/0x10 [i915]
+[    3.354665] i915 0000:00:02.0: [drm] GT0: GuC firmware i915/adlp_guc_70.bin version 70.49.4
+[    3.354674] i915 0000:00:02.0: [drm] GT0: HuC firmware i915/tgl_huc.bin version 7.9.3
+[    3.371966] i915 0000:00:02.0: [drm] GT0: HuC: authenticated for all workloads
+[    3.372420] i915 0000:00:02.0: [drm] GT0: GUC: submission enabled
+[    3.372424] i915 0000:00:02.0: [drm] GT0: GUC: SLPC enabled
+[    3.372859] i915 0000:00:02.0: [drm] GT0: GUC: RC enabled
+[    3.373950] mei_pxp 0000:00:16.0-fbf6fcf1-96cf-4e2e-a6a6-1bab8cbe36b1: bound 0000:00:02.0 (ops i915_pxp_tee_component_ops [i915])
+[    3.374163] i915 0000:00:02.0: [drm] Protected Xe Path (PXP) protected content support initialized
+[    3.374169] mei_hdcp 0000:00:16.0-b638ab7e-94e2-4ea2-a552-d1c54b627f04: bound 0000:00:02.0 (ops i915_hdcp_ops [i915])
+[    3.379980] i915 0000:00:02.0: [drm] Registered 4 planes with drm panic
+[    3.389539] [drm] Initialized i915 1.6.0 for 0000:00:02.0 on minor 1
+[    3.429752] fbcon: i915drmfb (fb0) is primary device
+[    3.429761] i915 0000:00:02.0: [drm] fb0: i915drmfb frame buffer device
+[    3.807129] snd_hda_intel 0000:00:1f.3: bound 0000:00:02.0 (ops intel_audio_component_bind_ops [i915])
+# exit 0

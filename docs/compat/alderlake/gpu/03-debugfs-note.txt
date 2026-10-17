@@ -1,0 +1,2 @@
+# /sys/kernel/debug/dri missing. debugfs is not mounted or i915 is not bound.
+# Mount it by hand if you want these: mount -t debugfs none /sys/kernel/debug

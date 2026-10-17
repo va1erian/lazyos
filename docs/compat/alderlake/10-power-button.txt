@@ -1,0 +1,28 @@
+# dmesg | grep -i -E "power button|sleep button|acpi.*(button|pm|s5|sci)|wdt|iTCO|watchdog"
+[    0.000000] efi: ACPI=0x439b1000 ACPI 2.0=0x439b1014 TPMFinalLog=0x43980000 SMBIOS=0x45194000 SMBIOS 3.0=0x45193000 MEMATTR=0x3ca32198 ESRT=0x3e4f4e18 MOKvar=0x45d00000 INITRD=0x3ac39798 RNG=0x43867018 TPMEventLog=0x4385c018 
+[    0.005839] ACPI: SSDT 0x0000000043936000 00038C (v02 PmaxDv Pmax_Dev 00000001 INTL 20200717)
+[    0.005880] ACPI: TPM2 0x0000000043868000 00004C (v04 ALASKA A M I    00000001 AMI  00000000)
+[    0.005896] ACPI: Reserving TPM2 table memory at [mem 0x43868000-0x4386804b]
+[    0.006686] ACPI: PM-Timer IO Port: 0x1808
+[    0.121347] NMI watchdog: Enabled. Permanently consumes one hw-PMU counter.
+[    0.131624] ACPI: PM: Registering ACPI NVS region [mem 0x43937000-0x43a14fff] (909312 bytes)
+[    0.237196] ACPI: SSDT 0xFFFF8E21C173EC00 000394 (v02 PmRef  Cpu0Cst  00003001 INTL 20200717)
+[    0.238425] ACPI: SSDT 0xFFFF8E21C2EF2000 00053F (v02 PmRef  Cpu0Ist  00003000 INTL 20200717)
+[    0.239668] ACPI: SSDT 0xFFFF8E21C0374200 0001AB (v02 PmRef  Cpu0Psd  00003000 INTL 20200717)
+[    0.240825] ACPI: SSDT 0xFFFF8E21C2EF7800 0004B5 (v02 PmRef  Cpu0Hwp  00003000 INTL 20200717)
+[    0.242451] ACPI: SSDT 0xFFFF8E21C2EFA000 001BAF (v02 PmRef  ApIst    00003000 INTL 20200717)
+[    0.243412] ACPI: SSDT 0xFFFF8E21C2EF8000 001038 (v02 PmRef  ApHwp    00003000 INTL 20200717)
+[    0.244183] ACPI: SSDT 0xFFFF8E21C2EFC000 001349 (v02 PmRef  ApPsd    00003000 INTL 20200717)
+[    0.246940] ACPI: SSDT 0xFFFF8E21C1740000 000FBB (v02 PmRef  ApCst    00003000 INTL 20200717)
+[    0.256189] ACPI: PM: (supports S0 S3 S4 S5)
+[    0.301358] acpi PNP0A08:00: _OSC: OS supports [ExtendedConfig ASPM ClockPM Segments MSI EDR HPX-Type3]
+[    0.304823] acpi PNP0A08:00: _OSC: OS now controls [PCIeHotplug SHPCHotplug PME PCIeCapability LTR DPC]
+[    0.422922] clocksource: acpi_pm: mask: 0xffffff max_cycles: 0xffffff, max_idle_ns: 2085701024 ns
+[    0.444640] input: Sleep Button as /devices/platform/PNP0C0E:00/input/input0
+[    0.444658] ACPI: button: Sleep Button [SLPB]
+[    0.444691] input: Power Button as /devices/platform/PNP0C0C:00/input/input1
+[    0.444704] ACPI: button: Power Button [PWRB]
+[    0.444727] input: Power Button as /devices/platform/LNXPWRBN:00/input/input2
+[    0.444751] ACPI: button: Power Button [PWRF]
+[    2.842908] intel-hid INTC1070:00: failed to enable HID power button
+# exit 0

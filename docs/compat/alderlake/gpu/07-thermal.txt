@@ -1,0 +1,6 @@
+# for z in /sys/class/thermal/thermal_zone*; do echo "$z $(cat $z/type 2>&1) $(cat $z/temp 2>&1)"; done
+/sys/class/thermal/thermal_zone0 acpitz -273300
+/sys/class/thermal/thermal_zone1 acpitz 27800
+/sys/class/thermal/thermal_zone2 iwlwifi_1 41000
+/sys/class/thermal/thermal_zone3 x86_pkg_temp 36000
+# exit 0

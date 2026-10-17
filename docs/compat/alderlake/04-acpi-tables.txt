@@ -1,0 +1,56 @@
+# ls -l /sys/firmware/acpi/tables/ /sys/firmware/acpi/tables/dynamic 2>&1; dmesg | grep -i -E "ACPI: (RSDP|XSDT|FACP|APIC|HPET|DMAR|MCFG)"
+/sys/firmware/acpi/tables/:
+total 0
+-r-------- 1 root root    476 Oct 17 21:04 APIC
+-r-------- 1 root root     56 Oct 17 21:04 BGRT
+drwxr-xr-x 2 root root      0 Oct 17 21:04 data
+-r-------- 1 root root     84 Oct 17 21:04 DBG2
+-r-------- 1 root root     52 Oct 17 21:04 DBGP
+-r-------- 1 root root    136 Oct 17 21:04 DMAR
+-r-------- 1 root root 558198 Oct 17 21:04 DSDT
+drwxr-xr-x 2 root root      0 Oct 17 21:04 dynamic
+-r-------- 1 root root    276 Oct 17 21:04 FACP
+-r-------- 1 root root     64 Oct 17 21:04 FACS
+-r-------- 1 root root    156 Oct 17 21:04 FIDT
+-r-------- 1 root root     68 Oct 17 21:04 FPDT
+-r-------- 1 root root     56 Oct 17 21:04 HPET
+-r-------- 1 root root    204 Oct 17 21:04 LPIT
+-r-------- 1 root root     60 Oct 17 21:04 MCFG
+-r-------- 1 root root     45 Oct 17 21:04 NHLT
+-r-------- 1 root root   2108 Oct 17 21:04 PHAT
+-r-------- 1 root root     70 Oct 17 21:04 SDEV
+-r-------- 1 root root    908 Oct 17 21:04 SSDT1
+-r-------- 1 root root   3868 Oct 17 21:04 SSDT10
+-r-------- 1 root root  14810 Oct 17 21:04 SSDT11
+-r-------- 1 root root  14810 Oct 17 21:04 SSDT12
+-r-------- 1 root root  23860 Oct 17 21:04 SSDT2
+-r-------- 1 root root  11175 Oct 17 21:04 SSDT3
+-r-------- 1 root root  13289 Oct 17 21:04 SSDT4
+-r-------- 1 root root  55390 Oct 17 21:04 SSDT5
+-r-------- 1 root root   7962 Oct 17 21:04 SSDT6
+-r-------- 1 root root  10883 Oct 17 21:04 SSDT7
+-r-------- 1 root root  37863 Oct 17 21:04 SSDT8
+-r-------- 1 root root   6410 Oct 17 21:04 SSDT9
+-r-------- 1 root root     76 Oct 17 21:03 TPM2
+-r-------- 1 root root     72 Oct 17 21:04 UEFI
+-r-------- 1 root root     40 Oct 17 21:04 WSMT
+
+/sys/firmware/acpi/tables/dynamic:
+total 0
+-r-------- 1 root root  916 Oct 17 21:04 SSDT13
+-r-------- 1 root root 1343 Oct 17 21:04 SSDT14
+-r-------- 1 root root  427 Oct 17 21:04 SSDT15
+-r-------- 1 root root 1205 Oct 17 21:04 SSDT16
+-r-------- 1 root root 7087 Oct 17 21:04 SSDT17
+-r-------- 1 root root 4152 Oct 17 21:04 SSDT18
+-r-------- 1 root root 4937 Oct 17 21:04 SSDT19
+-r-------- 1 root root 4027 Oct 17 21:04 SSDT20
+[    0.005822] ACPI: RSDP 0x00000000439B1014 000024 (v02 ALASKA)
+[    0.005826] ACPI: XSDT 0x00000000439B0728 00010C (v01 ALASKA A M I    01072009 AMI  01000013)
+[    0.005830] ACPI: FACP 0x0000000043934000 000114 (v06 ALASKA A M I    01072009 AMI  01000013)
+[    0.005847] ACPI: HPET 0x0000000043935000 000038 (v01 ALASKA A M I    01072009 AMI  01000013)
+[    0.005849] ACPI: APIC 0x000000004388E000 0001DC (v05 ALASKA A M I    01072009 AMI  01000013)
+[    0.005851] ACPI: MCFG 0x000000004388D000 00003C (v01 ALASKA A M I    01072009 AMI  01000013)
+[    0.005869] ACPI: DMAR 0x0000000043875000 000088 (v01 INTEL  EDK2     00000002      01000013)
+[    0.006743] ACPI: HPET id: 0x8086a201 base: 0xfed00000
+# exit 0

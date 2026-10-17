@@ -1,0 +1,89 @@
+# aplay -L
+null
+    Discard all samples (playback) or generate zero samples (capture)
+pipewire
+    PipeWire Sound Server
+default
+    Default ALSA Output (currently PipeWire Media Server)
+hw:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Direct hardware device without any conversions
+hw:CARD=PCH,DEV=9
+    HDA Intel PCH, HDMI 3
+    Direct hardware device without any conversions
+plughw:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Hardware device with all software conversions
+plughw:CARD=PCH,DEV=9
+    HDA Intel PCH, HDMI 3
+    Hardware device with all software conversions
+sysdefault:CARD=PCH
+    HDA Intel PCH, SN6140 Analog
+    Default Audio Device
+front:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    Front output / input
+surround21:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    2.1 Surround output to Front and Subwoofer speakers
+surround40:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    4.0 Surround output to Front and Rear speakers
+surround41:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    4.1 Surround output to Front, Rear and Subwoofer speakers
+surround50:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    5.0 Surround output to Front, Center and Rear speakers
+surround51:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    5.1 Surround output to Front, Center, Rear and Subwoofer speakers
+surround71:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    7.1 Surround output to Front, Center, Side, Rear and Woofer speakers
+hdmi:CARD=PCH,DEV=0
+    HDA Intel PCH, PL2730Q
+    HDMI Audio Output
+hdmi:CARD=PCH,DEV=1
+    HDA Intel PCH, HDMI 1
+    HDMI Audio Output
+hdmi:CARD=PCH,DEV=2
+    HDA Intel PCH, HDMI 2
+    HDMI Audio Output
+hdmi:CARD=PCH,DEV=3
+    HDA Intel PCH, HDMI 3
+    HDMI Audio Output
+dmix:CARD=PCH,DEV=0
+    HDA Intel PCH, SN6140 Analog
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=3
+    HDA Intel PCH, PL2730Q
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=7
+    HDA Intel PCH, HDMI 1
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=8
+    HDA Intel PCH, HDMI 2
+    Direct sample mixing device
+dmix:CARD=PCH,DEV=9
+    HDA Intel PCH, HDMI 3
+    Direct sample mixing device
+# exit 0

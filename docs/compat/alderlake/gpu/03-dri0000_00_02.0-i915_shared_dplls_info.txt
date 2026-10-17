@@ -1,0 +1,29 @@
+PLL refclks: non-SSC: 38400 kHz, SSC: 0 kHz
+DPLL0: DPLL 0, id: 0
+ pipe_mask: 0x1, active: 0x1, on: yes
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x1801b2, cfgcr1: 0x488, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL1: DPLL 1, id: 1
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x3c01b8, cfgcr1: 0x60, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL2: TBT PLL, id: 2
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x0, cfgcr1: 0x0, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL3: TC PLL 1, id: 3
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x0, cfgcr1: 0x0, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL4: TC PLL 2, id: 4
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x0, cfgcr1: 0x0, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL5: TC PLL 3, id: 5
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x0, cfgcr1: 0x0, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0
+DPLL6: TC PLL 4, id: 6
+ pipe_mask: 0x0, active: 0x0, on: no
+ tracked hardware state:
+dpll_hw_state: cfgcr0: 0x0, cfgcr1: 0x0, div0: 0x0, mg_refclkin_ctl: 0x0, hg_clktop2_coreclkctl1: 0x0, mg_clktop2_hsclkctl: 0x0, mg_pll_div0: 0x0, mg_pll_div2: 0x0, mg_pll_lf: 0x0, mg_pll_frac_lock: 0x0, mg_pll_ssc: 0x0, mg_pll_bias: 0x0, mg_pll_tdc_coldst_bias: 0x0

@@ -1,0 +1,2 @@
+FBC disabled: pixel format not supported
+  [PLANE:35:plane 1A]: pixel format not supported

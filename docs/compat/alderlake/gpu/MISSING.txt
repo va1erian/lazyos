@@ -1,0 +1,2 @@
+01-intel_reg-dump.txt: intel_reg not installed
+03-dri0000_00_02.0-i915_edp_psr_status.txt: read of /sys/kernel/debug/dri/0000:00:02.0/i915_edp_psr_status failed

@@ -1,0 +1,5 @@
+# /sys/class/drm/card1-DP-1
+status: disconnected
+enabled: disabled
+dpms: Off
+modes:

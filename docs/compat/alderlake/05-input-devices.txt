@@ -1,0 +1,173 @@
+# cat /proc/bus/input/devices
+I: Bus=0019 Vendor=0000 Product=0003 Version=0000
+N: Name="Sleep Button"
+P: Phys=PNP0C0E/button/input0
+S: Sysfs=/devices/platform/PNP0C0E:00/input/input0
+U: Uniq=
+H: Handlers=kbd event0 
+B: PROP=0
+B: EV=3
+B: KEY=4000 0 0
+
+I: Bus=0019 Vendor=0000 Product=0001 Version=0000
+N: Name="Power Button"
+P: Phys=PNP0C0C/button/input0
+S: Sysfs=/devices/platform/PNP0C0C:00/input/input1
+U: Uniq=
+H: Handlers=kbd event1 
+B: PROP=0
+B: EV=3
+B: KEY=8000 10000000000000 0
+
+I: Bus=0019 Vendor=0000 Product=0001 Version=0000
+N: Name="Power Button"
+P: Phys=LNXPWRBN/button/input0
+S: Sysfs=/devices/platform/LNXPWRBN:00/input/input2
+U: Uniq=
+H: Handlers=kbd event2 
+B: PROP=0
+B: EV=3
+B: KEY=8000 10000000000000 0
+
+I: Bus=0011 Vendor=0001 Product=0001 Version=ab83
+N: Name="AT Translated Set 2 keyboard"
+P: Phys=isa0060/serio0/input0
+S: Sysfs=/devices/platform/i8042/serio0/input/input3
+U: Uniq=
+H: Handlers=sysrq kbd event3 leds 
+B: PROP=0
+B: EV=120013
+B: KEY=402000007 ff803078f800d001 feffffdfffcfffff fffffffffffffffe
+B: MSC=10
+B: LED=7
+
+I: Bus=0003 Vendor=3151 Product=3020 Version=0200
+N: Name="YICHIP Wireless Device"
+P: Phys=usb-0000:00:14.0-4/input0
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.0/0003:3151:3020.0001/input/input4
+U: Uniq=
+H: Handlers=sysrq kbd event4 leds 
+B: PROP=0
+B: EV=120013
+B: KEY=1000000000007 ff9f207ac14057ff febeffdfffefffff fffffffffffffffe
+B: MSC=10
+B: LED=1f
+
+I: Bus=0003 Vendor=3151 Product=3020 Version=0200
+N: Name="YICHIP Wireless Device Mouse"
+P: Phys=usb-0000:00:14.0-4/input1
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input5
+U: Uniq=
+H: Handlers=mouse0 event5 
+B: PROP=0
+B: EV=17
+B: KEY=1f0000 0 0 0 0
+B: REL=1943
+B: MSC=10
+
+I: Bus=0003 Vendor=3151 Product=3020 Version=0200
+N: Name="YICHIP Wireless Device System Control"
+P: Phys=usb-0000:00:14.0-4/input1
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input6
+U: Uniq=
+H: Handlers=kbd event6 
+B: PROP=0
+B: EV=13
+B: KEY=40000000000000 0 0 0 40000010cc00 10000000000000 0
+B: MSC=10
+
+I: Bus=0003 Vendor=3151 Product=3020 Version=0200
+N: Name="YICHIP Wireless Device Consumer Control"
+P: Phys=usb-0000:00:14.0-4/input1
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input7
+U: Uniq=
+H: Handlers=kbd event7 
+B: PROP=0
+B: EV=1f
+B: KEY=3f00733fff 0 0 483ffff17aff32d bfd4444600000000 1 130ff38b17d000 677bfad9415fed 19ed68000004400 10000002
+B: REL=1040
+B: ABS=100000000
+B: MSC=10
+
+I: Bus=0019 Vendor=0000 Product=0000 Version=0000
+N: Name="Intel HID events"
+P: Phys=
+S: Sysfs=/devices/platform/INTC1070:00/input/input9
+U: Uniq=
+H: Handlers=rfkill kbd event8 
+B: PROP=0
+B: EV=13
+B: KEY=81000300000000 5000004000 1e294000000020 0
+B: MSC=10
+
+I: Bus=0019 Vendor=0000 Product=0006 Version=0000
+N: Name="Video Bus"
+P: Phys=LNXVIDEO/video/input0
+S: Sysfs=/devices/pci0000:00/acpi.video_bus.0/input/input10
+U: Uniq=
+H: Handlers=kbd event9 
+B: PROP=0
+B: EV=3
+B: KEY=3e000b00000000 0 0 0
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH Mic"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input11
+U: Uniq=
+H: Handlers=event10 
+B: PROP=0
+B: EV=21
+B: SW=10
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH Headphone"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input12
+U: Uniq=
+H: Handlers=event11 
+B: PROP=0
+B: EV=21
+B: SW=4
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH HDMI/DP,pcm=3"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input13
+U: Uniq=
+H: Handlers=event12 
+B: PROP=0
+B: EV=21
+B: SW=140
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH HDMI/DP,pcm=7"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input14
+U: Uniq=
+H: Handlers=event13 
+B: PROP=0
+B: EV=21
+B: SW=140
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH HDMI/DP,pcm=8"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input15
+U: Uniq=
+H: Handlers=event14 
+B: PROP=0
+B: EV=21
+B: SW=140
+
+I: Bus=0000 Vendor=0000 Product=0000 Version=0000
+N: Name="HDA Intel PCH HDMI/DP,pcm=9"
+P: Phys=ALSA
+S: Sysfs=/devices/pci0000:00/0000:00:1f.3/sound/card0/input16
+U: Uniq=
+H: Handlers=event15 
+B: PROP=0
+B: EV=21
+B: SW=140
+
+# exit 0

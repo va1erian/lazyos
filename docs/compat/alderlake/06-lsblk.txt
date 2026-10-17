@@ -1,0 +1,24 @@
+# lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,SERIAL,FSTYPE,LABEL,UUID,PTTYPE,PHY-SEC,LOG-SEC,ROTA,MOUNTPOINT
+NAME          SIZE TYPE TRAN MODEL                SERIAL               FSTYPE   LABEL        UUID                                 PTTYPE PHY-SEC LOG-SEC ROTA MOUNTPOINT
+loop0          74M loop                                                squashfs                                                              512     512    0 /snap/core22/2955
+loop1           4K loop                                                squashfs                                                              512     512    0 /snap/bare/5
+loop2        66,8M loop                                                squashfs                                                              512     512    0 /snap/core24/2124
+loop3        62,2M loop                                                squashfs                                                              512     512    0 /snap/ffmpeg-2204/150
+loop4       283,8M loop                                                squashfs                                                              512     512    0 /snap/firefox/9057
+loop5        12,7M loop                                                squashfs                                                              512     512    0 /snap/firmware-updater/262
+loop6       615,3M loop                                                squashfs                                                              512     512    0 /snap/gnome-46-2404/168
+loop7        91,7M loop                                                squashfs                                                              512     512    0 /snap/gtk-common-themes/1535
+loop8         1,5G loop                                                squashfs                                                              512     512    0 /snap/kf5-core22/3
+loop9       371,5M loop                                                squashfs                                                              512     512    0 /snap/krita/109
+loop10        402M loop                                                squashfs                                                              512     512    0 /snap/mesa-2404/1839
+loop11       44,7M loop                                                squashfs                                                              512     512    0 /snap/snapd/28254
+loop12      222,9M loop                                                squashfs                                                              512     512    0 /snap/thunderbird/1294
+sda         238,5G disk sata G534N 256G           YB5K013320T                                                                     gpt        512     512    0 
+├─sda1        100M part                                                vfat     SYSTEM       FC6C-3F25                            gpt        512     512    0 
+├─sda2         16M part                                                                                                           gpt        512     512    0 
+├─sda3      237,4G part                                                ntfs     Windows      2E006D3A006D0A63                     gpt        512     512    0 
+└─sda4       1000M part                                                ntfs     Recovery     4CBA6DAEBA6D956C                     gpt        512     512    0 
+nvme0n1     238,5G disk nvme PNY CS1030 250GB SSD PNB28267019360201774                                                            gpt        512     512    0 
+├─nvme0n1p1   300M part nvme                                           vfat                  1F6D-B21C                            gpt        512     512    0 /boot/efi
+└─nvme0n1p2 238,2G part nvme                                           ext4     kubuntu_2610 4e8865c0-f09e-429b-a569-9140c1a62404 gpt        512     512    0 /
+# exit 0

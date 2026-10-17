@@ -1,0 +1,2 @@
+# intel_reg dump
+# not installed: intel_reg
