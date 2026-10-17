@@ -89,7 +89,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
 | `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
-| `PROC` | `Proc` | `proc` | kernel, kernel suite | - | programs |
+| `PROC` | `Proc` | `proc` | kernel, kernel suite | tools/webplus | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `REMOVABLE` | `Removable` | `removable` | xui-app | tools/storage | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
