@@ -29,7 +29,8 @@ to the GPU.
 
 The script is read-only: it loads no module, mounts nothing, writes no
 register and enables no option ROM. Registers are read with `intel_reg read`
-(a read-only mapping of BAR0), falling back to a read-only `mmap` from Python.
+(the script invokes only its `read` verb), falling back to a `PROT_READ`
+`mmap` from Python.
 Anything it cannot collect is listed in `MISSING.txt`; run the missing pieces
 by hand or note why they are absent.
 

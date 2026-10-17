@@ -12,8 +12,9 @@
 # READ-ONLY. Nothing is written to the machine: no module is loaded, debugfs
 # is not mounted for you, no MMIO write is made by this script (debugfs reads can still wake
 # forcewake or make the sink transact on AUX/DPCD), the option ROM is not
-# enabled. Registers are read by mapping the BAR0 resource PROT_READ (the same
-# thing `intel_reg` does). A missing tool, file or privilege only leaves a
+# enabled. Registers are read with `intel_reg read` (the script only ever
+# invokes that verb: it issues no write) or, without it, through a PROT_READ
+# mmap of the BAR0 resource. A missing tool, file or privilege only leaves a
 # note in its output file and in MISSING.txt.
 #
 # Optional tools (Debian/Ubuntu):
@@ -103,8 +104,8 @@ run 01-intel_reg-dump.txt intel_reg dump
 # DPLL, CDCLK, power-well, DDB/watermark and audio blocks, from memory of
 # i915's regs; the offsets are TO CONFIRM and a wrong range only wastes a few
 # lines. GMBUS data (0xC510C) is deliberately NOT read: a data read advances
-# the transfer. The bytes come from a PROT_READ mmap of resource0, so nothing
-# can be written.
+# the transfer. The bytes come from `intel_reg read` or a PROT_READ mmap of
+# resource0; neither path in this script issues a write.
 mmio_ranges="
 0x045000 0x045600 power wells, DC state, DMC control
 0x046000 0x046200 CDCLK_CTL, LCPLL1/2, PORT_CLK_SEL
@@ -120,7 +121,7 @@ mmio_ranges="
 0x0C2000 0x0C2100 south display: SFUSE_STRAP
 0x0C4000 0x0C4040 display straps
 0x0C5100 0x0C510C GMBUS0..2 only
-0x000D80 0x000D90 forcewake acks: media 0xD84, render 0xD88 (G3)
+0x000D80 0x000D90 forcewake acks: render 0xD84, media 0xD88 (G3, to confirm)
 0x00A180 0x00A290 forcewake requests: blitter 0xA188, media 0xA270, render 0xA278 (G3)
 0x130040 0x130048 forcewake ack: blitter
 "

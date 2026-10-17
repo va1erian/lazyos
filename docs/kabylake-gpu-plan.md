@@ -19,7 +19,7 @@
 > **Revision 4** folds in the G0 survey of the box under Linux
 > ([compat/kabylake/gpu/](compat/kabylake/gpu/README.md)): HDMI is native TMDS
 > on DDI B with no LSPCON and no AUX, so DP AUX is out of scope; the sink is a
-> 2-channel LPCM, HDMI 1.4 (280 MHz) monitor; Gen9 submits through execlists
+> 2-channel LPCM, HDMI 1.x (280 MHz TMDS, no Forum block) monitor; Gen9 submits through execlists
 > (G3 is bigger than rev 3 assumed); DMC, GuC and HuC stay unnecessary. What the
 > survey could **not** settle is listed at the end of §2.1: it captured i915's
 > state, not the firmware's, and missed the audio and DDI-buffer registers.
@@ -81,18 +81,18 @@ VBT and OpRegion are in the tree as binaries and `libs/gen9gfx` tests them.
 
 | Question | Answer | Where |
 |---|---|---|
-| How is HDMI wired? | **Native TMDS HDMI on DDI B**, no LSPCON, no DP AUX channel. VBT BDB 209 (Intel SKL/KBL BIOS build of 2017-04-28): child device `0x60D2`, DVO port HDMI-B, DDC on GMBUS pin 5, level shifter `0x08`, HDMI iboost `2`, lane reversal no. A second HDMI child (DDI C, DDC pin 4) exists with nothing attached (`HDMI-A-2` disconnected). **DP AUX is out of scope.** | `03-intel_vbt_decode.txt`, `03-dri128-vbt.bin`, `tests_real` |
+| How is HDMI wired? | **Native TMDS HDMI on DDI B**, no LSPCON, no DP AUX channel. VBT BDB 209 (Intel SKL/KBL BIOS build of 2017-04-28): child device `0x60D2`, DVO port HDMI-B, DDC on GMBUS pin 5, level shifter `0x08`, HDMI iboost level `2` with `Iboost enable: no`, lane reversal no. A second HDMI child (DDI C, DDC pin 4) exists with nothing attached (`HDMI-A-2` disconnected). **DP AUX is out of scope.** | `03-intel_vbt_decode.txt`, `03-dri128-vbt.bin`, `tests_real` |
 | Pipe, transcoder, DDI, PLL | Pipe A, transcoder A, DDI B, `DPLL1` (HDMI mode), `DPLL_CTRL2` overrides DDI B to PLL1, `TRANS_CLK_SEL_A` = DDI B. | `01-intel_reg-dump.txt`, `regs.rs` tests |
 | Link mode, infoframes | `TRANS_DDI_FUNC_CTL_A` = `0x90030000`: enabled, **HDMI mode**, 8 bpc, +HSync +VSync. `VIDEO_DIP_CTL_A` = `0x11001`: GCP, AVI and SPD infoframes on. (Linux's state; see the open list below.) | `01-intel_reg-dump.txt` |
-| Mode on the wire | 2560x1440 **at 70 Hz, 277.82 MHz** (not the 241.5 MHz / 59.95 Hz preferred DTD). Sink limit: HDMI VSDB max TMDS **280 MHz**, no HDMI Forum block, AMD vendor block 48 to 70 Hz. 277.82 MHz is the fastest 1440p the link carries. | `i915_display_info`, `04-*-edid-decode.txt` |
+| Mode on the wire | 2560x1440 **at 70 Hz, 277.82 MHz** (not the 241.5 MHz / 59.95 Hz preferred DTD). Sink limit: HDMI VSDB max TMDS **280 MHz**, no HDMI Forum block, AMD vendor block 48 to 70 Hz. 277.82 MHz is the fastest 1440p timing the EDID lists; the range limits (50 to 76 Hz, 280 MHz dot clock) would allow a custom one, which LazyOS does not need. | `i915_display_info`, `04-*-edid-decode.txt` |
 | CDCLK | **337.5 MHz** (`CDCLK_CTL` = `0x080002A1`, LCPLL1 locked), above the 277.82 MHz pixel clock. | `01-intel_reg-dump.txt` |
-| Display buffer | Plane 1A: 0 to 856 blocks (`PLANE_BUF_CFG_1_A` `0x03570000`), cursor 856 to 892; pipes B and C empty; 2 scalers on pipes A and B, 1 on C. | `i915_ddb_info` |
-| Memory map | `BDSM` = `0xBE000001`: stolen base `0xBE000000`, **32 MiB** (`GMCH_CTRL` `0x01C1`: GMS 32 MiB, GGMS 8 MiB). BAR0 `0xDE000000` 16 MiB = 8 MiB registers + 8 MiB GGTT (1 M PTEs, 4 GiB of GGTT space); BAR2 `0xC0000000` 256 MiB aperture. `ASLS` = `0xBCFB1018` (OpRegion; the VBT is its mailbox 4 at +0x400, 6144 bytes). | `00-gpu-config-words.txt`, `00-iomem-gpu.txt` |
+| Display buffer | Plane 1A: 0 to 856 blocks (`PLANE_BUF_CFG_1_A` `0x03570000`), cursor 856 to 892; i915's view has pipes B and C empty, but the raw registers of the disabled pipe B still read `PLANE_BUF_CFG_1_B` = `0x037B01BE` (446 to 892, overlapping pipe A's cursor) with watermarks `0x4007`: adoption reads pipe A only and does not trust an idle pipe's registers. 2 scalers on pipes A and B, 1 on C. | `i915_ddb_info`, `i915_display_info`, `01-intel_reg-dump.txt` |
+| Memory map | `BDSM` = `0xBE000001`: stolen base `0xBE000000`, **32 MiB** (`GMCH_CTRL` `0x01C1`: GMS 32 MiB, GGMS 8 MiB). BAR0 `0xDE000000` 16 MiB = 8 MiB registers + 8 MiB GGTT (1 M PTEs, 4 GiB of GGTT space); BAR2 `0xC0000000` 256 MiB aperture. `ASLS` = `0xBCFB1018` (OpRegion; its mailbox 4 holds the VBT at +0x400: a 6144-byte mailbox with a 4300-byte VBT, BDB 4252 bytes). | `00-gpu-config-words.txt`, `00-iomem-gpu.txt` |
 | Firmware blobs | **None needed for the four goals.** i915 loaded DMC `kbl_dmc_ver1_04` only; no GuC or HuC (`enable_guc` default, execlists submission). `DC_STATE_EN` is 0 and DC3→DC5 count 0 even with DMC. | `06-dmesg-*`, `i915_dmc_info`, `00-i915-params.txt` |
 | Command submission | **Execlists on all four engines** (`rcs0` `0x2000`, `vcs0` `0x12000`, `bcs0` `0x22000`, `vecs0` `0x1A000`): ELSP/CSB, a per-context image, HWSP, per-context PPGTT in use. One VDBOX (`vcs0`), one VEBOX: GT2, one video decode engine. | `i915_engine_info`, `i915_gem_framebuffer` |
-| Audio codec | `8086:9D71` HDA, one codec at address 2, `Intel Kabylake HDMI` (`8086:280B`): AFG nid 1, converters nid 2 to 4, **pins nid 5 to 7 = DDI B, C, D**, each pin's connection list the three converters; Pin Default `0x18560010`, pincap `0x0B000094` (out, detect, HBR, HDMI, DP). Linux used **pin 5 → converter 2** (stream 1, "HDMI 0", PCM device 3). | `05-codecs.txt`, `05-eld.txt`, `05-aplay-cards.txt` |
+| Audio codec | `8086:9D71` HDA, one codec at address 2, `Intel Kabylake HDMI` (`8086:280B`): AFG nid 1, converters nid 2 to 4, **pins nid 5 to 7 = DDI B, C, D**, pin 5's connection list names the three converters (pins 6 and 7, with no monitor, read `Connection: 0`, so whether theirs do too was not observed); Pin Default `0x18560010`, pincap `0x0B000094` (out, detect, HBR, HDMI, DP). Linux used **pin 5 → converter 2** (stream 1, "HDMI 0", PCM device 3). | `05-codecs.txt`, `05-eld.txt`, `05-aplay-cards.txt` |
 | Sink audio | ELD valid, `monitor_present`: **one SAD, LPCM, 2 channels, 32/44.1/48 kHz, 16/20/24 bit**, speakers FL/FR, no AI, no HDCP, `eld_version` CEA-861D. No multichannel, no 88.2 kHz and up, no compressed formats. | `05-eld.txt`, EDID audio block |
-| Audio power | `AUDIO_MMIO` and `AUDIO_PLAYBACK` power domains held by i915's audio component bind (`snd_hda_intel` binds the GPU's audio component). | `i915_power_domain_info`, `06-dmesg-gpu-audio.txt` |
+| Audio power | `AUDIO_MMIO` and `AUDIO_PLAYBACK` power domains each held once while the HDMI PCM was open (`snd_hda_intel` had bound the GPU's audio component); which reference is the PCM's and which the bind's is not shown. | `i915_power_domain_info`, `06-dmesg-gpu-audio.txt` |
 | Idle baseline (plan §7) | GT 300 MHz (RPn) of 1000 MHz (RP0); RC6 working; package 49 °C, PCH 39.5 °C, ACPI zones 28 and 30 °C, with Linux's desktop running. | `07-*.txt`, `i915_frequency_info` |
 
 The two modes this box can run, and what that does to G2's N/CTS (computed
@@ -119,10 +119,12 @@ is in i915's audio table, so there is no table N to reuse:
   `DDI_BUF_CTL` and the DDI buffer translations. `survey_gpu.sh` now captures
   the ranges with `intel_reg read` and needs one more run (§10).
 - **Why `sndd` saw "pin 3".** boot-1's `SNDD:HDA codec=2 afg=1 pin=3` names a
-  nid that is a *converter* in Linux's graph (pins are 5 to 7). Consistent with
-  the codec answering from an unpowered audio domain before any display driver
-  has run (§5.2), so the walk is probably fine; re-read it after G2 powers the
-  domain, and treat a still-wrong pin as a `libs/hda` bug then.
+  nid that is a *converter* in Linux's graph (pins are 5 to 7), and
+  `libs/hda` only returns a widget whose type is pin. Two explanations fit and
+  the evidence does not separate them: the codec answered from an unpowered
+  audio domain before any display driver ran (§5.2), or the graph walk reads
+  the wrong nids. Have `sndd` log the whole widget list (nid, caps, type) on
+  the next boot, and again after G2 powers the domain, before trusting either.
 
 ## 3. Architecture
 
@@ -161,7 +163,7 @@ working; `init` restarts it and it re-adopts the live state from registers.
 
 - **`libs/gen9gfx`** (`no_std`, host-tested like `libs/rtw88`): pure
   register programming and parsing behind an `Mmio` trait so a host fake can
-  check sequences. Modules: `edid` (parse, fuzzed), `vbt`, `gmbus`/`aux`,
+  check sequences. Modules: `edid` (parse, fuzzed), `vbt`, `gmbus` (EDID over DDC; DP `aux` is out of scope here),
   `clock` (CDCLK check, DPLL1–3 params from pixel clock), `ddi`, `pipe`,
   `plane` (incl. YUV and scaler), `wm` (DDB/watermarks), `gtt`, `power`
   (forcewake, wells, RC6 later), `ring`/`exec`, `blit`, `render`, `media`.
@@ -249,8 +251,9 @@ not done in audio.md). What is missing is on both sides of the link:
 - **Codec side** (`sndd`): the Intel HDMI codec exposes up to three
   converter/pin pairs (one per DDI); choose the pin whose ELD is valid. On
   this box that is **pin nid 5 (DDI B)**; pins 6 and 7 (DDI C, D) have no
-  monitor and report `eld_valid 0`. Converters are nids 2 to 4 and any pin can
-  take any converter (Linux used converter 2). Read
+  monitor and report `eld_valid 0`. Converters are nids 2 to 4; pin 5 lists
+  all three (Linux used converter 2; the other pins' lists were empty in the
+  dump). Read
   the ELD for rates and channels, set the digital converter format (and the
   codec's own audio infoframe/channel-allocation verbs), program stream and
   channel mapping. Handle the unsolicited "pin sense / ELD valid" event for
@@ -298,7 +301,7 @@ YouTube stay on the video plan's V2–V6; they are independent.
 | Hardware video decode (H.264/HEVC/VP9) | **yes**, G4, large | fixed-function, no GuC/HuC needed for decode |
 | General 3D (OpenGL/Vulkan via Mesa) | **not a goal**, G9 | needs per-client PPGTT, i915-style GEM shim, C++ (zig toolchain exists), threads; plan after G8 |
 | Compute (OpenCL), video encode, HDR, multi-monitor, DP | no | out of scope |
-| Power management (RC6, DC states, frequency scaling) | later | not needed for function. Without DMC, KBL loses only DC5/DC6 (**to confirm**); a busy engine still runs hotter, so G1 and G3 record idle temperature/power over `dbgd` as a baseline |
+| Power management (RC6, DC states, frequency scaling) | later | not needed for function. DC states are off even with DMC loaded (`DC_STATE_EN` 0, DC3→DC5 count 0 under Linux), so running without DMC loses nothing the box was using; a busy engine still runs hotter, so G1 and G3 record idle temperature/power over `dbgd` as a baseline |
 
 ### 5.5 Mesa, in one paragraph
 
@@ -413,7 +416,7 @@ Still open (answer at G0/G1, none blocks starting):
   (277.82 MHz); the monitor's preferred DTD is 59.95 Hz (241.5 MHz). The plan
   adopts whatever the firmware scans out (§2.1's last list), so the answer
   only matters for G2's N/CTS pair and for how much headroom the 280 MHz TMDS
-  ceiling leaves (2.18 MHz at 70 Hz, none above).
+  ceiling leaves (2.18 MHz at the listed 70 Hz timing).
 - **One box**: every stage is a flash, test, observe loop on the single
   machine; a second Gen9 machine would be useful for G0 comparisons but is
   not required.
@@ -433,8 +436,10 @@ kernel, `user/`, `idl/` or `build.rs`, and nothing has run under LazyOS yet.
   audio or DDI-buffer registers. The script now reads its ranges with
   `intel_reg read`, adds the forcewake request and acknowledge registers, and
   names debugfs files without `:` (the first capture's `dri0000:00:02.0-*`
-  files cannot be checked out on Windows; they duplicated `dri1` and `dri128`
-  and are not in the tree). **One more run on the box fills both gaps.**
+  files cannot be checked out on Windows; `dri1` and `dri128` were symlink
+  duplicates of it, so the tree keeps one copy, named
+  `03-dri0000_00_02.0-*` as the script now writes it, and a re-run
+  overwrites it in place). **One more run on the box fills both gaps.**
 - **`libs/gen9gfx`** (`cargo test -p gen9gfx`; seeded fuzz shared with
   `fuzz/fuzz_targets/gen9gfx.rs`): `Mmio` trait, `edid` and `cea` (base block,
   CEA extension: timings, VICs, SADs, speaker allocation, HDMI and HDMI Forum
@@ -460,19 +465,31 @@ kernel, `user/`, `idl/` or `build.rs`, and nothing has run under LazyOS yet.
   accepts the default, is a G2 decision (the audio registers are the missing
   input, below).
 
-**Next, in order, none started:**
+**Next, in order:**
 
-1. **Re-run `tools/boot/survey_gpu.sh` on the box** (with `intel-gpu-tools`
-   installed and HDMI audio playing, as the README says), redact, commit
-   over `docs/compat/kabylake/gpu/linux/`. That settles the audio offsets and
-   `DDI_BUF_CTL`; then correct `regs.rs` (move the audio block above the
-   `TO CONFIRM` marker or fix the offsets).
-2. **The `dbgd` read ops G0 and G1 need**: `pci.config` and `mmio.read`
-   (docs/dbgd-plan.md lists them as not in v1 and `dbgwire` does not have
-   them), plus a VBT/EDID copy, and the device claim for 00:02.0 in
-   `dev/claims.rs`. This is what answers "what does the firmware leave"
-   (§2.1): the link mode, the timing (241.5 or 277.82 MHz), CDCLK and the
-   framebuffer address, read on a LazyOS boot before anything writes.
-3. **G1**: the `gpud` skeleton (`user/src/bin/gpud/`, `idl/gpu.midl`,
-   `set_scanout` in the kernel, the `LAZYOS_GEN9GFX` switch and launcher
-   flags of §8).
+1. **Read what the firmware leaves, on a LazyOS boot, with the dbgd ops that
+   already exist.** `pci.config` and `mmio.read` landed in #829
+   ([dbgd.md](dbgd.md), `libs/pciprobe`): build the box's image with
+   `run_demo.py --dbgd --dbgd-mmio`, boot it, and
+   `dbgctl.py mmio 00:02.0 0 <offset> <len>` the registers of §2.1's last list
+   (`TRANS_DDI_FUNC_CTL_A`, the transcoder timings, `CDCLK_CTL`,
+   `PLANE_SURF_1_A`, the audio block). The built-in HD 620 allowlist already
+   covers all of them except `0x51000` (DFSM fuses) and `0x130040` (the blitter
+   forcewake ack), which `survey_gpu.sh` also reads under Linux; add them to
+   `libs/pciprobe/src/builtin.rs` when G3 needs the latter. The audio block
+   sits behind a power well: read `0x45400` first (a gated well may not return
+   cleanly), and the ELD data ports (`0x65050`, `0x65150`, `0x65250`) stay out
+   as deliberate holes. A small `tools/gpu/probe.py` that runs the whole read
+   list and writes `docs/compat/kabylake/gpu/lazyos/` would make it
+   repeatable and diffable against the Linux capture. Nothing writes: this is
+   the "before anything writes" baseline G1 and G2 need.
+2. **Re-run `tools/boot/survey_gpu.sh` on the box** (with `intel-gpu-tools`
+   installed and HDMI audio playing, as the README says), redact, commit over
+   `docs/compat/kabylake/gpu/linux/`. That settles the audio offsets and
+   `DDI_BUF_CTL` *as Linux uses them while playing*; then correct `regs.rs`
+   (move the audio block above the `TO CONFIRM` marker or fix the offsets).
+3. **G1**: the `gpud` skeleton (`user/src/bin/gpud/`, `idl/gpu.midl`, the
+   `LAZYOS_GEN9GFX` switch and launcher flags of §8, the device claim for
+   00:02.0, then `set_scanout` in the kernel). Its first job is the same read
+   as step 1, decoded with `libs/gen9gfx::regs` and reported as `GPU:*`
+   markers.
