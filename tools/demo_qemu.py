@@ -42,8 +42,8 @@ def boot_disk_args(disk: str, image) -> list[str]:
 
 
 def add_device_options(parser: argparse.ArgumentParser) -> None:
-    """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip` and
-    `--no-msi`."""
+    """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip`,
+    `--no-msi` and `--gen9gfx`."""
     parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
                         help="attach a sound card (--sound-card) and build with LAZYOS_SOUND=1, "
                              "which boots the `sndd` driver and plays its test tones. "
@@ -65,6 +65,15 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-msi", action="store_true",
                         help="build with LAZYOS_MSI=0: drivers take INTx lines, never "
                              "MSI or MSI-X vectors")
+    parser.add_argument("--gen9gfx", action="store_true",
+                        help="the Intel GPU service (LAZYOS_GEN9GFX=1, docs/kabylake-gpu-plan.md "
+                             "stage G1): `gpud`, which devd starts for the HD Graphics 620 "
+                             "(8086:5916) it finds and which READS AND REPORTS the display state "
+                             "the firmware left (`GPU:*` lines; `os.lazy.gpu.v1`). Read-only, "
+                             "off by default. QEMU has no such GPU (gpud then does not start): "
+                             "it matters on the Kaby Lake box, e.g. with --usb-image --dbgd "
+                             "--desktop --build-only. Without --desktop, --sound or --net it "
+                             "builds a services image with the sound stack so devd exists")
 
 
 def device_env(args: argparse.Namespace, env: dict) -> None:
@@ -73,6 +82,13 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
     env["LAZYOS_DEVD"] = "0" if args.no_devd else "1"
     env["LAZYOS_IRQCHIP"] = args.irqchip
     env["LAZYOS_MSI"] = "0" if args.no_msi else "1"
+    # Either way, so an inherited value never overrides `--gen9gfx`.
+    env["LAZYOS_GEN9GFX"] = "1" if args.gen9gfx else "0"
+    if args.gen9gfx and not (args.desktop or args.net or args.sound):
+        # `devd` starts `gpud`, and `devd` is in an image that has a driver
+        # stack and `init`: the sound stack, with no card attached.
+        env["LAZYOS_SOUND"] = "1"
+        env.setdefault("LAZYOS_SERVICES", "1")
 
 
 def sound_args(backend: str, card: str = "virtio") -> list[str]:

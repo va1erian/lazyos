@@ -119,6 +119,43 @@ int lzw_ui_main(int argc, const char* const* argv);
 // engine reuses its buffer for the next frame). A non-positive size or a null pointer is ignored.
 void lzw_ui_frame(const uint8_t* rgba, int width, int height);
 
+// WebKit painted part of the page. `rgba` is a whole frame, laid out as for lzw_ui_frame, of which
+// only the rectangles are read (and copied before the call returns). The picture the window has
+// is first moved, if `scroll` is not null: six ints, x, y, width, height of the area that moved
+// and dx, dy; what was inside the area is dx, dy further on, what leaves it is gone and what it
+// uncovers is stale until a rectangle covers it. Then each of the `count` rectangles (four ints
+// each, x, y, width, height, inside the frame, at most 8) replaces what it covers. Returns 1 when
+// the window cannot take it (it has no picture to change, is too far behind, or the arguments
+// make no sense): the next frame to send is a whole one, lzw_ui_frame.
+int lzw_ui_frame_delta(const uint8_t* rgba, int width, int height, const int* scroll, const int* rects, int count);
+
+// The main frame's scroll offset (page pixels) of the pixels the next lzw_ui_frame or lzw_ui_frame_delta
+// carries: what WKPageSetScrollOffsetCallback last said before the update they come from. Call it just
+// before posting; it belongs to that one post. The window shows its picture ahead of the page by what
+// the wheel has asked for and the offset says the page has not done yet (speculate.rs).
+void lzw_ui_scroll_offset(int x, int y);
+
+// What the page changed, kept by the window's library in the form a paint needs (the rules are
+// Rust, tested against a model of WebKit's backing store: xui-app/crates/webkit/src/damage.rs).
+// Only the engine's thread calls these.
+// The view has this size: nothing painted before it fits.
+void lzw_paint_resize(int width, int height);
+// All of the view must be painted and sent whole.
+void lzw_paint_full(void);
+// A rectangle changed (the view was reported as needing display).
+void lzw_paint_rect(int x, int y, int width, int height);
+// One update from the page's process: the area sx, sy, sw, sh moved by dx, dy (an empty area or a
+// zero offset: nothing moved) and the `count` rectangles (four ints each) were repainted.
+void lzw_paint_update(int sx, int sy, int sw, int sh, int dx, int dy, const int* rects, int count);
+// What the next paint has to do, forgotten once asked. Returns LZW_PAINT_NOTHING, or LZW_PAINT_FULL
+// (paint all of the view, send it with lzw_ui_frame), or LZW_PAINT_DELTA: `scroll` (six ints, all
+// zero when nothing moved) and the `*count` rectangles written to `rects` (four ints each, room
+// for `max`) are to be sent with lzw_ui_frame_delta after the rectangles were painted.
+#define LZW_PAINT_NOTHING 0
+#define LZW_PAINT_FULL 1
+#define LZW_PAINT_DELTA 2
+int lzw_paint_plan(int* scroll, int* rects, int max, int* count);
+
 // The page's state changed (UTF-8, never null). progress is in thousandths. error is "" or what
 // the window shows in its status line: a load that failed (the page on show stays), or, with
 // crashed set, the page's process is gone (the window blanks the page until the next load).

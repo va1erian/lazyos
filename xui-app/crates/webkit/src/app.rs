@@ -199,13 +199,19 @@ impl Browser {
     }
 
     fn show_frame(&mut self, ui: &Ui<Msg>) {
-        if let Some(frame) = self.mailbox.take_frame(std::mem::take(&mut self.spare)) {
+        if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
             if self.state.crashed {
                 // A picture painted just before the page's process went away.
-                self.spare = frame.rgba;
+                self.spare = update.full.map(|frame| frame.rgba).unwrap_or_default();
                 return;
             }
-            self.spare = self.page.show(frame);
+            let applied = self.page.apply(update);
+            if applied.resync {
+                self.mailbox.request_full();
+            }
+            if !applied.spare.is_empty() {
+                self.spare = applied.spare;
+            }
             self.frames += 1;
             if self.frames == 1 {
                 let (width, height) = frame_size(&self.page);

@@ -13,6 +13,11 @@ static IRQOFF: Samples = Samples::new();
 static IPC_RT: Samples = Samples::new();
 static SLEEP_1MS: Samples = Samples::new();
 static PRESENT: Samples = Samples::new();
+/// Cycles a present of at least [`MPX_MIN_PIXELS`] pixels takes per million pixels, so the table's
+/// microseconds read as "microseconds per megapixel": the cost of the framebuffer copy itself.
+static PRESENT_MPX: Samples = Samples::new();
+/// Smaller presents (a cursor) are mostly fixed cost and would drown the per-pixel figure.
+const MPX_MIN_PIXELS: u64 = 64 * 1024;
 static SCHED: Samples = Samples::new();
 static WAKE_RUN: Samples = Samples::new();
 /// How long one report took to print, and the `input_present` samples whose
@@ -90,6 +95,7 @@ pub fn lines_posting(raised: u64) {
 pub fn on_wake(slot: usize, current: usize) {
     super::wakeups::woke(slot);
     if slot != current {
+        super::runwait::LEDGER.ready(slot, rdtsc());
         if let Some(stamp) = WOKEN_AT.get(slot) {
             let _ = stamp.compare_exchange(0, rdtsc(), Ordering::Relaxed, Ordering::Relaxed);
         }
@@ -108,8 +114,13 @@ pub fn on_wake(slot: usize, current: usize) {
     }
 }
 
-pub fn on_run(slot: usize) {
+pub fn on_run(slot: usize, prev: usize, prev_runnable: bool) {
     super::wakeups::ran(slot);
+    let now = rdtsc();
+    super::runwait::LEDGER.run(slot, now);
+    if prev != slot && prev_runnable {
+        super::runwait::LEDGER.ready(prev, now);
+    }
     if let Some(woken) = WOKEN_AT.get(slot) {
         let at = woken.swap(0, Ordering::Relaxed);
         if at != 0 {
@@ -178,8 +189,15 @@ pub fn input_read(count: usize) {
     }
 }
 
-pub fn presented(started: u64) {
-    record(&PRESENT, rdtsc().wrapping_sub(started));
+pub fn presented(started: u64, pixels: u64) {
+    let cycles = rdtsc().wrapping_sub(started);
+    record(&PRESENT, cycles);
+    if pixels >= MPX_MIN_PIXELS {
+        record(
+            &PRESENT_MPX,
+            (u128::from(cycles) * 1_000_000 / u128::from(pixels)) as u64,
+        );
+    }
     let usb = USB_POINTER_READ.swap(0, Ordering::Relaxed);
     if usb != 0 {
         record(&USB_INPUT_PRESENT, rdtsc().wrapping_sub(usb));
@@ -311,6 +329,7 @@ pub fn service() {
         ("ipc_rt", &IPC_RT),
         ("sleep_1ms", &SLEEP_1MS),
         ("present", &PRESENT),
+        ("present_mpx", &PRESENT_MPX),
         ("sched", &SCHED),
         ("wake_run", &WAKE_RUN),
         ("report", &REPORT),
@@ -326,6 +345,7 @@ pub fn service() {
         }
     }
     super::wakeups::report(now);
+    super::runwait::report(now, per_tick);
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);

@@ -32,6 +32,7 @@ mod sys_cfg;
 mod sys_claim;
 mod sys_dma;
 mod sys_dma_life;
+mod sys_gpu_policy;
 mod sys_guard;
 mod sys_inspect;
 mod sys_ops;
@@ -70,6 +71,7 @@ pub(super) const SYSCALL_PEEK: &[(&str, Test)] = sys_peek::CASES;
 #[cfg(lazyos_dbgd)]
 pub(super) const SYSCALL_PEEK_HW: &[(&str, Test)] = sys_peek_hw::CASES;
 pub(super) const SYSCALL_USB_POLICY: &[(&str, Test)] = sys_usb_policy::CASES;
+pub(super) const SYSCALL_GPU_POLICY: &[(&str, Test)] = sys_gpu_policy::CASES;
 pub(super) const TEARDOWN: &[(&str, Test)] = sys_teardown::CASES;
 pub(super) const DMA: &[(&str, Test)] = sys_dma::CASES;
 pub(super) const DMA_LIFE: &[(&str, Test)] = sys_dma_life::CASES;

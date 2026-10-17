@@ -474,6 +474,23 @@ class MainTests(RunDemoCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_IRQCHIP"), "pic")
         self.assertEqual(self.builds[-1].get("LAZYOS_MSI"), "0")
 
+    def test_gen9gfx_sets_the_switch_and_the_driver_stack_it_needs(self) -> None:
+        # docs/kabylake-gpu-plan.md section 8: off unless asked, set either way.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("LAZYOS_GEN9GFX", None)
+            os.environ.pop("LAZYOS_SERVICES", None)
+            self.run_main()
+            self.assertEqual(self.builds[-1].get("LAZYOS_GEN9GFX"), "0")
+            code, _ = self.run_main("--gen9gfx")
+            self.assertEqual(code, 0)
+            build = self.builds[-1]
+            self.assertEqual(build.get("LAZYOS_GEN9GFX"), "1")
+            # No other stack: a services image with the sound one (no card).
+            self.assertEqual((build.get("LAZYOS_SOUND"), build.get("LAZYOS_SERVICES")), ("1", "1"))
+            self.run_main("--gen9gfx", "--net", "--net-forward", "none")
+            self.assertEqual(self.builds[-1].get("LAZYOS_GEN9GFX"), "1")
+            self.assertNotIn("LAZYOS_SOUND", self.builds[-1])
+
     def test_reset_os_cannot_combine_with_no_build(self) -> None:
         with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
             self.run_main("--no-build", "--reset-os")

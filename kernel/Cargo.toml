@@ -73,6 +73,7 @@ filepolicy = { path = "../libs/filepolicy" }
 # Who may serve a user-space filesystem (`fs/fuse`, `FS_PROVIDER_UIDS`).
 mounttable = { path = "../libs/mounttable" }
 sndpolicy = { path = "../libs/sndpolicy" }
+gpupolicy = { path = "../libs/gpupolicy" }
 # dbgd's read-only config and MMIO reads: the range allowlist the kernel
 # enforces (`dev::peek`, docs/dbgd-plan.md).
 pciprobe = { path = "../libs/pciprobe" }

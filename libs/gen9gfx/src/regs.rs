@@ -112,6 +112,138 @@ pub fn trans_clk_sel_port(v: u32) -> Option<u8> {
     }
 }
 
+/// Pipe/transcoder `n` (0 = A, 1 = B, 2 = C) register block bases.
+pub const fn pipe_base(pipe: u32) -> u32 {
+    PIPE_A_BASE + pipe * PIPE_STRIDE
+}
+pub const fn trans_base(pipe: u32) -> u32 {
+    TRANS_A_BASE + pipe * TRANS_STRIDE
+}
+
+/// `TRANS_CLK_SEL` of transcoder `pipe` (A 0x46140, B 0x46144, C 0x46148).
+pub const fn trans_clk_sel(pipe: u32) -> u32 {
+    TRANS_CLK_SEL_A + pipe * 4
+}
+
+/// Offsets inside a pipe block (`pipe_base`): the first universal plane
+/// (`PLANE_*_1`, +0x180 .. +0x1AC) and the other plane's control as a
+/// "something else is on" check (CONFIRMED: the box's dump).
+pub mod plane1 {
+    pub const CTL: u32 = 0x180;
+    pub const STRIDE: u32 = 0x188;
+    pub const POS: u32 = 0x18C;
+    pub const SIZE: u32 = 0x190;
+    pub const SURF: u32 = 0x19C;
+    /// `PLANE_SURFLIVE`: the surface the hardware is scanning out now.
+    pub const SURFLIVE: u32 = 0x1AC;
+    pub const BUF_CFG: u32 = 0x27C;
+}
+
+/// `PLANE_CTL` bits (CONFIRMED: the box's `0xc404b020` is enabled, XRGB 8888,
+/// Y tiled; pixel format bits 27:24, tiling bits 12:10).
+pub mod plane_ctl {
+    pub const ENABLE: u32 = 1 << 31;
+    const FORMAT_SHIFT: u32 = 24;
+    const FORMAT_MASK: u32 = 0xF << FORMAT_SHIFT;
+    const TILING_MASK: u32 = 7 << 10;
+
+    /// The pixel format field. Only the packed 32-bit formats a firmware
+    /// framebuffer can have are named; every other value is `Other`.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Format {
+        /// 32 bits per pixel, blue in the low byte or red (`ORDER_RGBX` bit).
+        Xrgb8888,
+        Other(u8),
+    }
+
+    /// The tiling field: what `PLANE_STRIDE` is counted in.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Tiling {
+        Linear,
+        X,
+        Y,
+        Yf,
+        Other(u8),
+    }
+
+    impl Tiling {
+        /// Bytes per `PLANE_STRIDE` unit: 64 linear, 512 X tile, 128 Y tile.
+        pub fn stride_unit(self) -> u32 {
+            match self {
+                Tiling::Linear => 64,
+                Tiling::X => 512,
+                Tiling::Y | Tiling::Yf => 128,
+                Tiling::Other(_) => 64,
+            }
+        }
+    }
+
+    pub fn format(ctl: u32) -> Format {
+        match ((ctl & FORMAT_MASK) >> FORMAT_SHIFT) as u8 {
+            4 => Format::Xrgb8888,
+            other => Format::Other(other),
+        }
+    }
+
+    pub fn tiling(ctl: u32) -> Tiling {
+        match ((ctl & TILING_MASK) >> 10) as u8 {
+            0 => Tiling::Linear,
+            1 => Tiling::X,
+            4 => Tiling::Y,
+            5 => Tiling::Yf,
+            other => Tiling::Other(other),
+        }
+    }
+}
+
+/// SKL power well state bits in `PWR_WELL_CTL_*` (CONFIRMED against the dump:
+/// BIOS `0x50000011`, driver `0xf0000033`): well `n`'s request is bit
+/// `2 n + 1` and its state bit `2 n`, with PW1 at index 14 and PW2 at 15,
+/// the MISC IO well at 0.
+pub mod pwr_well {
+    pub const PW1_STATE: u32 = 1 << 28;
+    pub const PW2_STATE: u32 = 1 << 30;
+    pub const MISC_IO_STATE: u32 = 1 << 0;
+}
+
+/// The pixel clock in kHz a HDMI-mode SKL DPLL (1 to 3) generates, from its
+/// `CFGCR1` and `CFGCR2`, as i915's `skl_ddi_pll_get_freq` computes it:
+/// `(DCO integer + DCO fraction / 2^15) * 24 MHz / (p0 * p1 * p2 * 5)`.
+/// CONFIRMED against the box's `DPLL1_CFGCR1 0x8046675b`, `DPLL1_CFGCR2
+/// 0x147`: 8.3346 GHz DCO / 30 = 277820 kHz, the 2560x1440 at 70 Hz clock.
+/// `None` when a divider field is reserved or the DCO is not enabled.
+pub fn dpll_hdmi_clock_khz(cfgcr1: u32, cfgcr2: u32) -> Option<u32> {
+    const REF_KHZ: u64 = 24_000;
+    if cfgcr1 & (1 << 31) == 0 {
+        return None;
+    }
+    let integer = u64::from(cfgcr1 & 0x1FF);
+    let fraction = u64::from((cfgcr1 >> 9) & 0xFFFF);
+    let p0 = match (cfgcr2 >> 2) & 7 {
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        4 => 7,
+        _ => return None,
+    };
+    let p2 = match (cfgcr2 >> 5) & 3 {
+        0 => 5,
+        1 => 2,
+        2 => 3,
+        _ => 1,
+    };
+    let p1 = if cfgcr2 & (1 << 7) != 0 {
+        u64::from((cfgcr2 >> 8) & 0xFF)
+    } else {
+        1
+    };
+    let dco = integer * REF_KHZ + ((fraction * REF_KHZ) >> 15);
+    let divider = p0 * p1 * p2 * 5;
+    // Rounded: the fraction field is a 15-bit approximation (the box's
+    // DCO is 8334599.8 kHz for an 8334600 kHz target).
+    (divider != 0 && p1 != 0).then(|| ((dco + divider / 2) / divider) as u32)
+}
+
 // TO CONFIRM against dump -----------------------------------------------------
 
 /// `PIPESRC` (the pipe's source size) inside the transcoder block, `0x6001C`
@@ -239,144 +371,4 @@ pub fn plane_size(v: u32) -> (u32, u32) {
 /// 2560 active, 2670 total).
 pub fn timing_pair(v: u32) -> (u32, u32) {
     ((v & 0xFFFF) + 1, (v >> 16) + 1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn n_fields_round_trip() {
-        for n in [4096, 6144, 6272, 11648, 24576, 0xFFFFF] {
-            let c = aud_config::n_fields(n);
-            assert_eq!(aud_config::n_value(c), n);
-            assert_ne!(c & aud_config::N_PROG_ENABLE, 0);
-        }
-    }
-
-    #[test]
-    fn ddi_func_decodes_hdmi_8bpc() {
-        // Enabled, DDI B (select 1), HDMI mode, 8 bpc, both syncs positive.
-        let v = 1 << 31 | 1 << 28 | 1 << 17 | 1 << 16;
-        let f = DdiFunc::decode(v);
-        assert!(f.enabled);
-        assert_eq!(f.ddi_select, 1);
-        assert_eq!(f.mode, DdiMode::Hdmi);
-        assert_eq!(f.bits_per_component, Some(8));
-        assert!(f.hsync_positive && f.vsync_positive);
-        assert_eq!(DdiFunc::decode(1 << 24).mode, DdiMode::Dvi);
-        assert_eq!(DdiFunc::decode(7 << 20).bits_per_component, None);
-    }
-
-    /// The survey's `intel_reg dump`, taken while i915 drove pipe A with
-    /// 2560x1440 at 70 Hz (277.82 MHz) on DDI B.
-    const DUMP: &str =
-        include_str!("../../../docs/compat/kabylake/gpu/linux/01-intel_reg-dump.txt");
-
-    /// `(offset, value)` of the dump line `NAME (0xOFFSET): 0xVALUE ...`.
-    fn dump(name: &str) -> (u32, u32) {
-        let hex = |s: &str| u32::from_str_radix(s.trim_start_matches("0x"), 16).unwrap();
-        for line in DUMP.lines() {
-            let Some((head, tail)) = line.trim().split_once(" (0x") else {
-                continue;
-            };
-            if head != name {
-                continue;
-            }
-            let (offset, rest) = tail.split_once("): ").expect("dump line shape");
-            let value = rest.split_whitespace().next().expect("dump value");
-            return (hex(offset), hex(value));
-        }
-        panic!("{name} is not in the dump");
-    }
-
-    #[test]
-    fn confirmed_offsets_are_the_dumps() {
-        for (name, offset) in [
-            ("TRANS_HTOTAL_A", TRANS_A_BASE + trans::HTOTAL),
-            ("TRANS_HBLANK_A", TRANS_A_BASE + trans::HBLANK),
-            ("TRANS_HSYNC_A", TRANS_A_BASE + trans::HSYNC),
-            ("TRANS_VTOTAL_A", TRANS_A_BASE + trans::VTOTAL),
-            ("TRANS_VBLANK_A", TRANS_A_BASE + trans::VBLANK),
-            ("TRANS_VSYNC_A", TRANS_A_BASE + trans::VSYNC),
-            ("TRANS_DDI_FUNC_CTL_A", TRANS_DDI_FUNC_CTL_A),
-            ("TRANS_DDI_FUNC_CTL_A", TRANS_A_BASE + trans::DDI_FUNC_CTL),
-            ("TRANS_CONF_A", PIPE_A_BASE + PIPECONF),
-            ("PLANE_CTL_1_A", PLANE_CTL_1_A),
-            ("PLANE_STRIDE_1_A", PLANE_STRIDE_1_A),
-            ("PLANE_POS_1_A", PLANE_POS_1_A),
-            ("PLANE_SIZE_1_A", PLANE_SIZE_1_A),
-            ("PLANE_SURF_1_A", PLANE_SURF_1_A),
-            ("PLANE_BUF_CFG_1_A", PLANE_BUF_CFG_1_A),
-            ("PLANE_WM_1_A_0", PLANE_WM_1_A_0),
-            ("CDCLK_CTL", CDCLK_CTL),
-            ("LCPLL1_CTL", LCPLL1_CTL),
-            ("LCPLL2_CTL", LCPLL2_CTL),
-            ("TRANS_CLK_SEL_A", TRANS_CLK_SEL_A),
-            ("TRANS_CLK_SEL_B", TRANS_CLK_SEL_A + 4),
-            ("DPLL_CTRL1", DPLL_CTRL1),
-            ("DPLL_CTRL2", DPLL_CTRL2),
-            ("DPLL_STATUS", DPLL_STATUS),
-            ("DPLL1_CFGCR1", DPLL1_CFGCR1),
-            ("DPLL1_CFGCR2", DPLL1_CFGCR2),
-            ("DPLL2_CFGCR1", DPLL1_CFGCR1 + DPLL_CFGCR_STRIDE),
-            ("DPLL3_CFGCR1", DPLL1_CFGCR1 + 2 * DPLL_CFGCR_STRIDE),
-            ("WM_LINETIME_A", WM_LINETIME_A),
-            ("VIDEO_DIP_CTL_A", VIDEO_DIP_CTL_A),
-            ("PWR_WELL_BIOS", PWR_WELL_CTL_BIOS),
-            ("PWR_WELL_DRIVER", PWR_WELL_CTL_DRIVER),
-            ("DC_STATE_EN", DC_STATE_EN),
-        ] {
-            assert_eq!(dump(name).0, offset, "{name}");
-        }
-        // Per-pipe stride: plane 1 of pipe B is one pipe block up.
-        assert_eq!(dump("PLANE_CTL_1_B").0, PLANE_CTL_1_A + PIPE_STRIDE);
-        assert_eq!(dump("TRANS_HTOTAL_B").0, TRANS_A_BASE + TRANS_STRIDE);
-    }
-
-    #[test]
-    fn decodes_the_boxs_display_state() {
-        let v = |name| dump(name).1;
-        assert_eq!(cdclk_khz(v("CDCLK_CTL")), 337_500);
-        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_A")), Some(1), "DDI B");
-        assert_eq!(trans_clk_sel_port(v("TRANS_CLK_SEL_B")), None);
-        // PLL1 is in HDMI mode; PLL0 (the CDCLK PLL) is not.
-        assert!(dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 1));
-        assert!(!dpll_ctrl1_hdmi_mode(v("DPLL_CTRL1"), 0));
-        // DDI B (port 1) is overridden to PLL1; DDI A has no override.
-        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 1), Some(1));
-        assert_eq!(dpll_ctrl2_ddi_pll(v("DPLL_CTRL2"), 0), None);
-        let f = DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_A"));
-        assert!(f.enabled);
-        assert_eq!(f.ddi_select, 1);
-        assert_eq!(f.mode, DdiMode::Hdmi, "HDMI mode: audio needs no mode set");
-        assert_eq!(f.bits_per_component, Some(8));
-        assert!(f.hsync_positive && f.vsync_positive);
-        assert!(!DdiFunc::decode(v("TRANS_DDI_FUNC_CTL_B")).enabled);
-        assert_eq!(timing_pair(v("TRANS_HTOTAL_A")), (2560, 2670));
-        assert_eq!(timing_pair(v("TRANS_VTOTAL_A")), (1440, 1488));
-        assert_eq!(plane_size(v("PLANE_SIZE_1_A")), (2560, 1440));
-        let pipeconf = v("TRANS_CONF_A");
-        assert_ne!(pipeconf & PIPECONF_ENABLE, 0);
-        assert_ne!(pipeconf & PIPECONF_STATE, 0);
-        assert_ne!(v("PLANE_CTL_1_A") & PLANE_CTL_ENABLE, 0);
-        for bit in [dip::ENABLE_AVI, dip::ENABLE_GCP, dip::ENABLE_SPD] {
-            assert_ne!(v("VIDEO_DIP_CTL_A") & bit, 0);
-        }
-    }
-
-    #[test]
-    fn new_offsets_follow_the_documented_strides() {
-        assert_eq!(DPLL1_CFGCR2, DPLL1_CFGCR1 + 4);
-    }
-
-    #[test]
-    fn pipe_and_transcoder_addresses_follow_the_strides() {
-        assert_eq!(PIPE_A_BASE + PIPECONF, 0x70008);
-        assert_eq!(TRANS_A_BASE + trans::DDI_FUNC_CTL, TRANS_DDI_FUNC_CTL_A);
-        assert_eq!(PLANE_CTL_1_A + 0xC0, PLANE_WM_1_A_0);
-        assert_eq!(pipesrc_size(2559 << 16 | 1439), (2560, 1440));
-        assert_eq!(TRANS_A_BASE + TRANS_PIPESRC, 0x6001C);
-        assert_eq!(timing_pair(2719 << 16 | 2559), (2560, 2720));
-    }
 }

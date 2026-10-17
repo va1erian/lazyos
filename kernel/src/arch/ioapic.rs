@@ -33,6 +33,16 @@ static WINDOW: AtomicU64 = AtomicU64::new(0);
 /// Inputs the chip has (from its version register).
 static PINS: AtomicU32 = AtomicU32::new(0);
 
+/// Inputs a chip can have (the version register's last-entry field is eight bits; `init` refuses more).
+const MAX_PINS: usize = 240;
+/// The low dword of each redirection entry as this driver last wrote it: vector, delivery, polarity,
+/// trigger and mask (the chip's other bits, the delivery status and the remote IRR, are read-only and
+/// ignored on a write). The kernel is the only writer, so it never has to read its own state back, and
+/// every register access is a select and a data access, each a VM exit under a hypervisor: `is_masked`
+/// is asked by the local APIC timer's interrupt, on every deadline a thread's timed wait sets, and it read
+/// both halves of the entry (four exits) before this table. Entries reset masked.
+static LOW: [AtomicU32; MAX_PINS] = [const { AtomicU32::new(ENTRY_MASKED as u32) }; MAX_PINS];
+
 /// How one input is delivered: always fixed delivery, physical destination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -119,9 +129,14 @@ fn write_entry(gsi: u32, word: u64) {
     // Mask first, then the high half, then the low half with the final mask
     // bit, so the chip never sees a half-written unmasked entry.
     let reg = REG_REDIRECTION + gsi * 2;
-    write(reg, read(reg) | ENTRY_MASKED as u32);
-    write(reg + 1, (word >> 32) as u32);
-    write(reg, word as u32);
+    let slot = &LOW[gsi as usize];
+    // The pair of writes and the table are one step: an interrupt handler masks lines too.
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        write(reg, slot.load(Ordering::Relaxed) | ENTRY_MASKED as u32);
+        write(reg + 1, (word >> 32) as u32);
+        write(reg, word as u32);
+        slot.store(word as u32, Ordering::Relaxed);
+    });
 }
 
 /// The raw redirection entry for `gsi`, if the chip has that input.
@@ -148,8 +163,9 @@ pub fn set_masked(gsi: u32, masked: bool) {
         return;
     }
     let reg = REG_REDIRECTION + gsi * 2;
+    let slot = &LOW[gsi as usize];
     x86_64::instructions::interrupts::without_interrupts(|| {
-        let low = read(reg);
+        let low = slot.load(Ordering::Relaxed);
         let next = if masked {
             low | ENTRY_MASKED as u32
         } else {
@@ -157,13 +173,15 @@ pub fn set_masked(gsi: u32, masked: bool) {
         };
         if next != low {
             write(reg, next);
+            slot.store(next, Ordering::Relaxed);
         }
     });
 }
 
-/// Whether input `gsi` is masked (inputs past the chip read as masked).
+/// Whether input `gsi` is masked (inputs past the chip read as masked). Answered from the table of what
+/// was written: no register access.
 pub fn is_masked(gsi: u32) -> bool {
-    entry(gsi).is_none_or(|word| word & ENTRY_MASKED != 0)
+    gsi >= pins() || LOW[gsi as usize].load(Ordering::Relaxed) & ENTRY_MASKED as u32 != 0
 }
 
 /// Whether a level-triggered input was delivered and awaits its EOI.

@@ -58,12 +58,13 @@ impl Devices {
     }
 
     /// `(uid, the device of its own class, that class)` for each driver.
-    fn drivers(&self) -> [(u32, DeviceId, &'static Class); 4] {
+    fn drivers(&self) -> [(u32, DeviceId, &'static Class); 5] {
         [
             (netpolicy::NET_UID, self.net, &class::NET),
             (netpolicy::WIFI_UID, self.wireless, &class::WIRELESS),
             (usbpolicy::USB_UID, self.usb, &class::USB),
             (sndpolicy::SND_UID, self.audio, &class::AUDIO),
+            (gpupolicy::GPU_UID, self.display, &class::DISPLAY),
         ]
     }
 }
@@ -164,7 +165,8 @@ pub fn sys_boot_policy_is_the_driver_tables() -> Result<(), String> {
     let expected = netpolicy::NET_DRIVER_CLASS_RULES.len()
         + netpolicy::WIFI_DRIVER_CLASS_RULES.len()
         + usbpolicy::USB_DRIVER_CLASS_RULES.len()
-        + sndpolicy::SND_DRIVER_CLASS_RULES.len();
+        + sndpolicy::SND_DRIVER_CLASS_RULES.len()
+        + gpupolicy::GPU_DRIVER_CLASS_RULES.len();
     check!(
         rules.len() == expected,
         "{} rules, want {expected}",
@@ -175,6 +177,7 @@ pub fn sys_boot_policy_is_the_driver_tables() -> Result<(), String> {
         class::WIRELESS.interface_id,
         class::USB.interface_id,
         class::AUDIO.interface_id,
+        class::DISPLAY.interface_id,
     ];
     for rule in &rules {
         check!(rule.allow, "a boot rule denies: {rule:?}");
@@ -203,7 +206,7 @@ pub fn sys_boot_policy_stress_claim_release() -> Result<(), String> {
     let devices = Devices::add()?;
     crate::dev::policy::install_boot_policy();
     let drivers = devices.drivers();
-    let mut slots = [0; 4];
+    let mut slots = [0; 5];
     for (slot, (uid, _, _)) in slots.iter_mut().zip(drivers) {
         *slot = spawn_driver(driver(uid))?;
     }

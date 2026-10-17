@@ -71,7 +71,7 @@ pub use input::{
     push_pointer_move, push_pointer_wheel,
 };
 #[cfg(lazyos_tests)]
-pub use present::{chunk_rows, damage_rows, test_hooks as present_hooks};
+pub use present::{chunk_rows, damage_pixels, damage_rows, test_hooks as present_hooks};
 pub use screen::{init, init_requested};
 
 /// Sentinel for "no compositor bound".
@@ -191,9 +191,15 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::UNBIND => unbind(),
         op::INPUT_POLL => input_poll(a1, a2),
         op::PRESENT => {
+            // Counted before the clock starts: the grant lookup is not part of what a present costs.
+            #[cfg(lazyos_perf)]
+            let pixels = present::damage_pixels(a1);
             let started = crate::perf::rdtsc();
             let result = present::present(a1);
-            crate::perf::presented(started);
+            #[cfg(lazyos_perf)]
+            crate::perf::presented(started, pixels);
+            #[cfg(not(lazyos_perf))]
+            crate::perf::presented(started, 0);
             result
         }
         op::SET_LAYOUT => order::set(a1),

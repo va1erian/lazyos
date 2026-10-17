@@ -86,6 +86,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "wifid" {
         return Some(WIFI_CRED);
     }
+    #[cfg(lazyos_gen9gfx)]
+    if name == "gpud" {
+        return Some(GPU_CRED);
+    }
     #[cfg(any(lazyos_netd, lazyos_usb))]
     if name == "mountd" {
         return Some(MOUNTD_CRED);

@@ -207,7 +207,8 @@ fn resume(mut next: usize, cur: usize) -> u64 {
 /// Make `slot` the current task: its address space, the ring-0 stack the next
 /// user trap uses, and its thread pointer. Returns its saved `rsp`.
 fn install(slot: usize) -> u64 {
-    let (pml4, kstack_top, rsp, fs_base) = {
+    let prev = CURRENT.load(Ordering::Relaxed);
+    let (pml4, kstack_top, rsp, fs_base, prev_runnable) = {
         let tasks = TASKS.lock();
         // INVARIANT: `slot` came from `select_next` (or is the interrupted
         // task), so it is occupied; `tasks` was locked continuously around
@@ -216,10 +217,16 @@ fn install(slot: usize) -> u64 {
         // clear a slot without holding this same lock across the whole span.
         #[allow(clippy::unwrap_used)]
         let task = tasks[slot].as_ref().unwrap();
-        (task.pml4, task.kstack_top, task.rsp, task.fs_base)
+        (
+            task.pml4,
+            task.kstack_top,
+            task.rsp,
+            task.fs_base,
+            runnable(&tasks, prev),
+        )
     };
     CURRENT.store(slot, Ordering::Relaxed);
-    crate::perf::on_run(slot);
+    crate::perf::on_run(slot, prev, prev_runnable);
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
     if kstack_top != 0 {

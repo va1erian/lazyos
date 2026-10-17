@@ -150,8 +150,55 @@ pub fn ioapic_mask_toggle_soak() -> Result<(), String> {
     Ok(())
 }
 
+/// The software table `is_masked` answers from agrees with the chip itself, for every input it has:
+/// after boot's routing, and after a burst of toggles of the test line (the soak above checks the line's whole
+/// entry; this one checks that no input's answer comes from anything but what the registers hold).
+pub fn ioapic_mask_table_matches_chip() -> Result<(), String> {
+    let _fx = Fixture::new()?;
+    if !on_ioapic("dev_ioapic_mask_table_matches_chip") {
+        return Ok(());
+    }
+    let agree = |when: &str| -> Result<(), String> {
+        for gsi in 0..ioapic::pins() {
+            let word = ioapic::entry(gsi).ok_or("no entry")?;
+            check!(
+                ioapic::is_masked(gsi) == (word & MASK_BIT != 0),
+                "{when}: input {gsi}: table says masked={}, chip entry {word:#x}",
+                ioapic::is_masked(gsi)
+            );
+        }
+        Ok(())
+    };
+    agree("after boot")?;
+    let gsi = irqchip::gsi(LINE_C).ok_or("the test line has no GSI")?;
+    for round in 0..2_000u32 {
+        // Uneven runs, so the same value is set twice in a row now and then (a write that is skipped).
+        let masked = (round * 7 / 3) % 2 == 0;
+        irqchip::set_masked(LINE_C, masked);
+        check!(
+            ioapic::is_masked(gsi) == masked,
+            "round {round}: table lost the mask"
+        );
+        if round % 250 == 0 {
+            agree("during the toggles")?;
+        }
+    }
+    irqchip::set_masked(LINE_C, true);
+    agree("after the toggles")?;
+    // Past the chip reads masked, as before.
+    check!(
+        ioapic::is_masked(ioapic::pins()) && ioapic::is_masked(u32::MAX),
+        "past the chip"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("dev_ioapic_routes_every_line", ioapic_routes_every_line),
     ("dev_ioapic_entry_encoding", ioapic_entry_encoding),
     ("dev_ioapic_mask_toggle_soak", ioapic_mask_toggle_soak),
+    (
+        "dev_ioapic_mask_table_matches_chip",
+        ioapic_mask_table_matches_chip,
+    ),
 ];

@@ -50,6 +50,8 @@ mod imp;
 mod ipcbench;
 #[cfg(lazyos_perf)]
 mod msgbench;
+#[allow(dead_code)] // The ledger is also what a kernel test drives; the hooks are `lazyos_perf`.
+pub(crate) mod runwait;
 #[cfg(lazyos_perf)]
 mod sleepbench;
 #[cfg(lazyos_perf)]
@@ -105,11 +107,12 @@ pub fn on_wake(_slot: usize, _current: usize) {
     imp::on_wake(_slot, _current);
 }
 
-/// The scheduler is about to resume `slot`.
+/// The scheduler is about to resume `slot`; `prev` was on the CPU and is still runnable when
+/// `prev_runnable` (it was preempted, and now waits).
 #[inline(always)]
-pub fn on_run(_slot: usize) {
+pub fn on_run(_slot: usize, _prev: usize, _prev_runnable: bool) {
     #[cfg(lazyos_perf)]
-    imp::on_run(_slot);
+    imp::on_run(_slot, _prev, _prev_runnable);
 }
 
 /// A raw input record was published (pointer motion when `pointer`).
@@ -151,11 +154,12 @@ pub fn input_read(_count: usize) {
     imp::input_read(_count);
 }
 
-/// The display owner's `present`, begun at TSC `started`, returned.
+/// The display owner's `present` of `_pixels` pixels, begun at TSC `started`,
+/// returned.
 #[inline(always)]
-pub fn presented(_started: u64) {
+pub fn presented(_started: u64, _pixels: u64) {
     #[cfg(lazyos_perf)]
-    imp::presented(_started);
+    imp::presented(_started, _pixels);
 }
 
 /// A syscall entered with interrupts off (`nr` for the report).

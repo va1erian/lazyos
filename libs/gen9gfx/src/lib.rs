@@ -17,7 +17,10 @@
 //! * [`hdmi_audio`]: N and CTS for the audio clock regeneration packet;
 //! * [`regs`]: the few register offsets the plan's first stages need, each
 //!   marked `CONFIRMED` (checked against the box's `intel_reg dump` by the
-//!   tests) or to be confirmed.
+//!   tests) or to be confirmed;
+//! * [`adopt`]: stage G1's read-only look at what the firmware left (a
+//!   register file read through [`Mmio`], decoded: pipe, DDI, timing, clock,
+//!   CDCLK, plane, GGTT).
 //!
 //! Every parser takes hostile input (a monitor's EDID, firmware's VBT) and
 //! must neither panic nor index out of bounds; `fuzz::run` is the byte
@@ -30,9 +33,11 @@ extern crate alloc;
 #[cfg(any(test, feature = "fuzz"))]
 extern crate std;
 
+pub mod adopt;
 pub mod cea;
 pub mod edid;
 pub mod eld;
+pub mod fbmap;
 pub mod hdmi_audio;
 pub mod mmio;
 pub mod regs;
@@ -44,11 +49,15 @@ pub mod build;
 pub mod fuzz;
 
 #[cfg(test)]
+mod tests_adopt;
+#[cfg(test)]
 mod tests_edid;
 #[cfg(test)]
 mod tests_eld;
 #[cfg(test)]
 mod tests_real;
+#[cfg(test)]
+mod tests_regs;
 #[cfg(test)]
 mod tests_vbt;
 

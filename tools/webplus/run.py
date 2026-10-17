@@ -103,9 +103,11 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     return None if IMAGE.is_file() else f"{IMAGE} was not built"
 
 
-def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str, ...] = ()) -> tuple[bool, str]:
+def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str, ...] = (),
+                qemu_args: tuple[str, ...] = (), home_disk: str | None = None) -> tuple[bool, str]:
     """Drive the guest; (session ok, serial log text). `expected_failures` are `WEBPLUS:FAIL:` texts a
-    session provokes on purpose (the hung-page harness stops a page's process)."""
+    session provokes on purpose (the hung-page harness stops a page's process); `qemu_args` go to
+    QEMU as they are (a second QMP port for `sample.py`)."""
     allowed = "".join(f"|{re.escape(text)}" for text in expected_failures)
     out.mkdir(parents=True, exist_ok=True)
     for stale in ["serial.log", "net.pcap", "summary.json", *(p.name for p in out.glob("shot_*.png"))]:
@@ -122,6 +124,9 @@ def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str
                "--fail-on", rf"{judge.P}:DOWNLOAD:FAIL"]
     if args.qemu:
         command += ["--qemu", args.qemu]
+    command += [f"--extra-arg={arg}" for arg in qemu_args]
+    if home_disk:
+        command += ["--home-disk", home_disk]
     code = subprocess.call(command, cwd=ROOT, stdout=subprocess.DEVNULL)
     log = out / "serial.log"
     return code == 0, log.read_text(errors="replace") if log.is_file() else ""

@@ -104,6 +104,15 @@ impl Tracked {
     }
 }
 
+/// The manifest entries only a `LAZYOS_GEN9GFX=1` image matches
+/// (`user/build.rs` sets `cfg(lazyos_gen9gfx)`): the Intel GPU's `gpud`. An
+/// ordinary image's `devd` does not name the GPU at all.
+pub(super) const EXTRA_MANIFEST: &[Entry] = if cfg!(lazyos_gen9gfx) {
+    devmatch::GEN9GFX_MANIFEST
+} else {
+    &[]
+};
+
 /// Track every inventory row, matched against the manifest.
 pub(super) fn track(rows: Vec<Device>) -> Vec<Tracked> {
     rows.into_iter()
@@ -118,7 +127,7 @@ pub(super) fn track(rows: Vec<Device>) -> Vec<Tracked> {
                 logged: None,
                 publish_failed: false,
             };
-            tracked.entry = devmatch::entry_for(&tracked.function());
+            tracked.entry = devmatch::entry_for_with(&tracked.function(), EXTRA_MANIFEST);
             if tracked.entry.is_some() {
                 tracked.state = if device.owner.is_some() {
                     State::Claimed

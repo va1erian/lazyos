@@ -70,6 +70,7 @@ channels! {
     Ftp => "FTP",
     Ftpfuse => "FTPFUSE",
     Golf => "GOLF",
+    Gpu => "GPU",
     Greeter => "GREETER",
     Health => "HEALTH",
     Init => "INIT",

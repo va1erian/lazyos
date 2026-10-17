@@ -1132,6 +1132,49 @@ pub static INTERFACES: &[Interface] = &[
         ],
     },
     Interface {
+        name: "os.lazy.gpu.v1",
+        id: 0x53ecd075e99e0064,
+        doc: "The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:\n\"Adopt + observe\").\n\n**Read-only.** In this stage `gpud` claims the HD Graphics 620 of the\nKaby Lake box (PCI `8086:5916`), maps its register BAR and only *reads*\nand decodes what the firmware left on the display: the pipe, transcoder\nand DDI that are running, the link mode, the timing and pixel clock, the\ncore display clock, the first plane's surface and the GGTT pages behind\nit. It writes no display register, programs no mode and takes no\ninterrupt, so nothing in this interface can change the hardware. It exists\nto learn what the firmware leaves (plan section 2.1) and to give later\nstages (HDMI audio, flips, decode) one place that already knows.\n\nThe state is a snapshot taken once when `gpud` starts; to look at live\nregisters use `dbgd`'s `mmio.read`. Failures of a call are returned as a\nstructured error field (errno-style code, friendly text), not as a typed\nreply. The interface is open to every caller: it reveals the display\nmode and where its framebuffer is, nothing a program could not see by\nasking the compositor. Method ordinals are append-only.",
+        methods: &[
+            Method {
+                name: "GetState",
+                id: 746022616,
+                oneway: false,
+                doc: "A running pipe was found and decoded; the pipe fields below\nmean nothing otherwise.\nPCI device id and revision of the GPU.\nCore display clock in kHz.\nBit `n`: pipe `n` (A = 0) is enabled.\nThe pipe (and transcoder) adopted, 0 = A.\nThe DDI port it drives (0 = A to 4 = E), 4294967295 when the\nregisters name none.\nA `LinkMode` ordinal.\nBits per colour component, 0 when not a defined value.\nPixel clock in kHz and refresh rate in millihertz, 0 when the\nPLL is not in a mode `gpud` can compute them from.\nThe link is in HDMI mode, so HDMI audio (stage G2) needs no\nmode set.\nThe state `gpud` adopted when it started.",
+                params: &[],
+                returns: &[Field { name: "state", id: 1, ty: Ty::Struct("State") }],
+                objects: &[],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "Axis",
+                doc: "One pipe's timing, in pixels (horizontal) or lines (vertical).",
+                fields: &[Field { name: "active", id: 1, ty: Ty::U32 }, Field { name: "total", id: 2, ty: Ty::U32 }, Field { name: "blank_start", id: 3, ty: Ty::U32 }, Field { name: "blank_end", id: 4, ty: Ty::U32 }, Field { name: "sync_start", id: 5, ty: Ty::U32 }, Field { name: "sync_end", id: 6, ty: Ty::U32 }],
+            },
+            Struct {
+                name: "Plane",
+                doc: "The first universal plane of the adopted pipe.",
+                fields: &[Field { name: "enabled", id: 1, ty: Ty::Bool }, Field { name: "format", id: 2, ty: Ty::U32 }, Field { name: "tiling", id: 3, ty: Ty::U32 }, Field { name: "stride_bytes", id: 4, ty: Ty::U32 }, Field { name: "width", id: 5, ty: Ty::U32 }, Field { name: "height", id: 6, ty: Ty::U32 }, Field { name: "surface", id: 7, ty: Ty::U32 }, Field { name: "surface_live", id: 8, ty: Ty::U32 }],
+            },
+            Struct {
+                name: "FbMap",
+                doc: "`PLANE_CTL` format code (4 is 32-bit XRGB).\nA `Tiling` ordinal.\nRow pitch in bytes.\nThe surface being programmed and the one being scanned out, as\nGGTT offsets.\nThe framebuffer's pages as the GGTT maps them.",
+                fields: &[Field { name: "pages", id: 1, ty: Ty::U32 }, Field { name: "present", id: 2, ty: Ty::U32 }, Field { name: "phys_base", id: 3, ty: Ty::U64 }, Field { name: "contiguous", id: 4, ty: Ty::Bool }],
+            },
+            Struct {
+                name: "State",
+                doc: "Pages the surface spans and how many entries were present.\nPhysical address of the first page, 0 when none was present.\nEvery page present and each the next after the last.\nThe adopted display state.",
+                fields: &[Field { name: "adopted", id: 1, ty: Ty::Bool }, Field { name: "device", id: 2, ty: Ty::U32 }, Field { name: "revision", id: 3, ty: Ty::U32 }, Field { name: "cdclk_khz", id: 4, ty: Ty::U32 }, Field { name: "power_well_1", id: 5, ty: Ty::Bool }, Field { name: "power_well_2", id: 6, ty: Ty::Bool }, Field { name: "pipes_enabled", id: 7, ty: Ty::U32 }, Field { name: "pipe", id: 8, ty: Ty::U32 }, Field { name: "ddi_port", id: 9, ty: Ty::U32 }, Field { name: "link", id: 10, ty: Ty::U32 }, Field { name: "bits_per_component", id: 11, ty: Ty::U32 }, Field { name: "hsync_positive", id: 12, ty: Ty::Bool }, Field { name: "vsync_positive", id: 13, ty: Ty::Bool }, Field { name: "pixel_clock_khz", id: 14, ty: Ty::U32 }, Field { name: "refresh_millihz", id: 15, ty: Ty::U32 }, Field { name: "horizontal", id: 16, ty: Ty::Struct("Axis") }, Field { name: "vertical", id: 17, ty: Ty::Struct("Axis") }, Field { name: "plane", id: 18, ty: Ty::Struct("Plane") }, Field { name: "framebuffer", id: 19, ty: Ty::Struct("FbMap") }, Field { name: "audio_capable", id: 20, ty: Ty::Bool }],
+            },
+        ],
+        enums: &[
+            Enum { name: "LinkMode", variants: &["None", "Hdmi", "Dvi", "DpSst", "DpMst", "Other"] },
+            Enum { name: "Tiling", variants: &["Linear", "X", "Y", "Yf", "Other"] },
+        ],
+        topics: &[],
+    },
+    Interface {
         name: "os.lazy.healthd.v1",
         id: 0xd022082ef0aaed78,
         doc: "The service health aggregator (issue #93): retained health rows, a\nheartbeat channel and the aggregate snapshot.\n\nBoth methods answer with the same snapshot shape (the aggregate `summary`\nfirst, then one retained row per service). A service publishes a heartbeat\nwith `Report`; `Status` only reads. Failures are returned as a structured\nerror field (errno-style code, friendly text), not as a typed reply.",

@@ -1,0 +1,30 @@
+WebKit: BackingStore::scroll checks its rectangle in 64 bits.
+
+The in-place scroll of patch 0024 decides whether the moved rows lie inside the surface with `int` sums
+(`left + width`, `sourceLeft + width`, `sourceTop + rows`) of values the web process sends in its UpdateInfo.
+A rectangle near the top of the range wrapped such a sum negative, passed the check and reached `memmove`
+with a row length far past the surface. The width, the source position and every sum are now 64-bit, and an
+empty rectangle is refused. (The old path through `readPixels` could not do this.)
+
+--- a/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
++++ b/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
+@@ -135,11 +135,14 @@
+         const int top = targetRect.y();
+         const int rows = targetRect.height();
+         const size_t rowBytes = static_cast<size_t>(targetRect.width()) * bytesPerPixel;
+-        const int sourceLeft = left - moveX;
+-        const int sourceTop = top - moveY;
+-        const bool inside = left >= 0 && top >= 0 && sourceLeft >= 0 && sourceTop >= 0
+-            && left + targetRect.width() <= pixmap.width() && top + rows <= pixmap.height()
+-            && sourceLeft + targetRect.width() <= pixmap.width() && sourceTop + rows <= pixmap.height();
++        // The rectangle and the offset come from the web process (UpdateInfo): every sum is made in 64 bits,
++        // so no value can wrap past the bounds check into the move.
++        const int64_t width = targetRect.width();
++        const int64_t sourceLeft = static_cast<int64_t>(left) - moveX;
++        const int64_t sourceTop = static_cast<int64_t>(top) - moveY;
++        const bool inside = width > 0 && rows > 0 && left >= 0 && top >= 0 && sourceLeft >= 0 && sourceTop >= 0
++            && left + width <= pixmap.width() && static_cast<int64_t>(top) + rows <= pixmap.height()
++            && sourceLeft + width <= pixmap.width() && sourceTop + rows <= pixmap.height();
+         if (inside) {
+             auto* base = static_cast<uint8_t*>(pixmap.writable_addr());
+             for (int i = 0; i < rows; ++i) {

@@ -6,19 +6,23 @@
 //! top-left corner over white, never stretched.
 
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
+use std::time::Instant;
 
 use xui_core::app::Ui;
-use xui_core::backend::{Canvas, Cursor, Event, NodeKind, NodeSpec, Result, WidgetId};
+use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, Result, TimerId, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_core::{Color, Image, Key, Modifiers, MouseButton};
+use xui_core::{Image, Key, Modifiers, MouseButton};
 
 use crate::engine::{Button, Engine, MouseKind};
 use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
-use crate::mailbox::Frame;
+use crate::mailbox::{Frame, Update};
+use crate::parts::Parts;
+use crate::picture;
+use crate::speculate::{self, Meter, Speculation};
 
 /// Whether a key is one of the window's own.
 pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
@@ -36,49 +40,80 @@ pub struct Hooks<M> {
 
 /// xui's wheel unit: 120 for one notch (`WHEEL_DELTA`).
 const NOTCH: i32 = 120;
+/// How often a picture shown ahead of the page is checked for being given up on.
+const SETTLE_TICK_MS: u32 = 100;
 
 #[derive(Default)]
 struct State {
-    image: Option<Image>,
+    /// The picture on show: the last whole frame and what was painted over it since.
+    picture: Parts,
+    /// Microseconds spent drawing the picture, and how many draws, since the window last asked.
+    drawn: Cell<(u64, u32)>,
     /// The size last told to the engine.
     size: Cell<(i32, i32)>,
     /// The button held since a press in the view, for moves and captures.
     held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
     mods: Cell<u32>,
+    /// How far the picture is shown ahead of the page (`speculate.rs`).
+    spec: RefCell<Speculation>,
+    meter: RefCell<Meter>,
+    /// When the wheel event that moved the picture ahead arrived, until it is drawn.
+    wheel_at: Cell<Option<Instant>>,
+    /// The timer that gives up on a picture shown ahead; it runs only while one is.
+    settle: Cell<Option<TimerId>>,
 }
 
 pub struct PageView<M: 'static> {
-    control: Control<M>,
+    control: Rc<Control<M>>,
     state: Rc<RefCell<State>>,
     engine: Rc<dyn Engine>,
 }
 
 impl<M: Clone + 'static> PageView<M> {
     pub fn new(ui: &Ui<M>, engine: Rc<dyn Engine>, hooks: Hooks<M>) -> Result<PageView<M>> {
-        let control = Control::new(
+        let control = Rc::new(Control::new(
             ui,
             &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
-        )?;
+        )?);
         let state: Rc<RefCell<State>> = Rc::default();
         {
             let state = Rc::clone(&state);
             control.set_painter(Rc::new(move |canvas| {
                 if let Ok(state) = state.try_borrow() {
-                    paint(canvas, &state);
+                    let started = Instant::now();
+                    let (ahead, offset) = {
+                        let spec = state.spec.borrow();
+                        (spec.shift(), spec.actual().unwrap_or(0))
+                    };
+                    picture::paint(canvas, &state.picture, ahead, offset);
+                    if let Some(at) = state.wheel_at.take() {
+                        if ahead != 0 {
+                            let us = at.elapsed().as_micros() as u64;
+                            state.meter.borrow_mut().drawn(us);
+                        }
+                    }
+                    let (us, draws) = state.drawn.get();
+                    state
+                        .drawn
+                        .set((us + started.elapsed().as_micros() as u64, draws + 1));
                 }
             }));
         }
         {
             let (ui, id) = (ui.clone(), control.id());
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
+            let arm = {
+                let (weak, state) = (Rc::downgrade(&control), Rc::clone(&state));
+                move || arm_settle(&weak, &state)
+            };
             let Hooks {
                 is_shortcut,
                 clicked,
                 right_click,
             } = hooks;
             control.on_events(move |event| {
-                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, event);
+                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, &arm, event);
                 match (event, &right_click) {
                     (
                         Event::MouseDown {
@@ -101,24 +136,60 @@ impl<M: Clone + 'static> PageView<M> {
         })
     }
 
-    /// Shows a new frame; the previous picture's buffer, to reuse for the next
+    /// Shows a new whole frame; the previous picture's buffer, to reuse for the next
     /// one, is returned.
     pub fn show(&self, frame: Frame) -> Vec<u8> {
+        self.apply(Update {
+            full: Some(frame),
+            ..Update::default()
+        })
+        .spare
+    }
+
+    /// Shows what the engine painted: a whole new frame, if there is one, then each delta on top
+    /// of the picture. [`Applied`] gives back the buffer the old picture left and whether the
+    /// picture can no longer follow the engine (a delta it could not apply, too many parts): the
+    /// window then asks the mailbox for a whole frame (`Mailbox::request_full`).
+    pub fn apply(&self, update: Update) -> Applied {
         let mut state = self.state.borrow_mut();
-        let spare = state
-            .image
-            .take()
-            .map(Image::into_pixels)
-            .unwrap_or_default();
-        state.image = Image::from_rgba(frame.width, frame.height, frame.rgba).ok();
+        let mut spare = Vec::new();
+        let mut resync = false;
+        let mut changed = false;
+        let scroll_y = update.scroll_y;
+        if let Some(frame) = update.full {
+            match Image::from_rgba(frame.width, frame.height, frame.rgba) {
+                Ok(image) => spare = state.picture.set_full(image),
+                Err(_) => {
+                    state.picture.clear();
+                    state.spec.borrow_mut().reset();
+                    resync = true;
+                }
+            }
+            changed = true;
+        }
+        for delta in update.deltas {
+            if !state.picture.apply(delta) {
+                resync = true;
+                break;
+            }
+            changed = true;
+        }
+        resync |= state.picture.is_fragmented();
+        if let Some(y) = scroll_y {
+            changed |= state.spec.borrow_mut().report(y, speculate::now_ms());
+        }
         drop(state);
-        self.control.invalidate();
-        spare
+        if changed {
+            self.control.invalidate();
+        }
+        Applied { spare, resync }
     }
 
     /// Shows the blank page again (the page's process is gone).
     pub fn clear(&self) {
-        let had = self.state.borrow_mut().image.take().is_some();
+        let had = !self.state.borrow().picture.is_empty();
+        self.state.borrow_mut().picture.clear();
+        self.state.borrow().spec.borrow_mut().reset();
         if had {
             self.control.invalidate();
         }
@@ -126,11 +197,32 @@ impl<M: Clone + 'static> PageView<M> {
 
     /// The size of the picture on show.
     pub fn picture_size(&self) -> Option<(u32, u32)> {
-        self.state
-            .borrow()
-            .image
-            .as_ref()
-            .map(|image| (image.width(), image.height()))
+        let state = self.state.borrow();
+        (!state.picture.is_empty()).then(|| state.picture.size())
+    }
+
+    /// How many images the picture on show is made of (for the window's counters).
+    pub fn picture_parts(&self) -> usize {
+        self.state.borrow().picture.len()
+    }
+
+    /// The `INFO:SPEC:` line for the last second, when the picture was moved ahead of the page in it.
+    pub fn spec_line(&self) -> Option<String> {
+        let state = self.state.borrow();
+        let (counters, ahead) = {
+            let spec = state.spec.borrow();
+            (spec.counters(), spec.shift())
+        };
+        let line = state
+            .meter
+            .borrow_mut()
+            .line(speculate::now_ms(), counters, ahead);
+        line
+    }
+
+    /// The time spent drawing the picture (microseconds) and the draws, since the last call.
+    pub fn take_draw_time(&self) -> (u64, u32) {
+        self.state.borrow().drawn.take()
     }
 
     pub fn focus(&self) {
@@ -178,32 +270,19 @@ impl<M: Clone + 'static> Placeable<M> for PageView<M> {
         let size = (rect.width().max(1), rect.height().max(1));
         let state = self.state.borrow();
         if state.size.replace(size) != size {
+            state.spec.borrow_mut().reset();
             self.engine.resize(size.0, size.1);
         }
     }
 }
 
-fn paint(canvas: &mut dyn Canvas, state: &State) {
-    let bounds = canvas.bounds();
-    canvas.push_clip(bounds);
-    // White only where the picture does not reach (a window being resized): a frame is opaque and
-    // covers the view, and filling under it was a whole extra pass over every repaint.
-    let covered = state.image.as_ref().is_some_and(|image| {
-        image.width() as i32 >= bounds.width() && image.height() as i32 >= bounds.height()
-    });
-    if !covered {
-        canvas.fill_rect(bounds, Color::rgb(255, 255, 255));
-    }
-    if let Some(image) = &state.image {
-        let picture = Rect::new(
-            bounds.left,
-            bounds.top,
-            bounds.left + image.width() as i32,
-            bounds.top + image.height() as i32,
-        );
-        canvas.draw_image(image, picture);
-    }
-    canvas.pop_clip();
+/// What [`PageView::apply`] leaves for the window to do.
+#[derive(Debug, Default)]
+pub struct Applied {
+    /// The previous whole picture's buffer, to be filled again by the next frame.
+    pub spare: Vec<u8>,
+    /// The picture cannot follow the engine any more: ask for a whole frame.
+    pub resync: bool,
 }
 
 fn button_of(button: MouseButton) -> Button {
@@ -224,6 +303,32 @@ fn notches(delta: i16) -> i32 {
     }
 }
 
+/// Starts the timer that gives up on a picture shown ahead of the page (`speculate.rs`). It stops
+/// itself once nothing is ahead, so an idle page costs no wakeups.
+fn arm_settle<M: Clone + 'static>(control: &Weak<Control<M>>, state: &Rc<RefCell<State>>) {
+    let (Some(strong), Ok(held)) = (control.upgrade(), state.try_borrow()) else {
+        return;
+    };
+    if held.settle.get().is_some() {
+        return;
+    }
+    let (weak, state) = (control.clone(), Rc::clone(state));
+    let timer = strong.set_timer(SETTLE_TICK_MS, move || {
+        let control = weak.upgrade()?;
+        let state = state.try_borrow().ok()?;
+        if state.spec.borrow_mut().tick(speculate::now_ms()) {
+            control.invalidate();
+        }
+        if !state.spec.borrow().is_ahead() {
+            if let Some(timer) = state.settle.take() {
+                control.kill_timer(timer);
+            }
+        }
+        None
+    });
+    held.settle.set(timer);
+}
+
 /// What a mouse event does to the engine, and to the capture of the pointer.
 fn handle<M: 'static>(
     ui: &Ui<M>,
@@ -231,6 +336,7 @@ fn handle<M: 'static>(
     state: &RefCell<State>,
     engine: &dyn Engine,
     is_shortcut: &IsShortcut,
+    arm: &dyn Fn(),
     event: &Event,
 ) {
     let Ok(state) = state.try_borrow() else {
@@ -297,6 +403,18 @@ fn handle<M: 'static>(
             let ticks = notches(delta);
             let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
             engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
+            // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
+            // page has answered (a modified wheel zooms or scrolls sideways).
+            if !horizontal
+                && modifier_bits(modifiers) == 0
+                && state.spec.borrow_mut().wheel(ticks, speculate::now_ms())
+            {
+                if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
+                    state.wheel_at.set(Some(Instant::now()));
+                }
+                ui.invalidate(id);
+                arm();
+            }
         }
         Event::CaptureChanged => state.held.set(None),
         Event::SetFocus => engine.focus(true),

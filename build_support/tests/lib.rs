@@ -15,6 +15,8 @@ mod ca_bundle;
 mod core_packages;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
+#[path = "../gen9gfx_embed.rs"]
+mod gen9gfx_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
 #[path = "../lazysky_embed.rs"]
@@ -68,6 +70,8 @@ mod f3_layout_tests;
 mod f4_layout_tests;
 #[cfg(test)]
 mod f5_layout_tests;
+#[cfg(test)]
+mod gen9gfx_tests;
 #[cfg(test)]
 mod image_tests;
 #[cfg(test)]

@@ -18,3 +18,5 @@ fuzz = []
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }
+# The offsets `adopt` reads must all be ones `dbgd` may read too.
+pciprobe = { path = "../pciprobe" }

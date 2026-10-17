@@ -1,0 +1,11 @@
+[package]
+name = "gpupolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The access-control rules of the Intel GPU service (gpud): which system uid may claim a display-class device"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "gpupolicy"
+path = "src/lib.rs"

@@ -1,0 +1,109 @@
+/// The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
+/// "Adopt + observe").
+///
+/// **Read-only.** In this stage `gpud` claims the HD Graphics 620 of the
+/// Kaby Lake box (PCI `8086:5916`), maps its register BAR and only *reads*
+/// and decodes what the firmware left on the display: the pipe, transcoder
+/// and DDI that are running, the link mode, the timing and pixel clock, the
+/// core display clock, the first plane's surface and the GGTT pages behind
+/// it. It writes no display register, programs no mode and takes no
+/// interrupt, so nothing in this interface can change the hardware. It exists
+/// to learn what the firmware leaves (plan section 2.1) and to give later
+/// stages (HDMI audio, flips, decode) one place that already knows.
+///
+/// The state is a snapshot taken once when `gpud` starts; to look at live
+/// registers use `dbgd`'s `mmio.read`. Failures of a call are returned as a
+/// structured error field (errno-style code, friendly text), not as a typed
+/// reply. The interface is open to every caller: it reveals the display
+/// mode and where its framebuffer is, nothing a program could not see by
+/// asking the compositor. Method ordinals are append-only.
+interface os.lazy.gpu.v1 {
+    /// What the adopted pipe's link does. Ordinals are append-only.
+    /// `None`: no running pipe. `Hdmi`: HDMI mode (infoframes, audio need no
+    /// mode set). `Dvi`: a DVI-mode link (audio would need a mode set).
+    /// `DpSst` and `DpMst`: DisplayPort. `Other`: any other value.
+    enum LinkMode { None, Hdmi, Dvi, DpSst, DpMst, Other }
+
+    /// The plane's memory layout (`PLANE_CTL` tiling). Ordinals are
+    /// append-only.
+    enum Tiling { Linear, X, Y, Yf, Other }
+
+    /// One pipe's timing, in pixels (horizontal) or lines (vertical).
+    struct Axis {
+        active: U32 = 1,
+        total: U32 = 2,
+        blank_start: U32 = 3,
+        blank_end: U32 = 4,
+        sync_start: U32 = 5,
+        sync_end: U32 = 6
+    }
+
+    /// The first universal plane of the adopted pipe.
+    struct Plane {
+        enabled: Bool = 1,
+        /// `PLANE_CTL` format code (4 is 32-bit XRGB).
+        format: U32 = 2,
+        /// A `Tiling` ordinal.
+        tiling: U32 = 3,
+        /// Row pitch in bytes.
+        stride_bytes: U32 = 4,
+        width: U32 = 5,
+        height: U32 = 6,
+        /// The surface being programmed and the one being scanned out, as
+        /// GGTT offsets.
+        surface: U32 = 7,
+        surface_live: U32 = 8
+    }
+
+    /// The framebuffer's pages as the GGTT maps them.
+    struct FbMap {
+        /// Pages the surface spans and how many entries were present.
+        pages: U32 = 1,
+        present: U32 = 2,
+        /// Physical address of the first page, 0 when none was present.
+        phys_base: U64 = 3,
+        /// Every page present and each the next after the last.
+        contiguous: Bool = 4
+    }
+
+    /// The adopted display state.
+    struct State {
+        /// A running pipe was found and decoded; the pipe fields below
+        /// mean nothing otherwise.
+        adopted: Bool = 1,
+        /// PCI device id and revision of the GPU.
+        device: U32 = 2,
+        revision: U32 = 3,
+        /// Core display clock in kHz.
+        cdclk_khz: U32 = 4,
+        power_well_1: Bool = 5,
+        power_well_2: Bool = 6,
+        /// Bit `n`: pipe `n` (A = 0) is enabled.
+        pipes_enabled: U32 = 7,
+        /// The pipe (and transcoder) adopted, 0 = A.
+        pipe: U32 = 8,
+        /// The DDI port it drives (0 = A to 4 = E), 4294967295 when the
+        /// registers name none.
+        ddi_port: U32 = 9,
+        /// A `LinkMode` ordinal.
+        link: U32 = 10,
+        /// Bits per colour component, 0 when not a defined value.
+        bits_per_component: U32 = 11,
+        hsync_positive: Bool = 12,
+        vsync_positive: Bool = 13,
+        /// Pixel clock in kHz and refresh rate in millihertz, 0 when the
+        /// PLL is not in a mode `gpud` can compute them from.
+        pixel_clock_khz: U32 = 14,
+        refresh_millihz: U32 = 15,
+        horizontal: Axis = 16,
+        vertical: Axis = 17,
+        plane: Plane = 18,
+        framebuffer: FbMap = 19,
+        /// The link is in HDMI mode, so HDMI audio (stage G2) needs no
+        /// mode set.
+        audio_capable: Bool = 20
+    }
+
+    /// The state `gpud` adopted when it started.
+    method GetState() -> (state: State = 1);
+}

@@ -217,6 +217,7 @@ int lzw_engine_start(void)
         viewClient.setCursor = viewSetCursor;
     WKViewSetViewClient(E.view, &viewClient.base);
     WKViewSetSize(E.view, WKSizeMake(E.width, E.height));
+    installPaintObserver();
     WKViewSetActive(E.view, true);
     WKViewSetFocus(E.view, true);
     WKViewSetVisible(E.view, true);

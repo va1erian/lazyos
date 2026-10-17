@@ -2,7 +2,7 @@
 //! which device class.
 //!
 //! Each driver's rules are data in its own crate (`libs/netpolicy`,
-//! `libs/usbpolicy`, `libs/sndpolicy`). The kernel compiles them in and
+//! `libs/usbpolicy`, `libs/sndpolicy`, `libs/gpupolicy`). The kernel compiles them in and
 //! [`install_boot_policy`] installs them before `init` can start any driver, so
 //! enforcement does not depend on a userspace loader being up, honest or fast.
 //!
@@ -76,6 +76,7 @@ pub fn boot_rules() -> Vec<Rule> {
         .chain(specs!(netpolicy::WIFI_DRIVER_CLASS_RULES))
         .chain(specs!(usbpolicy::USB_DRIVER_CLASS_RULES))
         .chain(specs!(sndpolicy::SND_DRIVER_CLASS_RULES))
+        .chain(specs!(gpupolicy::GPU_DRIVER_CLASS_RULES))
         .map(compile)
         .collect()
 }

@@ -1,0 +1,197 @@
+WebKit: the UI process can see what an update scrolled and repainted, and scrolls its backing store in place.
+
+The classic drawing area reports any update that scrolled as "the whole view needs display", so
+a client that paints from the backing store (WKPagePaint) copies, converts and hands on every
+pixel of the view for each step of a scroll, although the web process painted only the rows the
+scroll exposed. `WKPageSetUpdateCallback` gives the client what the update said instead: the
+rectangle that moved, by how much, and the rectangles painted afterwards. With a callback set the
+view is not reported as needing display for those updates (the callback is the notice).
+
+`BackingStore::scroll` (Skia) read the moved area into a freshly allocated bitmap and wrote it
+back: a multi-megabyte allocation, its page faults and two copies for every step of a scroll. A
+raster surface's pixels are now moved where they are (rows in the order that never reads a row
+already written), with the old copy kept for a surface that cannot be peeked.
+
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -36,6 +36,8 @@
+ #include "WebPageProxy.h"
+ #include <WebCore/Region.h>
+ #include <wpe/wpe.h>
++#include <span>
++#include <vector>
+ 
+ #if USE(CAIRO)
+ #include <cairo.h>
+@@ -48,6 +50,40 @@
+ #if USE(GRAPHICS_LAYER_WC)
+ #include "DrawingAreaProxyWC.h"
+ #endif
++
++#if !USE(GRAPHICS_LAYER_WC)
++static WKPageUpdateCallback s_updateCallback;
++static void* s_updateCallbackContext;
++
++static void forwardUpdate(WebKit::WebPageProxy& page, const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollOffset, std::span<const WebCore::IntRect> updateRects, float deviceScaleFactor, void*)
++{
++    auto callback = s_updateCallback;
++    if (!callback)
++        return;
++    auto wkRect = [](const WebCore::IntRect& r) { return WKRectMake(r.x(), r.y(), r.width(), r.height()); };
++    if (deviceScaleFactor != 1) {
++        callback(WebKit::toAPI(&page), WKRectMake(0, 0, 0, 0), WKSizeMake(0, 0), nullptr, 0, s_updateCallbackContext);
++        return;
++    }
++    std::vector<WKRect> rects;
++    rects.reserve(updateRects.size());
++    for (const auto& rect : updateRects)
++        rects.push_back(wkRect(rect));
++    callback(WebKit::toAPI(&page), wkRect(scrollRect), WKSizeMake(scrollOffset.width(), scrollOffset.height()), rects.data(), rects.size(), s_updateCallbackContext);
++}
++#endif
++
++void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback callback, void* context)
++{
++#if !USE(GRAPHICS_LAYER_WC)
++    s_updateCallback = callback;
++    s_updateCallbackContext = context;
++    WebKit::setDrawingAreaUpdateObserver(callback ? forwardUpdate : nullptr, nullptr);
++#else
++    UNUSED_PARAM(callback);
++    UNUSED_PARAM(context);
++#endif
++}
+ 
+ static void drawPageBackground(WebKit::PlatformPaintContextPtr ctx, const std::optional<WebCore::Color>& backgroundColor, const WebCore::IntRect& rect)
+ {
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
+@@ -27,6 +27,8 @@
+ 
+ #include <WebKit/WKBase.h>
+ #include <WebKit/WKEventPlayStation.h>
++#include <WebKit/WKGeometry.h>
++#include <stddef.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -38,6 +40,14 @@
+ 
+ WK_EXPORT void WKPagePaint(WKPageRef, unsigned char* cairoSurfaceARGB32Data, WKSize surfaceSize, WKRect paintRect);
+ 
++// LazyOS: called for every update the page's process sends, after WKPagePaint can already read it.
++// `scrollRect` moved by `scrollOffset` (a zero size when the update scrolled nothing) and the
++// `rects` were repainted, in view coordinates. An update the callback cannot describe in them (the
++// device scale is not 1) is reported with an empty scroll and no rectangles: repaint everything.
++// While a callback is set the view is not reported as needing display for these updates.
++typedef void (*WKPageUpdateCallback)(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* rects, size_t rectCount, void* context);
++WK_EXPORT void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback, void* context);
++
+ #ifdef __cplusplus
+ }
+ #endif
+--- a/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
++++ b/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
+@@ -50,6 +50,17 @@
+ 
+ WTF_MAKE_TZONE_ALLOCATED_IMPL(DrawingAreaProxyCoordinatedGraphics);
+ 
++#if !PLATFORM(WPE) && !PLATFORM(GTK)
++static DrawingAreaUpdateObserver s_updateObserver;
++static void* s_updateObserverContext;
++
++void setDrawingAreaUpdateObserver(DrawingAreaUpdateObserver observer, void* context)
++{
++    s_updateObserver = observer;
++    s_updateObserverContext = context;
++}
++#endif
++
+ Ref<DrawingAreaProxyCoordinatedGraphics> DrawingAreaProxyCoordinatedGraphics::create(WebPageProxy& page, WebProcessProxy& webProcessProxy)
+ {
+     return adoptRef(*new DrawingAreaProxyCoordinatedGraphics(page, webProcessProxy));
+@@ -131,6 +142,17 @@
+     RefPtr page = this->page();
+     if (!page)
+         return;
++
++    if (auto observer = s_updateObserver) {
++        // What the observer is given is copied before the update (and its bitmap) is moved.
++        IntRect scrollRect = updateInfo.scrollRect;
++        IntSize scrollOffset = updateInfo.scrollOffset;
++        Vector<IntRect> updateRects = updateInfo.updateRects;
++        float deviceScaleFactor = updateInfo.deviceScaleFactor;
++        m_backingStore->incorporateUpdate(WTF::move(updateInfo));
++        observer(*page, scrollRect, scrollOffset, updateRects.span(), deviceScaleFactor, s_updateObserverContext);
++        return;
++    }
+ 
+     Region damageRegion;
+     if (updateInfo.scrollRect.isEmpty()) {
+--- a/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.h
++++ b/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.h
+@@ -42,6 +42,17 @@
+ }
+ 
+ namespace WebKit {
++
++#if !PLATFORM(WPE) && !PLATFORM(GTK)
++// LazyOS: told about each update of the classic drawing area, after the backing store has taken it
++// (its scroll applied, its rectangles painted in). `scrollRect` moved by `scrollOffset` (empty when
++// the update scrolled nothing) and `updateRects` were repainted, all in view coordinates. While an
++// observer is set the page is not told the view needs display: the observer has the exact damage,
++// where the proxy would otherwise report the whole view for any update that scrolled. Only one
++// observer; a null one removes it.
++using DrawingAreaUpdateObserver = void (*)(WebPageProxy&, const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollOffset, std::span<const WebCore::IntRect> updateRects, float deviceScaleFactor, void* context);
++void setDrawingAreaUpdateObserver(DrawingAreaUpdateObserver, void* context);
++#endif
+ 
+ class DrawingAreaProxyCoordinatedGraphics final : public DrawingAreaProxy, public RefCounted<DrawingAreaProxyCoordinatedGraphics> {
+     WTF_MAKE_TZONE_ALLOCATED(DrawingAreaProxyCoordinatedGraphics);
+--- a/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
++++ b/Source/WebKit/UIProcess/skia/BackingStoreSkia.cpp
+@@ -32,6 +32,8 @@
+ #include <WebCore/GraphicsContextSkia.h>
+ #include <skia/core/SkBitmap.h>
+ #include <skia/core/SkCanvas.h>
++#include <skia/core/SkPixmap.h>
++#include <string.h>
+ 
+ namespace WebKit {
+ 
+@@ -109,6 +111,35 @@
+     targetRect.scale(m_deviceScaleFactor);
+     scaledScrollOffset.scale(m_deviceScaleFactor, m_deviceScaleFactor);
+ 
++    // LazyOS: a raster surface's pixels are moved where they are, row by row in the order that never
++    // reads a row it has already written. The copy below allocates and faults in a bitmap the size of
++    // the scrolled area (megabytes) for every step of a scroll, then copies the pixels twice.
++    SkPixmap pixmap;
++    if (m_surface->peekPixels(&pixmap) && pixmap.addr() && pixmap.info().bytesPerPixel() > 0) {
++        const int bytesPerPixel = pixmap.info().bytesPerPixel();
++        const int moveX = scaledScrollOffset.width();
++        const int moveY = scaledScrollOffset.height();
++        const int left = targetRect.x();
++        const int top = targetRect.y();
++        const int rows = targetRect.height();
++        const size_t rowBytes = static_cast<size_t>(targetRect.width()) * bytesPerPixel;
++        const int sourceLeft = left - moveX;
++        const int sourceTop = top - moveY;
++        const bool inside = left >= 0 && top >= 0 && sourceLeft >= 0 && sourceTop >= 0
++            && left + targetRect.width() <= pixmap.width() && top + rows <= pixmap.height()
++            && sourceLeft + targetRect.width() <= pixmap.width() && sourceTop + rows <= pixmap.height();
++        if (inside) {
++            auto* base = static_cast<uint8_t*>(pixmap.writable_addr());
++            for (int i = 0; i < rows; ++i) {
++                const int row = moveY > 0 ? rows - 1 - i : i;
++                memmove(base + static_cast<size_t>(top + row) * pixmap.rowBytes() + static_cast<size_t>(left) * bytesPerPixel,
++                    base + static_cast<size_t>(sourceTop + row) * pixmap.rowBytes() + static_cast<size_t>(sourceLeft) * bytesPerPixel,
++                    rowBytes);
++            }
++            return;
++        }
++    }
++
+     SkBitmap bitmap;
+     bitmap.allocPixels(m_surface->imageInfo().makeWH(targetRect.width(), targetRect.height()));
+ 

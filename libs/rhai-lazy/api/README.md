@@ -43,6 +43,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::elevd`](#syselevd) | `os.lazy.elevd.v1` |
 | [`sys::display_prompt`](#sysdisplay_prompt) | `os.lazy.display.prompt.v1` |
 | [`sys::files`](#sysfiles) | `os.lazy.files.v1` |
+| [`sys::gpu`](#sysgpu) | `os.lazy.gpu.v1` |
 | [`sys::healthd`](#syshealthd) | `os.lazy.healthd.v1` |
 | [`sys::init`](#sysinit) | `os.lazy.init.v1` |
 | [`sys::init_app`](#sysinit_app) | `os.lazy.init.app.v1` |
@@ -331,6 +332,23 @@ Files, the desktop file explorer (`os.lazy.files`, issue #488).
 | Topic | Payload | Helpers |
 |---|---|---|
 | `session/{session}/selection` | `Selection` | `session_selection_topic(session)`, `on_session_selection(session, handler)`, `subscribe_session_selection(session)`, `publish_session_selection(session, payload)` |
+
+## `sys::gpu`
+
+Interface `os.lazy.gpu.v1`, source [`gpu.rhai`](gpu.rhai).
+
+The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
+
+| Function | IDL | About |
+|---|---|---|
+| `get_state()` | `GetState() -> (state: State)` | A running pipe was found and decoded; the pipe fields below |
+| `new_axis()` | struct `Axis` | a `Axis` at its zero value |
+| `new_plane()` | struct `Plane` | a `Plane` at its zero value |
+| `new_fb_map()` | struct `FbMap` | a `FbMap` at its zero value |
+| `new_state()` | struct `State` | a `State` at its zero value |
+
+- `LINK_MODE` = the `LinkMode` variants; `LINK_MODE_NONE`, `LINK_MODE_HDMI`, `LINK_MODE_DVI`, `LINK_MODE_DP_SST`, `LINK_MODE_DP_MST`, `LINK_MODE_OTHER`
+- `TILING` = the `Tiling` variants; `TILING_LINEAR`, `TILING_X`, `TILING_Y`, `TILING_YF`, `TILING_OTHER`
 
 ## `sys::healthd`
 

@@ -309,6 +309,76 @@ longer filling the view white under a frame that covers it (`xui-app/crates/webk
 when its alphas are all 255 (one pass, auto-vectorised) and take `opaque` from the same pass; at 2560x1250 that
 pass is the largest controllable cost left on the window thread.
 
+### The frame at 2560x1440, with the window and the compositor counted (2026-10-17)
+
+The paint thread's counters above leave out the window thread, `xuid` and the kernel. `python tools/webplus/frame_run.py [--perf]` (scroll page `webplus/scroll.html`, 2560x1440 at scale 2, a 2000x900 window, WHPX) adds them from `PERF:CPU` and the kernel's `PERF:present_mpx`: **about 28 ms of CPU per frame at 23 paints a second, and every paint is the whole window** (1.80 Mpx), for a scroll that exposes a few hundred pixels. The UI process is 44 to 46% of the core, of which the counted paint stages are only 8 to 10 ms a paint: the rest is the window thread, still uncounted. This is the case for P1 item 1 (damage) applied to scrolling (a blit-scroll of the persistent bitmap and a paint of the exposed rows), ahead of any GPU stage. The numbers and what they mean for the GPU plan are in [`kabylake-gpu-plan.md`](kabylake-gpu-plan.md) §11.
+
+### Scroll as a delta (2026-10-17): what was built, and what is not yet measured
+
+**Cause, read from WebKit's source (`DrawingAreaProxyCoordinatedGraphics::incorporateUpdate`).** The web process
+already paints only what a scroll exposed, and the UI process already scrolls its backing store itself. But an update
+that scrolled is reported to the page as *the whole view needs display*, so `paint.cpp` copied (`WKPagePaint`),
+converted and handed on 1.8 Mpx per step; the window then built a new image from them, which xui premultiplies and
+scans in full (an image never changes, and a frame stream never hits its cache); `xuid` composed and presented the
+whole window. `BackingStore::scroll` also allocated, read and wrote back a bitmap the size of the scrolled area for
+every step (megabytes, with the page faults, on a kernel that maps every large block).
+
+**What changed.**
+
+| Where | Change |
+|---|---|
+| `webkit/patches/0024` | `WKPageSetUpdateCallback`: each update's scrolled rectangle, offset and repainted rectangles, with no "whole view" report while it is set; `BackingStore::scroll` moves the pixels in place |
+| `xui-app/crates/webkit/src/damage.rs` | `Pending`: the updates between two paints as one scroll and at most eight rectangles, or a whole frame (two different scrolled areas, a scroll further than the area, rectangles covering four fifths); pending rectangles move with a scroll, in both places (a superset, never a subset) |
+| `.../mailbox.rs`, `ffi_paint.rs` | `lzw_ui_frame_delta` and `lzw_paint_*`; deltas queue behind the picture they belong to under one lock; a window too far behind, or without a picture, is answered "send a whole frame" |
+| `.../parts.rs`, `view.rs` | the picture is the first whole frame plus the rectangles painted since, each an image with an offset and a clip; a scroll moves offsets and clips, so xui draws the images it has already prepared and only the exposed rows are new; past 32 parts a whole frame replaces them |
+| `webkit/port/app/paint.cpp` | asks for the plan, paints only its rectangles, sends a delta; `legacy` mode (`<profile>/paint-mode`) keeps the old whole-frame path for comparison |
+| `xui-app/webplus/src/frameclock.rs` | `INFO:WINDOW` once a second: updates, apply and draw time on the window thread, parts |
+
+**Verified (host).** `cargo test -p xui-webkit` includes `tests/scroll_model.rs`: a model of WebKit's backing store (move
+the area, then paint the update's rectangles, exactly as `BackingStoreSkia.cpp` does) drives the real accumulator, the
+mailbox and the parts through 400 seeded random sequences (scrolls of a whole view, of part of it, sideways, further
+than the area, loose rectangles, the engine and the window running at different paces) and compares the picture with the
+store pixel for pixel; breaking the accumulator's move of pending rectangles, or the sign of a part's offset, fails it
+at the first seed. `tests/scroll_view.rs` renders the real `Browser` offscreen and reads pixels back. What the model
+takes from WebKit (the direction of the offset, that the exposed rows are in the update's rectangles) is read from the
+source above, not run: the engine run (below) is what checks it.
+
+**Measured (QEMU, WHPX, 2560x1440 at scale 2, the 2000x900 window scrolled on `webplus/scroll.html` for 25 s; two runs,
+the same numbers within 1%).** `python tools/webplus/frame_run.py --perf`:
+
+| | before (whole frames) | after (deltas) |
+|---|---|---|
+| CPU per painted frame | **28.7 ms** (66% of the core at 22.9 paints a second) | **17.0 ms** (45% at 26.6 a second) |
+| sustainable frames a second on this core | about 35 | about 59 |
+| paints that were whole frames | all | 1 or 2 of about 585 to 665 (26.6 a second for 25 s) |
+| pixels sent per paint | 1.80 Mpx | 0.17 to 0.18 Mpx |
+| window thread, per update | about 10 ms (inferred) | apply 47 us, draw 2.1 ms (`INFO:WINDOW`), at most 22 parts |
+| the engine's check against a whole paint | not run | 21 to 106 checks, 0 differed |
+
+**How the CPU figure is made, and what it leaves out.** `frame_run.py` adds up the per-process averages of `PERF:CPU`
+lines, which the kernel prints only for processes at or above 20% of the core and only the busiest five, and each
+average is over the looks where that process appeared. It is a thresholded estimate: a process that is busy only
+now and then counts for more than it used, and one below 20% (after the change the page's process and `xuid` sit
+near it) not at all. The before/after pair is made the same way, so the *difference* is meaningful, the absolute
+17.0 ms is not a clean budget, and the split in the paragraph above it is from the stage counters, not from this sum.
+The probe image also runs the engine check below (a whole `WKPagePaint`, a conversion and a compare on the first delta
+of every second and every 30th after: about 1% of the core), which `PERF:CPU` counts and `INFO:PAINT` stages do not.
+
+The check is the one that matters for trust: in a probe image the UI process keeps the picture the window should have
+and, every 30th delta, compares it with a whole paint from WebKit's backing store (`paint.cpp`, "the check"; a
+difference is `FAIL:PAINT:MISMATCH` and the harness fails). It held what the host model had to take from WebKit's source
+(the direction of the offset, that the exposed rows are among the update's rectangles) against the real engine.
+
+**A trap in the stage times.** `INFO:PAINT`'s `wk`, `swz` and `post` are wall time around each call, and on one CPU
+the scheduler runs other tasks (the window, the compositor, the page's process) inside them. A one-pixel `WKPagePaint`
+read 3 ms there, while counters inside WebKit (patches `0025`, `0026`, `INFO:WKPAINT`) put the call, destructors
+included, at about 64 us. Read the cost of a change from CPU per frame (`PERF:CPU` with the paint rate, which
+`frame_run.py` prints), not from the stages; a first reading of this work as "the paint got slower" was this.
+
+**What is left per frame (17 ms, on a fast host).** `xuid` about 6.8 ms (compose and present of a window that still
+changes whole on screen, of which the kernel's copy is about 0.8), the UI process about 8 ms (the window's 2.2, the
+paint thread's 2 to 3, the main thread's `incorporateUpdate`: the IPC, the in-place scroll and the strip's paint, which
+nothing counts yet), the page's process about 2.3 ms. The compositor is now the largest single piece.
 ### A build trap: two checkouts, one Docker volume (found when this change was first tried)
 
 `webkit/README.md` says two checkouts must not build WebKit in the same Docker volume. The quiet failure is not a
@@ -355,6 +425,69 @@ which is when its pages become copy-on-write. The fix would be in `kernel/src/me
 A user-space mitigation (allocating the mailbox Vec afresh instead of growing it) avoids `mremap` but not the cause,
 and the WebProcess (JavaScriptCore reallocates large buffers all the time) is exposed to it too.
 
+## Scroll latency on a real page (Ars Technica, 2560x1440, one CPU)
+
+Measured with `tools/webplus/live_run.py --build --scroll 40 --sample-port N` (the real site over the host's network)
+and `tools/webplus/cpu_profile.py` (the 30 Hz sampler's recording by function). QEMU/WHPX, one host, one guest CPU.
+
+* **The UI side is not the limit.** A paint costs about 5 ms in the UI process and a window draw about 9 ms;
+  `INFO:PAINT` stage times are wall time on one CPU, so judge by CPU. What a wheel notch waits for is the
+  WebProcess: wheel-to-first-damage averages 88-92 ms and reaches 450 ms (`w2d`), and a notch is one paint,
+  so scrolling runs at 5-12 paints a second however fast the rest is.
+* **The WebProcess uses 25-50% of the CPU with no input at all** (the page's own timers and ads), and about twice
+  that while scrolling. By function it is JavaScript and GC first (about half when idle, a third to a half while
+  scrolling: LLInt, DFG compiles, marking), then WebCore layout and paint, then Skia (`bilerp_clamp_8888`: images
+  scaled on every paint). There is no single hot function.
+* **Whole frames:** 340 of 430 scrolling paints were whole frames (the page has fixed elements, so
+  `LocalFrameView::scrollContentsFastPath` repaints); a page without them (`webplus/scroll.html`) is all deltas.
+  Open: keep the scroll delta and repaint only the fixed elements' rects.
+* **Fixed, but not the limiter:** zig's `malloc` (`std.heap.SmpAllocator`) has one slot per CPU behind a spin mutex
+  that never yields, and the guest reports one CPU. A thread preempted inside `malloc` made every other thread
+  that allocated spin for a whole time slice: 17-19% of the WebProcess's user samples were in `Thread.lock`. The
+  build now patches the toolchain to at least 16 slots (`tools/webkit/zigfix.py`, applied by `port_cmake.build`,
+  which links the programs again once). The samples in `Thread.lock` went to zero; wheel-to-damage did not change
+  (88 ms against 92 ms), because the spinners were using time nothing else wanted.
+* **Fixed:** the I/O APIC redirection entry was read back (four VM exits) every time the timer interrupt asked
+  whether a line was masked; 20% of wall-clock samples. `arch/ioapic.rs` keeps a table of what it wrote.
+
+## Scrolling ahead of the page (checkerboard)
+
+The page answers a wheel notch 70 ms later on average on Ars Technica, 480 ms at worst, so a notch used to
+be seen that late. The window now moves the picture it has at once, as the first smartphone browsers did, and
+leaves what that uncovers as a checkerboard (64 px squares, light grey, fixed to the page's rows) until the
+page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure numbers), `picture.rs` (drawing),
+`view.rs` (wheel in, timer, update in).
+
+* **What "ahead" is.** A plain vertical wheel adds 40 px a notch (WebKit's line step) to `pending`. Each update
+  carries the main frame's scroll offset its pixels were painted at (patch 0028, `WKPageSetScrollOffsetCallback`:
+  `PageDidScroll` arrives just before the update that repaints for it, on one connection; `paint.cpp` notes the
+  offset at each update and `lzw_ui_scroll_offset` sends it with the post, staged in the mailbox under the frame's
+  lock so it always goes with its pixels). A change of that offset is the page having done that much: `pending`
+  gives it back. Never more than 480 px ahead, and never above the page's top.
+* **When the page does not follow** (the end of the page, a box that scrolls by itself, a handler that cancels
+  the wheel): a burst the page has not moved for 900 ms is dropped and that direction is not shown ahead until the
+  page moves; whatever is left 500 ms after the last notch or update is dropped (500: the page's slowest answer
+  seen was 450 ms, and a shorter settle made the picture jump back and then forward). Only an update that moved the
+  page's offset counts as the page answering: a video or an ad that keeps repainting must not keep a shift alive. The
+  100 ms timer that does the dropping runs only while the picture is ahead (an idle page costs no wakeups). Every
+  number the web process sends (offsets, scrolls, rectangles) is clamped at the C ABI and combined with saturating or
+  64-bit arithmetic (`tests/speculate.rs`, "hostile offsets"); patch 0029 does the same for `BackingStore::scroll`.
+* **The scroll bar stays put.** WebKit paints its 7 px scroll bar into the page's picture, so shifting the picture
+  dragged the thumb ahead and back on every answer. The picture's last 7 columns (`SCROLLBAR` in `picture.rs`) are
+  drawn unshifted: the thumb moves only when the page does.
+* **Known costs.** What is fixed to the window (a sticky header) moves with the picture until the page answers,
+  then jumps back. The first burst at the end of a page shows a short checkerboard before it is dropped. A click
+  during the shift lands a few tens of pixels off for as long as it lasts.
+* **Measured** (`live_run.py --scroll 40` on real Ars Technica, 2560x1440, QEMU/WHPX, `INFO:SPEC`): a notch is
+  drawn 7.9 ms after it arrives on average (142 ms worst, a busy window thread) against the page's 69 ms average
+  (483 ms worst); 353 shifts, no jump back; on the synthetic page 5 ms against 10 ms. The page still paints at
+  the same 5-12 paints a second, so the checkerboard is what shows between: this is responsiveness, not more
+  frames, and not less work for the page.
+* **Tests.** `tests/speculate.rs` (rules, a 400-seed simulation of a late, bursty page with limits, mutation-checked),
+  `tests/scroll_ahead.rs` (the pixels: shifted picture with a checkerboard strip, exact again after the answer,
+  nothing for a modified wheel or up from the top; `XUI_SNAPSHOT=<dir>` keeps the picture).
+  `INFO:SPEC:shifts:snaps:snap_px:blocked:w2s=<avg>/<max us>:ahead` once a second while in use.
+
 ## 9. Merged pointer moves on Ars Technica (2026-10-17, issue #890)
 
 **Method.** `python tools/webplus/pointer_bench.py`: one image (LazyWeb+, the UI probe, the real Mozilla roots), five
@@ -378,3 +511,85 @@ second), as merging intends when the thread keeps up. The warm-cache reload last
 boots than between modes. Merging pays off only where the main thread stalls while the pointer moves (H4): HiDPI,
 TCG or a slow real PC, a cold profile, a page busier than Ars behind its consent dialog. Those are the next runs
 (`--accel none`, a `LAZYOS_DISPLAY_MODE=2560x1440` image).
+
+## 10. Would SMP help, and what to do first (2026-10-17, corrected the same day)
+
+**What the ledger said.** `PERF:runwait` (new, `LAZYOS_PERF=1`, `kernel/src/perf/runwait.rs`) keeps, per task, the
+time between becoming runnable (woken, or preempted with work left) and being run. Live Ars Technica at 2560x1440,
+38 s of wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40`, read with
+`tools/webplus/scroll_stats.py`):
+
+| task | waited runnable | share of the window | waits | mean wait |
+|---|---|---|---|---|
+| WebProcess main thread (slot 36) | 12.5 s | 33% | 24 967 | 0.5 ms |
+| the WebProcess's other threads (JIT, GC, workers) | 5-12 s each | 10-32% | 5 000-25 000 | 0.2-1 ms |
+| `lazyshell` (the desktop shell) | 7.8 s | 20% | 25 703 (670 a second) | 0.3 ms |
+| `lazywebplus.elf` (the window) | 3.9 s | 10% | 17 080 | 0.2 ms |
+| `netdrv` | 17.8 s | 46% | 3 366 | 5 ms |
+
+The WebProcess used 44-50% of the CPU, about half of it the main thread: it ran for about 10 s and waited for 12.5 s.
+The first reading of that was "the page's answer is that thread's serial work, so a CPU of its own would cut
+wheel-to-damage (70 ms on average) by up to 2x, and SMP is the lever". **The experiments below show that reading is
+wrong.**
+
+**Experiments** (same page, same scroll, `LAZYOS_PERF=1`, each a throwaway kernel change, none kept; live Ars Technica
+varies from run to run, w2d by about 20 ms between identical builds, so read only differences far outside that):
+
+| change | main thread waited runnable | page answer (w2d), average / worst | paints a second |
+|---|---|---|---|
+| none (baseline) | 12.5 s, 33% | 70 / 446 ms | 11.2 |
+| the CPU guard can no longer demote a `Normal` process (`NORMAL_BUDGET_TICKS` 10 of 10): 0 demotions | 12.5 s, 33% | 89 / 491 ms | 11.1 |
+| every thread but a process's first at the minimum weight (helpers at half the main thread's share) | 12.3 s, 32% | 89 / 477 ms | 11.5 |
+| the same-class minimum slice 1 ms -> 200 us (twice the switches: 44 000 waits) | 12.9 s, 34% | 76 / 426 ms | 10.8 |
+| **the WebProcess's main thread in the `Interactive` class** (run 1, run 2) | **1.6 s, 4%** / 1.8 s, 5% | **68 / 491 ms** / 67 / 491 ms | 11.6 / 11.9 |
+
+Three different policies leave the main thread's wait where it was (it behaves like a conserved quantity on a CPU
+that is busy: whenever the thread is not running something else is), and the one that does take it away, strict
+priority, takes it from 33% to 4% **without moving the page's answer at all**. So the main thread's wait for the CPU
+is not on the critical path of a wheel notch. What is: the thread's own work for that notch and whatever else sits in
+front of it in its run loop (the page's timers, scripts and layout; an idle page already costs 25-50% of the CPU), the
+hops around it (the UI process's own queue, the IPC through the kernel), and WebKit's flow control: one wheel event is
+in flight and the rest are coalesced, so the paint rate is about the reciprocal of the answer time (11 a second at
+70-90 ms). Cutting the answer time is what raises both.
+
+**What that does to the SMP verdict.** The "up to 2x" came from reading wait as lost latency. It is not: priority
+removed 90% of the wait and the latency did not change. A second CPU would help what is *throughput* (the window's
+draws, the compositor, the JIT and GC helpers would run beside the main thread, and four serial stages in four
+processes would overlap), and it would stop the idle burn of one process from slowing another, but nothing measured here
+says it would shorten wheel-to-damage, and the experiment that could have shown it did not. SMP stays what it was, the
+plan's XL, high-risk stage (AP bring-up, per-CPU run queues, TLB shootdown on every PTE change, the page cache's
+single-CPU arguments and the fault epoch, 154 interrupts-off sections and 264 `static mut`/`Mutex` uses to review in
+856 kernel files), and it is **not** justified by the scroll latency. What would justify it is a workload that is
+saturating the CPU with independent work; this is one thread's serial path.
+
+### Follow-ups, ranked (revised after the experiments)
+
+1. **Decompose the page's answer time** (days; a few timestamps). 70 ms is wheel -> UI main thread -> IPC -> the web
+   process's main thread -> its scroll, layout and repaint -> IPC -> the UI process. Stamp each hop (the UI process
+   has `lzw_engine_wheel` and the update callback; the web process can log when it handles the event and when it
+   sends the update) and see which one is the 70. The main thread's CPU per paint is about 24 ms (an estimate: half of
+   the process's 47% of the core, at 11 paints a second), so perhaps half of the answer is not CPU time on that thread: it is queueing behind the
+   page's own events, or blocking (a lock, a worker, a synchronous IPC), or the transit. Nothing below is worth doing
+   before this says where the time is.
+2. **The page's idle burn and its run loop.** Whatever is in the web process's main thread when the wheel arrives
+   delays it: timers, scripts, animation. Throttle what a visible but idle page may do (`requestAnimationFrame` and
+   timer clamping when nothing is interacting, fewer JIT tiers), and see whether the answer time falls with it.
+3. **Keep the scroll delta when the page has fixed elements** (days; WebKit patch + `damage.rs`). 340 of 430 scrolling
+   paints on Ars were whole frames (1.5 Mpx each), which adds work to the very thread of item 1.
+4. **Wake storms.** `lazyshell` is woken about 670 times a second and `netdrv` polls (46% runnable) while the page
+   scrolls. They do not slow the answer (priority showed that), but they are a standing cost on an idle desktop:
+   `PERF:sched` counts wakes per task; make them event-driven.
+5. **The window thread's draw** (9-12 ms per draw at 2560x1440, `INFO:WINDOW`), `xuid`'s 8-11% and the kernel present
+   copy (`PERF:present_mpx`, 0.4 ms a megapixel on the host; the G6 decision wants the box's number).
+6. **Cheaper memory primitives in the kernel** (`compiler_builtins` `set_bytes`/`copy_forward` were 5-7% of kernel-mode
+   samples while scrolling): `rep stosb`/`movsb` with ERMS, or AVX for page zeroing and copies.
+7. **Shown-ahead polish**: the fixed header moves with the picture until the page answers; a horizontal scroll bar
+   moves too; a click during the shift lands off.
+8. **Box measurements.** Nothing here was run on the Kaby Lake box: `PERF:present_mpx`, `PERF:CPU`, `PERF:runwait`,
+   `INFO:PAINT`, `INFO:WINDOW`, `INFO:SPEC` during 20 s of scrolling decide G6 (`kabylake-gpu-plan.md` section 11).
+9. **SMP**: only if a workload turns out to be CPU-saturated with independent work (see above).
+
+Closed by the experiments: raising the page's priority, the CPU guard's budget, helper-thread weights and the
+scheduler's minimum slice. None of them changes how fast a wheel notch is answered. The `Interactive` class for the
+main thread does remove its wait, and may still be worth having for another reason (a busy desktop starving the
+page), but it is not a scrolling fix and was not kept.

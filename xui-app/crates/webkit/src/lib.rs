@@ -14,13 +14,20 @@
 
 pub mod abi;
 pub mod address;
+pub mod damage;
 pub mod engine;
 pub mod events;
+pub mod framing;
 pub mod gesture;
 pub mod keys;
 pub mod mailbox;
+pub mod parts;
+mod picture;
 pub mod pointer;
+pub mod speculate;
 pub mod taskstat;
+#[cfg(test)]
+mod tests_damage;
 pub mod view;
 
 #[cfg(feature = "window")]
@@ -30,5 +37,7 @@ pub mod chrome;
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 pub mod ffi;
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+mod ffi_paint;
 #[cfg(all(target_os = "linux", target_env = "musl", feature = "window"))]
 mod window_ffi;

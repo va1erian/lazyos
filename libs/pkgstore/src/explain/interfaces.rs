@@ -52,6 +52,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Ask an administrator to approve a system change, such as adding a user or changing a system setting",
     ),
     (
+        "os.lazy.gpu.v1",
+        LOW,
+        "See what the graphics hardware is showing: the screen mode and where its picture is",
+    ),
+    (
         "os.lazy.files.v1",
         LOW,
         "See which files you have selected in Files",

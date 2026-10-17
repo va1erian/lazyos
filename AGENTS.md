@@ -1325,6 +1325,37 @@ cargo test -p fwload -p devmatch -p netpolicy
 python tools/firmware/fetch.py --check && python tools/firmware/test_fetch.py
 python tools/wifi/licenses.py           # Wi-Fi crates' licences, THIRD_PARTY.md rows
 
+## Intel Gen9 GPU service (`gpud`, `LAZYOS_GEN9GFX=1`)
+
+`gpud` (`user/src/bin/gpud/`, uid `_gpu` 915 holding only `CAP_DEV_CLAIM`,
+rules in `libs/gpupolicy`) is stage G1 of
+[`docs/kabylake-gpu-plan.md`](docs/kabylake-gpu-plan.md), **read-only**:
+`devd` starts it for the Kaby Lake HD Graphics 620 (`8086:5916`, matched only
+in an image built with the switch: `devmatch::GEN9GFX_MANIFEST`), it claims
+the function without an interrupt, maps BAR 0 behind a read-only
+`gen9gfx::Mmio` (reads only inside `libs/pciprobe`'s range allowlist), reads
+and decodes what the firmware left (`libs/gen9gfx::adopt`: pipe, DDI, link
+mode, timing, pixel clock, CDCLK, plane, the GGTT pages of the scanout) and
+prints it as `GPU:*` lines, then serves `os.lazy.gpu.v1` (`idl/gpu.midl`,
+`GetState`) from that snapshot. It writes no display register, takes no
+interrupt and sets no mode. A claim switches the function's decode and bus
+mastering off (`dev::syscall::quiesce`), so `gpud` switches them back on at
+once and never exits on purpose while it holds the claim (a release would
+stop the kernel console's writes into the aperture).
+
+```bash
+python tools/run_demo.py --gen9gfx                  # QEMU has no such GPU: gpud is not started there
+python tools/run_demo.py --desktop --gen9gfx --dbgd --usb-image --build-only   # the Kaby Lake box's stick
+python tools/dbg/dbgctl.py --host <ip> log --source programs | grep GPU:       # what the firmware left
+cargo test -p gen9gfx -p gpupolicy -p devmatch      # decoders against the box's real register dump
+LAZYOS_TEST_FILTER=gpu python tools/test/run.py --accel none   # _gpu's class rules through claim
+```
+
+A claimed device is refused by `dbgd`'s `mmio.read` unless the image has
+`LAZYOS_DBGD_MMIO_CLAIMED=1` (`--dbgd-mmio-claimed`); `pci-config` always
+works. `gpud` run by hand with no such device (the Terminal as root, or a
+console image) prints `GPU:NO-DEVICE:FAIL` and exits 0.
+
 ## Wi-Fi soft-MAC and simulator (`LAZYOS_WIFI_SIM=1`)
 
 Both radio programs (`wifid` on the RTL8822CE, `wifisim` in CI) are a
