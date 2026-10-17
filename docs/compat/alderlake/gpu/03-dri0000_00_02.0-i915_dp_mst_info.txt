@@ -1,0 +1,16 @@
+MST Source Port [ENCODER:521:DDI TC1/PHY TC1]
+
+*** Atomic state info ***
+payload_mask: 0, max_payloads: 4, start_slot: 1, pbn_div: 0
+
+| idx | port | vcpi | slots | pbn | dsc | status |     sink name     |
+
+*** DPCD Info ***
+MST Source Port [ENCODER:534:DDI TC3/PHY TC3]
+
+*** Atomic state info ***
+payload_mask: 0, max_payloads: 4, start_slot: 1, pbn_div: 0
+
+| idx | port | vcpi | slots | pbn | dsc | status |     sink name     |
+
+*** DPCD Info ***

@@ -1,0 +1,6 @@
+# for f in /boot/efi/EFI/*/grub.cfg /efi/EFI/*/grub.cfg; do [ -f "$f" ] && { echo "== $f"; cat "$f"; }; done
+== /boot/efi/EFI/ubuntu/grub.cfg
+search.fs_uuid 4e8865c0-f09e-429b-a569-9140c1a62404 root 
+set prefix=($root)'/boot/grub'
+configfile $prefix/grub.cfg
+# exit 1

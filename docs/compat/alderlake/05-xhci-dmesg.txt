@@ -1,0 +1,69 @@
+# dmesg | grep -i -E "xhci|usb |usbhid|hid-|input:"
+[    0.274758] ACPI: \_SB_.PC00.XHCI.RHUB.HS10.BTRT: New power resource
+[    0.389348] ACPI: bus type USB registered
+[    0.444640] input: Sleep Button as /devices/platform/PNP0C0E:00/input/input0
+[    0.444691] input: Power Button as /devices/platform/PNP0C0C:00/input/input1
+[    0.444727] input: Power Button as /devices/platform/LNXPWRBN:00/input/input2
+[    0.460556] xhci_hcd 0000:00:0d.0: xHCI Host Controller
+[    0.460561] xhci_hcd 0000:00:0d.0: new USB bus registered, assigned bus number 1
+[    0.461657] xhci_hcd 0000:00:0d.0: hcc params 0x20007fc1 hci version 0x120 quirks 0x0000000200009810
+[    0.461892] xhci_hcd 0000:00:0d.0: xHCI Host Controller
+[    0.461895] xhci_hcd 0000:00:0d.0: new USB bus registered, assigned bus number 2
+[    0.461897] xhci_hcd 0000:00:0d.0: Host supports USB 3.2 Enhanced SuperSpeed
+[    0.461919] usb usb1: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 7.03
+[    0.461943] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.461945] usb usb1: Product: xHCI Host Controller
+[    0.461946] usb usb1: Manufacturer: Linux 7.3.0-9-generic xhci-hcd
+[    0.461947] usb usb1: SerialNumber: 0000:00:0d.0
+[    0.462025] hub 1-0:1.0: USB hub found
+[    0.462257] usb usb2: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 7.03
+[    0.462276] usb usb2: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.462277] usb usb2: Product: xHCI Host Controller
+[    0.462278] usb usb2: Manufacturer: Linux 7.3.0-9-generic xhci-hcd
+[    0.462279] usb usb2: SerialNumber: 0000:00:0d.0
+[    0.462341] hub 2-0:1.0: USB hub found
+[    0.465663] xhci_hcd 0000:00:14.0: xHCI Host Controller
+[    0.465667] xhci_hcd 0000:00:14.0: new USB bus registered, assigned bus number 3
+[    0.466805] xhci_hcd 0000:00:14.0: hcc params 0x20007fc1 hci version 0x120 quirks 0x0000100200009810
+[    0.467102] xhci_hcd 0000:00:14.0: xHCI Host Controller
+[    0.467105] xhci_hcd 0000:00:14.0: new USB bus registered, assigned bus number 4
+[    0.467106] xhci_hcd 0000:00:14.0: Host supports USB 3.1 Enhanced SuperSpeed
+[    0.467131] usb usb3: New USB device found, idVendor=1d6b, idProduct=0002, bcdDevice= 7.03
+[    0.467151] usb usb3: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.467153] usb usb3: Product: xHCI Host Controller
+[    0.467154] usb usb3: Manufacturer: Linux 7.3.0-9-generic xhci-hcd
+[    0.467155] usb usb3: SerialNumber: 0000:00:14.0
+[    0.467236] hub 3-0:1.0: USB hub found
+[    0.469167] usb usb4: New USB device found, idVendor=1d6b, idProduct=0003, bcdDevice= 7.03
+[    0.469188] usb usb4: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    0.469190] usb usb4: Product: xHCI Host Controller
+[    0.469191] usb usb4: Manufacturer: Linux 7.3.0-9-generic xhci-hcd
+[    0.469192] usb usb4: SerialNumber: 0000:00:14.0
+[    0.469261] hub 4-0:1.0: USB hub found
+[    0.479139] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input3
+[    0.703546] usb 3-4: new full-speed USB device number 2 using xhci_hcd
+[    0.840441] usb 3-4: New USB device found, idVendor=3151, idProduct=3020, bcdDevice= 0.02
+[    0.854184] usb 3-4: New USB device strings: Mfr=1, Product=2, SerialNumber=0
+[    0.854216] usb 3-4: Product: Wireless Device
+[    0.854228] usb 3-4: Manufacturer: YICHIP
+[    0.972841] usb 3-10: new full-speed USB device number 3 using xhci_hcd
+[    1.097379] usb 3-10: New USB device found, idVendor=8087, idProduct=0026, bcdDevice= 0.02
+[    1.097872] usb 3-10: New USB device strings: Mfr=0, Product=0, SerialNumber=0
+[    1.130791] usbcore: registered new interface driver usbhid
+[    1.130796] usbhid: USB HID core driver
+[    1.138672] input: YICHIP Wireless Device as /devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.0/0003:3151:3020.0001/input/input4
+[    1.190380] hid-generic 0003:3151:3020.0001: input,hidraw0: USB HID v2.00 Keyboard [YICHIP Wireless Device] on usb-0000:00:14.0-4/input0
+[    1.191302] input: YICHIP Wireless Device Mouse as /devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input5
+[    1.191781] input: YICHIP Wireless Device System Control as /devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input6
+[    1.243324] input: YICHIP Wireless Device Consumer Control as /devices/pci0000:00/0000:00:14.0/usb3/3-4/3-4:1.1/0003:3151:3020.0002/input/input7
+[    1.244227] hid-generic 0003:3151:3020.0002: input,hiddev0,hidraw1: USB HID v2.00 Mouse [YICHIP Wireless Device] on usb-0000:00:14.0-4/input1
+[    2.842835] input: Intel HID events as /devices/platform/INTC1070:00/input/input9
+[    3.345424] Modules linked in: snd_rawmidi(+) kvm(+) snd_seq ee1004 irqbypass iwlmvm(+) snd_seq_device cmdlinepart snd_timer spi_nor i2c_i801 rapl snd mtd mei_pxp mei_hdcp wmi_bmof intel_cstate i2c_smbus i915(+) soundcore mac80211 spi_intel_pci i2c_mux spi_intel libarc4 drm_buddy btusb ttm intel_pmc_core drm_display_helper btmtk pmt_telemetry btrtl iwlwifi btbcm pmt_discovery btintel pmt_class cec intel_pmc_ssram_telemetry intel_pmc_pwrm_telemetry intel_hid mei_me acpi_tad bluetooth intel_vsec sparse_keymap acpi_pad rc_core mei cfg80211 i2c_algo_bit igen6_edac joydev input_leds mac_hid sch_fq_codel lp ppdev parport msr efi_pstore dmi_sysfs autofs4 btrfs libblake2b raid6_pq xor hid_generic usbhid hid nvme nvme_core spi_pxa2xx_platform dw_dmac dw_dmac_core 8250_dw spi_pxa2xx_core r8169 aesni_intel nvme_keyring serio_raw realtek gf128mul nvme_auth phy_package video intel_lpss_pci ahci pinctrl_tigerlake intel_lpss wmi libahci idma64
+[    3.391637] input: Video Bus as /devices/pci0000:00/acpi.video_bus.0/input/input10
+[    3.870333] input: HDA Intel PCH Mic as /devices/pci0000:00/0000:00:1f.3/sound/card0/input11
+[    3.870387] input: HDA Intel PCH Headphone as /devices/pci0000:00/0000:00:1f.3/sound/card0/input12
+[    3.870422] input: HDA Intel PCH HDMI/DP,pcm=3 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input13
+[    3.870456] input: HDA Intel PCH HDMI/DP,pcm=7 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input14
+[    3.870489] input: HDA Intel PCH HDMI/DP,pcm=8 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input15
+[    3.870524] input: HDA Intel PCH HDMI/DP,pcm=9 as /devices/pci0000:00/0000:00:1f.3/sound/card0/input16
+# exit 0

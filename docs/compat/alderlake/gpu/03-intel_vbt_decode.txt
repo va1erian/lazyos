@@ -1,0 +1,4 @@
+# sh -c for f in "./survey-chatonnuc2-20261017-2104/gpu"/03-dri*-vbt.bin; do [ -r "$f" ] && echo "== $f" && intel_vbt_decode "$f"; done
+== ./survey-chatonnuc2-20261017-2104/gpu/03-dri0000_00_02.0-vbt.bin
+sh: 1: intel_vbt_decode: not found
+# exit 127

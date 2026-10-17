@@ -1,0 +1,5 @@
+# /sys/class/drm/card1-HDMI-A-3
+status: disconnected
+enabled: disabled
+dpms: Off
+modes:

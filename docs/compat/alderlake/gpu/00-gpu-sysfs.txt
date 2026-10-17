@@ -1,0 +1,86 @@
+# d=/sys/bus/pci/devices/0000:00:02.0; for f in vendor device revision subsystem_vendor subsystem_device class resource irq enable boot_vga driver_override; do printf '%s: ' $f; cat $d/$f 2>&1; done; readlink $d/driver 2>&1; ls -l $d/ | head -60
+vendor: 0x8086
+device: 0x46b3
+revision: 0x0c
+subsystem_vendor: 0x8086
+subsystem_device: 0xa7a8
+class: 0x030000
+resource: 0x0000006000000000 0x0000006000ffffff 0x0000000000140204
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000004000000000 0x000000400fffffff 0x000000000014220c
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000005000 0x000000000000503f 0x0000000000040101
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x00000000000c0000 0x00000000000dffff 0x0000000000000212
+0x0000004010000000 0x0000004016ffffff 0x0000000000140204
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000004020000000 0x00000040ffffffff 0x000000000014220c
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+0x0000000000000000 0x0000000000000000 0x0000000000000000
+irq: 168
+enable: 1
+boot_vga: 1
+driver_override: (null)
+../../../bus/pci/drivers/i915
+total 0
+drwxr-xr-x 2 root root         0 Oct 17 21:03 aer
+-r--r--r-- 1 root root      4096 Oct 17 21:04 ari_enabled
+-r--r--r-- 1 root root      4096 Oct 17 21:03 boot_vga
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 broken_parity_status
+-r--r--r-- 1 root root      4096 Oct 17 21:03 class
+-rw-r--r-- 1 root root      4096 Oct 17 21:03 config
+-r--r--r-- 1 root root      4096 Oct 17 21:04 consistent_dma_mask_bits
+lrwxrwxrwx 1 root root         0 Oct 17 21:04 consumer:pci:0000:00:1f.3 -> ../../virtual/devlink/pci:0000:00:02.0--pci:0000:00:1f.3
+-r--r--r-- 1 root root      4096 Oct 17 21:04 current_link_speed
+-r--r--r-- 1 root root      4096 Oct 17 21:04 current_link_width
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 d3cold_allowed
+-r--r--r-- 1 root root      4096 Oct 17 21:03 device
+-r--r--r-- 1 root root      4096 Oct 17 21:04 dma_mask_bits
+lrwxrwxrwx 1 root root         0 Oct 17 21:03 driver -> ../../../bus/pci/drivers/i915
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 driver_override
+drwxr-xr-x 4 root root         0 Oct 17 21:03 drm
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 enable
+lrwxrwxrwx 1 root root         0 Oct 17 21:04 firmware_node -> ../../LNXSYSTM:00/LNXSYBUS:00/PNP0A08:00/LNXVIDEO:00
+drwxr-xr-x 3 root root         0 Oct 17 21:03 graphics
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-10
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-11
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-12
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-13
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-5
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-6
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-7
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-8
+drwxr-xr-x 4 root root         0 Oct 17 21:03 i2c-9
+-r--r--r-- 1 root root      4096 Oct 17 21:04 index
+lrwxrwxrwx 1 root root         0 Oct 17 21:04 iommu -> ../../virtual/iommu/dmar0
+lrwxrwxrwx 1 root root         0 Oct 17 21:03 iommu_group -> ../../../kernel/iommu_groups/0
+-r--r--r-- 1 root root      4096 Oct 17 21:04 irq
+-r--r--r-- 1 root root      4096 Oct 17 21:04 label
+drwxr-xr-x 2 root root         0 Oct 17 21:03 link
+-r--r--r-- 1 root root      4096 Oct 17 21:04 local_cpulist
+-r--r--r-- 1 root root      4096 Oct 17 21:04 local_cpus
+-r--r--r-- 1 root root      4096 Oct 17 21:04 max_link_speed
+-r--r--r-- 1 root root      4096 Oct 17 21:04 max_link_width
+-r--r--r-- 1 root root      4096 Oct 17 21:03 modalias
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 msi_bus
+drwxr-xr-x 2 root root         0 Oct 17 21:03 msi_irqs
+-rw-r--r-- 1 root root      4096 Oct 17 21:03 numa_node
+drwxr-xr-x 2 root root         0 Oct 17 21:03 power
+-r--r--r-- 1 root root      4096 Oct 17 21:04 power_state
+--w--w---- 1 root root      4096 Oct 17 21:04 remove
+--w------- 1 root root      4096 Oct 17 21:04 rescan
+--w------- 1 root root      4096 Oct 17 21:04 reset
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 reset_method
+-r--r--r-- 1 root root      4096 Oct 17 21:03 resource
+-rw------- 1 root root  16777216 Oct 17 21:04 resource0
+-rw------- 1 root root 268435456 Oct 17 21:04 resource2
+-rw------- 1 root root 268435456 Oct 17 21:04 resource2_wc
+-rw------- 1 root root        64 Oct 17 21:04 resource4
+-r--r--r-- 1 root root      4096 Oct 17 21:03 revision
+-rw------- 1 root root    131072 Oct 17 21:04 rom
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 sriov_drivers_autoprobe
+-rw-r--r-- 1 root root      4096 Oct 17 21:04 sriov_numvfs
+-r--r--r-- 1 root root      4096 Oct 17 21:04 sriov_offset
+-r--r--r-- 1 root root      4096 Oct 17 21:04 sriov_stride
+# exit 0

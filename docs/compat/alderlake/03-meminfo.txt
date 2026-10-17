@@ -1,0 +1,144 @@
+# cat /proc/meminfo | head -5; echo; cat /proc/iomem
+MemTotal:       32590500 kB
+MemFree:        29366080 kB
+MemAvailable:   30782316 kB
+Buffers:           60772 kB
+Cached:          2044916 kB
+
+00000000-00000fff : Reserved
+00001000-0009dfff : System RAM
+0009e000-0009efff : Reserved
+0009f000-0009ffff : System RAM
+000a0000-000fffff : Reserved
+  000a0000-000bffff : PCI Bus 0000:00
+  000f0000-000fffff : System ROM
+00100000-38972fff : System RAM
+38973000-393fffff : Reserved
+39400000-3e4f3fff : System RAM
+3e4f4000-3e4f4fff : Reserved
+3e4f5000-40734fff : System RAM
+40735000-43834fff : Reserved
+43835000-43936fff : ACPI Tables
+43937000-43a14fff : ACPI Non-volatile Storage
+43a15000-45ffefff : Reserved
+45fff000-45ffffff : System RAM
+46000000-49ffffff : Reserved
+4a200000-4a3fffff : Reserved
+4b000000-503fffff : Reserved
+  4c800000-503fffff : Graphics Stolen Memory
+50400000-bfffffff : PCI Bus 0000:00
+  50400000-504fffff : PCI Bus 0000:03
+    50400000-50403fff : 0000:03:00.0
+    50404000-50404fff : 0000:03:00.0
+      50404000-50404fff : r8169
+  50500000-505fffff : PCI Bus 0000:02
+    50500000-50503fff : 0000:02:00.0
+    50504000-50504fff : 0000:02:00.0
+      50504000-50504fff : r8169
+  50600000-506fffff : PCI Bus 0000:01
+    50600000-50603fff : 0000:01:00.0
+      50600000-50603fff : nvme
+  50700000-50701fff : 0000:00:17.0
+    50700000-50701fff : ahci
+  50702000-507027ff : 0000:00:17.0
+    50702000-507027ff : ahci
+  50703000-507030ff : 0000:00:17.0
+    50703000-507030ff : ahci
+  50704000-50704fff : 0000:00:1f.5
+    50704000-50704fff : spi_intel_pci
+c0000000-cfffffff : PCI ECAM 0000 [bus 00-ff]
+  c0000000-cfffffff : PNP0C02:01
+fd000000-fd68ffff : PNP0C02:02
+fd690000-fd69ffff : INTC1055:00
+  fd690000-fd69ffff : INTC1055:00 INTC1055:00
+fd6a0000-fd6affff : INTC1055:00
+  fd6a0000-fd6affff : INTC1055:00 INTC1055:00
+fd6b0000-fd6cffff : PNP0C02:02
+fd6d0000-fd6dffff : INTC1055:00
+  fd6d0000-fd6dffff : INTC1055:00 INTC1055:00
+fd6e0000-fd6effff : INTC1055:00
+  fd6e0000-fd6effff : INTC1055:00 INTC1055:00
+fd6f0000-fdffffff : PNP0C02:02
+fe000000-fe010fff : Reserved
+fe04c000-fe04ffff : PNP0C02:02
+fe050000-fe0affff : PNP0C02:02
+fe0d0000-fe0fffff : PNP0C02:02
+fe200000-fe7fffff : PNP0C02:02
+fec00000-fec00fff : Reserved
+  fec00000-fec003ff : IOAPIC 0
+fed00000-fed00fff : Reserved
+  fed00000-fed003ff : HPET 0
+    fed00000-fed003ff : PNP0103:00
+fed20000-fed7ffff : Reserved
+  fed40000-fed44fff : MSFT0101:00
+    fed40000-fed44fff : MSFT0101:00
+fed90000-fed90fff : dmar0
+fed91000-fed91fff : dmar1
+feda0000-feda0fff : PNP0C02:01
+feda1000-feda1fff : PNP0C02:01
+fedc0000-fedc7fff : PNP0C02:01
+fee00000-fee00fff : Reserved
+ff000000-ffffffff : PNP0C02:02
+100000000-8afbfffff : System RAM
+  78b800000-78cfd6157 : Kernel code
+  78d000000-78e156fff : Kernel rodata
+  78e200000-78e6d833f : Kernel data
+  78ec6b000-78f1fffff : Kernel bss
+8afc00000-8afffffff : RAM buffer
+4000000000-7fffffffff : PCI Bus 0000:00
+  4000000000-400fffffff : 0000:00:02.0
+  4010000000-4016ffffff : 0000:00:02.0
+  4017000000-4017000fff : 0000:00:15.0
+    4017000000-40170001ff : lpss_dev
+      4017000000-40170001ff : i2c_designware.0 lpss_dev
+    4017000200-40170002ff : lpss_priv
+    4017000800-4017000fff : idma64.0
+      4017000800-4017000fff : idma64.0 idma64.0
+  4017001000-4017001fff : 0000:00:15.1
+    4017001000-40170011ff : lpss_dev
+      4017001000-40170011ff : i2c_designware.1 lpss_dev
+    4017001200-40170012ff : lpss_priv
+    4017001800-4017001fff : idma64.1
+      4017001800-4017001fff : idma64.1 idma64.1
+  4017002000-4017002fff : 0000:00:19.0
+    4017002000-40170021ff : lpss_dev
+      4017002000-40170021ff : i2c_designware.2 lpss_dev
+    4017002200-40170022ff : lpss_priv
+    4017002800-4017002fff : idma64.2
+      4017002800-4017002fff : idma64.2 idma64.2
+  4017003000-4017003fff : 0000:00:19.1
+    4017003000-40170031ff : lpss_dev
+      4017003000-40170031ff : i2c_designware.3 lpss_dev
+    4017003200-40170032ff : lpss_priv
+    4017003800-4017003fff : idma64.3
+      4017003800-4017003fff : idma64.3 idma64.3
+  4017004000-4017004fff : 0000:00:1e.0
+    4017004000-40170041ff : lpss_dev
+      4017004000-40170041ff : serial
+    4017004200-40170042ff : lpss_priv
+    4017004800-4017004fff : idma64.4
+      4017004800-4017004fff : idma64.4 idma64.4
+  4017005000-4017005fff : 0000:00:1e.3
+    4017005000-40170051ff : lpss_dev
+      4017005000-40170051ff : pxa2xx-spi.5 lpss_dev
+    4017005200-40170052ff : lpss_priv
+    4017005800-4017005fff : idma64.5
+      4017005800-4017005fff : idma64.5 idma64.5
+  4020000000-40ffffffff : 0000:00:02.0
+  6000000000-6000ffffff : 0000:00:02.0
+  6001000000-60010fffff : 0000:00:1f.3
+  6001100000-600110ffff : 0000:00:14.0
+    6001100000-600110ffff : xhci-hcd
+  6001110000-600111ffff : 0000:00:0d.0
+    6001110000-600111ffff : xhci-hcd
+  6001120000-6001123fff : 0000:00:1f.3
+    6001120000-6001123fff : ICH HD audio
+  6001124000-6001127fff : 0000:00:14.3
+    6001124000-6001127fff : iwlwifi
+  6001128000-600112bfff : 0000:00:14.2
+  600112c000-600112c0ff : 0000:00:1f.4
+    600112c000-600112c0ff : i801_smbus
+  6001131000-6001131fff : 0000:00:16.0
+    6001131000-6001131fff : mei_me
+  6001134000-6001134fff : 0000:00:14.2
+# exit 0

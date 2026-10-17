@@ -1,0 +1,26 @@
+# for f in /sys/class/dmi/id/*; do [ -f "$f" ] && [ -r "$f" ] && printf "%s: " "$(basename $f)" && cat "$f"; done
+bios_date: 10/29/2025
+bios_release: 5.32
+bios_vendor: American Megatrends International, LLC.
+bios_version: DB19C0.19
+board_asset_tag: Default string
+board_name: LarkBox X
+board_serial: DB19C645B07H1214
+board_vendor: CHUWI Innovation And Technology(ShenZhen)co.,Ltd
+board_version: Default string
+chassis_asset_tag: Default string
+chassis_serial: Default string
+chassis_type: 35
+chassis_vendor: SU
+chassis_version: V1.0
+ec_firmware_release: 1.11
+modalias: dmi:bvnAmericanMegatrendsInternational,LLC.:bvrDB19C0.19:bd10/29/2025:br5.32:efr1.11:svnCHUWIInnovationAndTechnology(ShenZhen)co.,Ltd:pnLarkBoxX:pvrV1.0:rvnCHUWIInnovationAndTechnology(ShenZhen)co.,Ltd:rnLarkBoxX:rvrDefaultstring:cvnSU:ct35:cvrV1.0:skuDefaultstring:pfaDesktop:
+product_family: Desktop
+product_name: LarkBox X
+product_serial: SLarBXCZ1H251201746
+product_sku: Default string
+product_uuid: d293db00-d55f-11f0-994a-5b8d49464d00
+product_version: V1.0
+sys_vendor: CHUWI Innovation And Technology(ShenZhen)co.,Ltd
+uevent: MODALIAS=dmi:bvnAmericanMegatrendsInternational,LLC.:bvrDB19C0.19:bd10/29/2025:br5.32:efr1.11:svnCHUWIInnovationAndTechnology(ShenZhen)co.,Ltd:pnLarkBoxX:pvrV1.0:rvnCHUWIInnovationAndTechnology(ShenZhen)co.,Ltd:rnLarkBoxX:rvrDefaultstring:cvnSU:ct35:cvrV1.0:skuDefaultstring:pfaDesktop:
+# exit 0
