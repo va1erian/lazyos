@@ -1,10 +1,13 @@
 //! How long each task waited, runnable, for the CPU: the time between a task becoming runnable (woken,
 //! or preempted while it still had work) and the scheduler running it.
 //!
-//! This is what a second CPU, or a scheduling policy that favoured the task, could give back: a task
-//! that waits 40% of the time it wants to run would run up to 1.7 times as often with a CPU of its
-//! own. `PERF:wake_run` is the same for woken tasks only, over every task at once; this is per task
-//! (a thread's slot), and counts preemption, which is most of what a busy page's main thread sees.
+//! This is the most a second CPU, or a scheduling policy that favoured the task, could give that task
+//! back. It is not the latency a user sees: making the WebProcess's main thread `Interactive` took its
+//! wait from 33% to 4% of a scroll and left the page's answer to the wheel where it was
+//! (docs/lazywebplus-performance-plan.md section 10), so read a wait as a cost to the task, and check
+//! that the thing you care about moves before acting on it. `PERF:wake_run` is the same for woken
+//! tasks only, over every task at once; this is per task (a thread's slot), and counts preemption,
+//! which is most of what a busy page's main thread sees.
 //!
 //! ```text
 //! PERF:runwait:tick=<t> <name>#<slot>=<waits>/<total us>/<longest us> ...

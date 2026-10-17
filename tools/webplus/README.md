@@ -22,6 +22,7 @@ python tools/webplus/hang_session.py --write               # regenerate tools/sc
 python tools/webplus/live_run.py --build --home-disk target/home.img --url https://www.theverge.com/ --url https://www.cnn.com/ --url https://www.nasa.gov/   # real sites, a /home disk: does the browser hang or abort? (verdict from PERF:CPU, LOCK:WAIT, WEBPROCESS:UNRESPONSIVE and a browser program ending by a crash signal in PROC:EXIT)
 python tools/webplus/test_live.py                           # its verdict, on the lines of a real hang
 python tools/webplus/frame_run.py [--perf]                    # where a scroll frame goes at 2560x1440: CPU by process, paint stages, the kernel's present_mpx
+python tools/webplus/scroll_stats.py shots/webplus-live/serial.log [more]   # one comparable block per scrolling run: page answer (w2d), paints/s, web CPU and guard demotions, the main thread's runnable wait (LAZYOS_PERF=1)
 python tools/webplus/test_frame.py                           # its reader and session; the scroll page is current
 python tools/webplus/scroll_page.py --write                  # regenerate fixtures/theoldnet.com/webplus/scroll.html
 python tools/webplus/sample.py record --port 5555 --out s.tsv   # where the guest's CPU goes: CR3 + RIP at 30 Hz over a second QMP port

@@ -512,11 +512,12 @@ boots than between modes. Merging pays off only where the main thread stalls whi
 TCG or a slow real PC, a cold profile, a page busier than Ars behind its consent dialog. Those are the next runs
 (`--accel none`, a `LAZYOS_DISPLAY_MODE=2560x1440` image).
 
-## 10. Would SMP help, and what to do first (2026-10-17)
+## 10. Would SMP help, and what to do first (2026-10-17, corrected the same day)
 
-**Measured.** `PERF:runwait` (new, `LAZYOS_PERF=1`, `kernel/src/perf/runwait.rs`): per task, the time between
-becoming runnable (woken, or preempted with work left) and being run. Live Ars Technica at 2560x1440, 38 s of
-wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40` with `LAZYOS_PERF=1`):
+**What the ledger said.** `PERF:runwait` (new, `LAZYOS_PERF=1`, `kernel/src/perf/runwait.rs`) keeps, per task, the
+time between becoming runnable (woken, or preempted with work left) and being run. Live Ars Technica at 2560x1440,
+38 s of wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40`, read with
+`tools/webplus/scroll_stats.py`):
 
 | task | waited runnable | share of the window | waits | mean wait |
 |---|---|---|---|---|
@@ -526,56 +527,69 @@ wheel scrolling, one guest CPU, no sampler (`live_run.py --build --scroll 40` wi
 | `lazywebplus.elf` (the window) | 3.9 s | 10% | 17 080 | 0.2 ms |
 | `netdrv` | 17.8 s | 46% | 3 366 | 5 ms |
 
-The WebProcess (all threads) used 44-50% of the CPU, about half of it the main thread, so the main thread ran for
-roughly 10 s and *waited* for 12.5 s: it was runnable behind other tasks for more than half the time it wanted to
-run. The page's answer to a wheel notch (wheel-to-damage, 70 ms on average) is that thread's serial work, so a CPU of
-its own would take it to about 45% of that at best (a 2x ceiling, and only if none of the wait is behind the page's
-own helper threads or its IPC peers, which the ledger cannot tell apart). The guest was not saturated (about 23% idle
-with the sampler on, which slows it, 55% before the scroll), so some of the wait is queueing among eight busy-ish
-tasks and the scheduler's slices, which a policy change might move without SMP. A policy change reorders the queue and
-creates no cycles: what it gives the main thread it takes from another task, so item 1 below is an experiment, not a
-promise.
+The WebProcess used 44-50% of the CPU, about half of it the main thread: it ran for about 10 s and waited for 12.5 s.
+The first reading of that was "the page's answer is that thread's serial work, so a CPU of its own would cut
+wheel-to-damage (70 ms on average) by up to 2x, and SMP is the lever". **The experiments below show that reading is
+wrong.**
 
-**What SMP is.** The kernel is single-CPU by design (`docs/architecture.md`, `virtual-memory.md`, S8 of the
-platform plan). A second CPU is not a switch: AP bring-up (INIT-SIPI, per-CPU GDT/TSS/stacks, LAPIC timers), per-CPU
-run queues and `CURRENT` (the task table's one lock is held across a scheduling decision), a TLB shootdown on every
-PTE change (`protect_range`, `cow_fault`, `unmap_range`, `remap_page`), the page cache's lock-free "no store can land
-while the kernel holds the lock" arguments and the fault epoch (`virtual-memory.md` lists them), interrupt routing to
-the boot CPU, and a review of every place that relies on one CPU for mutual exclusion: 154 interrupts-off sections
-and 264 `static mut`/`Mutex` uses in 856 kernel files, with interrupt-context holders among them. It is the plan's
-XL, high-risk stage. The i3-7100U has 2 cores and 4 threads, so the payoff is real there: the main thread, the UI
-process and the compositor could run at once (today four serial stages in four processes share one CPU).
+**Experiments** (same page, same scroll, `LAZYOS_PERF=1`, each a throwaway kernel change, none kept; live Ars Technica
+varies from run to run, w2d by about 20 ms between identical builds, so read only differences far outside that):
 
-**Verdict.** Yes, SMP would help more than anything left on the list, plausibly 1.5-2x on wheel-to-damage and a
-deeper pipeline of paint, convert, draw and composite. It is also the most expensive item and its gain is an upper
-bound (the table counts waits behind the page's own helper threads, which would still need a CPU). Do the cheap
-policy experiments below first: they test the same claim (that waiting, not work, is the problem) for days not months.
+| change | main thread waited runnable | page answer (w2d), average / worst | paints a second |
+|---|---|---|---|
+| none (baseline) | 12.5 s, 33% | 70 / 446 ms | 11.2 |
+| the CPU guard can no longer demote a `Normal` process (`NORMAL_BUDGET_TICKS` 10 of 10): 0 demotions | 12.5 s, 33% | 89 / 491 ms | 11.1 |
+| every thread but a process's first at the minimum weight (helpers at half the main thread's share) | 12.3 s, 32% | 89 / 477 ms | 11.5 |
+| the same-class minimum slice 1 ms -> 200 us (twice the switches: 44 000 waits) | 12.9 s, 34% | 76 / 426 ms | 10.8 |
+| **the WebProcess's main thread in the `Interactive` class** (run 1, run 2) | **1.6 s, 4%** / 1.8 s, 5% | **68 / 491 ms** / 67 / 491 ms | 11.6 / 11.9 |
 
-### Follow-ups, ranked by value for the effort
+Three different policies leave the main thread's wait where it was (it behaves like a conserved quantity on a CPU
+that is busy: whenever the thread is not running something else is), and the one that does take it away, strict
+priority, takes it from 33% to 4% **without moving the page's answer at all**. So the main thread's wait for the CPU
+is not on the critical path of a wheel notch. What is: the thread's own work for that notch and whatever else sits in
+front of it in its run loop (the page's timers, scripts and layout; an idle page already costs 25-50% of the CPU), the
+hops around it (the UI process's own queue, the IPC through the kernel), and WebKit's flow control: one wheel event is
+in flight and the rest are coalesced, so the paint rate is about the reciprocal of the answer time (11 a second at
+70-90 ms). Cutting the answer time is what raises both.
 
-1. **Run the page's main thread ahead of its helpers and of idle-ish services** (hours to days; kernel + `init`). The
-   table says the main thread waits as long as it runs, among tasks that mostly do little. A priority class for the
-   visible window's UI and WebProcess main threads (the stride scheduler has `interactive`; `inputd` and `xuid` use
-   it), and `JSC_numberOfDFGCompilerThreads=1`, `JSC_numberOfGCMarkers=1`, `useConcurrentJIT=0` for a one-CPU guest
-   (the helper threads only add switches there). Measure with `PERF:runwait` and `w2d`: the first run of this plan's
-   claim that waiting is the cost.
-2. **Wake storms.** `lazyshell` is woken about 670 times a second and `netdrv` polls (46% runnable) while the page
-   scrolls; each wake can preempt the main thread. `PERF:sched` already counts wakes per task: find what wakes them
-   (the desktop's scan thread, timers, polling) and make them event-driven or slower. Cheap and it helps every page.
+**What that does to the SMP verdict.** The "up to 2x" came from reading wait as lost latency. It is not: priority
+removed 90% of the wait and the latency did not change. A second CPU would help what is *throughput* (the window's
+draws, the compositor, the JIT and GC helpers would run beside the main thread, and four serial stages in four
+processes would overlap), and it would stop the idle burn of one process from slowing another, but nothing measured here
+says it would shorten wheel-to-damage, and the experiment that could have shown it did not. SMP stays what it was, the
+plan's XL, high-risk stage (AP bring-up, per-CPU run queues, TLB shootdown on every PTE change, the page cache's
+single-CPU arguments and the fault epoch, 154 interrupts-off sections and 264 `static mut`/`Mutex` uses to review in
+856 kernel files), and it is **not** justified by the scroll latency. What would justify it is a workload that is
+saturating the CPU with independent work; this is one thread's serial path.
+
+### Follow-ups, ranked (revised after the experiments)
+
+1. **Decompose the page's answer time** (days; a few timestamps). 70 ms is wheel -> UI main thread -> IPC -> the web
+   process's main thread -> its scroll, layout and repaint -> IPC -> the UI process. Stamp each hop (the UI process
+   has `lzw_engine_wheel` and the update callback; the web process can log when it handles the event and when it
+   sends the update) and see which one is the 70. The main thread's CPU per paint is about 24 ms (an estimate: half of
+   the process's 47% of the core, at 11 paints a second), so perhaps half of the answer is not CPU time on that thread: it is queueing behind the
+   page's own events, or blocking (a lock, a worker, a synchronous IPC), or the transit. Nothing below is worth doing
+   before this says where the time is.
+2. **The page's idle burn and its run loop.** Whatever is in the web process's main thread when the wheel arrives
+   delays it: timers, scripts, animation. Throttle what a visible but idle page may do (`requestAnimationFrame` and
+   timer clamping when nothing is interacting, fewer JIT tiers), and see whether the answer time falls with it.
 3. **Keep the scroll delta when the page has fixed elements** (days; WebKit patch + `damage.rs`). 340 of 430 scrolling
-   paints on Ars were whole frames, so the WebProcess repaints and ships 1.5 Mpx a step. Scroll the picture and repaint
-   only the fixed layers' rectangles (`LocalFrameView::scrollContentsFastPath`'s viewport-constrained branch).
-4. **The page's idle burn** (25-50% of the CPU with no input: JS timers, ads, GC). Throttle what a visible but idle
-   page may do: `requestAnimationFrame` and timer clamping when nothing is interacting, fewer JIT tiers, a smaller
-   heap. A lever on every site; needs care not to break video and animation.
-5. **The window thread's draw** (9-12 ms per draw at 2560x1440, `INFO:WINDOW`): xui prepares an image it has not seen
-   before; reuse a picture's image across draws and upload only the patches. Then **`xuid`'s 8-11%** and the kernel
-   present copy (`PERF:present_mpx`, 0.4 ms a megapixel on the host; the G6 decision wants the box's number).
-6. **Cheaper memory primitives in the kernel** (`compiler_builtins` `set_bytes`/`copy_forward` were 5-7% of samples
-   in kernel mode while scrolling): `rep stosb`/`movsb` with ERMS, or AVX for page zeroing and copies.
+   paints on Ars were whole frames (1.5 Mpx each), which adds work to the very thread of item 1.
+4. **Wake storms.** `lazyshell` is woken about 670 times a second and `netdrv` polls (46% runnable) while the page
+   scrolls. They do not slow the answer (priority showed that), but they are a standing cost on an idle desktop:
+   `PERF:sched` counts wakes per task; make them event-driven.
+5. **The window thread's draw** (9-12 ms per draw at 2560x1440, `INFO:WINDOW`), `xuid`'s 8-11% and the kernel present
+   copy (`PERF:present_mpx`, 0.4 ms a megapixel on the host; the G6 decision wants the box's number).
+6. **Cheaper memory primitives in the kernel** (`compiler_builtins` `set_bytes`/`copy_forward` were 5-7% of kernel-mode
+   samples while scrolling): `rep stosb`/`movsb` with ERMS, or AVX for page zeroing and copies.
 7. **Shown-ahead polish**: the fixed header moves with the picture until the page answers; a horizontal scroll bar
-   moves too; a click during the shift lands off. Split the picture by layer once the page can report the fixed ones.
+   moves too; a click during the shift lands off.
 8. **Box measurements.** Nothing here was run on the Kaby Lake box: `PERF:present_mpx`, `PERF:CPU`, `PERF:runwait`,
-   `INFO:PAINT`, `INFO:WINDOW`, `INFO:SPEC` during 20 s of scrolling decide G6 (`kabylake-gpu-plan.md` section 11)
-   and whether item 1 is enough.
-9. **SMP** (above), after 1 and 2 have said how much of the wait a policy leaves.
+   `INFO:PAINT`, `INFO:WINDOW`, `INFO:SPEC` during 20 s of scrolling decide G6 (`kabylake-gpu-plan.md` section 11).
+9. **SMP**: only if a workload turns out to be CPU-saturated with independent work (see above).
+
+Closed by the experiments: raising the page's priority, the CPU guard's budget, helper-thread weights and the
+scheduler's minimum slice. None of them changes how fast a wheel notch is answered. The `Interactive` class for the
+main thread does remove its wait, and may still be worth having for another reason (a busy desktop starving the
+page), but it is not a scrolling fix and was not kept.
