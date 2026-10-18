@@ -40,7 +40,7 @@ pub(crate) fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64>
             // A terabyte-long range of demand-zero memory is millions of
             // frames to materialise with interrupts off.
             pages += 1;
-            if pages % 256 == 0 {
+            if pages.is_multiple_of(256) {
                 crate::arch::irq_window::poll_point();
             }
         }
