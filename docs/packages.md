@@ -263,7 +263,10 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
   package says which personality `init` must start it under (`spawnv`'s Linux personality).
 * **`entry.autostart`** — absent or a boolean, default `false`. A user package
   that sets it shows "starts when you log in" on the consent screen and is
-  started only after consent.
+  started only after consent, and only in the sessions of the user who
+  installed it (`Installed.installer`): a core package, or one an
+  administrator installed for the machine through `elevd`
+  (`Installed.machine_wide`), starts for everyone.
 * **`entry.resident`** — absent or a boolean, default `false`. A resident app
   may run with no window, runs once per session and always has an icon in the
   taskbar ([`tray-plan.md`](tray-plan.md) §5; `init` reports it as
