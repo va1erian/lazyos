@@ -15824,6 +15824,8 @@ pub mod os_lazy_pkgd_v1 {
         pub autostart: bool,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
         pub resident: bool,
+        pub installer: u32,
+        pub machine_wide: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -15850,6 +15852,8 @@ pub mod os_lazy_pkgd_v1 {
         }
         target.array(13, &nested)?;
         target.bool(14, value.resident)?;
+        target.u32(15, value.installer)?;
+        target.bool(16, value.machine_wide)?;
         Ok(target.finish())
     }
 
@@ -15906,6 +15910,12 @@ pub mod os_lazy_pkgd_v1 {
                 14 => {
                     out.resident = field.as_bool()?;
                 }
+                15 => {
+                    out.installer = field.as_u32()?;
+                }
+                16 => {
+                    out.machine_wide = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -15925,6 +15935,15 @@ pub mod os_lazy_pkgd_v1 {
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
     /// Whether the app is resident (`entry.resident`): it may run with no
     /// window, once per session, with an icon in the taskbar.
+    /// The uid that asked for the install, as the kernel stamped the
+    /// request. Only that user's sessions open the app at login when it
+    /// sets `autostart` (and it is neither core nor `machine_wide`): an
+    /// app one user installed must not start inside everyone else's
+    /// session, an administrator's included. A row recorded before this
+    /// field reads as 0, which no login session has.
+    /// Installed by a system caller (`elevd` after an administrator
+    /// approved it, `dbgd`, provisioning): a machine-wide choice, so
+    /// `autostart` opens it in every user's session.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),

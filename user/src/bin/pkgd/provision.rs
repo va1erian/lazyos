@@ -29,7 +29,7 @@ use user::sys;
 
 use super::handlers::{fail, read_failure, Pkgd, EINVAL, ENOENT};
 use super::inspect::assess;
-use super::install::{event, one_line, problem_text, Subject};
+use super::install::{event, one_line, problem_text, Installer, Subject};
 use super::store;
 
 /// Tell `init` how far provisioning is (`ready`, then `done`): its autostart
@@ -327,7 +327,13 @@ impl Pkgd {
             .get(system_name)
             .map_err(super::handlers::registry_down)?;
         let upgrade = previous.is_some();
-        self.install_package(&assessed.package, subject, previous, wire::ORIGIN_CORE)?;
+        self.install_package(
+            &assessed.package,
+            subject,
+            previous,
+            wire::ORIGIN_CORE,
+            Installer::SYSTEM,
+        )?;
         Ok(upgrade)
     }
 

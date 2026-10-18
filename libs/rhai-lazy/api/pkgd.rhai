@@ -188,7 +188,7 @@ fn new_permission() {
 ///
 /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
 fn new_installed() {
-    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [], resident: false }
+    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [], resident: false, installer: 0, machine_wide: false }
 }
 
 /// A `PkgEvent` with every field at its zero value.
@@ -206,6 +206,15 @@ fn new_installed() {
 /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
 /// Whether the app is resident (`entry.resident`): it may run with no
 /// window, once per session, with an icon in the taskbar.
+/// The uid that asked for the install, as the kernel stamped the
+/// request. Only that user's sessions open the app at login when it
+/// sets `autostart` (and it is neither core nor `machine_wide`): an
+/// app one user installed must not start inside everyone else's
+/// session, an administrator's included. A row recorded before this
+/// field reads as 0, which no login session has.
+/// Installed by a system caller (`elevd` after an administrator
+/// approved it, `dbgd`, provisioning): a machine-wide choice, so
+/// `autostart` opens it in every user's session.
 /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
 /// is `install`, `remove`, `denied`, `provision` (a core package
 /// installed, upgraded or re-marked at startup, or the end of a pass),

@@ -73,6 +73,26 @@ pub(super) struct InstalledApp {
     pub(super) resident: bool,
     /// Its 32-pixel icon (`fhs::icon_path`), for the desktop launchers.
     pub(super) icon: String,
+    /// The uid that installed it (`Installed::installer`).
+    pub(super) installer: u32,
+    /// Installed by a system caller, for everyone (`Installed::machine_wide`).
+    pub(super) machine_wide: bool,
+}
+
+impl InstalledApp {
+    /// Whether it opens when a session of `uid` starts: it asks for it
+    /// (`autostart`), and it is the image's own (core), or an administrator
+    /// installed it for the machine, or `uid` installed it. An app one user
+    /// installed never starts inside another user's session (audit H10).
+    fn autostarts_for(&self, uid: u32) -> bool {
+        pkgstore::access::autostarts_for(
+            self.autostart,
+            self.core,
+            self.machine_wide,
+            self.installer,
+            uid,
+        )
+    }
 }
 
 /// The installed apps as of the last refresh.
@@ -139,13 +159,13 @@ impl InstalledApps {
         builtin
     }
 
-    /// The ids that open when a session starts: core apps first, then the
-    /// others, each group by `system_name` (the order [`refresh`] keeps).
+    /// The ids that open when a session of `uid` starts: core apps first, then
+    /// the others, each group by `system_name` (the order [`refresh`] keeps).
     /// Hiding is a menu matter only, so a hidden app still autostarts.
-    pub(super) fn autostart_ids(&self) -> Vec<&'static str> {
+    pub(super) fn autostart_ids(&self, uid: u32) -> Vec<&'static str> {
         self.apps
             .iter()
-            .filter(|app| app.autostart)
+            .filter(|app| app.autostarts_for(uid))
             .map(|app| app.id)
             .collect()
     }
@@ -230,6 +250,8 @@ impl InstalledApps {
             verbs: row.verbs,
             resident: row.resident,
             icon: fhs::icon_path(&row.install_dir),
+            installer: row.installer,
+            machine_wide: row.machine_wide,
         }
     }
 

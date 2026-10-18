@@ -15,7 +15,7 @@ use user::files;
 use user::messenger::pkgd::Installed;
 
 use super::handlers::Pkgd;
-use super::install::{one_line, row_of};
+use super::install::{one_line, row_of, Installer};
 use super::store::{self, describe, SysFs};
 
 /// Largest stored manifest read back (the format's own cap is 1 MiB).
@@ -100,6 +100,7 @@ impl Pkgd {
             &row.digest,
             row.installed_at,
             row.origin,
+            Installer::of_row(row),
         );
         if fresh != *row {
             let _ = self.registry.put(&fresh);

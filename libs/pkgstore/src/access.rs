@@ -57,6 +57,22 @@ pub fn may_inspect(caller: &Caller) -> Result<(), &'static str> {
     }
 }
 
+/// Whether an installed app opens when a session of `uid` starts: its manifest
+/// asks (`autostart`), and it is the image's own (`core`), or a system caller
+/// installed it for the machine (`machine_wide`: `elevd` after an
+/// administrator approved it), or `uid` is the user who installed it. An app
+/// one user installed must not start inside another user's session, an
+/// administrator's included (docs/accounts-plan.md, audit H10).
+pub fn autostarts_for(
+    autostart: bool,
+    core: bool,
+    machine_wide: bool,
+    installer: u32,
+    uid: u32,
+) -> bool {
+    autostart && (core || machine_wide || installer == uid)
+}
+
 /// `path` is an absolute path of sane shape: no NUL or control character, no
 /// `.` or `..` or empty component, at most [`MAX_PATH`] bytes.
 pub fn well_formed(path: &str) -> bool {
@@ -167,6 +183,22 @@ mod tests {
         label_id: 7,
         system: false,
     };
+
+    #[test]
+    fn an_app_autostarts_only_for_the_users_it_is_meant_for() {
+        // (autostart, core, machine_wide, installer) for session uid 1000.
+        let opens = |autostart, core, wide, installer| {
+            autostarts_for(autostart, core, wide, installer, 1000)
+        };
+        assert!(opens(true, false, false, 1000), "the installer's own session");
+        assert!(!opens(true, false, false, 1001), "another user's package");
+        assert!(!opens(true, false, false, 0), "a row from before installers");
+        assert!(opens(true, true, false, 0), "a core package opens for everyone");
+        assert!(opens(true, false, true, 0), "an administrator's machine-wide install");
+        assert!(!opens(false, true, true, 1000), "nothing opens without autostart");
+        // The administrator's session (uid 1001) gets nothing user 1000 installed.
+        assert!(!autostarts_for(true, false, false, 1000, 1001));
+    }
 
     #[test]
     fn root_and_session_owners_manage_apps() {
