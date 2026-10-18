@@ -68,6 +68,7 @@ invalidating it all at once.
 | `task/preempt.rs` | `NEED_RESCHED`, `PREEMPTING`, `SELECTED`, `SELECTED_AT`, `SLICE_END`, `DEFERRED`, `HANDOFF_FROM/TO` — global | per-CPU (S8.1); remote wakes send `RESCHED_VECTOR` (S8.3) |
 | `arch/event_timer.rs` | `ARMED`, `RATE` — the one-shot deadline timer programs the arming CPU's LAPIC timer | per-CPU **in S8.3** (a deadline armed before a migration would otherwise fire late; the 10 ms sweep is the backstop, never the answer) |
 | `task/lifecycle.rs:370` | "Revisit this unwrap if/when SMP" | entry lock (S8.3), audited |
+| `ipc/channels/reclaim.rs` | The reclaimer reads its roots (handle tables, names) before it takes `CHANNELS`: sound only because no syscall interleaves with it | entry lock (S8.3); with it gone, take the roots under `CHANNELS` or re-check each end before closing it |
 | `kernel/src/quota.rs`, `IDLE_TICKS` | Global accounting | entry lock (S8.3), per-CPU accumulation + global fold |
 | `serial.rs:274-286` | Panic path force-unlocks the serial port, "justified by one CPU" | sound under `STOP_VECTOR` stop-the-world before any dump (S8.2) |
 

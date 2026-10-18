@@ -12,6 +12,10 @@
 //! holds that side can receive the message and so gets the end). Everything
 //! else is unreachable, and closing it is what its peer's `PeerDied` and the
 //! registry slot are waiting for.
+//!
+//! The roots are read before the registry lock is taken, which is sound on
+//! one CPU: a syscall runs to its end or parks, so no end can move between a
+//! table and an inbox in between (see `docs/architecture/smp-audit.md`).
 
 use alloc::collections::BTreeSet;
 
@@ -27,11 +31,7 @@ use super::*;
 /// the closes run with it released, like every close.
 pub(super) fn reclaim_unreachable() -> usize {
     let mut live: BTreeSet<u64> = handles::channel_objects().into_iter().collect();
-    live.extend(
-        crate::ipc::registry::list()
-            .into_iter()
-            .map(|entry| entry.object_id),
-    );
+    live.extend(crate::ipc::registry::object_ids());
     let dead = {
         let channels = CHANNELS.lock();
         mark(&channels, &mut live);

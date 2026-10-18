@@ -25,8 +25,8 @@
 use alloc::vec::Vec;
 
 use super::{
-    enqueue, fresh_channel, from_handles, handles, object_id, split_object_id, wake, Error,
-    HandleKind, Queued, CHANNELS,
+    enqueue, fresh_channel, from_handles, handles, insert_channel_with, object_id, split_object_id,
+    wake, Error, HandleKind, Queued, CHANNELS,
 };
 
 /// The side of an interrupt channel the kernel keeps; the claimant gets the
@@ -39,7 +39,7 @@ pub const IRQ_SIDE: usize = 1;
 /// and the task's handle to its receiving side ([`IRQ_SIDE`]), which carries
 /// `CALL` (receive and wait) and nothing else.
 pub fn create_irq_channel() -> Result<(u64, u64), Error> {
-    let channel_id = CHANNELS.lock().insert(|id| {
+    let channel_id = insert_channel_with(|id| {
         let mut channel = fresh_channel(id);
         channel.endpoints[KERNEL_SIDE].kernel_held = true;
         channel

@@ -366,10 +366,9 @@ calls), `resolve.rs` (parked lookups), `owners.rs` (who is calling). The client 
 **One endpoint, two interfaces.** The socket interface is served on the stack
 service's endpoint (`os.lazy.net.stack`, registered with both interface ids); `netd`
 tells them apart by id. The receive buffer is 20 KiB so a full 16 KiB `Send` and its
-framing fit; a request too large for it (no legal one is) is consumed by the kernel
-but unreadable, so it is dropped without a reply and counted
-(`NETD:OVERSIZE`), and the sender's own deadline ends the wait. The probe found this:
-`netd` used to exit on it.
+framing fit; a request too large for it (no legal one is) is dropped by the kernel
+(`EMSGSIZE`) and its caller is told at once (`EPIPE`); `Endpoint::recv_into` goes on to
+the next request. The probe found this: `netd` used to exit on it.
 
 **Ownership is the sender's task slot.** Messenger stamps a request with the sender's
 slot. The owner id is `pid << 16 | slot`, with the pid read from the scheduler's task

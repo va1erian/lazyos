@@ -376,7 +376,7 @@ interface os.lazy.net.stack.v1 {
 /// `Recv` refuses `max = 0` with `EINVAL`, so an empty reply on a stream
 /// socket always means the peer closed its side. A request too large for
 /// `netd`'s receive buffer (about 20 KiB, so only a malformed one) is dropped
-/// without a reply and the caller's own deadline ends the wait.
+/// by the kernel and the caller's call fails at once with `EPIPE`.
 ///
 /// **Ports.** `Bind` with port 0, or no `Bind` at all before `Connect`,
 /// `SendTo` or `Listen`, takes an ephemeral port (49152 to 65535). Ports

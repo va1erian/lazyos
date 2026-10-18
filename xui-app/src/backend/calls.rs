@@ -78,25 +78,65 @@ pub(super) fn drain() {
             return;
         };
         if count == 0 {
+            sweep_stuck(&mut buf);
             return;
         }
         for &txn in &txns[..count] {
             let Some(pending) = take(txn) else {
                 continue;
             };
-            let result = match sys::msg_call_check(txn, &mut buf) {
-                // The kernel's own failures keep their reasons (the dead
-                // peer's `EPIPE`, the deadline's `ETIMEDOUT`); only a reply
-                // beyond this drain's scratch is shaped into the decode
-                // codes (`E2BIG` for the overflow, `EINVAL` for bytes that
-                // are not a parcel).
-                Err(code) => Err(code),
-                Ok(len) if len <= buf.len() => {
-                    libmessenger::Parcel::decode(&buf[..len]).map_err(|_| -sys::errno::EINVAL)
-                }
-                Ok(_) => Err(-sys::errno::E2BIG),
-            };
+            let result = shape(sys::msg_call_check(txn, &mut buf), &buf);
             (pending.callback)(result);
+        }
+    }
+}
+
+/// The outcome of one `msg_call_check` as the callbacks get it. The kernel's
+/// own failures keep their reasons (the dead peer's `EPIPE`, the deadline's
+/// `ETIMEDOUT`); only a reply beyond the scratch is shaped into the decode
+/// codes (`E2BIG` for the overflow, `EINVAL` for bytes that are not a parcel).
+fn shape(checked: Result<usize, i64>, buf: &[u8]) -> Result<libmessenger::Parcel, i64> {
+    match checked {
+        Err(code) => Err(code),
+        Ok(len) if len <= buf.len() => {
+            libmessenger::Parcel::decode(&buf[..len]).map_err(|_| -sys::errno::EINVAL)
+        }
+        Ok(_) => Err(-sys::errno::E2BIG),
+    }
+}
+
+/// How often (in drains) [`sweep_stuck`] looks.
+const SWEEP_EVERY: u32 = 32;
+
+thread_local! {
+    static DRAINS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Complete the calls that ended without the completion queue saying so.
+/// The kernel's queue holds a few dozen entries and drops the oldest when a
+/// burst overflows it (a lost entry only costs a wake for a caller that
+/// awaits); this lane learns of an end only from that queue, and an ended
+/// call nobody collects counts against its caller's per-channel cap, so a
+/// missed completion would make every later call on that channel fail once
+/// enough had piled up (core audit H9). Every [`SWEEP_EVERY`]th idle drain
+/// asks about each call still tracked.
+fn sweep_stuck(buf: &mut [u8]) {
+    let due = DRAINS.with(|drains| {
+        drains.set(drains.get().wrapping_add(1));
+        drains.get() % SWEEP_EVERY == 0
+    });
+    if !due {
+        return;
+    }
+    let txns: Vec<u64> =
+        PENDING.with(|pending| pending.borrow().iter().map(|call| call.txn).collect());
+    for txn in txns {
+        let checked = sys::msg_call_check(txn, buf);
+        if checked == Err(-sys::errno::EAGAIN) {
+            continue;
+        }
+        if let Some(pending) = take(txn) {
+            (pending.callback)(shape(checked, buf));
         }
     }
 }

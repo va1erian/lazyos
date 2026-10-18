@@ -29,6 +29,8 @@ pub struct Call {
     deadline: Option<u64>,
     txn: Option<u64>,
     cancelled: bool,
+    /// The outcome was taken: nothing is left in the kernel to cancel.
+    finished: bool,
 }
 
 impl Call {
@@ -40,6 +42,7 @@ impl Call {
             deadline,
             txn: None,
             cancelled: false,
+            finished: false,
         }
     }
 
@@ -116,11 +119,13 @@ impl Future for Call {
         match this.endpoint.await_reply_now(txn) {
             Ok(reply) => {
                 pending::untrack(txn);
+                this.finished = true;
                 Poll::Ready(Ok(reply))
             }
             Err(error) if error.errno() == Some(-errno::EAGAIN) => Poll::Pending,
             Err(error) => {
                 pending::untrack(txn);
+                this.finished = true;
                 Poll::Ready(Err(error))
             }
         }
@@ -137,8 +142,10 @@ impl Drop for Call {
     fn drop(&mut self) {
         if let Some(txn) = self.txn.take() {
             pending::untrack(txn);
-            let _ = self.endpoint.cancel(txn);
-            let _ = self.endpoint.await_reply_now(txn);
+            if !self.finished {
+                let _ = self.endpoint.cancel(txn);
+                let _ = self.endpoint.await_reply_now(txn);
+            }
         }
     }
 }

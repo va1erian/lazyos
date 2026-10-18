@@ -191,12 +191,18 @@ pub fn create() -> Result<(u64, u64), Error> {
 /// tries once more, so a leak of unreachable channels costs slots only until
 /// the next create.
 fn insert_channel() -> Result<u64, Error> {
+    insert_channel_with(fresh_channel)
+}
+
+/// [`insert_channel`] for a channel `build` makes (an interrupt channel marks
+/// one side as the kernel's).
+fn insert_channel_with(build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
     // The guard is a temporary of its own statement: `reclaim` locks the
     // registry again.
-    let first = CHANNELS.lock().insert(fresh_channel);
+    let first = CHANNELS.lock().insert(&build);
     match first {
         Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
-            CHANNELS.lock().insert(fresh_channel)
+            CHANNELS.lock().insert(&build)
         }
         other => other,
     }

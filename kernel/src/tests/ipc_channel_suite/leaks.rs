@@ -163,3 +163,28 @@ pub fn uncollected_outcomes_soak() -> Result<(), String> {
     }
     fresh()
 }
+
+/// Moving both ends of a pair into the pair's own inbox closes no handle, so
+/// no close triggers the reclaimer: only the full registry does. 200 rounds
+/// (the table holds 64) keep succeeding, and an interrupt channel whose
+/// sending side only the kernel holds survives every pass.
+pub fn full_registry_reclaims_and_spares_kernel_sides() -> Result<(), String> {
+    fresh()?;
+    let (_, irq) = channels::create_irq_channel().map_err(reason)?;
+    for round in 0..200u32 {
+        let (a0, a1) = channels::create()
+            .map_err(|error| format!("round {round}: create: {}", error.message()))?;
+        send_end(a0, a1)?;
+        send_end(a0, a0)?;
+        check!(
+            channels::counts().channels <= channels::MAX_CHANNELS as u64,
+            "round {round}: {} channels",
+            channels::counts().channels
+        );
+    }
+    check!(
+        channels::try_recv(irq) == Ok(None),
+        "a reclaim pass closed the interrupt channel's kernel side"
+    );
+    fresh()
+}
