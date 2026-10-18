@@ -62,8 +62,9 @@ impl Vfs {
     }
 
     /// Remove the mount at exactly `point` (a user-space filesystem going
-    /// away, `fs::fuse`). A mount with another mount below it is
-    /// [`FsError::Invalid`]; no mount there is [`FsError::NotFound`].
+    /// away, `fs::fuse`). A mount with another mount below it, or whose
+    /// filesystem is mounted at another point too, is [`FsError::Invalid`];
+    /// no mount there is [`FsError::NotFound`].
     ///
     /// The caches key on mount indices, which shift, so they are dropped
     /// whole: unmounting is rare, and a cold cache only costs lookups.
@@ -81,6 +82,18 @@ impl Vfs {
             .iter()
             .any(|mount| mount.point.len() > point.len() && mount.point.starts_with(&point));
         if nested || point.is_root() {
+            return Err(FsError::Invalid);
+        }
+        // A filesystem also mounted elsewhere stays: the open-file registry
+        // names its files by the first mount point (`canonical_path`), and
+        // taking that name away would orphan every registered file.
+        let fs = &self.mounts[index].fs;
+        if self
+            .mounts
+            .iter()
+            .enumerate()
+            .any(|(other, mount)| other != index && alloc::sync::Arc::ptr_eq(&mount.fs, fs))
+        {
             return Err(FsError::Invalid);
         }
         self.mounts.remove(index);

@@ -12,7 +12,7 @@ const BOB: Id = Id::new(2000, 200);
 
 /// Ramfs at `/`, and one more ramfs instance mounted at both `/tmp` and
 /// `/transient` (the layout `fs::mounts` builds).
-fn aliased_vfs() -> Result<Vfs, String> {
+pub(super) fn aliased_vfs() -> Result<Vfs, String> {
     let mut vfs = ram_vfs();
     let scratch: Arc<dyn Filesystem> = Arc::new(RamFs::new());
     for point in ["/transient", "/tmp"] {
@@ -131,7 +131,13 @@ fn open_files_case() -> Result<(), String> {
 
     // A rename onto its own other name is not a replacement: the file stays
     // where it is instead of being parked as if it were being overwritten.
-    let _ = crate::fs::abi_rename(Id::ROOT, "/tmp/h6", "/transient/h6");
+    let renamed = crate::fs::abi_rename(Id::ROOT, "/tmp/h6", "/transient/h6");
+    // Linux says `EXDEV` for a rename between two mounts of one filesystem;
+    // this VFS says `NotSupported` (a follow-up). Either way the file stays.
+    check!(
+        matches!(renamed, Ok(()) | Err(FsError::NotSupported)),
+        "a rename onto the file's other name failed: {renamed:?}"
+    );
     check!(
         crate::fs::abi_stat(Id::ROOT, "/tmp/h6").is_ok() && !by_tmp.path().contains(".unlinked"),
         "a rename onto the file's other name took the file away: {:?}",
@@ -210,13 +216,20 @@ pub fn alias_mount_survives_unmount() -> Result<(), String> {
         vfs.canonical_path("/mnt/c/y")
     );
 
-    // The same with the alias: the first name goes, the second keeps working.
+    // A filesystem also mounted elsewhere is not unmounted: the open-file
+    // registry names its files by the first mount point, and taking that name
+    // away would strand every registered file.
     let mut vfs = aliased_vfs()?;
     vfs.create(root, "/tmp/x", 0o644).map_err(fs_error)?;
-    vfs.unmount("/transient").map_err(fs_error)?;
+    for point in ["/transient", "/tmp"] {
+        check!(
+            vfs.unmount(point).err() == Some(FsError::Invalid),
+            "{point} was unmounted while its filesystem is mounted at the other name"
+        );
+    }
     check!(
-        vfs.canonical_path("/tmp/x") == "/tmp/x" && vfs.stat(root, "/tmp/x").is_ok(),
-        "the surviving name of an alias is {:?}",
+        vfs.canonical_path("/tmp/x") == "/transient/x" && vfs.stat(root, "/tmp/x").is_ok(),
+        "a refused unmount changed the names: {:?}",
         vfs.canonical_path("/tmp/x")
     );
     Ok(())

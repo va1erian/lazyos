@@ -135,7 +135,7 @@ same volume instances (no overlay):
 |---|---|---|
 | `/` | ext2 whose `s_uuid` equals `root=UUID=...` (any device or partition) | `root_flags`, plus `ro` if the device cannot be written |
 | `/boot` | the FAT boot volume | `ro,noexec,nosuid` |
-| `/transient`, `/tmp` | one ramfs mounted twice (`Vfs::mount` keys the caches by the first mount of an instance, `canonical_path` names its files for the open-file registry), sticky `1777` root | none |
+| `/transient`, `/tmp` | one ramfs mounted twice (`Vfs::mount` keys the caches by the first mount of an instance, `canonical_path` names its files for the open-file registry; `OpenFile::path` is that key, `display_path` the name the file was opened by; a filesystem mounted at a second point is not unmounted, and a volume is busy through either name), sticky `1777` root | none |
 | `/home` | optional ext2 chosen by `home=LABEL=..`/`home=UUID=..` | `home_flags` + `nosuid`; absent volume is a log line, and the request is kept for a USB stick that appears later ([usb-storage.md](usb-storage.md): `fs::late`, mounted in both tables once `usbd` serves it) |
 
 There is no `/data` probe in this mode. A config naming a root that is not

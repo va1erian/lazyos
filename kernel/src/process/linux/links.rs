@@ -84,7 +84,7 @@ pub(super) fn fd_target(fd: usize) -> Option<String> {
             Some(path) => path,
             None => String::from("/dev/null"),
         },
-        Fd::Vfs { file } => file.path(),
+        Fd::Vfs { file } => file.display_path(),
         Fd::Pipe { .. } => format!("pipe:[{tag}]"),
         Fd::Socket { .. } | Fd::UnixListener { .. } | Fd::Unbound { .. } | Fd::Inet { .. } => {
             format!("socket:[{tag}]")

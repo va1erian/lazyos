@@ -70,6 +70,11 @@ struct Inode {
     /// Empty once the name is known to belong to another file (see
     /// [`share_inode`]).
     path: Mutex<String>,
+    /// The name the file is shown under (`/proc/self/fd`, the busy list of an
+    /// eject): the one it was first opened by, which is `/tmp/x` while
+    /// [`path`](Self::path), the registry's key, says `/transient/x`. Kept
+    /// current across renames; an unlinked file is shown under its hidden name.
+    shown: Mutex<String>,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
     orphan: AtomicBool,
@@ -88,8 +93,19 @@ struct Inode {
 }
 
 impl Inode {
+    /// The registry key: [`canonical`], and the name operations resolve.
     fn path(&self) -> String {
         self.path.lock().clone()
+    }
+
+    /// The name to show: [`shown`](Self::shown), or the hidden name of an
+    /// unlinked file.
+    fn display(&self) -> String {
+        if self.orphan.load(Ordering::Relaxed) {
+            self.path()
+        } else {
+            self.shown.lock().clone()
+        }
     }
 }
 
@@ -121,10 +137,11 @@ impl OpenFile {
         writable: bool,
         append: bool,
     ) -> Result<Arc<OpenFile>, FsError> {
+        let shown = String::from(path);
         let path = canonical(path);
         // Access was checked by the caller; the node is opened as root.
         let node = super::nodes::abi_open_node(Id::ROOT, &path, 0)?;
-        let inode = share_inode(path, node)?;
+        let inode = share_inode(path, shown, node)?;
         Ok(Arc::new(OpenFile {
             inode,
             offset: AtomicU64::new(0),
@@ -159,9 +176,18 @@ impl OpenFile {
         access | if self.append { O_APPEND } else { 0 }
     }
 
-    /// The current absolute path (the hidden name once unlinked).
+    /// The current absolute path in the registry's canonical form (the hidden
+    /// name once unlinked): what operations on the file resolve, and what two
+    /// names of one file have in common.
     pub fn path(&self) -> String {
         self.inode.path()
+    }
+
+    /// The path to show a person or a program (`readlink` of the descriptor,
+    /// who holds a volume busy): the name the file was opened by, kept
+    /// current across renames, not the canonical alias.
+    pub fn display_path(&self) -> String {
+        self.inode.display()
     }
 
     pub fn offset(&self) -> u64 {
@@ -283,7 +309,7 @@ impl Drop for OpenFile {
 /// registry's back (the native VFS deletes and renames without it). A stale
 /// entry then loses the name, so lookups by path (`unlink`, `rename`) find
 /// the file that has it now; its descriptors keep their node.
-fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> {
+fn share_inode(path: String, shown: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> {
     let id = node.as_ref().map(Node::id);
     let mut open = OPEN.lock();
     if let Some(found) = open.iter().find(|inode| *inode.path.lock() == path) {
@@ -296,6 +322,7 @@ fn share_inode(path: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> 
     open.try_reserve(1).map_err(|_| FsError::NoSpace)?;
     let inode = Arc::new(Inode {
         path: Mutex::new(path),
+        shown: Mutex::new(shown),
         orphan: AtomicBool::new(false),
         node,
         descriptions: AtomicUsize::new(1),
@@ -416,9 +443,9 @@ pub(super) fn displace(id: Id, to: &str) -> Result<Option<Displaced>, FsError> {
 
 /// After a successful `rename(from, to)`: every open file at or under `from`
 /// now lives at the same place under `to`.
-pub(super) fn retarget(from: &str, to: &str) {
-    let from = canonical(from);
-    let to = canonical(to);
+pub(super) fn retarget(raw_from: &str, raw_to: &str) {
+    let from = canonical(raw_from);
+    let to = canonical(raw_to);
     for inode in OPEN.lock().iter() {
         let mut path = inode.path.lock();
         let Some(rest) = path.strip_prefix(from.as_str()) else {
@@ -430,6 +457,15 @@ pub(super) fn retarget(from: &str, to: &str) {
         }
         let itself = rest.is_empty();
         let moved = alloc::format!("{to}{rest}");
+        // The shown name follows in the alias it is shown in; one that was
+        // opened by another alias of the filesystem takes the renamer's.
+        let mut shown = inode.shown.lock();
+        let below = shown
+            .strip_prefix(raw_from)
+            .filter(|tail| tail.is_empty() || tail.starts_with('/'));
+        let renamed = alloc::format!("{raw_to}{}", below.unwrap_or(rest));
+        *shown = renamed;
+        drop(shown);
         *path = moved;
         // A hidden entry itself renamed back into the tree is a file again,
         // not garbage to delete on the last close. (A rename of an ancestor
@@ -464,7 +500,11 @@ pub fn paths_under(prefix: &str) -> alloc::vec::Vec<String> {
         // Looked at in place: only a match is cloned, and only so many.
         let path = inode.path.lock();
         if crate::task::holders::is_under(&path, &prefix) {
-            found.push(path.clone());
+            found.push(if inode.orphan.load(Ordering::Relaxed) {
+                path.clone()
+            } else {
+                inode.shown.lock().clone()
+            });
             if found.len() >= crate::task::holders::MAX_HOLDERS {
                 break;
             }
