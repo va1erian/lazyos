@@ -130,8 +130,10 @@ pub struct State {
     show_fps: bool,
     /// When the last tick ran, for the pacer.
     last: Option<Instant>,
-    /// Frames since the last [`State::fps`] reading.
+    /// Frames since the last [`State::read_fps`] reading.
     frames_since_reading: u64,
+    /// The last reading, what the overlay and the status bar show.
+    fps: u64,
     /// Frames clocked since the last battery save.
     frames_since_save: u64,
     reported_running: bool,
@@ -158,6 +160,7 @@ impl State {
             show_fps: false,
             last: None,
             frames_since_reading: 0,
+            fps: 0,
             frames_since_save: 0,
             reported_running: false,
             reports: Vec::new(),
@@ -208,9 +211,16 @@ impl State {
         self.fast_forward = on;
     }
 
-    /// The frames clocked in the last second, and starts a new count.
-    pub fn fps(&mut self) -> u64 {
-        std::mem::take(&mut self.frames_since_reading)
+    /// The frames clocked in the last reading, and starts a new count. The
+    /// app calls this once a second (its `Msg::Tick`), so the painter and the
+    /// status bar read the same number instead of stealing each other's.
+    pub fn read_fps(&mut self) {
+        self.fps = std::mem::take(&mut self.frames_since_reading);
+    }
+
+    /// The frames clocked in the last second.
+    pub fn fps(&self) -> u64 {
+        self.fps
     }
 
     /// Loads a cartridge: pauses the pacer, reports what the header says.

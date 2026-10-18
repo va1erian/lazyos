@@ -32,8 +32,6 @@ use xui_nes::{Msg, NesApp, Session, WINDOW};
 const PERIOD_BYTES: u32 = 2048;
 /// The rate the app asks the mixer for.
 const RATE_HZ: u32 = 48_000;
-/// Frames a `--headless` run clocks when no `--frames` is given.
-const HEADLESS_FRAMES: u64 = 600;
 /// Where a headless run leaves its result, for a harness that reads files.
 const RESULT_FILE: &str = "nes-result.txt";
 
@@ -240,7 +238,7 @@ fn main() {
 /// the frame's CRC, the deterministic check the harness reads.
 fn headless(args: &[String]) -> i32 {
     let mut rom: Option<PathBuf> = None;
-    let mut frames = HEADLESS_FRAMES;
+    let mut frames = xui_nes::headless::DEFAULT_FRAMES;
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
         match arg.as_str() {
@@ -262,9 +260,8 @@ fn headless(args: &[String]) -> i32 {
         trace::fail!(Channel::Nes, "HEADLESS", "no such ROM: {}", rom.display());
         return 1;
     }
-    let mut session = Session::new(app_dir(), RATE_HZ as f32);
-    let info = match session.load_rom(&rom) {
-        Ok(info) => info,
+    let report = match xui_nes::headless::run(&app_dir(), &rom, frames) {
+        Ok(report) => report,
         Err(error) => {
             trace::fail!(Channel::Nes, "HEADLESS", "{error}");
             return 1;
@@ -274,20 +271,14 @@ fn headless(args: &[String]) -> i32 {
         Channel::Nes,
         "LOAD",
         "{}:mapper={}:prg={}K:chr={}K:battery={}:region={}",
-        info.path.display(),
-        info.mapper,
-        info.prg_kb,
-        info.chr_kb,
-        u8::from(info.battery),
-        xui_nes::rom::region_name(info.region)
+        report.info.path.display(),
+        report.info.mapper,
+        report.info.prg_kb,
+        report.info.chr_kb,
+        u8::from(report.info.battery),
+        xui_nes::rom::region_name(report.info.region)
     );
-    for _ in 0..frames {
-        if let Err(error) = session.clock() {
-            trace::fail!(Channel::Nes, "HEADLESS", "{error}");
-            return 1;
-        }
-    }
-    let crc = xui_nes::rom::crc32(session.frame());
+    let (frames, crc) = (report.frames, report.crc);
     let line = format!("NES:HEADLESS:PASS frames={frames} crc={crc:08x}");
     trace::pass!(Channel::Nes, "HEADLESS", "frames={frames} crc={crc:08x}");
     let _ = std::fs::write(

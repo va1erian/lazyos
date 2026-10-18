@@ -24,6 +24,7 @@ NES:RUN:PASS:frames=120
 NES:STATE:PASS:save=1:/home/user/.apps/os.lazy.nes/states/sample/slot-1.state
 NES:STATE:PASS:load=1:/home/user/.apps/os.lazy.nes/states/sample/slot-1.state
 NES:QUIT:PASS
+NES:HEADLESS:PASS frames=300 crc=1a2b3c4d
 """
 
 

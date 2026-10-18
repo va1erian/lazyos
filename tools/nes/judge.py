@@ -34,6 +34,7 @@ REQUIRED = [
     "NES:STATE:PASS:save=1:",
     "NES:STATE:PASS:load=1:",
     "NES:QUIT:PASS",
+    "NES:HEADLESS:PASS frames=300",
 ]
 #: Markers that must never appear in a good run.
 FORBIDDEN = [

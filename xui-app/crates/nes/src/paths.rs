@@ -63,7 +63,8 @@ pub fn recent_path(dir: &Path) -> PathBuf {
 }
 
 /// The recent ROMs, most recent first: absolute, existing, de-duplicated
-/// paths, at most [`MAX_RECENT`] of them.
+/// paths, at most [`MAX_RECENT`] of them (a cartridge the user has since
+/// deleted drops off the welcome screen).
 pub fn read_recent(dir: &Path) -> Vec<PathBuf> {
     let Ok(text) = fs::read_to_string(recent_path(dir)) else {
         return Vec::new();
@@ -74,7 +75,7 @@ pub fn read_recent(dir: &Path) -> Vec<PathBuf> {
             continue;
         }
         let path = PathBuf::from(line);
-        if !path.is_absolute() || out.contains(&path) {
+        if !path.is_absolute() || !path.is_file() || out.contains(&path) {
             continue;
         }
         out.push(path);
@@ -134,16 +135,23 @@ mod tests {
     fn the_recent_list_is_bounded_and_deduplicated() {
         let dir = std::env::temp_dir().join("xui-nes-recent-test");
         let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
         for name in ["a", "b", "a"] {
+            fs::write(dir.join(name), b"rom").unwrap();
             push_recent(&dir, &dir.join(name)).unwrap();
         }
         let list = read_recent(&dir);
         assert_eq!(list, vec![dir.join("a"), dir.join("b")]);
-        // A relative line is ignored; an absolute one is kept.
+        // A relative line, or one whose cartridge is gone, is ignored.
         let absolute = dir.join("x");
+        fs::write(&absolute, b"rom").unwrap();
         fs::write(
             recent_path(&dir),
-            format!("relative\n{}\n", absolute.display()),
+            format!(
+                "relative\n{}\n{}\n",
+                absolute.display(),
+                dir.join("gone").display()
+            ),
         )
         .unwrap();
         assert_eq!(read_recent(&dir), vec![absolute]);

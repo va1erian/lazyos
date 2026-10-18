@@ -22,8 +22,9 @@ window, the mixer integration and the files — is this repository's own work.
 ## Running it
 
 ```bash
-python tools/run_demo.py --nes           # desktop + the app + a sound card
-python tools/xui/build.py                # just the apps
+python tools/run_demo.py --desktop --sound    # then open NES from the menu
+python tools/run_demo.py --desktop --sound --xui-autostart nes   # start it at login
+python tools/xui/build.py                     # just the apps
 ```
 
 The app is a core package: `pkgd` installs it at boot and the start menu shows
@@ -31,6 +32,24 @@ it. Opening a `.nes` file in Files launches it on that cartridge (`mimed`
 maps the extension); a cartridge dropped on the window opens too
 (`text/uri-list`). The welcome screen offers the sample the image ships,
 `/system/share/samples/lazyos-sample.nes`.
+
+## The sample cartridge
+
+No Nintendo ROM is shipped. `tools/nes/` adds a small 6502 assembler
+(`nesasm.py`) and an original NROM homebrew (`sample_rom.py`): a title screen
+with a hand-drawn 8x8 font, a ball the D-pad moves, a four-note melody (A4, C5,
+E5, A5) on pulse 1 and a C6 beep on A. It stores the controller byte at `$10`
+and a frame counter at `$12`/`$13`, so tests can read the emulated console's
+own view of input and time; `make_sample.py` writes it to
+`assets/samples/lazyos-sample.nes` (shipped at `/system/share/samples/`) and to
+the crate's test data.
+
+Two things the cartridge taught the tests, both now asserted. The ball is
+drawn by four sprites, and the PPU copies `OAM[OAMADDR & 0xF8 ..]` over the
+first eight OAM bytes on the pre-render line when `OAMADDR >= 8`, so a write
+loop that leaves `OAMADDR` at 16 loses the two top sprites every frame. The
+session test measures the ball's extent (16x15 pixels) and the jsnes check
+does the same, so neither the ROM nor an emulator can regress it silently.
 
 ## The frame clock and the sound
 
@@ -82,11 +101,11 @@ python tools/nes/run.py --accel auto       # WHPX/KVM when the host has it
 `run.py` builds a desktop image with the Terminal, the UI probe and the sound
 card, launches the app on the sample cartridge from the Terminal, watches the
 console run, holds the D-pad so the ball moves, saves and loads a state, pauses
-and quits, while QEMU records the sound card to a WAV. The verdicts are the
-serial markers, the recording (the sample's melody: A4, C5, E5, A5), and the
-screenshots (`shot_01_playing.png` shows the sample ROM's title screen inside
-the window, `shot_02_moved.png` the ball moved, `shot_03_paused.png` the pause
-overlay).
+and quits, and runs the headless frame checksum, while QEMU records the sound
+card to a WAV. The verdicts are the serial markers, the recording (the sample's
+melody: A4, C5, E5, A5), and the screenshots (`shot_01_playing.png` shows the
+sample ROM's title screen inside the window, `shot_02_moved.png` the ball
+moved, `shot_03_paused.png` the pause overlay).
 
 Host tests need no QEMU: the session runs the sample ROM and asserts the
 picture, the melody's pitch, the controller byte the ROM reads back, a save
@@ -108,10 +127,10 @@ python tools/nes/validate_external.py     # NES:EXTERNAL:PASS ... (skips without
 ```
 
 It must see the ROM count its frames, read `$01` back while Right is held,
-move the ball, draw more than one colour, and sound its first note at 440 Hz.
-The palettes differ between emulators (jsnes's index 1 is red, TetaNES's is
-dark blue), so the picture check is structural; the pitch and the counters are
-not.
+move the ball, draw more than one colour with a dominant backdrop, and sound
+its first note at 440 Hz. The palettes differ between emulators (jsnes's index
+1 is red, TetaNES's is dark blue), so the picture check is structural rather
+than pixel-exact; the pitch and the counters are not.
 
 ## Not there yet
 

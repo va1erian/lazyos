@@ -40,6 +40,7 @@ and shared buffers, and services are discovered and policy-checked through
 | `user/` | Userspace runtime and system services (`user/src/bin`) |
 | `libs/messenger/` | Shared Messenger wire types and client library |
 | `xui-app/` | XUI toolkit apps (`sysmon`, `fabricmon`, ...) |
+| `games/` | The standalone game ports shipped as installable `.lzp` packages (Doom, Quake, SRB2Kart) |
 | `idl/`, `tools/midlc/` | Interface definitions and their compiler |
 | `tools/` | Demo runner, screenshot/input driver, ABI bench, test runner |
 | `docs/` | Plans and per-subsystem architecture reference |
@@ -57,6 +58,8 @@ Where to read next:
 - Python 3.
 - QEMU (`qemu-system-x86_64`). On Windows, put `C:\Program Files\qemu` on `PATH`
   or pass `--qemu "C:\Program Files\qemu\qemu-system-x86_64.exe"`.
+- Node and npm (optional): `tools/nes/validate_external.py` runs the sample
+  cartridge in jsnes, a second emulator, and skips itself without them.
 
 ## From a fresh clone
 

@@ -15,6 +15,11 @@ What it does, so a test or a harness can see the emulator working:
 * every frame it stores the controller byte at `$10` and the frame counter at
   `$12`/`$13`, and mirrors them into battery-backed PRG RAM at `$6000`, so a
   test can read the emulated console's own view of input and time;
+* it leaves `OAMADDR` at 0 after its OAM writes: the PPU copies
+  `OAM[OAMADDR & 0xF8 ..]` over the first eight OAM bytes on the pre-render
+  line when `OAMADDR >= 8`, which would eat the ball's two top sprites every
+  frame (the session test asserts the ball's height, so the bug cannot come
+  back);
 * keeps running forever; it never writes to the PPU outside vblank.
 """
 
@@ -165,8 +170,8 @@ def byte_lines(name: str, data: bytes, width: int = 16) -> str:
 
 SOURCE = """\
 ; The NES Player's sample ROM (tools/nes/sample_rom.py). NROM-256, mapper 0,
-; battery-backed PRG RAM. Written for this repository; MIT (the project's
-; licence).
+; battery-backed PRG RAM. Written for this repository; GPL-3.0-or-later like
+; the rest of the tree (assets/manifest.txt).
 
 joy      = $10          ; controller 1, bit 7 = A ... bit 0 = Right
 joy_prev = $11
@@ -419,6 +424,13 @@ sound_done:
         clc
         adc #$08
         sta $2004
+
+        ; OAMADDR back to 0. The PPU copies OAM[OAMADDR & 0xF8 ..] over the
+        ; first eight bytes on the pre-render line when OAMADDR >= 8, so a
+        ; write loop that leaves it at 16 (four sprites) would eat the two
+        ; top sprites every frame (docs/nes-player.md, "The sample cartridge").
+        lda #$00
+        sta $2003
 
         ; no scrolling
         lda #$00

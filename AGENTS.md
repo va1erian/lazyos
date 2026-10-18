@@ -425,6 +425,33 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/ab
     --script tools/screenshot/examples/xui_about.json
 ```
 
+## NES Player (`os.lazy.nes`)
+
+The NES Player is a core desktop app: `xui-app/crates/nes` (`xui-nes`) holds
+the session, the picture, the keyboard, the files and the window over
+TetaNES's `tetanes-core` (MIT OR Apache-2.0: CPU, PPU, APU, 30+ mappers,
+save states), and `xui-app/src/bin/nes.rs` supplies the LazyOS platform (a
+48 kHz mono `audioclient` stream, `$HOME`, the `NES:*` evidence lines and
+`--headless`). The image ships one cartridge, an original NROM homebrew
+assembled by `tools/nes/` (a small 6502 assembler and a generator — no cc65
+dependency): a title screen, a ball the D-pad moves and a four-note melody.
+It is validated in a second emulator (jsnes, via Node). See
+[`docs/nes-player.md`](docs/nes-player.md) and [`tools/nes/README.md`](tools/nes/README.md).
+
+```bash
+python tools/run_demo.py --desktop --sound   # then open NES from the menu
+cargo test --manifest-path xui-app/Cargo.toml -p xui-nes   # session, window, pacer, scaler
+python tools/nes/test_nesasm.py            # the assembler and the sample ROM
+python tools/nes/make_sample.py --check    # the checked-in sample is current
+python tools/nes/validate_external.py      # the ROM in jsnes (node/npm; skips without)
+python tools/nes/run.py                    # build, boot, play, record, judge
+```
+
+Markers (channel `NES`): `UP`, `LOAD`, `RUN`, `SAVE`, `STATE`, `SOUND`,
+`AUDIO`, `HEADLESS`, `QUIT`, and `FAIL`. `nes.elf --headless <rom>
+[--frames N]` prints `NES:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/nes-result.txt`).
+
 ## Doom (an installable `.lzp` package)
 
 Doom is `games/doom/` (doomgeneric, fetched at a pinned revision and compiled with

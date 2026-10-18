@@ -33,8 +33,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 ROM = ROOT / "assets" / "samples" / "lazyos-sample.nes"
 SCRIPT = HERE / "jsnes_check.js"
-#: Where npm installs jsnes for this check.
+#: Where npm installs jsnes for this check, and the version it installs: the
+#: check's API assumptions are jsnes 2.1.0's, so the pin is exact.
 JSNES_DIR = ROOT / "target" / "nes-jsnes"
+JSNES_VERSION = "2.1.0"
 
 #: The console's counters must reach at least these values in `--frames`.
 MIN_FRAMES = 150
@@ -44,6 +46,10 @@ MIN_FRAMES_AFTER_NOTE = 25
 #: check is structural, not pixel-exact.
 MIN_COLOURS = 3
 MIN_BACKDROP_SHARE = 0.5
+#: The ball's sprite colour must span its whole 16x15 shape (a ROM that leaves
+#: OAMADDR at 16 loses its two top sprites to the pre-render OAM copy).
+MIN_SPRITE_ROWS = 14
+MIN_SPRITE_COLUMNS = 15
 #: The ROM's first note (A4) and how far the measurement may be off.
 NOTE_HZ = 440.0
 NOTE_TOLERANCE = 0.06
@@ -75,6 +81,14 @@ def judge(report: dict, frames: int) -> list[str]:
     share = report.get("common_pixels", 0) / max(1, report.get("total_pixels", 1))
     if share < MIN_BACKDROP_SHARE:
         failures.append(f"the most common colour covers {share:.0%} of the screen")
+    if report.get("sprite_rows", 0) < MIN_SPRITE_ROWS or report.get(
+        "sprite_columns", 0
+    ) < MIN_SPRITE_COLUMNS:
+        failures.append(
+            "the ball is "
+            f"{report.get('sprite_columns')}x{report.get('sprite_rows')}, not 16x15: "
+            "its top sprites were eaten (leave OAMADDR at 0 after the OAM writes)"
+        )
     hz = report.get("note_hz") or 0
     if abs(hz - NOTE_HZ) > NOTE_HZ * NOTE_TOLERANCE:
         failures.append(f"the first note sounds at {hz} Hz, not {NOTE_HZ:g} Hz")
@@ -91,13 +105,25 @@ def have(tool: str) -> bool:
 
 
 def install() -> None:
-    """Installs jsnes into [`JSNES_DIR`] when it is not there yet."""
-    if (JSNES_DIR / "node_modules" / "jsnes").exists():
-        return
+    """Installs jsnes into [`JSNES_DIR`] when it is not there (pinned)."""
+    package = JSNES_DIR / "node_modules" / "jsnes" / "package.json"
+    if package.exists():
+        installed = json.loads(package.read_text(encoding="utf-8")).get("version")
+        if installed == JSNES_VERSION:
+            return
+        print(f"jsnes {installed} is not {JSNES_VERSION}; reinstalling")
+        shutil.rmtree(JSNES_DIR / "node_modules" / "jsnes", ignore_errors=True)
     JSNES_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"installing jsnes into {JSNES_DIR} (npm)")
+    print(f"installing jsnes@{JSNES_VERSION} into {JSNES_DIR} (npm)")
     subprocess.run(
-        ["npm", "install", "--silent", "--no-audit", "--no-fund", "jsnes"],
+        [
+            "npm",
+            "install",
+            "--silent",
+            "--no-audit",
+            "--no-fund",
+            f"jsnes@{JSNES_VERSION}",
+        ],
         cwd=JSNES_DIR,
         check=True,
     )
@@ -134,7 +160,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"NES:EXTERNAL:FAIL no cartridge at {args.rom}")
         return 1
     install()
-    report = run(args.rom, args.frames)
+    try:
+        report = run(args.rom, args.frames)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        print(f"NES:EXTERNAL:FAIL jsnes did not run: {error}")
+        return 1
     failures = judge(report, args.frames)
     if failures:
         print("NES:EXTERNAL:FAIL")

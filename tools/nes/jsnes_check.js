@@ -93,6 +93,41 @@ async function main() {
     colours.set(key, (colours.get(key) ?? 0) + 1);
   }
   const ranked = [...colours.entries()].sort((a, b) => b[1] - a[1]);
+  // The ball is the only small blob of colour: the backdrop covers the screen
+  // and the text spans it. Take the non-backdrop colour with the smallest
+  // bounding box and measure it — a ROM that leaves OAMADDR at 16 loses its
+  // two top sprites and the box shrinks to 16x7.
+  let spriteRows = 0;
+  let spriteColumns = 0;
+  let smallest = null;
+  for (const [key] of ranked.slice(1)) {
+    const [r, g, b] = key.split(",").map(Number);
+    let minX = 256;
+    let maxX = -1;
+    let minY = 240;
+    let maxY = -1;
+    for (let at = 0; at < frameBuffer.length; at++) {
+      const pixel = frameBuffer[at];
+      if (((pixel >> 16) & 0xff) === r && ((pixel >> 8) & 0xff) === g && (pixel & 0xff) === b) {
+        const x = at % 256;
+        const y = Math.floor(at / 256);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const columns = maxX - minX + 1;
+    const rows = maxY - minY + 1;
+    const area = columns * rows;
+    if (smallest === null || area < smallest.area) {
+      smallest = { area, columns, rows };
+    }
+  }
+  if (smallest !== null) {
+    spriteColumns = smallest.columns;
+    spriteRows = smallest.rows;
+  }
 
   // The D-pad: hold Right and watch the byte the ROM reads back, and whether
   // the picture changes (the ball moves).
@@ -115,6 +150,8 @@ async function main() {
       note_hz: noteHz,
       joy,
       moved,
+      sprite_rows: spriteRows,
+      sprite_columns: spriteColumns,
     }),
   );
 }

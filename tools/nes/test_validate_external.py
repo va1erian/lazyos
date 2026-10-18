@@ -29,6 +29,8 @@ def good() -> dict:
         "note_hz": 440,
         "joy": 0x01,
         "moved": True,
+        "sprite_rows": 15,
+        "sprite_columns": 16,
     }
 
 
@@ -56,6 +58,13 @@ class Judge(unittest.TestCase):
         report = good() | {"note_hz": 660}
         failures = validate_external.judge(report, 200)
         self.assertTrue(any("note" in f for f in failures), failures)
+
+    def test_a_half_drawn_ball_fails(self):
+        # The OAMADDR quirk: the ball's two top sprites eaten by the
+        # pre-render copy.
+        report = good() | {"sprite_rows": 7}
+        failures = validate_external.judge(report, 200)
+        self.assertTrue(any("16x15" in f for f in failures), failures)
 
     def test_silence_fails(self):
         report = good() | {"peak": 0.0, "audio_samples": 10}

@@ -143,6 +143,41 @@ fn the_controller_reaches_the_rom() {
 }
 
 #[test]
+fn the_ball_is_drawn_whole() {
+    // The ROM's four sprites must all survive the PPU's pre-render OAM copy:
+    // a write loop that leaves OAMADDR at 16 loses the two top sprites every
+    // frame (the bug this test was written for; docs/nes-player.md, "The
+    // sample cartridge"). The ball is 16x15 pixels of sprite colour 1.
+    let dir = temp_dir("ball");
+    let mut session = console(&dir);
+    session.load_rom(&rom_file(&dir)).expect("the sample loads");
+    run(&mut session, 30);
+    let frame = session.frame().to_vec();
+    let ball: Vec<(usize, usize)> = frame
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .enumerate()
+        .filter(|(_, pixel)| pixel[..3] == [0xED, 0x98, 0x1F])
+        .map(|(at, _)| (at % 256, at / 256))
+        .collect();
+    assert!(!ball.is_empty(), "the ball is drawn");
+    let rows = ball.iter().map(|(_, y)| *y).max().unwrap()
+        - ball.iter().map(|(_, y)| *y).min().unwrap()
+        + 1;
+    let columns = ball.iter().map(|(x, _)| *x).max().unwrap()
+        - ball.iter().map(|(x, _)| *x).min().unwrap()
+        + 1;
+    assert_eq!(
+        (columns, rows),
+        (16, 15),
+        "the ball is {columns}x{rows}: its top sprites were eaten by the \
+         pre-render OAM copy (leave OAMADDR at 0 after the writes)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_save_state_restores_the_console() {
     let dir = temp_dir("state");
     let rom = rom_file(&dir);

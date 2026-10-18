@@ -364,7 +364,7 @@ impl NesApp {
             self.host.borrow().report(report);
         }
         let state = screen.state();
-        let mut state = state.borrow_mut();
+        let state = state.borrow();
         let fps = state.fps();
         let session = state.session();
         let rom = session
@@ -475,7 +475,12 @@ impl App for NesApp {
             }
             Msg::RomChosen(path) => self.open_rom(ui, &path),
             Msg::RomCancelled => {}
-            Msg::Tick => self.refresh(ui),
+            Msg::Tick => {
+                // The FPS reading is taken once a second, here, so the
+                // overlay and the status bar show the same number.
+                self.screen.get().state().borrow_mut().read_fps();
+                self.refresh(ui);
+            }
             Msg::Noop => {}
         }
     }

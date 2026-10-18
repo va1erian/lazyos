@@ -19,7 +19,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `APP` | `App` | `app` | user | sessions, tools/crash, tools/shutdown, tools/tray | programs |
 | `ARCHIVER` | `Archiver` | `archiver` | xui-app | sessions | programs |
 | `ASYNC` | `Async` | `async` | user | sessions | programs |
-| `AUDIO` | `Audio` | `audio` | other, user | tools/sound | programs |
+| `AUDIO` | `Audio` | `audio` | other, user, xui-app | tools/sound | programs |
 | `AUDIOD` | `Audiod` | `audiod` | user | tools/sound | programs |
 | `BEEP` | `Beep` | `beep` | user | sessions, tools/sound | programs |
 | `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot, tools/install | programs |
@@ -52,7 +52,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/storage, tools/webkit, tools/webplus, tools/wifi | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/nes, tools/storage, tools/webkit, tools/webplus, tools/wifi | programs |
 | `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/webplus | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
@@ -71,7 +71,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MSGCTL` | `Msgctl` | `msgctl` | user | tools/services | programs |
 | `MSGRD` | `Msgrd` | `msgrd` | user | - | programs |
 | `NC` | `Nc` | `nc` | other, user | tools/net | programs |
-| `NES` | `Nes` | `nes` | xui-app | sessions | programs |
+| `NES` | `Nes` | `nes` | xui-app | sessions, tools/nes | programs |
 | `NET` | `Net` | `net` | user | tools/net | programs |
 | `NETAPP` | `Netapp` | `netapp` | xui-app | sessions, tools/wifi | programs |
 | `NETBULK` | `Netbulk` | `netbulk` | other, user | - | programs |
@@ -109,7 +109,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
-| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/web, tools/webplus | programs |
+| `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/web, tools/webplus | programs |
 | `TEST` | `Test` | `test` | kernel, kernel suite, other, xui-app | sessions, tools/test | programs |
 | `THEME` | `Theme` | `theme` | user | sessions, tools/emusic | programs |
 | `TIMECTL` | `Timectl` | `timectl` | user | tools/services | programs |

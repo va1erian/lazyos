@@ -11,6 +11,7 @@
 pub mod app;
 pub mod audio;
 pub mod commands;
+pub mod headless;
 pub mod host;
 pub mod input;
 pub mod pacer;
