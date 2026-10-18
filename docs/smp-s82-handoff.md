@@ -37,51 +37,53 @@ per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 | `kernel/src/main.rs` | `arch::smp::init()` right after `arch::init()` (test builds diverge at `tests::run()` before this, so the suite drives `bring_up_for_test` itself) |
 | `kernel/src/tests/smp_suite.rs` | Four cases, registered after `percpu_suite`: the real bring-up (`-smp 4` expected: 4 online, per-AP TSC stamp + non-BSP APIC id), the resched self-IPI through the real ICR into an `irq_window_suite::in_syscall` window, the shootdown ack round-trip (vacuous at 1 CPU), idempotence |
 
-## Where it stopped — the current blocker
+## Where it stopped — the current blocker (diagnosis CONFIRMED, one step left)
 
-The suite at `-smp 4` (WHPX) **dies silently at the first INIT-SIPI**: the
-serial log ends right after the percpu tests (no panic line, no further
-output, the runner reports "booted but never printed TEST:SUMMARY").
-Diagnosis so far: an AP **triple fault resets the whole machine** in QEMU
-(-no-reboot then exits), which matches the silence exactly — the BSP's
-bounded poll never gets to print its `HW:SMP:CPU<n> ... FAIL` line.
+The suite at `-smp 4` (WHPX) **dies at the first INIT-SIPI with a machine
+reset**: `-d cpu_reset` shows **two sets of four CPU resets** — the power-on
+set, then a second full reset when an AP triple-faults (a triple fault
+resets every CPU; `-no-reboot` then exits QEMU, which is why the runner
+reports the missing summary). So the AP **starts and crashes** — the bug is
+in the trampoline's transitions or `ap_entry`, not in the ICR path.
 
-A debug run was in flight when work stopped (background shell):
-`python tools/test/run.py --accel auto --smp 4 --out shots/kernel-tests-s82d
---extra-arg=-D --extra-arg=shots/qemu-reset.log --extra-arg=-d
---extra-arg=cpu_reset --no-build` — **its first action is to read
-`shots/qemu-reset.log`**: the triple-faulting RIP is in there (`CPU Reset`
-blocks). Note `--no-build` assumes the image from the previous
-`LAZYOS_TESTS=1 cargo build` — if `target/lazyos.img` has moved, rebuild
-first (drop `--no-build`).
+**One catch the debug run revealed**: `-d cpu_reset`'s dump shows the
+POST-reset firmware state (`EIP=0000fff0, CS=f000`) — useless for the RIP.
+The next run needs the exception log too:
+
+```bash
+python tools/test/run.py --accel auto --smp 4 --out shots/kernel-tests-s82e \
+    --extra-arg=-D --extra-arg=shots/qemu-int.log --extra-arg=-d \
+    --extra-arg="int,cpu_reset" --no-build
+```
+
+then read the **tail** of `shots/qemu-int.log`: the last `check_exception`
+/ `v=xx` lines before the resets carry the faulting `CS:RIP` (and a
+page-fault line carries CR2). `--no-build` reuses the previous
+`LAZYOS_TESTS=1` image — drop it if `target/lazyos.img` has moved.
 
 ## What to check, in order (my suspects)
 
-1. **The reset log's RIP.** If it is a low address (`0x8xxx`): the
-   trampoline itself — most likely the retf patch slots (are `RETF1_*`'s
-   u16s written? the debug line can be dropped from `ap_entry`'s sibling
-   `serial_println!` at the blob's start: add one `serial_println!`-free
-   check — see next point) or the magic/GDTR patch.
-2. **Is the blob even running?** Cheap test: park a `0xB8`-style marker
-   write at the very top of the 16-bit code — e.g. have the AP write a
-   byte to QEMU's debug port: `mov dx, 0x402; mov al, 'A'; out dx, al`
-   (QEMU logs `out` to the debug log with `-d ioport`? simpler: write to
-   the `isa-debug-exit` port is destructive; use `-d ioport` and look for
-   the write). If nothing arrives, the SIPI never started the AP — check
-   the ICR path (x2APIC vs xAPIC: the boot log says XApic; verify
-   `send()`'s MMIO writes land — dump the ICR's delivery-status bit).
-3. **The AP page table.** `build_ap_page_table` copies PML4 entries
-   256..512 from `mem::boot_table()` — verify the boot table's physical
-   address is what `read_entry` reads (`phys_to_virt(boot + index*8)`),
-   and that `alloc_zeroed_frame` frames are below 4 GiB (they are: the
-   allocator's regions are). The huge page needs no CR4.PSE in long mode.
-4. **WHPX INIT/SIPI.** If the reset log shows nothing at all, the AP never
-   started: try `--accel none` (TCG) — WHPX's INIT-SIPI handling is the
-   one part of this that has not been proven on this box; TCG is the
-   correctness rig anyway.
-5. **`mov esp, 0x7C00` + SS base 0**: the 0x7C00 stack is below the
-   trampoline page and inside the identity map ✓. The mailbox stack value
-   is a kernel-half VA read with a 64-bit `mov` ✓.
+1. **The faulting RIP from `-d int`** (above) — that settles it in one run.
+   A low RIP (`0x8xxx`) means the trampoline; a kernel-half RIP means
+   `ap_entry`.
+2. **The trampoline's most fragile pieces** (in blob order): the magic
+   check passes (the BSP writes it); `lgdt [0x0E30]`; the PE `retf` with
+   the patched `(0x0008, 0x8000+prot_off)` — verify the BSP's patch values
+   by dumping the copied page from the host (`osread`-style) or a
+   `HW:` line printing `blob_off(&smp_prot)`;
+   then PAE/LME/PG; then the 64-bit `retf`; then `ap_entry` (its
+   `serial_println!` line — `HW:SMP:CPU<n> entered long mode` — never
+   appeared, so the death is *before* it: the trampoline's transitions).
+3. **WHPX INIT/SIPI**: if `-d int` shows the AP running fine until an odd
+   fault, try `--accel none` (TCG) — WHPX's INIT/SIPI handling is the one
+   part not yet proven on this box, and TCG is the correctness rig anyway.
+4. **The AP page table**: the 2 MiB huge page needs no CR4.PSE in long
+   mode; the kernel-half copy reads `mem::boot_table()`'s entries through
+   the physical map (verify the boot PML4's physical address is sane with
+   a `HW:` line if the RIP points into the kernel half).
+5. **The stack**: SS:SP = `0x0000:0x7C00` in real mode (below the page ✓);
+   the 64-bit stub loads RSP from the mailbox (a kernel-half VA, mapped by
+   the copied kernel half ✓).
 
 ## After the APs come up
 
