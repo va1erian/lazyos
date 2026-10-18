@@ -114,6 +114,10 @@ pub mod lockwait;
 mod memstate;
 pub mod nice;
 pub mod pollwait;
+// `pub(crate)`: the kernel test suite's `percpu_suite` reads the test hooks.
+#[cfg(lazyos_tests)]
+pub(crate) mod preempt;
+#[cfg(not(lazyos_tests))]
 mod preempt;
 mod runq;
 mod sched;
@@ -183,8 +187,9 @@ pub(crate) const KSTACK_SIZE: usize = 48 * 1024;
 /// Number of qwords in a bootstrapped user frame (15 regs + RIP/CS/RFLAGS/RSP/SS).
 const FRAME_WORDS: u64 = 20;
 
-/// Which task currently owns the CPU.
-static CURRENT: AtomicUsize = AtomicUsize::new(KERNEL_TASK);
+/// Which task currently owns the CPU lives in the per-CPU area
+/// (`arch::percpu::Cpu::current`), readable through [`current`] and writable
+/// through [`set_current`]; every CPU's value starts at [`KERNEL_TASK`].
 /// The task that receives keyboard input.
 static FOCUS: AtomicUsize = AtomicUsize::new(1);
 /// Set when the screen needs repainting.
@@ -414,9 +419,20 @@ pub fn scheduling() -> bool {
     SCHEDULING.load(Ordering::Relaxed)
 }
 
-/// The task currently on the CPU.
+/// The task currently on the CPU: this CPU's per-CPU area holds it
+/// (`arch::percpu`; each CPU's `current` starts at the kernel task).
 pub fn current() -> usize {
-    CURRENT.load(Ordering::Relaxed)
+    crate::arch::percpu::current()
+        .current
+        .load(Ordering::Relaxed) as usize
+}
+
+/// Make `slot` the CPU's current task (the scheduler's `install`, the test
+/// harness).
+pub(crate) fn set_current(slot: usize) {
+    crate::arch::percpu::current()
+        .current
+        .store(slot as u64, Ordering::Relaxed);
 }
 
 /// The PML4 physical address of task `slot`'s address space, or `None` for an

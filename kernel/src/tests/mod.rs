@@ -264,6 +264,7 @@ mod native_exec_suite;
 mod nvme_suite;
 mod overlay_suite;
 mod partition_suite;
+mod percpu_suite;
 mod pipe_suite;
 mod poll_keys_suite;
 mod power_suite;
@@ -286,6 +287,7 @@ mod spawn_suite;
 mod spurious_fault_suite;
 mod stats_suite;
 mod string_io_suite;
+mod suite;
 #[cfg(lazyos_dbgd)]
 mod sysinfo_klog_suite;
 mod sysinfo_suite;
@@ -303,150 +305,9 @@ mod waitset_ext_suite;
 mod waitset_suite;
 mod wallclock_suite;
 
-/// Every suite, run in the order listed. See the module doc for why the
-/// order of suites (and of a few tests within `hardening_suite`) is load-bearing.
-const SUITE: &[&[(&str, Test)]] = &[
-    mem_suite::CASES,
-    heap_suite::CASES,
-    heap_slab_suite::CASES,
-    limits_suite::CASES,
-    arch_suite::CASES,
-    preempt_lock_suite::CASES,
-    irq_window_suite::CASES,
-    slab_suite::CASES,
-    quota_suite::CASES,
-    task_suite::CASES,
-    quota_enforce_suite::CASES,
-    pipe_suite::CASES,
-    linux_suite::CASES,
-    linux_suite::mmap_reserve::CASES,
-    linux_compat_suite::CASES,
-    loader_suite::CASES,
-    loader_suite::dynamic::CASES,
-    sched_suite::CASES,
-    guard_suite::CASES,
-    runq_suite::CASES,
-    preempt_wake_suite::CASES,
-    relax_suite::CASES,
-    poll_keys_suite::CASES,
-    deadline_suite::CASES,
-    signal_suite::CASES,
-    child_process_suite::CASES,
-    itimer_suite::CASES,
-    fault_suite::CASES,
-    fault_resident_suite::CASES,
-    ipc_suite::CASES,
-    ipc_channel_suite::CASES,
-    waitset_suite::CASES,
-    waitset_ext_suite::CASES,
-    waitset_call_suite::CASES,
-    completion_suite::CASES,
-    endpoint_fd_suite::CASES,
-    acl_suite::CASES,
-    credentials_suite::CASES,
-    label_suite::CASES,
-    ipc_shared_suite::CASES,
-    transfer_gate_suite::CASES,
-    crypto_suite::CASES,
-    messenger_suite::CASES,
-    stats_suite::CASES,
-    keyboard_suite::CASES,
-    input_bus_suite::CASES,
-    registry_suite::CASES,
-    connect_suite::CASES,
-    confd_suite::CASES,
-    block_suite::CASES,
-    virtio_suite::CASES,
-    virtio_modern_suite::CASES,
-    nvme_suite::CASES,
-    ahci_suite::CASES,
-    block_sleep_suite::CASES,
-    partition_suite::CASES,
-    gpt_suite::CASES,
-    mount_suite::CASES,
-    boot_trace_suite::CASES,
-    trace_suite::CASES,
-    boot_media_suite::CASES,
-    boot_io_suite::CASES,
-    string_io_suite::CASES,
-    spurious_fault_suite::CASES,
-    ramdisk_suite::CASES,
-    firmware_suite::CASES,
-    dev_suite::CORE,
-    dev_suite::CLASS_MAP,
-    dev_suite::IRQ,
-    dev_suite::IRQ_SHARED,
-    dev_suite::IRQ_EDGE,
-    dev_suite::IRQ_IOAPIC,
-    dev_suite::IRQ_MSI,
-    dev_suite::IRQ_REAL,
-    dev_suite::IRQ_PROMPT,
-    dev_suite::IRQ_CHANNEL,
-    dev_suite::IRQ_RATE,
-    dev_suite::SYSCALL,
-    dev_suite::SYSCALL_GUARD,
-    dev_suite::SYSCALL_OPS,
-    dev_suite::SYSCALL_POLICY,
-    dev_suite::SYSCALL_USB_POLICY,
-    dev_suite::SYSCALL_GPU_POLICY,
-    dev_suite::SYSCALL_BOOT_POLICY,
-    dev_suite::SYSCALL_INSPECT,
-    #[cfg(lazyos_dbgd)]
-    dev_suite::SYSCALL_PEEK,
-    #[cfg(lazyos_dbgd)]
-    dev_suite::SYSCALL_PEEK_HW,
-    dev_suite::SYSCALL_CFG,
-    dev_suite::TEARDOWN,
-    dev_suite::DMA,
-    dev_suite::DMA_LIFE,
-    dev_suite::DMA_STRESS,
-    dev_suite::STRESS,
-    dev_suite::FUZZ,
-    dev_suite::FUZZ_SOAK,
-    dev_suite::CAPACITY,
-    fs_suite::CASES,
-    fsops_suite::CASES,
-    power_suite::CASES,
-    overlay_suite::CASES,
-    ext2_suite::CASES,
-    ext2_suite::data_fds::CASES,
-    ext2_suite::data_fds::filemap::CASES,
-    ext2_suite::logd_store::CASES,
-    ext2_suite::pkg_tree::CASES,
-    ext2_suite::block_cache::CASES,
-    provider_suite::CASES,
-    fuse_suite::CASES,
-    topics_suite::CASES,
-    topics_gate_suite::CASES,
-    service_suite::CASES,
-    spawn_suite::CASES,
-    native_exec_suite::CASES,
-    exec_perm_suite::CASES,
-    confine_suite::CASES,
-    chmod_suite::CASES,
-    display_suite::CASES,
-    mux_suite::CASES,
-    sysinfo_suite::CASES,
-    #[cfg(lazyos_dbgd)]
-    sysinfo_klog_suite::CASES,
-    wallclock_suite::CASES,
-    timed_suite::CASES,
-    // Issue #857/#860/#861 suites: last, so their allocations (hundreds of
-    // forked tasks) do not change the heap the frame-counting suites above see.
-    serial_suite::CASES,
-    serial_ring_suite::CASES,
-    forensics_suite::CASES,
-    forensics_exit_suite::CASES,
-    forensics_sched_suite::CASES,
-    guard_report_suite::CASES,
-    guard_process_suite::CASES,
-    guard_window_suite::CASES,
-    // Runs the tick for ~15 s of real time: after the suites that step a
-    // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
-    // `task::ticks()` past their deadlines would expire early.
-    timer_suite::CASES,
-    hardening_suite::CASES,
-];
+/// The run order (load-bearing; see the module doc). The table lives in
+/// [`suite`] so this file stays under its budget.
+use suite::SUITE;
 
 /// Run the suite, print the results, and halt.
 pub fn run() -> ! {
