@@ -53,9 +53,12 @@ impl Pacer {
         let frames = (budget.as_nanos() / period.as_nanos().max(1)) as usize;
         let mut due = frames.min(MAX_CATCH_UP);
         if let Some(free) = free {
-            // The ring's room bounds the burst too: writing more frames than
-            // it can take would drop their samples.
-            due = due.min(free / frame_samples.max(1));
+            // The ring's room bounds the burst, and any room at all is room
+            // for one more frame: the mixer starts a stream once its ring is
+            // full, so refusing to fill the last partial frame's worth would
+            // mean the stream never starts and the console never runs again
+            // (the samples that do not fit are clipped, not queued).
+            due = due.min(free.div_ceil(frame_samples.max(1)));
         }
         self.behind = if due == 0 {
             // Keep at most one frame of debt while waiting for time or room:
@@ -103,13 +106,14 @@ mod tests {
     #[test]
     fn a_full_audio_ring_pauses_the_console() {
         let mut pacer = Pacer::new();
-        // 800 samples a frame: room for one is not room for a frame.
-        assert_eq!(pacer.due(ms(100), 1.0, Some(799), 800), 0);
-        assert_eq!(pacer.due(ms(1), 1.0, Some(800), 800), 1);
-        // A stalled ring does not lose the debt.
+        // No room at all: the console waits, and keeps its debt.
+        assert_eq!(pacer.due(ms(100), 1.0, Some(0), 800), 0);
+        // Any room is room for one frame: the mixer only starts a stream once
+        // its ring is full, so the last partial frame must be written.
+        assert_eq!(pacer.due(ms(1), 1.0, Some(1), 800), 1);
+        // Room for two frames is a bound of two, not the clock's three.
         let mut pacer = Pacer::new();
-        assert_eq!(pacer.due(ms(50), 1.0, Some(0), 800), 0);
-        assert_eq!(pacer.due(ms(1), 1.0, Some(800), 800), 1);
+        assert_eq!(pacer.due(ms(100), 1.0, Some(1600), 800), 2);
     }
 
     #[test]
