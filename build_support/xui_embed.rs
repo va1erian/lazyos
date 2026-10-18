@@ -155,6 +155,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-video.elf",
     // About LazyOS: About LazyOS, with a real-time 3D renderer.
     "xui-about.elf",
+    // NES: Play NES game ROMs, with sound.
+    "xui-nes.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build

@@ -1,0 +1,7 @@
+[
+  {"wait_for": "NES:UP:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "nes_initial"},
+  {"key": "q", "until": "NES:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
+]

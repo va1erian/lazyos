@@ -52,6 +52,8 @@ const BUILTIN_TYPES: &[(&str, &str)] = &[
     ("pdf", "application/pdf"),
     // AVI video, opened by the Video Player (docs/video-player-plan.md).
     ("avi", "video/x-msvideo"),
+    // NES cartridges, opened by the NES Player (docs/nes-player.md).
+    ("nes", "application/x-nes-rom"),
     // MP3 audio, opened by emusic when it is installed (docs/media-plan.md).
     ("mp3", "audio/mpeg"),
     ("c", "text/x-c"),

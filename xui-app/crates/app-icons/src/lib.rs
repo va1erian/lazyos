@@ -153,6 +153,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/removable",
         Art::Lucide(Lucide::Save, Tone::Amber),
     ),
+    // NES: scaffolded with a placeholder; pick its art.
+    (
+        "xui-app/packages/nes",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

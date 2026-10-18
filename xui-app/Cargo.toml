@@ -45,6 +45,9 @@ members = [
     "crates/golf",
     # About LazyOS: a software 3D renderer and its window; `src/bin/about.rs` runs it.
     "crates/about",
+    # NES Player (os.lazy.nes): an NES emulator with sound over `tetanes-core`;
+    # `src/bin/nes.rs` runs it with the LazyOS platform.
+    "crates/nes",
     # LazySky, a Bluesky client (docs/lazysky-plan.md): the headless core and
     # the portable xui UI; `src/bin/lazysky.rs` runs it on LazyOS.
     "crates/lazysky-core",
@@ -156,6 +159,9 @@ xui-golf = { path = "crates/golf" }
 # About LazyOS: the software 3D renderer and the window; the `xui-about`
 # binary only launches it.
 xui-about = { path = "crates/about" }
+# NES Player (os.lazy.nes): the emulator session and window over
+# `tetanes-core`; the `xui-nes` binary supplies the LazyOS platform.
+xui-nes = { path = "crates/nes" }
 # LazySky (docs/lazysky-plan.md): the portable window; the `xui-lazysky`
 # binary only launches it and supplies the LazyOS `Platform`.
 lazysky-ui = { path = "crates/lazysky-ui" }
@@ -394,3 +400,7 @@ path = "src/bin/about.rs"
 [[bin]]
 name = "xui-removable"
 path = "src/bin/removable.rs"
+
+[[bin]]
+name = "xui-nes"
+path = "src/bin/nes.rs"

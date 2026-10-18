@@ -183,6 +183,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         // Removable Drives: the USB sticks' tray applet, shipped with the
         // USB stack (`LAZYOS_USB=1`, `xui_embed`).
         "removable",
+        // NES: Play NES game ROMs, with sound.
+        "nes",
     ];
     CORE.contains(&short_of(stem))
 }

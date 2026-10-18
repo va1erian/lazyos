@@ -1,0 +1,21 @@
+# The NES Player (os.lazy.nes): an NES emulator with sound, over the
+# `tetanes-core` emulation core (TetaNES, MIT OR Apache-2.0). The `xui-nes`
+# binary in `xui-app/src/bin/nes.rs` supplies the LazyOS platform (audio,
+# files, theme, evidence) through `Host`, so this crate builds and is tested
+# on the host like the other portable app crates.
+[package]
+name = "xui-nes"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "NES Player, an NES emulator with sound for xui"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
+# The emulation core: CPU, PPU, APU (all five channels), 30+ mappers, save
+# states. Pinned by `Cargo.lock`; `default-features = false` so no browser
+# or desktop-only surface is pulled in.
+tetanes-core = { version = "0.17", default-features = false }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }
