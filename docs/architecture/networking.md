@@ -462,8 +462,10 @@ unanswered datagram, a query for the wrong name, a server that saw other bytes).
   until the 32-entry cap aborted the oldest. `reap_closing` now treats TIME-WAIT as
   done (`retire` already did).
 * The probe's 48 KiB `Send` made `netd` exit: a request larger than the receive buffer
-  fails the `recv` with `E2BIG` after the kernel has consumed it, and the loop treated
-  every receive error as fatal. It now counts the request, logs `NETD:OVERSIZE` and carries on.
+  fails the `recv` after the kernel has consumed it, and the loop treated every receive
+  error as fatal. The kernel now drops such a request itself (`EMSGSIZE`, its caller told)
+  and `Endpoint::recv_into` receives the next one (core audit H2), so no loop needs its own
+  handling.
 * Slots are reused, so a socket keyed by the sender's slot can pass to the next task
   there. Review caught that the pid does not prevent this (it is the slot); the
   owner id is shaped for a spawn counter but the kernel does not supply one yet.

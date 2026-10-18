@@ -460,7 +460,7 @@ id and receiver.
 from one loop that also waits on the radio's wake-up endpoint
 (`Hardware::wake_endpoint`) and pumps it (`Hardware::pump`). Nothing a client
 sends ends the loop: a request too large for the 16 KiB receive buffer (the
-kernel dequeues it, then answers `E2BIG`) or one that does not decode is
+kernel drops it and fails its caller; `recv` answers `EMSGSIZE`) or one that does not decode is
 dropped and counted (`WIFI:DROPPED`), a reply that cannot be delivered is
 the client's loss; only the service endpoints going away is fatal. The loop
 polls again at once when the radio's receive budget ran out. The card side

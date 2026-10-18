@@ -34,7 +34,7 @@ userspace never names another task's handles.
 |---|---|
 | `MAX_CHANNELS` | 64 |
 | `MAX_QUEUE_DEPTH` / `MAX_QUEUE_BYTES` per endpoint | 64 / 1 MiB |
-| `MAX_OUTSTANDING` per channel / `MAX_PENDING_PER_SENDER` | 64 / 16 |
+| `MAX_OUTSTANDING` per channel / `MAX_PENDING_PER_SENDER` | 64 / 16 (a sender's pending calls **and** its ended ones nobody has collected yet: a reply waits, up to a parcel long, until its caller awaits it) |
 
 - One channel has two endpoints; an endpoint's `object_id` packs
   `(channel_id << 1) | side`. API: `create`, `send`, `begin_call`/`await_reply`/
@@ -199,6 +199,30 @@ the receiver closed, or its delivery failed) is closed by the orphan pass
 name policy is `Resolve`'s. User side: `messenger::registry::connect`. Tests:
 `connect_*` (`tests/connect_suite.rs`, two clients in two tasks, orphans, a
 5,000-round connect/call/close soak) and `ipc_registry_syscall_connect`.
+
+**A message the receiver cannot take** (`recv_capped`, `recv/discard.rs`; core audit H2).
+`OP_RECV` checks the receive buffer and the sender block before it touches the
+queue. A message longer than `buf_cap`, or one whose objects the receiver's
+table cannot hold, is taken off the queue and **dropped**: its buffer
+references are released, its moved channel ends are closed (their peers learn),
+the request's transaction ends `PeerDied` for its caller (`fail_request`), and
+the receiver gets `Error::Dropped` / `EMSGSIZE`, meaning "one message lost, the
+endpoint is fine". The user runtime's `Endpoint::recv_into` counts it
+(`messenger::dropped_messages`) and receives the next message, so no service
+loop treats one oversized parcel as the end of its endpoint. Tests:
+`ipc_channel_oversized_*`, `ipc_channel_dropped_message_releases_objects`,
+`ipc_messenger_recv_drops_an_oversized_parcel`; the desktop
+`rhai_msg_oversize.json` session runs it against the real `mimed`.
+
+**Unreachable channel ends** (`channels/reclaim.rs`; core audit H8). A moved
+end lives in a message until it is received, so an end sent over its own
+channel, or a ring of channels carrying each other's ends, has no handle and
+no receiver and was never closed (64 rounds of it filled the registry).
+`reclaim_unreachable` marks the ends a handle, a published name or a reachable
+inbox names (and the kernel's own sides) and closes the rest. It runs when a
+close leaves its surviving side holding a moved end, and when the registry is
+full (`create` and `connect` retry once). Tests: `ipc_channel_*_reclaimed`,
+`ipc_channel_reclaim_spares_ends_in_flight`.
 
 **Status.** Working: handle rights, transactions with deadlines/cancel,
 objects as fields (channel move and buffer share), per-connection channels.
