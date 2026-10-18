@@ -1,9 +1,8 @@
 # Alder Lake box (CHUWI LarkBox X, i3-1220P): collected facts
 
 A CHUWI LarkBox X mini PC (board `LarkBox X`, AMI BIOS `DB19C0.19` of
-2025-10-29, EC 1.11), UEFI, Secure Boot disabled. It replaces the AMD NUC
-(`MAGICNUC AS1`), which the [Wi-Fi plan](../../wifi-rtw88-plan.md) and the
-[USB hotplug plan](../../usb-hotplug-plan.md) were written against.
+2025-10-29, EC 1.11), UEFI, Secure Boot disabled. It replaces the retired AMD
+NUC (`MAGICNUC AS1`; [`../hardware.md`](../hardware.md), "Retired machines").
 
 This directory is `tools/boot/survey_linux_box.sh` run on its Kubuntu 26.10
 (kernel 7.3.0-9), plus `gpu/` from `tools/boot/survey_gpu.sh`. Both were

@@ -387,9 +387,9 @@ mod tests {
     }
 
     #[test]
-    fn the_nuc_gets_its_ethernet_and_its_wifi_each_with_its_own_name() {
-        // The AMD NUC (docs/compat/amd-nuc): the Wi-Fi enumerates before the
-        // Ethernet and still gets `wlan0`, the Ethernet `eth0`.
+    fn the_kaby_lake_box_gets_its_ethernet_and_its_wifi_each_with_its_own_name() {
+        // The Kaby Lake box (docs/compat/kabylake): the Wi-Fi enumerates
+        // before the Ethernet and still gets `wlan0`, the Ethernet `eth0`.
         let functions = [
             function(1, 0x8086, 0x5916, 0x03, 0x00),
             function(2, 0x8086, 0x9d2f, 0x0c, 0x03),

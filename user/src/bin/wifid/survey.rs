@@ -1,6 +1,6 @@
 //! First-light RX evidence (docs/wifi-rtw88-plan.md R3/R4): after bring-up,
 //! hop the 20 MHz channels with the receive filter open to every BSS and
-//! count what arrives, so a boot on the NUC shows whether the radio hears
+//! count what arrives, so a boot on the box shows whether the radio hears
 //! anything before the station stack is assembled.
 //!
 //! **What is read from the air.** Only the fixed header fields of a frame

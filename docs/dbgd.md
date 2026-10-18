@@ -163,7 +163,7 @@ replaces a service with any binary the key holder uploads, under that
 service's identity, so a reloaded driver has its DMA (all of memory) and a
 reloaded `wlanmd` gets every Wi-Fi PMK from `keyd`. Keep `target/dbgd.key`
 private, set `LAZYOS_DBGD_PEER`, and use a control image only while you
-develop on the box (the NUC Wi-Fi loop in
+develop on the box (the Wi-Fi loop in
 [wifi-rtw88-plan.md](wifi-rtw88-plan.md) section 5 recommends one).
 
 Then, after each change to a service or driver, rebuild with the **same

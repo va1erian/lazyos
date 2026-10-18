@@ -38,7 +38,7 @@
 //! once and exits 0, which `init`'s `OnFailure` row does not restart. A
 //! panic exits without powering the chip off; the next run's quiesce (step
 //! 3) covers that. Every line is
-//! built with `libs/tracefmt` (`trace.rs`); on the NUC read them with
+//! built with `libs/tracefmt` (`trace.rs`); on the box read them with
 //! `dbgctl log --source programs --follow`, and replace the binary with
 //! `dbgctl reload wifid` (docs/wifi-rtw88-plan.md section 5).
 
@@ -82,7 +82,7 @@ const IDLE_TICKS: u64 = 6000;
 
 /// `LAZYOS_WIFID_MODE` at build time: the mode when the arguments name
 /// none (`devd` passes only `dev=` and `ifname=`), so a diagnostic stick for
-/// the NUC is a build switch, `LAZYOS_WIFID_MODE=survey`.
+/// the box is a build switch, `LAZYOS_WIFID_MODE=survey`.
 const BUILD_MODE: Option<&str> = option_env!("LAZYOS_WIFID_MODE");
 
 struct Args {

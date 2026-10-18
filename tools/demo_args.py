@@ -239,8 +239,8 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="networking plus Wi-Fi (LAZYOS_WIFI=1, docs/wifi-rtw88-plan.md): "
                              "`wifid`, the RTL8822CE driver devd starts as wlan0, and its "
                              "firmware at /system/share/firmware (fetched and hash-checked by "
-                             "tools/firmware/fetch.py). QEMU has no such card, so it matters on "
-                             "the AMD NUC: add --usb-image --dbgd-control --build-only for its stick")
+                             "tools/firmware/fetch.py). QEMU has no such card, so it matters on a "
+                             "real box: add --usb-image --dbgd-control --build-only for the stick")
     parser.add_argument("--wifi-sim", action="store_true",
                         help="the simulated Wi-Fi radio (LAZYOS_WIFI_SIM=1, needs the stack: "
                              "LAZYOS_NETD=1): `wifisim` serves wlan0 over a second virtio-net "

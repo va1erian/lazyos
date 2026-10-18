@@ -1,7 +1,7 @@
 //! The logic of the Realtek RTL8822CE Wi-Fi driver, as host-testable
 //! `no_std` code (docs/wifi-rtw88-plan.md).
 //!
-//! The AMD NUC's Wi-Fi card (`10ec:c822`, docs/compat/amd-nuc) is driven by
+//! The Kaby Lake box's Wi-Fi card (`10ec:c822`, docs/compat/kabylake) is driven by
 //! Linux's `rtw88`, which is dual-licensed `GPL-2.0 OR BSD-3-Clause`; this
 //! crate is a Rust translation of the parts a station needs, taken under
 //! BSD-3-Clause, with every module naming the upstream file and functions it
