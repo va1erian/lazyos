@@ -7,8 +7,9 @@
 //!
 //! An axis is absolute state, not an edge: the producer publishes it only when
 //! its value changed, and the bus merges it into the newest queued record by
-//! *replacing* the value, so a starved consumer costs one slot per axis rather
-//! than one per report. Buttons stay edges and never merge.
+//! *replacing* the value, so repeated updates of one axis behind a starved
+//! consumer cost one slot rather than one per report. Buttons stay edges and
+//! never merge.
 
 /// Generic Desktop usages a gamepad axis may carry.
 pub mod usage {
@@ -26,15 +27,19 @@ pub mod usage {
 /// The hat's centred (null) value: its eight directions are `0..=7`.
 pub const HAT_CENTRED: i32 = 8;
 
+/// Axes a source can hold: `X..=Dial` (8) plus the hat.
+pub const SLOTS: u32 = 9;
+
 /// Whether `code` is an axis usage the bus carries.
 pub fn is_usage(code: u16) -> bool {
-    (usage::X..=usage::DIAL).contains(&code) || code == usage::HAT
+    slot(code).is_some()
 }
 
-/// The index of `code` among the axes: `0..=7` for `X..=Dial`, 8 for the hat.
+/// The index of `code` among the axes: `0..=7` for `X..=Dial`, 8 for the hat,
+/// `None` for anything else.
 pub fn slot(code: u16) -> Option<u32> {
     if code == usage::HAT {
-        Some(8)
+        Some(SLOTS - 1)
     } else if (usage::X..=usage::DIAL).contains(&code) {
         Some(u32::from(code - usage::X))
     } else {
@@ -42,9 +47,10 @@ pub fn slot(code: u16) -> Option<u32> {
     }
 }
 
-/// The usage of `slot`, the inverse of [`slot`].
+/// The usage of `slot`, the inverse of [`slot`] for the slots it yields.
 pub fn usage_of(slot: u32) -> u16 {
-    if slot == 8 {
+    debug_assert!(slot < SLOTS, "slot {slot} is not an axis");
+    if slot == SLOTS - 1 {
         usage::HAT
     } else {
         usage::X + slot as u16

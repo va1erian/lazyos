@@ -11,6 +11,7 @@ mod gamepad;
 pub(crate) mod golden;
 mod hub;
 mod report;
+mod xinput;
 
 use golden::*;
 

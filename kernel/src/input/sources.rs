@@ -289,7 +289,7 @@ fn release(table: &mut Table, index: usize) {
             bus::publish(device, kind::BUTTON, bit + 1, value::RELEASE);
         }
     }
-    for slot in 0..9u32 {
+    for slot in 0..axis::SLOTS {
         if source.axes & (1 << slot) != 0 {
             let code = axis::usage_of(slot);
             bus::publish(device, kind::AXIS, code, axis::rest(code));

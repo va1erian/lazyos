@@ -16,11 +16,12 @@
 > QEMU 10.2.50 speaks the plain usbredir protocol over a socket
 > (`usb-redir` + `-chardev socket`), and a minimal server that advertises the
 > right capabilities gets a **fake device attached to the emulated xHCI bus**
-> (`info usb`: `Device 0.1, Port 1, Speed 12 Mb/s`) with QEMU itself issuing
-> the standard device-descriptor control transfer — so a scripted fake gamepad
-> is possible in CI. Separately, `usb-host` passes a real 8BitDo Ultimate 2
-> (VID `2dc8`, PID `310b`) through to the emulated xHCI bus on Windows, so the
-> pipeline can be exercised against real hardware in QEMU too.
+> (`info usb`: `Device 0.1, Port 1, Speed 12 Mb/s`), with the guest's USB
+> stack issuing the standard device-descriptor control transfer — so a
+> scripted fake gamepad is possible in CI. Separately, `usb-host` passes a
+> real 8BitDo Ultimate 2 (VID `2dc8`, PID `310b`) through to the emulated xHCI
+> bus on Windows, so the pipeline can be exercised against real hardware in
+> QEMU too.
 
 ## Goal and scope
 
@@ -256,7 +257,7 @@ stress tests and must pass `python tools/test/run.py --accel none`.
 |---|---|---|
 | **G0** Libraries **(landed)** | `libs/usbhid`: `report/` split, gamepad layout, `Gamepad` decoder, `xinput.rs`; `MAX_BUTTONS` per layout | `cargo test -p usbhid`: golden descriptors (generic pad, four-way hat, report-id pad, X-input reports), hat and range normalization, change-only output, `release_all`; seeded fuzz + `python fuzz/gen_corpus.py --check` |
 | **G1** Kernel **(landed)** | `kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class, `u32` button tracking, axis rest tracking, `bus_axis.rs`, merge rules | `input_bus_suite`: class gate, ranges, `DEVICE` from every class, release-on-close (32 buttons and deflected axes), merge/replace, the million-record stress with two gamepads |
-| **G2** `usbd` HID gamepad | Second-pass binding accepts a gamepad layout (trying `parse_gamepad` first, and never falling back to the pointer layout for an interface that declares a pad collection); `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons and centres axes; marker `USBD:HID:PAD vendor= product= interface= dci=` | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
+| **G2** `usbd` HID gamepad | Second-pass binding accepts a gamepad layout (trying `parse_gamepad` first, and never falling back to the pointer layout for an interface that declares a pad collection — the library gains a `has_pad_collection` probe, or a dedicated error, so the driver can tell "not a pad" from "a pad it cannot place"); `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons and centres axes; marker `USBD:HID:PAD vendor= product= interface= dci=` | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
 | **G3** `inputd` | `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, per-device classification so a pad's buttons never reach the pointer engine | `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone; a seeded fuzz entry |
 | **G4** Client library | `xui_app::input` events + `GamepadStatePage`, `xui_app::gamepad::Standard` | `cargo test --manifest-path xui-app/Cargo.toml -p xui-app` (Linux/WSL, the crate's lib tests are Linux-only) |
 | **G5** Doom | `lazydoom::pad`: the page read each frame, canonical state to Doom keys (left stick move/strafe, right stick turn, d-pad menu, A fire, B use, Y map, Start menu), markers `DOOM:PAD:*`; session `tools/screenshot/examples/doom_pad.json` | The session script drives the Doom menu with the fake pad (G7) and judges markers + screenshots |
@@ -288,9 +289,12 @@ The verdict is what the guest *did*, as with keyboard, mouse and tablet.
   must advertise `connect_device_version`, `ep_info_max_packet_size`,
   `64bits_ids` and `32bits_bulk_length` (caps `0x72`) and switch to the
   16-byte header with a 64-bit id after the HELLO — QEMU refuses a usb-redir
-  host without the last three on an xHCI port (`hw/usb/redirect.c`) — and
-  QEMU's own attach then issues a standard `GET_DESCRIPTOR(device, 8)`
-  control transfer the server must answer before the device is usable.
+  host without the last three on an xHCI port (`hw/usb/redirect.c`), and the
+  `ep_info` body is 160 bytes, not 96, whenever both sides have
+  `ep_info_max_packet_size` (the `max_packet_size[32]` array). The guest's
+  USB stack then issues a standard `GET_DESCRIPTOR(device, 8)` control
+  transfer (SeaBIOS in a diskless probe, `usbd` in the real harness) that the
+  server must answer before the device is usable.
 - **`gamepad_run.py`** — builds (`LAZYOS_SERVICES=1 LAZYOS_USB=1
   LAZYOS_USB_TRACE=1`), boots QEMU with `qemu-xhci` +
   `-device usb-redir,chardev=pad0 -chardev socket,id=pad0,...` and **no
