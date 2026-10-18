@@ -458,7 +458,12 @@ descriptors in the receiver's table (`scm::deliver`), `FD_CLOEXEC` with
 ever dropped with the ring unlocked, since closing a socket end takes other
 rings' locks; the last reader closing a direction purges its queue
 (`Pipe::release`). In-flight descriptors are charged to the sender's `Fds`
-quota and a global ceiling (`ETOOMANYREFS`).
+quota and a global ceiling (`ETOOMANYREFS`). A send that would close a loop
+(`Rights::would_cycle`: a pair carrying a descriptor that reaches the pair
+itself, a listener counted by its pending connections) is refused with the
+same `ETOOMANYREFS`, because nothing here collects such cycles: an **epoll
+instance is never sendable** (it watches descriptors, so it is in every
+cycle), a deviation from Linux, which accepts it and garbage-collects.
 
 `memfd_create` makes an `Fd::Memfd` (`task/fdtypes.rs`) over a
 `mem::memfd::Memfd`: a sparse vector of frames, so it is mappable, not a

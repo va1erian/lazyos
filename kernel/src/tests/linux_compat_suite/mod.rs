@@ -275,6 +275,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         scmrights_listener_cycle_soak,
     ),
     (
+        "compat_scmrights_listener_sent_then_connected",
+        scmrights_listener_sent_then_connected,
+    ),
+    (
         "compat_scmrights_blocked_send_revalidates",
         scmrights_blocked_send_revalidates,
     ),

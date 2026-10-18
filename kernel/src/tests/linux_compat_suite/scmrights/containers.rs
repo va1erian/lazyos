@@ -198,3 +198,75 @@ pub fn scmrights_listener_cycle_soak() -> Result<(), String> {
     task::harness::reset();
     settled(pipes_before)
 }
+
+/// A listener sent through a pair `D` (it sits in `D`'s queue), then a new
+/// connection to it: the connection is pending in the listener, so sending
+/// `D`'s end through that connection would close the loop `D` -> listener ->
+/// connection -> `D`. Refused whichever end of `D` is sent, and the first
+/// connection made before the listener travelled behaves the same. 100 rounds,
+/// nothing left behind.
+pub fn scmrights_listener_sent_then_connected() -> Result<(), String> {
+    let pipes_before = pipe::Pipe::live();
+    let p = processes()?;
+    for round in 0..100u32 {
+        let id = 1000 + round;
+        let (sockaddr, len) = abstract_name(id);
+        let addr = sockaddr.as_ptr() as u64;
+        let listener = sys(SYS_SOCKET, &[AF_UNIX, SOCK_STREAM, 0]);
+        check!(
+            (listener as i64) >= 0,
+            "round {round}: listener {listener:#x}"
+        );
+        check!(
+            sys(SYS_BIND, &[listener, addr, len]) == 0,
+            "round {round}: bind"
+        );
+        check!(
+            sys(SYS_LISTEN, &[listener, 4]) == 0,
+            "round {round}: listen"
+        );
+        // The listener is in flight inside D, nobody connected yet: allowed.
+        check!(
+            send_fds(p.a, b"l", &[listener]) == 1,
+            "round {round}: a listener with nothing pending through a pair"
+        );
+        let client = sys(SYS_SOCKET, &[AF_UNIX, SOCK_STREAM, 0]);
+        check!((client as i64) >= 0, "round {round}: client {client:#x}");
+        check!(
+            sys(SYS_CONNECT, &[client, addr, len]) == 0,
+            "round {round}: connect"
+        );
+        for (name, end) in [("a", p.a), ("b", p.b)] {
+            check!(
+                send_fds(client, b"d", &[end]) == ETOOMANYREFS,
+                "round {round}: end {name} of the pair holding the listener through the new connection"
+            );
+        }
+        check!(
+            pipe::in_flight() == 1,
+            "round {round}: {} descriptors in flight, want the listener",
+            pipe::in_flight()
+        );
+        // Drain D so the next round starts clean.
+        let mut buf = [0u8; 4];
+        let got = recv_fds(p.b, &mut buf, Some(4), 0);
+        check!(
+            got.n == 1 && got.fds.len() == 1,
+            "round {round}: receive the listener: n={:#x}",
+            got.n
+        );
+        for fd in [got.fds[0], listener, client] {
+            close(fd);
+        }
+    }
+    for fd in [p.a, p.b, p.sa, p.sb, p.r, p.w] {
+        close(fd);
+    }
+    task::harness::switch_current(p.child);
+    for fd in [p.a, p.b, p.sa, p.sb, p.r, p.w] {
+        close(fd);
+    }
+    task::harness::switch_current(p.leader);
+    task::harness::reset();
+    settled(pipes_before)
+}
