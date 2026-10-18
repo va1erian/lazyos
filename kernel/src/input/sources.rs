@@ -12,9 +12,10 @@
 //! The kernel remembers which keys and buttons each source holds. Closing a
 //! source, or its task dying ([`teardown_task`]), publishes a release for
 //! each, so unplugging a device or crashing a driver cannot leave a key or a
-//! button stuck. A gamepad's axes are state, not held edges: its driver
-//! returns them to rest itself when the device goes away
-//! (`docs/usb-gamepad-plan.md`).
+//! button stuck. A gamepad's axes are state rather than edges, but the kernel
+//! remembers which of them were last away from their rest value and returns
+//! them there on close and on task death too, so a crashed driver cannot leave
+//! a stick deflected either (`docs/usb-gamepad-plan.md`).
 //!
 //! Ids: a source id is `generation << 8 | index`; the generation changes on
 //! every registration of the slot, so a stale id from a closed source fails
@@ -103,6 +104,10 @@ struct Source {
     keys: [u64; 4],
     /// Bit `n` is button usage `n + 1` (a gamepad reports up to 32).
     buttons: u32,
+    /// Axes whose last published value was not their rest value, one bit per
+    /// [`axis::slot`]: a driver that dies holding a stick must not leave it
+    /// deflected.
+    axes: u16,
     tokens: u32,
     refilled_at: u64,
 }
@@ -178,6 +183,7 @@ pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
             generation,
             keys: [0; 4],
             buttons: 0,
+            axes: 0,
             tokens: bucket.tokens,
             refilled_at: bucket.refilled_at,
         };
@@ -259,8 +265,8 @@ pub fn teardown_task(slot: usize) {
     });
 }
 
-/// Publish a release for every key and button source `index` holds, then
-/// free the slot.
+/// Publish a release for every key, button and deflected axis source `index`
+/// holds, then free the slot.
 fn release(table: &mut Table, index: usize) {
     let Some(source) = table.slots[index].take() else {
         return;
@@ -281,6 +287,12 @@ fn release(table: &mut Table, index: usize) {
     for bit in 0..32u16 {
         if source.buttons & (1 << bit) != 0 {
             bus::publish(device, kind::BUTTON, bit + 1, value::RELEASE);
+        }
+    }
+    for slot in 0..9u32 {
+        if source.axes & (1 << slot) != 0 {
+            let code = axis::usage_of(slot);
+            bus::publish(device, kind::AXIS, code, axis::rest(code));
         }
     }
 }
@@ -325,6 +337,16 @@ fn track(source: &mut Source, record: &Record) {
                 source.buttons |= bit;
             } else {
                 source.buttons &= !bit;
+            }
+        }
+        kind::AXIS => {
+            let Some(slot) = axis::slot(record.code) else {
+                return;
+            };
+            if record.value == axis::rest(record.code) {
+                source.axes &= !(1 << slot);
+            } else {
+                source.axes |= 1 << slot;
             }
         }
         _ => {}

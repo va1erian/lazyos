@@ -4,10 +4,11 @@
 //! A gamepad has no boot protocol, so its layout is read from its report
 //! descriptor. It is the first report whose X axis sits inside a **Game Pad**,
 //! **Joystick** or **Multi-axis Controller** application collection: that
-//! scoping is what keeps a gamepad from being mistaken for a pointer (a pad's
-//! absolute X/Y would otherwise look like a tablet). Axes keep their Generic
-//! Desktop usages, which is the vocabulary the bus carries; the driver
-//! normalizes the values, `inputd` decides what they mean.
+//! scoping is what tells a pad apart from a pointer, and the caller must try
+//! this layout first — [`super::parse_pointer`] is unscoped and would read a
+//! pad's absolute X/Y as a tablet. Axes keep their Generic Desktop usages,
+//! which is the vocabulary the bus carries; the driver normalizes the values,
+//! `inputd` decides what they mean.
 
 use super::{fields, usage, walk, Field};
 use crate::Error;
@@ -203,17 +204,19 @@ fn is_pad_app(app: Option<(u16, u16)>) -> bool {
 /// absolute state.
 pub fn parse_gamepad(descriptor: &[u8]) -> Result<Gamepad, Error> {
     let mut id = None;
-    let ids_used = walk(descriptor, |item| {
+    let mut ids_before = false;
+    walk(descriptor, |item| {
         if id.is_none()
             && is_pad_app(item.app)
             && fields(item).any(|(u, _)| u == (usage::GENERIC_DESKTOP, usage::X))
         {
             id = Some(item.globals.report_id);
+            ids_before = item.ids_used;
         }
     })?;
     let id = id.ok_or(Error::WrongType)?;
     let mut pad = Gamepad {
-        report_id: ids_used.then_some(id),
+        report_id: ids_before.then_some(id),
         ..Gamepad::default()
     };
     walk(descriptor, |item| {

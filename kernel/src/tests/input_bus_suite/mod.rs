@@ -229,6 +229,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         gamepad::close_releases_all_32_buttons,
     ),
     (
+        "input_gamepad_close_centres_held_axes",
+        gamepad::close_centres_held_axes,
+    ),
+    (
         "input_gamepad_axis_tail_merges_by_replacing",
         gamepad::axis_tail_merges_by_replacing,
     ),

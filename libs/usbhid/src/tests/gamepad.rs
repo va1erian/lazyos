@@ -6,6 +6,7 @@ use std::vec::Vec;
 use super::golden::{PAD_REPORT, PAD_REPORT_4WAY, PAD_REPORT_IDS, TABLET_REPORT};
 use crate::report::gamepad::{parse_gamepad, Decoder, PadOut, HAT_CENTRED};
 use crate::report::usage;
+use crate::report::Field;
 use crate::xinput;
 use crate::Error;
 
@@ -290,6 +291,79 @@ fn deeply_nested_collections_keep_the_application() {
     let pad = parse_gamepad(&descriptor).unwrap();
     assert_eq!(pad.axes[0].unwrap().bit, 0);
     assert_eq!(pad.axes[1].unwrap().bit, 8);
+}
+
+#[test]
+fn a_full_i32_hat_range_normalizes_without_panicking() {
+    // A hostile descriptor can declare a hat over the whole `i32` range:
+    // `max - min` must not overflow (debug) or wrap to a zero span (release).
+    let descriptor = [
+        0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, // Game Pad application
+        0x09, 0x30, 0x09, 0x31, // X, Y
+        0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, // 0..255
+        0x09, 0x39, // Hat switch
+        0x17, 0x00, 0x00, 0x00, 0x80, // Logical Minimum (i32::MIN)
+        0x27, 0xff, 0xff, 0xff, 0x7f, // Logical Maximum (i32::MAX)
+        0x75, 0x20, 0x95, 0x01, 0x81, 0x02, // a 32-bit hat
+        0xc0,
+    ];
+    let pad = parse_gamepad(&descriptor).unwrap();
+    assert!(pad.hat());
+    let hat = pad.axes[8].unwrap();
+    assert_eq!(
+        (hat.bits, hat.logical_min, hat.logical_max),
+        (32, i32::MIN, i32::MAX)
+    );
+    assert_eq!(hat.normalize_hat(i32::MIN), 0);
+    assert_eq!(hat.normalize_hat(0), 4, "the range's midpoint is south");
+    assert_eq!(hat.normalize_hat(i32::MAX), 7);
+    // The decoder path takes the same value.
+    let mut decoder = Decoder::new(pad);
+    let mut hats = Vec::new();
+    let mut feed = |report: &[u8]| {
+        hats.clear();
+        assert!(decoder.feed(report, |out| {
+            if let PadOut::Axis {
+                usage: usage::HAT,
+                value,
+            } = out
+            {
+                hats.push(value)
+            }
+        }));
+        hats.clone()
+    };
+    assert_eq!(feed(&[0, 0, 0x00, 0x00, 0x00, 0x00]), [4]);
+    assert_eq!(feed(&[0, 0, 0xff, 0xff, 0xff, 0x7f]), [7]);
+    assert_eq!(feed(&[0, 0, 0x00, 0x00, 0x00, 0x80]), [0]);
+    // A logical maximum below the minimum centres rather than dividing.
+    let inverted = Field {
+        bit: 0,
+        bits: 8,
+        logical_min: 10,
+        logical_max: 5,
+        relative: false,
+    };
+    assert_eq!(inverted.normalize_hat(7), HAT_CENTRED);
+}
+
+#[test]
+fn a_later_report_id_does_not_give_the_first_report_one() {
+    // A malformed descriptor: the pad's report has no id, a later report
+    // does. The pad's reports must not be read as if they carried an id byte.
+    let descriptor = [
+        0x05, 0x01, 0x09, 0x05, 0xa1, 0x01, // Game Pad application
+        0x09, 0x30, 0x09, 0x31, // X, Y (no report id in force)
+        0x15, 0x00, 0x25, 0x7f, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, // -128..=127
+        0x85, 0x02, // Report ID (2): a later report
+        0x09, 0x32, 0x15, 0x00, 0x25, 0xff, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02, // Z
+        0xc0,
+    ];
+    let pad = parse_gamepad(&descriptor).unwrap();
+    assert_eq!(pad.report_id, None);
+    assert_eq!(pad.axes[0].unwrap().bit, 0);
+    assert!(pad.axes[2].is_none(), "report 2's Z is not this report's");
+    assert!(pad.read(&[0x00, 0x80]).is_some());
 }
 
 #[test]

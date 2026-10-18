@@ -116,12 +116,18 @@ impl Field {
     /// spread over the same eight directions), or [`gamepad::HAT_CENTRED`]
     /// for a value outside the logical range — the null state a hat rests in.
     pub fn normalize_hat(&self, value: i32) -> i32 {
-        let (min, max) = (self.logical_min, self.logical_max);
+        // A hostile descriptor can name the full `i32` range: widen before
+        // any arithmetic, as `normalize` and `normalize_axis` do.
+        let (min, max, value) = (
+            i64::from(self.logical_min),
+            i64::from(self.logical_max),
+            i64::from(value),
+        );
         if max < min || value < min || value > max {
             return gamepad::HAT_CENTRED;
         }
-        let span = i64::from(max - min) + 1;
-        (((i64::from(value - min)) * 8) / span) as i32
+        let span = max - min + 1;
+        (((value - min) * 8) / span) as i32
     }
 }
 
@@ -216,12 +222,15 @@ struct Item<'a> {
     start: u32,
     /// The application collection's usage this item sits in, if any.
     app: Option<(u16, u16)>,
+    /// Whether a Report ID item appeared before this one: the layout's
+    /// reports carry an id byte only if they do (a descriptor whose first
+    /// report has none and a later one has one must not demand a zero byte).
+    ids_used: bool,
 }
 
 /// Walk the item stream, calling `visit` for every Input item with the
-/// global and local state in force and its offset in its report. Returns
-/// whether the descriptor uses report ids at all.
-fn walk(descriptor: &[u8], mut visit: impl FnMut(&Item)) -> Result<bool, Error> {
+/// global and local state in force and its offset in its report.
+fn walk(descriptor: &[u8], mut visit: impl FnMut(&Item)) -> Result<(), Error> {
     let mut globals = Globals::default();
     let mut stack = [Globals::default(); MAX_STACK];
     let mut depth = 0;
@@ -267,6 +276,7 @@ fn walk(descriptor: &[u8], mut visit: impl FnMut(&Item)) -> Result<bool, Error> 
                             flags: unsigned,
                             start,
                             app: collections.application(),
+                            ids_used,
                         });
                     }
                     0xA => collections.push(locals.nth(0, globals.page).unwrap_or((0, 0))),
@@ -305,7 +315,7 @@ fn walk(descriptor: &[u8], mut visit: impl FnMut(&Item)) -> Result<bool, Error> 
             _ => {}
         }
     }
-    Ok(ids_used)
+    Ok(())
 }
 
 /// The value fields of an Input item with their (page, usage): constant

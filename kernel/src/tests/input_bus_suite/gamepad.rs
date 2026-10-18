@@ -41,6 +41,7 @@ pub fn class_and_ranges() -> Result<(), String> {
         rec(kind::ABS_MOTION, 0, 1),
         rec(kind::SCROLL, 0, 1),
         rec(kind::AXIS, 0x40, 0),
+        rec(kind::AXIS, 0x38, 0), // a wheel is SCROLL, never an axis
         rec(kind::AXIS, axis::usage::X, 32768),
         rec(kind::AXIS, axis::usage::X, -32769),
         rec(kind::AXIS, axis::usage::HAT, 9),
@@ -65,7 +66,7 @@ pub fn class_and_ranges() -> Result<(), String> {
         shape(&carried)
     );
     check!(
-        sources::counters().0 == 11,
+        sources::counters().0 == 12,
         "rejected {:?}",
         sources::counters()
     );
@@ -142,6 +143,72 @@ pub fn close_releases_all_32_buttons() -> Result<(), String> {
     Ok(())
 }
 
+/// Closing a gamepad returns every axis that was away from its rest value to
+/// rest — a crashed or unplugged driver cannot leave a stick deflected — and
+/// an axis already back at rest is not re-published. Task death takes the
+/// same path.
+pub fn close_centres_held_axes() -> Result<(), String> {
+    sources::reset();
+    bus::reset();
+    fresh();
+    let reader = scratch()?;
+    bus::open(reader).map_err(|e| format!("{e:?}"))?;
+    driver_task(CAP_INPUT_SOURCE)?;
+    let pad = register(class::GAMEPAD)?;
+    check!(
+        publish(
+            pad,
+            &[
+                rec(kind::AXIS, axis::usage::X, -32768),
+                rec(kind::AXIS, axis::usage::HAT, 2),
+                rec(kind::AXIS, axis::usage::RZ, 0), // already at rest
+                rec(kind::BUTTON, 1, 1),
+            ]
+        ) == 4,
+        "publish"
+    );
+    let pressed = drain_all(reader, 16)?;
+    check!(pressed.len() == 4, "bus carried {}", pressed.len());
+    let device = pressed[0].device;
+    // The hat goes back to rest on its own: closing must not re-publish it.
+    check!(
+        publish(pad, &[rec(kind::AXIS, axis::usage::HAT, 8)]) == 1,
+        "centre the hat"
+    );
+    let _ = drain_all(reader, 16)?;
+    check!(call(op::CLOSE_SOURCE, pad, 0) == 0, "close");
+    let released = drain_all(reader, 16)?;
+    check!(
+        shape(&released)
+            == [
+                (device, kind::BUTTON, 1, 0),
+                (device, kind::AXIS, axis::usage::X, 0),
+            ],
+        "released {:x?}",
+        shape(&released)
+    );
+    // A driver that dies holding a stick has it centred too.
+    let driver = driver_task(CAP_INPUT_SOURCE)?;
+    let pad = register(class::GAMEPAD)?;
+    check!(
+        publish(pad, &[rec(kind::AXIS, axis::usage::Y, 1234)]) == 1,
+        "deflect"
+    );
+    let deflected = drain_all(reader, 16)?;
+    let device = deflected[0].device;
+    sources::teardown_task(driver);
+    let released = drain_all(reader, 16)?;
+    check!(
+        shape(&released) == [(device, kind::AXIS, axis::usage::Y, 0)],
+        "teardown released {:x?}",
+        shape(&released)
+    );
+    sources::reset();
+    bus::reset();
+    fresh();
+    Ok(())
+}
+
 /// An axis is absolute state: a newer value *replaces* the queued one, so a
 /// starved consumer costs one slot per axis instead of one per report. The
 /// pointer's turn rule does not apply, and neither a button in between nor
@@ -210,6 +277,7 @@ pub fn axis_tail_merges_by_replacing() -> Result<(), String> {
         "rejected record merged: {:x?}",
         shape(&records)
     );
+    gapless(&records, expected)?;
     sources::reset();
     bus::reset();
     fresh();

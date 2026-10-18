@@ -77,15 +77,18 @@ these are left open, and the plan says where.
    | `BUTTON` (4) | HID button usage; `1..=32` for a gamepad source | `0` release, `1` press | edges only; never merged |
    | `DEVICE` (next free, 9) | vendor id | `product | version << 16` | published once by the driver after `register_source`; diagnostics and the deferred mapping table |
 
-   `AXIS` merges like `ABS_MOTION` (replace, same device/kind/code), so a pad
-   behind a starved `inputd` costs one slot per axis, not one per report.
-   Buttons are edges and keep their order, exactly as keys do.
+   `AXIS` merges like `ABS_MOTION` (replace, same device/kind/code), so
+   repeated updates of one axis behind a starved `inputd` cost one slot, not
+   one per report. Buttons are edges and keep their order, exactly as keys do.
 3. **A new source class, `Gamepad` (kernel).** Permitted kinds: `AXIS` (known
    usages only, value in `i16` range) and `BUTTON` (`1..=32`, edge). A gamepad
    source cannot publish a `KEY`, a pointer record or a `SCROLL`: the class
    gate is what stops a compromised gamepad driver from typing. Held-button
    tracking widens from `u8` to `u32`; `close` (and task death) publishes a
-   release for every held button, so unplug and crash cannot stick one.
+   release for every held button, so unplug and crash cannot stick one. Axes
+   are state rather than edges, but the kernel also remembers which of them
+   were last away from their rest value and returns them there on close and on
+   task death, so a crashed driver cannot leave a stick deflected either.
    No new syscall: `register_source` takes the new class value, `publish`
    validates against it.
 4. **Delivery: the focused session only, through `os.lazy.input.v1`.** A
@@ -102,8 +105,11 @@ these are left open, and the plan says where.
 6. **`inputd` owns the device-independent state, the client owns the
    mapping.** `inputd` applies the deadzone, converts the hat to d-pad
    directions, keeps one slot per device (up to 4) and resyncs on `Dropped`
-   (release every button, centre every axis: fails safe). The client library
-   offers `xui_app::gamepad::Standard`, a typed view of the canonical usages
+   (release every button, centre every axis: fails safe). It classifies a
+   device once — its first `AXIS` or `DEVICE` record — and gives its `BUTTON`
+   records to exactly one engine, so a pad's A/B/X/Y (usages 1..=5) do not
+   also click the cursor. The client library offers
+   `xui_app::gamepad::Standard`, a typed view of the canonical usages
    (left/right stick, triggers, d-pad, 11 named buttons). A per-device mapping
    table (SDL's GameController DB approach) and a remap UI come later; the
    `DEVICE` record is what they will key on.
@@ -155,9 +161,12 @@ these are left open, and the plan says where.
 - The gamepad layout is found the way the pointer one is: the walk records
   the first Input item whose usage is X **inside a Game Pad / Joystick /
   Multi-axis Controller application collection**, then that report's other
-  axes and buttons. `report_id` handling and the "skip what cannot be placed"
-  rules are unchanged; a relative axis is not placed (the bus's `AXIS` is
-  absolute).
+  axes and buttons. A relative axis is not placed (the bus's `AXIS` is
+  absolute); the "skip what cannot be placed" rules are unchanged. One
+  inherited wart was fixed on the way: a layout carries a report-id byte only
+  if a Report ID item appeared *before* its report, so a descriptor whose
+  first report has none and a later one has one no longer reads the pad's
+  reports with a spurious id byte (the same fix applies to the pointer).
 - `xinput.rs` (new): the fixed 20-byte X-input report (buttons, LT, RT, LX,
   LY, RX, RY) decoded to the canonical usages — d-pad bits to the hat axis,
   A/B/X/Y to buttons 1..=4, LB/RB 5/6, Back/Start 7/8, L3/R3 9/10, Guide 11,
@@ -199,7 +208,8 @@ these are left open, and the plan says where.
   records and turns them into `Item`s; `trace.rs` gains `INPUTD:PAD` lines.
 - The page (`inputmap::gamepad::SharedPads`, mirroring `keystate`): a
   seqlock word, the newest `seq`, a focused flag, a pad count and 4 slots of
-  (device, buttons, hat, 8 axes) — under 128 bytes, so one page is plenty.
+  (device, buttons, hat, 8 axes) — a little over a hundred bytes with `i16`
+  axes, well inside one 4 KiB page.
 
 ### Interfaces (`idl/input.midl`, generated with `midlc`)
 
@@ -245,9 +255,9 @@ stress tests and must pass `python tools/test/run.py --accel none`.
 | Phase | Deliverable | Tests |
 |---|---|---|
 | **G0** Libraries **(landed)** | `libs/usbhid`: `report/` split, gamepad layout, `Gamepad` decoder, `xinput.rs`; `MAX_BUTTONS` per layout | `cargo test -p usbhid`: golden descriptors (generic pad, four-way hat, report-id pad, X-input reports), hat and range normalization, change-only output, `release_all`; seeded fuzz + `python fuzz/gen_corpus.py --check` |
-| **G1** Kernel **(landed)** | `kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class, `u32` button tracking, `bus_axis.rs`, merge rules | `input_bus_suite`: class gate, ranges, `DEVICE` from every class, release-on-close (32 buttons), merge/replace, the million-record stress with two gamepads |
-| **G2** `usbd` HID gamepad | Second-pass binding accepts a gamepad layout; `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons; marker `USBD:HID:PAD vendor= product= interface= dci=` | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
-| **G3** `inputd` | `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session | `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped; a seeded fuzz entry |
+| **G1** Kernel **(landed)** | `kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class, `u32` button tracking, axis rest tracking, `bus_axis.rs`, merge rules | `input_bus_suite`: class gate, ranges, `DEVICE` from every class, release-on-close (32 buttons and deflected axes), merge/replace, the million-record stress with two gamepads |
+| **G2** `usbd` HID gamepad | Second-pass binding accepts a gamepad layout (trying `parse_gamepad` first, and never falling back to the pointer layout for an interface that declares a pad collection); `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons and centres axes; marker `USBD:HID:PAD vendor= product= interface= dci=` | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
+| **G3** `inputd` | `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, per-device classification so a pad's buttons never reach the pointer engine | `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone; a seeded fuzz entry |
 | **G4** Client library | `xui_app::input` events + `GamepadStatePage`, `xui_app::gamepad::Standard` | `cargo test --manifest-path xui-app/Cargo.toml -p xui-app` (Linux/WSL, the crate's lib tests are Linux-only) |
 | **G5** Doom | `lazydoom::pad`: the page read each frame, canonical state to Doom keys (left stick move/strafe, right stick turn, d-pad menu, A fire, B use, Y map, Start menu), markers `DOOM:PAD:*`; session `tools/screenshot/examples/doom_pad.json` | The session script drives the Doom menu with the fake pad (G7) and judges markers + screenshots |
 | **G6** X-input | `usbd` binds `FF/5D/01`, decodes the fixed report, same records; marker `USBD:HID:XINPUT`; unplug releases | `libs/usbhid` golden reports; the fake X-input device in the harness; the real 8BitDo over `usb-host` |
@@ -325,12 +335,13 @@ The verdict is what the guest *did*, as with keyboard, mouse and tablet.
    logged rather than half-driven; every new fixture found on real hardware
    becomes a golden test. A per-device mapping table is the deferred answer,
    keyed on the `DEVICE` record.
-2. **Rate and ring pressure.** X-input is polled at 250 Hz and a report can
-   change 8 axes and 16 buttons; the kernel's token bucket (512 burst, 64 per
-   10 ms) is close to the theoretical worst case. Mitigation: only *changed*
-   axes are published, `AXIS` tail-merges, and the harness measures the
-   dropped/throttled counters; raising the refill is a one-line kernel change
-   with tests.
+2. **Rate and ring pressure.** X-input is polled at 250 Hz and its report
+   can change 6 axes, the hat and 11 buttons — 18 records, 4500/s against the
+   kernel's token bucket (512 burst, 64 per 10 ms = 6400/s); a standard HID
+   pad can change 9 axes and 32 buttons, at whatever rate its endpoint
+   declares. Mitigation: only *changed* axes are published, `AXIS`
+   tail-merges, and the harness measures the dropped/throttled counters;
+   raising the refill is a one-line kernel change with tests.
 3. **`Dropped` resync semantics.** Centring axes that are physically held is
    wrong until the next report — but a pad only sends changes, so a stick held
    still after a ring overflow reads as centred until it moves. That fails

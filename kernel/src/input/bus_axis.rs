@@ -31,6 +31,35 @@ pub fn is_usage(code: u16) -> bool {
     (usage::X..=usage::DIAL).contains(&code) || code == usage::HAT
 }
 
+/// The index of `code` among the axes: `0..=7` for `X..=Dial`, 8 for the hat.
+pub fn slot(code: u16) -> Option<u32> {
+    if code == usage::HAT {
+        Some(8)
+    } else if (usage::X..=usage::DIAL).contains(&code) {
+        Some(u32::from(code - usage::X))
+    } else {
+        None
+    }
+}
+
+/// The usage of `slot`, the inverse of [`slot`].
+pub fn usage_of(slot: u32) -> u16 {
+    if slot == 8 {
+        usage::HAT
+    } else {
+        usage::X + slot as u16
+    }
+}
+
+/// The value an axis rests at: the hat is centred, every other axis 0.
+pub fn rest(code: u16) -> i32 {
+    if code == usage::HAT {
+        HAT_CENTRED
+    } else {
+        0
+    }
+}
+
 /// Whether `code` with `value` is a record the bus accepts: a known usage,
 /// the hat inside its eight directions plus centred, every other axis in the
 /// `i16` range the normalization produces.

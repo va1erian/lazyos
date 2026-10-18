@@ -157,14 +157,16 @@ impl Decoder {
 /// Y, wheel and buttons. Fields of other reports are ignored.
 pub fn parse_pointer(descriptor: &[u8]) -> Result<Pointer, Error> {
     let mut id = None;
-    let ids_used = walk(descriptor, |item| {
+    let mut ids_before = false;
+    walk(descriptor, |item| {
         if id.is_none() && fields(item).any(|(u, _)| u == (usage::GENERIC_DESKTOP, usage::X)) {
             id = Some(item.globals.report_id);
+            ids_before = item.ids_used;
         }
     })?;
     let id = id.ok_or(Error::WrongType)?;
     let mut pointer = Pointer {
-        report_id: ids_used.then_some(id),
+        report_id: ids_before.then_some(id),
         ..Pointer::default()
     };
     walk(descriptor, |item| {
