@@ -66,7 +66,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MIXER` | `Mixer` | `mixer` | user | tools/sound | programs |
 | `MODPLAY` | `Modplay` | `modplay` | lazyrad-os, user | sessions, tools/lazyrad, tools/sound | programs |
 | `MOUNTD` | `Mountd` | `mountd` | user | sessions, tools/fuse, tools/storage | programs |
-| `MSG` | `Msg` | `msg` | kernel suite, lazyrad-os, xui-app | sessions, tools/rhai | programs |
+| `MSG` | `Msg` | `msg` | kernel suite, lazyrad-os, user, xui-app | sessions, tools/rhai | programs |
 | `MSGBENCH` | `Msgbench` | `msgbench` | user | tools/perf | programs |
 | `MSGCTL` | `Msgctl` | `msgctl` | user | tools/services | programs |
 | `MSGRD` | `Msgrd` | `msgrd` | user | - | programs |
