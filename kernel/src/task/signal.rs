@@ -55,6 +55,7 @@ mod deliver;
 mod fault;
 mod fpframe;
 mod frames;
+mod groupend;
 pub mod harden;
 pub mod killwatch;
 mod native;
@@ -66,7 +67,9 @@ mod types;
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the execmem suite checks the rule
 pub use fault::segv_code;
 pub use fault::{deliver_exception, deliver_fault, Exception};
-pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted, FRAME_DEFER_LIMIT};
+#[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the filemap suite checks the limit
+pub use sweep::FRAME_DEFER_LIMIT;
+pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
 
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the signal suite checks the markers
 pub use fpframe::{FP_XSTATE_MAGIC1, FP_XSTATE_MAGIC2};
@@ -79,6 +82,7 @@ pub use consts::*;
 pub use control::*;
 pub use deliver::*;
 pub use frames::*;
+pub use groupend::*;
 use registry::*;
 pub use registry::{
     ensure_process, exec_thread, forget, fork_inherit, registry_locked, thread_born,
