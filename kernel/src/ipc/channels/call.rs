@@ -240,9 +240,10 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     let caller = {
         let mut channels = CHANNELS.lock();
         let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
-        // Before the state check, so a forger learns nothing about whether
-        // the id is live, and not counted as a drop: it would let any task
-        // skew a service channel's statistics.
+        // Before the state check, so a non-receiver is told the same thing
+        // for a live call and a finished one, and not counted as a drop: it
+        // would let any task skew a service channel's statistics. (An id
+        // that names nothing still reads `NoTransaction`.)
         if !may_reply(channel, index, task::current()) {
             return Err(Error::NotReceiver);
         }

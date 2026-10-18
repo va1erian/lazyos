@@ -216,3 +216,41 @@ pub fn reply_forgery_soak() -> Result<(), String> {
     );
     fresh()
 }
+
+/// The receiver alone is enough: a task that took a request and then let go
+/// of its handle (another holder keeps the side open) still answers it, and
+/// once it is gone its reused slot cannot.
+pub fn receiver_without_a_handle_replies() -> Result<(), String> {
+    fresh()?;
+    let (client, server) = channels::create().map_err(reason)?;
+    let request = parcel(7, flags::SYNC, "x")?;
+    let receiver = spawn_holder("receiver", server, rights::ALL)?;
+    let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+    task::harness::switch_current(receiver);
+    channels::recv(0, None).map_err(reason)?;
+    channels::release_endpoint(0).map_err(reason)?;
+    task::harness::switch_current(task::KERNEL_TASK);
+    check!(
+        reply_as(receiver, txn, "late")? == Ok(()),
+        "the receiver was refused after releasing its handle"
+    );
+    check!(
+        payload(&channels::await_reply(txn).map_err(reason)?)? == "late",
+        "wrong reply"
+    );
+    // A second call received by a task that then dies: the slot's next owner
+    // (a fresh task with no handle) is a stranger to it.
+    let txn = channels::begin_call(client, 7, &request, None).map_err(reason)?;
+    let doomed = spawn_holder("doomed", server, rights::ALL)?;
+    task::harness::switch_current(doomed);
+    channels::recv(0, None).map_err(reason)?;
+    task::harness::switch_current(task::KERNEL_TASK);
+    channels::forget_task(doomed);
+    handles::reset_for_task(doomed);
+    check!(
+        reply_as(doomed, txn, "inherited")? == Err(ChannelError::NotReceiver)
+            || reply_as(doomed, txn, "inherited")? == Err(ChannelError::NoTransaction),
+        "a reused slot answered its predecessor's call"
+    );
+    fresh()
+}

@@ -151,6 +151,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_channel_receiver_death_ends_its_calls",
         receiver_death_ends_its_calls,
     ),
+    (
+        "ipc_channel_receiver_without_a_handle_replies",
+        receiver_without_a_handle_replies,
+    ),
     ("ipc_channel_reply_forgery_soak", reply_forgery_soak),
     ("ipc_channel_deadlock_refused", deadlock_refused),
     (

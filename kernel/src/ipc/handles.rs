@@ -287,7 +287,9 @@ pub fn holds(slot: usize, kind: HandleKind, object_id: u64, required: u32) -> bo
     let tables = TABLES.lock();
     tables.get(slot).is_some_and(|table| {
         table.slots.iter().flatten().any(|entry| {
-            entry.kind == kind && entry.object_id == object_id && entry.rights & required == required
+            entry.kind == kind
+                && entry.object_id == object_id
+                && entry.rights & required == required
         })
     })
 }
