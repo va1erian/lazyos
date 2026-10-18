@@ -190,12 +190,27 @@ mod tests {
         let opens = |autostart, core, wide, installer| {
             autostarts_for(autostart, core, wide, installer, 1000)
         };
-        assert!(opens(true, false, false, 1000), "the installer's own session");
+        assert!(
+            opens(true, false, false, 1000),
+            "the installer's own session"
+        );
         assert!(!opens(true, false, false, 1001), "another user's package");
-        assert!(!opens(true, false, false, 0), "a row from before installers");
-        assert!(opens(true, true, false, 0), "a core package opens for everyone");
-        assert!(opens(true, false, true, 0), "an administrator's machine-wide install");
-        assert!(!opens(false, true, true, 1000), "nothing opens without autostart");
+        assert!(
+            !opens(true, false, false, 0),
+            "a row from before installers"
+        );
+        assert!(
+            opens(true, true, false, 0),
+            "a core package opens for everyone"
+        );
+        assert!(
+            opens(true, false, true, 0),
+            "an administrator's machine-wide install"
+        );
+        assert!(
+            !opens(false, true, true, 1000),
+            "nothing opens without autostart"
+        );
         // The administrator's session (uid 1001) gets nothing user 1000 installed.
         assert!(!autostarts_for(true, false, false, 1000, 1001));
     }
