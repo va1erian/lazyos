@@ -75,13 +75,18 @@ these are left open, and the plan says where.
 
    | `kind` | `code` | `value` | Notes |
    |---|---|---|---|
-   | `AXIS` (next free, 8) | Generic Desktop usage: `0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry, `0x35` Rz, `0x36` Slider, `0x37` Dial, `0x39` Hat | signed fields `-32768..=32767`, unsigned fields `0..=32767`; hat `0..=7` clockwise from up, `8` centred | absolute state; only changed axes are published; tail-merged with *replace* |
+   | `AXIS` (next free, 8) | Generic Desktop usage: `0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry, `0x35` Rz, `0x36` Slider, `0x37` Dial, `0x39` Hat | `-32768..=32767`, **0 is the axis's rest**: a HID axis is scaled bipolar over its logical range whatever its sign (most pads declare `0..=255` sticks centred mid-range, and HID has no "trigger" usage), an X-input trigger is `0..=32767`; Y and Ry are positive *down* (HID's direction; X-input's up-positive sticks are negated); hat `0..=7` clockwise from up, `8` centred | absolute state; only changed axes are published; tail-merged with *replace* |
    | `BUTTON` (4) | HID button usage; `1..=32` for a gamepad source | `0` release, `1` press | edges only; never merged |
-   | `DEVICE` (next free, 9) | vendor id | `product | version << 16` | published once by the driver after `register_source`; diagnostics and the deferred mapping table |
+   | `DEVICE` (next free, 9) | vendor id | `product | version << 16` | published once by the driver after `register_source`; diagnostics and the deferred mapping table; **never** a classification signal (every class may publish it) |
+   | `SOURCE` (G3, next free, 10) | the source's class | `1` registered, `0` closed | **kernel-originated**: published by `register` and, after the release burst, by `close`/task death; refused from every driver |
 
    `AXIS` merges like `ABS_MOTION` (replace, same device/kind/code), so
    repeated updates of one axis behind a starved `inputd` cost one slot, not
    one per report. Buttons are edges and keep their order, exactly as keys do.
+   Because every axis rests at 0 (the hat at 8), the kernel and both decoders
+   can return an unplugged pad's axes to rest without knowing the device. The
+   one casualty is a HID *analog trigger*: it reads `-32767` released and is
+   "rested" at half travel; only the mapping table knows it is a trigger.
 3. **A new source class, `Gamepad` (kernel).** Permitted kinds: `AXIS` (known
    usages only, value in `i16` range) and `BUTTON` (`1..=32`, edge). A gamepad
    source cannot publish a `KEY`, a pointer record or a `SCROLL`: the class
@@ -107,10 +112,17 @@ these are left open, and the plan says where.
 6. **`inputd` owns the device-independent state, the client owns the
    mapping.** `inputd` applies the deadzone, converts the hat to d-pad
    directions, keeps one slot per device (up to 4) and resyncs on `Dropped`
-   (release every button, centre every axis: fails safe). It classifies a
-   device once — its first `AXIS` or `DEVICE` record — and gives its `BUTTON`
-   records to exactly one engine, so a pad's A/B/X/Y (usages 1..=5) do not
-   also click the cursor. The client library offers
+   (release every button, centre every axis: fails safe). It gives a
+   device's `BUTTON` records to exactly one engine, so a pad's A/B/X/Y
+   (usages 1..=5) do not also click the cursor — and it **cannot** decide
+   which from the records themselves: `DEVICE` is accepted from every class,
+   a pad's first record is not guaranteed to reach `inputd` (a `Dropped`
+   gap), and a device id is the source *slot's*, so a mouse that registers
+   after a pad was unplugged gets the pad's old id. G3 therefore adds the
+   kernel-originated `SOURCE` record (decision 2): `inputd` routes by the
+   class it names, frees the pad's slot when it says closed, and treats a
+   device it has no `SOURCE` for as a pointer (today's behaviour) until one
+   arrives. The client library offers
    `xui_app::gamepad::Standard`, a typed view of the canonical usages
    (left/right stick, triggers, d-pad, 11 named buttons). A per-device mapping
    table (SDL's GameController DB approach) and a remap UI come later; the
@@ -169,10 +181,13 @@ these are left open, and the plan says where.
   if a Report ID item appeared *before* its report, so a descriptor whose
   first report has none and a later one has one no longer reads the pad's
   reports with a spurious id byte (the same fix applies to the pointer).
-- `xinput.rs` (new): the fixed 20-byte X-input report (buttons, LT, RT, LX,
-  LY, RX, RY) decoded to the canonical usages — d-pad bits to the hat axis,
-  A/B/X/Y to buttons 1..=4, LB/RB 5/6, Back/Start 7/8, L3/R3 9/10, Guide 11,
-  triggers to Z/Rz (`0..=32767`).
+- `xinput.rs` (new): the fixed 20-byte X-input report — byte 0 the message
+  type (only `0x00` is input; the endpoint also carries LED and rumble status
+  messages), byte 1 its length, then buttons, LT, RT, LX, LY, RX, RY —
+  decoded to the canonical usages: d-pad bits to the hat axis, A/B/X/Y to
+  buttons 1..=4, LB/RB 5/6, Back/Start 7/8, L3/R3 9/10, Guide 11, triggers
+  to Z/Rz (`0..=32767`), and LY/RY negated so a stick pushed up reads
+  negative Y as on a HID pad.
 - Both decoders emit one `Axis` per *changed* axis (the first report emits
   every axis it holds) and one `Button` edge per changed button, and return
   every axis to its rest value on `release_all`, so an unplugged pad cannot
@@ -201,8 +216,8 @@ these are left open, and the plan says where.
 - `libs/inputmap/src/gamepad.rs`: `Gamepad` (state per device slot,
   `MAX_PADS = 4`), `PadOut { device, axes, buttons, hat, ts_ns, seq }`,
   `apply(RawRecord)`, `flush`, `resync`, `attach`/`detach` by device id.
-  Deadzone (`DEADZONE = 0.15` of full scale, rescaled) applies to bipolar
-  axes; triggers are unipolar and pass through; the hat becomes `dpad`
+  Deadzone (`DEADZONE = 0.15` of full scale, rescaled) applies around 0 on
+  every axis (for an X-input trigger that is the release travel); the hat becomes `dpad`
   (`-1/0/1` per axis, diagonals set two).
 - `user/src/bin/inputd/gamepad.rs` (new): answers `AttachGamepadState`,
   encodes the events, delivers to the focused session. `hub.rs` (471 lines)
@@ -259,7 +274,7 @@ stress tests and must pass `python tools/test/run.py --accel none`.
 | **G0** Libraries **(landed)** | `libs/usbhid`: `report/` split, gamepad layout, `Gamepad` decoder, `xinput.rs`; `MAX_BUTTONS` per layout | `cargo test -p usbhid`: golden descriptors (generic pad, four-way hat, report-id pad, X-input reports), hat and range normalization, change-only output, `release_all`; seeded fuzz + `python fuzz/gen_corpus.py --check` |
 | **G1** Kernel **(landed)** | `kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class, `u32` button tracking, axis rest tracking, `bus_axis.rs`, merge rules | `input_bus_suite`: class gate, ranges, `DEVICE` from every class, release-on-close (32 buttons and deflected axes), merge/replace, the million-record stress with two gamepads |
 | **G2** `usbd` HID gamepad | Second-pass binding accepts a gamepad layout (trying `parse_gamepad` first, and never falling back to the pointer layout for an interface that declares a pad collection — the library gains a `has_pad_collection` probe, or a dedicated error, so the driver can tell "not a pad" from "a pad it cannot place"); `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons and centres axes; marker `USBD:HID:PAD vendor= product= interface= dci=` | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
-| **G3** `inputd` | `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, per-device classification so a pad's buttons never reach the pointer engine | `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone; a seeded fuzz entry |
+| **G3** `inputd` | Kernel: `kind::SOURCE` (published by `register`, `close` and task death; refused from drivers). `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, routing by `SOURCE` class so a pad's buttons never reach the pointer engine and a slot reused by a mouse is a mouse again | `input_bus_suite`: `SOURCE` on register/close/teardown, after the releases, never from a driver, existing tests updated for the extra records; `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone, a pad's slot reused by a pointer; a seeded fuzz entry |
 | **G4** Client library | `xui_app::input` events + `GamepadStatePage`, `xui_app::gamepad::Standard` | `cargo test --manifest-path xui-app/Cargo.toml -p xui-app` (Linux/WSL, the crate's lib tests are Linux-only) |
 | **G5** Doom | `lazydoom::pad`: the page read each frame, canonical state to Doom keys (left stick move/strafe, right stick turn, d-pad menu, A fire, B use, Y map, Start menu), markers `DOOM:PAD:*`; session `tools/screenshot/examples/doom_pad.json` | The session script drives the Doom menu with the fake pad (G7) and judges markers + screenshots |
 | **G6** X-input | `usbd` binds `FF/5D/01`, decodes the fixed report, same records; marker `USBD:HID:XINPUT`; unplug releases | `libs/usbhid` golden reports; the fake X-input device in the harness; the real 8BitDo over `usb-host` |
@@ -365,7 +380,10 @@ The verdict is what the guest *did*, as with keyboard, mouse and tablet.
    both a gamepad and a tablet interface (rare) binds one. Widening it is a
    `usbd` change with its own test if a fixture ever needs it.
 7. **Mapping and naming.** Until a per-device table exists, "button 1" means
-   "HID usage 1", and two pads of different makes may swap A and B. The
+   "HID usage 1", and two pads of different makes may swap A and B. Axes
+   differ more: X-input puts the triggers on Z/Rz, while most HID pads put
+   the right stick on Z/Rz (and a DualShock its triggers on Rx/Ry), so
+   `Standard`'s triggers are only right for X-input until the table exists. The
    client-side `Standard` view documents the convention the tested pads
    follow; the Settings page and the table come after.
 8. **No vendor/product in the session API.** The `DEVICE` record is on the

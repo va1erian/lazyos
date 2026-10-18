@@ -9,15 +9,19 @@ use crate::xinput;
 
 #[test]
 fn xinput_reports_become_canonical_axes_and_buttons() {
+    // What an Xbox 360 pad sends on its interrupt IN endpoint: message type
+    // 0x00, length 0x14, then the fields.
     let report = |buttons: u16, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16| {
         let mut out = [0u8; 20];
-        out[0..2].copy_from_slice(&buttons.to_le_bytes());
-        out[2] = lt;
-        out[3] = rt;
-        out[4..6].copy_from_slice(&lx.to_le_bytes());
-        out[6..8].copy_from_slice(&ly.to_le_bytes());
-        out[8..10].copy_from_slice(&rx.to_le_bytes());
-        out[10..12].copy_from_slice(&ry.to_le_bytes());
+        out[0] = xinput::INPUT_REPORT;
+        out[1] = 0x14;
+        out[2..4].copy_from_slice(&buttons.to_le_bytes());
+        out[4] = lt;
+        out[5] = rt;
+        out[6..8].copy_from_slice(&lx.to_le_bytes());
+        out[8..10].copy_from_slice(&ly.to_le_bytes());
+        out[10..12].copy_from_slice(&rx.to_le_bytes());
+        out[12..14].copy_from_slice(&ry.to_le_bytes());
         out
     };
     let mut decoder = xinput::Decoder::new();
@@ -31,6 +35,8 @@ fn xinput_reports_become_canonical_axes_and_buttons() {
         0,
         0,
     );
+    // Left stick fully left and fully up: up is positive Y in the report and
+    // negative on the bus, as on a HID pad.
     assert!(decoder.feed(&first, |o| out.push(o)));
     assert_eq!(
         out,
@@ -41,7 +47,7 @@ fn xinput_reports_become_canonical_axes_and_buttons() {
             },
             PadOut::Axis {
                 usage: usage::Y,
-                value: 32767
+                value: -32767
             },
             PadOut::Axis {
                 usage: usage::Z,
@@ -131,7 +137,13 @@ fn xinput_reports_become_canonical_axes_and_buttons() {
             },
         ]
     );
-    assert!(!decoder.feed(&opposed[..11], |_| panic!("short reports emit nothing")));
+    assert!(!decoder.feed(&opposed[..13], |_| panic!("short reports emit nothing")));
+    // The endpoint's other messages (an LED status, a full-length message of
+    // another type) are not input reports.
+    assert!(!decoder.feed(&[0x01, 0x03, 0x06], |_| panic!("LED status")));
+    let mut rumble = opposed;
+    rumble[0] = 0x03;
+    assert!(!decoder.feed(&rumble, |_| panic!("not an input report")));
     // Unplugging centres the sticks; nothing else is left held.
     out.clear();
     decoder.release_all(|o| out.push(o));

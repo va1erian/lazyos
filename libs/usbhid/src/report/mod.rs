@@ -96,20 +96,25 @@ impl Field {
         ((clamped - min) * 0xFFFF / (max - min)) as u16
     }
 
-    /// A gamepad axis value scaled to `-32768..=32767` for a signed logical
-    /// range (sticks, which rest at 0) or `0..=32767` for an unsigned one
-    /// (triggers, which rest at their logical minimum).
+    /// A gamepad axis value scaled to `-32767..=32767` over the logical
+    /// range, with the range's centre at 0, whatever the sign of the range.
+    ///
+    /// Most pads declare their sticks unsigned (`0..=255`, `0..=65535`) and
+    /// centred mid-range, so the sign of the range says nothing about where
+    /// an axis rests; and HID has no usage that says "trigger". Every axis is
+    /// therefore bipolar here, so 0 is a centred stick and the rest value the
+    /// decoder and the kernel return an axis to on unplug. Which axis is a
+    /// trigger is the mapping layer's call (`docs/usb-gamepad-plan.md`).
     pub fn normalize_axis(&self, value: i32) -> i32 {
         let (min, max) = (i64::from(self.logical_min), i64::from(self.logical_max));
         if max <= min {
             return 0;
         }
+        let span = max - min;
         let clamped = i64::from(value).clamp(min, max);
-        if self.logical_min < 0 {
-            ((clamped - min) * 0xFFFF / (max - min) - 0x8000) as i32
-        } else {
-            ((clamped - min) * 0x7FFF / (max - min)) as i32
-        }
+        // Symmetric around the centre, so a signed `-n..=n` range rests at
+        // exactly 0; division truncates toward zero on both sides.
+        ((2 * (clamped - min) - span) * 0x7FFF / span) as i32
     }
 
     /// A hat switch's direction: `0..=7` clockwise from up (a 4-way hat is

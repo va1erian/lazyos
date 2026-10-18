@@ -80,7 +80,7 @@ fn check_pad_report(decoder: &mut PadDecoder, model: &mut PadModel, report: &[u8
             if usage == crate::report::usage::HAT {
                 assert!((0..=8).contains(&value), "hat value {value}");
             } else {
-                assert!((-0x8000..=0x7FFF).contains(&value), "axis value {value}");
+                assert!((-0x7FFF..=0x7FFF).contains(&value), "axis value {value}");
             }
             emitted_axes[slot] = Some(value);
         }
@@ -177,7 +177,17 @@ fn check_xinput(data: &[u8]) {
     let mut decoder = xinput::Decoder::new();
     let mut model = XinputModel::default();
     check_xinput_report(&mut decoder, &mut model, data);
-    let mutated: Vec<u8> = data.iter().map(|byte| byte ^ 0x55).collect();
+    // Most inputs are not an input report (byte 0 is the message type): make
+    // them one too, so every field is exercised, then a mutated one.
+    let as_input = |mut report: Vec<u8>| {
+        if let Some(kind) = report.first_mut() {
+            *kind = xinput::INPUT_REPORT;
+        }
+        report
+    };
+    let input = as_input(data.to_vec());
+    check_xinput_report(&mut decoder, &mut model, &input);
+    let mutated = as_input(input.iter().map(|byte| byte ^ 0x55).collect());
     check_xinput_report(&mut decoder, &mut model, &mutated);
     check_xinput_release(&mut decoder, &mut model);
 }
@@ -219,21 +229,27 @@ fn xinput_hat(word: u16) -> i32 {
 }
 
 fn check_xinput_report(decoder: &mut xinput::Decoder, model: &mut XinputModel, report: &[u8]) {
-    if report.len() < 12 {
+    // Type 0x00, then the length byte, then 12 bytes of fields.
+    if report.len() < 14 || report[0] != 0x00 {
         let mut emitted = false;
         assert!(!decoder.feed(report, |_| emitted = true));
-        assert!(!emitted, "a short X-input report emitted an output");
+        assert!(
+            !emitted,
+            "a short or non-input X-input message emitted an output"
+        );
         return;
     }
-    let word = u16::from_le_bytes([report[0], report[1]]);
+    let word = u16::from_le_bytes([report[2], report[3]]);
     let stick = |at: usize| i32::from(i16::from_le_bytes([report[at], report[at + 1]]));
+    // Y is up-positive in the report and down-positive on the bus.
+    let flip = |y: i32| if y == -32768 { 32767 } else { -y };
     let want_axes = [
-        stick(4),
         stick(6),
-        i32::from(report[2]) * 0x7FFF / 0xFF,
-        stick(8),
+        flip(stick(8)),
+        i32::from(report[4]) * 0x7FFF / 0xFF,
         stick(10),
-        i32::from(report[3]) * 0x7FFF / 0xFF,
+        flip(stick(12)),
+        i32::from(report[5]) * 0x7FFF / 0xFF,
     ];
     let want_hat = xinput_hat(word);
     let want_buttons = EDGES.iter().fold(0u32, |bits, &(mask, usage)| {

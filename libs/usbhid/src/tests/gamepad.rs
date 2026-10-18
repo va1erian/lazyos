@@ -63,7 +63,7 @@ fn pad_decoder_emits_axes_then_edges_and_releases_to_rest() {
         [
             PadOut::Axis {
                 usage: usage::X,
-                value: -32768
+                value: -32767
             },
             PadOut::Axis {
                 usage: usage::Y,
@@ -73,19 +73,20 @@ fn pad_decoder_emits_axes_then_edges_and_releases_to_rest() {
                 usage: usage::Z,
                 value: 32767
             },
-            // The centre of a `-127..=127` range lands one step off zero;
-            // `inputd`'s deadzone is what absorbs it.
+            // The centre of a `-127..=127` range is exactly 0.
             PadOut::Axis {
                 usage: usage::RX,
-                value: -1
+                value: 0
             },
             PadOut::Axis {
                 usage: usage::RY,
-                value: -32768
+                value: -32767
             },
+            // An unsigned axis is bipolar too: HID cannot say this one is a
+            // trigger, so its logical minimum is the far end, not 0.
             PadOut::Axis {
                 usage: usage::RZ,
-                value: 0
+                value: -32767
             },
             PadOut::Axis {
                 usage: usage::HAT,
@@ -114,7 +115,7 @@ fn pad_decoder_emits_axes_then_edges_and_releases_to_rest() {
         [
             PadOut::Axis {
                 usage: usage::X,
-                value: -1
+                value: 0
             },
             PadOut::Button {
                 usage: 1,
@@ -130,17 +131,14 @@ fn pad_decoder_emits_axes_then_edges_and_releases_to_rest() {
             },
         ]
     );
-    // Unplugging returns every axis that was deflected to its rest value and
-    // releases the held button; a second release emits nothing.
+    // Unplugging returns every axis that was deflected to its rest value (X
+    // and Rx are already there) and releases the held button; a second
+    // release emits nothing.
     out.clear();
     decoder.release_all(|o| out.push(o));
     assert_eq!(
         out,
         [
-            PadOut::Axis {
-                usage: usage::X,
-                value: 0
-            },
             PadOut::Axis {
                 usage: usage::Y,
                 value: 0
@@ -150,11 +148,11 @@ fn pad_decoder_emits_axes_then_edges_and_releases_to_rest() {
                 value: 0
             },
             PadOut::Axis {
-                usage: usage::RX,
+                usage: usage::RY,
                 value: 0
             },
             PadOut::Axis {
-                usage: usage::RY,
+                usage: usage::RZ,
                 value: 0
             },
             PadOut::Axis {
@@ -225,7 +223,7 @@ fn report_ids_select_the_pad() {
         [
             PadOut::Axis {
                 usage: usage::X,
-                value: -32768
+                value: -32767
             },
             PadOut::Axis {
                 usage: usage::Y,
@@ -363,4 +361,40 @@ fn a_later_report_id_does_not_give_the_first_report_one() {
     assert_eq!(pad.axes[0].unwrap().bit, 0);
     assert!(pad.axes[2].is_none(), "report 2's Z is not this report's");
     assert!(pad.read(&[0x00, 0x80]).is_some());
+}
+
+#[test]
+fn every_axis_is_bipolar_around_the_centre_of_its_range() {
+    let field = |logical_min, logical_max| Field {
+        bit: 0,
+        bits: 32,
+        logical_min,
+        logical_max,
+        relative: false,
+    };
+    // An unsigned stick (most pads) rests mid-range, near 0, not at -32767:
+    // unplugging must not pin it to one side.
+    let byte = field(0, 255);
+    assert_eq!(
+        [0, 127, 128, 255].map(|v| byte.normalize_axis(v)),
+        [-32767, -128, 128, 32767]
+    );
+    let word = field(0, 65535);
+    assert_eq!(word.normalize_axis(32768), 0);
+    assert_eq!(word.normalize_axis(65535), 32767);
+    // A symmetric signed range rests at exactly 0.
+    let signed = field(-127, 127);
+    assert_eq!(
+        [-127, 0, 127].map(|v| signed.normalize_axis(v)),
+        [-32767, 0, 32767]
+    );
+    // The full `i16` range, the full `i32` range, out-of-range values and an
+    // empty range stay inside `-32767..=32767` without overflowing.
+    let short = field(-32768, 32767);
+    assert_eq!(short.normalize_axis(-32768), -32767);
+    assert_eq!(short.normalize_axis(i32::MAX), 32767);
+    let wide = field(i32::MIN, i32::MAX);
+    assert_eq!(wide.normalize_axis(i32::MIN), -32767);
+    assert_eq!(wide.normalize_axis(i32::MAX), 32767);
+    assert_eq!(field(5, 5).normalize_axis(5), 0);
 }

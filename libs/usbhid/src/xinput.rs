@@ -8,19 +8,29 @@
 //!
 //! | bytes | field |
 //! |---|---|
-//! | 0..2 | buttons, little-endian |
-//! | 2 | left trigger, `0..=255` |
-//! | 3 | right trigger, `0..=255` |
-//! | 4..6, 6..8 | left stick X, Y (`i16`) |
-//! | 8..10, 10..12 | right stick X, Y (`i16`) |
-//! | 12..20 | reserved |
+//! | 0 | message type: `0x00` is the input report ([`INPUT_REPORT`]) |
+//! | 1 | message length (`0x14`) |
+//! | 2..4 | buttons, little-endian |
+//! | 4 | left trigger, `0..=255` |
+//! | 5 | right trigger, `0..=255` |
+//! | 6..8, 8..10 | left stick X, Y (`i16`, Y up is positive) |
+//! | 10..12, 12..14 | right stick X, Y (`i16`, Y up is positive) |
+//! | 14..20 | reserved |
+//!
+//! The same endpoint also carries other messages (LED and rumble status,
+//! type `0x01`/`0x03`): only type `0x00` is an input report. The sticks' Y
+//! axes point up, HID's down (a HID pad reports its logical minimum at the
+//! top), so the decoder negates them: one vocabulary means a stick pushed up
+//! is negative Y whichever protocol the pad speaks.
 
 use crate::report::gamepad::{PadOut, HAT_CENTRED};
 use crate::report::usage;
 
 /// Bytes this decoder reads; the report itself is 20 bytes and the tail is
 /// reserved.
-pub const REPORT_LEN: usize = 12;
+pub const REPORT_LEN: usize = 14;
+/// The message type of an input report (byte 0).
+pub const INPUT_REPORT: u8 = 0x00;
 
 /// The report's button bits (the Xbox 360 layout).
 pub mod button {
@@ -96,21 +106,22 @@ impl Decoder {
         }
     }
 
-    /// Decode `report`; `false` when it is shorter than the fields it needs.
+    /// Decode `report`; `false` when it is not an input report or is
+    /// shorter than the fields it needs, which changes nothing.
     pub fn feed(&mut self, report: &[u8], mut emit: impl FnMut(PadOut)) -> bool {
-        if report.len() < REPORT_LEN {
+        if report.len() < REPORT_LEN || report[0] != INPUT_REPORT {
             return false;
         }
         let stick = |at: usize| i32::from(i16::from_le_bytes([report[at], report[at + 1]]));
-        let word = u16::from_le_bytes([report[0], report[1]]);
+        let word = u16::from_le_bytes([report[2], report[3]]);
         let axes = [
-            (AXES[0], stick(4)),
-            (AXES[1], stick(6)),
+            (AXES[0], stick(6)),
+            (AXES[1], down(stick(8))),
             // Triggers are `0..=255` in the report, `0..=0x7FFF` on the bus.
-            (AXES[2], i32::from(report[2]) * 0x7FFF / 0xFF),
-            (AXES[3], stick(8)),
-            (AXES[4], stick(10)),
-            (AXES[5], i32::from(report[3]) * 0x7FFF / 0xFF),
+            (AXES[2], trigger(report[4])),
+            (AXES[3], stick(10)),
+            (AXES[4], down(stick(12))),
+            (AXES[5], trigger(report[5])),
         ];
         for (slot, (usage, value)) in axes.into_iter().enumerate() {
             if self.axes[slot] != Some(value) {
@@ -174,6 +185,18 @@ impl Decoder {
         }
         self.buttons = next;
     }
+}
+
+/// A stick's Y axis, up positive in the report, as HID's down-positive one.
+/// The report's `-32768` (fully down) saturates to `32767`; a centred stick
+/// stays at 0.
+fn down(y: i32) -> i32 {
+    (-y).min(i32::from(i16::MAX))
+}
+
+/// A trigger's `0..=255` as `0..=0x7FFF`.
+fn trigger(raw: u8) -> i32 {
+    i32::from(raw) * 0x7FFF / 0xFF
 }
 
 /// The hat direction for a report word: `0..=7` clockwise from up, or

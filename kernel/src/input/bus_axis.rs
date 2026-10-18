@@ -3,7 +3,7 @@
 //!
 //! | kind | code | value |
 //! |---|---|---|
-//! | `AXIS` | a Generic Desktop usage: `X`, `Y`, `Z`, `Rx`, `Ry`, `Rz`, `Slider`, `Dial`, `Hat switch` | `-32768..=32767` for a signed range, `0..=32767` for an unsigned one; the hat `0..=7` clockwise from up, [`HAT_CENTRED`] centred |
+//! | `AXIS` | a Generic Desktop usage: `X`, `Y`, `Z`, `Rx`, `Ry`, `Rz`, `Slider`, `Dial`, `Hat switch` | `-32768..=32767`, the axis's rest at 0 (a HID axis's centre, a released X-input trigger); the hat `0..=7` clockwise from up, [`HAT_CENTRED`] centred |
 //!
 //! An axis is absolute state, not an edge: the producer publishes it only when
 //! its value changed, and the bus merges it into the newest queued record by

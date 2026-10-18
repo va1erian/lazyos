@@ -93,8 +93,10 @@ pub struct GamepadReport {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PadOut {
     /// A changed axis: its Generic Desktop usage and its normalized value —
-    /// `-32768..=32767` for a signed range, `0..=32767` for an unsigned one,
-    /// and `0..=7` or [`HAT_CENTRED`] for the hat.
+    /// `-32767..=32767` with the logical range's centre at 0 for a HID axis
+    /// ([`super::Field::normalize_axis`]), `0..=32767` for an X-input
+    /// trigger, and `0..=7` or [`HAT_CENTRED`] for the hat. Every axis but
+    /// the hat rests at 0.
     Axis { usage: u16, value: i32 },
     /// A button edge, usage `1..=MAX_BUTTONS`.
     Button { usage: u16, pressed: bool },
