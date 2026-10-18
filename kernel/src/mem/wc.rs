@@ -125,6 +125,22 @@ pub fn map_write_combining(va: u64, len: u64) -> Result<u64, &'static str> {
     Ok(pages)
 }
 
+/// The AP's own `IA32_PAT`: the same write-combining entry the BSP
+/// installed (`map_write_combining`). The PAT is a per-CPU MSR and the
+/// framebuffer's mapping is machine-wide, so every CPU that can touch the
+/// framebuffer needs the entry before interrupts/user code — at AP init.
+pub fn pat_this_cpu() {
+    if !has_pat() {
+        return;
+    }
+    let pat = crate::arch::msr::read(IA32_PAT);
+    let shift = WC_ENTRY * 8;
+    let wanted = (pat & !(0xFF << shift)) | (PAT_WC << shift);
+    if wanted != pat {
+        crate::arch::msr::write(IA32_PAT, wanted);
+    }
+}
+
 /// The write-combining policy for a framebuffer mapped at `[va, va + len)`,
 /// at boot and after a mode switch (`display::modeset`): remap it on bare
 /// metal only (see [`under_hypervisor`]), and say what happened on serial

@@ -28,6 +28,7 @@ pub mod pic;
 pub mod raw_serial;
 pub mod refclock;
 pub mod rtc;
+pub mod smp;
 pub mod spurious_fault;
 pub mod string_io;
 pub mod timer;

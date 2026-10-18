@@ -12,6 +12,7 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     limits_suite::CASES,
     arch_suite::CASES,
     percpu_suite::CASES,
+    smp_suite::CASES,
     preempt_lock_suite::CASES,
     irq_window_suite::CASES,
     slab_suite::CASES,

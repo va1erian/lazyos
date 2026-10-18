@@ -4,7 +4,7 @@
 mod cow;
 pub mod dma;
 pub mod filemap;
-mod frames;
+pub mod frames;
 mod heap;
 mod layout;
 pub mod memfd;
@@ -16,6 +16,9 @@ pub mod pte;
 mod reclaim;
 mod regions;
 mod resident;
+/// TLB shootdown (S8.2): the one place a mapping is invalidated everywhere
+/// it may be cached.
+pub mod tlb;
 use reclaim::free_window_tables;
 pub use reclaim::reclaim_empty_tables;
 pub mod fbwindow;
@@ -199,7 +202,19 @@ pub fn init(boot_info: &'static mut BootInfo) {
         }
         pool_pages = pages as usize;
     }
-    frames.total = in_regions - table_frames - pool_pages;
+    // The SMP trampoline page (docs/smp-plan.md S8.2): the SIPI vector can
+    // only start code below 1 MiB, so the kernel must own one low page
+    // always — out of the DMA pool when the pool owns low memory, else from
+    // the general allocator. One page, reserved on every boot.
+    let mut smp_page = 0usize;
+    if !frames.pool.keep_out(crate::arch::smp::TRAMPOLINE_PHYS)
+        && frames.contains(crate::arch::smp::TRAMPOLINE_PHYS)
+        && frames.refcount(Frames::index(crate::arch::smp::TRAMPOLINE_PHYS)) == 0
+    {
+        frames.set_refcount(Frames::index(crate::arch::smp::TRAMPOLINE_PHYS), RESERVED);
+        smp_page = 1;
+    }
+    frames.total = in_regions - table_frames - pool_pages - smp_page;
     let boot = frames.stats();
     *FRAMES.lock() = Some(frames);
     // The slab allocator needs only frames and the physical-memory mapping, so

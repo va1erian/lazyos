@@ -283,6 +283,7 @@ mod serial_suite;
 mod service_suite;
 mod signal_suite;
 mod slab_suite;
+mod smp_suite;
 mod spawn_suite;
 mod spurious_fault_suite;
 mod stats_suite;

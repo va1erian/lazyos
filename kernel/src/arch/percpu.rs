@@ -113,6 +113,20 @@ pub struct PreemptState {
     pub handoff_to: AtomicU64,
 }
 
+/// The state an IPI lands on and the bring-up stamps (S8.2).
+#[repr(C)]
+pub struct IpiState {
+    /// The TSC this CPU read as its first kernel instruction (the bring-up's
+    /// coherence check compares it against the BSP's).
+    pub tsc_entry: AtomicU64,
+    /// Shootdown request: the first virtual address to invalidate (0 = none)
+    /// and the page count, then the generation the sender bumped.
+    pub sd_addr: AtomicU64,
+    pub sd_pages: AtomicU64,
+    /// The last shootdown generation this CPU acknowledged.
+    pub sd_ack: AtomicU64,
+}
+
 /// One CPU's state. `self_ptr` must stay first: the asm and `current()`
 /// address the area itself through `gs:[0]`.
 #[repr(C)]
@@ -123,8 +137,9 @@ pub struct Cpu {
     /// The APIC ID this area belongs to (filled from the MADT at S8.2).
     pub apic_id: u32,
     /// Set when the CPU finished its init (the BSP in [`init`]; the APs in
-    /// S8.2).
-    pub online: bool,
+    /// S8.2's `ap_entry`): published `Release` by its own CPU, read `Acquire`
+    /// by the bring-up's poll.
+    pub online: AtomicBool,
     /// The task slot currently running here (`u64`-shaped so the
     /// `usize::MAX` sentinels of the old `preempt` statics survive the move;
     /// read with `task::current()`).
@@ -133,6 +148,9 @@ pub struct Cpu {
     pub irqoff: IrqOffSpan,
     pub window: WindowState,
     pub syscall: SyscallEntry,
+    /// The state an IPI lands on and the bring-up stamps (S8.2): the entry
+    /// TSC (the coherence check), the shootdown request and its ack.
+    pub ipi: IpiState,
     /// The ring-0 stack a user trap switches to (`RSP0`), and the
     /// double-fault stack (IST 0). Per CPU since the TSS is: `RSP0` is
     /// rewritten at every task switch. Written by `gdt::init_cpu` before the
@@ -164,7 +182,7 @@ impl Cpu {
         self_ptr: 0,
         index: 0,
         apic_id: 0,
-        online: false,
+        online: AtomicBool::new(false),
         current: AtomicU64::new(0),
         preempt: PreemptState {
             need_resched: AtomicBool::new(false),
@@ -193,6 +211,12 @@ impl Cpu {
             stack: 0,
             saved_user_rsp: 0,
             user_context: UserContext::ZEROED,
+        },
+        ipi: IpiState {
+            tsc_entry: AtomicU64::new(0),
+            sd_addr: AtomicU64::new(0),
+            sd_pages: AtomicU64::new(0),
+            sd_ack: AtomicU64::new(0),
         },
         // The TSS's reserved fields are private, so a literal is out; the
         // zeroed `MaybeUninit` is plain-data zero bytes and `init_cpu`
@@ -270,7 +294,7 @@ pub fn init() {
         let area = addr_of_area(0);
         (*area).self_ptr = area as u64;
         (*area).index = 0;
-        (*area).online = true;
+        (*area).online.store(true, Ordering::Release);
         msr::write(IA32_GS_BASE, area as u64);
     }
 }
