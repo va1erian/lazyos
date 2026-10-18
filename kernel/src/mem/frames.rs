@@ -292,6 +292,26 @@ unsafe impl FrameAllocator<Size4KiB> for GlobalFrames {
     }
 }
 
+/// Mark a usable frame in use forever (never handed out again): the SMP
+/// trampoline page, the one allocation the kernel makes below 1 MiB. The
+/// `RESERVED` refcount makes `pop_free` skip it on both of its paths. `true`
+/// when the frame was free and is now reserved.
+pub fn reserve_frame(phys: u64) -> bool {
+    let mut guard = FRAMES.lock();
+    let Some(frames) = guard.as_mut() else {
+        return false;
+    };
+    if !frames.contains(phys) {
+        return false;
+    }
+    let index = Frames::index(phys);
+    if frames.refcount(index) != 0 {
+        return false;
+    }
+    frames.set_refcount(index, RESERVED);
+    true
+}
+
 /// Allocate one 4 KiB frame with a reference count of one.
 pub fn alloc_frame() -> Option<PhysAddr> {
     let mut guard = FRAMES.lock();

@@ -75,6 +75,22 @@ impl DmaPool {
         self.pages != 0 && phys >= self.base && phys < self.base + self.pages as u64 * FRAME_SIZE
     }
 
+    /// Take one pool frame out of circulation forever (the SMP trampoline
+    /// page, `arch::smp::TRAMPOLINE_PHYS`): it stays `RESERVED` in the
+    /// refcount table and is never handed to a device. `true` when `phys`
+    /// was a free pool frame.
+    pub(super) fn keep_out(&mut self, phys: u64) -> bool {
+        if !self.contains(phys) {
+            return false;
+        }
+        let index = ((phys - self.base) / FRAME_SIZE) as usize;
+        if !self.is_free(index) {
+            return false;
+        }
+        self.set_free(index, false);
+        true
+    }
+
     fn is_free(&self, index: usize) -> bool {
         self.free[index / 64] & (1 << (index % 64)) != 0
     }

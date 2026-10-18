@@ -174,6 +174,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     limits::describe();
     // Descriptor tables, interrupts (PIC/PIT), and the PS/2 mouse.
     arch::init();
+    // The APs (S8.2): a no-op and one serial line when the answer is 1.
+    arch::smp::init();
     boot_phase!("arch_ready");
     // Interrupt vectors and the device syscall are live: print their evidence.
     dev::selfcheck();

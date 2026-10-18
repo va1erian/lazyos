@@ -54,6 +54,22 @@ const LVT_MASKED: u32 = 1 << 16;
 const LVT_PERIODIC: u32 = 1 << 17;
 const DELIVERY_NMI: u32 = 0b100 << 8;
 const DELIVERY_EXTINT: u32 = 0b111 << 8;
+/// ICR (interrupt command register): the low half (xAPIC MMIO 0x300) carries
+/// the vector, delivery mode, level and trigger; the high half (0x310) the
+/// destination APIC ID. x2APIC: one 64-bit MSR at `0x830`, destination in
+/// bits 32..64.
+const ICR_LO: u32 = 0x300;
+const ICR_HI: u32 = 0x310;
+/// Delivery modes of the ICR: INIT (the AP waits for a SIPI) and startup
+/// (the vector is the page number of the entry code).
+const ICR_DELIVERY_INIT: u32 = 0b101 << 8;
+const ICR_DELIVERY_STARTUP: u32 = 0b110 << 8;
+/// Level bit: 1 = assert (INIT deassert is not needed on modern CPUs; the
+/// classic `0x4500` magic is assert | INIT | physical | edge).
+const ICR_LEVEL_ASSERT: u32 = 1 << 14;
+/// Delivery-status bit (xAPIC): 1 while the previous IPI is still being
+/// sent. x2APIC sends are fire-and-forget (the bit does not exist).
+const ICR_DELIVERY_PENDING: u32 = 1 << 12;
 /// Divide configuration for "divide by 16" (bits 0, 1 and 3 encode it).
 const DIVIDE_BY_16: u32 = 0b0011;
 /// The timer counts the APIC timer clock divided by this.
@@ -201,6 +217,71 @@ pub fn current_mode() -> Option<Mode> {
 /// APIC, which clears the entry's remote IRR.
 pub fn eoi() {
     write(EOI, 0);
+}
+
+/// Send one IPI to the APIC with id `dest`. `low` is the full ICR command
+/// (delivery mode, level, vector) with physical destination, edge trigger.
+/// Callers: [`send_init`], [`send_sipi`], [`send_fixed`]. The xAPIC path
+/// waits for the previous send to drain first (the delivery-status bit);
+/// x2APIC needs no wait and no high half.
+fn send(dest: u32, low: u32) {
+    match mode() {
+        Some(Mode::X2Apic) => {
+            // x2APIC: one 64-bit write, destination in bits 32..64.
+            msr::write(
+                0x800 + (ICR_LO >> 4),
+                (u64::from(dest) << 32) | u64::from(low),
+            );
+        }
+        Some(Mode::XApic) => {
+            // Wait for the previous IPI to drain (bounded: a hub of a few
+            // rounds on real silicon; the last resort is sending anyway,
+            // which at worst doubles an IPI).
+            for _ in 0..1_000_000 {
+                if read(ICR_LO) & ICR_DELIVERY_PENDING == 0 {
+                    break;
+                }
+            }
+            write(ICR_HI, dest);
+            write(ICR_LO, low);
+        }
+        None => {}
+    }
+}
+
+/// INIT to one APIC: it halts, waiting for a startup (SIPI).
+pub fn send_init(dest: u32) {
+    send(dest, ICR_DELIVERY_INIT | ICR_LEVEL_ASSERT);
+}
+
+/// SIPI: start the AP at physical page `vector_page` (the vector is the
+/// page number, so the entry must live below 1 MiB).
+pub fn send_sipi(dest: u32, vector_page: u8) {
+    send(
+        dest,
+        ICR_DELIVERY_STARTUP | ICR_LEVEL_ASSERT | u32::from(vector_page),
+    );
+}
+
+/// A fixed (ordinary interrupt) IPI carrying `vector` to one APIC: the
+/// kernel's reschedule/shootdown/stop IPIs.
+pub fn send_fixed(dest: u32, vector: u8) {
+    send(dest, ICR_LEVEL_ASSERT | u32::from(vector));
+}
+
+/// The AP's own local-APIC bring-up (the machine's mode is already decided
+/// by the BSP's [`init`], so only *this CPU's* LVTs are programmed): the
+/// timer masked until S8.3 arms it, LINT0 masked (the 8259 is the BSP's
+/// alone — two ExtINT sources would double-deliver), LINT1 stays NMI.
+pub fn init_ap_local() {
+    write(SVR, SVR_ENABLE | u32::from(SPURIOUS_VECTOR));
+    write(TPR, 0);
+    write(LVT_TIMER, LVT_MASKED | u32::from(TIMER_VECTOR));
+    write(LVT_ERROR, LVT_MASKED | u32::from(SPURIOUS_VECTOR));
+    write(LVT_LINT0, LVT_MASKED);
+    write(LVT_LINT1, DELIVERY_NMI);
+    write(ESR, 0);
+    let _ = read(ESR);
 }
 
 /// Leave virtual-wire mode: mask LINT0 so the 8259 can no longer interrupt

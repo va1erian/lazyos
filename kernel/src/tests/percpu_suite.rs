@@ -13,7 +13,7 @@ use core::sync::atomic::Ordering;
 pub fn self_pointer_names_the_area() -> Result<(), String> {
     let cpu = percpu::current();
     check!(cpu.index == 0, "boot CPU index is {}", cpu.index);
-    check!(cpu.online, "boot CPU is not online");
+    check!(cpu.online.load(Ordering::Acquire), "boot CPU is not online");
     check!(
         cpu.self_ptr == cpu as *const _ as u64,
         "gs:[0] is {:#x}, the area is at {:#x}",
@@ -96,7 +96,10 @@ pub fn areas_are_isolated() -> Result<(), String> {
     cpu.window.uncharged.fetch_add(4, Ordering::Relaxed);
 
     let other = percpu::area(1).expect("area 1 must exist");
-    check!(!other.online, "a second area starts online");
+    check!(
+        !other.online.load(Ordering::Acquire),
+        "a second area starts online"
+    );
     check!(
         other.preempt.selected.load(Ordering::Relaxed) == u64::MAX,
         "area 1 saw a selection ({})",
