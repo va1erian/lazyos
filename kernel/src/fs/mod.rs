@@ -324,14 +324,6 @@ fn try_abi_with<T>(f: impl FnOnce(&mut Vfs) -> T) -> Option<T> {
     ABI_FS.try_lock()?.as_mut().map(f)
 }
 
-/// `path` named the one way the open-file registry keys it: through the first
-/// mount of the filesystem that holds it (`/tmp/x` and `/transient/x` are one
-/// ramfs file, so one key). The text itself when the table is not up.
-pub fn abi_canonical(path: &str) -> String {
-    abi_with(|vfs| vfs.canonical_path(path))
-        .unwrap_or_else(|| vfs::Path::parse(path).to_path_string())
-}
-
 /// Mount points of the Linux ABI table, in mount order, with each
 /// filesystem's short name (which ends in `(ro)` for a read-only mount).
 pub fn abi_mounts() -> Vec<(String, &'static str)> {

@@ -61,7 +61,7 @@ use pagecache::PageCache;
 /// of the filesystem holding it, so a filesystem mounted at two points (`/tmp`
 /// and `/transient`) has one entry per file, not one per name (audit H6).
 fn canonical(path: &str) -> String {
-    super::abi_canonical(path)
+    super::nodes::abi_canonical(path)
 }
 
 /// One file that has at least one open description; shared by all of them.

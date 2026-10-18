@@ -25,3 +25,11 @@ pub fn abi_refresh(path: &str, meta: Meta) {
         &Ok::<(), FsError>(()),
     );
 }
+
+/// `path` named the one way the open-file registry keys it: through the first
+/// mount of the filesystem that holds it (`/tmp/x` and `/transient/x` are one
+/// ramfs file, so one key). The text itself when the table is not up.
+pub fn abi_canonical(path: &str) -> alloc::string::String {
+    super::abi_with(|vfs| vfs.canonical_path(path))
+        .unwrap_or_else(|| super::vfs::Path::parse(path).to_path_string())
+}

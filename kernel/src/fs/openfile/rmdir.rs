@@ -21,7 +21,7 @@ use crate::fs::vfs::{FsError, Id};
 /// A directory with any other entry, or a stray reserved name no open file
 /// owns, is not empty: the backend answers `ENOTEMPTY` as before.
 pub(in crate::fs) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    let dir = crate::fs::abi_canonical(path);
+    let dir = crate::fs::nodes::abi_canonical(path);
     let parked = parked_in(&dir);
     let root = if parked.is_empty() {
         None
