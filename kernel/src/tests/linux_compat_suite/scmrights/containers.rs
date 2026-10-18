@@ -149,6 +149,16 @@ pub fn scmrights_listener_pending_connection() -> Result<(), String> {
         got.fds.len()
     );
     close(got.fds[0]);
+    // Once a pending connection carries descriptors itself, the listener that
+    // holds it cannot travel either: it would be a node of a cycle.
+    check!(
+        send_fds(client, b"c", &[p.sa]) == 1,
+        "the pending connection carries an idle pair"
+    );
+    check!(
+        send_fds(p.a, b"l", &[listener]) == ETOOMANYREFS,
+        "a listener holding a carrying connection through an unrelated pair"
+    );
     for fd in [listener, client, p.a, p.b, p.sa, p.sb, p.r, p.w] {
         close(fd);
     }
