@@ -25,8 +25,12 @@ interface os.lazy.mimed.v1 {
     /// register, and the registry holds a bounded number of pairs: `EPERM`
     /// from anyone else, `ENOSPC` when it is full and the pair is new. A
     /// user's own choice of app for a type is a preference
-    /// (`user/<uid>/mimed/default/<type>`), not a registration.
-    method Register(mime: String = 1, app: String = 2, verb: String = 3) -> ();
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
+    method Register(mime: String = 1, app: String = 2, verb: String = 3, owner: U32 = 4) -> ();
     /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
     /// installed app leaves no dangling handler. Only the caller's root
     /// identity may withdraw (the package manager); the registration is

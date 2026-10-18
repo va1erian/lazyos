@@ -6,7 +6,7 @@
 // isolation.
 let verdict = "SUCCEEDED:ok";
 try {
-    sys::mimed::register("text/x-accounts-probe", "evil.app", "open");
+    sys::mimed::register("text/x-accounts-probe", "evil.app", "open", 0);
     verdict = "SUCCEEDED:registered";
 } catch (e) {
     let text = e.to_string();

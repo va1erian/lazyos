@@ -266,7 +266,16 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
   started only after consent, and only in the sessions of the user who
   installed it (`Installed.installer`): a core package, or one an
   administrator installed for the machine through `elevd`
-  (`Installed.machine_wide`), starts for everyone.
+  (`Installed.machine_wide`), starts for everyone. A row recorded before the
+  field existed has installer 0 and starts for nobody until the app is removed
+  and installed again (a plain reinstall of the same version is refused with
+  `EEXIST`); a row `provision`'s `Keep` promoted to core earlier keeps
+  starting for everyone, as it did. Only the user who installed an app (or a
+  system caller, `elevd` after an administrator approved) replaces or removes
+  it: `Install` over, and `Remove` of, another user's or a machine-wide app
+  are `EPERM`. The app's file types are registered with `mimed` under the same
+  owner (`Register.owner`, `0` for core and machine-wide apps): `Open` sends a
+  user only to the machine's apps and their own.
 * **`entry.resident`** — absent or a boolean, default `false`. A resident app
   may run with no window, runs once per session and always has an icon in the
   taskbar ([`tray-plan.md`](tray-plan.md) §5; `init` reports it as

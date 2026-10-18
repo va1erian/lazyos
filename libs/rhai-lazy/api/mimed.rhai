@@ -54,7 +54,7 @@ fn open(path, verb) {
     msg::connect("os.lazy.mimed.v1").invoke("Open", [path, verb])
 }
 
-/// `Register(mime: String, app: String, verb: String) -> ()`
+/// `Register(mime: String, app: String, verb: String, owner: U32) -> ()`
 ///
 /// Add or replace the app registered for `mime` and `verb`; the registry
 /// keeps the latest registration for each pair. Only a system service (the
@@ -62,9 +62,13 @@ fn open(path, verb) {
 /// register, and the registry holds a bounded number of pairs: `EPERM`
 /// from anyone else, `ENOSPC` when it is full and the pair is new. A
 /// user's own choice of app for a type is a preference
-/// (`user/<uid>/mimed/default/<type>`), not a registration.
-fn register(mime, app, verb) {
-    msg::connect("os.lazy.mimed.v1").invoke("Register", [mime, app, verb])
+/// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+/// uid that installed the app, `0` for the image's own apps and what an
+/// administrator installed for everyone: `Open` skips a registration whose
+/// owner is neither `0` nor the uid that opens, so one user's package never
+/// takes a type over for the next user.
+fn register(mime, app, verb, owner) {
+    msg::connect("os.lazy.mimed.v1").invoke("Register", [mime, app, verb, owner])
 }
 
 /// `Unregister(mime: String, app: String, verb: String) -> ()`

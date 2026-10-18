@@ -28,6 +28,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 
+mod roster;
+pub use roster::{Member, Roster};
 mod sink;
 pub use sink::{Delivery, SendFailure, Sink, Transport};
 mod stop;

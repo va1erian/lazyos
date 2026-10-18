@@ -78,6 +78,7 @@ fn register_args_roundtrip() {
         mime: "image/png".into(),
         app: "viewer".into(),
         verb: "open".into(),
+        owner: 1000,
     };
     assert_eq!(
         decode_register_args(&encode_register_args(&args).unwrap()).unwrap(),

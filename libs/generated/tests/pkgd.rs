@@ -23,7 +23,9 @@ fn installed() -> Installed {
         verbs: vec!["open".into()],
         resident: true,
         installer: 1000,
-        machine_wide: false,
+        // The last field is non-default, so a row cut right before it is
+        // visibly not the whole row.
+        machine_wide: true,
     }
 }
 
@@ -99,7 +101,7 @@ fn a_row_stored_before_installers_existed_has_none() {
     let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
     assert_eq!((decoded.installer, decoded.machine_wide), (0, false));
     let kept = decode_installed(&encode_installed(&installed()).unwrap()).unwrap();
-    assert_eq!((kept.installer, kept.machine_wide), (1000, false));
+    assert_eq!((kept.installer, kept.machine_wide), (1000, true));
 }
 
 #[test]

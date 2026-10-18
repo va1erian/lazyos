@@ -12098,12 +12098,17 @@ pub mod os_lazy_mimed_v1 {
     /// register, and the registry holds a bounded number of pairs: `EPERM`
     /// from anyone else, `ENOSPC` when it is full and the pair is new. A
     /// user's own choice of app for a type is a preference
-    /// (`user/<uid>/mimed/default/<type>`), not a registration.
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterArgs {
         pub mime: alloc::string::String,
         pub app: alloc::string::String,
         pub verb: alloc::string::String,
+        pub owner: u32,
     }
 
     pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
@@ -12111,6 +12116,7 @@ pub mod os_lazy_mimed_v1 {
         target.string(1, &value.mime)?;
         target.string(2, &value.app)?;
         target.string(3, &value.verb)?;
+        target.u32(4, value.owner)?;
         Ok(target.finish())
     }
 
@@ -12127,6 +12133,9 @@ pub mod os_lazy_mimed_v1 {
                 }
                 3 => {
                     out.verb = field.as_str()?.into();
+                }
+                4 => {
+                    out.owner = field.as_u32()?;
                 }
                 _ => {}
             }

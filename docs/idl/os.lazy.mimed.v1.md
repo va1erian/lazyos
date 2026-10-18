@@ -18,7 +18,7 @@ as a typed reply.
 | Lookup | 1772818603 | sync | `(mime: String, verb: String) -> (app: Option<String>)` |
 | Verbs | 1649509833 | sync | `(mime: String) -> (verbs: Array<String>)` |
 | Open | 1401622761 | sync | `(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool)` |
-| Register | 658098656 | sync | `(mime: String, app: String, verb: String) -> ()` |
+| Register | 658098656 | sync | `(mime: String, app: String, verb: String, owner: U32) -> ()` |
 | Unregister | 1480320227 | sync | `(mime: String, app: String, verb: String) -> ()` |
 
 ## Topics

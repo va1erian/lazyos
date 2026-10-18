@@ -247,6 +247,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     }
 
     prefers(apps);
+    owned(apps);
 
     let mut bus = None;
     let mut prefs = Prefs::new();
@@ -297,7 +298,7 @@ fn prefers(apps: &mut AppRegistry) {
     apps.register(TYPE, "os.lazy.first", "open");
     apps.register(TYPE, "os.lazy.second", "open");
     let resolve = |apps: &AppRegistry, preferred| {
-        apps.resolve_preferred(TYPE, "open", preferred)
+        apps.resolve_preferred(TYPE, "open", preferred, None)
             .map(|(app, _)| app.to_string())
     };
     let by_install_order = resolve(apps, None).as_deref() == Some("os.lazy.second");
@@ -307,7 +308,7 @@ fn prefers(apps: &mut AppRegistry) {
     let stranger = resolve(apps, Some("os.lazy.stranger")).as_deref() == Some("os.lazy.second");
     let empty = resolve(apps, Some("  ")).as_deref() == Some("os.lazy.second");
     let untyped = apps
-        .resolve_preferred("x-scheme-handler/none", "open", Some("os.lazy.first"))
+        .resolve_preferred("x-scheme-handler/none", "open", Some("os.lazy.first"), None)
         .is_none();
     apps.unregister(TYPE, "os.lazy.second", "open");
     apps.unregister(TYPE, "os.lazy.first", "open");
@@ -320,6 +321,49 @@ fn prefers(apps: &mut AppRegistry) {
         trace::line!(
             trace::Channel::Mime,
             "PREFER:FAIL order={by_install_order} chosen={chosen} registered={registered_is_chosen} stranger={stranger} empty={empty} untyped={untyped}"
+        );
+    }
+}
+
+/// A registration one user's app made is seen by that user alone (audit H10):
+/// another user's `Open` resolves to the machine's app (or nothing), and
+/// withdrawing the user's app gives the type back. Pure, so a boot proves it.
+fn owned(apps: &mut AppRegistry) {
+    const TYPE: &str = "x-scheme-handler/lazyowner";
+    apps.register(TYPE, "os.lazy.machine", "open");
+    apps.register_owned(TYPE, "evil.app", "open", 1000);
+    let seen = |apps: &AppRegistry, uid| {
+        apps.resolve_preferred(TYPE, "open", None, uid)
+            .map(|(app, _)| app.to_string())
+    };
+    let owner = seen(apps, Some(1000)).as_deref() == Some("evil.app");
+    let other = seen(apps, Some(1001)).as_deref() == Some("os.lazy.machine");
+    let contested =
+        apps.contested(TYPE, "open", Some(1000)) && !apps.contested(TYPE, "open", Some(1001));
+    // A user's preference for an app they cannot be sent to is ignored.
+    let hidden = apps
+        .resolve_preferred(TYPE, "open", Some("evil.app"), Some(1001))
+        .map(|(app, _)| app.to_string())
+        .as_deref()
+        == Some("os.lazy.machine");
+    apps.unregister(TYPE, "evil.app", "open");
+    let restored = seen(apps, Some(1000)).as_deref() == Some("os.lazy.machine");
+    apps.unregister(TYPE, "os.lazy.machine", "open");
+    let only_theirs = {
+        apps.register_owned(TYPE, "evil.app", "open", 1000);
+        let none_for_others = seen(apps, Some(1001)).is_none();
+        apps.unregister(TYPE, "evil.app", "open");
+        none_for_others
+    };
+    if owner && other && contested && hidden && restored && only_theirs {
+        trace::line!(
+            trace::Channel::Mime,
+            "OWNER:PASS a user's registration is seen by that user alone"
+        );
+    } else {
+        trace::line!(
+            trace::Channel::Mime,
+            "OWNER:FAIL owner={owner} other={other} contested={contested} hidden={hidden} restored={restored} only_theirs={only_theirs}"
         );
     }
 }

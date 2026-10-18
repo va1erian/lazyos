@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 
-use svcpolicy::{Delivery, SendFailure, Sink, Transport};
+use svcpolicy::{Delivery, Member, Roster, SendFailure, Sink, Transport};
 
 use super::{create_pair, errno, registry, Endpoint, Error, Message, Result};
 
@@ -134,17 +134,6 @@ pub const MAX_SUBSCRIBERS: usize = 64;
 /// slot. System services subscribe a handful each, within the global bound.
 pub const MAX_PER_USER: usize = 8;
 
-/// One attached subscriber: its filter and its sink (the registered name and
-/// the one handle cached for it, `svcpolicy::Sink`).
-struct Subscription {
-    filter: String,
-    sink: Sink<Endpoint>,
-    /// The uid that subscribed (kernel-stamped), for [`MAX_PER_USER`], and
-    /// whether it was a system service, exempt from it.
-    owner: u32,
-    system: bool,
-}
-
 /// The real handles behind one delivery: `svcpolicy::Sink` decides what to do
 /// with them, this opens, uses and releases them (audit H12).
 struct Wire<'a> {
@@ -176,13 +165,27 @@ impl Transport for Wire<'_> {
         // closes the alias, never the side the subscriber serves on.
         let _ = handle.release();
     }
+
+    fn alive(&mut self, name: &str) -> bool {
+        // A name that still resolves is registered; the lookup's own handle
+        // is given straight back.
+        match registry::resolve(name) {
+            Ok(endpoint) => {
+                let _ = endpoint.release();
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 /// The broker half of the router: embed one in a service endpoint and call
 /// [`TopicBroker::handle`] for every message on the router interface.
 pub struct TopicBroker {
     prefix: &'static str,
-    subscribers: Vec<Subscription>,
+    /// The attached subscribers, each with its topic filter, and their caps
+    /// (`svcpolicy::Roster`).
+    subscribers: Roster<Endpoint, String>,
     retained: Vec<Retained>,
     next_sink: u64,
     next_seq: u64,
@@ -200,7 +203,7 @@ impl TopicBroker {
     pub fn new(prefix: &'static str) -> TopicBroker {
         TopicBroker {
             prefix,
-            subscribers: Vec::new(),
+            subscribers: Roster::new(MAX_SUBSCRIBERS, MAX_PER_USER),
             retained: Vec::new(),
             next_sink: 0,
             next_seq: 0,
@@ -272,7 +275,7 @@ impl TopicBroker {
             }
         }
         for index in 0..self.subscribers.len() {
-            if !matches(&self.subscribers[index].filter, topic) {
+            if !matches(&self.subscribers.members()[index].data, topic) {
                 continue;
             }
             let Ok(event) = event_parcel(topic, payload, retained, seq) else {
@@ -281,7 +284,7 @@ impl TopicBroker {
             };
             self.deliver(index, &event);
         }
-        self.prune_dead();
+        self.subscribers.prune();
         seq
     }
 
@@ -298,36 +301,30 @@ impl TopicBroker {
     /// Resolve `sink`, record the subscription, and replay the retained
     /// values `filter` already matches.
     fn attach(&mut self, filter: String, sink: String, owner: u32, system: bool) -> Result<()> {
-        if self
-            .subscribers
-            .iter()
-            .any(|subscriber| subscriber.sink.name() == sink)
-        {
+        if self.subscribers.has_sink(&sink) {
             return Ok(());
         }
-        // A subscriber whose sink died is dead weight for the cap: its name is
-        // gone, and every restart of a service subscribes under a new one.
-        self.prune_dead();
-        let held = self
+        // A subscriber whose sink died is dead weight for the caps: its name
+        // is gone, and every restart of a service subscribes under a new one.
+        // A full table looks each name up before it refuses.
+        if !self
             .subscribers
-            .iter()
-            .filter(|subscriber| !subscriber.system && subscriber.owner == owner)
-            .count();
-        if self.subscribers.len() >= MAX_SUBSCRIBERS || (!system && held >= MAX_PER_USER) {
+            .admit(&mut Wire { event: None }, owner, system)
+        {
             return Err(Error::Errno(-errno::ENOSPC));
         }
         let endpoint = registry::resolve(&sink)?;
         let index = self.subscribers.len();
-        self.subscribers.push(Subscription {
-            filter,
+        self.subscribers.push(Member {
             sink: Sink::new(sink, endpoint),
             owner,
             system,
+            data: filter,
         });
         let retained: Vec<(String, Vec<u8>, u64)> = self
             .retained
             .iter()
-            .filter(|entry| matches(&self.subscribers[index].filter, &entry.topic))
+            .filter(|entry| matches(&self.subscribers.members()[index].data, &entry.topic))
             .map(|entry| (entry.topic.clone(), entry.payload.clone(), entry.seq))
             .collect();
         for (topic, payload, seq) in retained {
@@ -338,25 +335,9 @@ impl TopicBroker {
         Ok(())
     }
 
-    /// Forget the subscribers whose sink no longer resolves (`Sink::deliver`
-    /// released its handle and the name is gone): nothing will ever unsubscribe
-    /// them, and they would count against the caps for good.
-    fn prune_dead(&mut self) {
-        self.subscribers
-            .retain(|subscriber| subscriber.sink.is_resolved());
-    }
-
     /// Drop the subscriber attached with `sink`, giving its handle back.
     fn detach(&mut self, sink: &str) {
-        let mut index = 0;
-        while index < self.subscribers.len() {
-            if self.subscribers[index].sink.name() == sink {
-                let mut gone = self.subscribers.remove(index);
-                gone.sink.release(&mut Wire { event: None });
-            } else {
-                index += 1;
-            }
-        }
+        self.subscribers.detach(&mut Wire { event: None }, sink);
     }
 
     /// Push one event to subscriber `index`. A stalled subscriber costs the
@@ -364,7 +345,10 @@ impl TopicBroker {
     /// up again once (`svcpolicy::Sink`).
     fn deliver(&mut self, index: usize, event: &Parcel) {
         let mut wire = Wire { event: Some(event) };
-        match self.subscribers[index].sink.deliver(&mut wire) {
+        match self.subscribers.members_mut()[index]
+            .sink
+            .deliver(&mut wire)
+        {
             Delivery::Delivered => self.delivered += 1,
             Delivery::Dropped => self.dropped += 1,
         }

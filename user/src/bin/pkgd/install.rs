@@ -108,11 +108,23 @@ impl Installer {
         }
     }
 
-    /// The installer a stored row recorded.
+    /// The `mimed` owner of what this installer installs: `0` (everyone) for
+    /// a machine-wide install, else the installing uid.
+    pub(crate) fn owner(&self) -> u32 {
+        if self.machine_wide {
+            0
+        } else {
+            self.uid
+        }
+    }
+
+    /// The installer a stored row recorded. A core app (one the image ships)
+    /// is machine-wide whatever an older row said.
     pub(crate) fn of_row(row: &Installed) -> Installer {
         Installer {
             uid: row.installer,
-            machine_wide: row.machine_wide,
+            machine_wide: row.machine_wide
+                || row.origin == user::messenger::pkgd::wire::ORIGIN_CORE,
         }
     }
 }
@@ -271,6 +283,18 @@ impl Pkgd {
             );
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
+        // A plain install replaces the app for whoever owns it: only the user
+        // who installed it, or a system caller, may.
+        if let Some(row) = &previous {
+            if let Err(why) = pkgstore::access::may_change(
+                installer.machine_wide,
+                installer.uid,
+                row.machine_wide,
+                row.installer,
+            ) {
+                return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+            }
+        }
         let origin = self.origin_of(system_name);
         match self.install_package(package, &subject, previous, origin, installer) {
             Ok(row) => {
@@ -347,7 +371,7 @@ impl Pkgd {
                 ),
             ));
         }
-        if let Err(text) = self.activate(manifest) {
+        if let Err(text) = self.activate(manifest, installer.owner()) {
             self.roll_back(&row.system_name, previous.as_ref());
             self.discard(&subject.system_name, &install_path);
             return Err(fail(EIO, format!("Installing failed while {text}")));

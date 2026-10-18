@@ -13,7 +13,7 @@ use pkgstore::{layout, tree};
 use user::messenger::pkgd::Installed;
 
 use super::handlers::Pkgd;
-use super::install::one_line;
+use super::install::{one_line, Installer};
 use super::policy;
 use super::reconcile::stored_manifest;
 use super::store::{describe, SysFs};
@@ -22,12 +22,18 @@ impl Pkgd {
     /// Register the app's file types with `mimed` and load its policy: the
     /// "switch" half of an install, shared with boot reconciliation. `Err` is
     /// the step that failed, as text; nothing registered stays registered.
-    pub(crate) fn activate(&mut self, manifest: &Manifest) -> Result<(), String> {
+    ///
+    /// `owner` is the uid whose app this is, `0` for everyone's (`mimed`
+    /// shows a user's registration to that user alone).
+    pub(crate) fn activate(&mut self, manifest: &Manifest, owner: u32) -> Result<(), String> {
         let app = manifest.app.system_name.as_str();
         let mut registered: Vec<(&str, &str)> = Vec::new();
         for handler in &manifest.mime {
             for verb in &handler.verbs {
-                if let Err(error) = self.registry.mime_register(&handler.mime_type, app, verb) {
+                if let Err(error) =
+                    self.registry
+                        .mime_register(&handler.mime_type, app, verb, owner)
+                {
                     self.unregister_all(app, &registered);
                     return Err(format!(
                         "registering the {} file type: {}",
@@ -75,7 +81,7 @@ impl Pkgd {
             Some(old) => {
                 let _ = self.registry.put(old);
                 if let Ok(manifest) = stored_manifest(&old.install_dir) {
-                    let _ = self.activate(&manifest);
+                    let _ = self.activate(&manifest, Installer::of_row(old).owner());
                 }
             }
             None => {

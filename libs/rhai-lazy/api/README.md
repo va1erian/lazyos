@@ -576,7 +576,7 @@ The MIME database and open-with registry (issues #116, #158).
 | `lookup(mime, verb)` | `Lookup(mime: String, verb: String) -> (app: Option<String>)` | The app registered for `mime` and `verb`; an empty `app` means none is. |
 | `verbs(mime)` | `Verbs(mime: String) -> (verbs: Array<String>)` | Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in |
 | `open(path, verb)` | `Open(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool)` | Guess the type of `path`, resolve the app for `verb` (falling back to |
-| `register(mime, app, verb)` | `Register(mime: String, app: String, verb: String) -> ()` | Add or replace the app registered for `mime` and `verb`; the registry |
+| `register(mime, app, verb, owner)` | `Register(mime: String, app: String, verb: String, owner: U32) -> ()` | Add or replace the app registered for `mime` and `verb`; the registry |
 | `unregister(mime, app, verb)` | `Unregister(mime: String, app: String, verb: String) -> ()` | Withdraw `app`'s registration for `mime` and `verb`, so removing an |
 | `new_open_event()` | struct `OpenEvent` | a `OpenEvent` at its zero value |
 

@@ -171,12 +171,14 @@ impl Client {
         Ok(())
     }
 
-    /// Add or replace the app registered for `mime` and `verb`.
-    pub fn register(&self, mime: &str, app: &str, verb: &str) -> Result<()> {
+    /// Add or replace the app registered for `mime` and `verb`. `owner` is the
+    /// uid that installed the app, `0` for an app every user sees.
+    pub fn register(&self, mime: &str, app: &str, verb: &str, owner: u32) -> Result<()> {
         let body = wire::encode_register_args(&wire::RegisterArgs {
             mime: String::from(mime),
             app: String::from(app),
             verb: String::from(verb),
+            owner,
         })
         .map_err(Error::Parcel)?;
         self.call(wire::METHOD_REGISTER, body)?;
@@ -212,6 +214,6 @@ pub fn open(path: &str, verb: &str) -> Result<OpenResult> {
 }
 
 /// Convenience: connect and register.
-pub fn register(mime: &str, app: &str, verb: &str) -> Result<()> {
-    Client::connect()?.register(mime, app, verb)
+pub fn register(mime: &str, app: &str, verb: &str, owner: u32) -> Result<()> {
+    Client::connect()?.register(mime, app, verb, owner)
 }

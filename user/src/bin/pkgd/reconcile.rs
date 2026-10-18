@@ -72,7 +72,7 @@ impl Pkgd {
                 continue;
             }
             let outcome = stored_manifest(&row.install_dir).and_then(|manifest| {
-                self.activate(&manifest)?;
+                self.activate(&manifest, Installer::of_row(row).owner())?;
                 self.refresh_row(row, &manifest);
                 Ok(())
             });

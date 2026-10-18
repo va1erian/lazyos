@@ -42,6 +42,10 @@ pub trait Transport {
     fn send(&mut self, handle: Self::Handle) -> Result<(), SendFailure>;
     /// Give `handle` back (a release, not a close of the sink for others).
     fn release(&mut self, handle: Self::Handle);
+    /// Whether `name` is still registered (a lookup that leaves nothing
+    /// open): the check that finds a subscriber which died while nothing was
+    /// published to it.
+    fn alive(&mut self, name: &str) -> bool;
 }
 
 /// What became of one event.
@@ -112,6 +116,20 @@ impl<H: Copy> Sink<H> {
         }
     }
 
+    /// Whether the sink's name is still registered; if not, the cached handle
+    /// is given back and the sink ends unresolved (the roster drops it).
+    pub fn check_alive<T: Transport<Handle = H>>(&mut self, transport: &mut T) -> bool {
+        let Some(handle) = self.handle else {
+            return false;
+        };
+        if transport.alive(&self.name) {
+            return true;
+        }
+        transport.release(handle);
+        self.handle = None;
+        false
+    }
+
     /// The subscriber is leaving: give the cached handle back.
     pub fn release<T: Transport<Handle = H>>(&mut self, transport: &mut T) {
         if let Some(handle) = self.handle.take() {
@@ -166,6 +184,10 @@ mod tests {
         fn release(&mut self, _handle: u32) {
             assert!(self.open > 0, "a handle was released twice");
             self.open -= 1;
+        }
+
+        fn alive(&mut self, _name: &str) -> bool {
+            self.registered
         }
     }
 
@@ -243,6 +265,23 @@ mod tests {
             sink.deliver(&mut transport);
         }
         assert_eq!(transport.open, 0);
+    }
+
+    #[test]
+    fn a_liveness_check_keeps_the_living_and_releases_the_dead() {
+        let mut transport = Counting::new();
+        let mut sink = sink(&mut transport);
+        // A stalled sink is alive: the check does not touch its handle.
+        transport.answer = Err(SendFailure::Backpressure);
+        assert!(sink.check_alive(&mut transport));
+        assert_eq!((transport.open, sink.is_resolved()), (1, true));
+        transport.registered = false;
+        assert!(!sink.check_alive(&mut transport));
+        assert_eq!((transport.open, sink.is_resolved()), (0, false));
+        assert!(
+            !sink.check_alive(&mut transport),
+            "nothing to release twice"
+        );
     }
 
     #[test]
