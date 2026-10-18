@@ -31,6 +31,9 @@ pub enum Error {
     NoTransaction,
     /// Only the task that started the transaction may cancel it.
     NotCaller,
+    /// Only the task that received a request, or a holder of the endpoint it
+    /// arrived on, may reply to it.
+    NotReceiver,
     /// The deadline passed before a reply arrived.
     TimedOut,
     /// The caller canceled the transaction.
@@ -72,6 +75,9 @@ impl Error {
             }
             Error::NoTransaction => "no transaction with that id is outstanding",
             Error::NotCaller => "only the task that started a transaction may cancel it",
+            Error::NotReceiver => {
+                "only the receiver of a request, or a holder of its endpoint, may reply to it"
+            }
             Error::TimedOut => "the deadline passed before a reply arrived",
             Error::Canceled => "the caller canceled this transaction",
             Error::PeerDied => "the endpoint on the other side was closed",

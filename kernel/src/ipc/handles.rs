@@ -279,6 +279,19 @@ pub fn object_refs(kind: HandleKind, object_id: u64) -> usize {
         .count()
 }
 
+/// Whether task `slot` holds a handle of `kind` to `object_id` that carries
+/// every right in `required`: the test behind "may this task answer on that
+/// endpoint". The table is at most [`MAX_HANDLES`] entries and the lock is a
+/// leaf (nothing here takes another), so callers may hold their own.
+pub fn holds(slot: usize, kind: HandleKind, object_id: u64, required: u32) -> bool {
+    let tables = TABLES.lock();
+    tables.get(slot).is_some_and(|table| {
+        table.slots.iter().flatten().any(|entry| {
+            entry.kind == kind && entry.object_id == object_id && entry.rights & required == required
+        })
+    })
+}
+
 /// Every occupied handle in a task slot's table, as `(handle, entry)`.
 ///
 /// Teardown walks this to close each object through its own subsystem (channel

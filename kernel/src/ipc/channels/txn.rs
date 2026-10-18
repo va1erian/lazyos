@@ -57,6 +57,23 @@ pub(super) fn assert_caller(txn_id: u64) -> Result<(), Error> {
     Ok(())
 }
 
+/// Whether task `me` may answer transaction `index` of `channel`: it took the
+/// request off the callee's inbox, or it holds a handle with `CALL` to the
+/// callee side (a service with several worker tasks shares its endpoint, and
+/// the receiver may have passed the request on). A task that has neither can
+/// only have guessed the id. The handle tables' lock is a leaf, so taking it
+/// under the registry lock cannot invert.
+pub(super) fn may_reply(channel: &Channel, index: usize, me: usize) -> bool {
+    let txn = &channel.txns[index];
+    txn.receiver == Some(me)
+        || handles::holds(
+            me,
+            HandleKind::Channel,
+            object_id(channel.id, txn.callee_side),
+            rights::CALL,
+        )
+}
+
 /// Mark a pending transaction expired. A no-op if it already has another
 /// terminal outcome, so a reply racing the deadline wins, and a no-op if its
 /// deadline is not actually due: the caller may have parked on an earlier

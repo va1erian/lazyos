@@ -454,7 +454,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         BadTask | BadParcel => errno::EINVAL,
         QueueFull | TooManyOutstanding | Quota | QuotaExceeded => errno::EAGAIN,
         Deadlock => errno::EDEADLK,
-        NotCaller => errno::EPERM,
+        NotCaller | NotReceiver => errno::EPERM,
         TimedOut => errno::ETIMEDOUT,
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
