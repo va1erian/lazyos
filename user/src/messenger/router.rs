@@ -8,6 +8,8 @@ use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 
+use svcpolicy::{Delivery, SendFailure, Sink, Transport};
+
 use super::{create_pair, errno, registry, Endpoint, Error, Message, Result};
 
 /// Topic router interface id. The human interface is
@@ -119,13 +121,50 @@ impl Event {
     }
 }
 
-/// One attached subscriber.
+/// Most subscribers a broker serves: each holds a handle in the broker's table
+/// (`init`'s has 256 slots, shared with everything else it does) and a name in
+/// the kernel's 64-entry registry, so a flood of subscriptions must not be
+/// able to take them all.
+pub const MAX_SUBSCRIBERS: usize = 64;
+
+/// One attached subscriber: its filter and its sink (the registered name and
+/// the one handle cached for it, `svcpolicy::Sink`).
 struct Subscription {
     filter: String,
-    sink: String,
-    /// Cached endpoint; `None` until the sink resolves, or after a delivery
-    /// failed (the next publish retries the registry).
-    endpoint: Option<Endpoint>,
+    sink: Sink<Endpoint>,
+}
+
+/// The real handles behind one delivery: `svcpolicy::Sink` decides what to do
+/// with them, this opens, uses and releases them (audit H12).
+struct Wire<'a> {
+    event: Option<&'a Parcel>,
+}
+
+impl Transport for Wire<'_> {
+    type Handle = Endpoint;
+
+    fn resolve(&mut self, name: &str) -> Option<Endpoint> {
+        registry::resolve(name).ok()
+    }
+
+    fn send(&mut self, handle: Endpoint) -> core::result::Result<(), SendFailure> {
+        let Some(event) = self.event else {
+            return Err(SendFailure::Gone);
+        };
+        handle.send(event).map_err(|error| {
+            if error.errno() == Some(-errno::EAGAIN) {
+                SendFailure::Backpressure
+            } else {
+                SendFailure::Gone
+            }
+        })
+    }
+
+    fn release(&mut self, handle: Endpoint) {
+        // The handle is this broker's alias of the sink's endpoint: releasing
+        // closes the alias, never the side the subscriber serves on.
+        let _ = handle.release();
+    }
 }
 
 /// The broker half of the router: embed one in a service endpoint and call
@@ -182,8 +221,7 @@ impl TopicBroker {
             }
             method::UNSUBSCRIBE => {
                 let sink = string_field(&message.parcel, field::SINK)?;
-                self.subscribers
-                    .retain(|subscriber| subscriber.sink != sink);
+                self.detach(&sink);
                 Ok(parcel(method::UNSUBSCRIBE, Encoder::new()))
             }
             method::PUBLISH => {
@@ -249,16 +287,18 @@ impl TopicBroker {
         if self
             .subscribers
             .iter()
-            .any(|subscriber| subscriber.sink == sink)
+            .any(|subscriber| subscriber.sink.name() == sink)
         {
             return Ok(());
+        }
+        if self.subscribers.len() >= MAX_SUBSCRIBERS {
+            return Err(Error::Errno(-errno::ENOSPC));
         }
         let endpoint = registry::resolve(&sink)?;
         let index = self.subscribers.len();
         self.subscribers.push(Subscription {
             filter,
-            sink,
-            endpoint: Some(endpoint),
+            sink: Sink::new(sink, endpoint),
         });
         let retained: Vec<(String, Vec<u8>, u64)> = self
             .retained
@@ -274,26 +314,27 @@ impl TopicBroker {
         Ok(())
     }
 
-    /// Push one event to subscriber `index`, falling back to one registry
-    /// re-resolution when the cached endpoint is stale.
-    fn deliver(&mut self, index: usize, event: &Parcel) {
-        if let Some(endpoint) = self.subscribers[index].endpoint {
-            if endpoint.send(event).is_ok() {
-                self.delivered += 1;
-                return;
+    /// Drop the subscriber attached with `sink`, giving its handle back.
+    fn detach(&mut self, sink: &str) {
+        let mut index = 0;
+        while index < self.subscribers.len() {
+            if self.subscribers[index].sink.name() == sink {
+                let mut gone = self.subscribers.remove(index);
+                gone.sink.release(&mut Wire { event: None });
+            } else {
+                index += 1;
             }
         }
-        let resolved = registry::resolve(&self.subscribers[index].sink)
-            .and_then(|endpoint| endpoint.send(event).map(|()| endpoint));
-        match resolved {
-            Ok(endpoint) => {
-                self.subscribers[index].endpoint = Some(endpoint);
-                self.delivered += 1;
-            }
-            Err(_) => {
-                self.subscribers[index].endpoint = None;
-                self.dropped += 1;
-            }
+    }
+
+    /// Push one event to subscriber `index`. A stalled subscriber costs the
+    /// event, never a handle; a dead one gives its handle back and is looked
+    /// up again once (`svcpolicy::Sink`).
+    fn deliver(&mut self, index: usize, event: &Parcel) {
+        let mut wire = Wire { event: Some(event) };
+        match self.subscribers[index].sink.deliver(&mut wire) {
+            Delivery::Delivered => self.delivered += 1,
+            Delivery::Dropped => self.dropped += 1,
         }
     }
 }
@@ -338,12 +379,32 @@ impl Bus {
             .call(&parcel(method::RESERVE, Encoder::new()), None)?;
         let sink = string_field(&reply, field::SINK)?;
         let (published, received) = create_pair()?;
-        registry::register(&sink, &published, &[], 0)?;
+        if let Err(error) = registry::register(&sink, &published, &[], 0) {
+            let _ = published.close();
+            let _ = received.close();
+            return Err(error);
+        }
 
         let mut body = Encoder::new();
-        body.string(field::SINK, &sink).map_err(Error::Parcel)?;
-        body.string(field::FILTER, filter).map_err(Error::Parcel)?;
-        self.endpoint.call(&parcel(method::SUBSCRIBE, body), None)?;
+        let encoded = body
+            .string(field::SINK, &sink)
+            .and_then(|()| body.string(field::FILTER, filter))
+            .map_err(Error::Parcel);
+        if let Err(error) = encoded {
+            let _ = registry::unregister(&sink);
+            let _ = published.close();
+            let _ = received.close();
+            return Err(error);
+        }
+        if let Err(error) = self.endpoint.call(&parcel(method::SUBSCRIBE, body), None) {
+            // The broker refused (full, or gone): the name and both ends would
+            // outlive the attempt, and a caller that retries (`logins`, every
+            // ten seconds) would take a registry name each time (audit M-R4).
+            let _ = registry::unregister(&sink);
+            let _ = published.close();
+            let _ = received.close();
+            return Err(error);
+        }
         Ok(Subscriber {
             endpoint: received,
             filter: String::from(filter),

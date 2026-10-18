@@ -16,6 +16,10 @@
 //! notice, with the app's own [`clean_reason`] when it reported one. A
 //! *resident* app (docs/tray-plan.md) is kept running: it is restarted
 //! after a crash past start-up whatever its manifest's policy says.
+//!
+//! [`sink`] is the other decision `init` makes about handles: how its interim
+//! topic broker keeps a subscriber's endpoint without leaking one handle per
+//! event to a stalled subscriber.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -24,6 +28,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 
+mod sink;
+pub use sink::{Delivery, SendFailure, Sink, Transport};
 mod stop;
 pub use stop::{
     logout_deadline, logout_settled, quit_deadline, stop_mode, StopMode, LOGOUT_REAP_TICKS,
