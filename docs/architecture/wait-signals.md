@@ -71,7 +71,13 @@ delivery.
   first. `rt_sigpending` reports that union restricted to the thread's mask.
 - Fatal signals terminate the whole thread group (`terminate_process`, and
   the timer sweep's `finish_sweep` ends the rest of the group of a thread it
-  killed); stop signals park every live thread until `SIGCONT`. `SIGCHLD` is recorded even
+  killed); stop signals park the live threads that stand at a user frame until
+  `SIGCONT`; a thread inside the kernel is woken and stops at its next delivery
+  boundary, because the stop stays pending for the process (`stop_process`,
+  core audit M-T1). The timer sweep never reads a file page to lay out a
+  handler frame: such a signal waits for the thread's next syscall return,
+  and a thread that never makes one takes `SIGSEGV` after
+  `FRAME_DEFER_LIMIT` ticks (core audit H13). `SIGCHLD` is recorded even
   under its default-ignore disposition (`post_sigchld`).
 
 **Delivery boundaries**

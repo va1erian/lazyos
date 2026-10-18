@@ -27,8 +27,11 @@ syscall shim.
 - `setpgid`/`setsid`/`getpgid`/`getsid` follow Linux's permission rules
   (same session, no moving a session leader, `EPERM` on cross-session), with
   failures mapped through `GroupError`. `process_list()` is the introspection
-  API; `kill_group` is the blunt group-termination primitive kept for tests,
-  while signals drive per-process termination.
+  API. A thread group ends one way, `signal::end_process` (`exit_group`,
+  user faults, the OOM killer and the hardening kill all call it): other
+  threads are finished only at a user frame, the rest are woken to unwind
+  and die at their syscall return, so a thread parked inside the kernel
+  holding the filesystem's lock is never marked `Done` (core audit H5).
 
 **ELF loading** (`process/loader.rs`, `elfhdr.rs`, `image.rs`)
 
