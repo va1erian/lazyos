@@ -21,6 +21,7 @@ use super::bus::{Bus, BusError, Incoming, Wait};
 const ETIMEDOUT: i64 = lazyos_sys::errno::ETIMEDOUT;
 const ENOENT: i64 = lazyos_sys::errno::ENOENT;
 const E2BIG: i64 = lazyos_sys::errno::E2BIG;
+const EMSGSIZE: i64 = lazyos_sys::errno::EMSGSIZE;
 
 /// Largest reply a call accepts (services cap inline payloads well below).
 const REPLY_BUFFER: usize = 64 * 1024;
@@ -132,10 +133,16 @@ impl Bus for Gate {
 
     fn recv(&self, endpoint: u64, wait: Wait) -> Result<Option<Incoming>, BusError> {
         let mut buf = vec![0u8; REPLY_BUFFER];
-        let result = match msg::recv(endpoint, &mut buf, Self::deadline(wait)) {
-            Ok(result) => result,
-            Err(code) if code == -ETIMEDOUT => return Ok(None),
-            Err(code) => return Err(BusError::errno(code)),
+        let deadline = Self::deadline(wait);
+        let result = loop {
+            match msg::recv(endpoint, &mut buf, deadline) {
+                Ok(result) => break result,
+                Err(code) if code == -ETIMEDOUT => return Ok(None),
+                // The kernel dropped a message too large for `buf` and told
+                // its caller; the endpoint is fine, receive the next one.
+                Err(code) if code == -EMSGSIZE => {}
+                Err(code) => return Err(BusError::errno(code)),
+            }
         };
         let parcel = decode(&buf, result.bytes as usize)?;
         Ok(Some(Incoming {

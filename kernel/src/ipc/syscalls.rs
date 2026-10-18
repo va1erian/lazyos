@@ -291,8 +291,10 @@ fn op_send(args: &MsgArgs) -> Result<MsgResult, i64> {
 }
 
 fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
-    // Refused before anything is taken off the queue, so a bad block never
-    // costs the receiver its message.
+    // Everything the receive writes is checked before anything is taken off
+    // the queue, so a bad block never costs the receiver its message.
+    let capacity = (args.buf_cap as usize).min(MAX_PARCEL_BYTES);
+    access_range(args.buf_ptr, capacity, true)?;
     let sender_len = if args.flags == RECV_SENDER_ID {
         let len = channels::SenderId::block_len(args.parcel_len).ok_or(errno::EINVAL)?;
         access_range(args.parcel_ptr, len, true)?;
@@ -300,13 +302,20 @@ fn op_recv(args: &MsgArgs) -> Result<MsgResult, i64> {
     } else {
         None
     };
-    let message = channels::recv(args.handle, args.deadline_ticks()).map_err(channel_errno)?;
-    if message.bytes.len() > args.buf_cap as usize {
-        return Err(errno::E2BIG);
-    }
-    copy_out(args.buf_ptr, &message.bytes)?;
-    if let Some(len) = sender_len {
-        copy_out(args.parcel_ptr, &message.origin.to_bytes()[..len])?;
+    // A message that does not fit `capacity` is dropped inside: its caller is
+    // told `PeerDied`, its objects are released, and the receiver gets
+    // `EMSGSIZE` (one request's problem, not a dead endpoint).
+    let message = channels::recv_capped(args.handle, args.deadline_ticks(), capacity)
+        .map_err(channel_errno)?;
+    let copied = copy_out(args.buf_ptr, &message.bytes).and_then(|()| match sender_len {
+        Some(len) => copy_out(args.parcel_ptr, &message.origin.to_bytes()[..len]),
+        None => Ok(()),
+    });
+    if let Err(code) = copied {
+        // The ranges were checked above, so this is a race with the task's
+        // own address space; the message is lost like any dropped one.
+        channels::undo_delivery(message);
+        return Err(code);
     }
     // The delivered objects, as the numbers the receiver's table installed
     // them under, in object-list order. The count tells "none" from a
@@ -459,6 +468,7 @@ fn channel_errno(error: channels::Error) -> i64 {
         Canceled => errno::ECANCELED,
         PeerDied => errno::EPIPE,
         WouldBlock => errno::EAGAIN,
+        Dropped => errno::EMSGSIZE,
         BadTransfer | UnsupportedTransfer | UndeclaredObject | WrongObjectKind => errno::EINVAL,
     }
 }

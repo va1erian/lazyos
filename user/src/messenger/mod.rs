@@ -32,8 +32,8 @@ mod types;
 pub mod wait;
 
 pub use endpoint::{
-    bootstrap, create_pair, fabric_stats, fabric_stats_with, global_stats, global_totals, Endpoint,
-    Server,
+    bootstrap, create_pair, dropped_messages, fabric_stats, fabric_stats_with, global_stats,
+    global_totals, Endpoint, Server,
 };
 pub use message::Message;
 pub use types::{

@@ -92,6 +92,7 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
     Ok(clients)
 }
 
+mod dropped;
 mod echo_and_calls;
 mod indexed;
 mod poll;
@@ -99,6 +100,7 @@ mod release;
 mod resilience;
 mod targeted_wake;
 
+pub(super) use dropped::*;
 pub(super) use echo_and_calls::*;
 pub(super) use indexed::*;
 pub(super) use poll::*;
@@ -177,4 +179,13 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_channel_caller_dies_mid_call_soak",
         caller_dies_mid_call_soak,
     ),
+    (
+        "ipc_channel_oversized_request_dropped",
+        oversized_request_dropped,
+    ),
+    (
+        "ipc_channel_dropped_message_releases_objects",
+        dropped_message_releases_objects,
+    ),
+    ("ipc_channel_oversized_drop_soak", oversized_drop_soak),
 ];

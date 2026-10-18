@@ -50,6 +50,12 @@ pub enum Error {
     /// The transaction is still open (`await_reply_now`, issue #725): the
     /// caller polls again later.
     WouldBlock,
+    /// A message was taken off the queue and discarded because the receiver
+    /// could not take it: it does not fit the receive buffer, or the
+    /// receiver has no room for its objects. The request's caller was told
+    /// `PeerDied` and everything the message carried was released; the
+    /// endpoint itself is fine, so a service loop receives again.
+    Dropped,
 }
 
 impl Error {
@@ -82,6 +88,7 @@ impl Error {
             }
             Error::UndeclaredObject => "this request's objects are not what its method declares",
             Error::WouldBlock => "the transaction is still open",
+            Error::Dropped => "a message the receiver could not take was discarded",
         }
     }
 }

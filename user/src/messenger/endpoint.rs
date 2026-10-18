@@ -11,6 +11,7 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use libmessenger::Parcel;
 
@@ -19,6 +20,17 @@ use super::types::{
     Error, FabricStats, MsgArgs, MsgResult, Result, Stats, DEFAULT_BUFFER, EXPIRED_DEADLINE,
 };
 use super::{errno, op};
+
+/// Messages the kernel took off a queue and dropped because this program
+/// could not take them (see [`Endpoint::recv_into`]), since it started.
+static DROPPED: AtomicU64 = AtomicU64::new(0);
+
+/// How many received messages were dropped unread so far: too large for the
+/// receive buffer, or with objects the table had no room for. A service that
+/// wants to report a flood reads this; its loop needs no handling of its own.
+pub fn dropped_messages() -> u64 {
+    DROPPED.load(Ordering::Relaxed)
+}
 
 /// One end of a Messenger channel.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -199,9 +211,28 @@ impl Endpoint {
     /// [`Endpoint::recv`] into a caller-provided buffer.
     ///
     /// A polling loop can avoid a fresh [`DEFAULT_BUFFER`] allocation per
-    /// iteration by reusing one scratch buffer here. A message larger than `buf` is refused with
-    /// `-E2BIG` after delivery, exactly like [`Endpoint::recv`].
+    /// iteration by reusing one scratch buffer here.
+    ///
+    /// An error here means the **endpoint** is unusable (the peer closed,
+    /// the handle is gone, the deadline passed). A single message the
+    /// receiver cannot take, one longer than `buf` or one whose objects do
+    /// not fit its handle table, is never an error: the kernel already
+    /// discarded it and told its caller, so this counts it
+    /// ([`dropped_messages`]) and receives the next one, under the same
+    /// deadline. One oversized parcel must not be a way to end a service.
     pub fn recv_into(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
+        loop {
+            match self.recv_once(buf, deadline) {
+                Err(Error::Errno(code)) if code == -errno::EMSGSIZE => {
+                    DROPPED.fetch_add(1, Ordering::Relaxed);
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// One `OP_RECV`: the next message, or why this receive failed.
+    fn recv_once(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Message> {
         let mut block = [0u8; CALLER_BLOCK];
         let args = MsgArgs {
             handle: self.handle,
