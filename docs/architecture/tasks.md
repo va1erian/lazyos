@@ -395,5 +395,6 @@ rewrite the saved frame; it must go through the same word indices above.
 
 **Status.** Working: preemptive RR-with-priorities demo, native/Linux spawn,
 fork/threads, CPU accounting (`cpu_usage`), per-task fds, per-class run
-queues. Not yet: SMP, per-CPU run queues, Linux nice mapping, keyed wakeups
+queues. Not yet: SMP, per-CPU run queues (the plan and its staged approach:
+[`../smp-plan.md`](../smp-plan.md)), Linux nice mapping, keyed wakeups
 for eventfds, sockets, listeners and `epoll`.

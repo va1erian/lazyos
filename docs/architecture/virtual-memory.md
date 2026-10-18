@@ -127,7 +127,10 @@ other spaces' page tables without a shootdown (`filemap::write_protect`,
 `unmap_from`: another CPU's TLB would keep a writable or stale entry) and the
 lock-free "no store can land while the kernel holds the cache lock" arguments
 in `pagecache.rs` must all be revisited (TLB shootdown, a per-space
-generation, a real lock order) before the kernel runs on more than one CPU. Limits: a page past the
+generation, a real lock order) before the kernel runs on more than one CPU;
+[`../smp-plan.md`](../smp-plan.md) sequences that work (shootdown IPIs land in
+its S8.2, before a second CPU runs user code, and the cache/fault-epoch
+critical sections in S8.5). Limits: a page past the
 end of the file is a `SIGSEGV`, not `SIGBUS`; a file truncated under a
 mapping keeps already mapped pages until unmapped; writes by native services
 through the native VFS are not seen by mapped pages; no read-ahead or

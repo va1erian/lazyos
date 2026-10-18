@@ -169,7 +169,9 @@ per-task thread pointer, restored on every context switch.
   cache half that size: no stretch over 2 ms, no missed tick).
 
 **Status.** Working: preemptive demo boot, Linux `syscall` shim, native gate,
-page-fault COW/demand-zero/`SIGSEGV`. No SMP. The legacy lines go through the
+page-fault COW/demand-zero/`SIGSEGV`. No SMP (planned:
+[`../smp-plan.md`](../smp-plan.md); the `irq_window` contract generalizes to
+IPI handlers there). The legacy lines go through the
 I/O APIC when the MADT names one (the 8259 and the local APIC's LINT0 are then
 masked; `LAZYOS_IRQCHIP=pic` keeps the 8259 in virtual wire), and userspace
 drivers take MSI/MSI-X vectors ([interrupts.md](interrupts.md), issue #616).

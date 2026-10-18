@@ -42,7 +42,7 @@ REPORT_DIR = ROOT / "docs" / "test"
 
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 from qemu_qmp import (  # noqa: E402
-    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port,
+    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port, smp_type,
 )
 
 RE_SUMMARY = re.compile(r"^TEST:SUMMARY:PASS=(\d+) FAIL=(\d+)\s*$")
@@ -56,9 +56,14 @@ SCRATCH_BYTES = 16 * 1024 * 1024
 MODERN_SCRATCH_BYTES = 24 * 1024 * 1024
 
 
-def build_test_image(image: Path) -> None:
-    """`cargo build` with LAZYOS_TESTS=1, which rebuilds the kernel and image."""
+def build_test_image(image: Path, soak: bool = False) -> None:
+    """`cargo build` with LAZYOS_TESTS=1, which rebuilds the kernel and image.
+
+    `soak` adds LAZYOS_SMP_SOAK=1: the SMP suite compiles its long soaks then
+    (docs/smp-plan.md S8.3+); a plain test image stays fast to build."""
     env = dict(os.environ, LAZYOS_TESTS="1")
+    if soak:
+        env["LAZYOS_SMP_SOAK"] = "1"
     print("building test image: LAZYOS_TESTS=1 cargo build", flush=True)
     result = subprocess.run(
         ["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True
@@ -280,6 +285,21 @@ def main() -> int:
         default=[],
         help="one more QEMU argument, repeatable (e.g. --extra-arg=-cpu --extra-arg=max)",
     )
+    parser.add_argument(
+        "--smp",
+        type=smp_type,
+        default=None,
+        metavar="N",
+        help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). The APs stay parked in "
+        "firmware until the kernel's SMP bring-up (docs/smp-plan.md), so a value above "
+        "1 is safe to ask for and changes nothing until then",
+    )
+    parser.add_argument(
+        "--soak",
+        action="store_true",
+        help="build with LAZYOS_SMP_SOAK=1: the SMP suite's long soaks (docs/smp-plan.md); "
+        "a no-op until they land",
+    )
     args = parser.parse_args()
     if args.ahci and args.ide_disk:
         # The IDE boot disk has no bootindex, so the blank AHCI scratch disk
@@ -292,7 +312,7 @@ def main() -> int:
     serial_log = out_dir / "serial.log"
 
     if not args.no_build:
-        build_test_image(image)
+        build_test_image(image, soak=args.soak)
     elif not image.is_file():
         sys.exit(f"--no-build given but {image} does not exist")
 
@@ -379,7 +399,7 @@ def main() -> int:
     command = build_qemu_command(
         qemu, str(image), port, serial_log, args.memory, extra, ide=args.ide_disk,
         # The blank AHCI scratch disk must not become the disk firmware boots.
-        boot_first=args.ahci,
+        boot_first=args.ahci, smp=args.smp,
     )
     print(f"launching: {' '.join(command)}", flush=True)
     proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

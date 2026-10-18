@@ -107,6 +107,18 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_x2apic");
     }
 
+    // SMP (docs/smp-plan.md): `LAZYOS_SMP=1` compiles the multicore support in
+    // (per-CPU foundations first, S8.1). Unset or `0`, today's single-CPU code
+    // paths are compiled unchanged. `LAZYOS_SMP_SOAK=1` builds the SMP suite's
+    // long soaks too (`tools/test/run.py --soak`); the suite reads it with
+    // `option_env!` from S8.3 on.
+    println!("cargo:rerun-if-env-changed=LAZYOS_SMP");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_smp)");
+    if env::var_os("LAZYOS_SMP").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        println!("cargo:rustc-cfg=lazyos_smp");
+    }
+    println!("cargo:rerun-if-env-changed=LAZYOS_SMP_SOAK");
+
     // Fabric observability demo switch (issue #70): `LAZYOS_MESSENGERCTL=1`
     // boots the `messengerctl` tool (`/system/bin/messengerctl`) in the hello window
     // instead of `hello`.

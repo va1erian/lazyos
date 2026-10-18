@@ -88,6 +88,7 @@ fn id_at(index: usize) -> Id {
         Id::SharedBufferMax,
         Id::ScratchMax,
         Id::TaskMax,
+        Id::CpuMax,
     ];
     IDS[index]
 }
