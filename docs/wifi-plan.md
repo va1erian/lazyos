@@ -227,7 +227,7 @@ specification instead. They are sufficient.
 **B. Relicense the OS to GPL-2.0-or-later.** Unlocks all of Linux, and the
 combination with any GPL-2.0-only file becomes effectively GPLv2-only. Costs:
 the Droid Sans fonts are `include_bytes!`'d into `xui-app` (Apache-2.0, which
-the FSF lists as **incompatible with GPLv2**), `doom/NOTICE` would need
+the FSF lists as **incompatible with GPLv2**), `games/doom/NOTICE` would need
 rewriting, and every Cargo dependency would need re-auditing for
 Apache-2.0-only crates (the README's "GPLv3-compatible" claim says nothing
 about GPLv2; there is no `cargo deny` in the tree to check it). Buys nothing

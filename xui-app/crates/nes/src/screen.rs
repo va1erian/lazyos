@@ -231,7 +231,7 @@ impl State {
                     prg_kb: info.prg_kb,
                     chr_kb: info.chr_kb,
                     battery: info.battery,
-                    region: crate::session::region_name(info.region),
+                    region: crate::rom::region_name(info.region),
                 });
                 true
             }

@@ -3,7 +3,7 @@
 //! The engine (C, `libdoomgeneric.a`) owns the game; this program owns the
 //! process: it picks the IWAD and the config directory, opens the window (or
 //! runs headless), and implements the six `DG_*` hooks the engine calls. See
-//! `docs/doom-port-plan.md` and `doom/README.md`.
+//! `docs/doom-port-plan.md` and `games/doom/README.md`.
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod engine;

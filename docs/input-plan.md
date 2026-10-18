@@ -336,7 +336,7 @@ client side in `xui-app/src/input/grab.rs`.
   release), and `RegisterHotkey` refuses it with `EACCES`, so no client and
   no compositor can take it. It reverts any grab and request and sends the
   compositor `EscapeChord`. Serial: `INPUTD:GRAB:REQUEST|ON|OFF|ESCAPE`.
-* **Doom** (`doom/src/{session,window_input}.rs`) attaches a page and treats
+* **Doom** (`games/doom/src/{session,window_input}.rs`) attaches a page and treats
   it as the authority on held keys: a key the page says is up is released
   even if its `Up` event never arrived (`DOOM:KEYSTATE:RELEASED`). Its window
   is now resizable, and while it is maximized and focused it holds the
@@ -347,7 +347,7 @@ client side in `xui-app/src/input/grab.rs`.
 Tests: `cargo test -p inputmap` (grab/escape scenario, focus and approval
 races, a stuck key across a focus change with both pages, the page's
 seqlock, a grab soak), `cargo test -p messenger-generated --test
-input_grants`, `cargo test --manifest-path doom/Cargo.toml --lib`, and the
+input_grants`, `cargo test --manifest-path games/doom/Cargo.toml --lib`, and the
 session `tools/screenshot/examples/doom_grab.json` judged by
 `tools/input/verify_grab.py` (`test_verify_grab.py` checks the judge).
 

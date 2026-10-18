@@ -4,7 +4,7 @@
 //! process: it picks the data and config directories, chooses the backend
 //! (headless now, a desktop window in K1) and implements the `lz_*` hooks the
 //! engine's platform layer calls. See `docs/srb2kart-port-plan.md` and
-//! `srb2kart/README.md`.
+//! `games/srb2kart/README.md`.
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod engine;

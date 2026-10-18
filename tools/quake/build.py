@@ -2,18 +2,18 @@
 """Build Quake for LazyOS: the engine, the program and the `quake.lzp`
 package.
 
-Steps (``docs/quake-port-plan.md``, ``quake/README.md``):
+Steps (``docs/quake-port-plan.md``, ``games/quake/README.md``):
 
 1. fetch the ``quake-srp`` port at its pinned revision
    (``tools/quake/qfetch.py``), then id's shareware 1.06 pak;
 2. assemble the crate at ``target/quake/quake-srp-<rev>/lazyos/``: the
    fetched ``quake-wasm`` platform layer with this tree's overlay files
-   (``quake/src/`` — the root, the patched ``common.rs`` and the
+   (``games/quake/src/`` — the root, the patched ``common.rs`` and the
    ``lazy/`` platform) copied over it, and ``Cargo.toml`` written from
    the template with the LazyOS workspace's paths baked in;
 3. build it (Rust, static musl, the zig toolchain links) ->
    ``target/quake/quake.elf``;
-4. assemble the package tree (``quake/package/`` + ``bin/quake.elf`` +
+4. assemble the package tree (``games/quake/package/`` + ``bin/quake.elf`` +
    ``resources/id1/pak0.pak`` + the licence files) and build it with
    ``tools/pkg/build.py`` -> ``target/pkg/quake.lzp``, which the image
    embeds when ``LAZYOS_QUAKE=1`` as ``/system/share/samples/quake.lzp``.
@@ -55,7 +55,7 @@ import zig  # noqa: E402
 import qfetch  # noqa: E402
 
 TARGET = "x86_64-unknown-linux-musl"
-OVERLAY = ROOT / "quake"
+OVERLAY = ROOT / "games" / "quake"
 OUT_DIR = ROOT / "target" / "quake"
 #: Its own cargo target directory: the zig-linked build uses a different
 #: RUSTFLAGS environment from `tools/xui/build.py`'s plain builds.

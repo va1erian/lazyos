@@ -4,7 +4,7 @@
 > covers the sound that [`doom-port-plan.md`](doom-port-plan.md) left in D6
 > and that [`srb2kart-port-plan.md`](srb2kart-port-plan.md) calls K2. Both
 > games ship silent today: Doom is built without `FEATURE_SOUND`
-> (`doom/build.rs`), SRB2Kart's `srb2kart/c/lazyos/i_sound.c` is a set of
+> (`games/doom/build.rs`), SRB2Kart's `games/srb2kart/c/lazyos/i_sound.c` is a set of
 > stubs. The spike read both engines' sound code at the pinned revisions,
 > took a census of the game data, and measured Vorbis decoding and two
 > threads on one vCPU inside LazyOS; its findings are in
@@ -44,7 +44,7 @@ calls `Poll`).
 | Question | Choice | Why |
 |---|---|---|
 | Where the mixing happens | **In the game process**, in a shared Rust crate, then one stereo S16 stream to `audiod` | `audiod` takes four streams per client and Kart has 64 channels; per-voice volume and pan changes at frame rate would be a Messenger call each. One stream also gives the user one volume per game in the mixer. |
-| The shared crate | **`libs/gamemix`**, `no_std` + `alloc`, fixed point (16.16 gains, 32.32 positions, 64-bit accumulators), host-tested in the OS workspace; `doom/` and `srb2kart/` depend on it by path | Both ports need the same voices, pan laws, resampling and decoders; fixed point makes a mix bit-identical on the host and in the guest, so a headless sound CRC means something. It has its own linear-interpolating voice: `audiomix::Resampler` is a streaming converter and would pull the wire layer (`virtio-snd`, `messenger-generated`) into the games. |
+| The shared crate | **`libs/gamemix`**, `no_std` + `alloc`, fixed point (16.16 gains, 32.32 positions, 64-bit accumulators), host-tested in the OS workspace; `games/doom/` and `games/srb2kart/` depend on it by path | Both ports need the same voices, pan laws, resampling and decoders; fixed point makes a mix bit-identical on the host and in the guest, so a headless sound CRC means something. It has its own linear-interpolating voice: `audiomix::Resampler` is a streaming converter and would pull the wire layer (`virtio-snd`, `messenger-generated`) into the games. |
 | Output rate | 48000 Hz stereo | The card's rate: `audiod` passes it through untouched, so each voice is resampled once, by us. |
 | The output thread | **A pull thread** in `xui_app::platform::audio` (new `pull.rs`) that **opens the stream itself** and asks a fill callback for one period at a time; the game thread only changes voice state under a short lock | Writing from the game loop underruns whenever a frame is slow or a lump loads. The ring (`SharedRing`, a raw mapping) is not `Send`, so the stream lives and dies on the thread that opened it: exactly what emusic's `emusic-lazyaudio` worker already does, verified by its recordings. S0 measured the scheduling (below). |
 | Queue depth | 10 ms fill periods, **four** queued on our side (40 ms) to start; the pull thread measures how late it wakes and deepens the queue (up to eight) when a wake misses a period, and never shrinks it again in that run; `audiod` adds its own 64 ms | S0: an output thread woke at worst 0.5 ms late under WHPX with the main thread spinning, but 60 ms late under TCG. ~105 ms total keeps a shot from sounding late; TCG runs are only judged, not played. |
@@ -56,8 +56,8 @@ calls `Poll`).
 | SRB2Kart's other music | The XM track (`O_KMAP36`) and the 3 MIDI lumps: `I_LoadSong` returns `false` (the map plays silent), logged once as `SRB2KART:SOUND:SKIP <name> <format>` | One map out of the set; an XM player is out of scope (`libs/modplay` is ProTracker only). |
 | Fade callbacks | The output thread runs the fade ramp; the game thread fires the callback from `I_UpdateSound` once the ramp reports done | The callbacks change engine state (`S_StopMusic`), which must stay on the game thread. |
 | Doom music | **Decided: OPL FM synthesis from `GENMIDI`**: Chocolate Doom **3.1.0** (`chocolate-doom-3.1.0.tar.gz`, SHA-256 `f2c64843dcec312032b180c3b2f34b4cb26c4dcdaa7375a1601a3b1df11ef84d`), fetched like doomgeneric, never vendored. Compiled as-is: `src/i_oplmusic.c`, `src/midifile.c`, `opl/opl3.c` (Nuked OPL3), `opl/opl_queue.c`. **Not** `opl/opl.c` (it needs SDL's mutex and condition variable for `OPL_Delay`) | `i_oplmusic.c` plays both MUS (through `mus2mid`) and the MIDI Freedoom ships; `GENMIDI` is in the IWAD, so nothing new ships. A General MIDI synth would need a SoundFont (size, licence) for a sound Doom never had on DOS. |
-| The OPL glue | `doom/c/opl_lazyos.c` implements the `opl.h` API that `opl.c` and `opl_sdl.c` provide upstream (`OPL_Init` returning OPL3, `OPL_WriteRegister`, the callback queue, `OPL_Lock`/`Unlock`, pause, `OPL_SetSampleRate`) over a pull function `lz_opl_render(frames)` the output thread calls; Nuked OPL3 renders at 48 kHz itself (`OPL3_GenerateResampled`). `DG_music_module` wraps `music_opl_module`. A force-included `doom/c/choco_compat.h` declares `opl_driver_ver_t` and `I_SetOPLDriverVer` (Chocolate 3.x's `i_sound.h` has them, doomgeneric's does not) | Keeps "no upstream file patched"; `opl_sdl.c` (521 lines) is the model. The `const snddevice_t *` field difference between the two `i_sound.h` is a qualifier warning only. |
-| Doom's build | `FEATURE_SOUND` defined; `doom/c/stub/SDL_mixer.h` (empty) on the include path; our module defines `use_libsamplerate = 0` and `libsamplerate_scale` | The two gotchas above, without patching `i_sound.c`. |
+| The OPL glue | `games/doom/c/opl_lazyos.c` implements the `opl.h` API that `opl.c` and `opl_sdl.c` provide upstream (`OPL_Init` returning OPL3, `OPL_WriteRegister`, the callback queue, `OPL_Lock`/`Unlock`, pause, `OPL_SetSampleRate`) over a pull function `lz_opl_render(frames)` the output thread calls; Nuked OPL3 renders at 48 kHz itself (`OPL3_GenerateResampled`). `DG_music_module` wraps `music_opl_module`. A force-included `games/doom/c/choco_compat.h` declares `opl_driver_ver_t` and `I_SetOPLDriverVer` (Chocolate 3.x's `i_sound.h` has them, doomgeneric's does not) | Keeps "no upstream file patched"; `opl_sdl.c` (521 lines) is the model. The `const snddevice_t *` field difference between the two `i_sound.h` is a qualifier warning only. |
+| Doom's build | `FEATURE_SOUND` defined; `games/doom/c/stub/SDL_mixer.h` (empty) on the include path; our module defines `use_libsamplerate = 0` and `libsamplerate_scale` | The two gotchas above, without patching `i_sound.c`. |
 | Missing card | `Audio::try_connect()` returning `None` (or the stream failing) makes the game **silent, never fatal**: `<GAME>:SOUND:OFF reason=...`; a retry every 5 s picks up a restarted `audiod` | A desktop with no sound card must play exactly as today. |
 | Headless | Headless mixes through the same `gamemix` into a buffer on its virtual clock and prints a sound CRC beside the frame CRC; it never opens a stream. The frame CRCs (`crc=b3580eb0` for Kart's check) must not change | Sound must not touch game state; a changed frame CRC is the alarm. |
 | Permissions | Planned (S2, S3): `os.lazy.audio.v1` added to both manifests (emusic's line), confirmed by a `LAZYOS_LABEL_TRACE=1` run with no `LABEL:DENY` | AGENTS.md: permissions come from a traced run. |
@@ -124,8 +124,8 @@ and a seeded fuzz of the DMX, WAV and Vorbis paths
 transport (a steady fill never starves the ring; a stalled fill produces
 silence, not a stall). No game changes yet.
 
-**S2 — Doom effects.** `doom/build.rs` defines `FEATURE_SOUND`, adds the
-`SDL_mixer.h` stub and `doom/c/i_lazysound.c` (`DG_sound_module`, listing
+**S2 — Doom effects.** `games/doom/build.rs` defines `FEATURE_SOUND`, adds the
+`SDL_mixer.h` stub and `games/doom/c/i_lazysound.c` (`DG_sound_module`, listing
 `SNDDEVICE_SB`; `CacheSounds` and `StartSound` take lumps with
 `W_CacheLumpNum` and pass the bytes to `lz_sfx_load`) and a silent
 `DG_music_module` until S4. `lazydoom --sound-check` plays a fixed sequence
@@ -157,12 +157,12 @@ recording is Kart Krew's music and effects, so **the WAV is judged where it
 is made and never uploaded**; CI publishes the verdict and level plots only.
 
 **S4 — Doom music.** `tools/doom/fetch.py` gains Chocolate Doom 3.1.0
-(pinned above); `doom/build.rs` compiles the four files with
+(pinned above); `games/doom/build.rs` compiles the four files with
 `choco_compat.h` force-included, plus `opl_lazyos.c`; `DG_music_module`
 wraps `music_opl_module`. `--sound-check` gains a music step (`D_E1M1`
 for five seconds); the judge looks for sustained output across several
 bands in that window, and headless gets a music CRC. Measured: the OPL
-render's share of the core under WHPX. `doom/NOTICE` adds the Chocolate
+render's share of the core under WHPX. `games/doom/NOTICE` adds the Chocolate
 Doom files (GPL-2.0-or-later) and Nuked OPL3 (LGPL-2.1-or-later).
 
 **S5 — follow-ups (each independent).** Quake's `Pcm` records into the same
@@ -212,7 +212,7 @@ thread its turn promptly under WHPX, and TCG needs the deeper queue.
 |---|---|
 | Mixer, decoders, fades, loops, pan, cache, fuzz | `cargo test -p gamemix` (`FUZZ_CASES=20000 ... --release seeded`) |
 | Pull output against the client library's test transport | `cargo test --manifest-path xui-app/Cargo.toml` (the `platform::audio::pull` tests; Linux-only, WSL on Windows) |
-| The ports' pure modules (argv, seam validation) | `cargo test --manifest-path doom/Cargo.toml --lib`, the same for `srb2kart/` |
+| The ports' pure modules (argv, seam validation) | `cargo test --manifest-path games/doom/Cargo.toml --lib`, the same for `games/srb2kart/` |
 | The judges fail when they should | `python tools/doom/test_sound_judge.py`, `python tools/srb2kart/test_sound_judge.py` |
 | End to end, by recording | `python tools/doom/sound_run.py`, `python tools/srb2kart/sound_run.py` |
 | No permission gap | the S2/S3 sessions on an image with `LAZYOS_LABEL_TRACE=1`: no `LABEL:DENY` |

@@ -13,7 +13,7 @@ publish = false
 license = "GPL-3.0-or-later"
 description = "emusic (music player and library) as a LazyOS desktop app"
 
-# A standalone workspace, like `doom/`: a static-musl program built by
+# A standalone workspace, like `games/doom/`: a static-musl program built by
 # `tools/emusic/build.py` with the zig toolchain (SQLite is C). The OS
 # workspace never builds it.
 [workspace]

@@ -1,8 +1,8 @@
 # Plan: Doom (doomgeneric) + Freedoom on LazyOS
 
 > **Status: D0-D4 implemented (2026-10-02); D5 partly, D6 not started.** Doom
-> ships as the `.lzp` package `org.lazy.doom` (`doom/`, `tools/doom/`,
-> `doom/README.md`) with the Freedoom IWAD inside it, installed through `pkgd`.
+> ships as the `.lzp` package `org.lazy.doom` (`games/doom/`, `tools/doom/`,
+> `games/doom/README.md`) with the Freedoom IWAD inside it, installed through `pkgd`.
 > Decisions taken while implementing, which supersede the text below where they
 > differ:
 >
@@ -22,9 +22,9 @@
 >   never sits in the kernel heap either.
 > - **Toolchain: `zig cc`** (`tools/xui/zig.py`, already used for the Docs app),
 >   no Docker. **License:** the engine is GPL-2.0-or-later, so it combines with
->   the GPL-3.0-or-later wrapper; `doom/NOTICE` carries the source offer.
+>   the GPL-3.0-or-later wrapper; `games/doom/NOTICE` carries the source offer.
 > - **D2 refactor deferred:** since the plan was written `client_window` and
->   `display` grew buffer slots and `xui_core::Rect`, so `doom/` links `xui-app`
+>   `display` grew buffer slots and `xui_core::Rect`, so `games/doom/` links `xui-app`
 >   as a library (open question 3) and the raw-surface crate stays a separate
 >   change.
 > - **Input:** both paths of D3 are implemented: the `inputd` session (Ctrl
@@ -53,7 +53,7 @@ persistence beyond what `/data` gives for free, fullscreen scanout.
 | Game data | Freedoom `freedoom1.wad` (Phase 1), optionally `freedoom2.wad` | BSD-3-Clause data, so it can ship in the image and CI. Never commit a WAD. |
 | Language split | C engine compiled to a static lib, linked into a **small Rust binary** that implements the `DG_*` hooks | The display client (`LazyOSBackend`, raw syscall-5 shim, MIDL stubs from `messenger-generated`) is Rust. Hand-porting it to C would violate the "every Messenger interface goes through `midlc`" rule and duplicate the protocol. The Rust `main` owns the loop and calls `doomgeneric_Create`/`doomgeneric_Tick`. |
 | Toolchain | `cc` crate driving **Alpine/`musl-gcc`** (Docker on Windows, as `tools/abi/busybox.py` does), falling back to `zig cc -target x86_64-linux-musl` | musl-native C toolchain is already an accepted host requirement for BusyBox. `zig cc` is the only Windows-native option with no Docker and no linker fiddling. |
-| Where | New crate `doom/` beside `xui-app/` (not in the OS workspace), built by `tools/doom/build.py` -> `target/doom/lazydoom.elf` | Mirrors `tools/xui/build.py`; keeps the C build out of the `no_std` workspace. |
+| Where | New crate `games/doom/` beside `xui-app/` (not in the OS workspace), built by `tools/doom/build.py` -> `target/doom/lazydoom.elf` | Mirrors `tools/xui/build.py`; keeps the C build out of the `no_std` workspace. |
 | Packaging | a package (`.lzp`, `docs/packages.md`) holding the ELF; WAD fetched, hash-checked, and placed on the image (see phase 4) | `pkgd` installs it into `/apps` and `init` launches it like any installed app (F5, #509). |
 
 ## Architecture
@@ -85,7 +85,7 @@ source-only claim.
   `python tools/doom/build.py --engine-only` produces `libdoomgeneric.a`.
 - Vendor doomgeneric as a **pinned git revision fetched at build time** (SHA
   recorded in the script, like BusyBox's tarball digest), not copied into the
-  tree. Its GPL-2.0 license and a `NOTICE` go in `doom/`.
+  tree. Its GPL-2.0 license and a `NOTICE` go in `games/doom/`.
   Because the engine is statically linked into an ELF shipped in the OS image,
   the plan must settle before D4 how recipients obtain the corresponding source
   (the pinned revision plus our build script and wrapper, offered alongside the

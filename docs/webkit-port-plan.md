@@ -21,7 +21,7 @@ the window is maximized (§5 W5). Decisions taken: WebKit2 is
 the engine (§2), the port is modeled on the PlayStation port with WebKit's C
 API as the seam to a Rust xui window (§5; the window is a static library linked
 into the C++ UI process, not the other way round), and the port files live out of
-tree like `doom/` and `quake/` (§7).
+tree like `games/doom/` and `games/quake/` (§7).
 
 **W1/W2 results** (`tools/jsc/`, [README](../tools/jsc/README.md); `python
 tools/jsc/build.py` then `python tools/jsc/run.py`):
@@ -792,7 +792,7 @@ browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
 
 ## 7. Where it would live
 
-`webkit/` beside `doom/` and `quake/`: the port layer (`webkit/port`, with the
+`webkit/` beside `games/doom/` and `games/quake/`: the port layer (`webkit/port`, with the
 UI process in `webkit/port/app`), the dependency and build scripts
 (`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
 `os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`

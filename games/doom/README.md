@@ -3,7 +3,7 @@
 Doom on the [doomgeneric](https://github.com/ozkl/doomgeneric) engine, playing
 Freedoom: Phase 1, shipped as the installable package `org.lazy.doom`
 (`docs/packages.md`). The plan and its status are in
-[`docs/doom-port-plan.md`](../docs/doom-port-plan.md).
+[`docs/doom-port-plan.md`](../../docs/doom-port-plan.md).
 
 ## Build, install, play
 
@@ -48,7 +48,7 @@ go to `/tmp/doom`, which a reboot clears.
 ## Checks
 
 ```bash
-cargo test --manifest-path doom/Cargo.toml --lib    # keymap, key edges, scaling, args, CRC
+cargo test --manifest-path games/doom/Cargo.toml --lib    # keymap, key edges, scaling, args, CRC
 # an image built with LAZYOS_DESKTOP=1 LAZYOS_DOOM=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_UI_PROBE=1
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom \
     --script tools/screenshot/examples/doom.json     # install, headless, menu launch, play

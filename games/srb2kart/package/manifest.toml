@@ -4,7 +4,7 @@
 # adds `bin/srb2kart.elf` (the Kart-Public engine and its LazyOS platform layer)
 # and the licence files before it builds `target/pkg/srb2kart.lzp`. The game
 # data is NOT in the package: it is Kart Krew's, fetched at build time and
-# placed by the image build in /system/share/srb2kart (see srb2kart/CREDITS.txt).
+# placed by the image build in /system/share/srb2kart (see games/srb2kart/CREDITS.txt).
 
 [app]
 name = "SRB2Kart"

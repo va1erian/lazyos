@@ -279,7 +279,7 @@ fn headless(args: &[String]) -> i32 {
         info.prg_kb,
         info.chr_kb,
         u8::from(info.battery),
-        xui_nes::session::region_name(info.region)
+        xui_nes::rom::region_name(info.region)
     );
     for _ in 0..frames {
         if let Err(error) = session.clock() {
@@ -287,7 +287,7 @@ fn headless(args: &[String]) -> i32 {
             return 1;
         }
     }
-    let crc = xui_nes::session::crc32(session.frame());
+    let crc = xui_nes::rom::crc32(session.frame());
     let line = format!("NES:HEADLESS:PASS frames={frames} crc={crc:08x}");
     trace::pass!(Channel::Nes, "HEADLESS", "frames={frames} crc={crc:08x}");
     let _ = std::fs::write(

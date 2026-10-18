@@ -3,7 +3,7 @@
 SRB2Kart v1.6 (Kart Krew's kart racer on the Sonic Robo Blast 2 engine) as the
 installable package `org.lazy.srb2kart` (`docs/packages.md`), on the software
 renderer, keyboard-driven, offline. The plan, decisions and phases are in
-[`docs/srb2kart-port-plan.md`](../docs/srb2kart-port-plan.md).
+[`docs/srb2kart-port-plan.md`](../../docs/srb2kart-port-plan.md).
 
 ## Build, install, play
 
@@ -74,7 +74,7 @@ licence, and the characters are SEGA's. Therefore:
 ```bash
 python tools/srb2kart/build.py --engine-only   # target/srb2kart/srb2kart.elf (+ the fetched source)
 python tools/srb2kart/build.py                 # also the data in target/srb2kart/data and the package
-cargo test --manifest-path srb2kart/Cargo.toml --lib   # host tests of the pure modules
+cargo test --manifest-path games/srb2kart/Cargo.toml --lib   # host tests of the pure modules
 
 # the Linux host (WSL) is the fast loop; the same ELF runs on LazyOS
 target/srb2kart/srb2kart.elf -headless -frames 300 -data target/srb2kart/data -home /tmp/k

@@ -92,7 +92,7 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "tools/pkg/samples/counter",
         Art::Lucide(Lucide::Plus, Tone::Teal),
     ),
-    ("doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
+    ("games/doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
     // The Calculator: neither set has one; a keypad grid on an amber tile.
     (
         "xui-app/packages/calc",

@@ -1,5 +1,5 @@
 /* The seam between SRB2Kart's platform layer (this directory, C) and the Rust
- * program that owns `main` (srb2kart/src/hooks.rs). docs/srb2kart-port-plan.md,
+ * program that owns `main` (games/srb2kart/src/hooks.rs). docs/srb2kart-port-plan.md,
  * "The C <-> Rust seam". Everything Messenger-shaped stays on the Rust side. */
 #ifndef LAZYOS_HOST_H
 #define LAZYOS_HOST_H

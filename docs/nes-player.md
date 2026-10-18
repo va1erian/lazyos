@@ -93,6 +93,26 @@ picture, the melody's pitch, the controller byte the ROM reads back, a save
 state round-trip and the battery file; `tests/window.rs` drives the real
 window offscreen (menus, reports, snapshots in `xui-app/target/snapshots/`).
 
+## The cartridge is validated against a second emulator
+
+The sample ROM could be right for one emulator's quirks and wrong on real
+hardware, so `tools/nes/validate_external.py` runs the same file in
+[jsnes](https://github.com/bfirsh/jsnes) (Apache-2.0: an independent CPU, PPU
+and APU, in JavaScript, installed by npm into `target/` and never shipped).
+The ROM stores what a checker wants to know about the console it is running
+on — the controller byte it reads at `$10`, a frame counter at `$12`/`$13` —
+so the check is about the ROM's own view, not about pixels:
+
+```bash
+python tools/nes/validate_external.py     # NES:EXTERNAL:PASS ... (skips without node/npm)
+```
+
+It must see the ROM count its frames, read `$01` back while Right is held,
+move the ball, draw more than one colour, and sound its first note at 440 Hz.
+The palettes differ between emulators (jsnes's index 1 is red, TetaNES's is
+dark blue), so the picture check is structural; the pitch and the counters are
+not.
+
 ## Not there yet
 
 * No gamepad (the keyboard only; `inputd` reports gamepads, a later phase).

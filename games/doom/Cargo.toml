@@ -33,12 +33,12 @@ path = "src/main.rs"
 # session, the syscall shim) is `xui-app`'s; Doom draws raw pixels through it
 # and never builds a widget. Splitting that half into its own crate is the
 # plan's D2 refactor, left for its own change.
-xui-app = { path = "../xui-app" }
+xui-app = { path = "../../xui-app" }
 # The parcel type the event channels decode to (`xui-app` re-uses it too).
-libmessenger = { path = "../libs/messenger" }
+libmessenger = { path = "../../libs/messenger" }
 # Every well-known path (`/tmp/doom`, the headless result file, the app's
 # per-user folder) lives here.
-fhs = { path = "../libs/fhs", features = ["alloc"] }
+fhs = { path = "../../libs/fhs", features = ["alloc"] }
 # `Rect` for buffer-slot damage; the same revision `xui-app` pins, so one
 # `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1" }
