@@ -87,7 +87,11 @@ fn the_nes_sample_is_a_small_cartridge() {
     assert_eq!(&rom[..4], b"NES\x1a", "{:?}", &rom[..rom.len().min(4)]);
     assert_eq!((rom[4], rom[5]), (2, 1), "32 KiB PRG + 8 KiB CHR");
     assert_eq!(rom.len(), 16 + 32 * 1024 + 8 * 1024);
-    assert!(rom.len() < 64 * 1024, "keep the sample small: {} bytes", rom.len());
+    assert!(
+        rom.len() < 64 * 1024,
+        "keep the sample small: {} bytes",
+        rom.len()
+    );
 }
 
 #[test]
