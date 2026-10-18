@@ -1,10 +1,11 @@
 # Plan: USB gamepads (HID gamepad and X-input) into the input pipeline
 
-> **Status: draft proposal (2026-10-18); G0 and G1 are implemented on this
-> branch.** G0: `libs/usbhid` (the `report/` split, the gamepad layout and
-> decoder, `xinput.rs`, golden descriptors, fuzz entry and seeds). G1: the
-> kernel (`kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class with 32
-> buttons, `bus_axis.rs`, and the extended source tests). Builds on
+> **Status: draft proposal (2026-10-18); G0 and G1 are implemented** (the
+> phase table marks what landed; G2-G7 are ahead). G0: `libs/usbhid` (the
+> `report/` split, the gamepad layout and decoder, `xinput.rs`, golden
+> descriptors, fuzz entry and seeds). G1: the kernel (`kind::AXIS`/
+> `kind::DEVICE`, the `Gamepad` source class with 32 buttons, `bus_axis.rs`,
+> and the extended source tests). Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (U0-U5: `libs/xhci`, `libs/usbhid`, `usbd`,
 > the raw bus sources, the one cursor) and [input-plan.md](input-plan.md) (the
 > kernel raw bus, `inputd`, sessions, focus, the key-state page). This plan adds
