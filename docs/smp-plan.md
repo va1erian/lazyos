@@ -111,11 +111,14 @@ than a hope. They exist before any second CPU runs.
    into one ranked table. Lockdep is configured from the same table, so the
    doc and the panic agree.
 3. **Raw-lock ratchet** — `tools/sync/check_locks.py`, modelled on
-   `tools/trace/check_adhoc.py`: a baseline JSON of every file using
-   `spin::Mutex` directly; new uses fail CI, migrated files must lower their
+   `tools/trace/check_adhoc.py`: a baseline JSON of every file in the
+   kernel's `no_std` trees (`kernel/`, `user/`, `libs/` — where every
+   `Mutex`/`RwLock` is a spin lock) that uses one directly; new uses fail
+   CI, migrated files must lower their
    entry. SMP-touched subsystems migrate to `sync::Lock` as they are converted;
    untouched single-CPU-only code (e.g. boot-time tables) may stay on the
-   baseline forever.
+   baseline forever. Userspace `std::sync` locks are out of scope (threading
+   there is a non-goal of this plan).
 4. **Deterministic multicore runs** — `-smp N` support in
    `tools/screenshot/qemu_qmp.py::build_qemu_command` (`--smp N` on every
    launcher: `run_demo.py --smp`, `qemu_session.py`/`qemu_shot.py`, GUI
@@ -174,9 +177,12 @@ than a hope. They exist before any second CPU runs.
 - `--smp N` plumbing (§4.4) and `LAZYOS_SMP=0/1` build switch:
   `build.rs`/`build_support`, kernel `cfg(lazyos_smp)` (off ⇒ today's code
   paths, nothing compiled in), `tools/lazygui/catalog.py` +
-  `test_catalog.py`, `limits.rs` key `cpu_max` (default from MADT count,
-  clamped, `LAZYOS_LIMIT_CPU_MAX`), `smp.cpus=` in `lazyos.cfg`, and
-  `tools/test/run.py` `--smp N`/`--soak`.
+  `test_catalog.py`, `limits.rs` key `cpu_max` (range 1..=64; the default is
+  1 until S8.2 derives it from the MADT — `LAZYOS_LIMIT_CPU_MAX`), and
+  `tools/test/run.py` `--smp N`/`--soak`. The GUI control is on the Advanced
+  tab only at this stage (a raw switch that does nothing yet — the Simple tab
+  gets one when the kernel can use it); the `smp.cpus=` key of `lazyos.cfg`
+  lands in S8.2, with the bring-up that reads it.
 - Acceptance: `python tools/test/run.py --accel none` and the desktop
   harnesses pass unchanged with `--smp 1` **and** `--smp 4` (APs stay in
   firmware halt; the kernel does not see them yet). Ratchet script in CI with
@@ -301,7 +307,9 @@ read).
   writes the range into each target's per-CPU mailbox, sends the IPI, targets
   `invlpg` in the handler and ack with an atomic counter, sender spins with
   the watchdog. The caller list is **derived mechanically** from
-  `grep -rn "tlb::flush" kernel/src` (one audit row each), not from memory;
+  `grep -rn "tlb::flush" kernel/src` **plus every flush-by-CR3-write**
+  (`grep -rn "switch_to(" kernel/src` — `mem/cow.rs` fork flushes that way,
+  not by `tlb::flush`; one audit row each), not from memory;
   today that surfaces, in rough order of danger: **`mem/cow.rs`
   `clone_user_table` (fork)** — the sharpest, because fork marks the
   *parent's* leaves read-only/COW in place and flushes only locally; with

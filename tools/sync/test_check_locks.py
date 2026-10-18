@@ -53,6 +53,20 @@ class Scan(unittest.TestCase):
         self.assertEqual(self.lines("static T: Mutex <[u8; 4]> = todo!();"), [1])
 
 
+class InScope(unittest.TestCase):
+    def test_only_the_kernel_trees_are_scanned(self):
+        self.assertTrue(check_locks.in_scope("kernel/src/task/mod.rs"))
+        self.assertTrue(check_locks.in_scope("user/src/bin/init/sessions.rs"))
+        self.assertTrue(check_locks.in_scope("libs/ext2fs/src/io.rs"))
+        for out in ("xui-app/src/net/web.rs",          # a host-crate std::sync::Mutex
+                    "nettls/src/tls/mod.rs",           # a standalone workspace
+                    "vendor/bootloader/src/lib.rs",    # upstream
+                    "libs/ext2fs/examples/osread.rs",  # a host example program
+                    "libs/ext2fs/src/tests/cache_crash.rs",
+                    "libs/ext2fs/src/memio.rs"):       # cfg(test/fuzz)-only
+            self.assertFalse(check_locks.in_scope(out), out)
+
+
 class Ratchet(unittest.TestCase):
     def test_a_new_file_with_a_lock_fails(self):
         problems = check_locks.ratchet({"new.rs": [3]}, {})
@@ -76,8 +90,10 @@ class EndToEnd(unittest.TestCase):
     def test_the_ratchet_judges_a_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "src").mkdir()
-            (root / "src" / "a.rs").write_text("use spin::Mutex;\nstatic M: Mutex<u8> = Mutex::new(0);\n", encoding="utf-8")
+            (root / "kernel" / "src").mkdir(parents=True)
+            (root / "kernel" / "src" / "a.rs").write_text(
+                "use spin::Mutex;\nstatic M: Mutex<u8> = Mutex::new(0);\n", encoding="utf-8"
+            )
             baseline = root / "baseline.json"
             out = subprocess.run(  # noqa: S603 (fixed argv, no shell)
                 [sys.executable, str(HERE / "check_locks.py"), "--update-baseline",
@@ -86,9 +102,9 @@ class EndToEnd(unittest.TestCase):
             )
             self.assertIn("2 locks in 1 files", out.stdout)
             saved = json.loads(baseline.read_text(encoding="utf-8"))
-            self.assertEqual(saved, {"src/a.rs": 2})
+            self.assertEqual(saved, {"kernel/src/a.rs": 2})
             # Grown: fail. Lowered: fail until the entry moves. Unchanged: pass.
-            (root / "src" / "a.rs").write_text(
+            (root / "kernel" / "src" / "a.rs").write_text(
                 "use spin::Mutex;\nstatic M: Mutex<u8> = Mutex::new(0);\nstatic N: Mutex<u8> = Mutex::new(0);\n",
                 encoding="utf-8",
             )
@@ -98,7 +114,7 @@ class EndToEnd(unittest.TestCase):
                 capture_output=True, text=True,
             )
             self.assertEqual(grown.returncode, 1)
-            (root / "src" / "a.rs").write_text("use spin::Mutex;\n", encoding="utf-8")
+            (root / "kernel" / "src" / "a.rs").write_text("use spin::Mutex;\n", encoding="utf-8")
             lowered = subprocess.run(  # noqa: S603
                 [sys.executable, str(HERE / "check_locks.py"), "--ratchet",
                  "--root", str(root), "--baseline", str(baseline)],

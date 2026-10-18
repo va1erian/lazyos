@@ -42,7 +42,7 @@ REPORT_DIR = ROOT / "docs" / "test"
 
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 from qemu_qmp import (  # noqa: E402
-    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port,
+    DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port, smp_type,
 )
 
 RE_SUMMARY = re.compile(r"^TEST:SUMMARY:PASS=(\d+) FAIL=(\d+)\s*$")
@@ -287,7 +287,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--smp",
-        type=int,
+        type=smp_type,
         default=None,
         metavar="N",
         help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). The APs stay parked in "

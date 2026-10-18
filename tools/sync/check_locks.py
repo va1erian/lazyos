@@ -9,6 +9,11 @@ with a raw lock fails, a file whose count rises fails, and a file that
 improves must lower its entry (`--update-baseline`), so saved headroom cannot
 be spent on a new raw lock.
 
+The scan covers the kernel's `no_std` world only — `kernel/`, `user/` and
+`libs/`: there, every `Mutex`/`RwLock` type use is a `spin` lock (re-exported
+through a module parent or not). Userspace `std::sync` locks (the xui apps,
+the ports) are out of scope: threading there is a non-goal of the SMP plan.
+
 A hit is a `spin` lock type use:
 
     use spin::Mutex;                 static T: Mutex<[..]>  = ..;
@@ -17,8 +22,9 @@ A hit is a `spin` lock type use:
 
 Not hits: `sync::Lock` (the kernel lock type, once it exists), `YieldMutex<T>`
 uses (the alias itself is in the baseline; its S8.6 migration lowers it), the
-word "Mutex" in comments or strings without a generic or path use, and every
-file under `vendor/` (upstream code this repo does not edit).
+word "Mutex" in comments or strings without a generic or path use, host-only
+modules of `no_std` crates (`memio.rs`, gated `cfg(any(test, feature))`), and
+everything under `vendor/` (upstream code this repo does not edit).
 """
 
 from __future__ import annotations
@@ -38,8 +44,18 @@ BASELINE = Path(__file__).with_name("lock_baseline.json")
 # `RwLock<`) of a name a `use spin::..` brought in.
 LOCK = re.compile(r"\bspin::(?:mutex::)?(?:Mutex|RwLock)\b|\b(?:Mutex|RwLock)\s*<")
 
-# Not scanned: upstream code this repo does not edit.
-EXCLUDED_PREFIXES = ("vendor/",)
+# The kernel's `no_std` trees: the only place a raw spin lock is an SMP
+# concern (docs/smp-plan.md; userspace threading is a non-goal).
+TREES = ("kernel/", "user/", "libs/")
+
+# Not scanned: upstream code this repo does not edit, host-side example
+# programs, and the host-only modules/`tests` dirs of `no_std` crates (their
+# `std::sync::Mutex` is a host test device, not a kernel lock).
+EXCLUDED_PARTS = ("vendor/", "/examples/", "/tests/", "/target/")
+HOST_ONLY = {
+    # `cfg(any(test, feature = "fuzz"))` in libs/ext2fs/src/lib.rs.
+    "libs/ext2fs/src/memio.rs",
+}
 
 
 def tracked_rust_files(root: Path) -> list[str]:
@@ -58,6 +74,15 @@ def tracked_rust_files(root: Path) -> list[str]:
     ]
 
 
+def in_scope(path: str) -> bool:
+    """Whether `path` is one of the scanned trees, outside the exclusions."""
+    return (
+        path.startswith(TREES)
+        and path not in HOST_ONLY
+        and not any(part in path for part in EXCLUDED_PARTS)
+    )
+
+
 def scan_text(text: str) -> list[int]:
     """Lines of one file's text with a raw lock use."""
     return [text.count("\n", 0, match.start()) + 1 for match in LOCK.finditer(text)]
@@ -66,7 +91,7 @@ def scan_text(text: str) -> list[int]:
 def scan(root: Path) -> dict[str, list[int]]:
     result: dict[str, list[int]] = {}
     for path in tracked_rust_files(root):
-        if path.startswith(EXCLUDED_PREFIXES) or "/target/" in path:
+        if not in_scope(path):
             continue
         file = root / path
         if not file.is_file():

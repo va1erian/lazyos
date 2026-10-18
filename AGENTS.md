@@ -92,7 +92,9 @@ python tools/run_demo.py
 QEMU hardware acceleration (WHPX on Windows, KVM on Linux) is auto-detected and
 makes rendering several times faster than TCG; force it off with `--accel none`.
 `run_demo.py` builds `target/lazyos.img` if needed (`--no-build`, `--headless`,
-`-- --cpu max` are supported). It also creates `target/home.img` (the `/home`
+`-- --cpu max` are supported; `--smp N` boots with N vCPUs, whose APs stay
+parked in firmware until the kernel's SMP bring-up — docs/smp-plan.md). It also
+creates `target/home.img` (the `/home`
 volume, label `lazyhome`) when missing and attaches it as a second virtio-blk
 disk (`--home-disk PATH`, `--no-home-disk`, `--reset-home`; `--reset-os` rebuilds
 with `LAZYOS_RESET_OS=1`; `--data-disk` is opt-in). The screenshot tools attach

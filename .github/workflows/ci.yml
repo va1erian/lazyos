@@ -63,9 +63,10 @@ jobs:
       - run: cargo test -p build-support-tests trace
 
   locks:
-    # Raw `spin` locks are ratcheted (docs/smp-plan.md section 4.3): the
-    # SMP-era critical sections move to the kernel's `sync::Lock`, subsystem
-    # by subsystem, and no new raw lock may appear meanwhile.
+    # The kernel trees' raw `spin` locks are ratcheted (docs/smp-plan.md
+    # section 4.3): the SMP-era critical sections move to the kernel's
+    # `sync::Lock`, subsystem by subsystem, and no new raw lock may appear
+    # meanwhile. Userspace `std::sync` locks are out of scope.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

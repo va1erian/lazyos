@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
-from qemu_qmp import DEFAULT_MEMORY  # noqa: E402
+from qemu_qmp import DEFAULT_MEMORY, smp_type  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
@@ -41,7 +41,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--image", default=str(default_image), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
-    parser.add_argument("--smp", type=int, default=None, metavar="N",
+    parser.add_argument("--smp", type=smp_type, default=None, metavar="N",
                         help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). The APs stay "
                              "parked in firmware until the kernel's SMP bring-up (docs/smp-plan.md)")
     add_limit_option(parser)

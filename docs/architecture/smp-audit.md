@@ -80,10 +80,10 @@ invalidating it all at once.
 | `task/schedule.rs:212-217` | `install`'s slot-pinning invariant ("on today's single-CPU scheduler") | real proof: selection under the scheduler lock, teardown takes it (S8.4) |
 | `mem/frames.rs` | `FRAMES: Mutex<Option<Frames>>`, one global lock | entry lock (S8.3) → per-CPU magazines + central lock (S8.5) |
 | `mem/heap.rs:33-42` | The #382 rule: the heap lock is only taken with interrupts off | `sync::Lock` + per-CPU slab caches (S8.5) |
-| `mem/protect.rs:15-17` | "an SMP kernel needs a shootdown here" | shootdown (S8.2); callers derived from `grep -rn "tlb::flush" kernel/src`: **`mem/cow.rs` (fork — the sharpest: it write-protects the parent in place)**, `protect.rs` (`filemap::write_protect`, `unmap_from` unmapping every address space), `mem/reclaim.rs`, `mem/filemap.rs` + page-cache eviction, `mem/uspace.rs` unmap/remap (`remap_page`), the page-cache generation bumps |
+| `mem/protect.rs:15-17` | "an SMP kernel needs a shootdown here" | shootdown (S8.2); callers derived from `grep -rn "tlb::flush" kernel/src` **plus the flush-by-CR3-write sites** (`switch_to(` — `mem/cow.rs` fork flushes that way): **`mem/cow.rs` (fork — the sharpest: it write-protects the parent in place)**, `protect.rs` (`filemap::write_protect`, `unmap_from` unmapping every address space), `mem/reclaim.rs`, `mem/filemap.rs` + page-cache eviction, `mem/uspace.rs` unmap/remap (`remap_page`), the page-cache generation bumps |
 | `mem/` fault paths | COW/demand resolve flushes locally | deliberately exempt: a resolve only tightens or installs an entry, so a remote stale entry is safe (recorded here so a reviewer does not flag it) |
 | `fs/openfile/pagecache.rs` | "no store can land while the kernel holds the cache lock" | real critical sections; the epoch checked under the lock (S8.5) |
-| `ipc/channels.rs:28-33` | `CHANNELS` lock order note; `WaitQueue` rules at `task/wait.rs:24-27` rely on interrupts-off for register-then-block | entry lock (S8.3) → finer channel/endpoint locks (S8.6); the wait rule inverts (lock-held-across-state-set) and [`locking.md`](locking.md) records both eras |
+| `ipc/channels.rs:28-33` | `CHANNELS` lock order note; `WaitQueue` rules at `task/wait.rs:24-27` rely on interrupts-off for register-then-block | entry lock (S8.3) → finer channel/endpoint locks (S8.6); the wait rule inverts (lock-held-across-state-set) and the lock-order table records both eras |
 | `task/yieldlock.rs` | `YieldMutex` (the two VFS tables, ext2 volumes) parks inside its critical section | sleeplock (S8.6) |
 | `ipc/inet/bell.rs:20` | Single-waiter atomics, "rung from syscall context (one CPU)" | audited: CAS claim or documented single-waiter (S8.6) |
 | `dev/peek.rs:44` | "A port to SMP must make the claim table and the BAR decode a real critical section" | real lock (S8.6) |
@@ -107,3 +107,6 @@ invalidating it all at once.
    `python tools/sync/check_locks.py --ratchet` — a migration lowers counts.
 3. When writing new kernel code that would once have relied on "interrupts
    off", add its assumption here instead of a comment that says "single CPU".
+   The lock-order table this file refers to (`locking.md`) is written in
+   S8.1 with the `sync::Lock` work; until then the scattered orders are
+   listed in the plan's section 4.

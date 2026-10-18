@@ -41,8 +41,6 @@ class SmpTests(unittest.TestCase):
                 catalog.build_plan(demo_config(smp=bad))
 
     def test_every_mode_takes_it(self) -> None:
-        # The scripted session is driven by the same helper (its step builds
-        # `smp_argv` too); the other three modes are judged here directly.
         for mode, label in (("Headless screenshots", "Capture screenshots"),
                             ("Kernel test suite", "Kernel test suite")):
             cfg = demo_config(mode=mode, out="shots", times="2", skip_build=True, smp="4")
@@ -50,6 +48,13 @@ class SmpTests(unittest.TestCase):
             step = next(s for s in plan if s["label"] == label)
             self.assertEqual(step["argv"][step["argv"].index("--smp") + 1], "4",
                              msg=mode)
+
+    def test_the_scripted_session_takes_it_too(self) -> None:
+        plan = catalog.build_plan(demo_config(mode="Scripted session", out="shots",
+                                              timeout="180", tablet=False, script=0,
+                                              skip_build=True, smp="2"))
+        step = plan[-1]
+        self.assertEqual(step["argv"][step["argv"].index("--smp") + 1], "2")
 
 
 if __name__ == "__main__":
