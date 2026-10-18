@@ -33,9 +33,16 @@ pub(crate) fn access_range(ptr: u64, len: usize, write: bool) -> Result<(), i64>
     let table = mem::kernel_table();
     stable(|| {
         let mut va = ptr & !0xfff;
+        let mut pages = 0u32;
         while va < end {
             translate(table, va, write)?;
             va += 4096;
+            // A terabyte-long range of demand-zero memory is millions of
+            // frames to materialise with interrupts off.
+            pages += 1;
+            if pages % 256 == 0 {
+                crate::arch::irq_window::poll_point();
+            }
         }
         Ok(())
     })
