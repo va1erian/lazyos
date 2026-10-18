@@ -47,7 +47,7 @@ pub const LINUX_SLOTS: usize = 512;
 const NATIVE: u64 = 1 << 63;
 /// Tag for a kernel section ([`kernel_section`]).
 const KERNEL: u64 = 1 << 62;
-/// Marks "no syscall" in [`TASK_NR`] and [`SPAN_NR`].
+/// Marks "no syscall" in [`Cpu::irqoff::nr`] (per CPU, `arch::percpu`).
 const NONE: u64 = u64::MAX;
 
 type Site = Location<'static>;
@@ -227,7 +227,8 @@ fn record(tagged: u64, cycles: u64, from: *const Site, to: &'static Site) {
     }
     slot.store(cycles, Ordering::Relaxed);
     if over_bound {
-        // SAFETY: `SPAN_FROM` only ever holds null or a `&'static Location`.
+        // SAFETY: the span's `from` (per CPU, `arch::percpu`) only ever
+        // holds null or a `&'static Location`.
         let from = unsafe { from.as_ref() }.unwrap_or(to);
         let missed = super::clock::missed_ticks();
         enqueue(Report {

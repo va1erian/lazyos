@@ -1,4 +1,4 @@
-﻿//! The suite's run order (docs: the order is load-bearing — see the module
+//! The suite's run order (docs: the order is load-bearing — see the module
 //! doc of `tests/mod.rs`). Kept apart from the harness so each file stays
 //! under its budget; `run()` in `tests/mod.rs` walks it.
 
@@ -148,4 +148,3 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     timer_suite::CASES,
     hardening_suite::CASES,
 ];
-

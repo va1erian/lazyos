@@ -1,4 +1,4 @@
-﻿//! LazyOS kernel entry point.
+//! LazyOS kernel entry point.
 
 #![no_std]
 #![no_main]

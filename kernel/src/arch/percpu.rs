@@ -28,13 +28,13 @@
 
 use core::arch::asm;
 use core::mem::offset_of;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8};
+use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicU8, Ordering};
 use x86_64::structures::gdt::GlobalDescriptorTable;
 use x86_64::structures::tss::TaskStateSegment;
 
 use super::linux::UserContext;
 use super::msr;
-use crate::task::KERNEL_TASK;
 
 /// Per-CPU areas that exist (the AP bring-up caps the count here;
 /// `limit.cpu_max` clamps below it).
@@ -135,54 +135,82 @@ pub struct Cpu {
     pub syscall: SyscallEntry,
     /// The ring-0 stack a user trap switches to (`RSP0`), and the
     /// double-fault stack (IST 0). Per CPU since the TSS is: `RSP0` is
-    /// rewritten at every task switch.
-    pub tss: TaskStateSegment,
+    /// rewritten at every task switch. Written by `gdt::init_cpu` before the
+    /// GDT that names it is loaded; read through [`Cpu::tss`] after that.
+    pub tss: MaybeUninit<TaskStateSegment>,
     pub gdt: GlobalDescriptorTable,
     pub kernel_stack: [u8; KERNEL_STACK_SIZE],
     pub double_fault_stack: [u8; DOUBLE_FAULT_STACK_SIZE],
 }
 
 impl Cpu {
-    const fn new() -> Self {
-        Cpu {
-            self_ptr: 0,
-            index: 0,
-            apic_id: 0,
-            online: false,
-            current: AtomicU64::new(KERNEL_TASK as u64),
-            preempt: PreemptState {
-                need_resched: AtomicBool::new(false),
-                preempting: AtomicBool::new(false),
-                // `usize::MAX` sentinels, as the `preempt` statics had them.
-                selected: AtomicU64::new(u64::MAX),
-                selected_at: AtomicU64::new(0),
-                slice_end: AtomicU64::new(0),
-                deferred: AtomicU64::new(0),
-                handoff_from: AtomicU64::new(u64::MAX),
-                handoff_to: AtomicU64::new(u64::MAX),
-            },
-            irqoff: IrqOffSpan {
-                start: AtomicU64::new(0),
-                nr: AtomicU64::new(u64::MAX),
-                from: AtomicPtr::new(core::ptr::null_mut()),
-                task: AtomicU64::new(0),
-            },
-            window: WindowState {
-                open: AtomicU8::new(0),
-                last: AtomicU64::new(0),
-                opened: AtomicU64::new(0),
-                window_ticks: AtomicU64::new(0),
-                uncharged: AtomicU64::new(0),
-            },
-            syscall: SyscallEntry {
-                stack: 0,
-                saved_user_rsp: 0,
-                user_context: UserContext::ZEROED,
-            },
-            tss: TaskStateSegment::new(),
-            gdt: GlobalDescriptorTable::new(),
-            kernel_stack: [0; KERNEL_STACK_SIZE],
-            double_fault_stack: [0; DOUBLE_FAULT_STACK_SIZE],
+    /// This CPU's TSS, after `gdt::init_cpu` wrote it. Panics (uninitialized
+    /// read) if per-CPU state is touched before `percpu::init`/`init_cpu` —
+    /// which is a boot-ordering bug the suite's first case catches.
+    pub fn tss(&mut self) -> &mut TaskStateSegment {
+        // SAFETY: the TSS is plain data zeroed in the static and written by
+        // `init_cpu` before the GDT naming it is loaded; every accessor
+        // runs after that (the boot order pins it, `percpu_suite` checks it).
+        unsafe { self.tss.assume_init_mut() }
+    }
+    /// The all-zero area: **every byte of this value is zero**, so the
+    /// static array of [`MAX_CPUS`] lands in `.bss` (64 × ~52 KiB would be
+    /// 3.3 MiB of image otherwise). The `u64::MAX` sentinels and the TSS's
+    /// `iomap_base` are written by [`init`] for every area at boot.
+    const ZERO: Cpu = Cpu {
+        self_ptr: 0,
+        index: 0,
+        apic_id: 0,
+        online: false,
+        current: AtomicU64::new(0),
+        preempt: PreemptState {
+            need_resched: AtomicBool::new(false),
+            preempting: AtomicBool::new(false),
+            selected: AtomicU64::new(0),
+            selected_at: AtomicU64::new(0),
+            slice_end: AtomicU64::new(0),
+            deferred: AtomicU64::new(0),
+            handoff_from: AtomicU64::new(0),
+            handoff_to: AtomicU64::new(0),
+        },
+        irqoff: IrqOffSpan {
+            start: AtomicU64::new(0),
+            nr: AtomicU64::new(0),
+            from: AtomicPtr::new(core::ptr::null_mut()),
+            task: AtomicU64::new(0),
+        },
+        window: WindowState {
+            open: AtomicU8::new(0),
+            last: AtomicU64::new(0),
+            opened: AtomicU64::new(0),
+            window_ticks: AtomicU64::new(0),
+            uncharged: AtomicU64::new(0),
+        },
+        syscall: SyscallEntry {
+            stack: 0,
+            saved_user_rsp: 0,
+            user_context: UserContext::ZEROED,
+        },
+        // The TSS's reserved fields are private, so a literal is out; the
+        // zeroed `MaybeUninit` is plain-data zero bytes and `init_cpu`
+        // writes the real `TaskStateSegment::new()` (whose `iomap_base`
+        // points past the struct, denying every port bit) before loading it.
+        tss: MaybeUninit::zeroed(),
+        gdt: GlobalDescriptorTable::new(),
+        kernel_stack: [0; KERNEL_STACK_SIZE],
+        double_fault_stack: [0; DOUBLE_FAULT_STACK_SIZE],
+    };
+
+    /// Install the "nothing charged, nothing pending" sentinels the code
+    /// expects (`u64::MAX` = none) into every area. Only [`init`] calls
+    /// this; the zero values are never read before it (no span is open, no
+    /// selection made).
+    fn install_sentinels(areas: &mut [Cpu; MAX_CPUS]) {
+        for area in areas.iter_mut() {
+            area.preempt.selected.store(u64::MAX, Ordering::Relaxed);
+            area.preempt.handoff_from.store(u64::MAX, Ordering::Relaxed);
+            area.preempt.handoff_to.store(u64::MAX, Ordering::Relaxed);
+            area.irqoff.nr.store(u64::MAX, Ordering::Relaxed);
         }
     }
 }
@@ -199,7 +227,7 @@ pub const OFF_USER_CONTEXT: usize =
     offset_of!(Cpu, syscall) + offset_of!(SyscallEntry, user_context);
 pub const OFF_WINDOW_OPEN: usize = offset_of!(Cpu, window) + offset_of!(WindowState, open);
 
-static mut AREAS: [Cpu; MAX_CPUS] = [const { Cpu::new() }; MAX_CPUS];
+static mut AREAS: [Cpu; MAX_CPUS] = [const { Cpu::ZERO }; MAX_CPUS];
 
 /// `IA32_GS_BASE` (the `%gs` base memory operands use; `arch/msr.rs` holds
 /// the kernel's other MSRs).
@@ -223,13 +251,17 @@ pub unsafe fn boot_area() -> &'static mut Cpu {
 }
 
 /// Publish the boot CPU's area: write its self-pointer and point `%gs`'s
-/// base at it. Called by `gdt::init` after the selector loads (which resets
-/// the base), before anything reads per-CPU state; there is no concurrency
-/// (interrupts off, one CPU).
+/// base at it. Called twice on the boot CPU — at `kernel_main`'s first
+/// statement (everything below, including `fs::init`, reads per-CPU state)
+/// and again by `gdt::init` after its selector loads reset the base — and
+/// once per AP from its own bring-up (S8.2). Also installs the state
+/// sentinels into every area (the static is all-zero `.bss`).
 pub fn init() {
-    // SAFETY: single-threaded boot; the area is only reachable through
-    // `gs`-relative loads and this raw pointer.
+    // SAFETY: single-threaded boot (or an AP's own bring-up, S8.2); the
+    // areas are only reachable through `gs`-relative loads and these raw
+    // pointers.
     unsafe {
+        Cpu::install_sentinels(&mut *(&raw mut AREAS));
         let area = addr_of_area(0);
         (*area).self_ptr = area as u64;
         (*area).index = 0;
@@ -239,6 +271,12 @@ pub fn init() {
 }
 
 /// The current CPU's area: `gs:[0]` holds the area's own address.
+///
+/// The reference is only valid for the CPU that fetched it, and must **not**
+/// be held across anything that can re-enter the area — an interrupt window
+/// (`irq_window::open`), a park, a scheduler switch — because the re-entered
+/// code takes its own `&mut` to the same object (aliasing UB). Re-fetch
+/// after the re-entrant point instead.
 #[inline]
 pub fn current() -> &'static mut Cpu {
     // SAFETY: `%gs`'s base is this CPU's `Cpu` (`init`, and the AP init in

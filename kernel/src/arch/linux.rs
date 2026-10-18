@@ -252,10 +252,10 @@ global_asm!(
     off_stack = const percpu::OFF_SYSCALL_STACK,
 );
 
-/// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
-/// but entered with a plain `call` from ring 0 and left with `ret`, recording
-/// `rsp` and the seventh-argument slot at the `call linux_dispatch`. Takes
-/// `(nr, r9)`; every other syscall register is zero.
+// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
+// but entered with a plain `call` from ring 0 and left with `ret`, recording
+// `rsp` and the seventh-argument slot at the `call linux_dispatch`. Takes
+// `(nr, r9)`; every other syscall register is zero.
 #[cfg(lazyos_tests)]
 global_asm!(
     concat!(

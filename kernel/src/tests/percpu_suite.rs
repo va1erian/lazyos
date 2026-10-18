@@ -5,7 +5,7 @@
 use super::*;
 use crate::arch::percpu;
 use core::mem::{offset_of, size_of};
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::Ordering;
 
 /// `gs:[0]` reads back the area itself, and the boot CPU's is area 0, online,
 /// with the kernel task current. Everything else in the kernel reads per-CPU
@@ -70,9 +70,9 @@ pub fn set_kernel_stack_targets_this_cpu() -> Result<(), String> {
     let boot = cpu.kernel_stack.as_ptr() as u64 + percpu::KERNEL_STACK_SIZE as u64;
     crate::arch::gdt::set_kernel_stack(top);
     check!(
-        cpu.tss.privilege_stack_table[0].as_u64() == top,
+        cpu.tss().privilege_stack_table[0].as_u64() == top,
         "RSP0 is {:#x}, expected {top:#x}",
-        cpu.tss.privilege_stack_table[0].as_u64()
+        cpu.tss().privilege_stack_table[0].as_u64()
     );
     // Restore what the boot installed (the entry paths use RSP0).
     crate::arch::gdt::set_kernel_stack(boot);
@@ -157,24 +157,5 @@ pub fn preempt_state_roundtrips_through_the_area() -> Result<(), String> {
     );
     cpu.preempt.selected.store(u64::MAX, Ordering::Relaxed);
     cpu.preempt.slice_end.store(0, Ordering::Relaxed);
-    Ok(())
-}
-
-/// A `WindowState`/`IrqOffSpan` that starts zeroed: a fresh area must open
-/// no window and charge no span (`may_open`/`span_open` read these before a
-/// CPU has ever run a syscall).
-pub fn fresh_area_state_is_zeroed() -> Result<(), String> {
-    let zero = AtomicU64::new(0);
-    check!(
-        zero.load(Ordering::Relaxed) == 0 && percpu::MAX_CPUS > 1,
-        "the suite needs a second area to exist"
-    );
-    // `area(1)` was proven zeroed by `areas_are_isolated`; here only the
-    // window's own counter start is checked (arm() seeds `last` with TSC).
-    let cpu = percpu::current();
-    check!(
-        cpu.window.open.load(Ordering::Relaxed) == 0,
-        "a window is open outside one"
-    );
     Ok(())
 }

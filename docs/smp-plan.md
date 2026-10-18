@@ -565,13 +565,13 @@ Replace "global runq under the entry lock" with per-CPU run queues + a
 
 | Global today | File | Disposition |
 |---|---|---|
-| `CURRENT` | `task/mod.rs:187` | per-CPU � **done (S8.1)** |
+| `CURRENT` | `task/mod.rs:187` | per-CPU — **done (S8.1)** |
 | `SCHEDULING` | `task/mod.rs` | boot-phase flag; stays global (audit) |
-| `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` | `arch/linux.rs` | per-CPU � **done (S8.1)** |
-| `GDT`, `TSS`, kernel + double-fault stacks | `arch/gdt.rs` | per-CPU � **done (S8.1)** |
-| `NEED_RESCHED`, `PREEMPTING`, `SELECTED*`, `SLICE_END`, `DEFERRED`, `HANDOFF_*` | `task/preempt.rs` | per-CPU � **done (S8.1)**; `NAPPING` stays per-task |
-| `SPAN_*` | `arch/irqoff.rs` | per-CPU � **done (S8.1)** |
-| `IRQ_WINDOW_OPEN`, `LAST/OPENED/WINDOW_TICKS/UNCHARGED` | `arch/irq_window.rs` | per-CPU � **done (S8.1)** |
+| `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` | `arch/linux.rs` | per-CPU — **done (S8.1)** |
+| `GDT`, `TSS`, kernel + double-fault stacks | `arch/gdt.rs` | per-CPU — **done (S8.1)** |
+| `NEED_RESCHED`, `PREEMPTING`, `SELECTED*`, `SLICE_END`, `DEFERRED`, `HANDOFF_*` | `task/preempt.rs` | per-CPU — **done (S8.1)**; `NAPPING` stays per-task |
+| `SPAN_*` | `arch/irqoff.rs` | per-CPU — **done (S8.1)** |
+| `IRQ_WINDOW_OPEN`, `LAST/OPENED/WINDOW_TICKS/UNCHARGED` | `arch/irq_window.rs` | per-CPU — **done (S8.1)** |
 | `LAST_TSC`, `MISSED` catch-up state | `arch/clock.rs` | timekeeper CPU only (S8.2) |
 | `ARMED`, `RATE` event timer | `arch/event_timer.rs` | per-CPU (S8.4) |
 | `RUNNABLE`, `DONE` | `task/runq.rs` | per-CPU (S8.4) |

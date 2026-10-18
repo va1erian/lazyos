@@ -49,9 +49,13 @@ pub fn init() {
 pub(crate) unsafe fn init_cpu(area: &'static mut percpu::Cpu) -> Selectors {
     // Kernel stack used by the CPU on interrupts/syscalls from ring 3.
     let stack = area.kernel_stack.as_ptr() as u64;
-    area.tss.privilege_stack_table[0] = VirtAddr::new(stack + percpu::KERNEL_STACK_SIZE as u64);
+    // `TaskStateSegment::new()` points `iomap_base` past the TSS's own
+    // bytes, so the segment limit denies every port bit to CPL > IOPL —
+    // this CPU runs no I/O bitmap.
+    let tss = area.tss.write(TaskStateSegment::new());
+    tss.privilege_stack_table[0] = VirtAddr::new(stack + percpu::KERNEL_STACK_SIZE as u64);
     let df = area.double_fault_stack.as_ptr() as u64;
-    area.tss.interrupt_stack_table[DOUBLE_FAULT_IST as usize] =
+    tss.interrupt_stack_table[DOUBLE_FAULT_IST as usize] =
         VirtAddr::new(df + percpu::DOUBLE_FAULT_STACK_SIZE as u64);
 
     let gdt = &mut area.gdt;
@@ -61,9 +65,10 @@ pub(crate) unsafe fn init_cpu(area: &'static mut percpu::Cpu) -> Selectors {
     // user data (0x18) must precede user code (0x20) with base 0x10.
     let udata = gdt.append(Descriptor::user_data_segment());
     let ucode = gdt.append(Descriptor::user_code_segment());
-    // SAFETY: the TSS lives in the static per-CPU area, so the reference is
-    // 'static; the descriptor embeds its address.
-    let tss: &'static TaskStateSegment = &*(&area.tss as *const TaskStateSegment);
+    // SAFETY: the TSS was written above (plain data, lives in the static
+    // per-CPU area, so the reference is 'static); the descriptor embeds its
+    // address.
+    let tss: &'static TaskStateSegment = unsafe { area.tss.assume_init_ref() };
     let tss_selector = gdt.append(Descriptor::tss_segment(tss));
 
     gdt.load();
@@ -104,5 +109,5 @@ pub struct Selectors {
 /// Point the ring0 stack used for the next user->kernel trap at `top` — this
 /// CPU's TSS (`arch::percpu`; the scheduler calls it at every switch).
 pub fn set_kernel_stack(top: u64) {
-    percpu::current().tss.privilege_stack_table[0] = VirtAddr::new(top);
+    percpu::current().tss().privilege_stack_table[0] = VirtAddr::new(top);
 }

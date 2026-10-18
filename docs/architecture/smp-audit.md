@@ -40,8 +40,11 @@ block-invariant anyway (a task can park inside a syscall and resume
 elsewhere, which is exactly what killed the old per-task-GS idea). The
 consequence: every entry path (syscall, gate, fault, IRQ, NMI) reads
 per-CPU state directly, no wrappers, and a hostile `mov gs:[x]` in ring 3
-faults on the kernel-only page without leaking anything. If user `%gs`
-support is ever added, revisit with real `swapgs` discipline.
+faults on the kernel-only page without leaking anything. One more invariant
+keeps that leak answer honest: **`CR4.FSGSBASE` is never enabled** (ring 3's
+`rdgsbase` would otherwise read the kernel base directly); `arch/cpu.rs`
+touches none of it — keep it that way (or pair it with a `swapgs`
+discipline) when a fast-TLS path is ever added.
 
 | Site | What | Disposition |
 |---|---|---|

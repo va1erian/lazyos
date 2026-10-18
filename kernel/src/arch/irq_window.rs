@@ -100,8 +100,7 @@ pub fn open() {
     }
     super::irqoff::close();
     crate::perf::irqoff_pause();
-    let cpu = percpu::current();
-    cpu.window.open.store(1, Ordering::SeqCst);
+    percpu::current().window.open.store(1, Ordering::SeqCst);
     // SAFETY: interrupts are enabled for exactly one instruction (`sti`
     // takes effect after the next one), so every pending interrupt is
     // delivered between the `nop` and the `cli`. While the flag above is
@@ -111,6 +110,11 @@ pub fn open() {
     // none of them switches tasks, so this stack resumes right after. No
     // `nomem`: the flag stores above and below must stay on their side.
     unsafe { core::arch::asm!("sti", "nop", "cli", options(nostack)) };
+    // Re-fetch, don't reuse a `&mut` held across the window: a handler that
+    // ran inside it (`window_tick`) took its own `&mut` to this area, and
+    // two live ones are aliasing UB (the per-CPU rule: a reference from
+    // `current()` must not be held across anything that can re-enter).
+    let cpu = percpu::current();
     cpu.window.open.store(0, Ordering::SeqCst);
     cpu.window.opened.fetch_add(1, Ordering::Relaxed);
     cpu.window.last.store(rdtsc(), Ordering::Relaxed);

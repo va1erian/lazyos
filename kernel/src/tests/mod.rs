@@ -1,4 +1,4 @@
-﻿//! In-kernel test harness and suite (issue #62).
+//! In-kernel test harness and suite (issue #62).
 //!
 //! Exempt from the kernel's `unwrap_used`/`expect_used` lints (issue #486).
 //!

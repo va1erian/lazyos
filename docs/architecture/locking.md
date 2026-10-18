@@ -81,7 +81,7 @@ IPI that will use them.
 
 ## Status
 
-Working; the orders are enforced by review, not by code — the SMP plan's S8.1
-adds lockdep (a cycle in the orders above panics with both traces) in
-`kernel/src/sync`, at which point this page and the panic agree by
-construction.
+Working; the orders are enforced by review, not by code — the SMP plan adds
+lockdep in S8.3 (`kernel/src/sync`, with the entry lock: a cycle in the
+orders above panics with both traces), at which point this page and the
+panic agree by construction.
