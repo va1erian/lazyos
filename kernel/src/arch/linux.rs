@@ -388,8 +388,8 @@ pub fn set_user_return(rip: u64, rsp: u64, rflags: u64) {
         *top.offset(-2) = rflags;
         *top.offset(-1) = rsp;
         let context = &mut percpu::current().syscall.user_context;
-        (*context).rip = rip;
-        (*context).rsp = rsp;
-        (*context).rflags = rflags;
+        context.rip = rip;
+        context.rsp = rsp;
+        context.rflags = rflags;
     }
 }

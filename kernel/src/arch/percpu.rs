@@ -157,6 +157,9 @@ impl Cpu {
     /// static array of [`MAX_CPUS`] lands in `.bss` (64 × ~52 KiB would be
     /// 3.3 MiB of image otherwise). The `u64::MAX` sentinels and the TSS's
     /// `iomap_base` are written by [`init`] for every area at boot.
+    // The atomics are interior-mutable on purpose: this const is a byte
+    // pattern the static initializer copies, never a shared constant read.
+    #[allow(clippy::declare_interior_mutable_const)]
     const ZERO: Cpu = Cpu {
         self_ptr: 0,
         index: 0,
@@ -247,6 +250,8 @@ unsafe fn addr_of_area(index: usize) -> *mut Cpu {
 ///
 /// SAFETY (callers): single-threaded boot or an AP's own bring-up.
 pub unsafe fn boot_area() -> &'static mut Cpu {
+    // SAFETY: see the function contract above; the deref names the static's
+    // own storage, no other reference to it exists yet.
     unsafe { &mut *addr_of_area(0) }
 }
 
@@ -261,7 +266,7 @@ pub fn init() {
     // areas are only reachable through `gs`-relative loads and these raw
     // pointers.
     unsafe {
-        Cpu::install_sentinels(&mut *(&raw mut AREAS));
+        Cpu::install_sentinels(&mut *core::ptr::addr_of_mut!(AREAS));
         let area = addr_of_area(0);
         (*area).self_ptr = area as u64;
         (*area).index = 0;
