@@ -22,6 +22,7 @@ pub mod msi_stubs;
 pub mod msr;
 pub mod nmi;
 pub mod pagewalk;
+pub mod percpu;
 pub mod pic;
 pub mod raw_serial;
 pub mod refclock;

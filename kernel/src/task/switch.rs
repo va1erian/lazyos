@@ -78,10 +78,11 @@ global_asm!(
         mov esi, eax
         /* A tick inside an interrupt window (`arch::irq_window`) only counts
            and acknowledges: the window may hold any lock, so `schedule`
-           (which takes the task table) must not run, and nothing switches. */
+           (which takes the task table) must not run, and nothing switches.
+           The flag is this CPU's (`arch::percpu`, read through `%gs`). */
         test eax, eax
         jz 3f
-        cmp byte ptr [rip + IRQ_WINDOW_OPEN], 0
+        cmp byte ptr gs:[{off_window_open}], 0
         je 3f
         call window_tick
         jmp 4f
@@ -105,7 +106,8 @@ global_asm!(
         pop rbx
         pop rax
         iretq
-    "#
+    "#,
+    off_window_open = const crate::arch::percpu::OFF_WINDOW_OPEN,
 );
 
 extern "C" {
