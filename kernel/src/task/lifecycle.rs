@@ -30,38 +30,29 @@ pub fn abort_unstarted_child(slot: usize) -> bool {
 /// one reads it, the slot is reaped at once.
 const ABORTED_SPAWN_STATUS: u64 = 128 + 9;
 
-/// Finish every task that shares the current address space: Linux's
-/// `exit_group`, which ends the *thread group* rather than one thread. Returns
-/// the `clear_child_tid` addresses of threads that had one so the caller can
-/// zero them and futex-wake any joiner (the Linux shim does that part).
+/// End every task that shares the current address space: Linux's
+/// `exit_group`, which ends the *thread group* rather than one thread
+/// ([`signal::end_process`]: a sibling parked inside the kernel unwinds and
+/// dies at its syscall return instead of being marked `Done` holding a lock).
+/// Returns the `clear_child_tid` addresses of the threads that had one so the
+/// caller can zero them and futex-wake any joiner (the Linux shim does that
+/// part).
 pub fn exit_thread_group(status: u64) -> Vec<u64> {
     let pml4 = TASKS.lock()[current()].as_ref().map(|task| task.pml4);
     let Some(pml4) = pml4 else {
         return Vec::new();
     };
-    let (slots, tids) = {
-        let mut tasks = TASKS.lock();
-        // A leader that left earlier reports this group status when reaped.
-        super::family::note_group_exit(&mut tasks, pml4, status);
-        let mut slots = Vec::new();
-        let mut tids = Vec::new();
-        for (slot, task) in tasks.iter().enumerate() {
-            let Some(task) = task else {
-                continue;
-            };
-            if slot == KERNEL_TASK || task.pml4 != pml4 || task.state == TaskState::Done {
-                continue;
-            }
-            slots.push(slot);
-            if task.clear_child_tid != 0 {
-                tids.push(task.clear_child_tid);
-            }
-        }
-        (slots, tids)
-    };
-    for slot in slots {
-        process::finish(slot, status);
-    }
+    let tids: Vec<u64> = TASKS
+        .lock()
+        .iter()
+        .enumerate()
+        .filter_map(|(slot, task)| {
+            let task = task.as_ref()?;
+            let live = slot != KERNEL_TASK && task.pml4 == pml4 && task.state != TaskState::Done;
+            (live && task.clear_child_tid != 0).then_some(task.clear_child_tid)
+        })
+        .collect();
+    signal::end_process(pml4, status, false);
     tids
 }
 
@@ -73,13 +64,6 @@ pub fn pgid() -> usize {
 /// The current task's parent pid (0 = the kernel/init task).
 pub fn ppid() -> usize {
     process::ppid_of(current())
-}
-
-/// Terminate every task in process group `pgid` (issue #59). Kept for the test
-/// harness; per-signal termination goes through `task::signal`.
-#[allow(dead_code)]
-pub fn kill_group(pgid: usize) -> usize {
-    process::kill_group(pgid)
 }
 
 /// Whether the current task has any children (the harness; `wait4` uses

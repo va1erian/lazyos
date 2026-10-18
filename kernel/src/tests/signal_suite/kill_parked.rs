@@ -92,9 +92,13 @@ pub fn kill_defers_tasks_parked_in_kernel() -> Result<(), String> {
         "the victim did not exit with 128 + SIGKILL"
     );
 
-    // A task stopped inside the kernel (`WaitKind::Signal`) is woken too.
-    let (stopped, _) = in_kernel_child()?;
+    // A task stopped (`WaitKind::Signal`) that is inside the kernel again is
+    // woken too: it was stopped at a user frame, and its frame then turned
+    // into a kernel one as if it had been resumed into a syscall.
+    let (stopped, user_cs) = in_kernel_child()?;
+    task::harness::set_frame_cs(stopped, user_cs);
     send(stopped, signal::SIGSTOP)?;
+    task::harness::set_kernel_frame(stopped);
     check!(
         matches!(
             task::harness::state(stopped),

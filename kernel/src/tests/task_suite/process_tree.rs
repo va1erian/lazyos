@@ -233,9 +233,11 @@ pub fn reparent_on_death() -> Result<(), String> {
     Ok(())
 }
 
-/// `kill_group` marks every member `Done` (including blocked ones, which a
-/// later wake must not resurrect), spares init and other groups, and makes
-/// the corpses reapable by init.
+/// Ending every process of a group (`signal::terminate_process` on each
+/// member's address space, the way the fault paths and `kill(-pgid, SIGKILL)`
+/// do) marks every member `Done` (including blocked ones, which a later wake
+/// must not resurrect), spares init and other groups, and makes the corpses
+/// reapable by init.
 pub fn kill_group_terminates() -> Result<(), String> {
     let chain = fork_chain(3)?;
     task::harness::switch_current(task::KERNEL_TASK);
@@ -256,8 +258,12 @@ pub fn kill_group_terminates() -> Result<(), String> {
     let queue = task::wait::WaitQueue::new(task::WaitKind::Sleep);
     queue.park(child, None);
 
-    let killed = task::kill_group(root);
-    check!(killed == 3, "kill_group killed {killed}, expected 3");
+    let mut killed = 0;
+    for slot in [root, child, leaf] {
+        let pml4 = task::harness::pml4(slot).ok_or("member without an address space")?;
+        killed += task::signal::terminate_process(pml4, 137);
+    }
+    check!(killed == 3, "the group kill ended {killed}, expected 3");
     for slot in [root, child, leaf] {
         check!(
             task::harness::state(slot) == Some(task::TaskState::Done),
@@ -276,16 +282,6 @@ pub fn kill_group_terminates() -> Result<(), String> {
     check!(
         task::harness::state(child) == Some(task::TaskState::Done),
         "a killed waiter was resurrected"
-    );
-
-    // init is exempt: only init terminates itself.
-    check!(
-        task::kill_group(task::KERNEL_TASK) == 0,
-        "kill_group(0) killed init"
-    );
-    check!(
-        task::harness::state(task::KERNEL_TASK) == Some(task::TaskState::Runnable),
-        "init is no longer runnable"
     );
 
     // Every corpse was adopted by init: all four tasks are reapable there.

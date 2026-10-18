@@ -1,7 +1,7 @@
 //! When a process becomes reapable (issue #859): the parent hears of a
 //! process (`SIGCHLD`, the child bell, `wait4`) once, when its leader is gone
 //! and its last thread has left; the group's exit status reaches a leader
-//! that exited first; `exec` from the last thread; `kill_group`.
+//! that exited first; `exec` from the last thread; a group kill.
 
 use super::more::send_as_kernel;
 use super::*;
@@ -205,7 +205,8 @@ pub fn exec_from_the_last_thread() -> Result<(), String> {
     Ok(())
 }
 
-/// `kill_group` of a process group holding a zombie leader and its thread:
+/// A group kill (`signal::terminate_process`) of a process holding a zombie
+/// leader and its thread:
 /// the parent is told once, when the last of them goes, not at the leader.
 pub fn kill_group_with_a_zombie_leader() -> Result<(), String> {
     use crate::task::family::{notifications, reset_notifications};
@@ -224,16 +225,17 @@ pub fn kill_group_with_a_zombie_leader() -> Result<(), String> {
         task::process::pgid_of(thread) == task::process::pgid_of(child),
         "the thread left its group"
     );
+    let pml4 = task::harness::pml4(child).ok_or("no address space")?;
     check!(
-        task::kill_group(task::process::pgid_of(child)) == 1,
-        "kill_group should have ended the one live thread"
+        signal::terminate_process(pml4, 137) == 1,
+        "the group kill should have ended the one live thread"
     );
     check!(
         notifications(parent) == 1,
         "the parent was told {} times",
         notifications(parent)
     );
-    check!(sigchld_pending(parent), "no SIGCHLD from kill_group");
+    check!(sigchld_pending(parent), "no SIGCHLD from the group kill");
     let (ret, _) = wait4_as(parent);
     check!(ret == child as u64, "wait4 returned {ret:#x}");
     task::harness::reset();
