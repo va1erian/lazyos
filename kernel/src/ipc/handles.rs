@@ -296,6 +296,21 @@ pub fn entries_for_task(slot: usize) -> Vec<(u64, HandleEntry)> {
     }
 }
 
+/// The object id of every channel endpoint any table names, one entry per
+/// handle (duplicates included). The channel reclaimer's roots: an end no
+/// table names, no name publishes and no reachable message carries can never
+/// be used again (`channels::reclaim`).
+pub fn channel_objects() -> Vec<u64> {
+    let tables = TABLES.lock();
+    tables
+        .iter()
+        .flat_map(|table| table.slots.iter())
+        .filter_map(|slot| *slot)
+        .filter(|entry| matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint))
+        .map(|entry| entry.object_id)
+        .collect()
+}
+
 /// Copy out an entry (the fabric never hands out mutable references).
 pub fn get(handle: u64) -> Result<HandleEntry, Error> {
     with_table(|table| table.entry(handle))?

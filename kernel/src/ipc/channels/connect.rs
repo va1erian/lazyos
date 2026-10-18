@@ -39,7 +39,7 @@ pub fn connect(
     }
     let parcel = validate_parcel(&notice)?;
     let (method, parcel_flags) = (parcel.header.method, parcel.header.flags);
-    let channel_id = CHANNELS.lock().insert(fresh_channel)?;
+    let channel_id = insert_channel()?;
     let undo_channel = || {
         CHANNELS.lock().remove(channel_id);
     };

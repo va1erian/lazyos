@@ -84,6 +84,10 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
     }
     let orphans = close_side(channel_id, side);
     close_orphans(orphans);
+    // The survivor may hold the only reference to itself (H8).
+    if reclaim::holds_moved_ends(channel_id, 1 - side) {
+        reclaim::reclaim_unreachable();
+    }
     Ok(())
 }
 

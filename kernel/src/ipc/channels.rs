@@ -91,6 +91,7 @@ pub mod completion;
 mod connect;
 pub mod declared;
 mod pollstate;
+mod reclaim;
 mod recv;
 mod registry;
 mod stats;
@@ -167,7 +168,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = CHANNELS.lock().insert(fresh_channel)?;
+    let channel_id = insert_channel()?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {
@@ -182,6 +183,22 @@ pub fn create() -> Result<(u64, u64), Error> {
             CHANNELS.lock().remove(channel_id);
             Err(from_handles(error))
         }
+    }
+}
+
+/// Take a registry slot for a fresh channel. A full registry first gives back
+/// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
+/// tries once more, so a leak of unreachable channels costs slots only until
+/// the next create.
+fn insert_channel() -> Result<u64, Error> {
+    // The guard is a temporary of its own statement: `reclaim` locks the
+    // registry again.
+    let first = CHANNELS.lock().insert(fresh_channel);
+    match first {
+        Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
+            CHANNELS.lock().insert(fresh_channel)
+        }
+        other => other,
     }
 }
 

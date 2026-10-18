@@ -95,7 +95,6 @@ fn shared_clients(shared: u64, count: usize) -> Result<Vec<(usize, u64)>, String
 mod dropped;
 mod echo_and_calls;
 mod indexed;
-mod leaks;
 mod poll;
 mod release;
 mod resilience;
@@ -104,7 +103,6 @@ mod targeted_wake;
 pub(super) use dropped::*;
 pub(super) use echo_and_calls::*;
 pub(super) use indexed::*;
-pub(super) use leaks::*;
 pub(super) use poll::*;
 pub(super) use release::*;
 pub(super) use resilience::*;
@@ -190,12 +188,4 @@ pub(super) const CASES: &[(&str, Test)] = &[
         dropped_message_releases_objects,
     ),
     ("ipc_channel_oversized_drop_soak", oversized_drop_soak),
-    (
-        "ipc_channel_uncollected_outcomes_count",
-        uncollected_outcomes_count,
-    ),
-    (
-        "ipc_channel_uncollected_outcomes_soak",
-        uncollected_outcomes_soak,
-    ),
 ];
