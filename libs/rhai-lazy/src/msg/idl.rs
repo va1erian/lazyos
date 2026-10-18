@@ -2212,7 +2212,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Register",
                 id: 658098656,
                 oneway: false,
-                doc: "Add or replace the app registered for `mime` and `verb`; the registry\nkeeps the latest registration for each pair.",
+                doc: "Add or replace the app registered for `mime` and `verb`; the registry\nkeeps the latest registration for each pair. Only a system service (the\npackage manager, which registers an installed app's handlers) may\nregister, and the registry holds a bounded number of pairs: `EPERM`\nfrom anyone else, `ENOSPC` when it is full and the pair is new. A\nuser's own choice of app for a type is a preference\n(`user/<uid>/mimed/default/<type>`), not a registration.",
                 params: &[Field { name: "mime", id: 1, ty: Ty::String }, Field { name: "app", id: 2, ty: Ty::String }, Field { name: "verb", id: 3, ty: Ty::String }],
                 returns: &[],
                 objects: &[],

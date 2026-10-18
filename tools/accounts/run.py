@@ -79,6 +79,8 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     # U1 (#624): accounts change only through elevd; Authenticate is slowed.
     "acct_create", "acct_delete", "acct_promote", "acct_password", "keyd_forget", "keyd_verify",
     "auth_flood",
+    # Audit H11: mimed's Register is the package manager's alone.
+    "mime_register",
     # WP2: keyd's named secrets (the Wi-Fi PMK is wlanmd's, system secrets elevd's).
     "wifi_pmk", "wifi_system_store", "wifi_store_for",
     # The NIC's owner methods are netd's (netpolicy::may_own_nic).

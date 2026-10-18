@@ -12093,7 +12093,12 @@ pub mod os_lazy_mimed_v1 {
     }
 
     /// Add or replace the app registered for `mime` and `verb`; the registry
-    /// keeps the latest registration for each pair.
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterArgs {
         pub mime: alloc::string::String,

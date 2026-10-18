@@ -20,7 +20,12 @@ interface os.lazy.mimed.v1 {
     /// `init` accepted the launch request.
     method Open(path: String = 1, verb: String = 2) -> (app: String = 1, mime: String = 2, topic: String = 3, published: Bool = 4, launched: Bool = 5);
     /// Add or replace the app registered for `mime` and `verb`; the registry
-    /// keeps the latest registration for each pair.
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration.
     method Register(mime: String = 1, app: String = 2, verb: String = 3) -> ();
     /// Withdraw `app`'s registration for `mime` and `verb`, so removing an
     /// installed app leaves no dangling handler. Only the caller's root

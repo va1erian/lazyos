@@ -65,10 +65,21 @@ pub(crate) fn dispatch(
         }
         wire::METHOD_REGISTER => {
             let args = wire::decode_register_args(body).map_err(parse)?;
+            // Only the package manager (a system service) registers a
+            // handler, as only it withdraws one: the registry is global, so
+            // any session could otherwise rebind a type for everyone and have
+            // the next user's `Open` (an administrator's included) launch its
+            // chosen app (audit H11). A user's own choice of app is a
+            // preference (`prefs`), not a registration.
+            if !caller_is_system(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
             if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
                 return Err(Error::Errno(-errno::EINVAL));
             }
-            apps.register(&args.mime, &args.app, &args.verb);
+            if !apps.register(&args.mime, &args.app, &args.verb) {
+                return Err(Error::Errno(-errno::ENOSPC));
+            }
             Ok(mime::ok_reply(wire::METHOD_REGISTER))
         }
         wire::METHOD_UNREGISTER => {

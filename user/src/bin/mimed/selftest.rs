@@ -85,6 +85,23 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
         );
     }
 
+    // The registry is bounded: a full one refuses a new pair, still takes a
+    // held pair's replacement, and frees room when a pair is withdrawn.
+    let mut small = AppRegistry::with_limit(3);
+    let filled = (0..3).all(|n| small.register(&alloc::format!("text/x-cap-{n}"), "a", "open"));
+    let refused = !small.register("text/x-cap-3", "a", "open");
+    let replaced = small.register("text/x-cap-0", "b", "open");
+    small.unregister("text/x-cap-1", "a", "open");
+    let room = small.register("text/x-cap-3", "a", "open");
+    if filled && refused && replaced && room {
+        trace::line!(trace::Channel::Mime, "REGISTER:LIMIT:PASS");
+    } else {
+        trace::line!(
+            trace::Channel::Mime,
+            "REGISTER:LIMIT:FAIL filled={filled} refused={refused} replaced={replaced} room={room}"
+        );
+    }
+
     // Withdrawing a registration (the package manager's removal path): the
     // handler it replaced takes over again, and a registration someone else
     // made later is never undone.

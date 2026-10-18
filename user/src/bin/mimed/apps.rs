@@ -93,23 +93,38 @@ struct Registration {
 /// Most replaced registrations remembered per `(mime, verb)`.
 const MAX_SHADOWED: usize = 8;
 
+/// Most `(mime, verb)` pairs the registry holds. The user allocator never
+/// gives memory back, so an unbounded table is a heap that only grows; the
+/// image's seeded defaults and every installed app's handlers fit with room to
+/// spare.
+pub(crate) const MAX_REGISTRATIONS: usize = 1024;
+
 /// The open-with registry: `(mime, verb)` to app. Re-registering a pair
 /// replaces its app, so a later policy wins.
 pub(crate) struct AppRegistry {
     entries: Vec<Registration>,
+    /// Most pairs held ([`MAX_REGISTRATIONS`]; smaller in the self-test).
+    limit: usize,
 }
 
 impl AppRegistry {
     pub(crate) fn new() -> AppRegistry {
+        AppRegistry::with_limit(MAX_REGISTRATIONS)
+    }
+
+    /// A registry that refuses a `limit + 1`-th pair.
+    pub(crate) fn with_limit(limit: usize) -> AppRegistry {
         AppRegistry {
             entries: Vec::new(),
+            limit,
         }
     }
 
     /// Add or replace the app for `(mime, verb)`. Any fallback the pair had is
-    /// cleared: the new policy has not named one.
-    pub(crate) fn register(&mut self, mime_type: &str, app: &str, verb: &str) {
-        self.register_with_fallback(mime_type, app, verb, None);
+    /// cleared: the new policy has not named one. `false` when the registry is
+    /// full and the pair is new; replacing a held pair always succeeds.
+    pub(crate) fn register(&mut self, mime_type: &str, app: &str, verb: &str) -> bool {
+        self.register_with_fallback(mime_type, app, verb, None)
     }
 
     /// [`register`](Self::register), naming the app to use when `app` is not
@@ -120,7 +135,7 @@ impl AppRegistry {
         app: &str,
         verb: &str,
         fallback: Option<&str>,
-    ) {
+    ) -> bool {
         let mime_type = mime_type.trim().to_ascii_lowercase();
         let verb = verb.trim().to_ascii_lowercase();
         let app = app.trim();
@@ -140,7 +155,7 @@ impl AppRegistry {
             }
             entry.app = app.to_string();
             entry.fallback = fallback.map(str::to_string);
-        } else {
+        } else if self.entries.len() < self.limit {
             self.entries.push(Registration {
                 mime: mime_type,
                 verb,
@@ -148,7 +163,10 @@ impl AppRegistry {
                 fallback: fallback.map(str::to_string),
                 shadowed: Vec::new(),
             });
+        } else {
+            return false;
         }
+        true
     }
 
     /// Withdraw `app`'s registration for `(mime, verb)`. If `app` holds it, the
@@ -283,7 +301,7 @@ pub(crate) fn choose<'a>(
 pub(crate) fn seed_default_apps(apps: &mut AppRegistry) {
     for (mime_type, app, verbs) in DEFAULT_APPS {
         for verb in *verbs {
-            apps.register(mime_type, app, verb);
+            let _ = apps.register(mime_type, app, verb);
         }
     }
     for (mime_type, verb, fallback) in DEFAULT_FALLBACKS {
