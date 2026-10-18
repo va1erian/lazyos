@@ -3,64 +3,87 @@
 //! We install our own GDT with ring-3 code/data selectors and a TSS, so the CPU
 //! can switch stacks when a user program traps into the kernel (syscalls and
 //! interrupts).
+//!
+//! The GDT and the TSS are **per CPU** (`arch::percpu`): `RSP0` is rewritten
+//! at every task switch, so two CPUs cannot share one TSS. Every CPU's GDT is
+//! built identically (the TSS descriptor pointing into its own area), so the
+//! `sysret` selector arithmetic is a machine-wide invariant and the user
+//! selectors (`selectors()`) are one value.
 
-use core::ptr::addr_of;
 use x86_64::instructions::segmentation::{Segment, CS, DS, ES, FS, GS, SS};
 use x86_64::instructions::tables::load_tss;
-use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
+use x86_64::structures::gdt::Descriptor;
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
+
+use super::percpu;
 
 /// IST index used by the double-fault handler.
 pub const DOUBLE_FAULT_IST: u16 = 0;
 
-const KERNEL_STACK_SIZE: usize = 32 * 1024;
-const DOUBLE_FAULT_STACK_SIZE: usize = 4 * 1024 * 5;
-
-static mut GDT: GlobalDescriptorTable = GlobalDescriptorTable::new();
-static mut TSS: TaskStateSegment = TaskStateSegment::new();
-static mut KERNEL_STACK: [u8; KERNEL_STACK_SIZE] = [0; KERNEL_STACK_SIZE];
-static mut DOUBLE_FAULT_STACK: [u8; DOUBLE_FAULT_STACK_SIZE] = [0; DOUBLE_FAULT_STACK_SIZE];
-
 static mut USER_CODE: u16 = 0;
 static mut USER_DATA: u16 = 0;
 
-/// Install the GDT and TSS.
+/// Install the boot CPU's GDT and TSS (its per-CPU area's), then point `%gs`
+/// at that area. The `%gs` base must be written after the selector loads:
+/// `GS::set_reg` reloads the segment's hidden base from the GDT (0), and the
+/// MSR is what gives memory operands the area's address again.
 pub fn init() {
-    // Safety: runs once at boot, before interrupts are enabled and before any
-    // other code touches these `static mut`s, so there is no concurrent
-    // access; every raw pointer below stays within its own static.
+    // SAFETY: runs once at boot, single-threaded, before interrupts are
+    // enabled and before any other code touches the area; every raw pointer
+    // below stays within its own static.
     unsafe {
-        // Kernel stack used by the CPU on interrupts/syscalls from ring 3.
-        let stack = addr_of!(KERNEL_STACK) as u64;
-        let tss = &mut *addr_of!(TSS).cast_mut();
-        tss.privilege_stack_table[0] = VirtAddr::new(stack + KERNEL_STACK_SIZE as u64);
-        let df = addr_of!(DOUBLE_FAULT_STACK) as u64;
-        tss.interrupt_stack_table[DOUBLE_FAULT_IST as usize] =
-            VirtAddr::new(df + DOUBLE_FAULT_STACK_SIZE as u64);
+        let selectors = init_cpu(percpu::boot_area());
+        percpu::init();
+        USER_CODE = selectors.user_code;
+        USER_DATA = selectors.user_data;
+    }
+}
 
-        let gdt = &mut *addr_of!(GDT).cast_mut();
-        let kcode = gdt.append(Descriptor::kernel_code_segment());
-        let kdata = gdt.append(Descriptor::kernel_data_segment());
-        // Order matters for `sysret`: it loads CS = base+16 and SS = base+8, so
-        // user data (0x18) must precede user code (0x20) with base 0x10.
-        let udata = gdt.append(Descriptor::user_data_segment());
-        let ucode = gdt.append(Descriptor::user_code_segment());
-        let tss_selector = gdt.append(Descriptor::tss_segment(&*addr_of!(TSS)));
+/// Build CPU `area`'s GDT/TSS/stacks and load them. The BSP runs this once at
+/// boot; an AP runs it from its own bring-up (S8.2) against its own area.
+///
+/// SAFETY: the caller guarantees nothing else touches `area` (its own CPU,
+/// before it publishes `online`), and that this may load a GDT/TSS (boot, or
+/// an AP that has left firmware code behind).
+pub(crate) unsafe fn init_cpu(area: &'static mut percpu::Cpu) -> Selectors {
+    // Kernel stack used by the CPU on interrupts/syscalls from ring 3.
+    let stack = area.kernel_stack.as_ptr() as u64;
+    // `TaskStateSegment::new()` points `iomap_base` past the TSS's own
+    // bytes, so the segment limit denies every port bit to CPL > IOPL —
+    // this CPU runs no I/O bitmap.
+    let tss = area.tss.write(TaskStateSegment::new());
+    tss.privilege_stack_table[0] = VirtAddr::new(stack + percpu::KERNEL_STACK_SIZE as u64);
+    let df = area.double_fault_stack.as_ptr() as u64;
+    tss.interrupt_stack_table[DOUBLE_FAULT_IST as usize] =
+        VirtAddr::new(df + percpu::DOUBLE_FAULT_STACK_SIZE as u64);
 
-        let gdt: &'static GlobalDescriptorTable = &*addr_of!(GDT);
-        gdt.load();
+    let gdt = &mut area.gdt;
+    let kcode = gdt.append(Descriptor::kernel_code_segment());
+    let kdata = gdt.append(Descriptor::kernel_data_segment());
+    // Order matters for `sysret`: it loads CS = base+16 and SS = base+8, so
+    // user data (0x18) must precede user code (0x20) with base 0x10.
+    let udata = gdt.append(Descriptor::user_data_segment());
+    let ucode = gdt.append(Descriptor::user_code_segment());
+    // SAFETY: the TSS was written above (plain data, lives in the static
+    // per-CPU area, so the reference is 'static); the descriptor embeds its
+    // address.
+    let tss: &'static TaskStateSegment = unsafe { area.tss.assume_init_ref() };
+    let tss_selector = gdt.append(Descriptor::tss_segment(tss));
 
-        CS::set_reg(kcode);
-        DS::set_reg(kdata);
-        ES::set_reg(kdata);
-        SS::set_reg(kdata);
-        FS::set_reg(kdata);
-        GS::set_reg(kdata);
-        load_tss(tss_selector);
+    gdt.load();
 
-        USER_CODE = ucode.0;
-        USER_DATA = udata.0;
+    CS::set_reg(kcode);
+    DS::set_reg(kdata);
+    ES::set_reg(kdata);
+    SS::set_reg(kdata);
+    FS::set_reg(kdata);
+    GS::set_reg(kdata);
+    load_tss(tss_selector);
+
+    Selectors {
+        user_code: ucode.0,
+        user_data: udata.0,
     }
 }
 
@@ -83,11 +106,8 @@ pub struct Selectors {
     pub user_data: u16,
 }
 
-/// Point the ring0 stack used for the next user->kernel trap at `top`.
+/// Point the ring0 stack used for the next user->kernel trap at `top` — this
+/// CPU's TSS (`arch::percpu`; the scheduler calls it at every switch).
 pub fn set_kernel_stack(top: u64) {
-    // Safety: single-threaded access to the TSS.
-    unsafe {
-        let tss = &mut *addr_of!(TSS).cast_mut();
-        tss.privilege_stack_table[0] = VirtAddr::new(top);
-    }
+    percpu::current().tss().privilege_stack_table[0] = VirtAddr::new(top);
 }

@@ -129,7 +129,7 @@ pub fn set_parent(slot: usize, parent: usize) {
 /// multi-level process trees with `spawn_fork`, which forks the current
 /// task.
 pub fn switch_current(slot: usize) {
-    super::CURRENT.store(slot, core::sync::atomic::Ordering::Relaxed);
+    super::set_current(slot);
 }
 
 /// How many tasks hold the working-directory string of `slot` (its own
@@ -310,7 +310,7 @@ pub fn simulate_tick() -> usize {
     if next != cur {
         super::mark_finished(&tasks, cur);
     }
-    super::CURRENT.store(next, core::sync::atomic::Ordering::Relaxed);
+    super::set_current(next);
     next
 }
 
