@@ -259,6 +259,22 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("compat_scmrights_cycles_refused", scmrights_cycles_refused),
     (
+        "compat_scmrights_epoll_never_travels",
+        scmrights_epoll_never_travels,
+    ),
+    (
+        "compat_scmrights_epoll_cycle_soak",
+        scmrights_epoll_cycle_soak,
+    ),
+    (
+        "compat_scmrights_listener_pending_connection",
+        scmrights_listener_pending_connection,
+    ),
+    (
+        "compat_scmrights_listener_cycle_soak",
+        scmrights_listener_cycle_soak,
+    ),
+    (
         "compat_scmrights_blocked_send_revalidates",
         scmrights_blocked_send_revalidates,
     ),

@@ -23,7 +23,8 @@
 //!   files in a socket it never reads (`ETOOMANYREFS`).
 //!
 //! A socket end sent through its own pair, or a socket whose queue already
-//! holds descriptors, is refused (`ETOOMANYREFS`): either is the edge that
+//! holds descriptors, is refused (`ETOOMANYREFS`), and so is a listener with
+//! such a connection pending and every epoll instance: each is the edge that
 //! can close a cycle of sockets carrying each other, which nothing would ever
 //! read or purge, leaking the in-flight budget for the rest of the boot.
 //! Linux reclaims such cycles with a garbage collector; there is none here,
@@ -111,9 +112,19 @@ impl Rights {
     /// every pair in it to carry one, so its last edge always starts from a
     /// pair that already carries, and refusing that edge keeps the graph a
     /// forest without a collector.
+    ///
+    /// Descriptors that *contain* sockets count by what they contain: a
+    /// listener holds the server half of every connection nobody accepted yet
+    /// (a connection that is `dest` is the edge `dest -> listener -> dest`),
+    /// and an epoll instance holds each descriptor it watches. An epoll can
+    /// gain a watched socket after it is in flight (`epoll_ctl` on a copy that
+    /// stays in a table), so there is no moment at which its content could be
+    /// checked once: it does not travel at all.
     pub fn would_cycle(&self, dest: &SocketPair) -> bool {
         self.fds.iter().any(|fd| match fd {
             Fd::Socket { pair, .. } => core::ptr::eq(&**pair, dest) || pair.carries_rights(),
+            Fd::UnixListener { listener } => listener.pending_reaches(dest),
+            Fd::Epoll { .. } => true,
             _ => false,
         })
     }
