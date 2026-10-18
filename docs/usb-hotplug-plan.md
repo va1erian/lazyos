@@ -11,7 +11,8 @@
 > Decisions taken: read-write **FAT32 and exFAT are in scope** (a stock stick
 > must work); `/home` moves into `storaged` and `fs/late.rs` is deleted;
 > volumes **automount** with a notice from a **tray applet**; the
-> real-hardware target is the **AMD NUC** ([compat/amd-nuc](compat/amd-nuc/README.md)).
+> real-hardware target is the **Alder Lake mini PC**
+> ([compat/alderlake](compat/alderlake/README.md)).
 
 ## As built (2026-10-13): FAT sticks mount themselves
 
@@ -313,7 +314,7 @@ phases ship correctness **and** stress tests (AGENTS.md) and must pass
 
 | Phase | Deliverable | Verification |
 |---|---|---|
-| **P0** Reproduce | Harness scenarios that fail today: `tools/storage/run.py --replug N` (N plug/unplug cycles of one stick, expect the 9th to fail), `--yank-during-write`, `--hub-yank`; `tools/usb/run.py` scenario holding a key while a stick spins up; a log of what the controller posts on disconnect (QEMU and the NUC). `tools/usb/hotplug.py` over a QMP socket for manual use. | Each scenario fails for the documented reason; the judges' `test_judge.py` fail when they should. |
+| **P0** Reproduce | Harness scenarios that fail today: `tools/storage/run.py --replug N` (N plug/unplug cycles of one stick, expect the 9th to fail), `--yank-during-write`, `--hub-yank`; `tools/usb/run.py` scenario holding a key while a stick spins up; a log of what the controller posts on disconnect (QEMU and the box). `tools/usb/hotplug.py` over a QMP socket for manual use. | Each scenario fails for the documented reason; the judges' `test_judge.py` fail when they should. |
 | **P1** `usbd` never waits blind (A) | Abort predicate in `wait_until`, hub-aware disconnect detection, stepped `Msc::start`. | Host tests with a fault-injecting model controller (disconnect at every point of a request and of bring-up); P0 `--yank-during-write` and the HID-during-spin-up scenario now pass; no HID report is held up more than one tick. |
 | **P2** Disk lifecycle (B) | Generations, leases, `block::unregister`, partition pool recycling, `provider/lifecycle.rs`. | `provider_suite`: 3000 plug/unplug generations with a mounted volume and an open file across each; a stale holder's write and flush never reach the next disk (checked by content); a forged old tag is `ESTALE`; name reuse; heap and registry back to baseline. `--replug 200` passes. |
 | **P3** Inventory (E) | `idl/usb.midl`, `usbd` server and topic with the `removable` flag, `usbctl`, `dbgd` migrated, `idl/manifest.json` and rhai API regenerated. | `cargo test -p messenger-generated`; a session lists devices before and after `device_del`; an internal device is never `removable`; `tools/dbg/run.py` still judges the USB methods. |
@@ -322,7 +323,7 @@ phases ship correctness **and** stress tests (AGENTS.md) and must pass
 | **P6** `fatfuse` and raw block access (F) | The raw-block syscall and capability, `fatfuse`, the `mountd` block-volume request and `mounttable` kinds, `storaged` choosing the path by filesystem. | Kernel suite for the syscall gate (uid, capability, generation, bounds) and a stress run; a `tools/fuse/ui_run.py`-style judge: mount a FAT32 and an exFAT stick, copy a 1 GiB file both ways with a checksum, unplug mid-copy (daemon exits, mount goes, nothing hangs), re-plug; throughput recorded against the FUSE round-trip cost (the trigger for a kernel adapter, risk 8). |
 | **P7** Eject and integrity (D) | `Eject`, forced eject, unclean-volume policy, journal replay for removable ext2, dirty-flag handling for FAT/exFAT. | Harness: eject then pull (volume clean, on all three filesystems), pull without eject (notice, recovers on next mount), eject refused with a file open, unclean FAT mounts read-only. |
 | **P8** Tray applet and desktop (G, E) | The `removable` applet and its package, Files "Devices" section with an eject button, Settings -> Devices pane; `run_demo.py --usb-stick PATH` (a hot-pluggable stick plus a QMP socket) and the matching GUI launcher control in `tools/lazygui/catalog.py` with `test_catalog.py` cases. | `core_apps.json` shows no `LABEL:DENY`; `removable.json` session: plug, `Attention` and tooltip, Open in Files, eject, unsafe pull; screenshots read, not only judged. |
-| **P9** The AMD NUC | See below. | The six scenarios below, each with its `dbgctl` log under `docs/compat/amd-nuc/usb/` and the `hardware.md` row filled in; failures filed against the phase that owns them. |
+| **P9** The Alder Lake box | See below. | The six scenarios below, each with its `dbgctl` log under `docs/compat/alderlake/usb/` and the `hardware.md` row filled in; failures filed against the phase that owns them. |
 
 Order: P0 first. P1, P2, P3 and P5 are independent of each other. P4 needs
 P2; P6 needs P2, P4 and P5; P7 needs P4 and P6; P8 needs P3 and P4 (its Eject
@@ -330,23 +331,20 @@ rows need P7). Plausible first PRs are P0 alone (it makes the problem visible
 without touching a driver) and P5 (a self-contained library nothing else
 waits on).
 
-### P9: the AMD NUC
+### P9: the Alder Lake box
 
-The machine is documented in [compat/amd-nuc](compat/amd-nuc/README.md): a
-MAGICNUC AS1 (Ryzen 5 3501U, Raven2), booting the stick image to the desktop,
-with both RTL8168 ports and `dbgd` working. It is the only AMD box in
-[compat/hardware.md](compat/hardware.md), and that row records no USB result
-yet ("Input: not yet recorded", "xHCI behaviour" under *Still to check*). Its
-Linux survey (`hw-survey/05-*`) already tells us what to expect:
+The machine is documented in [compat/alderlake](compat/alderlake/README.md): a
+CHUWI LarkBox X (i3-1220P), surveyed from Linux but **not yet booted** with the
+stick ([compat/hardware.md](compat/hardware.md) has the row). Its survey
+(`05-*`) tells us what to expect:
 
 | Fact (from the survey) | Why it matters here |
 |---|---|
-| Two xHCI controllers, `04:00.3` (`1022:15e0`: 4 USB 2 + 4 USB 3 ports) and `04:00.4` (`1022:15e1`: 2 USB 2 + 1 USB 3), both xHCI 1.1 | The first real test of two controllers with a device on each: per-controller DMA budget, slot pool and event ring (QEMU only has `--controllers 2`). |
-| `HCCPARAMS1` = `0x0270ffe5` / `0x0260ffe5`: **`CSZ` set, so 64-byte contexts** | The 64-byte context layout is proven only by host tests today (usb.md "Not done"). Every enumeration on this box runs it. A 64-byte bug shows up as P9's very first failure. |
-| Linux applies quirk mask `0x0004000840000010` to both controllers | Decode it against the survey kernel's `xhci.h` before deciding which quirks `usbd` needs; nothing is assumed necessary until a scenario fails. |
-| A Realtek Bluetooth radio, `0bda:c822`, full speed, directly on port 2 of controller 2 | A real internal device that must be `unsupported` in the inventory and silent in the applet; also the check that a root-port `PORTSC.DR` (Device Removable) is set or not by this firmware. If it is not, "arrived after login" alone keeps it quiet. |
-| A DREVO BladeMaster TE 87K keyboard (`1a2c:b51f`): **two HID interfaces**, both keyboards to Linux, one also exposing a mouse | A composite device of exactly the kind usb-hid-plan risk 8 left open: which interface `usbd` binds and whether every key (NKRO, media keys) arrives. Unplug and replug it. |
-| A Logitech receiver, `046d:c542`, full speed | A second HID device on the other controller; the pair of them is the multi-controller hot-plug scenario. |
+| Two xHCI controllers: `00:14.0` (`8086:51ed`, PCH, 12 USB 2 + 4 USB 3 ports) and `00:0d.0` (`8086:461e`, Thunderbolt 4, 1 USB 2 + 4 SuperSpeedPlus ports), both xHCI 1.20 | The first real test of two controllers (QEMU only has `--controllers 2`): per-controller DMA budget, slot pool and event ring. Every device in the survey sits on the PCH controller, so moving one to the Thunderbolt controller is part of the test. |
+| `HCCPARAMS1` = `0x20007fc1` on both: **`CSZ` clear, so 32-byte contexts**, `MaxPSASize` 7 | The 64-byte layout was the retired AMD NUC's; this box runs the 32-byte one on every enumeration. A context-size bug shows up as P9's very first failure. |
+| Linux applies quirk masks `0x0000100200009810` (PCH) and `0x0000000200009810` (Thunderbolt 4) | Decode them against the survey kernel's `xhci.h` before deciding which quirks `usbd` needs; nothing is assumed necessary until a scenario fails. |
+| A YICHIP wireless keyboard/mouse (`3151:3020`, full speed, PCH port 4): **two HID interfaces**, the second exposing Mouse, System Control and Consumer Control | A composite device of exactly the kind usb-hid-plan risk 8 left open: which interface `usbd` binds and whether every key (media keys included) arrives. Unplug and replug it. |
+| An Intel Bluetooth radio (`8087:0026`, full speed, PCH port 10, Wireless class) | A real internal device that must be `unsupported` in the inventory and silent in the applet; also the check that a root-port `PORTSC.DR` (Device Removable) is set or not by this firmware. If it is not, "arrived after login" alone keeps it quiet. |
 | No hub in the survey | Hub paths (high-speed and SuperSpeed, transaction translators) need a hub supplied for the test. |
 
 - **How the evidence comes off the box:** `dbgd` over the network
@@ -354,16 +352,16 @@ Linux survey (`hw-survey/05-*`) already tells us what to expect:
   `USBD:DUMP:HC/PORT/DEV` (controller registers, `PORTSC`, slot and endpoint
   0 state), `log --follow` and `log --source programs` carry `USBD:*`, and
   `reload usbd` hot-loads a rebuilt driver for the session without writing
-  the stick. That makes P1 iterable on the NUC without reflashing.
+  the stick. That makes P1 iterable on the box without reflashing.
   Caveat until P2 and P4 land: the reloaded `usbd` is a new provider task, so
   a `/home` on the boot stick dies with the old one; use a session that
   does not need `/home`, or accept a reboot per reload.
 - **Scenarios** (each a documented `dbgctl` command sequence and its log,
-  written to `docs/compat/amd-nuc/usb/`):
-  1. Boot with the keyboard and receiver in: `USBD:XHCI hc=0|1`, `csz64=1`,
+  written to `docs/compat/alderlake/usb/`):
+  1. Boot with the keyboard/mouse in: `USBD:XHCI hc=0|1`, `csz64=false`,
      the descriptors, which interfaces bind, every key and button arrives.
-  2. Hot-plug the keyboard and receiver on every external port, and swap
-     them between the two controllers; key held across the unplug.
+  2. Hot-plug the keyboard/mouse on every external port, and move it
+     between the two controllers; key held across the unplug.
   3. The boot stick on the second controller and a second stick on the first:
      two disks, `--replug`-style churn, yank under write load (P1's
      measurement of what this controller posts on disconnect).
@@ -420,10 +418,10 @@ Linux survey (`hw-survey/05-*`) already tells us what to expect:
    ejecting", the options are to build `os.lazy.notify` first or to pull tray
    T4 (a flyout the applet opens itself on arrival). The plan proceeds
    without either.
-2. **Hubs for P9.** The NUC survey has none. A USB 2 hub and a USB 3 hub
-   (ideally a high-speed one with a multi-TT or a single-TT) are needed
+2. **Hubs for P9.** The Alder Lake survey has none. A USB 2 hub and a USB 3
+   hub (ideally a high-speed one with a multi-TT or a single-TT) are needed
    for scenario 5; until then hub behaviour is QEMU and host tests only.
-3. **What firmware does with `DR`.** Whether the NUC's root ports set Device
+3. **What firmware does with `DR`.** Whether the box's root ports set Device
    Removable for the internal Bluetooth radio is unknown until P3 reads
    `PORTSC` over `dbgd`. If they do not, the `removable` flag is only as good
    as "present at login", and an ACPI `_UPC`/`_PLD` lookup (`libs/acpi`)

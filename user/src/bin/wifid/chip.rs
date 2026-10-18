@@ -1,6 +1,6 @@
 //! What the chip says about itself before anything is powered: the system
 //! configuration register and a fixed register dump, so a failed bring-up on
-//! the NUC (no serial port) is diagnosable from `dbgd`'s log alone.
+//! the box (no serial port) is diagnosable from `dbgd`'s log alone.
 //!
 //! Register offsets and bits are upstream's (`reg.h`; the decoding is
 //! `rtw_chip_parameter_setup` in `main.c`, Linux d6d3455d8751, taken under

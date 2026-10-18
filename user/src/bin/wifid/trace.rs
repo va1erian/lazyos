@@ -1,7 +1,7 @@
 //! `wifid`'s evidence lines, built with `libs/tracefmt` (one line by
 //! construction, fields quoted the way `dbgd` parses them) on the `WIFID`
 //! channel and written with one `write_str`, so another task's output never
-//! lands inside a line. Read on the NUC with
+//! lands inside a line. Read on the box with
 //! `python tools/dbg/dbgctl.py --host <ip> log --source programs --follow`.
 
 use core::fmt::{self, Display};

@@ -10,13 +10,13 @@ GPU driver, on the two machines in [`compat/`](compat/hardware.md)?
 
 ## The two machines
 
-| | A: Kaby Lake mini PC (`compat/kabylake/`) | B: MagicNUC AS1 (`compat/amd-nuc/hw-survey/`) |
+| | A: Kaby Lake mini PC (`compat/kabylake/`) | B: Alder Lake mini PC (`compat/alderlake/`) |
 |---|---|---|
-| CPU / GPU | i3-7100U, HD 620 `8086:5916` (Gen9.5 display) | Ryzen 5 3501U, Vega 8 `1002:15d8` (Picasso/Raven2, DCN 1.0) |
-| Output | HDMI-A-1, monitor lists 2560x1440 first, 1920x1200, 1920x1080... | HDMI-A-1, same monitor modes |
-| Firmware | AMI 5.12, UEFI, Secure Boot **off** | AMI 2.03, UEFI, Secure Boot on in Linux; **turned off** to boot LazyOS (PR #734) |
-| Registers | BAR0 `0xde000000` 16 MiB (MMIO + GTT), BAR2 `0xc0000000` 256 MiB (aperture) | BAR0 `0xe0000000` 256 MiB (VRAM window), BAR5 `0xfcb00000` 512 KiB (MMIO) |
-| Boot today | GOP default 800x600; loader takes the largest GOP mode (2560x1440); kernel caps logical screen to 1080p centred | boots to the desktop since [#734](https://github.com/va1erian/lazyos/pull/734); the stock rule picked **1280x960**, fixed by the loader's largest-area choice (below) |
+| CPU / GPU | i3-7100U, HD 620 `8086:5916` (Gen9.5 display) | i3-1220P, UHD `8086:46b3` (Alder Lake-UP3 GT1, display version 13) |
+| Output | HDMI-A-1, monitor lists 2560x1440 first, 1920x1200, 1920x1080... | HDMI-A-1 at 2560x1440 (the same monitor model); DP-1, DP-2, HDMI-A-2 and HDMI-A-3 disconnected |
+| Firmware | AMI 5.12, UEFI, Secure Boot **off** | AMI `DB19C0.19`, UEFI, Secure Boot **off** |
+| Registers | BAR0 `0xde000000` 16 MiB (MMIO + GTT), BAR2 `0xc0000000` 256 MiB (aperture) | BAR0 `0x6000000000` 16 MiB (MMIO), BAR2 `0x4000000000` 256 MiB (aperture) |
+| Boot today | GOP default 800x600; loader takes the largest GOP mode (2560x1440); kernel caps logical screen to 1080p centred | **not booted yet** (Linux survey only): the GOP mode list and the firmware's register state are *to confirm* |
 
 Note: the two folders under `compat/kabylake/` (`hw-survey`, `grub-survey`)
 are the same box surveyed twice (same board, CPU, GPU, monitor).
@@ -48,16 +48,19 @@ kernel rebuild) fed from `boot.json` or an EFI variable that the OS writes.
 Cannot change resolution in a running session (GOP is gone after
 `ExitBootServices`; there is no runtime-services equivalent).
 
-**Measured on B** (GRUB `videoinfo`, `HW:FB:` from `dbgctl log`): the GOP
-lists 2560x1440 (the EDID preferred mode) *first*, then 640x480, 800x600
-(the default, `*`), 1024x768, 1280x1024, 1400x1050, 1600x1200, 1280x960.
-With a 1280x720 minimum the upstream "last match" rule therefore booted at
-1280x960, a 4:3 mode on a 16:9 panel. The loader now takes the largest
-area among the matches (`vendor/bootloader/uefi/src/mode_pick.rs`, host
-tested) and logs every mode as `HW:GOP:<index>:<w>x<h>` (`*` = chosen).
-The modes a GOP offers are the only ones this option can reach: on B the
-smaller ones are 4:3, so 16:9 1080p/720p still needs option 2 or 3. Secure Boot on B: the loader is unsigned, so SB had to be turned off to
-boot LazyOS there (done for #734); unrelated to the mode.
+**Measured on the retired AMD NUC** (GRUB `videoinfo`, `HW:FB:` from
+`dbgctl log`): the GOP lists 2560x1440 (the EDID preferred mode) *first*, then
+640x480, 800x600 (the default, `*`), 1024x768, 1280x1024, 1400x1050, 1600x1200,
+1280x960. With a 1280x720 minimum the upstream "last match" rule therefore
+booted at 1280x960, a 4:3 mode on a 16:9 panel. The loader now takes the
+largest area among the matches (`vendor/bootloader/uefi/src/mode_pick.rs`,
+host tested) and logs every mode as `HW:GOP:<index>:<w>x<h>` (`*` = chosen);
+[`compat/hardware.md`](compat/hardware.md) "Retired machines" has the record.
+The modes a GOP offers are the only ones this option can reach: on the retired
+box the smaller ones were 4:3, so 16:9 1080p/720p still needs option 2 or 3;
+neither current box's GOP list has been captured yet (*to confirm*). The
+loader is unsigned, so Secure Boot had to be turned off on the retired box to
+boot LazyOS (#734) and is off on both current boxes; unrelated to the mode.
 
 ### 2. Scale in software at `present` (works everywhere, live)
 
@@ -83,35 +86,37 @@ read from memory and how it is scaled. No clocks, no EDID, no DDI.
   smaller mode fits in the 2560x1440 buffer). Risks: FIFO underrun if the
   firmware's watermarks/DDB do not cover the scaler, plane format limits.
   Offsets are from memory of Linux `i915`; **to confirm** against a dump.
-- **B (AMD DCN 1.0)**: DCHUBP surface config, DPP scaler (`SCL_*`,
-  viewport, ratios, **polyphase coefficient tables must be written**), and
-  MPC/OPP unchanged. Register bases come from `amdgpu`'s per-IP offsets, MMIO
-  is BAR5. Much more surface than A and unproven without a dump; the DMCU
-  firmware may also touch the pipe. Treat as research.
+- **B (Intel display 13, Alder Lake)**: the same idea, but not the same
+  registers as Gen9; nothing is written for it and its firmware state is not
+  captured yet. It stays on option 2 until a dump exists. (The retired AMD
+  NUC's DCN 1.0 path went with the machine; there is no AMD box in the fleet
+  now.)
 
-Both are "mode setting without a driver" in the sense of poking a few
+These are "mode setting without a driver" in the sense of poking a few
 registers, but they are per-GPU-generation code with no QEMU model to test
-against: only the two boxes can verify them, and a wrong write blanks the
-screen with no serial port to see why (use `dbgd`, docs/dbgd.md).
+against: only the boxes can verify them, and a wrong write blanks the screen
+with no serial port to see why (use `dbgd`, docs/dbgd.md).
 
 ### 4. Real native mode set (PLL, DDI/HDMI, timings from EDID)
 
 This is the GPU driver the question excludes: clocks, link, infoframes,
-watermarks on both vendors. Not recommended.
+watermarks. Not recommended.
 
 ## Recommendation
 
 1. **Probe first, write nothing**: a read-only `hwreport`/`dbgd` addition
    that dumps the loader's GOP mode list and the display engine's registers
-   (A: pipe/plane/scaler; B: DCN HUBP/DPP) as the firmware left them. That
-   settles every "to confirm" above, safely, on both boxes.
+   (Kaby Lake: pipe/plane/scaler; the Alder Lake box: the same kind of dump,
+   once it boots) as the firmware left them. That settles every "to confirm"
+   above, safely, on both boxes.
 2. **Ship option 2** as the portable answer to "change resolution at
    runtime": an output scale in `present`, configured by `display.*` in
    `lazyos.cfg` (no rebuild) and changed live through the compositor.
 3. **Add option 1** for a true native mode on reboot (exact mode in the
    loader), if the GOP lists show the monitor modes people want.
-4. **Option 3 on A only**, as an optimisation of 2 (scanout scaling for
-   free) once the dump confirms the plane/scaler state; B stays on option 2.
+4. **Option 3 on the Kaby Lake box only**, as an optimisation of 2 (scanout
+   scaling for free) once the dump confirms the plane/scaler state; the
+   Alder Lake box stays on option 2.
 
 Open questions for the maintainer: is a reboot acceptable for a native
 mode change, and is a softly scaled 1080p/720p picture acceptable on a
