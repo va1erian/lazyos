@@ -126,7 +126,7 @@ fn record_for(rng: &mut Rng, source_class: u8) -> Record {
             rng.below(300) as i32 - 150,
         ),
         (class::KEYBOARD, _) => rec(kind::KEY, 0x04 + rng.below(0xE4) as u16, edge),
-        (class::GAMEPAD, 1 | 2 | 3) => axis_record(rng),
+        (class::GAMEPAD, 1..=3) => axis_record(rng),
         (class::GAMEPAD, 4) => rec(kind::BUTTON, 1 + rng.below(32) as u16, edge),
         (_, 1 | 2) => rec(kind::BUTTON, 1 + rng.below(5) as u16, edge),
         (_, 3) => rec(kind::SCROLL, rng.below(2) as u16, rng.below(7) as i32 - 3),

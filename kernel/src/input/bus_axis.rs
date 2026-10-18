@@ -30,31 +30,36 @@ pub const HAT_CENTRED: i32 = 8;
 /// Axes a source can hold: `X..=Dial` (8) plus the hat.
 pub const SLOTS: u32 = 9;
 
+/// The axis usages, in [`slot`] order: `X..=Dial`, then the hat.
+pub const USAGES: [u16; SLOTS as usize] = [
+    usage::X,
+    usage::Y,
+    usage::Z,
+    usage::RX,
+    usage::RY,
+    usage::RZ,
+    usage::SLIDER,
+    usage::DIAL,
+    usage::HAT,
+];
+
 /// Whether `code` is an axis usage the bus carries.
 pub fn is_usage(code: u16) -> bool {
     slot(code).is_some()
 }
 
-/// The index of `code` among the axes: `0..=7` for `X..=Dial`, 8 for the hat,
-/// `None` for anything else.
+/// The index of `code` among the axes ([`USAGES`]), `None` for anything else.
 pub fn slot(code: u16) -> Option<u32> {
-    if code == usage::HAT {
-        Some(SLOTS - 1)
-    } else if (usage::X..=usage::DIAL).contains(&code) {
-        Some(u32::from(code - usage::X))
-    } else {
-        None
-    }
+    USAGES
+        .iter()
+        .position(|&usage| usage == code)
+        .map(|slot| slot as u32)
 }
 
 /// The usage of `slot`, the inverse of [`slot`] for the slots it yields.
 pub fn usage_of(slot: u32) -> u16 {
     debug_assert!(slot < SLOTS, "slot {slot} is not an axis");
-    if slot == SLOTS - 1 {
-        usage::HAT
-    } else {
-        usage::X + slot as u16
-    }
+    USAGES[slot as usize]
 }
 
 /// The value an axis rests at: the hat is centred, every other axis 0.
