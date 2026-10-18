@@ -93,7 +93,7 @@ def session(accel: str) -> None:
             "--accel",
             accel,
             "--extra-arg=-audiodev",
-            "--extra-arg=f"wav,id=a0,path={WAV}",
+            f"--extra-arg=wav,id=a0,path={WAV}",
             "--extra-arg=-device",
             "--extra-arg=virtio-sound-pci,audiodev=a0",
         ]
