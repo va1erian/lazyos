@@ -79,6 +79,10 @@ pub(super) struct ThreadSig {
     /// something that remembers a thread by slot (a `SIGEV_THREAD_ID` timer)
     /// can tell it from a successor.
     pub(super) generation: u64,
+    /// Timer sweeps in a row that left a handler undelivered because its
+    /// frame needs a file page read in, which an interrupt cannot do
+    /// (`sweep::frame_waits_for_file`).
+    pub(super) frame_deferrals: u32,
 }
 
 impl ThreadSig {
@@ -90,6 +94,7 @@ impl ThreadSig {
         on_altstack: false,
         suspend_restore: None,
         generation: 0,
+        frame_deferrals: 0,
     };
 }
 

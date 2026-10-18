@@ -66,7 +66,7 @@ mod types;
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the execmem suite checks the rule
 pub use fault::segv_code;
 pub use fault::{deliver_exception, deliver_fault, Exception};
-pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
+pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted, FRAME_DEFER_LIMIT};
 
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the signal suite checks the markers
 pub use fpframe::{FP_XSTATE_MAGIC1, FP_XSTATE_MAGIC2};
