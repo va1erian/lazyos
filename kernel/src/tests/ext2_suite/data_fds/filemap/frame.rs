@@ -127,15 +127,30 @@ fn frame_case(dir: &str) -> Result<(), String> {
     );
 
     // A task that never leaves user mode and whose stack never becomes
-    // resident is ended after the limit, not left hanging.
+    // resident waits a bounded *time*, not a bounded number of sweeps (a
+    // scheduler entry per yield would use them up in milliseconds), and is
+    // then ended instead of left hanging.
     let second = Process::new(&format!("{dir}/h13b"))?;
-    for round in 0..signal::FRAME_DEFER_LIMIT {
+    for round in 0..2000 {
         second.sweep();
         check!(
             task::harness::state(second.task) != Some(TaskState::Done),
-            "round {round}: ended before the limit"
+            "sweep {round}: ended with no time passed"
         );
     }
+    crate::arch::idt::TICKS.fetch_add(
+        signal::FRAME_DEFER_LIMIT / 2,
+        core::sync::atomic::Ordering::Relaxed,
+    );
+    second.sweep();
+    check!(
+        task::harness::state(second.task) != Some(TaskState::Done),
+        "ended halfway through the limit"
+    );
+    crate::arch::idt::TICKS.fetch_add(
+        signal::FRAME_DEFER_LIMIT,
+        core::sync::atomic::Ordering::Relaxed,
+    );
     second.sweep();
     check!(
         task::harness::state(second.task) == Some(TaskState::Done),

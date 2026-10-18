@@ -110,11 +110,16 @@ pub fn reset_notifications() {
 /// A group exit began in process `pml4` with `status`: a leader that left
 /// earlier reports the group's status (and terminating signal) when it is
 /// reaped, as Linux's `wait_task_zombie` does.
-pub(super) fn note_group_exit(tasks: &mut [Option<Task>; MAX_TASKS], pml4: u64, status: u64) {
+pub(super) fn note_group_exit(
+    tasks: &mut [Option<Task>; MAX_TASKS],
+    pml4: u64,
+    status: u64,
+    signaled: bool,
+) {
     for task in tasks.iter_mut().flatten() {
         if task.pml4 == pml4 && task.state == TaskState::Done && task.linux.tgid == 0 {
             task.exit_status = status;
-            task.linux.term_signal = if (129..=128 + 64).contains(&status) {
+            task.linux.term_signal = if signaled && (129..=128 + 64).contains(&status) {
                 (status - 128) as u8
             } else {
                 0

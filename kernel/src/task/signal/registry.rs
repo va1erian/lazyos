@@ -38,6 +38,10 @@ pub(super) struct Signals {
     /// began finish with this status once they leave the kernel, whatever
     /// signal they meet on the way out.
     pub(super) group_exit: Option<u64>,
+    /// Whether [`Signals::group_exit`] is `128 + signal` (a death by signal,
+    /// which `wait4` reports as the signal) or an ordinary exit status that
+    /// merely looks like one (`exit_group(130)`): the status alone cannot say.
+    pub(super) group_signaled: bool,
     /// When the kill began (`arch::clock::monotonic_ns`; 0: none), so
     /// [`killwatch`](super::killwatch) can name a process that has not
     /// finished a second later, and whether it already did.
@@ -53,6 +57,7 @@ impl Signals {
             actions: [Disposition::Default; NSIG],
             infos: [SigInfo::user(0, SI_USER); NSIG],
             group_exit: None,
+            group_signaled: false,
             kill_at_ns: 0,
             slow_reported: false,
         }
@@ -79,10 +84,10 @@ pub(super) struct ThreadSig {
     /// something that remembers a thread by slot (a `SIGEV_THREAD_ID` timer)
     /// can tell it from a successor.
     pub(super) generation: u64,
-    /// Timer sweeps in a row that left a handler undelivered because its
-    /// frame needs a file page read in, which an interrupt cannot do
-    /// (`sweep::frame_waits_for_file`).
-    pub(super) frame_deferrals: u32,
+    /// The tick at which the timer sweep first left a handler undelivered
+    /// because its frame needs a file page read in, which an interrupt cannot
+    /// do (`sweep::frame_waits_for_file`); 0 when nothing is deferred.
+    pub(super) frame_deferred_at: u64,
 }
 
 impl ThreadSig {
@@ -94,7 +99,7 @@ impl ThreadSig {
         on_altstack: false,
         suspend_restore: None,
         generation: 0,
-        frame_deferrals: 0,
+        frame_deferred_at: 0,
     };
 }
 

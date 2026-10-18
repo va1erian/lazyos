@@ -351,7 +351,11 @@ pub(super) fn stop_process(pml4: u64) {
             crate::task::runq::sync(&tasks, slot);
         }
     });
+    // The stop this call carries (`SIGSTOP`, `SIGTSTP`, ...) may be blocked by
+    // the thread or pending only in the sender's own set: `SIGSTOP` cannot be
+    // masked, so it is the marker that makes the thread stop at its boundary.
     for slot in inside.iter() {
+        with_thread(slot, |thread| thread.pending |= bit(SIGSTOP));
         wake_blocked_thread(slot);
     }
 }

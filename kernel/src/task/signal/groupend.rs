@@ -32,12 +32,19 @@ pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
 /// status that merely looks like one (`exit_group(130)`). Also returns how
 /// many threads it finished on the spot.
 fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
-    let status = with_signals(pml4, |state| {
+    // The first group exit decides the status and what it means; a later kill
+    // (a `SIGKILL` arriving while the threads unwind from `exit_group(0)`)
+    // joins it, and must not read the first one's status as a signal.
+    let (status, signaled) = with_signals(pml4, |state| {
         state.pending |= bit(SIGKILL);
         if state.kill_at_ns == 0 {
             state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
         }
-        *state.group_exit.get_or_insert(status)
+        if state.group_exit.is_none() {
+            state.group_exit = Some(status);
+            state.group_signaled = signaled;
+        }
+        (state.group_exit.unwrap_or(status), state.group_signaled)
     });
     let me = current();
     let mut parents = SlotList::new();
@@ -47,7 +54,7 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
     // task judged to be in user mode cannot enter the kernel before it ends.
     x86_64::instructions::interrupts::without_interrupts(|| {
         let mut tasks = TASKS.lock();
-        crate::task::family::note_group_exit(&mut tasks, pml4, status);
+        crate::task::family::note_group_exit(&mut tasks, pml4, status, signaled);
         for slot in 1..MAX_TASKS {
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
@@ -57,7 +64,7 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
             }
             // `128 + signal` is the status; `wait4` reports the signal itself,
             // for the tasks ended here and for those that end later.
-            if signaled {
+            if signaled && (129..=128 + 64).contains(&status) {
                 crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
             }
             if slot == me {

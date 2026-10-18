@@ -162,9 +162,10 @@ impl<T> DerefMut for YieldGuard<'_, T> {
 ///
 /// The record points into a lock the waiter borrows while it is parked in
 /// `lock`; `lock` clears it when it returns, and `process::finish_locked`
-/// ([`forget_wait`]) clears it when the task is ended wherever it stands (a
-/// fault, the OOM killer, `terminate_process`: a thread parked in `lock` then
-/// never resumes). Callers ask only about a slot whose task exists and is not
+/// ([`forget_wait`]) clears it when the task is ended wherever it stands (the
+/// current thread of a fault, the OOM killer or `exit_group`; a thread parked
+/// inside the kernel is not ended there, `signal::end_process` wakes it to
+/// unwind, so one parked in `lock` leaves it first). Callers ask only about a slot whose task exists and is not
 /// `Done`, so while the record is set the waiter is parked inside `lock`,
 /// still borrowing the lock; only its atomics and name are read.
 pub fn waiting(slot: usize, now_ns: u64) -> Option<(&'static str, Option<usize>, u64)> {

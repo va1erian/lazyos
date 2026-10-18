@@ -36,7 +36,7 @@ enum End {
 /// One round: the thread holds `gate` and sleeps on `queue`; the leader ends
 /// the group; the thread must still be alive, woken and with the gate intact
 /// until it leaves the kernel, and then ends with the group's status.
-fn group_end_round(queue: &WaitQueue, end: End) -> Result<(), String> {
+fn group_end_round(queue: &WaitQueue, end: End, kill_after: bool) -> Result<(), String> {
     let gate = spin::Mutex::new(());
     let parent = task::spawn_fork().map_err(|error| format!("parent: {error}"))?;
     let (leader, thread, user_cs) = process_with_thread_in_kernel(parent)?;
@@ -70,6 +70,14 @@ fn group_end_round(queue: &WaitQueue, end: End) -> Result<(), String> {
         task::harness::take_wake_reason(thread) == Some(WakeReason::Interrupted),
         "the sleeping thread was not woken to unwind"
     );
+    // A `SIGKILL` that arrives while the thread unwinds joins the group exit
+    // and neither changes its status nor turns an exit status into a signal
+    // death (it used to underflow `status - 128` for `exit_group(0)`).
+    if kill_after {
+        task::harness::switch_current(task::KERNEL_TASK);
+        send(thread, signal::SIGKILL)?;
+        task::harness::switch_current(leader);
+    }
     // Unwinding: a further wait returns at once instead of parking, and the
     // woken wait leaves the queue (stood in for by the targeted removal,
     // which must not wake it a second time).
@@ -103,10 +111,15 @@ fn group_end_round(queue: &WaitQueue, end: End) -> Result<(), String> {
     task::harness::simulate_tick();
     task::reclaim_pending();
     task::harness::switch_current(parent);
-    let reaped = task::reap_child();
+    // wait4 reports an exit status as one, and only a signal death as a signal.
+    let want_signal = match end {
+        End::ExitGroup(_) => 0,
+        End::Fault => signal::SIGSEGV,
+    };
+    let reaped = task::reap_child_filtered(task::ChildFilter::Any);
     check!(
-        reaped == Some((leader, status)),
-        "the group reported {reaped:?}, not {status} (leader {:?}, thread {:?})",
+        reaped == Some((leader, status, want_signal)),
+        "the group reported {reaped:?}, not {status} with signal {want_signal} (leader {:?}, thread {:?})",
         task::harness::state(leader),
         task::harness::state(thread)
     );
@@ -122,9 +135,12 @@ fn group_end_round(queue: &WaitQueue, end: End) -> Result<(), String> {
 pub fn exit_group_spares_threads_inside_the_kernel() -> Result<(), String> {
     fresh()?;
     let queue = WaitQueue::new(WaitKind::Block);
-    group_end_round(&queue, End::ExitGroup(3))?;
-    // An exit status that looks like a signal death stays an exit status.
-    group_end_round(&queue, End::ExitGroup(130))?;
+    group_end_round(&queue, End::ExitGroup(3), false)?;
+    // An exit status that looks like a signal death stays an exit status, also
+    // when the unwinding thread meets a kill on its way out.
+    group_end_round(&queue, End::ExitGroup(130), false)?;
+    group_end_round(&queue, End::ExitGroup(130), true)?;
+    group_end_round(&queue, End::ExitGroup(0), true)?;
     task::harness::reset();
     signal::harness::reset();
     Ok(())
@@ -136,7 +152,8 @@ pub fn exit_group_spares_threads_inside_the_kernel() -> Result<(), String> {
 pub fn fault_spares_threads_inside_the_kernel() -> Result<(), String> {
     fresh()?;
     let queue = WaitQueue::new(WaitKind::Block);
-    group_end_round(&queue, End::Fault)?;
+    group_end_round(&queue, End::Fault, false)?;
+    group_end_round(&queue, End::Fault, true)?;
     task::harness::reset();
     signal::harness::reset();
     Ok(())
@@ -201,7 +218,7 @@ pub fn group_end_soak() -> Result<(), String> {
         } else {
             End::Fault
         };
-        group_end_round(&queue, end).map_err(|e| format!("round {round}: {e}"))?;
+        group_end_round(&queue, end, round % 3 == 0).map_err(|e| format!("round {round}: {e}"))?;
     }
     check!(
         queue.is_empty(),
@@ -268,6 +285,31 @@ pub fn stop_leaves_threads_inside_the_kernel_alone() -> Result<(), String> {
         !stopped(leader) && !stopped(outside),
         "SIGCONT did not resume the stopped threads"
     );
+
+    // A catchable stop reaches a thread that blocks it, too: the thread inside
+    // the kernel gets the unblockable marker for its boundary. 300 rounds.
+    for round in 0..300 {
+        signal::set_blocked(thread, 1 << signal::SIGTSTP);
+        queue.park(thread, Some(u64::MAX / 2));
+        send(leader, signal::SIGTSTP)?;
+        check!(
+            signal::pending_thread(thread) & (1 << signal::SIGSTOP) != 0,
+            "round {round}: a thread blocking SIGTSTP would run on through the stop"
+        );
+        check!(
+            stopped(leader) && !stopped(thread),
+            "round {round}: leader {:?} thread {:?}",
+            task::harness::state(leader),
+            task::harness::state(thread)
+        );
+        let _ = task::harness::take_wake_reason(thread);
+        queue.notify_task(thread);
+        send(leader, signal::SIGCONT)?;
+        check!(
+            signal::pending_thread(thread) & (1 << signal::SIGSTOP) == 0 && !stopped(leader),
+            "round {round}: SIGCONT left the stop behind"
+        );
+    }
     task::harness::finish(thread, 0);
     task::harness::finish(outside, 0);
     task::harness::finish(leader, 0);
