@@ -31,8 +31,10 @@ verbs = ["open"]
 # The display, pointer shape and keyboard every window needs, the mixer
 # (`os.lazy.audio.v1`: the app plays through `audiod`), and the clipboard,
 # which carries the `text/uri-list` of a cartridge dropped on the window.
-# Derived from a run under `LAZYOS_LABEL_TRACE=1` (docs/packages.md, core
-# packages; docs/nes-player.md).
+# `files` is consent text (the kernel has no file sandbox for an app label
+# yet): the app writes only its own folder — cartridges are read through the
+# Open dialog or a drop. Derived from a run under `LAZYOS_LABEL_TRACE=1`
+# (docs/packages.md, core packages; docs/nes-player.md).
 interfaces = [
     "os.lazy.audio.v1",
     "os.lazy.clipboard.v1",
@@ -40,3 +42,4 @@ interfaces = [
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
 ]
+files = ["write:$HOME/.apps/os.lazy.nes"]
