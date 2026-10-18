@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
 use super::{hidden_name, Inode, OPEN};
-use crate::fs::vfs::{FsError, Id, Path};
+use crate::fs::vfs::{FsError, Id};
 /// `rmdir` of `path` (issue #612). On Linux an unlinked-but-open file has no
 /// name left, so its directory is empty and can go; here the file is parked
 /// as a hidden entry *in* that directory. So when the directory holds nothing
@@ -21,7 +21,7 @@ use crate::fs::vfs::{FsError, Id, Path};
 /// A directory with any other entry, or a stray reserved name no open file
 /// owns, is not empty: the backend answers `ENOTEMPTY` as before.
 pub(in crate::fs) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    let dir = Path::parse(path).to_path_string();
+    let dir = crate::fs::abi_canonical(path);
     let parked = parked_in(&dir);
     let root = if parked.is_empty() {
         None

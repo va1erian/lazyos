@@ -22,6 +22,7 @@ fn fs_error(error: FsError) -> String {
     format!("{} ({error:?})", error.message())
 }
 
+mod alias_mount;
 mod attrs;
 mod fat_corruption;
 pub(super) mod fat_image;
@@ -31,6 +32,7 @@ mod ramfs_limits;
 mod ramfs_quota;
 mod traversal_and_cache;
 
+pub(super) use alias_mount::*;
 pub(super) use attrs::*;
 pub(super) use fat_corruption::*;
 pub(super) use fat_lfn::*;
@@ -51,6 +53,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("fs_traversal_and_sticky_bits", traversal_and_sticky_bits),
     ("fs_cache_invalidation", cache_invalidation),
+    ("fs_alias_mount_caches_agree", alias_mount_caches_agree),
+    ("fs_alias_mount_cache_soak", alias_mount_cache_soak),
+    (
+        "fs_alias_mount_open_files_are_one_file",
+        alias_mount_open_files_are_one_file,
+    ),
     ("fs_fat_read_only_erofs", fat_read_only_erofs),
     ("fs_getdents64_ramfs_directory", getdents64_ramfs_directory),
     (

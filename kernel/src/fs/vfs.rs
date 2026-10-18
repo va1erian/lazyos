@@ -33,7 +33,8 @@
 //! # Caches
 //!
 //! A dentry cache maps `(mount, path)` to an inode number and an inode cache
-//! maps `(mount, ino)` to [`Meta`]. Lookups hit the caches first; mutations
+//! maps `(mount, ino)` to [`Meta`] (the mount being the first one holding the
+//! same filesystem instance, so a filesystem mounted twice has one cache). Lookups hit the caches first; mutations
 //! refresh or invalidate the affected paths, including cached descendants of a
 //! removed or renamed directory, so a stale name or size cannot be read back.
 //! [`Vfs::cache_stats`] exposes the counters so tests can see the caches work.
@@ -69,6 +70,13 @@ struct Mount {
     point: Path,
     fs: Arc<dyn Filesystem>,
     flags: MountFlags,
+    /// The first mount of this same filesystem instance, itself for the
+    /// first one: a filesystem mounted at two points (`/tmp` and `/transient`
+    /// are one ramfs) is one set of files under two names, so its cached
+    /// names and inodes are keyed by this index, not by the mount's own.
+    /// Keyed per mount, a `chmod 600 /tmp/x` left `/transient/x` cached as
+    /// 0644 (audit H6).
+    cache: usize,
 }
 
 /// The filesystem root: mount table, caches, and set-once operation surface.
@@ -110,7 +118,18 @@ impl Vfs {
         if self.mounts.iter().any(|mount| mount.point == point) {
             return Err(FsError::Exists);
         }
-        self.mounts.push(Mount { point, fs, flags });
+        let own = self.mounts.len();
+        let cache = self
+            .mounts
+            .iter()
+            .find(|mount| Arc::ptr_eq(&mount.fs, &fs))
+            .map_or(own, |mount| mount.cache);
+        self.mounts.push(Mount {
+            point,
+            fs,
+            flags,
+            cache,
+        });
         self.stats.mounts = self.mounts.len();
         Ok(())
     }

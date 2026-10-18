@@ -65,9 +65,10 @@ impl Vfs {
         let Ok((mount, rel)) = self.resolve_mount(&path) else {
             return;
         };
-        let ino = match self.dentry.get(&(mount, rel.clone())) {
+        let key = self.mounts[mount].cache;
+        let ino = match self.dentry.get(&(key, rel.clone())) {
             Some(dentry) => dentry.ino,
-            None if self.inodes.keys().any(|(cached, _)| *cached == mount) => {
+            None if self.inodes.keys().any(|(cached, _)| *cached == key) => {
                 match self.mounts[mount].fs.stat(&rel) {
                     Ok(meta) => meta.ino,
                     Err(_) => return,
@@ -75,16 +76,17 @@ impl Vfs {
             }
             None => return,
         };
-        self.inodes.remove(&(mount, ino));
+        self.inodes.remove(&(key, ino));
     }
 
     /// Cache-aware metadata lookup for an absolute path.
     pub(super) fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
         let (mount, rel) = self.resolve_mount(path)?;
         self.expire(mount, &rel);
-        if let Some(dentry) = self.dentry.get(&(mount, rel.clone())) {
+        let key = self.mounts[mount].cache;
+        if let Some(dentry) = self.dentry.get(&(key, rel.clone())) {
             self.stats.dentry_hits += 1;
-            if let Some(meta) = self.inodes.get(&(mount, dentry.ino)) {
+            if let Some(meta) = self.inodes.get(&(key, dentry.ino)) {
                 self.stats.inode_hits += 1;
                 return Ok(*meta);
             }
@@ -100,9 +102,10 @@ impl Vfs {
     /// Record a fresh metadata pair in both caches.
     pub(super) fn insert_cache(&mut self, mount: usize, rel: &str, meta: Meta) {
         let expires = self.mounts[mount].fs.cache_deadline();
-        self.inodes.insert((mount, meta.ino), meta);
+        let key = self.mounts[mount].cache;
+        self.inodes.insert((key, meta.ino), meta);
         self.dentry.insert(
-            (mount, String::from(rel)),
+            (key, String::from(rel)),
             Dentry {
                 ino: meta.ino,
                 expires,
@@ -116,7 +119,8 @@ impl Vfs {
     /// own clock, so it is believed no longer than any other entry, and a
     /// path through an ancestor that is no longer a directory still fails.
     fn expire(&mut self, mount: usize, rel: &str) {
-        let key = (mount, String::from(rel));
+        let cache = self.mounts[mount].cache;
+        let key = (cache, String::from(rel));
         let Some(deadline) = self.dentry.get(&key).and_then(|d| d.expires) else {
             return;
         };
@@ -124,7 +128,7 @@ impl Vfs {
             return;
         }
         if let Some(dentry) = self.dentry.remove(&key) {
-            self.inodes.remove(&(mount, dentry.ino));
+            self.inodes.remove(&(cache, dentry.ino));
             self.stats.expired += 1;
         }
     }
@@ -132,6 +136,7 @@ impl Vfs {
     /// Invalidate a relative path within one mount, its inode, and any cached
     /// descendants when it names an inode that other entries still point at.
     pub(super) fn invalidate_mount_path(&mut self, mount: usize, rel: &str) {
+        let mount = self.mounts[mount].cache;
         let ino = self
             .dentry
             .remove(&(mount, String::from(rel)))

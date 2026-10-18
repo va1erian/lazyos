@@ -46,7 +46,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 
-use super::vfs::{FsError, Id, Meta, Node, NodeId, Path, StatFs};
+use super::vfs::{FsError, Id, Meta, Node, NodeId, StatFs};
 
 mod mapping;
 mod rmdir;
@@ -57,10 +57,18 @@ pub use mapping::writeback_all;
 pub use mapping::{deferred_pages, BEFORE_FLUSH};
 use pagecache::PageCache;
 
+/// `path` in the one form the registry keys files by: through the first mount
+/// of the filesystem holding it, so a filesystem mounted at two points (`/tmp`
+/// and `/transient`) has one entry per file, not one per name (audit H6).
+fn canonical(path: &str) -> String {
+    super::abi_canonical(path)
+}
+
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
-    /// Absolute ABI path, kept current across renames. Empty once the name
-    /// is known to belong to another file (see [`share_inode`]).
+    /// Absolute ABI path in [`canonical`] form, kept current across renames.
+    /// Empty once the name is known to belong to another file (see
+    /// [`share_inode`]).
     path: Mutex<String>,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
@@ -113,7 +121,7 @@ impl OpenFile {
         writable: bool,
         append: bool,
     ) -> Result<Arc<OpenFile>, FsError> {
-        let path = Path::parse(path).to_path_string();
+        let path = canonical(path);
         // Access was checked by the caller; the node is opened as root.
         let node = super::nodes::abi_open_node(Id::ROOT, &path, 0)?;
         let inode = share_inode(path, node)?;
@@ -339,7 +347,7 @@ pub(crate) fn content_changed(path: &str, native: bool) {
 
 /// The open inode whose current name is exactly `path`.
 fn find(path: &str) -> Option<Arc<Inode>> {
-    let path = Path::parse(path).to_path_string();
+    let path = canonical(path);
     let open = OPEN.lock();
     open.iter()
         .find(|inode| *inode.path.lock() == path)
@@ -409,8 +417,8 @@ pub(super) fn displace(id: Id, to: &str) -> Result<Option<Displaced>, FsError> {
 /// After a successful `rename(from, to)`: every open file at or under `from`
 /// now lives at the same place under `to`.
 pub(super) fn retarget(from: &str, to: &str) {
-    let from = Path::parse(from).to_path_string();
-    let to = Path::parse(to).to_path_string();
+    let from = canonical(from);
+    let to = canonical(to);
     for inode in OPEN.lock().iter() {
         let mut path = inode.path.lock();
         let Some(rest) = path.strip_prefix(from.as_str()) else {
@@ -450,7 +458,7 @@ pub fn open_files() -> usize {
 /// Mappings keep a file registered after its descriptor closed, so this sees
 /// what a descriptor scan of the task table does not.
 pub fn paths_under(prefix: &str) -> alloc::vec::Vec<String> {
-    let prefix = Path::parse(prefix).to_path_string();
+    let prefix = canonical(prefix);
     let mut found = alloc::vec::Vec::new();
     for inode in OPEN.lock().iter() {
         // Looked at in place: only a match is cloned, and only so many.
