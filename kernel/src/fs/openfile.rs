@@ -71,17 +71,23 @@ fn canonical(path: &str) -> String {
     super::nodes::abi_canonical(path)
 }
 
+/// The names of an open file.
+struct Names {
+    /// Absolute ABI path in [`canonical`] form, kept current across renames:
+    /// the registry's key, and what operations on the file resolve. Empty once
+    /// the name is known to belong to another file (see [`share_inode`]).
+    key: String,
+    /// The name the file is shown under (`/proc/self/fd`, the busy list of an
+    /// eject): the one it was first opened by, which is `/tmp/x` while `key`
+    /// says `/transient/x`. Kept current across renames; an unlinked file is
+    /// shown under its hidden name.
+    shown: String,
+}
+
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
-    /// Absolute ABI path in [`canonical`] form, kept current across renames.
-    /// Empty once the name is known to belong to another file (see
-    /// [`share_inode`]).
-    path: Mutex<String>,
-    /// The name the file is shown under (`/proc/self/fd`, the busy list of an
-    /// eject): the one it was first opened by, which is `/tmp/x` while
-    /// [`path`](Self::path), the registry's key, says `/transient/x`. Kept
-    /// current across renames; an unlinked file is shown under its hidden name.
-    shown: Mutex<String>,
+    /// The file's names, behind one lock.
+    names: Mutex<Names>,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
     orphan: AtomicBool,
@@ -102,7 +108,17 @@ struct Inode {
 impl Inode {
     /// The registry key: [`canonical`], and the name operations resolve.
     fn path(&self) -> String {
-        self.path.lock().clone()
+        self.names.lock().key.clone()
+    }
+
+    /// Whether the registry key is `path`.
+    fn is_named(&self, path: &str) -> bool {
+        self.names.lock().key == path
+    }
+
+    /// Give the file a new registry key.
+    fn set_key(&self, key: String) {
+        self.names.lock().key = key;
     }
 
     /// The name to show: [`shown`](Self::shown), or the hidden name of an
@@ -111,7 +127,7 @@ impl Inode {
         if self.orphan.load(Ordering::Relaxed) {
             self.path()
         } else {
-            self.shown.lock().clone()
+            self.names.lock().shown.clone()
         }
     }
 }
@@ -319,17 +335,16 @@ impl Drop for OpenFile {
 fn share_inode(path: String, shown: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> {
     let id = node.as_ref().map(Node::id);
     let mut open = OPEN.lock();
-    if let Some(found) = open.iter().find(|inode| *inode.path.lock() == path) {
+    if let Some(found) = open.iter().find(|inode| inode.is_named(&path)) {
         if node_id(found) == id {
             found.descriptions.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::clone(found));
         }
-        found.path.lock().clear();
+        found.set_key(String::new());
     }
     open.try_reserve(1).map_err(|_| FsError::NoSpace)?;
     let inode = Arc::new(Inode {
-        path: Mutex::new(path),
-        shown: Mutex::new(shown),
+        names: Mutex::new(Names { key: path, shown }),
         orphan: AtomicBool::new(false),
         node,
         descriptions: AtomicUsize::new(1),
@@ -383,9 +398,7 @@ pub(crate) fn content_changed(path: &str, native: bool) {
 fn find(path: &str) -> Option<Arc<Inode>> {
     let path = canonical(path);
     let open = OPEN.lock();
-    open.iter()
-        .find(|inode| *inode.path.lock() == path)
-        .cloned()
+    open.iter().find(|inode| inode.is_named(&path)).cloned()
 }
 
 /// `dir/.unlinked-<n>` beside `path`, so the caller's rights to unlink `path`
@@ -402,7 +415,7 @@ fn orphan(id: Id, inode: &Inode) -> Result<String, FsError> {
     let from = inode.path();
     let hidden = hidden_name(&from);
     super::abi_rename_raw(id, &from, &hidden)?;
-    *inode.path.lock() = hidden.clone();
+    inode.set_key(hidden.clone());
     inode.orphan.store(true, Ordering::Relaxed);
     Ok(hidden)
 }
@@ -427,7 +440,7 @@ impl Displaced {
     /// The rename failed after all: put the file back under its name.
     pub(super) fn restore(self) {
         if super::abi_rename_raw(Id::ROOT, &self.hidden, &self.original).is_ok() {
-            *self.inode.path.lock() = self.original;
+            self.inode.set_key(self.original);
             self.inode.orphan.store(false, Ordering::Relaxed);
         }
     }

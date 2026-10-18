@@ -39,7 +39,7 @@ pub(in crate::fs) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
             unpark(moved);
             return rmdir_raw(id, &dir);
         }
-        *inode.path.lock() = to;
+        inode.set_key(to);
         moved.push((inode, from));
     }
     let result = rmdir_raw(id, &dir);
@@ -60,8 +60,7 @@ fn parked_in(dir: &str) -> Vec<Arc<Inode>> {
         .filter(|inode| {
             inode.orphan.load(Ordering::Relaxed)
                 && inode
-                    .path
-                    .lock()
+                    .path()
                     .rsplit_once('/')
                     .is_some_and(|(parent, _)| parent == dir || (parent.is_empty() && dir == "/"))
         })
@@ -90,7 +89,7 @@ fn only(dir: &str, parked: &[Arc<Inode>]) -> bool {
 fn unpark(moved: Vec<(Arc<Inode>, String)>) {
     for (inode, original) in moved {
         match crate::fs::abi_rename_raw(Id::ROOT, &inode.path(), &original) {
-            Ok(()) => *inode.path.lock() = original,
+            Ok(()) => inode.set_key(original),
             // The file stays valid and reclaimable at its mount-root name; the
             // refused rmdir just cannot put it back.
             Err(error) => crate::serial_println!(

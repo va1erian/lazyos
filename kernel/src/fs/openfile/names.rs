@@ -14,8 +14,9 @@ pub(in crate::fs) fn retarget(raw_from: &str, raw_to: &str) {
     let from = canonical(raw_from);
     let to = canonical(raw_to);
     for inode in OPEN.lock().iter() {
-        let mut path = inode.path.lock();
-        let Some(rest) = path.strip_prefix(from.as_str()) else {
+        let mut guard = inode.names.lock();
+        let names = &mut *guard;
+        let Some(rest) = names.key.strip_prefix(from.as_str()) else {
             continue;
         };
         // Only a whole component matches: `/a/b` is not under `/a/bc`.
@@ -26,14 +27,13 @@ pub(in crate::fs) fn retarget(raw_from: &str, raw_to: &str) {
         let moved = alloc::format!("{to}{rest}");
         // The shown name follows in the alias it is shown in; one that was
         // opened by another alias of the filesystem takes the renamer's.
-        let mut shown = inode.shown.lock();
-        let below = shown
+        let below = names
+            .shown
             .strip_prefix(raw_from)
             .filter(|tail| tail.is_empty() || tail.starts_with('/'));
         let renamed = alloc::format!("{raw_to}{}", below.unwrap_or(rest));
-        *shown = renamed;
-        drop(shown);
-        *path = moved;
+        names.shown = renamed;
+        names.key = moved;
         // A hidden entry itself renamed back into the tree is a file again,
         // not garbage to delete on the last close. (A rename of an ancestor
         // directory leaves an orphan an orphan.)
@@ -65,12 +65,12 @@ pub fn paths_under(prefix: &str) -> alloc::vec::Vec<String> {
     let mut found = alloc::vec::Vec::new();
     for inode in OPEN.lock().iter() {
         // Looked at in place: only a match is cloned, and only so many.
-        let path = inode.path.lock();
-        if crate::task::holders::is_under(&path, &prefix) {
+        let names = inode.names.lock();
+        if crate::task::holders::is_under(&names.key, &prefix) {
             found.push(if inode.orphan.load(Ordering::Relaxed) {
-                path.clone()
+                names.key.clone()
             } else {
-                inode.shown.lock().clone()
+                names.shown.clone()
             });
             if found.len() >= crate::task::holders::MAX_HOLDERS {
                 break;
