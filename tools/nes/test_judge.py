@@ -6,15 +6,34 @@ wrong note in the recording, a ball that never moved, a missing overlay)."""
 from __future__ import annotations
 
 import io
+import struct
 import sys
 import unittest
 import wave
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import judge  # noqa: E402
+
+
+def png(width: int, height: int, pixels: list[tuple[int, int, int]]) -> bytes:
+    """A truecolour PNG from a row-major list of RGB tuples, in the standard
+    library: the fixtures need no Pillow (CI has none)."""
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)  # filter: none
+        for pixel in pixels[y * width:(y + 1) * width]:
+            rows.extend(pixel)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 6)) + chunk(b"IEND", b""))
 
 GOOD_LOG = """\
 TERM:UP:PASS
@@ -106,27 +125,40 @@ class Sound(unittest.TestCase):
 
 
 class Shots(unittest.TestCase):
-    def setUp(self):
-        from PIL import Image
+    """The screenshot judge, on PNGs written by [`png`]."""
 
+    SIZE = (320, 240)
+
+    def setUp(self):
         self.dir = Path(__file__).resolve().parent / "target-test"
         self.dir.mkdir(exist_ok=True)
         self.shots = {}
         for name, ball_x in [("playing", 120), ("moved", 180), ("paused", 120)]:
-            image = Image.new("RGB", (320, 240), judge.BACKDROP)
-            # Text-like pixels, and the ball (16x15 of its own colour).
-            for x in range(20, 120, 4):
-                for y in range(20, 30):
-                    image.putpixel((x, y), judge.TEXT)
-            for x in range(ball_x, ball_x + 16):
-                for y in range(100, 115):
-                    image.putpixel((x, y), judge.BALL)
-            if name == "paused":
-                for x in range(200, 230):
-                    for y in range(180, 210):
-                        image.putpixel((x, y), judge.PAUSED)
-            image.save(self.dir / f"{name}.png")
-            self.shots[name] = self.dir / f"{name}.png"
+            self.write(name, self.picture(ball_x, paused=name == "paused"))
+
+    def picture(self, ball_x: int, paused: bool = False,
+                clip_ball: int = 0) -> list[tuple[int, int, int]]:
+        """A console-like frame: the backdrop, text, the ball (16x15 at
+        `ball_x`), and the pause overlay. `clip_ball` drops that many of the
+        ball's top rows (the OAMADDR quirk)."""
+        width, height = self.SIZE
+        pixels = [judge.BACKDROP] * (width * height)
+        for x in range(20, 120, 4):
+            for y in range(20, 30):
+                pixels[y * width + x] = judge.TEXT
+        for x in range(ball_x, ball_x + 16):
+            for y in range(100 + clip_ball, 115):
+                pixels[y * width + x] = judge.BALL
+        if paused:
+            for x in range(200, 230):
+                for y in range(180, 210):
+                    pixels[y * width + x] = judge.PAUSED
+        return pixels
+
+    def write(self, name: str, pixels: list[tuple[int, int, int]]) -> None:
+        path = self.dir / f"{name}.png"
+        path.write_bytes(png(*self.SIZE, pixels))
+        self.shots[name] = path
 
     def tearDown(self):
         for path in self.dir.glob("*.png"):
@@ -139,28 +171,18 @@ class Shots(unittest.TestCase):
     def test_a_still_ball_fails(self):
         # `moved` with the ball where `playing` has it: the D-pad never
         # reached the game.
-        import shutil
-
-        shutil.copyfile(self.shots["playing"], self.shots["moved"])
+        self.write("moved", self.picture(120))
         failures = judge.judge_shots(self.shots)
         self.assertTrue(any("did not move" in f for f in failures), failures)
 
     def test_a_half_drawn_ball_fails(self):
         # The OAMADDR quirk: only the ball's bottom half is drawn.
-        from PIL import Image
-
-        image = Image.open(self.shots["playing"])
-        for x in range(120, 136):
-            for y in range(100, 108):
-                image.putpixel((x, y), judge.BACKDROP)
-        image.save(self.shots["playing"])
+        self.write("playing", self.picture(120, clip_ball=8))
         failures = judge.judge_shots(self.shots)
         self.assertTrue(any("16x15" in f for f in failures), failures)
 
     def test_a_missing_overlay_fails(self):
-        import shutil
-
-        shutil.copyfile(self.shots["playing"], self.shots["paused"])
+        self.write("paused", self.picture(120))
         failures = judge.judge_shots(self.shots)
         self.assertTrue(any("pause overlay" in f for f in failures), failures)
 
