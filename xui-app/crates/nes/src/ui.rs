@@ -3,9 +3,9 @@
 
 use std::path::{Path, PathBuf};
 
-use xui_core::arrange::{IntoEntry, 
-    button, column, label, menu_bar, panel, separator, status_bar, Build, Entry, Handle, Layout,
-    LayoutExt,
+use xui_core::arrange::{
+    button, column, label, menu_bar, panel, separator, status_bar, Build, Entry, Handle, IntoEntry,
+    Layout, LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::widget::{Menu, MenuId, Panel, StatusBar};
@@ -45,7 +45,9 @@ pub fn window(widgets: &Widgets, screen: Build<Screen, Msg>) -> Layout<Msg> {
             .plain()
             .bind(&widgets.welcome)
             .fill(1),
-        status_bar(&["NES", ""]).bind(&widgets.status).fixed(STATUS_HEIGHT),
+        status_bar(&["NES", ""])
+            .bind(&widgets.status)
+            .fixed(STATUS_HEIGHT),
     ))
 }
 
@@ -93,19 +95,17 @@ fn menus() -> Build<Menu<Msg>, Msg> {
             m.check(Command::ShowFps.id(), "Show &FPS", false);
         });
         bar.submenu(AUDIO_MENU, "&Audio", |m| {
-            m.check(Command::Mute.id(), "&Mute", false).icon(Lucide::Volume2);
+            m.check(Command::Mute.id(), "&Mute", false)
+                .icon(Lucide::Volume2);
         });
         bar.submenu(HELP_MENU, "&Help", |m| {
             m.item(Command::Controls.id(), "&Controls...")
                 .icon(Lucide::Info);
-            m.item(Command::About.id(), "&About NES")
-                .icon(Lucide::Info);
+            m.item(Command::About.id(), "&About NES").icon(Lucide::Info);
         });
     })
     .on_select_with(|id| Command::from_id(id).map(Msg::Command))
-    .on_toggle(|id, on| {
-        Command::from_id(id).map_or(Msg::Noop, |command| Msg::Toggled(command, on))
-    })
+    .on_toggle(|id, on| Command::from_id(id).map_or(Msg::Noop, |command| Msg::Toggled(command, on)))
 }
 
 /// The welcome screen: what to do, the sample ROM, and the ROMs played last.

@@ -176,7 +176,10 @@ fn the_battery_save_round_trips() {
     run(&mut session, 30);
     let sram = session.sram().to_vec();
     assert!(sram.iter().any(|byte| *byte != 0), "the ROM wrote PRG RAM");
-    let path = session.save_battery().expect("saved").expect("a battery path");
+    let path = session
+        .save_battery()
+        .expect("saved")
+        .expect("a battery path");
     assert!(path.exists());
     drop(session);
 

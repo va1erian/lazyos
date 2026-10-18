@@ -1,4 +1,4 @@
-# NES: a core LazyOS app, packaged by `tools/xui/build.py`
+# NES Player: a core LazyOS app, packaged by `tools/xui/build.py`
 # (scaffolded by `tools/xui/new_app.py`).
 #
 # `bin/nes.elf` is not checked in: the build copies the built xui app
@@ -21,7 +21,22 @@ args = ["--client"]
 abi = "linux"
 autostart = false
 
+# `mimed` maps the `.nes` extension (a manifest cannot name it); the app is
+# launched with the cartridge's path as its argument.
+[[mime]]
+type = "application/x-nes-rom"
+verbs = ["open"]
+
 [permissions]
-# The display and input every window needs. Derive the rest from a run under
-# `LAZYOS_LABEL_TRACE=1` (AGENTS.md) once the app does more.
-interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+# The display, pointer shape and keyboard every window needs, the mixer
+# (`os.lazy.audio.v1`: the app plays through `audiod`), and the clipboard,
+# which carries the `text/uri-list` of a cartridge dropped on the window.
+# Derived from a run under `LAZYOS_LABEL_TRACE=1` (docs/packages.md, core
+# packages; docs/nes-player.md).
+interfaces = [
+    "os.lazy.audio.v1",
+    "os.lazy.clipboard.v1",
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+]

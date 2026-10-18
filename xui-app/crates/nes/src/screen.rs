@@ -19,9 +19,7 @@ use xui_core::geometry::Size;
 use xui_core::image::Image;
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_core::{
-    Canvas, Color, Dip, Rect, TextStyle,
-};
+use xui_core::{Canvas, Color, Dip, Rect, TextStyle};
 
 use crate::app::Msg;
 use crate::audio;
@@ -60,8 +58,11 @@ impl Placeable<Msg> for Screen {
 impl Screen {
     /// Builds the control and starts its clock.
     pub fn new(ui: &Ui<Msg>, host: Rc<RefCell<dyn Host>>, session: Session) -> Screen {
-        let control = Control::new(ui, &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop())
-            .expect("the NES screen control");
+        let control = Control::new(
+            ui,
+            &NodeSpec::new(NodeKind::Custom, Rect::default()).tab_stop(),
+        )
+        .expect("the NES screen control");
         let state = Rc::new(RefCell::new(State::new(host, session)));
         {
             let state = Rc::clone(&state);
@@ -83,9 +84,8 @@ impl Screen {
         {
             let (state, ui, id) = (Rc::clone(&state), ui.clone(), control.id());
             control.set_timer(TICK_MS, move || {
-                let bounds = ui.bounds(id);
                 let mut state = state.try_borrow_mut().ok()?;
-                let changed = state.tick(bounds);
+                let changed = state.tick();
                 let reports = state.take_reports();
                 drop(state);
                 for report in reports {
@@ -136,6 +136,8 @@ pub struct State {
     frames_since_save: u64,
     reported_running: bool,
     reports: Vec<Report>,
+    /// The frame's samples as `S16Le`, reused every frame.
+    samples: Vec<i16>,
     /// The error the console last reported, drawn over the picture.
     failure: Option<String>,
 }
@@ -159,6 +161,7 @@ impl State {
             frames_since_save: 0,
             reported_running: false,
             reports: Vec::new(),
+            samples: Vec::new(),
             failure: None,
         }
     }
@@ -280,7 +283,7 @@ impl State {
 
     /// One timer tick: clock what is due and scale the picture. Public so a
     /// test can drive the console without waiting on the control's timer.
-    pub fn tick(&mut self, bounds: Rect) -> bool {
+    pub fn tick(&mut self) -> bool {
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last.unwrap_or(now));
         self.last = Some(now);
@@ -301,17 +304,20 @@ impl State {
         if due == 0 {
             return false;
         }
-        let mut samples = Vec::new();
         for _ in 0..due {
             if let Err(error) = self.session.clock() {
                 self.failure = Some(error.to_string());
                 self.session.set_paused(true);
                 return true;
             }
-            samples.clear();
-            audio::to_i16(self.session.samples(), audio::OUTPUT_GAIN, &mut samples);
+            self.samples.clear();
+            audio::to_i16(
+                self.session.samples(),
+                audio::OUTPUT_GAIN,
+                &mut self.samples,
+            );
             let host = Rc::clone(&self.host);
-            host.borrow_mut().write_audio(&samples);
+            host.borrow_mut().write_audio(&self.samples);
         }
         self.frames_since_reading += due as u64;
         self.frames_since_save += due as u64;
@@ -321,12 +327,13 @@ impl State {
                 frames: self.session.frames(),
             });
         }
-        if self.frames_since_save >= BATTERY_SAVE_FRAMES && self.session.info().is_some_and(|info| info.battery) {
+        if self.frames_since_save >= BATTERY_SAVE_FRAMES
+            && self.session.info().is_some_and(|info| info.battery)
+        {
             self.frames_since_save = 0;
             self.save_battery();
         }
         self.picture_dirty = true;
-        let _ = bounds;
         true
     }
 
@@ -348,9 +355,7 @@ impl State {
                 }
                 None
             }
-            Event::KeyUp {
-                key, modifiers, ..
-            } => {
+            Event::KeyUp { key, modifiers, .. } => {
                 if let Some(action) = input::action(*key, *modifiers) {
                     self.pad.key(action, false);
                 }
@@ -394,7 +399,12 @@ impl State {
             let style = TextStyle::new(Color::hex(0x9C_DC_60), Dip(12.0));
             canvas.draw_text(
                 &format!("{} fps", self.fps()),
-                Rect::new(bounds.right - 70, bounds.top + 4, bounds.right - 4, bounds.top + 20),
+                Rect::new(
+                    bounds.right - 70,
+                    bounds.top + 4,
+                    bounds.right - 4,
+                    bounds.top + 20,
+                ),
                 &style,
             );
         }
@@ -415,7 +425,14 @@ impl State {
     }
 
     /// A line of text centred in `bounds` (the overlays).
-    fn text_center(&self, canvas: &mut dyn Canvas, bounds: Rect, text: &str, size: f32, color: Color) {
+    fn text_center(
+        &self,
+        canvas: &mut dyn Canvas,
+        bounds: Rect,
+        text: &str,
+        size: f32,
+        color: Color,
+    ) {
         let style = TextStyle::new(color, Dip(size)).centered().middle();
         let top = bounds.top + (bounds.height() - 40).max(0) / 2;
         canvas.draw_text(

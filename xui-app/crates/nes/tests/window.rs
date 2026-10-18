@@ -129,14 +129,14 @@ impl Rig {
         let state = self.screen().state();
         let started = Instant::now();
         while state.borrow().session().frames() < frames {
-            let bounds = stage.ui().bounds(self.screen().control().id());
-            state.borrow_mut().tick(bounds);
+            state.borrow_mut().tick();
             assert!(
                 started.elapsed() < Duration::from_secs(60),
                 "the console never ran {frames} frames"
             );
             std::thread::sleep(Duration::from_millis(4));
         }
+        let _ = stage;
     }
 
     fn saw(&self, want: impl Fn(&Report) -> bool) -> bool {
@@ -261,11 +261,17 @@ fn the_welcome_screen_offers_a_rom_and_the_picture_plays_it() {
         // The console's own colours: the backdrop and the title text, which
         // the welcome screen does not have.
         assert!(
-            playing.pixels().chunks_exact(4).any(|pixel| pixel[..3] == [0x00, 0x23, 0x7B]),
+            playing
+                .pixels()
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] == [0x00, 0x23, 0x7B]),
             "the console's picture is in the window"
         );
         assert!(
-            playing.pixels().chunks_exact(4).any(|pixel| pixel[..3] == [0xFF, 0xFF, 0xFF]),
+            playing
+                .pixels()
+                .chunks_exact(4)
+                .any(|pixel| pixel[..3] == [0xFF, 0xFF, 0xFF]),
             "the sample ROM's text is drawn"
         );
         assert!(colors(&playing) > colors(&welcome) / 2);

@@ -27,7 +27,10 @@ pub const SAMPLE_RATE: f32 = 48_000.0;
 #[derive(Debug)]
 pub enum Error {
     /// A file could not be read or written.
-    Io { path: PathBuf, source: std::io::Error },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     /// The file is larger than [`MAX_ROM_BYTES`].
     TooLarge(u64),
     /// The file is not an iNES/NES 2.0 cartridge.
@@ -90,7 +93,8 @@ pub fn crc32(bytes: &[u8]) -> u32 {
 }
 
 /// The region name the evidence lines and the status bar use.
-pub fn region_name(region: NesRegion) -> &'static str {    match region {
+pub fn region_name(region: NesRegion) -> &'static str {
+    match region {
         NesRegion::Auto => "auto",
         NesRegion::Ntsc => "ntsc",
         NesRegion::Pal => "pal",
@@ -219,8 +223,7 @@ impl Session {
                 }
             }
         }
-        self.deck
-            .set_region(self.region.unwrap_or(info.region));
+        self.deck.set_region(self.region.unwrap_or(info.region));
         self.info = Some(info.clone());
         self.frames = 0;
         self.paused = false;
@@ -321,7 +324,11 @@ impl Session {
     /// `true` for a power cycle (zeroed RAM), `false` for the console's
     /// reset button.
     pub fn reset(&mut self, hard: bool) {
-        let kind = if hard { ResetKind::Hard } else { ResetKind::Soft };
+        let kind = if hard {
+            ResetKind::Hard
+        } else {
+            ResetKind::Soft
+        };
         self.deck.reset(kind);
         self.frames = 0;
         self.paused = false;

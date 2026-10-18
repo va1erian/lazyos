@@ -49,5 +49,5 @@ SCRIPTS = [
     ("xui_golf.json", "XUI app: LazyGolf", ("desktop",), "golf"),
     ("xui_video.json", "XUI app: Video Player", ("desktop",), "video"),
     ("xui_about.json", "XUI app: About LazyOS", ("desktop",), "about"),
-    ("xui_nes.json", "XUI app: NES", ("desktop",), "nes"),
+    ("xui_nes.json", "XUI app: NES (play the sample ROM, with sound)", ("desktop", "sound"), "term"),
 ]

@@ -39,6 +39,7 @@ samples/archiver-sample.7z | GPL-3.0-or-later | all | LazyOS original: made with
 samples/archiver-sample.zip | GPL-3.0-or-later | all | LazyOS original: made with 7-Zip for the Archiver's session (docs/xui-archiver.md)
 samples/lazyos-sample.pdf | GPL-3.0-or-later | all | LazyOS original: written by tools/pdf/make_sample.py for the PDF Viewer's session (docs/pdf-reader-plan.md)
 samples/lazyos-sample.avi | GPL-3.0-or-later | all | LazyOS original: drawn by tools/video/make_sample.py (Motion JPEG, 5 s) for the Video Player's session (docs/video-player-plan.md)
+samples/lazyos-sample.nes | GPL-3.0-or-later | all | LazyOS original: an NROM homebrew assembled by tools/nes/make_sample.py (tools/nes/sample_rom.py, tools/nes/nesasm.py) for the NES Player's welcome screen and session (docs/nes-player.md)
 samples/writer-sample.png | GPL-3.0-or-later | all | LazyOS original: LazyWriter's sample picture (#533, docs/xui-writer.md)
 
 wallpapers/Aurora.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py

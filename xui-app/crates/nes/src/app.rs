@@ -14,8 +14,8 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::{build, Handle, Mounted};
 use xui_core::backend::{Result, WidgetId};
 use xui_core::message::{Key, Modifiers};
-use xui_core::widget::{Dialog, FileDialog, Panel, StdFileSystem, StatusBar};
 use xui_core::units::Dip;
+use xui_core::widget::{Dialog, FileDialog, Panel, StatusBar, StdFileSystem};
 
 use crate::host::{Host, Report};
 use crate::paths;
@@ -29,86 +29,9 @@ use crate::video::{Aspect, Scale};
 /// (585x480 with the NES's own pixel shape) plus the chrome.
 pub const WINDOW: (i32, i32) = (620, 580);
 
-/// Every menu and shortcut command.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Command {
-    OpenRom,
-    CloseRom,
-    SaveState,
-    LoadState,
-    Pause,
-    Reset,
-    PowerCycle,
-    FastForward,
-    Slot1,
-    Slot2,
-    Slot3,
-    Slot4,
-    ScaleAuto,
-    Scale1,
-    Scale2,
-    Scale3,
-    AspectPixel,
-    AspectSquare,
-    Ntsc,
-    ShowFps,
-    Mute,
-    Controls,
-    About,
-    Quit,
-}
-
-/// The commands, in menu-id order.
-const COMMANDS: [Command; 24] = [
-    Command::OpenRom,
-    Command::CloseRom,
-    Command::SaveState,
-    Command::LoadState,
-    Command::Pause,
-    Command::Reset,
-    Command::PowerCycle,
-    Command::FastForward,
-    Command::Slot1,
-    Command::Slot2,
-    Command::Slot3,
-    Command::Slot4,
-    Command::ScaleAuto,
-    Command::Scale1,
-    Command::Scale2,
-    Command::Scale3,
-    Command::AspectPixel,
-    Command::AspectSquare,
-    Command::Ntsc,
-    Command::ShowFps,
-    Command::Mute,
-    Command::Controls,
-    Command::About,
-    Command::Quit,
-];
-
-impl Command {
-    /// The menu id of this command.
-    pub fn id(self) -> xui_core::widget::MenuId {
-        let index = COMMANDS.iter().position(|c| *c == self).unwrap_or(0);
-        xui_core::widget::MenuId::new(index + 1)
-    }
-
-    /// The command a menu id names.
-    pub fn from_id(id: xui_core::widget::MenuId) -> Option<Command> {
-        COMMANDS.iter().copied().find(|c| c.id() == id)
-    }
-
-    /// The slot a `Slot1`..`Slot4` command names.
-    fn slot(self) -> Option<usize> {
-        match self {
-            Command::Slot1 => Some(1),
-            Command::Slot2 => Some(2),
-            Command::Slot3 => Some(3),
-            Command::Slot4 => Some(4),
-            _ => None,
-        }
-    }
-}
+/// The commands the menus and shortcuts raise, re-exported so callers can name
+/// them through this module (they live in [`crate::commands`]).
+pub use crate::commands::{Command, COMMANDS};
 
 /// One application message.
 #[derive(Clone, Debug, PartialEq)]
@@ -197,7 +120,7 @@ impl NesApp {
         let settings = Settings::load(&self.host.borrow().app_dir());
         {
             let screen = self.screen.get();
-            let mut state = screen.state();
+            let state = screen.state();
             let mut state = state.borrow_mut();
             state.set_scale(settings.scale);
             state.set_aspect(settings.aspect);
@@ -263,7 +186,11 @@ impl NesApp {
         let screen = self.screen.get();
         let loaded = screen.state().borrow_mut().load_rom(path);
         let state = screen.state();
-        let title = state.borrow().session().info().map(|info| info.name.clone());
+        let title = state
+            .borrow()
+            .session()
+            .info()
+            .map(|info| info.name.clone());
         if loaded {
             self.show_picture(ui, &format!("NES — {}", title.unwrap_or_default()));
         }
@@ -331,7 +258,7 @@ impl NesApp {
                 screen.state().borrow_mut().set_aspect(aspect);
             }
             Command::Ntsc => {
-                let mut state = screen.state();
+                let state = screen.state();
                 let on = !state.borrow().session().ntsc();
                 state.borrow_mut().session_mut().set_ntsc(on);
             }
@@ -370,7 +297,13 @@ impl NesApp {
     /// A check or radio item.
     fn toggled(&self, ui: &mut Ui<Msg>, command: Command, on: bool) {
         match command {
-            Command::Pause => self.screen.get().state().borrow_mut().session_mut().set_paused(on),
+            Command::Pause => self
+                .screen
+                .get()
+                .state()
+                .borrow_mut()
+                .session_mut()
+                .set_paused(on),
             Command::FastForward => self.screen.get().state().borrow_mut().set_fast_forward(on),
             Command::ShowFps => self.screen.get().state().borrow_mut().set_show_fps(on),
             Command::Mute => {
@@ -435,7 +368,11 @@ impl NesApp {
             .info()
             .map(|info| info.summary())
             .unwrap_or_else(|| "No cartridge".to_string());
-        let playing = if session.paused() { "Paused" } else { "Playing" };
+        let playing = if session.paused() {
+            "Paused"
+        } else {
+            "Playing"
+        };
         let sound = {
             let mut host = self.host.borrow_mut();
             if host.muted() {
@@ -448,7 +385,11 @@ impl NesApp {
         };
         let slot = format!("Slot {}", session.slot());
         let speed = if session.fast_forward() { "2x" } else { "1x" };
-        let fps = if fps > 0 { format!("{fps} fps") } else { String::new() };
+        let fps = if fps > 0 {
+            format!("{fps} fps")
+        } else {
+            String::new()
+        };
         drop(state);
         self.widgets
             .status
@@ -467,7 +408,10 @@ impl NesApp {
         menu.set_checked(Command::Scale1.id(), state.scale() == Scale::Fixed(1));
         menu.set_checked(Command::Scale2.id(), state.scale() == Scale::Fixed(2));
         menu.set_checked(Command::Scale3.id(), state.scale() == Scale::Fixed(3));
-        menu.set_checked(Command::AspectPixel.id(), state.aspect() == Aspect::Pixel8x7);
+        menu.set_checked(
+            Command::AspectPixel.id(),
+            state.aspect() == Aspect::Pixel8x7,
+        );
         menu.set_checked(Command::AspectSquare.id(), state.aspect() == Aspect::Square);
         for slot in 1..=crate::session::MAX_SLOTS {
             if let Some(command) = [

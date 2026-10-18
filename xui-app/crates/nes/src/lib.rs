@@ -10,6 +10,7 @@
 
 pub mod app;
 pub mod audio;
+pub mod commands;
 pub mod host;
 pub mod input;
 pub mod pacer;
@@ -20,6 +21,7 @@ pub mod settings;
 pub mod ui;
 pub mod video;
 
-pub use app::{Command, Msg, NesApp, WINDOW};
+pub use app::{Msg, NesApp, WINDOW};
+pub use commands::Command;
 pub use host::{Host, Report};
 pub use session::{RomInfo, Session};

@@ -153,10 +153,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/removable",
         Art::Lucide(Lucide::Save, Tone::Amber),
     ),
-    // NES: scaffolded with a placeholder; pick its art.
+    // NES: a play triangle on a clay tile, the games family's colour (Doom's
+    // zap is the other one).
     (
         "xui-app/packages/nes",
-        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+        Art::Lucide(Lucide::Play, Tone::Clay),
     ),
 ];
 

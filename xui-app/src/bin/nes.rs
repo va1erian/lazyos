@@ -33,7 +33,7 @@ const RATE_HZ: u32 = 48_000;
 /// Frames a `--headless` run clocks when no `--frames` is given.
 const HEADLESS_FRAMES: u64 = 600;
 /// Where a headless run leaves its result, for a harness that reads files.
-const RESULT_FILE: &str = "/tmp/nes-result.txt";
+const RESULT_FILE: &str = "nes-result.txt";
 
 /// The LazyOS side of the app.
 struct Platform {
@@ -112,7 +112,11 @@ impl Host for Platform {
 
     fn audio_free(&mut self) -> Option<usize> {
         let stream = self.stream.as_mut()?;
-        stream.stream.free_frames().ok().map(|frames| frames as usize)
+        stream
+            .stream
+            .free_frames()
+            .ok()
+            .map(|frames| frames as usize)
     }
 
     fn audio_rate(&self) -> u32 {
@@ -222,7 +226,10 @@ fn headless(args: &[String]) -> i32 {
         match arg.as_str() {
             "--headless" => {}
             "--frames" => {
-                frames = rest.next().and_then(|value| value.parse().ok()).unwrap_or(frames);
+                frames = rest
+                    .next()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(frames);
             }
             other => rom = Some(PathBuf::from(other)),
         }
@@ -263,6 +270,9 @@ fn headless(args: &[String]) -> i32 {
     let crc = xui_nes::session::crc32(session.frame());
     let line = format!("NES:HEADLESS:PASS frames={frames} crc={crc:08x}");
     trace::pass!(Channel::Nes, "HEADLESS", "frames={frames} crc={crc:08x}");
-    let _ = std::fs::write(RESULT_FILE, format!("{line}\n"));
+    let _ = std::fs::write(
+        std::path::Path::new(fhs::mount::TMP).join(RESULT_FILE),
+        format!("{line}\n"),
+    );
     0
 }

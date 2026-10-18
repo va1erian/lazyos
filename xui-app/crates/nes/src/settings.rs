@@ -69,7 +69,13 @@ impl Settings {
                         _ => Scale::Auto,
                     }
                 }
-                "aspect" => settings.aspect = if value == "square" { Aspect::Square } else { Aspect::Pixel8x7 },
+                "aspect" => {
+                    settings.aspect = if value == "square" {
+                        Aspect::Square
+                    } else {
+                        Aspect::Pixel8x7
+                    }
+                }
                 "ntsc" => settings.ntsc = value == "1",
                 "fps" => settings.show_fps = value == "1",
                 "slot" => {

@@ -44,9 +44,7 @@ fn main() {
     let frame = session.frame().to_vec();
     let mut histogram: std::collections::HashMap<(u8, u8, u8), usize> = Default::default();
     for pixel in frame.chunks_exact(4) {
-        *histogram
-            .entry((pixel[0], pixel[1], pixel[2]))
-            .or_default() += 1;
+        *histogram.entry((pixel[0], pixel[1], pixel[2])).or_default() += 1;
     }
     let mut colors: Vec<_> = histogram.into_iter().collect();
     colors.sort_by_key(|(_, count)| std::cmp::Reverse(*count));

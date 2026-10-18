@@ -174,7 +174,10 @@ mod tests {
             action(Key::RETURN, Modifiers::NONE),
             Some(Action::Button(JoypadBtn::Start))
         );
-        assert_eq!(action(Key::SPACE, Modifiers::NONE), Some(Action::FastForward));
+        assert_eq!(
+            action(Key::SPACE, Modifiers::NONE),
+            Some(Action::FastForward)
+        );
         assert_eq!(action(Key::F1, Modifiers::NONE), None);
         assert_eq!(action(Key::O, Modifiers::NONE), None);
     }
