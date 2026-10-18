@@ -128,6 +128,7 @@ pub fn begin_call_owned(
             served: false,
             state: TxnState::Pending,
             reply: Vec::new(),
+            charge: None,
         });
         let endpoint = &mut channel.endpoints[peer];
         endpoint.inbox.push_back(queued);
@@ -232,19 +233,37 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     if parcel.object_count() != 0 {
         return Err(Error::UnsupportedTransfer);
     }
-    let caller = {
+    let (caller, refusal) = {
         let mut channels = CHANNELS.lock();
         let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
         if channel.txns[index].state != TxnState::Pending {
             channel.drops += 1;
             return Err(Error::NoTransaction);
         }
-        channel.txns[index].state = TxnState::Replied;
-        channel.txns[index].reply = parcel_bytes;
-        channel.replies += 1;
         let caller = channel.txns[index].caller;
-        release_pending(channel, caller);
-        caller
+        // The reply sits in the kernel heap until its caller collects it, so
+        // it is charged to the caller's user (audit H9): a caller that never
+        // collects can hold only its quota of them. One over the quota ends
+        // the call instead (the caller is told it timed out) and the replier
+        // is told why.
+        let uid = credentials::of(caller).uid;
+        let bytes = parcel_bytes.len() as u64;
+        let refusal = match quota::charge(uid, Resource::QueueBytes, bytes) {
+            Ok(()) => {
+                channel.txns[index].state = TxnState::Replied;
+                channel.txns[index].reply = parcel_bytes;
+                channel.txns[index].charge = Some((uid, bytes));
+                channel.replies += 1;
+                release_pending(channel, caller);
+                None
+            }
+            Err(_) => {
+                channel.drops += 1;
+                time_out(channel, index, false);
+                Some(Error::QuotaExceeded)
+            }
+        };
+        (caller, refusal)
     };
     // The completion queue learns of the end beside the wake: a loop that
     // parked in `wait` with `WAIT_CALLS` instead of `await_reply` resumes
@@ -253,7 +272,10 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     // Only the caller waits for this outcome (in `await_reply`, or still
     // parked by `begin_call`); it runs as soon as the replier parks (P6.2).
     hand_off_to(wake([caller]));
-    Ok(())
+    match refusal {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// Cancel a pending transaction. Only its caller may cancel; the wait in

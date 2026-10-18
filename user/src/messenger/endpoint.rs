@@ -25,6 +25,11 @@ use super::{errno, op};
 /// could not take them (see [`Endpoint::recv_into`]), since it started.
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
+/// The budget of the line that says messages were dropped: two per ten
+/// seconds, so a flood of oversized requests is visible without being a flood
+/// of its own.
+static DROP_LOG: tracefmt::Budget = tracefmt::Budget::new(2, 1000);
+
 /// How many received messages were dropped unread so far: too large for the
 /// receive buffer, or with objects the table had no room for. A service that
 /// wants to report a flood reads this; its loop needs no handling of its own.
@@ -224,7 +229,14 @@ impl Endpoint {
         loop {
             match self.recv_once(buf, deadline) {
                 Err(Error::Errno(code)) if code == -errno::EMSGSIZE => {
-                    DROPPED.fetch_add(1, Ordering::Relaxed);
+                    let total = DROPPED.fetch_add(1, Ordering::Relaxed) + 1;
+                    if crate::trace::within(&DROP_LOG, crate::trace::Channel::Msg) {
+                        crate::trace::line!(
+                            crate::trace::Channel::Msg,
+                            "DROPPED handle={} total={total}",
+                            self.handle
+                        );
+                    }
                 }
                 other => return other,
             }

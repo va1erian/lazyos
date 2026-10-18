@@ -7,7 +7,7 @@ use messenger_generated::os_lazy_messenger_topics_v1 as wire;
 use crate::sys;
 
 use super::error::{error_code, EINVAL, ENOENT, EPIPE};
-use super::registry::{close, resolve};
+use super::registry::{release, resolve};
 
 /// The topics-broker well-known name.
 pub const TOPICS_NAME: &str = "os.lazy.messenger.topics";
@@ -107,9 +107,13 @@ impl Broker {
                 // A handle that names a dead endpoint (or no longer exists)
                 // cannot recover; release the table slot and resolve fresh on
                 // the next refresh. Transient failures (a timeout) keep it.
+                // `EPIPE` also answers a request the broker's receive dropped
+                // (too large for its buffer) while the broker is alive: a
+                // `release` frees only this alias, where a `close` would end
+                // the broker's side for every client.
                 if code == -ENOENT || code == -EPIPE {
                     self.endpoint = None;
-                    let _ = close(endpoint);
+                    let _ = release(endpoint);
                 }
                 Err(code)
             }

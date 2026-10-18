@@ -9,7 +9,13 @@ use super::*;
 pub fn forget_task(slot: usize) {
     let mut channels = CHANNELS.lock();
     for channel in channels.iter_mut() {
-        channel.txns.retain(|txn| txn.caller != slot);
+        channel.txns.retain(|txn| {
+            let keep = txn.caller != slot;
+            if !keep {
+                release_reply_charge(txn);
+            }
+            keep
+        });
         channel.senders.retain(|meter| meter.slot != slot);
         // A task that died parked in `recv` never unregistered itself; the
         // slot may be reused, so drop the stale entry.
@@ -153,7 +159,9 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
             }
         }
         if remove {
-            channels.remove(channel_id);
+            if let Some(gone) = channels.remove(channel_id) {
+                gone.txns.iter().for_each(release_reply_charge);
+            }
         }
     }
     wake(woken);

@@ -103,6 +103,8 @@ pub fn uncollected_outcomes_count() -> Result<(), String> {
     let request = parcel(1, flags::SYNC, "ping")?;
     let answer = parcel(1, 0, "pong")?;
     let mut held = Vec::new();
+    let charged = || crate::quota::usage(0, crate::quota::Resource::QueueBytes);
+    let before = charged();
     for round in 0..channels::MAX_PENDING_PER_SENDER {
         let txn = channels::begin_call(client, 1, &request, None).map_err(reason)?;
         let message = channels::recv(server, None).map_err(reason)?;
@@ -115,7 +117,20 @@ pub fn uncollected_outcomes_count() -> Result<(), String> {
         "a caller with {} uncollected replies made another call",
         held.len()
     );
+    // The replies waiting in the kernel heap are charged to their caller's
+    // queue quota until collected.
+    check!(
+        charged() == before + held.len() as u64 * answer.len() as u64,
+        "{} bytes charged for {} uncollected replies of {} bytes",
+        charged() - before,
+        held.len(),
+        answer.len()
+    );
     channels::await_reply(held.remove(0)).map_err(reason)?;
+    check!(
+        charged() == before + held.len() as u64 * answer.len() as u64,
+        "collecting a reply did not give its bytes back"
+    );
     let txn = channels::begin_call(client, 1, &request, None).map_err(reason)?;
     channels::cancel(txn).map_err(reason)?;
     held.push(txn);
@@ -124,6 +139,61 @@ pub fn uncollected_outcomes_count() -> Result<(), String> {
     }
     channels::reset();
     tables_empty("after collecting")?;
+    check!(
+        charged() == before,
+        "reply bytes still charged: {}",
+        charged() - before
+    );
+    fresh()
+}
+
+/// A task that exits holding the only handle of a pair whose other end sits
+/// in the pair's own inbox: its teardown (the closes `ipc::teardown_task`
+/// makes) leaves no channel behind. 100 children.
+pub fn reclaim_on_task_teardown() -> Result<(), String> {
+    fresh()?;
+    for round in 0..100u32 {
+        let child = task::spawn_fork().map_err(|error| format!("round {round}: {error}"))?;
+        handles::reset_for_task(child);
+        task::harness::switch_current(child);
+        let (a0, a1) = channels::create().map_err(reason)?;
+        send_end(a0, a1)?;
+        task::harness::switch_current(task::KERNEL_TASK);
+        for (handle, _) in handles::entries_for_task(child) {
+            let _ = channels::close_endpoint_for(child, handle, true);
+        }
+        channels::forget_task(child);
+        handles::reset_for_task(child);
+        check!(
+            channels::counts().channels == 0,
+            "round {round}: {} channels outlived their only holder",
+            channels::counts().channels
+        );
+        reap(child)?;
+    }
+    fresh()
+}
+
+/// Three channels carrying each other's ends in a ring (a 3-cycle), closed
+/// from the outside, leave nothing behind. 100 rounds.
+pub fn three_cycle_reclaimed() -> Result<(), String> {
+    fresh()?;
+    for round in 0..100u32 {
+        let (a0, a1) = channels::create().map_err(reason)?;
+        let (b0, b1) = channels::create().map_err(reason)?;
+        let (c0, c1) = channels::create().map_err(reason)?;
+        send_end(b0, a1)?;
+        send_end(c0, b1)?;
+        send_end(a0, c1)?;
+        for handle in [a0, b0, c0] {
+            channels::close_endpoint(handle).map_err(reason)?;
+        }
+        check!(
+            channels::counts().channels == 0,
+            "round {round}: {} channels left from a 3-cycle",
+            channels::counts().channels
+        );
+    }
     fresh()
 }
 

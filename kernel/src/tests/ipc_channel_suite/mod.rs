@@ -190,6 +190,16 @@ pub(super) const CASES: &[(&str, Test)] = &[
         dropped_message_releases_objects,
     ),
     ("ipc_channel_oversized_drop_soak", oversized_drop_soak),
+    ("ipc_channel_oversized_poll_dropped", oversized_poll_dropped),
+    (
+        "ipc_channel_undo_delivery_releases_everything",
+        undo_delivery_releases_everything,
+    ),
+    (
+        "ipc_channel_reclaim_on_task_teardown",
+        reclaim_on_task_teardown,
+    ),
+    ("ipc_channel_three_cycle_reclaimed", three_cycle_reclaimed),
     (
         "ipc_channel_self_moved_end_reclaimed",
         self_moved_end_reclaimed,

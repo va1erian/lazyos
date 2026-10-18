@@ -39,6 +39,13 @@ pub(super) fn meter(channel: &mut Channel, slot: usize) -> &mut SenderMeter {
     &mut channel.senders[last]
 }
 
+/// Give back the queue quota a transaction's uncollected reply held.
+pub(super) fn release_reply_charge(txn: &Transaction) {
+    if let Some((uid, bytes)) = txn.charge {
+        quota::release(uid, Resource::QueueBytes, bytes);
+    }
+}
+
 /// A pending transaction just left `Pending`: one fewer call is in flight.
 pub(super) fn release_pending(channel: &mut Channel, caller: usize) {
     if let Some(meter) = channel

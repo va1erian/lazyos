@@ -98,6 +98,7 @@ pub fn reset() {
                 release_queued_quota(message.origin.uid, message.bytes.len());
             }
         }
+        channel.txns.iter().for_each(release_reply_charge);
     }
     channels.clear();
     drop(channels);

@@ -173,3 +173,88 @@ pub fn oversized_drop_soak() -> Result<(), String> {
     check!(channels::counts().channels == 0, "a channel is left");
     fresh()
 }
+
+/// A poll (`POLL_DEADLINE`) whose request is too big is dropped like any
+/// call: its caller is failed, nothing stays served or queued, and the next
+/// poll is answered.
+pub fn oversized_poll_dropped() -> Result<(), String> {
+    fresh()?;
+    let (client, server) = channels::create().map_err(reason)?;
+    let big = parcel(7, flags::SYNC, &big_text())?;
+    let small = parcel(7, flags::SYNC, "fits")?;
+    let answer = parcel(8, 0, "ok")?;
+    for round in 0..200u32 {
+        let poll =
+            channels::begin_call(client, 7, &big, Some(channels::POLL_DEADLINE)).map_err(reason)?;
+        check!(
+            channels::recv_capped(server, None, BUFFER) == Err(ChannelError::Dropped),
+            "round {round}: an oversized poll was delivered"
+        );
+        check!(
+            channels::await_reply(poll) == Err(ChannelError::PeerDied),
+            "round {round}: the caller of a dropped poll was left waiting"
+        );
+        let txn = channels::begin_call(client, 7, &small, Some(channels::POLL_DEADLINE))
+            .map_err(reason)?;
+        let message = channels::recv_capped(server, None, BUFFER).map_err(reason)?;
+        check!(message.txn == Some(txn), "round {round}: wrong poll");
+        channels::reply(txn, &answer).map_err(reason)?;
+        check!(
+            channels::await_reply(txn).map_err(reason)? == answer,
+            "round {round}: the next poll was not answered"
+        );
+    }
+    tables_empty("after the polls")?;
+    fresh()
+}
+
+/// `undo_delivery` (the copy-out of a received message failed after the
+/// objects were installed): the installed handles close, the moved end's
+/// peer is told, the buffer reference goes, and the request's caller is
+/// failed. The syscall's own pre-check makes the real failure unreachable
+/// from a test, so the undo is driven directly. 200 rounds.
+pub fn undo_delivery_releases_everything() -> Result<(), String> {
+    fresh()?;
+    let buffer = shared::create(4096).map_err(buffer_reason)?;
+    let held = handles::count_for_task(task::current());
+    for round in 0..200u32 {
+        let (client, server) = channels::create().map_err(reason)?;
+        let (end, kept) = movable_end()?;
+        let call = parcel_with_objects(
+            1,
+            "call",
+            vec![Object::Channel(end), Object::Buffer(buffer)],
+        )?;
+        let txn = channels::begin_call(client, 1, &call, None).map_err(reason)?;
+        let message = channels::recv_capped(server, None, BUFFER).map_err(reason)?;
+        check!(
+            message.objects.len() == 2,
+            "round {round}: objects {:?}",
+            message.objects
+        );
+        channels::undo_delivery(message);
+        check!(
+            channels::await_reply(txn) == Err(ChannelError::PeerDied),
+            "round {round}: the caller of an undone delivery waits"
+        );
+        check!(
+            channels::try_recv(kept) == Err(ChannelError::PeerDied),
+            "round {round}: the moved end's peer was not told"
+        );
+        for handle in [client, server, kept] {
+            channels::close_endpoint(handle).map_err(reason)?;
+        }
+    }
+    check!(
+        shared::info(buffer).map_err(buffer_reason)?.refs == 1,
+        "the undone deliveries kept buffer references"
+    );
+    check!(
+        handles::count_for_task(task::current()) == held,
+        "{} handles leaked",
+        handles::count_for_task(task::current()) - held
+    );
+    shared::close(buffer).map_err(buffer_reason)?;
+    tables_empty("after the undone deliveries")?;
+    fresh()
+}

@@ -34,7 +34,7 @@ userspace never names another task's handles.
 |---|---|
 | `MAX_CHANNELS` | 64 |
 | `MAX_QUEUE_DEPTH` / `MAX_QUEUE_BYTES` per endpoint | 64 / 1 MiB |
-| `MAX_OUTSTANDING` per channel / `MAX_PENDING_PER_SENDER` | 64 / 16 (a sender's pending calls **and** its ended ones nobody has collected yet: a reply waits, up to a parcel long, until its caller awaits it) |
+| `MAX_OUTSTANDING` per channel / `MAX_PENDING_PER_SENDER` | 64 / 16 (a sender's pending calls **and** its ended ones nobody has collected yet: a reply waits, up to a parcel long, until its caller awaits it, and its bytes are charged to the caller's user queue quota meanwhile; a reply over that quota fails the call with a timeout and the replier with `QuotaExceeded`) |
 
 - One channel has two endpoints; an endpoint's `object_id` packs
   `(channel_id << 1) | side`. API: `create`, `send`, `begin_call`/`await_reply`/
