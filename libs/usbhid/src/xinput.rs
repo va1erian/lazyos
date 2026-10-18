@@ -109,6 +109,8 @@ impl Decoder {
     /// Decode `report`; `false` when it is not an input report or is
     /// shorter than the fields it needs, which changes nothing.
     pub fn feed(&mut self, report: &[u8], mut emit: impl FnMut(PadOut)) -> bool {
+        // The length byte (`report[1]`) is not trusted or checked, as Linux's
+        // xpad does not: the transfer's own length is what bounds the read.
         if report.len() < REPORT_LEN || report[0] != INPUT_REPORT {
             return false;
         }
