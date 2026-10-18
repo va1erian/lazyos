@@ -29,7 +29,7 @@
   {"wait_for": "NES:QUIT:PASS", "timeout": 60},
   {"at": 23.0, "type": "/apps/os.lazy.nes/*/bin/nes.elf --headless /system/share/samples/lazyos-sample.nes --frames 300"},
   {"at": 23.4, "key": "enter"},
-  {"wait_for": "NES:HEADLESS:PASS frames=300", "timeout": 120},
+  {"wait_for": "NES:HEADLESS:PASS:frames=300", "timeout": 120},
   {"at": 26.0, "shot": "04_headless"},
   {"at": 27.0, "quit": true}
 ]

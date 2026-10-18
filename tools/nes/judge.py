@@ -34,7 +34,7 @@ REQUIRED = [
     "NES:STATE:PASS:save=1:",
     "NES:STATE:PASS:load=1:",
     "NES:QUIT:PASS",
-    "NES:HEADLESS:PASS frames=300",
+    "NES:HEADLESS:PASS:frames=300",
 ]
 #: Markers that must never appear in a good run.
 FORBIDDEN = [
@@ -55,6 +55,13 @@ MIN_NOTES = 3
 #: The console's palette in the sample ROM: the backdrop and the text.
 BACKDROP = (0x00, 0x23, 0x7B)
 TEXT = (0xFF, 0xFF, 0xFF)
+#: The ball's sprite colour (palette 0 of the sprites, `$3F11`), and the shape
+#: it must have: 16x15 pixels, drawn by four sprites.
+BALL = (0xED, 0x98, 0x1F)
+BALL_ROWS = 14
+#: How far the ball must have moved between the two shots (the session holds
+#: the D-pad for three seconds).
+BALL_MOVE = 5
 #: The paused overlay's colour (`screen.rs`, `Color::hex(0xFF_D0_50)`).
 PAUSED = (0xFF, 0xD0, 0x50)
 
@@ -133,9 +140,25 @@ def _count(pixels: bytes, channels: int, color: tuple[int, int, int],
     return count
 
 
+def _box(pixels: bytes, channels: int, width: int, color: tuple[int, int, int]) -> tuple[int, int, int, int] | None:
+    """The bounding box `(left, top, right, bottom)` of `color`, or `None`."""
+    box = None
+    for at in range(0, len(pixels), channels):
+        if (pixels[at], pixels[at + 1], pixels[at + 2]) != color:
+            continue
+        index = at // channels
+        x, y = index % width, index // width
+        if box is None:
+            box = [x, y, x, y]
+        else:
+            box[0], box[1] = min(box[0], x), min(box[1], y)
+            box[2], box[3] = max(box[2], x), max(box[3], y)
+    return tuple(box) if box else None  # type: ignore[return-value]
+
+
 def judge_shots(shots: dict[str, Path]) -> list[str]:
-    """Failures in the screenshots: the console's picture, the ball moved, and
-    the pause overlay. All three named shots are required."""
+    """Failures in the screenshots: the console's picture, the ball whole and
+    moved, and the pause overlay. All three named shots are required."""
     failures = []
     frames: dict[str, tuple[int, int, bytes, int]] = {}
     for name in ("playing", "moved", "paused"):
@@ -155,11 +178,26 @@ def judge_shots(shots: dict[str, Path]) -> list[str]:
             failures.append(f"{name}: the console's backdrop is not there ({backdrop} pixels)")
         if text < 50:
             failures.append(f"{name}: the sample ROM's text is not there ({text} pixels)")
+        ball = _box(pixels, channels, width, BALL)
+        if ball is None:
+            failures.append(f"{name}: the ball is not there")
+        elif ball[3] - ball[1] + 1 < BALL_ROWS:
+            failures.append(
+                f"{name}: the ball is {ball[2] - ball[0] + 1}x{ball[3] - ball[1] + 1}, "
+                "not 16x15: its top sprites were eaten (leave OAMADDR at 0)"
+            )
     if "playing" in frames and "moved" in frames:
         _, _, before, _ = frames["playing"]
         _, _, after, _ = frames["moved"]
-        if before == after:
-            failures.append("the ball did not move between the first two shots")
+        first = _box(before, frames["playing"][3], frames["playing"][0], BALL)
+        second = _box(after, frames["moved"][3], frames["moved"][0], BALL)
+        if first is None or second is None:
+            pass  # the missing ball is already reported above
+        elif abs(second[0] - first[0]) < BALL_MOVE:
+            failures.append(
+                f"the ball did not move between the first two shots "
+                f"(x {first[0]} -> {second[0]})"
+            )
     if "paused" in frames:
         _, _, pixels, channels = frames["paused"]
         overlay = _count(pixels, channels, PAUSED, tolerance=24)

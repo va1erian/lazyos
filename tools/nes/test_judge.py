@@ -24,7 +24,7 @@ NES:RUN:PASS:frames=120
 NES:STATE:PASS:save=1:/home/user/.apps/os.lazy.nes/states/sample/slot-1.state
 NES:STATE:PASS:load=1:/home/user/.apps/os.lazy.nes/states/sample/slot-1.state
 NES:QUIT:PASS
-NES:HEADLESS:PASS frames=300 crc=1a2b3c4d
+NES:HEADLESS:PASS:frames=300 crc=1a2b3c4d
 """
 
 
@@ -112,20 +112,19 @@ class Shots(unittest.TestCase):
         self.dir = Path(__file__).resolve().parent / "target-test"
         self.dir.mkdir(exist_ok=True)
         self.shots = {}
-        for name, extra in [
-            ("playing", None),
-            ("moved", (237, 152, 31)),
-            ("paused", judge.PAUSED),
-        ]:
+        for name, ball_x in [("playing", 120), ("moved", 180), ("paused", 120)]:
             image = Image.new("RGB", (320, 240), judge.BACKDROP)
-            # Text-like pixels, and a block that differs between the shots.
+            # Text-like pixels, and the ball (16x15 of its own colour).
             for x in range(20, 120, 4):
                 for y in range(20, 30):
                     image.putpixel((x, y), judge.TEXT)
-            if extra is not None:
+            for x in range(ball_x, ball_x + 16):
+                for y in range(100, 115):
+                    image.putpixel((x, y), judge.BALL)
+            if name == "paused":
                 for x in range(200, 230):
                     for y in range(180, 210):
-                        image.putpixel((x, y), extra)
+                        image.putpixel((x, y), judge.PAUSED)
             image.save(self.dir / f"{name}.png")
             self.shots[name] = self.dir / f"{name}.png"
 
@@ -138,12 +137,25 @@ class Shots(unittest.TestCase):
         self.assertEqual(judge.judge_shots(self.shots), [])
 
     def test_a_still_ball_fails(self):
-        # `moved` identical to `playing`: the D-pad never reached the game.
+        # `moved` with the ball where `playing` has it: the D-pad never
+        # reached the game.
         import shutil
 
         shutil.copyfile(self.shots["playing"], self.shots["moved"])
         failures = judge.judge_shots(self.shots)
         self.assertTrue(any("did not move" in f for f in failures), failures)
+
+    def test_a_half_drawn_ball_fails(self):
+        # The OAMADDR quirk: only the ball's bottom half is drawn.
+        from PIL import Image
+
+        image = Image.open(self.shots["playing"])
+        for x in range(120, 136):
+            for y in range(100, 108):
+                image.putpixel((x, y), judge.BACKDROP)
+        image.save(self.shots["playing"])
+        failures = judge.judge_shots(self.shots)
+        self.assertTrue(any("16x15" in f for f in failures), failures)
 
     def test_a_missing_overlay_fails(self):
         import shutil

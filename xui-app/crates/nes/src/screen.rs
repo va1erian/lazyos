@@ -302,6 +302,12 @@ impl State {
             return false;
         }
         self.pad.tick();
+        // The pad's state goes to the console every frame: the NES reads its
+        // joypad from a shift register, so the level has to be there when the
+        // ROM strobes it.
+        for (button, down) in self.pad.buttons() {
+            self.session.press(button, down);
+        }
         self.session
             .set_fast_forward(self.fast_forward || self.pad.fast_forward());
         let free = self.host.borrow_mut().audio_free();

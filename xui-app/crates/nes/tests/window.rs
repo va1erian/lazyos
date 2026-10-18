@@ -13,7 +13,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
+use xui_core::backend::Event;
 use xui_core::image::Image;
+use xui_core::message::{Key, Modifiers};
 use xui_core::{Dip, Theme};
 use xui_nes::host::{Host, Report};
 use xui_nes::screen::Screen;
@@ -190,6 +192,22 @@ fn colors(image: &Image) -> usize {
     seen.len()
 }
 
+/// The ball's left edge in the console's current frame, or `-1` when the ball
+/// is not drawn.
+fn ball_x(state: Rc<RefCell<xui_nes::screen::State>>) -> i32 {
+    let mut state = state.borrow_mut();
+    let frame = state.session_mut().frame().to_vec();
+    frame
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .enumerate()
+        .filter(|(_, pixel)| pixel[..3] == [0xED, 0x98, 0x1F])
+        .map(|(at, _)| (at % 256) as i32)
+        .min()
+        .unwrap_or(-1)
+}
+
 #[test]
 fn the_welcome_screen_offers_a_rom_and_the_picture_plays_it() {
     watchdog(|| {
@@ -248,6 +266,38 @@ fn the_welcome_screen_offers_a_rom_and_the_picture_plays_it() {
             // frames; the frame buffer is derived state, not part of the
             // save.
             rig.run(stage, 140);
+
+            // The keyboard path: a key down must reach the console's joypad
+            // (the ROM stores what it reads at $10) and move the ball. This
+            // is the seam the pad-to-session wiring lives in, and the one the
+            // guest session checks with its screenshots.
+            let before = ball_x(rig.screen().state());
+            stage.inject(Event::KeyDown {
+                key: Key::RIGHT,
+                modifiers: Modifiers::NONE,
+                repeat: 1,
+                system: false,
+            });
+            rig.run(stage, 170);
+            let held = rig.screen().state().borrow().session().wram()[0x10];
+            assert_eq!(
+                held & 0x01,
+                0x01,
+                "Right reaches the ROM ($10 = {held:#04x})"
+            );
+            let after = ball_x(rig.screen().state());
+            assert!(
+                after >= before + 5,
+                "the ball moved right ({before} -> {after})"
+            );
+            stage.inject(Event::KeyUp {
+                key: Key::RIGHT,
+                modifiers: Modifiers::NONE,
+                system: false,
+            });
+            rig.run(stage, 180);
+            let released = rig.screen().state().borrow().session().wram()[0x10];
+            assert_eq!(released & 0x01, 0x00, "the release reaches the ROM");
 
             // Pause through the menu, as the user would; the window stays up
             // for the capture.
