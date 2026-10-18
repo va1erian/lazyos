@@ -54,7 +54,8 @@ const TURN_PRESSURE: usize = RING_CAP / 8;
 pub const MAX_CONSUMERS: usize = 4;
 
 /// Raw event kinds. `SYNC` is reserved; the pointer kinds are encoded as
-/// [`pointer`] describes (`docs/usb-hid-plan.md`, decision 2).
+/// [`pointer`] describes (`docs/usb-hid-plan.md`, decision 2) and the gamepad
+/// axis as [`axis`] (`docs/usb-gamepad-plan.md` G1).
 #[allow(dead_code)] // `SYNC` has no producer yet
 pub mod kind {
     pub const KEY: u8 = 1;
@@ -65,6 +66,12 @@ pub mod kind {
     pub const SYNC: u8 = 6;
     /// Consumer-side marker: `value` events were lost starting at `seq`.
     pub const DROPPED: u8 = 7;
+    /// One gamepad axis, addressed by its Generic Desktop usage.
+    pub const AXIS: u8 = 8;
+    /// One device-identifying record a driver publishes after registering
+    /// (`code` = vendor id, `value` = product and version): diagnostics, and
+    /// what a per-device mapping table will key on.
+    pub const DEVICE: u8 = 9;
 }
 
 /// Device ids. Assigned by the kernel driver, so a client can never forge one.
@@ -77,6 +84,9 @@ pub mod device {
 
 #[path = "bus_pointer.rs"]
 pub mod pointer;
+
+#[path = "bus_axis.rs"]
+pub mod axis;
 
 /// Key event values. The kernel never synthesises repeat (`docs/input-plan.md`).
 pub mod value {

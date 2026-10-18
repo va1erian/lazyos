@@ -8,6 +8,7 @@ use crate::input::bus::{self, kind, RawEvent, RING_CAP};
 use crate::input::hid::{Set1Decoder, Step};
 
 mod console;
+mod gamepad;
 mod hid_table;
 mod lost_release;
 mod pointer;
@@ -218,6 +219,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         source::table_bound_and_reclaim,
     ),
     ("input_source_rate_limited", source::rate_limited),
+    ("input_gamepad_class_and_ranges", gamepad::class_and_ranges),
+    (
+        "input_gamepad_device_record_from_every_class",
+        gamepad::device_record_is_accepted_from_every_class,
+    ),
+    (
+        "input_gamepad_close_releases_all_32_buttons",
+        gamepad::close_releases_all_32_buttons,
+    ),
+    (
+        "input_gamepad_axis_tail_merges_by_replacing",
+        gamepad::axis_tail_merges_by_replacing,
+    ),
     (
         "input_source_register_raises_driver",
         source_priority::register_raises_driver,

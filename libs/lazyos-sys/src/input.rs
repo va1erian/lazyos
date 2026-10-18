@@ -19,6 +19,8 @@ pub mod source_class {
     pub const POINTER: u8 = 2;
     /// `ABS_MOTION`, `BUTTON`, `SCROLL`.
     pub const TABLET: u8 = 3;
+    /// `AXIS`, `BUTTON` (usages 1..=32).
+    pub const GAMEPAD: u8 = 4;
 }
 
 /// Records one [`input_source_publish`] call may carry.
@@ -54,6 +56,11 @@ pub mod raw_kind {
     pub const BUTTON: u8 = 4;
     pub const SCROLL: u8 = 5;
     pub const DROPPED: u8 = 7;
+    /// A gamepad axis (`kernel/src/input/bus_axis.rs`): `code` is its Generic
+    /// Desktop usage, `value` the normalized value.
+    pub const AXIS: u8 = 8;
+    /// A device's identity: `code` = vendor id, `value` = product and version.
+    pub const DEVICE: u8 = 9;
 }
 
 /// One decoded raw event.

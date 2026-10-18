@@ -8,7 +8,7 @@ use alloc::collections::BTreeMap;
 
 use super::source::{call, driver_task, failed, publish, rec, register};
 use super::*;
-use crate::input::bus::pointer;
+use crate::input::bus::{axis, pointer};
 use crate::input::rawsys::op;
 use crate::input::sources::{self, class, Record, BURST, FIRST_DEVICE, MAX_BATCH, MAX_SOURCES};
 use crate::ipc::credentials::CAP_INPUT_SOURCE;
@@ -27,18 +27,27 @@ impl Rng {
     }
 }
 
-/// Held keys and buttons per device, rebuilt from what the bus carried.
+/// Held keys and buttons per device, rebuilt from what the bus carried, and
+/// the records the consumer ring dropped on the way (a `Dropped` marker's
+/// `value`).
 #[derive(Default)]
-struct Held(BTreeMap<(u8, u8, u16), ()>);
+struct Held {
+    held: BTreeMap<(u8, u8, u16), ()>,
+    dropped: u64,
+}
 
 impl Held {
     fn take(&mut self, record: &RawEvent) {
+        if record.kind == kind::DROPPED {
+            self.dropped += record.value as u64;
+            return;
+        }
         if matches!(record.kind, kind::KEY | kind::BUTTON) {
             let key = (record.device, record.kind, record.code);
             if record.value == 1 {
-                self.0.insert(key, ());
+                self.held.insert(key, ());
             } else {
-                self.0.remove(&key);
+                self.held.remove(&key);
             }
         }
     }
@@ -88,7 +97,12 @@ pub fn generations() -> Result<(), String> {
         let records = drain_all(reader, 64)?;
         expected = gapless(&records, expected)?.0;
         records.iter().for_each(|r| held.take(r));
-        check!(held.0.is_empty(), "cycle {cycle}: still held {:?}", held.0);
+        check!(
+            held.held.is_empty(),
+            "cycle {cycle}: still held {:?} (dropped {})",
+            held.held,
+            held.dropped
+        );
     }
     // Every slot is free again.
     task::harness::switch_current(drivers[0]);
@@ -107,11 +121,13 @@ fn record_for(rng: &mut Rng, source_class: u8) -> Record {
     match (source_class, rng.below(8)) {
         // Hostile: any kind, code and value at all.
         (_, 0) => rec(
-            rng.below(9) as u8,
+            rng.below(10) as u8,
             rng.below(300) as u16,
             rng.below(300) as i32 - 150,
         ),
         (class::KEYBOARD, _) => rec(kind::KEY, 0x04 + rng.below(0xE4) as u16, edge),
+        (class::GAMEPAD, 1 | 2 | 3) => axis_record(rng),
+        (class::GAMEPAD, 4) => rec(kind::BUTTON, 1 + rng.below(32) as u16, edge),
         (_, 1 | 2) => rec(kind::BUTTON, 1 + rng.below(5) as u16, edge),
         (_, 3) => rec(kind::SCROLL, rng.below(2) as u16, rng.below(7) as i32 - 3),
         (class::POINTER, _) => rec(
@@ -127,31 +143,76 @@ fn record_for(rng: &mut Rng, source_class: u8) -> Record {
     }
 }
 
+/// A gamepad axis record: a known usage, a value in range most of the time.
+fn axis_record(rng: &mut Rng) -> Record {
+    const USAGES: [u16; 9] = [
+        axis::usage::X,
+        axis::usage::Y,
+        axis::usage::Z,
+        axis::usage::RX,
+        axis::usage::RY,
+        axis::usage::RZ,
+        axis::usage::SLIDER,
+        axis::usage::DIAL,
+        axis::usage::HAT,
+    ];
+    let usage = USAGES[rng.below(9) as usize];
+    let value = if usage == axis::usage::HAT {
+        rng.below(10) as i32 - 1
+    } else {
+        rng.below(0x1_0002) as i32 - 0x8001
+    };
+    rec(kind::AXIS, usage, value)
+}
+
 /// Whether a record on the bus fits the class of the source that sent it.
 fn fits(source_class: u8, record: &RawEvent) -> bool {
     match record.kind {
         kind::KEY => source_class == class::KEYBOARD && (0x04..=0xE7).contains(&record.code),
-        kind::BUTTON | kind::SCROLL => source_class != class::KEYBOARD,
+        kind::BUTTON => {
+            source_class != class::KEYBOARD && {
+                let highest = if source_class == class::GAMEPAD {
+                    32
+                } else {
+                    5
+                };
+                (1..=highest).contains(&record.code)
+            }
+        }
+        kind::SCROLL => source_class != class::KEYBOARD,
         kind::REL_MOTION => source_class == class::POINTER,
         kind::ABS_MOTION => source_class == class::TABLET,
+        kind::AXIS => {
+            source_class == class::GAMEPAD
+                && (record.code == axis::usage::HAT
+                    || (axis::usage::X..=axis::usage::DIAL).contains(&record.code))
+                && if record.code == axis::usage::HAT {
+                    (0..=axis::HAT_CENTRED).contains(&record.value)
+                } else {
+                    (i32::from(i16::MIN)..=i32::from(i16::MAX)).contains(&record.value)
+                }
+        }
+        kind::DEVICE => true,
         _ => false,
     }
 }
 
-/// Six sources across three tasks publish a million records; each is closed
+/// Eight sources across three tasks publish a million records; each is closed
 /// and re-registered before its bucket runs dry, and the buckets are then
 /// refilled (re-registering alone no longer does that). Every record on the bus fits
 /// its source, the stream is gapless, and closing everything leaves nothing
 /// held.
 pub fn many_producers() -> Result<(), String> {
     const TOTAL: u64 = 1_000_000;
-    const CLASSES: [u8; 6] = [
+    const CLASSES: [u8; 8] = [
         class::KEYBOARD,
         class::POINTER,
         class::TABLET,
+        class::GAMEPAD,
         class::KEYBOARD,
         class::POINTER,
         class::TABLET,
+        class::GAMEPAD,
     ];
     sources::reset();
     bus::reset();
@@ -218,19 +279,30 @@ pub fn many_producers() -> Result<(), String> {
             held.take(record);
         }
     }
+    // Close one source at a time, draining in between: a real consumer reads
+    // the bus while it runs, and one close's release burst (up to 228 keys or
+    // 32 buttons) is well inside the ring.
     for &(owner, id, _) in &live {
         task::harness::switch_current(owner);
         check!(call(op::CLOSE_SOURCE, id, 0) == 0, "final close");
+        let records = drain_all(reader, 128)?;
+        expected = gapless(&records, expected)?.0;
+        records.iter().for_each(|r| held.take(r));
     }
-    let records = drain_all(reader, 128)?;
-    gapless(&records, expected)?;
-    records.iter().for_each(|r| held.take(r));
-    check!(
-        held.0.is_empty(),
-        "stuck after closing everything: {:?}",
-        held.0
-    );
     let (rejected, throttled) = sources::counters();
+    check!(
+        held.held.is_empty(),
+        "stuck after closing everything: {:?} (dropped {}, rejected {}, throttled {})",
+        held.held,
+        held.dropped,
+        rejected,
+        throttled
+    );
+    check!(
+        held.dropped == 0,
+        "the consumer ring dropped {} records",
+        held.dropped
+    );
     check!(
         rejected > 10_000,
         "hostile records were not exercised ({rejected})"

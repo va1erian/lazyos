@@ -145,7 +145,12 @@ pub fn priority_stress_generations() -> Result<(), String> {
                 "generation {generation}: a bad-class register raised the driver"
             );
         }
-        let source_class = [class::KEYBOARD, class::POINTER, class::TABLET][generation % 3];
+        let source_class = [
+            class::KEYBOARD,
+            class::POINTER,
+            class::TABLET,
+            class::GAMEPAD,
+        ][generation % 4];
         let id = register(source_class)?;
         check!(
             class_of(driver)? == PriorityClass::Interactive,

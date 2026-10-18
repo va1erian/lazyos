@@ -14,8 +14,11 @@
 //! * [`boot`] turns successive boot keyboard and mouse reports into key and
 //!   button edges (a report is a *state*; the bus carries *edges*).
 //! * [`report`] reads enough of a HID report descriptor to find a pointer's
-//!   X, Y, wheel and buttons (a tablet has no boot protocol), and reads them
-//!   out of its reports.
+//!   X, Y, wheel and buttons (a tablet has no boot protocol) or a gamepad's
+//!   axes, hat and buttons (`docs/usb-gamepad-plan.md`), and reads them out
+//!   of its reports.
+//! * [`xinput`] decodes the fixed report of an Xbox 360-style pad, whose
+//!   interface is vendor class and has no descriptor to read.
 //!
 //! Pure `no_std` logic with host tests; nothing touches a controller.
 
@@ -32,6 +35,7 @@ pub mod hub;
 pub mod report;
 #[cfg(test)]
 mod tests;
+pub mod xinput;
 
 /// Why a descriptor was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -19,7 +19,9 @@ use std::vec::Vec;
 
 use crate::boot::{parse_mouse, BootKeyboard, BootMouse, MouseOut, MOUSE_BUTTONS};
 use crate::desc::{parse_config, parse_device, Protocol};
+use crate::report::gamepad::{parse_gamepad, Decoder as PadDecoder, PadOut, AXES, AXIS_COUNT};
 use crate::report::{parse_pointer, Field, MAX_REPORT};
+use crate::xinput;
 
 /// Parse `data` both ways; panics on an inconsistent result.
 pub fn run_desc(data: &[u8]) {
@@ -102,6 +104,83 @@ fn check_field(field: &Field) {
         end as usize <= (MAX_REPORT - 1) * 8,
         "field past the report"
     );
+}
+
+/// Split `data` into a report descriptor and a report (as [`run_pointer_desc`]
+/// does), parse the descriptor as a gamepad, and check what the decoder makes
+/// of the report: known axis usages, values in range, one edge per real button
+/// change, and a release pass that only releases and centres. The same bytes
+/// are also fed to the X-input decoder, whose usages and ranges are checked.
+pub fn run_gamepad_desc(data: &[u8]) {
+    let Some((&len, rest)) = data.split_first() else {
+        return;
+    };
+    let split = rest.len().saturating_sub(usize::from(len % 70));
+    let (descriptor, report) = rest.split_at(split);
+    if let Ok(layout) = parse_gamepad(descriptor) {
+        for field in layout.axes.into_iter().flatten() {
+            check_field(&field);
+        }
+        for field in layout.buttons.into_iter().flatten() {
+            check_field(&field);
+        }
+        let expected = layout.read(report);
+        let mut decoder = PadDecoder::new(layout);
+        let mut seen_axes = [false; AXIS_COUNT];
+        let mut seen_buttons: u32 = 0;
+        decoder.feed(report, |out| match out {
+            PadOut::Axis { usage, value } => {
+                let slot = AXES.iter().position(|&axis| axis == usage);
+                let slot = slot.expect("axis usage outside the canonical set");
+                assert!(!seen_axes[slot], "an axis emitted twice in one report");
+                seen_axes[slot] = true;
+                assert!((-0x8000..=0x7FFF).contains(&value), "axis value {value}");
+            }
+            PadOut::Button { usage, pressed } => {
+                assert!((1..=32).contains(&usage), "button usage {usage}");
+                let bit = 1u32 << (usage - 1);
+                assert_eq!(seen_buttons & bit, 0, "a button emitted twice");
+                seen_buttons |= bit;
+                assert_eq!(
+                    pressed,
+                    expected
+                        .map(|read| read.buttons & bit != 0)
+                        .unwrap_or(false),
+                    "button edge without a change"
+                );
+            }
+        });
+        let mut released = Vec::new();
+        decoder.release_all(|out| released.push(out));
+        for out in &released {
+            match *out {
+                PadOut::Axis { usage, value } => {
+                    assert!(AXES.contains(&usage));
+                    assert_eq!(
+                        value,
+                        if usage == crate::report::usage::HAT {
+                            8
+                        } else {
+                            0
+                        }
+                    );
+                }
+                PadOut::Button { pressed, .. } => assert!(!pressed, "release_all pressed"),
+            }
+        }
+    }
+    // The X-input decoder reads any bytes as a fixed report.
+    let mut xinput = xinput::Decoder::new();
+    xinput.feed(data, |out| match out {
+        PadOut::Axis { usage, value } => {
+            assert!(AXES.contains(&usage));
+            assert!((-0x8000..=0x7FFF).contains(&value));
+        }
+        PadOut::Button { usage, pressed } => {
+            assert!((1..=32).contains(&usage));
+            let _ = pressed;
+        }
+    });
 }
 
 /// Run a report script: each record is a selector byte, a length byte and
@@ -219,20 +298,25 @@ mod seeded {
         replay("usbdesc", run_desc);
         replay("hidreport", run_report);
         replay("hidreportdesc", run_pointer_desc);
+        replay("hidreportdesc", run_gamepad_desc);
     }
 
-    /// Mutations of QEMU's tablet and mouse report descriptors.
+    /// Mutations of QEMU's tablet and mouse report descriptors, and of the
+    /// gamepad descriptors: mostly valid structure with a few hostile bytes.
     #[test]
     fn mutated_report_descriptors() {
-        let golden: [&[u8]; 2] = [
+        let golden: [&[u8]; 5] = [
             &crate::tests::golden::TABLET_REPORT,
             &crate::tests::golden::MOUSE_REPORT,
+            &crate::tests::golden::PAD_REPORT,
+            &crate::tests::golden::PAD_REPORT_4WAY,
+            &crate::tests::golden::PAD_REPORT_IDS,
         ];
         for_seeds(
             "usbhid::fuzz::mutated_report_descriptors",
             |_, rng: &mut Rng| {
                 let mut data = std::vec![rng.byte()];
-                data.extend_from_slice(golden[rng.below(2) as usize]);
+                data.extend_from_slice(golden[rng.below(5) as usize]);
                 for _ in 0..1 + rng.below(4) {
                     let at = 1 + rng.below(data.len() as u64 - 1) as usize;
                     data[at] = rng.byte();
@@ -241,6 +325,7 @@ mod seeded {
                     data.push(rng.byte());
                 }
                 run_pointer_desc(&data);
+                run_gamepad_desc(&data);
             },
         );
     }

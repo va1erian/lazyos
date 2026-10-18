@@ -7,6 +7,7 @@ use crate::boot::{parse_mouse, BootKeyboard, BootMouse, KeyEdge, MouseOut, Mouse
 use crate::desc::{config_total_len, parse_config, parse_device, Endpoint, Protocol};
 use crate::Error;
 
+mod gamepad;
 pub(crate) mod golden;
 mod hub;
 mod report;

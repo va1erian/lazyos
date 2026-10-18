@@ -12,7 +12,9 @@
 //! The kernel remembers which keys and buttons each source holds. Closing a
 //! source, or its task dying ([`teardown_task`]), publishes a release for
 //! each, so unplugging a device or crashing a driver cannot leave a key or a
-//! button stuck.
+//! button stuck. A gamepad's axes are state, not held edges: its driver
+//! returns them to rest itself when the device goes away
+//! (`docs/usb-gamepad-plan.md`).
 //!
 //! Ids: a source id is `generation << 8 | index`; the generation changes on
 //! every registration of the slot, so a stale id from a closed source fails
@@ -20,7 +22,7 @@
 
 use spin::Mutex;
 
-use super::bus::{self, kind, pointer, value};
+use super::bus::{self, axis, kind, pointer, value};
 use crate::task;
 
 /// Sources the table holds (one per device interface).
@@ -46,6 +48,8 @@ pub mod class {
     pub const POINTER: u8 = 2;
     /// An absolute pointer (tablet, touchscreen in single-touch mode).
     pub const TABLET: u8 = 3;
+    /// A gamepad: `AXIS` records (up to 32 buttons are still `BUTTON`s).
+    pub const GAMEPAD: u8 = 4;
 }
 
 /// Why a source operation failed; `rawsys` maps these to errnos.
@@ -97,8 +101,8 @@ struct Source {
     generation: u16,
     /// One bit per key usage 0..=255.
     keys: [u64; 4],
-    /// Bit `n` is button usage `n + 1`.
-    buttons: u8,
+    /// Bit `n` is button usage `n + 1` (a gamepad reports up to 32).
+    buttons: u32,
     tokens: u32,
     refilled_at: u64,
 }
@@ -152,7 +156,7 @@ pub fn device_of(index: usize) -> u8 {
 pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
     if !matches!(
         source_class,
-        class::KEYBOARD | class::POINTER | class::TABLET
+        class::KEYBOARD | class::POINTER | class::TABLET | class::GAMEPAD
     ) {
         return Err(Error::BadClass);
     }
@@ -274,7 +278,7 @@ fn release(table: &mut Table, index: usize) {
             bus::publish(device, kind::KEY, word as u16 * 64 + bit, value::RELEASE);
         }
     }
-    for bit in 0..8u16 {
+    for bit in 0..32u16 {
         if source.buttons & (1 << bit) != 0 {
             bus::publish(device, kind::BUTTON, bit + 1, value::RELEASE);
         }
@@ -289,12 +293,16 @@ fn permitted(source_class: u8, record: &Record) -> bool {
         (class::POINTER | class::TABLET, kind::BUTTON) => {
             (pointer::button::LEFT..=pointer::button::FORWARD).contains(&record.code) && edge
         }
+        (class::GAMEPAD, kind::BUTTON) => (1..=32).contains(&record.code) && edge,
+        (class::GAMEPAD, kind::AXIS) => axis::valid(record.code, record.value),
         (class::POINTER, kind::REL_MOTION) | (class::TABLET, kind::ABS_MOTION) => record.code == 0,
         (class::POINTER | class::TABLET, kind::SCROLL) => {
             record.code <= pointer::HORIZONTAL
                 && record.value != 0
                 && record.value.abs() <= MAX_SCROLL
         }
+        // A device's identity: any class may state it, it carries no input.
+        (_, kind::DEVICE) => true,
         _ => false,
     }
 }
@@ -312,7 +320,7 @@ fn track(source: &mut Source, record: &Record) {
             }
         }
         kind::BUTTON => {
-            let bit = 1u8 << (record.code - 1);
+            let bit = 1u32 << (record.code - 1);
             if pressed {
                 source.buttons |= bit;
             } else {
