@@ -50,7 +50,7 @@ pub(super) fn millis_deadline(millis: u64) -> u64 {
 /// an interrupted wait is best effort).
 pub(super) fn write_duration(out: u64, ns: u64, unit: u64) {
     let _ = user_ptr::try_write::<i64>(out, (ns / NS_PER_SEC) as i64);
-    let _ = user_ptr::try_write::<i64>(out + 8, ((ns % NS_PER_SEC) / unit) as i64);
+    let _ = user_ptr::try_write_field::<i64>(out, 8, ((ns % NS_PER_SEC) / unit) as i64);
 }
 
 /// `CLOCK_MONOTONIC_RAW`, `CLOCK_MONOTONIC_COARSE` and `CLOCK_BOOTTIME`: the
@@ -67,32 +67,43 @@ pub(super) fn sys_clock_gettime(clock: u64, out: u64) -> u64 {
     } else {
         crate::wallclock::now_ns()
     };
-    write_timespec(out, seconds as u64, u64::from(nanos));
-    0
-}
-
-fn write_timespec(out: u64, sec: u64, nsec: u64) {
-    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    unsafe {
-        user_ptr::write::<i64>(out, sec as i64);
-        user_ptr::write::<i64>(out + 8, nsec as i64);
+    match write_timespec(out, seconds as u64, u64::from(nanos)) {
+        Ok(()) => 0,
+        Err(_) => err(EFAULT),
     }
 }
 
+/// Write a `struct timespec` at `out`; a pointer whose two words do not fit
+/// in user memory (including one near `u64::MAX`) is a [`user_ptr::Fault`].
+fn write_timespec(out: u64, sec: u64, nsec: u64) -> Result<(), user_ptr::Fault> {
+    user_ptr::try_write::<i64>(out, sec as i64)?;
+    user_ptr::try_write_field::<i64>(out, 8, nsec as i64)
+}
+
 pub(super) fn sys_clock_getres(out: u64) -> u64 {
-    // 1 ns with a calibrated TSC, the 10 ms tick without one.
-    write_timespec(out, 0, crate::arch::clock::resolution_ns());
-    0
+    // A null `res` only asks whether the clock exists. 1 ns with a
+    // calibrated TSC, the 10 ms tick without one.
+    if out == 0 {
+        return 0;
+    }
+    match write_timespec(out, 0, crate::arch::clock::resolution_ns()) {
+        Ok(()) => 0,
+        Err(_) => err(EFAULT),
+    }
 }
 
 pub(super) fn sys_gettimeofday(tv: u64) -> u64 {
     let (seconds, nanos) = crate::wallclock::now_ns();
-    // Safety: user buffer holds a `struct timeval` (the syscall ABI's contract).
-    unsafe {
-        user_ptr::write::<i64>(tv, seconds);
-        user_ptr::write::<i64>(tv + 8, i64::from(nanos / 1000));
+    // A null `tv` is allowed (the time is simply not reported).
+    if tv == 0 {
+        return 0;
     }
-    0
+    let written = user_ptr::try_write::<i64>(tv, seconds)
+        .and_then(|()| user_ptr::try_write_field::<i64>(tv, 8, i64::from(nanos / 1000)));
+    match written {
+        Ok(()) => 0,
+        Err(_) => err(EFAULT),
+    }
 }
 
 /// `clock_settime(clock, ts)`: step `CLOCK_REALTIME`. Needs `CAP_SYS_TIME`;
@@ -106,8 +117,12 @@ pub(super) fn sys_clock_settime(clock: u64, ts: u64) -> u64 {
     if clock != CLOCK_REALTIME {
         return err(EINVAL);
     }
-    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(ts), user_ptr::read::<i64>(ts + 8)) };
+    let (Ok(sec), Ok(nsec)) = (
+        user_ptr::try_read::<i64>(ts),
+        user_ptr::try_read_field::<i64>(ts, 8),
+    ) else {
+        return err(EFAULT);
+    };
     if !(0..crate::wallclock::MAX_SET_SECS).contains(&sec) || !(0..1_000_000_000).contains(&nsec) {
         return err(EINVAL);
     }
@@ -131,8 +146,12 @@ pub(super) fn sys_clock_nanosleep(clock: u64, flags: u64, req: u64, rem: u64) ->
         return err(EINVAL);
     }
     let absolute = flags & TIMER_ABSTIME != 0;
-    // Safety: user buffer holds a `struct timespec` (the syscall ABI's contract).
-    let (sec, nsec) = unsafe { (user_ptr::read::<i64>(req), user_ptr::read::<i64>(req + 8)) };
+    let (Ok(sec), Ok(nsec)) = (
+        user_ptr::try_read::<i64>(req),
+        user_ptr::try_read_field::<i64>(req, 8),
+    ) else {
+        return err(EFAULT);
+    };
     if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
         return err(EINVAL);
     }

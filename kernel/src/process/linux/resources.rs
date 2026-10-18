@@ -67,14 +67,14 @@ fn install(resource: u32, soft: u64, hard: u64) -> Result<(), u64> {
 
 fn write_rlimit(ptr: u64, (soft, hard): (u64, u64)) -> Result<(), u64> {
     let ok = user_ptr::try_write::<u64>(ptr, soft).is_ok()
-        && user_ptr::try_write::<u64>(ptr + 8, hard).is_ok();
+        && user_ptr::try_write_field::<u64>(ptr, 8, hard).is_ok();
     ok.then_some(()).ok_or(err(EFAULT))
 }
 
 fn read_rlimit(ptr: u64) -> Result<(u64, u64), u64> {
     match (
         user_ptr::try_read::<u64>(ptr),
-        user_ptr::try_read::<u64>(ptr + 8),
+        user_ptr::try_read_field::<u64>(ptr, 8),
     ) {
         (Ok(soft), Ok(hard)) => Ok((soft, hard)),
         _ => Err(err(EFAULT)),

@@ -158,7 +158,7 @@ fn read_cstr_bytes(ptr: u64) -> Vec<u8> {
     let mut out = Vec::new();
     for i in 0..4096u64 {
         // Safety: user memory up to the NUL terminator (the syscall ABI's contract).
-        let byte = unsafe { user_ptr::read::<u8>(ptr + i) };
+        let byte = unsafe { user_ptr::read::<u8>(user_ptr::at(ptr, i)) };
         out.push(byte);
         if byte == 0 {
             break;

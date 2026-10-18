@@ -26,7 +26,7 @@ const POLLPRI: u16 = 0x0002;
 fn read_timeout(ptr: u64, unit: u64) -> Result<u64, u64> {
     let (Ok(sec), Ok(frac)) = (
         user_ptr::try_read::<i64>(ptr),
-        user_ptr::try_read::<i64>(ptr + 8),
+        user_ptr::try_read_field::<i64>(ptr, 8),
     ) else {
         return Err(err(EFAULT));
     };
@@ -242,7 +242,7 @@ pub(super) fn sys_pselect6(nfds: u64, sets: [u64; 3], timeout: u64, sigmask: u64
     if sigmask != 0 {
         let (Ok(set), Ok(size)) = (
             user_ptr::try_read::<u64>(sigmask),
-            user_ptr::try_read::<u64>(sigmask + 8),
+            user_ptr::try_read_field::<u64>(sigmask, 8),
         ) else {
             return err(EFAULT);
         };

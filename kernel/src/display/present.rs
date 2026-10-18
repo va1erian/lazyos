@@ -145,7 +145,8 @@ fn present_rows(x: usize, w: usize, row: usize, rows: usize, shape: (usize, usiz
     // The buffer is mapped at `va` in the active (caller's) address space, but
     // may have been unmapped since `bind` or the last chunk: validate exactly
     // the span read, now, with interrupts off until the copy is done.
-    let Ok(source) = user_ptr::try_bytes(va + offset as u64, len) else {
+    let Ok(source) = user_ptr::field(va, offset as u64).and_then(|at| user_ptr::try_bytes(at, len))
+    else {
         return Chunk::Fault;
     };
     let layout = order::current();

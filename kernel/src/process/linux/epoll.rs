@@ -101,19 +101,19 @@ fn read_epoll_event(ptr: u64) -> (u32, u64) {
     // Safety: user `struct epoll_event` (the syscall ABI's contract).
     let events = unsafe { user_ptr::read_unaligned::<u32>(ptr) };
     // Safety: same struct, packed `data` field at offset 4.
-    let data = unsafe { user_ptr::read_unaligned::<u64>(ptr + 4) };
+    let data = unsafe { user_ptr::read_unaligned::<u64>(user_ptr::at(ptr, 4)) };
     (events, data)
 }
 
 /// Write the ready list as packed `struct epoll_event`s, returning the count.
 fn write_epoll_events(ptr: u64, ready: &[(u32, u64)]) -> u64 {
     for (index, (events, data)) in ready.iter().enumerate() {
-        let base = ptr + (index as u64) * 12;
+        let base = user_ptr::at(ptr, (index as u64).saturating_mul(12));
         // Safety: user `struct epoll_event` array (the syscall ABI's contract);
         // the packed 12-byte stride leaves both fields unaligned.
         unsafe {
             user_ptr::write_unaligned::<u32>(base, *events);
-            user_ptr::write_unaligned::<u64>(base + 4, *data);
+            user_ptr::write_unaligned::<u64>(user_ptr::at(base, 4), *data);
         }
     }
     ready.len() as u64

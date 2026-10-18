@@ -105,7 +105,9 @@ fn read_at(file: &OpenFile, offset: u64, ptr: u64, len: u64) -> Result<usize, u6
     // `-EFAULT`, never a write to memory the task no longer owns.
     let mut done = 0;
     for piece in buf[..count].chunks(COPY_PIECE) {
-        user_ptr::try_copy_to(ptr + done as u64, piece).map_err(|_| err(EFAULT))?;
+        user_ptr::field(ptr, done as u64)
+            .and_then(|at| user_ptr::try_copy_to(at, piece))
+            .map_err(|_| err(EFAULT))?;
         done += piece.len();
         breathe();
     }
@@ -179,8 +181,9 @@ pub(super) fn stage(ptr: u64, len: usize) -> Result<Vec<u8>, u64> {
     bytes.try_reserve_exact(len).map_err(|_| err(ENOMEM))?;
     while bytes.len() < len {
         let take = (len - bytes.len()).min(COPY_PIECE);
-        let source =
-            user_ptr::try_bytes(ptr + bytes.len() as u64, take).map_err(|_| err(EFAULT))?;
+        let source = user_ptr::field(ptr, bytes.len() as u64)
+            .and_then(|at| user_ptr::try_bytes(at, take))
+            .map_err(|_| err(EFAULT))?;
         bytes.extend_from_slice(source);
         breathe();
     }
