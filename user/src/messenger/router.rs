@@ -129,12 +129,20 @@ impl Event {
 /// the kernel's 64-entry registry, so a flood of subscriptions must not be
 /// able to take them all.
 pub const MAX_SUBSCRIBERS: usize = 64;
+/// Most subscribers one unprivileged caller (no `CAP_SETUID`) may hold: a
+/// session can reach the broker, and 64 resolvable names would take every
+/// slot. System services subscribe a handful each, within the global bound.
+pub const MAX_PER_USER: usize = 8;
 
 /// One attached subscriber: its filter and its sink (the registered name and
 /// the one handle cached for it, `svcpolicy::Sink`).
 struct Subscription {
     filter: String,
     sink: Sink<Endpoint>,
+    /// The uid that subscribed (kernel-stamped), for [`MAX_PER_USER`], and
+    /// whether it was a system service, exempt from it.
+    owner: u32,
+    system: bool,
 }
 
 /// The real handles behind one delivery: `svcpolicy::Sink` decides what to do
@@ -219,7 +227,9 @@ impl TopicBroker {
             method::SUBSCRIBE => {
                 let sink = string_field(&message.parcel, field::SINK)?;
                 let filter = string_field(&message.parcel, field::FILTER)?;
-                self.attach(filter, sink)?;
+                let caller = message.caller();
+                let system = caller.caps & crate::sys::CAP_SETUID != 0;
+                self.attach(filter, sink, caller.uid, system)?;
                 Ok(parcel(method::SUBSCRIBE, Encoder::new()))
             }
             method::UNSUBSCRIBE => {
@@ -271,6 +281,7 @@ impl TopicBroker {
             };
             self.deliver(index, &event);
         }
+        self.prune_dead();
         seq
     }
 
@@ -286,7 +297,7 @@ impl TopicBroker {
 
     /// Resolve `sink`, record the subscription, and replay the retained
     /// values `filter` already matches.
-    fn attach(&mut self, filter: String, sink: String) -> Result<()> {
+    fn attach(&mut self, filter: String, sink: String, owner: u32, system: bool) -> Result<()> {
         if self
             .subscribers
             .iter()
@@ -294,7 +305,15 @@ impl TopicBroker {
         {
             return Ok(());
         }
-        if self.subscribers.len() >= MAX_SUBSCRIBERS {
+        // A subscriber whose sink died is dead weight for the cap: its name is
+        // gone, and every restart of a service subscribes under a new one.
+        self.prune_dead();
+        let held = self
+            .subscribers
+            .iter()
+            .filter(|subscriber| !subscriber.system && subscriber.owner == owner)
+            .count();
+        if self.subscribers.len() >= MAX_SUBSCRIBERS || (!system && held >= MAX_PER_USER) {
             return Err(Error::Errno(-errno::ENOSPC));
         }
         let endpoint = registry::resolve(&sink)?;
@@ -302,6 +321,8 @@ impl TopicBroker {
         self.subscribers.push(Subscription {
             filter,
             sink: Sink::new(sink, endpoint),
+            owner,
+            system,
         });
         let retained: Vec<(String, Vec<u8>, u64)> = self
             .retained
@@ -315,6 +336,14 @@ impl TopicBroker {
             }
         }
         Ok(())
+    }
+
+    /// Forget the subscribers whose sink no longer resolves (`Sink::deliver`
+    /// released its handle and the name is gone): nothing will ever unsubscribe
+    /// them, and they would count against the caps for good.
+    fn prune_dead(&mut self) {
+        self.subscribers
+            .retain(|subscriber| subscriber.sink.is_resolved());
     }
 
     /// Drop the subscriber attached with `sink`, giving its handle back.

@@ -50,6 +50,11 @@ impl Pkgd {
                 return;
             }
         };
+        // Core apps first: `mimed`'s registry is bounded and global, and a user
+        // package activated before them must not be able to take the room
+        // their handlers need (the confd list order is by name).
+        let mut rows = rows;
+        rows.sort_by_key(|row| row.origin != user::messenger::pkgd::wire::ORIGIN_CORE);
         let mut activated = 0;
         for row in &rows {
             let present = layout::install_path(&row.install_dir)

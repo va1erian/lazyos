@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn a_dead_sink_gives_its_handle_back_and_is_not_resolved_in_vain() {
+    fn a_dead_sink_gives_its_handle_back_and_ends_unresolved() {
         let mut transport = Counting::new();
         let mut sink = sink(&mut transport);
         transport.answer = Err(SendFailure::Gone);

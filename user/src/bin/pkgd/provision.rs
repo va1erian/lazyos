@@ -101,6 +101,7 @@ impl Pkgd {
                 version: row.version.clone(),
                 digest: row.digest.clone(),
                 core: row.origin == wire::ORIGIN_CORE,
+                machine_wide: row.machine_wide,
             })
             .collect();
         let stored = self.registry.stamp().ok().flatten();
