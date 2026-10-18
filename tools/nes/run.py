@@ -34,7 +34,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT / "tools" / "abi"))
 
+import busybox  # noqa: E402
 import judge  # noqa: E402
 
 PY = sys.executable
@@ -48,7 +50,7 @@ def run(argv: list[str], env: dict[str, str] | None = None) -> None:
     subprocess.run(argv, cwd=ROOT, env=env, check=True)
 
 
-def image_env() -> dict[str, str]:
+def image_env(label_trace: bool = False) -> dict[str, str]:
     """A desktop with the Terminal, the UI probe and the sound card."""
     env = dict(os.environ)
     env.update(
@@ -60,13 +62,20 @@ def image_env() -> dict[str, str]:
             "LAZYOS_SOUND": "1",
         }
     )
+    if label_trace:
+        env["LAZYOS_LABEL_TRACE"] = "1"
     return env
 
 
-def build() -> None:
+def build(label_trace: bool = False) -> None:
     run([PY, "tools/xui/build.py"])
+    # The Terminal needs its shell, and the session launches the app with a
+    # `rhai` script (init.Launch), as `run_demo.py` arranges for both.
+    if busybox.ensure_busybox() is None and not os.environ.get("LAZYOS_BUSYBOX"):
+        print("warning: no BusyBox; the Terminal will fail to start (Docker?)", file=sys.stderr)
+    run([PY, "tools/rhai/build.py"])
     run([PY, "tools/nes/make_sample.py", "--check"])
-    run(["cargo", "build"], env=image_env())
+    run(["cargo", "build"], env=image_env(label_trace))
 
 
 def session(accel: str) -> None:
@@ -103,15 +112,30 @@ def report(failures: list[str], what: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-build", action="store_true", help="reuse target/lazyos.img")
-    parser.add_argument("--accel", default="auto", choices=["auto", "tcg", "none", "kvm", "whpx"])
+    parser.add_argument(
+        "--accel", default="auto", choices=["auto", "tcg", "none", "kvm", "whpx"]
+    )
+    parser.add_argument(
+        "--label-trace",
+        action="store_true",
+        help="build with LAZYOS_LABEL_TRACE=1 and fail on any refused call",
+    )
     args = parser.parse_args(argv)
     if not args.no_build:
-        build()
+        build(args.label_trace)
     session(args.accel)
 
     log = (OUT / "serial.log").read_text(errors="replace")
     failures = judge.judge_log(log)
     report(failures, "MARKERS")
+    if args.label_trace:
+        denied = [
+            line
+            for line in log.splitlines()
+            if "LABEL:DENY" in line and "os.lazy.nes" in line
+        ]
+        report(denied, "LABELS")
+        failures.extend(denied)
     if not WAV.exists():
         print("NES:SOUND:FAIL")
         print(f"  {WAV} was not written")

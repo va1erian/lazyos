@@ -1,16 +1,13 @@
 //! A development probe: run the sample ROM headlessly and print what the
 //! console produced. `cargo run -p xui-nes --example probe -- [frames]`
 
-use std::path::PathBuf;
-
 use xui_nes::Session;
-
 fn main() {
     let frames: usize = std::env::args()
         .nth(1)
         .and_then(|arg| arg.parse().ok())
         .unwrap_or(120);
-    let dir = PathBuf::from(std::env::temp_dir()).join("xui-nes-probe");
+    let dir = std::env::temp_dir().join("xui-nes-probe");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a directory");
     let rom = dir.join("sample.nes");
@@ -43,7 +40,7 @@ fn main() {
     }
     let frame = session.frame().to_vec();
     let mut histogram: std::collections::HashMap<(u8, u8, u8), usize> = Default::default();
-    for pixel in frame.chunks_exact(4) {
+    for pixel in frame.as_chunks::<4>().0 {
         *histogram.entry((pixel[0], pixel[1], pixel[2])).or_default() += 1;
     }
     let mut colors: Vec<_> = histogram.into_iter().collect();
@@ -53,8 +50,8 @@ fn main() {
         println!("#{:02X}{:02X}{:02X} x{count}", color.0, color.1, color.2);
     }
     // The picture as a PPM, for looking at it (`PIL.Image.open`).
-    let mut ppm = format!("P6\n256 240\n255\n").into_bytes();
-    for pixel in frame.chunks_exact(4) {
+    let mut ppm = "P6\n256 240\n255\n".to_string().into_bytes();
+    for pixel in frame.as_chunks::<4>().0 {
         ppm.extend_from_slice(&pixel[..3]);
     }
     std::fs::write(dir.join("frame.ppm"), ppm).expect("a PPM");

@@ -197,14 +197,14 @@ mod tests {
         // The console's buffer has no alpha; the canvas would composite it
         // away, so the scaler writes opaque pixels.
         let mut frame = frame();
-        for pixel in frame.chunks_exact_mut(4) {
+        for pixel in frame.as_chunks_mut::<4>().0 {
             pixel[3] = 0;
         }
         let mut scaler = Scaler::new();
         scaler.resize(256, 240);
         let mut out = vec![0u8; 256 * 240 * 4];
         scaler.scale_into(&frame, &mut out);
-        assert!(out.chunks_exact(4).all(|pixel| pixel[3] == 0xFF));
+        assert!(out.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 0xFF));
         assert_eq!(&out[0..3], &[0, 0, 0x40]);
     }
 

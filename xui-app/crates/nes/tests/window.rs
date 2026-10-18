@@ -184,7 +184,7 @@ fn save(image: &Image, name: &str) {
 /// How many distinct colours the window shows (a blank canvas has one).
 fn colors(image: &Image) -> usize {
     let mut seen = std::collections::HashSet::new();
-    for pixel in image.pixels().chunks_exact(4) {
+    for pixel in image.pixels().as_chunks::<4>().0 {
         seen.insert((pixel[0], pixel[1], pixel[2]));
     }
     seen.len()
@@ -263,14 +263,18 @@ fn the_welcome_screen_offers_a_rom_and_the_picture_plays_it() {
         assert!(
             playing
                 .pixels()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[..3] == [0x00, 0x23, 0x7B]),
             "the console's picture is in the window"
         );
         assert!(
             playing
                 .pixels()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[..3] == [0xFF, 0xFF, 0xFF]),
             "the sample ROM's text is drawn"
         );

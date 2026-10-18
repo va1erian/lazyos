@@ -177,7 +177,10 @@ impl NesApp {
     /// Shows the picture and hides the welcome screen.
     fn show_picture(&self, ui: &mut Ui<Msg>, title: &str) {
         self.widgets.welcome.get().set_visible(false);
-        ui.set_visible(self.screen.get().control().id(), true);
+        let screen = self.screen.get();
+        ui.set_visible(screen.control().id(), true);
+        // The keyboard goes to the game, not to the button that opened it.
+        screen.control().focus();
         ui.set_window_title(title);
     }
 

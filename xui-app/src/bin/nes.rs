@@ -19,11 +19,13 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use xui_app::backend::DropEvent;
 use xui_app::launch;
 use xui_app::platform::audio::{Audio, Params, PlaybackStream};
+use xui_app::platform::urilist;
 use xui_app::trace::{self, Channel};
 use xui_nes::host::{Host, Report};
-use xui_nes::{NesApp, Session, WINDOW};
+use xui_nes::{Msg, NesApp, Session, WINDOW};
 
 /// The mixer stream's period: 2048 bytes is 1024 mono frames at 48 kHz, so
 /// the ring (four periods) holds about 85 ms.
@@ -210,9 +212,27 @@ fn main() {
         backend.set_size_hints(320, 260, 0, 0);
         let host: Rc<RefCell<dyn Host>> = Rc::new(RefCell::new(platform));
         let session = Session::new(host.borrow().app_dir(), rate);
-        NesApp::build(ui, host, session, rom).inspect_err(|error| {
+        let app = NesApp::build(ui, host, session, rom).inspect_err(|error| {
             trace::fail!(Channel::Nes, "BUILD", "{error}");
-        })
+        })?;
+        // A cartridge dropped on the window opens (a `text/uri-list` from the
+        // Files app, `clipboardd`'s token; docs/xui-archiver.md).
+        let outbox = ui.proxy();
+        backend.on_drag_event(move |_, event| {
+            if let DropEvent::Drop {
+                mime,
+                data: Ok(bytes),
+                ..
+            } = event
+            {
+                if mime == urilist::MIME {
+                    if let Some(path) = urilist::decode(bytes).into_iter().next() {
+                        let _ = outbox.send(Msg::RomChosen(path));
+                    }
+                }
+            }
+        });
+        Ok(app)
     });
 }
 

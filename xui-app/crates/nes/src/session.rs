@@ -190,11 +190,15 @@ impl Session {
         }
         let mut bytes = Vec::with_capacity(metadata.len() as usize);
         File::open(path)
-            .and_then(|mut file| file.read_to_end(&mut bytes))
+            .and_then(|file| file.take(MAX_ROM_BYTES + 1).read_to_end(&mut bytes))
             .map_err(|source| Error::Io {
                 path: path.to_path_buf(),
                 source,
             })?;
+        if bytes.len() as u64 > MAX_ROM_BYTES {
+            // The file grew since `metadata`: read no further than the cap.
+            return Err(Error::TooLarge(bytes.len() as u64));
+        }
         let header = parse_header(&bytes)
             .ok_or_else(|| Error::BadRom("not an iNES or NES 2.0 cartridge".to_string()))?;
         self.unload();

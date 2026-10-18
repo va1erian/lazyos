@@ -60,7 +60,7 @@ fn the_sample_rom_runs_and_draws() {
     let frame = session.frame().to_vec();
     let mut colors = std::collections::HashSet::new();
     let mut white = false;
-    for pixel in frame.chunks_exact(4) {
+    for pixel in frame.as_chunks::<4>().0 {
         colors.insert((pixel[0], pixel[1], pixel[2]));
         white |= pixel[0] > 200 && pixel[1] > 200 && pixel[2] > 200;
     }
