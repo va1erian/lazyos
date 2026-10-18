@@ -1307,7 +1307,7 @@ python tools/keyd/run.py            # build, three boots, judge (KEYD:SECRETS: P
 python tools/keyd/test_judge.py     # the judge fails when it should
 ```
 
-## Wi-Fi on the AMD NUC (`LAZYOS_WIFI=1`)
+## Wi-Fi (`LAZYOS_WIFI=1`, RTL8822CE)
 
 `LAZYOS_WIFI=1` (needs `LAZYOS_NETD=1`; `run_demo.py --wifi`, the launcher's
 *Wi-Fi* checkboxes) ships `wifid`, the RTL8822CE driver `devd` starts as
@@ -1320,7 +1320,7 @@ QEMU has no such card: the loop is a stick and `dbgd`
 ([`docs/wifi-rtw88-plan.md`](docs/wifi-rtw88-plan.md) section 5).
 
 ```bash
-python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only   # the NUC stick
+python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only   # the Wi-Fi stick
 python tools/dbg/dbgctl.py --host <ip> log --source programs --follow              # WIFID:*
 python tools/dbg/dbgctl.py --host <ip> reload wifid                                # after a rebuild
 cargo test -p fwload -p devmatch -p netpolicy

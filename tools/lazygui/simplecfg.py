@@ -36,7 +36,7 @@ SIMPLE_GROUPS = (
     ("networking", "Networking", "Internet through QEMU, the Network and Net Tools apps, "
                                  "HTTPS with curl, wget and fetch.",
      ("net", "tls")),
-    ("wifi", "Wi-Fi", "The Wi-Fi driver and firmware for the AMD NUC's RTL8822CE (turns "
+    ("wifi", "Wi-Fi", "The Wi-Fi driver and firmware for the RTL8822CE (turns "
                       "Networking on; QEMU has no such card).",
      ("wifi",)),
     ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "

@@ -4,8 +4,8 @@
 //! Only the `dev_*` ops every driver uses: claim with interrupts on the
 //! channel the kernel makes, the command register for memory decode and bus
 //! mastering, `map_bar(2)`, and `irq_enable` (MSI: the card offers one
-//! 64-bit-capable vector, docs/compat/amd-nuc). The kernel lets `_wifi`
-//! claim the wireless class and nothing else (`netpolicy`).
+//! 64-bit-capable vector, `docs/compat/kabylake/hw-survey`). The kernel lets
+//! `_wifi` claim the wireless class and nothing else (`netpolicy`).
 //!
 //! Bus mastering is **not** switched on with the claim: a previous driver
 //! (a reload, a crash) may have left the chip running with its rings

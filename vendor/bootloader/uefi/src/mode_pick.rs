@@ -2,8 +2,9 @@
 //!
 //! Upstream `bootloader` 0.11.17 takes the *last* listed mode that meets the
 //! minimum, which is the largest only when the firmware sorts its list
-//! ascending. The MAGICNUC AS1 lists 2560x1440 first and 4:3 modes after it,
-//! so the stock rule picked 1280x960 on a 2560x1440 panel. LazyOS takes the
+//! ascending. The retired AMD NUC (docs/compat/hardware.md, "Retired machines")
+//! listed 2560x1440 first and 4:3 modes after it, so the stock rule picked
+//! 1280x960 on a 2560x1440 panel. LazyOS takes the
 //! largest area instead; on an ascending list the result is unchanged (ties go
 //! to the later mode, as before).
 //!

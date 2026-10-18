@@ -69,7 +69,7 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
                             "(LAZYOS_DBGD_MMIO_ALLOW)", foreground="#666").pack(side="left")
     if wifi_var is not None:
         ttk.Checkbutton(parent, text="Wi-Fi: wifid + RTL8822CE firmware (LAZYOS_WIFI; run_demo --wifi; "
-                                     "implies the stack; for the AMD NUC, QEMU has no such card)",
+                                     "implies the stack; QEMU has no such card)",
                         variable=wifi_var).pack(anchor="w", padx=6)
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)

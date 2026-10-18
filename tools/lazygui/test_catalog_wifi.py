@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Launcher tests for Wi-Fi (`LAZYOS_WIFI`, docs/wifi-rtw88-plan.md): the
 Advanced tab switch, the Simple tab group, run_demo's `--wifi`, the firmware
-fetch before a build, and the NUC stick (Wi-Fi + dbgd control + USB image).
+fetch before a build, and the Wi-Fi stick (Wi-Fi + dbgd control + USB image).
 `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_wifi.py
@@ -74,7 +74,7 @@ class WifiTests(unittest.TestCase):
         self.assertFalse(leaked["wifi_sim"])
         self.assertNotIn("--wifi-sim", catalog.build_plan(leaked)[-1]["argv"])
 
-    def test_the_nuc_stick_is_wifi_dbgd_control_and_the_usb_image(self) -> None:
+    def test_the_wifi_stick_is_wifi_dbgd_control_and_the_usb_image(self) -> None:
         env = catalog.build_env(base(desktop=True, wifi=True, dbgd_control=True,
                                      usb_image=True))
         for name in ("LAZYOS_WIFI", "LAZYOS_NETD", "LAZYOS_DBGD", "LAZYOS_DBGD_CONTROL",

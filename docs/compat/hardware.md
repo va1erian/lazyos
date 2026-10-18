@@ -14,3 +14,14 @@ folder with the evidence.
 |---|---|---|---|---|---|---|---|---|---|
 | Mini PC (i3-7100U, SATA SSD, RTL8111H) | 2026 | UEFI | i3-7100U | 8 GiB | 2560x1440 (HDMI), 1080p logical | boots to desktop; `netdrv` and `sndd` start | USB keyboard and mouse after the control-transfer chain fix | **works** with laggy windows; see notes | [`kabylake/boot-1/`](kabylake/boot-1/NOTES.md) |
 | Mini PC (CHUWI LarkBox X, i3-1220P, NVMe + SATA SSD, 2x RTL8168h, AX101 Wi-Fi) | 2026 | UEFI | i3-1220P (Alder Lake-P) | 32 GiB | not yet booted (Linux: 2560x1440 on HDMI) | — | not yet booted | **surveyed only**: the Linux survey is collected, the stick has not run on it yet | [`alderlake/README.md`](alderlake/README.md) |
+
+## Retired machines
+
+A machine that leaves the fleet keeps a row here: its survey goes with it, so
+this is where a plan or a comment that needs its facts points. A passing
+mention in an unrelated note (a bug anecdote, a rationale) may still name the
+machine.
+
+| Machine | Retired | What it established | Evidence |
+|---|---|---|---|
+| Mini PC (MAGICNUC AS1, Ryzen 5 3501U, Raven2, 2x RTL8168h) | 2026-10 | the loader reset fix (interrupts off after `ExitBootServices`, #734); the GOP "largest area" mode rule (`vendor/bootloader/uefi/src/mode_pick.rs`); the second box the RTL8822CE Wi-Fi driver joined a WPA2 network on (R3-R5) | its survey and notes were removed with the machine (PR #899); the plans it drove keep the results |

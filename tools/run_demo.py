@@ -39,8 +39,8 @@ Examples
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
     python tools/run_demo.py --dbgd-mmio     # ...plus allowlisted register reads (dbgctl.py mmio ...)
     python tools/run_demo.py --smb           # networking + the SMB 2.1 client `smb`
-    python tools/run_demo.py --wifi          # networking + wifid and its firmware (the NUC's RTL8822CE)
-    python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the NUC stick
+    python tools/run_demo.py --wifi          # networking + wifid and its firmware (the RTL8822CE)
+    python tools/run_demo.py --desktop --wifi --dbgd-control --usb-image --build-only  # the Wi-Fi stick
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
     python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)

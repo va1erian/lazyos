@@ -1,18 +1,22 @@
-# Wi-Fi on the AMD NUC: the RTL8822CE driver
+# Wi-Fi on the Kaby Lake box: the RTL8822CE driver
 
-> **Status: in progress, revision 1 (2026-10-11).** The driver half of
-> Wi-Fi for the one real machine LazyOS targets today. Builds on
+> **Status: in progress, revision 2 (2026-10-18).** The driver half of
+> Wi-Fi. The card lives in the Kaby Lake box
+> ([compat/kabylake](compat/kabylake/README.md)); the AMD NUC this plan was
+> first written for has been retired ([compat/hardware.md](compat/hardware.md),
+> "Retired machines"). Builds on
 > [wifi-prerequisites-plan.md](wifi-prerequisites-plan.md) (WP0-WP3 built:
 > crypto, multi-NIC `netd`, `keyd` secrets, `libs/ieee80211`, `libs/eapol`)
 > and replaces [wifi-plan.md](wifi-plan.md)'s chip choice for this machine.
 
 ## 1. The card
 
-The NUC ([compat/amd-nuc](compat/amd-nuc/README.md)) carries a Realtek
-**RTL8822CE** (`10ec:c822`, PCI class 0x0280, M.2, 802.11ac 2x2, BT combo
-over USB), Linux driver `rtw88_8822ce`. From its survey: BAR 2 is 64 KiB of
-MMIO, MSI (one vector, 64-bit capable) is offered, ASPM L1 is enabled by the
-firmware, the link is PCIe gen 1 x1.
+The Kaby Lake box ([compat/kabylake](compat/kabylake/README.md)) carries a
+Realtek **RTL8822CE** (`10ec:c822`, PCI class 0x0280, M.2, 802.11ac 2x2, BT
+combo over USB), Linux driver `rtw88_8822ce`; the retired AMD NUC carried the
+same card. From the Kaby Lake survey: BAR 2 is 64 KiB of MMIO, MSI (one
+vector, 64-bit capable) is offered, the link is PCIe gen 1 x1, and its
+firmware leaves ASPM disabled (the driver does not depend on it).
 
 wifi-plan.md chose the MT7925 for a USB dongle; this machine has no dongle
 and a PCIe card, so the chip changes and two of that plan's assumptions with
@@ -76,14 +80,14 @@ hash-pinned, never `include_bytes!`. `mac80211`/`cfg80211` stay unread.
 | **R0** Plumbing | firmware fetch + `fhs::FIRMWARE` + `libs/fwload`; `LAZYOS_WIFI=1`; `devd` row for `10ec:c822`; `run_demo.py --wifi`, GUI; `THIRD_PARTY.md` | `cargo test -p fwload -p devmatch`; the file lands at its path with its licence |
 | **R1** Chip library | `libs/rtw88`: power on, firmware download, MAC/BB/RF init, channel switch, TX/RX descriptors, PCIe rings, CAM | host tests against the fake bus, sequences compared with upstream's |
 | **R2** Station stack on the simulator | WP4: `wlanmd`, `wifictl`, `libs/wifimac`, `wifisim`, `fake_ap.py` | **Passed** (2026-10-11): `tools/wifi/sim_run.py --station wlanmd`, six checks: scan, wrong passphrase, open and WPA2 joins with DHCP and ping over `wlan0`, rekey kept, rejoin after beacon loss and deauth |
-| **R3** First light on the NUC | `wifid` up to firmware running and MAC address read (built: `radio.rs`; **passed on the Kaby Lake box and the AMD NUC, 2026-10-12**) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
-| **R4** Scan on the NUC | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`; **passed on both boxes**) | `wifictl scan` lists the home networks |
-| **R5** Join on the NUC | auth/assoc, 4-way, CAM keys, data (**passed on the Kaby Lake box and the AMD NUC**: WPA2, 5 GHz) | DHCP lease and `ping` over `wlan0` |
+| **R3** First light on the card | `wifid` up to firmware running and MAC address read (built: `radio.rs`; **passed on the Kaby Lake box and the AMD NUC, 2026-10-12**) | `WIFID:FW:READY`, `WIFID:MAC:<addr>` over `dbgd` |
+| **R4** Scan on the card | channel switching, RX of beacons (built: `hardware.rs`, or `LAZYOS_WIFID_MODE=survey`; **passed on both boxes**) | `wifictl scan` lists the home networks |
+| **R5** Join on the card | auth/assoc, 4-way, CAM keys, data (**passed on the Kaby Lake box and the AMD NUC**: WPA2, 5 GHz) | DHCP lease and `ping` over `wlan0` |
 
 
-## 5. The test loop on the NUC
+## 5. The test loop on the Kaby Lake box
 
-There is no serial port on the NUC and no emulated RTL8822CE in QEMU. The
+There is no serial port on the box and no emulated RTL8822CE in QEMU. The
 loop is a USB stick built with Wi-Fi and `dbgd`'s control tier, booted once;
 wired Ethernet (the RTL8168, `eth0`) carries `dbgd`, and every change to
 `wifid` or `libs/rtw88` after that is a rebuild and `dbgctl reload wifid`.
@@ -151,8 +155,8 @@ build the stick without `--dbgd-control` once the driver work is done.
 
 ### 5.3 Boot and read it
 
-Plug the NUC's Ethernet in, boot the stick, and wait for `DBGD:READY` (the
-NUC's address comes from DHCP; the console shows it, or ask the router).
+Plug the box's Ethernet in, boot the stick, and wait for `DBGD:READY` (the
+box's address comes from DHCP; the console shows it, or ask the router).
 
 ```bash
 python tools/dbg/dbgctl.py --host <ip> log --source programs --follow   # WIFID:*, DEVD:*, INIT:*
@@ -218,7 +222,7 @@ points at the coexistence grants.
 | `DEVD:NODRIVER driver=wifid` | the image was built without `LAZYOS_WIFI=1` |
 | `WIFID:FAIL:claim errno=13` | the class rules refused `_wifi` (a kernel older than the image: rebuild both) |
 | `WIFID:FAIL:map errno=19` | BAR 2 is missing or not memory (the survey says 64 KiB MMIO) |
-| `WIFID:FAIL:chip REG_SYS_CFG1 reads 0xffffffff` | the card does not decode (D3, link down, ASPM): compare `WIFID:PCI` with `docs/compat/amd-nuc` |
+| `WIFID:FAIL:chip REG_SYS_CFG1 reads 0xffffffff` | the card does not decode (D3, link down, ASPM): compare `WIFID:PCI` with `docs/compat/kabylake/hw-survey/04-lspci-vvv.txt` |
 | `WIFID:FAIL:firmware ... errno=2` | no firmware file (the build refuses this, so: a hand-copied binary) |
 | `WIFID:FAIL:<step>` then `WIFID:REGS fail ...` | a bring-up step failed: `pci` (rings), `chip-info` (power-on, firmware for the efuse, efuse), `pci-phy`, `core-start` (power-on, firmware, MAC/BB/RF init, calibration), `station`; the detail is the `rtw88::Error` (a `Timeout` names the register polled) and the dump is the system and MAC registers at that moment |
 | `WIFID:FAIL:scan-start`, `set-channel` | the survey could not start or tune; the radio stays up |
@@ -287,8 +291,8 @@ The stick built from `3ffbbeb01` (`run_demo.py --desktop --wifi
 --dbgd-control --usb-image --build-only`) joined a home WPA2 network on the
 first boot. The machine was the **Kaby Lake mini PC**
 ([compat/kabylake](compat/kabylake/README.md), Intel `8086:5904`/`5916`),
-which carries the same RTL8822CE (`10ec:c822`) as the AMD NUC; read over
-`dbgd` on the Wi-Fi address itself:
+which carries the same RTL8822CE (`10ec:c822`) as the retired AMD NUC; read
+over `dbgd` on the Wi-Fi address itself:
 
 | What | Evidence |
 |---|---|
@@ -298,7 +302,8 @@ which carries the same RTL8822CE (`10ec:c822`) as the AMD NUC; read over
 | Health | `msg-services`: `wifid`, `wlanmd`, `netd`, `keyd`, `netdrv` running, 0 restarts |
 
 **The AMD NUC** (Ryzen 5 3501U, AMD `1022` root complex, Vega `1002:15d8`,
-two RTL8168s) then joined the same network from the same build:
+two RTL8168s; retired 2026-10, [compat/hardware.md](compat/hardware.md)) then
+joined the same network from the same build:
 
 | What | Evidence |
 |---|---|
@@ -307,7 +312,7 @@ two RTL8168s) then joined the same network from the same build:
 | Address | `system/net/wlan0/addr`: 192.168.1.81/24, gateway 192.168.1.254 (DHCP) |
 | Health | `msg-services`: `wifid`, `wlanmd`, `netd`, `keyd`, both `netdrv` running, 0 restarts |
 
-R3-R5 are closed on the machine this plan was written for.
+R3-R5 are closed on both boxes; the Kaby Lake box is the one that remains.
 
 ## 6. The chip package (R1)
 
@@ -334,7 +339,7 @@ R3-R5 are closed on the machine this plan was written for.
   GNT_WL is forced high and GNT_BT low for good (`coex` module docs list the
   end state). Upstream's choice would leave Wi-Fi without the antenna while
   Bluetooth reports itself on.
-- **To read on the NUC** (`dbgd`): the efuse RFE type (0xca; tables exist
+- **To read on the box** (`dbgd`): the efuse RFE type (0xca; tables exist
   for 0 to 6), the chip cut (`REG_SYS_CFG1`), `share_ant`/`btcoex` (0xc3,
   0xc1), whether the IQK done code 0xaa arrives, and the DACK/DPK results
   (`DmState`).
