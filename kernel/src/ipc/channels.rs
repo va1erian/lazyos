@@ -120,7 +120,8 @@ pub const MAX_QUEUE_DEPTH: usize = 64;
 pub const MAX_QUEUE_BYTES: usize = 1 << 20;
 /// Largest number of outstanding transactions on one channel.
 pub const MAX_OUTSTANDING: usize = 64;
-/// Largest number of outstanding transactions from one sender on one channel.
+/// Largest number of transactions one sender holds on one channel: pending
+/// ones and ended ones whose outcome it has not yet collected.
 pub const MAX_PENDING_PER_SENDER: u64 = 16;
 
 /// The call deadline that means "poll": answer if the callee can do so in its

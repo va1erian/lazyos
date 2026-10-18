@@ -65,13 +65,16 @@ pub fn begin_call_owned(
             channel.drops += 1;
             return Err(Error::TooManyOutstanding);
         }
-        let sender_pending = channel
-            .senders
+        // A transaction holds its slot, and a reply up to a parcel long, until
+        // its caller collects the outcome (`take_outcome`), not only while it
+        // is `Pending`: a caller that never awaits must hit the cap too
+        // (audit H9).
+        let sender_holds = channel
+            .txns
             .iter()
-            .find(|meter| meter.slot == me)
-            .map(|meter| meter.outstanding)
-            .unwrap_or(0);
-        if sender_pending >= MAX_PENDING_PER_SENDER {
+            .filter(|txn| txn.caller == me)
+            .count() as u64;
+        if sender_holds >= MAX_PENDING_PER_SENDER {
             channel.drops += 1;
             return Err(Error::Quota);
         }
