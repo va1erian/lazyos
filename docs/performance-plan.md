@@ -479,8 +479,9 @@ x87/SSE/AVX state per task (`XSAVE`, issue #822).
 
 ### Later: SMP
 
-Out of scope here. P2 step 3 (APIC) and P6 step 1 (run queues) are its
-prerequisites.
+Out of scope here. P2 step 3 (APIC) and P6 step 1 (run queues) were its
+prerequisites; both have landed. The SMP work itself is planned in
+[`smp-plan.md`](smp-plan.md).
 
 ## 4. Quick wins
 

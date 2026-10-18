@@ -142,7 +142,7 @@ Full spec in [`messenger.md`](messenger.md). Summary:
   transport it needs; the system mixer `audiod` and the client library sit
   on top of it ([`audio-plan.md`](audio-plan.md)).
 - **SMP:** AP bring-up, spinlocks per subsystem, IPIs; designed now, enabled
-  later.
+  later ([`smp-plan.md`](smp-plan.md)).
 
 ### 4.3 Users, sessions, services
 
@@ -332,6 +332,10 @@ ungranted interfaces, cannot open sockets; every denial is audited and explained
 **Acceptance:** linear speedup on N vCPUs for a parallel benchmark; interactive
 latency under load stays bounded.
 **Depends on:** S0–S6. **Risk:** high; keep single-CPU path correct first.
+The SMP half is planned in detail in [`smp-plan.md`](smp-plan.md) (staged
+S8.0–S8.7: audit, per-CPU foundations, AP bring-up with TLB shootdown, a
+kernel entry lock as the enabled milestone, then one fine-grained subsystem
+at a time behind lockdep and soaks).
 
 ### S9 — Release engineering & observability (M)
 **Goal:** trustworthy releases.
@@ -431,7 +435,7 @@ Stage status as of 2026-10-03 (issue and PR numbers are GitHub's):
 | S5 desktop shell (#156) | largely landed | LazyShell (#157, PR #505), the core apps as packages with the Installer (#509, #524), Settings, Docs, Task Manager; graphical login with the session as the logged-in user (accounts U0, #623, PR #645); missing: signed bundles |
 | S6 networking | N0-N5 landed | `netdrv`, `netd` (smoltcp), DHCP, TCP/UDP/DNS, `nc`, `nslookup`, `ftp`, Linux `AF_INET` (PRs #417-#459); `python tools/net/run.py --netd` judges the packet capture. HTTPS clients `curl`/`wget`/`fetch` with verified TLS (`LAZYOS_TLS=1`, [`tls-plan.md`](tls-plan.md) T0-T3, PR #554) and the LazyWeb browser on Blitz (`LAZYOS_LAZYWEB=1`, [`lazyweb.md`](lazyweb.md), PR #562; moved from NetSurf in #655). Not started: loopback, TLS via `keyd`, daemons, a firewall, remote Messenger |
 | S7 sandboxing | started | installed apps confined by kernel labels compiled from their manifests, with install consent (#432, #445, #464); driver class rules at boot (#503). No uid policy (the ACL stays in bootstrap-allow), service accounts, syscall allowlists or signing: [`security-hardening-plan.md`](security-hardening-plan.md) |
-| S8 SMP & performance | started (performance only) | latency harness `python tools/perf/run.py` and the IRQ-driven wake path, P0-P1 of [`performance-plan.md`](performance-plan.md) (#563); no SMP |
+| S8 SMP & performance | started (performance only) | latency harness `python tools/perf/run.py` and the IRQ-driven wake path, P0-P1 of [`performance-plan.md`](performance-plan.md) (#563); no SMP yet — planned in [`smp-plan.md`](smp-plan.md) |
 | S9 release engineering | partly | CI matrix, orderly shutdown and reboot (#504), docs readable in the guest; no release images or crash dumps |
 
 Immediate next steps:

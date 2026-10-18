@@ -142,4 +142,5 @@ log `INFO` and check the fallback).
 
 **Not done.** More than one vector per function (MSI-X per queue), the I/O
 APIC's inputs 16-23 (needs `_PRT`), interrupt remapping (VT-d, with the IOMMU,
-#615), and SMP destinations (S8: every message goes to the boot CPU).
+#615), and SMP destinations (S8: every message goes to the boot CPU;
+steering is [`../smp-plan.md`](../smp-plan.md) S8.6).
