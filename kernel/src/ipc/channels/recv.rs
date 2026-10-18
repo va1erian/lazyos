@@ -5,8 +5,8 @@ use super::*;
 mod discard;
 mod waitcall;
 mod waitset;
-use discard::{discard_undelivered, fail_request};
 pub use discard::undo_delivery;
+use discard::{discard_undelivered, fail_request};
 pub use waitcall::*;
 pub use waitset::*;
 
@@ -234,11 +234,7 @@ pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
 
 /// [`recv`] for a receiver whose buffer holds `max_bytes`: a longer message
 /// is dropped (see [`take_or_register`]) instead of delivered.
-pub fn recv_capped(
-    handle: u64,
-    deadline: Option<u64>,
-    max_bytes: usize,
-) -> Result<Message, Error> {
+pub fn recv_capped(handle: u64, deadline: Option<u64>, max_bytes: usize) -> Result<Message, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let me = task::current();
     loop {

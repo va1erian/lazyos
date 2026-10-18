@@ -69,11 +69,7 @@ pub fn begin_call_owned(
         // its caller collects the outcome (`take_outcome`), not only while it
         // is `Pending`: a caller that never awaits must hit the cap too
         // (audit H9).
-        let sender_holds = channel
-            .txns
-            .iter()
-            .filter(|txn| txn.caller == me)
-            .count() as u64;
+        let sender_holds = channel.txns.iter().filter(|txn| txn.caller == me).count() as u64;
         if sender_holds >= MAX_PENDING_PER_SENDER {
             channel.drops += 1;
             return Err(Error::Quota);
