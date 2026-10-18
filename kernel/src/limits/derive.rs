@@ -14,6 +14,7 @@ pub struct Limits {
     pub shared_buffer_max: u64,
     pub scratch_max: u64,
     pub task_max: u64,
+    pub cpu_max: u64,
 }
 
 impl Limits {
@@ -28,6 +29,7 @@ impl Limits {
         shared_buffer_max: 16 * MIB,
         scratch_max: 32 * MIB,
         task_max: 256,
+        cpu_max: 1,
     };
 
     /// The defaults for a machine with `ram` usable bytes and a screen whose
@@ -79,6 +81,9 @@ impl Limits {
             // and its page tables, so 256 on the smallest machine, the
             // table's 1024 from 1 GiB.
             task_max: (ram / MIB).max(base.task_max),
+            // One CPU until the SMP bring-up derives the count from the
+            // MADT (`docs/smp-plan.md` S8.2); RAM says nothing about CPUs.
+            cpu_max: base.cpu_max,
         };
         limits.clamped()
     }
@@ -94,6 +99,7 @@ impl Limits {
             self.shared_buffer_max,
             self.scratch_max,
             self.task_max,
+            self.cpu_max,
         ]
     }
 
@@ -106,7 +112,7 @@ impl Limits {
                 *value &= !0xfff;
             }
         }
-        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max, scratch_max, task_max] =
+        let [heap_max, fd_max, stack_size, quota_user_memory, quota_kernel_memory, shared_buffer_max, scratch_max, task_max, cpu_max] =
             values;
         Limits {
             heap_max,
@@ -117,6 +123,7 @@ impl Limits {
             shared_buffer_max,
             scratch_max,
             task_max,
+            cpu_max,
         }
     }
 }

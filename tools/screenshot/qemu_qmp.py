@@ -11,6 +11,7 @@ interaction: type, click, capture).
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -33,6 +34,14 @@ _WINDOWS_QEMU = (
 
 # Guest RAM every launcher defaults to (`--memory`; docs/architecture/limits.md).
 DEFAULT_MEMORY = "1G"
+
+
+def add_smp_option(parser: argparse.ArgumentParser) -> None:
+    """`--smp N`: guest vCPUs (QEMU `-smp`; docs/smp-plan.md). The APs stay
+    parked in firmware until the kernel's SMP bring-up, so a value above 1 is
+    safe to ask for and changes nothing until then."""
+    parser.add_argument("--smp", type=int, default=None, metavar="N",
+                        help="guest vCPUs (QEMU -smp; default 1, parked until SMP bring-up)")
 
 
 def find_qemu(explicit: str | None = None) -> str:
@@ -144,6 +153,7 @@ def build_qemu_command(
     ide: bool = False,
     home_disk: str | Path | None = None,
     boot_first: bool = False,
+    smp: int | None = None,
 ) -> list[str]:
     """Build a headless QEMU command line with a QMP socket and serial log.
 
@@ -153,6 +163,9 @@ def build_qemu_command(
     ``boot_first=True`` gives it ``bootindex=0``: firmware boots only the first
     hard disk it finds, and an extra IDE/AHCI disk (the ``--ahci`` scratch
     disk) can otherwise be enumerated ahead of the virtio boot disk.
+    ``smp=N`` passes ``-smp N``: the APs stay parked in firmware until the
+    kernel's SMP bring-up (docs/smp-plan.md S8.2), so N > 1 is safe to ask for
+    and changes nothing until then.
     """
     command = [
         qemu,
@@ -162,6 +175,8 @@ def build_qemu_command(
         "-serial", f"file:{serial_log.as_posix()}",
         "-m", memory,
     ]
+    if smp:
+        command += ["-smp", str(smp)]
     if image:
         file = Path(image).resolve().as_posix()
         if ide:

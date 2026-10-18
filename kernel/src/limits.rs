@@ -70,10 +70,13 @@ pub enum Id {
     ScratchMax,
     /// Task slots (processes and threads) the whole machine may use at once.
     TaskMax,
+    /// CPUs the kernel may bring up (the SMP plan's ceiling; 1 until the
+    /// kernel runs on more than the boot CPU).
+    CpuMax,
 }
 
 /// Number of configurable limits.
-pub const COUNT: usize = 8;
+pub const COUNT: usize = 9;
 
 /// Every configurable limit. The ranges are the sanity bounds a config value
 /// is clamped into, not the defaults (see [`Limits::for_machine`]).
@@ -140,6 +143,14 @@ pub const KEYS: [Key; COUNT] = [
         max: crate::task::MAX_TASKS as u64,
         bytes: false,
     },
+    // One CPU until the kernel brings the APs up (`docs/smp-plan.md` S8.2,
+    // from the MADT); 64 is the per-CPU table's capacity (`arch::percpu`).
+    Key {
+        name: "cpu_max",
+        min: 1,
+        max: 64,
+        bytes: false,
+    },
 ];
 
 /// Where the live value of a limit came from.
@@ -167,6 +178,7 @@ static VALUES: [AtomicU64; COUNT] = {
         AtomicU64::new(base.shared_buffer_max),
         AtomicU64::new(base.scratch_max),
         AtomicU64::new(base.task_max),
+        AtomicU64::new(base.cpu_max),
     ]
 };
 static SOURCES: [AtomicU8; COUNT] = [const { AtomicU8::new(Source::Default as u8) }; COUNT];
@@ -208,6 +220,14 @@ pub fn fd_max() -> usize {
 /// Task slots the machine may use at once (`RLIMIT_NPROC`).
 pub fn task_max() -> usize {
     get(Id::TaskMax) as usize
+}
+
+/// CPUs the kernel may bring up. Nothing reads it until the SMP bring-up
+/// (`docs/smp-plan.md` S8.2 derives the default from the MADT); the key
+/// exists so a config file written for an SMP kernel loads on this one too.
+#[allow(dead_code)]
+pub fn cpu_max() -> usize {
+    get(Id::CpuMax) as usize
 }
 
 /// Largest Linux main-thread stack, page aligned.

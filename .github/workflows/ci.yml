@@ -62,6 +62,16 @@ jobs:
       - run: cargo test -p tracefmt -p dbgwire
       - run: cargo test -p build-support-tests trace
 
+  locks:
+    # Raw `spin` locks are ratcheted (docs/smp-plan.md section 4.3): the
+    # SMP-era critical sections move to the kernel's `sync::Lock`, subsystem
+    # by subsystem, and no new raw lock may appear meanwhile.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/sync/check_locks.py --ratchet
+      - run: python tools/sync/test_check_locks.py
+
   fhs:
     # Well-known paths come from libs/fhs, never string literals (F0).
     runs-on: ubuntu-latest

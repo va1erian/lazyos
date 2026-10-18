@@ -9,6 +9,8 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use alloc::string::String;
+
 use ::acpi::{Error, PhysMem, Platform};
 use spin::Once;
 use x86_64::PhysAddr;
@@ -109,12 +111,34 @@ fn log(p: &Platform) {
     }
     if let Ok(madt) = &p.madt {
         crate::serial_println!(
-            "acpi: MADT lapic={:#x} cpus={} ioapics={} overrides={} pcat={}",
+            "acpi: MADT lapic={:#x} cpus={} apic_ids={} ioapics={} overrides={} pcat={}",
             madt.lapic_address,
             madt.processors,
+            apic_id_list(madt),
             madt.ioapics.len(),
             madt.overrides.len(),
             madt.pcat_compat()
         );
     }
+}
+
+/// The MADT's processor APIC IDs as a bracketed boot-log list (`[0,1,2]`,
+/// `+N` past the recorded capacity): a diagnostic, so a real board's
+/// topology is in the log the SMP bring-up (docs/smp-plan.md S8.2) is judged
+/// from.
+fn apic_id_list(madt: &::acpi::Madt) -> String {
+    use core::fmt::Write as _;
+    let mut out = String::from("[");
+    for (index, id) in madt.apic_ids.as_slice().iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "{id}");
+    }
+    out.push(']');
+    let dropped = madt.apic_ids.dropped();
+    if dropped > 0 {
+        let _ = write!(out, "+{dropped}");
+    }
+    out
 }

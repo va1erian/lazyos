@@ -36,7 +36,7 @@ fn refuses_malformed_values() {
 #[test]
 fn every_kernel_key_has_a_variable() {
     assert_eq!(limits_cfg::env_name("heap_max"), "LAZYOS_LIMIT_HEAP_MAX");
-    assert_eq!(limits_cfg::KEYS.len(), 8);
+    assert_eq!(limits_cfg::KEYS.len(), 9);
 }
 
 #[test]

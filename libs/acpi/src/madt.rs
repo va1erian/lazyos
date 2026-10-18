@@ -17,6 +17,10 @@ pub const MAX_IOAPICS: usize = 16;
 pub const MAX_OVERRIDES: usize = 32;
 /// Local APIC NMI entries recorded at most.
 pub const MAX_LAPIC_NMIS: usize = 16;
+/// Processor APIC IDs recorded at most (xAPIC IDs are 8-bit, so a machine
+/// has at most 256 processors; x2APIC IDs beyond that are dropped and
+/// counted).
+pub const MAX_LAPICS: usize = 256;
 /// Entries examined at most (an 8 KiB MADT of 8-byte entries is 1024).
 const MAX_ENTRIES: u32 = 8192;
 
@@ -59,6 +63,11 @@ pub struct Madt {
     pub processors: u32,
     /// APIC ID of the first enabled processor entry (normally the BSP).
     pub first_apic_id: Option<u32>,
+    /// APIC ID of every enabled (or online-capable) processor, in table
+    /// order: the list the SMP bring-up sends its INIT-SIPI to
+    /// (`docs/smp-plan.md` S8.2). IDs past [`MAX_LAPICS`] are counted as
+    /// dropped.
+    pub apic_ids: List<u32, MAX_LAPICS>,
     pub ioapics: List<IoApic, MAX_IOAPICS>,
     pub overrides: List<Override, MAX_OVERRIDES>,
     pub lapic_nmis: List<LapicNmi, MAX_LAPIC_NMIS>,
@@ -77,6 +86,7 @@ impl Madt {
             flags: mem.u32_at(phys + 40)?,
             processors: 0,
             first_apic_id: None,
+            apic_ids: List::default(),
             ioapics: List::default(),
             overrides: List::default(),
             lapic_nmis: List::default(),
@@ -170,11 +180,12 @@ impl Madt {
     }
 
     /// Count a processor entry whose flags say enabled (bit 0) or
-    /// online-capable (bit 1).
+    /// online-capable (bit 1), and record its APIC ID.
     fn processor(&mut self, apic_id: u32, flags: u32) {
         if flags & 0b11 != 0 {
             self.processors = self.processors.saturating_add(1);
             self.first_apic_id.get_or_insert(apic_id);
+            self.apic_ids.push(apic_id);
         }
     }
 

@@ -450,6 +450,9 @@ def main(argv: list[str]) -> int:
     qemu = find_qemu(args.qemu)
     command = [qemu, "-m", args.memory, "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
                *qemu_serial.qemu_args(args)]
+    if args.smp:
+        # APs stay parked in firmware until the kernel's SMP bring-up (docs/smp-plan.md).
+        command += ["-smp", str(args.smp)]
     command += boot_disk_args(args.disk, image)
     # Same order as the screenshot tools: boot, data, then home.
     if data_disk:

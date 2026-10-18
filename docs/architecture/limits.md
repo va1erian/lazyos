@@ -62,6 +62,7 @@ off, where a lock could deadlock against a preempted holder (the #382 class).
 | `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 3s)`, at most `max(16 MiB, r/4)` | 8 MiB .. 64 GiB |
 | `scratch_max` | File bytes the in-memory scratch filesystem (`/transient` and `/tmp`, one instance) holds; a non-root uid may hold half | `min(1 GiB, heap_max / 2)`, at least 32 MiB | 4 MiB .. 64 GiB |
 | `task_max` | Task slots (processes and threads) in use machine-wide; `RLIMIT_NPROC`. A slot costs a 48 KiB kernel stack from the heap only while a task holds it | one per MiB of RAM, 256 .. 1024 | 64 .. `task::MAX_TASKS` (1024) |
+| `cpu_max` | CPUs the kernel may bring up ([`smp-plan.md`](../smp-plan.md) S8.2 derives the default from the MADT; 1 until then) | 1 | 1 .. 64 |
 
 What that gives (screen 1280x720 unless stated):
 
@@ -86,7 +87,10 @@ limit.stack_size=16M
 From the build: `LAZYOS_LIMIT_HEAP_MAX=768M LAZYOS_LIMIT_FD_MAX=4096 cargo build`
 (the build refuses a malformed value), `python tools/run_demo.py --limit
 heap_max=768M --limit fd_max=4096`, or the GUI launcher's Advanced tab ("Kernel
-limits": `heap_max=768M fd_max=4096`).
+limits": `heap_max=768M fd_max=4096`). `cpu_max` (the SMP bring-up's ceiling,
+[`smp-plan.md`](smp-plan.md)) behaves the same way: `limit.cpu_max=4` /
+`LAZYOS_LIMIT_CPU_MAX=4`; the kernel derives its default from the MADT from
+S8.2 on, and ignores the value until then.
 
 ## What one big program can hold (the `bigapp` measurements)
 

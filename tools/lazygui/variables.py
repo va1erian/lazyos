@@ -26,6 +26,9 @@ def make_vars() -> dict:
         "home_path": s(value=HOME_IMAGE),
         "data_path": s(value=DATA_IMAGE),
         "memory": s(value=DEFAULT_MEMORY),
+        # Guest vCPUs (run_demo --smp, QEMU -smp); empty = QEMU's default of 1.
+        # The APs stay parked until the kernel's SMP bring-up (docs/smp-plan.md).
+        "smp": s(value=""),
         "limits": s(value=""),
         "display_mode": s(value=""),
         "display_max": s(value=""),

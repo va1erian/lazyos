@@ -41,6 +41,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--image", default=str(default_image), help="disk image to boot")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
+    parser.add_argument("--smp", type=int, default=None, metavar="N",
+                        help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). The APs stay "
+                             "parked in firmware until the kernel's SMP bring-up (docs/smp-plan.md)")
     add_limit_option(parser)
     parser.add_argument("--big-app", action="store_true",
                         help="room for one browser-class program: 4G of RAM and "

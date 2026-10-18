@@ -24,6 +24,7 @@ from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
+from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
 from .netplan import dbgd_argv, dbgd_env, net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
@@ -413,6 +414,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # A virtio-net card on QEMU's user network with the forwards; run_demo
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)
+        argv += smp_argv(cfg)  # guest vCPUs (a QEMU argument, so it works with Skip build)
         argv += sample_argv(cfg)  # a QMP socket for tools/webplus/sample.py (#861)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
@@ -427,7 +429,7 @@ def build_plan(cfg: dict) -> list[dict]:
         argv = [PY, "tools/screenshot/qemu_shot.py", "--out", cfg["out"],
                 "--at", cfg["times"], "--accel", cfg["accel"],
                 "--memory", cfg["memory"], "--image", IMAGE]
-        argv += net_flags(cfg) + session_sound(cfg)
+        argv += net_flags(cfg) + session_sound(cfg) + smp_argv(cfg)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         steps.append({"label": "Capture screenshots", "argv": argv})
@@ -451,13 +453,14 @@ def build_plan(cfg: dict) -> list[dict]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["tablet"]:
             argv.append("--tablet")
-        argv += net_flags(cfg) + session_sound(cfg)
+        argv += net_flags(cfg) + session_sound(cfg) + smp_argv(cfg)
         steps.append({"label": f"Session: {label}", "argv": argv})
 
     elif mode == "Kernel test suite":
         argv = [PY, "tools/test/run.py", "--accel", cfg["accel"], "--image", IMAGE]
         if cfg["skip_build"]:
             argv.append("--no-build")
+        argv += smp_argv(cfg)
         steps.append({"label": "Kernel test suite", "argv": argv})
 
     elif mode == "Linux ABI bench":
