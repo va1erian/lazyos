@@ -65,7 +65,7 @@ impl Vfs {
         let Ok((mount, rel)) = self.resolve_mount(&path) else {
             return;
         };
-        let key = self.mounts[mount].cache;
+        let key = self.cache_key(mount);
         let ino = match self.dentry.get(&(key, rel.clone())) {
             Some(dentry) => dentry.ino,
             None if self.inodes.keys().any(|(cached, _)| *cached == key) => {
@@ -83,7 +83,7 @@ impl Vfs {
     pub(super) fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
         let (mount, rel) = self.resolve_mount(path)?;
         self.expire(mount, &rel);
-        let key = self.mounts[mount].cache;
+        let key = self.cache_key(mount);
         if let Some(dentry) = self.dentry.get(&(key, rel.clone())) {
             self.stats.dentry_hits += 1;
             if let Some(meta) = self.inodes.get(&(key, dentry.ino)) {
@@ -102,7 +102,7 @@ impl Vfs {
     /// Record a fresh metadata pair in both caches.
     pub(super) fn insert_cache(&mut self, mount: usize, rel: &str, meta: Meta) {
         let expires = self.mounts[mount].fs.cache_deadline();
-        let key = self.mounts[mount].cache;
+        let key = self.cache_key(mount);
         self.inodes.insert((key, meta.ino), meta);
         self.dentry.insert(
             (key, String::from(rel)),
@@ -119,7 +119,7 @@ impl Vfs {
     /// own clock, so it is believed no longer than any other entry, and a
     /// path through an ancestor that is no longer a directory still fails.
     fn expire(&mut self, mount: usize, rel: &str) {
-        let cache = self.mounts[mount].cache;
+        let cache = self.cache_key(mount);
         let key = (cache, String::from(rel));
         let Some(deadline) = self.dentry.get(&key).and_then(|d| d.expires) else {
             return;
@@ -136,7 +136,7 @@ impl Vfs {
     /// Invalidate a relative path within one mount, its inode, and any cached
     /// descendants when it names an inode that other entries still point at.
     pub(super) fn invalidate_mount_path(&mut self, mount: usize, rel: &str) {
-        let mount = self.mounts[mount].cache;
+        let mount = self.cache_key(mount);
         let ino = self
             .dentry
             .remove(&(mount, String::from(rel)))

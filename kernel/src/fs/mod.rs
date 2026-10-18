@@ -38,6 +38,7 @@
 //! shutdown hook that makes it consistent on disk.
 
 mod abi_attr;
+mod abi_rename;
 pub mod boot_image;
 pub mod bootcfg;
 mod coherence;
@@ -64,6 +65,8 @@ use alloc::vec::Vec;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
+pub use abi_rename::abi_rename;
+pub(crate) use abi_rename::abi_rename_raw;
 use coherence::{abi_changed, native_changed, Change};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // probed by the suite
 pub(crate) use mounts::{mount_data_volume, select_root};
@@ -459,39 +462,6 @@ pub fn abi_rmdir(id: Id, path: &str) -> Result<(), FsError> {
     let removed = openfile::rmdir(id, path);
     abi_changed(path, Change::Name, &removed);
     removed
-}
-
-/// Rename within one mount through the Linux ABI VFS. Open files follow their
-/// name, and one that the rename replaces is unlinked, not destroyed
-/// ([`openfile`]).
-pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
-    hidden::refuse_reserved(to)?;
-    let same = vfs::Path::parse(from) == vfs::Path::parse(to);
-    let displaced = if same {
-        None
-    } else {
-        openfile::displace(id, to)?
-    };
-    match abi_rename_raw(id, from, to) {
-        Ok(()) => {
-            openfile::retarget(from, to);
-            Ok(())
-        }
-        Err(error) => {
-            if let Some(displaced) = displaced {
-                displaced.restore();
-            }
-            Err(error)
-        }
-    }
-}
-
-/// Rename a name with no regard for open descriptors.
-fn abi_rename_raw(id: Id, from: &str, to: &str) -> Result<(), FsError> {
-    let renamed = abi_with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
-    abi_changed(from, Change::Name, &renamed);
-    abi_changed(to, Change::Name, &renamed);
-    renamed
 }
 
 /// Set the ABI creation mask, returning the previous one (`umask(2)`).

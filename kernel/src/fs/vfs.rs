@@ -70,13 +70,6 @@ struct Mount {
     point: Path,
     fs: Arc<dyn Filesystem>,
     flags: MountFlags,
-    /// The first mount of this same filesystem instance, itself for the
-    /// first one: a filesystem mounted at two points (`/tmp` and `/transient`
-    /// are one ramfs) is one set of files under two names, so its cached
-    /// names and inodes are keyed by this index, not by the mount's own.
-    /// Keyed per mount, a `chmod 600 /tmp/x` left `/transient/x` cached as
-    /// 0644 (audit H6).
-    cache: usize,
 }
 
 /// The filesystem root: mount table, caches, and set-once operation surface.
@@ -118,20 +111,24 @@ impl Vfs {
         if self.mounts.iter().any(|mount| mount.point == point) {
             return Err(FsError::Exists);
         }
-        let own = self.mounts.len();
-        let cache = self
-            .mounts
-            .iter()
-            .find(|mount| Arc::ptr_eq(&mount.fs, &fs))
-            .map_or(own, |mount| mount.cache);
-        self.mounts.push(Mount {
-            point,
-            fs,
-            flags,
-            cache,
-        });
+        self.mounts.push(Mount { point, fs, flags });
         self.stats.mounts = self.mounts.len();
         Ok(())
+    }
+
+    /// The index of the first mount of the filesystem instance mount `mount`
+    /// holds: its own for the first, the earlier one for a filesystem mounted
+    /// at two points (`/tmp` and `/transient` are one ramfs). That is the key
+    /// of its cached names and inodes, since the two names are one set of
+    /// files; keyed by `mount` itself, a `chmod 600 /tmp/x` left
+    /// `/transient/x` cached as 0644 (audit H6). Derived each time, not
+    /// stored: an unmount shifts the indices and a stored one would go stale.
+    pub(super) fn cache_key(&self, mount: usize) -> usize {
+        let fs = &self.mounts[mount].fs;
+        self.mounts
+            .iter()
+            .position(|other| Arc::ptr_eq(&other.fs, fs))
+            .unwrap_or(mount)
     }
 
     /// Mount points in mount order, paired with the filesystem's short name.

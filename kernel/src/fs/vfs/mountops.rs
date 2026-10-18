@@ -101,13 +101,15 @@ impl Vfs {
     /// `path` as it is named at the first mount of the filesystem holding it:
     /// `/tmp/x` is `/transient/x` while one ramfs is mounted at both points.
     /// Anything keyed by path text (the open-file registry) uses this form, so
-    /// two names of one file are one key.
+    /// two names of one file are one key. It assumes the two mount points have
+    /// the same mounts below them (true for the one alias in use, `/tmp` and
+    /// `/transient`; a mount under one name only would be misnamed).
     pub fn canonical_path(&self, path: &str) -> alloc::string::String {
         let path = Path::parse(path);
         let Ok((mount, rel)) = self.resolve_mount(&path) else {
             return path.to_path_string();
         };
-        let base = self.mounts[self.mounts[mount].cache].point.to_path_string();
+        let base = self.mounts[self.cache_key(mount)].point.to_path_string();
         match (base.as_str(), rel.is_empty()) {
             (_, true) => base,
             ("/", false) => alloc::format!("/{rel}"),

@@ -129,6 +129,15 @@ fn open_files_case() -> Result<(), String> {
         by_transient.path()
     );
 
+    // A rename onto its own other name is not a replacement: the file stays
+    // where it is instead of being parked as if it were being overwritten.
+    let _ = crate::fs::abi_rename(Id::ROOT, "/tmp/h6", "/transient/h6");
+    check!(
+        crate::fs::abi_stat(Id::ROOT, "/tmp/h6").is_ok() && !by_tmp.path().contains(".unlinked"),
+        "a rename onto the file's other name took the file away: {:?}",
+        by_tmp.path()
+    );
+
     // Unlink under one name while it is open under the other.
     crate::fs::abi_unlink(Id::ROOT, "/transient/h6").map_err(fs_error)?;
     check!(
@@ -158,6 +167,57 @@ fn open_files_case() -> Result<(), String> {
         openfile::open_files() == before,
         "the registry kept {} files",
         openfile::open_files() - before
+    );
+    Ok(())
+}
+
+/// Unmounting shifts the later mounts' indices: the cache keys follow the
+/// instances, not a stored index (a stored one made `canonical_path` index
+/// past the table and let one mount's cache answer for another).
+pub fn alias_mount_survives_unmount() -> Result<(), String> {
+    let root = Id::ROOT;
+    let mut vfs = ram_vfs();
+    let fresh = || -> Arc<dyn Filesystem> { Arc::new(RamFs::new()) };
+    vfs.mkdir(root, "/mnt", 0o755).map_err(fs_error)?;
+    for point in ["/mnt/a", "/mnt/b"] {
+        vfs.mkdir(root, point, 0o755).map_err(fs_error)?;
+        vfs.mount(point, fresh(), MountFlags::default())
+            .map_err(fs_error)?;
+    }
+    vfs.create(root, "/mnt/b/x", 0o644).map_err(fs_error)?;
+    vfs.unmount("/mnt/a").map_err(fs_error)?;
+    check!(
+        vfs.canonical_path("/mnt/b/x") == "/mnt/b/x",
+        "after an unmount a mount is named {:?}",
+        vfs.canonical_path("/mnt/b/x")
+    );
+    check!(
+        vfs.stat(root, "/mnt/b/x").is_ok(),
+        "a surviving mount lost its file"
+    );
+    vfs.mkdir(root, "/mnt/c", 0o755).map_err(fs_error)?;
+    vfs.mount("/mnt/c", fresh(), MountFlags::default())
+        .map_err(fs_error)?;
+    vfs.create(root, "/mnt/c/y", 0o600).map_err(fs_error)?;
+    check!(
+        vfs.stat(root, "/mnt/c/x").err() == Some(FsError::NotFound)
+            && vfs.stat(root, "/mnt/b/y").err() == Some(FsError::NotFound),
+        "two mounts answer for each other's names"
+    );
+    check!(
+        vfs.canonical_path("/mnt/c/y") == "/mnt/c/y",
+        "a new mount is named {:?}",
+        vfs.canonical_path("/mnt/c/y")
+    );
+
+    // The same with the alias: the first name goes, the second keeps working.
+    let mut vfs = aliased_vfs()?;
+    vfs.create(root, "/tmp/x", 0o644).map_err(fs_error)?;
+    vfs.unmount("/transient").map_err(fs_error)?;
+    check!(
+        vfs.canonical_path("/tmp/x") == "/tmp/x" && vfs.stat(root, "/tmp/x").is_ok(),
+        "the surviving name of an alias is {:?}",
+        vfs.canonical_path("/tmp/x")
     );
     Ok(())
 }

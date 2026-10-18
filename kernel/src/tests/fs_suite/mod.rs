@@ -56,6 +56,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("fs_alias_mount_caches_agree", alias_mount_caches_agree),
     ("fs_alias_mount_cache_soak", alias_mount_cache_soak),
     (
+        "fs_alias_mount_survives_unmount",
+        alias_mount_survives_unmount,
+    ),
+    (
         "fs_alias_mount_open_files_are_one_file",
         alias_mount_open_files_are_one_file,
     ),
