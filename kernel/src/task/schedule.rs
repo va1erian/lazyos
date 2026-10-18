@@ -193,7 +193,18 @@ fn resume(mut next: usize, cur: usize) -> u64 {
         }
         let rsp = install(next);
         let Some(ended) = signal::deliver_on_resume(next) else {
-            return rsp;
+            // The delivery may have stopped the task (a default stop parks
+            // it): resuming it would run a task the table says is blocked.
+            let mut tasks = TASKS.lock();
+            if runnable(&tasks, next) {
+                return rsp;
+            }
+            let other = select_next(&mut tasks, next);
+            if other == next || !runnable(&tasks, other) {
+                return rsp;
+            }
+            next = other;
+            continue;
         };
         signal::finish_sweep(&[ended]);
         let mut tasks = TASKS.lock();

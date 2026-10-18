@@ -94,6 +94,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("task_signal_group_end_soak", group_end_soak),
     (
+        "task_signal_stop_reaches_the_native_boundary",
+        stop_reaches_the_native_boundary,
+    ),
+    ("task_signal_stray_wakes_and_init", stray_wakes_and_init),
+    (
         "task_signal_stop_spares_threads_in_kernel",
         stop_leaves_threads_inside_the_kernel_alone,
     ),

@@ -203,6 +203,15 @@ pub fn killed(slot: usize) -> bool {
     })
 }
 
+/// Whether the timer sweep left a handler for thread `slot` undelivered
+/// because its frame needs a file page read in (`sweep::frame_waits_for_file`).
+/// The thread must not go to sleep before the syscall return delivers it: a
+/// wait that sees this returns `Interrupted`, the syscall ends `EINTR`, and
+/// `deliver_linux` lays the frame out in task context.
+pub fn frame_deferred(slot: usize) -> bool {
+    slot != KERNEL_TASK && with_thread(slot, |thread| thread.frame_deferred_at != 0)
+}
+
 /// `execve` replaced address space `old` with `new`: a kill that was pending
 /// for the old image (the task was parked loading the new one) carries over,
 /// so the new image dies on its first return to user mode instead of

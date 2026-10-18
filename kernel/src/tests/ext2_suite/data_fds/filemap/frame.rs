@@ -108,6 +108,21 @@ fn frame_case(dir: &str) -> Result<(), String> {
         signal::pending(first.task) & (1 << signal::SIGUSR1) != 0,
         "the deferred signal is no longer pending"
     );
+    // The thread must not go to sleep with the handler undelivered: its next
+    // wait returns at once so the syscall ends and delivers.
+    check!(
+        signal::frame_deferred(first.task),
+        "the deferral was not recorded"
+    );
+    let queue = crate::task::wait::WaitQueue::new(crate::task::WaitKind::Block);
+    let before = task::current();
+    task::harness::switch_current(first.task);
+    let slept = queue.wait(first.task, None);
+    task::harness::switch_current(before);
+    check!(
+        slept == crate::task::WakeReason::Interrupted,
+        "a thread with a deferred handler went to sleep"
+    );
     for page in 0..2 {
         check!(
             first.space.entry(BASE + page * PAGE).is_none(),
@@ -124,6 +139,10 @@ fn frame_case(dir: &str) -> Result<(), String> {
     check!(
         first.entered(),
         "the handler was not entered once the stack was resident"
+    );
+    check!(
+        !signal::frame_deferred(first.task),
+        "the deferral clock outlived the delivery"
     );
 
     // A task that never leaves user mode and whose stack never becomes

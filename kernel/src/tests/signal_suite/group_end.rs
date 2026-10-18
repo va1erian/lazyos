@@ -318,3 +318,92 @@ pub fn stop_leaves_threads_inside_the_kernel_alone() -> Result<(), String> {
     signal::harness::reset();
     Ok(())
 }
+
+static CONTINUED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// The nap hook of a stopped task: what the user does meanwhile, `SIGCONT`.
+fn send_continue() {
+    let me = task::current();
+    CONTINUED.store(true, core::sync::atomic::Ordering::Relaxed);
+    let _ = signal::send_to_slot(me, me, signal::SIGCONT, SigInfo::user(me, signal::SI_USER));
+}
+
+/// A thread whose boundary is the native (`int 0x80`) gate stops there too
+/// (`deliver_native` used to look only for fatal signals, so `kill -STOP` left
+/// a native service or an xui app idle in `recv` serving), and a stray wake
+/// does not resume a stopped thread; only `SIGCONT` does.
+pub fn stop_reaches_the_native_boundary() -> Result<(), String> {
+    fresh()?;
+    for round in 0..100 {
+        let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+        task::harness::set_kind(slot, task::Kind::Native);
+        task::harness::set_kernel_frame(slot).ok_or("no frame")?;
+        // `kill -STOP` while the thread is inside the kernel: nothing parks it
+        // there, the stop waits for its boundary.
+        send(slot, signal::SIGSTOP)?;
+        check!(
+            task::harness::state(slot) == Some(TaskState::Runnable),
+            "round {round}: the stop parked a thread inside the kernel"
+        );
+        task::harness::switch_current(slot);
+        CONTINUED.store(false, core::sync::atomic::Ordering::Relaxed);
+        task::harness::set_nap_hook(Some(send_continue));
+        signal::deliver_native();
+        task::harness::set_nap_hook(None);
+        check!(
+            CONTINUED.load(core::sync::atomic::Ordering::Relaxed),
+            "round {round}: the native boundary never stopped the thread"
+        );
+        check!(
+            task::harness::state(slot) == Some(TaskState::Runnable)
+                && signal::pending(slot) & (1 << signal::SIGSTOP) == 0,
+            "round {round}: still stopped or still pending after the continue"
+        );
+        task::harness::switch_current(task::KERNEL_TASK);
+
+        task::harness::finish(slot, 0);
+        while task::reap_child().is_some() {}
+    }
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
+/// A stopped thread is not resumed by a wake aimed at where it slept before
+/// the stop, and init is exempt from a group kill (`kill_group` used to carry
+/// that assertion).
+pub fn stray_wakes_and_init() -> Result<(), String> {
+    fresh()?;
+    let slot = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    send(slot, signal::SIGSTOP)?;
+    let stopped = |slot: usize| {
+        matches!(
+            task::harness::state(slot),
+            Some(TaskState::Blocked {
+                wait: WaitKind::Signal,
+                ..
+            })
+        )
+    };
+    check!(stopped(slot), "the user-frame thread was not stopped");
+    for _ in 0..50 {
+        check!(
+            !task::wake_task(slot) && stopped(slot),
+            "a stray wake resumed a stopped thread"
+        );
+    }
+    send(slot, signal::SIGCONT)?;
+    check!(!stopped(slot), "SIGCONT did not resume the thread");
+    task::harness::finish(slot, 0);
+    while task::reap_child().is_some() {}
+
+    let kernel_pml4 = task::harness::pml4(task::KERNEL_TASK).ok_or("no kernel table")?;
+    check!(
+        signal::terminate_process(kernel_pml4, 137) == 0
+            && task::harness::state(task::KERNEL_TASK) == Some(TaskState::Runnable),
+        "a group kill reached init"
+    );
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}

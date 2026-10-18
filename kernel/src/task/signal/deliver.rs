@@ -83,6 +83,9 @@ pub(super) fn arm_handler(pml4: u64, slot: usize, sig: u8) -> Option<Armed> {
         // After `rt_sigsuspend` the frame must restore the mask the suspend
         // replaced, not the temporary one the handler runs under.
         let saved_mask = thread.suspend_restore.take().unwrap_or(thread.blocked);
+        // The handler is being delivered (here, or from a syscall return after
+        // a deferral): a later deferral starts its clock afresh.
+        thread.frame_deferred_at = 0;
         let mut next = thread.blocked | mask;
         if flags & SA_NODEFER == 0 {
             next |= bit(sig);
@@ -283,7 +286,16 @@ pub(super) fn wait_continued() {
             Some(TaskState::Blocked {
                 wait: WaitKind::Signal,
                 ..
-            }) => crate::task::nap(),
+            }) => {
+                // The suite has no second task to send the `SIGCONT`, and its
+                // "current" task is not the one running: it plays the peer
+                // instead of halting.
+                #[cfg(lazyos_tests)]
+                if crate::task::harness::run_nap_hook() {
+                    continue;
+                }
+                crate::task::nap();
+            }
             Some(TaskState::Done) | None => halt_forever(),
             _ => return,
         }

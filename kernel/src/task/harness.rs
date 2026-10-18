@@ -448,13 +448,14 @@ pub fn set_nap_hook(hook: Option<fn()>) {
     *NAP_HOOK.lock() = hook;
 }
 
-/// Run the [`NAP_HOOK`], if any, with its lock released (the hook may wake
+/// Run the [`NAP_HOOK`], if any (reporting whether there was one), with its lock released (the hook may wake
 /// the waiter, which takes queue and task-table locks).
-pub(super) fn run_nap_hook() {
+pub(crate) fn run_nap_hook() -> bool {
     let hook = *NAP_HOOK.lock();
     if let Some(hook) = hook {
         hook();
     }
+    hook.is_some()
 }
 
 /// Wake `index` from its wait with `Interrupted`, as a deliverable signal

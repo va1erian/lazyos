@@ -90,7 +90,7 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
     // Any blocked state, a stop (`WaitKind::Signal`) included: the kill ends
     // the stop, and the woken wait sees `Interrupted`.
     for slot in parked.iter() {
-        wake_task_with(slot, WakeReason::Interrupted);
+        crate::task::wake_stopped_with(slot, WakeReason::Interrupted);
     }
     (status, ended)
 }

@@ -390,7 +390,7 @@ pub(super) fn continue_process(pml4: u64) {
         with_thread(slot, |thread| thread.pending &= !STOPS);
     }
     for slot in stopped.iter() {
-        wake_task_with(slot, WakeReason::Woken);
+        crate::task::wake_stopped_with(slot, WakeReason::Woken);
     }
 }
 
