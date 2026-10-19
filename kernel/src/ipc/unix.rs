@@ -45,6 +45,9 @@ pub struct Listener {
     accept_wq: WaitQueue,
     /// Connections delivered so far, the freshness counter for `epoll`.
     connects: AtomicU64,
+    /// The last `SCM_RIGHTS` cycle walk that met this listener
+    /// (`ipc::pipe::reach`).
+    pub walk: AtomicU64,
 }
 
 impl Listener {
@@ -56,6 +59,7 @@ impl Listener {
             pending: Mutex::new(VecDeque::new()),
             accept_wq: WaitQueue::new(WaitKind::UnixAccept),
             connects: AtomicU64::new(0),
+            walk: AtomicU64::new(0),
         })
     }
 

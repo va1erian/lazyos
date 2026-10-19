@@ -182,32 +182,12 @@ pub(super) fn deliver(
     })
 }
 
-/// Refused sends reported so far (every one is counted, the first
-/// [`REFUSALS_SHOWN`] and then every 1024th are printed).
-static REFUSALS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-const REFUSALS_SHOWN: u64 = 32;
-
-/// `code` as it is, after printing `PROC:SCM:REFUSE` when it is the
-/// `ETOOMANYREFS` of a refused `SCM_RIGHTS` send (`why`: `quota` for the
-/// in-flight budget, `cycle` for `ipc::pipe::reach`). A program usually just
-/// loses the message (musl calls the error "No error information"), so the
-/// kernel says which process and descriptor it was (issue #865).
-pub(super) fn note_refusal(code: u64, fd: u64, why: &str) -> u64 {
-    if code != err(ETOOMANYREFS) {
-        return code;
-    }
-    let count = REFUSALS.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
-    if count <= REFUSALS_SHOWN || count % 1024 == 0 {
-        let (comm, len) = task::linuxstate::comm(task::current());
-        crate::trace::line!(
-            tracefmt::Channel::Proc,
-            "SCM:REFUSE why={} tgid={} fd={} count={} comm={}",
-            why,
-            task::linuxstate::tgid(),
-            fd,
-            count,
-            core::str::from_utf8(&comm[..len]).unwrap_or("?")
-        );
+/// `code` as it is, after reporting it (`PROC:SCM:REFUSE why=quota`) when it
+/// is the `ETOOMANYREFS` of a spent in-flight budget. The other refusals are
+/// reported where they are decided (`ipc::pipe::reach`).
+pub(super) fn note_quota(code: u64) -> u64 {
+    if code == err(ETOOMANYREFS) {
+        crate::ipc::pipe::note_refusal(crate::ipc::pipe::Refusal::Quota);
     }
     code
 }

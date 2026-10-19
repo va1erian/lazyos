@@ -42,6 +42,7 @@ mod rights;
 mod small;
 mod socketpair;
 
+pub use reach::{note_refusal, Refusal};
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the tests watch the in-flight count
 pub use rights::in_flight;
 pub use rights::{Rights, RightsError, SCM_MAX_FD};

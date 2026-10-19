@@ -100,7 +100,7 @@ issue #865).
    | `LOCK:WAIT lock= holder= thread= nr= held_in= waiters= ms=` | a task waited over 500 ms for a contended lock (`vfs`, `ext2`, `ata`, `ahci`, `nvme`), who held it and the syscall the holder was in (`held_in=linux:<nr>`, `native:<nr>` or `-`) |
    | `SERIAL:BACKLOG bytes= dropped= max_io_us=` | the serial ring holds over 4 KiB (`max_io_us`: the longest port access in the last 5 s; large means the host is slow to take bytes) |
    | `SERIAL:DROPPED bytes= total=` | output the ring had no room for (whole lines; the ring never makes a writer wait). The harness judges fail a log that has one |
-   | `PROC:SCM:REFUSE why= tgid= fd= count= comm=` | the kernel refused an `SCM_RIGHTS` send with `ETOOMANYREFS` (`why=quota`: the in-flight budget, `why=cycle`: it would close a loop of sockets). WebKit then logs `Error sending IPC message: No error information` and drops that one message: a reply lost this way leaves a page waiting for good |
+   | `PROC:SCM:REFUSE why= tgid= count= comm=` | the kernel refused an `SCM_RIGHTS` send with `ETOOMANYREFS` (`why=quota`: the in-flight budget, `cycle`: it would close a loop of sockets, `epoll`: an epoll instance never travels, `limit`: the walk met too many sockets; 20 lines per 10 s, then `PROC:SCM:SUPPRESSED n=`). WebKit then logs `Error sending IPC message: No error information` and drops that one message: a reply lost this way leaves a page waiting for good |
    | `ENOSYS <nr> <name>` then `ENOSYS ... count=` | an unimplemented syscall, once per process, then a count every 10 s |
 
    `IRQOFF:MAX` lines name interrupts-off stretches; none should end in `kernel/src/serial/tx.rs` any more.

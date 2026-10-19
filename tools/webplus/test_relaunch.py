@@ -17,7 +17,7 @@ import relaunch_run  # noqa: E402
 REFUSED = """\
 INIT:LAUNCH:PASS app=os.lazy.lazywebplus pid=25 session=1
 WEBPLUS:UP:PASS
-PROC:SCM:REFUSE why=cycle tgid=25 fd=7 count=1 comm=ReceiveQueue
+PROC:SCM:REFUSE why=cycle tgid=25 count=1 comm=ReceiveQueue
 Error sending IPC message: No error information
 WEBPLUS:WEBPROCESS:UNRESPONSIVE:36
 """
@@ -42,17 +42,24 @@ class Verdict(unittest.TestCase):
     def test_a_refused_send_and_the_hang_behind_it_are_found(self):
         found = "\n".join(relaunch_run.verdict(REFUSED, 2))
         self.assertIn("PROC:SCM:REFUSE why=cycle", found)
-        self.assertIn("lost 1 IPC message", found)
-        self.assertIn("WEBPROCESS:UNRESPONSIVE", found)
+        self.assertIn("WebKit lost an IPC message", found)
+        self.assertIn("unresponsive", found)
         self.assertIn("loaded 0 times, not 3", found)
 
     def test_a_killed_network_process_fails_even_when_the_page_comes_back(self):
         found = "\n".join(relaunch_run.verdict(KILLED, 1))
         self.assertIn("NetworkProcess (pid 0) was ended (crash)", found)
-        self.assertIn("lost 1 IPC message", found)
+        self.assertIn("WebKit lost an IPC message", found)
 
     def test_a_healthy_run_passes(self):
         self.assertEqual(relaunch_run.verdict(HEALTHY, 2), [])
+
+    def test_a_slow_start_is_not_a_hang_but_a_crash_is(self):
+        slow = HEALTHY + ("LOCK:WAIT lock=ext2 holder=39/fork:fork thread=15/logd tgid=15 abi=native nr=28 "
+                          "held_in=linux:59 waiters=3 ms=510 comm=logd\n")
+        self.assertEqual(relaunch_run.verdict(slow, 2), [])
+        crash = HEALTHY + "PROC:EXIT tgid=39 thread=39/fork status=- sig=11 by=kernel parent=30 cpu_ms=9 comm=webprocess\n"
+        self.assertEqual(relaunch_run.verdict(crash, 2), ["webprocess (tgid 39) died of signal 11"])
 
     def test_the_live_verdict_sees_a_refused_send_too(self):
         hang, _ = live_run.verdict(REFUSED)

@@ -121,8 +121,9 @@ pub fn scmrights_epoll_cycle_soak() -> Result<(), String> {
 }
 
 /// A listener with a connection pending cannot be sent through that
-/// connection (it holds the connection's other half), but travels through
-/// anything else, and a listener nobody connected to is free to go.
+/// connection (it holds the connection's other half), nor through a pair that
+/// connection carries; it travels through anything else, and a listener
+/// nobody connected to is free to go.
 pub fn scmrights_listener_pending_connection() -> Result<(), String> {
     let pipes_before = pipe::Pipe::live();
     let p = processes()?;

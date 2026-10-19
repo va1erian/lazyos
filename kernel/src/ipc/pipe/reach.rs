@@ -8,16 +8,17 @@
 //! purge them, so their in-flight budget leaks for the rest of the boot.
 //! Linux reclaims such sets with a garbage collector; there is none here, so
 //! the edge that would close a cycle is refused (`ETOOMANYREFS`) and the graph
-//! stays a forest.
+//! stays acyclic (two carried ends may still lead to one pair).
 //!
 //! The check is exact: queueing `fds` on `dest` is refused only when `dest`
-//! is reachable from them. A pair whose queue already holds descriptors still
-//! travels when none of them leads back (issue #865: WebKit's NetworkProcess
-//! sends the service-worker store's shared memory on a new connection while
-//! the connection's other end is on its way to the UI process; refusing that
-//! end lost the reply the WebProcess waits for, and its page hung until WebKit
-//! killed the NetworkProcess). An epoll instance never travels: it can gain a
-//! watched socket after it is in flight, so its edges cannot be checked once.
+//! is one of the carried sockets or reachable from them. A pair whose queue
+//! already holds descriptors still travels when none of them leads back
+//! (issue #865: WebKit's NetworkProcess sends the service-worker store's
+//! shared memory on a new connection while the connection's other end is on
+//! its way to the UI process; refusing that end lost the reply the WebProcess
+//! waits for, and its page hung until WebKit killed the NetworkProcess, or for
+//! good). An epoll instance never travels: it can gain a watched socket after
+//! it is in flight, so its edges cannot be checked once.
 //!
 //! Locking: every enqueue that adds an edge (descriptors that hold sockets)
 //! holds [`GRAPH`] from its walk to its enqueue, so two sends cannot each
@@ -28,9 +29,15 @@
 //! (dropping the last reference to a socket closes it, which takes other
 //! locks). A new connection adds the edge listener -> new pair without the
 //! lock: the new pair's queues are empty, so it cannot close a cycle.
+//!
+//! Cost: each socket is expanded once per walk (a mark of the walk's number,
+//! [`EPOCH`], which only a walk holding [`GRAPH`] writes), so a walk reads
+//! every reachable queue once: at most the live pairs ([`super::MAX_PIPES`]
+//! halves), the listeners and the descriptors in flight.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, MutexGuard};
 
 use super::{Rights, SocketPair};
@@ -40,23 +47,18 @@ use crate::task::Fd;
 /// Serialises the edge-adding enqueues (see the module comment).
 static GRAPH: Mutex<()> = Mutex::new(());
 
-/// Most sockets one walk visits before it refuses: far more than any real
-/// program parks in flight, and a bound on the time [`GRAPH`] is held.
-const MAX_NODES: usize = 4096;
+/// The number of the current (or last) walk; marks equal to it are visited.
+static EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Most distinct sockets one walk expands before it refuses: far more than
+/// the live pairs allow, so only a crowd of listeners in flight reaches it.
+const MAX_NODES: usize = 1024;
 
 /// A socket the walk passes through.
+#[derive(Clone)]
 pub(super) enum Node {
     Pair(Arc<SocketPair>),
     Listener(Arc<Listener>),
-}
-
-impl Clone for Node {
-    fn clone(&self) -> Node {
-        match self {
-            Node::Pair(pair) => Node::Pair(Arc::clone(pair)),
-            Node::Listener(listener) => Node::Listener(Arc::clone(listener)),
-        }
-    }
 }
 
 impl Node {
@@ -69,10 +71,11 @@ impl Node {
         }
     }
 
-    fn addr(&self) -> usize {
+    /// The mark of the walk that last met this socket.
+    fn mark(&self) -> &AtomicU64 {
         match self {
-            Node::Pair(pair) => Arc::as_ptr(pair) as usize,
-            Node::Listener(listener) => Arc::as_ptr(listener) as usize,
+            Node::Pair(pair) => &pair.walk,
+            Node::Listener(listener) => &listener.walk,
         }
     }
 }
@@ -86,94 +89,160 @@ impl SocketPair {
 }
 
 /// What a send of `rights` needs before its descriptors may be queued.
-pub(super) enum Plan {
+enum Plan {
     /// Nothing that holds a socket: no edge, no check.
     Free,
     /// Hold [`GRAPH`] and walk.
     Walk,
-    /// An epoll instance: refused outright.
-    Refuse,
+}
+
+/// Why a send of descriptors was refused (`PROC:SCM:REFUSE why=`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The sender's in-flight quota or the global ceiling is spent.
+    Quota,
+    /// Queueing them would close a cycle.
+    Cycle,
+    /// An epoll instance never travels.
+    Epoll,
+    /// The walk met more than [`MAX_NODES`] sockets or could not allocate.
+    Limit,
+}
+
+impl Refusal {
+    fn name(self) -> &'static str {
+        match self {
+            Refusal::Quota => "quota",
+            Refusal::Cycle => "cycle",
+            Refusal::Epoll => "epoll",
+            Refusal::Limit => "limit",
+        }
+    }
 }
 
 /// How queueing `rights` must be checked.
-pub(super) fn plan(rights: &Rights) -> Plan {
+fn plan(rights: &Rights) -> Result<Plan, Refusal> {
     let mut walk = false;
     for fd in rights.fds() {
         match fd {
-            Fd::Epoll { .. } => return Plan::Refuse,
+            Fd::Epoll { .. } => return Err(Refusal::Epoll),
             Fd::Socket { .. } | Fd::UnixListener { .. } => walk = true,
             _ => {}
         }
     }
-    if walk {
-        Plan::Walk
-    } else {
-        Plan::Free
+    Ok(if walk { Plan::Walk } else { Plan::Free })
+}
+
+/// What queueing `rights` on `dest` (the pair a direction belongs to; none
+/// for a pipe) needs: `Ok(None)` when it adds no edge, `Ok(Some(lock))` when
+/// the walk found no cycle (keep the lock until the descriptors are queued),
+/// or why it is refused (the lock is released by then). What the walk met is
+/// left in `held` (see [`check`]).
+pub(super) fn admit(
+    rights: Option<&Rights>,
+    dest: Option<&SocketPair>,
+    held: &mut Vec<Node>,
+) -> Result<Option<MutexGuard<'static, ()>>, Refusal> {
+    let (Some(rights), Some(dest)) = (rights, dest) else {
+        return Ok(None);
+    };
+    match plan(rights)? {
+        Plan::Free => Ok(None),
+        Plan::Walk => {
+            let graph = GRAPH.lock();
+            check(rights, dest, held)?;
+            Ok(Some(graph))
+        }
     }
 }
 
-/// The lock an edge-adding enqueue holds from its walk to its enqueue.
-pub(super) fn lock() -> MutexGuard<'static, ()> {
-    GRAPH.lock()
-}
-
-/// Whether `dest` is reachable from `rights` (the send would close a cycle).
-/// Called with [`lock`] held and no queue lock. Every socket the walk meets
-/// is appended to `held` (a breadth-first queue that never shrinks), for the
-/// caller to drop once its locks are released. A walk that cannot allocate,
-/// or meets more than [`MAX_NODES`] sockets, answers yes: refusing a send is
-/// recoverable, a cycle is not.
-pub(super) fn reaches(rights: &Rights, dest: &SocketPair, held: &mut Vec<Node>) -> bool {
+/// Whether queueing `rights` on `dest` may go ahead: `Err` when `dest` is
+/// reachable from them (or the walk could not finish). Called with [`GRAPH`]
+/// held and no queue lock. Every socket the walk expands is appended to
+/// `held` once (a breadth-first queue that never shrinks), for the caller to
+/// drop once its locks are released. A walk that cannot allocate, or meets
+/// more than [`MAX_NODES`] sockets, refuses: a refused send is recoverable, a
+/// cycle is not.
+fn check(rights: &Rights, dest: &SocketPair, held: &mut Vec<Node>) -> Result<(), Refusal> {
+    // Walks are serialised by GRAPH: nobody else writes a mark meanwhile.
+    let epoch = EPOCH.fetch_add(1, Ordering::Relaxed) + 1;
     let start = held.len();
-    if !rights.fds().iter().all(|fd| push(held, fd)) {
-        return true;
+    let mut ok = true;
+    for fd in rights.fds() {
+        ok = ok && push(held, epoch, fd);
     }
     let mut next = start;
-    while next < held.len() {
+    while ok && next < held.len() {
         if held.len() - start > MAX_NODES {
-            return true;
+            return Err(Refusal::Limit);
         }
         let node = held[next].clone();
-        let addr = node.addr();
         next += 1;
         if let Node::Pair(pair) = &node {
             if core::ptr::eq(&**pair, dest) {
-                return true;
+                return Err(Refusal::Cycle);
             }
         }
-        // Met before (the graph is a forest, but two carried descriptors may
-        // lead to one socket): expanded once is enough.
-        if held[start..next - 1].iter().any(|old| old.addr() == addr) {
-            continue;
-        }
-        let complete = match &node {
-            Node::Pair(pair) => pair.queued_fds(|fd| push(held, fd)),
-            Node::Listener(listener) => listener.pending_each(|pair| push_pair(held, pair)),
+        ok = match &node {
+            Node::Pair(pair) => pair.queued_fds(|fd| push(held, epoch, fd)),
+            Node::Listener(listener) => {
+                listener.pending_each(|pair| push_node(held, epoch, Node::Pair(Arc::clone(pair))))
+            }
         };
-        if !complete {
-            return true;
-        }
+        crate::arch::irq_window::poll_point();
     }
-    false
+    if ok {
+        Ok(())
+    } else {
+        Err(Refusal::Limit)
+    }
 }
 
-/// Append the node `fd` stands for; false when `held` cannot grow.
-fn push(held: &mut Vec<Node>, fd: &Fd) -> bool {
+/// Append the node `fd` stands for, unless this walk met it already; false
+/// when `held` cannot grow.
+fn push(held: &mut Vec<Node>, epoch: u64, fd: &Fd) -> bool {
     match Node::of(fd) {
-        Some(node) => {
-            held.try_reserve(1).is_ok() && {
-                held.push(node);
-                true
-            }
-        }
+        Some(node) => push_node(held, epoch, node),
         None => true,
     }
 }
 
-/// Append a listener's pending connection; false when `held` cannot grow.
-fn push_pair(held: &mut Vec<Node>, pair: &Arc<SocketPair>) -> bool {
+fn push_node(held: &mut Vec<Node>, epoch: u64, node: Node) -> bool {
+    if node.mark().swap(epoch, Ordering::Relaxed) == epoch {
+        return true;
+    }
     held.try_reserve(1).is_ok() && {
-        held.push(Node::Pair(Arc::clone(pair)));
+        held.push(node);
         true
     }
+}
+
+/// Refused sends of descriptors, a line each while the budget lasts.
+static REFUSALS: tracefmt::Budget = tracefmt::Budget::new(20, 1000);
+/// Every refusal of the boot, for the `count=` field.
+static REFUSED: AtomicU64 = AtomicU64::new(0);
+
+/// Print `PROC:SCM:REFUSE` for a refused `SCM_RIGHTS` send of the current
+/// task. A program usually just loses the message (musl calls `ETOOMANYREFS`
+/// "No error information"), so the kernel says which process it was and why
+/// (issue #865). Call it with no lock held: it reads the task table.
+pub fn note_refusal(why: Refusal) {
+    let count = REFUSED.fetch_add(1, Ordering::Relaxed) + 1;
+    match REFUSALS.charge(crate::task::ticks()) {
+        tracefmt::Charge::Deny => return,
+        tracefmt::Charge::AllowAfter(n) => {
+            crate::trace::line!(tracefmt::Channel::Proc, "SCM:SUPPRESSED n={n}");
+        }
+        tracefmt::Charge::Allow => {}
+    }
+    let me = crate::task::current();
+    let (comm, len) = crate::task::linuxstate::comm(me);
+    crate::trace::line!(
+        tracefmt::Channel::Proc,
+        "SCM:REFUSE why={} tgid={} count={} comm={}",
+        why.name(),
+        crate::task::linuxstate::tgid(),
+        count,
+        core::str::from_utf8(&comm[..len]).unwrap_or("?")
+    );
 }

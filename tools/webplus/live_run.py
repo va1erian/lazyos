@@ -80,9 +80,10 @@ def verdict(text: str) -> tuple[list[str], list[str]]:
     for tgid, sig, comm in re.findall(r"PROC:EXIT tgid=(\d+) \S+ status=\S+ sig=(\d+) \S+ \S+ \S+ comm=(\S+)", text):
         if int(sig) in CRASH_SIGNALS and comm in BROWSER_PROGRAMS:
             hang.append(f"{comm} (tgid {tgid}) died of signal {sig}")
-    waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) .*? ms=(\d+) comm=(\S+)", text)
-    for lock, holder, thread, ms, comm in waits:
-        if int(ms) >= 500:
+    waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) (.*?) ms=(\d+) comm=(\S+)", text)
+    for lock, holder, thread, middle, ms, comm in waits:
+        # The holder in execve: the known start-up cost again (a 100 MB program read under the ext2 lock).
+        if int(ms) >= 500 and "held_in=linux:59 " not in middle + " ":
             hang.append(f"{comm} waited {ms} ms for {lock}, held by {holder}")
     for line in re.findall(r"SCHED:STUCK [^\n]*", text):
         if "abi=linux nr=59 " not in line:  # a slow execve of a 100 MB program is the known start-up cost

@@ -433,18 +433,18 @@ pub fn scmrights_cycles_refused() -> Result<(), String> {
         "a refusal left {} descriptors in flight",
         pipe::in_flight()
     );
-    // An idle pair travels; the carrying pair is then pinned until read.
+    // An idle pair travels; the pair carrying it cannot then go through it.
     check!(
         send_fds(p.a, b"c", &[p.sa]) == 1,
         "an idle seqpacket end through a"
     );
     check!(
         send_fds(p.sa, b"x", &[p.b]) == ETOOMANYREFS,
-        "an end of a carrying pair through sa"
+        "an end of the pair that carries sa through sa"
     );
     check!(
         send_fds(p.sa, b"x", &[p.a]) == ETOOMANYREFS,
-        "the other end of a carrying pair through sa"
+        "the other end of the pair that carries sa through sa"
     );
     check!(
         send_fds(p.sa, b"y", &[p.w]) == 1,

@@ -291,6 +291,11 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "compat_scmrights_carrying_pair_soak",
         scmrights_carrying_pair_soak,
     ),
+    (
+        "compat_scmrights_random_graph_soak",
+        scmrights_random_graph_soak,
+    ),
+    ("compat_scmrights_walk_bound", scmrights_walk_bound),
     ("compat_memfd_file_operations", memfd_file_operations),
     (
         "compat_memfd_shared_between_spaces",

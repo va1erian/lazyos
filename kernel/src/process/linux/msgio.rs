@@ -186,7 +186,7 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     let mut rights = if header.control != 0 && header.controllen != 0 {
         match scm::parse_send(header.control, header.controllen) {
             Ok(rights) => rights,
-            Err(code) => return scm::note_refusal(code, fd, "quota"),
+            Err(code) => return scm::note_quota(code),
         }
     } else {
         None
@@ -201,7 +201,7 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     // when `rights` drops (a message with no data carries nothing).
     let send = super::socket::sys_sendto_rights;
     if is_message_socket(fd) {
-        let sent = match parts.as_slice() {
+        return match parts.as_slice() {
             [] => send(fd, 0, 0, to, (dont_wait, &mut rights)),
             [(base, len)] => send(fd, *base, *len, to, (dont_wait, &mut rights)),
             // A seqpacket gather is one record (Linux builds it from the segments);
@@ -211,17 +211,12 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
             }
             _ => err(EOPNOTSUPP),
         };
-        return scm::note_refusal(sent, fd, "cycle");
     }
     let mut sent = 0u64;
     for (base, len) in parts {
         let n = send(fd, base, len, to, (dont_wait, &mut rights));
         if (n as i64) < 0 {
-            return if sent > 0 {
-                sent
-            } else {
-                scm::note_refusal(n, fd, "cycle")
-            };
+            return if sent > 0 { sent } else { n };
         }
         sent += n;
         if n < len {

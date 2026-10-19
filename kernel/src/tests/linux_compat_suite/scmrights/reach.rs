@@ -8,7 +8,7 @@
 use super::*;
 
 /// The NetworkProcess's pattern: `(n_server, n_client)` is a new connection,
-/// `ui` the pair it travels through. Returns the four descriptors.
+/// `ui` the pair it travels through. Returns `(server, client)`.
 fn new_connection_with_handle(ui: u64, handle: u64) -> Result<(u64, u64), String> {
     let (server, client) = seqpair()?;
     check!(
@@ -47,9 +47,14 @@ pub fn scmrights_carrying_pair_travels() -> Result<(), String> {
     let (server, client) = new_connection_with_handle(p.sa, p.r)?;
     let forwarded = take_one(p.sb, "the forwarded client end")?;
     let handle = take_one(forwarded, "the handle through the forwarded end")?;
+    check!(send_fds(server, b"x", &[]) == 1, "data on the server end");
+    let mut buf = [0u8; 4];
+    let got = recv_fds(forwarded, &mut buf, Some(4), 0);
     check!(
-        send_fds(server, b"x", &[]) == 1 && take_one(forwarded, "data").is_err(),
-        "the forwarded end is the connection"
+        got.n == 1 && got.fds.is_empty() && buf[0] == b'x',
+        "the forwarded end is the connection: n={:#x} fds={}",
+        got.n,
+        got.fds.len()
     );
     for fd in [server, client, forwarded, handle] {
         close(fd);

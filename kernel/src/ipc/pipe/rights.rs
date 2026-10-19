@@ -243,25 +243,18 @@ impl Pipe {
         }
         loop {
             // Descriptors that hold sockets add edges to the graph of sockets
-            // in flight: checked under the graph lock, which stays held until
-            // they are queued (`reach`). `held` keeps what the walk met alive
-            // until every lock is released (it is declared first, so it is
-            // dropped last).
+            // in flight: checked under the graph lock, held until they are
+            // queued (`reach`). `held` keeps what the walk met alive until
+            // every lock is released (declared first, it is dropped last).
             let mut held = Vec::new();
-            let plan = match (rights.as_ref(), guard) {
-                (Some(carried), Some(_)) => reach::plan(carried),
-                _ => reach::Plan::Free,
-            };
-            let _graph = match plan {
-                reach::Plan::Free => None,
-                reach::Plan::Refuse => return Err(Error::TooManyRefs),
-                reach::Plan::Walk => Some(reach::lock()),
-            };
-            if let (Some(carried), Some(pair), Some(_)) = (rights.as_ref(), guard, &_graph) {
-                if reach::reaches(carried, pair, &mut held) {
+            let graph = match reach::admit(rights.as_ref(), guard, &mut held) {
+                Ok(graph) => graph,
+                Err(why) => {
+                    drop(held);
+                    reach::note_refusal(why);
                     return Err(Error::TooManyRefs);
                 }
-            }
+            };
             {
                 let mut ring = self.state.lock();
                 if self.readers.load(Ordering::Acquire) == 0 {
@@ -289,6 +282,7 @@ impl Pipe {
                         });
                     }
                     drop(ring);
+                    drop(graph);
                     self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
                     crate::task::notify_poll_key(self as *const Self as u64);
@@ -299,7 +293,7 @@ impl Pipe {
             if nonblock {
                 return Err(Error::WouldBlock);
             }
-            drop(_graph);
+            drop(graph);
             drop(held);
             block_on(&self.write_wq, deadline)?;
         }

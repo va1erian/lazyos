@@ -37,6 +37,7 @@ webplus_run = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(webplus_run)
 
 import judge  # noqa: E402
+import live_run  # noqa: E402
 import session  # noqa: E402
 
 #: A small site that installs a service worker on its first visit.
@@ -76,17 +77,12 @@ def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -
 
 
 def verdict(text: str, cycles: int) -> list[str]:
-    """What went wrong, from a serial log of `relaunch_session` (empty: nothing)."""
-    found = []
-    if "WEBPLUS:WEBPROCESS:UNRESPONSIVE" in text:
-        found.append("the page's process stopped answering (WEBPROCESS:UNRESPONSIVE)")
+    """What went wrong, from a serial log of `relaunch_session` (empty: nothing): `live_run`'s hang signs (an
+    unresponsive page, a refused sendmsg, a lost IPC message, a crash, a stuck call), a NetworkProcess WebKit
+    ended, and a start that did not reach its start page."""
+    found, _ = live_run.verdict(text)
     for pid, reason in re.findall(r"WEBPLUS:NETWORKPROCESS:GONE:(-?\d+):(\S+)", text):
         found.append(f"the NetworkProcess (pid {pid}) was ended ({reason})")
-    for line in re.findall(r"PROC:SCM:REFUSE [^\n]*", text):
-        found.append(f"the kernel refused a sendmsg: {line.strip()}")
-    sends = text.count("Error sending IPC message")
-    if sends:
-        found.append(f"WebKit lost {sends} IPC message(s) to a failed sendmsg (\"Error sending IPC message\")")
     starts = text.count(f"{judge.P}:LOAD:{judge.START}")
     if starts < cycles + 1:
         found.append(f"the start page loaded {starts} times, not {cycles + 1}")
@@ -123,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
         ok, text = webplus_run.run_session(steps, out, args, screen=args.mode)
         print(f"session {'ok' if ok else 'FAILED (it may have stopped on a marker; read the log)'}")
     found = verdict(text, args.cycles)
+    if not args.judge_only and not ok:
+        found.append(f"the session did not finish ({out / 'summary.json'} says why)")
     for finding in found:
         print(f"  HANG: {finding}")
     print(f"{judge.P}:RELAUNCH:" + ("FAIL" if found else "PASS"))
