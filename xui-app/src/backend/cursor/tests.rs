@@ -34,6 +34,7 @@ fn node(parent: ParentRef, bounds: Rect) -> Node {
         enabled: true,
         focus_stop: false,
         wants_tab: false,
+        popup: false,
         text: String::new(),
         painter: None,
         clip: None,

@@ -1,7 +1,7 @@
 //! Keyboard focus: delivery of focus changes, focus-stop membership, and the
 //! Tab/PageUp/PageDown focus cycle.
 
-use xui_core::backend::{Event, WidgetId, WindowId};
+use xui_core::backend::{Event, NodeKind, NodeSpec, WidgetId, WindowId};
 use xui_core::Modifiers;
 
 use super::geometry::effectively_visible;
@@ -29,6 +29,25 @@ pub(super) fn node_wants_tab(nodes: &[(WidgetId, Node)], id: WidgetId) -> bool {
         .find(|(node_id, _)| *node_id == id)
         .is_some_and(|(_, node)| node.wants_tab && node.enabled)
         && effectively_visible(nodes, id)
+}
+
+/// Whether a node joins click-focus and the focus cycle: the explicit Tab
+/// order, plus the button-like controls xui marks as focusable at the platform
+/// layer but not as tab stops.
+pub(super) fn focus_stop(spec: &NodeSpec) -> bool {
+    spec.tab_stop
+        || matches!(
+            spec.kind,
+            NodeKind::Button
+                | NodeKind::CheckBox
+                | NodeKind::Radio
+                | NodeKind::Slider
+                | NodeKind::ListView
+                | NodeKind::TreeView
+                | NodeKind::Toolbar
+                | NodeKind::Tabs
+                | NodeKind::ComboBox
+        )
 }
 
 /// What a Tab press with `modifiers` does when the focused widget does (or
@@ -121,6 +140,7 @@ mod tests {
             enabled: true,
             focus_stop: true,
             wants_tab,
+            popup: false,
             text: String::new(),
             painter: None,
             clip: None,

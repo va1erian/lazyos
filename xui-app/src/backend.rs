@@ -19,7 +19,11 @@
 //! backend focus to the node under them (when it is focusable), `Tab` and
 //! `Shift+Tab` cycle the focus across focus stops, `SetFocus`/`KillFocus` are
 //! delivered to the affected widgets, and key/char events go to the focused
-//! node rather than the node under the pointer. Modifier bits (and the client
+//! node rather than the node under the pointer. A press outside a popup
+//! (`NodeSpec::popup`, a menu drop-down) that holds the focus takes it from the
+//! popup (`KillFocus`), which closes the menu; `Backend::focus_holder` names the
+//! node that holds it, so a menu can tell the focus moving to its own bar from
+//! that. Modifier bits (and the client
 //! key codes) are decoded per `docs/architecture/display.md`; `PageUp`/
 //! `PageDown` reach the focused widget so the Editor can scroll.
 //!
@@ -43,6 +47,7 @@ mod moves;
 mod node;
 mod origin;
 mod pointer;
+mod popup_focus;
 mod render;
 mod session_input;
 #[cfg(target_os = "linux")]
@@ -240,6 +245,9 @@ struct Node {
     /// Whether the widget handles Tab and Shift+Tab itself (`NodeSpec::wants_tab`:
     /// a code editor indents), so Tab reaches it instead of moving the focus.
     wants_tab: bool,
+    /// Whether the node is a transient popup surface (`NodeSpec::popup`, a
+    /// menu drop-down): a press outside it takes the keyboard focus from it.
+    popup: bool,
     /// Clips this node's descendants, in its own coordinates (`set_clip`).
     clip: Option<Rect>,
     text: String,

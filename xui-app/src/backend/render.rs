@@ -350,6 +350,7 @@ mod tests {
             enabled: true,
             focus_stop: false,
             wants_tab: false,
+            popup: false,
             clip: None,
             text: String::new(),
             painter: Some(painter),

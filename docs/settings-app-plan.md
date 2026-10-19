@@ -86,7 +86,7 @@ was `user/src/bin/xuid/menu.rs`).
 
 Verified by `tools/screenshot/examples/xui_settings.json` (serial markers `SETTINGS:UP:PASS`, `SETTINGS:MSG:*`, `THEME:APPLIED`, `SETTINGS:CLOSE:PASS`).
 
-**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed upstream in `va1erian/xui` (#248, `58c1a6e`, included in the current pin `016e9b79`).
+**Toolkit dependency.** `ColorPicker` ignored clicks when not at its container's top-left (event coordinates are node-local, `Ui::bounds` is parent-relative). Fixed upstream in `va1erian/xui` (#248, `58c1a6e`, included in the current pin `71dc3b59`).
 
 ## Verification
 

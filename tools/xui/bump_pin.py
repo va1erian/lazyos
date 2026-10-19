@@ -35,7 +35,7 @@ LAZYRAD_DEP = re.compile(r'(git\s*=\s*"https://github\.com/va1erian/lazyrad"[^\n
 # The `rev = "<sha>"` docs/xui-plan.md quotes.
 DOC_REV = re.compile(r'(rev = ")([0-9a-f]{40})(")')
 # The workspaces with a lockfile of their own (relative to the root).
-WORKSPACES = ["xui-app", "doom", "emusic", "lazyrad-os", "srb2kart"]
+WORKSPACES = ["xui-app", "games/doom", "emusic", "lazyrad-os", "games/srb2kart"]
 # The manifest names a pin can sit in: Quake's `Cargo.toml.in` is a template
 # `tools/quake/build.py` writes into the assembled crate.
 MANIFESTS = ("Cargo.toml", "Cargo.toml.in")

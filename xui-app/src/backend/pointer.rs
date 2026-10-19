@@ -127,10 +127,13 @@ impl LazyOSBackend {
     ) {
         self.pointer.set((x, y));
         let under = hit(&self.nodes.borrow(), window, x, y).map(|(id, _)| id);
-        if let Some(id) = under {
-            if self.is_focus_stop(id) {
-                self.set_focus(id);
-            }
+        match under {
+            Some(id) if self.is_focus_stop(id) => self.set_focus(id),
+            // A press inside a popup (a menu level) is not outside it.
+            Some(id) if self.is_popup(id) => {}
+            // Anywhere else takes the focus from an open popup, as a press
+            // on a focus stop does by moving it.
+            _ => self.dismiss_popup_focus(window),
         }
         let target = self.pointer_target(window, x, y);
         let id = target.map_or(WidgetId::NONE, |(id, _)| id);
@@ -208,6 +211,7 @@ mod tests {
             enabled: true,
             focus_stop: false,
             wants_tab: false,
+            popup: false,
             text: String::new(),
             painter: None,
             clip: None,
