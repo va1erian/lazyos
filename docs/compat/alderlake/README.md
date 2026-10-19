@@ -34,15 +34,17 @@ give 32 GiB (MemTotal 32590500 kB; the e820 map tops out at 0x8afbfffff).
   "dysfunctional in PC10". `MCFG` and `DMAR` (VT-d) are both present, so ECAM
   and an IOMMU are reachable without firmware work.
 - **Display**: one sink, HDMI-A-1 at 2560x1440 (IVM PL2730Q, EDID in `gpu/`);
-  DP-1, DP-2, HDMI-A-2 and HDMI-A-3 are disconnected. The **GOP** mode is *to
-  confirm* — Linux drove i915, so the survey shows i915's state, not the
+  DP-1, DP-2, HDMI-A-2 and HDMI-A-3 are disconnected. The **GOP** mode is
+  2560x1440 (read by LazyOS, `gpu/lazyos/`) — Linux drove i915, so the survey shows i915's state, not the
   firmware's.
 - The i915 log carries a DMC firmware warning (`assert_dmc_loaded`), and
   iwlwifi loaded `so-a0-hr-b0-89.ucode`. Both are Linux-side notes.
 
 ## Still to check on the box
 
-- The `HW:GOP:`/`HW:FB:` lines, and that the stick boots at all.
+- ~~The `HW:GOP:`/`HW:FB:` lines, and that the stick boots at all.~~ It boots;
+  the GOP leaves 2560x1440 BGRX (`gpu/lazyos/01-dbgd-capture.md`). The
+  firmware's display path is read too: HDMI on DDI B from DPLL1 at 59.93 Hz.
 - Which HDA path `sndd` picks, and whether the SN6140 walks to the headphone
   pin (0x16) or the speaker (0x17).
 - MSI on the real NICs, AHCI and HDA rather than polling.

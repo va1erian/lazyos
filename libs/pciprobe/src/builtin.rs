@@ -55,11 +55,64 @@ const QEMU: u16 = 0x1234;
 const INTEL: u16 = 0x8086;
 const HD620: u16 = 0x5916;
 
+/// Intel UHD Graphics, Alder Lake-UP3 GT1 (`8086:46b3`, display version 13:
+/// the CHUWI LarkBox X of `docs/compat/alderlake/`), BAR0 (GTTMMADR, 16 MiB):
+/// the display registers only, and the global GTT at 8 MiB.
+///
+/// Offsets are the display 13 map as `i915` names it (its HDMI output is
+/// pipe A, DDI B on combo PHY B, DPLL0 under Linux). Nothing of the GT is
+/// listed: display reads need no forcewake. The holes are deliberate:
+///
+/// * `0xC5100..0xC5130`: PCH GMBUS, as on the HD 620;
+/// * `0x65050`, `0x65150`, `0x65250` and `0x65350` (8 bytes each):
+///   `HSW_AUD_EDID_DATA` of transcoders A to D, the ELD read port;
+/// * `0x49000..0x4B000`: pipe CSC and gamma, whose `PREC_PAL_DATA` advances
+///   its index register when read;
+/// * the DKL Type-C PHY window (`0x168000`, indexed by `HIP_INDEX`): the HDMI
+///   port is a combo PHY, so nothing there is needed.
+///
+/// Pipes B to D sit behind power wells 2 to 4: read `HSW_PWR_WELL_CTL2`
+/// (`0x45404`) first.
+const ADLP_GT1: u16 = 0x46B3;
+
 /// The table, sorted by `(vendor, device, bar, start)` and non-overlapping
 /// (the tests check both).
 pub const RANGES: &[Range] = &[
     r(QEMU, STD_VGA, 2, 0x0000_0000, 0x0000_0400),
     r(QEMU, STD_VGA, 2, 0x0000_0500, 0x0000_0520),
+    // Display fuses and chicken bits.
+    r(INTEL, ADLP_GT1, 0, 0x0004_2000, 0x0004_3000),
+    // DE interrupts, DBUF slices, power wells, DC states, CDCLK, DPLL enables,
+    // TRANS_CLK_SEL.
+    r(INTEL, ADLP_GT1, 0, 0x0004_4000, 0x0004_7000),
+    // DFSM (display fuses).
+    r(INTEL, ADLP_GT1, 0, 0x0005_1000, 0x0005_1010),
+    // Transcoders A to D (timings, DDI function, DP_TP, infoframes), DDI
+    // buffers and AUX channels, PHY_MISC, audio (less the ELD ports).
+    r(INTEL, ADLP_GT1, 0, 0x0006_0000, 0x0006_5050),
+    r(INTEL, ADLP_GT1, 0, 0x0006_5058, 0x0006_5150),
+    r(INTEL, ADLP_GT1, 0, 0x0006_5158, 0x0006_5250),
+    r(INTEL, ADLP_GT1, 0, 0x0006_5258, 0x0006_5350),
+    r(INTEL, ADLP_GT1, 0, 0x0006_5358, 0x0006_6000),
+    // Pipe scalers A to D.
+    r(INTEL, ADLP_GT1, 0, 0x0006_8000, 0x0006_A000),
+    // Combo PHY B.
+    r(INTEL, ADLP_GT1, 0, 0x0006_C000, 0x0006_D000),
+    // Pipes, planes, cursors, DDB and watermarks, A to D.
+    r(INTEL, ADLP_GT1, 0, 0x0007_0000, 0x0007_4000),
+    // DMC control (whether the firmware loaded DMC: HTP, SSP base).
+    r(INTEL, ADLP_GT1, 0, 0x0008_F000, 0x0008_F100),
+    // PCH display: hotplug, straps, panel power (less GMBUS).
+    r(INTEL, ADLP_GT1, 0, 0x000C_0000, 0x000C_5100),
+    r(INTEL, ADLP_GT1, 0, 0x000C_5130, 0x000D_0000),
+    // DMC DC5/DC6 counters (stops before HIP_INDEX at 0x1010A0).
+    r(INTEL, ADLP_GT1, 0, 0x0010_1080, 0x0010_1098),
+    // Combo PHY A.
+    r(INTEL, ADLP_GT1, 0, 0x0016_2000, 0x0016_3000),
+    // DPCLKA_CFGCR0 and the combo and TBT DPLL CFGCRs.
+    r(INTEL, ADLP_GT1, 0, 0x0016_4200, 0x0016_4300),
+    // The global GTT.
+    r(INTEL, ADLP_GT1, 0, 0x0080_0000, 0x0100_0000),
     // Forcewake acknowledge bits.
     r(INTEL, HD620, 0, 0x0000_0D00, 0x0000_0E00),
     // Render ring and engine state.

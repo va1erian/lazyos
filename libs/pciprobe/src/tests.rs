@@ -1,3 +1,4 @@
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::builtin::RANGES;
@@ -5,6 +6,7 @@ use crate::{format_bdf, parse_bdf, parse_range, Denied, Policy, Range, MAX_EXTRA
 
 const HD620: (u16, u16) = (0x8086, 0x5916);
 const VGA: (u16, u16) = (0x1234, 0x1111);
+const ADLP: (u16, u16) = (0x8086, 0x46b3);
 
 fn on() -> Policy {
     Policy::from_cfg("diag.dbg=1\ndiag.dbg.mmio=1\n")
@@ -108,6 +110,28 @@ fn gmbus_data_and_the_eld_port_are_refused() {
     // A display register and a pipe register are reachable.
     assert!(p.plan(HD620.0, HD620.1, 0, 0x70008, 4).is_ok());
     assert!(p.plan(HD620.0, HD620.1, 0, 0x60000, 4).is_ok());
+}
+
+#[test]
+fn alder_lake_holes_are_refused_and_its_display_is_reachable() {
+    let p = on();
+    let reads = |offset: u64| p.plan(ADLP.0, ADLP.1, 0, offset, 4);
+    // GMBUS, the four ELD ports, the palette data ports, the GT, HIP_INDEX.
+    let mut holes = vec![0xC5100u64, 0xC510C, 0xC512C, 0x4A000, 0x49000, 0x4AFFC];
+    for port in [0x65050u64, 0x65150, 0x65250, 0x65350] {
+        holes.extend([port, port + 4]);
+    }
+    holes.extend([0x2000, 0xA188, 0xD84, 0x1010A0, 0x168000]);
+    for reg in holes {
+        assert_eq!(reads(reg), Err(Denied::NotAllowed), "{reg:#x}");
+    }
+    // Power wells, CDCLK, transcoder A's DDI function, DDI B, pipe A's frame
+    // counter, plane 1A's surface, DPLL0, the first and last GGTT entries.
+    for reg in [
+        0x45400u64, 0x46000, 0x60400, 0x64100, 0x70040, 0x7019C, 0x164284, 0x800000, 0xFFFFFC,
+    ] {
+        assert!(reads(reg).is_ok(), "{reg:#x}");
+    }
 }
 
 #[test]
