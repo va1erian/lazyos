@@ -6373,6 +6373,13 @@ pub mod os_lazy_gpu_v1 {
     /// `Tiling::Other` wire value.
     pub const TILING_OTHER: u32 = 4;
 
+    /// `Underrun::None` wire value.
+    pub const UNDERRUN_NONE: u32 = 0;
+    /// `Underrun::Latched` wire value.
+    pub const UNDERRUN_LATCHED: u32 = 1;
+    /// `Underrun::Unobserved` wire value.
+    pub const UNDERRUN_UNOBSERVED: u32 = 2;
+
     /// One pipe's timing, in pixels (horizontal) or lines (vertical).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Axis {
@@ -6531,9 +6538,66 @@ pub mod os_lazy_gpu_v1 {
         Ok(out)
     }
 
-    /// Pages the surface spans and how many entries were present.
-    /// Physical address of the first page, 0 when none was present.
-    /// Every page present and each the next after the last.
+    /// Where the adopted pipe's beam is now, read live (read-only: the
+    /// frame counter and scan line count whether or not anybody asked for
+    /// interrupts).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Beam {
+        pub frame: u32,
+        pub line: u32,
+        pub vtotal: u32,
+        pub at_ns: u64,
+        pub measured_millihz: u32,
+        pub underrun: u32,
+    }
+
+    pub fn encode_beam(value: &Beam) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.frame)?;
+        target.u32(2, value.line)?;
+        target.u32(3, value.vtotal)?;
+        target.u64(4, value.at_ns)?;
+        target.u32(5, value.measured_millihz)?;
+        target.u32(6, value.underrun)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_beam(body: &[u8]) -> Result<Beam, Error> {
+        let mut out = Beam::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.frame = field.as_u32()?;
+                }
+                2 => {
+                    out.line = field.as_u32()?;
+                }
+                3 => {
+                    out.vtotal = field.as_u32()?;
+                }
+                4 => {
+                    out.at_ns = field.as_u64()?;
+                }
+                5 => {
+                    out.measured_millihz = field.as_u32()?;
+                }
+                6 => {
+                    out.underrun = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Frames since the pipe was enabled (wraps at 2^32).
+    /// Scan line, 0 at the top of the active area.
+    /// Lines per frame, active and blank (the transcoder's total).
+    /// Monotonic time of the read, nanoseconds since boot.
+    /// The refresh rate `gpud` measured from the counter when it
+    /// started, millihertz; 0 when it could not.
+    /// An `Underrun` ordinal.
     /// The adopted display state.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct State {
@@ -6657,6 +6721,8 @@ pub mod os_lazy_gpu_v1 {
 
     /// `GetState` method id.
     pub const METHOD_GETSTATE: u32 = 746022616;
+    /// `GetBeam` method id.
+    pub const METHOD_GETBEAM: u32 = 400769696;
 
     /// A running pipe was found and decoded; the pipe fields below
     /// mean nothing otherwise.
@@ -6690,6 +6756,30 @@ pub mod os_lazy_gpu_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.state = decode_state(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
+    /// adopted.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetBeamReply {
+        pub beam: Beam,
+    }
+
+    pub fn encode_get_beam_reply(value: &GetBeamReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_beam(&value.beam)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_beam_reply(body: &[u8]) -> Result<GetBeamReply, Error> {
+        let mut out = GetBeamReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.beam = decode_beam(field.payload)?;
             }
         }
         Ok(out)

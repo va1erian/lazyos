@@ -17,8 +17,9 @@
 // to learn what the firmware leaves (plan section 2.1) and to give later
 // stages (HDMI audio, flips, decode) one place that already knows.
 //
-// The state is a snapshot taken once when `gpud` starts; to look at live
-// registers use `dbgd`'s `mmio.read`. Failures of a call are returned as a
+// The state is a snapshot taken once when `gpud` starts; `GetBeam` is the
+// one live read (the frame counter and scan line); for any other live
+// register use `dbgd`'s `mmio.read`. Failures of a call are returned as a
 // structured error field (errno-style code, friendly text), not as a typed
 // reply. The interface is open to every caller: it reveals the display
 // mode and where its framebuffer is, nothing a program could not see by
@@ -54,6 +55,14 @@ fn get_state() {
     msg::connect("os.lazy.gpu.v1").invoke("GetState", [])
 }
 
+/// `GetBeam() -> (beam: Beam)`
+///
+/// The adopted pipe's beam, read now. `ENODEV` when no pipe was
+/// adopted.
+fn get_beam() {
+    msg::connect("os.lazy.gpu.v1").invoke("GetBeam", [])
+}
+
 /// A `Axis` with every field at its zero value.
 ///
 /// One pipe's timing, in pixels (horizontal) or lines (vertical).
@@ -80,11 +89,24 @@ fn new_fb_map() {
     #{ pages: 0, present: 0, phys_base: 0, contiguous: false }
 }
 
+/// A `Beam` with every field at its zero value.
+///
+/// Where the adopted pipe's beam is now, read live (read-only: the
+/// frame counter and scan line count whether or not anybody asked for
+/// interrupts).
+fn new_beam() {
+    #{ frame: 0, line: 0, vtotal: 0, at_ns: 0, measured_millihz: 0, underrun: 0 }
+}
+
 /// A `State` with every field at its zero value.
 ///
-/// Pages the surface spans and how many entries were present.
-/// Physical address of the first page, 0 when none was present.
-/// Every page present and each the next after the last.
+/// Frames since the pipe was enabled (wraps at 2^32).
+/// Scan line, 0 at the top of the active area.
+/// Lines per frame, active and blank (the transcoder's total).
+/// Monotonic time of the read, nanoseconds since boot.
+/// The refresh rate `gpud` measured from the counter when it
+/// started, millihertz; 0 when it could not.
+/// An `Underrun` ordinal.
 /// The adopted display state.
 fn new_state() {
     #{ adopted: false, device: 0, revision: 0, cdclk_khz: 0, power_well_1: false, power_well_2: false, pipes_enabled: 0, pipe: 0, ddi_port: 0, link: 0, bits_per_component: 0, hsync_positive: false, vsync_positive: false, pixel_clock_khz: 0, refresh_millihz: 0, horizontal: new_axis(), vertical: new_axis(), plane: new_plane(), framebuffer: new_fb_map(), audio_capable: false }
@@ -117,3 +139,12 @@ export const TILING_Y = "Y";
 export const TILING_YF = "Yf";
 
 export const TILING_OTHER = "Other";
+
+// The variants of `Underrun`, in wire order.
+export const UNDERRUN = ["None", "Latched", "Unobserved"];
+
+export const UNDERRUN_NONE = "None";
+
+export const UNDERRUN_LATCHED = "Latched";
+
+export const UNDERRUN_UNOBSERVED = "Unobserved";

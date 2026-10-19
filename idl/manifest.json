@@ -694,6 +694,11 @@
         "name": "GetState",
         "id": 746022616,
         "oneway": false
+      },
+      {
+        "name": "GetBeam",
+        "id": 400769696,
+        "oneway": false
       }
     ],
     "topics": []

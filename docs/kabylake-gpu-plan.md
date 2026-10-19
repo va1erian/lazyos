@@ -597,6 +597,23 @@ if the box can reach a host serving it).
   `test_frame.py`, `scroll_page.py`), the kernel's `present_mpx` metric
   (`LAZYOS_PERF=1`; kernel test `display_present_damage_pixels`, the display
   suite passes 50 of 50).
-- **Not built yet** (honestly): vblank, `set_scanout`, CRC, any display write,
-  G3 and everything after it. None of it is justified by the numbers above
-  until the box answers 11.3.
+- **Built 2026-10-19, still read-only, not run on the box**: the beam
+  (`libs/gen9gfx::vblank`, `gpud/beam.rs`). `gpud` reads the adopted pipe's
+  frame counter (`PIPE_FRMCOUNT`, +0x40) and scan line (`PIPEDSL`, +0x00)
+  twice a second apart and prints `GPU:VBLANK:PASS measured_mhz=...
+  expected_mhz=...` when the counter agrees with the timing registers within
+  0.2% (G1's "vblank ticks at the monitor's rate", without taking an
+  interrupt: the counter counts whether or not anybody asked), and the DE
+  pipe interrupt registers as `GPU:UNDERRUN state=none|latched|masked`
+  (IIR is read, never cleared; a masked underrun is reported as unobserved,
+  not as none). `os.lazy.gpu.v1.GetBeam` answers the beam live (frame, line,
+  vertical total, monotonic time): what a presenter needs to keep its copy
+  out of the beam's way before G5 flips exist. The two pipe offsets are
+  i915's and **to confirm** on the box (the Linux dump does not name them);
+  the interrupt registers are confirmed. Host tests: `cargo test -p gen9gfx
+  vblank`.
+- **Not built yet** (honestly): vblank *interrupts*, `set_scanout`, CRC, any
+  display write, G3 and everything after it. None of it is justified by the
+  numbers above until the box answers 11.3; on the box run, also read
+  `GPU:VBLANK` and `GPU:UNDERRUN` (`dbgctl.py log --source programs | grep
+  GPU:`).

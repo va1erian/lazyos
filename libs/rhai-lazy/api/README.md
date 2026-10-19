@@ -343,13 +343,16 @@ The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 | Function | IDL | About |
 |---|---|---|
 | `get_state()` | `GetState() -> (state: State)` | A running pipe was found and decoded; the pipe fields below |
+| `get_beam()` | `GetBeam() -> (beam: Beam)` | The adopted pipe's beam, read now. `ENODEV` when no pipe was |
 | `new_axis()` | struct `Axis` | a `Axis` at its zero value |
 | `new_plane()` | struct `Plane` | a `Plane` at its zero value |
 | `new_fb_map()` | struct `FbMap` | a `FbMap` at its zero value |
+| `new_beam()` | struct `Beam` | a `Beam` at its zero value |
 | `new_state()` | struct `State` | a `State` at its zero value |
 
 - `LINK_MODE` = the `LinkMode` variants; `LINK_MODE_NONE`, `LINK_MODE_HDMI`, `LINK_MODE_DVI`, `LINK_MODE_DP_SST`, `LINK_MODE_DP_MST`, `LINK_MODE_OTHER`
 - `TILING` = the `Tiling` variants; `TILING_LINEAR`, `TILING_X`, `TILING_Y`, `TILING_YF`, `TILING_OTHER`
+- `UNDERRUN` = the `Underrun` variants; `UNDERRUN_NONE`, `UNDERRUN_LATCHED`, `UNDERRUN_UNOBSERVED`
 
 ## `sys::healthd`
 

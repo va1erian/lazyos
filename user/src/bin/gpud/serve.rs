@@ -1,5 +1,5 @@
 //! `os.lazy.gpu.v1` (`idl/gpu.midl`), served from the snapshot taken at
-//! start. Read-only: the one method reports what was adopted.
+//! start (`GetState`) and the live beam (`GetBeam`). Read-only.
 
 use alloc::vec;
 use gen9gfx::adopt::{Adopted, FbMap};
@@ -8,6 +8,8 @@ use user::messenger::gpu::{self as api, wire};
 use user::messenger::services;
 use user::messenger::{self, errno, registry, Error as MsgError, Message, Parcel};
 use user::sys;
+
+use crate::beam::Watch;
 
 /// Longest park between wake-ups (100 Hz ticks) of the service loop.
 const IDLE_TICKS: u64 = 6000;
@@ -106,7 +108,10 @@ fn axis(axis: &gen9gfx::adopt::Axis) -> wire::Axis {
 
 /// Register `os.lazy.gpu` and serve forever (an error before the first
 /// request is returned: the caller parks).
-pub(super) fn run(snapshot: wire::State) -> Result<core::convert::Infallible, &'static str> {
+pub(super) fn run(
+    snapshot: wire::State,
+    mut watch: Option<Watch>,
+) -> Result<core::convert::Infallible, &'static str> {
     let (published, server) = messenger::create_pair().map_err(|_| "no endpoint")?;
     registry::register(api::NAME, &published, &[api::INTERFACE], 0)
         .map_err(|_| "cannot register os.lazy.gpu")?;
@@ -121,7 +126,7 @@ pub(super) fn run(snapshot: wire::State) -> Result<core::convert::Infallible, &'
     loop {
         match server.recv_with(&mut buffer, Some(sys::clock() + IDLE_TICKS)) {
             Ok(message) => {
-                let reply = dispatch(&message, &snapshot).unwrap_or_else(|error| {
+                let reply = dispatch(&message, &snapshot, watch.as_mut()).unwrap_or_else(|error| {
                     services::error_reply(message.interface_id(), message.method(), error)
                 });
                 if let Some(txn) = message.txn {
@@ -134,7 +139,11 @@ pub(super) fn run(snapshot: wire::State) -> Result<core::convert::Infallible, &'
     }
 }
 
-fn dispatch(message: &Message, snapshot: &wire::State) -> Result<Parcel, MsgError> {
+fn dispatch(
+    message: &Message,
+    snapshot: &wire::State,
+    watch: Option<&mut Watch>,
+) -> Result<Parcel, MsgError> {
     if message.interface_id() != api::INTERFACE {
         return Err(MsgError::Errno(-errno::EINVAL));
     }
@@ -145,6 +154,12 @@ fn dispatch(message: &Message, snapshot: &wire::State) -> Result<Parcel, MsgErro
             })
             .map_err(MsgError::Parcel)?;
             Ok(api::parcel(wire::METHOD_GETSTATE, body))
+        }
+        wire::METHOD_GETBEAM => {
+            let watch = watch.ok_or(MsgError::Errno(-errno::ENODEV))?;
+            let body = wire::encode_get_beam_reply(&wire::GetBeamReply { beam: watch.read() })
+                .map_err(MsgError::Parcel)?;
+            Ok(api::parcel(wire::METHOD_GETBEAM, body))
         }
         _ => Err(MsgError::Errno(-errno::EINVAL)),
     }

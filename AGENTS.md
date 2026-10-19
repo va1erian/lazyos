@@ -1387,8 +1387,10 @@ the function without an interrupt, maps BAR 0 behind a read-only
 `gen9gfx::Mmio` (reads only inside `libs/pciprobe`'s range allowlist), reads
 and decodes what the firmware left (`libs/gen9gfx::adopt`: pipe, DDI, link
 mode, timing, pixel clock, CDCLK, plane, the GGTT pages of the scanout) and
-prints it as `GPU:*` lines, then serves `os.lazy.gpu.v1` (`idl/gpu.midl`,
-`GetState`) from that snapshot. It writes no display register, takes no
+prints it as `GPU:*` lines, measures the refresh rate from the pipe's frame
+counter (`libs/gen9gfx::vblank`: `GPU:VBLANK`, `GPU:UNDERRUN`), then serves
+`os.lazy.gpu.v1` (`idl/gpu.midl`, `GetState` from that snapshot, `GetBeam`
+live: frame counter and scan line). It writes no display register, takes no
 interrupt and sets no mode. A claim switches the function's decode and bus
 mastering off (`dev::syscall::quiesce`), so `gpud` switches them back on at
 once and never exits on purpose while it holds the claim (a release would

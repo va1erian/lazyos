@@ -16,8 +16,8 @@ use super::{registry, Endpoint, Error, Result};
 /// The generated `os.lazy.gpu.v1` stubs.
 pub use messenger_generated::os_lazy_gpu_v1 as wire;
 
-/// The adopted display state.
-pub use wire::State;
+/// The adopted display state and the live beam.
+pub use wire::{Beam, State};
 
 /// Registered service name.
 pub const NAME: &str = "os.lazy.gpu";
@@ -66,5 +66,18 @@ impl Client {
         Ok(wire::decode_get_state_reply(&reply.body)
             .map_err(Error::Parcel)?
             .state)
+    }
+
+    /// The adopted pipe's beam, read now (`ENODEV` when none was adopted).
+    pub fn beam(&self) -> Result<Beam> {
+        let reply = self
+            .endpoint
+            .call(&parcel(wire::METHOD_GETBEAM, Vec::new()), None)?;
+        if let Some(code) = error_field(&reply)? {
+            return Err(Error::Errno(-code));
+        }
+        Ok(wire::decode_get_beam_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .beam)
     }
 }
