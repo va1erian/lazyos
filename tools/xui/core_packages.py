@@ -123,6 +123,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # ships it (`build_support/lazysky_embed.rs`, which fails that build when
     # it is missing).
     "lazysky": xui_app("xui-lazysky.elf", "lazysky", optional=True),
+    # LazyAgent (docs/agent.md): only a `LAZYOS_AGENT=1` image ships it
+    # (`build_support/agent_embed.rs`).
+    "agent": xui_app("xui-agent.elf", "agent", optional=True),
     # esMail (docs/mail.md): links SQLite's C (zig), built only on request
     # (`tools/xui/build.py --mail`); shipped by `LAZYOS_MAIL=1` images.
     "mail": xui_app("xui-mail.elf", "mail", optional=True),

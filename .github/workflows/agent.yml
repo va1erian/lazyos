@@ -13,6 +13,7 @@ on:
     paths:
       - "xui-app/crates/https/**"
       - "xui-app/crates/agent-core/**"
+      - "xui-app/crates/agent-ui/**"
       - "xui-app/crates/lazysky-core/**"
       - "xui-app/Cargo.*"
       - "nettls/crypto/**"
@@ -23,6 +24,7 @@ on:
     paths:
       - "xui-app/crates/https/**"
       - "xui-app/crates/agent-core/**"
+      - "xui-app/crates/agent-ui/**"
       - "xui-app/crates/lazysky-core/**"
       - "xui-app/Cargo.*"
       - "nettls/crypto/**"
@@ -53,14 +55,19 @@ jobs:
           workspaces: |
             xui-app -> target
 
-      - name: lazyhttps, lazyagent-core and lazysky-core
-        run: cargo test --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core
+      - name: lazyhttps, lazyagent-core, lazyagent-ui and lazysky-core
+        run: cargo test --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazyagent-ui -p lazysky-core
 
       - name: A longer seeded fuzz of the SSE parser
         run: FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyagent-core --release fuzz::
 
       - name: Clippy
-        run: cargo clippy --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core --all-targets -- -D warnings
+        run: cargo clippy --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazyagent-ui -p lazysky-core --all-targets -- -D warnings
+
+      - name: The harness judges fail when they should
+        run: |
+          python tools/agent/test_judge.py
+          python tools/agent/session.py --check
 
       - name: GPLv2-compatible dependency trees
         run: |

@@ -136,6 +136,9 @@ BINS = {
     # LazySky: a Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1`
     # image ships it; its crates are small and build with the other apps.
     "xui-lazysky": "xui-lazysky.elf",
+    # LazyAgent: an AI chat and diagnostics agent (docs/agent.md). Only a
+    # `LAZYOS_AGENT=1` image ships it.
+    "xui-agent": "xui-agent.elf",
     # Video Player: Play video files.
     "xui-video": "xui-video.elf",
     # About LazyOS: About LazyOS, with a real-time 3D renderer.

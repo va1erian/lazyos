@@ -1,0 +1,47 @@
+# LazyAgent: a core LazyOS app, packaged by `tools/xui/build.py`.
+#
+# An AI chat and diagnostics agent (docs/agent.md, docs/ai-agent-plan.md): the
+# headless core is `xui-app/crates/agent-core`, the window `agent-ui`, and
+# `xui-app/src/bin/agent.rs` launches them. It is not checked in as a binary:
+# the build copies the built xui app (`target/xui/xui-agent.elf`) into a
+# scratch copy of this tree. `version` is replaced by the workspace version
+# and `autostart` is set from `LAZYOS_XUI_AUTOSTART`. Only a desktop image
+# with the network stack ships it (`LAZYOS_AGENT=1`,
+# `python tools/run_demo.py --agent`).
+
+[app]
+name = "AI Agent"
+system_name = "os.lazy.agent"
+author = "LazyOS"
+version = "0.1.0"
+description = "Chat with a large language model: conversations, streaming replies, Markdown and, later, diagnostics"
+category = "internet"
+
+[entry]
+binary = "bin/agent.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# The window, sockets (plain `std::net`, the `outbound` network permission:
+# the app itself only ever talks to api.fireworks.ai, over HTTPS, with no
+# redirects; the kernel cannot enforce that, the core's policy does), `mimed`
+# for links the client hands to the browser and the clipboard (copy a message
+# or a code block, paste into the composer).
+# Derived from `python tools/agent/run.py --label-trace`: no `LABEL:DENY`
+# (docs/packages.md).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.mimed.v1",
+    "os.lazy.clipboard.v1",
+]
+network = ["outbound"]
+# Settings and the conversations in the app's own folder.
+files = [
+    "write:$HOME/.apps/os.lazy.agent",
+]

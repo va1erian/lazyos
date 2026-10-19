@@ -41,6 +41,7 @@ channels! {
     Abi => "ABI",
     About => "ABOUT",
     Accounts => "ACCOUNTS",
+    Agent => "AGENT",
     App => "APP",
     Archiver => "ARCHIVER",
     Async => "ASYNC",

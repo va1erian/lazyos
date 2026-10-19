@@ -70,6 +70,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazysky",
         Art::Lucide(Lucide::Send, Tone::Cobalt),
     ),
+    // LazyAgent: Lucide `text-quote` (a quoted reply) on a cobalt tile.
+    (
+        "xui-app/packages/agent",
+        Art::Lucide(Lucide::TextQuote, Tone::Cobalt),
+    ),
     // Mail: Lucide `mail`, the envelope, on a rose tile.
     (
         "xui-app/packages/mail",

@@ -2748,6 +2748,22 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "lazyagent-ui"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lazyagent-core",
+ "nettls-crypto",
+ "pulldown-cmark",
+ "rcgen",
+ "rustls",
+ "serde_json",
+ "xui-canvas",
+ "xui-core",
 ]
 
 [[package]]
@@ -6902,6 +6918,8 @@ dependencies = [
  "devinspect",
  "fhs",
  "inputmap",
+ "lazyagent-core",
+ "lazyagent-ui",
  "lazyicons",
  "lazymotion",
  "lazyos-sys",

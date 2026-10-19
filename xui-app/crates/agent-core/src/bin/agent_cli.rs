@@ -216,7 +216,7 @@ fn main() {
             }
             l if l.starts_with("/model ") => {
                 let model = l[7..].trim().to_string();
-                let _ = session.record(lazyagent_core::Event::Model { model });
+                let _ = session.record(lazyagent_core::store::Event::Model { model });
                 continue;
             }
             l if l.starts_with("/effort ") => {

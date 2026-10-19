@@ -148,7 +148,7 @@ class Launcher:
                                                     "lazyweb", "smb", "dbgd",
                                                     "dbgd_control", "lazysky", "wifi",
                                                     "dbgd_mmio", "dbgd_mmio_claimed",
-                                                    "dbgd_mmio_allow")))
+                                                    "dbgd_mmio_allow", "agent")))
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi",

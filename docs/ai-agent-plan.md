@@ -743,7 +743,9 @@ another host, `http://` and a redirect.
    in-memory key entry.
 3. Turn the generated wiring into an opt-in switch: `LAZYOS_AGENT=1`
    (`build_support/agent_embed.rs`, its `mod` in `build.rs`). It refuses
-   without `LAZYOS_DESKTOP` and `LAZYOS_NETD`, and implies `LAZYOS_TLS`. Wire
+   without `LAZYOS_DESKTOP` and `LAZYOS_NETD`. It does **not** imply
+   `LAZYOS_TLS` (the tree differs from this text: the CA bundle is in every
+   image, as LazySky already relies on). Wire
    it into `run_demo.py --agent`, the core package (`optional=True`), the
    launcher's Simple tab, `catalog.py`, `appsteps.py` and
    `test_catalog.py`.
@@ -753,7 +755,42 @@ another host, `http://` and a redirect.
 
 *Done when:* `tools/agent/run.py` (§10.1) passes its chat steps against the
 mock server, `--label-trace` shows no `LABEL:DENY`, and the offscreen
-snapshots `agent-*.png` match their checked-in references.
+snapshots `agent-*.png` look right when read (like LazySky's, they are written
+to `xui-app/target/snapshots`, not checked in).
+
+**As built (P2).** The tree differed from the text above in these ways.
+* `tools/xui/new_app.py` was not used: it registers an app in every image,
+  and the plan wants the opt-in `LAZYOS_AGENT=1`, so the wiring was copied
+  from LazySky's (`build_support/agent_embed.rs`, `xui_embed.rs`,
+  `core_packages.rs`, `tools/xui/{build,core_packages}.py`, `demo_args.py`,
+  `demo_builds.py`, `run_demo.py`, the launcher's Web group, `test_catalog_agent.py`).
+* `Feed<P>` does not lift out of LazySky: its rows hold `FeedItem`s. The
+  transcript model (`agent-ui/src/model.rs`) is a smaller copy of the same idea,
+  an anchor row plus an offset, with a follow-the-end flag.
+* The core has a `Core` worker (`agent-core/src/core.rs`): requests in,
+  events out, `Core::stop()` working while a reply streams. The window
+  never touches the store or the network.
+* Markdown loses emphasis and inline-code markers (the shaper styles a whole
+  block): headings, paragraphs, lists, quotes, fenced code with a **Copy**
+  button and links are drawn; raw HTML and images never are. A link opens only
+  after the user confirms its address (a `TaskDialog`).
+* Enter sends only while the composer is the field being typed in (`ui.on_key`
+  sees keys ahead of the widget, and xui has no focus query): typing in it
+  claims Enter, `Tab` or any other control's message gives it away. A stray
+  Enter that lands in the composer is cleared. A turn that fails before it
+  starts (no store, no key) frees the window and puts the message back in the
+  composer.
+* Row ids are positions (`i * 4`); the reply being streamed already has the id
+  of the item it becomes, so the reader's anchor and its shaped text survive
+  the end of the turn. A layout result for a row that has since grown is still
+  shown (and the row laid out again), so a long reply does not stand still
+  while text keeps arriving; results of another conversation are dropped.
+* Raw HTML is shown as the text it is, never interpreted; a link is plain
+  ASCII `http(s)` of at most 1000 bytes.
+* The package lists display, cursor, input, mimed and the clipboard, `outbound`
+  network and its own folder; `python tools/agent/run.py --label-trace` shows
+  no `LABEL:DENY`. `os.lazy.notify` and the file picker's folders arrive with
+  the phases that use them.
 
 **P2b: keyd app secrets** (§5.3). *Done when:* `tools/keyd/run.py` shows a
 secret surviving a reboot, a second label is refused, an unlabelled caller

@@ -162,6 +162,14 @@ def lazysky_step(cfg: dict) -> list[dict]:
     return [{"label": "Build xui apps with LazySky", "argv": [PY, "tools/xui/build.py"]}]
 
 
+def agent_step(cfg: dict) -> list[dict]:
+    """The step that builds LazyAgent (with the other xui apps and their core
+    packages), when the image embeds it."""
+    if not cfg.get("agent"):
+        return []
+    return [{"label": "Build xui apps with LazyAgent", "argv": [PY, "tools/xui/build.py"]}]
+
+
 def mail_step(cfg: dict) -> list[dict]:
     """The step that builds Mail (esMail; docs/mail.md) with the other xui apps
     and repackages them, when a desktop image embeds it."""
@@ -249,5 +257,5 @@ def app_steps(cfg: dict) -> list[dict]:
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg) + webkit_step(cfg)
-            + lazywebplus_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + lazywebplus_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + agent_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

@@ -145,6 +145,9 @@ def make_vars() -> dict:
         # The LazySky Bluesky client (LAZYOS_LAZYSKY, run_demo --lazysky;
         # implies the desktop and networking).
         "lazysky": b(value=False),
+        # LazyAgent, the AI chat and diagnostics agent (LAZYOS_AGENT,
+        # run_demo --agent; implies the desktop and networking).
+        "agent": b(value=False),
         # The Mail app (LAZYOS_MAIL, run_demo --mail; implies HTTPS).
         "mail": b(value=False),
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).

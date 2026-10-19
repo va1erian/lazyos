@@ -7,6 +7,8 @@
 
 #[path = "../accounts_seed.rs"]
 mod accounts_seed;
+#[path = "../agent_embed.rs"]
+mod agent_embed;
 #[path = "../assets_embed.rs"]
 mod assets_embed;
 #[path = "../ca_bundle.rs"]
@@ -58,6 +60,8 @@ mod wifi_embed;
 
 #[cfg(test)]
 mod accounts_tests;
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
