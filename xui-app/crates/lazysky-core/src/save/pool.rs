@@ -95,7 +95,7 @@ fn run(shared: &Shared, platform: &dyn Platform, events: &Sender<Event>) {
         HttpOptions {
             max_body: MAX_BODY,
             read_timeout: Duration::from_secs(60),
-            ..HttpOptions::default()
+            ..crate::net::http_options()
         },
     );
     loop {

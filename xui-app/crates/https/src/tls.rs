@@ -10,20 +10,92 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use rustls::pki_types::ServerName;
 use rustls::{CertificateError, ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use ureq::unversioned::transport::time::Duration as UreqDuration;
 use ureq::unversioned::transport::{
     Buffers, ConnectionDetails, Connector, Either, LazyBuffers, NextTimeout, Transport,
     TransportAdapter,
 };
 use ureq::Error;
 
-use super::roots;
-use crate::platform::Roots;
+use crate::roots;
+use crate::Roots;
+
+/// How a streaming request is watched (docs/ai-agent-plan.md §5.2): every
+/// wait for bytes wakes after `poll` to look at `stop` and at how long the
+/// connection has been silent.
+#[derive(Clone, Debug)]
+pub struct Watch {
+    /// Set by another thread to end the request. It is looked at before
+    /// every read of the socket, so it works while bytes keep arriving, not
+    /// only in a pause; reads then fail with an error [`is_stopped`] knows.
+    pub stop: Arc<AtomicBool>,
+    /// A single read that gets no byte for longer than this fails with
+    /// `ErrorKind::TimedOut`.
+    pub idle: Duration,
+    /// How often a blocked read wakes (the socket's read timeout).
+    pub poll: Duration,
+    /// Counts the reads that timed out and were taken up again.
+    pub wakes: Arc<AtomicU64>,
+}
+
+impl Watch {
+    /// The plan's values: wake every 250 ms, give up after 60 s of silence.
+    pub fn new(stop: Arc<AtomicBool>) -> Watch {
+        Watch {
+            stop,
+            idle: Duration::from_secs(60),
+            poll: Duration::from_millis(250),
+            wakes: Arc::default(),
+        }
+    }
+}
+
+/// Whether `error` is a read that timed out: a plain one, or ureq's own
+/// timeout (its transport wraps it in `ErrorKind::Other`).
+fn is_timeout(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    ) || error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<Error>())
+        .is_some_and(|e| matches!(e, Error::Timeout(_)))
+}
+
+/// The error a stopped read fails with. It is deliberately not
+/// `ErrorKind::Interrupted`: `read_to_end` and friends retry on that, and a
+/// stopped read must end the loop.
+#[derive(Debug)]
+struct Stopped;
+
+impl fmt::Display for Stopped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("stopped")
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+pub(crate) fn stopped_error() -> io::Error {
+    io::Error::other(Stopped)
+}
+
+/// Whether `error` is the one a stopped [`Watch`] makes.
+pub fn is_stopped(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.downcast_ref::<Stopped>().is_some())
+}
 
 thread_local! {
+    /// The watch of the request this thread is running, if any.
+    static WATCH: RefCell<Option<Watch>> = const { RefCell::new(None) };
     /// Why this thread's last handshake failed, in words: ureq's error type
     /// only carries a static string.
     static LAST_FAILURE: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -32,6 +104,91 @@ thread_local! {
 /// Takes the reason the calling thread's last TLS handshake failed.
 pub(crate) fn take_failure() -> Option<String> {
     LAST_FAILURE.with(|slot| slot.borrow_mut().take())
+}
+
+/// Puts `watch` on the calling thread until the guard drops.
+pub(crate) fn watching(watch: Watch) -> impl Drop {
+    struct Guard(Option<Watch>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            WATCH.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    Guard(WATCH.with(|slot| slot.borrow_mut().replace(watch)))
+}
+
+fn with_watch<R>(f: impl FnOnce(Option<&Watch>) -> R) -> R {
+    WATCH.with(|slot| f(slot.borrow().as_ref()))
+}
+
+/// The socket under rustls. With a [`Watch`] on the thread it looks at the
+/// stop flag before every read and wakes every `poll` to look at it and at
+/// the idle limit; rustls and ureq never see those wake-ups, so neither is
+/// resumed after an error and a record read in pieces stays whole.
+struct Socket {
+    inner: TransportAdapter,
+    timeout: NextTimeout,
+}
+
+impl Socket {
+    fn new(inner: TransportAdapter, timeout: NextTimeout) -> Socket {
+        Socket { inner, timeout }
+    }
+
+    fn set_timeout(&mut self, timeout: NextTimeout) {
+        self.timeout = timeout;
+        self.inner.set_timeout(timeout);
+    }
+}
+
+impl Read for Socket {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(watch) = with_watch(|w| w.cloned()) else {
+            return self.inner.read(buf);
+        };
+        if watch.stop.load(Ordering::Relaxed) {
+            return Err(stopped_error());
+        }
+        // ureq's own limit for this wait still applies.
+        let limit = match self.timeout.after {
+            UreqDuration::Exact(after) => after.min(watch.idle),
+            UreqDuration::NotHappening => watch.idle,
+        };
+        let quiet_since = Instant::now();
+        loop {
+            self.inner.set_timeout(NextTimeout {
+                after: UreqDuration::Exact(watch.poll),
+                reason: self.timeout.reason,
+            });
+            let result = self.inner.read(buf);
+            self.inner.set_timeout(self.timeout);
+            match result {
+                Err(e) if is_timeout(&e) => {
+                    watch.wakes.fetch_add(1, Ordering::Relaxed);
+                    if watch.stop.load(Ordering::Relaxed) {
+                        return Err(stopped_error());
+                    }
+                    if quiet_since.elapsed() >= limit {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "no data from the server",
+                        ));
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+}
+
+impl Write for Socket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 fn record_failure(why: String) {
@@ -74,6 +231,7 @@ impl LazyConfig {
 }
 
 /// The ureq connector adding TLS to `https:` connections.
+#[derive(Clone)]
 pub(crate) struct TlsConnector {
     config: Arc<LazyConfig>,
 }
@@ -118,7 +276,7 @@ impl<In: Transport> Connector<In> for TlsConnector {
             .map_err(|_| Error::Tls("invalid TLS server name"))?;
         let mut conn = ClientConnection::new(config, name)
             .map_err(|_| Error::Tls("cannot start a TLS session"))?;
-        let mut sock = TransportAdapter::new(transport.boxed());
+        let mut sock = Socket::new(TransportAdapter::new(transport.boxed()), details.timeout);
         sock.set_timeout(details.timeout);
         if let Err(e) = handshake(&mut conn, &mut sock) {
             if matches!(
@@ -140,7 +298,7 @@ impl<In: Transport> Connector<In> for TlsConnector {
 }
 
 /// Runs the handshake to the end, our Finished message included.
-fn handshake(conn: &mut ClientConnection, sock: &mut TransportAdapter) -> io::Result<()> {
+fn handshake(conn: &mut ClientConnection, sock: &mut Socket) -> io::Result<()> {
     while conn.is_handshaking() {
         conn.complete_io(sock)?;
     }
@@ -183,12 +341,28 @@ fn explain(error: &io::Error, host: &str) -> String {
 /// An established TLS connection as a ureq transport.
 pub(crate) struct TlsTransport {
     buffers: LazyBuffers,
-    stream: StreamOwned<ClientConnection, TransportAdapter>,
+    stream: StreamOwned<ClientConnection, Socket>,
 }
 
 impl fmt::Debug for TlsTransport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("TlsTransport")
+    }
+}
+
+impl TlsTransport {
+    fn read_once(&mut self) -> Result<bool, Error> {
+        let input = self.buffers.input_append_buf();
+        let amount = match self.stream.read(input) {
+            Ok(amount) => amount,
+            // A server that closes without close_notify. Many do, and
+            // browsers accept it; a body framed by Content-Length or chunking
+            // that ends early is still caught by ureq.
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => 0,
+            Err(e) => return Err(e.into()),
+        };
+        self.buffers.input_appended(amount);
+        Ok(amount > 0)
     }
 }
 
@@ -207,21 +381,11 @@ impl Transport for TlsTransport {
 
     fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, Error> {
         self.stream.get_mut().set_timeout(timeout);
-        let input = self.buffers.input_append_buf();
-        let amount = match self.stream.read(input) {
-            Ok(amount) => amount,
-            // A server that closes without close_notify. Many do, and
-            // browsers accept it; a body framed by Content-Length or chunking
-            // that ends early is still caught by ureq.
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => 0,
-            Err(e) => return Err(e.into()),
-        };
-        self.buffers.input_appended(amount);
-        Ok(amount > 0)
+        self.read_once()
     }
 
     fn is_open(&mut self) -> bool {
-        self.stream.get_mut().get_mut().is_open()
+        self.stream.get_mut().inner.get_mut().is_open()
     }
 
     fn is_tls(&self) -> bool {

@@ -1,0 +1,73 @@
+name: agent
+
+# LazyAgent (docs/ai-agent-plan.md) and the HTTPS crate it shares with LazySky:
+# host tests of `lazyhttps`, `lazyagent-core` (the SSE parser with its seeded
+# fuzz, the Fireworks client against a scripted TLS server, the conversation
+# store) and `lazysky-core` (which moved onto `lazyhttps`), clippy with
+# warnings denied, and the GPLv2-compatible dependency check. The QEMU
+# harness (`tools/agent/run.py`) arrives with the window in P2.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "xui-app/crates/https/**"
+      - "xui-app/crates/agent-core/**"
+      - "xui-app/crates/lazysky-core/**"
+      - "xui-app/Cargo.*"
+      - "nettls/crypto/**"
+      - "tools/nettls/licenses.py"
+      - "tools/agent/**"
+      - ".github/workflows/agent.yml"
+  pull_request:
+    paths:
+      - "xui-app/crates/https/**"
+      - "xui-app/crates/agent-core/**"
+      - "xui-app/crates/lazysky-core/**"
+      - "xui-app/Cargo.*"
+      - "nettls/crypto/**"
+      - "tools/nettls/licenses.py"
+      - "tools/agent/**"
+      - ".github/workflows/agent.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: xui-agent
+          workspaces: |
+            xui-app -> target
+
+      - name: lazyhttps, lazyagent-core and lazysky-core
+        run: cargo test --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core
+
+      - name: A longer seeded fuzz of the SSE parser
+        run: FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyagent-core --release fuzz::
+
+      - name: Clippy
+        run: cargo clippy --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core --all-targets -- -D warnings
+
+      - name: GPLv2-compatible dependency trees
+        run: |
+          python tools/nettls/licenses.py --lazysky --agent
+
+      - name: The core links no xui crate
+        run: |
+          if cargo tree --manifest-path xui-app/Cargo.toml -p lazyagent-core --prefix none | grep -E "^(xui-|lazyos-)"; then
+            echo "lazyagent-core must not depend on xui or LazyOS crates"; exit 1
+          fi

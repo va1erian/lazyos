@@ -47,6 +47,8 @@ eapol = { path = "../libs/eapol", features = ["fuzz"] }
 sntp = { path = "../libs/sntp", features = ["fuzz"] }
 # The Terminal's engine lives in the xui-app workspace (docs/terminal-plan.md).
 lazyterm = { path = "../xui-app/crates/term", features = ["fuzz"] }
+# LazyAgent's SSE parser and chunk reader (docs/ai-agent-plan.md §5.2).
+lazyagent-core = { path = "../xui-app/crates/agent-core", features = ["fuzz"] }
 
 [workspace]
 
@@ -298,6 +300,13 @@ bench = false
 [[bin]]
 name = "lazyterm"
 path = "fuzz_targets/lazyterm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lazyagent_sse"
+path = "fuzz_targets/lazyagent_sse.rs"
 test = false
 doc = false
 bench = false

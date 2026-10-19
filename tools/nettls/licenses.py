@@ -22,6 +22,7 @@ Usage::
     python tools/nettls/licenses.py --lazyweb  # also xui-app/web/ (LazyWeb, GPL-2.0-only)
     python tools/nettls/licenses.py --lazywebplus  # also xui-app/webplus/ (LazyWeb+'s window, docs/lazywebplus.md)
     python tools/nettls/licenses.py --lazysky  # also xui-app/crates/lazysky-core/
+    python tools/nettls/licenses.py --agent    # also xui-app/crates/agent-core/ (LazyAgent)
     python tools/nettls/licenses.py --verbose  # also print every crate and its licence
 
 Exit status 1 when any linked crate has no acceptable licence choice.
@@ -59,6 +60,10 @@ LAZYWEBPLUS_WAIVERS = {"unicode-linebreak"}
 #: LazySky links the same TLS stack (docs/lazysky.md); its headless core is the
 #: part that does, so its tree is checked with ``--lazysky``.
 LAZYSKY = ROOT / "xui-app" / "crates" / "lazysky-core" / "Cargo.toml"
+#: LazyAgent (docs/ai-agent-plan.md) shares the TLS stack with LazySky through
+#: `lazyhttps`; its headless core is checked with ``--agent`` (rule 3 of the
+#: plan: no tokio, reqwest, ring, aws-lc-rs or Apache-2.0-only crate).
+AGENT = ROOT / "xui-app" / "crates" / "agent-core" / "Cargo.toml"
 TARGET = "x86_64-unknown-linux-musl"
 
 #: Licences a GPL-2.0 binary can include (FSF's GPL-compatible list, the
@@ -223,11 +228,13 @@ def main() -> int:
     parser.add_argument("--lazywebplus", action="store_true", help="also check LazyWeb+'s window (xui-app/webplus)")
     parser.add_argument("--lazysky", action="store_true",
                         help="also check LazySky's core (xui-app/crates/lazysky-core)")
+    parser.add_argument("--agent", action="store_true",
+                        help="also check LazyAgent's core (xui-app/crates/agent-core)")
     args = parser.parse_args()
     self_test()
     problems: list[str] = []
     for manifest in (MANIFESTS + ([LAZYWEB] if args.lazyweb else []) + ([LAZYWEBPLUS] if args.lazywebplus else [])
-                     + ([LAZYSKY] if args.lazysky else [])):
+                     + ([LAZYSKY] if args.lazysky else []) + ([AGENT] if args.agent else [])):
         problems += check(manifest, args.verbose, frozenset(LAZYWEBPLUS_WAIVERS) if manifest == LAZYWEBPLUS else frozenset())
     if problems:
         print("licences not GPLv2-compatible:")

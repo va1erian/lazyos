@@ -52,6 +52,10 @@ members = [
     # the portable xui UI; `src/bin/lazysky.rs` runs it on LazyOS.
     "crates/lazysky-core",
     "crates/lazysky-ui",
+    # HTTPS shared by LazySky and LazyAgent (docs/ai-agent-plan.md).
+    "crates/https",
+    # LazyAgent's headless core (docs/ai-agent-plan.md); the UI and the binary come in P2.
+    "crates/agent-core",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
@@ -284,6 +288,10 @@ opt-level = 3
 opt-level = 3
 
 [profile.release.package.lazysky-core]
+opt-level = 3
+
+# The HTTP client LazySky used to carry itself (docs/ai-agent-plan.md).
+[profile.release.package.lazyhttps]
 opt-level = 3
 
 [profile.release.package.tiny-skia]

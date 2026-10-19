@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::net::api::{Api, ApiError, Notes};
-use crate::net::{Http, HttpOptions};
+use crate::net::Http;
 use crate::save::{BulkState, SaveJob, SavePool, Scan, Step};
 use crate::{Account, Event, Platform, Request, Settings};
 
@@ -37,7 +37,7 @@ pub(crate) fn run(
     bulk_cancel: Arc<AtomicBool>,
 ) {
     // Made on this thread: its sockets are this thread's own.
-    let http = Http::new(platform.ca_roots(), HttpOptions::default());
+    let http = Http::new(platform.ca_roots(), crate::net::http_options());
     let mut api = Api::new(http, &settings.service, Arc::clone(&closing));
     let saves = SavePool::start(Arc::clone(&platform), events.clone());
     let mut bulk: Option<Scan> = None;
