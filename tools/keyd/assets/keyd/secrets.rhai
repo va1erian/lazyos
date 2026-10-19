@@ -13,6 +13,8 @@
 //   system_delete   net.wifi.system delete through elevd (the prompt: admin)
 //   system_list     the system names, comma separated
 //   bad_input       a bad name and an empty secret are refused (EINVAL)
+//   app_denied      every os.lazy.keyd.appsecret.v1 call from this unlabelled
+//                   session program is refused (EPERM): it is not an app
 msg::set_timeout(0);
 let step = os::args()[0];
 
@@ -72,5 +74,12 @@ if step == "user_store" {
     let b = refusal(|| sys::keyd::store_secret("user", "empty", ""));
     let c = refusal(|| sys::keyd::store_secret("everyone", "x", "correct horse"));
     result = if a == "EINVAL" && b == "EINVAL" && c == "EINVAL" { "PASS:EINVAL" } else { `FAIL:${a},${b},${c}` };
+}
+else if step == "app_denied" {
+    let a = refusal(|| sys::keyd_appsecret::put("token", "x"));
+    let b = refusal(|| sys::keyd_appsecret::get("token"));
+    let c = refusal(|| sys::keyd_appsecret::list());
+    let d = refusal(|| sys::keyd_appsecret::delete("token"));
+    result = if a == "EPERM" && b == "EPERM" && c == "EPERM" && d == "EPERM" { "PASS:EPERM" } else { `FAIL:${a},${b},${c},${d}` };
 }
 print("KEYD:T:" + step + ":" + result);

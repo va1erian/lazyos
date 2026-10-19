@@ -1334,6 +1334,25 @@ python tools/keyd/run.py            # build, three boots, judge (KEYD:SECRETS: P
 python tools/keyd/test_judge.py     # the judge fails when it should
 ```
 
+## App secrets in `keyd` (`os.lazy.keyd.appsecret.v1`, P2b)
+
+An installed app keeps its own passwords and tokens across reboots with
+`Put`/`Get`/`Delete`/`List`, scoped to the caller's kernel-stamped uid **and**
+label (`app:<system_name>`): an unlabelled caller, a `dev:` run and a helper
+(`app:<name>/<child>`) are refused. They are sealed under the machine key in
+`/conf/svc/keyd/appsecrets` (own magic and version; the `secrets` file is
+untouched), at most 16 per app and user, and `keyd` deletes a removed
+package's secrets (`KEYD:SWEEP:PASS`). A package lists the interface in its
+manifest (MEDIUM); xui apps call `xui_app::platform::appsecret`, scripts
+`sys::keyd_appsecret`. Mail's *Remember this password* uses it. Never log or
+print a secret or its name's source.
+
+```bash
+cargo test -p secretstore -p pkgstore
+python tools/keyd/run.py            # four boots: a labelled probe app keeps a secret across a reboot, another app cannot read it, the Terminal is refused, a removed app's secrets are swept
+python tools/keyd/test_judge.py     # the judge fails when it should
+```
+
 ## Wi-Fi (`LAZYOS_WIFI=1`, RTL8822CE)
 
 `LAZYOS_WIFI=1` (needs `LAZYOS_NETD=1`; `run_demo.py --wifi`, the launcher's

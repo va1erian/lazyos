@@ -63,6 +63,7 @@ U2 = "#625"
 U3 = "U3 (brick-proofing, no issue yet)"
 WP1 = "WP1 (docs/wifi-prerequisites-plan.md)"
 WP2 = "WP2 (docs/wifi-prerequisites-plan.md)"
+P2B = "P2b (docs/ai-agent-plan.md)"
 #: What an installed package writes: its tree, its docs, confd's record.
 INSTALL_PATHS = ("/apps", "/docs/apps", "/conf")
 #: The detail a probe prints for EPERM with the service's policy text.
@@ -148,6 +149,12 @@ EXPECTATIONS: dict[str, Expect] = {
     "wifi_system_store": Expect("blocked", WP2, ("/conf",)),
     "wifi_store_for": Expect("blocked", WP2, ("/conf",)),
     "read_keyd_secrets": Expect("blocked", WP2),
+    # P2b (docs/ai-agent-plan.md 5.3): keyd's app secrets belong to an
+    # installed app's label. A session program has none: its Get is EPERM, and
+    # the sealed file is root's. (Another *app* reading a secret is judged by
+    # tools/keyd/run.py: probeb finds nothing under probea's name.)
+    "appsecret_read": Expect("blocked", P2B),
+    "read_keyd_appsecrets": Expect("blocked", P2B),
     # The NIC's owner methods (rings, receive mode) are netd's: a session
     # that could call them reads and injects every frame (review of the
     # Wi-Fi stack, netpolicy::may_own_nic).

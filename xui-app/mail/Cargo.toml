@@ -37,6 +37,9 @@ rustls = { version = "=0.23.45", default-features = false, features = ["std", "t
 keyring = "3.2"
 
 secrecy = "0.10"
+# Names a remembered password in keyd (`secrets.rs`): a hash of the keyring
+# entry, so the name is short printable ASCII whatever the address is.
+sha2 = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 # Offscreen renders of the window (`app/window_tests.rs`).

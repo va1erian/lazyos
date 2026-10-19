@@ -56,6 +56,8 @@ pub enum FileError {
     BadRecord,
     /// More records than the caps allow, or a duplicate.
     TooMany,
+    /// A format version this build does not know (a newer writer).
+    BadVersion,
 }
 
 impl core::fmt::Display for FileError {
@@ -66,6 +68,7 @@ impl core::fmt::Display for FileError {
             FileError::BadTag => "damaged, or sealed under another machine key",
             FileError::BadRecord => "a record is malformed",
             FileError::TooMany => "over the caps",
+            FileError::BadVersion => "a format version this build does not know",
         })
     }
 }
@@ -169,7 +172,7 @@ fn encode_record(entry: &Entry) -> Vec<u8> {
 }
 
 /// The next `len` bytes of `rest`, advancing it.
-fn take<'a>(rest: &mut &'a [u8], len: usize) -> Result<&'a [u8], FileError> {
+pub(crate) fn take<'a>(rest: &mut &'a [u8], len: usize) -> Result<&'a [u8], FileError> {
     if rest.len() < len {
         return Err(FileError::Truncated);
     }

@@ -493,6 +493,34 @@ capabilities = []
   there is no TPM to hold the machine key, so sealing to one is later work.
   A secret is also in `keyd`'s memory while it runs, and `wlanmd` holds the
   PMK and the keys derived from it for a session.
+- **App secrets** (docs/ai-agent-plan.md section 5.3 "P2b",
+  `os.lazy.keyd.appsecret.v1`, `libs/secretstore`): an installed app keeps its
+  own passwords and tokens across reboots with `Put`, `Get`, `Delete` and
+  `List` (names). Unlike the named secrets, `Get` returns the secret, so the
+  scope is the whole defence: every call is for the caller's kernel-stamped
+  **uid and label** (`app:<system_name>`, read back with `label_name`; `keyd`
+  holds `CAP_SETUID` for that), never a name in the request, so an app cannot
+  ask for another's. An unlabelled caller (a service, the Terminal) is
+  refused (`EPERM`), and so is a development run (`dev:<name>`) or a helper
+  process (`app:<name>/<child>`): their labels are not an installed app's, so
+  a project under development or a sandboxed child never sees the installed
+  app's secrets. Another user running the same app has secrets of their own.
+  The interface is rated MEDIUM ("Keep this app's own passwords and keys"): a
+  package must list it. Limits: names 1-64 printable ASCII, secrets 1-1024
+  bytes, 16 per app and user, 256 in all. **At rest:** the separate file
+  `/conf/svc/keyd/appsecrets` (0600), sealed like the named secrets' under
+  the same machine key but with its own magic (`LZAPSECR`), a version header
+  (an unknown version is refused whole) and its own HMAC key label; the
+  named secrets' `secrets` file is untouched. A file `keyd` cannot open is
+  logged (`KEYD:APPSECRETS:FAIL`), moved to `appsecrets.bad`, and `keyd`
+  serves on with none. **Cleanup:** `keyd` asks `pkgd`'s `Installed` (no new
+  call into `keyd`) shortly after start and every hour, and deletes the
+  secrets of an app `pkgd` answered "not installed" for, so a removed package
+  leaves none behind (`KEYD:SWEEP:PASS removed=<n>`). The sweep only deletes;
+  an unreachable or still-provisioning `pkgd` ends it with nothing deleted.
+  No secret is in a trace, a log, an argument or an error text. The same
+  limits as above apply to what it protects: root on the volume with both
+  files, and `keyd`'s and the app's own memory.
 - **Unlock model:** secrets are sealed per user with a key derived at login
   (Argon2id from the password + machine secret); a locked account's keys are
   unavailable even to the kernel.

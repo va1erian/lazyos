@@ -10995,6 +10995,176 @@ pub mod os_lazy_keyd_v1 {
     ];
 }
 
+/// `os.lazy.keyd.appsecret.v1` (interface id `0x37fbc58e057aa734`).
+#[rustfmt::skip]
+pub mod os_lazy_keyd_appsecret_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x37fbc58e057aa734;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.keyd.appsecret.v1";
+
+    /// `Put` method id.
+    pub const METHOD_PUT: u32 = 1316564366;
+    /// `Get` method id.
+    pub const METHOD_GET: u32 = 915881719;
+    /// `Delete` method id.
+    pub const METHOD_DELETE: u32 = 1469573738;
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 220805025;
+
+    /// Keep `secret` under `name` for the calling app and user, replacing one
+    /// of that name.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PutArgs {
+        pub name: alloc::string::String,
+        pub secret: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_put_args(value: &PutArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        target.bytes(2, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_put_args(body: &[u8]) -> Result<PutArgs, Error> {
+        let mut out = PutArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.name = field.as_str()?.into();
+                }
+                2 => {
+                    out.secret = field.as_bytes().to_vec();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The calling app's secret `name` (`ENOENT` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_get_args(value: &GetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_args(body: &[u8]) -> Result<GetArgs, Error> {
+        let mut out = GetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GetReply {
+        pub secret: alloc::vec::Vec<u8>,
+    }
+
+    pub fn encode_get_reply(value: &GetReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bytes(1, &value.secret)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_get_reply(body: &[u8]) -> Result<GetReply, Error> {
+        let mut out = GetReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.secret = field.as_bytes().to_vec();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the calling app's secret `name` (`ENOENT` when there is none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeleteArgs {
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_delete_args(value: &DeleteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_delete_args(body: &[u8]) -> Result<DeleteArgs, Error> {
+        let mut out = DeleteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.name = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// The names of the calling app's secrets, sorted. Names only.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub names: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.names {
+            nested.string(1, item)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.names.push(item.as_str()?.into());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+    ];
+}
+
 /// `os.lazy.lifecycle.v1` (interface id `0x778a92e489f41682`).
 #[rustfmt::skip]
 pub mod os_lazy_lifecycle_v1 {

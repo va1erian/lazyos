@@ -32,7 +32,7 @@ use user::messenger::{errno, Error};
 use user::sys;
 
 /// `ENOENT` from `user::files`.
-const ENOENT: i64 = 2;
+pub(crate) const ENOENT: i64 = 2;
 
 pub(crate) struct Secrets {
     store: Store,
@@ -42,6 +42,12 @@ pub(crate) struct Secrets {
 }
 
 impl Secrets {
+    /// The machine key, for the other files sealed under it (`None` when the
+    /// disk or the key could not be trusted).
+    pub(crate) fn machine_key_ref(&self) -> Option<[u8; MACHINE_KEY_LEN]> {
+        self.key
+    }
+
     /// Open the secrets file and the machine key, making the key on first
     /// start. Prints `KEYD:SECRETS:PASS` or `KEYD:SECRETS:FAIL`.
     pub(crate) fn load(entropy: &mut Entropy) -> Secrets {
@@ -246,7 +252,7 @@ fn make_dir(path: &str) -> Result<(), String> {
 
 /// Write `bytes` to `tmp` (0600, in a 0700 directory), flush it, rename it
 /// over `target` and flush again. Removes `tmp` on failure.
-fn write_atomic(tmp: &str, target: &str, bytes: &[u8]) -> Result<(), i64> {
+pub(crate) fn write_atomic(tmp: &str, target: &str, bytes: &[u8]) -> Result<(), i64> {
     let result = files::write_large(tmp, bytes)
         .and_then(|()| files::chmod(tmp, 0o600))
         .and_then(|()| files::fsync(tmp))

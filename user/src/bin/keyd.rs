@@ -73,17 +73,24 @@ use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parce
 use user::sys;
 use user::trace;
 
+#[path = "keyd/appsecrets.rs"]
+mod appsecrets;
 #[path = "keyd/secrets.rs"]
 mod secrets;
 #[path = "keyd/selftest.rs"]
 mod selftest;
 #[path = "keyd/state.rs"]
 mod state;
+#[path = "keyd/sweep.rs"]
+mod sweep;
 
+use appsecrets::AppSecrets;
 use secrets::{denied_error, Secrets};
 use secretstore::{authorize, Caller, Op, Owner};
 use selftest::{self_test, SELF_TEST_OWNER};
 use state::{Keyd, MAX_BYTES, MAX_TEXT};
+use sweep::Sweep;
+use user::messenger::keyd::appsecret;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -107,6 +114,8 @@ fn run() -> messenger::Result<()> {
     }
     load_db(&mut keyd);
     let mut secrets = Secrets::load(&mut keyd.entropy);
+    let mut app_secrets = AppSecrets::load(secrets.machine_key_ref());
+    let mut sweep = Sweep::new();
     match self_test(&mut keyd) {
         Ok(()) => trace::line!(trace::Channel::Keyd, "SELFTEST:PASS"),
         // Keep serving: some operations may still be usable, and `init` would
@@ -122,7 +131,9 @@ fn run() -> messenger::Result<()> {
     keyd.forget_account("selftest-user");
 
     let (published, server) = messenger::create_pair()?;
-    registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
+    let interfaces = [wire::INTERFACE, appsecret::INTERFACE];
+    registry::register(wire::NAME, &published, &interfaces, 0)?;
+    registry::register(appsecret::NAME, &published, &interfaces, 0)?;
     trace::line!(trace::Channel::Keyd, "READY");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
@@ -132,11 +143,20 @@ fn run() -> messenger::Result<()> {
     // allocate one per request.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let message = server.recv_with(&mut buffer, None)?;
+        // Wake for the sweep of removed apps' secrets (sweep.rs).
+        let message = match server.recv_with(&mut buffer, Some(sweep.deadline())) {
+            Ok(message) => message,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {
+                sweep.tick(&mut app_secrets, &mut keyd.entropy);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        sweep.tick(&mut app_secrets, &mut keyd.entropy);
         let method = message.method();
-        let reply = match dispatch(&mut keyd, &mut secrets, &message) {
+        let reply = match dispatch(&mut keyd, &mut secrets, &mut app_secrets, &message) {
             Ok(reply) => reply,
-            Err(error) => wire::error_reply(method, error),
+            Err(error) => wire::error_reply_on(message.interface_id(), method, error),
         };
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
@@ -176,8 +196,12 @@ fn from_accountsd(message: &Message) -> bool {
 fn dispatch(
     keyd: &mut Keyd,
     secrets: &mut Secrets,
+    app_secrets: &mut AppSecrets,
     message: &Message,
 ) -> messenger::Result<Parcel> {
+    if message.interface_id() == appsecret::INTERFACE {
+        return dispatch_app(&mut keyd.entropy, app_secrets, message);
+    }
     if message.interface_id() != wire::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }
@@ -357,6 +381,66 @@ fn dispatch(
         api::METHOD_PING => Ok(wire::ok_reply(api::METHOD_PING)),
         _ => Err(Error::Errno(-errno::EINVAL)),
     }
+}
+
+/// Serve `os.lazy.keyd.appsecret.v1`: every call is for the caller's own
+/// `(uid, installed-app label)`, resolved from its kernel-stamped credentials
+/// ([`app_caller`]); no name in a request can reach another app's secrets.
+fn dispatch_app(
+    entropy: &mut lazyos_crypto::rng::Entropy,
+    secrets: &mut AppSecrets,
+    message: &Message,
+) -> messenger::Result<Parcel> {
+    use appsecret::wire as app;
+    let (uid, label) = app_caller(message)?;
+    let app_id = secretstore::app_of_label(&label).ok_or(Error::Errno(-errno::EPERM))?;
+    let body = &message.parcel.body;
+    let parse = Error::Parcel;
+    let frame = |method: u32, body: Result<Vec<u8>, libmessenger::Error>| -> messenger::Result<Parcel> {
+        Ok(wire::parcel_on(appsecret::INTERFACE, method, body.map_err(Error::Parcel)?))
+    };
+    match message.method() {
+        app::METHOD_PUT => {
+            let args = app::decode_put_args(body).map_err(parse)?;
+            let name = bounded_text(args.name)?;
+            let secret = bounded_bytes(args.secret, secretstore::APP_MAX_SECRET)?;
+            secrets.put(entropy, uid, app_id, &name, &secret)?;
+            Ok(wire::ok_reply_on(appsecret::INTERFACE, app::METHOD_PUT))
+        }
+        app::METHOD_GET => {
+            let args = app::decode_get_args(body).map_err(parse)?;
+            let secret = secrets.get(uid, app_id, &bounded_text(args.name)?)?;
+            frame(app::METHOD_GET, app::encode_get_reply(&app::GetReply { secret }))
+        }
+        app::METHOD_DELETE => {
+            let args = app::decode_delete_args(body).map_err(parse)?;
+            secrets.delete(entropy, uid, app_id, &bounded_text(args.name)?)?;
+            Ok(wire::ok_reply_on(appsecret::INTERFACE, app::METHOD_DELETE))
+        }
+        app::METHOD_LIST => frame(
+            app::METHOD_LIST,
+            app::encode_list_reply(&app::ListReply {
+                names: secrets.names(uid, app_id),
+            }),
+        ),
+        _ => Err(Error::Errno(-errno::EINVAL)),
+    }
+}
+
+/// The caller's uid and installed-app label, from its kernel-stamped
+/// credentials. An unlabelled caller (a system service, the Terminal) is
+/// refused: it has no app, so nothing of its could be scoped. A label the
+/// kernel cannot name is refused too, never guessed.
+fn app_caller(message: &Message) -> messenger::Result<(u32, String)> {
+    let caller = message.caller();
+    if caller.label_id == 0 {
+        return Err(Error::Errno(-errno::EPERM));
+    }
+    let mut name = [0u8; sys::MAX_LABEL_BYTES];
+    let len = sys::label_name(caller.label_id, &mut name)
+        .map_err(|_| Error::Errno(-errno::EPERM))?;
+    let label = core::str::from_utf8(&name[..len]).map_err(|_| Error::Errno(-errno::EPERM))?;
+    Ok((caller.uid, String::from(label)))
 }
 
 /// Frame an encoded reply body as a `keyd` parcel of `method`.

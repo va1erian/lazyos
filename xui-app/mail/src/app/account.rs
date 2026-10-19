@@ -9,10 +9,10 @@ use esmail_glue::account_form::{self, AccountForm, Field};
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    Align, Handle, LayoutExt, Track, button, column, edit, grid, label, panel, row,
+    Align, Handle, LayoutExt, Track, button, checkbox, column, edit, grid, label, panel, row,
 };
 use xui_core::icon::Lucide;
-use xui_core::widget::{Edit, HasText, Label, Panel};
+use xui_core::widget::{CheckBox, Edit, HasText, Label, Panel};
 
 use super::Msg;
 
@@ -24,6 +24,7 @@ pub struct AccountWidgets {
     name: Handle<Edit<Msg>>,
     email: Handle<Edit<Msg>>,
     password: Handle<Edit<Msg>>,
+    remember: Handle<CheckBox<Msg>>,
     imap_host: Handle<Edit<Msg>>,
     imap_port: Handle<Edit<Msg>>,
     smtp_host: Handle<Edit<Msg>>,
@@ -70,6 +71,7 @@ pub fn page(w: &AccountWidgets) -> impl LayoutExt<Msg> {
                 smtp_port_l,
                 smtp_port,
             )),
+            checkbox("Remember this password on this computer").bind(&w.remember),
             label("").bind(&w.error),
             row().gap(8).justify(Align::End).children((
                 button("Cancel").icon(Lucide::X).on_click(Msg::CloseAccount),
@@ -91,6 +93,7 @@ pub struct AccountPage {
     name: Rc<Edit<Msg>>,
     email: Rc<Edit<Msg>>,
     password: Rc<Edit<Msg>>,
+    remember: Rc<CheckBox<Msg>>,
     imap_host: Rc<Edit<Msg>>,
     imap_port: Rc<Edit<Msg>>,
     smtp_host: Rc<Edit<Msg>>,
@@ -113,6 +116,7 @@ impl AccountPage {
             name: w.name.get(),
             email: w.email.get(),
             password: w.password.get(),
+            remember: w.remember.get(),
             imap_host: w.imap_host.get(),
             imap_port: w.imap_port.get(),
             smtp_host: w.smtp_host.get(),
@@ -161,6 +165,7 @@ impl AccountPage {
         self.name.set_text(&form.display_name);
         self.email.set_text(&form.email);
         self.password.set_text("");
+        self.remember.set_checked(false);
         self.set_servers(form);
     }
 
@@ -208,6 +213,12 @@ impl AccountPage {
             smtp_port,
             smtp_tls,
         }
+    }
+
+    /// Whether the user ticked "Remember this password": `secrets.rs` keeps
+    /// it in `keyd` across reboots, and forgets it from there when unticked.
+    pub fn remember(&self) -> bool {
+        self.remember.is_checked()
     }
 
     /// Shows why the form was refused and puts the cursor in the field to fix.

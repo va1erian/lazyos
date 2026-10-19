@@ -18,6 +18,18 @@ pub use wire::KeyInfo;
 /// Registered service name.
 pub const NAME: &str = "os.lazy.keyd";
 
+/// `os.lazy.keyd.appsecret.v1` (`idl/keyd_appsecret.midl`): an app's own
+/// secrets, served by `keyd` on the same endpoint under a name of its own.
+pub mod appsecret {
+    /// The generated stubs.
+    pub use messenger_generated::os_lazy_keyd_appsecret_v1 as wire;
+
+    /// Registered service name (the interface name minus `.v1`).
+    pub const NAME: &str = "os.lazy.keyd.appsecret";
+    /// The interface id every parcel of it carries (and its ACL scope).
+    pub const INTERFACE: u64 = wire::INTERFACE_ID;
+}
+
 /// The interface id every `keyd` parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;
 
@@ -36,11 +48,17 @@ pub const MAX_BYTES: usize = 8 * 1024;
 /// A parcel of `method` carrying an already-encoded `body`; also the reply
 /// builder for the daemon.
 pub fn parcel(method: u32, body: Vec<u8>) -> Parcel {
+    parcel_on(INTERFACE, method, body)
+}
+
+/// [`parcel`] of another interface the service serves
+/// ([`appsecret::INTERFACE`]).
+pub fn parcel_on(interface_id: u64, method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
             flags: 0,
-            interface_id: INTERFACE,
+            interface_id,
             method,
             txn_id: 0,
             reply_to: 0,
@@ -56,14 +74,24 @@ pub fn ok_reply(method: u32) -> Parcel {
     parcel(method, Vec::new())
 }
 
+/// [`ok_reply`] on `interface_id`.
+pub fn ok_reply_on(interface_id: u64, method: u32) -> Parcel {
+    parcel_on(interface_id, method, Vec::new())
+}
+
 /// The daemon's error answer: errno-style code plus friendly text. The
 /// client turns the code back into [`Error::Errno`].
 pub fn error_reply(method: u32, error: Error) -> Parcel {
+    error_reply_on(INTERFACE, method, error)
+}
+
+/// [`error_reply`] on `interface_id`.
+pub fn error_reply_on(interface_id: u64, method: u32, error: Error) -> Parcel {
     let code = error.errno().map(|code| -code).unwrap_or(errno::EINVAL);
     let mut body = Encoder::new();
     // A structured error field cannot overflow a fresh encoder here.
     let _ = body.error(ERROR_FIELD, code as u32, error.message());
-    parcel(method, body.finish())
+    parcel_on(interface_id, method, body.finish())
 }
 
 /// The first structured error field, when the reply is a daemon failure.

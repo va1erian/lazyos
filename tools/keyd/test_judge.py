@@ -20,6 +20,10 @@ def log(name: str, loaded: int | None = None, details: dict | None = None) -> st
     for index, (step, detail) in enumerate(expect["steps"]):
         detail = (details or {}).get(index, detail)
         lines.append(f"TERM:OUT:KEYD:T:{step}:PASS:{detail}")
+    lines.append(f"KEYD:APPSECRETS:PASS count={expect['app_loaded']}")
+    for app, verb, outcome in expect["apps"]:
+        lines.append(f"TERM:OUT:KEYD:APP:{app}:{verb}:{outcome}")
+    lines.append(f"KEYD:SWEEP:PASS removed={expect['sweep']}")
     return "\n".join(lines) + "\n"
 
 
@@ -53,6 +57,55 @@ class BootTest(unittest.TestCase):
     def test_a_write_failure_or_panic_fails(self):
         for bad in ("KEYD:SECRETS:WRITE:FAIL errno=5", "panic"):
             self.assertTrue(judge.judge_boot("third", log("third") + bad + "\n"), bad)
+
+
+class AppSecretsTest(unittest.TestCase):
+    def test_a_probe_that_read_another_apps_secret_fails(self):
+        # `probeb` must not find `token` on its first run; "ok" instead of
+        # ENOENT means it saw probea's.
+        text = log("first").replace("probeb:run:PASS:ENOENT", "probeb:run:PASS:ok")
+        self.assertTrue(any("probe apps printed" in f for f in judge.judge_boot("first", text)))
+
+    def test_a_secret_lost_over_a_reboot_fails(self):
+        text = log("second").replace("survived", "MISMATCH")
+        self.assertTrue(any("probe apps printed" in f for f in judge.judge_boot("second", text)))
+
+    def test_an_unlabelled_caller_that_was_served_fails(self):
+        text = log("first").replace("app_denied:PASS:EPERM", "app_denied:PASS:ok")
+        self.assertTrue(any("app_denied" in f for f in judge.judge_boot("first", text)))
+
+    def test_a_missing_or_wrong_sweep_fails(self):
+        text = log("second").replace("KEYD:SWEEP:PASS removed=1", "KEYD:SWEEP:PASS removed=0")
+        self.assertTrue(any("sweep" in f for f in judge.judge_boot("second", text)))
+        text = log("second").replace("KEYD:SWEEP:PASS removed=1\n", "")
+        self.assertTrue(any("sweep" in f for f in judge.judge_boot("second", text)))
+        self.assertTrue(any("sweep" in f for f in judge.judge_boot(
+            "first", log("first").replace("removed=0", "removed=1"))))
+
+    def test_the_wrong_number_of_loaded_app_secrets_fails(self):
+        text = log("third").replace("APPSECRETS:PASS count=1", "APPSECRETS:PASS count=2")
+        self.assertTrue(any("loaded 2 app secrets" in f for f in judge.judge_boot("third", text)))
+        text = log("third").replace("APPSECRETS:PASS count=1", "APPSECRETS:FAIL reason=x")
+        self.assertTrue(judge.judge_boot("third", text))
+
+    def test_a_secret_value_in_the_log_fails(self):
+        for value in judge.SECRET_VALUES:
+            self.assertTrue(judge.judge_boot("third", log("third") + f"x {value}\n"), value)
+
+    def test_the_file_is_checked(self):
+        tree = {"/conf/svc/keyd/appsecrets": NODE}
+        good = b"LZAPSECR\x01\x00\x02\x00" + bytes(range(60, 124))
+        key = bytes(range(100, 132))
+        self.assertEqual(judge.judge_app_file(tree, good, key), [])
+        self.assertTrue(judge.judge_app_file({}, good, key))
+        self.assertTrue(judge.judge_app_file(
+            {"/conf/svc/keyd/appsecrets": ("f", "644", "0", "0", "9", "1", "x")}, good, key))
+        self.assertTrue(judge.judge_app_file(tree, b"LZSECRT1" + good[8:], key))
+        self.assertTrue(judge.judge_app_file(tree, b"LZAPSECR\x02\x00\x02\x00" + good[12:], key))
+        self.assertTrue(judge.judge_app_file(tree, b"LZAPSECR\x01\x00\x01\x00" + good[12:], key))
+        self.assertTrue(judge.judge_app_file(tree, good + b"s3cret-probea", key))
+        self.assertTrue(judge.judge_app_file(tree, good + b"org.keyd.probea", key))
+        self.assertTrue(judge.judge_app_file(tree, good + key, key))
 
 
 class FilesTest(unittest.TestCase):

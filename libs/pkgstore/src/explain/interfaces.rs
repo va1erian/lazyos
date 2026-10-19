@@ -82,6 +82,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Control how keyboard input is routed for the whole desktop",
     ),
     (
+        "os.lazy.keyd.appsecret.v1",
+        MEDIUM,
+        "Keep this app's own passwords and keys",
+    ),
+    (
         "os.lazy.keyd.v1",
         HIGH,
         "Use the stored secrets and encryption keys",

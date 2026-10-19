@@ -7094,6 +7094,7 @@ dependencies = [
  "nettls-crypto",
  "rustls",
  "secrecy",
+ "sha2",
  "webfonts",
  "xui-app",
  "xui-blitz",

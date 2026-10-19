@@ -64,6 +64,8 @@ delete a canary file, and remove whatever they created.
 | `confd_sys` | rhai `sys::confd::set("sys/...")` |
 | `keyd_provision` | rhai `sys::keyd::provision(...)` |
 | `read_keyd_secrets` | `cat /conf/svc/keyd/machine.key`: keyd's machine key, with the secrets file beside it, is root's alone (WP2) |
+| `read_keyd_appsecrets` | `cat /conf/svc/keyd/appsecrets`: keyd's apps' secrets file is root's alone (P2b) |
+| `appsecret_read` | rhai: `keyd` `Get` of an app secret from a session program that has no app label; an app's secrets are its own label's alone (P2b; another *app* is judged by `tools/keyd/run.py`) |
 | `wifi_pmk` | rhai: `keyd` `WifiPmk` for admin's secret; the PMK is `wlanmd`'s alone (WP2) |
 | `wifi_system_store` | rhai: `keyd` `StoreSecret` in the `system` scope without `elevd`'s approval (WP2) |
 | `wifi_store_for` | rhai: `keyd` `StoreSecretFor` (admin's Wi-Fi profile id, then the `system` scope) and `DeleteSecretFor`; `wlanmd`'s alone, user profiles only (WP2, review of the Wi-Fi stack) |
