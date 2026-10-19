@@ -17,6 +17,7 @@ mod ps2_intake;
 mod ring;
 mod source;
 mod source_priority;
+mod source_records;
 mod source_stress;
 mod stress;
 mod syscall;
@@ -243,6 +244,38 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "input_source_closing_one_source_keeps_the_input_share",
         source_priority::closing_one_source_keeps_the_input_share,
+    ),
+    (
+        "input_source_register_and_close_announce",
+        source_records::register_and_close_announce,
+    ),
+    (
+        "input_source_task_teardown_announces",
+        source_records::task_teardown_announces,
+    ),
+    (
+        "input_source_dead_owner_reclaim_announces",
+        source_records::dead_owner_reclaim_announces,
+    ),
+    (
+        "input_source_driver_cannot_forge_source",
+        source_records::driver_cannot_forge_source,
+    ),
+    (
+        "input_source_records_never_merge",
+        source_records::source_records_never_merge,
+    ),
+    (
+        "input_source_table_capability_gate",
+        source_records::source_table_capability_gate,
+    ),
+    (
+        "input_source_table_contents",
+        source_records::source_table_contents,
+    ),
+    (
+        "input_source_table_bounds_and_faults",
+        source_records::source_table_bounds_and_faults,
     ),
     (
         "input_source_priority_stress_generations",

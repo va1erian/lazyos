@@ -17,6 +17,15 @@
 //! them there on close and on task death too, so a crashed driver cannot leave
 //! a stick deflected either (`docs/usb-gamepad-plan.md`).
 //!
+//! Every registration and every freeing of a slot is announced on the bus as a
+//! kernel-originated [`kind::SOURCE`] record (`code` the class, `value` 1 or
+//! 0, `device` the source's id), so a consumer can route a device's records by
+//! class. The close announcement comes after the release burst, from
+//! [`release`] itself, so `close`, task teardown and `register` reclaiming a
+//! dead owner's slot all publish it. A driver can never publish one
+//! ([`permitted`]). A record can be evicted from a full ring, so [`snapshot`]
+//! (the `SOURCES` op of syscall 25) is the truth a consumer re-reads.
+//!
 //! Ids: a source id is `generation << 8 | index`; the generation changes on
 //! every registration of the slot, so a stale id from a closed source fails
 //! closed with [`Error::BadId`] instead of naming its successor.
@@ -189,6 +198,7 @@ pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
         };
         refill(&mut source, task::ticks());
         table.slots[index] = Some(source);
+        announce(index, source_class, true);
         Ok(id_of(index, generation))
     })
 }
@@ -295,6 +305,57 @@ fn release(table: &mut Table, index: usize) {
             bus::publish(device, kind::AXIS, code, axis::rest(code));
         }
     }
+    announce(index, source.class, false);
+}
+
+/// Publish the kernel-originated [`kind::SOURCE`] record for slot `index`.
+fn announce(index: usize, source_class: u8, registered: bool) {
+    bus::publish(
+        device_of(index),
+        kind::SOURCE,
+        u16::from(source_class),
+        i32::from(registered),
+    );
+}
+
+/// Bytes per [`snapshot`] entry as `rawsys` writes it: device, class,
+/// generation (little-endian `u16`).
+pub const ENTRY_BYTES: usize = 4;
+
+/// One live source, as the table query reports it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Info {
+    pub device: u8,
+    pub class: u8,
+    pub generation: u16,
+}
+
+impl Info {
+    /// The wire encoding.
+    pub fn to_bytes(self) -> [u8; ENTRY_BYTES] {
+        let generation = self.generation.to_le_bytes();
+        [self.device, self.class, generation[0], generation[1]]
+    }
+}
+
+/// The live sources in slot order, and how many there are. A slot whose owner
+/// died but was not reclaimed yet is not live (as [`register`] sees it).
+pub fn snapshot() -> ([Info; MAX_SOURCES], usize) {
+    locked(|table| {
+        let mut out = [Info::default(); MAX_SOURCES];
+        let mut count = 0;
+        for (index, slot) in table.slots.iter().enumerate() {
+            if let Some(source) = slot.filter(|s| task::live(s.owner)) {
+                out[count] = Info {
+                    device: device_of(index),
+                    class: source.class,
+                    generation: source.generation,
+                };
+                count += 1;
+            }
+        }
+        (out, count)
+    })
 }
 
 /// Whether `record` is a kind `class` may publish, with in-range fields.
@@ -315,6 +376,9 @@ fn permitted(source_class: u8, record: &Record) -> bool {
         }
         // A device's identity: any class may state it, it carries no input.
         (_, kind::DEVICE) => true,
+        // The kernel's own announcement of a registration: a driver forging
+        // one would re-route another device's records.
+        (_, kind::SOURCE) => false,
         _ => false,
     }
 }

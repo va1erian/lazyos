@@ -72,6 +72,12 @@ pub mod kind {
     /// (`code` = vendor id, `value` = product and version): diagnostics, and
     /// what a per-device mapping table will key on.
     pub const DEVICE: u8 = 9;
+    /// Kernel-originated, never a driver's (`sources::permitted` refuses it
+    /// from every class): source `device` registered (`value` 1) or closed
+    /// (`value` 0, after the releases it owed). `code` is the source's class.
+    /// Never mergeable. Like any record it can be evicted from a full ring:
+    /// the source table query ([`super::rawsys::op::SOURCES`]) is the truth.
+    pub const SOURCE: u8 = 10;
 }
 
 /// Device ids. Assigned by the kernel driver, so a client can never forge one.

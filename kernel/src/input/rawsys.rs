@@ -15,6 +15,9 @@
 //!        [`super::console`]); -EBUSY while another live task holds it
 //!   op 8 (console_release): give it back; -EPERM when not the holder
 //!   op 9 (console_owner): the claiming task's slot, or -ENOENT
+//!   op 10 (sources): rsi -> buffer, rdx = capacity in bytes -> entries
+//!        written, one [`sources::ENTRY_BYTES`] entry per live source in slot
+//!        order (device, class, generation u16); -EFAULT
 //! ```
 //!
 //! Every return is a count/zero or `-errno`. Consumer records are
@@ -26,7 +29,9 @@
 //! gated on `CAP_INPUT_SOURCE` (`docs/usb-hid-plan.md` U1), held by input
 //! drivers; neither bit implies the other. Ops 7-8 are gated on
 //! `CAP_INPUT_CONSOLE` (`logind`); op 9, like op 3, on `CAP_INPUT_RAW`
-//! (`inputd` authenticates its sessionless client with it).
+//! (`inputd` authenticates its sessionless client with it); op 10 (the source
+//! table, the truth behind the kernel's `SOURCE` records) is `CAP_INPUT_RAW`
+//! too and needs no consumer ring.
 
 use alloc::vec::Vec;
 
@@ -51,6 +56,8 @@ pub mod op {
     pub const CONSOLE_RELEASE: u64 = 8;
     /// The claiming task's slot (`CAP_INPUT_RAW`).
     pub const CONSOLE_OWNER: u64 = 9;
+    /// The live source table (`CAP_INPUT_RAW`).
+    pub const SOURCES: u64 = 10;
 }
 
 const EPERM: i64 = 1;
@@ -133,6 +140,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             Some(slot) => slot as u64,
             None => negative(ENOENT),
         },
+        op::SOURCES => source_table(buf, capacity),
         op::CLOSE_SOURCE => match sources::close(buf, me) {
             Ok(()) => {
                 // One source closed (a mouse unplugged): a driver that still
@@ -180,6 +188,27 @@ fn publish(me: usize, ptr: u64, packed: u64) -> u64 {
         Ok(outcome) => outcome.accepted as u64,
         Err(_) => negative(EBADF),
     }
+}
+
+/// Write the live source table into the caller's buffer, as many whole
+/// entries as `capacity` holds; returns how many were written.
+fn source_table(ptr: u64, capacity: u64) -> u64 {
+    if ptr == 0 {
+        return negative(EFAULT);
+    }
+    let (table, live) = sources::snapshot();
+    let fit = (capacity / sources::ENTRY_BYTES as u64).min(live as u64) as usize;
+    let mut bytes = [0u8; sources::MAX_SOURCES * sources::ENTRY_BYTES];
+    for (info, out) in table[..fit]
+        .iter()
+        .zip(bytes.as_chunks_mut::<{ sources::ENTRY_BYTES }>().0)
+    {
+        *out = info.to_bytes();
+    }
+    if user_ptr::try_copy_to(ptr, &bytes[..fit * sources::ENTRY_BYTES]).is_err() {
+        return negative(EFAULT);
+    }
+    fit as u64
 }
 
 /// Drain the caller's ring into its buffer.

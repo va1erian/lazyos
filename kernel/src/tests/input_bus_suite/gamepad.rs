@@ -2,7 +2,7 @@
 //! its record kinds, the axis encoding, the device-identity record, the
 //! release of up to 32 held buttons, and the axis merge rule.
 
-use super::source::{call, driver_task, failed, publish, rec, register};
+use super::source::{call, device_of, driver_task, failed, publish, rec, register};
 use super::*;
 use crate::input::bus::axis;
 use crate::input::rawsys::op;
@@ -50,11 +50,17 @@ pub fn class_and_ranges() -> Result<(), String> {
         rec(kind::BUTTON, 5, 2),
     ];
     check!(publish(pad, &records) == 5, "accepted the wrong count");
-    let carried = drain_all(reader, 32)?;
-    check!(carried.len() == 5, "bus carried {}", carried.len());
-    let device = carried[0].device;
+    let all = drain_all(reader, 32)?;
+    check!(all.len() == 6, "bus carried {}", all.len());
+    let device = device_of(pad);
     check!(
-        shape(&carried)
+        shape(&all[..1]) == [(device, kind::SOURCE, u16::from(class::GAMEPAD), 1)],
+        "announcement {:x?}",
+        shape(&all[..1])
+    );
+    let carried = &all[1..];
+    check!(
+        shape(carried)
             == [
                 (device, kind::AXIS, axis::usage::X, -32768),
                 (device, kind::AXIS, axis::usage::HAT, 8),
@@ -63,7 +69,7 @@ pub fn class_and_ranges() -> Result<(), String> {
                 (device, kind::BUTTON, 32, 1),
             ],
         "bus carried {:x?}",
-        shape(&carried)
+        shape(carried)
     );
     check!(
         sources::counters().0 == 12,
@@ -91,14 +97,15 @@ pub fn device_record_is_accepted_from_every_class() -> Result<(), String> {
     let identity = rec(kind::DEVICE, 0x2dc8, 0x310b);
     check!(publish(keyboard, &[identity]) == 1, "keyboard identity");
     check!(publish(pad, &[identity]) == 1, "gamepad identity");
-    let carried = drain_all(reader, 8)?;
+    let all = drain_all(reader, 8)?;
     check!(
-        carried.len() == 2
-            && carried
+        all.len() == 4
+            && all[..2].iter().all(|r| r.kind == kind::SOURCE)
+            && all[2..]
                 .iter()
                 .all(|r| r.kind == kind::DEVICE && r.code == 0x2dc8 && r.value == 0x310b),
         "identity records {:x?}",
-        shape(&carried)
+        shape(&all)
     );
     sources::reset();
     bus::reset();
@@ -119,12 +126,17 @@ pub fn close_releases_all_32_buttons() -> Result<(), String> {
     let presses: Vec<Record> = (1..=32).map(|n| rec(kind::BUTTON, n, 1)).collect();
     check!(publish(pad, &presses) == 32, "presses");
     let pressed = drain_all(reader, 64)?;
-    check!(pressed.len() == 32, "bus carried {}", pressed.len());
-    let device = pressed[0].device;
+    check!(pressed.len() == 33, "bus carried {}", pressed.len());
+    let device = device_of(pad);
     check!(call(op::CLOSE_SOURCE, pad, 0) == 0, "close");
     let released = drain_all(reader, 64)?;
-    check!(released.len() == 32, "released {}", released.len());
-    for (index, record) in released.iter().enumerate() {
+    check!(released.len() == 33, "released {}", released.len());
+    check!(
+        shape(&released[32..]) == [(device, kind::SOURCE, u16::from(class::GAMEPAD), 0)],
+        "the close was not announced last: {:x?}",
+        shape(&released[32..])
+    );
+    for (index, record) in released[..32].iter().enumerate() {
         check!(
             record.device == device
                 && record.kind == kind::BUTTON
@@ -168,8 +180,8 @@ pub fn close_centres_held_axes() -> Result<(), String> {
         "publish"
     );
     let pressed = drain_all(reader, 16)?;
-    check!(pressed.len() == 4, "bus carried {}", pressed.len());
-    let device = pressed[0].device;
+    check!(pressed.len() == 5, "bus carried {}", pressed.len());
+    let device = device_of(pad);
     // The hat goes back to rest on its own: closing must not re-publish it.
     check!(
         publish(pad, &[rec(kind::AXIS, axis::usage::HAT, 8)]) == 1,
@@ -183,6 +195,7 @@ pub fn close_centres_held_axes() -> Result<(), String> {
             == [
                 (device, kind::BUTTON, 1, 0),
                 (device, kind::AXIS, axis::usage::X, 0),
+                (device, kind::SOURCE, u16::from(class::GAMEPAD), 0),
             ],
         "released {:x?}",
         shape(&released)
@@ -195,11 +208,24 @@ pub fn close_centres_held_axes() -> Result<(), String> {
         "deflect"
     );
     let deflected = drain_all(reader, 16)?;
-    let device = deflected[0].device;
+    let device = device_of(pad);
+    check!(
+        shape(&deflected)
+            == [
+                (device, kind::SOURCE, u16::from(class::GAMEPAD), 1),
+                (device, kind::AXIS, axis::usage::Y, 1234),
+            ],
+        "deflected {:x?}",
+        shape(&deflected)
+    );
     sources::teardown_task(driver);
     let released = drain_all(reader, 16)?;
     check!(
-        shape(&released) == [(device, kind::AXIS, axis::usage::Y, 0)],
+        shape(&released)
+            == [
+                (device, kind::AXIS, axis::usage::Y, 0),
+                (device, kind::SOURCE, u16::from(class::GAMEPAD), 0),
+            ],
         "teardown released {:x?}",
         shape(&released)
     );
@@ -273,7 +299,7 @@ pub fn axis_tail_merges_by_replacing() -> Result<(), String> {
     );
     let records = drain_all(reader, 8)?;
     check!(
-        records.len() == 1 && records[0].value == 100,
+        records.len() == 2 && records[0].kind == kind::SOURCE && records[1].value == 100,
         "rejected record merged: {:x?}",
         shape(&records)
     );
