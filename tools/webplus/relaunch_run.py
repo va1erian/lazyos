@@ -42,6 +42,8 @@ import session  # noqa: E402
 
 #: A small site that installs a service worker on its first visit.
 DEFAULT_URLS = ["https://squoosh.app/"]
+#: The ad blocker's list is compiled and in use (`xui-app/webplus/src/blocker/`).
+BLOCKER_READY = "WEBPLUS:BLOCK:READY:"
 #: How long a start page may take to load after a start (the first execve of three 110 MB programs).
 START_TIMEOUT = 180.0
 
@@ -49,7 +51,8 @@ START_TIMEOUT = 180.0
 def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -> list[dict]:
     """Visit `urls`, then `cycles` times: close the window, start it from the menu, wait on the start page."""
     loaded = f"{judge.P}:LOAD:{judge.START}"
-    steps = [*session.boot_gates(300), {"wait_for": loaded, "timeout": 300}]
+    steps = [*session.boot_gates(300), {"wait_for": loaded, "timeout": 300},
+             {"wait_for": BLOCKER_READY, "timeout": 300}]
     for index, url in enumerate(urls):
         steps += [*session.navigate(url, f"{judge.P}:NAV:", timeout=60), {"wait": wait}, {"shot": f"site{index}"}]
     for cycle in range(1, cycles + 1):
@@ -79,8 +82,16 @@ def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -
 def verdict(text: str, cycles: int) -> list[str]:
     """What went wrong, from a serial log of `relaunch_session` (empty: nothing): `live_run`'s hang signs (an
     unresponsive page, a refused sendmsg, a lost IPC message, a crash, a stuck call), a NetworkProcess WebKit
-    ended, and a start that did not reach its start page."""
-    found, _ = live_run.verdict(text)
+    ended, and a start that did not reach its start page.
+
+    A fresh profile's first start downloads and compiles the ad blocker's list (about 60 000 rules), which keeps
+    the UI process busy for seconds: the signs that are only slowness (an unresponsive page, a stuck call, a lock
+    wait) are judged from the list's `BLOCK:READY` on. A lost or refused message counts anywhere."""
+    warm = text.find(BLOCKER_READY)
+    found, _ = live_run.verdict(text[warm:] if warm >= 0 else text)
+    if warm > 0:
+        early, _ = live_run.verdict(text[:warm])
+        found += [sign for sign in early if "SCM:REFUSE" in sign or "IPC message" in sign or "signal" in sign]
     for pid, reason in re.findall(r"WEBPLUS:NETWORKPROCESS:GONE:(-?\d+):(\S+)", text):
         found.append(f"the NetworkProcess (pid {pid}) was ended ({reason})")
     starts = text.count(f"{judge.P}:LOAD:{judge.START}")

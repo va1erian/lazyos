@@ -677,5 +677,8 @@ and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `
    footer even once the scroll has settled (7% of the rows shown while scrolling there); the first screenshot of this
    work shows it too. The picture does not cover the view's rows below the document's end: find which update
    leaves them out (the scroll delta's exposed strip, or the backing store's size) before blaming the bands.
-4. **Two hangs seen once each, not reproduced**: input stopped reaching the window after Ars Technica loaded (the
-   input services alive), and a WebProcess waited for good in `GetNetworkProcessConnection` at startup.
+4. **Two hangs seen once each.** A WebProcess waiting for good in `GetNetworkProcessConnection` at startup was the
+   kernel refusing WebKit's hand-off of a new NetworkProcess connection whose queue already held a handle
+   (`SCM_RIGHTS`, `ETOOMANYREFS`, issue #865). The cycle check is now exact (`kernel/src/ipc/pipe/reach.rs`), and
+   `python tools/webplus/relaunch_run.py` closes and starts the browser until it would show again. Still open:
+   input stopped reaching the window after Ars Technica loaded (the input services alive), not reproduced.

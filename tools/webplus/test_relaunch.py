@@ -63,6 +63,16 @@ class Verdict(unittest.TestCase):
         crash = HEALTHY + "PROC:EXIT tgid=39 thread=39/fork status=- sig=11 by=kernel parent=30 cpu_ms=9 comm=webprocess\n"
         self.assertEqual(relaunch_run.verdict(crash, 2), ["webprocess (tgid 39) died of signal 11"])
 
+    def test_the_blocker_warm_up_is_slow_not_hung_but_a_lost_message_in_it_counts(self):
+        warm = ("WEBPLUS:WEBPROCESS:UNRESPONSIVE:40\nWEBPLUS:WEBPROCESS:RESPONSIVE:40\n"
+                "SCHED:STUCK tgid=25 thread=47/thread abi=linux nr=7 ms=3150 cpu_ms=0 krip=0x1 urip=0x2 comm=SocketMonitor\n"
+                "WEBPLUS:BLOCK:READY:easylist:rules=58928\n")
+        self.assertEqual(relaunch_run.verdict(warm + HEALTHY, 2), [])
+        lost = warm.replace("WEBPLUS:BLOCK:READY", "Error sending IPC message: No error information\nWEBPLUS:BLOCK:READY")
+        self.assertEqual(len(relaunch_run.verdict(lost + HEALTHY, 2)), 1)
+        late = warm + HEALTHY + "WEBPLUS:WEBPROCESS:UNRESPONSIVE:36\n"
+        self.assertTrue(relaunch_run.verdict(late, 2), "after the warm-up, an unresponsive page counts")
+
     def test_the_live_verdict_sees_a_refused_send_too(self):
         hang, _ = live_run.verdict(REFUSED)
         self.assertTrue(any("SCM:REFUSE" in finding for finding in hang), hang)
