@@ -41,7 +41,6 @@ import session  # noqa: E402
 
 #: A small site that installs a service worker on its first visit.
 DEFAULT_URLS = ["https://squoosh.app/"]
-APP_MENU = "LazyWeb+"
 #: How long a start page may take to load after a start (the first execve of three 110 MB programs).
 START_TIMEOUT = 180.0
 
@@ -62,8 +61,12 @@ def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -
             {"move_to": {"menu": "Internet"}, "until": "SHELL:SUBMENU:OPEN category=internet", "timeout": 30,
              "retries": 1},
             {"wait": 0.5},
-            {"click_at": {"menu": APP_MENU}, "until": "SHELL:LAUNCH:PASS app=os.lazy.lazywebplus", "timeout": 60,
-             "retries": 1},
+            # The keyboard from here (issue #648): Right moves into the submenu with its first app lit
+            # (LazyWeb+), Enter starts it. A pointer path to the row can cross another category and switch
+            # the submenu under it.
+            {"key": "right"},
+            {"wait": 0.5},
+            {"key": "enter", "until": "SHELL:LAUNCH:PASS app=os.lazy.lazywebplus", "timeout": 60},
             {"wait_for": f"{judge.P}:UP:PASS", "occurrence": cycle + 1, "timeout": START_TIMEOUT},
             {"wait_for": loaded, "occurrence": cycle + 1, "timeout": START_TIMEOUT},
             {"wait": settle},

@@ -61,7 +61,7 @@ class Verdict(unittest.TestCase):
 
     def test_the_session_closes_and_starts_the_browser_each_cycle(self):
         steps = relaunch_run.relaunch_session(["https://squoosh.app/"], 3, 1.0, 1.0)
-        starts = [step for step in steps if step.get("click_at", {}).get("menu") == relaunch_run.APP_MENU]
+        starts = [step for step in steps if step.get("until") == "SHELL:LAUNCH:PASS app=os.lazy.lazywebplus"]
         self.assertEqual(len(starts), 3)
         loads = [step["occurrence"] for step in steps
                  if step.get("wait_for") == "WEBPLUS:LOAD:about:start" and "occurrence" in step]
