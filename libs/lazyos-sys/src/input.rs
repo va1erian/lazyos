@@ -46,6 +46,8 @@ pub mod input_op {
     pub const CONSOLE_CLAIM: u64 = 7;
     pub const CONSOLE_RELEASE: u64 = 8;
     pub const CONSOLE_OWNER: u64 = 9;
+    /// The live source table ([`input_raw_sources`]).
+    pub const SOURCES: u64 = 10;
 }
 
 /// Raw event kinds (`kernel/src/input/bus.rs`).
@@ -61,6 +63,28 @@ pub mod raw_kind {
     pub const AXIS: u8 = 8;
     /// A device's identity: `code` = vendor id, `value` = product and version.
     pub const DEVICE: u8 = 9;
+    /// Kernel-originated, never a driver's: source `device` registered
+    /// (`value` 1) or closed (`value` 0, after its releases); `code` is its
+    /// [`source_class`](super::source_class).
+    pub const SOURCE: u8 = 10;
+}
+
+/// Source slots the kernel holds (`kernel/src/input/sources.rs`).
+pub const MAX_SOURCES: usize = 16;
+/// Bytes per entry [`input_raw_sources`] writes: device, class, generation
+/// (little-endian `u16`).
+pub const SOURCE_ENTRY_BYTES: usize = 4;
+
+/// One live source, as [`input_raw_sources`] reports it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceInfo {
+    /// The device id its records carry.
+    pub device: u8,
+    /// Its [`source_class`].
+    pub class: u8,
+    /// Changes every time the slot is registered, so a reused device id is
+    /// told apart from the source that held it before.
+    pub generation: u16,
 }
 
 /// One decoded raw event.
@@ -218,4 +242,35 @@ pub fn input_console_owner() -> Result<u64, i64> {
     } else {
         Err(code)
     }
+}
+
+/// The live sources, in slot order, written into `out`; returns how many.
+/// A record-stream consumer re-reads this when it opens the bus and after
+/// every `DROPPED`, since a `SOURCE` record can be lost in an overflow.
+/// Needs `CAP_INPUT_RAW`.
+pub fn input_raw_sources(out: &mut [SourceInfo; MAX_SOURCES]) -> Result<usize, i64> {
+    let mut bytes = [0u8; MAX_SOURCES * SOURCE_ENTRY_BYTES];
+    // SAFETY: the kernel writes at most `bytes.len()` bytes into `bytes`.
+    let code = unsafe {
+        input_syscall(
+            input_op::SOURCES,
+            bytes.as_mut_ptr() as u64,
+            bytes.len() as u64,
+        )
+    };
+    if code < 0 {
+        return Err(code);
+    }
+    let count = (code as usize).min(MAX_SOURCES);
+    for (entry, info) in bytes.as_chunks::<SOURCE_ENTRY_BYTES>().0[..count]
+        .iter()
+        .zip(out.iter_mut())
+    {
+        *info = SourceInfo {
+            device: entry[0],
+            class: entry[1],
+            generation: u16::from_le_bytes([entry[2], entry[3]]),
+        };
+    }
+    Ok(count)
 }
