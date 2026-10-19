@@ -117,7 +117,7 @@ partition; see "Updates").
    filesystem UUID, so it never changes when LazyOS does:
 
    ```
-   menuentry "LazyOS" --class lazyos {
+   menuentry "LazyOS" --class lazyos --id lazyos {
        insmod part_gpt
        insmod fat
        insmod chain
