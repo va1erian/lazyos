@@ -5,6 +5,7 @@
 //! read-only BAR.
 
 use intelgfx::adopt::ActivePipe;
+use intelgfx::regs::DdiMode;
 use intelgfx::vblank::{self, Beam, PipeIrq, Underrun};
 use user::messenger::gpu::wire;
 use user::sys;
@@ -33,8 +34,14 @@ impl Watch {
     pub(super) fn start(mut regs: ReadOnlyBar, pipe: &ActivePipe) -> Watch {
         let index = u32::from(pipe.pipe);
         let vtotal = pipe.v.total;
-        // The counter moves at the start of the vertical blank.
-        let count_line = pipe.v.blank_start;
+        // The counter moves at the start of the vertical blank, where raw
+        // `PIPEDSL` still reads 2 lines short on a TMDS link and 1 on
+        // DisplayPort (i915's `intel_crtc_scanline_offset`, DDI platforms).
+        // On display 13 the vertical blank also starts `TRANS_SET_CONTEXT_
+        // LATENCY` lines after `TRANS_VBLANK`'s start; both boxes' firmware
+        // leaves it 0, which is all this reads.
+        let lag = if pipe.hdmi_link() || pipe.func.mode == DdiMode::Dvi { 2 } else { 1 };
+        let count_line = pipe.v.blank_start.saturating_sub(lag);
         let (first, t0) = (Beam::read(&mut regs, index), sys::monotonic_ns());
         let _ = sys::sleep_ns(MEASURE_NS);
         let (last, t1) = (Beam::read(&mut regs, index), sys::monotonic_ns());
