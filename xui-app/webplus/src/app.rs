@@ -356,6 +356,7 @@ impl Browser {
     }
 
     fn show_frame(&mut self, ui: &Ui<Msg>) {
+        self.page.add_bands(xui_webkit::bands::take());
         if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
             if self.state.crashed {
                 // A picture painted just before the page's process went away.
@@ -376,6 +377,9 @@ impl Browser {
                 crate::marker(&line);
             }
             if let Some(line) = self.page.spec_line() {
+                crate::marker(&line);
+            }
+            if let Some(line) = self.page.smooth_line() {
                 crate::marker(&line);
             }
             if applied.resync {

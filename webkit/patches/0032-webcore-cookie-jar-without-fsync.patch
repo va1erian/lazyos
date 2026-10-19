@@ -1,0 +1,33 @@
+WebCore: the curl cookie jar syncs nothing and keeps its journal and lock.
+
+A page's document.cookie read is a synchronous message to the NetworkProcess, whose main thread also runs
+every cookie write. With the jar in rollback-journal mode and SyncNormal each write fsynced the database
+and a journal it created and deleted, and on LazyOS an fsync flushes the whole volume: the page stopped for
+hundreds of milliseconds at a time. `SyncOff` and `journal_mode=TRUNCATE`; the lock stays per transaction
+(a second LazyWeb+ window opens the same jar). See the comment in the patch.
+
+--- a/Source/WebCore/platform/network/curl/CookieJarDB.cpp
++++ b/Source/WebCore/platform/network/curl/CookieJarDB.cpp
+@@ -168,7 +168,22 @@
+         }
+     }
+ 
++#if PLATFORM(LAZYOS)
++    // LazyOS: this SQLite is built without WAL, so the jar is in rollback-journal mode, and every cookie
++    // statement is a transaction of its own: a journal created and deleted, the database and the journal
++    // each fsynced. A page that sets and reads cookies all the time (ad and consent scripts) kept the
++    // NetworkProcess's main thread in fsync, and every document.cookie read, a synchronous message from
++    // the page's process, waited behind it: the page itself stopped for hundreds of milliseconds at a time.
++    // The jar is not worth that: nothing is synced (the kernel's block cache commits every few seconds, in
++    // an order that keeps the volume consistent), and the journal is kept and truncated instead of created
++    // and deleted (a crash of this process still rolls a transaction back). The lock stays per transaction:
++    // a second browser window's NetworkProcess opens the same jar. A power cut can lose the last cookies
++    // set, as other browsers' batched cookie stores do.
++    m_database.setSynchronous(SQLiteDatabase::SyncOff);
++    m_database.executeCommand("PRAGMA journal_mode=TRUNCATE"_s);
++#else
+     m_database.setSynchronous(SQLiteDatabase::SyncNormal);
++#endif
+ 
+     // create prepared statements
+     createPrepareStatement(SET_COOKIE_SQL);

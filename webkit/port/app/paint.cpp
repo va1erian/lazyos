@@ -32,7 +32,7 @@
 //              wheel=<window calls>:mouse=<events>:w2d=<us, average/longest, wheel to first report>:
 //              full=<whole frames>:delta=<deltas>:scroll=<deltas that moved the picture>:
 //              checks=<comparisons with a whole paint>:bad=<those that differed> (probe images):
-//              wkcalls=<WKPagePaint calls>:wkmax=<the longest, us>
+//              wkcalls=<WKPagePaint calls>:wkmax=<the longest, us>:bands=<overscan bands handed on>
 // and, next to it, INFO:WKPAINT:calls|total|wrap|endprint|area|snapshot|draw|whole=<us, summed over the second>:
 // what a WKPagePaint costs inside the page's process (patches 0025 and 0026). **The `wk` above is wall
 // time around the call and includes whatever else the one CPU ran meanwhile (the window, the compositor):
@@ -132,7 +132,7 @@ Painting paint;
 struct Stats {
     long long windowStartUs { 0 };
     long paints { 0 }, needs { 0 }, wheels { 0 }, mice { 0 };
-    long fulls { 0 }, deltas { 0 }, scrolls { 0 }, checks { 0 }, bad { 0 }, wkCalls { 0 };
+    long fulls { 0 }, deltas { 0 }, scrolls { 0 }, checks { 0 }, bad { 0 }, wkCalls { 0 }, bands { 0 };
     long long wkMaxUs { 0 };
     long long pixels { 0 };
     long long clearUs { 0 }, paintUs { 0 }, swizzleUs { 0 }, postUs { 0 }, maxUs { 0 }, totalUs { 0 };
@@ -155,13 +155,13 @@ void report(long long now)
         stats.windowStartUs = now;
     if (now - stats.windowStartUs < 1000000)
         return;
-    if (stats.paints || stats.needs || stats.wheels || stats.mice) {
+    if (stats.paints || stats.needs || stats.wheels || stats.mice || stats.bands) {
         say("INFO:PAINT:mode=%s:n=%ld:needs=%ld:px=%lld:clear=%lld:wk=%lld:swz=%lld:post=%lld:avg=%lld:max=%lld:lat=%lld:"
-            "wheel=%ld:mouse=%ld:w2d=%lld/%lld:full=%ld:delta=%ld:scroll=%ld:checks=%ld:bad=%ld:wkcalls=%ld:wkmax=%lld",
+            "wheel=%ld:mouse=%ld:w2d=%lld/%lld:full=%ld:delta=%ld:scroll=%ld:checks=%ld:bad=%ld:wkcalls=%ld:wkmax=%lld:bands=%ld",
             mode().legacy ? "legacy" : "fast", stats.paints, stats.needs, stats.pixels, stats.clearUs, stats.paintUs,
             stats.swizzleUs, stats.postUs, stats.paints ? stats.totalUs / stats.paints : 0LL, stats.maxUs,
             stats.maxLatencyUs, stats.wheels, stats.mice, stats.w2dCount ? stats.w2dSumUs / stats.w2dCount : 0LL,
-            stats.w2dMaxUs, stats.fulls, stats.deltas, stats.scrolls, stats.checks, stats.bad, stats.wkCalls, stats.wkMaxUs);
+            stats.w2dMaxUs, stats.fulls, stats.deltas, stats.scrolls, stats.checks, stats.bad, stats.wkCalls, stats.wkMaxUs, stats.bands);
         unsigned long long wk[8] = { 0 };
         WKPageGetPaintStats(wk, 8);
         say("INFO:WKPAINT:calls=%llu:total=%llu:wrap=%llu:endprint=%llu:area=%llu:snapshot=%llu:draw=%llu:whole=%llu", wk[0] - lastWk[0],
@@ -279,10 +279,13 @@ bool shadowAgrees()
 
 // The main frame's scroll offset (patch 0028): the newest the page's process told, and the one in force at
 // the newest update, which is the offset the backing store's pixels were painted at (the page's process
-// sends the offset before the update that repaints for it, on the same connection).
+// sends the offset before the update that repaints for it, on the same connection). `atBottom`: the page
+// could not scroll further down from the painted offset (WebKit's pinned state, which the page's process
+// also sends before the update), so the window must not show its picture ahead downward.
 struct ScrollOffset {
     int x { 0 };
     int y { 0 };
+    bool atBottom { false };
 };
 ScrollOffset latestScroll, paintedScroll;
 
@@ -318,7 +321,7 @@ void paintNow(void*)
         return;
     paint.lastStartUs = t0;
     // The offset these pixels were painted at goes with them (the window shows the picture ahead of it).
-    lzw_ui_scroll_offset(paintedScroll.x, paintedScroll.y);
+    lzw_ui_scroll_offset(paintedScroll.x, paintedScroll.y, paintedScroll.atBottom);
 
     long long painted = 0;
     long long t1 = t0, t2 = t0, t3 = t0;
@@ -491,9 +494,10 @@ void pageScrolled(WKPageRef, int x, int y, void*)
 }
 
 // An update from the page's process (WKPageSetUpdateCallback): what scrolled and what was repainted.
-void pageUpdated(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* updateRects, size_t count, void*)
+void pageUpdated(WKPageRef page, WKRect scrollRect, WKSize scrollOffset, const WKRect* updateRects, size_t count, void*)
 {
     paintedScroll = latestScroll;
+    paintedScroll.atBottom = WKPageIsPinnedToBottomSide(page);
     int ints[64 * 4];
     int n = 0;
     for (size_t i = 0; i < count && n < 64; ++i, ++n) {
@@ -513,12 +517,37 @@ void pageUpdated(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect
     noteReport(nowUs());
 }
 
+// An overscan band (WKPageSetBandCallback, patch 0030): rows of the page outside the view, BGRA as Skia
+// paints, converted and handed to the window as they are. Only bands as wide as the view are kept, and
+// none taller than the web process paints them (patch 0030 paints at most 1024 rows at a time): the
+// pixels come from another process, whose word alone must not size this one's copies.
+std::vector<uint8_t> bandPixels;
+constexpr int kMaxBandRows = 1024;
+
+void bandPainted(WKPageRef, WKRect documentRect, const unsigned char* pixels, size_t stride, void*)
+{
+    const int x = static_cast<int>(documentRect.origin.x), y = static_cast<int>(documentRect.origin.y);
+    const int width = static_cast<int>(documentRect.size.width), height = static_cast<int>(documentRect.size.height);
+    if (!pixels || width != E.width || height <= 0 || height > kMaxBandRows || stride < static_cast<size_t>(width) * 4)
+        return;
+    const size_t rowBytes = static_cast<size_t>(width) * 4;
+    bandPixels.resize(rowBytes * height);
+    for (int row = 0; row < height; ++row) {
+        const uint8_t* in = pixels + static_cast<size_t>(row) * stride;
+        uint8_t* out = bandPixels.data() + static_cast<size_t>(row) * rowBytes;
+        convertRect(in, out, static_cast<int>(rowBytes), Damage { 0, 0, width, 1 });
+    }
+    lzw_ui_band(x, y, width, height, bandPixels.data());
+    ++stats.bands;
+}
+
 } // namespace
 
 void installPaintObserver()
 {
     lzw_paint_resize(E.width, E.height);
     WKPageSetScrollOffsetCallback(E.page, pageScrolled, nullptr);
+    WKPageSetBandCallback(E.page, bandPainted, nullptr);
     // The legacy path wants WebKit's own "the whole view needs display" for any update that scrolled.
     if (!mode().legacy)
         WKPageSetUpdateCallback(E.page, pageUpdated, nullptr);
@@ -536,8 +565,10 @@ void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
 {
     // Without the update callback (the legacy path) this is the only notice of an update. With it, a
     // stray call between an offset message and its update must not relabel pixels that are older.
-    if (mode().legacy)
+    if (mode().legacy && E.page) {
         paintedScroll = latestScroll;
+        paintedScroll.atBottom = WKPageIsPinnedToBottomSide(E.page);
+    }
     if (mode().legacy)
         lzw_paint_full();
     else

@@ -1,0 +1,175 @@
+WebKit: a scroll repaints only what fixed layers paint, and the page's own display rate is capped.
+
+Two things made a scroll on a news page (Ars Technica) repaint the whole view on every step:
+
+* scrollContentsFastPath repaints the rect of every fixed (viewport-constrained) layer. A page often has
+  fixed layers that cover the whole view and paint nothing themselves (an overlay's container, a consent
+  dialog's frame, an ad slot), so the "fast path" repainted everything. On LazyOS only the rects of the
+  layers in such a layer's non-composited subtree that paint something are repainted (a superset of what
+  is painted, never less).
+
+* An animation or a ticker displays as often as the drawing area is acknowledged, which on one CPU took
+  the time a scroll needed. A display that does not carry a scroll now waits until
+  LAZYOS_WEBKIT_DISPLAY_INTERVAL_MS (33 ms, 0 to 1000) after the last one; a display that carries a scroll
+  is never held back (the offset is set before scheduleDisplay, and a held-back display is brought
+  forward by one), and the overscan bands of patch 0030 may be painted while a display is held back.
+
+--- a/Source/WebCore/page/LocalFrameView.cpp
++++ b/Source/WebCore/page/LocalFrameView.cpp
+@@ -2972,6 +2972,25 @@
+     return { };
+ }
+ 
++#if PLATFORM(LAZYOS)
++// LazyOS: the parts of a fixed layer's repaint rect that something is painted into: the rects of the
++// layers in its (non-composited) subtree that paint anything. A page often has fixed layers that cover
++// the whole view and paint nothing themselves (an overlay's container, a hidden consent dialog's frame,
++// an ad slot): their whole rect is not what a scroll must repaint, only what is painted in it.
++static void addPaintedRepaintRects(const RenderLayer& layer, LayoutRect& rect)
++{
++    if (layer.hasVisibleContent() && layer.isVisuallyNonEmpty()) {
++        // What it paints, and its subtree with it (a superset, never less).
++        rect.uniteIfNonZero(layer.repaintRectIncludingNonCompositingDescendants());
++        return;
++    }
++    for (auto* child = layer.firstChild(); child; child = child->nextSibling()) {
++        if (!child->isComposited())
++            addPaintedRepaintRects(*child, rect);
++    }
++}
++#endif
++
+ bool LocalFrameView::scrollContentsFastPath(const IntSize& scrollDelta, const IntRect& rectToScroll, const IntRect& clipRect)
+ {
+     if (!m_viewportConstrainedObjects || m_viewportConstrainedObjects->isEmptyIgnoringNullReferences()) {
+@@ -3006,7 +3025,13 @@
+         }
+ 
+         // FIXME: use pixel snapping instead of enclosing when ScrollView has finished transitioning from IntRect to Float/LayoutRect.
++#if PLATFORM(LAZYOS)
++        LayoutRect painted;
++        addPaintedRepaintRects(*layer, painted);
++        IntRect updateRect = enclosingIntRect(painted);
++#else
+         IntRect updateRect = enclosingIntRect(layer->repaintRectIncludingNonCompositingDescendants());
++#endif
+         updateRect = contentsToRootView(updateRect);
+         if (!isCompositedContentLayer)
+             updateRect.intersect(rectToScroll);
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.h
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.h
+@@ -175,6 +175,11 @@
+     // repaint of it on every frame.
+     MonotonicTime m_lastDirtyBandPaint;
+     bool m_bandsWanted { false };
++    // The page's own display rate (patch 0031): a display that does not carry a scroll waits until this
++    // long after the last one (an animation, a ticker, a video costs at most this rate).
++    Seconds m_minDisplayInterval { 33_ms };
++    MonotonicTime m_lastDisplay;
++    bool m_displayHeldBack { false };
+     bool m_inDirtyBandPass { false };
+     RunLoop::Timer m_bandTimer;
+ #endif
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
+@@ -88,6 +88,10 @@
+         if (std::isfinite(viewports))
+             m_overscanViewports = std::clamp(viewports, 0.f, 3.f);
+     }
++    if (const char* value = getenv("LAZYOS_WEBKIT_DISPLAY_INTERVAL_MS")) {
++        long milliseconds = strtol(value, nullptr, 10);
++        m_minDisplayInterval = Seconds::fromMilliseconds(std::clamp(milliseconds, 0L, 1000L));
++    }
+ #endif
+ }
+ 
+@@ -175,10 +179,17 @@
+     WebCore::Region scrollRepaintRegion = subtract(scrollRect, translate(scrollRect, scrollDelta));
+ 
+     m_dirtyRegion.unite(scrollRepaintRegion);
++#if PLATFORM(LAZYOS)
++    // The offset first: a display that carries a scroll is not held back (scheduleDisplay).
++    m_scrollRect = scrollRect;
++    m_scrollOffset += scrollDelta;
++    scheduleDisplay();
++#else
+     scheduleDisplay();
+ 
+     m_scrollRect = scrollRect;
+     m_scrollOffset += scrollDelta;
++#endif
+ }
+ 
+ void DrawingAreaCoordinatedGraphics::updateRenderingWithForcedRepaint()
+@@ -428,8 +439,12 @@
+         return;
+     m_scheduledWhileWaitingForDidUpdate = false;
+ 
++#if PLATFORM(LAZYOS)
++    scheduleDisplay();
++#else
+     // Display if needed. We call displayTimerFired here since it will throttle updates to 60fps.
+     displayTimerFired();
++#endif
+ }
+ 
+ void DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingModeSoon()
+@@ -585,14 +600,38 @@
+     if (m_isPaintingSuspended)
+         return;
+ 
++#if PLATFORM(LAZYOS)
++    // A scroll is shown as soon as it can be; anything else (an animation, a timer's change) waits for the
++    // page's display interval. A display held back for an interval is brought forward by a scroll.
++    const bool scrolling = !m_scrollOffset.isZero();
++    if (m_displayTimer.isActive()) {
++        if (!(scrolling && m_displayHeldBack))
++            return;
++        m_displayTimer.stop();
++    }
++    auto due = m_lastDisplay + m_minDisplayInterval;
++    auto now = MonotonicTime::now();
++    m_displayHeldBack = !scrolling && due > now;
++    m_displayTimer.startOneShot(m_displayHeldBack ? due - now : 0_s);
++#else
+     if (m_displayTimer.isActive())
+         return;
+ 
+     m_displayTimer.startOneShot(0_s);
++#endif
+ }
+ 
+ void DrawingAreaCoordinatedGraphics::displayTimerFired()
+ {
++#if PLATFORM(LAZYOS)
++    m_displayHeldBack = false;
++    // A band (patch 0030) may have been sent while this display was held back: one update in flight
++    // at a time, the display follows its DidUpdate.
++    if (m_isWaitingForDidUpdate) {
++        m_scheduledWhileWaitingForDidUpdate = true;
++        return;
++    }
++#endif
+     display();
+ }
+ 
+@@ -627,6 +666,9 @@
+         send(Messages::DrawingAreaProxy::Update(0, WTF::move(updateInfo)));
+     m_isWaitingForDidUpdate = true;
+     m_scheduledWhileWaitingForDidUpdate = false;
++#if PLATFORM(LAZYOS)
++    m_lastDisplay = MonotonicTime::now();
++#endif
+ }
+ 
+ static bool shouldPaintBoundsRect(const IntRect& bounds, const Vector<IntRect, 1>& rects)
+@@ -796,7 +838,8 @@
+ {
+     if (m_overscan <= 0 || m_layerTreeHost || m_isPaintingSuspended || m_layerTreeStateIsFrozen || m_inUpdateGeometry)
+         return;
+-    if (m_isWaitingForDidUpdate || !m_dirtyRegion.isEmpty() || m_displayTimer.isActive()) {
++    const bool displayDue = m_displayTimer.isActive() && !m_displayHeldBack;
++    if (m_isWaitingForDidUpdate || displayDue || (!m_dirtyRegion.isEmpty() && !m_displayHeldBack)) {
+         // The view comes first; the bands wait for the next DidUpdate.
+         m_bandsWanted = true;
+         return;

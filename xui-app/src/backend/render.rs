@@ -38,6 +38,15 @@ impl LazyOSBackend {
     /// on an already-borrowed `windows`. The window itself stays in the map, so
     /// those re-entrant reads still see its live size, DPI and theme.
     fn composite(&self, window: WindowId, damage: Rect) -> bool {
+        // A node that keeps its own picture writes it straight into the frame (`direct.rs`).
+        if let Some(done) = self.composite_direct(window, damage) {
+            return done;
+        }
+        self.composite_canvas(window, damage)
+    }
+
+    /// [`composite`](Self::composite) through the canvas: every painter that comes near `damage`.
+    pub(super) fn composite_canvas(&self, window: WindowId, damage: Rect) -> bool {
         let (dpi, theme, backdrop, width, height, mut surface, mut background) = {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
@@ -70,7 +79,10 @@ impl LazyOSBackend {
                     let bounds = absolute_bounds(&nodes, *id)?;
                     let shown =
                         ancestor_clip(&nodes, *id).is_none_or(|clip| intersects(bounds, clip));
-                    (shown && intersects(bounds, reach)).then_some((bounds, painter))
+                    // A node that keeps its own picture (`direct.rs`) is opaque and spills nothing: its
+                    // painter runs only for damage it overlaps (it is a whole frame through the canvas).
+                    let near = if super::direct::is_direct(*id) { damage } else { reach };
+                    (shown && intersects(bounds, near)).then_some((bounds, painter))
                 })
                 .collect()
         };

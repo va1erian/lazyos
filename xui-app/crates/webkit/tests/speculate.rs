@@ -43,6 +43,62 @@ fn up_is_the_other_way_and_the_top_is_a_floor() {
 }
 
 #[test]
+fn the_end_of_the_page_is_a_ceiling_once_the_engine_says_so() {
+    let mut s = Speculation::default();
+    s.report(5000, 0);
+    s.set_at_bottom(true);
+    assert!(
+        !s.wheel(DOWN, 1),
+        "the page cannot scroll further down: nothing is shown past its end"
+    );
+    assert_eq!(s.shift(), 0);
+    assert!(s.wheel(UP, 2), "up still goes ahead");
+    assert_eq!(s.shift(), -LINE_PX);
+    // Down again from there goes back as far as the newest pixels, no further.
+    assert!(s.wheel(4 * DOWN, 3));
+    assert_eq!(s.shift(), 0);
+    // The page grew (a lazy load): the engine says it is not at the end any more.
+    s.set_at_bottom(false);
+    assert!(s.wheel(DOWN, 4));
+    assert_eq!(s.shift(), LINE_PX);
+    s.reset();
+    s.report(5000, 10);
+    assert!(s.wheel(DOWN, 11), "a reset forgets the end of the old picture");
+}
+
+#[test]
+fn rows_painted_below_the_view_outweigh_a_stale_end_of_the_page() {
+    let mut s = Speculation::default();
+    s.report(0, 0);
+    // An overlay kept the page from scrolling, and WebKit has not said otherwise since it closed;
+    // but the page's process has painted rows below the view.
+    s.set_at_bottom(true);
+    s.set_reach(1200, 0);
+    assert!(s.wheel(DOWN, 1), "there are rows below: the notch is shown at once");
+    assert_eq!(s.shift(), LINE_PX);
+    s.set_reach(0, 0);
+    assert!(!s.wheel(DOWN, 2), "no rows below and the engine says the end: nothing further");
+}
+
+#[test]
+fn what_was_ahead_past_the_end_is_dropped_when_the_page_says_it_ended() {
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    assert!(s.wheel(4 * DOWN, 1));
+    assert_eq!(s.shift(), 4 * LINE_PX);
+    // The page went one notch and stopped at its end: the rest is past it, gone at once.
+    s.report(1000 + LINE_PX, 40);
+    assert!(s.set_at_bottom(true));
+    assert_eq!(s.shift(), 0);
+    assert_eq!(s.counters().snaps, 1);
+    assert!(!s.set_at_bottom(true), "nothing left to drop");
+    // Ahead upward is not past the end.
+    assert!(s.wheel(UP, 50));
+    assert!(!s.set_at_bottom(true));
+    assert_eq!(s.shift(), -LINE_PX);
+}
+
+#[test]
 fn the_picture_is_never_shown_further_ahead_than_the_limit() {
     let mut s = Speculation::default();
     s.report(100_000, 0);

@@ -1,24 +1,35 @@
 //! Drawing the picture on show: the engine's frame and the patches over it, from the top-left corner
-//! of the view, moved up by how far the window shows it ahead of the page (`speculate.rs`) with a
-//! checkerboard where that uncovers what the page has not painted yet.
+//! of the view, moved up by how far the window shows it ahead of the page (`speculate.rs`). What that
+//! uncovers is drawn from the bands the page's process painted outside the view (`bands.rs`), and
+//! where no band reaches, a checkerboard.
+
+use std::rc::Rc;
 
 use xui_core::backend::Canvas;
 use xui_core::geometry::Rect;
-use xui_core::Color;
+use xui_core::{Color, Image};
 
+use crate::bands::{subtract, Bands};
 use crate::damage::IRect;
 use crate::parts::Parts;
 
 /// Side of a checkerboard square, in pixels.
-const SQUARE: i32 = 64;
+pub(crate) const SQUARE: i32 = 64;
 /// The width of the page's scroll bar (`ScrollbarThemePlayStation::scrollbarThickness`).
-const SCROLLBAR: i32 = 7;
-const LIGHT: Color = Color::rgb(243, 243, 243);
-const DARK: Color = Color::rgb(229, 229, 229);
+pub(crate) const SCROLLBAR: i32 = 7;
+pub(crate) const CHECKER_LIGHT: Color = Color::rgb(243, 243, 243);
+pub(crate) const CHECKER_DARK: Color = Color::rgb(229, 229, 229);
 
 /// Draws `picture` into the canvas's bounds, moved up by `ahead` pixels. `offset` is the page's scroll
 /// offset the picture was painted at, so the checkerboard stays on the page's rows as it scrolls.
-pub(crate) fn paint(canvas: &mut dyn Canvas, picture: &Parts, ahead: i32, offset: i32) {
+/// Returns how many rows of the view were checkerboard.
+pub(crate) fn paint(
+    canvas: &mut dyn Canvas,
+    picture: &Parts,
+    bands: &Bands<Rc<Image>>,
+    ahead: i32,
+    offset: i32,
+) -> u32 {
     let bounds = canvas.bounds();
     canvas.push_clip(bounds);
     // White only where the picture does not reach (a window being resized): a frame is opaque and
@@ -49,6 +60,7 @@ pub(crate) fn paint(canvas: &mut dyn Canvas, picture: &Parts, ahead: i32, offset
         draw_parts(canvas, picture, bounds, 0);
         canvas.pop_clip();
     }
+    let mut checker_rows = 0;
     if ahead != 0 && !picture.is_empty() {
         let bar_left = (bounds.right - SCROLLBAR).max(bounds.left);
         let top = bounds.top + dy;
@@ -56,23 +68,16 @@ pub(crate) fn paint(canvas: &mut dyn Canvas, picture: &Parts, ahead: i32, offset
         // The page row at the view's top is where the page will be once it has done what is ahead.
         let page_top = offset.saturating_add(ahead);
         if top > bounds.top {
-            checkerboard(
-                canvas,
-                Rect::new(bounds.left, bounds.top, bar_left, top.min(bounds.bottom)),
-                bounds.top,
-                page_top,
-            );
+            let area = Rect::new(bounds.left, bounds.top, bar_left, top.min(bounds.bottom));
+            checker_rows += uncovered(canvas, area, bands, bounds.top, page_top, width);
         }
         if bottom < bounds.bottom {
-            checkerboard(
-                canvas,
-                Rect::new(bounds.left, bottom.max(bounds.top), bar_left, bounds.bottom),
-                bounds.top,
-                page_top,
-            );
+            let area = Rect::new(bounds.left, bottom.max(bounds.top), bar_left, bounds.bottom);
+            checker_rows += uncovered(canvas, area, bands, bounds.top, page_top, width);
         }
     }
     canvas.pop_clip();
+    checker_rows
 }
 
 /// The parts of the picture, each moved down by `dy` (view coordinates, inside whatever clip is set).
@@ -113,10 +118,52 @@ fn draw_parts(canvas: &mut dyn Canvas, picture: &Parts, bounds: Rect, dy: i32) {
         }
     }
 }
+/// Draws what the picture does not cover in `area` (whole rows of the view): the bands that reach it,
+/// oldest first, then a checkerboard in the rows none of them does. `page_top` is the page row at the
+/// view's top (`view_top`). Returns the checkerboard's rows.
+fn uncovered(
+    canvas: &mut dyn Canvas,
+    area: Rect,
+    bands: &Bands<Rc<Image>>,
+    view_top: i32,
+    page_top: i32,
+    width: u32,
+) -> u32 {
+    let mut gaps = vec![(area.top, area.bottom)];
+    if bands.geometry().0 == width {
+        for kept in bands.iter() {
+            let top = view_top.saturating_add(kept.doc_y.saturating_sub(page_top));
+            let bottom = top.saturating_add(kept.height);
+            let (from, to) = (top.max(area.top), bottom.min(area.bottom));
+            if from >= to {
+                continue;
+            }
+            canvas.push_clip(Rect::new(area.left, from, area.right, to));
+            canvas.draw_image(
+                &kept.image,
+                Rect::new(area.left, top, area.left + width as i32, bottom),
+            );
+            canvas.pop_clip();
+            subtract(&mut gaps, from, to);
+        }
+    }
+    let mut rows = 0;
+    for (from, to) in gaps {
+        checkerboard(
+            canvas,
+            Rect::new(area.left, from, area.right, to),
+            view_top,
+            page_top,
+        );
+        rows += (to - from) as u32;
+    }
+    rows
+}
+
 /// Fills `area` with squares fixed to the page: the square at view row `y` is the page's row
 /// `page_top + (y - view_top)`, so the pattern moves with the content as it is scrolled.
 fn checkerboard(canvas: &mut dyn Canvas, area: Rect, view_top: i32, page_top: i32) {
-    canvas.fill_rect(area, LIGHT);
+    canvas.fill_rect(area, CHECKER_LIGHT);
     let first = page_top + (area.top - view_top);
     let mut row = first.div_euclid(SQUARE);
     let mut y = area.top - first.rem_euclid(SQUARE);
@@ -128,7 +175,7 @@ fn checkerboard(canvas: &mut dyn Canvas, area: Rect, view_top: i32, page_top: i3
         while x < area.right {
             let right = (x + SQUARE).min(area.right);
             if (row + column) & 1 != 0 {
-                canvas.fill_rect(Rect::new(x, top, right, bottom), DARK);
+                canvas.fill_rect(Rect::new(x, top, right, bottom), CHECKER_DARK);
             }
             x = right;
             column += 1;

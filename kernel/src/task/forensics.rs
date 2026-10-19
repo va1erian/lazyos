@@ -29,5 +29,7 @@ pub fn service() {
     LAST.store(now, Ordering::Relaxed);
     super::stuck::sample();
     super::cpustat::sample();
+    #[cfg(lazyos_perf)]
+    super::cpustat::sample_blocked();
     super::lockwait::sample();
 }

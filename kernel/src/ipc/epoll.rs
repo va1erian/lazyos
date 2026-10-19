@@ -13,10 +13,13 @@
 //! no change reports nothing. Data arrival on a still-ready pipe therefore
 //! wakes an edge waiter, unlike a bare "was ready last time" snapshot.
 //!
-//! `close` of a user descriptor removes its interest (Linux drops the item
-//! when the file is released); the cloned handle keeps the pipe/socket alive
-//! until then. Interests are keyed by descriptor number, matching the task's
-//! descriptor table.
+//! `close` of a user descriptor removes its interest once no live task holds
+//! both this instance and that file under that number (`task::fd_close`;
+//! Linux drops the item when the file is released, and an instance shared
+//! across `fork` must keep the parent's interests when a child closes its
+//! copies), and closing an instance drops the interests nobody owns any more.
+//! The cloned handle keeps the pipe/socket alive until then. Interests are
+//! keyed by descriptor number, matching the task's descriptor table.
 
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
@@ -248,17 +251,11 @@ impl Epoll {
         Ok(())
     }
 
-    /// Drop `fd`'s interest from `this` because the user closed the
-    /// descriptor. Called by `task::fd_close`, so a reused descriptor number
-    /// cannot inherit a stale registration.
-    pub fn drop_fd(this: &Arc<Epoll>, fd: usize) {
-        Self::drop_matching(this, |interest| interest.fd == fd);
-    }
-
-    /// Drop `fd`'s interest only if it watches `target`'s open file: an exited
-    /// task's descriptor `fd` must not take away an interest that a task
-    /// sharing this instance registered for a different file under the same
-    /// number.
+    /// Drop `fd`'s interest only if it watches `target`'s open file: a closed
+    /// or exited task's descriptor `fd` must not take away an interest that a
+    /// task sharing this instance registered for a different file under the
+    /// same number. `task::fd_close` and the exit path call it once no live
+    /// task holds both this instance and that file under `fd`.
     pub fn drop_fd_if(this: &Arc<Epoll>, fd: usize, target: &Fd) {
         Self::drop_matching(this, |interest| {
             interest.fd == fd && interest.target.same_file(target)
@@ -355,6 +352,27 @@ impl Epoll {
             let (revents, _) = interest.target.poll_gen((interest.events & 0xffff) as u16);
             (revents as u32) & (interest.events | REPORT_ALWAYS) != 0
         })
+    }
+
+    /// Whether `fd`'s interest watches `file`'s open file.
+    pub fn holds(&self, fd: usize, file: &Fd) -> bool {
+        self.interests
+            .lock()
+            .iter()
+            .any(|interest| interest.fd == fd && interest.target.same_file(file))
+    }
+
+    /// The descriptor number and file of each interest `keep` accepts, decided under the interest
+    /// list's lock (it may look at the task table: the order is task table, then this lock). Only those
+    /// are cloned, and a caller holding the task table drops them only after releasing it (a pipe end's
+    /// last reference wakes a queue, which takes the table).
+    pub fn registered_where(&self, keep: impl Fn(usize, &Fd) -> bool) -> Vec<(usize, Fd)> {
+        self.interests
+            .lock()
+            .iter()
+            .filter(|interest| keep(interest.fd, &interest.target))
+            .map(|interest| (interest.fd, interest.target.clone()))
+            .collect()
     }
 
     /// Number of registered descriptors (tests/diagnostics).

@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "engine.h"
 #include "lazyos_ui.h"
@@ -181,6 +182,14 @@ int lzw_engine_start(void)
     // The user's profile directory first: it goes into the environment the children inherit,
     // and nothing may start a process before it is there.
     WKWebsiteDataStoreRef dataStore = createDataStore(profileDirectory());
+    // The page's process paints a view's height of the page above and below the view ahead of a
+    // scroll (WebKit patch 0030, paint.cpp "bands"); a harness may set another amount, 0 for none.
+    setenv("LAZYOS_WEBKIT_OVERSCAN", "1", 0);
+    // On one CPU JavaScriptCore's concurrent collector has no second core to mark on: its helper
+    // threads take turns with the page's main thread, which the collector also slows down while it
+    // marks, and a scroll stalls behind both. A stop-the-world collection is shorter there.
+    if (sysconf(_SC_NPROCESSORS_ONLN) <= 1)
+        setenv("JSC_useConcurrentGC", "false", 0);
     WKContextConfigurationRef configuration = WKContextConfigurationCreate();
     WKStringRef webPath = WKStringCreateWithUTF8CString(LAZYOS_WEBPROCESS_PATH);
     WKStringRef networkPath = WKStringCreateWithUTF8CString(LAZYOS_NETWORKPROCESS_PATH);

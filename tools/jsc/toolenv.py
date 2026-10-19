@@ -84,7 +84,10 @@ def extract(archive: Path, source: pins.Source, into: Path) -> Path:
     if tree.exists():
         run(["rm", "-rf", str(tree)], into, f"removing partial {tree.name}")
     into.mkdir(parents=True, exist_ok=True)
-    run(["tar", "-xf", str(archive), "-C", str(into)], into, f"extracting {archive.name}")
+    # `-m`: every file gets the extraction's time, not the archive's. A tree extracted again (a removed
+    # or changed patch, `port_tree.py`) then rebuilds every object: with the archive's old times, a file a
+    # removed patch had changed looked older than its object and kept the patched build.
+    run(["tar", "-m", "-xf", str(archive), "-C", str(into)], into, f"extracting {archive.name}")
     mark.write_text("ok\n")
     return tree
 

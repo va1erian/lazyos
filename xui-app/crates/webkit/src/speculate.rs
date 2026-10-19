@@ -20,12 +20,17 @@
 //! direction is not shown ahead again until the page moves, and whatever is left [`SETTLE_MS`] after
 //! the last wheel notch or update is dropped (the picture then jumps back to what the page shows).
 //! The offset is only ever compared with its earlier values, so a stale absolute one (a new page that
-//! started at the top) costs nothing.
+//! started at the top) costs nothing. The ends of the page are known without waiting: nothing is shown
+//! ahead above an offset of zero, nor below the newest pixels when the engine says the page could not
+//! scroll further down from where they were painted ([`Speculation::set_at_bottom`]); a page scrolled
+//! to its end would otherwise show rows past it, a checkerboard, until [`PROBE_MS`] gave them up.
 
 /// Pixels a wheel notch moves the page: WebKit's line step.
 pub const LINE_PX: i32 = 40;
 /// The most the picture is shown ahead, in either direction: past it the checkerboard is most of the view.
 pub const MAX_AHEAD: i32 = 480;
+/// The most the bands let the picture be shown ahead (a view of 1440 rows, three of them).
+pub const MAX_REACH: i32 = 4320;
 /// Notches one wheel event is trusted for (the engine forwards that many, as before).
 pub const MAX_TICKS: i32 = 8;
 /// A burst the page has not moved at all for this long is not a scroll the page follows.
@@ -49,6 +54,12 @@ pub struct Counters {
 
 #[derive(Debug, Default)]
 pub struct Speculation {
+    /// How far ahead may go past [`MAX_AHEAD`], down and up: as far as the bands the page's process
+    /// painted outside the view reach (`bands.rs`); zero without them.
+    reach_down: i32,
+    reach_up: i32,
+    /// The newest pixels were painted where the page could not scroll further down.
+    at_bottom: bool,
     pending: i32,
     actual: Option<i32>,
     /// The time of the last wheel notch or update.
@@ -94,10 +105,18 @@ impl Speculation {
             return dropped;
         }
         // Never above the top of the page; an offset that is not one (negative) allows nothing upward.
+        let up = MAX_AHEAD.max(self.reach_up);
         let floor = self
             .actual
-            .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-MAX_AHEAD, 0));
-        let next = (self.pending + step).clamp(floor, MAX_AHEAD);
+            .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-up, 0));
+        // Never below the end of the page: nothing past the newest pixels when they end it. WebKit
+        // tells the pinned state again when the page scrolls, not on every layout (a closed overlay
+        // that made the page scrollable): rows painted below the view say the page goes on.
+        let at_end = self.at_bottom && self.reach_down == 0;
+        // At the end nothing further is added, and what is already ahead stays (a notch down never
+        // moves the picture up).
+        let ceiling = if at_end { self.pending.max(0) } else { MAX_AHEAD.max(self.reach_down) };
+        let next = (self.pending + step).clamp(floor, ceiling);
         if next == self.pending {
             return dropped;
         }
@@ -160,8 +179,32 @@ impl Speculation {
         false
     }
 
+    /// How far past the view's bottom (`down`) and top (`up`) the page's rows are at hand (the bands);
+    /// the picture may be shown that far ahead, and never less than [`MAX_AHEAD`].
+    pub fn set_reach(&mut self, down: i32, up: i32) {
+        self.reach_down = down.clamp(0, MAX_REACH);
+        self.reach_up = up.clamp(0, MAX_REACH);
+    }
+
+    /// Whether the page could not scroll further down from the offset of the newest update
+    /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows it ahead
+    /// downward, unless bands below the view say there are rows there (the state can be stale).
+    /// What is ahead downward then is past the end of the page and is dropped at once, not after
+    /// [`PROBE_MS`]: returns whether it was (the picture goes back).
+    pub fn set_at_bottom(&mut self, at_bottom: bool) -> bool {
+        self.at_bottom = at_bottom;
+        if at_bottom && self.reach_down == 0 && self.pending > 0 {
+            self.snap();
+            return true;
+        }
+        false
+    }
+
     /// The picture is not the page's any more (a new size, a crashed process): nothing is ahead.
     pub fn reset(&mut self) {
+        self.reach_down = 0;
+        self.reach_up = 0;
+        self.at_bottom = false;
         self.pending = 0;
         self.actual = None;
         self.blocked = 0;
@@ -192,10 +235,15 @@ impl Speculation {
 
 /// Milliseconds on a clock that only goes forward, from the first call.
 pub fn now_ms() -> u64 {
+    now_us() / 1000
+}
+
+/// Microseconds on the same clock as [`now_ms`].
+pub fn now_us() -> u64 {
     use std::sync::OnceLock;
     use std::time::Instant;
     static START: OnceLock<Instant> = OnceLock::new();
-    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+    START.get_or_init(Instant::now).elapsed().as_micros() as u64
 }
 
 /// What the window reports about it once a second, `INFO:SPEC:`, while it is in use.

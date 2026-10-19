@@ -70,6 +70,15 @@ impl Shown {
 
 /// A frame of banded rows at scroll offset 0, shown; then `script` (wheel events, the page's answer).
 fn run(script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static) -> Shown {
+    run_with(false, script)
+}
+
+/// `run`, with smooth scrolling on or off (off: a notch lands at once, where these tests look for it).
+fn run_with(
+    smooth: bool,
+    script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static,
+) -> Shown {
+    xui_webkit::glide::set_smooth(smooth);
     register_fonts();
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());
@@ -94,7 +103,7 @@ fn run(script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 
                 })
                 .expect("the engine was told the view size");
             seen_size.set(view);
-            mailbox.set_scroll_offset(0);
+            mailbox.set_scroll_offset(0, false);
             mailbox.post_frame(view.0 as u32, view.1 as u32, &rows(view.0, view.1, 0));
             stage.emit(Msg::Frame);
             script(stage, view, &mailbox, (view.0 / 2, top + view.1 / 2));
@@ -192,7 +201,7 @@ fn the_pages_answer_takes_the_picture_to_exact_and_no_checkerboard_is_left() {
     let shown = run(|stage, (w, h), mailbox, at| {
         wheel(stage, at, -1, Modifiers::default());
         // The page did that notch: the rows moved up, the rows it uncovered were painted.
-        mailbox.set_scroll_offset(STEP);
+        mailbox.set_scroll_offset(STEP, false);
         let delta = Delta {
             size: (w as u32, h as u32),
             scroll: Some(Scroll {
@@ -221,4 +230,16 @@ fn the_pages_answer_takes_the_picture_to_exact_and_no_checkerboard_is_left() {
             );
         }
     }
+}
+
+#[test]
+fn with_smooth_scrolling_a_notch_starts_a_slide() {
+    let shown = run_with(true, |stage, _, _, at| {
+        wheel(stage, at, -1, Modifiers::default())
+    });
+    // The first frame of the slide: moved, but not yet the whole notch (the frame timer does the rest).
+    let moved = (0..=STEP)
+        .find(|&d| shown.at(10, 0) == row_colour(d))
+        .expect("row 0 shows a page row");
+    assert!(moved > 0 && moved < STEP, "moved {moved} of {STEP}");
 }

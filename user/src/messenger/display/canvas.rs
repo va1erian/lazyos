@@ -350,13 +350,7 @@ impl Canvas {
             }
             let swap = self.layout == PixelLayout::Bgra;
             let row = self.row_mut(r.x, y, n as i32);
-            row.copy_from_slice(&src[start..start + n * 4]);
-            for px in row.as_chunks_mut::<4>().0.iter_mut() {
-                if swap {
-                    px.swap(0, 2);
-                }
-                px[3] = 0xff;
-            }
+            blit_row(row, &src[start..start + n * 4], swap);
         }
     }
 
@@ -425,3 +419,22 @@ fn clip_to(rect: Rect, clip: Rect) -> Rect {
 
 #[path = "font5x7.rs"]
 pub mod font;
+
+/// One row of an RGBA source into the screen, opaque: a single pass of 32-bit loads and stores, with R
+/// and B swapped for a BGRA screen. (A copy and then a second pass over every pixel was most of a big
+/// window's present: a scrolling page changes 3 to 4 megapixels a frame at 2560x1440.)
+fn blit_row(dst: &mut [u8], src: &[u8], swap: bool) {
+    let (dst, _) = dst.as_chunks_mut::<4>();
+    let (src, _) = src.as_chunks::<4>();
+    if swap {
+        for (out, px) in dst.iter_mut().zip(src) {
+            let v = u32::from_le_bytes(*px);
+            let v = 0xff00_0000 | (v & 0x0000_ff00) | ((v & 0xff) << 16) | ((v >> 16) & 0xff);
+            *out = v.to_le_bytes();
+        }
+    } else {
+        for (out, px) in dst.iter_mut().zip(src) {
+            *out = (u32::from_le_bytes(*px) | 0xff00_0000).to_le_bytes();
+        }
+    }
+}

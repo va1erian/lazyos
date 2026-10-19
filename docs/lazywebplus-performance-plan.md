@@ -593,3 +593,89 @@ Closed by the experiments: raising the page's priority, the CPU guard's budget, 
 scheduler's minimum slice. None of them changes how fast a wheel notch is answered. The `Interactive` class for the
 main thread does remove its wait, and may still be worth having for another reason (a busy desktop starving the
 page), but it is not a scrolling fix and was not kept.
+## 11. Smooth scrolling at 2560x1440 on live pages (2026-10-19)
+
+**Goal and how it is measured.** 60 frames a second while scrolling Ars Technica and webkit.org in a maximized
+window at 2560x1440, 30 accepted if it has no jank. `python tools/webplus/scroll_bench.py --build` boots a
+`LAZYOS_PERF=1` image at that mode, maximizes the window, opens each live page, accepts Ars Technica's consent
+dialog, lets the page settle 25 s and turns the wheel for 20 s (3 notches a step, 50 ms between steps, 60 notches down then 60 up).
+The window reports what the user sees (`INFO:SMOOTH`, `xui-app/crates/webkit/src/smooth.rs`): frames drawn a second
+while the wheel is active, the longest gap between two, gaps over 33 ms, and how many of the rows shown were
+checkerboard. Scrolling is under way from a notch that moved the picture (a notch against the end of the page draws
+nothing and is not jank) until 250 ms after the last one, and the first gap of a burst counts from its first notch.
+Live pages change between runs: compare runs made close together. One guest CPU, WHPX. Earlier rows were measured
+before these two rules and count gaps against the ends of webkit.org, a short page the bench reaches the bottom of.
+
+| run | Ars: frames/s | Ars: gaps > 33 ms | Ars: checkerboard | webkit.org: frames/s | webkit.org: gaps > 33 ms |
+|---|---|---|---|---|---|
+| before (the work of sections 8 to 10) | 21 | 150 in 10 s | 18.6% | 19 | 144 in 10 s |
+| bands, glide, direct painter, display rate, fixed layers, cookie jar, alt-svc | 74 | 28 in 18 s | 2.8% | 49 | 104 in 17 s |
+| plus the epoll fix (the window woken by the engine) | 80 | 25 in 18 s | 3.1% | 55 | 117 in 17 s |
+| all of the above, the end of the page, and the meter's two rules | 81 (longest gap 75 ms) | 26 in 17 s | 1.4% | 50 (longest gap 86 ms) | 13 in 17 s |
+
+**What was built.**
+
+* **Overscan bands** (WebKit patch `0030`, `bands.rs`, `paint.cpp`): the web process paints a view's height above
+  and below the view after each update, in 512K-pixel chunks, and the window keeps them. Scrolling ahead of the page
+  (section 8) now shows real rows instead of a checkerboard as far as the bands reach (`Speculation::set_reach`, up
+  to three views).
+* **Glide** (`glide.rs`, `view_input.rs`): a wheel notch moves what is shown towards the target with a 45 ms time
+  constant on a 16 ms timer, instead of jumping 40 px per notch; the page's own moves are followed at once.
+* **Direct painter** (`xui-app/src/backend/direct.rs`, `raster.rs`): the page node writes its pixels straight into
+  the window's frame when nothing is drawn over it. xui's canvas path premultiplied and scanned every new image and
+  copied the damage twice; at 3 to 4 megapixels a frame that was most of a frame's cost. `raster.rs` is checked
+  pixel for pixel against the canvas painter (`tests_raster.rs`). The display client's blit swizzles a row in one
+  pass (`user/src/messenger/display/canvas.rs`).
+* **The page's display rate and fixed layers** (patch `0031`): Ars Technica's consent overlay and ad slots are
+  full-view fixed layers that paint nothing, and every scroll step repainted the whole view for them; only what
+  they paint is repainted now. An animation (webkit.org's header, 46% of the view) is displayed at most every
+  33 ms, a scroll never waits.
+* **Synchronous cookie reads** (patch `0032`): `document.cookie` is a synchronous message to the NetworkProcess,
+  whose main thread also wrote the cookie jar with an fsync per statement, and on LazyOS an fsync flushes the whole
+  volume (`LOCK:WAIT ... held_in=` names the holder's syscall now). The page stopped for 200-700 ms at a time.
+* **curl's alt-svc file** (patch `0033`): a temporary file and a rename after every request; an ext2 rename
+  without a journal orders itself with two flushes of every dirty block under the VFS lock (500-750 ms seen).
+* **JavaScriptCore's collector** on one CPU runs stop-the-world (`engine.cpp`, `sysconf(_SC_NPROCESSORS_ONLN)`):
+  the concurrent marker had no core to itself and throttled the page's main thread while it marked.
+* **The window was not woken by the engine** (kernel, `task::fd_close`): the window parks on an epoll set holding
+  an eventfd doorbell that the engine's thread rings (`xui-app/src/backend/wakeup.rs`). `close` dropped every
+  interest registered under the closed number from every epoll instance in the closer's table, and an instance
+  inherited across `fork` is the same object: the first engine process's `exec` (which closes its close-on-exec
+  copies) took the doorbell out of the window's set. From then on the window woke only on compositor messages and
+  its 1 s idle timer: on webkit.org the engine posted 20 updates a second and the window took one, so the mailbox
+  overflowed into whole frames. An interest now leaves only when no live task holds both the instance and that
+  file under that number, as the exit path already did, and closing an instance (or the exit of a task holding
+  one) drops the interests nobody owns any more, so one the parent gave up while a child still held it does not
+  keep its file open for good (`pipe_epoll_child_close_keeps_parent_interest`, `pipe_epoll_unowned_interest_leaves`,
+  `pipe_soak_epoll_fork_close`). This affected every xui app that starts a process after its first window.
+* **The end of the page** (`Speculation::set_at_bottom`, `paint.cpp`): the window scrolled ahead past the bottom
+  of a short page (webkit.org) into rows that do not exist and showed a checkerboard until it gave up 900 ms later.
+  The UI process now sends `WKPageIsPinnedToBottomSide` with each update's offset, and nothing further is shown
+  ahead downward from a picture at the bottom, unless bands below the view say the page goes on: WebKit tells the
+  pinned state again when the page scrolls, not after every layout, and Ars Technica's consent overlay leaves the
+  page "pinned" until the first scroll after it closes.
+
+**A build trap found on the way.** Removing a WebKit patch re-extracts the tree, but `tar` gave every file the
+archive's time: a file the removed patch had changed looked older than its object, ninja kept the patched object, and
+the "clean" build still printed the removed patch's lines. `tools/jsc/toolenv.py` extracts with `tar -m` now, so a
+re-extracted tree rebuilds everything, as `port_tree.py` already assumed.
+
+**Diagnostics kept.** `PERF:BLOCKED` (`kernel/src/task/blocksample.rs`, `LAZYOS_PERF=1` only): every 5 s, where the
+browser's threads were when they were not running (syscall and kind of wait, 50 samples), which is how the cookie
+and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `scroll_bench.py`.
+
+**Left to do** (each its own change):
+
+1. **ext2 metadata under the global VFS lock.** A file rename flushes every dirty block of the volume twice and an
+   fsync flushes the volume, both while holding `abi-vfs`: one program's fsync stalls every other program's file
+   calls for hundreds of milliseconds. The two WebCore patches avoid the browser's own; the kernel should flush only
+   the file (and order a rename with a journal or a narrower barrier).
+2. **Whole frames on webkit.org.** 3 to 4 a second still reach the window while scrolling (the animation and the
+   scroll in one update), and drawing one costs 50-80 ms at this size: the long gaps that remain. Keep the delta
+   when an update both scrolls and repaints, or composite the animated element apart.
+3. **The rows below the end of a short page.** At the bottom of webkit.org the window shows a checkerboard below the
+   footer even once the scroll has settled (7% of the rows shown while scrolling there); the first screenshot of this
+   work shows it too. The picture does not cover the view's rows below the document's end: find which update
+   leaves them out (the scroll delta's exposed strip, or the backing store's size) before blaming the bands.
+4. **Two hangs seen once each, not reproduced**: input stopped reaching the window after Ars Technica loaded (the
+   input services alive), and a WebProcess waited for good in `GetNetworkProcessConnection` at startup.

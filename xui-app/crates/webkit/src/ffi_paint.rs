@@ -56,9 +56,44 @@ pub unsafe extern "C" fn lzw_ui_frame_delta(
 
 /// The main frame's scroll offset of the pixels the engine posts next (`lzw_ui_frame` or
 /// `lzw_ui_frame_delta`): page pixels, `x` unused (the window shows the picture ahead vertically).
+/// `at_bottom` is non-zero when the page cannot scroll further down from it.
 #[no_mangle]
-pub extern "C" fn lzw_ui_scroll_offset(_x: c_int, y: c_int) {
-    mailbox::global().set_scroll_offset(sane(y));
+pub extern "C" fn lzw_ui_scroll_offset(_x: c_int, y: c_int, at_bottom: c_int) {
+    mailbox::global().set_scroll_offset(sane(y), at_bottom != 0);
+}
+
+/// The page's process painted the rows `doc_y .. doc_y + height` of the page outside the view, at the
+/// horizontal scroll offset `doc_x` (an overscan band, WebKit patch 0030): `rgba` is `width * height`
+/// opaque pixels, top-down, copied before this returns. A band that makes no sense is ignored.
+///
+/// # Safety
+/// `rgba` must point at `width * height * 4` readable bytes for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn lzw_ui_band(
+    doc_x: c_int,
+    doc_y: c_int,
+    width: c_int,
+    height: c_int,
+    rgba: *const u8,
+) {
+    let Some((w, h, len)) = frame_geometry(width, height) else {
+        return;
+    };
+    if rgba.is_null() || h > crate::bands::MAX_BAND_ROWS {
+        return;
+    }
+    // SAFETY: the caller promises `len` readable bytes.
+    let pixels = unsafe { std::slice::from_raw_parts(rgba, len) }.to_vec();
+    let band = crate::bands::Band {
+        doc_x: sane(doc_x),
+        doc_y: sane(doc_y),
+        width: w,
+        height: h,
+        rgba: pixels,
+    };
+    if crate::bands::post(band) {
+        mailbox::global().announce_bands();
+    }
 }
 
 /// What the page changed since the last paint (the updates WebKit reported), kept in the form

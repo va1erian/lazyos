@@ -31,6 +31,7 @@ mod background;
 pub(crate) mod calls;
 mod compositor;
 mod cursor;
+pub mod direct;
 mod dnd;
 mod double_click;
 mod event_loop;

@@ -80,6 +80,8 @@ pub struct Update {
     /// The main frame's scroll offset (page pixels, vertical) the newest of these pixels were
     /// painted at, when the engine said (`set_scroll_offset`).
     pub scroll_y: Option<i32>,
+    /// With `scroll_y`: the page could not scroll further down from that offset.
+    pub at_bottom: bool,
 }
 
 /// Deltas the window may be behind by: past this (or past a frame's worth of pixels) the engine
@@ -116,8 +118,8 @@ struct Slot {
     /// The offset the engine named for the post it is about to make, and the one of the newest
     /// post the window has not collected. Moved together under this lock, so an offset always
     /// goes with the pixels it was named for.
-    staged_scroll: Option<i32>,
-    scroll_y: Option<i32>,
+    staged_scroll: Option<(i32, bool)>,
+    scroll: Option<(i32, bool)>,
 }
 
 #[derive(Default)]
@@ -196,8 +198,8 @@ impl Mailbox {
         slot.deltas.clear();
         slot.delta_bytes = 0;
         slot.has_base = true;
-        if let Some(y) = slot.staged_scroll.take() {
-            slot.scroll_y = Some(y);
+        if let Some(scroll) = slot.staged_scroll.take() {
+            slot.scroll = Some(scroll);
         }
     }
 
@@ -222,8 +224,8 @@ impl Mailbox {
             }
             slot.delta_bytes += bytes;
             slot.deltas.push(delta);
-            if let Some(y) = slot.staged_scroll.take() {
-                slot.scroll_y = Some(y);
+            if let Some(scroll) = slot.staged_scroll.take() {
+                slot.scroll = Some(scroll);
             }
         }
         self.announce_frame();
@@ -233,14 +235,19 @@ impl Mailbox {
     /// The main frame's scroll offset of the pixels the engine posts next (the engine says it
     /// just before posting): it goes with that post (the engine names one before every post, so a
     /// refused post leaves nothing stale).
-    pub fn set_scroll_offset(&self, y: i32) {
-        lock(&self.frame).staged_scroll = Some(y);
+    pub fn set_scroll_offset(&self, y: i32, at_bottom: bool) {
+        lock(&self.frame).staged_scroll = Some((y, at_bottom));
     }
 
     /// The window cannot apply deltas to what it shows (too many parts, a refused delta): the
     /// next delta the engine posts is answered with "send a whole frame".
     pub fn request_full(&self) {
         lock(&self.frame).has_base = false;
+    }
+
+    /// Overscan bands were posted (`bands.rs`): the window collects them with the frames.
+    pub fn announce_bands(&self) {
+        self.announce_frame();
     }
 
     /// The second half: wake the window unless a wake is already on its way.
@@ -280,10 +287,12 @@ impl Mailbox {
             None
         };
         slot.delta_bytes = 0;
+        let scroll = slot.scroll.take();
         Some(Update {
             full,
             deltas: std::mem::take(&mut slot.deltas),
-            scroll_y: slot.scroll_y.take(),
+            scroll_y: scroll.map(|(y, _)| y),
+            at_bottom: scroll.is_some_and(|(_, at_bottom)| at_bottom),
         })
     }
 

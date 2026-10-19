@@ -43,11 +43,16 @@ struct Usage {
 struct State {
     at: u64,
     previous: [Option<Usage>; PROCESSES],
+    /// `PERF:BLOCKED`'s table (`blocksample`), kept under this lock.
+    #[cfg(lazyos_perf)]
+    blocked: super::blocksample::Table,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
     at: 0,
     previous: [None; PROCESSES],
+    #[cfg(lazyos_perf)]
+    blocked: super::blocksample::Table::EMPTY,
 });
 
 /// Ticks of reaped threads, per process: `(tgid, ticks, user ticks)`.
@@ -113,6 +118,20 @@ pub(super) fn take_retired(tgid: usize) -> u64 {
 /// Look, and print if a process is busy. Task context, interrupts off.
 pub fn sample() {
     sample_at(super::ticks());
+}
+
+/// `PERF:BLOCKED`'s look (`blocksample`): its table is this module's state, taken before the task
+/// table as `sample_at` does; the report is printed once both are released.
+#[cfg(lazyos_perf)]
+pub fn sample_blocked() {
+    let period = without_interrupts(|| {
+        let mut state = STATE.lock();
+        let tasks = TASKS.lock();
+        super::blocksample::sample(&mut state.blocked, &tasks)
+    });
+    if let Some(period) = period {
+        super::blocksample::report(period);
+    }
 }
 
 fn sample_at(now: u64) {
