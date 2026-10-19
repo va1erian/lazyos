@@ -126,11 +126,11 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-calc.elf",
     "xui-pdf.elf",
     "xui-volume.elf",
-    "xui-golf.elf",
     "xui-video.elf",
     "xui-about.elf",
-    "xui-nes.elf",
 )]
+# LazyGolf and the NES Player: only `--games` images (xui_embed.rs GAMES_XUI_APPS).
+GAMES_APPS = [ROOT / "target" / "xui" / n for n in ("xui-golf.elf", "xui-nes.elf")]
 # The tray sample app, shipped only by `--traydemo` images
 # (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
 TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
@@ -381,7 +381,8 @@ def main(argv: list[str]) -> int:
             # The simulated radio brings the stack, so the Network app (with
             # its Wi-Fi page) and the Network Status applet too.
             needed = (DESKTOP_ELFS + (NET_APPS if args.net or args.wifi_sim else [])
-                      + (TRAYDEMO_APPS if args.traydemo else []) + (USB_APPS if usb_desktop(args) else []))
+                      + (TRAYDEMO_APPS if args.traydemo else [])
+                      + (GAMES_APPS if args.games else []) + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
         if args.mail:
@@ -392,6 +393,8 @@ def main(argv: list[str]) -> int:
         if args.traydemo:
             # Built with the other xui apps above (`TRAYDEMO_APPS`).
             env["LAZYOS_TRAYDEMO"] = "1"
+        if args.games:
+            env["LAZYOS_GAMES"] = "1"  # built above (`GAMES_APPS`)
         env.update(usb_env(args.usb_stick, args.desktop))
         if args.usb_image:
             # The stick must ship `usbd` and boot `init` to start it: the

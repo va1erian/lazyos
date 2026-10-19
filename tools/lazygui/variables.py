@@ -149,6 +149,8 @@ def make_vars() -> dict:
         "mail": b(value=False),
         # The tray sample app (LAZYOS_TRAYDEMO, run_demo --traydemo; desktop only).
         "traydemo": b(value=False),
+        # LazyGolf and the NES Player (LAZYOS_GAMES, run_demo --games; desktop only).
+        "games": b(value=False),
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
         "simple_usb_image": b(value=False),

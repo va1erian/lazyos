@@ -9,6 +9,9 @@ from __future__ import annotations
 SCRIPT_ENV: dict[str, dict[str, str]] = {
     # The tray session (docs/tray-plan.md T1) clicks the Tray Demo's icon by name.
     "tray.json": {"LAZYOS_TRAYDEMO": "1", "LAZYOS_UI_PROBE": "1"},
+    # The games are opt-in (LAZYOS_GAMES): the sessions that open them need them in the image.
+    "xui_golf.json": {"LAZYOS_GAMES": "1"},
+    "xui_nes.json": {"LAZYOS_GAMES": "1"},
     # The Picture Viewer session (docs/lazyrad-pictures.md) clicks its toolbar by name.
     "lazyrad_pictures.json": {"LAZYOS_PICTURES": "1", "LAZYOS_UI_PROBE": "1"},
     # The Paint session (docs/paint-plan.md P1) clicks its tools, swatches and menu bar by name.

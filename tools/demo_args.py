@@ -278,6 +278,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--traydemo", action="store_true",
                         help="the desktop with the tray sample app os.lazy.traydemo "
                              "(LAZYOS_TRAYDEMO=1, docs/tray-plan.md)")
+    parser.add_argument("--games", action="store_true",
+                        help="the desktop with the built-in games, LazyGolf and the NES Player "
+                             "(LAZYOS_GAMES=1, core packages)")
     parser.add_argument("--devices", action="store_true",
                         help="the desktop profile with the Devices app open at boot "
                              "(devices, owners, rights and the driver class rules): "
@@ -321,13 +324,13 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
     # as do the desktop-only apps (Doom, LazyWeb, WebKit, Mail, the Picture Viewer, the
-    # tray demo) and the
+    # tray demo, the games) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
                     or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
                     or args.pictures
-                    or args.traydemo or args.setup)
+                    or args.traydemo or args.games or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
     args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus

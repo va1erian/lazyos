@@ -31,12 +31,13 @@ class SimpleGroups(unittest.TestCase):
     def test_nothing_chosen_adds_nothing(self) -> None:
         cfg = desktop()
         for name in ("doom", "quake", "lazyrad", "emusic", "modplayer", "linuxapps",
-                     "traydemo", "net", "tls", "lazyweb", "mail"):
+                     "traydemo", "games", "net", "tls", "lazyweb", "mail"):
             self.assertFalse(cfg[name], name)
 
     def test_games_have_doom_and_the_lazyrad_brickbreaker(self) -> None:
         cfg = desktop("games")
         self.assertTrue(cfg["doom"] and cfg["quake"] and cfg["srb2kart"] and cfg["lazyrad"])
+        self.assertTrue(cfg["games"], "LazyGolf and the NES Player")
         self.assertIn("LAZYOS_DOOM", catalog.build_env(cfg))
         self.assertIn("lazyrad-os/samples/brickbreaker", catalog.build_env(cfg)["LAZYRAD_SAMPLES"])
 

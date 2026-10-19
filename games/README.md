@@ -13,11 +13,13 @@ Each port is a *user* package: the image ships the `.lzp` in
 `/system/share/samples` and the player installs it with `pkgctl install` (or
 by opening it in Files), which is why they live outside the app workspace.
 
-The two games that ship *inside* every desktop image — LazyGolf
+The two games that ship as *core packages* — LazyGolf
 (`xui-app/crates/golf`) and the NES Player (`xui-app/crates/nes`) — are core
 apps: `tools/xui/build.py` builds them as members of the `xui-app` workspace
 and packages them from `xui-app/packages/`, so they stay where that build
-expects them. The split is by how a game is shipped, not by what it is.
+expects them. They are optional: only a `LAZYOS_GAMES=1` desktop image
+(`run_demo.py --games`, the launcher's Games group) installs them. The split is
+by how a game is shipped, not by what it is.
 
 Nothing here is in the OS workspace: `cargo build` at the repository root
 never builds a port, and each port's own `cargo test` (host) or its harness

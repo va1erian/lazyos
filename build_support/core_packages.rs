@@ -174,7 +174,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "netstatus",
         // Network Drives: Mount FTP servers as folders under /mnt.
         "netdrives",
-        // LazyGolf: Fly over a procedurally generated golf course.
+        // LazyGolf: Fly over a procedurally generated golf course; only
+        // `LAZYOS_GAMES=1` images ship it (`xui_embed`).
         "golf",
         // Video Player: Play video files.
         "video",
@@ -183,7 +184,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         // Removable Drives: the USB sticks' tray applet, shipped with the
         // USB stack (`LAZYOS_USB=1`, `xui_embed`).
         "removable",
-        // NES: Play NES game ROMs, with sound.
+        // NES: Play NES game ROMs, with sound; only `LAZYOS_GAMES=1` images
+        // ship it (`xui_embed`).
         "nes",
     ];
     CORE.contains(&short_of(stem))

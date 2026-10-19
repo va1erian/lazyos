@@ -157,8 +157,10 @@ CORE_APPS: dict[str, CoreApp] = {
     # Network Status, the tray applet over `netd` (docs/tray-plan.md T3):
     # shipped with the other network apps (`LAZYOS_NETD=1`).
     "netstatus": xui_app("xui-netstatus.elf", "netstatus", optional=True),
-    # LazyGolf: Fly over a procedurally generated golf course.
-    "golf": xui_app("xui-golf.elf", "golf"),
+    # LazyGolf: Fly over a procedurally generated golf course. Only
+    # `LAZYOS_GAMES=1` images ship it (`build_support/xui_embed.rs`
+    # GAMES_XUI_APPS), so a desktop build without its ELF skips it here.
+    "golf": xui_app("xui-golf.elf", "golf", optional=True),
     # Video Player: Play video files.
     "video": xui_app("xui-video.elf", "video"),
     # About LazyOS: About LazyOS, with a real-time 3D renderer.
@@ -167,8 +169,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # (docs/usb-hotplug-plan.md G): shipped with the USB stack
     # (`LAZYOS_USB=1`).
     "removable": xui_app("xui-removable.elf", "removable", optional=True),
-    # NES: Play NES game ROMs, with sound.
-    "nes": xui_app("xui-nes.elf", "nes"),
+    # NES: Play NES game ROMs, with sound. Shipped by `LAZYOS_GAMES=1` images
+    # only, like LazyGolf.
+    "nes": xui_app("xui-nes.elf", "nes", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

@@ -21,7 +21,7 @@ from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-expo
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
@@ -373,7 +373,7 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.
             argv.append("--lazysky")
-        argv += desktop_app_argv(cfg) + login_argv(cfg) + installer_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
+        argv += desktop_app_argv(cfg) + login_argv(cfg) + installer_argv(cfg)  # --mail, --traydemo, --games; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]

@@ -375,7 +375,9 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/pa
 
 ## LazyGolf (`os.lazy.golf`)
 
-`xui-golf` is a core desktop app: a procedural 18-hole course generator and
+`xui-golf` is a core desktop app, shipped only by `LAZYOS_GAMES=1` images
+(`run_demo.py --games`, the launcher's Games group; the NES Player ships with
+it, and the sessions below need that switch): a procedural 18-hole course generator and
 a mid-90s indexed-colour software renderer to fly over, both in the portable
 crate `xui-app/crates/golf` (`xui-golf`; the design is
 [`docs/golf-course-generator.md`](docs/golf-course-generator.md)). The bin
@@ -427,7 +429,8 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/ab
 
 ## NES Player (`os.lazy.nes`)
 
-The NES Player is a core desktop app: `xui-app/crates/nes` (`xui-nes`) holds
+The NES Player is a core desktop app, shipped only by `LAZYOS_GAMES=1` images
+(`run_demo.py --games`, with LazyGolf; `tools/nes/run.py` sets it): `xui-app/crates/nes` (`xui-nes`) holds
 the session, the picture, the keyboard, the files and the window over
 TetaNES's `tetanes-core` (MIT OR Apache-2.0: CPU, PPU, APU, 30+ mappers,
 save states), and `xui-app/src/bin/nes.rs` supplies the LazyOS platform (a
@@ -439,7 +442,7 @@ It is validated in a second emulator (jsnes, via Node). See
 [`docs/nes-player.md`](docs/nes-player.md) and [`tools/nes/README.md`](tools/nes/README.md).
 
 ```bash
-python tools/run_demo.py --desktop --sound   # then open NES from the menu
+python tools/run_demo.py --games --sound   # then open NES from the menu
 cargo test --manifest-path xui-app/Cargo.toml -p xui-nes   # session, window, pacer, scaler
 python tools/nes/test_nesasm.py            # the assembler and the sample ROM
 python tools/nes/make_sample.py --check    # the checked-in sample is current

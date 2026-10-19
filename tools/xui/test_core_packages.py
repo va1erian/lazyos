@@ -107,6 +107,9 @@ class CorePackageTests(unittest.TestCase):
         # The tray demo is opt-in too (LAZYOS_TRAYDEMO=1): a default desktop
         # build must not fail for want of its ELF.
         self.assertTrue(core_packages.CORE_APPS["traydemo"].optional)
+        # So are the games (LAZYOS_GAMES=1).
+        self.assertTrue(core_packages.CORE_APPS["golf"].optional)
+        self.assertTrue(core_packages.CORE_APPS["nes"].optional)
         text = (core_packages.SOURCES / "lazyrad" / "manifest.toml").read_text(encoding="utf-8")
         manifest = tomllib.loads(text)
         self.assertEqual(manifest["app"]["category"], "development")

@@ -104,6 +104,7 @@ class Launcher:
                     "modplayer")
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
+        self._check(g, "Games, LazyGolf and the NES Player (desktop; LAZYOS_GAMES)", "games")
         self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "  ...with lazyos-install, to install beside Linux (LAZYOS_INSTALLER)",
@@ -317,7 +318,8 @@ class Launcher:
         self.v["msgctl"].set(False)
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
-        for app, switch in (("traydemo", "LAZYOS_TRAYDEMO"), ("pictures", "LAZYOS_PICTURES")):
+        for app, switch in (("traydemo", "LAZYOS_TRAYDEMO"), ("games", "LAZYOS_GAMES"),
+                            ("pictures", "LAZYOS_PICTURES")):
             self.v[app].set(switch in SCRIPT_ENV.get(match[0][0], {}))
         self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()
