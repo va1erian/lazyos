@@ -45,7 +45,7 @@ impl Reg {
                 let size = u64::from(bytes);
                 let end = gas.address.checked_add(size)?;
                 if end > mem::mmio::phys_limit()
-                    || gas.address % size != 0
+                    || !gas.address.is_multiple_of(size)
                     || mem::mmio::overlaps_ram(gas.address, end)
                     || !mem::mmio::phys_mapped(gas.address, size)
                     || !mem::mmio::uncache_phys_map(gas.address)
