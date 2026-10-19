@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Quit and start LazyWeb+ again and again: does a start-up leave the page waiting for good? (issue #865)
+
+A WebProcess asks the UI for its NetworkProcess connection with a synchronous message; the NetworkProcess makes
+a socket pair, keeps one end and sends the other to the UI. A start-up whose reply is lost hangs the start page
+until WebKit gives up on the NetworkProcess (`WEBPROCESS:UNRESPONSIVE`, then `NETWORKPROCESS:GONE` about 15 s
+later). The kernel refusing that `sendmsg` (`ETOOMANYREFS`: musl prints "No error information") was such a loss:
+the new connection's service-worker store handle could land in the pair before its end was sent.
+
+Boots a plain image (the real sites over QEMU's user network), opens each `--url` once so the profile holds what
+a person's does (a site with a service worker: its registration makes the NetworkProcess send a descriptor to
+every new connection), then closes the window and starts it from the menu `--cycles` times, waiting on the start
+page each time. Judged from the serial log: no `WEBPROCESS:UNRESPONSIVE`, no `NETWORKPROCESS:GONE`, no refused
+`sendmsg` (`PROC:SCM:REFUSE`), no `Error sending IPC message`, and the start page loaded every time.
+
+    python tools/webplus/relaunch_run.py --build                  # build, squoosh.app, six relaunches
+    python tools/webplus/relaunch_run.py --cycles 10 --url https://www.youtube.com/
+    python tools/webplus/relaunch_run.py --judge-only shots/webplus-relaunch/serial.log --cycles 6
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent.parent
+for sub in ("tools/web", "tools/abi", "tools"):
+    sys.path.insert(0, str(ROOT / sub))
+sys.path.insert(0, str(HERE))
+
+_spec = importlib.util.spec_from_file_location("webplus_run", HERE / "run.py")
+webplus_run = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(webplus_run)
+
+import judge  # noqa: E402
+import session  # noqa: E402
+
+#: A small site that installs a service worker on its first visit.
+DEFAULT_URLS = ["https://squoosh.app/"]
+APP_MENU = "LazyWeb+"
+#: How long a start page may take to load after a start (the first execve of three 110 MB programs).
+START_TIMEOUT = 180.0
+
+
+def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -> list[dict]:
+    """Visit `urls`, then `cycles` times: close the window, start it from the menu, wait on the start page."""
+    loaded = f"{judge.P}:LOAD:{judge.START}"
+    steps = [*session.boot_gates(300), {"wait_for": loaded, "timeout": 300}]
+    for index, url in enumerate(urls):
+        steps += [*session.navigate(url, f"{judge.P}:NAV:", timeout=60), {"wait": wait}, {"shot": f"site{index}"}]
+    for cycle in range(1, cycles + 1):
+        steps += [
+            # Alt+F4 asks the focused window to close, like its X (xuid `keys.rs`).
+            {"key_down": "alt"}, {"key": "f4", "until": f"{judge.P}:QUIT:", "timeout": 60}, {"key_up": "alt"},
+            {"wait_for": "INIT:LAUNCH:EXIT app=os.lazy.lazywebplus", "occurrence": cycle, "timeout": 60},
+            {"wait": 2.0},
+            {"click_at": {"target": "taskbar:start"}, "until": "SHELL:MENU:OPEN", "timeout": 30, "retries": 2},
+            {"move_to": {"menu": "Internet"}, "until": "SHELL:SUBMENU:OPEN category=internet", "timeout": 30,
+             "retries": 1},
+            {"wait": 0.5},
+            {"click_at": {"menu": APP_MENU}, "until": "SHELL:LAUNCH:PASS app=os.lazy.lazywebplus", "timeout": 60,
+             "retries": 1},
+            {"wait_for": f"{judge.P}:UP:PASS", "occurrence": cycle + 1, "timeout": START_TIMEOUT},
+            {"wait_for": loaded, "occurrence": cycle + 1, "timeout": START_TIMEOUT},
+            {"wait": settle},
+            {"shot": f"start{cycle}"},
+        ]
+    return steps
+
+
+def verdict(text: str, cycles: int) -> list[str]:
+    """What went wrong, from a serial log of `relaunch_session` (empty: nothing)."""
+    found = []
+    if "WEBPLUS:WEBPROCESS:UNRESPONSIVE" in text:
+        found.append("the page's process stopped answering (WEBPROCESS:UNRESPONSIVE)")
+    for pid, reason in re.findall(r"WEBPLUS:NETWORKPROCESS:GONE:(-?\d+):(\S+)", text):
+        found.append(f"the NetworkProcess (pid {pid}) was ended ({reason})")
+    for line in re.findall(r"PROC:SCM:REFUSE [^\n]*", text):
+        found.append(f"the kernel refused a sendmsg: {line.strip()}")
+    sends = text.count("Error sending IPC message")
+    if sends:
+        found.append(f"WebKit lost {sends} IPC message(s) to a failed sendmsg (\"Error sending IPC message\")")
+    starts = text.count(f"{judge.P}:LOAD:{judge.START}")
+    if starts < cycles + 1:
+        found.append(f"the start page loaded {starts} times, not {cycles + 1}")
+    return found
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--out", default="shots/webplus-relaunch")
+    parser.add_argument("--url", action="append", help="a site to visit first (repeat); default: squoosh.app")
+    parser.add_argument("--cycles", type=int, default=6, help="how many times to close and start the browser")
+    parser.add_argument("--wait", type=float, default=30.0, help="seconds on each site (its service worker installs)")
+    parser.add_argument("--settle", type=float, default=20.0, help="seconds on each start page")
+    parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
+    parser.add_argument("--qemu")
+    parser.add_argument("--memory", default=webplus_run.limits.BIG_APP_MEMORY)
+    parser.add_argument("--build", action="store_true", help="build the image first (no test host mappings)")
+    parser.add_argument("--mode", default="2560x1440", help="the display mode of a built image")
+    parser.add_argument("--judge-only", metavar="SERIAL_LOG")
+    args = parser.parse_args(argv)
+    if args.judge_only:
+        text = Path(args.judge_only).read_text(errors="replace")
+    else:
+        out = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+        if args.build:
+            error = webplus_run.build_image({"LAZYOS_DISPLAY_MODE": args.mode}, False)
+            if error:
+                print(f"{judge.P}:RELAUNCH:FAIL {error}")
+                return 1
+        if not webplus_run.IMAGE.is_file():
+            print(f"{judge.P}:RELAUNCH:FAIL no image: build one first (--build)")
+            return 1
+        steps = relaunch_session(args.url or DEFAULT_URLS, args.cycles, args.wait, args.settle)
+        ok, text = webplus_run.run_session(steps, out, args, screen=args.mode)
+        print(f"session {'ok' if ok else 'FAILED (it may have stopped on a marker; read the log)'}")
+    found = verdict(text, args.cycles)
+    for finding in found:
+        print(f"  HANG: {finding}")
+    print(f"{judge.P}:RELAUNCH:" + ("FAIL" if found else "PASS"))
+    return 1 if found else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -87,6 +87,11 @@ def verdict(text: str) -> tuple[list[str], list[str]]:
     for line in re.findall(r"SCHED:STUCK [^\n]*", text):
         if "abi=linux nr=59 " not in line:  # a slow execve of a 100 MB program is the known start-up cost
             hang.append(line[:160])
+    # A refused SCM_RIGHTS send: WebKit drops that message (issue #865, a page waiting for good).
+    for line in re.findall(r"PROC:SCM:REFUSE [^\n]*", text):
+        hang.append(line.strip())
+    if "Error sending IPC message" in text:
+        hang.append("WebKit lost an IPC message to a failed sendmsg (Error sending IPC message)")
     fall = re.findall(r"ENOSYS 285 fallocate count=(\d+)", text)
     if fall:
         facts.append(f"fallocate answered ENOSYS {fall[-1]} times")
