@@ -425,7 +425,7 @@ impl Pipe {
         let ring = self.state.lock();
         ring.records
             .iter()
-            .all(|record| record.rights.fds.iter().all(|fd| each(fd)))
+            .all(|record| record.rights.fds.iter().all(&mut *each))
     }
 
     /// Messages with descriptors queued.

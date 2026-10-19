@@ -110,8 +110,8 @@ impl Listener {
     /// answers false; whether it never did (`ipc::pipe::reach` walks a
     /// listener in flight to the pairs it holds). Called with no socket ring
     /// locked: the listener's teardown takes the pending lock, then rings.
-    pub fn pending_each(&self, mut each: impl FnMut(&Arc<SocketPair>) -> bool) -> bool {
-        self.pending.lock().iter().all(|pair| each(pair))
+    pub fn pending_each(&self, each: impl FnMut(&Arc<SocketPair>) -> bool) -> bool {
+        self.pending.lock().iter().all(each)
     }
 
     /// Park the current task until a connection arrives.
