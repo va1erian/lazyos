@@ -77,7 +77,7 @@ def build_simple_tab(parent: ttk.Frame, v: dict, on_start) -> None:
         ttk.Radiobutton(software, text=f"{label} - {hint}" if hint else label, value=label,
                         variable=v["simple_software"]).pack(anchor="w", padx=8, pady=2)
     ttk.Checkbutton(software, text="SRB2Kart too (downloads Kart Krew's game data; never publish "
-                                   "the image)", variable=v["simple_suite_srb2kart"]
+                                   "the image; needs Base or Full)", variable=v["simple_suite_srb2kart"]
                     ).pack(anchor="w", padx=8, pady=(4, 4))
 
     groups = ttk.LabelFrame(parent, text="Features (the Desktop always has the Picture Viewer)")

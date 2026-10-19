@@ -36,6 +36,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import suites  # noqa: E402
 import write_stick  # noqa: E402
+from lazygui import osvolume  # noqa: E402
 from lazygui.simplecfg import suite_argv  # noqa: E402
 
 DEFAULT_IMAGE = ROOT / "target" / "lazyos-usb.img"
@@ -45,8 +46,16 @@ PROGRESS = re.compile(r"(wrote|verified) (\d+) / (\d+) MiB")
 
 # ----- Logic (no Tk: tools/boot/test_stick_gui.py covers it) -------------
 
+def too_small(suite: str, srb2kart: bool, image: Path | None = None) -> tuple[int, int] | None:
+    """``(have MiB, need MiB)`` when the existing OS volume cannot hold the suite
+    (a build cannot resize it), else None."""
+    flags = suites.resolve(suite, ["srb2kart"] if srb2kart else [])
+    return osvolume.too_small(image or osvolume.DEFAULT_IMAGE, "srb2kart" in flags,
+                              bool(set(flags) & set(suites.WEBKIT_FLAGS)))
+
+
 def build_step(release: bool, installer: bool = False, suite: str = "base",
-               srb2kart: bool = False) -> dict:
+               srb2kart: bool = False, reset_os: bool = False) -> dict:
     """The build as a `Runner` step: the desktop stick image, nothing booted;
     with `installer`, `lazyos-install` on it too (docs/grub-install-plan.md).
     `suite` is the software it carries (`tools/suites.toml`: base or full) and
@@ -54,6 +63,8 @@ def build_step(release: bool, installer: bool = False, suite: str = "base",
     argv = [sys.executable, "-u", str(ROOT / "tools" / "run_demo.py"),
             "--desktop", "--usb-image", "--build-only",
             *suite_argv({"suite": suite, "suite_srb2kart": srb2kart})]
+    if reset_os:  # the window asked first; run_demo has no terminal to ask on
+        argv += ["--reset-os", "--yes"]
     if release:
         argv.append("--release")
     if installer:

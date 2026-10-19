@@ -36,6 +36,8 @@ def load(path: Path = DEFAULT_PATH) -> dict:
             if not isinstance(flags, list) or not all(isinstance(f, str) for f in flags):
                 raise ValueError(f"{path}: {kind} {name!r} needs a `flags` list of strings")
             parent = entry.get("extends")
+            if parent is not None and kind == "option":
+                raise ValueError(f"{path}: option {name!r}: `extends` is for suites")
             if parent is not None and parent not in suites:
                 raise ValueError(f"{path}: {kind} {name!r} extends unknown suite {parent!r}")
             if set(flags) & set(test_only):

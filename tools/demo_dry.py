@@ -47,13 +47,17 @@ def run(module, argv: list[str], args) -> int:
     patches += [mock.patch.object(module, "require_busybox", lambda _allow: True),
                 mock.patch.object(module, "confirm", lambda _question: True),
                 mock.patch.object(module.subprocess, "run", fake_run)]
+    if args.no_build:
+        print("--dry-run shows a build: drop --no-build")
+        return 1
     inner = [a for a in argv if a != "--dry-run"] + ["--build-only"]
     for patch in patches:
         patch.start()
     try:
         code = module.main(inner)
     finally:
-        mock.patch.stopall()
+        for patch in patches:
+            patch.stop()
     _report(args, steps, cargo)
     return code
 
