@@ -98,8 +98,9 @@ impl Window {
             return; // both slots on screen or a resize in flight: drop the frame
         };
         let full = Rect::new(0, 0, w, h);
-        slots.damage(full);
-        if !slots.sync(slot, &self.image) {
+        // A whole frame: nothing to copy from the other slot.
+        if slots.prepare(slot, full).is_none() || !slots.write(slot, &self.image, w, h, full) {
+            slots.invalidate(slot);
             return;
         }
         let Some(seq) = slots.submit(slot) else {
