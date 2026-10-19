@@ -97,7 +97,10 @@ pub fn fd_close(fd: usize) -> bool {
         if let Some(file) = &old {
             for epoll in epolls {
                 let seen = orphaned.iter().any(|other| Arc::ptr_eq(other, &epoll));
-                if !seen && epoll.holds(fd, file) && !super::lifecycle::interest_owned(&tasks, &epoll, fd, file) {
+                if !seen
+                    && epoll.holds(fd, file)
+                    && !super::lifecycle::interest_owned(&tasks, &epoll, fd, file)
+                {
                     orphaned.push(epoll);
                 }
             }

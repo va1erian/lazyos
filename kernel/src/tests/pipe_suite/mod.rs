@@ -75,7 +75,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "pipe_epoll_child_close_keeps_parent_interest",
         epoll_child_close_keeps_parent_interest,
     ),
-    ("pipe_epoll_unowned_interest_leaves", epoll_unowned_interest_leaves),
+    (
+        "pipe_epoll_unowned_interest_leaves",
+        epoll_unowned_interest_leaves,
+    ),
     ("pipe_soak_epoll_fork_close", epoll_soak_fork_close),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),
     (

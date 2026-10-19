@@ -91,7 +91,10 @@ pub(super) type Period = [Option<Entry>; ENTRIES];
 
 /// One look at the task table, counted in `state`; every [`PERIOD`] looks, the period to report.
 /// Task context, interrupts off, `cpustat`'s lock held (`cpustat::sample_blocked`).
-pub(super) fn sample(state: &mut Table, tasks: &[Option<super::Task>; MAX_TASKS]) -> Option<Period> {
+pub(super) fn sample(
+    state: &mut Table,
+    tasks: &[Option<super::Task>; MAX_TASKS],
+) -> Option<Period> {
     for slot in 1..MAX_TASKS {
         let Some(task) = tasks[slot].as_ref() else {
             continue;
@@ -116,7 +119,10 @@ pub(super) fn sample(state: &mut Table, tasks: &[Option<super::Task>; MAX_TASKS]
             .map_or((false, u16::MAX), |(native, nr, _)| (native, nr as u16));
         let comm = linuxstate::comm_of(task).0;
         let found = state.entries.iter_mut().flatten().find(|entry| {
-            usize::from(entry.slot) == slot && entry.nr == nr && entry.native == native && entry.wait == wait
+            usize::from(entry.slot) == slot
+                && entry.nr == nr
+                && entry.native == native
+                && entry.wait == wait
         });
         match found {
             Some(entry) => entry.samples += 1,

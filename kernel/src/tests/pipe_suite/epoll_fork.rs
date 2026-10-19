@@ -28,11 +28,23 @@ fn doorbell_set(eventfd_first: bool) -> Result<(usize, usize), String> {
         let epfd = create_epoll();
         (epfd, create_eventfd())
     };
-    check!((3..task::fd_max()).contains(&epfd), "epoll_create1 returned {epfd:#x}");
-    check!((3..task::fd_max()).contains(&efd), "eventfd2 returned {efd:#x}");
+    check!(
+        (3..task::fd_max()).contains(&epfd),
+        "epoll_create1 returned {epfd:#x}"
+    );
+    check!(
+        (3..task::fd_max()).contains(&efd),
+        "eventfd2 returned {efd:#x}"
+    );
     let mut event = [0u8; 12]; // packed `struct epoll_event`
     event[..4].copy_from_slice(&1u32.to_le_bytes());
-    let ret = process::linux::dispatch_args_for_test(233, epfd as u64, EPOLL_CTL_ADD, efd as u64, event.as_ptr() as u64);
+    let ret = process::linux::dispatch_args_for_test(
+        233,
+        epfd as u64,
+        EPOLL_CTL_ADD,
+        efd as u64,
+        event.as_ptr() as u64,
+    );
     check!(ret == 0, "epoll_ctl(ADD) returned {ret:#x}");
     Ok((epfd, efd))
 }
@@ -43,7 +55,10 @@ fn rings_through(epfd: usize, efd: usize) -> Result<(), String> {
     let ready = task::fd_poll(epfd, POLLIN);
     let drained = task::fd_eventfd_read(efd).map_err(io_err)?;
     check!(drained == 1, "the eventfd held {drained}");
-    check!(ready == Some(POLLIN), "the epoll set did not report its eventfd: {ready:?}");
+    check!(
+        ready == Some(POLLIN),
+        "the epoll set did not report its eventfd: {ready:?}"
+    );
     Ok(())
 }
 
@@ -74,14 +89,20 @@ pub fn epoll_child_close_keeps_parent_interest() -> Result<(), String> {
     check!(closed, "the child could not close its copies");
     rings_through(epfd, efd).map_err(|e| format!("after a child's close: {e}"))?;
     task::harness::finish(child, 0);
-    check!(task::reap_child().is_some(), "the first child is not reapable");
+    check!(
+        task::reap_child().is_some(),
+        "the first child is not reapable"
+    );
     rings_through(epfd, efd).map_err(|e| format!("after a child's exit: {e}"))?;
 
     // A child's exec: both descriptors close-on-exec, closed in number order. An eventfd with the
     // lower number goes first, while the child still holds the instance: the case the old close got
     // wrong. (The other order is the explicit close above.)
     let (exec_epfd, exec_efd) = doorbell_set(true)?;
-    check!(exec_efd < exec_epfd, "the eventfd ({exec_efd}) is not below the instance ({exec_epfd})");
+    check!(
+        exec_efd < exec_epfd,
+        "the eventfd ({exec_efd}) is not below the instance ({exec_epfd})"
+    );
     check!(
         task::fd_set_cloexec(exec_efd, true) && task::fd_set_cloexec(exec_epfd, true),
         "FD_CLOEXEC refused"
@@ -91,8 +112,14 @@ pub fn epoll_child_close_keeps_parent_interest() -> Result<(), String> {
     check!(closed >= 2, "the child's exec closed {closed} descriptors");
     rings_through(exec_epfd, exec_efd).map_err(|e| format!("after a child's exec: {e}"))?;
     task::harness::finish(child, 0);
-    check!(task::reap_child().is_some(), "the second child is not reapable");
-    check!(task::fd_close(exec_efd) && task::fd_close(exec_epfd), "closing the exec pair failed");
+    check!(
+        task::reap_child().is_some(),
+        "the second child is not reapable"
+    );
+    check!(
+        task::fd_close(exec_efd) && task::fd_close(exec_epfd),
+        "closing the exec pair failed"
+    );
 
     // The parent closes its eventfd while a child still holds both: the interest is the child's now,
     // and goes with the child's exit.
@@ -101,21 +128,44 @@ pub fn epoll_child_close_keeps_parent_interest() -> Result<(), String> {
         Some(task::Fd::Epoll { ref epoll }) => Arc::clone(epoll),
         _ => return Err(String::from("no epoll instance behind the descriptor")),
     };
-    check!(task::fd_close(efd), "the parent could not close its eventfd");
-    check!(epoll.len() == 1, "the parent's close took the child's interest ({} left)", epoll.len());
+    check!(
+        task::fd_close(efd),
+        "the parent could not close its eventfd"
+    );
+    check!(
+        epoll.len() == 1,
+        "the parent's close took the child's interest ({} left)",
+        epoll.len()
+    );
     task::harness::finish(child, 0);
-    check!(task::reap_child().is_some(), "the third child is not reapable");
-    check!(epoll.is_empty(), "the last holder's exit left {} interests", epoll.len());
+    check!(
+        task::reap_child().is_some(),
+        "the third child is not reapable"
+    );
+    check!(
+        epoll.is_empty(),
+        "the last holder's exit left {} interests",
+        epoll.len()
+    );
     drop(epoll);
 
     // With no child, the parent's close drops the interest (a reused number starts clean).
     let efd = process::linux::dispatch_for_test(290, 0, 0, 0) as usize;
     let mut event = [0u8; 12];
     event[..4].copy_from_slice(&1u32.to_le_bytes());
-    let ret = process::linux::dispatch_args_for_test(233, epfd as u64, EPOLL_CTL_ADD, efd as u64, event.as_ptr() as u64);
+    let ret = process::linux::dispatch_args_for_test(
+        233,
+        epfd as u64,
+        EPOLL_CTL_ADD,
+        efd as u64,
+        event.as_ptr() as u64,
+    );
     check!(ret == 0, "the second ADD returned {ret:#x}");
     check!(task::fd_close(efd), "closing the second eventfd failed");
-    check!(!registered(epfd, efd), "the parent's close left its interest behind");
+    check!(
+        !registered(epfd, efd),
+        "the parent's close left its interest behind"
+    );
     check!(task::fd_close(epfd), "closing the epoll set failed");
     check!(fds_clean(), "a descriptor was left open");
     Ok(())
@@ -135,14 +185,26 @@ pub fn epoll_unowned_interest_leaves() -> Result<(), String> {
             _ => return Err(String::from("no epoll instance behind the descriptor")),
         };
         let child = task::spawn_fork().map_err(to_string)?;
-        check!(task::fd_close(efd), "the parent could not close its eventfd");
-        check!(epoll.len() == 1, "the parent's close took the child's interest");
+        check!(
+            task::fd_close(efd),
+            "the parent could not close its eventfd"
+        );
+        check!(
+            epoll.len() == 1,
+            "the parent's close took the child's interest"
+        );
         // The instance first, as an exec closes it when its number is the lower one.
         let closed = as_child(child, || task::fd_close(epfd));
         check!(closed, "the child could not close the instance");
-        check!(epoll.is_empty(), "an interest nobody owns survived the child's close of the instance");
+        check!(
+            epoll.is_empty(),
+            "an interest nobody owns survived the child's close of the instance"
+        );
         if !exit_holding_file {
-            check!(as_child(child, || task::fd_close(efd)), "the child could not close its eventfd");
+            check!(
+                as_child(child, || task::fd_close(efd)),
+                "the child could not close its eventfd"
+            );
         }
         task::harness::finish(child, 0);
         check!(task::reap_child().is_some(), "the child is not reapable");
@@ -162,7 +224,10 @@ pub fn epoll_soak_fork_close() -> Result<(), String> {
     task::harness::reset();
     let slots = task::free_slots();
     let (epfd, efd) = doorbell_set(false)?;
-    check!(task::fd_set_cloexec(efd, true) && task::fd_set_cloexec(epfd, true), "FD_CLOEXEC refused");
+    check!(
+        task::fd_set_cloexec(efd, true) && task::fd_set_cloexec(epfd, true),
+        "FD_CLOEXEC refused"
+    );
     for round in 0..300 {
         let child = task::spawn_fork().map_err(|e| format!("round {round}: {}", to_string(e)))?;
         if round % 2 == 0 {
@@ -175,12 +240,25 @@ pub fn epoll_soak_fork_close() -> Result<(), String> {
         }
         rings_through(epfd, efd).map_err(|e| format!("round {round}: {e}"))?;
         task::harness::finish(child, 0);
-        check!(task::reap_child().is_some(), "round {round}: the child is not reapable");
+        check!(
+            task::reap_child().is_some(),
+            "round {round}: the child is not reapable"
+        );
     }
     rings_through(epfd, efd)?;
-    check!(registered(epfd, efd), "the interest did not survive the soak");
-    check!(task::fd_close(efd) && task::fd_close(epfd), "cleanup failed");
+    check!(
+        registered(epfd, efd),
+        "the interest did not survive the soak"
+    );
+    check!(
+        task::fd_close(efd) && task::fd_close(epfd),
+        "cleanup failed"
+    );
     check!(fds_clean(), "the soak leaked a descriptor");
-    check!(task::free_slots() == slots, "{} task slots free after the soak, {slots} before", task::free_slots());
+    check!(
+        task::free_slots() == slots,
+        "{} task slots free after the soak, {slots} before",
+        task::free_slots()
+    );
     Ok(())
 }

@@ -259,7 +259,10 @@ fn orphaned_interests(
 /// the instance (an `exec` closes it before a higher-numbered descriptor) or
 /// exits, nobody owns it, and it would keep its file open for good. The handles
 /// are clones, to be dropped after the task table is unlocked.
-pub(super) fn unowned_interests(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<Epoll>) -> Vec<(usize, Fd)> {
+pub(super) fn unowned_interests(
+    tasks: &[Option<Task>; MAX_TASKS],
+    epoll: &Arc<Epoll>,
+) -> Vec<(usize, Fd)> {
     epoll.registered_where(|fd, file| !interest_owned(tasks, epoll, fd, file))
 }
 
@@ -268,7 +271,12 @@ pub(super) fn unowned_interests(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<E
 /// Linux drops an interest only when its open file is gone; an instance shared across `fork` would
 /// otherwise lose the parent's registrations whenever a child closed its copies (a child's `exec`
 /// closes every close-on-exec descriptor).
-pub(super) fn interest_owned(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<Epoll>, fd: usize, file: &Fd) -> bool {
+pub(super) fn interest_owned(
+    tasks: &[Option<Task>; MAX_TASKS],
+    epoll: &Arc<Epoll>,
+    fd: usize,
+    file: &Fd,
+) -> bool {
     tasks
         .iter()
         .flatten()
