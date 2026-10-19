@@ -4,7 +4,7 @@ use std::vec::Vec;
 
 use super::discover;
 use super::golden::*;
-use crate::s5::{find_s5, pm1_control_writes, sleep_control_value, SleepType};
+use crate::s5::{find_s5, pm1_control_writes, pm1_enter_sequence, sleep_control_value, SleepType};
 use crate::{Error, Platform};
 
 /// A DSDT whose body is `body`, in the synthetic modern PC.
@@ -108,11 +108,11 @@ fn only_a_named_package_counts() {
     // A sleep type is three bits.
     assert_eq!(scan(&s5(8, 0)), Err(Error::Malformed));
     assert_eq!(scan(&s5(0, 0xFF)), Err(Error::Malformed));
-    // Elements that are not small constants (a word, a buffer).
-    let word = [
-        0x08, b'_', b'S', b'5', b'_', 0x12, 0x08, 0x04, 0x0B, 0x05, 0x00, 0x0A, 0x05,
+    // Elements that are not small constants (a buffer).
+    let buffer = [
+        0x08, b'_', b'S', b'5', b'_', 0x12, 0x08, 0x04, 0x11, 0x03, 0x0A, 0x05, 0x00,
     ];
-    assert_eq!(scan(&word), Err(Error::Malformed));
+    assert_eq!(scan(&buffer), Err(Error::Malformed));
     // No such name at all.
     assert_eq!(scan(&[0u8; 100]), Err(Error::NotFound));
 }
@@ -130,10 +130,7 @@ fn a_package_cut_off_by_the_end_of_the_table_is_malformed() {
     let full = s5(5, 5);
     for cut in 5..full.len() - 4 {
         let result = scan(&full[..cut]);
-        assert!(
-            matches!(result, Err(Error::Malformed) | Err(Error::NotFound)),
-            "cut {cut}: {result:?}"
-        );
+        assert!(result == Err(Error::Malformed), "cut {cut}: {result:?}");
     }
 }
 
@@ -157,6 +154,8 @@ fn pm1_control_writes_keep_the_other_bits() {
     assert_eq!(prepared, 0x1401);
     assert_eq!(enter, 0x3401);
     assert_eq!(pm1_control_writes(0, 0), (0, 0x2000));
+    // GBL_RLS is write-only: a stale 1 read back there is not written again.
+    assert_eq!(pm1_control_writes(0x0005, 3), (0x0C01, 0x2C01));
     // A type wider than three bits cannot spill into SLP_EN.
     assert_eq!(pm1_control_writes(0, 0xFF).0, 0x1C00);
 }
@@ -173,4 +172,33 @@ fn the_fadt_exposes_the_sleep_control_register_only_when_present() {
     let platform = discover(&synthetic_modern());
     // The synthetic FADT is a revision 6 table with the block left zero.
     assert_eq!(platform.fadt.unwrap().sleep_control, None);
+}
+
+#[test]
+fn the_enter_sequence_sets_the_type_everywhere_before_enabling_anywhere() {
+    // PM1a only.
+    let (writes, used) = pm1_enter_sequence(&[(0x0001, 5)]);
+    assert_eq!(&writes[..used], [(0, 0x1401), (0, 0x3401)]);
+    // PM1a and PM1b: each block is read-modify-written from its own value
+    // with its own SLP_TYP, SLP_TYP in both blocks before SLP_EN in either.
+    let (writes, used) = pm1_enter_sequence(&[(0x0001, 5), (0x0000, 6)]);
+    assert_eq!(
+        &writes[..used],
+        [(0, 0x1401), (1, 0x1800), (0, 0x3401), (1, 0x3800)]
+    );
+    // No blocks, no writes; more than two are ignored.
+    assert_eq!(pm1_enter_sequence(&[]).1, 0);
+    assert_eq!(pm1_enter_sequence(&[(0, 0); 5]).1, 4);
+}
+
+#[test]
+fn word_constants_decode_when_the_high_byte_is_zero() {
+    let word = [
+        0x08, b'_', b'S', b'5', b'_', 0x12, 0x0A, 0x04, 0x0B, 0x05, 0x00, 0x0B, 0x06, 0x00, 0, 0,
+    ];
+    assert_eq!(scan(&word), Ok(SleepType { a: 5, b: 6 }));
+    let wide = [
+        0x08, b'_', b'S', b'5', b'_', 0x12, 0x0A, 0x04, 0x0B, 0x05, 0x01, 0x0B, 0x06, 0x00, 0, 0,
+    ];
+    assert_eq!(scan(&wide), Err(Error::Malformed));
 }

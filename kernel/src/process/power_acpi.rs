@@ -12,7 +12,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use ::acpi::s5::{pm1_control_writes, sleep_control_value};
+use ::acpi::s5::{pm1_enter_sequence, sleep_control_value, PM1_STATUS_CLEAR};
 use ::acpi::{AddressSpace, Gas, SleepType};
 use x86_64::PhysAddr;
 
@@ -37,11 +37,33 @@ impl Reg {
     fn of(gas: Gas, bytes: u16) -> Option<Reg> {
         match gas.space {
             AddressSpace::Io => gas.port(bytes).map(Reg::Port),
-            AddressSpace::Memory if mem::mmio::phys_mapped(gas.address, u64::from(bytes)) => {
+            AddressSpace::Memory => {
+                // Firmware fields are hostile: refuse an address the CPU
+                // cannot form, a misaligned one, RAM (a write would land in
+                // kernel memory) and anything the physical map lacks, and
+                // make the page uncached so the write reaches the device.
+                let size = u64::from(bytes);
+                let end = gas.address.checked_add(size)?;
+                if end > mem::mmio::phys_limit()
+                    || gas.address % size != 0
+                    || mem::mmio::overlaps_ram(gas.address, end)
+                    || !mem::mmio::phys_mapped(gas.address, size)
+                    || !mem::mmio::uncache_phys_map(gas.address)
+                {
+                    return None;
+                }
                 let va = mem::phys_to_virt(PhysAddr::new(gas.address)).as_u64();
                 Some(Reg::Mem(va))
             }
             _ => None,
+        }
+    }
+
+    /// Short text for the boot log: a port in hex, or a mapped address.
+    fn describe(self) -> String {
+        match self {
+            Reg::Port(port) => format!("port {port:#x}"),
+            Reg::Mem(va) => format!("mmio va {va:#x}"),
         }
     }
 
@@ -84,6 +106,10 @@ pub enum Plan {
         sleep: SleepType,
         a: Reg,
         b: Option<Reg>,
+        /// The PM1a/PM1b status registers (the first half of the event
+        /// blocks), cleared before sleeping; absent ones are skipped.
+        status_a: Option<Reg>,
+        status_b: Option<Reg>,
     },
     /// The sleep control register of hardware-reduced ACPI.
     SleepControl { sleep: SleepType, reg: Reg },
@@ -112,18 +138,33 @@ pub fn plan() -> Result<Plan, String> {
     // PM1b is optional; a block that exists but cannot be reached is skipped
     // rather than refusing the power-off PM1a alone can perform.
     let b = fadt.pm1b_control.and_then(|gas| Reg::of(gas, 2));
-    Ok(Plan::Pm1 { sleep, a, b })
+    let status_a = fadt.pm1a_event.and_then(|gas| Reg::of(gas, 2));
+    let status_b = fadt.pm1b_event.and_then(|gas| Reg::of(gas, 2));
+    Ok(Plan::Pm1 {
+        sleep,
+        a,
+        b,
+        status_a,
+        status_b,
+    })
 }
 
 impl Plan {
     /// One log line: the sleep type and the registers it is written to.
     pub fn describe(&self) -> String {
         match self {
-            Plan::Pm1 { sleep, a, b } => {
-                format!("slp_typ={}/{} PM1a={:?} PM1b={:?}", sleep.a, sleep.b, a, b)
+            Plan::Pm1 { sleep, a, b, .. } => {
+                let b = b.map_or(String::from("none"), Reg::describe);
+                format!(
+                    "slp_typ={}/{} PM1a={} PM1b={}",
+                    sleep.a,
+                    sleep.b,
+                    a.describe(),
+                    b
+                )
             }
             Plan::SleepControl { sleep, reg } => {
-                format!("slp_typ={} sleep_control={:?}", sleep.a, reg)
+                format!("slp_typ={} sleep_control={}", sleep.a, reg.describe())
             }
         }
     }
@@ -137,26 +178,31 @@ impl Plan {
     #[cfg_attr(lazyos_tests, allow(dead_code))] // the suite proves the plan only
     pub unsafe fn enter(&self) {
         match *self {
-            Plan::Pm1 { sleep, a, b } => {
-                // (register, SLP_TYP, value with SLP_TYP, value with SLP_EN).
-                let mut blocks = [(a, sleep.a, 0u16, 0u16), (a, sleep.b, 0, 0)];
+            Plan::Pm1 {
+                sleep,
+                a,
+                b,
+                status_a,
+                status_b,
+            } => {
+                // Stale status bits (the power button press, a wake flag)
+                // must not wake the machine the moment it sleeps.
+                for status in [status_a, status_b].into_iter().flatten() {
+                    status.write16(PM1_STATUS_CLEAR);
+                }
+                let mut regs = [a, a];
+                let mut blocks = [(0u16, sleep.a), (0u16, sleep.b)];
                 let mut count = 1;
                 if let Some(b) = b {
-                    blocks[1].0 = b;
+                    regs[1] = b;
                     count = 2;
                 }
-                let blocks = &mut blocks[..count];
-                for block in blocks.iter_mut() {
-                    let (prepared, enter) = pm1_control_writes(block.0.read16(), block.1);
-                    block.2 = prepared;
-                    block.3 = enter;
+                for (block, reg) in blocks.iter_mut().zip(regs).take(count) {
+                    block.0 = reg.read16();
                 }
-                // SLP_TYP first in both blocks, then SLP_EN in both.
-                for block in blocks.iter() {
-                    block.0.write16(block.2);
-                }
-                for block in blocks.iter() {
-                    block.0.write16(block.3);
+                let (writes, used) = pm1_enter_sequence(&blocks[..count]);
+                for &(index, value) in &writes[..used] {
+                    regs[index].write16(value);
                 }
             }
             Plan::SleepControl { sleep, reg } => reg.write8(sleep_control_value(sleep.a)),

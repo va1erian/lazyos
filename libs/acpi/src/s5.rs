@@ -20,6 +20,20 @@ const SLP_TYP_MAX: u8 = 7;
 pub const PM1_SLP_TYP_SHIFT: u32 = 10;
 pub const PM1_SLP_TYP_MASK: u16 = 0b111 << PM1_SLP_TYP_SHIFT;
 pub const PM1_SLP_EN: u16 = 1 << 13;
+/// PM1 control `GBL_RLS` (bit 2) is write-only: a read may return garbage
+/// there, and writing it back raises an SMI to the firmware (ACPI 4.8.3.2.1;
+/// ACPICA masks `SLP_EN | GBL_RLS` after every read).
+pub const PM1_GBL_RLS: u16 = 1 << 2;
+
+/// Every fixed-hardware PM1 status bit that is write-one-to-clear: `TMR_STS`,
+/// `BM_STS`, `GBL_STS`, `PWRBTN_STS`, `SLPBTN_STS`, `RTC_STS`,
+/// `PCIEXP_WAKE_STS` and `WAK_STS`. Cleared before sleeping so a stale event
+/// (the power button press that preceded a shutdown, a wake flag) cannot
+/// wake the machine at once (ACPICA's `acpi_hw_clear_acpi_status`).
+pub const PM1_STATUS_CLEAR: u16 = 0xC731;
+
+/// PM1 blocks (a, b) a power-off writes at most.
+pub const MAX_PM1_BLOCKS: usize = 2;
 
 /// Sleep control register (hardware-reduced ACPI): `SLP_TYP` is bits 2..=4,
 /// `SLP_EN` bit 5.
@@ -29,8 +43,8 @@ pub const SLEEP_CONTROL_SLP_EN: u8 = 1 << 5;
 /// How many bytes are examined per physical read while scanning.
 const STRIDE: u32 = 512;
 /// Longest encoding that follows the name: `PackageOp`, a 4-byte `PkgLength`,
-/// `NumElements` and two 2-byte elements.
-const AFTER_NAME: usize = 1 + 4 + 1 + 4;
+/// `NumElements` and two 3-byte (WordPrefix) elements.
+const AFTER_NAME: usize = 1 + 4 + 1 + 6;
 /// Bytes read before a stride so the context in front of a name is visible.
 const BEFORE: u32 = 2;
 /// Read buffer: the context, a stride and the encoding after its last name.
@@ -109,6 +123,9 @@ fn constant(buf: &[u8], at: usize) -> Option<(u8, usize)> {
         0x00 => (0, at + 1),
         0x01 => (1, at + 1),
         0x0A => (*buf.get(at + 1)?, at + 2),
+        // WordPrefix: some compilers widen the constant; the high byte must
+        // be zero for the value to be a legal SLP_TYP.
+        0x0B if *buf.get(at + 2)? == 0 => (*buf.get(at + 1)?, at + 3),
         _ => return None,
     };
     (value <= SLP_TYP_MAX).then_some((value, next))
@@ -116,11 +133,28 @@ fn constant(buf: &[u8], at: usize) -> Option<(u8, usize)> {
 
 /// The two writes that enter S5 through a PM1 control register, given the
 /// register's current value: first with `SLP_TYP` set, then with `SLP_EN` too
-/// (the order Linux uses; other bits, notably `SCI_EN`, are kept).
+/// (the order Linux uses; other bits, notably `SCI_EN`, are kept; the
+/// write-only `GBL_RLS` is not).
 pub fn pm1_control_writes(current: u16, slp_typ: u8) -> (u16, u16) {
     let typ = u16::from(slp_typ & SLP_TYP_MAX) << PM1_SLP_TYP_SHIFT;
-    let prepared = (current & !(PM1_SLP_TYP_MASK | PM1_SLP_EN)) | typ;
+    let kept = current & !(PM1_SLP_TYP_MASK | PM1_SLP_EN | PM1_GBL_RLS);
+    let prepared = kept | typ;
     (prepared, prepared | PM1_SLP_EN)
+}
+
+/// The ordered writes that enter S5 through the PM1 control blocks: each
+/// block is `(current value, SLP_TYP)`. `SLP_TYP` goes to every block first,
+/// then `SLP_EN` to every block; an entry is `(block index, value)` and the
+/// count says how many are used (at most `2 * MAX_PM1_BLOCKS`).
+pub fn pm1_enter_sequence(blocks: &[(u16, u8)]) -> ([(usize, u16); 2 * MAX_PM1_BLOCKS], usize) {
+    let blocks = &blocks[..blocks.len().min(MAX_PM1_BLOCKS)];
+    let mut out = [(0usize, 0u16); 2 * MAX_PM1_BLOCKS];
+    for (index, &(current, typ)) in blocks.iter().enumerate() {
+        let (prepared, enter) = pm1_control_writes(current, typ);
+        out[index] = (index, prepared);
+        out[blocks.len() + index] = (index, enter);
+    }
+    (out, blocks.len() * 2)
 }
 
 /// The value written to the sleep control register of a hardware-reduced
