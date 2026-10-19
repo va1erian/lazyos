@@ -265,7 +265,7 @@ fn answer_at_the_end(stage: &Stage<'_, Msg>, (w, h): (i32, i32), mailbox: &Mailb
 }
 
 #[test]
-fn at_the_end_of_the_page_what_was_shown_past_it_is_given_back_with_no_checkerboard() {
+fn at_the_end_of_the_page_with_no_bands_what_was_shown_past_it_is_given_back() {
     // Three notches asked, 120 rows ahead; the page had 40 rows left to scroll and said it is at the bottom.
     let shown = run(|stage, size, mailbox, at| {
         wheel(stage, at, -3, Modifiers::default());

@@ -81,30 +81,36 @@ fn rows_painted_below_the_view_outweigh_a_stale_end_of_the_page() {
 }
 
 #[test]
-fn at_the_end_the_picture_goes_ahead_only_as_far_as_the_bands_below_the_view_cover() {
+fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
     // webkit.org at its end: the engine says pinned to the bottom, and the bands still reach 29 rows
-    // below the view (the page has a few more rows than the view shows). Notches against the end used
-    // to take the picture 480 rows ahead, 450 of them checkerboard.
+    // below the view (the engine paints a few rows past the view's edge at the document's end). Notches
+    // against the end used to take the picture 480 rows ahead, 450 of them checkerboard.
     let mut s = Speculation::default();
     s.report(665, 0);
     s.set_reach(29, 665);
     assert!(!s.set_at_bottom(true), "nothing was ahead");
     for t in 1..30 {
-        s.wheel(3 * DOWN, t);
-        assert!(s.shift() <= 29, "{} rows ahead at notch {t}", s.shift());
+        assert!(!s.wheel(3 * DOWN, t), "notch {t} is not shown past the end");
     }
-    assert_eq!(s.shift(), 29);
-    // The page said it was not at the end while the picture was far ahead (a stale state), then said so.
+    assert_eq!(s.shift(), 0);
+    // A page that goes on (bands a view long below it) and a stale pinned state: shown ahead as usual.
     let mut s = Speculation::default();
     s.report(600, 0);
-    s.set_reach(300, 600);
+    s.set_reach(1200, 600);
+    s.set_at_bottom(true);
+    assert!(s.wheel(3 * DOWN, 1));
+    assert_eq!(s.shift(), 3 * LINE_PX);
+    // Not at the end: the usual allowance, and what is past the margin once the page says it ended
+    // is dropped at once.
+    let mut s = Speculation::default();
+    s.report(600, 0);
+    s.set_reach(29, 600);
     for t in 1..10 {
         s.wheel(3 * DOWN, t);
     }
     assert_eq!(s.shift(), MAX_AHEAD, "not at the end: the usual allowance");
-    s.set_reach(29, 600);
-    assert!(s.set_at_bottom(true), "what is past the bands is dropped");
-    assert_eq!(s.shift(), 29);
+    assert!(s.set_at_bottom(true), "what is ahead past the end is dropped");
+    assert_eq!(s.shift(), 0);
     assert!(!s.set_at_bottom(true));
 }
 

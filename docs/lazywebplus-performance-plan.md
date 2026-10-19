@@ -651,18 +651,21 @@ before these two rules and count gaps against the ends of webkit.org, a short pa
 * **The end of the page** (`Speculation::set_at_bottom`, `paint.cpp`): the window scrolled ahead past the bottom
   of a short page (webkit.org) into rows that do not exist and showed a checkerboard until it gave up 900 ms later.
   The UI process now sends `WKPageIsPinnedToBottomSide` with each update's offset, and nothing further is shown
-  ahead downward from a picture at the bottom past what the bands below the view cover. That was the first
-  version, and it did not hold: it let the notches through when `reach_down` was not zero, and it is not zero at
-  the end of webkit.org (29 rows: the page has a few more rows than the view shows, and the band painter paints
-  them), so the notches against the end took the picture 480 rows ahead and 450 of them were checkerboard, the
-  hole in the screenshots of the bench's `site1_scrolled`. A diagnostic line per draw with checkerboard
-  (offset, ahead, `at_bottom`, `reach_down`) showed `at_bottom=true down=29 pending=480`; the ceiling at the end is
-  `reach_down` now (`at_the_end_the_picture_goes_ahead_only_as_far_as_the_bands_below_the_view_cover`,
-  `at_the_end_of_the_page_what_was_shown_past_it_is_given_back_with_no_checkerboard`), and what is already
-  ahead past it is dropped when the page says it is pinned. webkit.org's checkerboard went from 7.3% of the rows
-  shown to 0.1%. WebKit tells the pinned state again when the page scrolls, not after every layout, so it is
-  `true` from the first load until the first scroll (bands cover that case). The bench takes a second shot
-  three seconds after the scroll (`site<n>_settled`), which is what shows a hole that stays.
+  ahead downward from a picture at the bottom. That was the first version, and it did not hold: it let the
+  notches through when `reach_down` was not zero, and it is not zero at the end of webkit.org (29 rows: the engine
+  paints a few rows past the view's edge even at the document's end), so the notches against the end took the
+  picture 480 rows ahead and 450 of them were checkerboard, the hole in the screenshots of the bench's
+  `site1_scrolled`. A diagnostic line per draw with checkerboard (offset, ahead, `at_bottom`, `reach_down`) showed
+  `at_bottom=true down=29 pending=480`. Pinned with no more than `END_SLACK` (64) rows of bands below the view now
+  means the end: nothing further is shown ahead, and what is ahead is dropped when the page says so. Bands that
+  reach further say the page goes on (WebKit tells the pinned state again when the page scrolls, not when it grows,
+  and it is `true` from the first load until the first scroll). Tests: `speculate.rs`
+  (`at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on`) and the pixel test
+  `tests/scroll_end.rs`, its own binary because the bands wait in one process-wide queue. webkit.org's checkerboard
+  went from 7.3% of the rows shown to 0.0%. The cost: the first notch after a load, with no bands yet, is not
+  shown ahead (the pinned state is stale-true until the first update), and a notch at the end of a short page
+  shows nothing. The bench takes a second shot three seconds after the scroll (`site<n>_settled`), which is what
+  shows a hole that stays.
 
 **A build trap found on the way.** Removing a WebKit patch re-extracts the tree, but `tar` gave every file the
 archive's time: a file the removed patch had changed looked older than its object, ninja kept the patched object, and
