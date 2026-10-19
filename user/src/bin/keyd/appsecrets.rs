@@ -97,6 +97,11 @@ impl AppSecrets {
         name: &str,
         secret: &[u8],
     ) -> Result<(), Error> {
+        // Putting what is already kept writes nothing: an app looping on
+        // `Put` must not keep keyd on disk I/O.
+        if self.store.get(uid, app, name) == Ok(secret) {
+            return Ok(());
+        }
         self.change(entropy, |store| store.put(uid, app, name, secret).map(|()| true))
     }
 

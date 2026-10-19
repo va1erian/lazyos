@@ -18,7 +18,7 @@ the Terminal as the session user (`user`):
 3. **third**: both lists are empty after another reboot.
 
 App secrets ride the same three boots, through two test apps
-(`tools/keyd/probe_packages.py`: `rhai` packaged as `org.keyd.probea` and
+(`tools/keyd/keyd_probes.py`: `rhai` packaged as `org.keyd.probea` and
 `org.keyd.probeb`, so each runs under its own `app:<id>` label):
 
 * **first**: the session's own `rhai` (unlabelled) is refused every call
@@ -64,7 +64,7 @@ sys.path.insert(0, str(ROOT / "tools/accounts"))
 
 import audit  # noqa: E402  (tools/accounts: the volume listing)
 import keyd_judge as judge  # noqa: E402
-import probe_packages  # noqa: E402
+import keyd_probes  # noqa: E402
 
 # The accounts harness already knows how to focus the Terminal, type a
 # command, power off and run one session; reuse it rather than copy it.
@@ -74,7 +74,7 @@ _spec.loader.exec_module(accounts_run)
 
 IMAGE = ROOT / "target/lazyos.img"
 ASSETS = HERE / "assets"
-#: The probe packages' asset tree, generated at build time (probe_packages.py).
+#: The probe packages' asset tree, generated at build time (keyd_probes.py).
 GENERATED = ROOT / "target" / "keyd-assets"
 GUEST = "/system/share/keyd/secrets.rhai"
 PROBE = "/system/share/keyd/probe.sh"
@@ -89,7 +89,7 @@ def build() -> bool:
         return False
     import demo_builds
     demo_builds.build_rhai()
-    problems = probe_packages.build_all(GENERATED)
+    problems = keyd_probes.build_all(GENERATED)
     for problem in problems:
         print(problem)
     if problems:

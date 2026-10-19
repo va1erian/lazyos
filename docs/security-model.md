@@ -516,7 +516,12 @@ capabilities = []
   serves on with none. **Cleanup:** `keyd` asks `pkgd`'s `Installed` (no new
   call into `keyd`) shortly after start and every hour, and deletes the
   secrets of an app `pkgd` answered "not installed" for, so a removed package
-  leaves none behind (`KEYD:SWEEP:PASS removed=<n>`). The sweep only deletes;
+  leaves none behind (`KEYD:SWEEP:PASS removed=<n>`), once the app is
+  missing at two sweeps in a row. The scope is `(uid, system_name)`: a
+  different package installed under a removed app's name before the next
+  sweep would inherit its secrets (a hole only a pkgd-to-keyd removal notice
+  would close). A sweep is bounded to 3 s and skipped while pkgd's provisioning
+  reported a failure. The sweep only deletes;
   an unreachable or still-provisioning `pkgd` ends it with nothing deleted.
   No secret is in a trace, a log, an argument or an error text. The same
   limits as above apply to what it protects: root on the volume with both

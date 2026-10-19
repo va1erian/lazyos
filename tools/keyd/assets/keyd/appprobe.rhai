@@ -1,5 +1,5 @@
 // The labelled probe of the keyd app-secrets check (tools/keyd/run.py), run by
-// the test package `org.keyd.<id>` (tools/keyd/probe_packages.py), so every
+// the test package `org.keyd.<id>` (tools/keyd/keyd_probes.py), so every
 // call below is made under the label `app:org.keyd.<id>`:
 //   rhai appprobe.rhai <id>
 // Writes exactly one line to $HOME/.apps/org.keyd.<id>/out.txt, which

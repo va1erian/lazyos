@@ -14,7 +14,7 @@ The packages go into an asset tree of their own (`manifest.txt` +
 `keyd/*.lzp`) that `run.py` adds to `LAZYOS_ASSETS`, so they land in
 `/system/share/keyd/`.
 
-    python tools/keyd/probe_packages.py OUT_DIR
+    python tools/keyd/keyd_probes.py OUT_DIR
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def build_all(out: Path) -> list[str]:
     if not PROGRAM.is_file():
         return [f"missing {PROGRAM}: run tools/rhai/build.py"]
     (out / "keyd").mkdir(parents=True, exist_ok=True)
-    lines = ["# The keyd app-secrets check's probe packages (tools/keyd/probe_packages.py)."]
+    lines = ["# The keyd app-secrets check's probe packages (tools/keyd/keyd_probes.py)."]
     for file, short in PACKAGES.items():
         with tempfile.TemporaryDirectory() as scratch:
             tree = Path(scratch) / "tree"

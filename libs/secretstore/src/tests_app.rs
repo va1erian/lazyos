@@ -143,6 +143,15 @@ fn a_sweep_deletes_the_secrets_of_apps_no_longer_installed() {
     assert!(store.is_empty());
 }
 
+#[test]
+fn an_app_is_swept_only_when_missing_twice_in_a_row() {
+    let s = |names: &[&str]| -> Vec<String> { names.iter().map(|n| (*n).into()).collect() };
+    assert!(confirmed_gone(&s(&[]), &s(&["a", "b"])).is_empty(), "first miss");
+    assert_eq!(confirmed_gone(&s(&["a", "b"]), &s(&["b"])), s(&["b"]));
+    assert!(confirmed_gone(&s(&["a"]), &s(&[])).is_empty(), "it came back");
+    assert!(confirmed_gone(&s(&["a"]), &s(&["c"])).is_empty());
+}
+
 // ---- the file ------------------------------------------------------------
 
 #[test]

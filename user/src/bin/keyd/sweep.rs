@@ -25,18 +25,24 @@ const SECOND: u64 = 100;
 const RETRY: u64 = 5 * SECOND;
 /// The period of a completed sweep: one hour.
 const PERIOD: u64 = 3600 * SECOND;
-/// The longest one `pkgd` call may take before the sweep gives up.
-const CALL: u64 = 2 * SECOND;
+/// The longest the whole sweep may take before it gives up (keyd serves no
+/// request while it runs).
+const BUDGET: u64 = 3 * SECOND;
 
 pub(crate) struct Sweep {
     /// The absolute tick the next sweep is due at.
     next: u64,
+    /// Apps `pkgd` said were not installed at the last sweep. One answer is
+    /// not enough to delete (a package that failed to provision this boot is
+    /// only absent for a moment): an app must be missing twice in a row.
+    missed: Vec<String>,
 }
 
 impl Sweep {
     pub(crate) fn new() -> Sweep {
         Sweep {
             next: sys::clock() + RETRY,
+            missed: Vec::new(),
         }
     }
 
@@ -50,38 +56,63 @@ impl Sweep {
         if sys::clock() < self.next {
             return;
         }
-        let period = match sweep(secrets, entropy) {
-            Some(removed) => {
+        let period = match sweep(secrets, entropy, &mut self.missed) {
+            Outcome::Done(removed) => {
                 trace::line!(trace::Channel::Keyd, "SWEEP:PASS removed={removed}");
                 PERIOD
             }
-            None => RETRY,
+            // Something is missing: ask again soon, before deleting anything.
+            Outcome::Confirm | Outcome::Retry => RETRY,
         };
         self.next = sys::clock() + period;
     }
 }
 
-/// One sweep. `Some(removed)` when `pkgd` answered for every app (the table is
-/// then swept), `None` when it could not be asked.
-fn sweep(secrets: &mut AppSecrets, entropy: &mut Entropy) -> Option<usize> {
+enum Outcome {
+    /// `pkgd` answered for every app; this many secrets were deleted.
+    Done(usize),
+    /// Some app was missing for the first time: confirm before deleting.
+    Confirm,
+    /// `pkgd` could not be asked (or not reliably): nothing was deleted.
+    Retry,
+}
+
+/// One sweep, within [`BUDGET`]. It deletes nothing unless `pkgd` finished
+/// provisioning without a failure (an app that failed to install is absent,
+/// not removed) and answered "not installed" for the same app at two sweeps
+/// in a row ([`secretstore::confirmed_gone`]).
+fn sweep(secrets: &mut AppSecrets, entropy: &mut Entropy, missed: &mut Vec<String>) -> Outcome {
     let apps = secrets.apps();
     if apps.is_empty() {
-        return Some(0);
+        missed.clear();
+        return Outcome::Done(0);
     }
-    let client = pkgd::Client::connect().ok()?;
-    let state = client
-        .provisioned_until(Some(sys::clock() + CALL))
-        .ok()?;
-    if !state.done {
-        return None;
+    let end = sys::clock() + BUDGET;
+    let Ok(client) = pkgd::Client::connect() else {
+        return Outcome::Retry;
+    };
+    match client.provisioned_until(Some(end)) {
+        Ok(state) if state.done && state.failed == 0 => {}
+        _ => return Outcome::Retry,
     }
-    let mut gone: Vec<String> = Vec::new();
+    let mut now_missing: Vec<String> = Vec::new();
     for app in apps {
-        match client.installed_until(&app, Some(sys::clock() + CALL)) {
+        if sys::clock() >= end {
+            return Outcome::Retry;
+        }
+        match client.installed_until(&app, Some(end)) {
             Ok(Some(_)) => {}
-            Ok(None) => gone.push(app),
-            Err(_) => return None,
+            Ok(None) => now_missing.push(app),
+            Err(_) => return Outcome::Retry,
         }
     }
-    Some(secrets.sweep_gone(entropy, &gone))
+    let gone = secretstore::confirmed_gone(missed, &now_missing);
+    let first_time = now_missing.len() > gone.len();
+    *missed = now_missing;
+    let removed = secrets.sweep_gone(entropy, &gone);
+    if first_time {
+        Outcome::Confirm
+    } else {
+        Outcome::Done(removed)
+    }
 }

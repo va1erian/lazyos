@@ -54,6 +54,17 @@ pub fn app_of_label(label: &str) -> Option<&str> {
     ok.then_some(id)
 }
 
+/// The apps in both lists: `missing` now and at the sweep before (`previous`).
+/// A sweep deletes only these, so one wrong "not installed" answer (a package
+/// that failed to provision this boot) never costs an app its secrets.
+pub fn confirmed_gone(previous: &[String], missing: &[String]) -> Vec<String> {
+    missing
+        .iter()
+        .filter(|app| previous.contains(app))
+        .cloned()
+        .collect()
+}
+
 /// A name a secret may have: 1..=[`APP_MAX_NAME`] bytes of printable ASCII
 /// (no space, no control character), so a name is safe to show in a list.
 pub fn valid_app_name(name: &str) -> bool {
