@@ -216,6 +216,35 @@ fn rename_a_directory_holding_linked_files() {
 }
 
 #[test]
+fn rename_a_directory_over_an_empty_directory() {
+    every_cache(
+        |fs| {
+            mkdirs(fs, &["/p", "/q", "/p/d", "/p/e", "/q/e"]);
+            put(fs, "/p/d/f", 7);
+        },
+        |fs| {
+            fs.rename("/p/d", "/p/e").unwrap(); // same parent
+            fs.mkdir("/p/d", 0o755, root()).unwrap();
+            fs.rename("/p/e", "/q/e").unwrap(); // across parents
+        },
+        |_, _| {},
+    );
+}
+
+#[test]
+fn rmdir_keeps_the_parents_count_covered() {
+    every_cache(
+        |fs| mkdirs(fs, &["/p", "/p/a", "/p/b", "/p/a/c"]),
+        |fs| {
+            fs.rmdir("/p/a/c").unwrap();
+            fs.rmdir("/p/a").unwrap();
+            fs.rmdir("/p/b").unwrap();
+        },
+        |_, _| {},
+    );
+}
+
+#[test]
 fn a_completed_sequence_leaves_nothing_behind() {
     // The whole story in one go: after every operation and a flush the image
     // is clean, with the link count equal to the names.

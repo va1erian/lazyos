@@ -103,7 +103,11 @@ impl Ext2 {
             child_links.checked_add(1).ok_or(Ext2Error::Invalid)?,
         );
         self.write_inode(child_ino, &child)?;
-        self.barrier()?;
+        if let Err(error) = self.barrier() {
+            put16(&mut child, INO_LINKS, child_links);
+            let _ = self.write_inode(child_ino, &child);
+            return Err(error);
+        }
         let to_links_before = le16(&to_parent, INO_LINKS);
         if moves_dir {
             let from_links = le16(&from_parent, INO_LINKS).saturating_sub(1);
@@ -141,6 +145,7 @@ impl Ext2 {
         if let Err(error) = moved {
             put16(&mut to_parent, INO_LINKS, to_links_before);
             let _ = self.remove_entry(to_parent_ino, &mut to_parent, to_name);
+            let _ = self.barrier();
             put16(&mut child, INO_LINKS, child_links);
             let _ = self.write_inode(child_ino, &child);
             return Err(error);

@@ -43,6 +43,7 @@ impl Ext2 {
     /// Create an empty directory owned by `owner`.
     pub fn mkdir(&self, path: &str, mode: u16, owner: Owner) -> Result<InodeMeta, Ext2Error> {
         let _guard = self.lock.lock();
+        let _scope = self.op_scope();
         let (parent_path, name) = split_parent(path)?;
         let parent_ino = self.resolve(parent_path)?;
         let mut parent = self.read_inode(parent_ino)?;
@@ -105,10 +106,25 @@ impl Ext2 {
             return Err(error);
         }
 
+        // The parent's count covers the new `..` before the entry makes the
+        // child reachable: a cut in between leaks a count, never undercounts.
+        let parent_before = le16(&parent, INO_LINKS);
         put16(&mut parent, INO_LINKS, parent_links);
+        let raised = self
+            .write_inode(parent_ino, &parent)
+            .and_then(|()| self.barrier());
+        if let Err(error) = raised {
+            put16(&mut parent, INO_LINKS, parent_before);
+            let _ = self.write_inode(parent_ino, &parent);
+            let _ = self.free_block(block);
+            let _ = self.free_inode(ino, true);
+            return Err(error);
+        }
         match self.add_entry(parent_ino, &mut parent, name, ino, FT_DIRECTORY) {
             Ok(()) => self.meta_of(ino),
             Err(error) => {
+                put16(&mut parent, INO_LINKS, parent_before);
+                let _ = self.write_inode(parent_ino, &parent);
                 let _ = self.free_block(block);
                 let _ = self.free_inode(ino, true);
                 Err(error)
