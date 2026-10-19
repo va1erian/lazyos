@@ -43,7 +43,7 @@ pub(super) fn sys_prctl(option: u64, arg2: u64, arg3: u64) -> u64 {
         PR_SET_NAME => {
             let mut name = [0u8; 16];
             for (index, byte) in name.iter_mut().take(15).enumerate() {
-                match user_ptr::try_read::<u8>(arg2 + index as u64) {
+                match user_ptr::try_read_field::<u8>(arg2, index as u64) {
                     Ok(0) => break,
                     Ok(value) => *byte = value,
                     Err(_) => return err(EFAULT),
@@ -131,8 +131,11 @@ pub(super) fn exit_robust_list(tid: usize) {
         return;
     }
     let read = |addr: u64| user_ptr::try_read::<u64>(addr).ok();
-    let (Some(first), Some(offset), Some(pending)) = (read(head), read(head + 8), read(head + 16))
-    else {
+    let (Some(first), Some(offset), Some(pending)) = (
+        read(head),
+        read(user_ptr::at(head, 8)),
+        read(user_ptr::at(head, 16)),
+    ) else {
         return;
     };
     let offset = offset as i64;
@@ -194,7 +197,7 @@ pub(super) fn sys_setgroups(size: u64, list: u64) -> u64 {
         return err(EINVAL);
     }
     for index in 0..size {
-        match user_ptr::try_read::<u32>(list + index * 4) {
+        match user_ptr::try_read_at::<u32>(list, index as usize) {
             Ok(gid) if gid == cred.gid => {}
             Ok(_) => return err(EINVAL),
             Err(_) => return err(EFAULT),

@@ -73,7 +73,7 @@ fn parse_unix_name(addr: u64, len: u64) -> Result<Vec<u8>, u64> {
     }
     let available = ((len - 2) as usize).min(108);
     // Safety: same struct, `sun_path` follows `sun_family`.
-    let path = unsafe { user_ptr::bytes(addr + 2, available) };
+    let path = unsafe { user_ptr::bytes(user_ptr::at(addr, 2), available) };
     if path.first() == Some(&0) {
         Ok(path.to_vec())
     } else {

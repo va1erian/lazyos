@@ -8,6 +8,11 @@ use super::*;
 /// endpoints were closed.
 pub fn forget_task(slot: usize) {
     let mut channels = CHANNELS.lock();
+    // Calls the dead task had taken off an inbox and never answered: nobody
+    // else has seen the request, so waiting for a reply only strands the
+    // caller until its deadline (or forever), even while other handles keep
+    // the side open. End them as `PeerDied`, like a close of the side would.
+    let mut ended: Vec<(usize, u64)> = Vec::new();
     for channel in channels.iter_mut() {
         channel.txns.retain(|txn| {
             let keep = txn.caller != slot;
@@ -16,6 +21,21 @@ pub fn forget_task(slot: usize) {
             }
             keep
         });
+        for index in 0..channel.txns.len() {
+            let txn = &mut channel.txns[index];
+            if txn.receiver != Some(slot) {
+                continue;
+            }
+            // The slot may be reused: it must not stay the receiver of
+            // anything, or its next owner could answer the old request.
+            txn.receiver = None;
+            if txn.state == TxnState::Pending {
+                txn.state = TxnState::PeerDied;
+                let caller = txn.caller;
+                ended.push((caller, txn.id));
+                release_pending(channel, caller);
+            }
+        }
         channel.senders.retain(|meter| meter.slot != slot);
         // A task that died parked in `recv` never unregistered itself; the
         // slot may be reused, so drop the stale entry.
@@ -24,6 +44,11 @@ pub fn forget_task(slot: usize) {
         }
     }
     drop(channels);
+    // With the registry lock released, as every hook.
+    for &(caller, txn_id) in &ended {
+        completion::record(caller, txn_id);
+    }
+    wake(ended.iter().map(|&(caller, _)| caller));
     // A task that died parked in `recv` or `await_reply` is still on the
     // Messenger queue: its wait loop will never remove it.
     MESSENGER.forget(slot);

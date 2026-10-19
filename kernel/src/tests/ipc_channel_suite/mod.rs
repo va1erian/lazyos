@@ -98,6 +98,7 @@ mod indexed;
 mod leaks;
 mod poll;
 mod release;
+mod reply_auth;
 mod resilience;
 mod targeted_wake;
 
@@ -107,6 +108,7 @@ pub(super) use indexed::*;
 pub(super) use leaks::*;
 pub(super) use poll::*;
 pub(super) use release::*;
+pub(super) use reply_auth::*;
 pub(super) use resilience::*;
 pub(super) use targeted_wake::*;
 
@@ -145,6 +147,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         release_refuses_what_it_cannot_release,
     ),
     ("ipc_channel_release_soak", release_soak),
+    (
+        "ipc_channel_reply_refuses_non_receivers",
+        reply_refuses_non_receivers,
+    ),
+    (
+        "ipc_channel_receiver_death_ends_its_calls",
+        receiver_death_ends_its_calls,
+    ),
+    (
+        "ipc_channel_receiver_without_a_handle_replies",
+        receiver_without_a_handle_replies,
+    ),
+    ("ipc_channel_reply_forgery_soak", reply_forgery_soak),
     ("ipc_channel_deadlock_refused", deadlock_refused),
     (
         "ipc_channel_concurrent_clients_allowed",

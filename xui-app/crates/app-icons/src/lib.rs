@@ -92,7 +92,7 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "tools/pkg/samples/counter",
         Art::Lucide(Lucide::Plus, Tone::Teal),
     ),
-    ("doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
+    ("games/doom/package", Art::Lucide(Lucide::Zap, Tone::Clay)),
     // The Calculator: neither set has one; a keypad grid on an amber tile.
     (
         "xui-app/packages/calc",
@@ -152,6 +152,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
     (
         "xui-app/packages/removable",
         Art::Lucide(Lucide::Save, Tone::Amber),
+    ),
+    // NES: a play triangle on a clay tile, the games family's colour (Doom's
+    // zap is the other one).
+    (
+        "xui-app/packages/nes",
+        Art::Lucide(Lucide::Play, Tone::Clay),
     ),
 ];
 

@@ -21,7 +21,7 @@ the guest yet** (V1 does that).
 ### The pixel path is not the problem
 
 Per full frame, for a window that plays video the way Doom does
-(`doom/src/window.rs`: two buffer slots, a one-way `Present`):
+(`games/doom/src/window.rs`: two buffer slots, a one-way `Present`):
 
 | Stage | 720p | 1080p |
 |---|---|---|

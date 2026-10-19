@@ -45,6 +45,9 @@ members = [
     "crates/golf",
     # About LazyOS: a software 3D renderer and its window; `src/bin/about.rs` runs it.
     "crates/about",
+    # NES Player (os.lazy.nes): an NES emulator with sound over `tetanes-core`;
+    # `src/bin/nes.rs` runs it with the LazyOS platform.
+    "crates/nes",
     # LazySky, a Bluesky client (docs/lazysky-plan.md): the headless core and
     # the portable xui UI; `src/bin/lazysky.rs` runs it on LazyOS.
     "crates/lazysky-core",
@@ -73,11 +76,11 @@ members = [
 # glutin/glow/arboard/windows/xui-gpu; turning it off leaves the pure tiny-skia
 # software painter core (Surface, SkiaCanvas, OffscreenBackend and the in-memory
 # font API) that LazyOS drives its own display protocol with.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1", default-features = false }
 # The rich-text widget LazyWriter edits with (issue #533), with its native JSON
 # format (`serde`). Same revision as `xui-core`, so one `xui_core` links.
-xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", features = ["serde"] }
+xui-rich-text = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1", features = ["serde"] }
 # The same parcel codec the kernel and native `user` programs use, so the
 # fabric panel reads registry replies and talks to the topics broker with one
 # shared wire implementation. `no_std` + `alloc`, so it links into this binary.
@@ -156,6 +159,9 @@ xui-golf = { path = "crates/golf" }
 # About LazyOS: the software 3D renderer and the window; the `xui-about`
 # binary only launches it.
 xui-about = { path = "crates/about" }
+# NES Player (os.lazy.nes): the emulator session and window over
+# `tetanes-core`; the `xui-nes` binary supplies the LazyOS platform.
+xui-nes = { path = "crates/nes" }
 # LazySky (docs/lazysky-plan.md): the portable window; the `xui-lazysky`
 # binary only launches it and supplies the LazyOS `Platform`.
 lazysky-ui = { path = "crates/lazysky-ui" }
@@ -178,7 +184,7 @@ deskmenu = { path = "../libs/deskmenu" }
 # would silently replace with DHCP.
 netstack = { path = "../libs/netstack" }
 # The desktop's launcher icons (the Global Village set the Files app ships).
-xui-icons = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
+xui-icons = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1" }
 
 # The cursor sprites, to check the shapes the backend asks for can be drawn.
 [dev-dependencies]
@@ -394,3 +400,7 @@ path = "src/bin/about.rs"
 [[bin]]
 name = "xui-removable"
 path = "src/bin/removable.rs"
+
+[[bin]]
+name = "xui-nes"
+path = "src/bin/nes.rs"

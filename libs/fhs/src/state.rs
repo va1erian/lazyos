@@ -163,7 +163,7 @@ pub const RESOLV_CONF: &str = "/transient/net/resolv.conf";
 pub const DOOM_TMP: &str = "/tmp/doom";
 
 /// The verdict line Doom's headless mode writes for a harness to read
-/// (`doom/src/headless.rs`).
+/// (`games/doom/src/headless.rs`).
 pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 
 /// SRB2Kart's config (`kartconfig.cfg`) and saves when the player has no
@@ -172,7 +172,7 @@ pub const DOOM_RESULT: &str = "/tmp/doom-result.txt";
 pub const SRB2KART_TMP: &str = "/tmp/srb2kart";
 
 /// The verdict line SRB2Kart's headless mode writes for a harness to read
-/// (`srb2kart/src/headless.rs`).
+/// (`games/srb2kart/src/headless.rs`).
 pub const SRB2KART_RESULT: &str = "/tmp/srb2kart-result.txt";
 
 /// Quake's saves and `config.cfg` when the player has no home (otherwise
@@ -181,7 +181,7 @@ pub const SRB2KART_RESULT: &str = "/tmp/srb2kart-result.txt";
 pub const QUAKE_TMP: &str = "/tmp/quake";
 
 /// The verdict line Quake's headless mode writes for a harness to read
-/// (`quake/src/lazy/headless.rs`).
+/// (`games/quake/src/lazy/headless.rs`).
 pub const QUAKE_RESULT: &str = "/tmp/quake-result.txt";
 
 /// Fontconfig's cache directory in the WebKit dependency bundle

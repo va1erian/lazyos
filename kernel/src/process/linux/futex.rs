@@ -103,7 +103,7 @@ fn read_word(uaddr: u64) -> Result<u32, u64> {
 fn read_timespec(ptr: u64) -> Result<(u64, u64), u64> {
     let (Ok(sec), Ok(nsec)) = (
         user_ptr::try_read::<i64>(ptr),
-        user_ptr::try_read::<i64>(ptr + 8),
+        user_ptr::try_read_field::<i64>(ptr, 8),
     ) else {
         return Err(err(EFAULT));
     };

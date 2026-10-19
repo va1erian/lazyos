@@ -97,11 +97,19 @@ pub(super) fn sys_mremap(
         // Growing: the pages above the old end are demand-zero (anonymous
         // memory), so a free range above the VMA can be claimed by extending it.
         let delta = new_len - old_len;
-        let Some(grow_end) = old_end.checked_add(delta) else {
-            return err(ENOMEM);
-        };
-        let free_above = crate::mem::vma::find_range(table, old_end, grow_end).is_empty();
-        if free_above && matches!(vma.kind, Kind::Anon | Kind::Heap) {
+        // In place only inside the mmap area: past `MMAP_LIMIT` lie the device
+        // windows and the stack, never anonymous memory to claim. Beyond it
+        // the mapping can still move.
+        let grow_end = old_end
+            .checked_add(delta)
+            .filter(|&grow_end| grow_end <= MMAP_LIMIT);
+        let free_above =
+            grow_end.is_some_and(|end| crate::mem::vma::find_range(table, old_end, end).is_empty());
+        if let (Some(grow_end), true, true) = (
+            grow_end,
+            free_above,
+            matches!(vma.kind, Kind::Anon | Kind::Heap),
+        ) {
             // A reservation grows for free: its pages are charged as they come.
             if !vma.reserve
                 && quota::charge_for_slot(task::current(), Resource::UserMemory, delta).is_err()
@@ -152,12 +160,27 @@ pub(super) fn sys_mremap(
     let keep = old_len.min(new_len);
     let mut offset = 0;
     while offset < keep {
+        crate::arch::irq_window::poll_point();
+        // A reservation is mostly holes: jump over the absent tables.
+        let hole = crate::mem::populated_from(table, old_addr + offset) - (old_addr + offset);
+        if hole > 0 {
+            offset += hole;
+            continue;
+        }
         if crate::mem::remap_page(table, old_addr + offset, dest + offset).is_err() {
             // Roll the pages already moved back, then undo the charge. What
             // the destination held is gone (it was replaced on request), so
             // its charge goes back too; the move is all that needs undoing.
             let mut back = 0;
             while back < offset {
+                crate::arch::irq_window::poll_point();
+                // Holes were skipped on the way out, so they are on the way
+                // back (the destination's tables exist wherever a page moved).
+                let hole = crate::mem::populated_from(table, dest + back) - (dest + back);
+                if hole > 0 {
+                    back += hole;
+                    continue;
+                }
                 let _ = crate::mem::remap_page(table, dest + back, old_addr + back);
                 back += PAGE;
             }

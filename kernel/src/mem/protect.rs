@@ -24,8 +24,17 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
         .filter(|piece| piece.kind == vma::Kind::FileShared)
         .collect();
     let mut va = start & !(FRAME_SIZE - 1);
+    let end = end.min(LOWER_HALF_END);
     while va < end {
-        // Safety: `table` is a live address space and we own its entries.
+        crate::arch::irq_window::poll_point();
+        // Safety: `table` is a live address space and we own its entries;
+        // `va < end <= LOWER_HALF_END`.
+        let next = unsafe { skip_absent(table, va) };
+        if next != va {
+            va = next;
+            continue;
+        }
+        // Safety: as above.
         if let Some(entry) = unsafe { leaf_entry(table, va) } {
             // Safety: `entry` was just returned as a present leaf in this table.
             let old = unsafe { *entry };

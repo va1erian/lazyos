@@ -96,6 +96,7 @@ fn unserve_poll(channel_id: u64, side: usize, txn: u64) {
     if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
         if entry.state == TxnState::Pending {
             entry.served = false;
+            entry.receiver = None;
             entry.deadline = Some(task::ticks() + POLL_GRACE_TICKS);
         }
     }
@@ -118,16 +119,25 @@ fn take_locked(
     let endpoint = &mut channel.endpoints[side];
     if let Some(message) = endpoint.inbox.pop_front() {
         endpoint.queued_bytes = endpoint.queued_bytes.saturating_sub(message.bytes.len());
-        if let (Some(txn), Some(POLL_DEADLINE)) = (message.txn, message.deadline) {
-            endpoint.serving_polls.push(txn);
-            // Received: the grace deadline no longer applies, or a slow
-            // service turn would have its reply refused. The parked caller
-            // wakes at the old deadline, finds it replaced and parks again
-            // (`await_reply` only expires a deadline that is actually due).
+        if let Some(txn) = message.txn {
+            let poll = message.deadline == Some(POLL_DEADLINE);
+            if poll {
+                endpoint.serving_polls.push(txn);
+            }
             if let Some(entry) = channel.txns.iter_mut().find(|entry| entry.id == txn) {
                 if entry.state == TxnState::Pending {
-                    entry.served = true;
-                    entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
+                    // The receiver is who `reply` trusts first and whose
+                    // death ends the call (`forget_task`).
+                    entry.receiver = Some(task::current());
+                    if poll {
+                        // Received: the grace deadline no longer applies, or
+                        // a slow service turn would have its reply refused.
+                        // The parked caller wakes at the old deadline, finds
+                        // it replaced and parks again (`await_reply` only
+                        // expires a deadline that is actually due).
+                        entry.served = true;
+                        entry.deadline = Some(task::ticks() + POLL_SERVICE_TICKS);
+                    }
                 }
             }
         }

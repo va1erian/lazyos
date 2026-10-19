@@ -52,10 +52,10 @@ TREES = [
     ("user", "user/"),
     ("xui-app", "xui-app/"),
     ("lazyrad-os", "lazyrad-os/"),
-    ("doom", "doom/"),
+    ("doom", "games/doom/"),
     ("emusic", "emusic/"),
-    ("quake", "quake/"),
-    ("srb2kart", "srb2kart/"),
+    ("quake", "games/quake/"),
+    ("srb2kart", "games/srb2kart/"),
 ]
 
 # Not scanned: the one place a line is written, the kernel suite and the
@@ -173,7 +173,7 @@ def secret_hits(text: str) -> list[tuple[int, str]]:
 # The std apps write their lines with `xui_app::trace` (one sink that opens
 # the console device); another opener is a private copy of the old `emit`
 # helper, which is how a marker slipped past the print patterns above.
-CONSOLE_OPENERS = ("xui-app/", "lazyrad-os/", "doom/", "emusic/", "quake/", "srb2kart/")
+CONSOLE_OPENERS = ("xui-app/", "lazyrad-os/", "games/doom/", "emusic/", "games/quake/", "games/srb2kart/")
 CONSOLE = re.compile(r"\bdev::CONSOLE\b")
 
 

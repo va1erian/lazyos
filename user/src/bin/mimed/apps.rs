@@ -51,6 +51,8 @@ const DEFAULT_APPS: &[(&str, &str, &[&str])] = &[
     ("application/pdf", "os.lazy.pdf", &["open", "view"]),
     // Video (docs/video-player-plan.md).
     ("video/x-msvideo", "os.lazy.video", &["open", "view"]),
+    // NES cartridges (docs/nes-player.md).
+    ("application/x-nes-rom", "os.lazy.nes", &["open"]),
     ("application/x-elf", "runner", &["open"]),
     (
         "application/x-lazyos-package",

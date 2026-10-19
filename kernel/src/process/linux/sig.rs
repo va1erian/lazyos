@@ -9,6 +9,7 @@
 
 use crate::task;
 use crate::task::signal::{self, Disposition, SignalError};
+use crate::user_ptr;
 
 use super::errno::{err, EFAULT, EINTR, EINVAL, EPERM, ESRCH};
 use super::uaccess::{read_u32, read_u64, write_u32, write_u64};
@@ -51,17 +52,20 @@ pub(super) fn sys_rt_sigaction(sig: u64, act: u64, oldact: u64, sigsetsize: u64)
     if oldact != 0 {
         let (handler, flags, restorer, mask) = disposition_to_kernel(signal::action(me, sig));
         write_u64(oldact, handler);
-        write_u64(oldact + 8, flags);
-        write_u64(oldact + 16, restorer);
+        write_u64(user_ptr::at(oldact, 8), flags);
+        write_u64(user_ptr::at(oldact, 16), restorer);
         // The kernel stores `sa_mask` in its internal bit order.
-        write_u64(oldact + 24, signal::kernel_to_linux_sigset(mask));
+        write_u64(
+            user_ptr::at(oldact, 24),
+            signal::kernel_to_linux_sigset(mask),
+        );
     }
     if act != 0 {
         let handler = read_u64(act);
-        let flags = read_u64(act + 8);
-        let restorer = read_u64(act + 16);
+        let flags = read_u64(user_ptr::at(act, 8));
+        let restorer = read_u64(user_ptr::at(act, 16));
         // User space passes a Linux `sigset_t` (bit `sig - 1`).
-        let mask = signal::linux_sigset_to_kernel(read_u64(act + 24));
+        let mask = signal::linux_sigset_to_kernel(read_u64(user_ptr::at(act, 24)));
         let disposition = match handler {
             signal::SIG_DFL => Disposition::Default,
             signal::SIG_IGN => Disposition::Ignore,
@@ -184,19 +188,19 @@ pub(super) fn sys_sigaltstack(ss: u64, old_ss: u64) -> u64 {
         let current = signal::altstack(me);
         write_u64(old_ss, current.sp);
         write_u32(
-            old_ss + 8,
+            user_ptr::at(old_ss, 8),
             if current.enabled {
                 0
             } else {
                 signal::SS_DISABLE
             },
         );
-        write_u64(old_ss + 16, current.size);
+        write_u64(user_ptr::at(old_ss, 16), current.size);
     }
     if ss != 0 {
         let sp = read_u64(ss);
-        let flags = read_u32(ss + 8);
-        let size = read_u64(ss + 16);
+        let flags = read_u32(user_ptr::at(ss, 8));
+        let size = read_u64(user_ptr::at(ss, 16));
         if flags & signal::SS_ONSTACK != 0 {
             return err(EINVAL); // cannot set a stack marked as in use
         }

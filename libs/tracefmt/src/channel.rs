@@ -96,6 +96,7 @@ channels! {
     Msgctl => "MSGCTL",
     Msgrd => "MSGRD",
     Nc => "NC",
+    Nes => "NES",
     Net => "NET",
     Netapp => "NETAPP",
     Netbulk => "NETBULK",

@@ -29,7 +29,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 # One xui revision for every crate, so a single `xui_core` links.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1" }
 # The seam: the engine trait, the mailbox, the page view and the C ABI shared with the W5
 # window, without that window.
 xui-webkit = { path = "../crates/webkit", default-features = false }
@@ -46,4 +46,4 @@ xui-settings = { path = "../crates/settings" }
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1", default-features = false }

@@ -54,6 +54,16 @@ userspace never names another task's handles.
   once for kernel callers. The 64-byte argument block is read onto the stack,
   `copy_in` walks each page once and `copy_out` keeps the translations of its
   range check for up to 16 pages.
+- **Who may reply**: ids are a guessable global counter, so a txn id
+  authorizes nothing. `recv` records the receiving task in the transaction;
+  `reply` is refused (`NotReceiver`, `EPERM`, no drop counted) unless the
+  caller is that task or holds a handle with `CALL` to the callee side (a
+  worker the receiver passed the endpoint to). A client holds only the caller
+  side, so it can never answer its own or anyone's call. When a task dies,
+  `forget_task` ends the calls it had received and not answered with
+  `PeerDied`, even while other handles keep the side open. A callback made
+  *toward* a side every client of a service aliases (rare, `ALLOW_NESTED`)
+  can be answered by any holder of that side.
 - **Handoff** (P6.2): a call that wakes a callee parked in `recv`, and a reply
   that wakes its caller, hand the CPU to that task when the current one parks
   (`task::hand_off`; see [tasks.md](tasks.md)).

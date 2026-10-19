@@ -49,7 +49,7 @@ unsafe fn count_below(phys: u64, level: u8, base: u64, start: u64, end: u64) -> 
             continue;
         }
         if level == 1 {
-            if entry & PTE_USER != 0 {
+            if entry & PTE_USER != 0 && entry & pte::MMIO == 0 {
                 count += 1;
             }
         } else if entry & PTE_HUGE == 0 {

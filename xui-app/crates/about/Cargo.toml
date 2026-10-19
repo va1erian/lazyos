@@ -6,17 +6,17 @@ publish = false
 description = "About LazyOS: a real-time software 3D renderer and its xui window (portable, host-testable)"
 
 [dependencies]
-xui-core = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da" }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1" }
 # Only for the `desktop` runner: xui's winit backend, so the same app runs
 # as a window on Windows, Linux and macOS. LazyOS builds never turn it on.
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false, optional = true }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1", default-features = false, optional = true }
 
 [features]
 # `cargo run --release -p xui-about --example about --features desktop`
 desktop = ["dep:xui-canvas", "xui-canvas/winit-backend"]
 
 [dev-dependencies]
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "e9d4ede3ce541a4b8017fa075dc43a0629c701da", default-features = false }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "016e9b79af4ee4d00db0659749fa6d599cbc1ea1", default-features = false }
 
 [[example]]
 name = "about"

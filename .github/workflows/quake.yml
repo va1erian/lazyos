@@ -1,6 +1,6 @@
 # name: quake
 
-# Quake as an installable package (docs/quake-port-plan.md D5, quake/README.md).
+# Quake as an installable package (docs/quake-port-plan.md D5, games/quake/README.md).
 # Tests the crate on a Linux host upstream port's own suite (the record protocol,
 # the census) and the port's platform tests, builds the engine and `lazyquake`
 # with zig (quake-srp and id's shareware zip are fetched at pinned SHA-256s and
@@ -14,7 +14,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "quake/**"
+      - "games/quake/**"
       - "tools/quake/**"
       - "tools/pkg/**"
       - "libs/lazypkg/**"
@@ -32,7 +32,7 @@ on:
       - ".github/workflows/quake.yml"
   pull_request:
     paths:
-      - "quake/**"
+      - "games/quake/**"
       - "tools/quake/**"
       - "tools/pkg/**"
       - "libs/lazypkg/**"

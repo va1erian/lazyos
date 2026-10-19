@@ -27,7 +27,7 @@ fn bytes(files: &OsFiles, path: &str) -> Vec<u8> {
 fn every_sample_lands_in_the_samples_directory() {
     let files = samples();
     // The samples, and the Terminal's terminfo entry `samples_embed` also makes.
-    assert_eq!(files.len(), 9);
+    assert_eq!(files.len(), 10);
     for file in files.files() {
         let ok = file.path.starts_with(fhs::share::SAMPLES)
             || file.path == fhs::share::TERMINFO_XTERM_256COLOR;
@@ -76,6 +76,21 @@ fn the_video_sample_is_a_small_avi() {
         avi.len() < 1024 * 1024,
         "keep the sample small: {} bytes",
         avi.len()
+    );
+}
+
+#[test]
+fn the_nes_sample_is_a_small_cartridge() {
+    // The NES Player's welcome screen offers it and its screenshot session
+    // plays it (docs/nes-player.md); `tools/nes/make_sample.py` writes it.
+    let rom = bytes(&samples(), fhs::share::NES_SAMPLE);
+    assert_eq!(&rom[..4], b"NES\x1a", "{:?}", &rom[..rom.len().min(4)]);
+    assert_eq!((rom[4], rom[5]), (2, 1), "32 KiB PRG + 8 KiB CHR");
+    assert_eq!(rom.len(), 16 + 32 * 1024 + 8 * 1024);
+    assert!(
+        rom.len() < 64 * 1024,
+        "keep the sample small: {} bytes",
+        rom.len()
     );
 }
 

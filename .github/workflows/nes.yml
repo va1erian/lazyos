@@ -1,0 +1,106 @@
+name: nes
+
+# The NES Player (docs/nes-player.md, xui-app/crates/nes): the app crate's host
+# tests against the sample cartridge, the 6502 assembler, the harness judges,
+# the shipped ROM's currency, and the ROM validated in jsnes (a second,
+# independent emulator, via Node). Then a desktop image boots: the session
+# launches the app on the sample cartridge from the Terminal, drives the D-pad,
+# saves and loads a state, pauses, quits and runs the headless frame checksum,
+# while QEMU records the sound card; the judge reads the markers, the melody in
+# the recording and the screenshots (`tools/nes/README.md`).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "xui-app/crates/nes/**"
+      - "xui-app/src/bin/nes.rs"
+      - "xui-app/packages/nes/**"
+      - "tools/nes/**"
+      - "assets/samples/lazyos-sample.nes"
+      - "build_support/samples_embed.rs"
+      - "build_support/tests/samples_tests.rs"
+      - "libs/fhs/src/share.rs"
+      - "tools/screenshot/examples/xui_nes.json"
+      - "tools/xui/build.py"
+      - "build_support/xui_embed.rs"
+      - "build_support/core_packages.rs"
+      - "tools/xui/core_packages.py"
+      - ".github/workflows/nes.yml"
+  pull_request:
+    paths:
+      - "xui-app/crates/nes/**"
+      - "xui-app/src/bin/nes.rs"
+      - "xui-app/packages/nes/**"
+      - "tools/nes/**"
+      - "assets/samples/lazyos-sample.nes"
+      - "build_support/samples_embed.rs"
+      - "build_support/tests/samples_tests.rs"
+      - "libs/fhs/src/share.rs"
+      - "tools/screenshot/examples/xui_nes.json"
+      - "tools/xui/build.py"
+      - "build_support/xui_embed.rs"
+      - "build_support/core_packages.rs"
+      - "tools/xui/core_packages.py"
+      - ".github/workflows/nes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nes-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  nes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: nes
+          workspaces: |
+            . -> target
+            xui-app -> target
+
+      - name: The app crate's host tests (session, window, assembler)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path xui-app/Cargo.toml -p xui-nes
+          python tools/nes/test_nesasm.py
+          python tools/nes/make_sample.py --check
+          python tools/nes/test_judge.py
+          python tools/nes/test_validate_external.py
+
+      - uses: ./.github/actions/busybox
+
+      - name: Build, boot, play, record and judge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/rhai/build.py > /dev/null
+          python tools/nes/run.py --accel auto
+
+      - name: Upload screenshots, the recording and the serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nes-guest
+          path: |
+            shots/nes/*.png
+            shots/nes/*.wav
+            shots/nes/serial.log

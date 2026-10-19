@@ -11,10 +11,10 @@
 //!   Kart Krew's own release, never committed) under
 //!   `/system/share/srb2kart/` (`fhs::share::SRB2KART_DATA`), one copy,
 //!   read-only, outside `assets/` (whose manifest requires a free licence);
-//! - `srb2kart/CREDITS.txt` beside the data as `CREDITS.txt`.
+//! - `games/srb2kart/CREDITS.txt` beside the data as `CREDITS.txt`.
 //!
 //! The data is not free and not ours: an image holding it is never
-//! published (`srb2kart/README.md`). A missing input is a
+//! published (`games/srb2kart/README.md`). A missing input is a
 //! `cargo:warning=`, not a failure, so a plain `cargo build` with the switch
 //! left over in the environment still produces an image. The files are
 //! large (`music.kart` is about 105 MB) and are read one at a time while the
@@ -30,7 +30,7 @@ const PACKAGE: &str = "target/pkg/srb2kart.lzp";
 /// The fetched data, relative to the manifest dir.
 const DATA: &str = "target/srb2kart/data";
 /// The credits text, relative to the manifest dir.
-const CREDITS: &str = "srb2kart/CREDITS.txt";
+const CREDITS: &str = "games/srb2kart/CREDITS.txt";
 /// The credits file's name beside the data.
 const CREDITS_NAME: &str = "CREDITS.txt";
 

@@ -167,6 +167,8 @@ CORE_APPS: dict[str, CoreApp] = {
     # (docs/usb-hotplug-plan.md G): shipped with the USB stack
     # (`LAZYOS_USB=1`).
     "removable": xui_app("xui-removable.elf", "removable", optional=True),
+    # NES: Play NES game ROMs, with sound.
+    "nes": xui_app("xui-nes.elf", "nes"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

@@ -1,0 +1,45 @@
+# NES Player: a core LazyOS app, packaged by `tools/xui/build.py`
+# (scaffolded by `tools/xui/new_app.py`).
+#
+# `bin/nes.elf` is not checked in: the build copies the built xui app
+# into a scratch copy of this tree. `version` is replaced by the workspace
+# version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "NES"
+system_name = "os.lazy.nes"
+author = "LazyOS"
+version = "0.1.0"
+description = "Play NES game ROMs, with sound"
+category = "games"
+
+[entry]
+binary = "bin/nes.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+# `mimed` maps the `.nes` extension (a manifest cannot name it); the app is
+# launched with the cartridge's path as its argument.
+[[mime]]
+type = "application/x-nes-rom"
+verbs = ["open"]
+
+[permissions]
+# The display, pointer shape and keyboard every window needs, the mixer
+# (`os.lazy.audio.v1`: the app plays through `audiod`), and the clipboard,
+# which carries the `text/uri-list` of a cartridge dropped on the window.
+# `files` is consent text (the kernel has no file sandbox for an app label
+# yet): the app writes only its own folder — cartridges are read through the
+# Open dialog or a drop. Derived from a run under `LAZYOS_LABEL_TRACE=1`
+# (docs/packages.md, core packages; docs/nes-player.md).
+interfaces = [
+    "os.lazy.audio.v1",
+    "os.lazy.clipboard.v1",
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+]
+files = ["write:$HOME/.apps/os.lazy.nes"]

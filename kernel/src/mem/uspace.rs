@@ -307,6 +307,48 @@ pub(super) unsafe fn leaf_entry(table: PhysAddr, va: u64) -> Option<*mut u64> {
     Some(entry)
 }
 
+/// End of the lower canonical half: the shared-buffer window (PML4 entry 255,
+/// from `USER_TOP`) is part of every address space's own tables and is
+/// mapped and unmapped through the walkers below.
+pub(super) const LOWER_HALF_END: u64 = 1 << 47;
+
+/// The first address after `va`'s page that a walk of `table` cannot rule
+/// out as empty: `va` itself when its page table (the PT level) is present,
+/// otherwise the start of the next region whose absent (or huge, which the
+/// 4 KiB walkers never touch) PML4, PDPT or PD entry hides it. A range walker
+/// steps with this so an 8 TiB reservation with nothing resident costs a few
+/// table reads, not two billion lookups.
+///
+/// # Safety
+/// `table` must be a live PML4 whose lower levels are stable for the call,
+/// and `va` must lie below `LOWER_HALF_END` (the PML4 index is then a user
+/// entry, the shared window's included).
+pub(super) unsafe fn skip_absent(table: PhysAddr, va: u64) -> u64 {
+    let mut phys = table;
+    for shift in [39u32, 30, 21] {
+        let entry = *entry_table(phys).add(((va >> shift) & 0x1ff) as usize);
+        if entry & PTE_PRESENT == 0 || (shift < 39 && entry & PTE_HUGE != 0) {
+            let span = 1u64 << shift;
+            return (va & !(span - 1)) + span;
+        }
+        phys = PhysAddr::new(entry & PTE_ADDR);
+    }
+    va
+}
+
+/// The first address at or after `va` whose page table is present: `va`
+/// itself when it is, else the start of the next region the
+/// absent upper levels do not hide. `va` at or above the end of the lower half
+/// comes back unchanged. For loops over a range that may be mostly holes (`mremap`).
+pub fn populated_from(table: PhysAddr, va: u64) -> u64 {
+    if va >= LOWER_HALF_END {
+        return va;
+    }
+    // Safety: `table` is the live address space of the calling task, whose
+    // tables only that task changes; `va < LOWER_HALF_END`.
+    unsafe { skip_absent(table, va) }
+}
+
 /// The raw entries on `table`'s walk for `va`, PML4 first; the walk stops
 /// (leaving zeros) at the first absent or huge entry. A diagnostic view for
 /// fault reports: it never allocates or changes anything.
@@ -333,13 +375,24 @@ pub fn pte_chain(table: PhysAddr, va: u64) -> [u64; 4] {
 pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
     let mut cleared = 0;
     let mut va = start & !(FRAME_SIZE - 1);
+    let end = end.min(LOWER_HALF_END);
     while va < end {
         crate::arch::irq_window::poll_point();
-        // Safety: `table` is a live address space and we own its entries.
+        // Safety: `table` is a live address space and we own its entries;
+        // `va < end <= LOWER_HALF_END`.
+        let next = unsafe { skip_absent(table, va) };
+        if next != va {
+            va = next;
+            continue;
+        }
+        // Safety: as above.
         if let Some(entry) = unsafe { leaf_entry(table, va) } {
             // Safety: `entry` was just returned as a present leaf in this table.
             let value = unsafe { *entry };
-            if value & PTE_USER != 0 {
+            // A device's BAR is not an allocator frame: its owner
+            // (`mem::mmio`) unmaps it. A DMA leaf is one (`free_frame`
+            // returns it to the pool), so it goes like any other.
+            if value & PTE_USER != 0 && value & pte::MMIO == 0 {
                 // Safety: same `entry`, still valid; nothing else can have
                 // unmapped it in between (single-threaded teardown).
                 unsafe { *entry = 0 };

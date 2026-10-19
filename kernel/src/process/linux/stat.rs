@@ -61,17 +61,17 @@ fn fill_stat(buf: u64, attrs: &Attrs) {
     if user_ptr::try_copy_to(buf, &[0u8; 144]).is_err() {
         return;
     }
-    write_u64(buf + 8, attrs.ino);
-    write_u64(buf + 16, 1); // st_nlink
-    write_u32(buf + 24, attrs.mode); // st_mode
-    write_u32(buf + 28, attrs.uid); // st_uid
-    write_u32(buf + 32, attrs.gid); // st_gid
-    write_u64(buf + 48, attrs.size); // st_size
-    write_u64(buf + 56, 4096); // st_blksize
-    write_u64(buf + 64, attrs.size.div_ceil(512)); // st_blocks
-    write_u64(buf + 72, attrs.times.atime as u64); // st_atime (`_nsec` stays zero)
-    write_u64(buf + 88, attrs.times.mtime as u64); // st_mtime
-    write_u64(buf + 104, attrs.times.ctime as u64); // st_ctime
+    write_u64(user_ptr::at(buf, 8), attrs.ino);
+    write_u64(user_ptr::at(buf, 16), 1); // st_nlink
+    write_u32(user_ptr::at(buf, 24), attrs.mode); // st_mode
+    write_u32(user_ptr::at(buf, 28), attrs.uid); // st_uid
+    write_u32(user_ptr::at(buf, 32), attrs.gid); // st_gid
+    write_u64(user_ptr::at(buf, 48), attrs.size); // st_size
+    write_u64(user_ptr::at(buf, 56), 4096); // st_blksize
+    write_u64(user_ptr::at(buf, 64), attrs.size.div_ceil(512)); // st_blocks
+    write_u64(user_ptr::at(buf, 72), attrs.times.atime as u64); // st_atime (`_nsec` stays zero)
+    write_u64(user_ptr::at(buf, 88), attrs.times.mtime as u64); // st_mtime
+    write_u64(user_ptr::at(buf, 104), attrs.times.ctime as u64); // st_ctime
 }
 
 /// The current metadata of a snapshot descriptor's file, so `fstat` sees a

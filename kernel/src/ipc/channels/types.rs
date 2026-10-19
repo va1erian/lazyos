@@ -264,6 +264,11 @@ pub(super) struct Transaction {
     /// grace deadline, so expiring on it means a wedged callee, a real
     /// `timeouts` tick.
     pub(super) served: bool,
+    /// The task that took this request off the callee's inbox (`recv`), kept
+    /// so its death can end the call (`forget_task`). `None` while the
+    /// request is still queued. A reply is authorized by it or by holding the
+    /// callee endpoint ([`call::reply_owned`]).
+    pub(super) receiver: Option<usize>,
     pub(super) state: TxnState,
     /// Reply parcel bytes, valid while `state == Replied`.
     pub(super) reply: Vec<u8>,

@@ -255,9 +255,9 @@ const F_UNLCK: i16 = 2;
 fn read_flock(fd: u64, ptr: u64) -> Result<(i16, u64, u64), u64> {
     let fault = |_| err(EFAULT);
     let kind = user_ptr::try_read::<u16>(ptr).map_err(fault)? as i16;
-    let whence = user_ptr::try_read::<u16>(ptr + 2).map_err(fault)? as i16;
-    let start = user_ptr::try_read::<i64>(ptr + 8).map_err(fault)?;
-    let len = user_ptr::try_read::<i64>(ptr + 16).map_err(fault)?;
+    let whence = user_ptr::try_read_field::<u16>(ptr, 2).map_err(fault)? as i16;
+    let start = user_ptr::try_read_field::<i64>(ptr, 8).map_err(fault)?;
+    let len = user_ptr::try_read_field::<i64>(ptr, 16).map_err(fault)?;
     let base = match whence {
         0 => 0,
         1 => task::fd_offset(fd as usize).unwrap_or(0) as i64,

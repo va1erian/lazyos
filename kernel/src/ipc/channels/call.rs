@@ -126,6 +126,7 @@ pub fn begin_call_owned(
             },
             poll: deadline == Some(POLL_DEADLINE),
             served: false,
+            receiver: None,
             state: TxnState::Pending,
             reply: Vec::new(),
             charge: None,
@@ -219,8 +220,11 @@ pub fn call_owned(
 ///
 /// Replies may arrive out of order (they match by id), and a reply to an
 /// expired, canceled, or dead transaction is refused and counted as a drop.
-/// Only the receiving endpoint's holder should call this; signing the reply
-/// with the callee handle belongs to the syscall edge (#69).
+/// Only the task that received the request, or a task holding a handle with
+/// `CALL` to the endpoint it arrived on, may answer: any other task gets
+/// [`Error::NotReceiver`] and the transaction is untouched. Transaction ids
+/// are a global counter, so an id is guessable and cannot authorize anything
+/// ([`txn::assert_caller`] guards the awaiting side the same way).
 pub fn reply(txn_id: u64, parcel_bytes: &[u8]) -> Result<(), Error> {
     reply_owned(txn_id, parcel_bytes.to_vec())
 }
@@ -236,6 +240,13 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     let (caller, refusal) = {
         let mut channels = CHANNELS.lock();
         let (channel, index) = channels.txn_mut(txn_id).ok_or(Error::NoTransaction)?;
+        // Before the state check, so a non-receiver is told the same thing
+        // for a live call and a finished one, and not counted as a drop: it
+        // would let any task skew a service channel's statistics. (An id
+        // that names nothing still reads `NoTransaction`.)
+        if !may_reply(channel, index, task::current()) {
+            return Err(Error::NotReceiver);
+        }
         if channel.txns[index].state != TxnState::Pending {
             channel.drops += 1;
             return Err(Error::NoTransaction);
