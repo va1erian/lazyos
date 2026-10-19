@@ -60,18 +60,21 @@ def inputmap_pointer_seeds():
 
 # ---- inputmap gamepad grammar -------------------------------------------------
 #
-# `libs/inputmap/src/fuzz_gamepad.rs`: ops, each a byte (low 7 bits mod 11
+# `libs/inputmap/src/fuzz_gamepad.rs`: ops, each a byte (low 7 bits mod 13
 # select it, bit 7 is a flag) and a device byte (low 3 bits), then:
 #   0/1 button: usage (mod 36), value (mod 3)
 #   2/3 axis: code - 0x2F (mod 12), then the hat's value (mod 11, minus 1) or an
 #       i16 (flag: an i32)
 #   4 register: class (mod 5); flag: its SOURCE record is lost
 #   5 close: class for the SOURCE record (mod 5); flag: record lost
-#   6 table read, 7 flush, 8 Dropped (resync, then a table read)
+#   6 table read (held; applied where the stream reaches it), 7 flush,
+#   8 Dropped (resync, then a table read)
 #   9 pointer kind (2 + mod 4), code (mod 3), i32
 #   10 anything: kind, u16 code, i32 value
+#   11 toggle the ring's lag (records queue until a drain), 12 drain it
 
 G_BUTTON, G_AXIS, G_REGISTER, G_CLOSE, G_TABLE, G_FLUSH, G_DROPPED, G_RAW = 0, 2, 4, 5, 6, 7, 8, 10
+G_LAG, G_DRAIN = 11, 12
 G_LOST = 0x80
 CLASS_POINTER, CLASS_TABLET, CLASS_GAMEPAD = 2, 3, 4
 AXIS_X, AXIS_Y, AXIS_HAT = 0x30, 0x31, 0x39
@@ -104,6 +107,7 @@ def g_raw(device, kind, code, value):
 
 def inputmap_gamepad_seeds():
     table, flush, dropped = bytes([G_TABLE, 0]), bytes([G_FLUSH, 0]), bytes([G_DROPPED, 0])
+    lag, drain = bytes([G_LAG, 0]), bytes([G_DRAIN, 0])
     return {
         # A pad registers, is pressed, swept and released.
         "basic_pad": g_register(1, CLASS_GAMEPAD) + g_button(1, 1, 1) + g_button(1, 32, 1)
@@ -128,6 +132,14 @@ def inputmap_gamepad_seeds():
         + g_axis(5, AXIS_X, 2147483647, wide=True) + g_axis(5, AXIS_HAT, 9) + g_raw(5, 2, 0, 1)
         + g_raw(5, 3, 0, 1) + g_raw(5, 5, 0, 1) + g_raw(5, 10, 4, 7) + g_raw(5, 10, 300, 1)
         + g_raw(5, 10, 0, 1) + g_raw(5, 9, 0x2dc8, 1) + g_raw(5, 200, 0xFFFF, -1) + flush,
+        # The table is read after the pad was pressed and unplugged, but the
+        # records are still queued: they must stay the pad's.
+        "table_ahead_unplug": lag + g_register(1, CLASS_GAMEPAD) + g_button(1, 1, 1)
+        + g_button(1, 1, 0) + g_close(1, CLASS_GAMEPAD) + table + drain + g_button(1, 1, 1) + flush,
+        # The slot is reused by a mouse before the (held) table is read.
+        "table_ahead_reuse": lag + g_register(2, CLASS_GAMEPAD) + g_button(2, 3, 1)
+        + g_close(2, CLASS_GAMEPAD) + g_register(2, CLASS_POINTER) + g_button(2, 1, 1)
+        + table + drain + g_button(2, 1, 0) + flush,
         "empty": b"",
     }
 

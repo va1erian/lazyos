@@ -174,8 +174,9 @@ impl Writer {
     }
 }
 
-/// What a page can say: nothing while unfocused, at most [`MAX_PADS`] pads,
-/// and unused slots at their default.
+/// What a page can say: nothing while unfocused (not even the newest `seq`,
+/// which would tell an unfocused session when a pad is in use), at most
+/// [`MAX_PADS`] pads, and unused slots at their default.
 fn normalised(state: Snapshot) -> Snapshot {
     let count = if state.focused {
         state.count.min(MAX_PADS)
@@ -185,7 +186,7 @@ fn normalised(state: Snapshot) -> Snapshot {
     let mut pads = [PadState::default(); MAX_PADS];
     pads[..count].copy_from_slice(&state.pads[..count]);
     Snapshot {
-        seq: state.seq,
+        seq: if state.focused { state.seq } else { 0 },
         focused: state.focused,
         count,
         pads,

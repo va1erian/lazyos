@@ -105,6 +105,7 @@ mod console;
 mod gamepad;
 mod gamepad_page;
 mod gamepad_route;
+mod gamepad_stream;
 mod grab;
 mod keymaps;
 mod outbox;

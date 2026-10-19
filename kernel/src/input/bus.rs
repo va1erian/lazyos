@@ -356,6 +356,13 @@ fn merge_tail(bus: &mut Bus, device: u8, kind: u8, code: u16, value: i32, ts_ns:
     true
 }
 
+/// The sequence number the next new record will get: every record with a
+/// smaller `seq` has been published. (A pointer or axis record merged into the
+/// tail consumes none, and keeps the older number.)
+pub fn next_seq() -> u64 {
+    locked(|bus| bus.next_seq)
+}
+
 /// Run `body` with the bus locked and interrupts off (the IRQ producer takes
 /// the same lock).
 fn locked<R>(body: impl FnOnce(&mut Bus) -> R) -> R {

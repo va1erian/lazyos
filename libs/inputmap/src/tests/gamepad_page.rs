@@ -197,3 +197,50 @@ fn a_snapshot_of_the_engine_lists_its_pads_when_focused() {
     Writer::new().publish(&page, unfocused);
     assert_eq!(page.snapshot().unwrap().count, 0);
 }
+
+#[test]
+fn an_unfocused_page_does_not_leak_the_newest_seq() {
+    let page = SharedPads::new();
+    let mut writer = Writer::new();
+    assert!(writer.publish(&page, live(&[pad(3, 100)])));
+    assert_eq!(page.snapshot().unwrap().seq, 41);
+    // Focus leaves while the pad keeps moving: the page is empty, seq included.
+    for newest in [42, 43, 9000] {
+        let mut unfocused = live(&[pad(3, 100)]);
+        unfocused.focused = false;
+        unfocused.seq = newest;
+        writer.publish(&page, unfocused);
+        let read = page.snapshot().unwrap();
+        assert_eq!((read.seq, read.count, read.focused), (0, 0, false));
+        assert_eq!(page.seq.load(Ordering::Relaxed), 0);
+    }
+    // A pad moving while unfocused does not even cause a write.
+    let mut quiet = live(&[pad(3, 1)]);
+    quiet.focused = false;
+    quiet.seq = 77;
+    assert!(!writer.publish(&page, quiet));
+}
+
+#[test]
+fn pad_traffic_goes_only_to_a_focused_session_that_opted_in() {
+    use crate::gamepad::optin::OptIn;
+    let mut optin = OptIn::new();
+    // Nobody asked: nobody gets a thing, focused or not.
+    assert_eq!(optin.recipient(Some(1)), None);
+    assert_eq!(optin.recipient(None), None);
+    optin.attach(2);
+    optin.attach(2);
+    assert_eq!(optin.len(), 1, "attaching twice is one opt-in");
+    // Session 1 has focus but never opted in: a pad it ignores cannot fill its
+    // endpoint. Session 2 opted in but is not focused: it sees nothing either.
+    assert_eq!(optin.recipient(Some(1)), None);
+    assert_eq!(optin.recipient(None), None);
+    // Focus moves to 2.
+    assert_eq!(optin.recipient(Some(2)), Some(2));
+    // Closing the session ends the opt-in; a new session reusing the id has
+    // to ask again.
+    optin.forget(2);
+    assert!(optin.is_empty());
+    assert_eq!(optin.recipient(Some(2)), None);
+    optin.forget(2);
+}

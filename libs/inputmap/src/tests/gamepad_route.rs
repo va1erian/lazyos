@@ -11,20 +11,20 @@ use crate::gamepad::{code, raw, usage, PadOut, RawPad, MAX_PADS};
 use crate::pointer::{raw as pointer_raw, Pointer, PointerOut, RawPointer};
 
 const KEYBOARD: u8 = 1;
-const POINTER: u8 = 2;
+pub(super) const POINTER: u8 = 2;
 const TABLET: u8 = 3;
 
-struct Rig {
-    pads: Pads,
-    cursor: Pointer,
-    seq: u64,
-    pad_out: Vec<PadOut>,
-    cursor_out: Vec<PointerOut>,
-    notices: Vec<Notice>,
+pub(super) struct Rig {
+    pub(super) pads: Pads,
+    pub(super) cursor: Pointer,
+    pub(super) seq: u64,
+    pub(super) pad_out: Vec<PadOut>,
+    pub(super) cursor_out: Vec<PointerOut>,
+    pub(super) notices: Vec<Notice>,
 }
 
 impl Rig {
-    fn new() -> Rig {
+    pub(super) fn new() -> Rig {
         Rig {
             pads: Pads::new(),
             cursor: Pointer::new(800, 600),
@@ -35,7 +35,7 @@ impl Rig {
         }
     }
 
-    fn stamp(&mut self, device: u8, kind: u8, code: u16, value: i32) -> RawPad {
+    pub(super) fn stamp(&mut self, device: u8, kind: u8, code: u16, value: i32) -> RawPad {
         self.seq += 1;
         RawPad {
             seq: self.seq,
@@ -48,8 +48,26 @@ impl Rig {
     }
 
     /// A bus record, routed as the service does.
-    fn bus(&mut self, device: u8, kind: u8, code: u16, value: i32) -> Route {
+    pub(super) fn bus(&mut self, device: u8, kind: u8, code: u16, value: i32) -> Route {
         let record = self.stamp(device, kind, code, value);
+        self.deliver(record)
+    }
+
+    /// Hand a stamped record to the loop: a held table the stream has reached
+    /// is applied first, then the record goes where its device's class says.
+    pub(super) fn deliver(&mut self, record: RawPad) -> Route {
+        self.pads.reach(
+            record.seq,
+            record.ts_ns,
+            &mut self.pad_out,
+            &mut self.notices,
+        );
+        if record.kind == raw::SOURCE {
+            self.pads
+                .source(record, &mut self.pad_out, &mut self.notices);
+            return Route::Drop;
+        }
+        let (device, kind, code, value) = (record.device, record.kind, record.code, record.value);
         let route = self.pads.route(device, kind);
         match route {
             Route::Pad => {
@@ -71,19 +89,23 @@ impl Rig {
         route
     }
 
-    fn button(&mut self, device: u8, usage: u16, pressed: bool) -> Route {
+    /// The end of a drain.
+    pub(super) fn settle(&mut self) {
+        self.pads.settle(&mut self.pad_out, &mut self.notices);
+    }
+
+    pub(super) fn button(&mut self, device: u8, usage: u16, pressed: bool) -> Route {
         self.bus(device, raw::BUTTON, usage, i32::from(pressed))
     }
 
     /// The kernel's `SOURCE` record.
-    fn source(&mut self, device: u8, class: u8, registered: bool) {
+    pub(super) fn source(&mut self, device: u8, class: u8, registered: bool) {
         let record = self.stamp(device, raw::SOURCE, u16::from(class), i32::from(registered));
-        self.pads
-            .source(record, &mut self.pad_out, &mut self.notices);
+        self.deliver(record);
     }
 
-    /// A read of the kernel's source table.
-    fn table(&mut self, entries: &[(u8, u8, u16)]) {
+    /// The source table, as the kernel returned it with `next_seq`, held.
+    pub(super) fn hold(&mut self, entries: &[(u8, u8, u16)], next_seq: u64) {
         let entries: Vec<SourceEntry> = entries
             .iter()
             .map(|&(device, class, generation)| SourceEntry {
@@ -92,35 +114,35 @@ impl Rig {
                 generation,
             })
             .collect();
-        self.seq += 1;
-        self.pads.table(
-            &entries,
-            self.seq * 1000,
-            self.seq,
-            &mut self.pad_out,
-            &mut self.notices,
-        );
+        self.pads.table(&entries, next_seq);
+    }
+
+    /// A read of the kernel's source table with nothing queued behind it: held
+    /// at the end of the stream so far, and applied when the drain ends.
+    pub(super) fn table(&mut self, entries: &[(u8, u8, u16)]) {
+        self.hold(entries, self.seq + 1);
+        self.settle();
     }
 
     /// A `Dropped` record: resync, then the table.
-    fn dropped(&mut self, entries: &[(u8, u8, u16)]) {
+    pub(super) fn dropped(&mut self, entries: &[(u8, u8, u16)]) {
         self.seq += 1;
         self.pads
             .resync(self.seq * 1000, self.seq, &mut self.pad_out);
         self.table(entries);
     }
 
-    fn notices(&mut self) -> Vec<Notice> {
+    pub(super) fn notices(&mut self) -> Vec<Notice> {
         core::mem::take(&mut self.notices)
     }
 
-    fn pad_events(&mut self) -> Vec<PadOut> {
+    pub(super) fn pad_events(&mut self) -> Vec<PadOut> {
         self.pads.flush(&mut self.pad_out);
         core::mem::take(&mut self.pad_out)
     }
 }
 
-fn released(events: &[PadOut], usage: u16) -> bool {
+pub(super) fn released(events: &[PadOut], usage: u16) -> bool {
     events
         .iter()
         .any(|event| matches!(event, PadOut::Button { code, pressed: false, .. } if *code == usage))

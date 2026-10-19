@@ -24,7 +24,10 @@
 //! [`release`] itself, so `close`, task teardown and `register` reclaiming a
 //! dead owner's slot all publish it. A driver can never publish one
 //! ([`permitted`]). A record can be evicted from a full ring, so [`snapshot`]
-//! (the `SOURCES` op of syscall 25) is the truth a consumer re-reads.
+//! (the `SOURCES` op of syscall 25) is the truth a consumer re-reads. The
+//! table and the stream are exactly consistent: a slot is listed from its
+//! `SOURCE` 1 to its `SOURCE` 0, and the snapshot carries the bus's next
+//! sequence number, so a consumer can apply it at its place in the stream.
 //!
 //! Ids: a source id is `generation << 8 | index`; the generation changes on
 //! every registration of the slot, so a stale id from a closed source fails
@@ -321,8 +324,11 @@ fn announce(index: usize, source_class: u8, registered: bool) {
 /// Bytes per [`snapshot`] entry as `rawsys` writes it: device, class,
 /// generation (little-endian `u16`).
 pub const ENTRY_BYTES: usize = 4;
+/// Bytes of the header `rawsys` writes before the entries: the bus's next
+/// sequence number (little-endian `u64`).
+pub const HEADER_BYTES: usize = 8;
 
-/// One live source, as the table query reports it.
+/// One source in the table the query reports.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Info {
     pub device: u8,
@@ -338,15 +344,43 @@ impl Info {
     }
 }
 
-/// The live sources in slot order, and how many there are. A slot whose owner
-/// died but was not reclaimed yet is not live (as [`register`] sees it).
-pub fn snapshot() -> ([Info; MAX_SOURCES], usize) {
+/// The source table as of one instant, and where it stands in the record
+/// stream.
+#[derive(Clone, Copy, Debug)]
+pub struct Snapshot {
+    /// The sequence number the bus assigns to its next new record: every
+    /// record with a smaller `seq` was published before this table was read,
+    /// every `SOURCE` record among them is reflected in it, and none of the
+    /// later `SOURCE` records is. (A merged pointer or axis record keeps its
+    /// older `seq`, but a merge never crosses a `SOURCE`, so it cannot carry
+    /// a device across a change of the table.)
+    pub next_seq: u64,
+    entries: [Info; MAX_SOURCES],
+    count: usize,
+}
+
+impl Snapshot {
+    /// The sources, in slot order.
+    pub fn entries(&self) -> &[Info] {
+        &self.entries[..self.count]
+    }
+}
+
+/// The table, in slot order: a slot is in it from the moment its `SOURCE` 1
+/// was published until its `SOURCE` 0 was, whether or not its owner is still
+/// alive (a dead owner's slot stays until [`release`] has published the
+/// releases and the close, so the table never runs ahead of the stream).
+///
+/// Every `SOURCE` publication happens under the table lock, which this holds
+/// while it reads the bus's next sequence number (lock order: sources, then
+/// bus, as [`register`] and [`release`] take them), so the pair is exact.
+pub fn snapshot() -> Snapshot {
     locked(|table| {
-        let mut out = [Info::default(); MAX_SOURCES];
+        let mut entries = [Info::default(); MAX_SOURCES];
         let mut count = 0;
         for (index, slot) in table.slots.iter().enumerate() {
-            if let Some(source) = slot.filter(|s| task::live(s.owner)) {
-                out[count] = Info {
+            if let Some(source) = slot {
+                entries[count] = Info {
                     device: device_of(index),
                     class: source.class,
                     generation: source.generation,
@@ -354,7 +388,11 @@ pub fn snapshot() -> ([Info; MAX_SOURCES], usize) {
                 count += 1;
             }
         }
-        (out, count)
+        Snapshot {
+            next_seq: bus::next_seq(),
+            entries,
+            count,
+        }
     })
 }
 

@@ -10,26 +10,23 @@ use super::source::{call, device_of, driver_task, failed, publish, rec, register
 use super::*;
 use crate::input::bus::axis;
 use crate::input::rawsys::op;
-use crate::input::sources::{self, class, ENTRY_BYTES, MAX_SOURCES};
-use crate::ipc::credentials::{CAP_INPUT_RAW, CAP_INPUT_SOURCE};
+use crate::input::sources::{self, class};
+use crate::ipc::credentials::CAP_INPUT_SOURCE;
 
-const EPERM: i64 = 1;
-const EFAULT: i64 = 14;
-
-fn clean() {
+pub(super) fn clean() {
     sources::reset();
     bus::reset();
     fresh();
 }
 
 /// A consumer on the bus, owned by its own scratch task.
-fn consumer() -> Result<usize, String> {
+pub(super) fn consumer() -> Result<usize, String> {
     let owner = scratch()?;
     bus::open(owner).map_err(|e| format!("{e:?}"))?;
     Ok(owner)
 }
 
-fn shape(records: &[RawEvent]) -> Vec<(u8, u8, u16, i32)> {
+pub(super) fn shape(records: &[RawEvent]) -> Vec<(u8, u8, u16, i32)> {
     records
         .iter()
         .map(|r| (r.device, r.kind, r.code, r.value))
@@ -37,7 +34,7 @@ fn shape(records: &[RawEvent]) -> Vec<(u8, u8, u16, i32)> {
 }
 
 /// `(device, SOURCE, class, registered)`.
-fn announced(device: u8, source_class: u8, registered: bool) -> (u8, u8, u16, i32) {
+pub(super) fn announced(device: u8, source_class: u8, registered: bool) -> (u8, u8, u16, i32) {
     (
         device,
         kind::SOURCE,
@@ -57,10 +54,18 @@ pub(super) struct Announced {
     /// registration of a device already registered, a close of one that was
     /// not, a close naming another class, a value that is neither.
     pub fault: Option<String>,
+    /// One past the newest sequence number seen (a lost span counts).
+    pub next: u64,
 }
 
 impl Announced {
     pub fn take(&mut self, record: &RawEvent) {
+        let span = if record.kind == kind::DROPPED {
+            record.value as u64
+        } else {
+            1
+        };
+        self.next = self.next.max(record.seq + span);
         if record.kind != kind::SOURCE {
             return;
         }
@@ -87,23 +92,36 @@ impl Announced {
         }
     }
 
-    /// No contradiction so far, and the stream's view is the table's.
+    /// No contradiction so far, and the stream's view is the table's: the
+    /// same sources with the same classes, and the table's cut of the stream
+    /// is just past the newest record seen (the caller has drained it all).
     pub fn matches_table(&self) -> Result<(), String> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        let (table, count) = sources::snapshot();
-        let actual: BTreeMap<u8, u8> = table[..count].iter().map(|s| (s.device, s.class)).collect();
+        let table = sources::snapshot();
+        let actual: BTreeMap<u8, u8> = table
+            .entries()
+            .iter()
+            .map(|s| (s.device, s.class))
+            .collect();
         check!(
             actual == self.live,
             "stream says {:?}, table says {actual:?}",
             self.live
         );
         check!(
-            self.opened - self.closed == count as u64,
-            "{} opened, {} closed, {count} live",
+            self.opened - self.closed == table.entries().len() as u64,
+            "{} opened, {} closed, {} live",
             self.opened,
-            self.closed
+            self.closed,
+            table.entries().len()
+        );
+        check!(
+            table.next_seq == self.next.max(1),
+            "the table is cut at {}, the stream is at {}",
+            table.next_seq,
+            self.next
         );
         Ok(())
     }
@@ -199,11 +217,11 @@ pub fn task_teardown_announces() -> Result<(), String> {
         "teardown: {:x?}",
         shape(&records)
     );
-    let (table, count) = sources::snapshot();
+    let table = sources::snapshot();
     check!(
-        count == 1 && table[0].device == device_of(other),
+        table.entries().len() == 1 && table.entries()[0].device == device_of(other),
         "the survivor's table {:?}",
-        &table[..count]
+        table.entries()
     );
     clean();
     Ok(())
@@ -226,9 +244,11 @@ pub fn dead_owner_reclaim_announces() -> Result<(), String> {
     }];
     sources::publish(old, dead, &held).map_err(|e| format!("{e:?}"))?;
     let _ = drain_all(reader, 16)?;
+    // Until its release has been published the dead owner's source is still
+    // in the table: the table never runs ahead of the stream.
     check!(
-        sources::snapshot().1 == 0,
-        "a dead owner's source is in the table"
+        sources::snapshot().entries().len() == 1,
+        "a dead owner's source left the table before its close was announced"
     );
     driver_task(CAP_INPUT_SOURCE)?;
     let fresh_id = register(class::GAMEPAD)?;
@@ -248,6 +268,10 @@ pub fn dead_owner_reclaim_announces() -> Result<(), String> {
             ],
         "reclaim: {:x?}",
         shape(&records)
+    );
+    check!(
+        sources::snapshot().entries().len() == 1,
+        "the reclaimed slot is listed once, as the new source"
     );
     clean();
     Ok(())
@@ -321,156 +345,6 @@ pub fn source_records_never_merge() -> Result<(), String> {
     let records = drain_all(reader, 8)?;
     gapless(&records, 1)?;
     check!(records.len() == 3, "merged to {:x?}", shape(&records));
-    clean();
-    Ok(())
-}
-
-/// A buffer of `len` bytes pre-filled with a sentinel, and the query's result.
-fn query(len: usize) -> (u64, Vec<u8>) {
-    let mut buf = alloc::vec![0xAAu8; len];
-    let result = call(op::SOURCES, buf.as_mut_ptr() as u64, len as u64);
-    (result, buf)
-}
-
-/// The query needs `CAP_INPUT_RAW` (not `CAP_INPUT_SOURCE`, not the kernel
-/// task) and no consumer ring.
-pub fn source_table_capability_gate() -> Result<(), String> {
-    clean();
-    driver_task(CAP_INPUT_SOURCE)?;
-    register(class::KEYBOARD)?;
-    let (result, buf) = query(64);
-    check!(
-        result == failed(EPERM) && buf.iter().all(|&b| b == 0xAA),
-        "a source read the table ({result:#x})"
-    );
-    driver_task(0)?;
-    check!(query(64).0 == failed(EPERM), "an unprivileged task read it");
-    task::harness::switch_current(task::KERNEL_TASK);
-    check!(query(64).0 == failed(EPERM), "the kernel task read it");
-    let reader = driver_task(CAP_INPUT_RAW)?;
-    check!(
-        bus::consumer_of(reader).is_none(),
-        "the reader holds a ring"
-    );
-    let (result, buf) = query(64);
-    check!(result == 1, "query without a ring -> {result:#x}");
-    check!(buf[1] == class::KEYBOARD, "entry {:x?}", &buf[..4]);
-    clean();
-    Ok(())
-}
-
-/// The table in slot order with each source's class and generation; a closed
-/// source leaves it, a reused slot reports its new class and generation, and
-/// a dead owner's source is not live.
-pub fn source_table_contents() -> Result<(), String> {
-    clean();
-    let reader = driver_task(CAP_INPUT_RAW)?;
-    check!(query(64).0 == 0, "an empty table reported entries");
-    let mouse_driver = driver_task(CAP_INPUT_SOURCE)?;
-    let first = register(class::POINTER)?;
-    driver_task(CAP_INPUT_SOURCE)?;
-    let second = register(class::GAMEPAD)?;
-    task::harness::switch_current(reader);
-    let entry = |id: u64, source_class: u8| {
-        let generation = ((id >> 8) as u16).to_le_bytes();
-        [device_of(id), source_class, generation[0], generation[1]]
-    };
-    let (result, buf) = query(MAX_SOURCES * ENTRY_BYTES);
-    let mut want = Vec::new();
-    want.extend_from_slice(&entry(first, class::POINTER));
-    want.extend_from_slice(&entry(second, class::GAMEPAD));
-    check!(
-        result == 2 && buf[..8] == want[..],
-        "table {result:#x} {:x?}",
-        &buf[..12]
-    );
-    check!(
-        buf[8..].iter().all(|&b| b == 0xAA),
-        "the query wrote past its entries"
-    );
-    // Close the first, register a keyboard: the slot is reused, the class and
-    // generation are the new ones, and the old id is not in the table.
-    task::harness::switch_current(mouse_driver);
-    check!(call(op::CLOSE_SOURCE, first, 0) == 0, "close");
-    task::harness::switch_current(reader);
-    let (result, buf) = query(64);
-    check!(
-        result == 1 && buf[..4] == entry(second, class::GAMEPAD),
-        "after close {result:#x} {:x?}",
-        &buf[..8]
-    );
-    task::harness::switch_current(mouse_driver);
-    let third = register(class::KEYBOARD)?;
-    check!(
-        device_of(third) == device_of(first) && third != first,
-        "slot not reused"
-    );
-    task::harness::switch_current(reader);
-    let (result, buf) = query(64);
-    let mut want = Vec::new();
-    want.extend_from_slice(&entry(third, class::KEYBOARD));
-    want.extend_from_slice(&entry(second, class::GAMEPAD));
-    check!(
-        result == 2 && buf[..8] == want[..] && buf[2..4] != entry(first, 0)[2..4],
-        "reused slot {result:#x} {:x?}",
-        &buf[..8]
-    );
-    // A source whose owner died without teardown is not live.
-    sources::reset();
-    let dead = task::MAX_TASKS - 1;
-    sources::register(dead, class::POINTER).map_err(|e| format!("{e:?}"))?;
-    check!(query(64).0 == 0, "a dead owner's source is in the table");
-    clean();
-    Ok(())
-}
-
-/// A short buffer gets whole entries only; no buffer is a fault; a full
-/// table reports all `MAX_SOURCES`.
-pub fn source_table_bounds_and_faults() -> Result<(), String> {
-    clean();
-    let reader = driver_task(CAP_INPUT_RAW)?;
-    driver_task(CAP_INPUT_SOURCE)?;
-    for _ in 0..MAX_SOURCES {
-        register(class::POINTER)?;
-    }
-    task::harness::switch_current(reader);
-    for (capacity, want) in [(0, 0), (3, 0), (4, 1), (7, 1), (8, 2), (37, 9)] {
-        let mut bytes = alloc::vec![0xAAu8; 64];
-        let result = call(op::SOURCES, bytes.as_mut_ptr() as u64, capacity);
-        check!(
-            result == want,
-            "capacity {capacity}: {result:#x}, wanted {want}"
-        );
-        let written = want as usize * ENTRY_BYTES;
-        check!(
-            bytes[written..].iter().all(|&b| b == 0xAA),
-            "capacity {capacity}: wrote past {written} bytes"
-        );
-    }
-    let (result, buf) = query(MAX_SOURCES * ENTRY_BYTES + 32);
-    check!(result == MAX_SOURCES as u64, "full table -> {result:#x}");
-    check!(
-        buf[MAX_SOURCES * ENTRY_BYTES..].iter().all(|&b| b == 0xAA),
-        "wrote past the table"
-    );
-    let devices: Vec<u8> = buf
-        .chunks_exact(ENTRY_BYTES)
-        .take(MAX_SOURCES)
-        .map(|e| e[0])
-        .collect();
-    let want: Vec<u8> = (0..MAX_SOURCES).map(sources::device_of).collect();
-    check!(devices == want, "slot order {devices:x?}");
-    check!(
-        call(op::SOURCES, 0, 64) == failed(EFAULT),
-        "null buffer accepted"
-    );
-    let previous = crate::user_ptr::set_trust_kernel_pointers(false);
-    let unmapped = call(op::SOURCES, 0x10, 64);
-    crate::user_ptr::set_trust_kernel_pointers(previous);
-    check!(
-        unmapped == failed(EFAULT),
-        "unmapped buffer -> {unmapped:#x}"
-    );
     clean();
     Ok(())
 }

@@ -8995,7 +8995,13 @@ pub mod os_lazy_input_v1 {
     /// axes, deadzone already applied); the moment focus leaves it clears the
     /// page, before `GamepadLeave` is sent. `inputd` only ever writes the
     /// page. Attaching again replaces the previous page; same contract as
-    /// `AttachKeyState`.
+    /// `AttachKeyState`. **Attaching is also how a session opts in to pad
+    /// events**: `GamepadAxis`, `GamepadButton`, `GamepadEnter` and
+    /// `GamepadLeave` go only to a focused session that attached a page (they
+    /// share the session's 64-message endpoint with its keystrokes, and a
+    /// stick wiggled under an app that ignores pads must not be able to
+    /// overflow it). The opt-in lasts until the session closes; a session that
+    /// attaches while it holds the keyboard is sent `GamepadEnter` once.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachGamepadStateArgs {
         pub session: u64,
@@ -9213,7 +9219,8 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
-    /// Event: a gamepad axis changed (only the focused session receives it).
+    /// Event: a gamepad axis changed (only the focused session that attached
+    /// a pad page receives it).
     /// `device` is the pad's id (as in the state page), `code` the Generic
     /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
     /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
@@ -9266,8 +9273,8 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
-    /// Event: a gamepad button changed (only the focused session receives
-    /// it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+    /// Event: a gamepad button changed (only the focused session that
+    /// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
     /// down, `35` left, `36` right (the hat, one edge per direction;
     /// diagonals press two). Edges are never merged.
     #[derive(Clone, Debug, Default, PartialEq)]

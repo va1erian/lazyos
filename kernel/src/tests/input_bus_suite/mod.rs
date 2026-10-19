@@ -19,6 +19,7 @@ mod source;
 mod source_priority;
 mod source_records;
 mod source_stress;
+mod source_table;
 mod stress;
 mod syscall;
 
@@ -267,15 +268,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     (
         "input_source_table_capability_gate",
-        source_records::source_table_capability_gate,
+        source_table::capability_gate,
+    ),
+    ("input_source_table_contents", source_table::contents),
+    (
+        "input_source_table_dead_owner_listed_until_released",
+        source_table::dead_owner_stays_listed_until_released,
     ),
     (
-        "input_source_table_contents",
-        source_records::source_table_contents,
+        "input_source_table_header_cuts_the_stream",
+        source_table::header_cuts_the_stream,
     ),
     (
         "input_source_table_bounds_and_faults",
-        source_records::source_table_bounds_and_faults,
+        source_table::bounds_and_faults,
     ),
     (
         "input_source_priority_stress_generations",

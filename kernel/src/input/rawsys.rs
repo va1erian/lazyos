@@ -16,8 +16,12 @@
 //!   op 8 (console_release): give it back; -EPERM when not the holder
 //!   op 9 (console_owner): the claiming task's slot, or -ENOENT
 //!   op 10 (sources): rsi -> buffer, rdx = capacity in bytes -> entries
-//!        written, one [`sources::ENTRY_BYTES`] entry per live source in slot
-//!        order (device, class, generation u16); -EFAULT
+//!        written. The buffer starts with an 8-byte little-endian `next_seq`
+//!        (the bus's next sequence number: every record with a smaller `seq`
+//!        was published before the table was read), then one
+//!        [`sources::ENTRY_BYTES`] entry per source in slot order (device,
+//!        class, generation u16), as many whole ones as fit; -EFAULT for a
+//!        null or unwritable buffer, -EINVAL under 8 bytes
 //! ```
 //!
 //! Every return is a count/zero or `-errno`. Consumer records are
@@ -190,22 +194,29 @@ fn publish(me: usize, ptr: u64, packed: u64) -> u64 {
     }
 }
 
-/// Write the live source table into the caller's buffer, as many whole
-/// entries as `capacity` holds; returns how many were written.
+/// Write the source table into the caller's buffer: the bus's next sequence
+/// number, then as many whole entries as `capacity` holds after it; returns
+/// how many entries were written.
 fn source_table(ptr: u64, capacity: u64) -> u64 {
     if ptr == 0 {
         return negative(EFAULT);
     }
-    let (table, live) = sources::snapshot();
-    let fit = (capacity / sources::ENTRY_BYTES as u64).min(live as u64) as usize;
-    let mut bytes = [0u8; sources::MAX_SOURCES * sources::ENTRY_BYTES];
-    for (info, out) in table[..fit]
-        .iter()
-        .zip(bytes.as_chunks_mut::<{ sources::ENTRY_BYTES }>().0)
-    {
+    let Some(room) = capacity.checked_sub(sources::HEADER_BYTES as u64) else {
+        return negative(EINVAL);
+    };
+    let table = sources::snapshot();
+    let fit = (room / sources::ENTRY_BYTES as u64).min(table.entries().len() as u64) as usize;
+    let mut bytes = [0u8; sources::HEADER_BYTES + sources::MAX_SOURCES * sources::ENTRY_BYTES];
+    bytes[..sources::HEADER_BYTES].copy_from_slice(&table.next_seq.to_le_bytes());
+    for (info, out) in table.entries()[..fit].iter().zip(
+        bytes[sources::HEADER_BYTES..]
+            .as_chunks_mut::<{ sources::ENTRY_BYTES }>()
+            .0,
+    ) {
         *out = info.to_bytes();
     }
-    if user_ptr::try_copy_to(ptr, &bytes[..fit * sources::ENTRY_BYTES]).is_err() {
+    let len = sources::HEADER_BYTES + fit * sources::ENTRY_BYTES;
+    if user_ptr::try_copy_to(ptr, &bytes[..len]).is_err() {
         return negative(EFAULT);
     }
     fit as u64

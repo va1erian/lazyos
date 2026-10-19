@@ -1,13 +1,15 @@
 # Plan: USB gamepads (HID gamepad and X-input) into the input pipeline
 
-> **Status: draft proposal (2026-10-18); G0 and G1 are implemented** (the
-> phase table marks what landed; G2-G7 are ahead). G0: `libs/usbhid` (the
+> **Status: draft proposal (2026-10-18); G0, G1, G2 and G3 are implemented**
+> (the phase table marks what landed; G4-G7 are ahead). G0: `libs/usbhid` (the
 > `report/` split, the gamepad layout and decoder, `xinput.rs`, golden
 > descriptors, fuzz entry and seeds). G1: the kernel (`kind::AXIS`/
 > `kind::DEVICE`, the `Gamepad` source class with 32 buttons, `bus_axis.rs`,
 > and the extended source tests). G2: `usbd` binds a report-protocol pad
 > (`has_pad_collection` probe, `usbhid::busrec` glue; host-tested only until G7).
-> Builds on
+> G3: the kernel's `SOURCE` record and source-table query, `inputmap`'s gamepad
+> engine, router and page, the `os.lazy.input.v1` additions and `inputd`'s
+> delivery (see "As built" under `inputd` and `libs/inputmap`). Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (U0-U5: `libs/xhci`, `libs/usbhid`, `usbd`,
 > the raw bus sources, the one cursor) and [input-plan.md](input-plan.md) (the
 > kernel raw bus, `inputd`, sessions, focus, the key-state page). This plan adds
@@ -109,8 +111,12 @@ these are left open, and the plan says where.
    `GamepadButton` events carry changes; `AttachGamepadState` gives the
    session a shared page with every connected pad's axes and buttons, written
    while the session has focus and cleared before `GamepadLeave`, so a game
-   polls it each frame with no Messenger round trip. A client without a page
-   still gets edges.
+   polls it each frame with no Messenger round trip. Attaching the page is
+   also the opt-in: `GamepadAxis`, `GamepadButton`, `GamepadEnter` and
+   `GamepadLeave` go only to a focused session that attached one (a session's
+   64-message endpoint is shared with its keystrokes, and a stick wiggled
+   under an app that ignores pads would force `INPUTD:DROP` and keyboard
+   resyncs). A client without a page gets nothing from pads.
 6. **`inputd` owns the device-independent state, the client owns the
    mapping.** `inputd` applies the deadzone, converts the hat to d-pad
    directions, keeps one slot per device (up to 4) and resyncs on `Dropped`
@@ -122,11 +128,13 @@ these are left open, and the plan says where.
    gap), and a device id is the source *slot's*, so a mouse that registers
    after a pad was unplugged gets the pad's old id. G3 therefore adds the
    kernel-originated `SOURCE` record (decision 2) and a `rawsys` query that
-   returns the live source table (`device`, `class`, `generation` per slot;
-   `CAP_INPUT_RAW` only). `inputd` reads the table when it opens the bus and
-   again on every `Dropped` (a lost `SOURCE` is only ever inside such a gap),
-   routes by the class, and frees a pad's slot when its source closes or its
-   generation changes. The client library offers
+   returns the source table (`device`, `class`, `generation` per slot, and
+   the bus's next sequence number; `CAP_INPUT_RAW` only). `inputd` reads the
+   table when it opens the bus and again on every `Dropped` (a lost `SOURCE`
+   is only ever inside such a gap), applies it **where the stream reaches the
+   sequence number it came with** (records published before the read may
+   still be queued), routes by the class, and frees a pad's slot when its
+   source closes or its generation changes. The client library offers
    `xui_app::gamepad::Standard`, a typed view of the canonical usages
    (left/right stick, triggers, d-pad, 11 named buttons). A per-device mapping
    table (SDL's GameController DB approach) and a remap UI come later; the
@@ -210,9 +218,18 @@ these are left open, and the plan says where.
 - G3 (landed): `bus.rs` `kind::SOURCE` (10); `sources.rs` announces from
   `register` and from `release()` (after its release burst), refuses the kind
   from every class, and offers `snapshot()`; `rawsys.rs` op `SOURCES` (10,
-  `CAP_INPUT_RAW`, four bytes per live source: device, class, generation
-  `u16` LE, whole entries only). Tests: `kernel/src/tests/input_bus_suite/source_records.rs`,
-  and the stress tests check the announcements against the table.
+  `CAP_INPUT_RAW`): the buffer starts with an 8-byte little-endian `next_seq`
+  (the bus's next sequence number, read under the sources lock that every
+  `SOURCE` publication holds, so every record below it was published before
+  the table was read and none of the later `SOURCE` records is in it), then
+  four bytes per source: device, class, generation `u16` LE, whole entries
+  only; a buffer under 8 bytes is `EINVAL`. A slot is in the table from its
+  `SOURCE` 1 to its `SOURCE` 0 whether or not its owner is alive (a dead
+  owner's slot is listed until `release()` has run), so the table is exactly
+  consistent with the stream. Tests: `input_bus_suite/source_records.rs` (the
+  records) and `source_table.rs` (the query: header, the cut it makes in the
+  stream, dead owners, bounds and faults), and the stress tests check the
+  announcements and the cut against the table.
 - Tests (`input_bus_suite`): class gate (a gamepad source publishing `KEY`,
   `REL_MOTION` or a bad usage is dropped and counted), range checks, `DEVICE`
   acceptance, release-on-close for all 32 buttons, `AXIS` tail-merge
@@ -223,6 +240,23 @@ these are left open, and the plan says where.
 
 ### `inputd` and `libs/inputmap`
 
+- **As built (G3).** `PadOut` is an enum, `PadOut::Axis { device, code, value,
+  ts_ns, seq }` or `PadOut::Button { device, code, pressed, ts_ns, seq }`, not
+  the struct below; the hat is not delivered as an axis but becomes d-pad
+  *buttons* 33 (up), 34 (down), 35 (left), 36 (right), one edge per direction
+  (a diagonal presses two); the deadzone is rescaled around 0 as described.
+  The source table carries `next_seq` and is **held and applied at its place
+  in the stream** (`inputmap::Pads::table`, `reach`, `settle`): it is applied
+  just before the first record with `seq >= next_seq` is handled, or when the
+  drain runs dry, never when it is read, because records published before the
+  read can still be queued and the table already reflects them (a pad pressed
+  and unplugged in that window would otherwise have its press and release
+  clicked into the cursor). On the bus opening it is applied at once. Pad
+  events go only to a focused session that attached a pad page
+  (`inputmap::OptIn`), `GamepadEnter` also reaching a session that opts in
+  while it holds the keyboard; a resync is page cleared, `GamepadLeave`, page
+  live, `GamepadEnter`. A pad refused for want of a slot (a fifth) is
+  attached when another pad leaves, lowest device id first.
 - `libs/inputmap/src/gamepad.rs`: `Gamepad` (state per device slot,
   `MAX_PADS = 4`), `PadOut { device, axes, buttons, hat, ts_ns, seq }`,
   `apply(RawRecord)`, `flush`, `resync`, `attach`/`detach` by device id.
@@ -286,7 +320,7 @@ stress tests and must pass `python tools/test/run.py --accel none`.
 | **G0** Libraries **(landed)** | `libs/usbhid`: `report/` split, gamepad layout, `Gamepad` decoder, `xinput.rs`; `MAX_BUTTONS` per layout | `cargo test -p usbhid`: golden descriptors (generic pad, four-way hat, report-id pad, X-input reports), hat and range normalization, change-only output, `release_all`; seeded fuzz + `python fuzz/gen_corpus.py --check` |
 | **G1** Kernel **(landed)** | `kind::AXIS`/`kind::DEVICE`, the `Gamepad` source class, `u32` button tracking, axis rest tracking, `bus_axis.rs`, merge rules | `input_bus_suite`: class gate, ranges, `DEVICE` from every class, release-on-close (32 buttons and deflected axes), merge/replace, the million-record stress with two gamepads |
 | **G2** `usbd` HID gamepad **(landed)** | Second-pass binding accepts a gamepad layout (trying `parse_gamepad` first, and never falling back to the pointer layout for an interface that declares a pad collection — the library gains a `has_pad_collection` probe, or a dedicated error, so the driver can tell "not a pad" from "a pad it cannot place"); `Hid` gains the gamepad decoder; publishes `AXIS`/`BUTTON`/`DEVICE`; detach releases buttons and centres axes; marker `USBD:HID:PAD vendor= product= interface= dci=` (an unplaceable pad: `USBD:HID:PAD:UNPLACED`, left unbound). As built: a `has_pad_collection` probe, not an error variant (`parse_gamepad`'s contract is unchanged); risk 6 is unchanged (the second pass still binds the first interface that yields a function) | Host-tested glue in `libs/usbhid`; the G7 harness drives it end to end; `tools/usb/judge.py --gamepad` |
-| **G3** `inputd` (kernel half **landed**) | Kernel: `kind::SOURCE` (published by `register` and `release()`; refused from drivers) and the source-table query. `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, routing by `SOURCE` class so a pad's buttons never reach the pointer engine and a slot reused by a mouse is a mouse again | `input_bus_suite`: `SOURCE` on register/close/teardown/dead-slot reclaim, after the releases, never from a driver, the table query (and its capability gate), existing tests updated for the extra records; `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone, a pad's slot reused by a pointer, and the same with its `SOURCE` records lost in a `Dropped` gap (routing recovered from the table); a seeded fuzz entry |
+| **G3** `inputd` **(landed)** | Kernel: `kind::SOURCE` (published by `register` and `release()`; refused from drivers) and the source-table query. `inputmap::Gamepad`, `inputd/gamepad.rs`, the page, the IDL additions, regenerated stubs and rhai schema, delivery to the focused session, routing by `SOURCE` class so a pad's buttons never reach the pointer engine and a slot reused by a mouse is a mouse again | `input_bus_suite`: `SOURCE` on register/close/teardown/dead-slot reclaim, after the releases, never from a driver, the table query (and its capability gate), existing tests updated for the extra records; `cargo test -p inputmap -p messenger-generated`: deadzone, hat→d-pad, two pads, `Dropped` resync (buttons released, axes centred), page seqlock, malformed records dropped, a pad's buttons leave the cursor alone, a pad's slot reused by a pointer, and the same with its `SOURCE` records lost in a `Dropped` gap (routing recovered from the table); a pad pressed and unplugged, or a slot reused by a mouse, while the table is read ahead of the queued records (no stale pad record reaches the cursor); a refused fifth pad that gets a slot when another leaves; a seeded fuzz entry whose ring lags so the table runs ahead of the stream |
 | **G4** Client library | `xui_app::input` events + `GamepadStatePage`, `xui_app::gamepad::Standard` | `cargo test --manifest-path xui-app/Cargo.toml -p xui-app` (Linux/WSL, the crate's lib tests are Linux-only) |
 | **G5** Doom | `lazydoom::pad`: the page read each frame, canonical state to Doom keys (left stick move/strafe, right stick turn, d-pad menu, A fire, B use, Y map, Start menu), markers `DOOM:PAD:*`; session `tools/screenshot/examples/doom_pad.json` | The session script drives the Doom menu with the fake pad (G7) and judges markers + screenshots |
 | **G6** X-input | `usbd` binds `FF/5D/01`, decodes the fixed report, same records; marker `USBD:HID:XINPUT`; unplug releases | `libs/usbhid` golden reports; the fake X-input device in the harness; the real 8BitDo over `usb-host` |
@@ -401,6 +435,20 @@ The verdict is what the guest *did*, as with keyboard, mouse and tablet.
 8. **No vendor/product in the session API.** The `DEVICE` record is on the
    bus and in `inputd`, but not in the client API yet; a Settings page that
    shows names needs one more field and is part of that later phase.
+
+9. **Known gaps of G3.** (a) The click barrier (`settle.rs`) and the
+   panel-menu hold (`held.rs`) are about keys and do not apply to pad
+   events: a pad press is delivered to the focused session even while the
+   compositor is still handling a click that moved focus. (b) Pad input does
+   not count as user activity: it resets no idle timer (screen blank, lock),
+   so a game played only with a pad can be blanked. (c) The kernel's
+   `SOURCE` announcements (register and close) are not charged to the
+   source's token bucket, so a `CAP_INPUT_SOURCE` holder looping
+   register/close can flood the ring; the capability is for a trusted driver
+   and needs the same care as any holder of it. (d) Across a `Dropped` gap
+   the classifier is wrong for a device whose `SOURCE` records were lost until
+   the fresh table is applied (the end of that drain): such a device's queued
+   records are classified from the stream alone.
 
 ## Suggested order of work
 

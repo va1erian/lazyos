@@ -151,7 +151,8 @@ fn grant_changed(kind, active, reason) {
 
 /// `GamepadAxis(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> () oneway`
 ///
-/// Event: a gamepad axis changed (only the focused session receives it).
+/// Event: a gamepad axis changed (only the focused session that attached
+/// a pad page receives it).
 /// `device` is the pad's id (as in the state page), `code` the Generic
 /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
 /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
@@ -167,8 +168,8 @@ fn gamepad_axis(device, code, value, ts_ns, seq) {
 
 /// `GamepadButton(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> () oneway`
 ///
-/// Event: a gamepad button changed (only the focused session receives
-/// it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+/// Event: a gamepad button changed (only the focused session that
+/// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
 /// down, `35` left, `36` right (the hat, one edge per direction;
 /// diagonals press two). Edges are never merged.
 ///
@@ -180,7 +181,9 @@ fn gamepad_button(device, code, pressed, ts_ns, seq) {
 /// `GamepadEnter() -> () oneway`
 ///
 /// Event: gamepad input arrived with this session's focus: read the
-/// state page to seed. Sent whenever keyboard focus enters the session.
+/// state page to seed. Sent to a session that attached a pad page
+/// whenever keyboard focus enters it, when it attaches one while it
+/// already has focus, and right after a `GamepadLeave` that was a resync.
 ///
 /// One-way: returns `()` once the message is queued.
 fn gamepad_enter() {
@@ -189,8 +192,12 @@ fn gamepad_enter() {
 
 /// `GamepadLeave() -> () oneway`
 ///
-/// Event: focus left. The client **must release every pad button** it
-/// believes is down and centre the axes; the page was cleared first.
+/// Event: focus left, or events were lost. The client **must release
+/// every pad button** it believes is down and centre the axes; the page
+/// was cleared first. After a dropped-events resync (the keyboard's
+/// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
+/// `GamepadEnter` with the page live again; the page is cleared before
+/// the Leave and restored before the Enter either way.
 ///
 /// One-way: returns `()` once the message is queued.
 fn gamepad_leave() {

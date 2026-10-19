@@ -74,7 +74,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.input.v1",
         LOW,
-        "Receive keyboard input while its window is focused",
+        "Receive keyboard and gamepad input while its window is focused",
     ),
     (
         "os.lazy.input.shell.v1",

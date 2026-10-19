@@ -9,7 +9,8 @@
 //! kernel: its `SOURCE` records (the fast path, [`Classifier::source_record`])
 //! and the live source table (the truth, [`Classifier::table`]), which the
 //! caller re-reads when it opens the bus and after every `Dropped`, since a
-//! `SOURCE` record can be evicted from the ring like any other.
+//! `SOURCE` record can be evicted from the ring like any other. A table is
+//! applied at its place in the stream, not when it is read ([`super::pads`]).
 //!
 //! The rules, per device:
 //!
@@ -100,6 +101,11 @@ impl Classifier {
     /// Whether `device` is a known gamepad.
     pub fn is_pad(&self, device: u8) -> bool {
         self.known[usize::from(device)].class == GAMEPAD_CLASS
+    }
+
+    /// The devices known to be gamepads, lowest id first.
+    pub fn pad_devices(&self) -> impl Iterator<Item = u8> + '_ {
+        (0..=u8::MAX).filter(|&device| self.is_pad(device))
     }
 
     /// Where a record of `kind` from `device` goes.

@@ -84,14 +84,14 @@ pub fn generations() -> Result<(), String> {
             sources::refill_all();
         }
         let id = register(class::KEYBOARD)?;
-        let (table, live) = sources::snapshot();
+        let table = sources::snapshot();
+        let listed = table.entries();
         check!(
-            live == 1
-                && table[0].device == device_of(id)
-                && table[0].class == class::KEYBOARD
-                && u64::from(table[0].generation) == id >> 8,
-            "cycle {cycle}: the table lists {:?} for {id:#x}",
-            &table[..live]
+            listed.len() == 1
+                && listed[0].device == device_of(id)
+                && listed[0].class == class::KEYBOARD
+                && u64::from(listed[0].generation) == id >> 8,
+            "cycle {cycle}: the table lists {listed:?} for {id:#x}",
         );
         let usage = 0x04 + (cycle % 0x60) as u16;
         check!(
@@ -337,7 +337,7 @@ pub fn many_producers() -> Result<(), String> {
         announced.live
     );
     check!(
-        sources::snapshot().1 == 0,
+        sources::snapshot().entries().is_empty(),
         "the table still lists a closed source"
     );
     let (rejected, throttled) = sources::counters();

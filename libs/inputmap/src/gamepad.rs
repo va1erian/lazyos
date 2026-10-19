@@ -28,6 +28,7 @@
 
 use alloc::vec::Vec;
 
+pub mod optin;
 pub mod pads;
 pub mod page;
 pub mod route;

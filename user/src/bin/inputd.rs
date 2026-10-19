@@ -101,7 +101,7 @@ fn run() -> Result<(), &'static str> {
     let mut trace = trace::Trace::from_args();
     // Who is a pad is the kernel's to say: read its table now that the bus is
     // ours (a `SOURCE` record from before this is not in the ring).
-    hub.gamepads.read_table(0, 0);
+    hub.gamepads.start();
     let mut outputs: Vec<Output> = Vec::new();
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -141,6 +141,9 @@ fn run() -> Result<(), &'static str> {
                 hub.gamepads.dropped(ts_ns, seq);
             }
         });
+        // The drain ran dry: a source table read during it covers everything
+        // that was queued, so it applies now if no record reached it.
+        hub.gamepads.settle();
         // One coalesced move per drain, after the edges it carried.
         hub.pointer.engine.flush(&mut pointer_outputs);
         trace.pointer(&pointer_outputs);

@@ -46,7 +46,7 @@ pub mod input_op {
     pub const CONSOLE_CLAIM: u64 = 7;
     pub const CONSOLE_RELEASE: u64 = 8;
     pub const CONSOLE_OWNER: u64 = 9;
-    /// The live source table ([`input_raw_sources`]).
+    /// The source table ([`input_raw_sources`]).
     pub const SOURCES: u64 = 10;
 }
 
@@ -71,11 +71,24 @@ pub mod raw_kind {
 
 /// Source slots the kernel holds (`kernel/src/input/sources.rs`).
 pub const MAX_SOURCES: usize = 16;
-/// Bytes per entry [`input_raw_sources`] writes: device, class, generation
+/// Bytes per entry [`input_raw_sources`] reads: device, class, generation
 /// (little-endian `u16`).
 pub const SOURCE_ENTRY_BYTES: usize = 4;
+/// Bytes of the header before the entries: the bus's next sequence number
+/// (little-endian `u64`).
+pub const SOURCE_HEADER_BYTES: usize = 8;
 
-/// One live source, as [`input_raw_sources`] reports it.
+/// What [`input_raw_sources`] found besides the entries.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceTable {
+    /// The bus's next sequence number when the table was read: every record
+    /// with a smaller `seq` was published before it.
+    pub next_seq: u64,
+    /// Entries written to the caller's array.
+    pub count: usize,
+}
+
+/// One source, as [`input_raw_sources`] reports it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourceInfo {
     /// The device id its records carry.
@@ -244,12 +257,18 @@ pub fn input_console_owner() -> Result<u64, i64> {
     }
 }
 
-/// The live sources, in slot order, written into `out`; returns how many.
-/// A record-stream consumer re-reads this when it opens the bus and after
-/// every `DROPPED`, since a `SOURCE` record can be lost in an overflow.
-/// Needs `CAP_INPUT_RAW`.
-pub fn input_raw_sources(out: &mut [SourceInfo; MAX_SOURCES]) -> Result<usize, i64> {
-    let mut bytes = [0u8; MAX_SOURCES * SOURCE_ENTRY_BYTES];
+/// The source table, in slot order, written into `out`: how many entries
+/// there are, and the bus's next sequence number read together with them, so
+/// **every record with `seq` below it was published before the table was
+/// read, and every `SOURCE` record among them is reflected in it**. A
+/// record-stream consumer applies the table when its drain reaches that
+/// point (not when it reads it: records queued before the read are still in
+/// its ring) and re-reads it when it opens the bus and after every `DROPPED`,
+/// since a `SOURCE` record can be lost in an overflow. A source stays listed
+/// until its `SOURCE` 0 record is published, even if its driver died. Needs
+/// `CAP_INPUT_RAW`.
+pub fn input_raw_sources(out: &mut [SourceInfo; MAX_SOURCES]) -> Result<SourceTable, i64> {
+    let mut bytes = [0u8; SOURCE_HEADER_BYTES + MAX_SOURCES * SOURCE_ENTRY_BYTES];
     // SAFETY: the kernel writes at most `bytes.len()` bytes into `bytes`.
     let code = unsafe {
         input_syscall(
@@ -261,9 +280,27 @@ pub fn input_raw_sources(out: &mut [SourceInfo; MAX_SOURCES]) -> Result<usize, i
     if code < 0 {
         return Err(code);
     }
-    let count = (code as usize).min(MAX_SOURCES);
-    for (entry, info) in bytes.as_chunks::<SOURCE_ENTRY_BYTES>().0[..count]
+    Ok(decode_source_table(&bytes, code as usize, out))
+}
+
+/// Decode what the `SOURCES` op wrote: `count` entries after the header.
+/// A count beyond what the buffer or `out` holds is clamped.
+pub fn decode_source_table(
+    bytes: &[u8],
+    count: usize,
+    out: &mut [SourceInfo; MAX_SOURCES],
+) -> SourceTable {
+    let mut header = [0u8; SOURCE_HEADER_BYTES];
+    if let Some(head) = bytes.get(..SOURCE_HEADER_BYTES) {
+        header.copy_from_slice(head);
+    }
+    let body = bytes.get(SOURCE_HEADER_BYTES..).unwrap_or(&[]);
+    let mut written = 0;
+    for (entry, info) in body
+        .as_chunks::<SOURCE_ENTRY_BYTES>()
+        .0
         .iter()
+        .take(count)
         .zip(out.iter_mut())
     {
         *info = SourceInfo {
@@ -271,6 +308,46 @@ pub fn input_raw_sources(out: &mut [SourceInfo; MAX_SOURCES]) -> Result<usize, i
             class: entry[1],
             generation: u16::from_le_bytes([entry[2], entry[3]]),
         };
+        written += 1;
     }
-    Ok(count)
+    SourceTable {
+        next_seq: u64::from_le_bytes(header),
+        count: written,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_header_and_entries() {
+        let mut bytes = [0u8; SOURCE_HEADER_BYTES + 3 * SOURCE_ENTRY_BYTES];
+        bytes[..8].copy_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
+        bytes[8..12].copy_from_slice(&[0x10, 4, 0x34, 0x12]);
+        bytes[12..16].copy_from_slice(&[0x11, 2, 1, 0]);
+        let mut out = [SourceInfo::default(); MAX_SOURCES];
+        let table = decode_source_table(&bytes, 2, &mut out);
+        assert_eq!(table.next_seq, 0x0102_0304_0506_0708);
+        assert_eq!(table.count, 2);
+        assert_eq!(
+            out[0],
+            SourceInfo {
+                device: 0x10,
+                class: 4,
+                generation: 0x1234
+            }
+        );
+        assert_eq!(out[1].device, 0x11);
+        assert_eq!(out[2], SourceInfo::default());
+    }
+
+    #[test]
+    fn clamps_a_count_beyond_the_buffer() {
+        let bytes = [0u8; SOURCE_HEADER_BYTES + SOURCE_ENTRY_BYTES];
+        let mut out = [SourceInfo::default(); MAX_SOURCES];
+        assert_eq!(decode_source_table(&bytes, 99, &mut out).count, 1);
+        assert_eq!(decode_source_table(&bytes[..4], 5, &mut out).count, 0);
+        assert_eq!(decode_source_table(&[], 5, &mut out).next_seq, 0);
+    }
 }

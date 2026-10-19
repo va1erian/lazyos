@@ -39,6 +39,7 @@ mod tests;
 
 pub use barrier::Barrier;
 pub use engine::{Engine, KeyOut, KeyState, Output, RawKey, ESCAPE_CODE, ESCAPE_MODS};
+pub use gamepad::optin::OptIn;
 pub use gamepad::pads::{Notice, Pads};
 pub use gamepad::{Gamepad, PadOut, PadState, RawPad};
 pub use grab::Grabs;
