@@ -626,7 +626,7 @@ if the box can reach a host serving it).
   `TRANS_DDI_FUNC_CTL` bits 30:27 as `port + 1`, the combo PLL from
   `DPCLKA_CFGCR0` and its DCO dividers). `tests_d13` runs it on the box's
   GOP capture (`docs/compat/alderlake/gpu/lazyos/`): pipe A, DDI B HDMI,
-  DPLL1 (not DPLL0 as under Linux), 241.436 MHz, 2560x1440 at 59.934 Hz,
+  DPLL1 (not DPLL0 as under Linux), 241.5 MHz, 2560x1440 at 59.95 Hz,
   CDCLK 652.8 MHz, the plane linear XRGB8888 at GGTT 0 over 3600 contiguous
   pages from stolen memory `0x4c800000`. `BDSM` is read at config 0xC0 on
   display 13. `pciprobe` lists the 46b3 ranges `gpud` and `dbgd` read.

@@ -338,7 +338,7 @@ Files, the desktop file explorer (`os.lazy.files`, issue #488).
 
 Interface `os.lazy.gpu.v1`, source [`gpu.rhai`](gpu.rhai).
 
-The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
+The Intel GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 
 | Function | IDL | About |
 |---|---|---|

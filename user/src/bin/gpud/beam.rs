@@ -33,10 +33,13 @@ impl Watch {
     pub(super) fn start(mut regs: ReadOnlyBar, pipe: &ActivePipe) -> Watch {
         let index = u32::from(pipe.pipe);
         let vtotal = pipe.v.total;
+        // The counter moves at the start of the vertical blank.
+        let count_line = pipe.v.blank_start;
         let (first, t0) = (Beam::read(&mut regs, index), sys::monotonic_ns());
         let _ = sys::sleep_ns(MEASURE_NS);
         let (last, t1) = (Beam::read(&mut regs, index), sys::monotonic_ns());
-        let measured = vblank::measured_millihz(first, last, t1.saturating_sub(t0), vtotal);
+        let measured =
+            vblank::measured_millihz(first, last, t1.saturating_sub(t0), vtotal, count_line);
         let expected = pipe.refresh_millihz().unwrap_or(0);
         let frames = last.frame.wrapping_sub(first.frame);
         match measured {

@@ -1,6 +1,6 @@
 //! `d13` against the Alder Lake box's own registers as its UEFI GOP left
 //! them, read over `dbgd` (`docs/compat/alderlake/gpu/lazyos/`, decoded by
-//! hand in `01-dbgd-capture.md`): 2560x1440 CVT-RB at 59.93 Hz on pipe A,
+//! hand in `01-dbgd-capture.md`): 2560x1440 CVT-RB at 59.95 Hz on pipe A,
 //! transcoder A, DDI B (HDMI), clocked by DPLL1.
 
 use crate::adopt::{self, Display};
@@ -69,8 +69,8 @@ fn adopts_what_the_gop_left() {
     assert_eq!(pipe.pll, Some(1), "DPLL1, not DPLL0 as under Linux");
     assert!(pipe.pll_ready);
     assert!(!pipe.ddi_clock_off);
-    assert_eq!(pipe.pixel_clock_khz, Some(241_436));
-    assert_eq!(pipe.refresh_millihz(), Some(59_934));
+    assert_eq!(pipe.pixel_clock_khz, Some(241_500));
+    assert_eq!(pipe.refresh_millihz(), Some(59_950));
     assert_eq!((pipe.h.active, pipe.h.total), (2560, 2720));
     assert_eq!((pipe.h.sync_start, pipe.h.sync_end), (2608, 2640));
     assert_eq!((pipe.v.active, pipe.v.total), (1440, 1481));
@@ -197,20 +197,35 @@ fn the_port_comes_from_the_tgl_encoding() {
         (pipe.port, pipe.pll, pipe.pixel_clock_khz),
         (Some(3), None, None)
     );
+    // DisplayPort SST on DDI B (mode 2): the PLL is the link rate, so no
+    // pixel clock is claimed (and no refresh rate either).
+    mmio.regs.insert(0x6_0400, 0x9201_0000);
+    let pipe = Display::D13
+        .decode(&Display::D13.read(&mut mmio))
+        .active
+        .unwrap();
+    assert_eq!((pipe.port, pipe.func.mode), (Some(1), DdiMode::DpSst));
+    assert_eq!((pipe.pixel_clock_khz, pipe.refresh_millihz()), (None, None));
 }
 
 #[test]
 fn clock_arithmetic() {
-    // The capture's DPLL1: DCO 19.2 MHz x (440 + 3840/32768), P 7.
+    // The capture's DPLL1: DCO 19.2 MHz x (440 + 2 x 3840/32768), P 7:
+    // 241.5 MHz, the CVT-RB clock of 2560x1440 at 59.95 Hz.
     assert_eq!(
         combo_port_clock_khz(0x003C_01B8, 0x60, Some(38_400)),
-        Some(241_436)
+        Some(241_500)
     );
     // Linux's DPLL0 on the same box (`i915_shared_dplls_info`): its 70 Hz
-    // mode asks 277.82 MHz, and the dividers i915 chose give 277.79.
+    // mode's 277.82 MHz, exactly.
     assert_eq!(
         combo_port_clock_khz(0x0018_01B2, 0x488, Some(38_400)),
-        Some(277_790)
+        Some(277_820)
+    );
+    // The fraction is doubled only on the 38.4 MHz reference.
+    assert_eq!(
+        combo_port_clock_khz(0x0000_01B8, 0x60, Some(24_000)),
+        Some(301_714)
     );
     // Reserved dividers and an unknown reference give nothing.
     assert_eq!(combo_port_clock_khz(0x003C_01B8, 0x0, Some(38_400)), None);
@@ -237,4 +252,37 @@ fn clock_arithmetic() {
         653_000
     );
     assert_eq!(d13::ref_khz(0xE000_0000), None);
+}
+
+#[test]
+fn hostile_register_values_decode_without_panicking() {
+    // Both captures' registers, each dword kept, bit-flipped or replaced, read
+    // and decoded by both generations; the GGTT walk is capped.
+    let base = capture_mmio(&[
+        REGS,
+        include_str!("../../../docs/compat/kabylake/gpu/lazyos/02-mmio-gop.txt"),
+    ]);
+    fuzzkit::for_seeds("intelgfx_adopt_registers", |_, rng| {
+        let mut mmio = FakeMmio::default();
+        for (&offset, &value) in &base.regs {
+            let value = match rng.below(4) {
+                0 => value,
+                1 => value ^ (1 << rng.below(32)),
+                2 => rng.next_u32(),
+                _ => *rng.pick(&[0, u32::MAX, 0x8000_0000, 0xC000_0000]),
+            };
+            mmio.regs.insert(offset, value);
+        }
+        for display in [Display::Gen9, Display::D13] {
+            let file = display.read(&mut mmio);
+            let adopted = display.decode(&file);
+            if let Some(pipe) = adopted.active {
+                let _ = pipe.refresh_millihz();
+                let _ = pipe.plane.bytes();
+                let map = adopt::read_fb_map(&mut mmio, pipe.plane.surf, pipe.plane.bytes());
+                assert!(map.pages <= adopt::MAX_FB_PAGES);
+            }
+            assert!(mmio.log.iter().all(|&(_, _, write)| !write));
+        }
+    });
 }

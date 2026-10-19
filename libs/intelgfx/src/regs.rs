@@ -140,7 +140,10 @@ pub mod plane1 {
 }
 
 /// `PLANE_CTL` bits (CONFIRMED: the box's `0xc404b020` is enabled, XRGB 8888,
-/// Y tiled; pixel format bits 27:24, tiling bits 12:10).
+/// Y tiled; pixel format bits 27:24, tiling bits 12:10). Display 11 and later
+/// widen the format to bits 27:23; XRGB 8888 keeps bit 23 clear, so it
+/// decodes the same, but a newer code that sets bit 23 reads as `Other` of
+/// the Gen9 field.
 pub mod plane_ctl {
     pub const ENABLE: u32 = 1 << 31;
     const FORMAT_SHIFT: u32 = 24;

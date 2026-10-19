@@ -24,7 +24,7 @@ use alloc::format;
 
 use crate::adopt::{running_pipes, ActivePipe, Adopted, Display, PortClock, RegFile, PIPE_NAMES};
 use crate::mmio::Mmio;
-use crate::regs::{self, DdiFunc};
+use crate::regs::{self, DdiFunc, DdiMode};
 
 /// Pipes and transcoders A to D.
 pub const PIPES: u32 = 4;
@@ -144,7 +144,7 @@ fn decode_pipe(file: &RegFile, pipe: u32) -> Option<ActivePipe> {
     func.ddi_select = 0;
     let port = port_plus_one(raw >> 27 & 0xF)
         .or_else(|| port_plus_one(file.get(regs::trans_clk_sel(pipe)) >> 28));
-    let clock = port_clock(file, port, func.bits_per_component);
+    let clock = port_clock(file, port, func);
     Some(ActivePipe::decode(file, pipe, func, port, clock))
 }
 
@@ -155,8 +155,10 @@ fn port_plus_one(field: u32) -> Option<u8> {
 
 /// The PLL, gate and pixel clock of `port`. Only the combo PHY ports A and
 /// B are decoded; a Type-C port's clock (the TBT or MG PLLs) is left
-/// unknown.
-fn port_clock(file: &RegFile, port: Option<u8>, bpc: Option<u8>) -> PortClock {
+/// unknown. The pixel clock is derived only on a TMDS link (HDMI, DVI): on
+/// DisplayPort the PLL runs the link rate, which says nothing of the pixel
+/// clock without the link M/N values.
+fn port_clock(file: &RegFile, port: Option<u8>, func: DdiFunc) -> PortClock {
     let Some(port) = port.map(u32::from).filter(|&port| port < 2) else {
         return PortClock::default();
     };
@@ -170,11 +172,13 @@ fn port_clock(file: &RegFile, port: Option<u8>, bpc: Option<u8>) -> PortClock {
     let pll_ready = file.get(DPLL_ENABLE[pll]) & PLL_ENABLED_LOCKED == PLL_ENABLED_LOCKED;
     let cfgcr0 = file.get(DPLL_CFGCR0[pll]);
     let cfgcr1 = file.get(DPLL_CFGCR0[pll] + 4);
-    let pixel_clock_khz = pll_ready
+    let tmds = matches!(func.mode, DdiMode::Hdmi | DdiMode::Dvi);
+    let bpc = func.bits_per_component.unwrap_or(8).max(1);
+    let pixel_clock_khz = (pll_ready && tmds)
         .then(|| combo_port_clock_khz(cfgcr0, cfgcr1, ref_khz(file.get(DSSM))))
         .flatten()
         // HDMI deep colour runs the link at bpc/8 of the pixel clock.
-        .map(|port_khz| port_khz * 8 / u32::from(bpc.unwrap_or(8).max(1)));
+        .map(|port_khz| port_khz * 8 / u32::from(bpc));
     PortClock {
         pll: Some(pll as u8),
         pll_ready,
@@ -215,10 +219,15 @@ pub fn cdclk_khz(ctl: u32, pll_enable: u32, dssm: u32) -> u32 {
 /// (P bits 5:2 as 1/2/4/8 for 2/3/5/7, K bits 8:6 as 1/2/4 for 1/2/3, Q
 /// bits 17:10 when bit 9 is set): `DCO / (P Q K) / 5`, the DCO counted in a
 /// reference halved from 38.4 MHz. `None` for a reserved divider.
+///
+/// With that 38.4 MHz reference the fraction is programmed at half its
+/// value and read back doubled (i915's Wa_22010492432,
+/// `ehl_combo_pll_div_frac_wa_needed`, which covers display 12 and ADL-P):
+/// the box's DPLL1 is 241.5 MHz with it, and its frame counter agrees.
 pub fn combo_port_clock_khz(cfgcr0: u32, cfgcr1: u32, reference: Option<u32>) -> Option<u32> {
-    let reference = match reference? {
-        38_400 => 19_200,
-        other => other,
+    let (reference, fraction_scale) = match reference? {
+        38_400 => (19_200, 2),
+        other => (other, 1),
     };
     let p = match cfgcr1 >> 2 & 0xF {
         1 => 2,
@@ -242,7 +251,7 @@ pub fn combo_port_clock_khz(cfgcr0: u32, cfgcr1: u32, reference: Option<u32>) ->
         1
     };
     let integer = u64::from(cfgcr0 & 0x3FF);
-    let fraction = u64::from(cfgcr0 >> 10 & 0x7FFF);
+    let fraction = u64::from(cfgcr0 >> 10 & 0x7FFF) * fraction_scale;
     // In units of 1/2^15 kHz, so the division rounds once.
     let dco = u64::from(reference) * ((integer << 15) + fraction);
     let divider = ((p * k * 5) as u64 * q) << 15;
