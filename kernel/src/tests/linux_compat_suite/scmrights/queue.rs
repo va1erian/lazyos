@@ -414,11 +414,11 @@ pub fn scmrights_soak() -> Result<(), String> {
     Ok(())
 }
 
-/// A socket end sent through its own pair, or a pair already carrying
-/// descriptors, is refused with `ETOOMANYREFS`: those are the edges that
-/// could close a cycle of sockets carrying each other, which nothing would
-/// read or purge (there is no garbage collector), leaking the in-flight
-/// budget. A pair with an empty queue travels, as a new connection does.
+/// A socket end sent through its own pair, or through a pair it carries, is
+/// refused with `ETOOMANYREFS`: those edges close a cycle of sockets carrying
+/// each other, which nothing would read or purge (there is no garbage
+/// collector), leaking the in-flight budget. A pair carrying only a pipe end
+/// still travels (`reach.rs` has the longer cases).
 pub fn scmrights_cycles_refused() -> Result<(), String> {
     let pipes_before = pipe::Pipe::live();
     let p = processes()?;
@@ -450,6 +450,10 @@ pub fn scmrights_cycles_refused() -> Result<(), String> {
         send_fds(p.sa, b"y", &[p.w]) == 1,
         "a pipe end through sa still travels"
     );
+    check!(
+        send_fds(p.a, b"c", &[p.sb]) == 1,
+        "the other end of sa, which carries a pipe end, through a"
+    );
     let mut buf = [0u8; 4];
     let got = recv_fds(p.b, &mut buf, Some(4), 0);
     check!(
@@ -458,6 +462,9 @@ pub fn scmrights_cycles_refused() -> Result<(), String> {
         got.n,
         got.fds.len()
     );
+    close(got.fds[0]);
+    let got = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(got.fds.len() == 1, "receive the end of sa that a carried");
     close(got.fds[0]);
     check!(send_fds(p.sa, b"x", &[p.b]) == 1, "an idle pair through sa");
     for _ in 0..2 {

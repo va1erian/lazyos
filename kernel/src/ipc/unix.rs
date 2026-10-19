@@ -102,19 +102,12 @@ impl Listener {
         !self.pending.lock().is_empty()
     }
 
-    /// Whether `dest` is among the connections waiting to be accepted, or one
-    /// of them already carries descriptors: sending this listener through
-    /// `dest` would then close a cycle of sockets carrying each other
-    /// (`ipc::pipe::Rights::would_cycle`). A listener whose queue is busy is
-    /// refused too: that check runs under a socket ring's lock, which the
-    /// listener's own teardown takes the other way round.
-    pub fn pending_reaches(&self, dest: &SocketPair) -> bool {
-        match self.pending.try_lock() {
-            Some(pending) => pending
-                .iter()
-                .any(|pair| core::ptr::eq(&**pair, dest) || pair.carries_rights()),
-            None => true,
-        }
+    /// Call `each` with every connection waiting to be accepted, until it
+    /// answers false; whether it never did (`ipc::pipe::reach` walks a
+    /// listener in flight to the pairs it holds). Called with no socket ring
+    /// locked: the listener's teardown takes the pending lock, then rings.
+    pub fn pending_each(&self, mut each: impl FnMut(&Arc<SocketPair>) -> bool) -> bool {
+        self.pending.lock().iter().all(|pair| each(pair))
     }
 
     /// Park the current task until a connection arrives.

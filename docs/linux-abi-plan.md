@@ -113,11 +113,13 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   through itself is not reclaimed once both ends close (Linux needs its
 >   garbage collector for that cycle). A send that would close a loop through
 >   the sockets it carries is refused with `ETOOMANYREFS` instead of leaking
->   (`pipe::Rights::would_cycle`): that includes an **epoll instance, which
->   never travels** (it watches descriptors, so it is a node of every cycle it
->   is in; Linux accepts it and garbage-collects), and a listener whose
->   pending connections carry descriptors or lead back to the pair it is sent
->   through. A deviation from Linux; no program in the bench sends either.
+>   (`ipc/pipe/reach.rs`, an exact reachability check: a pair that carries
+>   descriptors leading elsewhere travels, as WebKit's new connections do,
+>   issue #865): that includes an **epoll instance, which never travels** (it
+>   watches descriptors, so it is a node of every cycle it is in; Linux
+>   accepts it and garbage-collects), and a listener whose pending
+>   connections lead back to the pair it is sent through. A deviation from
+>   Linux; no program in the bench sends either.
 > * **`memfd_create`** (319, `MFD_CLOEXEC`; `MFD_ALLOW_SEALING` is accepted
 >   but there are no seals): a sparse file in page frames of its own
 >   (`mem/memfd.rs`), not the scratch ramfs, whose `Vec<u8>` file data cannot

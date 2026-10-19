@@ -462,9 +462,12 @@ ever dropped with the ring unlocked, since closing a socket end takes other
 rings' locks; the last reader closing a direction purges its queue
 (`Pipe::release`). In-flight descriptors are charged to the sender's `Fds`
 quota and a global ceiling (`ETOOMANYREFS`). A send that would close a loop
-(`Rights::would_cycle`: a pair carrying a descriptor that reaches the pair
-itself, a listener counted by its pending connections) is refused with the
-same `ETOOMANYREFS`, because nothing here collects such cycles: an **epoll
+(`ipc/pipe/reach.rs`: the destination pair is reachable from what the carried
+sockets hold, a listener counted by its pending connections; checked exactly,
+under one graph lock) is refused with the same `ETOOMANYREFS`, and printed as
+`PROC:SCM:REFUSE`, because nothing here collects such cycles. A pair whose
+queue holds descriptors that lead elsewhere still travels: WebKit sends the
+end of a new connection that already carries a handle (issue #865). An **epoll
 instance is never sendable** (it watches descriptors, so it is in every
 cycle), a deviation from Linux, which accepts it and garbage-collects.
 
