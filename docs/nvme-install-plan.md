@@ -81,6 +81,14 @@ what the stick already proved, plus a GPT reader and an installer.
    installer writes that layout even while only slot A is used, so a first
    update never repartitions a disk that holds someone's home.
 
+   > **Superseded by update-plan revision 2 (2026-10-19).** Updates now
+   > keep release directories on the one system volume, with the kernel inside
+   > each release and a `bootctl` file in place of the `lazyboot` partition. A
+   > whole-disk install needs no slot B, `lazyboot` or `state` partition, and
+   > the updater needs no raw partition writes. Partitions 3 to 5 below, and
+   > the `CAP_BLOCK_RAW` updater this plan mentions, are to be dropped when
+   > this plan is next revised.
+
 ## Disk layout
 
 GPT, 1 MiB aligned, sizes for a 256 GB or larger SSD. Partitions marked

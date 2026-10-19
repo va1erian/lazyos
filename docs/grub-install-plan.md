@@ -91,8 +91,8 @@ Linux keeps booting exactly as before.
 **Out of scope, by decision:** creating or resizing partitions, installing
 or repairing GRUB itself, Secure Boot signing (it stays off, as for the
 stick), BIOS/CSM GRUB (v1 is UEFI only, see decision 6), dual-boot with
-Windows, disk encryption, swap, A/B updates (the layout has no room for them;
-see "Updates").
+Windows, disk encryption, swap, updates with fallback (a later step that needs no new
+partition; see "Updates").
 
 ## Decisions
 
@@ -117,7 +117,7 @@ see "Updates").
    filesystem UUID, so it never changes when LazyOS does:
 
    ```
-   menuentry "LazyOS" --class lazyos {
+   menuentry "LazyOS" --class lazyos --id lazyos {
        insmod part_gpt
        insmod fat
        insmod chain
@@ -281,10 +281,10 @@ against QEMU while K2 lands. I4 last.
 - **v1 update is in place and offline:** boot Linux (or the stick's Linux-side
   tooling), run `lazyos-install update`. Power loss mid-update can leave the
   kernel and `/system` from different releases; v1 accepts that, keeps the
-  Linux entry as the way back, and `update` writes the new kernel last. A real
-  A/B scheme needs two more partitions and the slot-aware loader of
-  [`update-plan.md`](update-plan.md); the layout leaves that open (the Linux
-  install can add partitions later without touching home).
+  Linux entry as the way back, and `update` writes the new kernel last.
+  [`update-plan.md`](update-plan.md) (revision 2) replaces this with release
+  directories on the same system partition, a slot-aware loader and a GRUB
+  snippet that can return to LazyOS: no new partitions.
 - **Unclean power-off:** same story as the stick and NVMe plans: ext2 without
   a journal, flusher bounds the loss to ~5 s, the next Linux boot can
   `e2fsck` the two partitions (they are plain ext2 with a feature set stock
@@ -343,7 +343,8 @@ against QEMU while K2 lands. I4 last.
   FAT32 problem, no loader file names, one `menuentry` that never mentions
   the ESP. The cost is a small entry stub that turns Multiboot2's memory map,
   framebuffer and RSDP tags into `BootInfo`; it also unlocks BIOS GRUB.
-- **A/B slots** with the update plan's loader and `lazyboot` control block,
-  once the Linux install can be asked for two more partitions.
+- **Updates with fallback** from inside LazyOS: release directories on the
+  system partition, the update plan's slot-aware loader and `bootctl`
+  ([`update-plan.md`](update-plan.md) revision 2).
 - **Native `lazyinstall`** (nvme-install-plan N3) over the same core, for a
   box with no Linux, and the graphical installer N5.

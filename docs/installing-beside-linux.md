@@ -101,6 +101,11 @@ does not change `/etc/default/grub`; if you want the menu always, set
 
 ## Update, status, uninstall
 
+> Today `update` replaces the system in place, from Linux. The planned
+> mechanism ([`update-plan.md`](update-plan.md)) installs updates from inside
+> LazyOS, with one restart and automatic fallback to the previous release.
+> It needs one more `update` from Linux, run with a stick that carries it.
+
 ```bash
 sudo /tmp/lazyos-install update --stick /media/you/LAZYOS
 ```
