@@ -98,6 +98,7 @@ impl Device {
                 max_packet0: 0,
                 vendor: 0,
                 product: 0,
+                version: 0,
                 configurations: 0,
             },
             name: format!("{}-{}", hc.index, at),

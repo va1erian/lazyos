@@ -17,6 +17,8 @@
 //!   X, Y, wheel and buttons (a tablet has no boot protocol) or a gamepad's
 //!   axes, hat and buttons (`docs/usb-gamepad-plan.md`), and reads them out
 //!   of its reports.
+//! * [`busrec`] maps a decoded gamepad change to the raw-bus record `usbd`
+//!   publishes.
 //! * [`xinput`] decodes the fixed report of an Xbox 360-style pad, whose
 //!   interface is vendor class and has no descriptor to read.
 //!
@@ -28,6 +30,7 @@
 extern crate std;
 
 pub mod boot;
+pub mod busrec;
 pub mod desc;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;

@@ -6,7 +6,9 @@
 use std::vec::Vec;
 
 use super::check_field;
-use crate::report::gamepad::{parse_gamepad, Decoder as PadDecoder, PadOut, AXES, AXIS_COUNT};
+use crate::report::gamepad::{
+    has_pad_collection, parse_gamepad, Decoder as PadDecoder, PadOut, AXES, AXIS_COUNT,
+};
 use crate::xinput;
 
 /// Split `data` into a report descriptor and a report (as [`run_pointer_desc`]
@@ -21,7 +23,14 @@ pub fn run_gamepad_desc(data: &[u8]) {
     };
     let split = rest.len().saturating_sub(usize::from(len % 70));
     let (descriptor, report) = rest.split_at(split);
+    // A layout that was placed was in a pad collection: the driver's probe
+    // must never call such a descriptor "not a pad".
+    let probe = has_pad_collection(descriptor);
     if let Ok(layout) = parse_gamepad(descriptor) {
+        assert!(
+            probe,
+            "parse_gamepad placed a pad has_pad_collection denies"
+        );
         for field in layout.axes.into_iter().flatten() {
             check_field(&field);
         }

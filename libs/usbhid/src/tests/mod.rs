@@ -10,6 +10,7 @@ use crate::Error;
 mod gamepad;
 pub(crate) mod golden;
 mod hub;
+mod pad_bind;
 mod report;
 mod xinput;
 
