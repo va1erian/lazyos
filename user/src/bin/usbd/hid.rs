@@ -3,29 +3,49 @@
 //! keyboards and mice are decoded by their fixed boot reports; a
 //! report-protocol pointer (a tablet) by the layout its report descriptor
 //! gave, as absolute positions (`ABS_MOTION`, `0..=0xFFFF`) or, for a
-//! relative one, motion.
+//! relative one, motion. A gamepad (`docs/usb-gamepad-plan.md` G2) is read
+//! the same way, through the layout `usbhid::report::gamepad` placed: changed
+//! axes and button edges, one `DEVICE` identity record at the start.
 //!
 //! Each HID interface is one source of its class, so the kernel stamps a
 //! device id of its own and refuses records the class may not carry. The
 //! driver holds no input policy: reports become edges and deltas, nothing
 //! more (no cursor, no clamping, no repeat).
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 use user::trace;
 
 use usbhid::boot::{parse_mouse, BootKeyboard, BootMouse, KeyEdge, MouseOut};
+use usbhid::busrec::{self, BusRecord};
 use usbhid::desc::Protocol;
+use usbhid::report::gamepad::{self, Gamepad, PadOut};
 use usbhid::report::{self, Out, Pointer};
 use user::sys::{self, raw_kind, source_class, SourceRecord, SOURCE_MAX_BATCH};
 
 use super::Error;
+
+// The record kinds `usbhid::busrec` repeats must be the bus's own.
+const _: () = {
+    assert!(busrec::BUTTON == raw_kind::BUTTON);
+    assert!(busrec::AXIS == raw_kind::AXIS);
+    assert!(busrec::DEVICE == raw_kind::DEVICE);
+};
+
+/// What a report-protocol interface's descriptor turned out to be.
+pub(super) enum ReportLayout {
+    Pointer(Pointer),
+    /// Boxed: a pad's layout is several times a pointer's.
+    Pad(Box<Gamepad>),
+}
 
 /// The decoder for one interface's reports.
 enum Decoder {
     Keyboard(BootKeyboard),
     Mouse(BootMouse),
     Report(report::Decoder),
+    Pad(Box<gamepad::Decoder>),
 }
 
 pub(super) struct Hid {
@@ -37,8 +57,8 @@ pub(super) struct Hid {
 
 impl Hid {
     /// Register a source for a boot `protocol` interface, or for the
-    /// report-protocol pointer `layout` describes.
-    pub(super) fn new(protocol: Protocol, layout: Option<Pointer>) -> Result<Hid, Error> {
+    /// report-protocol pointer or gamepad `layout` describes.
+    pub(super) fn new(protocol: Protocol, layout: Option<ReportLayout>) -> Result<Hid, Error> {
         let (class, decoder) = match (protocol, layout) {
             (Protocol::Keyboard, _) => (
                 source_class::KEYBOARD,
@@ -47,7 +67,16 @@ impl Hid {
             // A boot mouse left in report protocol (`class::wheel_layout`)
             // is decoded by its descriptor, like a tablet.
             (Protocol::Mouse, None) => (source_class::POINTER, Decoder::Mouse(BootMouse::new())),
-            (Protocol::Mouse | Protocol::None, Some(layout)) => {
+            (Protocol::None, Some(ReportLayout::Pad(layout))) => (
+                source_class::GAMEPAD,
+                Decoder::Pad(Box::new(gamepad::Decoder::new(*layout))),
+            ),
+            // A pad never rides a boot protocol; a pad layout on a boot
+            // interface is not something `class.rs` produces.
+            (_, Some(ReportLayout::Pad(_))) => {
+                return Err(Error::Descriptor("gamepad on a boot interface"))
+            }
+            (Protocol::Mouse | Protocol::None, Some(ReportLayout::Pointer(layout))) => {
                 let decoder = report::Decoder::new(layout);
                 let class = if decoder.absolute() {
                     source_class::TABLET
@@ -91,11 +120,29 @@ impl Hid {
             Decoder::Report(decoder) => {
                 decoder.feed(report, |out| records.push(report_out(out)));
             }
+            // A report the layout refuses (another id, too short) emits
+            // nothing and changes nothing.
+            Decoder::Pad(decoder) => {
+                decoder.feed(report, |out| {
+                    if trace {
+                        trace_pad(&out);
+                    }
+                    records.push(pad(out));
+                });
+            }
         }
         self.publish(&records);
         records
             .iter()
             .any(|r| r.kind == raw_kind::KEY && r.value == 1)
+    }
+
+    /// Publish the device's identity (`bcdDevice` included), once, right
+    /// after the source is registered. Diagnostics and a later mapping table
+    /// read it; nothing treats it as a classification.
+    pub(super) fn announce(&mut self, vendor: u16, product: u16, version: u16) {
+        let record = busrec::device_record(vendor, product, version);
+        self.publish(&[source_record(record)]);
     }
 
     /// Whether this is an absolute pointer (a tablet).
@@ -125,6 +172,14 @@ impl Hid {
             }),
             Decoder::Mouse(mouse) => mouse.release_all(|out| records.push(pointer(out))),
             Decoder::Report(decoder) => decoder.release_all(|out| records.push(report_out(out))),
+            // Sticks back to rest, hat centred, buttons released: published
+            // before the source closes (the kernel does the same on close).
+            Decoder::Pad(decoder) => decoder.release_all(|out| {
+                if trace {
+                    trace_pad(&out);
+                }
+                records.push(pad(out));
+            }),
         }
         self.publish(&records);
         let _ = sys::input_source_close(self.source);
@@ -142,6 +197,37 @@ fn trace_key(edge: &KeyEdge) {
         if edge.pressed { "down" } else { "up" },
         sys::clock()
     );
+}
+
+/// The harness's evidence for one gamepad change `usbd` published, with the
+/// tick like [`trace_key`].
+fn trace_pad(out: &PadOut) {
+    match *out {
+        PadOut::Axis { usage, value } => trace::line!(
+            trace::Channel::Usbd,
+            "PAD axis usage={usage:#x} value={value} t={}",
+            sys::clock()
+        ),
+        PadOut::Button { usage, pressed } => trace::line!(
+            trace::Channel::Usbd,
+            "PAD button usage={usage} {} t={}",
+            if pressed { "down" } else { "up" },
+            sys::clock()
+        ),
+    }
+}
+
+fn source_record(record: BusRecord) -> SourceRecord {
+    SourceRecord {
+        kind: record.kind,
+        code: record.code,
+        value: record.value,
+    }
+}
+
+/// Bus gamepad records (`AXIS`, `BUTTON`), mapped by `usbhid::busrec`.
+fn pad(out: PadOut) -> SourceRecord {
+    source_record(busrec::pad_record(out))
 }
 
 fn key(edge: KeyEdge) -> SourceRecord {

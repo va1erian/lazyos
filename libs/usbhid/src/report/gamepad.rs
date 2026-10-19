@@ -200,6 +200,29 @@ fn is_pad_app(app: Option<(u16, u16)>) -> bool {
     )
 }
 
+/// Whether the descriptor declares a gamepad: any Input item sits inside a
+/// Game Pad, Joystick or Multi-axis Controller application collection,
+/// whether or not [`parse_gamepad`] can place its axes.
+///
+/// This is a probe rather than a second [`crate::Error`] variant on purpose.
+/// `parse_gamepad` answers "where are the fields" and fails with `WrongType`
+/// for both "no pad here" and "a pad I cannot place" (relative axes, no Y);
+/// the driver needs the difference only to decide *not to fall back* to the
+/// pointer layout, which is unscoped and would read the pad's X/Y as a
+/// tablet. A separate boolean keeps `parse_gamepad`'s contract and every
+/// existing caller unchanged, and is testable on its own.
+///
+/// A descriptor that is truncated or malformed part way answers for what the
+/// walk saw before it stopped: a pad collection seen first stays a pad
+/// (conservative: the interface is left unbound, never half-driven as a
+/// pointer), and no collection seen is no pad.
+pub fn has_pad_collection(descriptor: &[u8]) -> bool {
+    let mut found = false;
+    // The error only says the descriptor ended badly; what was seen counts.
+    let _ = walk(descriptor, |item| found |= is_pad_app(item.app));
+    found
+}
+
 /// Find the first gamepad in a report descriptor: the report that carries an
 /// X axis inside a pad application collection, and that report's other axes,
 /// hat and buttons. Relative fields are not placed: the bus's `AXIS` is

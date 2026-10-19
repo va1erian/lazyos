@@ -76,6 +76,8 @@ pub struct DeviceDescriptor {
     pub max_packet0: u8,
     pub vendor: u16,
     pub product: u16,
+    /// `bcdDevice`, the device's release number.
+    pub version: u16,
     pub configurations: u8,
 }
 
@@ -244,6 +246,7 @@ pub fn parse_device(bytes: &[u8]) -> Result<DeviceDescriptor, Error> {
         max_packet0: bytes[7],
         vendor: u16_at(bytes, 8),
         product: u16_at(bytes, 10),
+        version: u16_at(bytes, 12),
         configurations: bytes[17],
     })
 }
