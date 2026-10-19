@@ -651,9 +651,18 @@ before these two rules and count gaps against the ends of webkit.org, a short pa
 * **The end of the page** (`Speculation::set_at_bottom`, `paint.cpp`): the window scrolled ahead past the bottom
   of a short page (webkit.org) into rows that do not exist and showed a checkerboard until it gave up 900 ms later.
   The UI process now sends `WKPageIsPinnedToBottomSide` with each update's offset, and nothing further is shown
-  ahead downward from a picture at the bottom, unless bands below the view say the page goes on: WebKit tells the
-  pinned state again when the page scrolls, not after every layout, and Ars Technica's consent overlay leaves the
-  page "pinned" until the first scroll after it closes.
+  ahead downward from a picture at the bottom past what the bands below the view cover. That was the first
+  version, and it did not hold: it let the notches through when `reach_down` was not zero, and it is not zero at
+  the end of webkit.org (29 rows: the page has a few more rows than the view shows, and the band painter paints
+  them), so the notches against the end took the picture 480 rows ahead and 450 of them were checkerboard, the
+  hole in the screenshots of the bench's `site1_scrolled`. A diagnostic line per draw with checkerboard
+  (offset, ahead, `at_bottom`, `reach_down`) showed `at_bottom=true down=29 pending=480`; the ceiling at the end is
+  `reach_down` now (`at_the_end_the_picture_goes_ahead_only_as_far_as_the_bands_below_the_view_cover`,
+  `at_the_end_of_the_page_what_was_shown_past_it_is_given_back_with_no_checkerboard`), and what is already
+  ahead past it is dropped when the page says it is pinned. webkit.org's checkerboard went from 7.3% of the rows
+  shown to 0.1%. WebKit tells the pinned state again when the page scrolls, not after every layout, so it is
+  `true` from the first load until the first scroll (bands cover that case). The bench takes a second shot
+  three seconds after the scroll (`site<n>_settled`), which is what shows a hole that stays.
 
 **A build trap found on the way.** Removing a WebKit patch re-extracts the tree, but `tar` gave every file the
 archive's time: a file the removed patch had changed looked older than its object, ninja kept the patched object, and
@@ -673,9 +682,5 @@ and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `
 2. **Whole frames on webkit.org.** 3 to 4 a second still reach the window while scrolling (the animation and the
    scroll in one update), and drawing one costs 50-80 ms at this size: the long gaps that remain. Keep the delta
    when an update both scrolls and repaints, or composite the animated element apart.
-3. **The rows below the end of a short page.** At the bottom of webkit.org the window shows a checkerboard below the
-   footer even once the scroll has settled (7% of the rows shown while scrolling there); the first screenshot of this
-   work shows it too. The picture does not cover the view's rows below the document's end: find which update
-   leaves them out (the scroll delta's exposed strip, or the backing store's size) before blaming the bands.
-4. **Two hangs seen once each, not reproduced**: input stopped reaching the window after Ars Technica loaded (the
+3. **Two hangs seen once each, not reproduced**: input stopped reaching the window after Ars Technica loaded (the
    input services alive), and a WebProcess waited for good in `GetNetworkProcessConnection` at startup.

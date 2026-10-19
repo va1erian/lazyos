@@ -109,13 +109,17 @@ impl Speculation {
         let floor = self
             .actual
             .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-up, 0));
-        // Never below the end of the page: nothing past the newest pixels when they end it. WebKit
-        // tells the pinned state again when the page scrolls, not on every layout (a closed overlay
-        // that made the page scrollable): rows painted below the view say the page goes on.
-        let at_end = self.at_bottom && self.reach_down == 0;
-        // At the end nothing further is added, and what is already ahead stays (a notch down never
-        // moves the picture up).
-        let ceiling = if at_end { self.pending.max(0) } else { MAX_AHEAD.max(self.reach_down) };
+        // Never below the end of the page. At the end (the engine says it is pinned to the bottom) the
+        // picture may be shown ahead only as far as it is covered by what the page's process painted
+        // below the view (the bands: a few rows past the view's edge even at the end, since the page
+        // has more rows than the view shows), never the usual [`MAX_AHEAD`] of checkerboard past a
+        // document that does not go on. What is already ahead stays (a notch down never moves the
+        // picture up).
+        let ceiling = if self.at_bottom {
+            self.reach_down.max(self.pending.max(0))
+        } else {
+            MAX_AHEAD.max(self.reach_down)
+        };
         let next = (self.pending + step).clamp(floor, ceiling);
         if next == self.pending {
             return dropped;
@@ -187,14 +191,19 @@ impl Speculation {
     }
 
     /// Whether the page could not scroll further down from the offset of the newest update
-    /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows it ahead
-    /// downward, unless bands below the view say there are rows there (the state can be stale).
-    /// What is ahead downward then is past the end of the page and is dropped at once, not after
-    /// [`PROBE_MS`]: returns whether it was (the picture goes back).
+    /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows the picture
+    /// ahead downward past what the bands below the view cover. What is ahead past that is past the
+    /// end of the page and is dropped at once, not after [`PROBE_MS`]: returns whether any was (the
+    /// picture goes back).
     pub fn set_at_bottom(&mut self, at_bottom: bool) -> bool {
         self.at_bottom = at_bottom;
-        if at_bottom && self.reach_down == 0 && self.pending > 0 {
-            self.snap();
+        if at_bottom && self.pending > self.reach_down {
+            self.counters.snaps += 1;
+            self.counters.snap_px = self.counters.snap_px.max(self.pending - self.reach_down);
+            self.pending = self.reach_down;
+            if self.pending == 0 {
+                self.moved = false;
+            }
             return true;
         }
         false

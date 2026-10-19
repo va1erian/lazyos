@@ -243,3 +243,44 @@ fn with_smooth_scrolling_a_notch_starts_a_slide() {
         .expect("row 0 shows a page row");
     assert!(moved > 0 && moved < STEP, "moved {moved} of {STEP}");
 }
+
+/// The page's answer to a notch it could only do part of, the page's end: it scrolled `moved` rows (its
+/// rows move up, the rows it uncovered are painted) and says it is at the bottom.
+fn answer_at_the_end(stage: &Stage<'_, Msg>, (w, h): (i32, i32), mailbox: &Mailbox, offset: i32, moved: i32) {
+    mailbox.set_scroll_offset(offset, true);
+    let delta = Delta {
+        size: (w as u32, h as u32),
+        scroll: Some(Scroll {
+            area: IRect::new(0, 0, w, h),
+            dx: 0,
+            dy: -moved,
+        }),
+        patches: vec![Patch {
+            rect: IRect::new(0, h - moved, w, moved),
+            rgba: solid(w, moved, BLUE),
+        }],
+    };
+    assert!(!mailbox.post_delta(delta), "the delta was queued");
+    stage.emit(Msg::Frame);
+}
+
+#[test]
+fn at_the_end_of_the_page_what_was_shown_past_it_is_given_back_with_no_checkerboard() {
+    // Three notches asked, 120 rows ahead; the page had 40 rows left to scroll and said it is at the bottom.
+    let shown = run(|stage, size, mailbox, at| {
+        wheel(stage, at, -3, Modifiers::default());
+        answer_at_the_end(stage, size, mailbox, STEP, STEP);
+        // The wheel keeps turning against the end: nothing is shown ahead any more.
+        wheel(stage, at, -3, Modifiers::default());
+        wheel(stage, at, -3, Modifiers::default());
+    });
+    let (w, h) = shown.size;
+    for y in [0, 1, h / 2, h - STEP - 1] {
+        assert_eq!(shown.at(10, y), row_colour(y + STEP), "row {y} is where the page is");
+    }
+    for y in [h - STEP, h - 1] {
+        for x in [0, w / 2, w - 9] {
+            assert_eq!(shown.at(x, y), BLUE, "({x},{y}) is the page's last rows, not a checkerboard");
+        }
+    }
+}
