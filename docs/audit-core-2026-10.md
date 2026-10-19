@@ -15,8 +15,12 @@ confirm.
 ## Status (2026-10-19)
 
 Every High finding is fixed and merged. The fixes went through a second
-review round, and the combined tree passed the full kernel suite
-(1607/0) before merging.
+review round. Before merging, all seven were combined on one local branch
+on top of `51312bcc7` (the only conflict was `channels/close.rs`, between
+#907 and #910). That combined tree passed fmt, clippy and the full kernel
+suite: 1607 passed, 0 failed (`tools/test/run.py --accel auto`). The
+separate per-PR runs reported 1566–1591 passes, plus timer tests that are
+known to be flaky on a loaded host.
 
 | Findings | PR |
 |---|---|
@@ -105,8 +109,8 @@ roles (`netd`, doorbell owner) in `ipc::teardown_task`.
 | messengerd subscriptions | 64 | a dead owner's subscriptions are never collected | M-S1 |
 | init handle table | 256 | router broker re-resolves on each publish to a stalled sink | H12 |
 | clipboardd sessions | 16 | sessions are never forgotten, so the 17th login breaks copy and paste | M-S4 |
-| mountd mounts | 8 (global) | failed entries kept, no per-uid cap | L |
-| MSI vectors | 32 | re-arm after a disarm routes a fresh vector | L |
+| mountd mounts | 8 (global) | failed entries kept, no per-uid cap | Low (section 5) |
+| MSI vectors | 32 | re-arm after a disarm routes a fresh vector | Low (section 5) |
 | Kernel heap | n/a | terminal transactions not awaited keep up to 1 MiB each | H9 |
 
 **Fix once:** every global table needs (a) a per-uid or per-owner share,
@@ -468,8 +472,15 @@ merges. In summary:
 - **Low:** everything in section 5, plus a cross-mount rename that returns
   `ENOSYS` instead of `EXDEV`.
 - **Follow-ups from the fix reviews:**
-  - #907: `execve` keeps received-but-unanswered calls;
+  - #907: `execve` keeps received-but-unanswered calls; no trace line for
+    a refused forged reply;
+  - #910:
+    - no per-uid channel-count quota;
+    - `EPIPE` now also means "your request was dropped";
+    - the reclaimer's root ordering is safe only on one CPU (`smp-audit.md`);
   - #911: no test through the real `exit_group` path;
+  - #913: ramfs still has no `open_node` (descriptors act by path);
+  - M-T4: recheck now that #911 changed the sweep;
   - #915: EINTR after a stop and continue;
   - #914:
     - `ListApps` reports the manifest's `autostart` flag;
