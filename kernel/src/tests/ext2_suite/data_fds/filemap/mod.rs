@@ -12,6 +12,7 @@ use crate::quota::{self, Resource};
 mod basic;
 mod cache_body;
 mod coherence;
+mod frame;
 mod killed;
 mod lifecycle;
 mod parents;
@@ -208,6 +209,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "linux_filemap_read_then_write_keeps_writable_parents",
         parents::read_then_write_keeps_writable_parents,
+    ),
+    (
+        "linux_filemap_handler_frame_not_read_in_the_sweep",
+        frame::handler_frame_never_reads_a_file_in_the_sweep,
     ),
     ("linux_filemap_private", basic::private_mapping),
     ("linux_filemap_shared", basic::shared_mapping),

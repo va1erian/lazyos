@@ -32,8 +32,7 @@
 //! signal pending (a handler wakes it, a default-disposition parent is only
 //! recorded).
 //!
-//! [`kill_group`] remains the blunt group-termination primitive; the signal
-//! layer drives per-process termination instead.
+//! Per-process termination is the signal layer's (`signal::end_process`).
 
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
@@ -42,12 +41,6 @@ use super::family::{self, deliver_parent_death, release_children_locked, same_pr
 use super::signal;
 use super::wait::CHILD_EXIT;
 use super::{Task, TaskState, KERNEL_TASK, MAX_TASKS, NEEDS_REDRAW, PENDING_CLOSE, TASKS};
-
-/// Exit status recorded for a member terminated by [`kill_group`]: the
-/// conventional `128 + SIGKILL(9)`. The signal layer terminates processes one
-/// group at a time now; the group primitive stays for the test harness.
-#[allow(dead_code)]
-pub const KILLED_STATUS: u64 = 137;
 
 /// Failures of the group/session syscalls, mapped to errno by `process::linux`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -271,49 +264,6 @@ fn drop_timers_if_last(tasks: &[Option<Task>; MAX_TASKS], slot: usize) {
     if !others {
         super::itimer::forget(pml4);
     }
-}
-
-/// Terminate every task in process group `pgid`, returning how many were newly
-/// marked `Done`.
-///
-/// The kernel/init task (slot 0) is exempt: init is not killable, matching the
-/// rule that only init terminates itself. Signal delivery (#60) uses
-/// `signal::terminate_process` instead; this blunt primitive remains for the
-/// test harness and for a future group-wide `SIGKILL` fast path.
-#[allow(dead_code)]
-pub fn kill_group(pgid: usize) -> usize {
-    let (killed, parents) = {
-        let mut tasks = TASKS.lock();
-        let members: Vec<usize> = (1..MAX_TASKS)
-            .filter(|&slot| {
-                tasks[slot]
-                    .as_ref()
-                    .is_some_and(|task| task.pgid == pgid && task.state != TaskState::Done)
-            })
-            .collect();
-        let mut parents = Vec::new();
-        for slot in members {
-            // A killed task can no longer raise its children, so
-            // `finish_locked` adopts them to init right away.
-            if let Some(parent) = finish_locked(&mut tasks, slot, KILLED_STATUS) {
-                parents.push(parent);
-            }
-        }
-        (parents.len(), parents)
-    };
-    if killed > 0 {
-        deliver_parent_death();
-        super::close_exited_fds();
-        NEEDS_REDRAW.store(true, Ordering::Relaxed);
-        // See `finish`: queue before task table, and the table is now unlocked.
-        for parent in parents {
-            family::count_notification(parent);
-            signal::post_sigchld(parent);
-            super::childbell::ring(parent);
-        }
-        CHILD_EXIT.notify_all();
-    }
-    killed
 }
 
 /// `setpgid(pid, pgid)` semantics (issue #59).

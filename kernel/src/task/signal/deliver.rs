@@ -45,6 +45,18 @@ pub(super) fn fatal_status(pml4: u64, sig: u8) -> u64 {
     with_signals(pml4, |state| state.group_exit.unwrap_or(128 + sig as u64))
 }
 
+/// The signal `status` stands for when a thread of process `pml4` ends with
+/// it: `Some` for a death by signal, `None` for an exit status. Once a group
+/// exit is in progress the group says which it is (`exit_group(130)` is not
+/// `SIGINT`); before one, a status in `129..=192` is `128 + signal`.
+pub(super) fn term_signal_of(pml4: u64, status: u64) -> Option<u8> {
+    let signaled = with_signals(pml4, |state| match state.group_exit {
+        Some(_) => state.group_signaled,
+        None => true,
+    });
+    (signaled && (129..=128 + 64).contains(&status)).then(|| (status - 128) as u8)
+}
+
 /// Drop `sig` from both of thread `slot`'s pending sets (it is being ignored).
 pub(super) fn clear_pending(pml4: u64, slot: usize, sig: u8) {
     with_both(pml4, slot, |state, thread| {
@@ -71,6 +83,9 @@ pub(super) fn arm_handler(pml4: u64, slot: usize, sig: u8) -> Option<Armed> {
         // After `rt_sigsuspend` the frame must restore the mask the suspend
         // replaced, not the temporary one the handler runs under.
         let saved_mask = thread.suspend_restore.take().unwrap_or(thread.blocked);
+        // The handler is being delivered (here, or from a syscall return after
+        // a deferral): a later deferral starts its clock afresh.
+        thread.frame_deferred_at = 0;
         let mut next = thread.blocked | mask;
         if flags & SA_NODEFER == 0 {
             next |= bit(sig);
@@ -271,7 +286,16 @@ pub(super) fn wait_continued() {
             Some(TaskState::Blocked {
                 wait: WaitKind::Signal,
                 ..
-            }) => crate::task::nap(),
+            }) => {
+                // The suite has no second task to send the `SIGCONT`, and its
+                // "current" task is not the one running: it plays the peer
+                // instead of halting.
+                #[cfg(lazyos_tests)]
+                if crate::task::harness::run_nap_hook() {
+                    continue;
+                }
+                crate::task::nap();
+            }
             Some(TaskState::Done) | None => halt_forever(),
             _ => return,
         }

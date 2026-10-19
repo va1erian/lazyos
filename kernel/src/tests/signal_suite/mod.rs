@@ -27,6 +27,7 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 
 mod delivery;
 mod fpstate;
+mod group_end;
 mod hardening;
 mod kill_parked;
 mod killwatch;
@@ -39,6 +40,7 @@ mod xstate;
 
 pub(super) use delivery::*;
 pub(super) use fpstate::*;
+pub(super) use group_end::*;
 pub(super) use hardening::*;
 pub(super) use kill_parked::*;
 pub(super) use killwatch::*;
@@ -78,6 +80,28 @@ pub(super) const CASES: &[(&str, Test)] = &[
         kill_defers_tasks_parked_in_kernel,
     ),
     ("task_signal_soak_kill_parked", soak_kill_parked),
+    (
+        "task_signal_exit_group_spares_threads_in_kernel",
+        exit_group_spares_threads_inside_the_kernel,
+    ),
+    (
+        "task_signal_fault_spares_threads_in_kernel",
+        fault_spares_threads_inside_the_kernel,
+    ),
+    (
+        "task_signal_group_end_finishes_user_threads",
+        group_end_finishes_user_threads_at_once,
+    ),
+    ("task_signal_group_end_soak", group_end_soak),
+    (
+        "task_signal_stop_reaches_the_native_boundary",
+        stop_reaches_the_native_boundary,
+    ),
+    ("task_signal_stray_wakes_and_init", stray_wakes_and_init),
+    (
+        "task_signal_stop_spares_threads_in_kernel",
+        stop_leaves_threads_inside_the_kernel_alone,
+    ),
     (
         "task_signal_fatal_pending_follows_kill",
         fatal_pending_follows_the_kill,

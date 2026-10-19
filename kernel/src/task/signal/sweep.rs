@@ -149,6 +149,7 @@ pub fn deliver_on_resume(slot: usize) -> Option<SweepFinish> {
     // Nearly every switch: nothing pending, so skip the frame inspection.
     let pml4 = tasks[slot].as_ref()?.pml4;
     if !has_deliverable(pml4, slot) {
+        with_thread(slot, |thread| thread.frame_deferred_at = 0);
         return None;
     }
     // SAFETY: `tasks` is the live table and the scheduler stores an interrupt
@@ -204,15 +205,90 @@ unsafe fn sweep_slot(
                     return finish(tasks, slot, fatal_status(pml4, sig));
                 }
             },
-            Disposition::Handler { .. } => {
+            Disposition::Handler { flags, .. } => {
                 if pml4 != active_pml4 {
                     return None;
                 }
+                // SAFETY: `rsp` is the saved frame `sweep_slot` was given.
+                if unsafe { frame_waits_for_file(pml4, slot, kind, rsp, flags) } {
+                    // This runs in the timer interrupt: reading the file page
+                    // would take the filesystem's lock, whose holder cannot run
+                    // while we spin, and park inside an interrupt (audit H13).
+                    // The signal stays pending and is delivered on the task's
+                    // next syscall return, in task context, where the fault can
+                    // park. A task that never makes a syscall waits a bounded
+                    // time, then takes the `SIGSEGV` of a frame that cannot be
+                    // laid out.
+                    let now = crate::task::ticks().max(1);
+                    let since = with_thread(slot, |thread| {
+                        if thread.frame_deferred_at == 0 {
+                            thread.frame_deferred_at = now;
+                        }
+                        thread.frame_deferred_at
+                    });
+                    if now - since <= FRAME_DEFER_LIMIT {
+                        return None;
+                    }
+                    return finish(tasks, slot, 128 + SIGSEGV as u64);
+                }
+                with_thread(slot, |thread| thread.frame_deferred_at = 0);
                 return enter_handler(tasks, slot, pml4, kind, rsp, sig);
             }
         }
     }
+    // Nothing is waiting any more: a later deferral starts its clock afresh.
+    with_thread(slot, |thread| thread.frame_deferred_at = 0);
     None
+}
+
+/// How many ticks (100 Hz: three seconds) a handler may wait for a frame that
+/// needs a file page read in before the thread takes `SIGSEGV`.
+pub const FRAME_DEFER_LIMIT: u64 = 300;
+
+/// Whether laying out the handler frame for `slot` (whose saved frame is
+/// `rsp`) would fault in a page of a file mapping. The frame is written
+/// through the installed table by the sweep, which runs in the timer
+/// interrupt with the task table locked: a page of an anonymous mapping can
+/// be materialised there (a frame allocation, nothing that parks), a file page
+/// cannot (`mem::filemap::fault` reads the file, under a lock the interrupted
+/// task may hold, and may park).
+///
+/// A stack that cannot hold a frame at all (the build fails before writing)
+/// needs no read.
+///
+/// # Safety
+/// As [`sweep`]: `rsp` is an interrupt frame saved by the scheduler.
+unsafe fn frame_waits_for_file(pml4: u64, slot: usize, kind: Kind, rsp: u64, flags: u64) -> bool {
+    // SAFETY: `rsp` is a saved interrupt frame (this function's contract).
+    let regs = unsafe { regs_from_frame(rsp, FRAME_RIP_INDEX) };
+    let (altstack, on_altstack) = with_thread(slot, |thread| (thread.altstack, thread.on_altstack));
+    let top = if flags & SA_ONSTACK != 0 && altstack.enabled && !on_altstack {
+        harden::altstack_top(altstack.sp, altstack.size)
+    } else {
+        Some(regs.rsp)
+    };
+    let Some(top) = top else {
+        return false;
+    };
+    let low = if kind == Kind::Linux {
+        frame_base(top)
+    } else {
+        harden::handler_frame_below(top, RED_ZONE + NATIVE_FRAME_SIZE)
+    };
+    let Some(low) = low else {
+        return false;
+    };
+    let table = x86_64::PhysAddr::new(pml4);
+    let mut page = low & !0xfff;
+    while page < top {
+        if crate::mem::resident_pages(table, page, page + 0x1000) == 0
+            && crate::mem::vma::find(table, page).is_some_and(|vma| vma.kind.is_file_mapping())
+        {
+            return true;
+        }
+        page += 0x1000;
+    }
+    false
 }
 
 /// Rewrite `slot`'s saved frame so it resumes in the handler for `sig`, with
@@ -249,8 +325,9 @@ unsafe fn enter_handler(
 
 /// End `slot` under the table lock, recording the finish for the caller.
 fn finish(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, status: u64) -> Option<SweepFinish> {
-    if (129..=128 + 64).contains(&status) {
-        crate::task::linuxstate::note_term_signal(tasks, slot, (status - 128) as u8);
+    let pml4 = tasks[slot].as_ref().map(|task| task.pml4);
+    if let Some(sig) = pml4.and_then(|pml4| term_signal_of(pml4, status)) {
+        crate::task::linuxstate::note_term_signal(tasks, slot, sig);
     }
     process::finish_locked(tasks, slot, status).map(|parent| SweepFinish {
         slot: slot as u16,
@@ -270,8 +347,8 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
     for done in finished {
         // A fatal signal ends the whole thread group, not the one thread the
         // sweep happened to catch (Linux's group exit): the rest follow it.
-        if (129..=128 + 64).contains(&done.status) {
-            if let Some((pml4, _)) = slot_info(done.slot as usize) {
+        if let Some((pml4, _)) = slot_info(done.slot as usize) {
+            if term_signal_of(pml4, u64::from(done.status)).is_some() {
                 kill_process(pml4, u64::from(done.status));
             }
         }

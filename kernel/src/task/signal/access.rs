@@ -203,6 +203,15 @@ pub fn killed(slot: usize) -> bool {
     })
 }
 
+/// Whether the timer sweep left a handler for thread `slot` undelivered
+/// because its frame needs a file page read in (`sweep::frame_waits_for_file`).
+/// The thread must not go to sleep before the syscall return delivers it: a
+/// wait that sees this returns `Interrupted`, the syscall ends `EINTR`, and
+/// `deliver_linux` lays the frame out in task context.
+pub fn frame_deferred(slot: usize) -> bool {
+    slot != KERNEL_TASK && with_thread(slot, |thread| thread.frame_deferred_at != 0)
+}
+
 /// `execve` replaced address space `old` with `new`: a kill that was pending
 /// for the old image (the task was parked loading the new one) carries over,
 /// so the new image dies on its first return to user mode instead of
@@ -212,9 +221,9 @@ pub fn carry_kill(old: u64, new: u64) {
         procs
             .iter()
             .find(|state| state.pml4 == old && state.pending & bit(SIGKILL) != 0)
-            .map(|state| (state.group_exit, state.kill_at_ns))
+            .map(|state| (state.group_exit, state.group_signaled, state.kill_at_ns))
     });
-    let Some((exit, began)) = exit else {
+    let Some((exit, signaled, began)) = exit else {
         return;
     };
     with_signals(new, |state| {
@@ -224,6 +233,7 @@ pub fn carry_kill(old: u64, new: u64) {
         }
         if state.group_exit.is_none() {
             state.group_exit = exit;
+            state.group_signaled = signaled;
         }
     });
 }

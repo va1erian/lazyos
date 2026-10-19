@@ -176,6 +176,9 @@ pub(super) fn send_checked(
             return Ok(());
         }
         SIGSTOP => {
+            // Pending for the process until `SIGCONT`: threads inside the
+            // kernel stop at their next delivery boundary (`stop_process`).
+            with_signals(pml4, |state| state.pending |= bit(SIGSTOP));
             stop_process(pml4);
             return Ok(());
         }
@@ -303,136 +306,43 @@ pub(super) fn wake_blocked_thread(slot: usize) {
     }
 }
 
-/// Kill the process `pml4` (Linux's group exit), the way `SIGKILL` does.
+/// Stop the process `pml4`: park its threads that stand at a user frame as
+/// stopped (`WaitKind::Signal`), and the calling thread, which is at a
+/// delivery boundary or in the `kill` that stops its own process.
 ///
-/// A task can only be ended where it stands when its saved frame is a user
-/// frame: it holds nothing of the kernel's. A task parked *inside* the kernel
-/// (blocked in a syscall, stopped in a delivery boundary, or runnable mid-call)
-/// may hold a lock or a request slot (an ext2 volume's gate, a block
-/// provider's request), and marking it `Done` would leak them forever: it
-/// never runs again to release them. Such a task gets `SIGKILL` pending
-/// (which no mask holds back), is woken with [`WakeReason::Interrupted`] if
-/// it sleeps, unwinds through its syscall and dies at the syscall return
-/// ([`deliver_linux`], `deliver_native`) or in the sweep once its frame is a
-/// user frame. The current task is always inside the kernel, so it is left
-/// to its own syscall return too.
+/// A thread that is *inside* the kernel is not parked where it stands: it may
+/// hold a lock (an ext2 volume's gate) or a request slot across a wait that
+/// only a wake with its own deadline or completion ends, and overwriting that
+/// wait would freeze every other user of the lock until `SIGCONT` (audit
+/// M-T1). Such a thread is woken if it sleeps and stops by itself at its next
+/// delivery boundary, where it holds nothing: the stop signal stays pending
+/// for the whole process until `SIGCONT` ([`continue_process`]), so every
+/// thread finds it there.
 ///
-/// Every thread records `status` (or the status of a group exit already in
-/// progress). Returns that status.
-pub(super) fn kill_process(pml4: u64, status: u64) -> u64 {
-    let status = with_signals(pml4, |state| {
-        state.pending |= bit(SIGKILL);
-        if state.kill_at_ns == 0 {
-            state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
-        }
-        *state.group_exit.get_or_insert(status)
-    });
-    let me = current();
-    let mut parents = SlotList::new();
-    let mut parked = SlotList::new();
-    // Decide and finish under one hold of the table with interrupts off, so a
-    // task judged to be in user mode cannot enter the kernel before it ends.
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        let mut tasks = TASKS.lock();
-        crate::task::family::note_group_exit(&mut tasks, pml4, status);
-        for slot in 1..MAX_TASKS {
-            let Some(task) = tasks[slot].as_ref() else {
-                continue;
-            };
-            if task.pml4 != pml4 || task.state == TaskState::Done {
-                continue;
-            }
-            // `128 + signal` is the status; `wait4` reports the signal itself,
-            // for the tasks ended here and for those that end later.
-            if (129..=128 + 64).contains(&status) {
-                crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
-            }
-            if slot == me {
-                continue;
-            }
-            let Some(task) = tasks[slot].as_ref() else {
-                continue;
-            };
-            let blocked = matches!(task.state, TaskState::Blocked { .. });
-            if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
-                if let Some(parent) = process::finish_locked(&mut tasks, slot, status) {
-                    parents.push(parent);
-                }
-            } else if blocked {
-                parked.push(slot);
-            }
-        }
-    });
-    for parent in parents.iter() {
-        process::after_finish(parent);
-    }
-    // Any blocked state, a stop (`WaitKind::Signal`) included: the kill ends
-    // the stop, and the woken wait sees `Interrupted`.
-    for slot in parked.iter() {
-        wake_task_with(slot, WakeReason::Interrupted);
-    }
-    status
-}
-
-/// End the current task on a fatal signal and start the group exit for the
-/// rest of its process (see [`kill_process`]). Called at a delivery boundary
-/// on the way back to user mode, where the current task holds nothing.
-pub(super) fn exit_group(pml4: u64, status: u64) -> ! {
-    let status = kill_process(pml4, status);
-    process::finish(current(), status);
-    halt_forever()
-}
-
-/// Terminate every live task sharing `pml4`, recording the same status for
-/// each, wherever each one stands. The fault paths use it for the faulting
-/// process; signal delivery uses [`kill_process`], which spares tasks parked
-/// inside the kernel until they leave it.
-pub fn terminate_process(pml4: u64, status: u64) -> usize {
-    let mut slots = SlotList::new();
-    {
-        let tasks = TASKS.lock();
-        for slot in 1..MAX_TASKS {
-            if tasks[slot]
-                .as_ref()
-                .is_some_and(|task| task.pml4 == pml4 && task.state != TaskState::Done)
-            {
-                slots.push(slot);
-            }
-        }
-    }
-    let mut killed = 0;
-    crate::task::family::note_group_exit(&mut TASKS.lock(), pml4, status);
-    // `128 + signal` is the status; `wait4` reports the signal itself.
-    if (129..=128 + 64).contains(&status) {
-        // The kernel ended it (a fault, the OOM killer, a hardening kill):
-        // `PROC:EXIT by=kernel`.
-        crate::task::procexit::note_signal(pml4, (status - 128) as u8, 0);
-        let mut tasks = TASKS.lock();
-        for slot in slots.iter() {
-            crate::task::linuxstate::note_term_signal(&mut tasks, slot, (status - 128) as u8);
-        }
-    }
-    for slot in slots.iter() {
-        if process::finish(slot, status) {
-            killed += 1;
-        }
-    }
-    killed
-}
-
-/// Park every live task sharing `pml4` as stopped (`WaitKind::Signal`). A
-/// process being killed is not stopped: that would park the tasks the kill
+/// A process being killed is not stopped: that would park the tasks the kill
 /// woke to unwind (Linux ignores stops once a group exit began).
 pub(super) fn stop_process(pml4: u64) {
     if with_signals(pml4, |state| state.pending & bit(SIGKILL) != 0) {
         return;
     }
-    let mut tasks = TASKS.lock();
-    for slot in 1..MAX_TASKS {
-        let Some(task) = tasks[slot].as_mut() else {
-            continue;
-        };
-        if task.pml4 == pml4 && task.state != TaskState::Done {
+    let me = current();
+    let mut inside = SlotList::new();
+    // Decide and park under one hold of the table with interrupts off, like
+    // `kill_threads`: a thread judged to be in user mode cannot enter the
+    // kernel before it is parked.
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut tasks = TASKS.lock();
+        for slot in 1..MAX_TASKS {
+            let Some(task) = tasks[slot].as_mut() else {
+                continue;
+            };
+            if task.pml4 != pml4 || task.state == TaskState::Done {
+                continue;
+            }
+            if slot != me && !frame_is_user(task.rsp, FRAME_RIP_INDEX) {
+                inside.push(slot);
+                continue;
+            }
             task.state = TaskState::Blocked {
                 wait: WaitKind::Signal,
                 deadline: None,
@@ -440,6 +350,13 @@ pub(super) fn stop_process(pml4: u64) {
             task.wake_reason = None;
             crate::task::runq::sync(&tasks, slot);
         }
+    });
+    // The stop this call carries (`SIGSTOP`, `SIGTSTP`, ...) may be blocked by
+    // the thread or pending only in the sender's own set: `SIGSTOP` cannot be
+    // masked, so it is the marker that makes the thread stop at its boundary.
+    for slot in inside.iter() {
+        with_thread(slot, |thread| thread.pending |= bit(SIGSTOP));
+        wake_blocked_thread(slot);
     }
 }
 
@@ -473,7 +390,7 @@ pub(super) fn continue_process(pml4: u64) {
         with_thread(slot, |thread| thread.pending &= !STOPS);
     }
     for slot in stopped.iter() {
-        wake_task_with(slot, WakeReason::Woken);
+        crate::task::wake_stopped_with(slot, WakeReason::Woken);
     }
 }
 

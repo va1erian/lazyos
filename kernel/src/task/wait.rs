@@ -115,6 +115,12 @@ impl WaitQueue {
         if super::signal::killed(task) {
             return WakeReason::Interrupted;
         }
+        // A handler the timer sweep could not lay out (its stack page is an
+        // unread file page) waits for the syscall return; sleeping first would
+        // hold it back until the wait ends by itself.
+        if super::signal::frame_deferred(task) {
+            return WakeReason::Interrupted;
+        }
         self.park_ns(task, deadline);
         // Enter the scheduler through the voluntary gate: the saved context is
         // a regular interrupt frame, so resuming later lands right here with

@@ -77,13 +77,31 @@ pub(super) fn set_timer(index: usize, deadline: Option<u64>) {
 /// Move a blocked task back to `Runnable` and record why. Returns whether the
 /// task was actually blocked (a task that already timed out, or is `Done`, is
 /// left untouched so the scheduler never resurrects it).
+///
+/// A task stopped by a signal (`WaitKind::Signal`) is left alone: only a
+/// continue or a kill ends a stop ([`wake_stopped_with`]); a stray wake (a
+/// futex word, a queue notify aimed at where the thread slept before the stop)
+/// must not resume it.
 pub(crate) fn wake_task_with(index: usize, reason: WakeReason) -> bool {
+    wake_inner(index, reason, false)
+}
+
+/// [`wake_task_with`] for the two things that end a stop: `SIGCONT` and a
+/// kill.
+pub(crate) fn wake_stopped_with(index: usize, reason: WakeReason) -> bool {
+    wake_inner(index, reason, true)
+}
+
+fn wake_inner(index: usize, reason: WakeReason, ends_stop: bool) -> bool {
     let mut tasks = TASKS.lock();
     // A task that slept while its peers ran rejoins near the current virtual
     // time instead of being handed a burst of catch-up quanta (issue #58).
     let now = virtual_now(&tasks);
     if let Some(task) = tasks[index].as_mut() {
-        if let TaskState::Blocked { deadline, .. } = task.state {
+        if let TaskState::Blocked { deadline, wait } = task.state {
+            if wait == WaitKind::Signal && !ends_stop {
+                return false;
+            }
             if deadline.is_some() {
                 timerq::TIMERS.lock().cancel(index);
             }

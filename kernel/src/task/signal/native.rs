@@ -74,11 +74,25 @@ pub fn deliver_native() {
     if slot == KERNEL_TASK {
         return;
     }
-    let Some(sig) = native_fatal_pending(slot) else {
-        return;
-    };
     let Some((pml4, _)) = slot_info(slot) else {
         return;
     };
-    exit_group(pml4, 128 + sig as u64);
+    loop {
+        if let Some(sig) = native_fatal_pending(slot) {
+            exit_group(pml4, 128 + sig as u64);
+        }
+        // A default stop is acted on here too, as `deliver_linux` does: a
+        // native service (or an xui app idle in `recv`) whose boundary is this
+        // gate would otherwise keep serving through `kill -STOP` (the sweep
+        // only stops it if it catches it in user mode). `stop_process` leaves
+        // the stop pending for the process and parks this thread; a `SIGKILL`
+        // while stopped ends it on the next turn of the loop.
+        match next_deliverable(pml4, slot) {
+            Some((sig, Disposition::Default)) if default_action(sig) == DefaultAction::Stop => {
+                stop_process(pml4);
+                wait_continued();
+            }
+            _ => return,
+        }
+    }
 }
