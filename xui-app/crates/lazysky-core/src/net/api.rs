@@ -12,8 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use super::http::{Http, Response};
 use super::url;
+use super::{Http, Response};
 use crate::proto::error::{rate_limit_wait, ErrorKind, XrpcError};
 use crate::proto::{parse_json, Session};
 

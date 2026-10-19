@@ -1,11 +1,13 @@
 # LazyAgent: an AI chat and diagnostics agent for LazyOS
 
-**Status:** draft, revision 2 (2026-10-18). Nothing is built. Revision 2
-takes in two rounds of pre-PR review: a one-time elevation that grants in
+**Status:** draft, revision 3 (2026-10-19). P0 is done and its findings are
+in §10; P1 is in progress (the shared `lazyhttps` crate, the provider, the
+store and the host CLI). Revision 2
+took in two rounds of pre-PR review: a one-time elevation that grants in
 diagd, honest risk ratings, system-only program output,
 in-memory keys until keyd can keep an app secret, the kernel ring scope,
 issue-body exfiltration, stream timeouts, and redaction gaps. §12 lists the
-facts the survey established; §13 lists the questions P0 must answer.
+facts the survey established; §13 lists the questions P0 had to answer.
 
 LazyAgent (`os.lazy.agent`, binary `xui-agent.elf`, menu name **AI Agent**)
 is a desktop chat client for a large language model reached over HTTPS. v1
@@ -135,7 +137,10 @@ These are the same rules as lazysky-plan §7.1.
   the user's own text and attachments.
 * **Secrets.** The Fireworks API key and the GitHub token are never put in
   a log, a trace, `argv`, the environment, confd, a conversation file or an
-  issue. §5.3 says where they live. Add `AGENT:` and `DIAG:` to
+  issue. The one exception is development tooling: the host CLI `agent_cli`
+  and the P0 guest harness read `FIREWORKS_API_KEY` from the environment
+  (the harness types it into `read -s`), and `agent_cli` sends it only to the
+  real service, never to a `--test-endpoint`. §5.3 says where they live. Add `AGENT:` and `DIAG:` to
   `SECRET_CHANNELS` in `tools/trace/check_adhoc.py`.
 * **The app's own authority.** The manifest lists display, input,
   clipboard, mimed and notify, plus `os.lazy.diag.v1`, `os.lazy.elevd.v1`
@@ -186,7 +191,12 @@ These are the same rules as lazysky-plan §7.1.
   usage chunk) and a total per conversation. There is no price table in v1.
 * **Context management:** when the next prompt would pass 75% of the
   model's context, the oldest turns are replaced by a summary the model
-  writes (a **compact** request, shown as a divider in the transcript). Tool
+  writes (a **compact** request, shown as a divider in the transcript). The
+  summarizer is told its transcript is data, and the summary is sent as
+  quoted notes in a user message, never as part of the system prompt: it was
+  written from tool output an attacker may have shaped. A conversation with
+  two turns or fewer is never compacted (the size is only an estimate): the
+  server answers a real overflow itself. Tool
   results older than the last two turns are sent as their digest line only.
 * **Errors:** 401 asks for the key again. 429 and 5xx are retried at most
   twice, honouring `Retry-After`, with backoff. 422 shows the server's
@@ -235,10 +245,22 @@ docs warn they may be invalid or carry unlisted fields).
   (`set_timeout`, as in `tls.rs`) is 250 ms. After each timed-out read the
   thread checks the Stop flag, and it gives up after 60 s with no byte
   (*interrupted*). Stop takes effect within 250 ms, from the thread that
-  owns the socket.
+  owns the socket. As built, this is `lazyhttps::Watch`, handed to
+  `Http::post_stream`: the TLS transport loops over the timed-out reads
+  itself, so ureq never sees them.
 * The host allowlist, `https` only and no redirects (§3) live in the
-  `https` crate's request builder for this app (an allowlist argument, so
-  LazySky keeps its own behaviour).
+  `https` crate's request builder for this app (`HttpOptions::policy`, a
+  `Policy`; LazySky keeps the default, which allows any host over `http` or
+  `https`). A URL with a user name is refused too.
+* **As built (P1).** `Provider::stream` returns the finished `Completion`
+  (or a `ChatError` that carries what had arrived) and feeds the `Sink`
+  as it goes, instead of `done` and `fail` methods on the sink: the result
+  is easier to test, and Stop, an interruption and a retry are three
+  different errors. Retries of 429 and 5xx (two at most, `Retry-After` or a
+  1 s, 2 s backoff, capped at 30 s) run inside `stream` and report
+  through `Sink::retrying`. The host CLI is the binary `agent_cli`, not an
+  example, so that cross-building it for the guest does not build the
+  dev-dependencies (`ring` needs a C compiler).
 
 ### 5.3 Keys
 
@@ -359,10 +381,12 @@ caller's prompts. Its `values` reply is also a poor fit for pages of logs.
 Instead elevd grants, and diagd serves:
 
 1. **Unlock** calls `elevd.Request("diag.elevate", [])`. The prompt's
-   summary (at most 300 characters) says: "AI Agent wants to read the
-   system logs and service output, which can include what users typed in
-   a Terminal. What it reads may be sent to Fireworks AI, outside this
-   computer."
+   summary (at most 300 characters; 170 as written) says: "Read the system
+   logs and service output for five minutes. They can include what users
+   typed in a Terminal, and what is read may be sent to a service outside
+   this computer." It does not name the app: the prompt names the asker
+   from the kernel stamp, and elevd cannot know where the text will go (P0
+   finding 3).
 2. On approval, elevd calls `diagd.Grant(uid, label, session, 300)` with
    its own identity. diagd accepts `Grant` and `Revoke` from **elevd's
    identity only**. It refuses a grant for label 0 (elevpolicy's rule: no
@@ -625,6 +649,79 @@ Each phase ends with fmt, clippy `-D warnings`, the host tests and
 token count, and the default model's id and tool-call support are
 confirmed or replaced.
 
+**P0 findings (2026-10-19).** All five items have an answer; the code that
+produced them is `xui-app/crates/agent-core` (`agent_cli`) and
+`tools/agent/p0_guest.py`.
+1. *Streaming.* From the host, a real Fireworks reply has its first chunk
+   after 0.8 to 1.8 s (the server's own `fireworks-server-time-to-first-token`
+   is 0.4 to 1.3 s) and streams at 125 to 155 tokens/s. From a guest console
+   image (`LAZYOS_TLS=1`, user-mode network, WHPX) the same request has its
+   first chunk after 0.75 to 1.0 s and streams at about 108 tokens/s (296
+   tokens in 3.8 s). The key reached the guest through `read -s` (no echo)
+   and `export`, and the script found it nowhere in the serial log.
+2. *Model and tool calls.* `accounts/fireworks/models/deepseek-v4p1-flash`
+   is served, takes `tools`, and streams tool calls. Its context is 1,048,576
+   tokens (Fireworks' own `/inference/v1/models` list gives `context_length`
+   and `supports_tools`; `model.rs` holds five presets from it).
+   * The reasoning field is **`reasoning_content`** (`reasoning` is accepted
+     as a fallback). `reasoning_effort` takes `none`, `low`, `medium` and
+     `high`; `none` produces no reasoning at all (a 0.9 s reply, 8 tokens),
+     `low` still produces some (270 reasoning tokens for a greeting).
+   * A tool call arrives as a first fragment with `index`, `id`, `type` and
+     `function.name` and an **empty** `arguments`, then fragments carrying
+     slices of `arguments` (`{"name":"`, `net`, `d`, `"`, `}`). Parallel calls
+     arrived one after the other, each complete before the next index
+     began; the assembler joins by `index` anyway. `finish_reason` is
+     `tool_calls`.
+   * The usage chunk has an empty `choices` and carries
+     `prompt_tokens`, `completion_tokens` and
+     `completion_tokens_details.reasoning_tokens`. It comes without
+     `stream_options`, so the client does not send that field.
+   * A request that replays a `tool_calls` assistant message and its `tool`
+     result, **without** the reasoning, is accepted and answered. Reasoning
+     is therefore not sent back (§4).
+   * Errors: a bad parameter is **400** `{"error":{"message":...}}` (the
+     422 `detail` array is still handled), a bad key is 401
+     `{"error":{"message":"The API key you provided is invalid.",...}}`.
+3. *`diag.elevate`.* A prototype `Operation::DiagElevate` in
+   `libs/elevpolicy` (no arguments, `Class::Once`, summary "Read the system
+   logs and service output for five minutes. ...", 170 characters) passes:
+   `Approvals::grant` leaves nothing standing for it, an approved
+   `diag.elevate` covers no `conf.*` operation, and a standing `conf.elevate`
+   view does not cover it. The prototype is not committed (elevd's
+   `perform.rs` matches `Operation` exhaustively, so the variant lands with
+   its handler in P4; the patch is in the P0 notes). One correction to §6.3: the
+   prompt already names the asker from the kernel stamp (`label_id` is
+   resolved by `xuid`, `os.lazy.display.prompt.v1`), so the summary must not
+   say "AI Agent wants" and must not take an app name from an argument,
+   which any caller could set. It starts with the action, and the prompt
+   says who asks.
+4. *Program ring.* In a `LAZYOS_DBGD=1` kernel under WHPX, one `push_program`
+   costs 2 cycles per byte: 14 ns for 16 bytes, 54 ns for 80, 123 ns for 200,
+   575 ns for 1 KB. `Ring::push` keeps only the last 64 KiB of a write, so
+   the longest stretch with interrupts off is about 35 us, far under the
+   2 ms `IRQOFF` threshold. The whole `serial::mirror` of an 80-byte line
+   costs 620 us (the serial queue dominates), so the ring adds under 0.01%.
+   That answers §13 question 2: the ring is cheap enough for **every**
+   image, desktop or not.
+5. *Read timeout.* The 250 ms wake-up holds under rustls's `StreamOwned` on
+   LazyOS sockets and on the host. A guest read of a 60,000-byte chunked body
+   whose ten TLS records were each sent in two parts, 600 ms apart, woke 16
+   to 20 times in 5.2 to 6.0 s and ended with the right bytes (FNV-1a
+   equal to the server's); a host test asserts the same. rustls keeps a
+   partial record, so the next read carries on. The wake-up loop lives in the
+   TLS transport (`lazyhttps`, `Watch`) rather than in ureq's body reader,
+   so ureq never sees a timeout and is never resumed after an error. The Stop
+   flag is looked at before **every** read of the socket, not only after a
+   timeout (the first version missed Stop on a stream that kept sending), so
+   Stop ends a stream within one poll whether it is stalled, busy, a record
+   is trickling in, the head has not come, or an error body stalls
+   (`tests/provider_stop.rs`). A stopped read fails with a dedicated error,
+   not `ErrorKind::Interrupted`, which `read_to_end` retries for ever. The
+   idle limit is per read: a peer that delivers a byte every few seconds is
+   slow, not idle, and Stop still ends it. A TCP connect keeps its own 10 s
+   bound.
+
 **P1: core chat (host).** Extract `xui-app/crates/https` from lazysky-core,
 move LazySky onto it, and add the allowlist. Then the provider trait, the
 Fireworks client, the SSE parser (with fuzzing), the conversation model and
@@ -867,8 +964,9 @@ No marker carries message text, log content, a key or a token.
 1. Is a five-minute grant enough, or should a `diag.elevate` grant last
    for a whole conversation, still ended by `Release`, the window closing or
    the end of the session?
-2. Is the always-on program ring cheap enough for every image, or only for
-   desktop images?
+2. ~~Is the always-on program ring cheap enough for every image, or only for
+   desktop images?~~ Answered by P0: yes, for every image (54 ns for an
+   80-byte line, 35 us worst case).
 3. Should a diagnosis that needs the source code read files at the build's
    commit through GitHub's contents API (read-only, the same token)? That
    would let the agent link an explanation to the lines, at the cost of a

@@ -2739,6 +2739,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyagent-core"
+version = "0.1.0"
+dependencies = [
+ "lazyhttps",
+ "nettls-crypto",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lazyarc"
 version = "0.1.0"
 dependencies = [
@@ -2746,6 +2758,18 @@ dependencies = [
  "flate2",
  "lzma-rs",
  "ruzstd",
+]
+
+[[package]]
+name = "lazyhttps"
+version = "0.1.0"
+dependencies = [
+ "nettls-crypto",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "ureq",
 ]
 
 [[package]]
@@ -2794,15 +2818,13 @@ name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
  "image",
+ "lazyhttps",
  "nettls-crypto",
  "rcgen",
  "rustls",
- "rustls-native-certs",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "toml 0.8.23",
- "ureq",
 ]
 
 [[package]]

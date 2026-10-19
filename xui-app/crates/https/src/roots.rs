@@ -12,7 +12,7 @@ use rustls::RootCertStore;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::CertificateDer;
 
-use crate::platform::Roots;
+use crate::Roots;
 
 /// A real bundle is a few hundred KiB; refuse to read anything absurd.
 const MAX_BUNDLE_BYTES: u64 = 16 * 1024 * 1024;

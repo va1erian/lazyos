@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use lazysky_core::proto::{Embed, Reason};
 use lazysky_core::{
-    Core, Event, FeedSource, Http, HttpOptions, Platform, Request, Roots, Secret, Settings,
+    Core, Event, FeedSource, Http, Platform, Request, Roots, Secret, Settings,
 };
 
 struct Terminal;
@@ -67,7 +67,7 @@ fn main() {
         std::env::var("LAZYSKY_HANDLE"),
         std::env::var("LAZYSKY_PASSWORD"),
     ) else {
-        let http = Http::new(Terminal.ca_roots(), HttpOptions::default());
+        let http = Http::new(Terminal.ca_roots(), lazysky_core::net::http_options());
         let url = format!("{}/xrpc/_health", settings.service);
         match http.get(&url, &[]) {
             Ok(r) => println!("{url}: HTTP {}, {} bytes", r.status, r.body.len()),

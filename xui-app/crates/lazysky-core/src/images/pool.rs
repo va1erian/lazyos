@@ -95,7 +95,7 @@ fn run(shared: &Shared, roots: Roots, events: &Sender<Event>) {
     let options = HttpOptions {
         max_body: MAX_BODY,
         read_timeout: Duration::from_secs(30),
-        ..HttpOptions::default()
+        ..crate::net::http_options()
     };
     let http = Http::new(roots, options);
     loop {
