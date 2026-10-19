@@ -40,7 +40,11 @@ impl Watch {
         // On display 13 the vertical blank also starts `TRANS_SET_CONTEXT_
         // LATENCY` lines after `TRANS_VBLANK`'s start; both boxes' firmware
         // leaves it 0, which is all this reads.
-        let lag = if pipe.hdmi_link() || pipe.func.mode == DdiMode::Dvi { 2 } else { 1 };
+        let lag = if pipe.hdmi_link() || pipe.func.mode == DdiMode::Dvi {
+            2
+        } else {
+            1
+        };
         let count_line = pipe.v.blank_start.saturating_sub(lag);
         let (first, t0) = (Beam::read(&mut regs, index), sys::monotonic_ns());
         let _ = sys::sleep_ns(MEASURE_NS);

@@ -146,9 +146,8 @@ fn adopt_and_serve(
     command: &device::Command,
 ) -> Result<core::convert::Infallible, Failure> {
     // `device::find` took only a device `Display::for_device` knows.
-    let display = Display::for_device(claimed.row.device).ok_or_else(|| {
-        Failure("display", alloc::format!("{:04x}", claimed.row.device))
-    })?;
+    let display = Display::for_device(claimed.row.device)
+        .ok_or_else(|| Failure("display", alloc::format!("{:04x}", claimed.row.device)))?;
     trace::line!(Channel::Gpu, "DISPLAY engine={}", display.name());
     let identity = device::identity(claimed, display).map_err(step)?;
     report::pci(&identity, command);
