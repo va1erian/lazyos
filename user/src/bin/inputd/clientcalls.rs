@@ -1,5 +1,5 @@
 //! `os.lazy.input.v1` requests: open and close sessions, state, grabs, the
-//! key-state page and `Ping`. Key content itself is pushed (`hub.rs`).
+//! key-state and gamepad-state pages and `Ping`. Key content itself is pushed (`hub.rs`).
 
 use alloc::vec::Vec;
 use user::trace;
@@ -19,6 +19,7 @@ impl Hub {
         match message.method() {
             wire::METHOD_OPEN => self.open(message),
             wire::METHOD_ATTACHKEYSTATE => self.attach_key_state(message),
+            wire::METHOD_ATTACHGAMEPADSTATE => self.attach_gamepad_state(message),
             // The rest carry no objects (a message that claims otherwise
             // closes them when it drops).
             method => {

@@ -1,5 +1,5 @@
-"""Seeds for the input fuzz targets (`gen_corpus.py`): inputmap pointer
-scripts, USB HID descriptors, reports and report descriptors.
+"""Seeds for the input fuzz targets (`gen_corpus.py`): inputmap pointer and
+gamepad scripts, USB HID descriptors, reports and report descriptors.
 """
 import struct
 
@@ -54,6 +54,92 @@ def inputmap_pointer_seeds():
         "hostile": p_screen(1, 1) + p_raw(4, 0, 1) + p_raw(4, 6, 1) + p_raw(4, 1, 2) + p_raw(5, 2, 1)
         + p_raw(2, 1, 5) + p_raw(1, 4, 1) + p_raw(200, 0xFFFF, -1) + p_raw(5, 0, 0x7FFFFFFF),
         "degenerate_screen": p_screen(0, 0) + p_rel(100, 100, flush=True) + p_abs(0xFFFF, 0xFFFF),
+        "empty": b"",
+    }
+
+
+# ---- inputmap gamepad grammar -------------------------------------------------
+#
+# `libs/inputmap/src/fuzz_gamepad.rs`: ops, each a byte (low 7 bits mod 13
+# select it, bit 7 is a flag) and a device byte (low 3 bits), then:
+#   0/1 button: usage (mod 36), value (mod 3)
+#   2/3 axis: code - 0x2F (mod 12), then the hat's value (mod 11, minus 1) or an
+#       i16 (flag: an i32)
+#   4 register: class (mod 5); flag: its SOURCE record is lost
+#   5 close: class for the SOURCE record (mod 5); flag: record lost
+#   6 table read (held; applied where the stream reaches it), 7 flush,
+#   8 Dropped (resync, then a table read)
+#   9 pointer kind (2 + mod 4), code (mod 3), i32
+#   10 anything: kind, u16 code, i32 value
+#   11 toggle the ring's lag (records queue until a drain), 12 drain it
+
+G_BUTTON, G_AXIS, G_REGISTER, G_CLOSE, G_TABLE, G_FLUSH, G_DROPPED, G_RAW = 0, 2, 4, 5, 6, 7, 8, 10
+G_LAG, G_DRAIN = 11, 12
+G_LOST = 0x80
+CLASS_POINTER, CLASS_TABLET, CLASS_GAMEPAD = 2, 3, 4
+AXIS_X, AXIS_Y, AXIS_HAT = 0x30, 0x31, 0x39
+
+
+def g_button(device, usage, value):
+    return bytes([G_BUTTON, device, usage, value])
+
+
+def g_axis(device, usage, value, wide=False):
+    code = usage - 0x2F
+    if usage == AXIS_HAT:
+        return bytes([G_AXIS, device, code, value + 1])
+    if wide:
+        return bytes([G_AXIS | G_LOST, device, code]) + struct.pack("<i", value)
+    return bytes([G_AXIS, device, code]) + struct.pack("<h", value)
+
+
+def g_register(device, cls, lost=False):
+    return bytes([G_REGISTER | (G_LOST if lost else 0), device, cls])
+
+
+def g_close(device, cls, lost=False):
+    return bytes([G_CLOSE | (G_LOST if lost else 0), device] + ([] if lost else [cls]))
+
+
+def g_raw(device, kind, code, value):
+    return bytes([G_RAW, device, kind]) + struct.pack("<Hi", code, value)
+
+
+def inputmap_gamepad_seeds():
+    table, flush, dropped = bytes([G_TABLE, 0]), bytes([G_FLUSH, 0]), bytes([G_DROPPED, 0])
+    lag, drain = bytes([G_LAG, 0]), bytes([G_DRAIN, 0])
+    return {
+        # A pad registers, is pressed, swept and released.
+        "basic_pad": g_register(1, CLASS_GAMEPAD) + g_button(1, 1, 1) + g_button(1, 32, 1)
+        + g_axis(1, AXIS_X, 32767) + g_axis(1, AXIS_Y, -32768) + g_axis(1, AXIS_HAT, 1) + flush
+        + g_axis(1, AXIS_HAT, 8) + g_axis(1, AXIS_X, 100) + g_button(1, 1, 0) + flush,
+        # A pad is unplugged (the SOURCE close is lost) and a mouse takes its id.
+        "unplug_reuse": g_register(2, CLASS_GAMEPAD) + g_button(2, 3, 1) + g_axis(2, AXIS_X, 20000)
+        + g_close(2, CLASS_GAMEPAD, lost=True) + g_register(2, CLASS_POINTER, lost=True) + table
+        + g_button(2, 1, 1) + g_button(2, 1, 0) + flush,
+        # The pad's SOURCE register is lost: only the table finds it.
+        "lost_source_gap": g_register(3, CLASS_GAMEPAD, lost=True) + g_button(3, 1, 1) + table
+        + g_button(3, 1, 1) + g_axis(3, AXIS_X, 30000) + dropped + g_button(3, 2, 1) + flush,
+        # Five pads on the bus: the fifth has no slot.
+        "pad_overflow": b"".join(g_register(d, CLASS_GAMEPAD) + g_button(d, 1, 1) for d in range(5))
+        + dropped + flush,
+        # The same id re-registered over a held pad, in the same class and another.
+        "reregister": g_register(4, CLASS_GAMEPAD) + g_button(4, 5, 1) + g_axis(4, AXIS_HAT, 3)
+        + g_register(4, CLASS_GAMEPAD) + g_button(4, 6, 1) + g_register(4, CLASS_TABLET)
+        + g_axis(4, AXIS_X, 1) + g_close(4, CLASS_TABLET),
+        # Out-of-range usages, values and codes, and kinds a pad may not publish.
+        "hostile": g_register(5, CLASS_GAMEPAD) + g_button(5, 0, 1) + g_button(5, 35, 1) + g_button(5, 1, 2)
+        + g_axis(5, AXIS_X, 2147483647, wide=True) + g_axis(5, AXIS_HAT, 9) + g_raw(5, 2, 0, 1)
+        + g_raw(5, 3, 0, 1) + g_raw(5, 5, 0, 1) + g_raw(5, 10, 4, 7) + g_raw(5, 10, 300, 1)
+        + g_raw(5, 10, 0, 1) + g_raw(5, 9, 0x2dc8, 1) + g_raw(5, 200, 0xFFFF, -1) + flush,
+        # The table is read after the pad was pressed and unplugged, but the
+        # records are still queued: they must stay the pad's.
+        "table_ahead_unplug": lag + g_register(1, CLASS_GAMEPAD) + g_button(1, 1, 1)
+        + g_button(1, 1, 0) + g_close(1, CLASS_GAMEPAD) + table + drain + g_button(1, 1, 1) + flush,
+        # The slot is reused by a mouse before the (held) table is read.
+        "table_ahead_reuse": lag + g_register(2, CLASS_GAMEPAD) + g_button(2, 3, 1)
+        + g_close(2, CLASS_GAMEPAD) + g_register(2, CLASS_POINTER) + g_button(2, 1, 1)
+        + table + drain + g_button(2, 1, 0) + flush,
         "empty": b"",
     }
 
@@ -127,6 +213,28 @@ MOUSE_REPORT = bytes([
     0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75,
     0x08, 0x95, 0x03, 0x81, 0x06, 0xC0, 0xC0])
 
+# Gamepads (`docs/usb-gamepad-plan.md` G0; libs/usbhid/src/tests/golden.rs):
+# a generic two-stick pad, a four-way hat pad and a pad behind a report id.
+PAD_REPORT = bytes([
+    0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x05, 0x09, 0x19, 0x01, 0x29, 0x0C, 0x15, 0x00, 0x25,
+    0x01, 0x75, 0x01, 0x95, 0x0C, 0x81, 0x02, 0x95, 0x01, 0x75, 0x04, 0x81, 0x03, 0x05, 0x01,
+    0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x75, 0x04, 0x95,
+    0x01, 0x81, 0x03, 0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x15, 0x81, 0x25, 0x7F,
+    0x75, 0x08, 0x95, 0x04, 0x81, 0x02, 0x09, 0x32, 0x09, 0x35, 0x15, 0x00, 0x26, 0xFF, 0x00,
+    0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0xC0])
+
+PAD_REPORT_4WAY = bytes([
+    0x05, 0x01, 0x09, 0x04, 0xA1, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x00, 0x26,
+    0xFF, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, 0x09, 0x39, 0x15, 0x00, 0x25, 0x03, 0x75,
+    0x04, 0x95, 0x01, 0x81, 0x42, 0x75, 0x04, 0x95, 0x01, 0x81, 0x03, 0xC0])
+
+PAD_REPORT_IDS = bytes([
+    0x05, 0x01, 0x09, 0x05, 0xA1, 0x01, 0x85, 0x02, 0x05, 0x09, 0x19, 0x01, 0x29, 0x04, 0x15,
+    0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x04, 0x81, 0x02, 0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
+    0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x16, 0x00, 0x80, 0x26, 0xFF, 0x7F, 0x75, 0x10, 0x95,
+    0x02, 0x81, 0x02, 0x85, 0x01, 0x06, 0x00, 0xFF, 0x09, 0x01, 0x75, 0x08, 0x95, 0x02, 0x81,
+    0x02, 0xC0])
+
 
 def hidreportdesc_seeds():
     two_reports = bytes([
@@ -141,5 +249,9 @@ def hidreportdesc_seeds():
         "push_pop": bytes([0]) + bytes([0xA4] * 8 + [0xB4] * 12) + TABLET_REPORT,
         "truncated": bytes([0]) + TABLET_REPORT[:41],
         "long_item": bytes([0]) + bytes([0xFE, 0x05, 0x10]) + TABLET_REPORT,
+        # A pad report: buttons 1 and 2, hat east, sticks at the extremes.
+        "gamepad": bytes([9]) + PAD_REPORT + bytes([0x03, 0x00, 0x02, 0x81, 0x7F, 0x00, 0x81, 0xFF, 0x00]),
+        "gamepad_hat": bytes([3]) + PAD_REPORT_4WAY + bytes([0x00, 0x00, 0x01]),
+        "gamepad_ids": bytes([6]) + PAD_REPORT_IDS + bytes([0x02, 0x03, 0x00, 0x80, 0xFF, 0x7F]),
         "empty": b"",
     }

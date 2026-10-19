@@ -8,6 +8,7 @@ use crate::input::bus::{self, kind, RawEvent, RING_CAP};
 use crate::input::hid::{Set1Decoder, Step};
 
 mod console;
+mod gamepad;
 mod hid_table;
 mod lost_release;
 mod pointer;
@@ -16,7 +17,9 @@ mod ps2_intake;
 mod ring;
 mod source;
 mod source_priority;
+mod source_records;
 mod source_stress;
+mod source_table;
 mod stress;
 mod syscall;
 
@@ -218,6 +221,23 @@ pub(super) const CASES: &[(&str, Test)] = &[
         source::table_bound_and_reclaim,
     ),
     ("input_source_rate_limited", source::rate_limited),
+    ("input_gamepad_class_and_ranges", gamepad::class_and_ranges),
+    (
+        "input_gamepad_device_record_from_every_class",
+        gamepad::device_record_is_accepted_from_every_class,
+    ),
+    (
+        "input_gamepad_close_releases_all_32_buttons",
+        gamepad::close_releases_all_32_buttons,
+    ),
+    (
+        "input_gamepad_close_centres_held_axes",
+        gamepad::close_centres_held_axes,
+    ),
+    (
+        "input_gamepad_axis_tail_merges_by_replacing",
+        gamepad::axis_tail_merges_by_replacing,
+    ),
     (
         "input_source_register_raises_driver",
         source_priority::register_raises_driver,
@@ -225,6 +245,43 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "input_source_closing_one_source_keeps_the_input_share",
         source_priority::closing_one_source_keeps_the_input_share,
+    ),
+    (
+        "input_source_register_and_close_announce",
+        source_records::register_and_close_announce,
+    ),
+    (
+        "input_source_task_teardown_announces",
+        source_records::task_teardown_announces,
+    ),
+    (
+        "input_source_dead_owner_reclaim_announces",
+        source_records::dead_owner_reclaim_announces,
+    ),
+    (
+        "input_source_driver_cannot_forge_source",
+        source_records::driver_cannot_forge_source,
+    ),
+    (
+        "input_source_records_never_merge",
+        source_records::source_records_never_merge,
+    ),
+    (
+        "input_source_table_capability_gate",
+        source_table::capability_gate,
+    ),
+    ("input_source_table_contents", source_table::contents),
+    (
+        "input_source_table_dead_owner_listed_until_released",
+        source_table::dead_owner_stays_listed_until_released,
+    ),
+    (
+        "input_source_table_header_cuts_the_stream",
+        source_table::header_cuts_the_stream,
+    ),
+    (
+        "input_source_table_bounds_and_faults",
+        source_table::bounds_and_faults,
     ),
     (
         "input_source_priority_stress_generations",

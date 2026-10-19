@@ -448,8 +448,12 @@ The system input service (`inputd`; `docs/input-plan.md`).
 | `keyboard_leave()` | `KeyboardLeave() -> () oneway` | Event: keyboard focus left. The client **must release every key** it |
 | `layout_changed(layout)` | `LayoutChanged(layout: String) -> () oneway` | Event: the layout changed (a `confd` write, live). |
 | `grant_changed(kind, active, reason)` | `GrantChanged(kind: U32, active: Bool, reason: U32) -> () oneway` | Event: the session's grab of kind `kind` started (`active`) or ended; |
+| `gamepad_axis(device, code, value, ts_ns, seq)` | `GamepadAxis(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> () oneway` | Event: a gamepad axis changed (only the focused session that attached |
+| `gamepad_button(device, code, pressed, ts_ns, seq)` | `GamepadButton(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> () oneway` | Event: a gamepad button changed (only the focused session that |
+| `gamepad_enter()` | `GamepadEnter() -> () oneway` | Event: gamepad input arrived with this session's focus: read the |
+| `gamepad_leave()` | `GamepadLeave() -> () oneway` | Event: focus left, or events were lost. The client **must release |
 
-Not callable from a script (the request carries a kernel object): `Open`, `AttachKeyState`.
+Not callable from a script (the request carries a kernel object): `Open`, `AttachKeyState`, `AttachGamepadState`.
 
 - `KEY_STATE` = the `KeyState` variants; `KEY_STATE_DOWN`, `KEY_STATE_UP`, `KEY_STATE_REPEAT`
 - `GRANT_KIND` = the `GrantKind` variants; `GRANT_KIND_NONE`, `GRANT_KIND_KEYBOARD`

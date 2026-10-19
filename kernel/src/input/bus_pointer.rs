@@ -1,4 +1,5 @@
-//! The device-independent pointer encoding (`docs/usb-hid-plan.md`).
+//! The device-independent pointer encoding (`docs/usb-hid-plan.md`) and the
+//! merge policy for the records that are state rather than edges.
 //!
 //! | kind | code | value |
 //! |---|---|---|
@@ -7,7 +8,8 @@
 //! | `BUTTON` | HID button usage ([`button`](pointer::button)) | `0` release, `1` press |
 //! | `SCROLL` | [`VERTICAL`](pointer::VERTICAL) or [`HORIZONTAL`](pointer::HORIZONTAL) | signed notches, `> 0` is up / right |
 //!
-//! Producers split deltas wider than `i16` across records.
+//! Producers split deltas wider than `i16` across records. The gamepad's
+//! `AXIS` records ([`super::axis`]) merge here too.
 
 use super::kind;
 
@@ -51,13 +53,18 @@ pub fn unpack_abs(value: i32) -> (u16, u16) {
     (value as u32 as u16, ((value as u32) >> 16) as u16)
 }
 
-/// Whether records of `kind` may be folded into their predecessor.
+/// Whether records of `kind` may be folded into their predecessor: the
+/// pointer's motion and the wheel (deltas), and a gamepad's axis (absolute
+/// state, replaced).
 pub fn mergeable(kind: u8) -> bool {
-    matches!(kind, kind::REL_MOTION | kind::ABS_MOTION | kind::SCROLL)
+    matches!(
+        kind,
+        kind::REL_MOTION | kind::ABS_MOTION | kind::SCROLL | kind::AXIS
+    )
 }
 
-/// `older` and `newer` combined: deltas add (saturating), positions
-/// replace. Only meaningful for [`mergeable`] kinds.
+/// `older` and `newer` combined: deltas add (saturating), positions and
+/// axes replace. Only meaningful for [`mergeable`] kinds.
 pub fn merge(kind: u8, older: i32, newer: i32) -> i32 {
     match kind {
         kind::REL_MOTION => {

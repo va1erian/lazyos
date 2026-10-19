@@ -38,6 +38,11 @@ pub(super) fn register(source_class: u8) -> Result<u64, String> {
     Ok(id)
 }
 
+/// The device id a source id names.
+pub(super) fn device_of(id: u64) -> u8 {
+    sources::device_of((id & 0xFF) as usize)
+}
+
 pub(super) fn rec(kind_: u8, code: u16, value: i32) -> Record {
     Record {
         kind: kind_,
@@ -140,9 +145,20 @@ pub fn device_ids_are_stamped() -> Result<(), String> {
     let motion = rec(kind::REL_MOTION, 0, pointer::pack_rel(3, -2));
     let button = rec(kind::BUTTON, pointer::button::LEFT, 1);
     check!(publish(mouse, &[motion, button]) == 2, "pointer");
-    let records = drain_all(reader, 16)?;
-    gapless(&records, 1)?;
-    let (kbd_dev, mouse_dev) = (records[0].device, records[2].device);
+    let all = drain_all(reader, 16)?;
+    gapless(&all, 1)?;
+    // The kernel announces each registration before any record it carries.
+    let (kbd_dev, mouse_dev) = (all[0].device, all[1].device);
+    check!(
+        shape(&all[..2])
+            == [
+                (kbd_dev, kind::SOURCE, u16::from(class::KEYBOARD), 1),
+                (mouse_dev, kind::SOURCE, u16::from(class::POINTER), 1),
+            ],
+        "announcements {:x?}",
+        shape(&all[..2])
+    );
+    let records = &all[2..];
     check!(
         kbd_dev >= FIRST_DEVICE && mouse_dev >= FIRST_DEVICE && kbd_dev != mouse_dev,
         "devices {kbd_dev:#x} {mouse_dev:#x}"
@@ -152,7 +168,7 @@ pub fn device_ids_are_stamped() -> Result<(), String> {
         "a source got a kernel driver's id"
     );
     check!(
-        shape(&records)
+        shape(records)
             == [
                 (kbd_dev, kind::KEY, 0x04, 1),
                 (kbd_dev, kind::KEY, 0x04, 0),
@@ -160,7 +176,7 @@ pub fn device_ids_are_stamped() -> Result<(), String> {
                 (mouse_dev, kind::BUTTON, 1, 1),
             ],
         "records {:x?}",
-        shape(&records)
+        shape(records)
     );
     clean();
     Ok(())
@@ -207,6 +223,8 @@ pub fn class_and_ranges_enforced() -> Result<(), String> {
     check!(
         kinds
             == [
+                (kind::SOURCE, u16::from(class::KEYBOARD), 1),
+                (kind::SOURCE, u16::from(class::TABLET), 1),
                 (kind::KEY, 0x05, 1),
                 (kind::KEY, 0x05, 0),
                 (kind::ABS_MOTION, 0, pointer::pack_abs(10, 20)),
@@ -280,7 +298,13 @@ pub fn ownership_and_stale_ids() -> Result<(), String> {
         unmapped == failed(EFAULT),
         "unmapped buffer -> {unmapped:#x}"
     );
-    check!(drain_all(reader, 8)?.is_empty(), "a refused call published");
+    // Only the registration published: every refused call above was silent.
+    let records = drain_all(reader, 8)?;
+    check!(
+        shape(&records) == [(device_of(id), kind::SOURCE, u16::from(class::KEYBOARD), 1)],
+        "a refused call published: {:x?}",
+        shape(&records)
+    );
     check!(call(op::CLOSE_SOURCE, id, 0) == 0, "close failed");
     check!(
         publish(id, &key) == failed(EBADF),
@@ -314,8 +338,8 @@ pub fn close_releases_held() -> Result<(), String> {
         ],
     );
     publish(mouse, &[rec(kind::BUTTON, 1, 1), rec(kind::BUTTON, 3, 1)]);
-    let held = drain_all(reader, 16)?;
-    let (kbd_dev, mouse_dev) = (held[0].device, held[4].device);
+    let _ = drain_all(reader, 16)?;
+    let (kbd_dev, mouse_dev) = (device_of(keyboard), device_of(mouse));
     check!(call(op::CLOSE_SOURCE, keyboard, 0) == 0, "close keyboard");
     check!(call(op::CLOSE_SOURCE, mouse, 0) == 0, "close mouse");
     let released = drain_all(reader, 16)?;
@@ -324,8 +348,10 @@ pub fn close_releases_held() -> Result<(), String> {
             == [
                 (kbd_dev, kind::KEY, 0x04, 0),
                 (kbd_dev, kind::KEY, 0xE1, 0),
+                (kbd_dev, kind::SOURCE, u16::from(class::KEYBOARD), 0),
                 (mouse_dev, kind::BUTTON, 1, 0),
                 (mouse_dev, kind::BUTTON, 3, 0),
+                (mouse_dev, kind::SOURCE, u16::from(class::POINTER), 0),
             ],
         "releases {:x?}",
         shape(&released)
@@ -346,10 +372,13 @@ pub fn task_death_releases_held() -> Result<(), String> {
     sources::teardown_task(driver);
     let released = drain_all(reader, 8)?;
     check!(
-        released.len() == 1
+        released.len() == 2
             && released[0].kind == kind::KEY
             && released[0].code == 0x2C
-            && released[0].value == 0,
+            && released[0].value == 0
+            && (released[1].kind, released[1].code, released[1].value)
+                == (kind::SOURCE, u16::from(class::KEYBOARD), 0)
+            && released[1].device == released[0].device,
         "teardown released {:x?}",
         shape(&released)
     );
@@ -408,8 +437,13 @@ pub fn rate_limited() -> Result<(), String> {
     );
     // Merged on the bus, but every accepted delta arrived.
     let records = drain_all(reader, 64)?;
+    check!(
+        records.first().is_some_and(|r| r.kind == kind::SOURCE),
+        "the registration was not announced first"
+    );
     let dx: i64 = records
         .iter()
+        .filter(|r| r.kind == kind::REL_MOTION)
         .map(|r| i64::from(pointer::unpack_rel(r.value).0))
         .sum();
     check!(dx == i64::from(BURST), "motion sum {dx}");

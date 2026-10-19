@@ -15,6 +15,13 @@
 //!        [`super::console`]); -EBUSY while another live task holds it
 //!   op 8 (console_release): give it back; -EPERM when not the holder
 //!   op 9 (console_owner): the claiming task's slot, or -ENOENT
+//!   op 10 (sources): rsi -> buffer, rdx = capacity in bytes -> entries
+//!        written. The buffer starts with an 8-byte little-endian `next_seq`
+//!        (the bus's next sequence number: every record with a smaller `seq`
+//!        was published before the table was read), then one
+//!        [`sources::ENTRY_BYTES`] entry per source in slot order (device,
+//!        class, generation u16), as many whole ones as fit; -EFAULT for a
+//!        null or unwritable buffer, -EINVAL under 8 bytes
 //! ```
 //!
 //! Every return is a count/zero or `-errno`. Consumer records are
@@ -26,7 +33,9 @@
 //! gated on `CAP_INPUT_SOURCE` (`docs/usb-hid-plan.md` U1), held by input
 //! drivers; neither bit implies the other. Ops 7-8 are gated on
 //! `CAP_INPUT_CONSOLE` (`logind`); op 9, like op 3, on `CAP_INPUT_RAW`
-//! (`inputd` authenticates its sessionless client with it).
+//! (`inputd` authenticates its sessionless client with it); op 10 (the source
+//! table, the truth behind the kernel's `SOURCE` records) is `CAP_INPUT_RAW`
+//! too and needs no consumer ring.
 
 use alloc::vec::Vec;
 
@@ -51,6 +60,8 @@ pub mod op {
     pub const CONSOLE_RELEASE: u64 = 8;
     /// The claiming task's slot (`CAP_INPUT_RAW`).
     pub const CONSOLE_OWNER: u64 = 9;
+    /// The live source table (`CAP_INPUT_RAW`).
+    pub const SOURCES: u64 = 10;
 }
 
 const EPERM: i64 = 1;
@@ -133,6 +144,7 @@ pub fn dispatch(operation: u64, buf: u64, capacity: u64) -> u64 {
             Some(slot) => slot as u64,
             None => negative(ENOENT),
         },
+        op::SOURCES => source_table(buf, capacity),
         op::CLOSE_SOURCE => match sources::close(buf, me) {
             Ok(()) => {
                 // One source closed (a mouse unplugged): a driver that still
@@ -180,6 +192,34 @@ fn publish(me: usize, ptr: u64, packed: u64) -> u64 {
         Ok(outcome) => outcome.accepted as u64,
         Err(_) => negative(EBADF),
     }
+}
+
+/// Write the source table into the caller's buffer: the bus's next sequence
+/// number, then as many whole entries as `capacity` holds after it; returns
+/// how many entries were written.
+fn source_table(ptr: u64, capacity: u64) -> u64 {
+    if ptr == 0 {
+        return negative(EFAULT);
+    }
+    let Some(room) = capacity.checked_sub(sources::HEADER_BYTES as u64) else {
+        return negative(EINVAL);
+    };
+    let table = sources::snapshot();
+    let fit = (room / sources::ENTRY_BYTES as u64).min(table.entries().len() as u64) as usize;
+    let mut bytes = [0u8; sources::HEADER_BYTES + sources::MAX_SOURCES * sources::ENTRY_BYTES];
+    bytes[..sources::HEADER_BYTES].copy_from_slice(&table.next_seq.to_le_bytes());
+    for (info, out) in table.entries()[..fit].iter().zip(
+        bytes[sources::HEADER_BYTES..]
+            .as_chunks_mut::<{ sources::ENTRY_BYTES }>()
+            .0,
+    ) {
+        *out = info.to_bytes();
+    }
+    let len = sources::HEADER_BYTES + fit * sources::ENTRY_BYTES;
+    if user_ptr::try_copy_to(ptr, &bytes[..len]).is_err() {
+        return negative(EFAULT);
+    }
+    fit as u64
 }
 
 /// Drain the caller's ring into its buffer.

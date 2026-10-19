@@ -7,7 +7,8 @@
 //! and every newer event queues behind it. Only a client that stays stalled
 //! past [`outbox::CAPACITY`] events loses them, and then explicitly:
 //! `INPUTD:DROP session=<id> lost=<n>`, and the session is resynchronised
-//! (`KeyboardLeave` + `KeyboardEnter` with the keys held now) before it gets
+//! (`KeyboardLeave` + `KeyboardEnter` with the keys held now, and the pad
+//! pair if it opted in) before it gets
 //! anything newer, so a dropped release cannot leave a key stuck. A backlog
 //! that drained after reaching [`REPORT_PEAK`] events is reported once as
 //! `INPUTD:BACKLOG session=<id> peak=<n>`.
@@ -16,13 +17,25 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use user::trace;
 
-use inputmap::outbox::{self, Outbox, Pushed, Sent};
+use inputmap::outbox::{self, Outbox, Pushed, Sent, Step};
 use user::messenger::input as api;
 use user::messenger::input::wire;
 use user::messenger::{errno, Endpoint, Error};
 
 /// Backlog peaks at or above this are worth a line once they drain.
 const REPORT_PEAK: usize = 64;
+
+/// What a resynchronisation needs to know about the hub.
+pub(super) trait Resync {
+    /// The `KeyboardEnter` body for the keys held right now.
+    fn keyboard_enter(&self) -> Option<Vec<u8>>;
+    /// Whether `session` holds the keyboard now.
+    fn focused(&self, session: u64) -> bool;
+    /// Whether `session` opted into pad events.
+    fn pad_events(&self, session: u64) -> bool;
+    /// Show `session`'s pad page live (the pads) or cleared.
+    fn pad_page(&self, session: u64, live: bool);
+}
 
 /// One queued event: its method and encoded body.
 type Event = (u32, Vec<u8>);
@@ -56,14 +69,14 @@ impl Delivery {
         }
     }
 
-    /// Send `method` to `session`, behind any backlog it has. `enter` builds
-    /// the `KeyboardEnter` body a resync needs (the keys held right now).
+    /// Send `method` to `session`, behind any backlog it has. `resync` says
+    /// what a resync needs (the keys held right now, the pad page).
     pub(super) fn send(
         &mut self,
         session: u64,
         method: u32,
         body: Vec<u8>,
-        enter: &dyn Fn() -> Option<Vec<u8>>,
+        resync: &dyn Resync,
     ) -> Reach {
         if !self.outboxes.contains_key(&session) {
             match self.transmit(session, method, &body) {
@@ -71,7 +84,7 @@ impl Delivery {
                 Sent::Gone => return Reach::Gone,
                 Sent::Full => {}
             }
-        } else if self.flush(session, enter) == Reach::Gone {
+        } else if self.flush(session, resync) == Reach::Gone {
             return Reach::Gone;
         }
         let outbox = self.outboxes.entry(session).or_default();
@@ -91,23 +104,23 @@ impl Delivery {
     }
 
     /// Retry every backlog. Returns the sessions found gone.
-    pub(super) fn flush_all(&mut self, enter: &dyn Fn() -> Option<Vec<u8>>) -> Vec<u64> {
+    pub(super) fn flush_all(&mut self, resync: &dyn Resync) -> Vec<u64> {
         let waiting: Vec<u64> = self.outboxes.keys().copied().collect();
         waiting
             .into_iter()
-            .filter(|session| self.flush(*session, enter) == Reach::Gone)
+            .filter(|session| self.flush(*session, resync) == Reach::Gone)
             .collect()
     }
 
     /// Resynchronise `session` if it is owed one, then hand over its backlog
     /// until the client's endpoint is full again.
-    fn flush(&mut self, session: u64, enter: &dyn Fn() -> Option<Vec<u8>>) -> Reach {
+    fn flush(&mut self, session: u64, resync: &dyn Resync) -> Reach {
         let Some(mut outbox) = self.outboxes.remove(&session) else {
             return Reach::Live;
         };
         let mut result = Sent::Ok;
         if outbox.needs_resync() {
-            result = self.resync(session, enter);
+            result = self.resync(session, resync);
             if result == Sent::Ok {
                 outbox.resynced();
             }
@@ -134,19 +147,46 @@ impl Delivery {
         }
     }
 
-    /// `KeyboardLeave` then `KeyboardEnter`: to the client, a focus loss and
-    /// regain, the recovery it already has. Both or nothing is retried.
-    fn resync(&self, session: u64, enter: &dyn Fn() -> Option<Vec<u8>>) -> Sent {
-        let Some(enter) = enter() else {
-            return Sent::Full;
+    /// Tell a session that lost events to reset (`inputmap::outbox::resync_steps`):
+    /// `KeyboardLeave` then `KeyboardEnter` and, for a session that opted into
+    /// pads, `GamepadLeave` then `GamepadEnter`: to the client, a focus loss
+    /// and regain, the recovery it already has (it releases what it held and
+    /// seeds itself from the key and pad pages). The pad page is cleared
+    /// before the Leave and live again before the Enter, as on a real focus
+    /// change. A session that no longer has the focus gets the Leaves only: an
+    /// Enter would tell it it holds the keyboard. Everything is retried as a
+    /// whole.
+    fn resync(&self, session: u64, resync: &dyn Resync) -> Sent {
+        let steps = outbox::resync_steps(resync.focused(session), resync.pad_events(session));
+        let enter = if steps.contains(&Step::KeyboardEnter) {
+            match resync.keyboard_enter() {
+                Some(body) => body,
+                None => return Sent::Full,
+            }
+        } else {
+            Vec::new()
         };
-        match self.transmit(session, wire::METHOD_KEYBOARDLEAVE, &[]) {
-            Sent::Ok => {}
-            other => return other,
+        for step in steps {
+            let sent = match step {
+                Step::KeyboardLeave => self.transmit(session, wire::METHOD_KEYBOARDLEAVE, &[]),
+                // A Leave that went out is not undone by an Enter that does
+                // not fit: the whole resync is retried, and a second Leave
+                // is harmless.
+                Step::KeyboardEnter => self.transmit(session, wire::METHOD_KEYBOARDENTER, &enter),
+                Step::PadsLeave => {
+                    resync.pad_page(session, false);
+                    self.transmit(session, wire::METHOD_GAMEPADLEAVE, &[])
+                }
+                Step::PadsEnter => {
+                    resync.pad_page(session, true);
+                    self.transmit(session, wire::METHOD_GAMEPADENTER, &[])
+                }
+            };
+            if sent != Sent::Ok {
+                return sent;
+            }
         }
-        // The Leave went out; an Enter that does not fit is retried as a
-        // whole resync later, and a second Leave is harmless.
-        self.transmit(session, wire::METHOD_KEYBOARDENTER, &enter)
+        Sent::Ok
     }
 
     fn transmit(&self, session: u64, method: u32, body: &[u8]) -> Sent {

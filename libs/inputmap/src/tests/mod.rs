@@ -102,6 +102,10 @@ fn typed(rig: &mut Rig, usage: u16) -> Option<String> {
 mod barrier;
 mod behavior;
 mod console;
+mod gamepad;
+mod gamepad_page;
+mod gamepad_route;
+mod gamepad_stream;
 mod grab;
 mod keymaps;
 mod outbox;

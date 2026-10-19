@@ -2,9 +2,12 @@
 //! caller to `Interactive` (a polled USB device holds only a few events, and
 //! a driver left behind a console repaint loses keys), never lowers a task
 //! already above it, and a refused registration changes nothing. The stress
-//! case repeats it over many generations, interleaved with refusals.
+//! case repeats it over many generations, interleaved with refusals; a refused
+//! registration announces nothing, an accepted one is announced open and then
+//! closed exactly once.
 
-use super::source::{call, driver_task, failed, register};
+use super::source::{call, device_of, driver_task, failed, register};
+use super::source_records::Announced;
 use super::*;
 use crate::input::rawsys::op;
 use crate::input::sources::{self, class};
@@ -129,6 +132,9 @@ pub fn register_raises_driver() -> Result<(), String> {
 pub fn priority_stress_generations() -> Result<(), String> {
     const GENERATIONS: usize = 5_000;
     clean();
+    let reader = scratch()?;
+    bus::open(reader).map_err(|e| format!("{e:?}"))?;
+    let (mut announced, mut expected) = (Announced::default(), 1u64);
     let bystander = driver_in(0, PriorityClass::Normal)?;
     let intruder = driver_in(CAP_INPUT_RAW, PriorityClass::Normal)?;
     let driver = driver_in(CAP_INPUT_SOURCE, PriorityClass::Normal)?;
@@ -145,7 +151,12 @@ pub fn priority_stress_generations() -> Result<(), String> {
                 "generation {generation}: a bad-class register raised the driver"
             );
         }
-        let source_class = [class::KEYBOARD, class::POINTER, class::TABLET][generation % 3];
+        let source_class = [
+            class::KEYBOARD,
+            class::POINTER,
+            class::TABLET,
+            class::GAMEPAD,
+        ][generation % 4];
         let id = register(source_class)?;
         check!(
             class_of(driver)? == PriorityClass::Interactive,
@@ -155,6 +166,24 @@ pub fn priority_stress_generations() -> Result<(), String> {
             call(op::CLOSE_SOURCE, id, 0) == 0,
             "generation {generation}: close"
         );
+        // Exactly the open and the close: the refusals above were silent.
+        let records = drain_all(reader, 8)?;
+        expected = gapless(&records, expected)?.0;
+        let device = device_of(id);
+        check!(
+            records
+                .iter()
+                .map(|r| (r.device, r.kind, r.code, r.value))
+                .eq([
+                    (device, kind::SOURCE, u16::from(source_class), 1),
+                    (device, kind::SOURCE, u16::from(source_class), 0),
+                ]),
+            "generation {generation}: announced {records:?}"
+        );
+        records.iter().for_each(|r| announced.take(r));
+        announced
+            .matches_table()
+            .map_err(|e| format!("generation {generation}: {e}"))?;
         task::harness::switch_current(intruder);
         check!(
             call(op::REGISTER_SOURCE, u64::from(class::KEYBOARD), 0) == failed(EPERM),
@@ -168,7 +197,17 @@ pub fn priority_stress_generations() -> Result<(), String> {
             class_of(bystander)? == PriorityClass::Normal,
             "generation {generation}: a bystander's class moved"
         );
+        check!(
+            drain_all(reader, 8)?.is_empty(),
+            "generation {generation}: a refused registration announced"
+        );
     }
+    check!(
+        announced.opened == GENERATIONS as u64 && announced.closed == GENERATIONS as u64,
+        "{} opened, {} closed",
+        announced.opened,
+        announced.closed
+    );
     clean();
     Ok(())
 }

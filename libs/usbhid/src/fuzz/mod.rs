@@ -14,6 +14,9 @@
 //!   report read through the layout found. Every placed field must fit a
 //!   64-byte report, and normalized positions stay in `0..=0xFFFF`.
 
+mod gamepad;
+pub use gamepad::run_gamepad_desc;
+
 use std::collections::BTreeSet;
 use std::vec::Vec;
 
@@ -219,20 +222,25 @@ mod seeded {
         replay("usbdesc", run_desc);
         replay("hidreport", run_report);
         replay("hidreportdesc", run_pointer_desc);
+        replay("hidreportdesc", run_gamepad_desc);
     }
 
-    /// Mutations of QEMU's tablet and mouse report descriptors.
+    /// Mutations of QEMU's tablet and mouse report descriptors, and of the
+    /// gamepad descriptors: mostly valid structure with a few hostile bytes.
     #[test]
     fn mutated_report_descriptors() {
-        let golden: [&[u8]; 2] = [
+        let golden: [&[u8]; 5] = [
             &crate::tests::golden::TABLET_REPORT,
             &crate::tests::golden::MOUSE_REPORT,
+            &crate::tests::golden::PAD_REPORT,
+            &crate::tests::golden::PAD_REPORT_4WAY,
+            &crate::tests::golden::PAD_REPORT_IDS,
         ];
         for_seeds(
             "usbhid::fuzz::mutated_report_descriptors",
             |_, rng: &mut Rng| {
                 let mut data = std::vec![rng.byte()];
-                data.extend_from_slice(golden[rng.below(2) as usize]);
+                data.extend_from_slice(golden[rng.below(5) as usize]);
                 for _ in 0..1 + rng.below(4) {
                     let at = 1 + rng.below(data.len() as u64 - 1) as usize;
                     data[at] = rng.byte();
@@ -241,6 +249,7 @@ mod seeded {
                     data.push(rng.byte());
                 }
                 run_pointer_desc(&data);
+                run_gamepad_desc(&data);
             },
         );
     }

@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use inputmap::pointer::raw;
-use inputmap::{RawKey, RawPointer};
+use inputmap::{RawKey, RawPad, RawPointer};
 use user::sys::{self, raw_kind, RawEvent, RAW_EVENT_BYTES};
 
 /// Records drained per syscall.
@@ -14,6 +14,17 @@ pub(super) enum Item {
     Key(RawKey),
     /// Motion, a button edge or the wheel (validated by `inputmap::Pointer`).
     Pointer(RawPointer),
+    /// A gamepad axis (`AXIS`): routed by its device's source class.
+    Axis(RawPad),
+    /// The kernel's `SOURCE` record: a source registered or closed.
+    Source(RawPad),
+    /// A device's identity (`DEVICE`): diagnostics only, never a class.
+    Device {
+        device: u8,
+        vendor: u16,
+        /// Product in the low half, version in the high half.
+        info: u32,
+    },
     /// The consumer ring overflowed: `lost` events from `seq` on are gone.
     Dropped {
         ts_ns: u64,
@@ -51,8 +62,19 @@ impl Source {
     }
 }
 
-/// Keep key edges, pointer records and loss markers; `SYNC` and unknown kinds
-/// have no consumer.
+fn pad_record(event: &RawEvent) -> RawPad {
+    RawPad {
+        seq: event.seq,
+        ts_ns: event.ts_ns,
+        device: event.device,
+        kind: event.kind,
+        code: event.code,
+        value: event.value,
+    }
+}
+
+/// Keep key edges, pointer and gamepad records, source announcements and
+/// loss markers; `SYNC` and unknown kinds have no consumer.
 fn item_of(event: RawEvent) -> Option<Item> {
     match event.kind {
         raw_kind::KEY if matches!(event.value, 0 | 1) => Some(Item::Key(RawKey {
@@ -69,6 +91,13 @@ fn item_of(event: RawEvent) -> Option<Item> {
             code: event.code,
             value: event.value,
         })),
+        raw_kind::AXIS => Some(Item::Axis(pad_record(&event))),
+        raw_kind::SOURCE => Some(Item::Source(pad_record(&event))),
+        raw_kind::DEVICE => Some(Item::Device {
+            device: event.device,
+            vendor: event.code,
+            info: event.value as u32,
+        }),
         raw_kind::DROPPED => Some(Item::Dropped {
             ts_ns: event.ts_ns,
             seq: event.seq,
