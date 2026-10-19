@@ -102,6 +102,21 @@ impl Listener {
         !self.pending.lock().is_empty()
     }
 
+    /// Whether `dest` is among the connections waiting to be accepted, or one
+    /// of them already carries descriptors: sending this listener through
+    /// `dest` would then close a cycle of sockets carrying each other
+    /// (`ipc::pipe::Rights::would_cycle`). A listener whose queue is busy is
+    /// refused too: that check runs under a socket ring's lock, which the
+    /// listener's own teardown takes the other way round.
+    pub fn pending_reaches(&self, dest: &SocketPair) -> bool {
+        match self.pending.try_lock() {
+            Some(pending) => pending
+                .iter()
+                .any(|pair| core::ptr::eq(&**pair, dest) || pair.carries_rights()),
+            None => true,
+        }
+    }
+
     /// Park the current task until a connection arrives.
     pub fn wait_connection(&self) -> WakeReason {
         self.accept_wq.wait(crate::task::current(), None)
