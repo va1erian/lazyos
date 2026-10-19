@@ -260,11 +260,7 @@ fn orphaned_interests(
 /// exits, nobody owns it, and it would keep its file open for good. The handles
 /// are clones, to be dropped after the task table is unlocked.
 pub(super) fn unowned_interests(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<Epoll>) -> Vec<(usize, Fd)> {
-    epoll
-        .registered()
-        .into_iter()
-        .filter(|(fd, file)| !interest_owned(tasks, epoll, *fd, file))
-        .collect()
+    epoll.registered_where(|fd, file| !interest_owned(tasks, epoll, fd, file))
 }
 
 /// Whether a live task still holds both `epoll` and `file` under descriptor `fd`: then an interest

@@ -65,7 +65,9 @@ pub fn fd_clone(fd: usize) -> Option<Fd> {
 /// unless another live task still holds both the instance and the file under
 /// that number (`interest_owned`): a forked child closing its copy must not
 /// take its parent's registration away. Closing an epoll instance drops the
-/// interests nobody owns any more (`unowned_interests`).
+/// interests nobody owns any more (`unowned_interests`), even when the
+/// instance itself lives on elsewhere (an `SCM_RIGHTS` message in flight):
+/// its receiver gets the set without them, where Linux would keep them.
 pub fn fd_close(fd: usize) -> bool {
     let mut junk = Vec::new();
     let (old, orphaned, swept) = {
@@ -89,8 +91,8 @@ pub fn fd_close(fd: usize) -> bool {
             fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
         }
         // After the mirror: the caller's whole share group no longer holds it. Only the instances
-        // that watch this file under this number are looked at (each once): the ownership check
-        // walks the task table.
+        // that watch this file under this number are looked at (an instance already chosen is not
+        // checked again): the ownership check walks the task table.
         let mut orphaned: Vec<Arc<Epoll>> = Vec::new();
         if let Some(file) = &old {
             for epoll in epolls {

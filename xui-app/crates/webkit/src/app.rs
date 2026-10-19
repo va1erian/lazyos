@@ -264,6 +264,10 @@ impl Browser {
         if state.crashed {
             self.page.clear();
         }
+        if state.url != self.state.url {
+            // The bands painted outside the view were the old page's.
+            self.page.forget_bands();
+        }
         if self.traces && !state.error.is_empty() && state.error != self.state.error {
             println!("WEBKIT:W5:UI:ERROR:{}", state.error);
         }

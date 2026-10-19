@@ -84,6 +84,9 @@ pub struct Kept<I> {
 
 /// Bands kept at most, and how far from the view (in view heights) a band may be before it is dropped.
 pub const MAX_BANDS: usize = 64;
+/// The most pixel bytes kept: a dozen views at 2560x1148, what [`KEEP_VIEWS`] on both sides needs and a
+/// little more. Bands come from the page's process, which must not decide this process's memory.
+pub const MAX_BAND_BYTES: usize = 144 << 20;
 pub const KEEP_VIEWS: i32 = 3;
 
 impl<I> Bands<I> {
@@ -122,7 +125,11 @@ impl<I> Bands<I> {
             height,
             image,
         });
-        if self.bands.len() > MAX_BANDS {
+        let row_bytes = width as usize * 4;
+        let bytes = |bands: &[Kept<I>]| -> usize {
+            bands.iter().map(|kept| kept.height.max(0) as usize * row_bytes).sum()
+        };
+        while self.bands.len() > MAX_BANDS || (self.bands.len() > 1 && bytes(&self.bands) > MAX_BAND_BYTES) {
             self.bands.remove(0);
         }
     }
@@ -247,6 +254,18 @@ mod tests {
         assert_eq!(kept, vec![5000]);
         b.prune(-1_000_000_000, i32::MAX);
         assert_eq!(b.len(), 1);
+    }
+
+    #[test]
+    fn hostile_bands_cannot_grow_the_kept_bytes_past_the_cap() {
+        let mut b = Bands::default();
+        // 1024-row bands 8192 px wide (32 MiB each), none hiding another.
+        for n in 0..10 {
+            b.insert(0, n * 2000, 8192, 1024, n as u32);
+        }
+        let kept: usize = b.iter().map(|k| k.height as usize * 8192 * 4).sum();
+        assert!(kept <= MAX_BAND_BYTES, "{kept} bytes kept");
+        assert_eq!(b.iter().last().map(|k| k.doc_y), Some(18_000), "the newest band stays");
     }
 
     #[test]

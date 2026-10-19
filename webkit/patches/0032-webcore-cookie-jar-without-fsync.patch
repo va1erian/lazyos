@@ -3,11 +3,12 @@ WebCore: the curl cookie jar syncs nothing and keeps its journal and lock.
 A page's document.cookie read is a synchronous message to the NetworkProcess, whose main thread also runs
 every cookie write. With the jar in rollback-journal mode and SyncNormal each write fsynced the database
 and a journal it created and deleted, and on LazyOS an fsync flushes the whole volume: the page stopped for
-hundreds of milliseconds at a time. See the comment in the patch.
+hundreds of milliseconds at a time. `SyncOff` and `journal_mode=TRUNCATE`; the lock stays per transaction
+(a second LazyWeb+ window opens the same jar). See the comment in the patch.
 
 --- a/Source/WebCore/platform/network/curl/CookieJarDB.cpp
 +++ b/Source/WebCore/platform/network/curl/CookieJarDB.cpp
-@@ -168,7 +168,23 @@
+@@ -168,7 +168,22 @@
          }
      }
  
@@ -18,13 +19,12 @@ hundreds of milliseconds at a time. See the comment in the patch.
 +    // NetworkProcess's main thread in fsync, and every document.cookie read, a synchronous message from
 +    // the page's process, waited behind it: the page itself stopped for hundreds of milliseconds at a time.
 +    // The jar is not worth that: nothing is synced (the kernel's block cache commits every few seconds, in
-+    // an order that keeps the volume consistent), the journal is kept and truncated instead of created and
-+    // deleted (a crash of this process still rolls a transaction back), and this process, the only one
-+    // that opens the jar, keeps its lock (no hot-journal check before every statement). A power cut can
-+    // lose the last cookies set, as other browsers' batched cookie stores do.
++    // an order that keeps the volume consistent), and the journal is kept and truncated instead of created
++    // and deleted (a crash of this process still rolls a transaction back). The lock stays per transaction:
++    // a second browser window's NetworkProcess opens the same jar. A power cut can lose the last cookies
++    // set, as other browsers' batched cookie stores do.
 +    m_database.setSynchronous(SQLiteDatabase::SyncOff);
 +    m_database.executeCommand("PRAGMA journal_mode=TRUNCATE"_s);
-+    m_database.executeCommand("PRAGMA locking_mode=EXCLUSIVE"_s);
 +#else
      m_database.setSynchronous(SQLiteDatabase::SyncNormal);
 +#endif
