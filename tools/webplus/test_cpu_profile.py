@@ -47,5 +47,31 @@ class Profile(unittest.TestCase):
         self.assertIn("no user-mode samples", "\n".join(prof.profile(kernel_only, "WebProcess", "vol", None, 5, run=fake_addr2line)))
 
 
+class Callers(unittest.TestCase):
+    def test_the_first_other_function_on_the_stack_is_the_caller(self):
+        names = {"0x600000": ("memcpy", "m.zig:1"), "0x400010": ("paint", "a.cpp:1"),
+                 "0x500000": ("decode", "b.cpp:2")}
+
+        def addr2line(command, **kwargs):
+            out = []
+            for address in command[5:]:
+                out += list(names.get(address, ("??", "??:0")))
+            return subprocess.CompletedProcess(command, 0, "\n".join(out) + "\n", "")
+
+        rows = (
+            # memcpy called from paint (a data word and memcpy's own address come first)
+            [(0.0, 3, 0x1000, 0x600000, [0x7FFF_0000_1234, 0x600000, 0x400010, 0x500000])] * 3
+            + [(0.0, 3, 0x1000, 0x600000, [0x500000])]          # ... from decode
+            + [(0.0, 3, 0x1000, 0x600000, [])]                  # an older recording: no stack
+            + [(0.0, 3, 0x1000, 0x400010, [0x500000])] * 4      # not in memcpy
+            + [(0.0, 3, 0x2000, 0x600000, [0x400010])] * 9      # another process
+        )
+        text = "\n".join(prof.callers(rows, "lazywebplus-app", "vol", 0x1000, "memcpy", 5, run=addr2line))
+        self.assertIn("5 samples in functions matching 'memcpy'", text)
+        self.assertRegex(text, r"3\s+paint")
+        self.assertRegex(text, r"1\s+decode")
+        self.assertRegex(text, r"1\s+\(no other function on the stack\)")
+
+
 if __name__ == "__main__":
     unittest.main()

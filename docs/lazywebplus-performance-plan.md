@@ -690,3 +690,58 @@ and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `
    (`SCM_RIGHTS`, `ETOOMANYREFS`, issue #865). The cycle check is now exact (`kernel/src/ipc/pipe/reach.rs`), and
    `python tools/webplus/relaunch_run.py` closes and starts the browser until it would show again. Still open:
    input stopped reaching the window after Ars Technica loaded (the input services alive), not reproduced.
+
+## 12. Frame pacing and where a scrolling frame's CPU goes (2026-10-19)
+
+**Measured first.** `python tools/webplus/frame_run.py --perf --sample-port 4499 --sample-stacks` (the long text page,
+2560x1440, the wheel for 20 s, WHPX, one CPU). Two new meters: `XUID:COMPOSE` (always on, every 5 s: the compositor's
+repaints, megapixels, and the time composing and presenting them, `user/src/bin/xuid/meter.rs`) and the sampler's
+stacks (`tools/webplus/sample.py --stacks` keeps the user stack of each sample; `cpu_profile.py --callers memcpy`
+names who called a hot leaf).
+
+**What it showed.** While the page scrolled, the LazyWeb+ window presented **about 100 whole frames a second**
+(`INFO:SMOOTH frames=101..108`): its 16 ms glide timer, plus each of the engine's 25 updates a second drawn at once.
+The screen refreshes at 60 Hz, so four frames in ten were never seen, yet `xuid` composed and copied 1.8 megapixels
+for each (`XUID:COMPOSE repaints=512 kpx=921600` per 5 s) and the window rastered and copied each into its slot.
+Most of the UI process's time was those copies (`memcpy` 58% of its samples), and `xuid`'s was its blit.
+
+**Frame pacing** (`xui-app/src/backend/pacing.rs`). A client window presents at most once per screen refresh;
+damage that arrives sooner waits in the damage map and the loop parks until the slot (`park_client`), so the next
+present carries all of it. Presents keep their cadence (a late wake does not push later frames back). The interval
+is `GetOutput.refresh_millihz` (new field, `idl/display.midl`): `xuid` answers with `gpud`'s measured rate when
+`gpud` drives the display (`GetBeam.measured_millihz`, `user/src/bin/xuid/refresh.rs`, a bounded call asked again
+at a few later `GetOutput`s, since `gpud` may start after the compositor), else 60 Hz. Every xui app is paced.
+
+| same harness, two runs | before | paced |
+|---|---|---|
+| window frames a second while scrolling | 101-108 | 60-62 |
+| longest gap between two frames | 17-23 ms | 21-28 ms (none over 33) |
+| `xuid` repaints / Mpx per 5 s | 512 / 922 | 301 / 542 |
+| `xuid` composing + presenting, ms a second | 138 | 72 |
+| UI process, `xuid` (`PERF:CPU`) | 24%, 14% | both under the 20% the line reports |
+
+**Smaller changes on the way.**
+
+* `xuid`'s blit (`user/src/messenger/display/canvas.rs`) swaps two pixels per 64-bit word, compiled for speed
+  (`#[optimize(speed)]`; user programs build for size and cannot use SSE: the soft-float target refuses
+  `#[target_feature]`). A first version chose the conversion through a function pointer that was not inlined, a
+  call per two pixels: check the disassembly of such loops. The composing cost is now about 370 us per megapixel,
+  the kernel's present copy about 300.
+* **The probe image's picture check was in the paint stages.** `paint.cpp` keeps a shadow of the window's picture in
+  probe images and moves it with every scroll (a whole-view `memmove`) and compares it with a whole paint every 30
+  deltas; that was counted in `post` (2 ms of its 2.3). It is reported apart now (`INFO:PAINT ... ver=`, the
+  `check` line of `frame_run.py`); a production image does none of it.
+* **QEMU-only:** under WHPX each `inb` from the i8042 is a VM exit to QEMU, and `ps2::service` reads the status port
+  every tick and at interrupt-window poll points: about 6% of the guest's CPU in these runs. A real PC pays about a
+  microsecond a read. Left as it is; remember it when reading QEMU numbers.
+
+**Left to do** (ranked by the profile):
+
+1. **Paint into the slot.** For a directly painted node the window rasters into its frame and then copies the
+   frame's damage into the slot it presents: two whole-view passes where one would do (buffer age: copy from the
+   last presented slot only what the new damage does not cover, and raster the rest straight into the slot).
+2. **WebKit's UI-side backing store** moves the whole view in place for every update that scrolled
+   (`BackingStore::scroll`, patch `0024`), 25 times a second, although `paint.cpp` only reads the rectangles it
+   paints. A ring of rows (scrolling by moving an origin) would make that free.
+3. **Pace to the beam on the box.** `GetBeam` gives the frame counter and scan line; presenting right after vblank
+   (G5 flips later) would also keep a copy out of the beam's way.

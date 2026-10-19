@@ -250,8 +250,13 @@ interface os.lazy.display.v1 {
     /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
     /// interface stays in physical pixels; a scale-aware client draws at
     /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
-    /// The scale is fixed for the compositor's lifetime.
-    method GetOutput() -> (width: U32 = 1, height: U32 = 2, scale: U32 = 3) = 43;
+    /// The scale is fixed for the compositor's lifetime. `refresh_millihz`
+    /// is how often the screen shows a new picture, in millihertz: the rate
+    /// `gpud` measured on a display it drives, else 60000 (no vblank to
+    /// follow, as under QEMU). A client presents at most that often
+    /// (xui paces its windows to it): a frame between two refreshes is
+    /// never seen, and composing it only costs the next one time.
+    method GetOutput() -> (width: U32 = 1, height: U32 = 2, scale: U32 = 3, refresh_millihz: U32 = 4) = 43;
     /// Shell-only: let task `task` create one `Popup` surface with `token`
     /// within about two seconds, placed against the screen rectangle
     /// `(x, y, w, h)` (the tray icon the user clicked; docs/tray-plan.md

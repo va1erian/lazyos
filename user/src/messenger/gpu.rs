@@ -48,6 +48,11 @@ pub struct Client {
 }
 
 impl Client {
+    /// Close the endpoint (a long-lived caller that asked once).
+    pub fn close(self) {
+        let _ = self.endpoint.close();
+    }
+
     /// Resolve [`NAME`]; the endpoint is opened in this task's handle table.
     pub fn connect() -> Result<Client> {
         Ok(Client {
@@ -70,9 +75,15 @@ impl Client {
 
     /// The adopted pipe's beam, read now (`ENODEV` when none was adopted).
     pub fn beam(&self) -> Result<Beam> {
+        self.beam_by(None)
+    }
+
+    /// [`Client::beam`], given up at `deadline` (100 Hz ticks, `sys::clock`): a caller that must not
+    /// wait on `gpud` (the compositor) bounds the call.
+    pub fn beam_by(&self, deadline: Option<u64>) -> Result<Beam> {
         let reply = self
             .endpoint
-            .call(&parcel(wire::METHOD_GETBEAM, Vec::new()), None)?;
+            .call(&parcel(wire::METHOD_GETBEAM, Vec::new()), deadline)?;
         if let Some(code) = error_field(&reply)? {
             return Err(Error::Errno(-code));
         }

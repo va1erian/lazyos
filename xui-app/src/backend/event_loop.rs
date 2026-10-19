@@ -105,9 +105,13 @@ impl LazyOSBackend {
         stall::finish(began, SLOW_NS, "update", || {
             format!("window={}", window.raw())
         });
-        if self.needs_present(window) {
+        if self.needs_present(window) && self.paced(window).is_none() {
             let began = stall::start();
-            self.present(window);
+            if self.present(window) && matches!(self.mode, Mode::Client(_)) {
+                self.pacer
+                    .borrow_mut()
+                    .presented(window.raw(), sys::monotonic_ns());
+            }
             stall::finish(began, SLOW_PASS_NS, "present", || {
                 format!("window={}", window.raw())
             });
@@ -150,7 +154,19 @@ impl LazyOSBackend {
         } else {
             CLIENT_IDLE_NS
         };
-        let deadline = next_timer.unwrap_or(u64::MAX).min(now.saturating_add(idle));
+        // Damage held back by the pacer (`pacing.rs`) is presented at its slot.
+        let paced = self
+            .damage
+            .borrow()
+            .keys()
+            .filter_map(|&window| self.pacer.borrow().wait(window, now))
+            .min();
+        let deadline = next_timer
+            .into_iter()
+            .chain(paced)
+            .min()
+            .unwrap_or(u64::MAX)
+            .min(now.saturating_add(idle));
         // With a doorbell the wait names the set holding it and the watched
         // descriptor; without one, the watched descriptor itself. Calls the
         // app began (issue #725) ring beside both: the loop wakes for each
@@ -261,6 +277,15 @@ impl LazyOSBackend {
         // Input that raced the open, after the resize it was typed against.
         for event in events {
             self.route_client_event(window, event);
+        }
+    }
+
+    /// Client mode: when `window` may present next, `None` when it may now (`pacing.rs`). Its damage
+    /// waits in the damage map meanwhile, and [`park_client`](Self::park_client) wakes for the slot.
+    fn paced(&self, window: WindowId) -> Option<u64> {
+        match &self.mode {
+            Mode::Owner { .. } => None,
+            Mode::Client(_) => self.pacer.borrow().wait(window.raw(), sys::monotonic_ns()),
         }
     }
 

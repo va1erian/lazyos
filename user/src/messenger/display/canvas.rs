@@ -420,21 +420,53 @@ fn clip_to(rect: Rect, clip: Rect) -> Rect {
 #[path = "font5x7.rs"]
 pub mod font;
 
-/// One row of an RGBA source into the screen, opaque: a single pass of 32-bit loads and stores, with R
-/// and B swapped for a BGRA screen. (A copy and then a second pass over every pixel was most of a big
-/// window's present: a scrolling page changes 3 to 4 megapixels a frame at 2560x1440.)
+/// One row of an RGBA source into the screen, opaque: a single pass, with R and B swapped for a BGRA
+/// screen. (A copy and then a second pass over every pixel was most of a big window's present: a
+/// scrolling page changes 3 to 4 megapixels a frame at 2560x1440.)
+///
+/// Two pixels per 64-bit load and store: user programs have no SIMD (the target is soft-float, and
+/// `#[target_feature]` cannot add SSE to it), and this loop was most of `xuid`'s time while a page
+/// scrolled (`tools/webplus/sample.py`), so it is written for the integer unit and compiled for speed
+/// whatever the crate's size profile says.
+#[optimize(speed)]
 fn blit_row(dst: &mut [u8], src: &[u8], swap: bool) {
-    let (dst, _) = dst.as_chunks_mut::<4>();
-    let (src, _) = src.as_chunks::<4>();
+    // One loop per conversion: a function pointer chosen here was not inlined, a call per two pixels.
     if swap {
-        for (out, px) in dst.iter_mut().zip(src) {
-            let v = u32::from_le_bytes(*px);
-            let v = 0xff00_0000 | (v & 0x0000_ff00) | ((v & 0xff) << 16) | ((v >> 16) & 0xff);
-            *out = v.to_le_bytes();
-        }
+        blit_pairs(dst, src, swap_pair);
     } else {
-        for (out, px) in dst.iter_mut().zip(src) {
-            *out = (u32::from_le_bytes(*px) | 0xff00_0000).to_le_bytes();
-        }
+        blit_pairs(dst, src, opaque_pair);
     }
+}
+
+#[inline(always)]
+fn blit_pairs(dst: &mut [u8], src: &[u8], pair: impl Fn(u64) -> u64) {
+    let len = dst.len().min(src.len()) / 4 * 4;
+    let (dst, src) = (&mut dst[..len], &src[..len]);
+    let (dst_pairs, dst_odd) = dst.as_chunks_mut::<8>();
+    let (src_pairs, src_odd) = src.as_chunks::<8>();
+    for (out, px) in dst_pairs.iter_mut().zip(src_pairs) {
+        *out = pair(u64::from_le_bytes(*px)).to_le_bytes();
+    }
+    // An odd last pixel: both remainders are that one pixel (or empty).
+    if let (Ok(out), Ok(px)) = (
+        <&mut [u8; 4]>::try_from(dst_odd),
+        <[u8; 4]>::try_from(src_odd),
+    ) {
+        *out = (pair(u64::from(u32::from_le_bytes(px))) as u32).to_le_bytes();
+    }
+}
+
+/// Two RGBA pixels (little-endian, the first in the low half) as BGRA, opaque.
+#[inline(always)]
+fn swap_pair(v: u64) -> u64 {
+    const GREEN: u64 = 0x0000_ff00_0000_ff00;
+    const LOW: u64 = 0x0000_00ff_0000_00ff;
+    const ALPHA: u64 = 0xff00_0000_ff00_0000;
+    ALPHA | (v & GREEN) | ((v & LOW) << 16) | ((v >> 16) & LOW)
+}
+
+/// Two RGBA pixels as they are, opaque.
+#[inline(always)]
+fn opaque_pair(v: u64) -> u64 {
+    v | 0xff00_0000_ff00_0000
 }

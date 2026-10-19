@@ -611,7 +611,12 @@ if the box can reach a host serving it).
   out of the beam's way before G5 flips exist. The two pipe offsets are
   i915's and **to confirm** on the box (the Linux dump does not name them);
   the interrupt registers are confirmed. Host tests: `cargo test -p gen9gfx
-  vblank`.
+  vblank`. **Used already**: `xuid` hands the measured rate to every client
+  (`GetOutput.refresh_millihz`) and xui paces each window's presents to it
+  (`lazywebplus-performance-plan.md` section 12), so on the box a 70 Hz mode
+  is paced at 70 Hz, not 60. Every desktop also prints `XUID:COMPOSE` (the
+  compositor's compose and present time per megapixel), which, beside
+  `PERF:present_mpx`, is the box number 11.2's G6 rule asks for.
 - **Not built yet** (honestly): vblank *interrupts*, `set_scanout`, CRC, any
   display write, G3 and everything after it. None of it is justified by the
   numbers above until the box answers 11.3; on the box run, also read

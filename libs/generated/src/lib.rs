@@ -5336,12 +5336,18 @@ pub mod os_lazy_display_v1 {
     /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
     /// interface stays in physical pixels; a scale-aware client draws at
     /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
-    /// The scale is fixed for the compositor's lifetime.
+    /// The scale is fixed for the compositor's lifetime. `refresh_millihz`
+    /// is how often the screen shows a new picture, in millihertz: the rate
+    /// `gpud` measured on a display it drives, else 60000 (no vblank to
+    /// follow, as under QEMU). A client presents at most that often
+    /// (xui paces its windows to it): a frame between two refreshes is
+    /// never seen, and composing it only costs the next one time.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct GetOutputReply {
         pub width: u32,
         pub height: u32,
         pub scale: u32,
+        pub refresh_millihz: u32,
     }
 
     pub fn encode_get_output_reply(value: &GetOutputReply) -> Result<Vec<u8>, Error> {
@@ -5349,6 +5355,7 @@ pub mod os_lazy_display_v1 {
         target.u32(1, value.width)?;
         target.u32(2, value.height)?;
         target.u32(3, value.scale)?;
+        target.u32(4, value.refresh_millihz)?;
         Ok(target.finish())
     }
 
@@ -5365,6 +5372,9 @@ pub mod os_lazy_display_v1 {
                 }
                 3 => {
                     out.scale = field.as_u32()?;
+                }
+                4 => {
+                    out.refresh_millihz = field.as_u32()?;
                 }
                 _ => {}
             }

@@ -108,7 +108,7 @@ def summarise(text: str) -> tuple[str, bool]:
                 average, _, worst = value.partition("/")
                 paint["w2d_avg_us"].append(float(average or 0))
                 paint["w2d_max_us"].append(float(worst or 0))
-            elif key in ("n", "needs", "px", "clear", "wk", "swz", "post", "avg", "max", "wheel", "mouse", "full", "delta", "scroll", "checks", "bad"):
+            elif key in ("n", "needs", "px", "clear", "wk", "swz", "post", "avg", "max", "wheel", "mouse", "full", "delta", "scroll", "checks", "bad", "ver"):
                 if value.lstrip("-").isdigit():
                     paint[key].append(float(value))
     lines = []
@@ -125,6 +125,15 @@ def summarise(text: str) -> tuple[str, bool]:
         n, p50, p90, p99, worst = mpx[-1]
         lines.append(f"Kernel present copy, microseconds per megapixel (PERF:present_mpx, an image built with --perf): "
                      f"n={n} p50={p50} p90={p90} p99={p99} max={worst}")
+    compose = [tuple(int(v) for v in row) for row in re.findall(
+        r"XUID:COMPOSE repaints=(\d+) kpx=(\d+) compose_us=(\d+) present_us=(\d+) .*?worst_us=(\d+)", text)]
+    if compose:
+        kpx = sum(row[1] for row in compose)
+        if kpx:
+            lines.append(f"Compositor (XUID:COMPOSE): {sum(row[0] for row in compose)} repaints, {kpx / 1000:.0f} Mpx; "
+                         f"compose {sum(row[2] for row in compose) / kpx * 1000:.0f} us per Mpx, "
+                         f"present {sum(row[3] for row in compose) / kpx * 1000:.0f} us per Mpx, "
+                         f"worst repaint {max(row[4] for row in compose)} us")
     window = defaultdict(list)
     for line in re.findall(r"INFO:WINDOW:(\S+)", text):
         for field in line.split(":"):
@@ -155,6 +164,11 @@ def summarise(text: str) -> tuple[str, bool]:
         for key in ("clear", "wk", "swz", "post"):
             lines.append(f"  {key:<6}{sum(paint[key]) / paints:>9.0f} us a paint")
         lines.append(f"  total {sum(paint['avg']) / seconds:>9.0f} us a paint (average of the per-second averages)")
+        if paint.get("ver"):
+            # Probe images check every delta against a whole paint (paint.cpp, "the check"); a production
+            # image does none of it, so it is shown apart from the stages above.
+            lines.append(f"  check {sum(paint['ver']) / paints:>8.0f} us a paint, not in the stages: the probe image's "
+                         f"picture check, {sum(paint['ver']) / 1000 / seconds:.1f} ms a second a production image does not spend")
         if paint.get("checks"):
             lines.append(f"  engine check against a whole paint: {sum(paint['checks']):.0f} checks, {sum(paint.get('bad', [])):.0f} differed")
         if paint.get("delta") or paint.get("full"):
@@ -184,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", default=DEFAULT_MODE, help="the display mode (LAZYOS_DISPLAY_MODE)")
     parser.add_argument("--step-timeout", type=float, default=300.0)
     parser.add_argument("--sample-port", type=int, help="record CR3 and RIP at 30 Hz over this QMP port to <out>/samples.tsv (tools/webplus/sample.py report)")
+    parser.add_argument("--sample-stacks", action="store_true",
+                        help="with --sample-port, keep each user-mode sample's stack (cpu_profile.py --callers)")
     parser.add_argument("--perf", action="store_true", help="build with LAZYOS_PERF=1 for the kernel's present_mpx metric")
     parser.add_argument("--judge-only", metavar="SERIAL_LOG")
     args = parser.parse_args(argv)
@@ -218,7 +234,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.sample_port:
         qemu_args = ("-qmp", f"tcp:127.0.0.1:{args.sample_port},server=on,wait=off")
         sampler = subprocess.Popen([sys.executable, str(HERE / "sample.py"), "record", "--port", str(args.sample_port),
-                                    "--out", str(out / "samples.tsv"), "--seconds", "900"], cwd=ROOT)
+                                    "--out", str(out / "samples.tsv"), "--seconds", "900",
+                                    *(["--stacks"] if args.sample_stacks else [])], cwd=ROOT)
     try:
         ok, text = webplus_run.run_session(frame_session(args.seconds, args.step_timeout, args.notches, args.pause), out, args,
                                            qemu_args=qemu_args)

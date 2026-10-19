@@ -169,15 +169,17 @@ impl Compositor {
 }
 
 impl Compositor {
-    /// `GetOutput`: the screen in physical pixels and the UI scale
-    /// (docs/hidpi-plan.md). Open to every client: nothing here is private.
-    pub(super) fn get_output(&self, message: &Message) -> Parcel {
+    /// `GetOutput`: the screen in physical pixels, the UI scale
+    /// (docs/hidpi-plan.md) and the refresh rate clients pace their presents
+    /// to (`refresh.rs`). Open to every client: nothing here is private.
+    pub(super) fn get_output(&mut self, message: &Message) -> Parcel {
         typed_reply(
             message.method(),
             wire::encode_get_output_reply(&wire::GetOutputReply {
                 width: self.screen.width() as u32,
                 height: self.screen.height() as u32,
                 scale: super::theme::scale() as u32,
+                refresh_millihz: self.refresh.millihz(),
             }),
         )
     }

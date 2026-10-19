@@ -900,9 +900,9 @@ pub static INTERFACES: &[Interface] = &[
                 name: "GetOutput",
                 id: 43,
                 oneway: false,
-                doc: "The screen in physical pixels and the desktop's integer UI scale\n(`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this\ninterface stays in physical pixels; a scale-aware client draws at\n`scale` times its design size (an xui app runs at `96 * scale` DPI).\nThe scale is fixed for the compositor's lifetime.",
+                doc: "The screen in physical pixels and the desktop's integer UI scale\n(`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this\ninterface stays in physical pixels; a scale-aware client draws at\n`scale` times its design size (an xui app runs at `96 * scale` DPI).\nThe scale is fixed for the compositor's lifetime. `refresh_millihz`\nis how often the screen shows a new picture, in millihertz: the rate\n`gpud` measured on a display it drives, else 60000 (no vblank to\nfollow, as under QEMU). A client presents at most that often\n(xui paces its windows to it): a frame between two refreshes is\nnever seen, and composing it only costs the next one time.",
                 params: &[],
-                returns: &[Field { name: "width", id: 1, ty: Ty::U32 }, Field { name: "height", id: 2, ty: Ty::U32 }, Field { name: "scale", id: 3, ty: Ty::U32 }],
+                returns: &[Field { name: "width", id: 1, ty: Ty::U32 }, Field { name: "height", id: 2, ty: Ty::U32 }, Field { name: "scale", id: 3, ty: Ty::U32 }, Field { name: "refresh_millihz", id: 4, ty: Ty::U32 }],
                 objects: &[],
             },
             Method {

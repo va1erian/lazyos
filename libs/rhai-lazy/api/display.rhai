@@ -451,13 +451,18 @@ fn dismiss() {
     msg::connect("os.lazy.display.v1").invoke("Dismiss", [])
 }
 
-/// `GetOutput() -> (width: U32, height: U32, scale: U32)`
+/// `GetOutput() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)`
 ///
 /// The screen in physical pixels and the desktop's integer UI scale
 /// (`1` or `2`; docs/hidpi-plan.md). Every size and coordinate on this
 /// interface stays in physical pixels; a scale-aware client draws at
 /// `scale` times its design size (an xui app runs at `96 * scale` DPI).
-/// The scale is fixed for the compositor's lifetime.
+/// The scale is fixed for the compositor's lifetime. `refresh_millihz`
+/// is how often the screen shows a new picture, in millihertz: the rate
+/// `gpud` measured on a display it drives, else 60000 (no vblank to
+/// follow, as under QEMU). A client presents at most that often
+/// (xui paces its windows to it): a frame between two refreshes is
+/// never seen, and composing it only costs the next one time.
 fn get_output() {
     msg::connect("os.lazy.display.v1").invoke("GetOutput", [])
 }

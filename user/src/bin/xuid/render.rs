@@ -39,11 +39,19 @@ impl Compositor {
         if damage.is_empty() {
             return;
         }
+        let started = sys::monotonic_ns();
         let lifted = self.cursor.lift(&mut self.screen);
         self.compose(damage);
         let stamped = self.stamp_cursor();
+        let composed = sys::monotonic_ns();
         let _ = sys::display_present(damage.x, damage.y, damage.w, damage.h);
+        let presented = sys::monotonic_ns();
         present_cursor_outside(lifted, stamped, damage);
+        self.meter.record(
+            damage.w as u64 * damage.h as u64,
+            composed.saturating_sub(started),
+            presented.saturating_sub(composed),
+        );
     }
 
     /// Stamp the cursor overlay where it belongs ([`Compositor::cursor_target`]);

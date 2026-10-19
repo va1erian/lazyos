@@ -85,6 +85,10 @@ pub(super) struct Compositor {
     /// bump allocator never reclaims, so events reuse it instead of
     /// allocating per message.
     pub(super) scratch: Vec<u8>,
+    /// What repaints cost (`XUID:COMPOSE`, `meter.rs`).
+    pub(super) meter: super::meter::Meter,
+    /// The screen's refresh rate for `GetOutput` (`refresh.rs`).
+    pub(super) refresh: super::refresh::Refresh,
     /// The live `sys/ui/*` theme follower.
     pub(super) themefeed: ThemeFeed,
     /// The shell user's own keyboard layout, for `inputd`.
@@ -147,6 +151,8 @@ impl Compositor {
             mods: Modifiers::default(),
             alt_tab: None,
             scratch: Vec::with_capacity(64),
+            meter: super::meter::Meter::default(),
+            refresh: super::refresh::Refresh::default(),
             themefeed,
             layoutfeed: LayoutFeed::new(),
             powerfeed: PowerFeed::new(),

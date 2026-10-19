@@ -136,6 +136,9 @@ struct Stats {
     long long wkMaxUs { 0 };
     long long pixels { 0 };
     long long clearUs { 0 }, paintUs { 0 }, swizzleUs { 0 }, postUs { 0 }, maxUs { 0 }, totalUs { 0 };
+    // The check's own work (probe images only, "the check" below): its shadow copies and whole paints.
+    // Counted apart from `postUs` and the total, so the stages say what a production image pays.
+    long long verifyUs { 0 };
     long long maxLatencyUs { 0 };
     long long w2dSumUs { 0 }, w2dMaxUs { 0 };
     long w2dCount { 0 };
@@ -157,11 +160,13 @@ void report(long long now)
         return;
     if (stats.paints || stats.needs || stats.wheels || stats.mice || stats.bands) {
         say("INFO:PAINT:mode=%s:n=%ld:needs=%ld:px=%lld:clear=%lld:wk=%lld:swz=%lld:post=%lld:avg=%lld:max=%lld:lat=%lld:"
-            "wheel=%ld:mouse=%ld:w2d=%lld/%lld:full=%ld:delta=%ld:scroll=%ld:checks=%ld:bad=%ld:wkcalls=%ld:wkmax=%lld:bands=%ld",
+            "wheel=%ld:mouse=%ld:w2d=%lld/%lld:full=%ld:delta=%ld:scroll=%ld:checks=%ld:bad=%ld:wkcalls=%ld:wkmax=%lld:bands=%ld:"
+            "ver=%lld",
             mode().legacy ? "legacy" : "fast", stats.paints, stats.needs, stats.pixels, stats.clearUs, stats.paintUs,
             stats.swizzleUs, stats.postUs, stats.paints ? stats.totalUs / stats.paints : 0LL, stats.maxUs,
             stats.maxLatencyUs, stats.wheels, stats.mice, stats.w2dCount ? stats.w2dSumUs / stats.w2dCount : 0LL,
-            stats.w2dMaxUs, stats.fulls, stats.deltas, stats.scrolls, stats.checks, stats.bad, stats.wkCalls, stats.wkMaxUs, stats.bands);
+            stats.w2dMaxUs, stats.fulls, stats.deltas, stats.scrolls, stats.checks, stats.bad, stats.wkCalls, stats.wkMaxUs, stats.bands,
+            stats.verifyUs);
         unsigned long long wk[8] = { 0 };
         WKPageGetPaintStats(wk, 8);
         say("INFO:WKPAINT:calls=%llu:total=%llu:wrap=%llu:endprint=%llu:area=%llu:snapshot=%llu:draw=%llu:whole=%llu", wk[0] - lastWk[0],
@@ -325,6 +330,7 @@ void paintNow(void*)
 
     long long painted = 0;
     long long t1 = t0, t2 = t0, t3 = t0;
+    long long verifyUs = 0;
     bool refused = false;
     bool verifyDue = false;
     if (plan == LZW_PAINT_FULL) {
@@ -346,8 +352,10 @@ void paintNow(void*)
         painted = static_cast<long long>(E.width) * E.height;
         ++stats.fulls;
         if (mode().verify) {
+            const long long a = nowUs();
             shadow.picture = E.pixels;
             shadow.deltasSinceCheck = 0;
+            verifyUs += nowUs() - a;
         }
     } else {
         // The rectangles of the plan, painted from WebKit's backing store (which has already moved
@@ -374,32 +382,40 @@ void paintNow(void*)
         if (moved)
             ++stats.scrolls;
         if (mode().verify && !refused && shadow.picture.size() == bytes) {
+            const long long a = nowUs();
             if (moved)
                 shadowScroll(scroll[0], scroll[1], scroll[2], scroll[3], scroll[4], scroll[5]);
             for (int i = 0; i < count; ++i)
                 shadowRect(Damage { rects[4 * i], rects[4 * i + 1], rects[4 * i] + rects[4 * i + 2], rects[4 * i + 1] + rects[4 * i + 3] });
             verifyDue = ++shadow.deltasSinceCheck >= kCheckEvery || stats.checks == 0;
+            verifyUs += nowUs() - a;
         }
     }
-    const long long t4 = nowUs();
+    const long long end = nowUs();
+    // The stages' clock without the check's work (probe images only), which `verifyUs` counts apart.
+    const long long t4 = end - verifyUs;
     if (refused) {
         // The window has nothing to apply it to or is too far behind: the next paint is a whole one.
         lzw_paint_full();
-        requestPaint(t4);
+        requestPaint(end);
     }
 
     ++stats.paints;
     stats.pixels += painted;
     stats.clearUs += t1 - t0, stats.paintUs += t2 - t1, stats.swizzleUs += t3 - t2, stats.postUs += t4 - t3;
     stats.totalUs += t4 - t0;
+    stats.verifyUs += verifyUs;
     stats.maxUs = std::max(stats.maxUs, t4 - t0);
     if (pendingSince)
         stats.maxLatencyUs = std::max(stats.maxLatencyUs, t0 - pendingSince);
-    report(t4);
+    report(end);
 
     if (verifyDue) {
         shadow.deltasSinceCheck = 0;
-        if (!shadowAgrees()) {
+        const long long a = nowUs();
+        const bool agrees = shadowAgrees();
+        stats.verifyUs += nowUs() - a;
+        if (!agrees) {
             lzw_paint_full();
             requestPaint(nowUs());
         }

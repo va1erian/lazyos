@@ -148,6 +148,7 @@ impl Backend for LazyOSBackend {
 
     fn close_window(&self, window: WindowId) {
         let removed = self.windows.borrow_mut().remove(&window.raw());
+        self.pacer.borrow_mut().forget(window.raw());
         if let Some(client) = removed.as_ref().and_then(|w| w.client.as_ref()) {
             self.cursors.borrow_mut().forget_surface(client.surface);
         }

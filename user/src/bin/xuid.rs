@@ -132,6 +132,8 @@ mod layoutfeed;
 mod loginfeed;
 #[path = "xuid/maximize.rs"]
 mod maximize;
+#[path = "xuid/meter.rs"]
+mod meter;
 #[path = "xuid/opening.rs"]
 mod opening;
 #[path = "xuid/origin.rs"]
@@ -159,6 +161,8 @@ mod protocol;
 mod provisioning;
 #[path = "xuid/reap.rs"]
 mod reap;
+#[path = "xuid/refresh.rs"]
+mod refresh;
 #[path = "xuid/region.rs"]
 mod region;
 #[path = "xuid/render.rs"]
