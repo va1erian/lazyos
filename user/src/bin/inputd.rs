@@ -7,7 +7,8 @@
 //! the compositor names it: `inputd/layoutsel.rs`), modifier and lock state, key
 //! repeat, hotkeys and the resync after a `Dropped` marker. It also owns the
 //! one cursor every pointing device moves (`docs/usb-hid-plan.md`), which it
-//! reports to the compositor alone. (Not `keyd`: that
+//! reports to the compositor alone, and the gamepads (`docs/usb-gamepad-plan.md`),
+//! whose events and state page go to the focused session. (Not `keyd`: that
 //! is the secrets and crypto service.)
 //!
 //! Boot lines: `INPUTD:READY layout=<name>`; with `trace=1` every decoded
@@ -35,6 +36,8 @@ mod config;
 mod console;
 #[path = "inputd/delivery.rs"]
 mod delivery;
+#[path = "inputd/gamepad.rs"]
+mod gamepad;
 #[path = "inputd/grants.rs"]
 mod grants;
 #[path = "inputd/held.rs"]
@@ -96,6 +99,9 @@ fn run() -> Result<(), &'static str> {
     let mut hub = hub::Hub::new(config::default_layout());
     let mut config = config::Config::new();
     let mut trace = trace::Trace::from_args();
+    // Who is a pad is the kernel's to say: read its table now that the bus is
+    // ours (a `SOURCE` record from before this is not in the ring).
+    hub.gamepads.read_table(0, 0);
     let mut outputs: Vec<Output> = Vec::new();
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
@@ -117,11 +123,22 @@ fn run() -> Result<(), &'static str> {
         let now = sys::clock();
         source.drain(|item| match item {
             Item::Key(raw) => hub.engine.feed(raw, now, &mut outputs),
-            Item::Pointer(raw) => hub.pointer.engine.apply(raw, &mut pointer_outputs),
+            Item::Pointer(raw) => {
+                hub.gamepads
+                    .route(raw, &mut hub.pointer.engine, &mut pointer_outputs)
+            }
+            Item::Axis(raw) => hub.gamepads.axis(raw),
+            Item::Source(raw) => hub.gamepads.source(raw),
+            Item::Device {
+                device,
+                vendor,
+                info,
+            } => hub.gamepads.device(device, vendor, info),
             Item::Dropped { ts_ns, seq, lost } => {
                 trace::dropped(seq, lost);
                 hub.engine.resync(ts_ns, seq, &mut outputs);
                 hub.pointer.engine.resync(ts_ns, seq, &mut pointer_outputs);
+                hub.gamepads.dropped(ts_ns, seq);
             }
         });
         // One coalesced move per drain, after the edges it carried.
@@ -129,6 +146,10 @@ fn run() -> Result<(), &'static str> {
         trace.pointer(&pointer_outputs);
         hub.deliver_pointer(&pointer_outputs);
         pointer_outputs.clear();
+        // Pads: edges went into the queue as they came, axes join it now.
+        hub.gamepads.flush();
+        trace.pads(&hub.gamepads.out);
+        hub.deliver_pads();
         hub.engine.tick(now, &mut outputs);
         trace.outputs(&outputs);
         // Backlogs first, so this pass's keys queue behind older ones.
@@ -136,6 +157,7 @@ fn run() -> Result<(), &'static str> {
         hub.deliver_keys(&mut outputs, now);
         // The polled view follows the events just sent (I3).
         hub.publish_key_pages();
+        hub.publish_pad_pages();
         // Evidence lines last, a bounded chunk at a time: the bus is never
         // left waiting on the serial port (issue #400).
         trace.flush();

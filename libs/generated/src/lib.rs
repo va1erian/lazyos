@@ -8625,6 +8625,8 @@ pub mod os_lazy_input_v1 {
     pub const METHOD_PING: u32 = 6;
     /// `AttachKeyState` method id.
     pub const METHOD_ATTACHKEYSTATE: u32 = 7;
+    /// `AttachGamepadState` method id.
+    pub const METHOD_ATTACHGAMEPADSTATE: u32 = 8;
     /// `KeyEvent` method id.
     pub const METHOD_KEYEVENT: u32 = 10;
     /// `TextInput` method id.
@@ -8637,6 +8639,14 @@ pub mod os_lazy_input_v1 {
     pub const METHOD_LAYOUTCHANGED: u32 = 14;
     /// `GrantChanged` method id.
     pub const METHOD_GRANTCHANGED: u32 = 15;
+    /// `GamepadAxis` method id.
+    pub const METHOD_GAMEPADAXIS: u32 = 16;
+    /// `GamepadButton` method id.
+    pub const METHOD_GAMEPADBUTTON: u32 = 17;
+    /// `GamepadEnter` method id.
+    pub const METHOD_GAMEPADENTER: u32 = 18;
+    /// `GamepadLeave` method id.
+    pub const METHOD_GAMEPADLEAVE: u32 = 19;
 
     /// Open an input session bound to the calling task (the kernel-stamped
     /// sender). `surface` names the window it wants keys for: it must be a
@@ -8976,6 +8986,61 @@ pub mod os_lazy_input_v1 {
     /// `state`, `objects[0]`, a shared buffer.
     pub const ATTACH_KEY_STATE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
+    /// Attach a gamepad-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes every connected pad's
+    /// current state into it (layout: `inputmap::gamepad`, a seqlock word,
+    /// the newest raw `seq`, a focused flag, the pad count and up to four
+    /// slots of device id, 32 button bits, the d-pad hat and eight `i16`
+    /// axes, deadzone already applied); the moment focus leaves it clears the
+    /// page, before `GamepadLeave` is sent. `inputd` only ever writes the
+    /// page. Attaching again replaces the previous page; same contract as
+    /// `AttachKeyState`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachGamepadStateArgs {
+        pub session: u64,
+        pub state: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `AttachGamepadState`.
+    pub fn encode_attach_gamepad_state_args(value: &AttachGamepadStateArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.session)?;
+        target.buffer(2, &value.state, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `AttachGamepadState` from its body and the objects the kernel installed
+    /// (`ATTACH_GAMEPAD_STATE_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_gamepad_state_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachGamepadStateArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachGamepadStateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.session = field.as_u64()?;
+                }
+                2 => {
+                    out.state = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `AttachGamepadState` request carries, in object-list order:
+    /// `state`, `objects[0]`, a shared buffer.
+    pub const ATTACH_GAMEPAD_STATE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -9148,11 +9213,114 @@ pub mod os_lazy_input_v1 {
         Ok(out)
     }
 
+    /// Event: a gamepad axis changed (only the focused session receives it).
+    /// `device` is the pad's id (as in the state page), `code` the Generic
+    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
+    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
+    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
+    /// positive down). The hat is not an axis event: it arrives as the
+    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
+    /// per drain: one event per axis, the newest value.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GamepadAxisArgs {
+        pub device: u32,
+        pub code: u32,
+        pub value: i32,
+        pub ts_ns: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_gamepad_axis_args(value: &GamepadAxisArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.device)?;
+        target.u32(2, value.code)?;
+        target.i32(3, value.value)?;
+        target.u64(4, value.ts_ns)?;
+        target.u64(5, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_gamepad_axis_args(body: &[u8]) -> Result<GamepadAxisArgs, Error> {
+        let mut out = GamepadAxisArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.device = field.as_u32()?;
+                }
+                2 => {
+                    out.code = field.as_u32()?;
+                }
+                3 => {
+                    out.value = field.as_i32()?;
+                }
+                4 => {
+                    out.ts_ns = field.as_u64()?;
+                }
+                5 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a gamepad button changed (only the focused session receives
+    /// it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+    /// down, `35` left, `36` right (the hat, one edge per direction;
+    /// diagonals press two). Edges are never merged.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct GamepadButtonArgs {
+        pub device: u32,
+        pub code: u32,
+        pub pressed: bool,
+        pub ts_ns: u64,
+        pub seq: u64,
+    }
+
+    pub fn encode_gamepad_button_args(value: &GamepadButtonArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.device)?;
+        target.u32(2, value.code)?;
+        target.bool(3, value.pressed)?;
+        target.u64(4, value.ts_ns)?;
+        target.u64(5, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_gamepad_button_args(body: &[u8]) -> Result<GamepadButtonArgs, Error> {
+        let mut out = GamepadButtonArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.device = field.as_u32()?;
+                }
+                2 => {
+                    out.code = field.as_u32()?;
+                }
+                3 => {
+                    out.pressed = field.as_bool()?;
+                }
+                4 => {
+                    out.ts_ns = field.as_u64()?;
+                }
+                5 => {
+                    out.seq = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Every request of this interface that carries objects: its method id
     /// and the declared kinds, in object-list order.
     pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
         (METHOD_OPEN, OPEN_OBJECTS),
         (METHOD_ATTACHKEYSTATE, ATTACH_KEY_STATE_OBJECTS),
+        (METHOD_ATTACHGAMEPADSTATE, ATTACH_GAMEPAD_STATE_OBJECTS),
     ];
 }
 
@@ -22288,6 +22456,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0x5026bd54a60f1ff6,
         method: 7,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.input.v1.AttachGamepadState
+    objects::ObjectDecl {
+        interface: 0x5026bd54a60f1ff6,
+        method: 8,
         kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.messenger.registry.v1.Connected

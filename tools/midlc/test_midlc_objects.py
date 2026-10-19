@@ -259,6 +259,7 @@ class RepositoryTests(unittest.TestCase):
                 (display, "AttachBufferSlot"): [("pixels", "buffer", None)],
                 ("os.lazy.input.v1", "Open"): [("events", "channel", "os.lazy.input.v1")],
                 ("os.lazy.input.v1", "AttachKeyState"): [("state", "buffer", None)],
+                ("os.lazy.input.v1", "AttachGamepadState"): [("state", "buffer", None)],
                 ("os.lazy.input.shell.v1", "Attach"): [("events", "channel", "os.lazy.input.shell.v1")],
                 ("os.lazy.net.nic.v1", "AttachRing"): [
                     ("rings", "rings", None),

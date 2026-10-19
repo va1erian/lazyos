@@ -14,7 +14,7 @@ use alloc::string::String;
 use core::fmt::Write;
 use user::trace;
 
-use inputmap::{KeyState, Layout, Output, PointerOut};
+use inputmap::{KeyState, Layout, Output, PadOut, PointerOut};
 use user::sys;
 
 /// Most bytes written per loop pass (two trace lines).
@@ -128,6 +128,38 @@ impl Trace {
                 "INPUTD:POINTER x={} y={} buttons={:#x} wheel={},{}",
                 out.x, out.y, out.buttons, out.wheel_v, out.wheel_h
             ));
+        }
+    }
+}
+
+impl Trace {
+    /// `trace=1`: the pad events a pass produced, before delivery.
+    pub(super) fn pads(&mut self, events: &[PadOut]) {
+        if !self.on {
+            return;
+        }
+        for event in events {
+            match *event {
+                PadOut::Button {
+                    device,
+                    code,
+                    pressed,
+                    seq,
+                    ..
+                } => self.line(format_args!(
+                    "INPUTD:PAD button device={device} code={code} pressed={} seq={seq}",
+                    u8::from(pressed)
+                )),
+                PadOut::Axis {
+                    device,
+                    code,
+                    value,
+                    seq,
+                    ..
+                } => self.line(format_args!(
+                    "INPUTD:PAD axis device={device} code={code:#x} value={value} seq={seq}"
+                )),
+            }
         }
     }
 }
