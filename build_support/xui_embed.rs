@@ -149,14 +149,10 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     // Volume, the tray applet over the mixer (docs/tray-plan.md T3): every
     // desktop image has the sound stack (`drivers::embed`).
     "xui-volume.elf",
-    // LazyGolf: Fly over a procedurally generated golf course.
-    "xui-golf.elf",
     // Video Player: Play video files.
     "xui-video.elf",
     // About LazyOS: About LazyOS, with a real-time 3D renderer.
     "xui-about.elf",
-    // NES: Play NES game ROMs, with sound.
-    "xui-nes.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
@@ -205,6 +201,22 @@ fn traydemo_app() -> bool {
     std::env::var_os("LAZYOS_TRAYDEMO").as_deref() == Some(OsStr::new("1"))
 }
 
+/// The games (LazyGolf and the NES Player), shipped only by `LAZYOS_GAMES=1`
+/// desktop images (`run_demo.py --games`, the launcher's Games group).
+/// `tools/xui/build.py` always builds them, so no extra step is needed.
+const GAMES_XUI_APPS: &[&str] = &[
+    // LazyGolf: Fly over a procedurally generated golf course.
+    "xui-golf.elf",
+    // NES: Play NES game ROMs, with sound.
+    "xui-nes.elf",
+];
+
+/// Whether this build asks for the games.
+fn games_apps() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_GAMES");
+    std::env::var_os("LAZYOS_GAMES").as_deref() == Some(OsStr::new("1"))
+}
+
 /// The print spooler (docs/printing-plan.md P6), an xui-app program with no
 /// window: `init` starts it on every desktop image with the network stack.
 const PRINTD_ELF: &str = "xui-printd.elf";
@@ -243,7 +255,7 @@ fn network_stack() -> bool {
 /// `LAZYOS_XUI_APPS` is a platform path list (`;` on Windows, `:` elsewhere)
 /// of binaries built by `tools/xui/build.py`; with `LAZYOS_DESKTOP=1` and no
 /// explicit list, [`DESKTOP_XUI_APPS`], [`DOCUMENT_XUI_APPS`] and the built
-/// [`OPTIONAL_XUI_APPS`] (plus the switched network, Mail and tray-demo apps)
+/// [`OPTIONAL_XUI_APPS`] (plus the switched network, Mail, tray-demo and games apps)
 /// are used, so one switch is enough. An app that is a core package
 /// (`core_packages`) ships as `/system/packages/<sn>.lzp`, the rest (the
 /// Installer, a hand-built client) as an ELF in `/system/bin`
@@ -271,6 +283,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             .chain(USB_XUI_APPS.iter().filter(|_| usb_stack()))
             .chain(MAIL_XUI_APPS.iter().filter(|_| mail_app()))
             .chain(TRAYDEMO_XUI_APPS.iter().filter(|_| traydemo_app()))
+            .chain(GAMES_XUI_APPS.iter().filter(|_| games_apps()))
             .map(|name| dir.join(name))
             .collect(),
         None => Vec::new(),

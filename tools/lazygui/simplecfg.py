@@ -25,9 +25,9 @@ SIMPLE_INTERFACES = [
 #: Games (the brickbreaker sample and the player), Multimedia (the MOD player is
 #: a LazyRAD app) and Dev; the Picture Viewer is always in a Desktop image.
 SIMPLE_GROUPS = (
-    ("games", "Games", "LazyGolf, Doom, Quake, SRB2Kart (fetches Kart Krew's ~220 MB game data; "
+    ("games", "Games", "LazyGolf, the NES Player, Doom, Quake, SRB2Kart (fetches Kart Krew's ~220 MB game data; "
                        "1G OS volume, 1.5G beside a browser; never publish the image) and the LazyRAD brickbreaker.",
-     ("doom", "quake", "srb2kart", "lazyrad")),
+     ("games", "doom", "quake", "srb2kart", "lazyrad")),
     ("multimedia", "Multimedia", "emusic music player and the LazyRAD MOD player.",
      ("emusic", "modplayer")),
     ("dev", "Dev", "The LazyRAD IDE and its samples, the Linux command-line programs "
@@ -74,7 +74,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
                   srb2kart: bool = False, webkit: bool = False,
-                  lazywebplus: bool = False) -> dict:
+                  lazywebplus: bool = False, games: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -90,7 +90,8 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
     fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
     it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
-    ``tls``); ``traydemo`` the tray sample app (Desktop only); ``autologin`` skips the
+    ``tls``); ``traydemo`` the tray sample app (Desktop only); ``games`` LazyGolf and the
+    NES Player (Desktop only; the Games group); ``autologin`` skips the
     Desktop's login screen and logs ``user`` in (issue #623); ``setup`` starts
     the Desktop with no account, so the login screen asks for its owner (the
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
@@ -165,6 +166,7 @@ def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "webkit": webkit,
         "lazywebplus": lazywebplus,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
+        "games": desktop and games,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,
         # The netboot payload is an Advanced-only control, like the kernel limits.

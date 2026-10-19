@@ -8,6 +8,7 @@ Run: python tools/test_run_demo_apps.py
 from __future__ import annotations
 
 import io
+import re
 import sys
 import tempfile
 import unittest
@@ -21,7 +22,33 @@ from test_run_demo import RunDemoCase  # noqa: E402
 
 
 class OptInAppTests(RunDemoCase):
-    """`--emusic`, `--modplayer` and `--pictures`."""
+    """`--emusic`, `--modplayer`, `--pictures` and `--games`."""
+
+    def test_games_are_opt_in_and_built_when_missing(self) -> None:
+        # LazyGolf and the NES Player ship only with `--games` (GAMES_XUI_APPS),
+        # which implies the desktop and builds the apps when they are missing.
+        golf = self.dir / "xui-golf.elf"
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
+                mock.patch.object(run_demo, "DESKTOP_ELFS", []), \
+                mock.patch.object(run_demo, "GAMES_APPS", [golf]), \
+                mock.patch.object(run_demo, "build_xui_apps", return_value=True) as built:
+            self.assertEqual(self.run_main("--desktop")[0], 0)
+            self.assertNotIn("LAZYOS_GAMES", self.builds[-1])
+            built.assert_not_called()
+            self.assertEqual(self.run_main("--games")[0], 0)
+            self.assertEqual(self.builds[-1].get("LAZYOS_GAMES"), "1")
+            self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+            built.assert_called_once()
+        names = [p.name for p in run_demo.DESKTOP_ELFS]
+        self.assertNotIn("xui-golf.elf", names)
+        self.assertNotIn("xui-nes.elf", names)
+
+    def test_the_games_match_the_image_build(self) -> None:
+        source = (run_demo.ROOT / "build_support" / "xui_embed.rs").read_text(encoding="utf-8")
+        block = re.search(r"const GAMES_XUI_APPS: &\[&str\] = &\[(.*?)\];", source, re.S)
+        self.assertIsNotNone(block)
+        self.assertEqual(sorted(path.name for path in run_demo.GAMES_APPS),
+                         sorted(re.findall(r'"([^"]+\.elf)"', block.group(1))))
 
     def test_emusic_brings_the_desktop_and_a_sound_card(self) -> None:
         with mock.patch.object(run_demo, "build_emusic", return_value=True) as package, \

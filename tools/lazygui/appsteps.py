@@ -193,6 +193,12 @@ def wants_traydemo(cfg: dict) -> bool:
     return bool(cfg.get("traydemo") and cfg.get("desktop"))
 
 
+def wants_games(cfg: dict) -> bool:
+    """LazyGolf and the NES Player are desktop apps like the tray demo:
+    `tools/xui/build.py` always builds them, so there is no build step."""
+    return bool(cfg.get("games") and cfg.get("desktop"))
+
+
 def wants_pictures(cfg: dict) -> bool:
     """The Picture Viewer (docs/lazyrad-pictures.md) is a desktop app; its build
     step is LazyRAD's (`lazyrad_step`), which packages it with the others."""
@@ -201,13 +207,14 @@ def wants_pictures(cfg: dict) -> bool:
 
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
-    `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
+    `LAZYOS_GAMES`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
     `tools/jsc/build.py`; a console program, so desktop or not) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
     (the W4 console proof, `tools/webkit/port.py`). The WebKit browser, `LAZYOS_WEBKIT`, is a
     desktop app like LazyWeb: it brings the desktop profile (`catalog.build_env`) and the stack,
     and `run_demo --webkit` builds it and sets the big-app profile and the OS volume size."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
+            | ({"LAZYOS_GAMES": "1"} if wants_games(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
@@ -217,10 +224,11 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail`, `--traydemo`, `--pictures`, `--jsc` and `--webkit-port`, which set
-    those switches themselves, and `--webkit` and `--lazywebplus`."""
+    """run_demo's `--mail`, `--traydemo`, `--games`, `--pictures`, `--jsc` and `--webkit-port`,
+    which set those switches themselves, and `--webkit` and `--lazywebplus`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
+            + (["--games"] if wants_games(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
             + (["--jsc"] if cfg.get("jsc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])

@@ -57,6 +57,7 @@ def image_env(label_trace: bool = False) -> dict[str, str]:
         {
             "LAZYOS_RESET_OS": "1",
             "LAZYOS_DESKTOP": "1",
+            "LAZYOS_GAMES": "1",
             "LAZYOS_XUI_AUTOSTART": "term",
             "LAZYOS_UI_PROBE": "1",
             "LAZYOS_SOUND": "1",
