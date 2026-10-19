@@ -737,11 +737,38 @@ at a few later `GetOutput`s, since `gpud` may start after the compositor), else 
 
 **Left to do** (ranked by the profile):
 
-1. **Paint into the slot.** For a directly painted node the window rasters into its frame and then copies the
-   frame's damage into the slot it presents: two whole-view passes where one would do (buffer age: copy from the
-   last presented slot only what the new damage does not cover, and raster the rest straight into the slot).
+1. **Paint into the slot** (done, section 12.1).
 2. **WebKit's UI-side backing store** moves the whole view in place for every update that scrolled
    (`BackingStore::scroll`, patch `0024`), 25 times a second, although `paint.cpp` only reads the rectangles it
    paints. A ring of rows (scrolling by moving an origin) would make that free.
 3. **Pace to the beam on the box.** `GetBeam` gives the frame counter and scan line; presenting right after vblank
    (G5 flips later) would also keep a copy out of the beam's way.
+
+### 12.1 Buffer age: composing straight into the presented slot
+
+A client window used to compose every frame into a private `frame` and then copy each slot's stale box (the
+damage it missed plus the new damage) from it into the shared slot it presented. For the page view, which a
+scroll repaints whole, that was two whole-view passes a frame. Now client mode composes into the slot itself
+(`xui-app/src/client_window/slots.rs`, `Slots::prepare`; `render.rs`, `Dest::Slot`): the acquired slot first
+copies the part of its stale box that the new damage does not cover from the other slot (current there: the one
+composed last), then the damage is composed into it, the canvas path copying its painting surface's damage in
+and a direct painter (`direct.rs`) writing the shared buffer itself. A slot that no other slot can complete (the
+first frames, a resize) composes its whole stale box instead. Owner mode keeps `frame`.
+
+Two contracts changed with it. A direct painter returns `false` when it cannot draw now, and the damage then goes
+through the canvas: a slot's old pixels there may be frames old, so writing nothing is no longer an option. A
+window closed while a direct painter writes its slot keeps its buffers mapped until the painter returns.
+
+| `frame_run.py --perf`, 2560x1440, WHPX, one run each | before | buffer age |
+|---|---|---|
+| window thread, `INFO:WINDOW` draw | 678, 679 us | 631, 622, 646 us |
+| UI process `PERF:CPU` (printed only above 20%) | 27% and 24% in one run, none in the other | none in three runs |
+| UI process user-mode samples (`--sample-port`, 30 Hz) | 66 | 55 |
+| of which `memcpy`/`memmove` | 47 | 27 |
+
+The numbers are noisy (one CPU under WHPX, the host busy with other work); the samples say where the change acts:
+the copies in the UI process roughly halved. The screenshots match the old build's: `shot_page` pixel for pixel
+(but the clock), `shot_scrolled` once the 4 rows the timing-driven scroll differs by are aligned (but the pointer,
+which does not scroll). Host tests: `client_window::slots::tests` (with a seeded model of frames that fail part
+way) and `backend::render::tests` (a slot composite equals the frame path's picture, a declining direct painter
+leaves the damage to the canvas).

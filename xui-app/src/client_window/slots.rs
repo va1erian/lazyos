@@ -2,10 +2,13 @@
 //!
 //! The compositor reads the slot presented last while the app draws into the
 //! other, so a frame never tears and a present never waits for a reply. Each
-//! slot remembers which of its pixels are older than the backend's painting
-//! surface (`stale`): a frame's damage goes stale in *every* slot, and filling
-//! a slot copies only its own stale rows, so slot A catches up on the frame
-//! it missed while slot B was on screen (issue #487).
+//! slot remembers which of its pixels are older than the window's picture
+//! (`stale`): a frame's damage goes stale in every *other* slot (issue #487).
+//! A frame is composed straight into the slot it fills (buffer age): what the
+//! slot missed outside the new damage is first copied from another slot that
+//! is current there (with two slots, the one composed last), so a frame that
+//! repaints a whole page view writes each of its pixels once instead of into
+//! a private frame and then the slot.
 //!
 //! A slot is (re)allocated when it is next drawn into at a size other than
 //! its own, which is how a `Configure` reaches the buffers: the free slot is
@@ -14,6 +17,7 @@
 use surfbuf::Swapchain;
 use xui_core::Rect;
 
+use super::rects::{copy_rect, intersection, subtract, union};
 use crate::display::Client;
 use crate::sys::{self, errno};
 
@@ -35,7 +39,7 @@ struct Slot {
     /// The size the buffer was created for, in pixels.
     width: i32,
     height: i32,
-    /// The bounding box of the pixels older than the painting surface, or
+    /// The bounding box of the pixels older than the window's picture, or
     /// `None` when the slot is in sync with it.
     stale: Option<Rect>,
 }
@@ -154,35 +158,109 @@ impl Slots {
         Ok(Some(slot))
     }
 
-    /// Record that the painting surface changed inside `rect`: every slot is
-    /// now stale there.
-    pub fn damage(&mut self, rect: Rect) {
-        for slot in &mut self.slots {
-            slot.stale = Some(slot.stale.map_or(rect, |stale| union(stale, rect)));
+    /// Make `slot` ready for a frame whose `damage` is composed straight into
+    /// it (buffer age): the part of the slot's stale pixels the damage does
+    /// not cover is copied from another slot that holds it (the one composed
+    /// last, in steady state), and every other slot goes stale where this
+    /// frame composes. Returns what to compose: `damage` clipped to the slot,
+    /// or more of the slot when no other slot can supply the rest (the first
+    /// frames, a resize). `None` for a bufferless slot or nothing to compose.
+    ///
+    /// The slot is in sync once the returned rectangle is composed into it;
+    /// a frame that fails before that must [`invalidate`](Self::invalidate)
+    /// it.
+    pub fn prepare(&mut self, slot: u32, damage: Rect) -> Option<Rect> {
+        let index = slot as usize;
+        let entry = *self.slots.get(index)?;
+        if entry.buffer == 0 {
+            return None;
+        }
+        let full = Rect::new(0, 0, entry.width, entry.height);
+        let mut compose = intersection(damage, full)?;
+        if let Some(stale) = entry.stale.and_then(|stale| intersection(stale, full)) {
+            let missing = subtract(stale, compose);
+            if !missing.is_empty() {
+                match self.source(index, &missing) {
+                    Some(source) => self.copy_from(source, index, &missing),
+                    None => compose = union(compose, stale),
+                }
+            }
+        }
+        for (other, entry) in self.slots.iter_mut().enumerate() {
+            entry.stale = (other != index)
+                .then(|| entry.stale.map_or(compose, |stale| union(stale, compose)));
+        }
+        Some(compose)
+    }
+
+    /// A slot other than `index`, of its size, whose pixels are current
+    /// everywhere in `missing`.
+    fn source(&self, index: usize, missing: &[Rect]) -> Option<usize> {
+        let (width, height) = (self.slots[index].width, self.slots[index].height);
+        let current = |stale: Option<Rect>| {
+            stale.is_none_or(|stale| missing.iter().all(|r| intersection(*r, stale).is_none()))
+        };
+        (0..SLOTS).find(|&other| {
+            let slot = &self.slots[other];
+            other != index && slot.fits(width, height) && current(slot.stale)
+        })
+    }
+
+    /// Copy `rects` of slot `from` into slot `to`, both of one size.
+    fn copy_from(&mut self, from: usize, to: usize, rects: &[Rect]) {
+        let (src, dst) = (self.slots[from], self.slots[to]);
+        let len = dst.width as usize * dst.height as usize * 4;
+        // SAFETY: each `va` maps the buffer its slot created for exactly
+        // `width * height * 4` bytes (the two slots fit one size), mapped
+        // until the slot is closed. They are two distinct buffers, so the
+        // slices do not overlap; `to` is free (the compositor is not reading
+        // it) and nothing else in this task aliases it, and `from` is only
+        // read, which the compositor's own reads of it do not disturb.
+        let (src, dst) = unsafe {
+            (
+                core::slice::from_raw_parts(src.va as *const u8, len),
+                core::slice::from_raw_parts_mut(dst.va as *mut u8, len),
+            )
+        };
+        for rect in rects {
+            copy_rect(dst, src, self.slots[to].width, self.slots[to].height, *rect);
         }
     }
 
-    /// Bring `slot` in sync with `pixels`, the window's top-down RGBA image of
-    /// the slot's own size, by copying only its stale rows. `false` when
-    /// `pixels` has the wrong length (a resize the slot has not caught up
-    /// with), leaving the slot untouched.
-    pub fn sync(&mut self, slot: u32, pixels: &[u8]) -> bool {
-        let Some(entry) = self.slots.get_mut(slot as usize) else {
+    /// Mark all of `slot` stale: a frame composed into it failed part way.
+    pub fn invalidate(&mut self, slot: u32) {
+        if let Some(entry) = self.slots.get_mut(slot as usize) {
+            entry.stale = Some(Rect::new(0, 0, entry.width, entry.height));
+        }
+    }
+
+    /// The mapping of `slot` (address and length in bytes) when it holds a
+    /// `width` x `height` buffer. Writing through it is only sound while the
+    /// slot is free and stays open: between [`acquire`](Self::acquire) and
+    /// [`submit`](Self::submit), with the window kept from closing.
+    pub fn mapping(&self, slot: u32, width: i32, height: i32) -> Option<(usize, usize)> {
+        let entry = self.slots.get(slot as usize)?;
+        let len = width as usize * height as usize * 4;
+        entry
+            .fits(width, height)
+            .then_some((entry.va as usize, len))
+    }
+
+    /// Copy `rect` of `pixels`, a `width` x `height` RGBA image, into `slot`;
+    /// `false` (nothing copied) when the slot is not of that size.
+    pub fn write(&mut self, slot: u32, pixels: &[u8], width: i32, height: i32, rect: Rect) -> bool {
+        let Some((va, len)) = self.mapping(slot, width, height) else {
             return false;
         };
-        let (width, height) = (entry.width, entry.height);
-        if entry.buffer == 0 || pixels.len() != width as usize * height as usize * 4 {
+        if pixels.len() != len {
             return false;
         }
-        if let Some(stale) = entry.stale.take() {
-            // SAFETY: `va` maps the buffer this slot created for exactly
-            // `pixels.len()` (`width * height * 4`) bytes, which stays mapped
-            // until the slot is closed; the slot is free, so the compositor is
-            // not reading it, and nothing else in this task aliases it.
-            let buffer =
-                unsafe { core::slice::from_raw_parts_mut(entry.va as *mut u8, pixels.len()) };
-            copy_rect(buffer, pixels, width, height, stale);
-        }
+        // SAFETY: `mapping` checked the slot holds a buffer of exactly `len`
+        // bytes, mapped at `va` until the slot is closed; the caller writes
+        // only a free slot, which the compositor does not read, and nothing
+        // else in this task aliases it while `self` is borrowed mutably.
+        let buffer = unsafe { core::slice::from_raw_parts_mut(va as *mut u8, len) };
+        copy_rect(buffer, pixels, width, height, rect);
         true
     }
 
@@ -275,152 +353,5 @@ fn attach_slot(
     Ok((buffer, va))
 }
 
-/// The smallest rectangle covering `a` and `b`.
-fn union(a: Rect, b: Rect) -> Rect {
-    Rect::new(
-        a.left.min(b.left),
-        a.top.min(b.top),
-        a.right.max(b.right),
-        a.bottom.max(b.bottom),
-    )
-}
-
-/// Copy `rect` (clipped to the image) of the `width` x `height` RGBA image
-/// `src` into the same place in `dst`: one copy for full-width rows, else one
-/// per row. Nothing is copied unless both slices are exactly that long.
-pub fn copy_rect(dst: &mut [u8], src: &[u8], width: i32, height: i32, rect: Rect) {
-    let stride = width.max(0) as usize * 4;
-    let len = stride * height.max(0) as usize;
-    if dst.len() != len || src.len() != len {
-        return;
-    }
-    let left = rect.left.clamp(0, width) as usize;
-    let right = rect.right.clamp(0, width) as usize;
-    let top = rect.top.clamp(0, height) as usize;
-    let bottom = rect.bottom.clamp(0, height) as usize;
-    if left >= right || top >= bottom {
-        return;
-    }
-    if right - left == width as usize {
-        let span = top * stride..bottom * stride;
-        dst[span.clone()].copy_from_slice(&src[span]);
-        return;
-    }
-    for row in top..bottom {
-        let span = row * stride + left * 4..row * stride + right * 4;
-        dst[span.clone()].copy_from_slice(&src[span]);
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const W: i32 = 8;
-    const H: i32 = 6;
-    const BYTES: usize = (W * H * 4) as usize;
-
-    /// An image whose every byte is `value`.
-    fn image(value: u8) -> Vec<u8> {
-        vec![value; BYTES]
-    }
-
-    /// The bytes of pixel `(x, y)` in `buffer`.
-    fn pixel(buffer: &[u8], x: i32, y: i32) -> &[u8] {
-        let at = ((y * W + x) * 4) as usize;
-        &buffer[at..at + 4]
-    }
-
-    #[test]
-    fn a_fresh_slot_takes_the_whole_image() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        assert!(slots.sync(0, &image(7)));
-        assert!(!slots.is_stale(0));
-        assert!(a.iter().all(|&byte| byte == 7));
-    }
-
-    #[test]
-    fn only_the_stale_rows_are_copied() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        slots.sync(0, &image(1));
-        slots.sync(1, &image(1));
-        // The surface changes inside (2,1)-(5,3) only.
-        slots.damage(Rect::new(2, 1, 5, 3));
-        assert!(slots.sync(0, &image(9)));
-        assert_eq!(pixel(&a, 2, 1), [9; 4]);
-        assert_eq!(pixel(&a, 4, 2), [9; 4]);
-        assert_eq!(pixel(&a, 5, 2), [1; 4], "right of the damage");
-        assert_eq!(pixel(&a, 1, 1), [1; 4], "left of the damage");
-        assert_eq!(pixel(&a, 2, 3), [1; 4], "below the damage");
-        assert_eq!(pixel(&a, 2, 0), [1; 4], "above the damage");
-    }
-
-    #[test]
-    fn a_slot_catches_up_on_the_frame_it_missed() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        slots.sync(0, &image(1));
-        slots.sync(1, &image(1));
-        // Frame 1 damages the top row and lands in slot 0.
-        let mut surface = image(1);
-        surface[..(W * 4) as usize].fill(2);
-        slots.damage(Rect::new(0, 0, W, 1));
-        slots.sync(0, &surface);
-        // Frame 2 damages the bottom row and lands in slot 1, which must also
-        // pick up frame 1's top row.
-        let last = ((H - 1) * W * 4) as usize;
-        surface[last..].fill(3);
-        slots.damage(Rect::new(0, H - 1, W, H));
-        slots.sync(1, &surface);
-        assert_eq!(b, surface);
-        assert!(slots.is_stale(0), "slot 0 still lacks frame 2");
-    }
-
-    #[test]
-    fn damage_outside_the_image_is_clipped() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        slots.sync(0, &image(1));
-        slots.damage(Rect::new(-10, -10, 100, 100));
-        assert!(slots.sync(0, &image(4)));
-        assert!(a.iter().all(|&byte| byte == 4));
-    }
-
-    #[test]
-    fn a_wrong_size_image_is_refused() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        assert!(!slots.sync(0, &[5; 16]));
-        assert!(slots.is_stale(0), "a refused sync keeps the slot stale");
-        assert!(a.iter().all(|&byte| byte == 0));
-    }
-
-    #[test]
-    fn a_cancelled_present_frees_the_slot_and_keeps_refusal_tracking() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        assert_eq!(slots.submit(0), Some(1));
-        assert_eq!(slots.submit(1), Some(2));
-        assert!(slots.cancel(1, 2));
-        assert!(!slots.cancel(1, 2), "only once");
-        // Slot 0 is the newest present again: its release is a refusal.
-        assert!(slots.released(0));
-        assert_eq!(slots.submit(1), Some(2), "slot 1 is free again");
-    }
-
-    #[test]
-    fn releasing_the_newest_slot_means_the_present_was_refused() {
-        let (mut a, mut b) = (image(0), image(0));
-        let mut slots = Slots::for_tests([&mut a, &mut b], W, H);
-        assert_eq!(slots.submit(0), Some(1));
-        assert_eq!(slots.submit(1), Some(2));
-        assert!(
-            !slots.released(0),
-            "slot 1 replaced slot 0: a normal release"
-        );
-        assert!(slots.released(1), "nothing replaced slot 1: refused");
-        assert!(!slots.released(1), "a slot is only released once");
-    }
-}
+mod tests;

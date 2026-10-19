@@ -1,12 +1,12 @@
 //! Direct painters: a node that shows a picture it keeps itself (a browser's page) writes its pixels
-//! straight into the window's composed frame.
+//! straight into the window's composed picture: the buffer slot it presents (client mode) or its frame.
 //!
 //! The canvas path costs a picture that changes every frame several passes over every pixel: xui
 //! premultiplies and scans each new image, a partial repaint copies the damage into a scratch pixmap and
 //! back, the window background is drawn under the node, and the result is copied into the frame. A
 //! scrolling page at 2560x1440 is 3 to 4 megapixels a frame, so those passes were most of a frame's cost.
-//! A node with a direct painter ([`set_painter`]) instead gets the frame's pixels inside its bounds and
-//! writes them once ([`Target`]).
+//! A node with a direct painter ([`set_painter`]) instead gets the destination's pixels inside its bounds
+//! and writes them once ([`Target`]); in client mode that is the shared slot itself (`render.rs`).
 //!
 //! It is only used when nothing would be drawn over the node in the damaged rectangle (no later node
 //! overlaps it): then what the painter writes is what the canvas path would have composed. Otherwise the
@@ -22,11 +22,15 @@ use xui_core::backend::{WidgetId, WindowId};
 use xui_core::Rect;
 
 use super::geometry::{absolute_bounds, ancestor_clip, effectively_visible};
+use super::render::Dest;
 use super::LazyOSBackend;
+use crate::client_window::{intersection, subtract};
 
-/// What a direct painter writes into: the window's composed frame (top-down RGBA, `stride` bytes a row).
+/// What a direct painter writes into: the window's composed picture (top-down RGBA, `stride` bytes a row).
 /// It must write every pixel of `damage` (window coordinates, inside `bounds`), opaque, and nothing
-/// outside it.
+/// outside it, and must not call back into the backend. A painter that cannot draw now returns `false`
+/// having written nothing, and the damage is composed through the canvas instead: in client mode the
+/// target is a buffer slot whose pixels there may be several frames old, never left on screen.
 pub struct Target<'a> {
     pub pixels: &'a mut [u8],
     pub stride: usize,
@@ -36,7 +40,7 @@ pub struct Target<'a> {
     pub damage: Rect,
 }
 
-pub type DirectPainter = Rc<dyn Fn(&mut Target<'_>)>;
+pub type DirectPainter = Rc<dyn Fn(&mut Target<'_>) -> bool>;
 
 thread_local! {
     /// By node: a backend lives on one thread, and so do its nodes and their painters.
@@ -66,38 +70,6 @@ pub(super) fn is_direct(widget: WidgetId) -> bool {
 
 pub(super) fn has_any() -> bool {
     PAINTERS.with(|painters| !painters.borrow().is_empty())
-}
-
-/// `rect` minus `hole`: at most four rectangles (above, below, left, right of the hole).
-pub(super) fn subtract(rect: Rect, hole: Rect) -> Vec<Rect> {
-    let cut = Rect::new(
-        rect.left.max(hole.left),
-        rect.top.max(hole.top),
-        rect.right.min(hole.right),
-        rect.bottom.min(hole.bottom),
-    );
-    if cut.left >= cut.right || cut.top >= cut.bottom {
-        return vec![rect];
-    }
-    let mut out = Vec::with_capacity(4);
-    if rect.top < cut.top {
-        out.push(Rect::new(rect.left, rect.top, rect.right, cut.top));
-    }
-    if cut.bottom < rect.bottom {
-        out.push(Rect::new(rect.left, cut.bottom, rect.right, rect.bottom));
-    }
-    if rect.left < cut.left {
-        out.push(Rect::new(rect.left, cut.top, cut.left, cut.bottom));
-    }
-    if cut.right < rect.right {
-        out.push(Rect::new(cut.right, cut.top, rect.right, cut.bottom));
-    }
-    out
-}
-
-fn intersection(a: Rect, b: Rect) -> Option<Rect> {
-    let r = Rect::new(a.left.max(b.left), a.top.max(b.top), a.right.min(b.right), a.bottom.min(b.bottom));
-    (r.left < r.right && r.top < r.bottom).then_some(r)
 }
 
 impl LazyOSBackend {
@@ -131,15 +103,30 @@ impl LazyOSBackend {
         (!covered).then_some((painter, bounds, direct))
     }
 
-    /// Composes `damage` with a direct painter where one may draw, and through the canvas around it. `None`
-    /// when no direct painter applies (the caller composes it all through the canvas).
-    pub(super) fn composite_direct(&self, window: WindowId, damage: Rect) -> Option<bool> {
+    /// Composes `damage` into `dest` with a direct painter where one may draw, and through the canvas
+    /// around it. `None` when no direct painter applies (the caller composes it all through the canvas).
+    pub(super) fn composite_direct(&self, window: WindowId, damage: Rect, dest: Dest) -> Option<bool> {
         if !has_any() {
             return None;
         }
         let (painter, bounds, direct) = self.direct_target(window, damage)?;
-        // The frame must be the window's already (a first frame or a resize is composed whole), and
-        // nothing is written outside it.
+        let painted = match dest {
+            Dest::Frame => self.paint_frame(window, &painter, bounds, direct)?,
+            Dest::Slot(slot) => self.paint_slot(window, slot, &painter, bounds, direct)?,
+        };
+        // What the damage holds outside the node, through the canvas.
+        for rest in subtract(damage, painted) {
+            if !self.composite_canvas(window, rest, dest) {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// Runs `painter` on the window's frame; the rectangle it wrote, `None` (nothing written) while the
+    /// frame is not the window's yet (a first frame or a resize is composed whole through the canvas) or
+    /// when the painter declined.
+    fn paint_frame(&self, window: WindowId, painter: &DirectPainter, bounds: Rect, direct: Rect) -> Option<Rect> {
         let (mut frame, stride, direct) = {
             let mut windows = self.windows.borrow_mut();
             let entry = windows.get_mut(&window.raw())?;
@@ -150,7 +137,7 @@ impl LazyOSBackend {
             let direct = intersection(direct, Rect::new(0, 0, width, height))?;
             (std::mem::take(&mut entry.frame), width as usize * 4, direct)
         };
-        painter(&mut Target {
+        let painted = painter(&mut Target {
             pixels: &mut frame,
             stride,
             bounds,
@@ -159,34 +146,49 @@ impl LazyOSBackend {
         if let Some(entry) = self.windows.borrow_mut().get_mut(&window.raw()) {
             entry.frame = frame;
         }
-        // What the damage holds outside the node, through the canvas.
-        for rest in subtract(damage, direct) {
-            if !self.composite_canvas(window, rest) {
-                return Some(false);
-            }
-        }
-        Some(true)
+        painted.then_some(direct)
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn subtract_leaves_the_frame_around_a_hole() {
-        let rect = Rect::new(0, 0, 100, 100);
-        let parts = subtract(rect, Rect::new(10, 20, 90, 80));
-        assert_eq!(
-            parts,
-            vec![
-                Rect::new(0, 0, 100, 20),
-                Rect::new(0, 80, 100, 100),
-                Rect::new(0, 20, 10, 80),
-                Rect::new(90, 20, 100, 80)
-            ]
-        );
-        assert!(subtract(rect, rect).is_empty());
-        assert_eq!(subtract(rect, Rect::new(200, 0, 300, 10)), vec![rect]);
+    /// Runs `painter` on buffer slot `slot` of the window, free and prepared for this frame; the rectangle
+    /// it wrote, `None` when the slot is not of the window's size, the painter declined, or the window
+    /// closed under it.
+    fn paint_slot(
+        &self,
+        window: WindowId,
+        slot: u32,
+        painter: &DirectPainter,
+        bounds: Rect,
+        direct: Rect,
+    ) -> Option<Rect> {
+        let (va, len, stride, direct) = {
+            let windows = self.windows.borrow();
+            let entry = windows.get(&window.raw())?;
+            let (width, height) = (entry.width, entry.height);
+            let (va, len) = entry.client.as_ref()?.slots.mapping(slot, width, height)?;
+            let direct = intersection(direct, Rect::new(0, 0, width, height))?;
+            (va, len, width as usize * 4, direct)
+        };
+        // The window cannot close under the painter: `close_window` keeps the buffers of the window being
+        // composed open until `composing` is cleared.
+        self.composing.set(Some(window.raw()));
+        // SAFETY: `mapping` checked the slot holds a buffer of exactly `len` bytes mapped at `va`, which
+        // stays mapped until the slot is closed, and closing it is deferred while `composing` names this
+        // window. The slot is free (acquired, not yet submitted), so the compositor does not read it, and
+        // nothing else in this task touches it until the painter returns: `Slots` only writes a slot from
+        // `prepare` and `write`, which are not reached from a direct painter.
+        let pixels = unsafe { core::slice::from_raw_parts_mut(va as *mut u8, len) };
+        let painted = painter(&mut Target {
+            pixels,
+            stride,
+            bounds,
+            damage: direct,
+        });
+        self.composing.set(None);
+        let closed = self.closing.borrow_mut().take();
+        if let Some(closed) = closed {
+            self.close_client_window(closed);
+            return None;
+        }
+        painted.then_some(direct)
     }
 }

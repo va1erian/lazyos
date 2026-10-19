@@ -21,9 +21,11 @@ use crate::display::{self, Client, Event};
 use crate::input;
 use crate::sys::{self, errno};
 
+mod rects;
 mod slots;
 
-pub use slots::{copy_rect, Slots};
+pub use rects::{copy_rect, intersection, subtract};
+pub use slots::Slots;
 
 /// How many times the first attach is retried at a newer compositor size.
 const ATTACH_RETRIES: usize = 4;

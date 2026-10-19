@@ -133,7 +133,7 @@ mod direct {
             id,
             Some(Rc::new(move |target: &mut Target<'_>| {
                 let Ok(state) = state.try_borrow() else {
-                    return;
+                    return false;
                 };
                 let started = Instant::now();
                 let (ahead, offset) = state.shown();
@@ -152,6 +152,7 @@ mod direct {
                     offset,
                 );
                 state.record_draw(started, view.height().max(0) as u32, checker, ahead);
+                true
             })),
         );
     }
