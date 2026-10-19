@@ -137,7 +137,10 @@ These are the same rules as lazysky-plan §7.1.
   the user's own text and attachments.
 * **Secrets.** The Fireworks API key and the GitHub token are never put in
   a log, a trace, `argv`, the environment, confd, a conversation file or an
-  issue. §5.3 says where they live. Add `AGENT:` and `DIAG:` to
+  issue. The one exception is development tooling: the host CLI `agent_cli`
+  and the P0 guest harness read `FIREWORKS_API_KEY` from the environment
+  (the harness types it into `read -s`), and `agent_cli` sends it only to the
+  real service, never to a `--test-endpoint`. §5.3 says where they live. Add `AGENT:` and `DIAG:` to
   `SECRET_CHANNELS` in `tools/trace/check_adhoc.py`.
 * **The app's own authority.** The manifest lists display, input,
   clipboard, mimed and notify, plus `os.lazy.diag.v1`, `os.lazy.elevd.v1`
@@ -188,7 +191,12 @@ These are the same rules as lazysky-plan §7.1.
   usage chunk) and a total per conversation. There is no price table in v1.
 * **Context management:** when the next prompt would pass 75% of the
   model's context, the oldest turns are replaced by a summary the model
-  writes (a **compact** request, shown as a divider in the transcript). Tool
+  writes (a **compact** request, shown as a divider in the transcript). The
+  summarizer is told its transcript is data, and the summary is sent as
+  quoted notes in a user message, never as part of the system prompt: it was
+  written from tool output an attacker may have shaped. A conversation with
+  two turns or fewer is never compacted (the size is only an estimate): the
+  server answers a real overflow itself. Tool
   results older than the last two turns are sent as their digest line only.
 * **Errors:** 401 asks for the key again. 429 and 5xx are retried at most
   twice, honouring `Retry-After`, with backoff. 422 shows the server's
@@ -699,14 +707,20 @@ produced them is `xui-app/crates/agent-core` (`agent_cli`) and
 5. *Read timeout.* The 250 ms wake-up holds under rustls's `StreamOwned` on
    LazyOS sockets and on the host. A guest read of a 60,000-byte chunked body
    whose ten TLS records were each sent in two parts, 600 ms apart, woke 16
-   to 18 times in 5.2 to 5.5 s and ended with the right bytes (FNV-1a
+   to 20 times in 5.2 to 6.0 s and ended with the right bytes (FNV-1a
    equal to the server's); a host test asserts the same. rustls keeps a
    partial record, so the next read carries on. The wake-up loop lives in the
    TLS transport (`lazyhttps`, `Watch`) rather than in ureq's body reader,
-   so ureq never sees a timeout and is never resumed after an error. Stop is
-   noticed within one poll once the response head is in or while waiting for
-   it; it does not reach into a TLS handshake or a connect, which keep their
-   own 10 s bound.
+   so ureq never sees a timeout and is never resumed after an error. The Stop
+   flag is looked at before **every** read of the socket, not only after a
+   timeout (the first version missed Stop on a stream that kept sending), so
+   Stop ends a stream within one poll whether it is stalled, busy, a record
+   is trickling in, the head has not come, or an error body stalls
+   (`tests/provider_stop.rs`). A stopped read fails with a dedicated error,
+   not `ErrorKind::Interrupted`, which `read_to_end` retries for ever. The
+   idle limit is per read: a peer that delivers a byte every few seconds is
+   slow, not idle, and Stop still ends it. A TCP connect keeps its own 10 s
+   bound.
 
 **P1: core chat (host).** Extract `xui-app/crates/https` from lazysky-core,
 move LazySky onto it, and add the allowlist. Then the provider trait, the

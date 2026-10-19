@@ -6,12 +6,14 @@
 mod conversation;
 mod event;
 
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
 
-pub use conversation::{Conversation, Item};
+pub use conversation::{Conversation, Item, SUMMARY_FRAME};
 pub use event::{Event, Persona};
 
 /// A file bigger than this is not read: it is not a conversation.
@@ -22,6 +24,9 @@ const MAX_LINE: usize = 8 * 1024 * 1024;
 pub struct Store {
     conversations: PathBuf,
     trash: PathBuf,
+    /// Conversations whose end this process has checked for a torn line: a
+    /// crash tears a file between runs, so once per run is enough.
+    tail_checked: Mutex<HashSet<String>>,
 }
 
 /// A row of the sidebar.
@@ -49,6 +54,7 @@ impl Store {
         Store {
             conversations: app_dir.join("conversations"),
             trash: app_dir.join("trash"),
+            tail_checked: Mutex::default(),
         }
     }
 
@@ -61,7 +67,7 @@ impl Store {
         diagnostics: bool,
         system: Option<String>,
     ) -> io::Result<Conversation> {
-        fs::create_dir_all(&self.conversations)?;
+        private_dir(&self.conversations)?;
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         loop {
             let id = format!(
@@ -76,11 +82,11 @@ impl Store {
                 diagnostics,
                 system: system.clone(),
             };
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(self.path(&id)?)
-            {
+            let mut options = OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            match options.open(self.path(&id)?) {
                 Ok(mut file) => {
                     file.write_all(format!("{}\n", meta.to_line()).as_bytes())?;
                     return Ok(Conversation::replay([meta]).expect("a meta replays"));
@@ -91,16 +97,47 @@ impl Store {
         }
     }
 
-    /// Appends one event as one line (a single write).
+    /// Appends one event as one line (a single write). A file that does not
+    /// end in a new line (a write cut short by a crash) gets one first, so
+    /// the new event is never glued onto the torn one. An event whose line
+    /// would be over [`MAX_LINE`] is refused: the reader would skip it.
     pub fn append(&self, id: &str, event: &Event) -> io::Result<()> {
-        let mut file = OpenOptions::new().append(true).open(self.path(id)?)?;
-        file.write_all(format!("{}\n", event.to_line()).as_bytes())
+        let line = event.to_line();
+        if line.len() >= MAX_LINE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the event is too large to store",
+            ));
+        }
+        let path = self.path(id)?;
+        let first = self
+            .tail_checked
+            .lock()
+            .map_or(true, |mut seen| seen.insert(id.to_string()));
+        let mut file = OpenOptions::new().read(first).append(true).open(path)?;
+        let mut out = String::with_capacity(line.len() + 2);
+        let len = if first { file.metadata()?.len() } else { 0 };
+        if len > 0 {
+            file.seek(SeekFrom::Start(len - 1))?;
+            let mut last = [0u8; 1];
+            file.read_exact(&mut last)?;
+            if last[0] != b'\n' {
+                out.push('\n');
+            }
+        }
+        out.push_str(&line);
+        out.push('\n');
+        file.write_all(out.as_bytes())
     }
 
     pub fn load(&self, id: &str) -> io::Result<Conversation> {
         let events = read_events(&self.path(id)?)?;
-        Conversation::replay(events)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not a conversation file"))
+        let mut conversation = Conversation::replay(events)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "not a conversation file"))?;
+        // The file name is the identity: a copied file must not append to
+        // the one it was copied from.
+        conversation.id = id.to_string();
+        Ok(conversation)
     }
 
     /// Every conversation, the most recently written first.
@@ -142,7 +179,7 @@ impl Store {
 
     /// Moves a conversation to the trash folder; nothing is hard-deleted.
     pub fn delete(&self, id: &str) -> io::Result<()> {
-        fs::create_dir_all(&self.trash)?;
+        private_dir(&self.trash)?;
         let from = self.path(id)?;
         let mut to = self.trash.join(format!("{id}.jsonl"));
         let mut n = 1;
@@ -209,6 +246,16 @@ impl Store {
         }
         Ok(self.conversations.join(format!("{id}.jsonl")))
     }
+}
+
+/// Makes `dir` (and its parents) readable by its owner alone: the
+/// conversations hold system logs the user may not want shared.
+fn private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)
 }
 
 fn valid_id(id: &str) -> bool {

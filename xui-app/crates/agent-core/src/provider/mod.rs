@@ -72,6 +72,8 @@ pub struct Completion {
     /// `stop`, `length`, `tool_calls`, ...
     pub finish_reason: Option<String>,
     pub usage: Option<Usage>,
+    /// The answer or the reasoning hit the size cap and the rest was dropped.
+    pub truncated: bool,
     /// Milliseconds from sending the request to the first streamed chunk.
     pub first_chunk_ms: Option<u64>,
     /// The server's own `fireworks-server-time-to-first-token`, in ms.
@@ -118,7 +120,12 @@ pub enum ChatError {
     /// Any other 4xx; `detail` is the server's own words (a 422's `detail`).
     Rejected { status: u16, detail: String },
     /// 5xx.
-    Server { status: u16, detail: String },
+    Server {
+        status: u16,
+        detail: String,
+        /// The server's `Retry-After`.
+        retry_after: Option<Duration>,
+    },
     /// The connection, the TLS handshake or the name lookup failed.
     Transport(String),
     /// The policy refused the address (another host, `http:`).
@@ -171,7 +178,7 @@ impl fmt::Display for ChatError {
             ChatError::Rejected { status, detail } => {
                 write!(f, "the server refused the request ({status}): {detail}")
             }
-            ChatError::Server { status, detail } => {
+            ChatError::Server { status, detail, .. } => {
                 write!(f, "the server failed ({status}): {detail}")
             }
             ChatError::Transport(d) | ChatError::Refused(d) | ChatError::Protocol(d) => {

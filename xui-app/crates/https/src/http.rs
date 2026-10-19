@@ -22,6 +22,9 @@ pub use crate::tls::Watch;
 use crate::tls::{self, LazyConfig, TlsConnector};
 use crate::Roots;
 
+/// Headers that carry a secret: dropped when a redirect leaves the host.
+const CREDENTIAL_HEADERS: &[&str] = &["authorization", "cookie", "proxy-authorization"];
+
 /// Request headers the client owns: connection management, framing and
 /// content coding are not the caller's to set.
 const OWN_HEADERS: &[&str] = &[
@@ -142,10 +145,11 @@ impl Response {
     }
 }
 
-/// A response whose body is still on the wire. Reading it wakes the
-/// connection's [`Watch`] (so Stop and a stalled server are noticed) and
-/// ends with an `Interrupted` error once the stop flag is set, or a
-/// `TimedOut` one after the idle limit.
+/// A response whose body is still on the wire. Every read of its socket
+/// looks at the [`Watch`]: once the stop flag is set a read fails with an
+/// error [`crate::is_stopped`] recognises (not `Interrupted`, which
+/// `read_to_end` would retry), and one that gets no byte for the idle limit
+/// fails with `TimedOut`.
 pub struct StreamResponse {
     pub status: u16,
     /// Header names lowercased.
@@ -165,6 +169,9 @@ impl StreamResponse {
 
 impl Read for StreamResponse {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.watch.stop.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(tls::stopped_error());
+        }
         let _watching = tls::watching(self.watch.clone());
         self.reader.read(buf)
     }
@@ -233,8 +240,18 @@ impl Http {
         hops: usize,
     ) -> Result<Response, String> {
         let mut current = url.to_string();
+        let first_host = host_of(url);
         for _ in 0..=hops {
-            let response = self.get(&current, headers)?;
+            // A credential never follows a redirect to another server.
+            let same_host = host_of(&current).eq_ignore_ascii_case(&first_host);
+            let kept: Vec<(&str, &str)> = headers
+                .iter()
+                .copied()
+                .filter(|(name, _)| {
+                    same_host || !CREDENTIAL_HEADERS.contains(&name.to_ascii_lowercase().as_str())
+                })
+                .collect();
+            let response = self.get(&current, &kept)?;
             let Some(next) = response
                 .header("location")
                 .and_then(|location| redirect_target(&current, response.status, location))

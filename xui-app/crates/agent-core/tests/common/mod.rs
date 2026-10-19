@@ -8,12 +8,13 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use lazyagent_core::{Endpoint, Fireworks, Roots, Secret};
+use lazyagent_core::message::Message;
+use lazyagent_core::{ChatRequest, Effort, Endpoint, Fireworks, Params, Roots, Secret, Sink};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ServerConfig, ServerConnection};
 
@@ -63,6 +64,9 @@ impl Pki {
 pub enum Step {
     Send(Vec<u8>),
     SplitSend(Vec<u8>, Duration),
+    /// Encrypted, then written one byte at a time with a pause after each:
+    /// a record that never completes within a poll period.
+    Trickle(Vec<u8>, Duration),
     Sleep(Duration),
 }
 
@@ -210,6 +214,20 @@ fn answer(
                 tcp.write_all(&wire[cut..]).ok();
                 tcp.flush().ok();
             }
+            Step::Trickle(bytes, pause) => {
+                conn.writer().write_all(&bytes).unwrap();
+                let mut wire = Vec::new();
+                while conn.wants_write() {
+                    conn.write_tls(&mut wire).unwrap();
+                }
+                for byte in wire {
+                    if tcp.write_all(&[byte]).is_err() {
+                        return;
+                    }
+                    tcp.flush().ok();
+                    thread::sleep(pause);
+                }
+            }
             Step::Sleep(pause) => thread::sleep(pause),
         }
     }
@@ -287,4 +305,48 @@ pub fn status(code: u16, extra_headers: &[(&str, &str)], body: &str) -> Vec<Step
     head.push_str("\r\n");
     head.push_str(body);
     vec![Step::Send(head.into_bytes())]
+}
+
+pub fn request() -> ChatRequest {
+    ChatRequest {
+        model: "accounts/fireworks/models/deepseek-v4p1-flash".into(),
+        messages: vec![Message::system("be brief"), Message::user("hi")],
+        tools: Vec::new(),
+        params: Params {
+            reasoning_effort: Some(Effort::Low),
+            ..Params::default()
+        },
+    }
+}
+
+pub fn no_stop() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
+#[derive(Default)]
+pub struct Recorder {
+    pub text: String,
+    pub reasoning: String,
+    pub deltas: usize,
+    pub retries: Vec<(u32, Duration, String)>,
+}
+
+impl Sink for Recorder {
+    fn text(&mut self, t: &str) {
+        self.text.push_str(t);
+    }
+    fn reasoning(&mut self, t: &str) {
+        self.reasoning.push_str(t);
+    }
+    fn tool_call_delta(&mut self, _: usize, _: Option<&str>, _: Option<&str>, _: &str) {
+        self.deltas += 1;
+    }
+    fn retrying(&mut self, attempt: u32, delay: Duration, why: &str) {
+        self.retries.push((attempt, delay, why.to_string()));
+    }
+}
+
+pub fn fast(client: &mut Fireworks) {
+    client.retry.base = Duration::from_millis(20);
+    client.retry.cap = Duration::from_secs(3);
 }

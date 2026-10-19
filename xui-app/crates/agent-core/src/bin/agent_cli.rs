@@ -150,7 +150,14 @@ fn main() {
         Some(host_port) => Endpoint::for_testing(host_port),
         None => Endpoint::fireworks(),
     };
-    let client = Fireworks::new(platform.ca_roots(), Secret::new(key), endpoint);
+    // The real key goes to the real service only: a harness endpoint gets a
+    // placeholder, so a mistyped --test-endpoint cannot receive it.
+    let secret = if options.test_endpoint.is_some() {
+        Secret::new("test-key")
+    } else {
+        Secret::new(key)
+    };
+    let client = Fireworks::new(platform.ca_roots(), secret, endpoint);
     let store = Store::new(&platform.app_dir());
     let conversation = match &options.resume {
         Some(id) => store.load(id),

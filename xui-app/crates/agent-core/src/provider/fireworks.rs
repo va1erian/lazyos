@@ -61,6 +61,11 @@ pub struct Fireworks {
     pub poll: Duration,
 }
 
+/// The most answer text (and, separately, reasoning) one reply keeps: a
+/// server that never stops cannot grow memory without bound, and the
+/// conversation file stays under its line cap. What is cut is marked
+/// (`Completion::truncated`).
+const MAX_ANSWER: usize = 1024 * 1024;
 /// The most of an error body that is read.
 const MAX_ERROR_BODY: u64 = 64 * 1024;
 
@@ -117,7 +122,13 @@ impl Fireworks {
                 }
             })?;
         if response.status != 200 {
-            return Err(status_error(&mut response));
+            let error = status_error(&mut response);
+            if stop.load(Ordering::Relaxed) {
+                return Err(ChatError::Stopped {
+                    partial: Box::default(),
+                });
+            }
+            return Err(error);
         }
         let mut state = Stream {
             started,
@@ -135,6 +146,11 @@ impl Fireworks {
         let mut buffer = vec![0u8; 16 * 1024];
         let mut failure: Option<String> = None;
         loop {
+            if stop.load(Ordering::Relaxed) {
+                return Err(ChatError::Stopped {
+                    partial: Box::new(state.finish()),
+                });
+            }
             match response.read(&mut buffer) {
                 Ok(0) => {
                     let mut each = |event| state.event(event, sink, &mut failure);
@@ -150,7 +166,7 @@ impl Fireworks {
                     }
                 }
                 Err(e) => {
-                    if stop.load(Ordering::Relaxed) || e.kind() == io::ErrorKind::Interrupted {
+                    if stop.load(Ordering::Relaxed) || lazyhttps::is_stopped(&e) {
                         return Err(ChatError::Stopped {
                             partial: Box::new(state.finish()),
                         });
@@ -200,7 +216,11 @@ impl Provider for Fireworks {
                     retry_after,
                     detail,
                 } => (*retry_after, format!("429: {detail}")),
-                ChatError::Server { status, detail } => (None, format!("{status}: {detail}")),
+                ChatError::Server {
+                    status,
+                    detail,
+                    retry_after,
+                } => (*retry_after, format!("{status}: {detail}")),
                 _ => return Err(error),
             };
             if attempt >= self.retry.max {
@@ -254,12 +274,20 @@ impl Stream {
             self.completion.first_chunk_ms = Some(self.started.elapsed().as_millis() as u64);
         }
         if let Some(text) = chunk.text {
-            self.completion.content.push_str(&text);
-            sink.text(&text);
+            if self.completion.content.len() + text.len() <= MAX_ANSWER {
+                self.completion.content.push_str(&text);
+                sink.text(&text);
+            } else {
+                self.completion.truncated = true;
+            }
         }
         if let Some(text) = chunk.reasoning {
-            self.completion.reasoning.push_str(&text);
-            sink.reasoning(&text);
+            if self.completion.reasoning.len() + text.len() <= MAX_ANSWER {
+                self.completion.reasoning.push_str(&text);
+                sink.reasoning(&text);
+            } else {
+                self.completion.truncated = true;
+            }
         }
         for f in chunk.tool_calls {
             sink.tool_call_delta(f.index, f.id.as_deref(), f.name.as_deref(), &f.arguments);
@@ -304,7 +332,11 @@ fn status_error(response: &mut StreamResponse) -> ChatError {
             retry_after: response.header("retry-after").and_then(parse_retry_after),
             detail,
         },
-        status @ 500..=599 => ChatError::Server { status, detail },
+        status @ 500..=599 => ChatError::Server {
+            status,
+            detail,
+            retry_after: response.header("retry-after").and_then(parse_retry_after),
+        },
         status @ 300..=399 => ChatError::Rejected {
             status,
             detail: "the server redirected the request, which is refused".into(),

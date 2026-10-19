@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use http::{Http, HttpOptions, Policy, Response, StreamResponse, Watch, REFUSED};
+pub use tls::is_stopped;
 
 /// Where the TLS trust anchors come from.
 #[derive(Clone, Debug)]

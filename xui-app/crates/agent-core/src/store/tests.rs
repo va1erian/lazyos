@@ -224,3 +224,53 @@ fn a_long_conversation_replays_in_full() {
     assert_eq!(loaded.messages("S").len(), 6001);
     fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn an_append_after_a_torn_line_is_not_lost() {
+    let dir = temp_dir("torn-append");
+    let store = Store::new(&dir);
+    let c = store.create(1, "m", Persona::Chat, false, None).unwrap();
+    user(&store, &c.id, "first");
+    let path = dir.join("conversations").join(format!("{}.jsonl", c.id));
+    let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+    file.write_all(b"{\"t\":\"assistant\",\"text\":\"par")
+        .unwrap();
+    drop(file);
+    // The next run of the app: a new store, which checks each file's end once.
+    let store = Store::new(&dir);
+    user(&store, &c.id, "after the crash");
+    let loaded = store.load(&c.id).unwrap();
+    assert!(matches!(loaded.items.last(), Some(Item::User { text }) if text == "after the crash"));
+    assert_eq!(
+        loaded.items.len(),
+        2,
+        "the torn line is dropped, nothing else"
+    );
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn an_event_too_big_to_read_back_is_refused_when_written() {
+    let dir = temp_dir("huge");
+    let store = Store::new(&dir);
+    let c = store.create(1, "m", Persona::Chat, false, None).unwrap();
+    let huge = Event::User {
+        text: "x".repeat(MAX_LINE),
+    };
+    let err = store.append(&c.id, &huge).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(store.load(&c.id).unwrap().items.len(), 0);
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_copied_file_keeps_its_own_name_as_its_id() {
+    let dir = temp_dir("copy");
+    let store = Store::new(&dir);
+    let c = store.create(1, "m", Persona::Chat, false, None).unwrap();
+    let from = dir.join("conversations").join(format!("{}.jsonl", c.id));
+    fs::copy(&from, dir.join("conversations").join("copy-1.jsonl")).unwrap();
+    let copy = store.load("copy-1").unwrap();
+    assert_eq!(copy.id, "copy-1");
+    fs::remove_dir_all(dir).ok();
+}

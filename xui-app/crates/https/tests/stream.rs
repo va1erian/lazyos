@@ -260,11 +260,8 @@ fn stop_ends_a_stalled_read_within_a_poll() {
     let started = Instant::now();
     let err = response.read(&mut [0u8; 64]).unwrap_err();
     let waited = started.elapsed();
-    assert_eq!(err.kind(), std::io::ErrorKind::Interrupted, "{err}");
-    assert!(
-        waited < Duration::from_millis(300 + 50 + 250),
-        "took {waited:?}"
-    );
+    assert!(lazyhttps::is_stopped(&err), "{err}");
+    assert!(waited < Duration::from_millis(300 + 700), "took {waited:?}");
 }
 
 #[test]
@@ -318,6 +315,7 @@ fn a_server_that_never_answers_can_be_stopped_before_the_head() {
         )
         .err()
         .expect("stopped");
+    assert!(err.contains("stopped"), "{err}");
     assert!(started.elapsed() < Duration::from_secs(2), "{err}");
 }
 

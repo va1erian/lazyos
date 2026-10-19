@@ -100,7 +100,12 @@ impl<'a> Session<'a> {
         stop: &Arc<AtomicBool>,
         sink: &mut dyn Sink,
     ) -> Result<Completion, TurnError> {
-        if compact::needed(&self.conversation, &self.system_prompt) {
+        // With too few turns to fold there is nothing to compact: the size
+        // is only an estimate, so the server decides (it answers a real
+        // overflow with its own error).
+        if self.conversation.turns() > compact::KEEP_TURNS
+            && compact::needed(&self.conversation, &self.system_prompt)
+        {
             let event = compact::summarize(self.provider, &self.conversation, stop)?;
             if let Event::Compact { covered_turns, .. } = &event {
                 sink.compacted(*covered_turns);
