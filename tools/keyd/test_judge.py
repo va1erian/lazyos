@@ -63,7 +63,7 @@ class AppSecretsTest(unittest.TestCase):
     def test_a_probe_that_read_another_apps_secret_fails(self):
         # `probeb` must not find `token` on its first run; "ok" instead of
         # ENOENT means it saw probea's.
-        text = log("first").replace("probeb:run:PASS:ENOENT", "probeb:run:PASS:ok")
+        text = log("first").replace("probeb:first:PASS:ENOENT", "probeb:first:PASS:ok")
         self.assertTrue(any("probe apps printed" in f for f in judge.judge_boot("first", text)))
 
     def test_a_secret_lost_over_a_reboot_fails(self):

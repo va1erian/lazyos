@@ -39,8 +39,8 @@ BOOTS = {
         "apps": [
             ("probea", "install", "PASS:ok"),
             ("probeb", "install", "PASS:ok"),
-            ("probea", "run", "PASS:" + FIRST_RUN),
-            ("probeb", "run", "PASS:" + FIRST_RUN),
+            ("probea", "first", "PASS:" + FIRST_RUN),
+            ("probeb", "first", "PASS:" + FIRST_RUN),
             ("probeb", "remove", "PASS:ok"),
         ],
         "steps": [
@@ -60,7 +60,7 @@ BOOTS = {
         "loaded": 2,
         "app_loaded": 2,
         "sweep": 1,
-        "apps": [("probea", "run", "PASS:" + LATER_RUN)],
+        "apps": [("probea", "later", "PASS:" + LATER_RUN)],
         "steps": [
             ("user_list", "home"),
             ("system_list", "office"),
@@ -75,7 +75,7 @@ BOOTS = {
         "loaded": 0,
         "app_loaded": 1,
         "sweep": 0,
-        "apps": [("probea", "run", "PASS:" + LATER_RUN)],
+        "apps": [("probea", "later", "PASS:" + LATER_RUN)],
         "steps": [("user_list", ""), ("system_list", "")],
     },
 }
