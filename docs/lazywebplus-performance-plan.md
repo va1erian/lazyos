@@ -651,9 +651,21 @@ before these two rules and count gaps against the ends of webkit.org, a short pa
 * **The end of the page** (`Speculation::set_at_bottom`, `paint.cpp`): the window scrolled ahead past the bottom
   of a short page (webkit.org) into rows that do not exist and showed a checkerboard until it gave up 900 ms later.
   The UI process now sends `WKPageIsPinnedToBottomSide` with each update's offset, and nothing further is shown
-  ahead downward from a picture at the bottom, unless bands below the view say the page goes on: WebKit tells the
-  pinned state again when the page scrolls, not after every layout, and Ars Technica's consent overlay leaves the
-  page "pinned" until the first scroll after it closes.
+  ahead downward from a picture at the bottom. That was the first version, and it did not hold: it let the
+  notches through when `reach_down` was not zero, and it is not zero at the end of webkit.org (29 rows: the engine
+  paints a few rows past the view's edge even at the document's end), so the notches against the end took the
+  picture 480 rows ahead and 450 of them were checkerboard, the hole in the screenshots of the bench's
+  `site1_scrolled`. A diagnostic line per draw with checkerboard (offset, ahead, `at_bottom`, `reach_down`) showed
+  `at_bottom=true down=29 pending=480`. Pinned with no more than `END_SLACK` (64) rows of bands below the view now
+  means the end: nothing further is shown ahead, and what is ahead is dropped when the page says so. Bands that
+  reach further say the page goes on (WebKit tells the pinned state again when the page scrolls, not when it grows,
+  and it is `true` from the first load until the first scroll). Tests: `speculate.rs`
+  (`at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on`) and the pixel test
+  `tests/scroll_end.rs`, its own binary because the bands wait in one process-wide queue. webkit.org's checkerboard
+  went from 7.3% of the rows shown to 0.0%. The cost: the first notch after a load, with no bands yet, is not
+  shown ahead (the pinned state is stale-true until the first update), and a notch at the end of a short page
+  shows nothing. The bench takes a second shot three seconds after the scroll (`site<n>_settled`), which is what
+  shows a hole that stays.
 
 **A build trap found on the way.** Removing a WebKit patch re-extracts the tree, but `tar` gave every file the
 archive's time: a file the removed patch had changed looked older than its object, ninja kept the patched object, and
@@ -673,11 +685,7 @@ and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `
 2. **Whole frames on webkit.org.** 3 to 4 a second still reach the window while scrolling (the animation and the
    scroll in one update), and drawing one costs 50-80 ms at this size: the long gaps that remain. Keep the delta
    when an update both scrolls and repaints, or composite the animated element apart.
-3. **The rows below the end of a short page.** At the bottom of webkit.org the window shows a checkerboard below the
-   footer even once the scroll has settled (7% of the rows shown while scrolling there); the first screenshot of this
-   work shows it too. The picture does not cover the view's rows below the document's end: find which update
-   leaves them out (the scroll delta's exposed strip, or the backing store's size) before blaming the bands.
-4. **Two hangs seen once each.** A WebProcess waiting for good in `GetNetworkProcessConnection` at startup was the
+3. **Two hangs seen once each.** A WebProcess waiting for good in `GetNetworkProcessConnection` at startup was the
    kernel refusing WebKit's hand-off of a new NetworkProcess connection whose queue already held a handle
    (`SCM_RIGHTS`, `ETOOMANYREFS`, issue #865). The cycle check is now exact (`kernel/src/ipc/pipe/reach.rs`), and
    `python tools/webplus/relaunch_run.py` closes and starts the browser until it would show again. Still open:
