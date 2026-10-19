@@ -38,14 +38,15 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
-use spin::{Mutex, MutexGuard};
 
 use super::{Rights, SocketPair};
 use crate::ipc::unix::Listener;
+use crate::task::relax::{YieldGuard, YieldMutex};
 use crate::task::Fd;
 
-/// Serialises the edge-adding enqueues (see the module comment).
-static GRAPH: Mutex<()> = Mutex::new(());
+/// Serialises the edge-adding enqueues (see the module comment). It is taken
+/// with no other lock held, so a contender may yield (`LOCK:WAIT lock=scm-graph`).
+static GRAPH: YieldMutex<()> = YieldMutex::named("scm-graph", ());
 
 /// The number of the current (or last) walk; marks equal to it are visited.
 static EPOCH: AtomicU64 = AtomicU64::new(0);
@@ -142,7 +143,7 @@ pub(super) fn admit(
     rights: Option<&Rights>,
     dest: Option<&SocketPair>,
     held: &mut Vec<Node>,
-) -> Result<Option<MutexGuard<'static, ()>>, Refusal> {
+) -> Result<Option<YieldGuard<'static, ()>>, Refusal> {
     let (Some(rights), Some(dest)) = (rights, dest) else {
         return Ok(None);
     };
