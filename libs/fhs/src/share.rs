@@ -57,6 +57,11 @@ pub const PDF_SAMPLE: &str = "/system/share/samples/lazyos-sample.pdf";
 /// Player's screenshot session opens (docs/video-player-plan.md).
 pub const VIDEO_SAMPLE: &str = "/system/share/samples/lazyos-sample.avi";
 
+/// The NES Player's sample cartridge (`tools/nes/make_sample.py`): an original
+/// NROM homebrew the welcome screen offers, so the app has something to run
+/// before the user brings a ROM. Written by the image build.
+pub const NES_SAMPLE: &str = "/system/share/samples/lazyos-sample.nes";
+
 /// The sample package (the Counter demo), installed with
 /// `pkgctl install /system/share/samples/pkgdemo.lzp`.
 pub const PKGDEMO: &str = "/system/share/samples/pkgdemo.lzp";

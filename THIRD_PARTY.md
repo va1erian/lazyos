@@ -15,7 +15,7 @@ Not repeated here, because they already have a home:
   because `libs/crypto` is where they are chosen.
 - Fonts, samples and wallpapers: one line each in
   [`assets/manifest.txt`](assets/manifest.txt), licence texts beside them.
-- Doom, Freedoom and doomgeneric: [`doom/NOTICE`](doom/NOTICE).
+- Doom, Freedoom and doomgeneric: [`games/doom/NOTICE`](games/doom/NOTICE).
 
 ## The rule
 

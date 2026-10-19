@@ -100,7 +100,7 @@ What T3a settled while landing:
   `dev::CONSOLE` use in a std app: nine services' lines T2 missed, e.g.
   `mimed`'s selftest, are in the baseline for T3b);
   `xui-app` is 445 now, against 374 at T0 (LazyGolf, LazySky, Video, the
-  Terminal rewrite and the Wi-Fi tab landed in between), `srb2kart/` 18.
+  Terminal rewrite and the Wi-Fi tab landed in between), `games/srb2kart/` 18.
 
 ## 1. Why
 
@@ -116,7 +116,7 @@ prints with no common owner:
 | `kernel/` | `serial_println!("DEV:...")`, `boot_trace::mark`, `label_trace::denied` | 82 (33 of them `TEST:`) |
 | `user/` (no_std services) | `sys::write_str(&format!("INIT:..."))` | 332 |
 | `xui-app/` (std apps, shell, services) | `println!("CALC:UP:PASS")`, `probe::emit` (opens `/dev/console`), `stall.rs` (rate-limited `println!`) | 389 |
-| `lazyrad-os/`, `doom/`, `emusic/`, `quake/` | `Markers::emit` (opens `/dev/console`), `println!` | 43 |
+| `lazyrad-os/`, `games/doom/`, `emusic/`, `games/quake/` | `Markers::emit` (opens `/dev/console`), `println!` | 43 |
 | `tools/abi/fixtures/` | `println!("ABI:...")` | out of scope: Linux binaries under test |
 
 What this costs today:
@@ -378,7 +378,7 @@ script unchanged unless the stage says otherwise.
   through `Budget`) and `lazyrad_os::marker` (its `Markers` type, `once()`
   and `install_panic_hook()` move into `xui_app::trace` so the panic hook
   that writes `PANIC` and `PANIC:BT` lines serves every app).
-- Migrate the 389 `xui-app` sites, `doom/`, `emusic/`, `quake/`, the mail
+- Migrate the 389 `xui-app` sites, `games/doom/`, `emusic/`, `games/quake/`, the mail
   and web apps, the Terminal's `TERM:OUT`. `tools/xui/new_app.py` writes
   the new calls.
 - Harnesses: `core_apps.json`, `xui_writer.json`, `xui_pdf.json`,

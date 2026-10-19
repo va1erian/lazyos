@@ -39,7 +39,7 @@ new is checked into `target/`.
   files, `config.cfg`, the menu/console command table over
   `std::fs::stdin/stdout` records. The protocol has no browser things in
   it (keys, ticks, windows, PCM), so LazyOS runs the *same* code with an
-  in-process pair of pipes (`quake/src/lazy/bridge.rs`): the program's
+  in-process pair of pipes (`games/quake/src/lazy/bridge.rs`): the program's
   loop parks on its `Read` while the window pumps keys; each turn's
   `Frame` record is scaled onto the `xuid` surface. This keeps ~1
   MLoC of platform code identical to upstream (the upstream tests,
@@ -48,7 +48,7 @@ new is checked into `target/`.
 - **D2: the engine is fetched, never vendored; the overlay is the port.**
   `tools/quake/build.py` assembles
   `target/quake/quake-srp-<rev>/lazyos/`: the fetched `quake-wasm/`
-  sources plus `quake/src/` (the port's root and platform) — exactly two
+  sources plus `games/quake/src/` (the port's root and platform) — exactly two
   upstream files are replaced (`main.rs` wholesale, and `common.rs`
   with one documented addition, the data directory), and `src/lazy/` is
   the LazyOS half. The overlay's fingerprint rebuilds the assembled
@@ -91,13 +91,13 @@ new is checked into `target/`.
 |---|---|
 | Fetcher (pinned rev + pak) | `tools/quake/qfetch.py` |
 | Build (assemble, zig cc, package) | `tools/quake/build.py` |
-| Overlay crate template | `quake/Cargo.toml.in` (generated into the assembled crate with the workspace's absolute paths) |
-| Port root | `quake/src/main.rs` (quake-wasm's module list + our `main`) |
-| Patched upstream file | `quake/src/common.rs` (the data directory) |
-| LazyOS platform | `quake/src/lazy/` (`launch`, `keymap`, `session`, `pixels`, `records`, `headless`, `crc`, `bridge`, `window`, `window_input`) |
+| Overlay crate template | `games/quake/Cargo.toml.in` (generated into the assembled crate with the workspace's absolute paths) |
+| Port root | `games/quake/src/main.rs` (quake-wasm's module list + our `main`) |
+| Patched upstream file | `games/quake/src/common.rs` (the data directory) |
+| LazyOS platform | `games/quake/src/lazy/` (`launch`, `keymap`, `session`, `pixels`, `records`, `headless`, `crc`, `bridge`, `window`, `window_input`) |
 | Image switch | `LAZYOS_QUAKE=1` -> `build_support/quake_embed.rs` |
 | Launcher + GUI | `run_demo.py --quake`; GUI Simple/Advanced through `tools/lazygui/` (`catalog.py`, `appsteps.py`, `simple.py`, `simplecfg.py`, `ui.py`, `variables.py`) |
-| Package tree | `quake/package/` (manifest, icons, docs) |
+| Package tree | `games/quake/package/` (manifest, icons, docs) |
 | Session | `tools/screenshot/examples/quake.json` (install, headless verdict, menu launch, play) |
 | CI | `.github/workflows/quake.yml` (build, `--test` the crate on Linux, the session) |
 

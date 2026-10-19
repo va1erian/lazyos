@@ -1,6 +1,6 @@
 name: doom
 
-# Doom as an installable package (docs/doom-port-plan.md D5, doom/README.md).
+# Doom as an installable package (docs/doom-port-plan.md D5, games/doom/README.md).
 # Host-tests the platform layer's pure logic, builds the engine + `lazydoom`
 # with zig (doomgeneric and Freedoom are fetched at pinned SHA-256s and never
 # committed), packs `doom.lzp`, and boots the desktop: the session installs the
@@ -13,7 +13,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "doom/**"
+      - "games/doom/**"
       - "tools/doom/**"
       - "tools/pkg/**"
       - "libs/lazypkg/**"
@@ -33,7 +33,7 @@ on:
       - ".github/workflows/doom.yml"
   pull_request:
     paths:
-      - "doom/**"
+      - "games/doom/**"
       - "tools/doom/**"
       - "tools/pkg/**"
       - "libs/lazypkg/**"
@@ -109,8 +109,8 @@ jobs:
 
       - name: Host tests (doom, lazypkg, package builder)
         run: |
-          cargo test --manifest-path doom/Cargo.toml --lib
-          cargo clippy --manifest-path doom/Cargo.toml --lib --tests -- -D warnings
+          cargo test --manifest-path games/doom/Cargo.toml --lib
+          cargo clippy --manifest-path games/doom/Cargo.toml --lib --tests -- -D warnings
           cargo test -p lazypkg --all-features
           python tools/pkg/test_build.py
 

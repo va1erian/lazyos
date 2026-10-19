@@ -3,7 +3,7 @@
 
 lazyOS builds xui from git in several standalone workspaces (`xui-app`,
 `doom`, `emusic`, `lazyrad-os`, `srb2kart`), each with its own `Cargo.toml` and
-`Cargo.lock`, plus the `quake/Cargo.toml.in` template Quake's build writes its
+`Cargo.lock`, plus the `games/quake/Cargo.toml.in` template Quake's build writes its
 manifest from. Two revisions in one image mean two copies of `xui_core` whose
 types do not mix, and a bump that misses one workspace is easy to make. This
 script finds every `va1erian/xui` git dependency (including `[patch]` entries

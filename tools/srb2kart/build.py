@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Build SRB2Kart for LazyOS: the engine, the program and the `srb2kart.lzp` package.
 
-Steps (``docs/srb2kart-port-plan.md``, ``srb2kart/README.md``):
+Steps (``docs/srb2kart-port-plan.md``, ``games/srb2kart/README.md``):
 
 1. fetch the Kart-Public v1.6 source at its pinned digest and the official
    v1.6 game data (``tools/srb2kart/fetch.py``);
-2. build ``srb2kart/`` (Rust, static musl) with the zig toolchain, which also
-   compiles the C engine and our platform layer (``srb2kart/build.rs``)
+2. build ``games/srb2kart/`` (Rust, static musl) with the zig toolchain, which also
+   compiles the C engine and our platform layer (``games/srb2kart/build.rs``)
    -> ``target/srb2kart/srb2kart.elf``;
-3. assemble the package tree (``srb2kart/package/`` + ``bin/srb2kart.elf`` +
+3. assemble the package tree (``games/srb2kart/package/`` + ``bin/srb2kart.elf`` +
    the licence files) and build it with ``tools/pkg/build.py``
    -> ``target/pkg/srb2kart.lzp``. The package is the engine only: the game
    data (``target/srb2kart/data/``) has no licence and is never packaged;
@@ -48,7 +48,7 @@ import fetch  # noqa: E402
 import zig  # noqa: E402
 
 TARGET = "x86_64-unknown-linux-musl"
-CRATE = ROOT / "srb2kart"
+CRATE = ROOT / "games" / "srb2kart"
 OUT_DIR = ROOT / "target" / "srb2kart"
 #: Its own cargo target directory: the zig-linked build uses a different
 #: RUSTFLAGS environment from `tools/xui/build.py`'s plain builds.

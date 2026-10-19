@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Build Doom for LazyOS: the engine, the program and the `doom.lzp` package.
 
-Steps (``docs/doom-port-plan.md``, ``doom/README.md``):
+Steps (``docs/doom-port-plan.md``, ``games/doom/README.md``):
 
 1. fetch doomgeneric at its pinned revision (``tools/doom/fetch.py``);
-2. build ``doom/`` (Rust, static musl) with the zig toolchain, which also
-   compiles the C engine (``doom/build.rs``) -> ``target/doom/doom.elf``;
+2. build ``games/doom/`` (Rust, static musl) with the zig toolchain, which also
+   compiles the C engine (``games/doom/build.rs``) -> ``target/doom/doom.elf``;
 3. fetch Freedoom's release zip (pinned SHA-256) for ``freedoom1.wad``;
-4. assemble the package tree (``doom/package/`` + ``bin/doom.elf`` +
+4. assemble the package tree (``games/doom/package/`` + ``bin/doom.elf`` +
    ``resources/freedoom1.wad`` + the licence files) and build it with
    ``tools/pkg/build.py`` -> ``target/pkg/doom.lzp``, which the image embeds
    when ``LAZYOS_DOOM=1`` as ``/system/share/samples/doom.lzp``. Install it on
@@ -47,7 +47,7 @@ import fetch  # noqa: E402
 import zig  # noqa: E402
 
 TARGET = "x86_64-unknown-linux-musl"
-CRATE = ROOT / "doom"
+CRATE = ROOT / "games" / "doom"
 OUT_DIR = ROOT / "target" / "doom"
 #: Its own cargo target directory: the zig-linked build uses a different
 #: RUSTFLAGS environment from `tools/xui/build.py`'s plain builds.

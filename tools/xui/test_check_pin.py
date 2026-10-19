@@ -64,18 +64,18 @@ class CheckPinTests(unittest.TestCase):
     def test_one_revision_everywhere_passes(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))
         self.write("xui-app/Cargo.lock", lock(NEW))
-        self.write("doom/Cargo.toml", manifest(NEW))
+        self.write("games/doom/Cargo.toml", manifest(NEW))
         status, out = self.run_check()
         self.assertEqual(status, 0, out)
         self.assertIn(NEW, out)
 
     def test_a_manifest_on_another_revision_fails_and_names_it(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))
-        self.write("doom/Cargo.toml", manifest(OLD))
+        self.write("games/doom/Cargo.toml", manifest(OLD))
         status, out = self.run_check()
         self.assertEqual(status, 1)
         self.assertIn("disagree", out)
-        self.assertIn("doom/Cargo.toml: dependencies.xui-core", out)
+        self.assertIn("games/doom/Cargo.toml: dependencies.xui-core", out)
 
     def test_a_stale_lockfile_fails(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))
@@ -129,12 +129,12 @@ xui-core = {{ git = "https://www.github.com/va1erian/xui", rev = "{OLD}" }}
         # inside a string must not stop it from being parsed.
         self.write("xui-app/Cargo.toml", manifest(NEW))
         self.write(
-            "quake/Cargo.toml.in",
+            "games/quake/Cargo.toml.in",
             manifest(OLD) + 'fhs = { path = "{ROOT}/libs/fhs" }\n',
         )
         status, out = self.run_check()
         self.assertEqual(status, 1)
-        self.assertIn("quake/Cargo.toml.in: dependencies.xui-core", out)
+        self.assertIn("games/quake/Cargo.toml.in: dependencies.xui-core", out)
 
     def test_build_output_is_not_searched(self):
         self.write("xui-app/Cargo.toml", manifest(NEW))

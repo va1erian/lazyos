@@ -425,17 +425,44 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/ab
     --script tools/screenshot/examples/xui_about.json
 ```
 
+## NES Player (`os.lazy.nes`)
+
+The NES Player is a core desktop app: `xui-app/crates/nes` (`xui-nes`) holds
+the session, the picture, the keyboard, the files and the window over
+TetaNES's `tetanes-core` (MIT OR Apache-2.0: CPU, PPU, APU, 30+ mappers,
+save states), and `xui-app/src/bin/nes.rs` supplies the LazyOS platform (a
+48 kHz mono `audioclient` stream, `$HOME`, the `NES:*` evidence lines and
+`--headless`). The image ships one cartridge, an original NROM homebrew
+assembled by `tools/nes/` (a small 6502 assembler and a generator — no cc65
+dependency): a title screen, a ball the D-pad moves and a four-note melody.
+It is validated in a second emulator (jsnes, via Node). See
+[`docs/nes-player.md`](docs/nes-player.md) and [`tools/nes/README.md`](tools/nes/README.md).
+
+```bash
+python tools/run_demo.py --desktop --sound   # then open NES from the menu
+cargo test --manifest-path xui-app/Cargo.toml -p xui-nes   # session, window, pacer, scaler
+python tools/nes/test_nesasm.py            # the assembler and the sample ROM
+python tools/nes/make_sample.py --check    # the checked-in sample is current
+python tools/nes/validate_external.py      # the ROM in jsnes (node/npm; skips without)
+python tools/nes/run.py                    # build, boot, play, record, judge
+```
+
+Markers (channel `NES`): `UP`, `LOAD`, `RUN`, `SAVE`, `STATE`, `SOUND`,
+`AUDIO`, `HEADLESS`, `QUIT`, and `FAIL`. `nes.elf --headless <rom>
+[--frames N]` prints `NES:HEADLESS:PASS frames=N crc=<hex>` (also in
+`/tmp/nes-result.txt`).
+
 ## Doom (an installable `.lzp` package)
 
-Doom is `doom/` (doomgeneric, fetched at a pinned revision and compiled with
+Doom is `games/doom/` (doomgeneric, fetched at a pinned revision and compiled with
 zig, plus a Rust platform layer on `xui-app`'s client window) shipped as the
 package `org.lazy.doom` with the Freedoom IWAD inside; see
-[`doom/README.md`](doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
+[`games/doom/README.md`](games/doom/README.md) and [`docs/doom-port-plan.md`](docs/doom-port-plan.md).
 
 ```bash
 python tools/doom/build.py          # target/doom/doom.elf + target/pkg/doom.lzp (fetches doomgeneric, Freedoom)
 python tools/run_demo.py --doom     # desktop with /system/share/samples/doom.lzp (a user package)
-cargo test --manifest-path doom/Cargo.toml --lib
+cargo test --manifest-path games/doom/Cargo.toml --lib
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/doom     --script tools/screenshot/examples/doom.json   # needs a fresh OS volume (LAZYOS_RESET_OS=1) and LAZYOS_UI_PROBE=1
 ```
 
@@ -471,11 +498,11 @@ recording by pitch, not by silence.
 
 ## Quake (an installable `.lzp` package)
 
-Quake is `quake/` (the `quake-srp` port of id's WinQuake to Rust, fetched at
+Quake is `games/quake/` (the `quake-srp` port of id's WinQuake to Rust, fetched at
 a pinned revision like doomgeneric, plus a Rust platform layer that hosts
 its browser platform over the same record protocol on `xui-app`'s client
 window) shipped as the package `org.lazy.quake` **with id's freely
-redistributable shareware pak inside**; see [`quake/README.md`](quake/README.md)
+redistributable shareware pak inside**; see [`games/quake/README.md`](games/quake/README.md)
 and [`docs/quake-port-plan.md`](docs/quake-port-plan.md). Only two upstream
 files are overlaid (`src/main.rs` and `src/common.rs`'s documented data
 directory); everything else is the upstream code.
@@ -499,7 +526,7 @@ deterministic `QUAKE:HEADLESS:PASS frames=N crc=<hex>` (also in
 
 ## SRB2Kart (an installable `.lzp` package, data fetched at build time)
 
-SRB2Kart is `srb2kart/` (Kart-Public v1.6, Kart Krew's kart racer, fetched at
+SRB2Kart is `games/srb2kart/` (Kart-Public v1.6, Kart Krew's kart racer, fetched at
 a pinned revision and compiled with zig, plus a C platform backend and a Rust
 layer on `xui-app`'s client window) shipped as the package `org.lazy.srb2kart`
 with **the engine only**: its game data (`srb2.srb`, `*.kart`, ~220 MB) is
@@ -508,7 +535,7 @@ release (SHA-256 pinned in `tools/srb2kart/fetch.py`) and writes it to
 `/system/share/srb2kart/` (`fhs::share::SRB2KART_DATA`) beside a
 `CREDITS.txt`. **Never commit, upload, attach or publish the data or an image
 containing it** (CI artifacts carry screenshots and logs, no image); keep the
-credits wherever the game appears. See [`srb2kart/README.md`](srb2kart/README.md)
+credits wherever the game appears. See [`games/srb2kart/README.md`](games/srb2kart/README.md)
 and [`docs/srb2kart-port-plan.md`](docs/srb2kart-port-plan.md).
 
 ```bash
@@ -1706,8 +1733,8 @@ regressions, not kernel-internal correctness or resource leaks.
 - Well-known paths and program paths come from `libs/fhs`; never write
   one as a literal (`python tools/fhs/check_literals.py` enforces it).
 - **Evidence markers go through the `trace` API, never a print.** A desktop
-  (xui) app, or any code in `xui-app/`, `lazyrad-os/`, `doom/`, `emusic/`,
-  `quake/`, `srb2kart/`, writes `UP`/`QUIT`/`PASS`/`FAIL` lines, probe
+  (xui) app, or any code in `xui-app/`, `lazyrad-os/`, `games/doom/`, `emusic/`,
+  `games/quake/`, `games/srb2kart/`, writes `UP`/`QUIT`/`PASS`/`FAIL` lines, probe
   rectangles and stalls with `xui_app::trace::{pass!, fail!, event!, line!}`
   on a `Channel` from `libs/tracefmt`, starts with
   `launch::run(Channel::X, ...)`, and never `println!("X:UP:PASS")`; services

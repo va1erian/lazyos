@@ -198,7 +198,7 @@ only the three xui packages, and re-run
 `cargo tree --target x86_64-unknown-linux-musl | grep -E
 'winit|softbuffer|glutin|glow|arboard|xui-gpu'` to confirm the windowing crates
 are still absent.
-`doom/`, `srb2kart/` and the `quake/` manifest template pin the same commit, and
+`games/doom/`, `games/srb2kart/` and the `games/quake/` manifest template pin the same commit, and
 so do `lazyrad-os/` and `emusic/` whenever they are not held in `LAGGING` of
 `tools/xui/check_pin.py` (their own repositories pin xui themselves). A held
 workspace still builds: its manifest carries a `[patch]` pinning every xui

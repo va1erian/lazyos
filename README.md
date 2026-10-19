@@ -40,6 +40,7 @@ and shared buffers, and services are discovered and policy-checked through
 | `user/` | Userspace runtime and system services (`user/src/bin`) |
 | `libs/messenger/` | Shared Messenger wire types and client library |
 | `xui-app/` | XUI toolkit apps (`sysmon`, `fabricmon`, ...) |
+| `games/` | The standalone game ports shipped as installable `.lzp` packages (Doom, Quake, SRB2Kart) |
 | `idl/`, `tools/midlc/` | Interface definitions and their compiler |
 | `tools/` | Demo runner, screenshot/input driver, ABI bench, test runner |
 | `docs/` | Plans and per-subsystem architecture reference |
@@ -49,7 +50,7 @@ Where to read next:
 - [`docs/platform-plan.md`](docs/platform-plan.md): current baseline, the staged roadmap (S0-S9) and where each stage stands.
 - [`docs/architecture.md`](docs/architecture.md): terse per-subsystem reference (boot, memory, tasks, filesystem, IPC, processes, display).
 - [`docs/messenger.md`](docs/messenger.md), [`docs/security-model.md`](docs/security-model.md), [`docs/linux-abi-plan.md`](docs/linux-abi-plan.md), [`docs/xui-plan.md`](docs/xui-plan.md).
-- [`docs/lazyweb.md`](docs/lazyweb.md) (the browser), [`docs/lazysky.md`](docs/lazysky.md) (the Bluesky client), [`docs/tls-plan.md`](docs/tls-plan.md) (HTTPS), [`docs/performance-plan.md`](docs/performance-plan.md) (latency and responsiveness), [`docs/hidpi-plan.md`](docs/hidpi-plan.md) (2x desktop).
+- [`docs/lazyweb.md`](docs/lazyweb.md) (the browser), [`docs/lazysky.md`](docs/lazysky.md) (the Bluesky client), [`docs/tls-plan.md`](docs/tls-plan.md) (HTTPS), [`docs/performance-plan.md`](docs/performance-plan.md) (latency and responsiveness), [`docs/hidpi-plan.md`](docs/hidpi-plan.md) (2x desktop), [`docs/nes-player.md`](docs/nes-player.md) (the NES emulator).
 
 ## Prerequisites
 
@@ -57,6 +58,8 @@ Where to read next:
 - Python 3.
 - QEMU (`qemu-system-x86_64`). On Windows, put `C:\Program Files\qemu` on `PATH`
   or pass `--qemu "C:\Program Files\qemu\qemu-system-x86_64.exe"`.
+- Node and npm (optional): `tools/nes/validate_external.py` runs the sample
+  cartridge in jsnes, a second emulator, and skips itself without them.
 
 ## From a fresh clone
 

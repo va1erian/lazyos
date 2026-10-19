@@ -91,7 +91,7 @@ class CorePackageTests(unittest.TestCase):
         # `SetCursor` itself, and Doom has declared the scope since the cursor
         # API. Quake is not here: it never asks for a shape.
         root = core_packages.ROOT
-        for tree in ("doom/package", "srb2kart/package", "emusic/package", "tools/pkg/samples/counter"):
+        for tree in ("games/doom/package", "games/srb2kart/package", "emusic/package", "tools/pkg/samples/counter"):
             manifest = tomllib.loads((root / tree / "manifest.toml").read_text(encoding="utf-8"))
             self.assertIn("os.lazy.display.cursor.v1", manifest["permissions"]["interfaces"], tree)
 
