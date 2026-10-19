@@ -22,13 +22,19 @@
 //! The offset is only ever compared with its earlier values, so a stale absolute one (a new page that
 //! started at the top) costs nothing. The ends of the page are known without waiting: nothing is shown
 //! ahead above an offset of zero, nor below the newest pixels when the engine says the page could not
-//! scroll further down from where they were painted ([`Speculation::set_at_bottom`]); a page scrolled
-//! to its end would otherwise show rows past it, a checkerboard, until [`PROBE_MS`] gave them up.
+//! scroll further down from where they were painted ([`Speculation::set_at_bottom`]) and the bands
+//! below the view are no more than [`END_SLACK`] rows (the page's own margin: the engine paints a few
+//! rows past the view's edge even at the end); a page scrolled to its end would otherwise show rows past
+//! it, a checkerboard, until [`PROBE_MS`] gave them up. Bands reaching further say the page goes on (the
+//! engine's state is not told again when the page grows, only when it scrolls).
 
 /// Pixels a wheel notch moves the page: WebKit's line step.
 pub const LINE_PX: i32 = 40;
 /// The most the picture is shown ahead, in either direction: past it the checkerboard is most of the view.
 pub const MAX_AHEAD: i32 = 480;
+/// Rows the bands may reach below the view at the end of the page without the page going on: the engine
+/// paints a few rows past the view's edge even at the document's end (29 at webkit.org at 2560x1440).
+pub const END_SLACK: i32 = 64;
 /// The most the bands let the picture be shown ahead (a view of 1440 rows, three of them).
 pub const MAX_REACH: i32 = 4320;
 /// Notches one wheel event is trusted for (the engine forwards that many, as before).
@@ -109,13 +115,15 @@ impl Speculation {
         let floor = self
             .actual
             .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-up, 0));
-        // Never below the end of the page: nothing past the newest pixels when they end it. WebKit
-        // tells the pinned state again when the page scrolls, not on every layout (a closed overlay
-        // that made the page scrollable): rows painted below the view say the page goes on.
-        let at_end = self.at_bottom && self.reach_down == 0;
-        // At the end nothing further is added, and what is already ahead stays (a notch down never
-        // moves the picture up).
-        let ceiling = if at_end { self.pending.max(0) } else { MAX_AHEAD.max(self.reach_down) };
+        // Never below the end of the page: when the engine says it is pinned to the bottom and no more
+        // than a margin of rows is painted below the view, nothing further is shown ahead, instead of the
+        // usual [`MAX_AHEAD`] of checkerboard past a document that does not go on. What is already ahead
+        // stays (a notch down never moves the picture up).
+        let ceiling = if self.at_end() {
+            self.pending.max(0)
+        } else {
+            MAX_AHEAD.max(self.reach_down)
+        };
         let next = (self.pending + step).clamp(floor, ceiling);
         if next == self.pending {
             return dropped;
@@ -180,20 +188,26 @@ impl Speculation {
     }
 
     /// How far past the view's bottom (`down`) and top (`up`) the page's rows are at hand (the bands);
-    /// the picture may be shown that far ahead, and never less than [`MAX_AHEAD`].
+    /// the picture may be shown that far ahead, and not less than [`MAX_AHEAD`] unless the page ends.
     pub fn set_reach(&mut self, down: i32, up: i32) {
         self.reach_down = down.clamp(0, MAX_REACH);
         self.reach_up = up.clamp(0, MAX_REACH);
     }
 
+    /// The page ends where the newest pixels end: the engine says it could not scroll further down
+    /// from their offset and the bands below the view are only its margin ([`END_SLACK`]).
+    fn at_end(&self) -> bool {
+        self.at_bottom && self.reach_down <= END_SLACK
+    }
+
     /// Whether the page could not scroll further down from the offset of the newest update
-    /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows it ahead
-    /// downward, unless bands below the view say there are rows there (the state can be stale).
-    /// What is ahead downward then is past the end of the page and is dropped at once, not after
-    /// [`PROBE_MS`]: returns whether it was (the picture goes back).
+    /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows the picture
+    /// ahead downward (unless the bands say the page goes on: the state can be stale). What is ahead
+    /// downward is past the end of the page and is dropped at once, not after [`PROBE_MS`]: returns
+    /// whether any was (the picture goes back).
     pub fn set_at_bottom(&mut self, at_bottom: bool) -> bool {
         self.at_bottom = at_bottom;
-        if at_bottom && self.reach_down == 0 && self.pending > 0 {
+        if self.at_end() && self.pending > 0 {
             self.snap();
             return true;
         }

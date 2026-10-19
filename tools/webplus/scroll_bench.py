@@ -88,7 +88,10 @@ def bench_session(urls: list[str], settle: float, seconds: float, timeout: float
             {"shot": f"site{index}"},
             *scroll_steps(seconds, notches, pause),
             {"shot": f"site{index}_scrolled"},
-            {"wait": 6.0},
+            # Once the picture shown ahead has been given up (SETTLE_MS) or caught up: what stays is a hole.
+            {"wait": 3.0},
+            {"shot": f"site{index}_settled"},
+            {"wait": 3.0},
         ]
     return steps
 
