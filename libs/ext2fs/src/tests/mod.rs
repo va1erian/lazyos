@@ -17,6 +17,7 @@ mod cache_ops;
 mod format_tests;
 mod handles;
 mod journal;
+mod link_crash;
 mod malformed;
 mod narrow;
 mod ops;

@@ -9,6 +9,7 @@ impl Ext2 {
     /// name (the root has no parent entry to remove).
     pub fn rmdir(&self, path: &str) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
+        let _scope = self.op_scope();
         let (parent_path, name) = split_parent(path)?;
         if name == "." || name == ".." {
             return Err(Ext2Error::Invalid);
@@ -27,6 +28,9 @@ impl Ext2 {
             return Err(Ext2Error::NotEmpty);
         }
         self.remove_entry(parent_ino, &mut parent, name)?;
+        // The entry first, then the counts: a cut between leaves the parent's
+        // count too high, never below the entries that reach it.
+        self.barrier()?;
         // The entry is gone, so the child's `..` link on the parent is too:
         // persist that before the freeing steps, which can fail and would
         // otherwise leave the parent counting a subdirectory that no longer

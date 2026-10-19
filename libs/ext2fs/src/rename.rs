@@ -63,8 +63,9 @@ impl Ext2 {
                 FileKind::File => return Err(Ext2Error::NotDir),
             }
             self.remove_entry(to_parent_ino, &mut to_parent, to_name)?;
-            // An empty directory holds two links (`.` and its parent's entry),
-            // so removing the parent's entry drops its last reference.
+            self.barrier()?; // the entry before the counts that covered it
+                             // An empty directory holds two links (`.` and its parent's entry),
+                             // so removing the parent's entry drops its last reference.
             put16(&mut victim, INO_LINKS, 0);
             put32(&mut victim, INO_DTIME, self.now());
             self.free_inode_blocks(existing, &mut victim)?;
@@ -92,6 +93,17 @@ impl Ext2 {
         // does the `..` move, and the old entry go: a failure at either step
         // undoes the add, so no link count or `..` is left half-changed.
         let moves_dir = from_parent_ino != to_parent_ino;
+        // While the directory has two names its count must cover both: raise
+        // it, on the disk, before the second entry exists (as `rename_file`
+        // does), so a cut never leaves a count below its names.
+        let child_links = le16(&child, INO_LINKS);
+        put16(
+            &mut child,
+            INO_LINKS,
+            child_links.checked_add(1).ok_or(Ext2Error::Invalid)?,
+        );
+        self.write_inode(child_ino, &child)?;
+        self.barrier()?;
         let to_links_before = le16(&to_parent, INO_LINKS);
         if moves_dir {
             let from_links = le16(&from_parent, INO_LINKS).saturating_sub(1);
@@ -105,7 +117,11 @@ impl Ext2 {
             to_name,
             child_ino,
             FT_DIRECTORY,
-        )?;
+        )
+        .inspect_err(|_| {
+            put16(&mut child, INO_LINKS, child_links);
+            let _ = self.write_inode(child_ino, &child);
+        })?;
         if from_parent_ino == to_parent_ino {
             // One inode, two in-memory copies: the add may have grown it.
             from_parent = to_parent;
@@ -125,9 +141,14 @@ impl Ext2 {
         if let Err(error) = moved {
             put16(&mut to_parent, INO_LINKS, to_links_before);
             let _ = self.remove_entry(to_parent_ino, &mut to_parent, to_name);
+            put16(&mut child, INO_LINKS, child_links);
+            let _ = self.write_inode(child_ino, &child);
             return Err(error);
         }
-        Ok(())
+        // The old name is gone (on the disk first): drop the extra count.
+        self.barrier()?;
+        put16(&mut child, INO_LINKS, child_links);
+        self.write_inode(child_ino, &child)
     }
 
     /// The steps of a rename that follow adding the new entry: repoint `..`
@@ -143,6 +164,9 @@ impl Ext2 {
         let (child_ino, child) = child;
         if let Some(parent) = new_dotdot {
             self.set_dotdot(child_ino, child, parent)?;
+            // `..` must leave the old parent before its count drops, which
+            // `remove_entry` writes with the old entry.
+            self.barrier()?;
         }
         if let Err(error) = self.remove_entry(from_parent_ino, from_parent, from_name) {
             if new_dotdot.is_some() {
