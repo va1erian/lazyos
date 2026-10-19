@@ -5,6 +5,10 @@
 //! listeners than a walk expands is refused, not walked for ever.
 
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+
+use crate::ipc::pipe::SocketPair;
+use crate::task::Fd;
 
 use super::*;
 
@@ -13,6 +17,7 @@ const SYS_BIND: u64 = 49;
 const SYS_LISTEN: u64 = 50;
 const AF_UNIX: u64 = 1;
 const SOCK_STREAM: u64 = 1;
+const MSG_DONTWAIT: u64 = 0x40;
 
 /// Stream pairs in the soak: well under `MAX_PIPES` (two pipes each).
 const PAIRS: usize = 10;
@@ -27,6 +32,15 @@ impl Rng {
         self.0 ^= self.0 << 25;
         self.0 ^= self.0 >> 27;
         (self.0.wrapping_mul(0x2545_f491_4f6c_dd1d) >> 33) as usize % n
+    }
+}
+
+/// The socket pair behind descriptor `fd` of the current task.
+fn pair_of(fd: u64) -> Option<Arc<SocketPair>> {
+    // The clone holds a side reference of its own, released when it drops.
+    match &task::fd_clone(fd as usize)? {
+        Fd::Socket { pair, .. } => Some(Arc::clone(pair)),
+        _ => None,
     }
 }
 
@@ -58,9 +72,11 @@ impl Model {
 
 /// 4000 random steps over ten stream pairs (both ends of each stay in the
 /// table): a send of an end of `x` through `y` must be refused exactly when
-/// `y` is `x` or reachable from `x`; a receive must deliver the oldest end the
-/// model queued there. Closing every end at the end frees everything: the
-/// graph never held a cycle.
+/// `y` is `x` or reachable from `x`; a receive must deliver an end of the pair
+/// the model queued there first. Both cases of issue #865 must happen: a
+/// refusal through a longer path, and a send allowed while the carried pair's
+/// queue holds descriptors (which the old rule refused). Closing every end at
+/// the end frees everything: the graph never held a cycle.
 pub fn scmrights_random_graph_soak() -> Result<(), String> {
     let pipes_before = pipe::Pipe::live();
     let p = processes()?;
@@ -72,8 +88,13 @@ pub fn scmrights_random_graph_soak() -> Result<(), String> {
     let mut model = Model {
         queue: core::array::from_fn(|_| [VecDeque::new(), VecDeque::new()]),
     };
+    let pairs: Vec<Arc<SocketPair>> = ends
+        .iter()
+        .map(|end| pair_of(end[0]).ok_or("a pair end"))
+        .collect::<Result<_, _>>()?;
     let mut rng = Rng(0x5eed_865);
     let (mut sent, mut refused, mut taken) = (0u32, 0u32, 0u32);
+    let (mut long_refusals, mut carrying_sent) = (0u32, 0u32);
     for step in 0..STEPS {
         let y = rng.below(PAIRS);
         let side = rng.below(2);
@@ -88,22 +109,29 @@ pub fn scmrights_random_graph_soak() -> Result<(), String> {
             );
             if cycle {
                 refused += 1;
+                long_refusals += u32::from(x != y);
             } else {
+                carrying_sent += u32::from(model.queue[x].iter().any(|q| !q.is_empty()));
                 model.queue[y][1 - side].push_back(x);
                 sent += 1;
             }
         } else if let Some(&want) = model.queue[y][side].front() {
             let mut buf = [0u8; 4];
-            let got = recv_fds(ends[y][side], &mut buf, Some(4), 0);
+            // Never blocks: a disagreement fails the test instead of hanging the suite.
+            let got = recv_fds(ends[y][side], &mut buf, Some(4), MSG_DONTWAIT);
             check!(
                 got.n == 1 && got.fds.len() == 1,
                 "step {step}: receive on {y}: n={:#x} fds={}",
                 got.n,
                 got.fds.len()
             );
+            let delivered = pair_of(got.fds[0]);
             close(got.fds[0]);
+            check!(
+                delivered.is_some_and(|pair| Arc::ptr_eq(&pair, &pairs[want])),
+                "step {step}: receive on {y} delivered another pair than {want}"
+            );
             model.queue[y][side].pop_front();
-            check!(want < PAIRS, "step {step}: the model queued {want}");
             taken += 1;
         }
         let queued: usize = model.queue.iter().flatten().map(VecDeque::len).sum();
@@ -114,9 +142,10 @@ pub fn scmrights_random_graph_soak() -> Result<(), String> {
         );
     }
     check!(
-        sent > 500 && refused > 100 && taken > 500,
-        "the soak exercised too little: {sent} sent, {refused} refused, {taken} taken"
+        sent > 500 && refused > 100 && taken > 500 && long_refusals > 20 && carrying_sent > 100,
+        "the soak exercised too little: {sent} sent ({carrying_sent} carrying),          {refused} refused ({long_refusals} through a longer path), {taken} taken"
     );
+    drop(pairs);
     for pair in ends {
         close(pair[0]);
         close(pair[1]);

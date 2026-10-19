@@ -58,6 +58,8 @@ class Verdict(unittest.TestCase):
         slow = HEALTHY + ("LOCK:WAIT lock=ext2 holder=39/fork:fork thread=15/logd tgid=15 abi=native nr=28 "
                           "held_in=linux:59 waiters=3 ms=510 comm=logd\n")
         self.assertEqual(relaunch_run.verdict(slow, 2), [])
+        stuck = slow.replace("ms=510", "ms=20000")
+        self.assertEqual(relaunch_run.verdict(stuck, 2), ["logd waited 20000 ms for ext2, held by 39/fork:fork"])
         crash = HEALTHY + "PROC:EXIT tgid=39 thread=39/fork status=- sig=11 by=kernel parent=30 cpu_ms=9 comm=webprocess\n"
         self.assertEqual(relaunch_run.verdict(crash, 2), ["webprocess (tgid 39) died of signal 11"])
 

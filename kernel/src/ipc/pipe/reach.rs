@@ -32,8 +32,8 @@
 //!
 //! Cost: each socket is expanded once per walk (a mark of the walk's number,
 //! [`EPOCH`], which only a walk holding [`GRAPH`] writes), so a walk reads
-//! every reachable queue once: at most the live pairs ([`super::MAX_PIPES`]
-//! halves), the listeners and the descriptors in flight.
+//! every reachable queue once: at most the `MAX_PIPES / 2` live pairs
+//! ([`super::MAX_PIPES`]), the listeners and the descriptors in flight.
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -50,7 +50,7 @@ static GRAPH: Mutex<()> = Mutex::new(());
 /// The number of the current (or last) walk; marks equal to it are visited.
 static EPOCH: AtomicU64 = AtomicU64::new(0);
 
-/// Most distinct sockets one walk expands before it refuses: far more than
+/// Most distinct sockets one walk meets before it refuses: far more than
 /// the live pairs allow, so only a crowd of listeners in flight reaches it.
 const MAX_NODES: usize = 1024;
 
@@ -158,7 +158,7 @@ pub(super) fn admit(
 
 /// Whether queueing `rights` on `dest` may go ahead: `Err` when `dest` is
 /// reachable from them (or the walk could not finish). Called with [`GRAPH`]
-/// held and no queue lock. Every socket the walk expands is appended to
+/// held and no queue lock. Every socket the walk meets is appended to
 /// `held` once (a breadth-first queue that never shrinks), for the caller to
 /// drop once its locks are released. A walk that cannot allocate, or meets
 /// more than [`MAX_NODES`] sockets, refuses: a refused send is recoverable, a
