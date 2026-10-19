@@ -60,14 +60,18 @@ pub fn fd_clone(fd: usize) -> Option<Fd> {
 /// Close a descriptor. The old entry is dropped after the task table is
 /// unlocked: dropping a pipe end wakes its peer, and wait-queue notification
 /// takes the task table (queue-before-table lock order). Any epoll instance in
-/// this task that registered the descriptor drops the interest too, so a
-/// reused descriptor number cannot inherit a stale registration.
+/// this task that registered the file under this number drops the interest
+/// too, so a reused descriptor number cannot inherit a stale registration,
+/// unless another live task still holds both the instance and the file under
+/// that number (`interest_owned`): a forked child closing its copy must not
+/// take its parent's registration away. Closing an epoll instance drops the
+/// interests nobody owns any more (`unowned_interests`).
 pub fn fd_close(fd: usize) -> bool {
     let mut junk = Vec::new();
-    let (old, epolls) = {
+    let (old, orphaned, swept) = {
         let mut tasks = TASKS.lock();
         let me = current();
-        let closed = match tasks[me].as_mut() {
+        let (old, epolls) = match tasks[me].as_mut() {
             Some(task) if task.fds.is_open(fd) => {
                 let epolls: Vec<Arc<Epoll>> = task
                     .fds
@@ -81,15 +85,39 @@ pub fn fd_close(fd: usize) -> bool {
             }
             _ => (None, Vec::new()),
         };
-        if closed.0.is_some() {
+        if old.is_some() {
             fdshare::mirror_fd(&mut tasks, me, fd, &mut junk);
         }
-        closed
+        // After the mirror: the caller's whole share group no longer holds it. Only the instances
+        // that watch this file under this number are looked at (each once): the ownership check
+        // walks the task table.
+        let mut orphaned: Vec<Arc<Epoll>> = Vec::new();
+        if let Some(file) = &old {
+            for epoll in epolls {
+                let seen = orphaned.iter().any(|other| Arc::ptr_eq(other, &epoll));
+                if !seen && epoll.holds(fd, file) && !super::lifecycle::interest_owned(&tasks, &epoll, fd, file) {
+                    orphaned.push(epoll);
+                }
+            }
+        }
+        let swept = match &old {
+            Some(Fd::Epoll { epoll }) => super::lifecycle::unowned_interests(&tasks, epoll),
+            _ => Vec::new(),
+        };
+        (old, orphaned, swept)
     };
     drop(junk);
-    for epoll in &epolls {
-        Epoll::drop_fd(epoll, fd);
+    if let Some(file) = &old {
+        for epoll in &orphaned {
+            Epoll::drop_fd_if(epoll, fd, file);
+        }
+        if let Fd::Epoll { epoll } = file {
+            for (registered, target) in &swept {
+                Epoll::drop_fd_if(epoll, *registered, target);
+            }
+        }
     }
+    drop(swept);
     let closed = old.is_some();
     drop(old);
     closed

@@ -221,46 +221,69 @@ pub fn close_exited_fds() {
             let orphaned = orphaned_interests(&tasks, &fds);
             (fds, orphaned)
         };
-        for (epoll, fd) in &orphaned {
-            if let Some(entry) = fds.get(*fd) {
-                Epoll::drop_fd_if(epoll, *fd, entry);
-            }
+        for (epoll, fd, file) in &orphaned {
+            Epoll::drop_fd_if(epoll, *fd, file);
         }
         drop(orphaned);
         drop(fds);
     }
 }
 
-/// The `(epoll, descriptor)` interests an exited task's table `dead` leaves
-/// without an owner: for each epoll instance in `dead` and each descriptor
-/// `dead` held, no live task holds both that instance and the same file at
-/// that number.
+/// The interests of the epoll instances in an exited task's table `dead` that
+/// no live task owns any more (`unowned_interests`), with their instance.
 fn orphaned_interests(
     tasks: &[Option<Task>; MAX_TASKS],
     dead: &FdTable,
-) -> Vec<(Arc<Epoll>, usize)> {
+) -> Vec<(Arc<Epoll>, usize, Fd)> {
+    let mut seen: Vec<Arc<Epoll>> = Vec::new();
     let mut orphaned = Vec::new();
     for (_, entry) in dead.iter() {
         let Fd::Epoll { epoll } = entry else {
             continue;
         };
-        for (fd, held_dead) in dead.iter() {
-            let still_owned = tasks
-                .iter()
-                .flatten()
-                .filter(|task| task.state != TaskState::Done)
-                .any(|task| {
-                    task.fds.get(fd).is_some_and(|live| live.same_file(held_dead))
-                        && task.fds.iter().any(
-                            |(_, held)| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)),
-                        )
-                });
-            if !still_owned {
-                orphaned.push((Arc::clone(epoll), fd));
-            }
+        if seen.iter().any(|other| Arc::ptr_eq(other, epoll)) {
+            continue;
+        }
+        seen.push(Arc::clone(epoll));
+        for (fd, file) in unowned_interests(tasks, epoll) {
+            orphaned.push((Arc::clone(epoll), fd, file));
         }
     }
     orphaned
+}
+
+/// The interests of `epoll` that no live task owns (`interest_owned`): what a
+/// table that let go of the instance, or of the file, may have left behind. A
+/// parent that closed a descriptor while its forked child still held it and
+/// the instance kept the interest for the child; when the child then closes
+/// the instance (an `exec` closes it before a higher-numbered descriptor) or
+/// exits, nobody owns it, and it would keep its file open for good. The handles
+/// are clones, to be dropped after the task table is unlocked.
+pub(super) fn unowned_interests(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<Epoll>) -> Vec<(usize, Fd)> {
+    epoll
+        .registered()
+        .into_iter()
+        .filter(|(fd, file)| !interest_owned(tasks, epoll, *fd, file))
+        .collect()
+}
+
+/// Whether a live task still holds both `epoll` and `file` under descriptor `fd`: then an interest
+/// in `fd` registered on `epoll` is still someone's, and a close or an exit elsewhere must leave it.
+/// Linux drops an interest only when its open file is gone; an instance shared across `fork` would
+/// otherwise lose the parent's registrations whenever a child closed its copies (a child's `exec`
+/// closes every close-on-exec descriptor).
+pub(super) fn interest_owned(tasks: &[Option<Task>; MAX_TASKS], epoll: &Arc<Epoll>, fd: usize, file: &Fd) -> bool {
+    tasks
+        .iter()
+        .flatten()
+        .filter(|task| task.state != TaskState::Done)
+        .any(|task| {
+            task.fds.get(fd).is_some_and(|live| live.same_file(file))
+                && task
+                    .fds
+                    .iter()
+                    .any(|(_, held)| matches!(held, Fd::Epoll { epoll: other } if Arc::ptr_eq(other, epoll)))
+        })
 }
 
 /// Take a finished child of the current task, freeing its slot and address

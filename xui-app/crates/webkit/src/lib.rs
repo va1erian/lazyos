@@ -14,21 +14,28 @@
 
 pub mod abi;
 pub mod address;
+pub mod bands;
 pub mod damage;
 pub mod engine;
 pub mod events;
 pub mod framing;
 pub mod gesture;
+pub mod glide;
 pub mod keys;
 pub mod mailbox;
 pub mod parts;
 mod picture;
 pub mod pointer;
+pub mod raster;
+pub mod smooth;
 pub mod speculate;
 pub mod taskstat;
 #[cfg(test)]
 mod tests_damage;
+#[cfg(test)]
+mod tests_raster;
 pub mod view;
+mod view_input;
 
 #[cfg(feature = "window")]
 pub mod app;

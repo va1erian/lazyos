@@ -129,11 +129,18 @@ void lzw_ui_frame(const uint8_t* rgba, int width, int height);
 // make no sense): the next frame to send is a whole one, lzw_ui_frame.
 int lzw_ui_frame_delta(const uint8_t* rgba, int width, int height, const int* scroll, const int* rects, int count);
 
+// The page's process painted rows of the page outside the view ahead of a scroll (an overscan band,
+// WebKit patch 0030): the rows doc_y .. doc_y + height, painted at the horizontal scroll offset doc_x,
+// as width * height opaque RGBA pixels, top row first, copied before the call returns.
+void lzw_ui_band(int doc_x, int doc_y, int width, int height, const uint8_t* rgba);
+
 // The main frame's scroll offset (page pixels) of the pixels the next lzw_ui_frame or lzw_ui_frame_delta
 // carries: what WKPageSetScrollOffsetCallback last said before the update they come from. Call it just
 // before posting; it belongs to that one post. The window shows its picture ahead of the page by what
-// the wheel has asked for and the offset says the page has not done yet (speculate.rs).
-void lzw_ui_scroll_offset(int x, int y);
+// the wheel has asked for and the offset says the page has not done yet (speculate.rs). `at_bottom` is
+// non-zero when the page cannot scroll further down from that offset (WKPageIsPinnedToBottomSide at the
+// update): the window then shows nothing ahead downward, never rows past the end of the document.
+void lzw_ui_scroll_offset(int x, int y, int at_bottom);
 
 // What the page changed, kept by the window's library in the form a paint needs (the rules are
 // Rust, tested against a model of WebKit's backing store: xui-app/crates/webkit/src/damage.rs).

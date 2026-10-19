@@ -233,6 +233,8 @@ impl Backend for LazyOSBackend {
             self.add_damage(window, bounds);
         }
         self.cursors.borrow_mut().forget(id);
+        // A direct painter holds the node's picture: it goes with the node.
+        super::direct::set_painter(id, None);
         let mut nodes = self.nodes.borrow_mut();
         nodes.retain(|(node_id, _)| *node_id != id);
         if self.focused.get() == Some(id) {
@@ -255,6 +257,7 @@ impl Backend for LazyOSBackend {
             let mut cursors = self.cursors.borrow_mut();
             for id in &gone {
                 cursors.forget(*id);
+                super::direct::set_painter(*id, None);
             }
             drop(cursors);
             nodes.retain(|(id, _)| !gone.contains(id));

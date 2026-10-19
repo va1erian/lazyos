@@ -1,0 +1,23 @@
+WebCore: no curl alt-svc cache file.
+
+curl writes the alt-svc cache back through a temporary file and a rename when a request's handle is
+cleaned up, a rename per request; on LazyOS's ext2 volume a rename flushes every dirty block twice under
+the VFS lock. Alt-svc only redirects to protocols this curl does not use (HTTP/3).
+
+--- a/Source/WebCore/platform/network/curl/CurlContext.cpp
++++ b/Source/WebCore/platform/network/curl/CurlContext.cpp
+@@ -558,6 +558,14 @@
+ 
+ void CurlHandle::enableAltSvc()
+ {
++#if PLATFORM(LAZYOS)
++    // LazyOS: curl keeps the alt-svc cache in a file it reads when a request starts and writes back,
++    // through a temporary file and a rename, when the request's handle is cleaned up: a rename for every
++    // request, and on an ext2 volume without a journal each file rename orders itself with two flushes of
++    // every dirty block of the volume. A page with hundreds of requests held the filesystem for most of a
++    // second at a time. Alt-svc only redirects to other protocols (HTTP/3) this curl does not use.
++    return;
++#endif
+     if (!CurlContext::singleton().isAltSvcEnabled())
+         return;
+ 

@@ -248,17 +248,11 @@ impl Epoll {
         Ok(())
     }
 
-    /// Drop `fd`'s interest from `this` because the user closed the
-    /// descriptor. Called by `task::fd_close`, so a reused descriptor number
-    /// cannot inherit a stale registration.
-    pub fn drop_fd(this: &Arc<Epoll>, fd: usize) {
-        Self::drop_matching(this, |interest| interest.fd == fd);
-    }
-
-    /// Drop `fd`'s interest only if it watches `target`'s open file: an exited
-    /// task's descriptor `fd` must not take away an interest that a task
-    /// sharing this instance registered for a different file under the same
-    /// number.
+    /// Drop `fd`'s interest only if it watches `target`'s open file: a closed
+    /// or exited task's descriptor `fd` must not take away an interest that a
+    /// task sharing this instance registered for a different file under the
+    /// same number. `task::fd_close` and the exit path call it once no live
+    /// task holds both this instance and that file under `fd`.
     pub fn drop_fd_if(this: &Arc<Epoll>, fd: usize, target: &Fd) {
         Self::drop_matching(this, |interest| {
             interest.fd == fd && interest.target.same_file(target)
@@ -355,6 +349,24 @@ impl Epoll {
             let (revents, _) = interest.target.poll_gen((interest.events & 0xffff) as u16);
             (revents as u32) & (interest.events | REPORT_ALWAYS) != 0
         })
+    }
+
+    /// Whether `fd`'s interest watches `file`'s open file.
+    pub fn holds(&self, fd: usize, file: &Fd) -> bool {
+        self.interests
+            .lock()
+            .iter()
+            .any(|interest| interest.fd == fd && interest.target.same_file(file))
+    }
+
+    /// Every interest's descriptor number and file. The handles are clones: a caller holding the task
+    /// table drops them only after releasing it (a pipe end's last reference wakes a queue).
+    pub fn registered(&self) -> Vec<(usize, Fd)> {
+        self.interests
+            .lock()
+            .iter()
+            .map(|interest| (interest.fd, interest.target.clone()))
+            .collect()
     }
 
     /// Number of registered descriptors (tests/diagnostics).

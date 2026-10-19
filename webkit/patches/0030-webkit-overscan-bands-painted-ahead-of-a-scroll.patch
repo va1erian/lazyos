@@ -1,0 +1,532 @@
+WebKit: the classic drawing area paints the rows above and below the view ahead of a scroll ("overscan bands").
+
+The LazyOS window shows the picture ahead of the web process while it scrolls (it answers the wheel at
+once, the page tens or hundreds of milliseconds later), and could only show a checkerboard where that
+uncovered rows the view had never had. With LAZYOS_WEBKIT_OVERSCAN=<view heights> in its environment the
+web process now paints the document's rows just above and below the view whenever nothing else is to be
+painted, a chunk at a time and nearest the view first (in the direction of the last scroll), and sends
+each as an update of its own (UpdateInfo::documentRect, document coordinates) that the backing store does
+not take; WKPageSetBandCallback hands them to the client.
+
+The main frame's ScrollView reports repaints that far past its visible rect (it used to drop them at the
+edge of the view), so the drawing area knows which bands went stale; stale bands are repainted at most
+twice a second, so an animation below the view does not cost a repaint of it on every frame. A new size, a
+horizontal scroll or a whole-view repaint makes them all stale. The view always comes first: a band is only
+painted with no view update waiting, and one at a time (it takes the same DidUpdate turn as an update).
+
+--- a/Source/WebCore/platform/ScrollView.cpp
++++ b/Source/WebCore/platform/ScrollView.cpp
+@@ -1391,11 +1391,33 @@
+     positionScrollCornerLayer(protect(layerForScrollCorner()), scrollCornerRect());
+ }
+ 
++#if PLATFORM(LAZYOS)
++// LazyOS (patch 0030): rows past the top and the bottom of the visible rect whose repaints the main frame's
++// view still reports to its host window, so the drawing area knows when the overscan bands it paints ahead
++// of a scroll go stale. Set by DrawingAreaCoordinatedGraphics, which declares this itself (one page per web
++// process; a declaration in ScrollView.h would rebuild most of WebCore).
++static int s_mainViewRepaintOverscan;
++
++void setMainScrollViewRepaintOverscan(int rows)
++{
++    s_mainViewRepaintOverscan = std::max(rows, 0);
++}
++#endif
++
+ void ScrollView::repaintContentRectangle(const IntRect& rect)
+ {
+     IntRect paintRect = rect;
++#if PLATFORM(LAZYOS)
++    if (!paintsEntireContents()) {
++        IntRect visible = visibleContentRect(LegacyIOSDocumentVisibleRect);
++        if (!parent() && s_mainViewRepaintOverscan > 0)
++            visible.inflateY(s_mainViewRepaintOverscan);
++        paintRect.intersect(visible);
++    }
++#else
+     if (!paintsEntireContents())
+         paintRect.intersect(visibleContentRect(LegacyIOSDocumentVisibleRect));
++#endif
+     if (paintRect.isEmpty())
+         return;
+ 
+--- a/Source/WebKit/Shared/UpdateInfo.h
++++ b/Source/WebKit/Shared/UpdateInfo.h
+@@ -62,6 +62,11 @@
+ 
+     // The offset in the bitmap where the rendered contents are.
+     WebCore::IntPoint bitmapOffset;
++
++    // LazyOS: when not empty, this update is an overscan band, not a part of the view: the bitmap holds
++    // these rows of the document (document coordinates), painted ahead of a scroll (patch 0030). The
++    // backing store does not take it.
++    WebCore::IntRect documentRect;
+ };
+ 
+ } // namespace WebKit
+--- a/Source/WebKit/Shared/UpdateInfo.serialization.in
++++ b/Source/WebKit/Shared/UpdateInfo.serialization.in
+@@ -32,6 +32,7 @@
+     float updateScaleFactor;
+     std::optional<WebCore::ShareableBitmapHandle> bitmapHandle;
+     WebCore::IntPoint bitmapOffset;
++    WebCore::IntRect documentRect;
+ }
+ 
+ #endif
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -112,6 +112,29 @@
+     WebKit::setPageScrollObserver(callback ? forwardScrollOffset : nullptr);
+ }
+ 
++#if !USE(GRAPHICS_LAYER_WC)
++static WKPageBandCallback s_bandCallback;
++static void* s_bandCallbackContext;
++
++static void forwardBand(WebKit::WebPageProxy& page, const WebCore::IntRect& documentRect, std::span<const uint8_t> pixels, size_t stride, void*)
++{
++    if (auto callback = s_bandCallback)
++        callback(WebKit::toAPI(&page), WKRectMake(documentRect.x(), documentRect.y(), documentRect.width(), documentRect.height()), pixels.data(), stride, s_bandCallbackContext);
++}
++#endif
++
++void WKPageSetBandCallback(WKPageRef, WKPageBandCallback callback, void* context)
++{
++#if !USE(GRAPHICS_LAYER_WC)
++    s_bandCallback = callback;
++    s_bandCallbackContext = context;
++    WebKit::setDrawingAreaBandObserver(callback ? forwardBand : nullptr, nullptr);
++#else
++    UNUSED_PARAM(callback);
++    UNUSED_PARAM(context);
++#endif
++}
++
+ void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback callback, void* context)
+ {
+ #if !USE(GRAPHICS_LAYER_WC)
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
+@@ -48,6 +48,13 @@
+ typedef void (*WKPageUpdateCallback)(WKPageRef, WKRect scrollRect, WKSize scrollOffset, const WKRect* rects, size_t rectCount, void* context);
+ WK_EXPORT void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback, void* context);
+ 
++// LazyOS: called for every overscan band the page's process paints ahead of a scroll (patch 0030; the
++// web process paints them when LAZYOS_WEBKIT_OVERSCAN is set in its environment): the rows `documentRect`
++// of the document, in document coordinates, as `pixels` (BGRA, premultiplied, `stride` bytes a row,
++// `documentRect`'s size), valid only during the call.
++typedef void (*WKPageBandCallback)(WKPageRef, WKRect documentRect, const unsigned char* pixels, size_t stride, void* context);
++WK_EXPORT void WKPageSetBandCallback(WKPageRef, WKPageBandCallback, void* context);
++
+ // LazyOS: the main frame's scroll offset (page pixels), told each time the page's process says it
+ // scrolled, before the update that repaints for it (the two arrive in order). A client that scrolls
+ // its picture ahead of the page compares it with the offset the picture was painted at.
+--- a/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
++++ b/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.cpp
+@@ -59,6 +59,15 @@
+     s_updateObserver = observer;
+     s_updateObserverContext = context;
+ }
++
++static DrawingAreaBandObserver s_bandObserver;
++static void* s_bandObserverContext;
++
++void setDrawingAreaBandObserver(DrawingAreaBandObserver observer, void* context)
++{
++    s_bandObserver = observer;
++    s_bandObserverContext = context;
++}
+ #endif
+ 
+ Ref<DrawingAreaProxyCoordinatedGraphics> DrawingAreaProxyCoordinatedGraphics::create(WebPageProxy& page, WebProcessProxy& webProcessProxy)
+@@ -238,6 +247,28 @@
+ 
+     // FIXME: Handle the case where the view is hidden.
+ 
++#if !PLATFORM(WPE) && !PLATFORM(GTK)
++    if (!updateInfo.documentRect.isEmpty()) {
++        // An overscan band (patch 0030): rows of the document outside the view, for the client only. The
++        // page's process sent the bitmap at the band's size; anything else is not shown.
++        RefPtr page = this->page();
++        if (page && s_bandObserver && updateInfo.bitmapHandle && updateInfo.deviceScaleFactor == 1) {
++            if (auto bitmap = WebCore::ShareableBitmap::create(WTF::move(*updateInfo.bitmapHandle), WebCore::SharedMemory::Protection::ReadOnly)) {
++                auto pixels = bitmap->span();
++                const size_t stride = bitmap->bytesPerRow();
++                const auto size = updateInfo.documentRect.size();
++                const bool fits = bitmap->size() == size && stride >= static_cast<size_t>(size.width()) * 4
++                    && pixels.size() >= stride * static_cast<size_t>(size.height());
++                if (fits)
++                    s_bandObserver(*page, updateInfo.documentRect, pixels, stride, s_bandObserverContext);
++            }
++        }
++        if (!m_isWaitingForDidUpdateGeometry)
++            send(Messages::DrawingArea::DisplayDidRefresh(MonotonicTime::now()));
++        return;
++    }
++#endif
++
+     incorporateUpdate(WTF::move(updateInfo));
+ 
+     if (!m_isWaitingForDidUpdateGeometry)
+--- a/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.h
++++ b/Source/WebKit/UIProcess/CoordinatedGraphics/DrawingAreaProxyCoordinatedGraphics.h
+@@ -52,6 +52,12 @@
+ // observer; a null one removes it.
+ using DrawingAreaUpdateObserver = void (*)(WebPageProxy&, const WebCore::IntRect& scrollRect, const WebCore::IntSize& scrollOffset, std::span<const WebCore::IntRect> updateRects, float deviceScaleFactor, void* context);
+ void setDrawingAreaUpdateObserver(DrawingAreaUpdateObserver, void* context);
++
++// LazyOS (patch 0030): told about each overscan band the page's process paints ahead of a scroll: the
++// rows `documentRect` of the document (document coordinates), as `pixels` (32-bit, Skia's N32, `stride`
++// bytes a row), valid only during the call. Bands never reach the backing store. Only one observer.
++using DrawingAreaBandObserver = void (*)(WebPageProxy&, const WebCore::IntRect& documentRect, std::span<const uint8_t> pixels, size_t stride, void* context);
++void setDrawingAreaBandObserver(DrawingAreaBandObserver, void* context);
+ #endif
+ 
+ class DrawingAreaProxyCoordinatedGraphics final : public DrawingAreaProxy, public RefCounted<DrawingAreaProxyCoordinatedGraphics> {
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.cpp
+@@ -49,6 +49,16 @@
+ 
+ #if PLATFORM(LAZYOS)
+ #include "LayerTreeHostPlayStation.h"
++#include <WebCore/GraphicsContextStateSaver.h>
++#include <WebCore/LocalFrameViewLayoutContext.h>
++#include <cmath>
++#include <limits>
++#include <stdlib.h>
++
++namespace WebCore {
++// ScrollView.cpp (patch 0030): repaints this far past the main view's visible rect still reach the drawing area.
++void setMainScrollViewRepaintOverscan(int);
++}
+ #endif
+ 
+ #if USE(GLIB_EVENT_LOOP)
+@@ -67,7 +77,18 @@
+     , m_isPaintingSuspended(!(parameters.activityState & ActivityState::IsVisible))
+     , m_exitCompositingTimer(RunLoop::mainSingleton(), "DrawingAreaCoordinatedGraphics::ExitCompositingTimer"_s, this, &DrawingAreaCoordinatedGraphics::exitAcceleratedCompositingMode)
+     , m_displayTimer(RunLoop::mainSingleton(), "DrawingAreaCoordinatedGraphics::DisplayTimer"_s, this, &DrawingAreaCoordinatedGraphics::displayTimerFired)
++#if PLATFORM(LAZYOS)
++    , m_bandTimer(RunLoop::mainSingleton(), "DrawingAreaCoordinatedGraphics::BandTimer"_s, this, &DrawingAreaCoordinatedGraphics::bandTimerFired)
++#endif
+ {
++#if PLATFORM(LAZYOS)
++    // How many view heights to paint ahead above and below (the UI process sets it for its children).
++    if (const char* value = getenv("LAZYOS_WEBKIT_OVERSCAN")) {
++        float viewports = strtof(value, nullptr);
++        if (std::isfinite(viewports))
++            m_overscanViewports = std::clamp(viewports, 0.f, 3.f);
++    }
++#endif
+ }
+ 
+ DrawingAreaCoordinatedGraphics::~DrawingAreaCoordinatedGraphics() = default;
+@@ -79,6 +100,9 @@
+         return;
+     }
+ 
++#if PLATFORM(LAZYOS)
++    invalidateBands();
++#endif
+     setNeedsDisplayInRect(m_webPage->bounds());
+ }
+ 
+@@ -92,6 +116,9 @@
+         return;
+     }
+ 
++#if PLATFORM(LAZYOS)
++    noteBandDamage(rect);
++#endif
+     IntRect dirtyRect = rect;
+     dirtyRect.intersect(m_webPage->bounds());
+     if (dirtyRect.isEmpty())
+@@ -357,6 +384,12 @@
+     Ref webPage = m_webPage.get();
+     webPage->setSize(size);
+     webPage->layoutIfNeeded();
++#if PLATFORM(LAZYOS)
++    // A new size is a new layout: nothing the UI process holds outside the view is the page any more.
++    updateOverscan();
++    m_bandValid = Region();
++    m_bandDirty = Region();
++#endif
+ 
+     if (m_layerTreeHost)
+         m_layerTreeHost->sizeDidChange();
+@@ -384,6 +417,13 @@
+ 
+     m_isWaitingForDidUpdate = false;
+ 
++#if PLATFORM(LAZYOS)
++    if (m_bandsWanted) {
++        m_bandsWanted = false;
++        scheduleBands();
++    }
++#endif
++
+     if (!m_scheduledWhileWaitingForDidUpdate)
+         return;
+     m_scheduledWhileWaitingForDidUpdate = false;
+@@ -678,8 +718,212 @@
+     // Layout can trigger more calls to setNeedsDisplay and we don't want to process them
+     // until the UI process has painted the update, so we stop the timer here.
+     m_displayTimer.stop();
++
++#if PLATFORM(LAZYOS)
++    // The view may have scrolled: the bands it needs moved with it.
++    scheduleBands();
++#endif
++}
++
++#if PLATFORM(LAZYOS)
++// ---- overscan bands (patch 0030) ----------------------------------------------------------------------
++//
++// The window shows the picture ahead of this process while it scrolls: it answers the wheel at once, and
++// this process tens or hundreds of milliseconds later. What that uncovers it can only show if it has it:
++// these are the rows of the document above and below the view, painted here whenever there is nothing
++// else to paint, a chunk at a time (the main thread also runs the page), nearest the view and in the
++// direction of the last scroll first, and sent as updates of their own. Repaints that land in them
++// (ScrollView reports them that far out) mark them stale; stale bands are repainted at most every
++// kDirtyBandInterval. A band is a preview: once the view gets there it is painted as always.
++
++// Pixels a chunk of band may hold: about 5-10 ms of painting a busy page on the machines this runs on.
++static constexpr int kBandChunkPixels = 512 * 1024;
++static constexpr Seconds kDirtyBandInterval = 500_ms;
++// A region with more rectangles than this is replaced by its bounds (a Region gets slow).
++static constexpr size_t kMaxBandDirtyRects = 32;
++
++void DrawingAreaCoordinatedGraphics::updateOverscan()
++{
++    int rows = 0;
++    if (m_overscanViewports > 0 && m_webPage->corePage()->deviceScaleFactor() == 1)
++        rows = static_cast<int>(m_webPage->size().height() * m_overscanViewports);
++    m_overscan = std::max(rows, 0);
++    WebCore::setMainScrollViewRepaintOverscan(m_overscan);
++}
++
++void DrawingAreaCoordinatedGraphics::noteBandDamage(const IntRect& rect)
++{
++    if (m_overscan <= 0 || m_layerTreeHost)
++        return;
++    IntRect bounds = m_webPage->bounds();
++    IntRect zone = bounds;
++    zone.inflateY(m_overscan);
++    IntRect band = intersection(rect, zone);
++    if (band.isEmpty() || bounds.contains(band))
++        return;
++    RefPtr view = m_webPage->localMainFrameView();
++    if (!view)
++        return;
++    Region outside(band);
++    outside.subtract(bounds);
++    outside.translate(toIntSize(view->scrollPosition()));
++    m_bandDirty.unite(outside);
++    if (m_bandDirty.rects().size() > kMaxBandDirtyRects)
++        m_bandDirty = Region(m_bandDirty.bounds());
++    scheduleBands();
++}
++
++void DrawingAreaCoordinatedGraphics::invalidateBands()
++{
++    if (m_overscan <= 0)
++        return;
++    m_bandDirty.unite(m_bandValid);
++    if (m_bandDirty.rects().size() > kMaxBandDirtyRects)
++        m_bandDirty = Region(m_bandDirty.bounds());
++    scheduleBands();
++}
++
++void DrawingAreaCoordinatedGraphics::scheduleBands(Seconds delay)
++{
++    if (m_overscan <= 0 || m_layerTreeHost)
++        return;
++    if (m_bandTimer.isActive() && delay > 0_s)
++        return;
++    m_bandTimer.startOneShot(delay);
++}
++
++void DrawingAreaCoordinatedGraphics::bandTimerFired()
++{
++    if (m_overscan <= 0 || m_layerTreeHost || m_isPaintingSuspended || m_layerTreeStateIsFrozen || m_inUpdateGeometry)
++        return;
++    if (m_isWaitingForDidUpdate || !m_dirtyRegion.isEmpty() || m_displayTimer.isActive()) {
++        // The view comes first; the bands wait for the next DidUpdate.
++        m_bandsWanted = true;
++        return;
++    }
++    paintBand();
+ }
+ 
++// The part of `todo` to paint next: the rectangle nearest the view (those in the direction of the last
++// scroll first), cut to `rows` rows on the side that faces the view.
++static IntRect nextBandChunk(const Region& todo, int viewTop, int viewBottom, int direction, int overscan, int rows)
++{
++    IntRect best;
++    int bestKey = std::numeric_limits<int>::max();
++    for (auto& rect : todo.rects()) {
++        bool below = rect.y() >= viewBottom;
++        int distance = below ? rect.y() - viewBottom : viewTop - rect.maxY();
++        bool ahead = below == (direction > 0);
++        int key = std::max(distance, 0) + (ahead ? 0 : overscan / 2);
++        if (key >= bestKey)
++            continue;
++        bestKey = key;
++        best = rect;
++        int height = std::min(rect.height(), rows);
++        if (!below)
++            best.setY(rect.maxY() - height);
++        best.setHeight(height);
++    }
++    return best;
++}
++
++bool DrawingAreaCoordinatedGraphics::paintBand()
++{
++    Ref webPage = m_webPage.get();
++    RefPtr view = webPage->localMainFrameView();
++    IntSize size = webPage->size();
++    if (!view || size.isEmpty() || view->needsLayout() || !view->layoutContext().inPaintableState())
++        return false;
++
++    IntPoint position = view->scrollPosition();
++    if (position.x() != m_bandScrollX) {
++        m_bandValid = Region();
++        m_bandDirty = Region();
++        m_bandScrollX = position.x();
++    }
++    if (position.y() != m_bandScrollY) {
++        m_bandDirection = position.y() > m_bandScrollY ? 1 : -1;
++        m_bandScrollY = position.y();
++    }
++
++    // What the window may need next: up to m_overscan rows on either side of the view, inside the document.
++    const int viewTop = position.y();
++    const int viewBottom = position.y() + size.height();
++    const int aboveTop = std::max(0, viewTop - m_overscan);
++    const int belowHeight = std::clamp(view->contentsHeight() - viewBottom, 0, m_overscan);
++    Region wanted;
++    if (viewTop > aboveTop)
++        wanted.unite(IntRect(position.x(), aboveTop, size.width(), viewTop - aboveTop));
++    if (belowHeight > 0)
++        wanted.unite(IntRect(position.x(), viewBottom, size.width(), belowHeight));
++    m_bandValid.intersect(wanted);
++    m_bandDirty.intersect(m_bandValid);
++
++    Region todo = wanted;
++    todo.subtract(m_bandValid);
++    bool repaint = false;
++    if (todo.isEmpty()) {
++        if (m_bandDirty.isEmpty()) {
++            m_inDirtyBandPass = false;
++            return false;
++        }
++        if (!m_inDirtyBandPass) {
++            auto due = m_lastDirtyBandPaint + kDirtyBandInterval;
++            auto now = MonotonicTime::now();
++            if (now < due) {
++                scheduleBands(due - now);
++                return false;
++            }
++            m_inDirtyBandPass = true;
++        }
++        todo = m_bandDirty;
++        repaint = true;
++    }
++
++    const int rows = std::clamp(kBandChunkPixels / std::max(size.width(), 1), 32, 1024);
++    IntRect chunk = nextBandChunk(todo, viewTop, viewBottom, m_bandDirection, m_overscan, rows);
++    if (chunk.isEmpty())
++        return false;
++
++    auto bitmap = ShareableBitmap::create({ chunk.size() });
++    if (!bitmap)
++        return false;
++    auto handle = bitmap->createHandle();
++    if (!handle)
++        return false;
++    auto context = bitmap->createGraphicsContext();
++    if (!context)
++        return false;
++    {
++        // Document coordinates, as ScrollView::paint hands them to paintContents.
++        GraphicsContextStateSaver saver(*context);
++        context->translate(-chunk.x(), -chunk.y());
++        context->clip(chunk);
++        view->paintContents(*context, chunk);
++    }
++
++    UpdateInfo updateInfo;
++    updateInfo.viewSize = size;
++    updateInfo.deviceScaleFactor = 1;
++    updateInfo.updateRectBounds = IntRect(IntPoint(), chunk.size());
++    updateInfo.updateRects.append(updateInfo.updateRectBounds);
++    updateInfo.bitmapHandle = WTF::move(*handle);
++    updateInfo.documentRect = chunk;
++    send(Messages::DrawingAreaProxy::Update(0, WTF::move(updateInfo)));
++    m_isWaitingForDidUpdate = true;
++
++    m_bandValid.unite(chunk);
++    m_bandDirty.subtract(chunk);
++    if (repaint && m_bandDirty.isEmpty()) {
++        m_inDirtyBandPass = false;
++        m_lastDirtyBandPaint = MonotonicTime::now();
++    }
++    // The next chunk follows the DidUpdate for this one.
++    scheduleBands();
++    return true;
++}
++#endif
++
+ void DrawingAreaCoordinatedGraphics::forceUpdate()
+ {
+     if (m_isWaitingForDidUpdate || m_layerTreeHost)
+--- a/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.h
++++ b/Source/WebKit/WebProcess/WebPage/CoordinatedGraphics/DrawingAreaCoordinatedGraphics.h
+@@ -29,6 +29,7 @@
+ 
+ #include "DrawingArea.h"
+ #include <WebCore/Region.h>
++#include <wtf/MonotonicTime.h>
+ #include <wtf/RunLoop.h>
+ 
+ namespace WebCore {
+@@ -146,6 +147,37 @@
+     bool m_shouldSendEnterAcceleratedCompositingMode { false };
+ 
+     RunLoop::Timer m_displayTimer;
++
++#if PLATFORM(LAZYOS)
++    // Overscan bands (patch 0030): the rows of the document just above and below the view, painted while
++    // nothing else is to be painted and sent as updates of their own (UpdateInfo::documentRect), so the
++    // window can show them while it scrolls ahead of this process. Document coordinates throughout.
++    void updateOverscan();
++    void noteBandDamage(const WebCore::IntRect& rootViewRect);
++    void invalidateBands();
++    void scheduleBands(Seconds delay = 0_s);
++    void bandTimerFired();
++    bool paintBand();
++
++    // Rows above and below the view (0: no bands).
++    int m_overscan { 0 };
++    // The view's height in viewports, from LAZYOS_WEBKIT_OVERSCAN.
++    float m_overscanViewports { 0 };
++    // What the UI process holds, and what of it changed since.
++    WebCore::Region m_bandValid;
++    WebCore::Region m_bandDirty;
++    // The horizontal scroll offset the bands were painted at.
++    int m_bandScrollX { 0 };
++    // The vertical scroll offset at the last band paint, and the last direction it moved (1: down).
++    int m_bandScrollY { 0 };
++    int m_bandDirection { 1 };
++    // Stale bands are repainted at most this often: an animation below the view must not cost a
++    // repaint of it on every frame.
++    MonotonicTime m_lastDirtyBandPaint;
++    bool m_bandsWanted { false };
++    bool m_inDirtyBandPass { false };
++    RunLoop::Timer m_bandTimer;
++#endif
+ };
+ 
+ } // namespace WebKit

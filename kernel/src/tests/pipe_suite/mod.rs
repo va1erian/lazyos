@@ -50,11 +50,13 @@ fn io_err(error: pipe::Error) -> String {
 }
 
 mod basic;
+mod epoll_fork;
 mod exit;
 mod lifecycle;
 mod seqpoll;
 
 pub(super) use basic::*;
+pub(super) use epoll_fork::*;
 pub(super) use exit::*;
 pub(super) use lifecycle::*;
 pub(super) use seqpoll::*;
@@ -69,6 +71,12 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("pipe_eof_on_unreaped_exit", eof_on_unreaped_exit),
     ("pipe_eof_on_killed_writer", eof_on_killed_writer),
     ("pipe_exit_drops_epoll_interest", exit_drops_epoll_interest),
+    (
+        "pipe_epoll_child_close_keeps_parent_interest",
+        epoll_child_close_keeps_parent_interest,
+    ),
+    ("pipe_epoll_unowned_interest_leaves", epoll_unowned_interest_leaves),
+    ("pipe_soak_epoll_fork_close", epoll_soak_fork_close),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),
     (
         "pipe_seqpacket_pollout_room_for_a_frame",

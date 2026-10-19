@@ -6,7 +6,7 @@
 //! top-left corner over white, never stretched.
 
 use std::cell::{Cell, RefCell};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::time::Instant;
 
 use xui_core::app::Ui;
@@ -16,13 +16,16 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Image, Key, Modifiers, MouseButton};
 
-use crate::engine::{Button, Engine, MouseKind};
+use crate::bands::{Band, Bands};
+use crate::engine::Engine;
 use crate::events::CursorKind;
-use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
+use crate::glide::Glide;
 use crate::mailbox::{Frame, Update};
 use crate::parts::Parts;
 use crate::picture;
+use crate::smooth::Smooth;
 use crate::speculate::{self, Meter, Speculation};
+use crate::view_input::{arm_glide, arm_settle, handle};
 
 /// Whether a key is one of the window's own.
 pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
@@ -38,30 +41,120 @@ pub struct Hooks<M> {
     pub right_click: Option<Rc<dyn Fn(i32, i32) -> M>>,
 }
 
-/// xui's wheel unit: 120 for one notch (`WHEEL_DELTA`).
-const NOTCH: i32 = 120;
-/// How often a picture shown ahead of the page is checked for being given up on.
-const SETTLE_TICK_MS: u32 = 100;
-
 #[derive(Default)]
-struct State {
+pub(crate) struct State {
     /// The picture on show: the last whole frame and what was painted over it since.
-    picture: Parts,
+    pub(crate) picture: Parts,
+    /// Rows of the page outside the view the page's process painted ahead (`bands.rs`).
+    pub(crate) bands: RefCell<Bands<Rc<Image>>>,
     /// Microseconds spent drawing the picture, and how many draws, since the window last asked.
-    drawn: Cell<(u64, u32)>,
+    pub(crate) drawn: Cell<(u64, u32)>,
     /// The size last told to the engine.
-    size: Cell<(i32, i32)>,
+    pub(crate) size: Cell<(i32, i32)>,
     /// The button held since a press in the view, for moves and captures.
-    held: Cell<Option<MouseButton>>,
+    pub(crate) held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
-    mods: Cell<u32>,
+    pub(crate) mods: Cell<u32>,
     /// How far the picture is shown ahead of the page (`speculate.rs`).
-    spec: RefCell<Speculation>,
-    meter: RefCell<Meter>,
+    pub(crate) spec: RefCell<Speculation>,
+    pub(crate) meter: RefCell<Meter>,
+    /// The page row shown at the view's top, sliding to where the wheel asked (`glide.rs`), and the
+    /// frame timer that moves it; the timer runs only while it slides.
+    pub(crate) glide: RefCell<Glide>,
+    pub(crate) glide_timer: Cell<Option<TimerId>>,
+    /// Frames, gaps and checkerboard while scrolling (`smooth.rs`).
+    pub(crate) smooth: RefCell<Smooth>,
     /// When the wheel event that moved the picture ahead arrived, until it is drawn.
-    wheel_at: Cell<Option<Instant>>,
+    pub(crate) wheel_at: Cell<Option<Instant>>,
     /// The timer that gives up on a picture shown ahead; it runs only while one is.
-    settle: Cell<Option<TimerId>>,
+    pub(crate) settle: Cell<Option<TimerId>>,
+}
+
+impl State {
+    /// How far ahead of the page the picture is shown, and the page's offset its pixels were painted at.
+    fn shown(&self) -> (i32, i32) {
+        let offset = self.spec.borrow().actual().unwrap_or(0);
+        let top = self.glide.borrow().top(self.target());
+        (top.saturating_sub(offset), offset)
+    }
+
+    /// The page row the wheel asked for at the view's top: the page's offset and what is ahead of it.
+    pub(crate) fn target(&self) -> i32 {
+        let spec = self.spec.borrow();
+        spec.actual().unwrap_or(0).saturating_add(spec.shift())
+    }
+
+    /// A draw of `rows` rows (`checker` of them checkerboard) that started at `started`, for the counters.
+    fn record_draw(&self, started: Instant, rows: u32, checker: u32, ahead: i32) {
+        self.smooth
+            .borrow_mut()
+            .drawn(speculate::now_us(), rows, checker, ahead != 0);
+        if let Some(at) = self.wheel_at.take() {
+            if ahead != 0 {
+                let us = at.elapsed().as_micros() as u64;
+                self.meter.borrow_mut().drawn(us);
+            }
+        }
+        let (us, draws) = self.drawn.get();
+        self.drawn
+            .set((us + started.elapsed().as_micros() as u64, draws + 1));
+    }
+}
+
+/// On LazyOS the picture is written straight into the window's frame (`raster.rs`, the backend's
+/// `direct.rs`): one copy of each row instead of the canvas's passes. The canvas painter above draws the
+/// same picture for the frames something covers the view (and on other platforms).
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+mod direct {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::Instant;
+
+    use xui_app::backend::direct::{set_painter, Target};
+    use xui_core::backend::WidgetId;
+    use xui_core::geometry::Rect;
+
+    use super::State;
+    use crate::damage::IRect;
+    use crate::raster::{raster, Pixels};
+
+    fn irect(rect: Rect) -> IRect {
+        IRect {
+            x0: rect.left,
+            y0: rect.top,
+            x1: rect.right,
+            y1: rect.bottom,
+        }
+    }
+
+    pub(super) fn install(id: WidgetId, state: &Rc<RefCell<State>>) {
+        let state = Rc::clone(state);
+        set_painter(
+            id,
+            Some(Rc::new(move |target: &mut Target<'_>| {
+                let Ok(state) = state.try_borrow() else {
+                    return;
+                };
+                let started = Instant::now();
+                let (ahead, offset) = state.shown();
+                let view = irect(target.bounds);
+                let mut pixels = Pixels {
+                    data: target.pixels,
+                    stride: target.stride,
+                };
+                let checker = raster(
+                    &mut pixels,
+                    view,
+                    irect(target.damage),
+                    &state.picture,
+                    &state.bands.borrow(),
+                    ahead,
+                    offset,
+                );
+                state.record_draw(started, view.height().max(0) as u32, checker, ahead);
+            })),
+        );
+    }
 }
 
 pub struct PageView<M: 'static> {
@@ -82,30 +175,30 @@ impl<M: Clone + 'static> PageView<M> {
             control.set_painter(Rc::new(move |canvas| {
                 if let Ok(state) = state.try_borrow() {
                     let started = Instant::now();
-                    let (ahead, offset) = {
-                        let spec = state.spec.borrow();
-                        (spec.shift(), spec.actual().unwrap_or(0))
-                    };
-                    picture::paint(canvas, &state.picture, ahead, offset);
-                    if let Some(at) = state.wheel_at.take() {
-                        if ahead != 0 {
-                            let us = at.elapsed().as_micros() as u64;
-                            state.meter.borrow_mut().drawn(us);
-                        }
-                    }
-                    let (us, draws) = state.drawn.get();
-                    state
-                        .drawn
-                        .set((us + started.elapsed().as_micros() as u64, draws + 1));
+                    let (ahead, offset) = state.shown();
+                    let checker = picture::paint(
+                        canvas,
+                        &state.picture,
+                        &state.bands.borrow(),
+                        ahead,
+                        offset,
+                    );
+                    let rows = canvas.bounds().height().max(0) as u32;
+                    state.record_draw(started, rows, checker, ahead);
                 }
             }));
         }
+        #[cfg(all(target_os = "linux", target_env = "musl"))]
+        direct::install(control.id(), &state);
         {
             let (ui, id) = (ui.clone(), control.id());
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
             let arm = {
                 let (weak, state) = (Rc::downgrade(&control), Rc::clone(&state));
-                move || arm_settle(&weak, &state)
+                move || {
+                    arm_settle(&weak, &state);
+                    arm_glide(&weak, &state);
+                }
             };
             let Hooks {
                 is_shortcut,
@@ -162,6 +255,7 @@ impl<M: Clone + 'static> PageView<M> {
                 Err(_) => {
                     state.picture.clear();
                     state.spec.borrow_mut().reset();
+                    state.glide.borrow_mut().reset();
                     resync = true;
                 }
             }
@@ -175,21 +269,83 @@ impl<M: Clone + 'static> PageView<M> {
             changed = true;
         }
         resync |= state.picture.is_fragmented();
+        let mut glide_back = false;
         if let Some(y) = scroll_y {
+            let before = state.target();
             changed |= state.spec.borrow_mut().report(y, speculate::now_ms());
+            // What the page did that the wheel did not ask for (a script, an anchor, going further) is
+            // shown at once; catching up with the wheel leaves the target, and the glide, where they are.
+            let after = state.target();
+            state
+                .glide
+                .borrow_mut()
+                .follow(after.saturating_sub(before));
+            self.update_reach(&state);
+            // Past the end of the page: the picture glides back to it.
+            glide_back = state.spec.borrow_mut().set_at_bottom(update.at_bottom);
+            changed |= glide_back;
         }
         drop(state);
         if changed {
             self.control.invalidate();
         }
+        if glide_back {
+            arm_glide(&Rc::downgrade(&self.control), &self.state);
+        }
         Applied { spare, resync }
+    }
+
+    /// Keeps the bands the page's process painted outside the view (`bands.rs`), and lets the
+    /// picture be shown ahead as far as they reach.
+    pub fn add_bands(&self, bands: Vec<Band>) {
+        if bands.is_empty() {
+            return;
+        }
+        let state = self.state.borrow();
+        let mut kept = state.bands.borrow_mut();
+        for band in bands {
+            let (x, y, width, height) = (band.doc_x, band.doc_y, band.width, band.height as i32);
+            if let Ok(image) = Image::from_rgba(band.width, band.height, band.rgba) {
+                kept.insert(x, y, width, height, Rc::new(image));
+            }
+        }
+        let view_height = state.size.get().1;
+        if let Some(top) = state.spec.borrow().actual() {
+            kept.prune(top, view_height);
+        }
+        drop(kept);
+        self.update_reach(&state);
+    }
+
+    /// The page on show is another one: what was painted outside the view belongs to the old one.
+    pub fn forget_bands(&self) {
+        // Those still queued are the old page's too.
+        drop(crate::bands::take());
+        let state = self.state.borrow();
+        state.bands.borrow_mut().clear();
+        self.update_reach(&state);
+    }
+
+    /// How far ahead the picture may be shown: as far as the bands reach past the view's edges.
+    fn update_reach(&self, state: &State) {
+        let mut spec = state.spec.borrow_mut();
+        let Some(top) = spec.actual() else {
+            return;
+        };
+        let height = state.size.get().1;
+        let bands = state.bands.borrow();
+        let down = bands.reach(top.saturating_add(height), true);
+        let up = bands.reach(top, false);
+        spec.set_reach(down, up);
     }
 
     /// Shows the blank page again (the page's process is gone).
     pub fn clear(&self) {
         let had = !self.state.borrow().picture.is_empty();
         self.state.borrow_mut().picture.clear();
+        self.state.borrow().bands.borrow_mut().clear();
         self.state.borrow().spec.borrow_mut().reset();
+        self.state.borrow().glide.borrow_mut().reset();
         if had {
             self.control.invalidate();
         }
@@ -217,6 +373,13 @@ impl<M: Clone + 'static> PageView<M> {
             .meter
             .borrow_mut()
             .line(speculate::now_ms(), counters, ahead);
+        line
+    }
+
+    /// The `INFO:SMOOTH:` line for the last second, when the wheel turned in it.
+    pub fn smooth_line(&self) -> Option<String> {
+        let state = self.state.borrow();
+        let line = state.smooth.borrow_mut().line(speculate::now_ms());
         line
     }
 
@@ -271,6 +434,8 @@ impl<M: Clone + 'static> Placeable<M> for PageView<M> {
         let state = self.state.borrow();
         if state.size.replace(size) != size {
             state.spec.borrow_mut().reset();
+            state.glide.borrow_mut().reset();
+            state.bands.borrow_mut().clear();
             self.engine.resize(size.0, size.1);
         }
     }
@@ -283,207 +448,4 @@ pub struct Applied {
     pub spare: Vec<u8>,
     /// The picture cannot follow the engine any more: ask for a whole frame.
     pub resync: bool,
-}
-
-fn button_of(button: MouseButton) -> Button {
-    match button {
-        MouseButton::Left => Button::Left,
-        MouseButton::Middle => Button::Middle,
-        MouseButton::Right => Button::Right,
-        MouseButton::X1 | MouseButton::X2 => Button::None,
-    }
-}
-
-/// Whole notches of a wheel `delta`; a small (smooth) delta still moves once.
-fn notches(delta: i16) -> i32 {
-    let delta = i32::from(delta);
-    match delta / NOTCH {
-        0 => delta.signum(),
-        whole => whole,
-    }
-}
-
-/// Starts the timer that gives up on a picture shown ahead of the page (`speculate.rs`). It stops
-/// itself once nothing is ahead, so an idle page costs no wakeups.
-fn arm_settle<M: Clone + 'static>(control: &Weak<Control<M>>, state: &Rc<RefCell<State>>) {
-    let (Some(strong), Ok(held)) = (control.upgrade(), state.try_borrow()) else {
-        return;
-    };
-    if held.settle.get().is_some() {
-        return;
-    }
-    let (weak, state) = (control.clone(), Rc::clone(state));
-    let timer = strong.set_timer(SETTLE_TICK_MS, move || {
-        let control = weak.upgrade()?;
-        let state = state.try_borrow().ok()?;
-        if state.spec.borrow_mut().tick(speculate::now_ms()) {
-            control.invalidate();
-        }
-        if !state.spec.borrow().is_ahead() {
-            if let Some(timer) = state.settle.take() {
-                control.kill_timer(timer);
-            }
-        }
-        None
-    });
-    held.settle.set(timer);
-}
-
-/// What a mouse event does to the engine, and to the capture of the pointer.
-fn handle<M: 'static>(
-    ui: &Ui<M>,
-    id: WidgetId,
-    state: &RefCell<State>,
-    engine: &dyn Engine,
-    is_shortcut: &IsShortcut,
-    arm: &dyn Fn(),
-    event: &Event,
-) {
-    let Ok(state) = state.try_borrow() else {
-        return;
-    };
-    match *event {
-        Event::MouseDown {
-            x,
-            y,
-            button,
-            modifiers,
-        }
-        | Event::MouseDoubleClick {
-            x,
-            y,
-            button,
-            modifiers,
-        } => {
-            state.mods.set(modifier_bits(modifiers));
-            ui.focus(id);
-            // The backend turns a quick second press into a double click in
-            // place of a press; the page counts clicks itself.
-            if state.held.get().is_none() {
-                state.held.set(Some(button));
-                ui.set_capture(id);
-            }
-            engine.mouse(
-                MouseKind::Down,
-                button_of(button),
-                x,
-                y,
-                modifier_bits(modifiers),
-            );
-        }
-        Event::MouseUp {
-            x,
-            y,
-            button,
-            modifiers,
-        } => {
-            engine.mouse(
-                MouseKind::Up,
-                button_of(button),
-                x,
-                y,
-                modifier_bits(modifiers),
-            );
-            if state.held.get() == Some(button) {
-                state.held.set(None);
-                ui.release_capture();
-            }
-        }
-        Event::MouseMove { x, y, modifiers } => {
-            let held = state.held.get().map_or(Button::None, button_of);
-            engine.mouse(MouseKind::Move, held, x, y, modifier_bits(modifiers));
-        }
-        Event::MouseWheel {
-            delta,
-            horizontal,
-            x,
-            y,
-            modifiers,
-        } => {
-            let ticks = notches(delta);
-            let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
-            engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
-            // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
-            // page has answered (a modified wheel zooms or scrolls sideways).
-            if !horizontal
-                && modifier_bits(modifiers) == 0
-                && state.spec.borrow_mut().wheel(ticks, speculate::now_ms())
-            {
-                if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
-                    state.wheel_at.set(Some(Instant::now()));
-                }
-                ui.invalidate(id);
-                arm();
-            }
-        }
-        Event::CaptureChanged => state.held.set(None),
-        Event::SetFocus => engine.focus(true),
-        Event::KillFocus => engine.focus(false),
-        Event::KeyDown {
-            key,
-            modifiers,
-            system,
-            ..
-        } => {
-            state.mods.set(modifier_bits(modifiers));
-            forward_key(engine, is_shortcut, true, key, modifiers, system);
-        }
-        Event::KeyUp {
-            key,
-            modifiers,
-            system,
-        } => {
-            state.mods.set(modifier_bits(modifiers));
-            forward_key(engine, is_shortcut, false, key, modifiers, system);
-        }
-        Event::Char(c) => {
-            // Enter, Tab and Backspace came as keys; only text arrives here.
-            if !c.is_control() {
-                let sym = char_keysym(c);
-                let text = c.to_string();
-                engine.key(true, sym, &text, state.mods.get());
-                engine.key(false, sym, "", state.mods.get());
-            }
-        }
-        _ => {}
-    }
-}
-
-/// A key press or release as the page gets it: a key that types nothing by
-/// its symbol, a Ctrl or Alt chord on a letter by its (lower case) letter.
-fn forward_key(
-    engine: &dyn Engine,
-    is_shortcut: &IsShortcut,
-    press: bool,
-    key: Key,
-    modifiers: Modifiers,
-    _system: bool,
-) {
-    // The window's own shortcuts (Ctrl+L, F5, Alt+Left...) are the window's, not the page's.
-    if is_shortcut(key, modifiers) {
-        return;
-    }
-    let bits = modifier_bits(modifiers);
-    if let Some(sym) = keysym(key) {
-        engine.key(press, sym, "", bits);
-    } else if modifiers.ctrl || modifiers.alt {
-        if let Some(sym) = chord_keysym(key) {
-            engine.key(press, sym, "", bits);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_notch_is_one_step_and_a_smooth_delta_still_moves() {
-        assert_eq!(notches(120), 1);
-        assert_eq!(notches(-120), -1);
-        assert_eq!(notches(240), 2);
-        assert_eq!(notches(30), 1);
-        assert_eq!(notches(-30), -1);
-        assert_eq!(notches(0), 0);
-    }
 }

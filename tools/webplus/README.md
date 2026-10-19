@@ -22,6 +22,7 @@ python tools/webplus/hang_session.py --write               # regenerate tools/sc
 python tools/webplus/live_run.py --build --home-disk target/home.img --url https://www.theverge.com/ --url https://www.cnn.com/ --url https://www.nasa.gov/   # real sites, a /home disk: does the browser hang or abort? (verdict from PERF:CPU, LOCK:WAIT, WEBPROCESS:UNRESPONSIVE and a browser program ending by a crash signal in PROC:EXIT)
 python tools/webplus/test_live.py                           # its verdict, on the lines of a real hang
 python tools/webplus/frame_run.py [--perf]                    # where a scroll frame goes at 2560x1440: CPU by process, paint stages, the kernel's present_mpx
+python tools/webplus/scroll_bench.py --build                 # live ars technica and webkit.org in a maximized window at 2560x1440: frames a second while scrolling, longest gap, checkerboard (INFO:SMOOTH), the page's answer; --url to pick pages
 python tools/webplus/scroll_stats.py shots/webplus-live/serial.log [more]   # one comparable block per scrolling run: page answer (w2d), paints/s, web CPU and guard demotions, the main thread's runnable wait (LAZYOS_PERF=1)
 python tools/webplus/test_frame.py                           # its reader and session; the scroll page is current
 python tools/webplus/scroll_page.py --write                  # regenerate fixtures/theoldnet.com/webplus/scroll.html
@@ -94,7 +95,7 @@ issue #865).
    | `SCHED:STUCK tgid= thread= abi= nr= ms= cpu_ms= krip= urip= comm=` | a task runnable inside the kernel (a syscall, or a kernel frame) for 2 s or more, `ms` counted from the syscall's entry; `cpu_ms` near `ms` is a spin, near 0 is starvation; `urip` is where it came from in user code |
    | `SCHED:GUARD:DEMOTED` / `SCHED:GUARD:SUMMARY` | the first demotion of a task, then a summary per process every 10 s |
    | `PERF:CPU tgid= pct= user= kernel= class= demotions= comm=` | every 5 s while a process is above 20% (threads that ended still count) |
-   | `LOCK:WAIT lock= holder= thread= nr= waiters= ms=` | a task waited over 500 ms for a contended lock (`vfs`, `ext2`, `ata`, `ahci`, `nvme`) and who held it |
+   | `LOCK:WAIT lock= holder= thread= nr= held_in= waiters= ms=` | a task waited over 500 ms for a contended lock (`vfs`, `ext2`, `ata`, `ahci`, `nvme`), who held it and the syscall the holder was in (`held_in=linux:<nr>`, `native:<nr>` or `-`) |
    | `SERIAL:BACKLOG bytes= dropped= max_io_us=` | the serial ring holds over 4 KiB (`max_io_us`: the longest port access in the last 5 s; large means the host is slow to take bytes) |
    | `SERIAL:DROPPED bytes= total=` | output the ring had no room for (whole lines; the ring never makes a writer wait). The harness judges fail a log that has one |
    | `ENOSYS <nr> <name>` then `ENOSYS ... count=` | an unimplemented syscall, once per process, then a count every 10 s |

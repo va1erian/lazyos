@@ -59,6 +59,8 @@ use crate::mem;
 // two apart.
 use crate::process as user_process;
 
+#[cfg(lazyos_perf)]
+mod blocksample;
 pub mod childbell;
 pub mod diag;
 pub(crate) mod family;

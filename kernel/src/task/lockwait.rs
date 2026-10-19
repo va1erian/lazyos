@@ -38,6 +38,8 @@ struct Row {
     call: Option<(bool, u64)>,
     lock: &'static str,
     holder: Option<(usize, &'static str, [u8; 16])>,
+    /// The syscall the holder is in, if any (what keeps the lock).
+    holder_call: Option<(bool, u64)>,
     waited_ns: u64,
 }
 
@@ -90,6 +92,9 @@ fn sample_at(now: u64) {
                         .and_then(|t| t.as_ref())
                         .map(|t| (h, t.name, linuxstate::comm_of(t).0))
                 }),
+                holder_call: holder.and_then(|h| {
+                    crate::arch::irqoff::task_syscall(h).map(|(native, nr, _)| (native, nr))
+                }),
                 waited_ns: waited,
             });
             count += 1;
@@ -118,13 +123,18 @@ fn print(row: &Row, waiters: usize) {
         Some((false, nr)) => ("linux", nr as i64),
         None => ("-", -1),
     };
+    let held_in = match row.holder_call {
+        Some((true, nr)) => alloc::format!("native:{nr}"),
+        Some((false, nr)) => alloc::format!("linux:{nr}"),
+        None => alloc::string::String::from("-"),
+    };
     let holder = match row.holder {
         Some((slot, name, comm)) => alloc::format!("{slot}/{name}:{}", text(&comm)),
         None => alloc::string::String::from("-"),
     };
     crate::trace::line!(
         tracefmt::Channel::Lock,
-        "WAIT lock={} holder={} thread={}/{} tgid={} abi={} nr={} waiters={} ms={} comm={}",
+        "WAIT lock={} holder={} thread={}/{} tgid={} abi={} nr={} held_in={} waiters={} ms={} comm={}",
         row.lock,
         holder,
         row.slot,
@@ -132,6 +142,7 @@ fn print(row: &Row, waiters: usize) {
         row.tgid,
         abi,
         nr,
+        held_in,
         waiters,
         row.waited_ns / 1_000_000,
         text(&row.comm)

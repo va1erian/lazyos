@@ -199,6 +199,7 @@ impl Browser {
     }
 
     fn show_frame(&mut self, ui: &Ui<Msg>) {
+        self.page.add_bands(crate::bands::take());
         if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
             if self.state.crashed {
                 // A picture painted just before the page's process went away.
