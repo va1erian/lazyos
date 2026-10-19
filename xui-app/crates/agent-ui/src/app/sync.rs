@@ -133,14 +133,13 @@ impl LazyAgentApp {
                 || row.prepared.as_ref().is_some_and(|p| p.width != width);
             // The job asked for last (it holds its spec, so the address of a
             // freed one cannot be mistaken for this row's).
-            let current = self
-                .submitted
-                .get(&row.id)
-                .is_some_and(|(_, w, spec)| *w == width && Arc::ptr_eq(spec, &row.spec));
+            let current = self.submitted.get(&row.id).is_some_and(|(_, w, d, spec)| {
+                *w == width && *d == dpi && Arc::ptr_eq(spec, &row.spec)
+            });
             if stale && !current {
                 self.rev += 1;
                 self.submitted
-                    .insert(row.id, (self.rev, width, Arc::clone(&row.spec)));
+                    .insert(row.id, (self.rev, width, dpi, Arc::clone(&row.spec)));
                 jobs.push(Job {
                     id: row.id,
                     spec: Arc::clone(&row.spec),

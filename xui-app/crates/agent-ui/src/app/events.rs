@@ -29,7 +29,8 @@ impl LazyAgentApp {
             }
         }
         let pending = self.layouts.pending();
-        let interval = drain::interval(self.busy, pending, drained.cut_short);
+        let retry = self.rows_dirty || !self.carried.is_empty();
+        let interval = drain::interval(self.busy, pending, drained.cut_short, retry);
         self.set_interval(ui, interval);
     }
 
@@ -90,7 +91,7 @@ impl LazyAgentApp {
                 self.chat.set_title("New chat");
                 self.chat.set_banner("");
                 self.rows_dirty = true;
-                self.chat.view.state.borrow_mut().transcript.scroll_to_end();
+                self.scroll_to_end();
             }
             Event::Busy(busy) => {
                 self.set_busy(busy);

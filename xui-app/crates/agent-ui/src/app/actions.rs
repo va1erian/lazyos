@@ -33,6 +33,7 @@ impl LazyAgentApp {
                 self.say(Report::Copied);
             }
             ViewAction::Moved => self.set_interval(ui, drain::BUSY_MS),
+            ViewAction::Focused => {}
             ViewAction::Toggle(id) => {
                 if !self.opened.remove(&id) {
                     self.opened.insert(id);

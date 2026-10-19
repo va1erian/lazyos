@@ -5,6 +5,7 @@ use std::cell::Cell;
 use xui_core::message::Key;
 
 use super::Page;
+use crate::view::ViewAction;
 use crate::Msg;
 
 /// Which field the user typed in last: Enter sends only from the composer.
@@ -26,6 +27,8 @@ pub(super) struct Shared {
 pub(super) fn note_focus(shared: &Shared, msg: &Msg) {
     match msg {
         Msg::ComposerText(_) => shared.typing.set(Typing::Composer),
+        // A wheel notch or a key scrolls the transcript and moves no focus.
+        Msg::Transcript(ViewAction::Moved) | Msg::Stop => {}
         Msg::Tick
         | Msg::Report(_)
         | Msg::Send
@@ -106,6 +109,14 @@ mod tests {
         note_focus(&s, &Msg::Select(0));
         assert!(shortcut(&s, Key::RETURN, Modifiers::NONE).is_none());
         note_focus(&s, &Msg::Tick);
+        assert!(shortcut(&s, Key::RETURN, Modifiers::NONE).is_none());
+        // Scrolling or stopping a reply leaves the composer focused...
+        note_focus(&s, &Msg::ComposerText("x".into()));
+        note_focus(&s, &Msg::Transcript(ViewAction::Moved));
+        note_focus(&s, &Msg::Stop);
+        assert!(shortcut(&s, Key::RETURN, Modifiers::NONE).is_some());
+        // ...a click on the transcript does not.
+        note_focus(&s, &Msg::Transcript(ViewAction::Focused));
         assert!(shortcut(&s, Key::RETURN, Modifiers::NONE).is_none());
     }
 

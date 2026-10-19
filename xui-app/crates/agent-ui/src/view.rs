@@ -33,6 +33,8 @@ pub enum ViewAction {
     Toggle(RowId),
     /// The view scrolled: rows near it may need shaping now.
     Moved,
+    /// A click took the keyboard focus (and hit nothing to act on).
+    Focused,
 }
 
 #[derive(Clone, Copy)]
@@ -344,6 +346,7 @@ fn handle(
             ui.invalidate(id);
             Some(Msg::Transcript(ViewAction::Moved))
         }
+        Outcome::Focused => Some(Msg::Transcript(ViewAction::Focused)),
         Outcome::Action(action) => Some(Msg::Transcript(action)),
     }
 }
@@ -351,6 +354,7 @@ fn handle(
 enum Outcome {
     Nothing,
     Moved,
+    Focused,
     Action(ViewAction),
 }
 
@@ -396,7 +400,10 @@ fn route(ui: &Ui<Msg>, id: WidgetId, s: &mut ViewState, event: &Event) -> Outcom
             if x >= s.width - bar {
                 return bar_press(ui, id, s, y);
             }
-            click(s, x, y)
+            match click(s, x, y) {
+                Outcome::Nothing => Outcome::Focused,
+                other => other,
+            }
         }
         Event::MouseMove { y, .. } => {
             let Some(grab) = s.grab else {

@@ -36,8 +36,9 @@ GitHub issue flow come in later phases.
 * **Not in the window yet.** The core can already edit the last message,
   rename a conversation and delete all data, but P2 has no control for them
   (they arrive with the settings work in P2b/P6); the window-level `Enter`
-  sends only while the composer is the field being typed in (clicking a button
-  or the list, or pressing `Tab`, hands `Enter` to that control).
+  sends only while the composer is the field being typed in (clicking a button,
+  the list or the transcript, or pressing `Tab`, hands `Enter` to that control;
+  clicking into the search box without typing is a known gap).
 
 ## Running it
 

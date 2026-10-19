@@ -83,8 +83,8 @@ pub struct LazyAgentApp {
     turn_started: Option<Instant>,
     first_chunk: bool,
     /// The newest layout job per row: its revision, the width it was laid
-    /// out for and the spec it shapes.
-    submitted: HashMap<RowId, (u64, i32, Arc<RowSpec>)>,
+    /// out for, the dpi and the spec it shapes.
+    submitted: HashMap<RowId, (u64, i32, u32, Arc<RowSpec>)>,
     /// The revision of the layout each row shows.
     applied: HashMap<RowId, u64>,
     /// Layout results a tick could not apply because the view was borrowed.
@@ -189,8 +189,9 @@ impl LazyAgentApp {
             timer: None,
             report: Box::new(report),
         };
-        app.chat.view.state.borrow_mut().note =
-            "Ask anything. Enter sends, Shift+Enter starts a new line.".to_string();
+        if let Ok(mut state) = app.chat.view.state.try_borrow_mut() {
+            state.note = "Ask anything. Enter sends, Shift+Enter starts a new line.".to_string();
+        }
         app.show(ui, Page::Consent);
         app.set_interval(ui, drain::BUSY_MS);
         Ok(app)
@@ -301,7 +302,15 @@ impl LazyAgentApp {
         self.turn_started = Some(Instant::now());
         self.first_chunk = false;
         self.rows_dirty = true;
-        self.chat.view.state.borrow_mut().transcript.scroll_to_end();
+        self.scroll_to_end();
+    }
+
+    /// Follows the end of the transcript (skipped if a paint holds the view:
+    /// `panic = "abort"` makes a double borrow fatal).
+    fn scroll_to_end(&self) {
+        if let Ok(mut state) = self.chat.view.state.try_borrow_mut() {
+            state.transcript.scroll_to_end();
+        }
     }
 }
 

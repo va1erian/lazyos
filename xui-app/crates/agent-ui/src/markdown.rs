@@ -215,7 +215,10 @@ pub fn parse(source: &str) -> Vec<Block> {
             // Raw HTML is never interpreted: it shows as the text it is.
             // Images are their alt text (Text events).
             Event::Html(html) => {
-                b.flush();
+                // Text already in the block ends it; a list item's marker stays.
+                if !b.text.trim().is_empty() {
+                    b.flush();
+                }
                 b.text(html.trim_end());
                 b.flush();
             }
@@ -338,6 +341,23 @@ mod tests {
         assert!(all.contains("<script>bad()</script>"), "{all}");
         assert!(all.contains("<b>bold</b>"), "{all}");
         assert!(all.contains("Vec<String>"), "{all}");
+    }
+
+    #[test]
+    fn html_in_a_list_item_keeps_its_bullet() {
+        let blocks = parse(
+            "- <b>x</b>
+
+- y
+",
+        );
+        assert!(
+            blocks
+                .iter()
+                .all(|b| matches!(b.kind, BlockKind::Item { .. })),
+            "{blocks:?}"
+        );
+        assert!(blocks[0].text.contains("<b>x</b>"));
     }
 
     #[test]

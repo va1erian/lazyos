@@ -40,8 +40,8 @@ pub fn drain(events: &Events, budget: Duration) -> Drained {
 }
 
 /// How long the timer should wait before the next tick.
-pub fn interval(busy: bool, pending: usize, more_waiting: bool) -> u32 {
-    if busy || pending > 0 || more_waiting {
+pub fn interval(busy: bool, pending: usize, more_waiting: bool, retry: bool) -> u32 {
+    if busy || pending > 0 || more_waiting || retry {
         BUSY_MS
     } else {
         IDLE_MS
@@ -54,9 +54,10 @@ mod tests {
 
     #[test]
     fn the_timer_is_fast_only_while_work_is_pending() {
-        assert_eq!(interval(false, 0, false), IDLE_MS);
-        assert_eq!(interval(true, 0, false), BUSY_MS);
-        assert_eq!(interval(false, 2, false), BUSY_MS);
-        assert_eq!(interval(false, 0, true), BUSY_MS);
+        assert_eq!(interval(false, 0, false, false), IDLE_MS);
+        assert_eq!(interval(true, 0, false, false), BUSY_MS);
+        assert_eq!(interval(false, 2, false, false), BUSY_MS);
+        assert_eq!(interval(false, 0, true, false), BUSY_MS);
+        assert_eq!(interval(false, 0, false, true), BUSY_MS);
     }
 }
