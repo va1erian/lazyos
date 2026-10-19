@@ -12,6 +12,7 @@
 //! * [`Platform::discover`] walks RSDP -> XSDT (or RSDT) -> FADT, MADT, HPET,
 //!   and validates the DSDT the FADT names, so a later `\_S5` scan has it.
 //! * [`fadt`], [`madt`] and [`hpet`] decode the fields the kernel uses.
+//! * [`s5`] finds the `\_S5` sleep type and computes the soft-off writes.
 //!
 //! Pure `no_std` logic with host tests; nothing here touches hardware.
 
@@ -27,6 +28,7 @@ pub mod gas;
 pub mod hpet;
 pub mod list;
 pub mod madt;
+pub mod s5;
 pub mod sdt;
 #[cfg(test)]
 mod tests;
@@ -35,6 +37,7 @@ pub use fadt::{Fadt, PmTimer, ResetReg};
 pub use gas::{AddressSpace, Gas};
 pub use hpet::Hpet;
 pub use madt::Madt;
+pub use s5::SleepType;
 pub use sdt::{Rsdp, Sdt};
 
 /// Why a table (or the RSDP) was refused.

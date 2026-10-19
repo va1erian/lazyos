@@ -15,6 +15,8 @@ use crate::arch::io::{inb, outb, outw};
 use crate::ipc::credentials::{self, CAP_SYS_ADMIN};
 use crate::task;
 
+#[path = "power_acpi.rs"]
+pub mod acpi;
 #[path = "power_watchdog.rs"]
 pub mod watchdog;
 
@@ -187,8 +189,23 @@ fn shutdown() -> ! {
     crate::serial::flush();
     sync_filesystems();
     crate::block::ahci::standby_all();
+    // Resolve the ACPI plan before the last serial flush, so the log says
+    // what is about to be written, or why nothing is.
+    let plan = acpi::plan();
+    match &plan {
+        Ok(plan) => crate::serial_println!("power: ACPI S5 {}", plan.describe()),
+        Err(why) => crate::serial_println!("power: no ACPI S5: {why}"),
+    }
     crate::serial::flush_final();
     x86_64::instructions::interrupts::disable();
+    if let Ok(plan) = &plan {
+        // SAFETY: a power-off by a CAP_SYS_ADMIN caller (or the watchdog),
+        // filesystems synced and interrupts off; the plan names only
+        // registers the FADT describes, in I/O or mapped memory space.
+        unsafe { plan.enter() };
+        settle();
+        crate::serial_println!("power: ACPI S5 did not power off");
+    }
     // SAFETY: these ports only exist on virtual machines: 0x604 is QEMU's ACPI
     // PM1a control (SLP_TYP=S5|SLP_EN) and 0xB004 the older Bochs/QEMU one; on
     // hardware without them the writes are ignored and we fall through to

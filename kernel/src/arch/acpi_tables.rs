@@ -78,6 +78,14 @@ pub fn platform() -> Option<&'static Platform> {
         .as_ref()
 }
 
+/// The `\_S5` sleep type from the DSDT: a bounded byte scan, run when a
+/// power-off is planned (it can read the whole table, so not at boot).
+pub fn find_s5() -> Result<::acpi::SleepType, Error> {
+    let platform = platform().ok_or(Error::NotFound)?;
+    let dsdt = platform.dsdt.as_ref().map_err(|error| *error)?;
+    ::acpi::s5::find_s5(&PhysMap, dsdt)
+}
+
 fn verdict<T>(result: &Result<T, Error>) -> &'static str {
     match result {
         Ok(_) => "ok",

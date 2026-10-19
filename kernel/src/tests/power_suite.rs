@@ -213,6 +213,55 @@ pub fn soak_refused_calls() -> Result<(), String> {
     Ok(())
 }
 
+/// The ACPI soft-off plan resolves from the firmware tables: the FADT names
+/// the PM1 control block it targets and the DSDT yields a legal sleep type.
+/// Resolving writes nothing (the suite never enters S5: it would end the VM).
+pub fn acpi_soft_off_plan_matches_the_fadt() -> Result<(), String> {
+    use crate::process::power::acpi::{self, Plan, Reg};
+    let platform = crate::arch::acpi_tables::platform().ok_or("no ACPI tables")?;
+    let fadt = platform.fadt.as_ref().map_err(|e| format!("FADT {e:?}"))?;
+    let plan = acpi::plan()?;
+    check!(!plan.describe().is_empty(), "the plan has no log line");
+    match plan {
+        Plan::Pm1 { sleep, a, .. } => {
+            check!(
+                sleep.a <= 7 && sleep.b <= 7,
+                "SLP_TYP out of range: {sleep:?}"
+            );
+            let gas = fadt.pm1a_control.ok_or("plan names PM1a, FADT has none")?;
+            if let Some(port) = gas.port(2) {
+                check!(a == Reg::Port(port), "PM1a {a:?} is not port {port:#x}");
+            }
+        }
+        Plan::SleepControl { sleep, .. } => {
+            check!(
+                fadt.hw_reduced(),
+                "sleep control plan on a full-hardware FADT"
+            );
+            check!(sleep.a <= 7, "SLP_TYP out of range: {sleep:?}");
+        }
+    }
+    Ok(())
+}
+
+/// Soak: resolving the plan (a scan of the whole DSDT each time) is stable
+/// and leaves no heap behind.
+pub fn soak_acpi_plan_is_stable() -> Result<(), String> {
+    use crate::process::power::acpi;
+    let first = acpi::plan()?;
+    let before = crate::mem::heap_stats().used;
+    for round in 0..500u32 {
+        let again = acpi::plan()?;
+        check!(again == first, "round {round}: {again:?} != {first:?}");
+    }
+    let after = crate::mem::heap_stats().used;
+    check!(
+        after <= before + 4096,
+        "the plan leaked heap: {before} -> {after}"
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("power_arm_capability_gated", arm_is_capability_gated),
     ("power_arm_validates_stop", arm_validates_the_stop),
@@ -222,4 +271,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("power_repeated_requests_safe", repeated_requests_are_safe),
     ("power_soak_arm_expire", soak_arm_expire_generations),
     ("power_soak_refused_calls", soak_refused_calls),
+    (
+        "power_acpi_plan_matches_fadt",
+        acpi_soft_off_plan_matches_the_fadt,
+    ),
+    ("power_soak_acpi_plan", soak_acpi_plan_is_stable),
 ];
