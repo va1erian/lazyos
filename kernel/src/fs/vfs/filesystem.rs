@@ -129,6 +129,14 @@ pub trait Filesystem: Send + Sync {
         Ok(())
     }
 
+    /// Make one regular file durable (`fsync` of a descriptor). A backend
+    /// that can do it without writing everything else overrides this; the
+    /// default flushes the whole filesystem. It never marks a volume clean.
+    fn flush_node(&self, node: NodeId) -> Result<(), FsError> {
+        let _ = node;
+        self.flush()
+    }
+
     /// Write cached dirty data back without `flush`'s durability point (the
     /// volume is not marked clean): the periodic flusher, `fs/flusher.rs`.
     /// With `pressure`, also give back clean cached memory. The default has

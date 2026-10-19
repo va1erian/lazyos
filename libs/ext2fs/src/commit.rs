@@ -25,6 +25,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
 use super::*;
+use crate::cache::Targets;
 
 /// Pending frees past this many trigger a commit, bounding the list (a 2 GiB
 /// file has half a million blocks).
@@ -163,10 +164,76 @@ impl Ext2 {
     /// at all, so every order this promises holds trivially (a rename is
     /// atomic, not merely "under at least one name").
     pub(super) fn barrier(&self) -> Result<(), Ext2Error> {
-        if self.cache.is_none() || self.journal_active() {
+        let Some(cache) = &self.cache else {
+            return Ok(());
+        };
+        if self.journal_active() {
             return Ok(());
         }
-        self.write_back()?;
+        // Inside an [`OpScope`] only the blocks the operation changed (and
+        // what they depend on, `cache/targeted.rs`) need to land; outside
+        // one, everything does.
+        let tracked = cache.lock().is_tracking();
+        if tracked {
+            let (blocks, inodes) = cache.lock().take_touched();
+            self.with_cache(cache, |cache, io| {
+                cache.flush_targeted(
+                    io,
+                    &Targets {
+                        owners: &[],
+                        inodes: &inodes,
+                        blocks: &blocks,
+                        unknown: false,
+                    },
+                )
+            })?;
+        } else {
+            self.write_back()?;
+        }
+        self.io.flush().map_err(io_error)
+    }
+
+    /// Begin an operation whose [`Ext2::barrier`]s are narrow: the cache
+    /// records the blocks written until the scope ends.
+    pub(super) fn op_scope(&self) -> OpScope<'_> {
+        if let Some(cache) = &self.cache {
+            cache.lock().track_begin();
+        }
+        OpScope { volume: self }
+    }
+
+    /// Attribute the blocks written until the scope ends to inode `ino`, so
+    /// [`Ext2::sync_file`] can find them.
+    pub(super) fn owner_scope(&self, ino: u32) -> OwnerScope<'_> {
+        let previous = self
+            .cache
+            .as_ref()
+            .map_or(0, |cache| cache.lock().set_owner(ino));
+        OwnerScope {
+            volume: self,
+            previous,
+        }
+    }
+
+    /// Make one file durable: its data, its indirect tables, its inode and
+    /// what they depend on, without writing what unrelated files left dirty
+    /// or marking the volume clean. The caller holds the volume lock and has
+    /// checked there is a cache without a journal.
+    pub(super) fn sync_owner(&self, ino: u32) -> Result<(), Ext2Error> {
+        let Some(cache) = &self.cache else {
+            return Ok(());
+        };
+        self.with_cache(cache, |cache, io| {
+            cache.flush_targeted(
+                io,
+                &Targets {
+                    owners: &[ino],
+                    inodes: &[ino],
+                    blocks: &[],
+                    unknown: true,
+                },
+            )
+        })?;
         self.io.flush().map_err(io_error)
     }
 
@@ -246,6 +313,35 @@ impl Drop for Ext2 {
     fn drop(&mut self) {
         if self.cache.is_some() || self.has_pending() {
             let _ = self.writeback();
+        }
+    }
+}
+
+/// While alive, the cache records the blocks written, so a [`Ext2::barrier`]
+/// writes those alone ([`Ext2::op_scope`]).
+pub(crate) struct OpScope<'a> {
+    volume: &'a Ext2,
+}
+
+impl Drop for OpScope<'_> {
+    fn drop(&mut self) {
+        if let Some(cache) = &self.volume.cache {
+            cache.lock().track_end();
+        }
+    }
+}
+
+/// While alive, blocks written are attributed to one inode
+/// ([`Ext2::owner_scope`]).
+pub(crate) struct OwnerScope<'a> {
+    volume: &'a Ext2,
+    previous: u32,
+}
+
+impl Drop for OwnerScope<'_> {
+    fn drop(&mut self) {
+        if let Some(cache) = &self.volume.cache {
+            cache.lock().set_owner(self.previous);
         }
     }
 }

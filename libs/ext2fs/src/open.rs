@@ -197,16 +197,23 @@ impl Ext2 {
         let mut roles = cache::roles::Roles {
             super_block: SUPER_OFFSET / u64::from(self.block_size),
             gdt: self.gdt_block..self.gdt_block + gdt_blocks,
+            inodes_per_block: self.inodes_per_block,
+            inode_size: u32::from(self.inode_size),
             ..Default::default()
         };
-        for desc in (0..self.groups).filter_map(|group| self.read_group(group).ok()) {
+        for (group, desc) in (0..self.groups)
+            .filter_map(|group| Some((group, self.read_group(group).ok()?)))
+        {
             roles.bitmaps.push(u64::from(desc.block_bitmap));
             roles.bitmaps.push(u64::from(desc.inode_bitmap));
             let table = u64::from(desc.inode_table);
-            roles.inode_tables.push(table..table + table_blocks);
+            roles.inode_tables.push(cache::roles::InodeTable {
+                blocks: table..table + table_blocks,
+                first_ino: group * self.inodes_per_group + 1,
+            });
         }
         roles.bitmaps.sort_unstable();
-        roles.inode_tables.sort_unstable_by_key(|table| table.start);
+        roles.inode_tables.sort_unstable_by_key(|table| table.blocks.start);
         roles
     }
 }

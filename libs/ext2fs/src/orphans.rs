@@ -154,6 +154,7 @@ impl Ext2 {
         if ino < self.first_ino {
             return Err(Ext2Error::Invalid);
         }
+        let _scope = self.op_scope();
         // These frees are this order's whole point, so they skip the deferral
         // a cached volume applies to every other free (`commit.rs`): the
         // writeback puts the bitmaps ahead of the cleared inode, which is the

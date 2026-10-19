@@ -95,7 +95,7 @@ pub(super) fn image_at(base: &[u8], log: &[(u64, Vec<u8>)], count: usize) -> Vec
 }
 
 /// Judge one crashed image against the documented semantics.
-fn judge(image: Vec<u8>, point: usize) {
+pub(super) fn judge(image: Vec<u8>, point: usize) {
     let problems = fsck(&image);
     let forbidden: Vec<_> = problems
         .iter()
@@ -172,7 +172,7 @@ fn every_crash_point_keeps_the_documented_semantics() {
 }
 
 /// Whether `path` on `fs` holds exactly `data`.
-fn holds(fs: &Ext2, path: &str, data: &[u8]) -> bool {
+pub(super) fn holds(fs: &Ext2, path: &str, data: &[u8]) -> bool {
     let mut back = std::vec![0u8; data.len() + 1];
     fs.read(path, 0, &mut back) == Ok(data.len()) && back[..data.len()] == *data
 }

@@ -18,6 +18,7 @@ mod format_tests;
 mod handles;
 mod journal;
 mod malformed;
+mod narrow;
 mod ops;
 mod ops_state;
 mod pause;

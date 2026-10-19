@@ -73,6 +73,11 @@ impl Node {
     /// Flush the filesystem this file lives on (`fsync`), even after the file's
     /// name was taken by another file ([`super::openfile`]).
     pub fn flush(&self) -> Result<(), FsError> {
+        self.fs.flush_node(self.id)
+    }
+
+    /// Flush the whole filesystem this file lives on (`syncfs`).
+    pub fn flush_fs(&self) -> Result<(), FsError> {
         self.fs.flush()
     }
 

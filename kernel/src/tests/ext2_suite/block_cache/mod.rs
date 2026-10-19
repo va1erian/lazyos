@@ -13,6 +13,7 @@ use crate::mem;
 
 mod confd_cut;
 mod latency;
+mod narrow;
 mod soak;
 mod virtio;
 
@@ -33,6 +34,22 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "bcache_confd_power_cut_sweep",
         confd_cut::confd_power_cut_sweep,
+    ),
+    (
+        "bcache_fsync_file_leaves_other_files_dirty",
+        narrow::fsync_file_leaves_other_files_dirty,
+    ),
+    (
+        "bcache_rename_leaves_other_files_dirty",
+        narrow::rename_leaves_other_files_dirty,
+    ),
+    (
+        "bcache_soak_fsync_beside_writers",
+        narrow::soak_fsync_beside_writers,
+    ),
+    (
+        "bcache_virtio_fsync_beside_dirty_data",
+        virtio::fsync_beside_dirty_data,
     ),
     ("bcache_virtio_scatter_gather", virtio::scatter_gather),
     ("bcache_virtio_cached_volume", virtio::cached_volume),

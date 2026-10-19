@@ -2,7 +2,47 @@
 //! a path lands on. Split from `vfs.rs` because none of them touch a node, only
 //! the filesystem that holds it, and to keep that file under the size limit.
 
-use super::{FsError, Id, MountFlags, Path, StatFs, Vfs};
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+
+use super::{Filesystem, FsError, Id, MountFlags, Path, StatFs, Vfs};
+
+/// A flush resolved under the mount table's lock and run after it is
+/// released ([`Vfs::flush_target`]): the filesystem outlives the table lock
+/// because the target holds it.
+pub struct FlushTarget {
+    fs: Arc<dyn Filesystem>,
+    rel: String,
+    /// The whole filesystem, not just the file at `rel` (`syncfs`, `sync`).
+    whole: bool,
+}
+
+impl FlushTarget {
+    /// Run the flush. A regular file is flushed on its own where its backend
+    /// can; a directory, or a backend with no nodes, flushes the filesystem.
+    pub fn run(self) -> Result<(), FsError> {
+        if self.whole {
+            return self.fs.flush();
+        }
+        match self.fs.open_node(&self.rel) {
+            Ok(Some(node)) => self.fs.flush_node(node),
+            _ => self.fs.flush(),
+        }
+    }
+}
+
+/// Flush `filesystems` one after the other; one failing does not stop the
+/// rest, and the first error is reported ([`Vfs::sync_all`] without the lock).
+pub fn flush_all(filesystems: Vec<Arc<dyn Filesystem>>) -> Result<(), FsError> {
+    let mut first = Ok(());
+    for fs in filesystems {
+        if let Err(error) = fs.flush() {
+            first = first.and(Err(error));
+        }
+    }
+    first
+}
 
 impl Vfs {
     /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
@@ -15,6 +55,32 @@ impl Vfs {
         self.check_path(id, &path, 0)?;
         let (mount, _) = self.resolve_mount(&path)?;
         self.mounts[mount].fs.flush()
+    }
+
+    /// Resolve the flush of `path` ([`Vfs::flush`]'s checks) without running
+    /// it, so the caller can release the table's lock first: a flush writes
+    /// to the device, and every other task's file call waits behind this lock
+    /// meanwhile. `whole` flushes the filesystem (`syncfs`); otherwise the
+    /// file alone, where the backend can ([`Filesystem::flush_node`]).
+    pub fn flush_target(
+        &mut self,
+        id: Id,
+        path: &str,
+        whole: bool,
+    ) -> Result<FlushTarget, FsError> {
+        let path = Path::parse(path);
+        self.check_path(id, &path, 0)?;
+        let (mount, rel) = self.resolve_mount(&path)?;
+        Ok(FlushTarget {
+            fs: Arc::clone(&self.mounts[mount].fs),
+            rel,
+            whole,
+        })
+    }
+
+    /// The mounted filesystems, for a flush after the lock is released.
+    pub fn filesystems(&self) -> Vec<Arc<dyn Filesystem>> {
+        self.mounts.iter().map(|mount| Arc::clone(&mount.fs)).collect()
     }
 
     /// Flush every mounted filesystem (`sync(2)`, and the shutdown path).

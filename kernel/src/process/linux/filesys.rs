@@ -85,7 +85,7 @@ pub(super) fn sys_fsync(fd: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Vfs => vfsfd::with_file(fd, |file| status(file.flush())),
         FdKind::File => match fd_meta_get(fd as usize).and_then(|meta| meta.path) {
-            Some(path) => status(crate::fs::abi_flush(Id::current(), &path)),
+            Some(path) => status(crate::fs::abi_flush(Id::current(), &path, false)),
             None => err(EINVAL),
         },
         FdKind::Closed => err(EBADF),
@@ -98,7 +98,11 @@ pub(super) fn sys_fsync(fd: u64) -> u64 {
 pub(super) fn sys_syncfs(fd: u64) -> u64 {
     match task::fd_kind(fd as usize) {
         FdKind::Closed => err(EBADF),
-        FdKind::Vfs | FdKind::File => sys_fsync(fd),
+        FdKind::Vfs => vfsfd::with_file(fd, |file| status(file.flush_fs())),
+        FdKind::File => match fd_meta_get(fd as usize).and_then(|meta| meta.path) {
+            Some(path) => status(crate::fs::abi_flush(Id::current(), &path, true)),
+            None => err(EINVAL),
+        },
         _ => sys_sync(),
     }
 }

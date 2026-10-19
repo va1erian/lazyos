@@ -46,6 +46,7 @@ impl Ext2 {
         if data.is_empty() {
             return Ok(0);
         }
+        let _owner = self.owner_scope(ino);
         // Sizes are 32-bit, so a write past the cap is short (or refused); it
         // must never wrap a huge offset onto a low block.
         let data = &data[..indirect::writable_len(offset, data.len())?];

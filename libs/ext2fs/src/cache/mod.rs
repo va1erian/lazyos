@@ -21,7 +21,7 @@
 //! own beyond the `Mutex` the volume keeps it in.
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::journal::Journal;
@@ -32,9 +32,11 @@ mod journaled;
 pub mod memory;
 mod range;
 pub mod roles;
+mod targeted;
 
 use memory::{CacheConfig, CacheMemory, CachePage};
 use roles::Roles;
+pub(crate) use targeted::Targets;
 
 /// Counters a host can read to see what the cache saved.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -68,6 +70,9 @@ struct Slot {
     /// Holds file data, which a journaled volume writes straight home ahead
     /// of the transaction instead of logging it.
     data: bool,
+    /// The inode whose operation last wrote this block (0: none or unknown),
+    /// for flushing one file's blocks alone ([`targeted`]).
+    owner: u32,
     /// CLOCK's second-chance bit.
     referenced: bool,
 }
@@ -99,6 +104,14 @@ pub(crate) struct BlockCache {
     failed: bool,
     /// The volume journal, when metadata commits go through it.
     journal: Option<Journal>,
+    /// The inode the running operation writes for (see [`Slot::owner`]).
+    owner: u32,
+    /// Scopes recording the blocks they write ([`BlockCache::track`]).
+    tracking: u32,
+    /// Blocks written since the innermost scope began or last flushed them.
+    touched: BTreeSet<u64>,
+    /// ... and the inodes written through [`BlockCache::touch_inode`].
+    touched_inodes: BTreeSet<u32>,
     stats: CacheStats,
 }
 
@@ -125,6 +138,10 @@ impl BlockCache {
             last_miss: None,
             failed: false,
             journal: None,
+            owner: 0,
+            tracking: 0,
+            touched: BTreeSet::new(),
+            touched_inodes: BTreeSet::new(),
             stats: CacheStats::default(),
         }
     }
@@ -191,6 +208,10 @@ impl BlockCache {
         slot.referenced = true;
         slot.fresh |= fresh;
         slot.data = data;
+        slot.owner = self.owner;
+        if self.tracking > 0 {
+            self.touched.insert(block);
+        }
         if !slot.dirty {
             slot.dirty = true;
             self.dirty += 1;
@@ -276,6 +297,7 @@ impl BlockCache {
                     dirty: false,
                     fresh: false,
                     data: false,
+                    owner: 0,
                     referenced: false,
                 };
                 return Ok(match self.bare.pop() {

@@ -60,6 +60,7 @@ use cache::Dentry;
 pub use filesystem::Filesystem;
 pub use flags::MountFlags;
 pub use meta::*;
+pub use mountops::flush_all;
 pub use node::{Node, NodeId};
 pub use path::Path;
 #[cfg_attr(not(lazyos_tests), allow(unused_imports))] // the rules, for unit tests

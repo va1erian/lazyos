@@ -293,8 +293,13 @@ pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
 }
 
 /// Flush the filesystem holding `path` to stable storage (`fsync(2)`).
+///
+/// The whole filesystem, written after the table's lock is released (see
+/// [`abi_flush`]).
 pub fn vfs_flush(id: Id, path: &str) -> Result<(), FsError> {
-    with(|vfs| vfs.flush(id, path)).unwrap_or(Err(FsError::NotFound))
+    with(|vfs| vfs.flush_target(id, path, true))
+        .unwrap_or(Err(FsError::NotFound))?
+        .run()
 }
 
 /// The global creation mask.
@@ -413,8 +418,15 @@ fn abi_unlink_raw(id: Id, path: &str) -> Result<(), FsError> {
 }
 
 /// Flush the filesystem holding `path` (`fsync`/`fdatasync`/`syncfs`).
-pub fn abi_flush(id: Id, path: &str) -> Result<(), FsError> {
-    abi_with(|vfs| vfs.flush(id, path)).unwrap_or(Err(FsError::NotFound))
+///
+/// The table's lock is released before the device is written: a flush takes
+/// as long as the dirty data it writes, and every other task's file call
+/// waits on that lock meanwhile. `whole` flushes the filesystem (`syncfs`);
+/// otherwise the one file, as far as its backend can (`fsync`).
+pub fn abi_flush(id: Id, path: &str, whole: bool) -> Result<(), FsError> {
+    abi_with(|vfs| vfs.flush_target(id, path, whole))
+        .unwrap_or(Err(FsError::NotFound))?
+        .run()
 }
 
 /// Flush every mount of the Linux ABI table (`sync`). The `/tmp` ramfs is the
@@ -422,7 +434,12 @@ pub fn abi_flush(id: Id, path: &str) -> Result<(), FsError> {
 /// is the durability of the data volume; one failing mount does not stop the
 /// others.
 pub fn abi_sync_all() -> Result<(), FsError> {
-    abi_with(|vfs| vfs.sync_all()).unwrap_or(Ok(()))
+    // The mounts are flushed after the table's lock is released, as in
+    // [`abi_flush`].
+    match abi_with(|vfs| vfs.filesystems()) {
+        Some(filesystems) => vfs::flush_all(filesystems),
+        None => Ok(()),
+    }
 }
 
 /// Capacity of the filesystem holding `path` in the native table (the one

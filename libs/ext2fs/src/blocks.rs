@@ -242,7 +242,11 @@ impl Ext2 {
             return Err(Ext2Error::Invalid);
         }
         buf[offset..end].copy_from_slice(inode);
-        self.write_block(block, &buf[..size])
+        self.write_block(block, &buf[..size])?;
+        if let Some(cache) = &self.cache {
+            cache.lock().touch_inode(ino);
+        }
+        Ok(())
     }
 
     /// Whether bit `index` of a bitmap is set.

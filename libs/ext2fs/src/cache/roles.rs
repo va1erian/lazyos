@@ -65,7 +65,16 @@ pub struct Roles {
     /// Block and inode bitmaps, sorted.
     pub bitmaps: Vec<u64>,
     /// Inode tables, sorted by start.
-    pub inode_tables: Vec<Range<u64>>,
+    pub inode_tables: Vec<InodeTable>,
+    /// Inodes in one table block, and the bytes each takes.
+    pub inodes_per_block: u32,
+    pub inode_size: u32,
+}
+
+/// One group's inode table: its blocks and the number of its first inode.
+pub struct InodeTable {
+    pub blocks: Range<u64>,
+    pub first_ino: u32,
 }
 
 impl Roles {
@@ -86,10 +95,22 @@ impl Roles {
     }
 
     fn in_inode_table(&self, block: u64) -> bool {
+        self.table_of(block).is_some()
+    }
+
+    /// The inode numbers that live in inode-table block `block`, if it is one.
+    pub fn inodes_of(&self, block: u64) -> Option<Range<u32>> {
+        let table = self.table_of(block)?;
+        let first = table.first_ino + (block - table.blocks.start) as u32 * self.inodes_per_block;
+        Some(first..first + self.inodes_per_block)
+    }
+
+    fn table_of(&self, block: u64) -> Option<&InodeTable> {
         // The last table starting at or before `block` is the only candidate.
         let after = self
             .inode_tables
-            .partition_point(|table| table.start <= block);
-        after > 0 && self.inode_tables[after - 1].contains(&block)
+            .partition_point(|table| table.blocks.start <= block);
+        let table = self.inode_tables.get(after.checked_sub(1)?)?;
+        table.blocks.contains(&block).then_some(table)
     }
 }
