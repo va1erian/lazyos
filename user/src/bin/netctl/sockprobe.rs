@@ -255,9 +255,10 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
             errno::EINVAL,
         )?;
     }
-    // Far over the limit the request does not even fit `netd`'s buffer: it is
-    // dropped unanswered and the caller's own deadline ends the wait. The
-    // service must carry on (the next check proves it).
+    // Far over the limit the request does not even fit `netd`'s buffer: the
+    // kernel drops it and fails the call at once (`EPIPE`, "your request was
+    // dropped"; the service is fine). The service must carry on (the next
+    // check proves it).
     let huge = wire::encode_send_args(&wire::SendArgs {
         sock: tcp,
         data: vec![7; 3 * MAX_CHUNK],
@@ -268,7 +269,7 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     c.refused(
         "a Send of 48 KiB, which fits no buffer",
         dropped,
-        errno::ETIMEDOUT,
+        errno::EPIPE,
     )?;
     c.refused(
         "Send on an unconnected stream",

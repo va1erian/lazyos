@@ -150,7 +150,7 @@ pub fn object_rollback_on_full_table() -> Result<(), String> {
     task::harness::switch_current(child);
     let outcome = channels::try_recv(child_server);
     check!(
-        outcome == Err(ChannelError::NoFreeHandle),
+        outcome == Err(ChannelError::Dropped),
         "a delivery into a full table did not fail: {outcome:?}"
     );
     check!(
@@ -174,7 +174,7 @@ pub fn object_rollback_on_full_table() -> Result<(), String> {
     channels::send(client, &bytes).map_err(channel_reason)?;
     task::harness::switch_current(child);
     check!(
-        channels::try_recv(child_server) == Err(ChannelError::NoFreeHandle),
+        channels::try_recv(child_server) == Err(ChannelError::Dropped),
         "a delivery into a full table did not fail"
     );
     handles::reset_for_task(child);

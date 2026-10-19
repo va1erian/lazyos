@@ -29,6 +29,8 @@ pub struct Call {
     deadline: Option<u64>,
     txn: Option<u64>,
     cancelled: bool,
+    /// The outcome was taken: nothing is left in the kernel to cancel.
+    finished: bool,
 }
 
 impl Call {
@@ -40,6 +42,7 @@ impl Call {
             deadline,
             txn: None,
             cancelled: false,
+            finished: false,
         }
     }
 
@@ -116,11 +119,13 @@ impl Future for Call {
         match this.endpoint.await_reply_now(txn) {
             Ok(reply) => {
                 pending::untrack(txn);
+                this.finished = true;
                 Poll::Ready(Ok(reply))
             }
             Err(error) if error.errno() == Some(-errno::EAGAIN) => Poll::Pending,
             Err(error) => {
                 pending::untrack(txn);
+                this.finished = true;
                 Poll::Ready(Err(error))
             }
         }
@@ -128,13 +133,19 @@ impl Future for Call {
 }
 
 impl Drop for Call {
-    /// Deregister the future's transaction from the executor's park: the
-    /// call stays in the kernel's registry until it ends (or the task dies),
-    /// but a future that is dropped mid-flight can never deliver its reply,
-    /// so nothing must keep waiting for it here.
+    /// A future dropped mid-flight can never deliver its reply, so the
+    /// transaction is cancelled and its outcome consumed: left in the
+    /// kernel's table it would hold its slot, and a reply of up to a parcel
+    /// long, until the task died (audit H9, M-R3). The cancel is refused for
+    /// a call that already ended (its reply wins), and consuming the outcome
+    /// then frees that reply; a call that never registered owns nothing.
     fn drop(&mut self) {
         if let Some(txn) = self.txn.take() {
             pending::untrack(txn);
+            if !self.finished {
+                let _ = self.endpoint.cancel(txn);
+                let _ = self.endpoint.await_reply_now(txn);
+            }
         }
     }
 }

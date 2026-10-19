@@ -96,7 +96,8 @@ impl Server {
 
     /// The next queued request, or `None` when nothing is waiting. Never
     /// parks when the queue is empty. A message too large for `buf` is
-    /// dropped (`Err(-E2BIG)`); one that is not a parcel is skipped. The
+    /// dropped by the kernel (`-EMSGSIZE`, which is `None` here, not an
+    /// error: the sender was told); one that is not a parcel is skipped. The
     /// objects the sender's request carried are the request's
     /// ([`Request::decode`]).
     pub fn poll(&self, buf: &mut [u8]) -> Result<Option<Request>, i64> {
@@ -105,7 +106,7 @@ impl Server {
         }
         let (result, origin) = match sys::msg_recv_from(self.endpoint, buf, EXPIRED_DEADLINE) {
             Ok(received) => received,
-            Err(code) if code == -errno::ETIMEDOUT => return Ok(None),
+            Err(code) if code == -errno::ETIMEDOUT || code == -errno::EMSGSIZE => return Ok(None),
             Err(code) => return Err(code),
         };
         let txn = (result.value != 0).then_some(result.value);

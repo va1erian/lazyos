@@ -14,7 +14,13 @@ pub fn forget_task(slot: usize) {
     // the side open. End them as `PeerDied`, like a close of the side would.
     let mut ended: Vec<(usize, u64)> = Vec::new();
     for channel in channels.iter_mut() {
-        channel.txns.retain(|txn| txn.caller != slot);
+        channel.txns.retain(|txn| {
+            let keep = txn.caller != slot;
+            if !keep {
+                release_reply_charge(txn);
+            }
+            keep
+        });
         for index in 0..channel.txns.len() {
             let txn = &mut channel.txns[index];
             if txn.receiver != Some(slot) {
@@ -109,6 +115,10 @@ pub fn close_endpoint_for(slot: usize, handle: u64, last_holder_only: bool) -> R
     }
     let orphans = close_side(channel_id, side);
     close_orphans(orphans);
+    // The survivor may hold the only reference to itself (H8).
+    if reclaim::holds_moved_ends(channel_id, 1 - side) {
+        reclaim::reclaim_unreachable();
+    }
     Ok(())
 }
 
@@ -174,7 +184,9 @@ pub(super) fn close_side(channel_id: u64, side: usize) -> Vec<u64> {
             }
         }
         if remove {
-            channels.remove(channel_id);
+            if let Some(gone) = channels.remove(channel_id) {
+                gone.txns.iter().for_each(release_reply_charge);
+            }
         }
     }
     wake(woken);

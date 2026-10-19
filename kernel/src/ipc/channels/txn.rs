@@ -19,6 +19,7 @@ pub(super) fn take_outcome(txn_id: u64) -> Result<Outcome, Error> {
         return Ok(Outcome::Pending(channel.txns[index].deadline));
     }
     let txn = channel.txns.swap_remove(index);
+    release_reply_charge(&txn);
     Ok(Outcome::Done(match txn.state {
         TxnState::Replied => Ok(txn.reply),
         TxnState::TimedOut => Err(Error::TimedOut),

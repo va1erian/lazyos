@@ -47,6 +47,10 @@ pub const ENAMETOOLONG: i64 = 36;
 pub const ENOSYS: i64 = 38;
 /// A malformed message.
 pub const EBADMSG: i64 = 74;
+/// `recv` discarded the message it took off the queue (too big for the
+/// buffer, or its objects did not fit the receiver's table); the endpoint is
+/// fine and the next `recv` returns the next message.
+pub const EMSGSIZE: i64 = 90;
 /// Not supported.
 pub const ENOTSUP: i64 = 95;
 /// A deadline fired.

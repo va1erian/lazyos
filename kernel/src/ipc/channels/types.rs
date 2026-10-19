@@ -272,6 +272,9 @@ pub(super) struct Transaction {
     pub(super) state: TxnState,
     /// Reply parcel bytes, valid while `state == Replied`.
     pub(super) reply: Vec<u8>,
+    /// The caller's user and the reply bytes charged to its queue quota while
+    /// the reply waits to be collected (`release_reply_charge`).
+    pub(super) charge: Option<(u32, u64)>,
 }
 
 /// Task slots parked in `recv` on one endpoint, as a bitset: registering,

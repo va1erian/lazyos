@@ -205,7 +205,6 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     // framing.
     let mut buffer = vec![0u8; sock_api::MAX_CHUNK + 4096];
     let mut next_sweep = sys::clock() + sock::SWEEP_TICKS;
-    let mut oversize = 0u32;
 
     loop {
         let tick = sys::clock();
@@ -302,19 +301,6 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
         };
         let message = match received {
             Ok(message) => message,
-            // A request bigger than the buffer (no legal one is) was consumed
-            // by the kernel but cannot be read, so it cannot be answered: its
-            // sender's own deadline ends the wait. The service carries on.
-            Err(MsgError::Errno(code)) if code == -errno::E2BIG => {
-                oversize += 1;
-                if oversize.is_power_of_two() {
-                    trace::line!(
-                        trace::Channel::Netd,
-                        "OVERSIZE dropped {oversize} oversized request(s)"
-                    );
-                }
-                continue;
-            }
             Err(error) => return Err(fail(error)),
         };
         let Some(message) = message else { continue };

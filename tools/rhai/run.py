@@ -15,7 +15,9 @@ missing prerequisite reported as an error instead of skipped:
    (`rhai_msg.json`: list services, call confd, a set/get round trip, the
    topics broker, a refused call, a missing service) and the event loop
    (`rhai_msg_loop.json`: a topic round trip, a confd change event, and a
-   service written in Rhai answering another script);
+   service written in Rhai answering another script) and a request longer than
+   `mimed`'s receive buffer that must not end the service
+   (`rhai_msg_oversize.json`);
 6. with `--lazyrad`, LazyRAD and the Messenger sample (`lazyrad-os/samples/
    messenger`) on the desktop: `lazyrad_msg.json` starts the form, and
    `poke.rhai` changes the confd key it watches and calls the service it
@@ -71,6 +73,10 @@ MSG_MARKER = "TERM:OUT:RHAI:msg:6"
 #: rhai_msg_loop.json: topic round trip, a confd change event, and a service
 #: written in Rhai (run in the background) called from another script.
 MSG_LOOP_MARKER = "TERM:OUT:RHAI:msg2:4"
+#: rhai_msg_oversize.json (core audit H2): a 32 KiB request to `mimed`, whose
+#: receive buffer is 16 KiB, is refused to its caller and does not end the
+#: service, which answers the next call.
+OVERSIZE_MARKER = "TERM:OUT:RHAI:oversize:refused:text/plain"
 
 
 def fail(message: str) -> int:
@@ -152,6 +158,15 @@ def check_marker(text: str, marker: str, out: str) -> list[str]:
     return [] if marker in text else [f"{marker} missing (see {out})"]
 
 
+def check_oversize(text: str, out: str) -> list[str]:
+    problems = [] if OVERSIZE_MARKER in text else [f"{OVERSIZE_MARKER} missing (see {out})"]
+    starts = text.count("mimed: registered as")
+    print(f"  mimed started {starts} time(s), marker {'ok' if OVERSIZE_MARKER in text else 'missing'}")
+    if starts != 1:
+        problems.append(f"mimed started {starts} times: the oversized request ended it (see {out})")
+    return problems
+
+
 def lazyrad_session(env: dict[str, str], args: argparse.Namespace) -> list[str]:
     """Build LazyRAD into a desktop image and run the Messenger sample."""
     if not args.no_build:
@@ -226,6 +241,9 @@ def main() -> int:
         problems += check_marker(run_session(
             "rhai_msg_loop.json", "shots/rhai_msg_loop", args, term_failures + ["TERM:OUT:RHAI:msg2:[0-3]$"]),
             MSG_LOOP_MARKER, "shots/rhai_msg_loop")
+        problems += check_oversize(run_session(
+            "rhai_msg_oversize.json", "shots/rhai_msg_oversize", args, term_failures),
+            "shots/rhai_msg_oversize")
 
     if problems:
         for problem in problems:

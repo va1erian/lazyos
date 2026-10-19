@@ -67,7 +67,7 @@ fn next_request(endpoint: Endpoint, buffer: &mut [u8]) -> Result<Next, String> {
         Ok(None) => Ok(Next::Empty),
         Err(MsgError::Parcel(_)) => Ok(Next::Dropped),
         Err(error) => match error.errno().map(|code| -code) {
-            Some(errno::E2BIG | errno::EINVAL) => Ok(Next::Dropped),
+            Some(errno::EINVAL) => Ok(Next::Dropped),
             Some(errno::EPIPE | errno::EBADF | errno::ENOENT) => Err(fail(error)),
             _ => Ok(Next::Later),
         },

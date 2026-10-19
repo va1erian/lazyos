@@ -2,8 +2,11 @@
 
 use super::*;
 
+mod discard;
 mod waitcall;
 mod waitset;
+pub use discard::undo_delivery;
+use discard::{discard_undelivered, fail_request};
 pub use waitcall::*;
 pub use waitset::*;
 
@@ -14,17 +17,25 @@ pub use waitset::*;
 /// immediately usable.
 pub fn try_recv(handle: u64) -> Result<Option<Message>, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
-    take_or_register(channel_id, side, None)
+    take_or_register(channel_id, side, None, usize::MAX)
 }
 
 /// [`try_recv`] on a resolved endpoint. When the inbox is empty and `waiter`
 /// is set, register it as parked on this side *under the same lock* that saw
 /// the inbox empty, so no delivery can slip between the check and the
 /// registration.
+///
+/// A message longer than `max_bytes`, or one whose objects the receiver
+/// cannot install, is taken off the queue and **dropped**: its request ends
+/// `PeerDied` for the caller (nothing else would ever answer or expire it),
+/// its objects are released, and the receiver gets [`Error::Dropped`]. The
+/// endpoint is intact, so a service loop just receives again; one oversized
+/// parcel must not be a way to end a service.
 fn take_or_register(
     channel_id: u64,
     side: usize,
     waiter: Option<usize>,
+    max_bytes: usize,
 ) -> Result<Option<Message>, Error> {
     let mut abandoned = Vec::new();
     let taken = take_locked(channel_id, side, waiter, &mut abandoned);
@@ -45,14 +56,25 @@ fn take_or_register(
                 (Some(txn), Some(POLL_DEADLINE)) => Some(txn),
                 _ => None,
             };
+            if message.bytes.len() > max_bytes {
+                discard_undelivered(&message);
+                return Err(Error::Dropped);
+            }
+            let txn = message.txn;
             match deliver(message) {
                 Ok(message) => Ok(Some(message)),
-                Err(error) => {
-                    // The callee never saw the poll: it is not being served.
-                    if let Some(txn) = poll {
-                        unserve_poll(channel_id, side, txn);
+                Err(_) => {
+                    // The callee never saw the request. A poll just ends as
+                    // an empty poll; any other request ends for its caller.
+                    match poll {
+                        Some(poll) => unserve_poll(channel_id, side, poll),
+                        None => {
+                            if let Some(txn) = txn {
+                                fail_request(txn);
+                            }
+                        }
                     }
-                    Err(error)
+                    Err(Error::Dropped)
                 }
             }
         }
@@ -217,10 +239,16 @@ pub(super) fn rollback_delivery(queued: &Queued, installed: &[u64]) {
 /// Only a delivery to (or a close of) this endpoint wakes the caller
 /// (issue #338); the wake is still advisory and the inbox is re-checked.
 pub fn recv(handle: u64, deadline: Option<u64>) -> Result<Message, Error> {
+    recv_capped(handle, deadline, usize::MAX)
+}
+
+/// [`recv`] for a receiver whose buffer holds `max_bytes`: a longer message
+/// is dropped (see [`take_or_register`]) instead of delivered.
+pub fn recv_capped(handle: u64, deadline: Option<u64>, max_bytes: usize) -> Result<Message, Error> {
     let (channel_id, side) = endpoint_of(handle, rights::CALL)?;
     let me = task::current();
     loop {
-        match take_or_register(channel_id, side, Some(me)) {
+        match take_or_register(channel_id, side, Some(me), max_bytes) {
             Ok(Some(message)) => return Ok(message),
             Ok(None) => {}
             Err(error) => return Err(error),

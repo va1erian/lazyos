@@ -366,10 +366,9 @@ calls), `resolve.rs` (parked lookups), `owners.rs` (who is calling). The client 
 **One endpoint, two interfaces.** The socket interface is served on the stack
 service's endpoint (`os.lazy.net.stack`, registered with both interface ids); `netd`
 tells them apart by id. The receive buffer is 20 KiB so a full 16 KiB `Send` and its
-framing fit; a request too large for it (no legal one is) is consumed by the kernel
-but unreadable, so it is dropped without a reply and counted
-(`NETD:OVERSIZE`), and the sender's own deadline ends the wait. The probe found this:
-`netd` used to exit on it.
+framing fit; a request too large for it (no legal one is) is dropped by the kernel
+(`EMSGSIZE`) and its caller is told at once (`EPIPE`); `Endpoint::recv_into` goes on to
+the next request. The probe found this: `netd` used to exit on it.
 
 **Ownership is the sender's task slot.** Messenger stamps a request with the sender's
 slot. The owner id is `pid << 16 | slot`, with the pid read from the scheduler's task
@@ -462,8 +461,10 @@ unanswered datagram, a query for the wrong name, a server that saw other bytes).
   until the 32-entry cap aborted the oldest. `reap_closing` now treats TIME-WAIT as
   done (`retire` already did).
 * The probe's 48 KiB `Send` made `netd` exit: a request larger than the receive buffer
-  fails the `recv` with `E2BIG` after the kernel has consumed it, and the loop treated
-  every receive error as fatal. It now counts the request, logs `NETD:OVERSIZE` and carries on.
+  fails the `recv` after the kernel has consumed it, and the loop treated every receive
+  error as fatal. The kernel now drops such a request itself (`EMSGSIZE`, its caller told)
+  and `Endpoint::recv_into` receives the next one (core audit H2), so no loop needs its own
+  handling.
 * Slots are reused, so a socket keyed by the sender's slot can pass to the next task
   there. Review caught that the pid does not prevent this (it is the slot); the
   owner id is shaped for a spawn counter but the kernel does not supply one yet.

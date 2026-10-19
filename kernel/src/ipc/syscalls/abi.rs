@@ -31,6 +31,10 @@ pub mod errno {
     pub const EPIPE: i64 = 32;
     /// Refused because a call would form a synchronous cycle.
     pub const EDEADLK: i64 = 35;
+    /// `recv` took a message off the queue and discarded it: it did not fit
+    /// the receive buffer, or its objects could not be installed. The
+    /// endpoint is still good; the next `recv` returns the next message.
+    pub const EMSGSIZE: i64 = 90;
     /// The deadline passed before a reply arrived.
     pub const ETIMEDOUT: i64 = 110;
     /// The caller canceled the transaction.

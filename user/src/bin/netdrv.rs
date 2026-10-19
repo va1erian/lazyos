@@ -363,14 +363,11 @@ fn serve(
                     server.reply_or_drop(txn, &reply).map_err(fail)?;
                 }
             }
-            // One bad message, not a broken endpoint: a request bigger than
-            // the buffer (no legal one is) was consumed by the kernel but
-            // cannot be read, and a parcel that does not decode cannot be
-            // answered; their senders' deadlines end their waits. Exiting
-            // here would let anyone who can resolve the card take it down.
-            Err(MsgError::Errno(code)) if code == -messenger::errno::E2BIG => {
-                dropped = note_dropped(dropped, "oversized");
-            }
+            // One bad message, not a broken endpoint: a parcel that does not
+            // decode cannot be answered; its sender's deadline ends the wait.
+            // (A request bigger than the buffer never gets here: the receive
+            // itself drops it.) Exiting here would let anyone who can resolve
+            // the card take it down.
             Err(MsgError::Parcel(_)) => dropped = note_dropped(dropped, "malformed"),
             Err(error) => return Err(fail(error)),
         }

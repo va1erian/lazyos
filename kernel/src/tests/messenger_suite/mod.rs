@@ -140,11 +140,13 @@ fn syscall(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 mod bootstrap_and_stats;
+mod recv_drop;
 mod release_flag;
 mod sender_id;
 mod syscall_core;
 
 pub(super) use bootstrap_and_stats::*;
+pub(super) use recv_drop::*;
 pub(super) use release_flag::*;
 pub(super) use sender_id::*;
 pub(super) use syscall_core::*;
@@ -161,6 +163,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         release_flag_is_accepted_only_on_close,
     ),
     ("ipc_messenger_fabric_stats_abi", syscall_fabric_stats),
+    (
+        "ipc_messenger_recv_drops_an_oversized_parcel",
+        syscall_recv_drops_oversized,
+    ),
     (
         "ipc_messenger_recv_reports_queue_time_sender",
         recv_reports_queue_time_sender,

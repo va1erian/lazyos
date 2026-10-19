@@ -100,6 +100,9 @@ impl Error {
                 code if code == -errno::EBADMSG => {
                     "the wrapped value failed authentication or is malformed"
                 }
+                code if code == -errno::EMSGSIZE => {
+                    "a message was dropped: too large for the receive buffer, or its objects did not fit the handle table"
+                }
                 code if code == -errno::ETIMEDOUT => "the call timed out before a reply arrived",
                 code if code == -errno::ECANCELED => "the call was canceled",
                 _ => "the Messenger call failed",

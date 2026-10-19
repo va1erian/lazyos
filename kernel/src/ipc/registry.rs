@@ -441,6 +441,18 @@ pub fn release_owner(slot: usize) -> usize {
     removed
 }
 
+/// The kernel object of every registered name: what the channel reclaimer
+/// treats as reachable (`channels::reclaim`). No pruning and no copies of the
+/// rows, so a pass over many names costs one allocation.
+pub fn object_ids() -> Vec<u64> {
+    REGISTRY
+        .lock()
+        .entries
+        .iter()
+        .map(|entry| entry.object_id)
+        .collect()
+}
+
 /// Snapshot the table (pruning first), oldest registration first.
 pub fn list() -> Vec<EntryInfo> {
     let now = task::ticks();

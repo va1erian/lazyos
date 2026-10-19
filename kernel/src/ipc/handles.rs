@@ -311,6 +311,30 @@ pub fn entries_for_task(slot: usize) -> Vec<(u64, HandleEntry)> {
     }
 }
 
+/// The object id of every channel endpoint any table names, one entry per
+/// handle (duplicates included). The channel reclaimer's roots: an end no
+/// table names, no name publishes and no reachable message carries can never
+/// be used again (`channels::reclaim`).
+pub fn channel_objects() -> Vec<u64> {
+    let tables = TABLES.lock();
+    let mut objects = Vec::new();
+    for table in tables.iter() {
+        // A pass walks every task's table (up to 1024 x 256 slots) inside a
+        // syscall: take the interrupts that came in meanwhile, as the other
+        // long loops do (`arch::irq_window`).
+        crate::arch::irq_window::poll_point();
+        objects.extend(
+            table
+                .slots
+                .iter()
+                .filter_map(|slot| *slot)
+                .filter(|entry| matches!(entry.kind, HandleKind::Channel | HandleKind::Endpoint))
+                .map(|entry| entry.object_id),
+        );
+    }
+    objects
+}
+
 /// Copy out an entry (the fabric never hands out mutable references).
 pub fn get(handle: u64) -> Result<HandleEntry, Error> {
     with_table(|table| table.entry(handle))?

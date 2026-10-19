@@ -91,6 +91,7 @@ pub mod completion;
 mod connect;
 pub mod declared;
 mod pollstate;
+mod reclaim;
 mod recv;
 mod registry;
 mod stats;
@@ -120,7 +121,8 @@ pub const MAX_QUEUE_DEPTH: usize = 64;
 pub const MAX_QUEUE_BYTES: usize = 1 << 20;
 /// Largest number of outstanding transactions on one channel.
 pub const MAX_OUTSTANDING: usize = 64;
-/// Largest number of outstanding transactions from one sender on one channel.
+/// Largest number of transactions one sender holds on one channel: pending
+/// ones and ended ones whose outcome it has not yet collected.
 pub const MAX_PENDING_PER_SENDER: u64 = 16;
 
 /// The call deadline that means "poll": answer if the callee can do so in its
@@ -166,7 +168,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = CHANNELS.lock().insert(fresh_channel)?;
+    let channel_id = insert_channel()?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {
@@ -181,6 +183,28 @@ pub fn create() -> Result<(u64, u64), Error> {
             CHANNELS.lock().remove(channel_id);
             Err(from_handles(error))
         }
+    }
+}
+
+/// Take a registry slot for a fresh channel. A full registry first gives back
+/// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
+/// tries once more, so a leak of unreachable channels costs slots only until
+/// the next create.
+fn insert_channel() -> Result<u64, Error> {
+    insert_channel_with(fresh_channel)
+}
+
+/// [`insert_channel`] for a channel `build` makes (an interrupt channel marks
+/// one side as the kernel's).
+fn insert_channel_with(build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
+    // The guard is a temporary of its own statement: `reclaim` locks the
+    // registry again.
+    let first = CHANNELS.lock().insert(&build);
+    match first {
+        Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
+            CHANNELS.lock().insert(&build)
+        }
+        other => other,
     }
 }
 
