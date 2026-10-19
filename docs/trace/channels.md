@@ -76,7 +76,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `NETAPP` | `Netapp` | `netapp` | xui-app | sessions, tools/wifi | programs |
 | `NETBULK` | `Netbulk` | `netbulk` | other, user | - | programs |
 | `NETCTL` | `Netctl` | `netctl` | user | tools/net | programs |
-| `NETD` | `Netd` | `netd` | other, user | sessions, tools/fuse, tools/lazysky, tools/net, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
+| `NETD` | `Netd` | `netd` | other, user | sessions, tools/agent, tools/fuse, tools/lazysky, tools/net, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
 | `NETDRIVES` | `Netdrives` | `netdrives` | xui-app | tools/fuse | programs |
 | `NETDRV` | `Netdrv` | `netdrv` | user | tools/irqpath.py, tools/net, tools/perf, tools/test_irqpath.py, tools/wifi | programs |
 | `NETSTATUS` | `Netstatus` | `netstatus` | xui-app | sessions | programs |
@@ -106,7 +106,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SND` | `Snd` | `snd` | user | tools/sound | programs |
 | `SNDD` | `Sndd` | `sndd` | user | tools/irqpath.py, tools/sound, tools/test_irqpath.py | programs |
 | `SRB2KART` | `Srb2kart` | `srb2kart` | srb2kart | sessions | programs |
-| `SYS` | `Sys` | `sys` | kernel, other, user | sessions, tools/services | programs |
+| `SYS` | `Sys` | `sys` | kernel, other, user, xui-app | sessions, tools/services | programs |
 | `SYSMON` | `Sysmon` | `sysmon` | xui-app | sessions, tools/screenshot | programs |
 | `SYSMOND` | `Sysmond` | `sysmond` | user | - | programs |
 | `TERM` | `Term` | `term` | lazyrad-os, xui-app | sessions, tools/abi, tools/accounts, tools/bench, tools/emusic, tools/fuse, tools/install, tools/keyd, tools/lazygui, tools/lazysky, tools/nes, tools/rhai, tools/run_demo.py, tools/screenshot, tools/shutdown, tools/storage, tools/tray, tools/web, tools/webplus | programs |
