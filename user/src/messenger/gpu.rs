@@ -16,8 +16,8 @@ use super::{registry, Endpoint, Error, Result};
 /// The generated `os.lazy.gpu.v1` stubs.
 pub use messenger_generated::os_lazy_gpu_v1 as wire;
 
-/// The adopted display state.
-pub use wire::State;
+/// The adopted display state and the live beam.
+pub use wire::{Beam, State};
 
 /// Registered service name.
 pub const NAME: &str = "os.lazy.gpu";
@@ -48,6 +48,12 @@ pub struct Client {
 }
 
 impl Client {
+    /// Give up the handle (a long-lived caller that asked once). The endpoint was obtained by name, so it
+    /// is released, not closed: closing would end `gpud`'s service side for every other client.
+    pub fn release(self) {
+        let _ = self.endpoint.release();
+    }
+
     /// Resolve [`NAME`]; the endpoint is opened in this task's handle table.
     pub fn connect() -> Result<Client> {
         Ok(Client {
@@ -66,5 +72,24 @@ impl Client {
         Ok(wire::decode_get_state_reply(&reply.body)
             .map_err(Error::Parcel)?
             .state)
+    }
+
+    /// The adopted pipe's beam, read now (`ENODEV` when none was adopted).
+    pub fn beam(&self) -> Result<Beam> {
+        self.beam_by(None)
+    }
+
+    /// [`Client::beam`], given up at `deadline` (100 Hz ticks, `sys::clock`): a caller that must not
+    /// wait on `gpud` (the compositor) bounds the call.
+    pub fn beam_by(&self, deadline: Option<u64>) -> Result<Beam> {
+        let reply = self
+            .endpoint
+            .call(&parcel(wire::METHOD_GETBEAM, Vec::new()), deadline)?;
+        if let Some(code) = error_field(&reply)? {
+            return Err(Error::Errno(-code));
+        }
+        Ok(wire::decode_get_beam_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .beam)
     }
 }

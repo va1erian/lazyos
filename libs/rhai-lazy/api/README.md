@@ -249,7 +249,7 @@ The userspace compositor protocol (`xuid`; issues #113, #143, #145, #167,
 | `set_icon_geometry(surface, x, y, w, h)` | `SetIconGeometry(surface: U64, x: I32, y: I32, w: I32, h: I32) -> ()` | Shell-only: where `surface`'s taskbar entry is on screen, so the |
 | `hint_launch_origin(x, y, w, h)` | `HintLaunchOrigin(x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: the next window *any* task creates within about two seconds |
 | `dismiss()` | `Dismiss() -> () oneway` | Shell event: a pointer button went down outside every `Panel` surface |
-| `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32)` | The screen in physical pixels and the desktop's integer UI scale |
+| `get_output()` | `GetOutput() -> (width: U32, height: U32, scale: U32, refresh_millihz: U32)` | The screen in physical pixels and the desktop's integer UI scale |
 | `allow_popup(task, token, x, y, w, h)` | `AllowPopup(task: U64, token: U64, x: I32, y: I32, w: U32, h: U32) -> ()` | Shell-only: let task `task` create one `Popup` surface with `token` |
 | `grab_panel_keys(grab)` | `GrabPanelKeys(grab: Bool) -> ()` | Shell-only: take the keyboard for the shell's panel menus (issue |
 | `panel_key(key)` | `PanelKey(key: U32) -> () oneway` | Shell event: a key went down while the shell holds the panel keys |
@@ -343,13 +343,16 @@ The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 | Function | IDL | About |
 |---|---|---|
 | `get_state()` | `GetState() -> (state: State)` | A running pipe was found and decoded; the pipe fields below |
+| `get_beam()` | `GetBeam() -> (beam: Beam)` | The adopted pipe's beam, read now. `ENODEV` when no pipe was |
 | `new_axis()` | struct `Axis` | a `Axis` at its zero value |
 | `new_plane()` | struct `Plane` | a `Plane` at its zero value |
 | `new_fb_map()` | struct `FbMap` | a `FbMap` at its zero value |
+| `new_beam()` | struct `Beam` | a `Beam` at its zero value |
 | `new_state()` | struct `State` | a `State` at its zero value |
 
 - `LINK_MODE` = the `LinkMode` variants; `LINK_MODE_NONE`, `LINK_MODE_HDMI`, `LINK_MODE_DVI`, `LINK_MODE_DP_SST`, `LINK_MODE_DP_MST`, `LINK_MODE_OTHER`
 - `TILING` = the `Tiling` variants; `TILING_LINEAR`, `TILING_X`, `TILING_Y`, `TILING_YF`, `TILING_OTHER`
+- `UNDERRUN` = the `Underrun` variants; `UNDERRUN_NONE`, `UNDERRUN_LATCHED`, `UNDERRUN_UNOBSERVED`
 
 ## `sys::healthd`
 

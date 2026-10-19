@@ -20,7 +20,9 @@
 //!   tests) or to be confirmed;
 //! * [`adopt`]: stage G1's read-only look at what the firmware left (a
 //!   register file read through [`Mmio`], decoded: pipe, DDI, timing, clock,
-//!   CDCLK, plane, GGTT).
+//!   CDCLK, plane, GGTT);
+//! * [`vblank`]: the beam (frame counter, scan line) and the FIFO underrun
+//!   bit, read-only, for the measured refresh rate and tear-free presents.
 //!
 //! Every parser takes hostile input (a monitor's EDID, firmware's VBT) and
 //! must neither panic nor index out of bounds; `fuzz::run` is the byte
@@ -41,6 +43,7 @@ pub mod fbmap;
 pub mod hdmi_audio;
 pub mod mmio;
 pub mod regs;
+pub mod vblank;
 pub mod vbt;
 
 #[cfg(any(test, feature = "fuzz"))]

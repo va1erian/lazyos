@@ -46,6 +46,7 @@ mod input;
 mod moves;
 mod node;
 mod origin;
+mod pacing;
 mod pointer;
 mod popup_focus;
 mod render;
@@ -161,6 +162,8 @@ pub struct LazyOSBackend {
     paint_damage: Cell<Option<Rect>>,
     /// Frames presented so far.
     frames: Cell<u64>,
+    /// Client mode: at most one present per screen refresh and window (`pacing.rs`).
+    pacer: RefCell<pacing::Pacer>,
     /// A one-shot callback run after the first frame reached the screen.
     on_first_frame: RefCell<Option<Box<dyn FnOnce()>>>,
     /// Told when the window's keyboard focus arrives or leaves
@@ -281,10 +284,13 @@ impl LazyOSBackend {
     pub fn new_client() -> Result<LazyOSBackend, i64> {
         xui_canvas::set_default_font(crate::font::BYTES.to_vec());
         let client = display::Client::connect()?;
-        // A compositor that predates `GetOutput` draws at scale 1.
-        let scale = client.get_output().map_or(1, |output| output.scale);
+        // A compositor that predates `GetOutput` draws at scale 1, at 60 Hz.
+        let output = client.get_output();
+        let scale = output.as_ref().map_or(1, |output| output.scale);
+        let refresh = output.as_ref().map_or(0, |output| output.refresh_millihz);
         let backend = Self::with_mode(Mode::Client(RefCell::new(ClientState::new(client))));
         backend.set_scale(scale);
+        *backend.pacer.borrow_mut() = pacing::Pacer::new(pacing::interval_for(refresh));
         Ok(backend)
     }
 
@@ -335,6 +341,7 @@ impl LazyOSBackend {
             cursors: RefCell::default(),
             paint_damage: Cell::new(None),
             frames: Cell::new(0),
+            pacer: RefCell::new(pacing::Pacer::new(pacing::DEFAULT_INTERVAL_NS)),
             on_first_frame: RefCell::new(None),
             on_keyboard_focus: RefCell::new(None),
             ask_close: Cell::new(false),

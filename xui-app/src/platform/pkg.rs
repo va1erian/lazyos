@@ -114,22 +114,6 @@ pub fn install_async(path: &str, on_done: impl FnOnce(Result<Installed, String>)
     // between them (`Answer::fire` keeps count). `path` rides with them
     // (the core-app fallback re-asks by it).
     let path = path.to_owned();
-    struct Answer {
-        fired: std::cell::Cell<bool>,
-        callback: std::cell::Cell<Option<Box<dyn FnOnce(Result<Installed, String>)>>>,
-    }
-
-    impl Answer {
-        fn fire(&self, result: Result<Installed, String>) {
-            if self.fired.replace(true) {
-                return;
-            }
-            if let Some(callback) = self.callback.take() {
-                callback(result);
-            }
-        }
-    }
-
     let answer = std::rc::Rc::new(Answer {
         fired: std::cell::Cell::new(false),
         callback: std::cell::Cell::new(Some(Box::new(on_done))),
@@ -333,6 +317,24 @@ fn installed_from_wire(app: wire::Installed) -> Installed {
         binary: app.binary,
         installed_at: app.installed_at,
         core: app.origin == wire::ORIGIN_CORE,
+    }
+}
+
+/// The install's answer, fired at most once ([`install_async`]'s reply arm and a refusal on this side may
+/// both reach it).
+struct Answer {
+    fired: std::cell::Cell<bool>,
+    callback: std::cell::Cell<Option<Box<dyn FnOnce(Result<Installed, String>)>>>,
+}
+
+impl Answer {
+    fn fire(&self, result: Result<Installed, String>) {
+        if self.fired.replace(true) {
+            return;
+        }
+        if let Some(callback) = self.callback.take() {
+            callback(result);
+        }
     }
 }
 

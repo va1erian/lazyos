@@ -17,12 +17,15 @@
 //!    wells, CDCLK, DPLLs, pipes A to C with transcoder, DDI function and
 //!    first plane, the GGTT pages of the scanout surface) and prints it
 //!    (`report.rs`: `GPU:REG`, `GPU:PIPE`, `GPU:MODE`, `GPU:ADOPT:PASS`, ...);
-//! 4. serves `os.lazy.gpu.v1` (`idl/gpu.midl`) from that snapshot
-//!    (`serve.rs`).
+//! 4. measures the adopted pipe's refresh rate from its frame counter and
+//!    reads its FIFO underrun state (`beam.rs`: `GPU:VBLANK`,
+//!    `GPU:UNDERRUN`);
+//! 5. serves `os.lazy.gpu.v1` (`idl/gpu.midl`) from that snapshot, and the
+//!    beam (frame counter, scan line) live (`serve.rs`).
 //!
 //! It writes no display register, takes no interrupt, programs no mode and
-//! touches no engine: stage G1's later halves and G2 onwards are separate
-//! changes. Started with no such device (by hand, or a stale `dev=`) it
+//! touches no engine: pipe CRCs, `set_scanout`, flips and G2 onwards are
+//! separate changes. Started with no such device (by hand, or a stale `dev=`) it
 //! prints `GPU:NO-DEVICE:FAIL` once and exits 0, which `init`'s `OnFailure`
 //! row does not restart.
 //!
@@ -48,6 +51,8 @@ use user::trace::{self, Channel};
 
 #[path = "gpud/bar.rs"]
 mod bar;
+#[path = "gpud/beam.rs"]
+mod beam;
 #[path = "gpud/device.rs"]
 mod device;
 #[path = "gpud/report.rs"]
@@ -176,7 +181,8 @@ fn adopt_and_serve(
         device: claimed.row.device,
         revision: identity.revision,
     };
-    serve::run(serve::state(&facts, &adopted, fb.as_ref()))
+    let watch = adopted.active.map(|pipe| beam::Watch::start(regs, &pipe));
+    serve::run(serve::state(&facts, &adopted, fb.as_ref()), watch)
         .map_err(|why| Failure("serve", alloc::string::String::from(why)))
 }
 

@@ -15,8 +15,9 @@ interrupt, so nothing in this interface can change the hardware. It exists
 to learn what the firmware leaves (plan section 2.1) and to give later
 stages (HDMI audio, flips, decode) one place that already knows.
 
-The state is a snapshot taken once when `gpud` starts; to look at live
-registers use `dbgd`'s `mmio.read`. Failures of a call are returned as a
+The state is a snapshot taken once when `gpud` starts; `GetBeam` is the
+one live read (the frame counter and scan line); for any other live
+register use `dbgd`'s `mmio.read`. Failures of a call are returned as a
 structured error field (errno-style code, friendly text), not as a typed
 reply. The interface is open to every caller: it reveals the display
 mode and where its framebuffer is, nothing a program could not see by
@@ -27,6 +28,7 @@ asking the compositor. Method ordinals are append-only.
 | Method | Id | Kind | Signature |
 |---|---|---|---|
 | GetState | 746022616 | sync | `() -> (state: State)` |
+| GetBeam | 400769696 | sync | `() -> (beam: Beam)` |
 
 ## struct `Axis`
 
@@ -54,6 +56,15 @@ asking the compositor. Method ordinals are append-only.
 - `present: U32`
 - `phys_base: U64`
 - `contiguous: Bool`
+
+## struct `Beam`
+
+- `frame: U32`
+- `line: U32`
+- `vtotal: U32`
+- `at_ns: U64`
+- `measured_millihz: U32`
+- `underrun: U32`
 
 ## struct `State`
 
@@ -85,3 +96,7 @@ asking the compositor. Method ordinals are append-only.
 ## enum `Tiling`
 
 - Linear, X, Y, Yf, Other
+
+## enum `Underrun`
+
+- None, Latched, Unobserved

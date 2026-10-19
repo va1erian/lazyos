@@ -24,6 +24,8 @@ python tools/webplus/test_live.py                           # its verdict, on th
 python tools/webplus/relaunch_run.py --build                 # close and start the browser from the menu six times (real sites first): every start page loads, no refused sendmsg, no NetworkProcess killed (issue #865)
 python tools/webplus/test_relaunch.py                        # its verdict, on the lines of the start-up hang
 python tools/webplus/frame_run.py [--perf]                    # where a scroll frame goes at 2560x1440: CPU by process, paint stages, the kernel's present_mpx
+python tools/webplus/frame_run.py --perf --sample-port 4499 --sample-stacks   # also sample the CPU with user stacks (shots/webplus-frame/samples.tsv)
+python tools/webplus/cpu_profile.py samples.tsv --program lazywebplus-app --callers memcpy   # who calls a hot leaf (the build volume names it)
 python tools/webplus/scroll_bench.py --build                 # live ars technica and webkit.org in a maximized window at 2560x1440: frames a second while scrolling, longest gap, checkerboard (INFO:SMOOTH), the page's answer; --url to pick pages
 python tools/webplus/scroll_stats.py shots/webplus-live/serial.log [more]   # one comparable block per scrolling run: page answer (w2d), paints/s, web CPU and guard demotions, the main thread's runnable wait (LAZYOS_PERF=1)
 python tools/webplus/test_frame.py                           # its reader and session; the scroll page is current

@@ -21,7 +21,7 @@ use xui_confd_editor::store::{
 use xui_settings::store::{AppChoice, ConfigStore, Detached, StoreError as SettingsError};
 
 use super::confd_store::ConfdStore;
-use super::messenger::{CallError, Service};
+use crate::platform::messenger::{CallError, Service};
 use crate::sys::errno;
 
 /// `elevd`'s registered name.
@@ -59,7 +59,7 @@ fn request_within(
     // window to freeze and no reason to give the prompt a tick budget: the
     // person at the screen takes as long as they take. On the UI thread
     // the request keeps [`REQUEST_TICKS`].
-    let reply = if super::messenger::worker_thread() {
+    let reply = if crate::platform::messenger::worker_thread() {
         service.call_detailed_unbounded(wire::INTERFACE_ID, wire::METHOD_REQUEST, ERROR_FIELD, body)
     } else {
         service.call_detailed(
@@ -249,7 +249,7 @@ impl ConfigStore for ElevatingStore {
             // This closure builds a store on one of the tree's worker
             // threads (the elevated machinery's): mark it, so the platform
             // clients treat its elevd waits as a worker's.
-            super::messenger::mark_worker();
+            crate::platform::messenger::mark_worker();
             Box::new(ElevatingStore(ConfdStore::new())) as Box<dyn ConfigStore>
         }))
     }
@@ -266,14 +266,14 @@ mod tests {
     /// `request_within` depends on it.)
     #[test]
     fn the_worker_marker_is_per_thread() {
-        let fresh = std::thread::spawn(|| super::messenger::worker_thread())
+        let fresh = std::thread::spawn(|| crate::platform::messenger::worker_thread())
             .join()
             .unwrap();
         assert!(!fresh, "a fresh thread began as a worker");
-        super::messenger::mark_worker();
-        assert!(super::messenger::worker_thread());
+        crate::platform::messenger::mark_worker();
+        assert!(crate::platform::messenger::worker_thread());
         // A second thread never inherited the mark.
-        let again = std::thread::spawn(|| super::messenger::worker_thread())
+        let again = std::thread::spawn(|| crate::platform::messenger::worker_thread())
             .join()
             .unwrap();
         assert!(!again, "the mark leaked across threads");

@@ -11,8 +11,9 @@
 /// to learn what the firmware leaves (plan section 2.1) and to give later
 /// stages (HDMI audio, flips, decode) one place that already knows.
 ///
-/// The state is a snapshot taken once when `gpud` starts; to look at live
-/// registers use `dbgd`'s `mmio.read`. Failures of a call are returned as a
+/// The state is a snapshot taken once when `gpud` starts; `GetBeam` is the
+/// one live read (the frame counter and scan line); for any other live
+/// register use `dbgd`'s `mmio.read`. Failures of a call are returned as a
 /// structured error field (errno-style code, friendly text), not as a typed
 /// reply. The interface is open to every caller: it reveals the display
 /// mode and where its framebuffer is, nothing a program could not see by
@@ -66,6 +67,32 @@ interface os.lazy.gpu.v1 {
         contiguous: Bool = 4
     }
 
+    /// FIFO underrun knowledge of the adopted pipe. Ordinals are
+    /// append-only. `None`: unmasked and nothing latched. `Latched`: the
+    /// interrupt identity register holds an underrun. `Unobserved`: the
+    /// event is masked, so nothing can be said.
+    enum Underrun { None, Latched, Unobserved }
+
+    /// Where the adopted pipe's beam is now, read live (read-only: the
+    /// frame counter and scan line count whether or not anybody asked for
+    /// interrupts).
+    struct Beam {
+        /// Frames since the pipe was enabled (wraps at 2^32).
+        frame: U32 = 1,
+        /// Scan line, 0 at the top of the active area.
+        line: U32 = 2,
+        /// Lines per frame, active and blank (the transcoder's total).
+        vtotal: U32 = 3,
+        /// Monotonic time of the read, nanoseconds since boot.
+        at_ns: U64 = 4,
+        /// The refresh rate `gpud` measured from the counter when it
+        /// started, millihertz; 0 when it could not, or when the
+        /// measurement disagreed with the timing registers.
+        measured_millihz: U32 = 5,
+        /// An `Underrun` ordinal.
+        underrun: U32 = 6
+    }
+
     /// The adopted display state.
     struct State {
         /// A running pipe was found and decoded; the pipe fields below
@@ -106,4 +133,8 @@ interface os.lazy.gpu.v1 {
 
     /// The state `gpud` adopted when it started.
     method GetState() -> (state: State = 1);
+
+    /// The adopted pipe's beam, read now. `ENODEV` when no pipe was
+    /// adopted.
+    method GetBeam() -> (beam: Beam = 1);
 }

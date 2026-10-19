@@ -5,6 +5,7 @@
 
 #![no_std]
 #![feature(alloc_error_handler)]
+#![feature(optimize_attribute)]
 
 extern crate alloc;
 

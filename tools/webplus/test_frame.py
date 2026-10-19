@@ -44,6 +44,23 @@ class Summary(unittest.TestCase):
         self.assertIn("n=12 p50=1500.0 p90=1900.5 p99=2400.0 max=3100.0", table)
         self.assertNotIn("present_mpx", frame_run.summarise(LOG)[0])
 
+    def test_the_compositors_own_meter_is_shown_per_megapixel(self):
+        lines = ("XUID:COMPOSE repaints=100 kpx=1000 compose_us=2000 present_us=500 compose_us_per_mpx=2000 "
+                 "present_us_per_mpx=500 worst_us=40\n"
+                 "XUID:COMPOSE repaints=50 kpx=1000 compose_us=1000 present_us=500 compose_us_per_mpx=1000 "
+                 "present_us_per_mpx=500 worst_us=90\n")
+        table, _ = frame_run.summarise(LOG + lines)
+        self.assertIn("Compositor (XUID:COMPOSE): 150 repaints, 2 Mpx; compose 1500 us per Mpx, "
+                      "present 500 us per Mpx, worst repaint 90 us", table)
+        self.assertNotIn("XUID:COMPOSE", frame_run.summarise(LOG)[0])
+
+    def test_the_probe_images_check_is_shown_apart(self):
+        line = ("WEBPLUS:INFO:PAINT:mode=fast:n=30:needs=30:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:"
+                "mouse=0:w2d=1/1:full=0:delta=30:scroll=30:checks=1:bad=0:wkcalls=30:wkmax=1:bands=0:ver=60000\n")
+        table, _ = frame_run.summarise(LOG + line)
+        self.assertIn("check      667 us a paint, not in the stages", table)
+        self.assertNotIn("not in the stages", frame_run.summarise(LOG)[0])
+
     def test_window_thread_and_delta_counts_are_shown(self):
         extra = ("WEBPLUS:INFO:WINDOW:updates=20:full=2:apply=4000:draws=22:draw=44000:max=9000:parts=7\n"
                  "WEBPLUS:INFO:PAINT:mode=fast:n=10:needs=10:px=900000:clear=0:wk=5000:swz=900:post=1000:"
