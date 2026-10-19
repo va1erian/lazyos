@@ -132,6 +132,7 @@ fn alder_lake_holes_are_refused_and_its_display_is_reachable() {
         for plane in 0..5 {
             let base = 0x70180 + pipe * 0x1000 + plane * 0x100;
             holes.extend((0x50..0x60).step_by(4).map(|r| base + r));
+            holes.extend([base - 0x20, base - 0x1C]);
         }
     }
     for reg in holes {

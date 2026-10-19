@@ -9,7 +9,8 @@ registers: `02-mmio-gop.txt` (every allowed range but pipe D's, zeros left
 out) and `03-ggtt-scanout.txt` (the first 3616 GGTT entries). Both sticks
 booted from their RAM disk (`ram0p2`); NVMe and AHCI both attached. Nothing
 had touched the display since the GOP: no LazyOS driver claims `00:02.0`.
-This dump read the scaler coefficient and plane gamma data ports once (their
+This dump read the scaler coefficient and plane gamma data ports (`0x701D4`,
+`0x701DC`, `0x70164` and their copies per plane and pipe) once (their
 index registers are in auto-increment); the allowlist has since made them
 holes, so those words in `02-mmio-gop.txt` are not the firmware's LUTs and a
 later read cannot repeat it.
@@ -25,7 +26,7 @@ display: max 2560x1440 / mode 2560x1440 / console scale 2
 ```
 
 The GOP mode is the monitor's native **2560x1440**, BGRX, stride 2560
-pixels (10240 bytes), 3600 pages (14.06 MiB), at **59.93 Hz** (CVT reduced
+pixels (10240 bytes), 3600 pages (14.06 MiB), at **59.95 Hz** (CVT reduced
 blanking). This settles the README's "GOP mode *to confirm*".
 
 ## The firmware's display path (registers)
@@ -47,7 +48,7 @@ pipe A -> transcoder A -> DDI B (combo PHY B) -> HDMI, clocked by **DPLL1**.
 | DDI | `DDI_BUF_CTL_B` `0x64100` | `0x80000000` | enabled, not idle; A and TC1-4 idle (`0x80`) |
 | Port clock | `DPCLKA_CFGCR0` `0x164280` | `0x01e07404` | DDI B clock on, from **DPLL1** (bits 3:2 = 01); DDI A gated |
 | PLL | `DPLL1_ENABLE` `0x46014` | `0xcc000000` | enabled, locked, powered; DPLL0 and TBT off |
-| PLL dividers | `DPLL1_CFGCR0`/`CFGCR1` `0x16428C` | `0x003c01b8`, `0x00000060` | DCO 19.2 MHz x (440 + 3840/32768) = 8450.25 MHz, P=7 Q=1 K=1: **241.436 MHz** pixel clock. Linux's `i915_shared_dplls_info` showed these same values on its idle DPLL1 |
+| PLL dividers | `DPLL1_CFGCR0`/`CFGCR1` `0x16428C` | `0x003c01b8`, `0x00000060` | DCO 19.2 MHz x (440 + 2 x 3840/32768) = 8452.5 MHz (the fraction is programmed halved on a 38.4 MHz reference, i915's Wa_22010492432), P=7 Q=1 K=1: **241.5 MHz** pixel clock. Linux's `i915_shared_dplls_info` showed these same values on its idle DPLL1 |
 | Plane | `PLANE_CTL_1_A` `0x70180` | `0x84000008` | enabled, XRGB8888 (format bits 27:24 = 4), linear; bit 3 not decoded |
 | | `PLANE_STRIDE_1_A`, `PLANE_SIZE_1_A` | `0xa0`, `0x059f09ff` | 160 x 64 = 10240 bytes, 2560x1440 |
 | | `PLANE_SURF_1_A` `0x7019C` | `0` | GGTT offset 0 |
@@ -55,9 +56,11 @@ pipe A -> transcoder A -> DDI B (combo PHY B) -> HDMI, clocked by **DPLL1**.
 | Hotplug | `SDEISR` `0xC4000` | `0x00020000` | DDI B live |
 | Panel | `PP_STATUS`/`PP_CONTROL` | `0` | no eDP |
 
-59.93 Hz from the clock: 241.436 MHz / (2720 x 1481). Measured from
+59.95 Hz from the clock: 241.5 MHz / (2720 x 1481). Measured from
 `PIPE_FRMCOUNT_A` (`0x70040`) over dbgd: 1211 frames in 20.2 s = 59.95 Hz
-(the read's network round trips bound the error).
+(the read's network round trips bound the error). (A first decode without
+the fraction workaround read 241.436 MHz, 59.93 Hz; the frame counter and
+Linux's DPLL0, exactly 277.82 MHz with it, settle it.)
 
 The scanout: GGTT entries 0..3599 are valid (`flags` 0x1) and map
 **contiguous** pages `0x4c800000..0x4d610000`, the first 14.06 MiB of stolen
@@ -68,7 +71,7 @@ seen through the aperture at `GMADR` + 0 (`0x40_0000_0000`).
 
 | | GOP (LazyOS) | i915 |
 |---|---|---|
-| Refresh, pixel clock | 59.93 Hz, 241.44 MHz (CVT-RB) | 70 Hz, 277.82 MHz |
+| Refresh, pixel clock | 59.95 Hz, 241.5 MHz (CVT-RB) | 70 Hz, 277.82 MHz |
 | PLL | DPLL1 | DPLL0 |
 | CDCLK | 652.8 MHz | (see `../03-dri*-i915_*`) |
 | Plane format | XRGB8888, linear | `AB30` (10 bpc), Y-tiled through a DPT |

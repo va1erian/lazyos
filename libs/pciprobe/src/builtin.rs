@@ -71,9 +71,13 @@ const HD620: u16 = 0x5916;
 /// * each scaler's coefficient index/data pairs (`PS_COEF_SET0/1`, scaler
 ///   base + `0x198..0x1A8`: `0x68198` for scaler 1A, `0x100` per scaler,
 ///   `0x800` per pipe) and each plane's gamma index/data pairs (plane base +
-///   `0x50..0x60`: `0x701D0` for plane 1A, `0x100` per plane, `0x1000` per
-///   pipe): the firmware leaves their index registers in auto-increment
-///   (bit 10), so reading the data dword advances them;
+///   `0x50..0x60`: `0x701D0` for plane 1A, and the post-CSC segment 0 pair
+///   at plane base - `0x20`: `0x70160` for plane 1A; `0x100` per plane,
+///   `0x1000` per pipe): the firmware leaves their index registers in
+///   auto-increment (bit 10), so reading the data dword advances them. The
+///   box's dump shows `0x70160` holding the same index as `0x701D8` on every
+///   pipe; `0x70260` and the like may also be the previous plane's SAGV
+///   watermark in i915's map, and are held out all the same;
 /// * the DKL Type-C PHY window (`0x168000`, indexed by `HIP_INDEX`): the HDMI
 ///   port is a combo PHY, so nothing there is needed.
 ///
@@ -114,26 +118,46 @@ pub const RANGES: &[Range] = &[
     r(INTEL, ADLP_GT1, 0, 0x0006_C000, 0x0006_D000),
     // Pipes, planes, cursors, DDB and watermarks, A to D, less each plane's
     // gamma index/data pairs.
-    r(INTEL, ADLP_GT1, 0, 0x0007_0000, 0x0007_01D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_01E0, 0x0007_02D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_02E0, 0x0007_03D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_03E0, 0x0007_04D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_04E0, 0x0007_05D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_05E0, 0x0007_11D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_11E0, 0x0007_12D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_12E0, 0x0007_13D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_13E0, 0x0007_14D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_14E0, 0x0007_15D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_15E0, 0x0007_21D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_21E0, 0x0007_22D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_22E0, 0x0007_23D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_23E0, 0x0007_24D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_24E0, 0x0007_25D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_25E0, 0x0007_31D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_31E0, 0x0007_32D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_32E0, 0x0007_33D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_33E0, 0x0007_34D0),
-    r(INTEL, ADLP_GT1, 0, 0x0007_34E0, 0x0007_35D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0000, 0x0007_0160),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0168, 0x0007_01D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_01E0, 0x0007_0260),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0268, 0x0007_02D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_02E0, 0x0007_0360),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0368, 0x0007_03D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_03E0, 0x0007_0460),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0468, 0x0007_04D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_04E0, 0x0007_0560),
+    r(INTEL, ADLP_GT1, 0, 0x0007_0568, 0x0007_05D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_05E0, 0x0007_1160),
+    r(INTEL, ADLP_GT1, 0, 0x0007_1168, 0x0007_11D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_11E0, 0x0007_1260),
+    r(INTEL, ADLP_GT1, 0, 0x0007_1268, 0x0007_12D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_12E0, 0x0007_1360),
+    r(INTEL, ADLP_GT1, 0, 0x0007_1368, 0x0007_13D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_13E0, 0x0007_1460),
+    r(INTEL, ADLP_GT1, 0, 0x0007_1468, 0x0007_14D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_14E0, 0x0007_1560),
+    r(INTEL, ADLP_GT1, 0, 0x0007_1568, 0x0007_15D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_15E0, 0x0007_2160),
+    r(INTEL, ADLP_GT1, 0, 0x0007_2168, 0x0007_21D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_21E0, 0x0007_2260),
+    r(INTEL, ADLP_GT1, 0, 0x0007_2268, 0x0007_22D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_22E0, 0x0007_2360),
+    r(INTEL, ADLP_GT1, 0, 0x0007_2368, 0x0007_23D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_23E0, 0x0007_2460),
+    r(INTEL, ADLP_GT1, 0, 0x0007_2468, 0x0007_24D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_24E0, 0x0007_2560),
+    r(INTEL, ADLP_GT1, 0, 0x0007_2568, 0x0007_25D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_25E0, 0x0007_3160),
+    r(INTEL, ADLP_GT1, 0, 0x0007_3168, 0x0007_31D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_31E0, 0x0007_3260),
+    r(INTEL, ADLP_GT1, 0, 0x0007_3268, 0x0007_32D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_32E0, 0x0007_3360),
+    r(INTEL, ADLP_GT1, 0, 0x0007_3368, 0x0007_33D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_33E0, 0x0007_3460),
+    r(INTEL, ADLP_GT1, 0, 0x0007_3468, 0x0007_34D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_34E0, 0x0007_3560),
+    r(INTEL, ADLP_GT1, 0, 0x0007_3568, 0x0007_35D0),
     r(INTEL, ADLP_GT1, 0, 0x0007_35E0, 0x0007_4000),
     // DMC control (whether the firmware loaded DMC: HTP, SSP base).
     r(INTEL, ADLP_GT1, 0, 0x0008_F000, 0x0008_F100),

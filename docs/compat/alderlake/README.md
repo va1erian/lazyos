@@ -44,7 +44,7 @@ give 32 GiB (MemTotal 32590500 kB; the e820 map tops out at 0x8afbfffff).
 
 - ~~The `HW:GOP:`/`HW:FB:` lines, and that the stick boots at all.~~ It boots;
   the GOP leaves 2560x1440 BGRX (`gpu/lazyos/01-dbgd-capture.md`). The
-  firmware's display path is read too: HDMI on DDI B from DPLL1 at 59.93 Hz.
+  firmware's display path is read too: HDMI on DDI B from DPLL1 at 59.95 Hz.
 - Which HDA path `sndd` picks, and whether the SN6140 walks to the headphone
   pin (0x16) or the speaker (0x17).
 - MSI on the real NICs, AHCI and HDA rather than polling.
