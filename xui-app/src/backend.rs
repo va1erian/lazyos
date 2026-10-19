@@ -160,6 +160,10 @@ pub struct LazyOSBackend {
     /// The window rectangle being repainted while painters run
     /// ([`LazyOSBackend::paint_damage`]).
     paint_damage: Cell<Option<Rect>>,
+    /// The window whose buffer slot a direct painter is writing (`direct.rs`), and a client window
+    /// closed meanwhile: its buffers stay mapped until the painter returns.
+    composing: Cell<Option<u64>>,
+    closing: RefCell<Option<ClientWindow>>,
     /// Frames presented so far.
     frames: Cell<u64>,
     /// Client mode: at most one present per screen refresh and window (`pacing.rs`).
@@ -217,8 +221,9 @@ struct Window {
     /// after a composite: painters run unclipped, so a node that straddles
     /// the damage also overdraws its neighbours outside it.
     surface: Surface,
-    /// The composed frame (top-down RGBA, the window's size): the damaged
-    /// rectangles of `surface`, accumulated. Presents copy from it.
+    /// Owner mode: the composed frame (top-down RGBA, the window's size), the
+    /// damaged rectangles of `surface` accumulated; presents copy from it.
+    /// Client mode composes into the buffer slots instead and leaves it empty.
     frame: Vec<u8>,
     sink: Option<Rc<dyn WidgetHost>>,
     /// The window's theme, for the background under every repaint.
@@ -340,6 +345,8 @@ impl LazyOSBackend {
             wakeup: std::cell::OnceCell::new(),
             cursors: RefCell::default(),
             paint_damage: Cell::new(None),
+            composing: Cell::new(None),
+            closing: RefCell::new(None),
             frames: Cell::new(0),
             pacer: RefCell::new(pacing::Pacer::new(pacing::DEFAULT_INTERVAL_NS)),
             on_first_frame: RefCell::new(None),

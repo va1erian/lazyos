@@ -152,8 +152,13 @@ impl Backend for LazyOSBackend {
         if let Some(client) = removed.as_ref().and_then(|w| w.client.as_ref()) {
             self.cursors.borrow_mut().forget_surface(client.surface);
         }
-        if let (Some(surface), Mode::Client(state)) = (removed.and_then(|w| w.client), &self.mode) {
-            surface.close(state.borrow().client);
+        if let Some(surface) = removed.and_then(|w| w.client) {
+            if self.composing.get() == Some(window.raw()) {
+                // A direct painter is writing one of its buffers (`direct.rs`).
+                *self.closing.borrow_mut() = Some(surface);
+            } else {
+                self.close_client_window(surface);
+            }
         }
         {
             let mut nodes = self.nodes.borrow_mut();

@@ -1,12 +1,17 @@
 //! Compositing a window's node table and presenting the result, either through
 //! the display grant (owner mode) or as a pipelined `Present` of a buffer slot
 //! to `xuid` (client mode).
+//!
+//! Owner mode composes into the window's `frame` and copies that to the
+//! screen. Client mode composes straight into the slot it presents (buffer
+//! age, `Slots::prepare`): the slot first takes what it missed from the slot
+//! composed last, so each damaged pixel is written once per frame.
 
 use xui_canvas::Surface;
 use xui_core::backend::{Painter, WindowId};
 use xui_core::Rect;
 
-use crate::client_window::copy_rect;
+use crate::client_window::{copy_rect, ClientWindow, Slots};
 use crate::display::{Client, FrameEvent};
 use crate::sys::{self, DisplayInfo};
 
@@ -16,6 +21,16 @@ use super::{LazyOSBackend, Mode};
 /// How far past its bounds a painter may draw (anti-aliasing, focus rings),
 /// in pixels: nodes this close to the damage repaint with it.
 const PAINT_SPILL: i32 = 2;
+
+/// Where a composite writes the window's picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Dest {
+    /// The window's own `frame` (owner mode).
+    Frame,
+    /// A free buffer slot of the client window, prepared for the damage
+    /// ([`Slots::prepare`]).
+    Slot(u32),
+}
 
 impl LazyOSBackend {
     /// Repaints `damage` (window-absolute) of `window` into its composed
@@ -37,16 +52,19 @@ impl LazyOSBackend {
     /// explorer queries `dpi`/`client_rect` while painting), which would panic
     /// on an already-borrowed `windows`. The window itself stays in the map, so
     /// those re-entrant reads still see its live size, DPI and theme.
-    fn composite(&self, window: WindowId, damage: Rect) -> bool {
-        // A node that keeps its own picture writes it straight into the frame (`direct.rs`).
-        if let Some(done) = self.composite_direct(window, damage) {
+    ///
+    /// The result lands in `dest`; `false` when the window is gone, or when
+    /// `dest` is a slot no longer of the window's size.
+    fn composite(&self, window: WindowId, damage: Rect, dest: Dest) -> bool {
+        // A node that keeps its own picture writes it straight into the destination (`direct.rs`).
+        if let Some(done) = self.composite_direct(window, damage, dest) {
             return done;
         }
-        self.composite_canvas(window, damage)
+        self.composite_canvas(window, damage, dest)
     }
 
     /// [`composite`](Self::composite) through the canvas: every painter that comes near `damage`.
-    pub(super) fn composite_canvas(&self, window: WindowId, damage: Rect) -> bool {
+    pub(super) fn composite_canvas(&self, window: WindowId, damage: Rect, dest: Dest) -> bool {
         let (dpi, theme, backdrop, width, height, mut surface, mut background) = {
             let mut windows = self.windows.borrow_mut();
             let Some(entry) = windows.get_mut(&window.raw()) else {
@@ -81,7 +99,11 @@ impl LazyOSBackend {
                         ancestor_clip(&nodes, *id).is_none_or(|clip| intersects(bounds, clip));
                     // A node that keeps its own picture (`direct.rs`) is opaque and spills nothing: its
                     // painter runs only for damage it overlaps (it is a whole frame through the canvas).
-                    let near = if super::direct::is_direct(*id) { damage } else { reach };
+                    let near = if super::direct::is_direct(*id) {
+                        damage
+                    } else {
+                        reach
+                    };
                     (shown && intersects(bounds, near)).then_some((bounds, painter))
                 })
                 .collect()
@@ -103,22 +125,31 @@ impl LazyOSBackend {
             }
         });
         self.paint_damage.set(None);
-        // Put the real surface back and fold the damage into the frame; a
-        // painter that closed this window leaves no entry, so both drop.
+        // Put the real surface back and fold the damage into the destination;
+        // a painter that closed this window leaves no entry, so both drop.
         let mut windows = self.windows.borrow_mut();
         let Some(entry) = windows.get_mut(&window.raw()) else {
-            return true;
+            return dest == Dest::Frame;
         };
         let pixels = surface.pixels();
-        if entry.frame.len() == pixels.len() {
-            copy_rect(&mut entry.frame, pixels, width, height, damage);
-        } else {
-            // A new or resized window, which is always damaged whole.
-            entry.frame = pixels.to_vec();
-        }
+        let written = match dest {
+            Dest::Frame if entry.frame.len() == pixels.len() => {
+                copy_rect(&mut entry.frame, pixels, width, height, damage);
+                true
+            }
+            Dest::Frame => {
+                // A new or resized window, which is always damaged whole.
+                entry.frame = pixels.to_vec();
+                true
+            }
+            Dest::Slot(slot) => entry
+                .client
+                .as_mut()
+                .is_some_and(|client| client.slots.write(slot, pixels, width, height, damage)),
+        };
         entry.surface = surface;
         entry.background = background;
-        true
+        written
     }
 
     /// Render and show the window: a full-screen present through the display
@@ -146,7 +177,7 @@ impl LazyOSBackend {
     /// Owner mode tracks no damage (the backend only records it for clients).
     fn present_owner(&self, window: WindowId, display: &DisplayInfo) -> bool {
         let (width, height) = self.screen();
-        if !self.composite(window, Rect::new(0, 0, width, height)) {
+        if !self.composite(window, Rect::new(0, 0, width, height), Dest::Frame) {
             return false;
         }
         let size = display.size as usize;
@@ -167,65 +198,83 @@ impl LazyOSBackend {
     }
 
     /// Client mode: once a buffer slot is free, repaint only the pending
-    /// damage, copy only what that slot is missing into it, and `Present` it.
-    /// With no free slot the damage waits: the compositor's next
-    /// `BufferRelease` paces the next frame.
+    /// damage straight into it, after copying what that slot is missing from
+    /// the slot composed last, and `Present` it. With no free slot the damage
+    /// waits: the compositor's next `BufferRelease` paces the next frame.
     fn present_client(&self, window: WindowId, client: Client) -> bool {
-        let (slot, full) = {
-            let mut windows = self.windows.borrow_mut();
-            let Some(entry) = windows.get_mut(&window.raw()) else {
-                return false;
-            };
-            let (width, height) = (entry.width, entry.height);
-            let Some(surface) = entry.client.as_mut() else {
-                return false;
-            };
-            match surface
-                .slots
-                .acquire(client, surface.surface, width, height)
-            {
-                Ok(Some(slot)) => (slot, Rect::new(0, 0, width, height)),
-                _ => return false,
-            }
+        let Some((slot, full)) = self.acquire_slot(window, client) else {
+            return false;
         };
         let damage = self.take_damage(window, full);
-        if !self.composite(window, damage) {
-            return false;
-        }
-        let submitted = {
-            let mut windows = self.windows.borrow_mut();
-            let Some(entry) = windows.get_mut(&window.raw()) else {
-                return false;
-            };
-            let pixels = &entry.frame;
-            entry.client.as_mut().and_then(|surface| {
-                surface.slots.damage(damage);
-                if !surface.slots.sync(slot, pixels) {
-                    return None;
-                }
-                Some((surface.surface, surface.slots.submit(slot)?))
-            })
-        };
-        let Some((surface, seq)) = submitted else {
-            // The surface changed size under the painters; repaint it whole.
-            self.add_damage(window, full);
+        let compose = self.with_slots(window, |slots| slots.prepare(slot, damage));
+        let Some(compose) = compose.flatten() else {
             return false;
         };
-        if client.present(surface, slot, seq, damage).is_ok() {
-            return true;
+        if !self.composite(window, compose, Dest::Slot(slot)) {
+            // The window closed, or it was resized between two parts of the
+            // composite: the slot holds part of a frame, so it and the window
+            // repaint whole.
+            if self
+                .with_slots(window, |slots| slots.invalidate(slot))
+                .is_some()
+            {
+                self.add_damage(window, full);
+            }
+            return false;
         }
-        // The compositor never saw this present, so it would never release
-        // the slot: take it back and keep the damage for the next tick.
-        if let Some(surface) = self
+        let submitted = self
             .windows
             .borrow_mut()
             .get_mut(&window.raw())
             .and_then(|entry| entry.client.as_mut())
-        {
-            surface.slots.cancel(slot, seq);
+            .and_then(|surface| Some((surface.surface, surface.slots.submit(slot)?)));
+        let Some((surface, seq)) = submitted else {
+            // A window closed by a painter keeps no damage.
+            if self.with_slots(window, |_| ()).is_some() {
+                self.add_damage(window, full);
+            }
+            return false;
+        };
+        if client.present(surface, slot, seq, compose).is_ok() {
+            return true;
         }
-        self.add_damage(window, damage);
+        // The compositor never saw this present, so it would never release
+        // the slot: take it back and keep the damage for the next tick.
+        self.with_slots(window, |slots| slots.cancel(slot, seq));
+        self.add_damage(window, compose);
         false
+    }
+
+    /// A free slot of `window` of its current size, and its full rectangle.
+    fn acquire_slot(&self, window: WindowId, client: Client) -> Option<(u32, Rect)> {
+        let mut windows = self.windows.borrow_mut();
+        let entry = windows.get_mut(&window.raw())?;
+        let (width, height) = (entry.width, entry.height);
+        let surface = entry.client.as_mut()?;
+        let slot = surface
+            .slots
+            .acquire(client, surface.surface, width, height)
+            .ok()??;
+        Some((slot, Rect::new(0, 0, width, height)))
+    }
+
+    /// Destroy a closed client window's surface and release its buffers.
+    pub(super) fn close_client_window(&self, surface: ClientWindow) {
+        if let Mode::Client(state) = &self.mode {
+            surface.close(state.borrow().client);
+        }
+    }
+
+    /// Run `f` on `window`'s slots; `None` when it has none (closed, or not a
+    /// client window).
+    pub(super) fn with_slots<T>(
+        &self,
+        window: WindowId,
+        f: impl FnOnce(&mut Slots) -> T,
+    ) -> Option<T> {
+        let mut windows = self.windows.borrow_mut();
+        let surface = windows.get_mut(&window.raw())?.client.as_mut()?;
+        Some(f(&mut surface.slots))
     }
 
     /// Fold a `BufferRelease` or `FrameDone` for `window` into its slots. A
@@ -311,182 +360,4 @@ fn intersects(a: Rect, b: Rect) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    use xui_core::backend::{Canvas, Event, ParentRef, WidgetId};
-    use xui_core::router::WidgetHost;
-    use xui_core::Color;
-
-    use super::super::test_support::client_backend;
-    use super::super::{Node, Window};
-    use super::*;
-
-    const W: WindowId = WindowId::from_raw(1);
-    const RED: Color = Color::rgb(200, 0, 0);
-    const BLUE: Color = Color::rgb(0, 0, 200);
-
-    struct Sink;
-
-    impl WidgetHost for Sink {
-        fn deliver(&self, _target: WidgetId, _event: &Event) -> bool {
-            true
-        }
-    }
-
-    /// A node at `bounds` whose painter fills it with `color` and counts its
-    /// runs in `calls`.
-    fn painted(bounds: Rect, color: Color, calls: Rc<Cell<u32>>) -> Node {
-        let painter: Painter = Rc::new(move |canvas: &mut dyn Canvas| {
-            calls.set(calls.get() + 1);
-            canvas.fill_rect(canvas.bounds(), color);
-        });
-        Node {
-            window: W,
-            parent: ParentRef::Window(W),
-            bounds,
-            visible: true,
-            enabled: true,
-            focus_stop: false,
-            wants_tab: false,
-            popup: false,
-            clip: None,
-            text: String::new(),
-            painter: Some(painter),
-        }
-    }
-
-    /// The pixel at `(x, y)` of the window's surface.
-    fn pixel(backend: &LazyOSBackend, x: u32, y: u32) -> [u8; 4] {
-        let windows = backend.windows.borrow();
-        let at = ((y * 64 + x) * 4) as usize;
-        windows[&W.raw()].frame[at..at + 4]
-            .try_into()
-            .expect("in bounds")
-    }
-
-    fn rgba(color: Color) -> [u8; 4] {
-        [color.r, color.g, color.b, 255]
-    }
-
-    /// A 64x64 window with a red node on the left and a blue node on the
-    /// right, painted once in full; the per-node paint counters.
-    fn rig() -> (LazyOSBackend, Rc<Cell<u32>>, Rc<Cell<u32>>) {
-        let backend = client_backend();
-        backend
-            .windows
-            .borrow_mut()
-            .insert(W.raw(), Window::for_tests(Rc::new(Sink)));
-        let (left, right) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
-        let mut nodes = backend.nodes.borrow_mut();
-        nodes.push((
-            WidgetId::from_raw(1),
-            painted(Rect::new(0, 0, 32, 64), RED, left.clone()),
-        ));
-        nodes.push((
-            WidgetId::from_raw(2),
-            painted(Rect::new(32, 0, 64, 64), BLUE, right.clone()),
-        ));
-        drop(nodes);
-        assert!(backend.composite(W, Rect::new(0, 0, 64, 64)));
-        assert_eq!((left.get(), right.get()), (1, 1));
-        (backend, left, right)
-    }
-
-    #[test]
-    fn hiding_a_node_repaints_what_its_painter_spilled() {
-        use xui_core::backend::Backend;
-
-        let (backend, _, _) = rig();
-        backend.take_damage(W, Rect::new(0, 0, 64, 64));
-        backend.set_visible(WidgetId::from_raw(1), false);
-        // The node is 0..32 wide; the repaint reaches PAINT_SPILL past it.
-        let damage = backend.take_damage(W, Rect::new(0, 0, 64, 64));
-        assert_eq!(damage, Rect::new(0, 0, 32 + PAINT_SPILL, 64));
-    }
-
-    #[test]
-    fn a_painter_outside_the_damage_is_not_run() {
-        let (backend, left, right) = rig();
-        assert!(backend.composite(W, Rect::new(4, 4, 20, 20)));
-        assert_eq!(left.get(), 2, "the damaged node repainted");
-        assert_eq!(right.get(), 1, "the undamaged node did not");
-    }
-
-    #[test]
-    fn pixels_outside_the_damage_are_untouched() {
-        let (backend, _, _) = rig();
-        // Recolour the left node, then repaint only part of it.
-        backend.nodes.borrow_mut()[0].1 = painted(Rect::new(0, 0, 32, 64), BLUE, Rc::default());
-        assert!(backend.composite(W, Rect::new(4, 4, 20, 20)));
-        assert_eq!(pixel(&backend, 10, 10), rgba(BLUE), "inside the damage");
-        assert_eq!(pixel(&backend, 2, 2), rgba(RED), "outside: the old frame");
-        assert_eq!(pixel(&backend, 25, 30), rgba(RED), "outside: the old frame");
-    }
-
-    #[test]
-    fn a_painter_bigger_than_the_damage_rasterises_only_the_damage() {
-        let (backend, _, _) = rig();
-        backend.nodes.borrow_mut()[0].1 = painted(Rect::new(0, 0, 32, 64), BLUE, Rc::default());
-        assert!(backend.composite(W, Rect::new(4, 4, 20, 20)));
-        // The painting surface itself, not only the frame, kept the rest.
-        let windows = backend.windows.borrow();
-        let surface = windows[&W.raw()].surface.pixels();
-        let at = |x: usize, y: usize| &surface[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
-        assert_eq!(at(10, 10), rgba(BLUE), "inside the damage");
-        assert_eq!(at(2, 2), rgba(RED), "outside: never painted");
-        assert_eq!(at(25, 30), rgba(RED), "outside: never painted");
-    }
-
-    #[test]
-    fn a_painter_straddling_the_damage_cannot_overdraw_its_neighbour() {
-        let (backend, left, right) = rig();
-        // Make the left node overlap the right one; only a strip clear of the
-        // right node is damaged, so the right node's pixels must survive the
-        // left one painting over them on the surface.
-        backend.nodes.borrow_mut()[0].1 = painted(Rect::new(0, 0, 48, 64), RED, left.clone());
-        assert!(backend.composite(W, Rect::new(0, 0, 24, 64)));
-        assert_eq!(right.get(), 1);
-        assert_eq!(pixel(&backend, 40, 10), rgba(BLUE));
-        assert_eq!(pixel(&backend, 20, 10), rgba(RED));
-        assert_eq!(pixel(&backend, 28, 10), rgba(RED), "outside: the old frame");
-    }
-
-    #[test]
-    fn a_node_outside_its_ancestors_clip_is_not_painted() {
-        let (backend, left, _) = rig();
-        // The right node clips its children to its left half: a child wholly
-        // in the right half is a row scrolled out of a viewport.
-        let row = Rc::new(Cell::new(0));
-        {
-            let mut nodes = backend.nodes.borrow_mut();
-            nodes[1].1.clip = Some(Rect::new(0, 0, 16, 64));
-            let mut child = painted(Rect::new(20, 0, 32, 64), RED, row.clone());
-            child.parent = ParentRef::Widget(WidgetId::from_raw(2));
-            nodes.push((WidgetId::from_raw(3), child));
-        }
-        assert!(backend.composite(W, Rect::new(0, 0, 64, 64)));
-        assert_eq!(row.get(), 0, "the clipped-out row did not paint");
-        assert_eq!(left.get(), 2);
-        assert_eq!(pixel(&backend, 58, 10), rgba(BLUE));
-    }
-
-    #[test]
-    fn a_node_within_the_spill_margin_repaints_with_the_damage() {
-        let (backend, _, right) = rig();
-        // The right node starts at x = 32, one pixel past this damage.
-        assert!(backend.composite(W, Rect::new(10, 10, 31, 20)));
-        assert_eq!(right.get(), 2);
-    }
-
-    #[test]
-    fn the_damage_is_cleared_to_the_background_first() {
-        let (backend, _, _) = rig();
-        backend.nodes.borrow_mut().remove(0);
-        assert!(backend.composite(W, Rect::new(0, 0, 32, 64)));
-        let background = backend.windows.borrow()[&W.raw()].theme.background;
-        assert_eq!(pixel(&backend, 10, 10), rgba(background));
-        assert_eq!(pixel(&backend, 40, 10), rgba(BLUE));
-    }
-}
+mod tests;
