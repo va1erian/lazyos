@@ -216,6 +216,10 @@ impl ChatPage {
         text
     }
 
+    pub fn draft_is_empty(&self) -> bool {
+        self.composer.text().trim().is_empty()
+    }
+
     pub fn set_draft(&self, text: &str) {
         self.composer.set_text(text);
     }

@@ -774,9 +774,19 @@ to `xui-app/target/snapshots`, not checked in).
   block): headings, paragraphs, lists, quotes, fenced code with a **Copy**
   button and links are drawn; raw HTML and images never are. A link opens only
   after the user confirms its address (a `TaskDialog`).
-* Enter sends only after the user typed in the composer (`ui.on_key` sees keys
-  ahead of the widget, and xui has no focus query); a stray Enter that lands
-  in the composer is cleared.
+* Enter sends only while the composer is the field being typed in (`ui.on_key`
+  sees keys ahead of the widget, and xui has no focus query): typing in it
+  claims Enter, `Tab` or any other control's message gives it away. A stray
+  Enter that lands in the composer is cleared. A turn that fails before it
+  starts (no store, no key) frees the window and puts the message back in the
+  composer.
+* Row ids are positions (`i * 4`); the reply being streamed already has the id
+  of the item it becomes, so the reader's anchor and its shaped text survive
+  the end of the turn. A layout result for a row that has since grown is still
+  shown (and the row laid out again), so a long reply does not stand still
+  while text keeps arriving; results of another conversation are dropped.
+* Raw HTML is shown as the text it is, never interpreted; a link is plain
+  ASCII `http(s)` of at most 1000 bytes.
 * The package lists display, cursor, input, mimed and the clipboard, `outbound`
   network and its own folder; `python tools/agent/run.py --label-trace` shows
   no `LABEL:DENY`. `os.lazy.notify` and the file picker's folders arrive with

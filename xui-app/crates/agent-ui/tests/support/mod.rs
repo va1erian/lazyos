@@ -177,6 +177,26 @@ pub fn wheel(stage: &Stage<'_, Msg>, notches: i16) {
     });
 }
 
+/// How many pixels differ strongly from the picture's most common colour:
+/// text, rules and fills, not the background (a window whose rows are all
+/// still skeletons has little).
+pub fn ink(image: &Image) -> usize {
+    let px = image.pixels();
+    let mut counts = std::collections::HashMap::new();
+    for p in px.as_chunks::<4>().0 {
+        *counts.entry([p[0], p[1], p[2]]).or_insert(0usize) += 1;
+    }
+    let Some((bg, _)) = counts.into_iter().max_by_key(|(_, n)| *n) else {
+        return 0;
+    };
+    let far = |a: u8, b: u8| i32::from(a).abs_diff(i32::from(b));
+    px.as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| far(p[0], bg[0]) + far(p[1], bg[1]) + far(p[2], bg[2]) > 240)
+        .count()
+}
+
 pub fn save(image: &Image, name: &str) {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/snapshots");
     std::fs::create_dir_all(&dir).unwrap();

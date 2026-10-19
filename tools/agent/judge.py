@@ -26,7 +26,9 @@ MODEL = "accounts/fireworks/models/deepseek-v4p1-flash"
 
 
 #: What a live run (the real service, no stall, no long reply) cannot show.
-LIVE_SKIPS = ("AGENT:CHAT:FAIL:stopped", "AGENT:FOLLOW:0")
+LIVE_SKIPS = ("AGENT:CHAT:FAIL:401", "AGENT:CHAT:FAIL:stopped", "AGENT:FOLLOW:0")
+#: The failures the mock session provokes (a live run provokes none).
+PROVOKED = ("401", "stopped")
 
 
 def judge_serial(text: str, secrets: list[str], live: bool = False) -> list[str]:
@@ -40,6 +42,9 @@ def judge_serial(text: str, secrets: list[str], live: bool = False) -> list[str]
     done = re.findall(r"^AGENT:CHAT:DONE:(\d+):(\d+):(\d+)$", text, re.M)
     if len(done) < 2:
         problems.append("fewer than two answers completed (AGENT:CHAT:DONE:<in>:<out>:<ms>)")
+    for status in re.findall(r"^AGENT:CHAT:FAIL:(\S+)$", text, re.M):
+        if live or status not in PROVOKED:
+            problems.append(f"unexpected AGENT:CHAT:FAIL:{status}")
     for line in FAILURES.findall(text):
         problems.append(f"failure marker: {line}")
     for secret in secrets:
@@ -100,8 +105,10 @@ def judge_shots(paths: list[Path]) -> list[str]:
     import pngstats  # noqa: E402
     problems = []
     for path in paths:
-        stats = pngstats.analyze(str(path)) if hasattr(pngstats, "analyze") else None
-        if stats is not None and stats.get("nonblack_frac", 1.0) < 0.05:
+        _, stats, failures = pngstats.analyse_file(str(path), None, None, None, None, None)
+        if failures:
+            problems.append(f"{path.name} cannot be read: {failures[0]}")
+        elif stats["nonbackground_ratio"] < 0.05:
             problems.append(f"{path.name} is almost black")
     digests = {hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     if len(digests) < 6:

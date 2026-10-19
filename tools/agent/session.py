@@ -50,7 +50,9 @@ def ctrl(key: str) -> list[dict]:
     return [{"key_down": "ctrl"}, {"key": key}, {"key_up": "ctrl"}]
 
 
-def steps(timeout: float = 300.0, secret: str = "AGENT_TEST_KEY") -> list[dict]:
+def steps(timeout: float = 300.0, secret: str = "AGENT_TEST_KEY", live: bool = False) -> list[dict]:
+    """The session. `live` (the real service) leaves out what only the mock
+    can provoke: a refused key, a long reply and a stalled one."""
     out: list[dict] = [
         {"wait_for": "PKGD:PROVISION:DONE", "timeout": 600},
         {"wait_for": "TERM:UP:PASS", "timeout": 600},
@@ -72,20 +74,27 @@ def steps(timeout: float = 300.0, secret: str = "AGENT_TEST_KEY") -> list[dict]:
         {"wait_for": "AGENT:CONSENT:PASS", "timeout": 60},
         {"wait": 1.0},
         {"shot": "02_key"},
-        # A wrong key: the mock answers 401 and the app asks again.
-        {"type": WRONG_KEY, "delay": 0.05},
-        {"key": "enter"},
-        {"wait_for": "AGENT:KEY:PASS:SET", "timeout": 60, "occurrence": 1},
-        {"wait": 1.0},
-        {"type": "hello", "delay": 0.05},
-        {"key": "enter"},
-        {"wait_for": "AGENT:CHAT:FAIL:401", "timeout": timeout},
-        {"wait": 1.5},
-        {"shot": "03_key_refused"},
+    ]
+    keys_set = 1
+    if not live:
+        keys_set = 2
+        out += [
+            # A wrong key: the mock answers 401 and the app asks again.
+            {"type": WRONG_KEY, "delay": 0.05},
+            {"key": "enter"},
+            {"wait_for": "AGENT:KEY:PASS:SET", "timeout": 60, "occurrence": 1},
+            {"wait": 1.0},
+            {"type": "hello", "delay": 0.05},
+            {"key": "enter"},
+            {"wait_for": "AGENT:CHAT:FAIL:401", "timeout": timeout},
+            {"wait": 1.5},
+            {"shot": "03_key_refused"},
+        ]
+    out += [
         # The real key.
         {"type_secret": secret, "delay": 0.05},
         {"key": "enter"},
-        {"wait_for": "AGENT:KEY:PASS:SET", "timeout": 60, "occurrence": 2},
+        {"wait_for": "AGENT:KEY:PASS:SET", "timeout": 60, "occurrence": keys_set},
         {"wait": 1.0},
         {"type": "What is a DHCP lease?", "delay": 0.05},
         {"key": "enter"},
@@ -95,28 +104,39 @@ def steps(timeout: float = 300.0, secret: str = "AGENT_TEST_KEY") -> list[dict]:
         {"wait_for": "AGENT:CHAT:DONE:", "timeout": timeout, "occurrence": 1},
         {"wait": 2.0},
         {"shot": "05_answer"},
-        # A long reply, scrolled up.
-        {"type": "LONG answer please", "delay": 0.05},
-        {"key": "enter"},
-        {"wait_for": "AGENT:CHAT:DONE:", "timeout": timeout, "occurrence": 2},
-        {"wait": 2.0},
-        {"move_to": {"window": WINDOW}},
     ]
-    out += [step for _ in range(UP_NOTCHES // NOTCH) for step in ({"mouse_scroll": NOTCH}, {"wait": 0.2})]
-    out += [
-        {"wait_for": "AGENT:FOLLOW:0", "timeout": 60},
-        {"wait": 1.5},
-        {"shot": "06_scrolled"},
-        # A reply that stalls, stopped with Escape.
-        {"type": "STALL please", "delay": 0.05},
-        {"key": "enter"},
-        {"wait_for": "AGENT:CHAT:FIRST:", "timeout": timeout, "occurrence": 3},
-        {"wait": 0.5},
-        {"key": "esc"},
-        {"wait_for": "AGENT:CHAT:FAIL:stopped", "timeout": 60},
-        {"wait": 1.5},
-        {"shot": "07_stopped"},
-    ]
+    if live:
+        out += [
+            {"type": "In one sentence, what is a subnet mask?", "delay": 0.05},
+            {"key": "enter"},
+            {"wait_for": "AGENT:CHAT:DONE:", "timeout": timeout, "occurrence": 2},
+            {"wait": 2.0},
+            {"shot": "06_second"},
+        ]
+    else:
+        out += [
+            # A long reply, scrolled up.
+            {"type": "LONG answer please", "delay": 0.05},
+            {"key": "enter"},
+            {"wait_for": "AGENT:CHAT:DONE:", "timeout": timeout, "occurrence": 2},
+            {"wait": 2.0},
+            {"move_to": {"window": WINDOW}},
+        ]
+        out += [step for _ in range(UP_NOTCHES // NOTCH) for step in ({"mouse_scroll": NOTCH}, {"wait": 0.2})]
+        out += [
+            {"wait_for": "AGENT:FOLLOW:0", "timeout": 60},
+            {"wait": 1.5},
+            {"shot": "06_scrolled"},
+            # A reply that stalls, stopped with Escape.
+            {"type": "STALL please", "delay": 0.05},
+            {"key": "enter"},
+            {"wait_for": "AGENT:CHAT:FIRST:", "timeout": timeout, "occurrence": 3},
+            {"wait": 0.5},
+            {"key": "esc"},
+            {"wait_for": "AGENT:CHAT:FAIL:stopped", "timeout": 60},
+            {"wait": 1.5},
+            {"shot": "07_stopped"},
+        ]
     out += ctrl("n")
     out += [{"wait": 1.0}] + ctrl(",")
     out += [

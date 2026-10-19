@@ -41,6 +41,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -70,6 +71,17 @@ def port_free(port: int) -> bool:
     with socket.socket() as probe:
         probe.settimeout(0.5)
         return probe.connect_ex(("127.0.0.1", port)) != 0
+
+
+def wait_for_port(port: int, seconds: float = 10.0) -> bool:
+    """The port is free now (a build takes minutes: another harness may have
+    taken it since the first check)."""
+    deadline = time.monotonic() + seconds
+    while not port_free(port):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.5)
+    return True
 
 
 def build(extra: dict[str, str], label_trace: bool) -> str | None:
@@ -102,7 +114,7 @@ def build(extra: dict[str, str], label_trace: bool) -> str | None:
 def run_session(out: Path, args, key: str) -> tuple[bool, str]:
     """Drive the guest; (session ok, serial log text)."""
     script = out / "session.json"
-    script.write_text(session.render(session.steps(args.step_timeout, "AGENT_TEST_KEY")), encoding="utf-8")
+    script.write_text(session.render(session.steps(args.step_timeout, "AGENT_TEST_KEY", live=args.live)), encoding="utf-8")
     command = [PY, str(ROOT / "tools" / "screenshot" / "qemu_session.py"), "--image", str(IMAGE),
                "--out", str(out), "--script", str(script), "--accel", args.accel,
                "--net", "--net-forward", "none", "--net-pcap", str(out / "net.pcap"),
@@ -140,6 +152,11 @@ def main(argv: list[str] | None = None) -> int:
     for stale in ["serial.log", "net.pcap", "summary.json", *(p.name for p in out.glob("shot_*.png"))]:
         (out / stale).unlink(missing_ok=True)
 
+    if args.live and args.no_build:
+        # An image of the mock runs trusts the harness's test CA and maps the
+        # service's name to the host: it would not talk to the real one.
+        print("AGENTRUN:HARNESS:FAIL --live builds its own image: leave out --no-build")
+        return 1
     if args.live:
         key = os.environ.get("FIREWORKS_API_KEY", "")
         if not key:
@@ -165,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     mock = None
     if files is not None:
+        if not wait_for_port(mockserver.PORT):
+            print(f"AGENTRUN:HARNESS:FAIL host port {mockserver.PORT} was taken during the build (another harness?)")
+            return 1
         try:
             mock = mockserver.Mock(files.leaf_cert, files.leaf_key, mockserver.PORT, "127.0.0.1", key)
         except OSError as error:

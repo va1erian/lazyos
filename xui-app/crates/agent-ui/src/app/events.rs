@@ -3,6 +3,7 @@
 use lazyagent_core::Event;
 
 use super::*;
+use crate::rows::Redo;
 
 impl LazyAgentApp {
     pub(super) fn tick(&mut self, ui: &mut Ui<Msg>) {
@@ -56,10 +57,21 @@ impl LazyAgentApp {
                 self.say(Report::Conversations(self.conversations.len()));
             }
             Event::Hits(hits) => {
-                self.hits = Some(hits);
-                self.refresh_list();
+                // A search that ran while the box was being cleared.
+                if self.searching {
+                    self.hits = Some(hits);
+                    self.refresh_list();
+                }
             }
             Event::Opened(conversation) => {
+                if self.current_id().as_deref() != Some(conversation.id.as_str()) {
+                    self.opened.clear();
+                    self.drop_layouts();
+                }
+                // The error belonged to the turn before this one (a failed
+                // turn sends its conversation first).
+                self.failure = None;
+                self.redo = Redo::No;
                 self.pending_user = None;
                 self.live = Live::default();
                 self.chat.set_title(&title_of(&conversation));
@@ -68,6 +80,8 @@ impl LazyAgentApp {
                 self.rows_dirty = true;
             }
             Event::Cleared => {
+                self.drop_layouts();
+                self.redo = Redo::No;
                 self.current = None;
                 self.pending_user = None;
                 self.live = Live::default();
@@ -131,7 +145,16 @@ impl LazyAgentApp {
                 });
             }
             Event::Failed(failure) => {
-                self.pending_user = None;
+                // A turn that failed before it began has no Busy(false) of its own.
+                self.set_busy(false);
+                self.turn_started = None;
+                self.redo = Redo::No;
+                // The message never reached the conversation: give it back.
+                if let Some(text) = self.pending_user.take() {
+                    if self.chat.draft_is_empty() {
+                        self.chat.set_draft(&text);
+                    }
+                }
                 self.live = Live::default();
                 self.chat.set_banner(&failure.message);
                 if failure.status != "stopped" {

@@ -103,7 +103,12 @@ class Mock:
         self._context = context
         import socket
         self._listener = socket.socket()
-        self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sys.platform == "win32":
+            # SO_REUSEADDR would let this bind succeed on a port another
+            # process already listens on (harness-port-collisions).
+            self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._listener.bind((host, port))
         self._listener.listen(16)
         self._closed = False

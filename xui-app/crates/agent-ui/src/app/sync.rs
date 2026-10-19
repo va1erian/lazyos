@@ -2,7 +2,7 @@
 //! in step with the app's state.
 
 use super::*;
-use crate::layouts::Job;
+use crate::layouts::{Done, Job};
 use crate::model::{estimate, RowSpec};
 use crate::prepare::Context;
 use crate::rows;
@@ -23,6 +23,7 @@ impl LazyAgentApp {
             self.pending_user.as_deref(),
             self.failure.as_deref(),
             &self.opened,
+            self.redo,
         );
         let count = specs.len();
         let Ok(mut state) = self.chat.view.state.try_borrow_mut() else {
@@ -39,7 +40,6 @@ impl LazyAgentApp {
             })
             .collect();
         state.transcript.replace(next);
-        state.moved = true;
         drop(state);
         self.chat.view.invalidate();
         if count != self.reported_rows {
@@ -48,9 +48,23 @@ impl LazyAgentApp {
         }
     }
 
+    /// Forgets every layout job: the rows are another conversation's now, and
+    /// what is still being shaped is for the old one.
+    pub(super) fn drop_layouts(&mut self) {
+        self.layouts.clear();
+        self.submitted.clear();
+        self.applied.clear();
+        self.carried.clear();
+        self.epoch = self.rev;
+    }
+
     /// Applies finished layouts: the row shows its new shape and height.
+    ///
+    /// A result for text the row has since outgrown is still shown (a
+    /// streaming reply would otherwise never be drawn while text keeps
+    /// arriving) but leaves the row marked for another layout.
     pub(super) fn apply_layouts(&mut self) {
-        let mut done = Vec::new();
+        let mut done: Vec<Done> = std::mem::take(&mut self.carried);
         while done.len() < APPLY_PER_TICK {
             let Some(next) = self.layouts.try_next() else {
                 break;
@@ -62,23 +76,23 @@ impl LazyAgentApp {
         }
         let Ok(mut state) = self.chat.view.state.try_borrow_mut() else {
             // Never lose a result to a held borrow: they are applied next tick.
-            for d in done {
-                self.carried.push(d);
-            }
+            self.carried = done;
             return;
         };
         let mut heights = Vec::new();
-        for d in self.carried.drain(..).chain(done) {
-            let wanted = self.submitted.get(&d.id).map(|(rev, _, _)| *rev);
-            if wanted != Some(d.rev) {
+        for d in done {
+            // Another conversation's, or older than what the row shows.
+            if d.rev <= self.epoch || self.applied.get(&d.id).is_some_and(|r| *r >= d.rev) {
                 continue;
             }
-            if let Some(i) = state.transcript.index_of(d.id) {
+            let Some(i) = state.transcript.index_of(d.id) else {
+                continue;
+            };
+            if let Some(row) = state.transcript.row_mut(i) {
+                self.applied.insert(d.id, d.rev);
                 heights.push((d.id, d.prepared.height));
-                if let Some(row) = state.transcript.row_mut(i) {
-                    row.prepared = Some(d.prepared);
-                    row.dirty = false;
-                }
+                row.dirty = !Arc::ptr_eq(&d.spec, &row.spec);
+                row.prepared = Some(d.prepared);
             }
         }
         state.transcript.set_heights(&heights);
@@ -102,7 +116,6 @@ impl LazyAgentApp {
                 }
             }
         }
-        state.moved = false;
         let near = state.transcript.near(NEAR_SCREENS);
         let visible = state.transcript.visible();
         let mut jobs = Vec::new();
@@ -118,14 +131,16 @@ impl LazyAgentApp {
             let stale = row.prepared.is_none()
                 || row.dirty
                 || row.prepared.as_ref().is_some_and(|p| p.width != width);
-            let identity = Arc::as_ptr(&row.spec) as usize;
+            // The job asked for last (it holds its spec, so the address of a
+            // freed one cannot be mistaken for this row's).
             let current = self
                 .submitted
                 .get(&row.id)
-                .is_some_and(|(_, w, ptr)| *w == width && *ptr == identity);
+                .is_some_and(|(_, w, spec)| *w == width && Arc::ptr_eq(spec, &row.spec));
             if stale && !current {
                 self.rev += 1;
-                self.submitted.insert(row.id, (self.rev, width, identity));
+                self.submitted
+                    .insert(row.id, (self.rev, width, Arc::clone(&row.spec)));
                 jobs.push(Job {
                     id: row.id,
                     spec: Arc::clone(&row.spec),

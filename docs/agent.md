@@ -33,6 +33,11 @@ GitHub issue flow come in later phases.
   `settings.toml` in the app's folder; no secret is ever in it.
 * When the conversation grows past 75% of the model's context the oldest turns
   are replaced by a summary the model writes (a note says so).
+* **Not in the window yet.** The core can already edit the last message,
+  rename a conversation and delete all data, but P2 has no control for them
+  (they arrive with the settings work in P2b/P6); the window-level `Enter`
+  sends only while the composer is the field being typed in (clicking a button
+  or the list, or pressing `Tab`, hands `Enter` to that control).
 
 ## Running it
 

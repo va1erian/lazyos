@@ -250,7 +250,7 @@ impl Page<'_> {
         });
         self.hits.push(Hit {
             rect: button,
-            target: Target::Copy(text.to_string()),
+            target: Target::Copy(copyable(text)),
         });
         self.pieces.push(Piece::Text {
             layout: copy,
@@ -269,6 +269,14 @@ impl Page<'_> {
         });
         total
     }
+}
+
+/// The text a Copy puts on the clipboard: without the control characters
+/// (an escape sequence pasted into a terminal would be run, not shown).
+fn copyable(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect()
 }
 
 /// Lays `spec` out at `ctx.width`.

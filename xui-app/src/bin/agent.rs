@@ -51,7 +51,13 @@ impl Platform for LazyOs {
     }
 
     fn log(&self, line: &str) {
-        trace::line!(Channel::Agent, "{line}");
+        // One marker line, whatever the text: no newline can start another.
+        let one: String = line
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(200)
+            .collect();
+        trace::line!(Channel::Agent, "LOG:{one}");
     }
 }
 

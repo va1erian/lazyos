@@ -6,8 +6,8 @@ language model on **Fireworks AI**.
 * **Key.** Paste your Fireworks API key when the app asks. In this version it
   is kept in memory only and is asked again each time the app starts; it is
   never written to disk.
-* **Chat.** Replies stream as they arrive. *Stop* ends one, *Regenerate*
-  redoes the last answer, and *Edit* rewrites your last message. Several
+* **Chat.** Replies stream as they arrive. *Stop* (or Esc) ends one and *Redo*
+  asks for the last answer again. Several
   conversations are kept in the app's own folder (`~/.apps/os.lazy.agent`),
   searchable and exportable as Markdown.
 * **Privacy.** Everything you type is sent to Fireworks AI, a third party

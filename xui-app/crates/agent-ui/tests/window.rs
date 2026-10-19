@@ -121,8 +121,48 @@ fn a_reply_streams_as_markdown_and_both_themes_draw_it() {
                 requests[0].header("authorization"),
                 Some(format!("Bearer {KEY}").as_str())
             );
+            let drawn = ink(&shot.image);
+            assert!(drawn > 3000, "{tag}: only {drawn} pixels of text and fills");
             save(&shot.image, &format!("agent-chat-{tag}.png"));
         }
+    });
+}
+
+#[test]
+fn a_turn_that_fails_before_it_starts_frees_the_window() {
+    watchdog(|| {
+        let pki = Pki::new();
+        let server = chat_server(&pki);
+        // A file where the app's folder should be: nothing can be stored.
+        let dir = temp_dir("nostore");
+        std::fs::create_dir_all(dir.parent().unwrap()).unwrap();
+        std::fs::write(&dir, b"not a folder").unwrap();
+        let shot = render(Theme::light(), &pki, &server, dir, |stage, heard_| {
+            sign_in(stage, heard_);
+            stage.emit(Msg::KeyEntered(Secret::new(KEY)));
+            stage.emit(Msg::SendText("first".into()));
+            tick_until(stage, Duration::from_secs(10), || {
+                heard(heard_, |r| matches!(r, Report::Failed(_)))
+            });
+            tick_until(stage, Duration::from_millis(300), || false);
+            // Busy would ignore this one.
+            stage.emit(Msg::SendText("second".into()));
+            tick_until(stage, Duration::from_secs(10), || {
+                heard_
+                    .borrow()
+                    .iter()
+                    .filter(|r| matches!(r, Report::Failed(_)))
+                    .count()
+                    == 2
+            });
+        });
+        let sent = shot
+            .reports
+            .iter()
+            .filter(|r| matches!(r, Report::Sent(_)))
+            .count();
+        assert_eq!(sent, 2, "{:?}", shot.reports);
+        assert_eq!(server.requests(), 0, "nothing was sent to the model");
     });
 }
 

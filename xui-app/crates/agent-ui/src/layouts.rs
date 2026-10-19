@@ -25,6 +25,8 @@ pub struct Job {
 pub struct Done {
     pub id: RowId,
     pub rev: u64,
+    /// The text that was shaped: the row may have outgrown it.
+    pub spec: Arc<RowSpec>,
     pub prepared: Prepared,
 }
 
@@ -132,6 +134,7 @@ fn run(shaper: &dyn TextShaper, shared: &Shared, results: &Sender<Done>) {
         let sent = results.send(Done {
             id: job.id,
             rev: job.rev,
+            spec: job.spec,
             prepared,
         });
         shared.running.fetch_sub(1, Ordering::SeqCst);

@@ -31,6 +31,8 @@ pub enum ViewAction {
     Link(String),
     Copy(String),
     Toggle(RowId),
+    /// The view scrolled: rows near it may need shaping now.
+    Moved,
 }
 
 #[derive(Clone, Copy)]
@@ -47,8 +49,6 @@ pub struct ViewState {
     pub height: i32,
     /// The width changed: rows need laying out again.
     pub relayout: bool,
-    /// The position changed: more rows may need shaping.
-    pub moved: bool,
     grab: Option<Grab>,
     /// A note shown over an empty transcript.
     pub note: String,
@@ -62,7 +62,6 @@ impl ViewState {
             width: 0,
             height: 0,
             relayout: false,
-            moved: false,
             grab: None,
             note: String::new(),
         }
@@ -85,7 +84,6 @@ impl ViewState {
         self.height = height;
         self.dpi = dpi;
         self.transcript.set_view_height(height);
-        self.moved = true;
     }
 
     /// The thumb of the scroll bar in view-local pixels: `(top, length)`.
@@ -343,11 +341,8 @@ fn handle(
     match outcome {
         Outcome::Nothing => None,
         Outcome::Moved => {
-            if let Ok(mut s) = state.try_borrow_mut() {
-                s.moved = true;
-            }
             ui.invalidate(id);
-            None
+            Some(Msg::Transcript(ViewAction::Moved))
         }
         Outcome::Action(action) => Some(Msg::Transcript(action)),
     }

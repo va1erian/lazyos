@@ -4,6 +4,11 @@ use super::*;
 
 impl LazyAgentApp {
     pub(super) fn open_link(&mut self, ui: &Ui<Msg>, url: &str) {
+        // The painter only makes web links clickable; the address is checked
+        // again here because it is what a launcher is handed.
+        if !crate::markdown::is_web(url) {
+            return;
+        }
         // Built when needed: its message names the address.
         let built = TaskDialog::new(
             ui,
@@ -27,6 +32,7 @@ impl LazyAgentApp {
                 ui.set_clipboard_text(&text);
                 self.say(Report::Copied);
             }
+            ViewAction::Moved => self.set_interval(ui, drain::BUSY_MS),
             ViewAction::Toggle(id) => {
                 if !self.opened.remove(&id) {
                     self.opened.insert(id);

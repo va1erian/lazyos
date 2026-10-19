@@ -19,8 +19,9 @@ use xui_core::{App, Theme, Ui};
 use crate::drain;
 use crate::layouts::Layouts;
 use crate::model::RowId;
+use crate::model::RowSpec;
 use crate::pages::{effort_of, ChatPage, ConsentPage, KeyPage, SettingsPage};
-use crate::rows::Live;
+use crate::rows::{Live, Redo};
 use crate::view::ViewAction;
 use crate::{Msg, Report};
 use keys::{shortcut, Shared, Typing};
@@ -74,18 +75,26 @@ pub struct LazyAgentApp {
     /// The message just sent, until the conversation comes back with it.
     pending_user: Option<String>,
     failure: Option<String>,
+    /// The turn running replaces the end of the conversation.
+    redo: Redo,
     opened: HashSet<RowId>,
     rows_dirty: bool,
     busy: bool,
     turn_started: Option<Instant>,
     first_chunk: bool,
     /// The newest layout job per row: its revision, the width it was laid
-    /// out for and the identity of the row's spec.
-    submitted: HashMap<RowId, (u64, i32, usize)>,
+    /// out for and the spec it shapes.
+    submitted: HashMap<RowId, (u64, i32, Arc<RowSpec>)>,
+    /// The revision of the layout each row shows.
+    applied: HashMap<RowId, u64>,
     /// Layout results a tick could not apply because the view was borrowed.
     carried: Vec<crate::layouts::Done>,
     settings_known: bool,
     rev: u64,
+    /// Results at or below this revision are for another conversation.
+    epoch: u64,
+    /// The search box has text: hits are wanted.
+    searching: bool,
     reported_rows: usize,
     reported_following: bool,
     export_picker: FileDialog<Msg>,
@@ -158,15 +167,19 @@ impl LazyAgentApp {
             live: Live::default(),
             pending_user: None,
             failure: None,
+            redo: Redo::No,
             opened: HashSet::new(),
             rows_dirty: true,
             busy: false,
             turn_started: None,
             first_chunk: false,
             submitted: HashMap::new(),
+            applied: HashMap::new(),
             carried: Vec::new(),
             settings_known: false,
             rev: 0,
+            epoch: 0,
+            searching: false,
             reported_rows: usize::MAX,
             reported_following: true,
             export_picker,
@@ -201,7 +214,10 @@ impl LazyAgentApp {
         }
         match page {
             Page::Key => self.key.focus(),
-            Page::Chat => self.chat.focus_composer(),
+            Page::Chat => {
+                self.chat.focus_composer();
+                self.shared.typing.set(Typing::Composer);
+            }
             Page::Settings => self.settings_page.load(&self.settings),
             Page::Consent => {}
         }
@@ -267,13 +283,14 @@ impl LazyAgentApp {
         } else {
             self.core.send(Request::Send(text.clone()));
         }
-        self.begin_turn(Some(text));
+        self.begin_turn(Some(text), if edit { Redo::Edit } else { Redo::No });
         self.say(Report::Sent(turns));
         self.set_interval(ui, drain::BUSY_MS);
     }
 
-    fn begin_turn(&mut self, user_text: Option<String>) {
+    fn begin_turn(&mut self, user_text: Option<String>, redo: Redo) {
         self.pending_user = user_text;
+        self.redo = redo;
         self.live = Live {
             active: true,
             ..Live::default()
@@ -292,9 +309,13 @@ impl App for LazyAgentApp {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        keys::note_focus(&self.shared, &msg);
         match msg {
             Msg::Tick => self.tick(ui),
             Msg::Accept => {
+                if self.page != Page::Consent {
+                    return;
+                }
                 self.settings.consented = true;
                 self.core.send(Request::SaveSettings(self.settings.clone()));
                 self.say(Report::Consented);
@@ -342,7 +363,7 @@ impl App for LazyAgentApp {
                 if self.page == Page::Chat && !self.busy && self.current.is_some() && self.have_key
                 {
                     self.core.send(Request::Regenerate);
-                    self.begin_turn(None);
+                    self.begin_turn(None, Redo::Answer);
                     self.set_interval(ui, drain::BUSY_MS);
                 }
             }
@@ -376,11 +397,12 @@ impl App for LazyAgentApp {
                 }
             }
             Msg::SearchText(text) => {
-                self.shared.typing.set(Typing::Other);
                 if text.trim().is_empty() {
+                    self.searching = false;
                     self.hits = None;
                     self.refresh_list();
                 } else {
+                    self.searching = true;
                     self.core.send(Request::Search(text));
                 }
             }
