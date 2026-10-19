@@ -396,9 +396,14 @@ fn dispatch_app(
     let app_id = secretstore::app_of_label(&label).ok_or(Error::Errno(-errno::EPERM))?;
     let body = &message.parcel.body;
     let parse = Error::Parcel;
-    let frame = |method: u32, body: Result<Vec<u8>, libmessenger::Error>| -> messenger::Result<Parcel> {
-        Ok(wire::parcel_on(appsecret::INTERFACE, method, body.map_err(Error::Parcel)?))
-    };
+    let frame =
+        |method: u32, body: Result<Vec<u8>, libmessenger::Error>| -> messenger::Result<Parcel> {
+            Ok(wire::parcel_on(
+                appsecret::INTERFACE,
+                method,
+                body.map_err(Error::Parcel)?,
+            ))
+        };
     match message.method() {
         app::METHOD_PUT => {
             let args = app::decode_put_args(body).map_err(parse)?;
@@ -410,7 +415,10 @@ fn dispatch_app(
         app::METHOD_GET => {
             let args = app::decode_get_args(body).map_err(parse)?;
             let secret = secrets.get(uid, app_id, &bounded_text(args.name)?)?;
-            frame(app::METHOD_GET, app::encode_get_reply(&app::GetReply { secret }))
+            frame(
+                app::METHOD_GET,
+                app::encode_get_reply(&app::GetReply { secret }),
+            )
         }
         app::METHOD_DELETE => {
             let args = app::decode_delete_args(body).map_err(parse)?;
@@ -437,8 +445,8 @@ fn app_caller(message: &Message) -> messenger::Result<(u32, String)> {
         return Err(Error::Errno(-errno::EPERM));
     }
     let mut name = [0u8; sys::MAX_LABEL_BYTES];
-    let len = sys::label_name(caller.label_id, &mut name)
-        .map_err(|_| Error::Errno(-errno::EPERM))?;
+    let len =
+        sys::label_name(caller.label_id, &mut name).map_err(|_| Error::Errno(-errno::EPERM))?;
     let label = core::str::from_utf8(&name[..len]).map_err(|_| Error::Errno(-errno::EPERM))?;
     Ok((caller.uid, String::from(label)))
 }

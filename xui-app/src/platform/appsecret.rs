@@ -129,6 +129,9 @@ mod tests {
         })
         .unwrap();
         let back = wire::decode_put_args(&body).unwrap();
-        assert_eq!((back.name.as_str(), back.secret.as_slice()), ("token", &b"s3cret"[..]));
+        assert_eq!(
+            (back.name.as_str(), back.secret.as_slice()),
+            ("token", &b"s3cret"[..])
+        );
     }
 }

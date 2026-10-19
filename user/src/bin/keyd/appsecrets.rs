@@ -75,10 +75,8 @@ impl AppSecrets {
                 Ok(self.store.len())
             }
             Err(error) => {
-                let moved = files::rename(
-                    fhs::state::KEYD_APPSECRETS,
-                    fhs::state::KEYD_APPSECRETS_BAD,
-                );
+                let moved =
+                    files::rename(fhs::state::KEYD_APPSECRETS, fhs::state::KEYD_APPSECRETS_BAD);
                 // Persist only once the file is out of the way.
                 if moved.is_err() {
                     self.key = None;
@@ -102,7 +100,9 @@ impl AppSecrets {
         if self.store.get(uid, app, name) == Ok(secret) {
             return Ok(());
         }
-        self.change(entropy, |store| store.put(uid, app, name, secret).map(|()| true))
+        self.change(entropy, |store| {
+            store.put(uid, app, name, secret).map(|()| true)
+        })
     }
 
     /// `Get`.

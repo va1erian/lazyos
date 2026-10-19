@@ -53,8 +53,8 @@ mod tests_file;
 mod tests_rules;
 
 pub use app::{
-    app_of_label, confirmed_gone, valid_app_name, valid_app_secret, AppError, AppStore, APP_MAX_ID, APP_MAX_NAME,
-    APP_MAX_PER_APP, APP_MAX_SECRET, APP_MAX_TOTAL,
+    app_of_label, confirmed_gone, valid_app_name, valid_app_secret, AppError, AppStore, APP_MAX_ID,
+    APP_MAX_NAME, APP_MAX_PER_APP, APP_MAX_SECRET, APP_MAX_TOTAL,
 };
 pub use app_file::{APP_FILE_MAX, APP_FILE_VERSION};
 pub use file::{FileError, FILE_MAX, MACHINE_KEY_LEN};

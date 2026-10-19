@@ -20,8 +20,12 @@ fn sample() -> AppStore {
     let mut store = AppStore::new();
     store.put(1000, "os.lazy.mail", "imap", b"hunter2").unwrap();
     store.put(1000, "os.lazy.mail", "smtp", b"hunter3").unwrap();
-    store.put(1001, "os.lazy.mail", "imap", b"other user").unwrap();
-    store.put(1000, "org.lazy.agent", "key", &[0xAB; 1024]).unwrap();
+    store
+        .put(1001, "os.lazy.mail", "imap", b"other user")
+        .unwrap();
+    store
+        .put(1000, "org.lazy.agent", "key", &[0xAB; 1024])
+        .unwrap();
     store
 }
 
@@ -56,11 +60,23 @@ fn only_an_installed_app_label_names_an_app() {
 fn a_secret_reads_back_only_for_its_user_and_app() {
     let store = sample();
     assert_eq!(store.get(1000, "os.lazy.mail", "imap"), Ok(&b"hunter2"[..]));
-    assert_eq!(store.get(1001, "os.lazy.mail", "imap"), Ok(&b"other user"[..]));
+    assert_eq!(
+        store.get(1001, "os.lazy.mail", "imap"),
+        Ok(&b"other user"[..])
+    );
     // Another app, another user, another name: nothing.
-    assert_eq!(store.get(1000, "org.lazy.agent", "imap"), Err(AppError::NotFound));
-    assert_eq!(store.get(1002, "os.lazy.mail", "imap"), Err(AppError::NotFound));
-    assert_eq!(store.get(1000, "os.lazy.mail", "key"), Err(AppError::NotFound));
+    assert_eq!(
+        store.get(1000, "org.lazy.agent", "imap"),
+        Err(AppError::NotFound)
+    );
+    assert_eq!(
+        store.get(1002, "os.lazy.mail", "imap"),
+        Err(AppError::NotFound)
+    );
+    assert_eq!(
+        store.get(1000, "os.lazy.mail", "key"),
+        Err(AppError::NotFound)
+    );
     // A prefix of an app's name is not that app.
     assert_eq!(store.get(1000, "os.lazy", "imap"), Err(AppError::NotFound));
     assert_eq!(store.names(1000, "os.lazy.mail"), ["imap", "smtp"]);
@@ -75,8 +91,14 @@ fn put_replaces_and_delete_forgets() {
     assert_eq!(store.get(1000, "os.lazy.mail", "imap"), Ok(&b"new"[..]));
     assert_eq!(store.len(), 4, "replacing adds no row");
     store.delete(1000, "os.lazy.mail", "imap").unwrap();
-    assert_eq!(store.get(1000, "os.lazy.mail", "imap"), Err(AppError::NotFound));
-    assert_eq!(store.delete(1000, "os.lazy.mail", "imap"), Err(AppError::NotFound));
+    assert_eq!(
+        store.get(1000, "os.lazy.mail", "imap"),
+        Err(AppError::NotFound)
+    );
+    assert_eq!(
+        store.delete(1000, "os.lazy.mail", "imap"),
+        Err(AppError::NotFound)
+    );
     // Another user's secret of the same name stayed.
     assert!(store.get(1001, "os.lazy.mail", "imap").is_ok());
 }
@@ -86,11 +108,21 @@ fn names_and_secrets_are_bounded() {
     let mut store = AppStore::new();
     let long = "n".repeat(APP_MAX_NAME);
     assert!(store.put(1, "a", &long, b"x").is_ok());
-    assert_eq!(store.put(1, "a", &format!("{long}n"), b"x"), Err(AppError::BadName));
+    assert_eq!(
+        store.put(1, "a", &format!("{long}n"), b"x"),
+        Err(AppError::BadName)
+    );
     for bad in ["", "a b", "tab\t", "new\nline", "nul\0", "caf\u{e9}"] {
-        assert_eq!(store.put(1, "a", bad, b"x"), Err(AppError::BadName), "{bad:?}");
+        assert_eq!(
+            store.put(1, "a", bad, b"x"),
+            Err(AppError::BadName),
+            "{bad:?}"
+        );
     }
-    assert!(store.put(1, "a", "user@host:993", b"x").is_ok(), "printable ASCII is fine");
+    assert!(
+        store.put(1, "a", "user@host:993", b"x").is_ok(),
+        "printable ASCII is fine"
+    );
     assert!(store.put(1, "a", "big", &[1; APP_MAX_SECRET]).is_ok());
     assert_eq!(
         store.put(1, "a", "big", &[1; APP_MAX_SECRET + 1]),
@@ -121,7 +153,10 @@ fn an_app_holds_sixteen_per_user_and_the_table_is_capped() {
         uid += 1;
     }
     assert_eq!(full.put(uid, "a", "k", b"x"), Err(AppError::Full));
-    assert!(full.put(0, "a", "k", b"z").is_ok(), "a replacement needs no room");
+    assert!(
+        full.put(0, "a", "k", b"z").is_ok(),
+        "a replacement needs no room"
+    );
 }
 
 // ---- the sweep -----------------------------------------------------------
@@ -135,9 +170,20 @@ fn a_sweep_deletes_the_secrets_of_apps_no_longer_installed() {
         app == "os.lazy.mail"
     });
     assert_eq!(removed, 1);
-    assert_eq!(asked, ["org.lazy.agent", "os.lazy.mail"], "each app is asked once");
-    assert_eq!(store.get(1000, "org.lazy.agent", "key"), Err(AppError::NotFound));
-    assert_eq!(store.len(), 3, "the installed app's secrets stayed, for every user");
+    assert_eq!(
+        asked,
+        ["org.lazy.agent", "os.lazy.mail"],
+        "each app is asked once"
+    );
+    assert_eq!(
+        store.get(1000, "org.lazy.agent", "key"),
+        Err(AppError::NotFound)
+    );
+    assert_eq!(
+        store.len(),
+        3,
+        "the installed app's secrets stayed, for every user"
+    );
     assert_eq!(store.sweep(|_| true), 0);
     assert_eq!(store.sweep(|_| false), 3);
     assert!(store.is_empty());
@@ -146,9 +192,15 @@ fn a_sweep_deletes_the_secrets_of_apps_no_longer_installed() {
 #[test]
 fn an_app_is_swept_only_when_missing_twice_in_a_row() {
     let s = |names: &[&str]| -> Vec<String> { names.iter().map(|n| (*n).into()).collect() };
-    assert!(confirmed_gone(&s(&[]), &s(&["a", "b"])).is_empty(), "first miss");
+    assert!(
+        confirmed_gone(&s(&[]), &s(&["a", "b"])).is_empty(),
+        "first miss"
+    );
     assert_eq!(confirmed_gone(&s(&["a", "b"]), &s(&["b"])), s(&["b"]));
-    assert!(confirmed_gone(&s(&["a"]), &s(&[])).is_empty(), "it came back");
+    assert!(
+        confirmed_gone(&s(&["a"]), &s(&[])).is_empty(),
+        "it came back"
+    );
     assert!(confirmed_gone(&s(&["a"]), &s(&["c"])).is_empty());
 }
 
@@ -164,11 +216,19 @@ fn a_file_round_trips_under_a_version_header() {
     let back = AppStore::open(&bytes, &KEY).unwrap();
     assert_eq!(back.len(), store.len());
     assert_eq!(back.get(1000, "os.lazy.mail", "imap"), Ok(&b"hunter2"[..]));
-    assert_eq!(back.get(1001, "os.lazy.mail", "imap"), Ok(&b"other user"[..]));
-    assert_eq!(back.get(1000, "org.lazy.agent", "key"), Ok(&[0xAB; 1024][..]));
-    assert!(AppStore::open(&AppStore::new().seal(&KEY, &mut counter()), &KEY)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        back.get(1001, "os.lazy.mail", "imap"),
+        Ok(&b"other user"[..])
+    );
+    assert_eq!(
+        back.get(1000, "org.lazy.agent", "key"),
+        Ok(&[0xAB; 1024][..])
+    );
+    assert!(
+        AppStore::open(&AppStore::new().seal(&KEY, &mut counter()), &KEY)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -190,14 +250,23 @@ fn an_unknown_version_is_refused_whole() {
     let n = bytes.len() - 32;
     let retag = lazyos_crypto::hmac::hmac_sha256(&tag, &bytes[..n]);
     bytes[n..].copy_from_slice(&retag);
-    assert_eq!(AppStore::open(&bytes, &KEY).err(), Some(FileError::BadVersion));
+    assert_eq!(
+        AppStore::open(&bytes, &KEY).err(),
+        Some(FileError::BadVersion)
+    );
 }
 
 #[test]
 fn damage_and_the_wrong_key_are_refused() {
     let bytes = sample().seal(&KEY, &mut counter());
-    assert_eq!(AppStore::open(&bytes, &[1; MACHINE_KEY_LEN]).err(), Some(FileError::BadTag));
-    assert_eq!(AppStore::open(&bytes[..9], &KEY).err(), Some(FileError::Truncated));
+    assert_eq!(
+        AppStore::open(&bytes, &[1; MACHINE_KEY_LEN]).err(),
+        Some(FileError::BadTag)
+    );
+    assert_eq!(
+        AppStore::open(&bytes[..9], &KEY).err(),
+        Some(FileError::Truncated)
+    );
     assert_eq!(AppStore::open(&[], &KEY).err(), Some(FileError::Truncated));
     for at in [0, 9, 12, 40, bytes.len() - 1] {
         let mut flipped = bytes.clone();
@@ -208,7 +277,10 @@ fn damage_and_the_wrong_key_are_refused() {
     let mut named = Store::new();
     named.put(Owner::User(1), "x", b"y").unwrap();
     let named = named.seal(&KEY, &mut counter());
-    assert_eq!(AppStore::open(&named, &KEY).err(), Some(FileError::BadMagic));
+    assert_eq!(
+        AppStore::open(&named, &KEY).err(),
+        Some(FileError::BadMagic)
+    );
     assert_eq!(Store::open(&bytes, &KEY).err(), Some(FileError::BadMagic));
 }
 
