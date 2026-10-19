@@ -362,3 +362,31 @@ fn a_redirect_is_returned_not_followed_and_other_hosts_are_not_reached() {
     let plain = http.post("http://localhost:1/", &[], b"{}").unwrap_err();
     assert!(plain.contains("only https"), "{plain}");
 }
+
+#[test]
+fn a_stopped_read_is_not_an_interrupted_one() {
+    // `read_to_end` retries `ErrorKind::Interrupted` for ever; if the stop error
+    // ever becomes one, the Stop tests hang instead of failing, so pin it here.
+    let stopped = Arc::new(AtomicBool::new(true));
+    let pki = Pki::new(&["localhost"]);
+    let (port, _) = serve(
+        &pki,
+        vec![Step::Sleep(Duration::from_secs(5))],
+        Duration::ZERO,
+    );
+    let http = client(&pki, port);
+    let err = http
+        .post_stream(
+            &format!("https://localhost:{port}/"),
+            &[],
+            b"{}",
+            watch(&stopped, 60_000),
+        )
+        .err()
+        .expect("stopped");
+    assert!(err.contains("stopped"), "{err}");
+    let io = lazyhttps::stopped_for_test();
+    assert!(lazyhttps::is_stopped(&io));
+    assert_ne!(io.kind(), std::io::ErrorKind::Interrupted);
+    assert_ne!(io.kind(), std::io::ErrorKind::TimedOut);
+}

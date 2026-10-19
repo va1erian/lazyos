@@ -54,13 +54,15 @@ pub fn summarize(
     let covered = turns - KEEP_TURNS;
     let cut = conversation.turn_start(covered);
     let context = model::info(&conversation.model).context;
+    // A log line holding the closing tag must not end the data early.
+    let body = transcript(
+        &conversation.items[..cut],
+        (context as usize).saturating_mul(2),
+    )
+    .replace("</transcript>", "[/transcript]");
     let transcript = format!(
         "<transcript>
-{}</transcript>",
-        transcript(
-            &conversation.items[..cut],
-            (context as usize).saturating_mul(2)
-        )
+{body}</transcript>"
     );
     let request = ChatRequest {
         model: conversation.model.clone(),

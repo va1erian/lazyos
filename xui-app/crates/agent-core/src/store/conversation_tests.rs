@@ -238,3 +238,24 @@ fn markdown_export_shows_both_sides() {
     assert!(md.starts_with("# Greeting"));
     assert!(md.contains("## You\n\nhello?") && md.contains("## Assistant\n\nhi!"));
 }
+
+#[test]
+fn server_sized_numbers_never_overflow() {
+    let mut c = conversation(vec![Event::User { text: "q".into() }]);
+    c.apply(Event::Usage {
+        prompt: u64::MAX,
+        completion: u64::MAX,
+        reasoning: u64::MAX,
+    });
+    c.apply(Event::Usage {
+        prompt: u64::MAX,
+        completion: 1,
+        reasoning: 1,
+    });
+    assert_eq!(c.usage.prompt, u64::MAX);
+    c.apply(Event::User {
+        text: "x".repeat(1000),
+    });
+    assert_eq!(c.estimate_tokens("S"), u64::MAX);
+    assert!(crate::compact::needed(&c, "S"));
+}

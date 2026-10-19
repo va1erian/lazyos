@@ -19,6 +19,12 @@ use std::sync::Arc;
 pub use http::{Http, HttpOptions, Policy, Response, StreamResponse, Watch, REFUSED};
 pub use tls::is_stopped;
 
+/// The error a stopped read fails with, for tests that pin its kind.
+#[doc(hidden)]
+pub fn stopped_for_test() -> std::io::Error {
+    tls::stopped_error()
+}
+
 /// Where the TLS trust anchors come from.
 #[derive(Clone, Debug)]
 pub enum Roots {

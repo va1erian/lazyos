@@ -133,6 +133,7 @@ impl Fireworks {
         let mut state = Stream {
             started,
             done: false,
+            reasoning_cut: false,
             assembler: ToolCallAssembler::default(),
             completion: Completion {
                 server_ttft_ms: response
@@ -244,6 +245,8 @@ struct Stream {
     done: bool,
     assembler: ToolCallAssembler,
     completion: Completion,
+    /// The reasoning hit its cap (the answer's own flag is `truncated`).
+    reasoning_cut: bool,
 }
 
 impl Stream {
@@ -274,7 +277,9 @@ impl Stream {
             self.completion.first_chunk_ms = Some(self.started.elapsed().as_millis() as u64);
         }
         if let Some(text) = chunk.text {
-            if self.completion.content.len() + text.len() <= MAX_ANSWER {
+            if !self.completion.truncated
+                && self.completion.content.len() + text.len() <= MAX_ANSWER
+            {
                 self.completion.content.push_str(&text);
                 sink.text(&text);
             } else {
@@ -282,10 +287,11 @@ impl Stream {
             }
         }
         if let Some(text) = chunk.reasoning {
-            if self.completion.reasoning.len() + text.len() <= MAX_ANSWER {
+            if !self.reasoning_cut && self.completion.reasoning.len() + text.len() <= MAX_ANSWER {
                 self.completion.reasoning.push_str(&text);
                 sink.reasoning(&text);
             } else {
+                self.reasoning_cut = true;
                 self.completion.truncated = true;
             }
         }

@@ -114,6 +114,17 @@ impl Store {
             .tail_checked
             .lock()
             .map_or(true, |mut seen| seen.insert(id.to_string()));
+        let result = self.append_line(&path, first, &line);
+        if result.is_err() && first {
+            // The tail was not (or not safely) dealt with: look again next time.
+            if let Ok(mut seen) = self.tail_checked.lock() {
+                seen.remove(id);
+            }
+        }
+        result
+    }
+
+    fn append_line(&self, path: &Path, first: bool, line: &str) -> io::Result<()> {
         let mut file = OpenOptions::new().read(first).append(true).open(path)?;
         let mut out = String::with_capacity(line.len() + 2);
         let len = if first { file.metadata()?.len() } else { 0 };
@@ -125,7 +136,7 @@ impl Store {
                 out.push('\n');
             }
         }
-        out.push_str(&line);
+        out.push_str(line);
         out.push('\n');
         file.write_all(out.as_bytes())
     }

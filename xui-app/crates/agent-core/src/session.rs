@@ -120,7 +120,8 @@ impl<'a> Session<'a> {
         };
         match self.provider.stream(&request, stop, sink) {
             Ok(done) => {
-                self.record_answer(&done, false)?;
+                // An answer cut at the size cap is marked like an interrupted one.
+                self.record_answer(&done, done.truncated)?;
                 Ok(done)
             }
             Err(error) => {
