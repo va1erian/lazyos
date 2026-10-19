@@ -149,8 +149,63 @@ fn grant_changed(kind, active, reason) {
     msg::connect("os.lazy.input.v1").invoke("GrantChanged", [kind, active, reason])
 }
 
+/// `GamepadAxis(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> () oneway`
+///
+/// Event: a gamepad axis changed (only the focused session that attached
+/// a pad page receives it).
+/// `device` is the pad's id (as in the state page), `code` the Generic
+/// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
+/// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
+/// `0` the axis's rest, the deadzone already applied (Y and Ry are
+/// positive down). The hat is not an axis event: it arrives as the
+/// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
+/// per drain: one event per axis, the newest value.
+///
+/// One-way: returns `()` once the message is queued.
+fn gamepad_axis(device, code, value, ts_ns, seq) {
+    msg::connect("os.lazy.input.v1").invoke("GamepadAxis", [device, code, value, ts_ns, seq])
+}
+
+/// `GamepadButton(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> () oneway`
+///
+/// Event: a gamepad button changed (only the focused session that
+/// attached a pad page receives it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+/// down, `35` left, `36` right (the hat, one edge per direction;
+/// diagonals press two). Edges are never merged.
+///
+/// One-way: returns `()` once the message is queued.
+fn gamepad_button(device, code, pressed, ts_ns, seq) {
+    msg::connect("os.lazy.input.v1").invoke("GamepadButton", [device, code, pressed, ts_ns, seq])
+}
+
+/// `GamepadEnter() -> () oneway`
+///
+/// Event: gamepad input arrived with this session's focus: read the
+/// state page to seed. Sent to a session that attached a pad page
+/// whenever keyboard focus enters it, when it attaches one while it
+/// already has focus, and right after a `GamepadLeave` that was a resync.
+///
+/// One-way: returns `()` once the message is queued.
+fn gamepad_enter() {
+    msg::connect("os.lazy.input.v1").invoke("GamepadEnter", [])
+}
+
+/// `GamepadLeave() -> () oneway`
+///
+/// Event: focus left, or events were lost. The client **must release
+/// every pad button** it believes is down and centre the axes; the page
+/// was cleared first. After a dropped-events resync (the keyboard's
+/// `KeyboardLeave` + `KeyboardEnter` pair) it is followed at once by a
+/// `GamepadEnter` with the page live again; the page is cleared before
+/// the Leave and restored before the Enter either way.
+///
+/// One-way: returns `()` once the message is queued.
+fn gamepad_leave() {
+    msg::connect("os.lazy.input.v1").invoke("GamepadLeave", [])
+}
+
 // Not callable from a script (the request carries a channel, buffer
-// or ring): Open, AttachKeyState.
+// or ring): Open, AttachKeyState, AttachGamepadState.
 
 // The variants of `KeyState`, in wire order.
 export const KEY_STATE = ["Down", "Up", "Repeat"];

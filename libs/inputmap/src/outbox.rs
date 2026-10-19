@@ -20,6 +20,7 @@
 //! Messenger; `inputd` queues `(method, body)` pairs.
 
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 
 /// Events one session may have waiting before its backlog is dropped.
 pub const CAPACITY: usize = 1024;
@@ -134,4 +135,35 @@ impl<T> Outbox<T> {
         }
         Sent::Ok
     }
+}
+
+/// One message of a resynchronisation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    KeyboardLeave,
+    KeyboardEnter,
+    PadsLeave,
+    PadsEnter,
+}
+
+/// What a session that lost events is sent, in order. A resync is a focus loss
+/// and regain as far as the client can tell, so it is exactly that only for
+/// the session that *has* focus. One that does not (the loss happened while it
+/// was focused, then focus moved on and the backlog went with the overflow)
+/// is sent the Leaves alone: an Enter would tell it that it holds the keyboard
+/// (and, with its page cleared, that nothing is held), which breaks "Enter and
+/// Leave only to the session that has the focus". The pad pair goes only to a
+/// session that opted in to pads.
+pub fn resync_steps(focused: bool, pad_events: bool) -> Vec<Step> {
+    let mut steps = alloc::vec![Step::KeyboardLeave];
+    if focused {
+        steps.push(Step::KeyboardEnter);
+    }
+    if pad_events {
+        steps.push(Step::PadsLeave);
+        if focused {
+            steps.push(Step::PadsEnter);
+        }
+    }
+    steps
 }

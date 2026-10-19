@@ -25,7 +25,7 @@ from seeds_accounts import (
 from seeds_dbg import dbgwire_seeds, pciprobe_seeds
 from seeds_formats import ipp_seeds, lazypkg_seeds, pwgraster_seeds
 from seeds_messenger import messenger_seeds
-from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_pointer_seeds, usbdesc_seeds
+from seeds_input import hidreport_seeds, hidreportdesc_seeds, inputmap_gamepad_seeds, inputmap_pointer_seeds, usbdesc_seeds
 from seeds_net import framering_seeds, header_seeds, netstack_seeds, nicdrv_seeds, virtio_net_seeds
 from seeds_smb import smbwire_seeds
 from seeds_time import sntp_seeds
@@ -48,6 +48,7 @@ TARGETS = {
     "lazypkg": lazypkg_seeds,
     "netstack": netstack_seeds,
     "inputmap_pointer": inputmap_pointer_seeds,
+    "inputmap_gamepad": inputmap_gamepad_seeds,
     "usbdesc": usbdesc_seeds,
     "hidreport": hidreport_seeds,
     "hidreportdesc": hidreportdesc_seeds,

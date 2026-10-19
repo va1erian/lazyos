@@ -3,7 +3,7 @@
 //! [`bind`] sets the configuration, then walks the interfaces (alternate
 //! setting 0) and hands each to the driver of its class code: HID (boot
 //! keyboards and mice wherever they sit in a composite device, else a
-//! report-protocol pointer), mass storage (`msc.rs`: a SCSI Bulk-Only
+//! report-protocol gamepad or pointer), mass storage (`msc.rs`: a SCSI Bulk-Only
 //! interface served to the kernel as a disk), or the hub class for a hub. Each bound
 //! interface is a [`Function`]; the controller routes a transfer event to
 //! the function owning its endpoint.
@@ -26,12 +26,13 @@ use user::trace;
 use usbhid::desc::{
     Config, HidInterface, Interface, Protocol, CLASS_HID, CLASS_HUB, CLASS_MASS_STORAGE,
 };
+use usbhid::report::gamepad::{has_pad_collection, parse_gamepad};
 use usbhid::report::{self, Pointer};
 use xhci::trb::{request, Trb};
 
 use super::device::{hex, Device, DATA_BYTES};
 use super::hc::Hc;
-use super::hid::Hid;
+use super::hid::{Hid, ReportLayout};
 use super::hub::HubFn;
 use super::msc::Msc;
 use super::Error;
@@ -136,8 +137,9 @@ fn bind_all(
         .iter()
         .any(|function| matches!(function, Function::Hid { .. }))
     {
-        // No boot HID interface: a report-protocol pointer (a tablet)
-        // instead, also next to a stick on a composite device.
+        // No boot HID interface: a report-protocol gamepad or pointer (a
+        // tablet) instead, also next to a stick on a composite device. Only
+        // the first such interface binds (`docs/usb-gamepad-plan.md` risk 6).
         for interface in config.interfaces().filter(|i| i.alternate == 0) {
             if let Some(function) = bind_interface(hc, device, interface, true)? {
                 functions.push(function);
@@ -169,8 +171,9 @@ fn bind_interface(
     }
 }
 
-/// A boot keyboard or mouse (first pass) or a report-protocol pointer
-/// (second pass): its protocol set, its pipe opened, its source registered.
+/// A boot keyboard or mouse (first pass) or a report-protocol gamepad or
+/// pointer (second pass): its protocol set, its pipe opened, its source
+/// registered.
 fn bind_hid(
     hc: &mut Hc,
     device: &mut Device,
@@ -185,11 +188,11 @@ fn bind_hid(
         return Ok(None);
     }
     let layout = if boot {
-        wheel_layout(hc, device, &hid)
+        wheel_layout(hc, device, &hid).map(ReportLayout::Pointer)
     } else {
         // Report protocol is the default; SET_PROTOCOL is only for boot
-        // devices (QEMU's tablet stalls it). No pointer: not ours.
-        match read_report_layout(hc, device, &hid) {
+        // devices (QEMU's tablet stalls it). Neither pad nor pointer: not ours.
+        match report_layout(hc, device, &hid) {
             Ok(layout) => Some(layout),
             Err(_) => return Ok(None),
         }
@@ -210,13 +213,15 @@ fn bind_hid(
         }
     }
     let dci = device.open_reports(&endpoint, super::pipe::REPORTS)?;
-    let source = Hid::new(hid.protocol, layout)?;
+    let pad = matches!(layout, Some(ReportLayout::Pad(_)));
+    let mode = if layout.is_some() { "report" } else { "boot" };
+    let mut source = Hid::new(hid.protocol, layout)?;
     let what = match hid.protocol {
         Protocol::Keyboard => "KBD",
+        _ if pad => "PAD",
         _ if source.tablet() => "TABLET",
         _ => "MOUSE",
     };
-    let mode = if layout.is_some() { "report" } else { "boot" };
     trace::line!(trace::Channel::Usbd, "HID:{what} port={} slot={} vendor={:#06x} product={:#06x} interface={} dci={} regions={} protocol={}",
         device.name,
         device.slot,
@@ -226,6 +231,13 @@ fn bind_hid(
         dci,
         hc.regions,
         mode);
+    if pad {
+        source.announce(
+            device.descriptor.vendor,
+            device.descriptor.product,
+            device.descriptor.version,
+        );
+    }
     Ok(Some(Function::Hid { dci, hid: source }))
 }
 
@@ -257,17 +269,17 @@ fn note(device: &Device, interface: u8, what: &str, error: &Error) {
     );
 }
 
-/// The interface's report descriptor, parsed for a pointer.
-fn read_report_layout(
+/// The interface's report descriptor, `len` bytes of `bytes`.
+fn read_report_descriptor<'a>(
     hc: &mut Hc,
     device: &mut Device,
     hid: &HidInterface,
-) -> Result<Pointer, Error> {
+    bytes: &'a mut [u8; DATA_BYTES],
+) -> Result<&'a [u8], Error> {
     let len = usize::from(hid.report_len);
     if len == 0 || len > DATA_BYTES {
         return Err(Error::Descriptor("report descriptor length"));
     }
-    let mut bytes = [0u8; DATA_BYTES];
     let setup = request::get_report_descriptor(hid.number, len as u16);
     device.control_in(hc, setup, &mut bytes[..len])?;
     trace::line!(
@@ -276,6 +288,50 @@ fn read_report_layout(
         device.name,
         hex(&bytes[..len])
     );
-    report::parse_pointer(&bytes[..len])
+    Ok(&bytes[..len])
+}
+
+/// The interface's report descriptor, parsed for a pointer.
+fn read_report_layout(
+    hc: &mut Hc,
+    device: &mut Device,
+    hid: &HidInterface,
+) -> Result<Pointer, Error> {
+    let mut bytes = [0u8; DATA_BYTES];
+    let descriptor = read_report_descriptor(hc, device, hid, &mut bytes)?;
+    report::parse_pointer(descriptor)
+        .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
+}
+
+/// A report-protocol interface's layout: a gamepad first, else a pointer.
+///
+/// A descriptor that declares a pad collection but whose fields cannot be
+/// placed leaves the interface **unbound**: the pointer parser is unscoped
+/// and would read a pad's (even relative) X/Y as a mouse or tablet, so a pad
+/// never falls back to it. The refusal is traced, not silent.
+fn report_layout(
+    hc: &mut Hc,
+    device: &mut Device,
+    hid: &HidInterface,
+) -> Result<ReportLayout, Error> {
+    let mut bytes = [0u8; DATA_BYTES];
+    let descriptor = read_report_descriptor(hc, device, hid, &mut bytes)?;
+    if let Ok(pad) = parse_gamepad(descriptor) {
+        return Ok(ReportLayout::Pad(Box::new(pad)));
+    }
+    if has_pad_collection(descriptor) {
+        trace::line!(
+            trace::Channel::Usbd,
+            "HID:PAD:UNPLACED port={} slot={} vendor={:#06x} product={:#06x} interface={} left unbound",
+            device.name,
+            device.slot,
+            device.descriptor.vendor,
+            device.descriptor.product,
+            hid.number
+        );
+        return Err(Error::Descriptor("gamepad axes not placed"));
+    }
+    report::parse_pointer(descriptor)
+        .map(ReportLayout::Pointer)
         .map_err(|_| Error::Descriptor("no pointer in the report descriptor"))
 }

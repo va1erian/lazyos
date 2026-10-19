@@ -17,6 +17,7 @@ use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result}
 use user::sys;
 
 use super::delivery::{Delivery, Reach};
+use super::gamepad::{Gamepads, Resyncer};
 use super::keypages::KeyPages;
 use super::pointer::Cursor;
 
@@ -48,6 +49,8 @@ pub(super) struct Hub {
     pub(super) grabs: Grabs,
     /// The key-state pages sessions attached (`keypages.rs`).
     pub(super) key_pages: KeyPages,
+    /// The pads and the pages sessions attached for them (`gamepad.rs`).
+    pub(super) gamepads: Gamepads,
     /// Key content held until the compositor has handled a press
     /// (`settle.rs`).
     pub(super) barrier: Barrier,
@@ -68,6 +71,7 @@ impl Hub {
             pointer: Cursor::new(),
             grabs: Grabs::new(),
             key_pages: KeyPages::default(),
+            gamepads: Gamepads::default(),
             barrier: Barrier::new(),
             hold: KeyHold::new(),
             layouts: LayoutChoice::new(layout),
@@ -262,6 +266,7 @@ impl Hub {
         if let Some(session) = change.left {
             self.key_pages.clear(&self.engine, session);
             self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
+            self.pad_leave(session);
         }
         if let Some(session) = change.entered {
             self.enter(session);
@@ -283,6 +288,7 @@ impl Hub {
         let down = self.engine.held().into_iter().map(u32::from).collect();
         let body = wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down });
         self.send(session, wire::METHOD_KEYBOARDENTER, body);
+        self.pad_enter(session);
     }
 
     // ---- delivery ---------------------------------------------------------
@@ -330,9 +336,8 @@ impl Hub {
     /// session when its endpoint is gone.
     pub(super) fn send(&mut self, session: u64, method: u32, body: Encoded) {
         let Ok(body) = body else { return };
-        let engine = &self.engine;
-        let enter = || keyboard_enter(engine);
-        if self.delivery.send(session, method, body, &enter) == Reach::Gone {
+        let resync = Resyncer::new(&self.engine, &self.gamepads, self.router.focused_session());
+        if self.delivery.send(session, method, body, &resync) == Reach::Gone {
             self.drop_session(session);
         }
     }
@@ -345,9 +350,8 @@ impl Hub {
     /// Hand every backlog what its client has room for now (once per pass of
     /// the service loop).
     pub(super) fn flush(&mut self) {
-        let engine = &self.engine;
-        let enter = || keyboard_enter(engine);
-        for session in self.delivery.flush_all(&enter) {
+        let resync = Resyncer::new(&self.engine, &self.gamepads, self.router.focused_session());
+        for session in self.delivery.flush_all(&resync) {
             self.drop_session(session);
         }
     }
@@ -408,6 +412,7 @@ impl Hub {
     pub(super) fn forget_endpoint(&mut self, session: u64) {
         self.delivery.forget(session);
         self.key_pages.forget(session);
+        self.gamepads.forget(session);
         self.grants_forget(session);
     }
 
@@ -434,7 +439,7 @@ impl Hub {
 }
 
 /// The `KeyboardEnter` body for the keys held right now.
-fn keyboard_enter(engine: &Engine) -> Option<Vec<u8>> {
+pub(super) fn keyboard_enter(engine: &Engine) -> Option<Vec<u8>> {
     let down = engine.held().into_iter().map(u32::from).collect();
     wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down }).ok()
 }

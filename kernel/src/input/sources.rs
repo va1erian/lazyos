@@ -12,7 +12,22 @@
 //! The kernel remembers which keys and buttons each source holds. Closing a
 //! source, or its task dying ([`teardown_task`]), publishes a release for
 //! each, so unplugging a device or crashing a driver cannot leave a key or a
-//! button stuck.
+//! button stuck. A gamepad's axes are state rather than edges, but the kernel
+//! remembers which of them were last away from their rest value and returns
+//! them there on close and on task death too, so a crashed driver cannot leave
+//! a stick deflected either (`docs/usb-gamepad-plan.md`).
+//!
+//! Every registration and every freeing of a slot is announced on the bus as a
+//! kernel-originated [`kind::SOURCE`] record (`code` the class, `value` 1 or
+//! 0, `device` the source's id), so a consumer can route a device's records by
+//! class. The close announcement comes after the release burst, from
+//! [`release`] itself, so `close`, task teardown and `register` reclaiming a
+//! dead owner's slot all publish it. A driver can never publish one
+//! ([`permitted`]). A record can be evicted from a full ring, so [`snapshot`]
+//! (the `SOURCES` op of syscall 25) is the truth a consumer re-reads. The
+//! table and the stream are exactly consistent: a slot is listed from its
+//! `SOURCE` 1 to its `SOURCE` 0, and the snapshot carries the bus's next
+//! sequence number, so a consumer can apply it at its place in the stream.
 //!
 //! Ids: a source id is `generation << 8 | index`; the generation changes on
 //! every registration of the slot, so a stale id from a closed source fails
@@ -20,7 +35,7 @@
 
 use spin::Mutex;
 
-use super::bus::{self, kind, pointer, value};
+use super::bus::{self, axis, kind, pointer, value};
 use crate::task;
 
 /// Sources the table holds (one per device interface).
@@ -46,6 +61,8 @@ pub mod class {
     pub const POINTER: u8 = 2;
     /// An absolute pointer (tablet, touchscreen in single-touch mode).
     pub const TABLET: u8 = 3;
+    /// A gamepad: `AXIS` records (up to 32 buttons are still `BUTTON`s).
+    pub const GAMEPAD: u8 = 4;
 }
 
 /// Why a source operation failed; `rawsys` maps these to errnos.
@@ -97,8 +114,12 @@ struct Source {
     generation: u16,
     /// One bit per key usage 0..=255.
     keys: [u64; 4],
-    /// Bit `n` is button usage `n + 1`.
-    buttons: u8,
+    /// Bit `n` is button usage `n + 1` (a gamepad reports up to 32).
+    buttons: u32,
+    /// Axes whose last published value was not their rest value, one bit per
+    /// [`axis::slot`]: a driver that dies holding a stick must not leave it
+    /// deflected.
+    axes: u16,
     tokens: u32,
     refilled_at: u64,
 }
@@ -152,7 +173,7 @@ pub fn device_of(index: usize) -> u8 {
 pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
     if !matches!(
         source_class,
-        class::KEYBOARD | class::POINTER | class::TABLET
+        class::KEYBOARD | class::POINTER | class::TABLET | class::GAMEPAD
     ) {
         return Err(Error::BadClass);
     }
@@ -174,11 +195,13 @@ pub fn register(owner: usize, source_class: u8) -> Result<u64, Error> {
             generation,
             keys: [0; 4],
             buttons: 0,
+            axes: 0,
             tokens: bucket.tokens,
             refilled_at: bucket.refilled_at,
         };
         refill(&mut source, task::ticks());
         table.slots[index] = Some(source);
+        announce(index, source_class, true);
         Ok(id_of(index, generation))
     })
 }
@@ -255,8 +278,8 @@ pub fn teardown_task(slot: usize) {
     });
 }
 
-/// Publish a release for every key and button source `index` holds, then
-/// free the slot.
+/// Publish a release for every key, button and deflected axis source `index`
+/// holds, then free the slot.
 fn release(table: &mut Table, index: usize) {
     let Some(source) = table.slots[index].take() else {
         return;
@@ -274,11 +297,103 @@ fn release(table: &mut Table, index: usize) {
             bus::publish(device, kind::KEY, word as u16 * 64 + bit, value::RELEASE);
         }
     }
-    for bit in 0..8u16 {
+    for bit in 0..32u16 {
         if source.buttons & (1 << bit) != 0 {
             bus::publish(device, kind::BUTTON, bit + 1, value::RELEASE);
         }
     }
+    for slot in 0..axis::SLOTS {
+        if source.axes & (1 << slot) != 0 {
+            let code = axis::usage_of(slot);
+            bus::publish(device, kind::AXIS, code, axis::rest(code));
+        }
+    }
+    announce(index, source.class, false);
+}
+
+/// Publish the kernel-originated [`kind::SOURCE`] record for slot `index`.
+fn announce(index: usize, source_class: u8, registered: bool) {
+    bus::publish(
+        device_of(index),
+        kind::SOURCE,
+        u16::from(source_class),
+        i32::from(registered),
+    );
+}
+
+/// Bytes per [`snapshot`] entry as `rawsys` writes it: device, class,
+/// generation (little-endian `u16`).
+pub const ENTRY_BYTES: usize = 4;
+/// Bytes of the header `rawsys` writes before the entries: the bus's next
+/// sequence number (little-endian `u64`).
+pub const HEADER_BYTES: usize = 8;
+
+/// One source in the table the query reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Info {
+    pub device: u8,
+    pub class: u8,
+    pub generation: u16,
+}
+
+impl Info {
+    /// The wire encoding.
+    pub fn to_bytes(self) -> [u8; ENTRY_BYTES] {
+        let generation = self.generation.to_le_bytes();
+        [self.device, self.class, generation[0], generation[1]]
+    }
+}
+
+/// The source table as of one instant, and where it stands in the record
+/// stream.
+#[derive(Clone, Copy, Debug)]
+pub struct Snapshot {
+    /// The sequence number the bus assigns to its next new record: every
+    /// record with a smaller `seq` was published before this table was read,
+    /// every `SOURCE` record among them is reflected in it, and none of the
+    /// later `SOURCE` records is. (A merged pointer or axis record keeps its
+    /// older `seq`, but a merge never crosses a `SOURCE`, so it cannot carry
+    /// a device across a change of the table.)
+    pub next_seq: u64,
+    entries: [Info; MAX_SOURCES],
+    count: usize,
+}
+
+impl Snapshot {
+    /// The sources, in slot order.
+    pub fn entries(&self) -> &[Info] {
+        &self.entries[..self.count]
+    }
+}
+
+/// The table, in slot order: a slot is in it from the moment its `SOURCE` 1
+/// was published until its `SOURCE` 0 was, whether or not its owner is still
+/// alive (a dead owner's slot stays until [`release`] has published the
+/// releases and the close, so the table never runs ahead of the stream).
+///
+/// Every `SOURCE` publication happens under the table lock, which this holds
+/// while it reads the bus's next sequence number (lock order: sources, then
+/// bus, as [`register`] and [`release`] take them), so the pair is exact.
+pub fn snapshot() -> Snapshot {
+    locked(|table| {
+        let mut entries = [Info::default(); MAX_SOURCES];
+        let mut count = 0;
+        for (index, slot) in table.slots.iter().enumerate() {
+            if let Some(source) = slot {
+                entries[count] = Info {
+                    device: device_of(index),
+                    class: source.class,
+                    generation: source.generation,
+                };
+                count += 1;
+            }
+        }
+        Snapshot {
+            next_seq: bus::next_seq(),
+            entries,
+            count,
+        }
+    })
 }
 
 /// Whether `record` is a kind `class` may publish, with in-range fields.
@@ -289,12 +404,19 @@ fn permitted(source_class: u8, record: &Record) -> bool {
         (class::POINTER | class::TABLET, kind::BUTTON) => {
             (pointer::button::LEFT..=pointer::button::FORWARD).contains(&record.code) && edge
         }
+        (class::GAMEPAD, kind::BUTTON) => (1..=32).contains(&record.code) && edge,
+        (class::GAMEPAD, kind::AXIS) => axis::valid(record.code, record.value),
         (class::POINTER, kind::REL_MOTION) | (class::TABLET, kind::ABS_MOTION) => record.code == 0,
         (class::POINTER | class::TABLET, kind::SCROLL) => {
             record.code <= pointer::HORIZONTAL
                 && record.value != 0
                 && record.value.abs() <= MAX_SCROLL
         }
+        // A device's identity: any class may state it, it carries no input.
+        (_, kind::DEVICE) => true,
+        // The kernel's own announcement of a registration: a driver forging
+        // one would re-route another device's records.
+        (_, kind::SOURCE) => false,
         _ => false,
     }
 }
@@ -312,11 +434,21 @@ fn track(source: &mut Source, record: &Record) {
             }
         }
         kind::BUTTON => {
-            let bit = 1u8 << (record.code - 1);
+            let bit = 1u32 << (record.code - 1);
             if pressed {
                 source.buttons |= bit;
             } else {
                 source.buttons &= !bit;
+            }
+        }
+        kind::AXIS => {
+            let Some(slot) = axis::slot(record.code) else {
+                return;
+            };
+            if record.value == axis::rest(record.code) {
+                source.axes &= !(1 << slot);
+            } else {
+                source.axes |= 1 << slot;
             }
         }
         _ => {}

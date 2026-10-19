@@ -54,7 +54,8 @@ const TURN_PRESSURE: usize = RING_CAP / 8;
 pub const MAX_CONSUMERS: usize = 4;
 
 /// Raw event kinds. `SYNC` is reserved; the pointer kinds are encoded as
-/// [`pointer`] describes (`docs/usb-hid-plan.md`, decision 2).
+/// [`pointer`] describes (`docs/usb-hid-plan.md`, decision 2) and the gamepad
+/// axis as [`axis`] (`docs/usb-gamepad-plan.md` G1).
 #[allow(dead_code)] // `SYNC` has no producer yet
 pub mod kind {
     pub const KEY: u8 = 1;
@@ -65,6 +66,18 @@ pub mod kind {
     pub const SYNC: u8 = 6;
     /// Consumer-side marker: `value` events were lost starting at `seq`.
     pub const DROPPED: u8 = 7;
+    /// One gamepad axis, addressed by its Generic Desktop usage.
+    pub const AXIS: u8 = 8;
+    /// One device-identifying record a driver publishes after registering
+    /// (`code` = vendor id, `value` = product and version): diagnostics, and
+    /// what a per-device mapping table will key on.
+    pub const DEVICE: u8 = 9;
+    /// Kernel-originated, never a driver's (`sources::permitted` refuses it
+    /// from every class): source `device` registered (`value` 1) or closed
+    /// (`value` 0, after the releases it owed). `code` is the source's class.
+    /// Never mergeable. Like any record it can be evicted from a full ring:
+    /// the source table query ([`super::rawsys::op::SOURCES`]) is the truth.
+    pub const SOURCE: u8 = 10;
 }
 
 /// Device ids. Assigned by the kernel driver, so a client can never forge one.
@@ -77,6 +90,9 @@ pub mod device {
 
 #[path = "bus_pointer.rs"]
 pub mod pointer;
+
+#[path = "bus_axis.rs"]
+pub mod axis;
 
 /// Key event values. The kernel never synthesises repeat (`docs/input-plan.md`).
 pub mod value {
@@ -338,6 +354,13 @@ fn merge_tail(bus: &mut Bus, device: u8, kind: u8, code: u16, value: i32, ts_ns:
         }
     }
     true
+}
+
+/// The sequence number the next new record will get: every record with a
+/// smaller `seq` has been published. (A pointer or axis record merged into the
+/// tail consumes none, and keeps the older number.)
+pub fn next_seq() -> u64 {
+    locked(|bus| bus.next_seq)
 }
 
 /// Run `body` with the bus locked and interrupts off (the IRQ producer takes
