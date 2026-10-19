@@ -167,3 +167,81 @@ pub fn cached_volume() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// What an `fsync` and a rename cost beside a lot of dirty data nobody asked
+/// to sync, on the real driver: the requests each sends and the time it
+/// takes (the time every other task's file call waits behind it). The file
+/// `fsync` and the rename must send a fraction of the whole-volume flush's
+/// requests; the numbers are printed for the record.
+pub fn fsync_beside_dirty_data() -> Result<(), String> {
+    use crate::tests::irq_window_suite::{elapsed_us, tsc};
+
+    task::register_kernel();
+    let Some(disk) = scratch("bcache_virtio_fsync_beside_dirty_data") else {
+        return Ok(());
+    };
+    let device: &'static dyn BlockDevice = window(disk);
+    let geometry = ext2fs::Geometry::for_size(device.sector_count() * SECTOR_SIZE as u64);
+    ext2fs::format(&device, geometry, "bcache-fsync", [0x78; 16], 1_700_000_000)
+        .map_err(|error| format!("format: {error:?}"))?;
+    let fs = Arc::new(Ext2::open_cached(device).map_err(fs_error)?);
+    let mut vfs = Vfs::new();
+    vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
+    let requests = || {
+        disk.stats()
+            .map(|stats| stats.snapshot().writes)
+            .unwrap_or_default()
+    };
+    // A small file, synced; then 3 MiB nobody syncs and a change to the small one.
+    write_file(&mut vfs, "/small", &pattern_bytes(1, 20_000))?;
+    vfs.sync_all().map_err(fs_error)?;
+    let bulk = pattern_bytes(2, 3 << 20);
+    write_file(&mut vfs, "/bulk", &bulk)?;
+    let node = vfs
+        .open_node(Id::ROOT, "/small", crate::fs::vfs::READ)
+        .map_err(fs_error)?
+        .ok_or("no node")?;
+    let measure = |what: &str, run: &mut dyn FnMut() -> Result<(), String>| {
+        let (before, start) = (requests(), tsc());
+        run()?;
+        let (writes, us) = (requests() - before, elapsed_us(start));
+        crate::trace::test!(
+            "bcache_virtio_fsync_beside_dirty_data:INFO:{what}: {writes} write requests, {us} us"
+        );
+        Ok::<u64, String>(writes)
+    };
+    // Each measurement starts with the same state: the 3 MiB dirty again
+    // and the small file changed.
+    let redirty = |vfs: &mut Vfs, small_path: &str, seed: u32| -> Result<(), String> {
+        vfs.write(Id::ROOT, "/bulk", 0, &bulk).map_err(fs_error)?;
+        let at = 20_000 + u64::from(seed) * 1_000;
+        vfs.write(Id::ROOT, small_path, at, &pattern_bytes(seed, 1_000))
+            .map_err(fs_error)?;
+        Ok(())
+    };
+    redirty(&mut vfs, "/small", 3)?;
+    let file = measure("fsync of one file", &mut || node.flush().map_err(fs_error))?;
+    redirty(&mut vfs, "/small", 4)?;
+    let renamed = measure("rename", &mut || {
+        vfs.rename(Id::ROOT, "/small", "/small2").map_err(fs_error)
+    })?;
+    redirty(&mut vfs, "/small2", 5)?;
+    let whole = measure("fsync of the whole volume", &mut || {
+        vfs.flush(Id::ROOT, "/").map_err(fs_error)
+    })?;
+    check!(
+        file * 2 < whole && renamed * 2 < whole,
+        "file fsync {file} and rename {renamed} requests, whole flush {whole}"
+    );
+    drop((node, fs, vfs));
+    let fs = Arc::new(Ext2::open(device).map_err(fs_error)?);
+    let mut vfs = Vfs::new();
+    vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
+        .map_err(fs_error)?;
+    check!(
+        read_file(&mut vfs, "/bulk")? == bulk,
+        "/bulk after a remount"
+    );
+    Ok(())
+}

@@ -301,7 +301,16 @@ impl OpenFile {
         self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush(),
-            None => super::abi_flush(Id::ROOT, &self.path()),
+            None => super::abi_flush(Id::ROOT, &self.path(), false),
+        }
+    }
+
+    /// Flush the whole filesystem this file lives on (`syncfs`).
+    pub fn flush_fs(&self) -> Result<(), FsError> {
+        self.writeback(0, u64::MAX / pagecache::PAGE)?;
+        match &self.inode.node {
+            Some(node) => node.flush_fs(),
+            None => super::abi_flush(Id::ROOT, &self.path(), true),
         }
     }
 

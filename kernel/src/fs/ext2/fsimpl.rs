@@ -234,6 +234,19 @@ impl Filesystem for Ext2 {
         Ok(self.volume.flush()?)
     }
 
+    /// `fsync` of one file writes that file's blocks and what they depend on,
+    /// not everything every other program left dirty (`ext2fs::Ext2::sync_file`).
+    fn flush_node(&self, node: NodeId) -> Result<(), FsError> {
+        let handle = handle_of(node)?;
+        let _gate = self.enter();
+        match self.volume.sync_file(handle) {
+            // The file is gone (deleted while open and reclaimed): there is
+            // nothing of it to write, but the caller asked for durability.
+            Err(ext2fs::Ext2Error::NotFound) => Ok(self.volume.flush()?),
+            other => Ok(other?),
+        }
+    }
+
     fn writeback(&self, pressure: bool) -> Result<(), FsError> {
         Ext2::writeback(self, pressure)
     }

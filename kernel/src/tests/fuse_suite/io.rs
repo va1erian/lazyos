@@ -121,7 +121,7 @@ pub fn tree_operations() -> Result<(), String> {
             .map_err(|e| format!("chmod: {e:?}"))?;
         let mode = vfsapi::abi_stat(ROOT, &at("b.txt")).map(|m| m.mode & 0o7777);
         check!(mode == Ok(0o640), "mode after chmod: {mode:?}");
-        vfsapi::abi_flush(ROOT, &at("b.txt")).map_err(|e| format!("flush: {e:?}"))?;
+        vfsapi::abi_flush(ROOT, &at("b.txt"), false).map_err(|e| format!("flush: {e:?}"))?;
         check!(
             with_fake(|f| f.ops.contains(&(Op::Flush as u64))),
             "the flush did not reach the daemon"

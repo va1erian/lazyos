@@ -10,8 +10,10 @@
 //! by block number and coalesced into requests of up to `max_request` bytes.
 //! A writeback runs when the volume commits (sync, fsync, unmount, the
 //! kernel's periodic flusher), when `dirty_limit` blocks are dirty, and when
-//! a block is needed and every page is dirty. Nothing else ever writes, so
-//! the phase order holds for every byte that reaches the disk.
+//! a block is needed and every page is dirty. Two things write less than
+//! everything: `fsync` of one file and an operation's barriers ([`targeted`]),
+//! which add what the blocks they write depend on, so the phase order holds
+//! for every byte that reaches the disk.
 //!
 //! Eviction is CLOCK over clean blocks only: a dirty block is never dropped,
 //! it is written back first. Memory is bounded by `blocks` pages, and a host
@@ -21,7 +23,7 @@
 //! own beyond the `Mutex` the volume keeps it in.
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use crate::journal::Journal;
@@ -32,9 +34,11 @@ mod journaled;
 pub mod memory;
 mod range;
 pub mod roles;
+mod targeted;
 
 use memory::{CacheConfig, CacheMemory, CachePage};
 use roles::Roles;
+pub(crate) use targeted::Targets;
 
 /// Counters a host can read to see what the cache saved.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
@@ -45,7 +49,7 @@ pub struct CacheStats {
     pub readahead: u64,
     /// Blocks read straight into a caller's buffer, past the cache.
     pub bypassed: u64,
-    /// Full writebacks, and the requests and blocks they wrote.
+    /// Writebacks (full or targeted), and the requests and blocks they wrote.
     pub writebacks: u64,
     pub write_requests: u64,
     pub written: u64,
@@ -68,6 +72,9 @@ struct Slot {
     /// Holds file data, which a journaled volume writes straight home ahead
     /// of the transaction instead of logging it.
     data: bool,
+    /// The inode whose operation last wrote this block (0: none or unknown),
+    /// for flushing one file's blocks alone ([`targeted`]).
+    owner: u32,
     /// CLOCK's second-chance bit.
     referenced: bool,
 }
@@ -99,6 +106,14 @@ pub(crate) struct BlockCache {
     failed: bool,
     /// The volume journal, when metadata commits go through it.
     journal: Option<Journal>,
+    /// The inode the running operation writes for (see [`Slot::owner`]).
+    owner: u32,
+    /// Scopes recording the blocks they write ([`BlockCache::track_begin`]).
+    tracking: u32,
+    /// Blocks written since the innermost scope began or last flushed them.
+    touched: BTreeSet<u64>,
+    /// ... and the inodes written through [`BlockCache::touch_inode`].
+    touched_inodes: BTreeSet<u32>,
     stats: CacheStats,
 }
 
@@ -125,6 +140,10 @@ impl BlockCache {
             last_miss: None,
             failed: false,
             journal: None,
+            owner: 0,
+            tracking: 0,
+            touched: BTreeSet::new(),
+            touched_inodes: BTreeSet::new(),
             stats: CacheStats::default(),
         }
     }
@@ -191,6 +210,10 @@ impl BlockCache {
         slot.referenced = true;
         slot.fresh |= fresh;
         slot.data = data;
+        slot.owner = self.owner;
+        if self.tracking > 0 {
+            self.touched.insert(block);
+        }
         if !slot.dirty {
             slot.dirty = true;
             self.dirty += 1;
@@ -276,6 +299,7 @@ impl BlockCache {
                     dirty: false,
                     fresh: false,
                     data: false,
+                    owner: 0,
                     referenced: false,
                 };
                 return Ok(match self.bare.pop() {

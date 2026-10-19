@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 /// Cached blocks visited between two [`BlockIo::pace`] calls while ordering
 /// a writeback.
-const PACE_EVERY: usize = 256;
+pub(super) const PACE_EVERY: usize = 256;
 
 use super::roles::Phase;
 use super::{page, BlockCache};

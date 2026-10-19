@@ -96,6 +96,26 @@ impl Ext2 {
         self.truncate_inode(handle.ino(), size)
     }
 
+    /// `fsync`: make the file behind `handle` durable (its data, its inode and
+    /// what they depend on) without writing what other files left dirty, and
+    /// without marking the volume clean (only [`Ext2::flush`] does). A write
+    /// that failed earlier is reported here once, like [`Ext2::flush`].
+    ///
+    /// A volume with no cache or with a journal commits as a whole.
+    pub fn sync_file(&self, handle: FileHandle) -> Result<(), Ext2Error> {
+        {
+            let _guard = self.lock.lock();
+            self.handle_inode(handle)?;
+            if self.cache.is_some() && !self.journal_active() && !self.read_only {
+                let synced = self.sync_owner(handle.ino);
+                let unreported = self.take_unreported_error();
+                synced?;
+                return unreported;
+            }
+        }
+        self.flush()
+    }
+
     /// The inode behind `handle` while it is still the file the handle
     /// opened: freed (no links), reused (another generation) or no longer a
     /// regular file is [`Ext2Error::NotFound`].

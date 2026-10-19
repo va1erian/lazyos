@@ -52,6 +52,8 @@ impl Ext2 {
     /// [`Ext2::truncate`] once the inode is resolved. The caller holds the
     /// lock and has already refused a read-only volume.
     pub(super) fn truncate_inode(&self, ino: u32, size: u64) -> Result<(), Ext2Error> {
+        let _owner = self.owner_scope(ino);
+        let _scope = self.op_scope();
         let mut inode = self.read_inode(ino)?;
         if kind_from_mode(le16(&inode, INO_MODE)) != Some(FileKind::File) {
             return Err(Ext2Error::IsDir);

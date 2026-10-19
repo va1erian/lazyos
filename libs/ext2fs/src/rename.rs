@@ -8,6 +8,7 @@ impl Ext2 {
     /// a directory cannot move below itself.
     pub fn rename(&self, from: &str, to: &str) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
+        let _scope = self.op_scope();
         if from == to {
             return Ok(());
         }

@@ -70,9 +70,15 @@ impl Node {
         self.fs.truncate_node(self.id, size)
     }
 
-    /// Flush the filesystem this file lives on (`fsync`), even after the file's
+    /// Make this file durable (`fsync`) as far as its filesystem can without
+    /// flushing the rest ([`Filesystem::flush_node`]), even after the file's
     /// name was taken by another file ([`super::openfile`]).
     pub fn flush(&self) -> Result<(), FsError> {
+        self.fs.flush_node(self.id)
+    }
+
+    /// Flush the whole filesystem this file lives on (`syncfs`).
+    pub fn flush_fs(&self) -> Result<(), FsError> {
         self.fs.flush()
     }
 

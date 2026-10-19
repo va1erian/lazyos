@@ -14,6 +14,7 @@ with read-ahead on sequential misses.
 | `libs/ext2fs/src/cache/range.rs` | run reads: cached blocks copied, uncached stretches in one request, large files past the cache |
 | `libs/ext2fs/src/read_run.rs` | `read_data`: the block map with a pointer-table memo, runs of contiguous blocks |
 | `libs/ext2fs/src/cache/flush.rs` | writeback: dirty blocks sorted by (phase, block), runs coalesced into vectored requests |
+| `libs/ext2fs/src/cache/targeted.rs` | writeback of a subset: one file for `fsync`, the blocks one operation changed for a barrier, widened by what they depend on |
 | `libs/ext2fs/src/cache/roles.rs` | the five writeback phases and the metadata map read at mount |
 | `libs/ext2fs/src/cache/memory.rs` | `CacheMemory`/`CachePage` (where pages come from), `CacheConfig`, `HeapMemory` |
 | `libs/ext2fs/src/commit.rs` | commits, deferred frees, write-back error reporting, `writeback()` |
@@ -118,14 +119,58 @@ the direct driver's promise exactly:
 | deleting a parked orphan (`orphans.rs`) | after the blocks, inode and bitmaps, before the name goes (its frees are not deferred: that order *is* the design) | the next mount's reclaim can always finish the delete, with no leak |
 | truncate to a size inside a block (`truncate.rs`) | after zeroing the cut tail, before the new size | a later grow never shows the bytes that were cut |
 
-A barrier costs one writeback (a few requests); renames and unaligned
-truncates are rare next to writes. Uncached, `barrier` does nothing.
+Uncached, `barrier` does nothing. A barrier inside an operation scope
+(`Ext2::op_scope`, taken by `rename`, the orphan delete and truncate) writes
+only the blocks and inodes that operation changed since the scope began or
+its last barrier, plus what they depend on (below), not everything other
+programs left dirty. Before this, every barrier was a whole writeback, held
+under the VFS lock: a rename beside a few MiB of someone's unsynced data
+stalled every file call for as long as writing it took.
+
+### Writing a subset (`cache/targeted.rs`)
+
+`fsync` of one file (`Ext2::sync_file`) and a narrow barrier write a subset of
+the dirty blocks. The order of the phases must still hold for every byte that
+reaches the disk, so the subset is widened by its dependencies:
+
+- **Group descriptors and bitmaps** (a few blocks), always: a block or inode is
+  marked used before anything durable references it. Early is a leak at worst.
+- **Fresh blocks of every inode that is written.** A pointer must not reach the
+  disk ahead of the bytes it points to. Each cached block records the inode
+  whose operation wrote it (`Ext2::owner_scope` in `write_data` and
+  `truncate_inode`); a fresh block with no known owner (a directory's) is
+  always included. This is what keeps a renamed, never-synced temp file from
+  showing the previous owner's bytes after a crash.
+- **An inode is written alone.** An inode table block holds many inodes, so
+  the block written is the disk's copy with only the wanted inodes' entries
+  taken from the cache (one read and one write); the neighbours' newer
+  inodes, and the pointers in them, stay in the cache with their data. The
+  cached block stays dirty until a full writeback.
+- **Other operations' directory entries may land without their inodes.** The
+  directory blocks written (all unowned dirty ones for `fsync`, the touched
+  ones for a barrier) can carry entries of operations whose inodes are not
+  written. That is the documented "entry naming an inode whose initialisation
+  was lost" (and a parent link count too low after a `mkdir`), which `repair`
+  fixes; the inode bitmap is always written first, and freed inodes are
+  written zeroed before their bit clears, so it never names a free or stale one.
+- Not the superblock and not the frees: counters that disagree with the
+  bitmaps are a state `repair` handles, and frees stay deferred to the commit.
+
+`fsync` of a file is its dirty data and indirect blocks, its inode, and the
+dirty directory blocks and other content blocks no operation claimed (so a
+new name is usually durable with the file), then one device flush. It does
+not mark the volume clean: only `sync`/unmount do, so the next write does not
+pay for a new dirty marker. It does **not** make the file's *name* durable
+when a directory grew a block or a parent's inode changed; `fsync` the
+directory (a full commit in the kernel) for that, as on Linux ext2. A
+journaled or uncached volume commits as a whole.
 
 ## Durability points
 
 | Event | What happens |
 |---|---|
-| `fsync`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
+| `fsync` of a regular file | `Ext2::sync_file`: that file's blocks and inode and their dependencies, a device flush; the volume stays flagged dirty |
+| `fsync` of a directory, `syncfs`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
 | orderly power-off / reboot | `power` (syscall 21) -> `fs::sync_all` -> the same `Ext2::flush` on every mount; the power path itself is unchanged |
 | every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy |
 | memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back |
@@ -264,6 +309,20 @@ of what they wrote keep working from the cache.
   taken away), the fuzz model
   mode through an 8-block cache when bit 2 of its first byte is set, and the
   benchmark (`tests/bench.rs`). `FUZZ_CASES=<n>` scales the seeded ones.
+- Host (`tests/narrow.rs`): `fsync` of a file writes a fraction of what is
+  dirty and the synced bytes are on the disk; a neighbour in the same inode
+  table block never shows stale bytes; a crash at every write over a random
+  workload with `sync_file` calls mixed in (the synced file is on the disk at
+  every call, the crash semantics hold at every prefix); a rename beside a
+  large unsynced file is narrow and still never loses the file or directory;
+  a renamed, never-synced file never shows the bytes of the file that owned
+  its blocks (fails if the fresh-block dependency is removed).
+- Kernel (`ext2_suite::block_cache`, `bcache_*`; `narrow.rs`): a node's
+  `fsync` and a rename leave other files dirty and the volume flagged dirty, a
+  700-round soak of file syncs beside writers with a power-cut copy checked
+  every 50 rounds, and `bcache_virtio_fsync_beside_dirty_data`, which prints
+  the requests and time of a file `fsync`, a rename and a whole flush beside
+  3 MiB of dirty data on the real driver.
 - Kernel (`ext2_suite::block_cache`, `bcache_*`): read-your-writes and fsync
   durability, write errors reaching sync and `s_state`, a dead disk, a 4-page
   cache, periodic writeback, the power-off sync, `confd`'s commit under a power
