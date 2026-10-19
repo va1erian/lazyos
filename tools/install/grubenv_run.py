@@ -41,9 +41,8 @@ import run as harness  # noqa: E402
 MEDIA = "BOOT:MEDIA:uefi"
 # The stand-in's saved_entry is what `GRUB_DEFAULT=saved` distros read.
 GRUB_CFG = harness.GRUB_CFG.replace(
-    "if [ \"${next_entry}\" ] ; then",
-    "if [ \"${saved_entry}\" ] ; then\n   set default=\"${saved_entry}\"\nelif [ \"${next_entry}\" ] ; then",
-)
+    "   set default=0" + chr(10), "   set default=" + chr(34) + "${saved_entry}" + chr(34) + chr(10))
+assert GRUB_CFG != harness.GRUB_CFG, "run.py's grub.cfg no longer has the `set default=0` fallback"
 
 
 def say(text: str) -> None:
@@ -82,6 +81,20 @@ def ladder(args, rows, label: str, disk: Path, firmware, out: Path, report: dict
                                 "booted": g.entry_booted(log), "counter": g.counter(block),
                                 "grub_errors": g.grub_errors(log)})
         report["failures"][name] = failures
+
+
+def torn(args, disk: Path, firmware, out: Path, report: dict) -> None:
+    """A block with a bad header (a torn write): GRUB's default, bytes untouched."""
+    bad = bytearray(g.env_block({"lazyos_boots": "4"}))
+    bad[2:6] = b"XXXX"
+    (out / "grubenv.set").write_bytes(bytes(bad))
+    harness.run([harness.TESTDISK, "grubenv-put", disk, out / "grubenv.set"])
+    log = boot(args, "torn", disk, firmware, out, "linux")
+    block = read_counter_block(disk, out)
+    failures = g.judge_boot(log, block, "linux", None)
+    failures += [] if block == bytes(bad) else ["GRUB rewrote a block with a bad header"]
+    report["boots"].append({"name": "torn", "booted": g.entry_booted(log), "grub_errors": g.grub_errors(log)})
+    report["failures"]["torn"] = failures
 
 
 def main() -> int:
@@ -136,6 +149,7 @@ def main() -> int:
             harness.run([harness.TESTDISK, "esp-put", disk, out / name, f"EFI/BOOT/{name}"])
         ladder(args, g.GRUBD, "grubd", disk, firmware, out, report)
         ladder(args, g.CORRUPT[:1], "corrupt-grubd", disk, firmware, out, report)
+        torn(args, disk, firmware, out, report)
         after = harness.esp_files(disk, out, ("EFI/BOOT/BOOTX64.EFI", "EFI/BOOT/grubenv"))
         report["failures"]["linux-side"] = g.judge_linux_side(
             {k: before[k] for k in after}, after)

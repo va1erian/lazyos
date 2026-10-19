@@ -46,6 +46,11 @@ class JudgeTests(unittest.TestCase):
         self.assertTrue(g.judge_boot(LAZYOS, g.env_block({}), "lazyos", "3"))
         self.assertTrue(g.judge_boot(LAZYOS, env("3")[:512], "lazyos", "3"))
 
+    def test_torn_block_has_no_counter(self) -> None:
+        bad = (b"# GRUB Environment Blocx" + bytes([10]) + b"lazyos_boots=4" + bytes([10])).ljust(1024, b"#")
+        self.assertEqual(g.judge_boot(LINUX, bad, "linux", None), [])
+        self.assertTrue(g.judge_boot(LINUX, env("4"), "linux", None))
+
     def test_ladders_are_consistent(self) -> None:
         for ladder in (g.COUNTDOWN, g.GRUBD):
             for (before, entry, after), nxt in zip(ladder, ladder[1:]):

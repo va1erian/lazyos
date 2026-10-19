@@ -53,20 +53,22 @@ pub fn create(extent: &Extent, value: &str) -> Result<(), String> {
         .map_err(|e| os_image::volume_error("flush the system volume", e))
 }
 
-/// Overwrite the block of the existing file in place (a test makes it
-/// corrupt, or sets the counter), never reallocating it.
+/// Overwrite the existing 1024-byte file in place (a test makes it corrupt,
+/// or sets the counter); an equal-size write reuses its block.
 pub fn overwrite(extent: &Extent, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() != BLOCK {
         return Err(format!("a GRUB environment block is {BLOCK} bytes"));
     }
     let volume = os_image::open_cached(extent.io(true)?)?;
-    let at = volume.mapped_block(fhs::boot::GRUBENV_PATH, 0).ok();
+    let meta = volume
+        .lookup(fhs::boot::GRUBENV_PATH)
+        .map_err(|e| format!("{}: {e:?}", fhs::boot::GRUBENV_PATH))?;
+    if meta.size != BLOCK as u64 {
+        return Err(format!("{} is not {BLOCK} bytes", fhs::boot::GRUBENV_PATH));
+    }
     volume
         .write(fhs::boot::GRUBENV_PATH, 0, bytes)
         .map_err(|e| format!("{}: {e:?}", fhs::boot::GRUBENV_PATH))?;
-    if volume.mapped_block(fhs::boot::GRUBENV_PATH, 0).ok() != at {
-        return Err("the environment block moved".into());
-    }
     volume
         .flush()
         .map_err(|e| os_image::volume_error("flush the system volume", e))

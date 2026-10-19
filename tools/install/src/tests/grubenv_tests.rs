@@ -99,7 +99,9 @@ fn a_normal_install_writes_neither() {
     let options = args::parse(line.split_whitespace().map(String::from)).unwrap();
     run::run(&options).unwrap();
     let mut found = crate::target::in_image(&rig.image, &options).unwrap();
-    assert!(grubenv::read(&found.system_extent).is_err());
+    assert!(grubenv::read(&found.system_extent)
+        .unwrap_err()
+        .contains("NotFound"));
     let custom = found
         .image_esp
         .as_mut()

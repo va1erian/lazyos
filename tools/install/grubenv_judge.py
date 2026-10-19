@@ -51,7 +51,7 @@ def entry_booted(log: str) -> str | None:
     return "lazyos" if lazyos and not linux else "linux" if linux and not lazyos else None
 
 
-def judge_boot(log: str, env: bytes, expect_entry: str, expect_counter: str) -> list[str]:
+def judge_boot(log: str, env: bytes, expect_entry: str, expect_counter: str | None) -> list[str]:
     failures = judge.serial_integrity.problems(log)
     booted = entry_booted(log)
     if booted != expect_entry:
