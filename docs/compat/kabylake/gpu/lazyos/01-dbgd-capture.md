@@ -45,7 +45,7 @@ sets (`../../../alderlake/gpu/lazyos/`).
 | DDI | `DDI_BUF_CTL_B` `0x64100` | `0x80000000` | enabled; A idle (`0x81`), C to E off |
 | PLL routing | `DPLL_CTRL2` `0x6C05C` | `0x00a00018` | DDI B overridden to **DPLL1**, its clock not gated (as under Linux) |
 | PLL mode | `DPLL_CTRL1` `0x6C058` | `0x00000845` | DPLL1: override, **HDMI mode**; DPLL0 (CDCLK) override, link rate field 2 |
-| PLL state | `LCPLL2_CTL` `0x46014`, `DPLL_STATUS` `0x6C060` | `0x80000000`, `0x00001111` | DPLL1 enabled; DPLL0 and DPLL1 locked; DPLL2/3 off |
+| PLL state | `LCPLL2_CTL` `0x46014`, `DPLL_STATUS` `0x6C060` | `0x80000000`, `0x00001111` | DPLL1 enabled; DPLL0 and DPLL1 locked (bits 0 and 8; bits 4 and 12 not decoded); DPLL2/3 off |
 | PLL dividers | `DPLL1_CFGCR1`/`CFGCR2` `0x6C040` | `0x80800192`, `0x000002a4` | DCO 24 MHz x (402 + 16384/32768) = 9660 MHz, P=2 Q=2 K=2: **241.5 MHz** pixel clock |
 | Pipe | `PIPECONF_A` `0x70008` | `0xc0000000` | enabled and active; pipes B, C and eDP off |
 | Plane | `PLANE_CTL_1_A` `0x70180` | `0x84000000` | enabled, XRGB8888, linear |

@@ -122,13 +122,28 @@ fn alder_lake_holes_are_refused_and_its_display_is_reachable() {
         holes.extend([port, port + 4]);
     }
     holes.extend([0x2000, 0xA188, 0xD84, 0x1010A0, 0x168000]);
+    // Every scaler's and every plane's auto-incrementing index/data pairs,
+    // pipes A to D.
+    for pipe in 0..4u64 {
+        for scaler in 0..2 {
+            let base = 0x68000 + pipe * 0x800 + scaler * 0x100;
+            holes.extend((0x198..0x1A8).step_by(4).map(|r| base + r));
+        }
+        for plane in 0..5 {
+            let base = 0x70180 + pipe * 0x1000 + plane * 0x100;
+            holes.extend((0x50..0x60).step_by(4).map(|r| base + r));
+        }
+    }
     for reg in holes {
         assert_eq!(reads(reg), Err(Denied::NotAllowed), "{reg:#x}");
     }
     // Power wells, CDCLK, transcoder A's DDI function, DDI B, pipe A's frame
-    // counter, plane 1A's surface, DPLL0, the first and last GGTT entries.
+    // counter, plane 1A's surface and its neighbours of the gamma pairs,
+    // scaler 1A's control and window size, DPLL0, the first and last GGTT
+    // entries.
     for reg in [
-        0x45400u64, 0x46000, 0x60400, 0x64100, 0x70040, 0x7019C, 0x164284, 0x800000, 0xFFFFFC,
+        0x45400u64, 0x46000, 0x60400, 0x64100, 0x70040, 0x7019C, 0x701CC, 0x701E0, 0x68180,
+        0x68174, 0x681A8, 0x73580, 0x164284, 0x800000, 0xFFFFFC,
     ] {
         assert!(reads(reg).is_ok(), "{reg:#x}");
     }

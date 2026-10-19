@@ -68,6 +68,12 @@ const HD620: u16 = 0x5916;
 ///   `HSW_AUD_EDID_DATA` of transcoders A to D, the ELD read port;
 /// * `0x49000..0x4B000`: pipe CSC and gamma, whose `PREC_PAL_DATA` advances
 ///   its index register when read;
+/// * each scaler's coefficient index/data pairs (`PS_COEF_SET0/1`, scaler
+///   base + `0x198..0x1A8`: `0x68198` for scaler 1A, `0x100` per scaler,
+///   `0x800` per pipe) and each plane's gamma index/data pairs (plane base +
+///   `0x50..0x60`: `0x701D0` for plane 1A, `0x100` per plane, `0x1000` per
+///   pipe): the firmware leaves their index registers in auto-increment
+///   (bit 10), so reading the data dword advances them;
 /// * the DKL Type-C PHY window (`0x168000`, indexed by `HIP_INDEX`): the HDMI
 ///   port is a combo PHY, so nothing there is needed.
 ///
@@ -94,12 +100,41 @@ pub const RANGES: &[Range] = &[
     r(INTEL, ADLP_GT1, 0, 0x0006_5158, 0x0006_5250),
     r(INTEL, ADLP_GT1, 0, 0x0006_5258, 0x0006_5350),
     r(INTEL, ADLP_GT1, 0, 0x0006_5358, 0x0006_6000),
-    // Pipe scalers A to D.
-    r(INTEL, ADLP_GT1, 0, 0x0006_8000, 0x0006_A000),
+    // Pipe scalers A to D, less each scaler's coefficient index/data pairs.
+    r(INTEL, ADLP_GT1, 0, 0x0006_8000, 0x0006_8198),
+    r(INTEL, ADLP_GT1, 0, 0x0006_81A8, 0x0006_8298),
+    r(INTEL, ADLP_GT1, 0, 0x0006_82A8, 0x0006_8998),
+    r(INTEL, ADLP_GT1, 0, 0x0006_89A8, 0x0006_8A98),
+    r(INTEL, ADLP_GT1, 0, 0x0006_8AA8, 0x0006_9198),
+    r(INTEL, ADLP_GT1, 0, 0x0006_91A8, 0x0006_9298),
+    r(INTEL, ADLP_GT1, 0, 0x0006_92A8, 0x0006_9998),
+    r(INTEL, ADLP_GT1, 0, 0x0006_99A8, 0x0006_9A98),
+    r(INTEL, ADLP_GT1, 0, 0x0006_9AA8, 0x0006_A000),
     // Combo PHY B.
     r(INTEL, ADLP_GT1, 0, 0x0006_C000, 0x0006_D000),
-    // Pipes, planes, cursors, DDB and watermarks, A to D.
-    r(INTEL, ADLP_GT1, 0, 0x0007_0000, 0x0007_4000),
+    // Pipes, planes, cursors, DDB and watermarks, A to D, less each plane's
+    // gamma index/data pairs.
+    r(INTEL, ADLP_GT1, 0, 0x0007_0000, 0x0007_01D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_01E0, 0x0007_02D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_02E0, 0x0007_03D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_03E0, 0x0007_04D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_04E0, 0x0007_05D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_05E0, 0x0007_11D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_11E0, 0x0007_12D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_12E0, 0x0007_13D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_13E0, 0x0007_14D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_14E0, 0x0007_15D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_15E0, 0x0007_21D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_21E0, 0x0007_22D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_22E0, 0x0007_23D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_23E0, 0x0007_24D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_24E0, 0x0007_25D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_25E0, 0x0007_31D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_31E0, 0x0007_32D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_32E0, 0x0007_33D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_33E0, 0x0007_34D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_34E0, 0x0007_35D0),
+    r(INTEL, ADLP_GT1, 0, 0x0007_35E0, 0x0007_4000),
     // DMC control (whether the firmware loaded DMC: HTP, SSP base).
     r(INTEL, ADLP_GT1, 0, 0x0008_F000, 0x0008_F100),
     // PCH display: hotplug, straps, panel power (less GMBUS).

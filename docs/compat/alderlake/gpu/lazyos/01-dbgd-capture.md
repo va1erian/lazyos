@@ -9,6 +9,10 @@ registers: `02-mmio-gop.txt` (every allowed range but pipe D's, zeros left
 out) and `03-ggtt-scanout.txt` (the first 3616 GGTT entries). Both sticks
 booted from their RAM disk (`ram0p2`); NVMe and AHCI both attached. Nothing
 had touched the display since the GOP: no LazyOS driver claims `00:02.0`.
+This dump read the scaler coefficient and plane gamma data ports once (their
+index registers are in auto-increment); the allowlist has since made them
+holes, so those words in `02-mmio-gop.txt` are not the firmware's LUTs and a
+later read cannot repeat it.
 
 ## What the firmware left (UEFI GOP)
 
@@ -30,7 +34,7 @@ pipe A -> transcoder A -> DDI B (combo PHY B) -> HDMI, clocked by **DPLL1**.
 
 | What | Register | Value | Meaning |
 |---|---|---|---|
-| Power wells | `PWR_WELL_CTL2` `0x45404` | `0x0000fc0f` | PW1, PW2 and the pipe A, B, C wells (idx 5-7) requested and on; **PW_D off**. `CTL1` (BIOS) `0x5405` shows the states only |
+| Power wells | `PWR_WELL_CTL2` `0x45404` | `0x0000fc0f` | PW1, PW2 and the pipe A, B, C wells (idx 5-7) requested and on; **PW_D off**. `CTL1` (BIOS) `0x00005405` shows the states only |
 | DC states | `DC_STATE_EN` `0x45504` | `0` | none; **DMC not loaded** (`DMC_HTP` `0x8F004` = 0, `DMC_SSP_BASE` = 0) |
 | DBUF | `DBUF_CTL_S1`/`S2` | `0xc040c000` | both slices powered |
 | CDCLK | `CDCLK_CTL` `0x46000`, `CDCLK_PLL_ENABLE` `0x46070` | `0x00380518`, `0xc0000022` | **652.8 MHz** (PLL ratio 34 x 38.4 MHz = 1305.6, /2), PLL enabled and locked |
@@ -44,7 +48,7 @@ pipe A -> transcoder A -> DDI B (combo PHY B) -> HDMI, clocked by **DPLL1**.
 | Port clock | `DPCLKA_CFGCR0` `0x164280` | `0x01e07404` | DDI B clock on, from **DPLL1** (bits 3:2 = 01); DDI A gated |
 | PLL | `DPLL1_ENABLE` `0x46014` | `0xcc000000` | enabled, locked, powered; DPLL0 and TBT off |
 | PLL dividers | `DPLL1_CFGCR0`/`CFGCR1` `0x16428C` | `0x003c01b8`, `0x00000060` | DCO 19.2 MHz x (440 + 3840/32768) = 8450.25 MHz, P=7 Q=1 K=1: **241.436 MHz** pixel clock. Linux's `i915_shared_dplls_info` showed these same values on its idle DPLL1 |
-| Plane | `PLANE_CTL_1_A` `0x70180` | `0x84000008` | enabled, XRGB8888, linear |
+| Plane | `PLANE_CTL_1_A` `0x70180` | `0x84000008` | enabled, XRGB8888 (format bits 27:24 = 4), linear; bit 3 not decoded |
 | | `PLANE_STRIDE_1_A`, `PLANE_SIZE_1_A` | `0xa0`, `0x059f09ff` | 160 x 64 = 10240 bytes, 2560x1440 |
 | | `PLANE_SURF_1_A` `0x7019C` | `0` | GGTT offset 0 |
 | | `PLANE_BUF_CFG_1_A`, `PLANE_WM_1_A_0` | `0x07ff0000`, `0x80004016` | DDB blocks 0-2047, level 0 WM 22 blocks |
