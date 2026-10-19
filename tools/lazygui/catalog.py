@@ -20,7 +20,7 @@ from .limits import LIMIT_KEYS, cfg_limit_env, limit_env  # noqa: F401 (re-expor
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
-                        SIMPLE_OPTIONS, group_switches, simple_config)
+                        SIMPLE_OPTIONS, SOFTWARE_CUSTOM, group_switches, simple_config, software_choices, suite_argv, suite_name)
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
@@ -322,7 +322,7 @@ def build_plan(cfg: dict) -> list[dict]:
     if mode == "Interactive demo":
         if cfg.get("prebuild_xui"):
             steps += xui_steps()
-        argv = [PY, "tools/run_demo.py"]
+        argv = [PY, "tools/run_demo.py"] + suite_argv(cfg)  # --suite NAME: run_demo turns on its flags
         if cfg.get("lazyrad") and not cfg["skip_build"]:
             # run_demo builds LazyRAD and sets LAZYOS_LAZYRAD itself; with
             # "Skip build" the existing image is booted as it is.

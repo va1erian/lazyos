@@ -1,0 +1,55 @@
+# Software suites: named sets of the image's build switches.
+#
+# The one definition read by `tools/suites.py`, and through it by
+# `tools/run_demo.py --suite`, the launcher and the stick maker
+# (`tools/lazygui/`, `tools/boot/stick_gui.py`). Design: docs/update-plan.md
+# decision 14.
+#
+# Every name is a `run_demo.py` flag without its leading dashes, so choosing a
+# suite runs each flag's own prerequisite build. A flag's implications
+# (`webkit` brings networking, the big-app profile and the 1 GiB OS volume)
+# stay `run_demo.py`'s; a suite may still name them. Each flag's build switch
+# is in docs/build-switches.md.
+#
+# A new optional app is not finished until it is placed here: in `full`, in
+# an option, or in `test_only` (`tools/test_suites.py` fails otherwise).
+
+[suites.base]
+description = "The desktop and its default core apps."
+flags = ["desktop"]
+
+[suites.full]
+description = "Base plus every optional app a person uses, WebKit browsers included."
+extends = "base"
+flags = [
+    # Networking and HTTPS; `smb` is the command-line client (no build step).
+    "net", "tls", "smb",
+    # LazyRAD and the apps written in it.
+    "lazyrad", "modplayer", "pictures",
+    # Browsers, mail and the Bluesky client. WebKit's three static programs
+    # need the big-app profile (4G of RAM, 8G user memory quota).
+    "lazyweb", "webkit", "lazywebplus", "big-app", "mail", "lazysky",
+    # Games and the installable game and music packages.
+    "games", "doom", "quake", "emusic",
+    # Real Linux programs.
+    "linuxapps",
+]
+
+# Added with `--with NAME`. Not in `full` for everyone.
+[options.srb2kart]
+description = "SRB2Kart. Its game data is downloaded at build time and must never be shared."
+flags = ["srb2kart"]
+
+# Switches no suite may name: tests, harnesses, developer tools, hardware
+# drivers and a person's own files. The UI probe (`LAZYOS_UI_PROBE`) and the
+# label trace (`LAZYOS_LABEL_TRACE`) have no run_demo flag and are never named.
+# Output and device options (`usb-image`, `installer`, `netboot`, `devices`,
+# `autologin`...) are not apps and combine with any suite.
+[test_only]
+description = "Switches for tests, harnesses and development only."
+flags = [
+    "jsc", "webkit-deps", "webkit-port",
+    "traydemo", "wifi", "wifi-sim", "gen9gfx",
+    "dbgd", "dbgd-control", "dbgd-mmio",
+    "assets",
+]

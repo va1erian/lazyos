@@ -45,6 +45,8 @@ jobs:
           python tools/test_run_demo_net.py
           python tools/test_run_demo_webkit.py
           python tools/test_irqpath.py
+          python tools/test_suites.py
+          python tools/boot/test_stick_gui.py
           python tools/screenshot/test_qmp_disks.py
 
       # The WebKit dependency bundle (tools/webkit, docs/webkit-port-plan.md W3):

@@ -26,7 +26,30 @@ class StickGuiTest(unittest.TestCase):
         self.assertNotIn("--release", stick_gui.build_step(release=False)["argv"])
         self.assertNotIn("--installer", argv)
         self.assertIn("--installer", stick_gui.build_step(release=True, installer=True)["argv"])
+        self.assertEqual(argv[argv.index("--suite") + 1], "base")
+        self.assertNotIn("--with", argv)
+        full = stick_gui.build_step(release=True, suite="full", srb2kart=True)["argv"]
+        self.assertEqual(full[full.index("--suite") + 1], "full")
+        self.assertEqual(full[full.index("--with") + 1], "srb2kart")
         self.assertEqual(stick_gui.build_env("8G"), {"LAZYOS_USB_HOME_SIZE": "8G"})
+
+    def test_a_too_small_os_volume_is_asked_about_and_recreated(self) -> None:
+        import tempfile
+        from lazygui import osvolume
+        with tempfile.TemporaryDirectory() as tmp:
+            image = Path(tmp) / "lazyos.img"
+            self.assertIsNone(stick_gui.too_small("full", False, image))  # no image yet
+            mbr = bytearray(512)
+            mbr[510:512] = bytes([0x55, 0xAA])
+            mbr[0x1BE + 8:0x1BE + 12] = osvolume.OS_START_LBA.to_bytes(4, "little")
+            mbr[0x1BE + 12:0x1BE + 16] = (512 * 2048).to_bytes(4, "little")  # 512 MiB
+            image.write_bytes(mbr)
+            self.assertEqual(stick_gui.too_small("full", False, image), (512, 1024))
+            self.assertIsNone(stick_gui.too_small("base", False, image))
+        argv = stick_gui.build_step(release=False, suite="full", reset_os=True)["argv"]
+        self.assertIn("--reset-os", argv)
+        self.assertIn("--yes", argv)
+        self.assertNotIn("--reset-os", stick_gui.build_step(release=False)["argv"])
 
     def test_write_step_skips_the_prompts_with_absolute_paths(self) -> None:
         argv = stick_gui.write_step(["pkexec"], Path("x.img"), "/dev/sdz")["argv"]

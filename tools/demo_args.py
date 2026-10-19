@@ -12,6 +12,7 @@ from qemu_qmp import DEFAULT_MEMORY, smp_type  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mkdisk  # noqa: E402
 import qemu_serial  # noqa: E402
+import suites  # noqa: E402
 from lazygui.assets import add_assets_option, build_assets  # noqa: E402
 from lazygui.display import add_display_options, build_display  # noqa: E402
 from lazygui.limits import WEBKIT_LIMITS, add_limit_option, big_app, build_limits, with_defaults  # noqa: E402
@@ -32,6 +33,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
         description=description, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--no-build", action="store_true", help="skip `cargo build`")
+    suite_data = suites.load()
+    parser.add_argument("--suite", choices=suites.suite_names(suite_data), metavar="NAME",
+                        help="a named software suite (tools/suites.toml): turns on its flags, so "
+                             "each one's prerequisite build runs and the OS volume is sized for "
+                             f"it; explicit flags add on top. One of: {', '.join(suites.suite_names(suite_data))}")
+    parser.add_argument("--with", dest="with_options", action="append", default=[],
+                        choices=suites.option_names(suite_data), metavar="OPTION",
+                        help="with --suite, add an option (repeatable): "
+                             f"{', '.join(suites.option_names(suite_data))}")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print the flags, environment and build steps the other options "
+                             "would run, then exit; builds nothing (implies --build-only)")
     parser.add_argument("--build-only", action="store_true",
                         help="build the image(s) and exit without booting QEMU")
     parser.add_argument("--release", action="store_true",
@@ -310,6 +323,10 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     Returns `(args, net_qemu, forwards, limits)`.
     """
     args = parser.parse_args(argv)
+    if args.with_options and not args.suite:
+        parser.error("--with needs --suite")
+    if args.suite:
+        suites.apply(args, suites.resolve(args.suite, args.with_options))
     if args.webkit or args.lazywebplus:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port or args.webkit

@@ -100,6 +100,16 @@ def wants_webkit(cfg: dict) -> bool:
     return bool(cfg.get("webkit") or cfg.get("webkit_port") or cfg.get("lazywebplus"))
 
 
+def args_wants(args) -> tuple[bool, bool]:
+    """``(srb2kart, webkit)`` for `run_demo.py`'s parsed flags, or the same
+    switches already in the environment."""
+    def on(flag: str, switch: str) -> bool:
+        return bool(getattr(args, flag, False)) or os.environ.get(switch) == "1"
+    return (on("srb2kart", "LAZYOS_SRB2KART"),
+            on("webkit", "LAZYOS_WEBKIT") or on("webkit_port", "LAZYOS_WEBKIT_PORT")
+            or on("lazywebplus", "LAZYOS_LAZYWEBPLUS"))
+
+
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
     """:func:`too_small` for a launcher configuration: ``(have MiB, need MiB)``
     when the existing image cannot hold the selection, else ``None``."""

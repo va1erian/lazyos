@@ -42,16 +42,32 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 
 ## Optional apps and packages
 
+Named sets of these switches are the **software suites** in
+[`tools/suites.toml`](../tools/suites.toml) (`base`, `full`, the option
+`srb2kart`): `python tools/run_demo.py --suite full [--with srb2kart]` turns on
+each flag of the suite, so its prerequisite build runs, and sizes the OS volume;
+explicit flags still add on top. `--dry-run` prints the flags, steps and
+environment without building. The launcher's Simple tab and the stick maker
+have the same *Software* choice. A switch in this table that is not in `full`
+or an option must be in the suite file's `test_only` list
+(`python tools/test_suites.py` checks it), so a new app has to choose.
+
 | Switch | Meaning | Requires | Front end |
 | --- | --- | --- | --- |
 | `LAZYOS_LAZYRAD` | LazyRAD IDE and player as the core package `os.lazy.lazyrad`. | desktop | `--lazyrad` |
 | `LAZYOS_MODPLAYER` | `modplayer.lzp` in `/system/share/samples`. | `target/pkg/modplayer.lzp` (`tools/lazyrad/package.py`); the player needs LazyRAD, which `--modplayer` turns on | `--modplayer` |
 | `LAZYOS_PICTURES` | Picture Viewer core package. | desktop | `--pictures` |
 | `LAZYOS_DOOM` | `doom.lzp` sample package. | `tools/doom/build.py` | `--doom` |
+| `LAZYOS_QUAKE` | `quake.lzp` sample package (id's shareware pak inside). | `tools/quake/build.py` | `--quake` |
+| `LAZYOS_SRB2KART` | SRB2Kart: the engine package and its game data (downloaded at build time, never published); adds `512M` to the OS volume. | `tools/srb2kart/build.py` | `--srb2kart` |
+| `LAZYOS_GAMES` | LazyGolf and the NES Player core packages. | desktop | `--games` |
 | `LAZYOS_EMUSIC` | `emusic.lzp` sample package. | `tools/emusic/build.py` | `--emusic` |
 | `LAZYOS_LAZYWEB` | LazyWeb browser core package. | desktop, `LAZYOS_NETD` | `--lazyweb` |
 | `LAZYOS_LAZYSKY` | LazySky Bluesky client core package. | desktop, `LAZYOS_NETD` | `--lazysky` |
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
+| `LAZYOS_WIFI` | `wifid`, the RTL8822CE driver, and its fetched firmware. | `LAZYOS_NETD` | `--wifi` |
+| `LAZYOS_WIFI_SIM` | The simulated Wi-Fi radio `wlan0` (`wifisim`) and its fake access points. | `LAZYOS_NETD` | `--wifi-sim` |
+| `LAZYOS_GEN9GFX` | `gpud`, the read-only Intel Gen9 GPU service. | - | `--gen9gfx` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
 | `LAZYOS_JSC` | JavaScriptCore's `jsc` shell and the C++/ICU check `cxxproof` in `/system/bin` (built in Docker; wants `--big-app`). | `tools/jsc/build.py` | `--jsc` |

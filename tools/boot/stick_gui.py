@@ -34,7 +34,10 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "tools"))
 
+import suites  # noqa: E402
 import write_stick  # noqa: E402
+from lazygui import osvolume  # noqa: E402
+from lazygui.simplecfg import suite_argv  # noqa: E402
 
 DEFAULT_IMAGE = ROOT / "target" / "lazyos-usb.img"
 HOME_SIZES = ["1G", "4G", "8G", "16G", "28G"]
@@ -43,11 +46,25 @@ PROGRESS = re.compile(r"(wrote|verified) (\d+) / (\d+) MiB")
 
 # ----- Logic (no Tk: tools/boot/test_stick_gui.py covers it) -------------
 
-def build_step(release: bool, installer: bool = False) -> dict:
+def too_small(suite: str, srb2kart: bool, image: Path | None = None) -> tuple[int, int] | None:
+    """``(have MiB, need MiB)`` when the existing OS volume cannot hold the suite
+    (a build cannot resize it), else None."""
+    flags = suites.resolve(suite, ["srb2kart"] if srb2kart else [])
+    return osvolume.too_small(image or osvolume.DEFAULT_IMAGE, "srb2kart" in flags,
+                              bool(set(flags) & set(suites.WEBKIT_FLAGS)))
+
+
+def build_step(release: bool, installer: bool = False, suite: str = "base",
+               srb2kart: bool = False, reset_os: bool = False) -> dict:
     """The build as a `Runner` step: the desktop stick image, nothing booted;
-    with `installer`, `lazyos-install` on it too (docs/grub-install-plan.md)."""
+    with `installer`, `lazyos-install` on it too (docs/grub-install-plan.md).
+    `suite` is the software it carries (`tools/suites.toml`: base or full) and
+    `srb2kart` adds that option (its data is downloaded; never share the stick)."""
     argv = [sys.executable, "-u", str(ROOT / "tools" / "run_demo.py"),
-            "--desktop", "--usb-image", "--build-only"]
+            "--desktop", "--usb-image", "--build-only",
+            *suite_argv({"suite": suite, "suite_srb2kart": srb2kart})]
+    if reset_os:  # the window asked first; run_demo has no terminal to ask on
+        argv += ["--reset-os", "--yes"]
     if release:
         argv.append("--release")
     if installer:
@@ -129,6 +146,8 @@ def main() -> int:
     release_var = tk.BooleanVar(value=True)
     installer_var = tk.BooleanVar(value=False)
     home_var = tk.StringVar(value="1G")
+    suite_var = tk.StringVar(value="base")
+    srb2kart_var = tk.BooleanVar(value=False)
     status_var = tk.StringVar(value="Ready.")
 
     outer = ttk.Frame(root, padding=10)
@@ -159,6 +178,14 @@ def main() -> int:
     ttk.Combobox(opts, textvariable=home_var, values=HOME_SIZES, width=6).pack(side="left")
     build_btn = ttk.Button(opts, text="Build image")
     build_btn.pack(side="right")
+    software = ttk.Frame(box1)
+    software.pack(fill="x", pady=(4, 0))
+    ttk.Label(software, text="Software:").pack(side="left")
+    for name in suites.suite_names():
+        ttk.Radiobutton(software, text=name.capitalize(), value=name,
+                        variable=suite_var).pack(side="left", padx=(6, 0))
+    ttk.Checkbutton(software, text="SRB2Kart (downloads its game data; keep the stick to yourself)",
+                    variable=srb2kart_var).pack(side="left", padx=(10, 0))
 
     # 2. Stick
     box2 = ttk.LabelFrame(outer, text="2. Stick (everything on it will be erased)", padding=8)
@@ -237,7 +264,8 @@ def main() -> int:
     def on_build() -> None:
         say("\n")
         status_var.set("Building… (the first build takes a while)")
-        start("build", build_step(release_var.get(), installer_var.get()), build_env(home_var.get().strip() or "1G"))
+        start("build", build_step(release_var.get(), installer_var.get(), suite_var.get(),
+                                         srb2kart_var.get()), build_env(home_var.get().strip() or "1G"))
 
     def on_write() -> None:
         image = Path(image_var.get())

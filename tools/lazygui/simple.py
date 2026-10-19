@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from tkinter import ttk
 
-from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPTIONS, group_switches
+from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPTIONS, group_switches, software_choices, suite_name
 
 
-#: `catalog.simple_config`'s switches, in its argument order.
+#: `simplecfg.plain_config`'s switches, in its argument order.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
                  "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "webkit", "lazywebplus", "games")
@@ -36,6 +36,8 @@ def simple_flags(v: dict) -> dict[str, bool]:
     chosen = {key for key, *_ in SIMPLE_GROUPS if v[f"simple_group_{key}"].get()}
     flags = group_switches(chosen)
     flags.update({name: v[f"simple_{name}"].get() for name in SIMPLE_OPTIONS})
+    flags.update(suite=suite_name(v["simple_software"].get()),
+                 suite_srb2kart=v["simple_suite_srb2kart"].get())
     return flags
 
 
@@ -64,6 +66,19 @@ def build_simple_tab(parent: ttk.Frame, v: dict, on_start) -> None:
                         variable=v["simple_iface"]).pack(anchor="w", padx=8, pady=(4, 0))
         ttk.Label(iface, text=desc, wraplength=420, foreground="#555"
                   ).pack(anchor="w", padx=28, pady=(0, 4))
+
+    software = ttk.LabelFrame(parent, text="Software (the Desktop; tools/suites.toml)")
+    software.pack(fill="x", padx=8, pady=6)
+    for label in software_choices():
+        hint = {"Custom": "only the features ticked below",
+                "Base": "the desktop and its core apps",
+                "Full": "every optional app, WebKit browsers and games included (long build in "
+                        "Docker, 1 GiB OS volume, 4 GiB of RAM)"}.get(label, "")
+        ttk.Radiobutton(software, text=f"{label} - {hint}" if hint else label, value=label,
+                        variable=v["simple_software"]).pack(anchor="w", padx=8, pady=2)
+    ttk.Checkbutton(software, text="SRB2Kart too (downloads Kart Krew's game data; never publish "
+                                   "the image; needs Base or Full)", variable=v["simple_suite_srb2kart"]
+                    ).pack(anchor="w", padx=8, pady=(4, 4))
 
     groups = ttk.LabelFrame(parent, text="Features (the Desktop always has the Picture Viewer)")
     groups.pack(fill="x", padx=8, pady=6)

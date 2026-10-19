@@ -50,6 +50,8 @@ def cfg_limit_env(cfg: dict) -> dict[str, str]:
     entries = entries.split() if isinstance(entries, str) else list(entries or ())
     if cfg.get("webkit") or cfg.get("lazywebplus"):
         entries = with_defaults(entries, WEBKIT_LIMITS)
+    if cfg.get("big_app"):  # after the browser's quota, which is the bigger one
+        entries = with_defaults(entries, BIG_APP_LIMITS)
     return limit_env(entries)
 
 
