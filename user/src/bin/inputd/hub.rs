@@ -17,6 +17,7 @@ use user::messenger::{errno, services, Endpoint, Error, Message, Parcel, Result}
 use user::sys;
 
 use super::delivery::{Delivery, Reach};
+use super::gamepad::Gamepads;
 use super::keypages::KeyPages;
 use super::pointer::Cursor;
 
@@ -48,6 +49,8 @@ pub(super) struct Hub {
     pub(super) grabs: Grabs,
     /// The key-state pages sessions attached (`keypages.rs`).
     pub(super) key_pages: KeyPages,
+    /// The pads and the pages sessions attached for them (`gamepad.rs`).
+    pub(super) gamepads: Gamepads,
     /// Key content held until the compositor has handled a press
     /// (`settle.rs`).
     pub(super) barrier: Barrier,
@@ -68,6 +71,7 @@ impl Hub {
             pointer: Cursor::new(),
             grabs: Grabs::new(),
             key_pages: KeyPages::default(),
+            gamepads: Gamepads::default(),
             barrier: Barrier::new(),
             hold: KeyHold::new(),
             layouts: LayoutChoice::new(layout),
@@ -262,6 +266,7 @@ impl Hub {
         if let Some(session) = change.left {
             self.key_pages.clear(&self.engine, session);
             self.send(session, wire::METHOD_KEYBOARDLEAVE, Ok(Vec::new()));
+            self.pad_leave(session);
         }
         if let Some(session) = change.entered {
             self.enter(session);
@@ -283,6 +288,7 @@ impl Hub {
         let down = self.engine.held().into_iter().map(u32::from).collect();
         let body = wire::encode_keyboard_enter_args(&wire::KeyboardEnterArgs { down });
         self.send(session, wire::METHOD_KEYBOARDENTER, body);
+        self.pad_enter(session);
     }
 
     // ---- delivery ---------------------------------------------------------
@@ -408,6 +414,7 @@ impl Hub {
     pub(super) fn forget_endpoint(&mut self, session: u64) {
         self.delivery.forget(session);
         self.key_pages.forget(session);
+        self.gamepads.forget(session);
         self.grants_forget(session);
     }
 

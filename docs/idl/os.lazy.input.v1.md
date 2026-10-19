@@ -36,12 +36,17 @@ errno-style code plus friendly text) instead of the declared reply fields.
 | ReleaseGrant | 5 | sync | `(session: U64) -> ()` |
 | Ping | 6 | sync | `(session: U64, token: U64) -> (token: U64, seq: U64)` |
 | AttachKeyState | 7 | sync | `(session: U64, state: Buffer) -> ()` |
+| AttachGamepadState | 8 | sync | `(session: U64, state: Buffer) -> ()` |
 | KeyEvent | 10 | oneway | `(code: U32, sym: U32, mods: U32, state: U32, ts_ns: U64, seq: U64) -> ()` |
 | TextInput | 11 | oneway | `(utf8: String) -> ()` |
 | KeyboardEnter | 12 | oneway | `(down: Array<U32>) -> ()` |
 | KeyboardLeave | 13 | oneway | `() -> ()` |
 | LayoutChanged | 14 | oneway | `(layout: String) -> ()` |
 | GrantChanged | 15 | oneway | `(kind: U32, active: Bool, reason: U32) -> ()` |
+| GamepadAxis | 16 | oneway | `(device: U32, code: U32, value: I32, ts_ns: U64, seq: U64) -> ()` |
+| GamepadButton | 17 | oneway | `(device: U32, code: U32, pressed: Bool, ts_ns: U64, seq: U64) -> ()` |
+| GamepadEnter | 18 | oneway | `() -> ()` |
+| GamepadLeave | 19 | oneway | `() -> ()` |
 
 ## Objects
 
@@ -52,6 +57,7 @@ object list (the index each field must hold).
 |---|---|---|---|
 | Open | `events` | `Channel<os.lazy.input.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.input.v1` on |
 | AttachKeyState | `state` | `Buffer` | `objects[0]`, a shared buffer |
+| AttachGamepadState | `state` | `Buffer` | `objects[0]`, a shared buffer |
 
 ## enum `KeyState`
 

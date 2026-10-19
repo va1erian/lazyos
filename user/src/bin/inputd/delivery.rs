@@ -134,8 +134,10 @@ impl Delivery {
         }
     }
 
-    /// `KeyboardLeave` then `KeyboardEnter`: to the client, a focus loss and
-    /// regain, the recovery it already has. Both or nothing is retried.
+    /// `KeyboardLeave` then `KeyboardEnter`, then `GamepadLeave` and
+    /// `GamepadEnter`: to the client, a focus loss and regain, the recovery it
+    /// already has (it releases what it held and seeds itself from the key
+    /// and pad pages). Everything is retried as a whole.
     fn resync(&self, session: u64, enter: &dyn Fn() -> Option<Vec<u8>>) -> Sent {
         let Some(enter) = enter() else {
             return Sent::Full;
@@ -146,7 +148,17 @@ impl Delivery {
         }
         // The Leave went out; an Enter that does not fit is retried as a
         // whole resync later, and a second Leave is harmless.
-        self.transmit(session, wire::METHOD_KEYBOARDENTER, &enter)
+        match self.transmit(session, wire::METHOD_KEYBOARDENTER, &enter) {
+            Sent::Ok => {}
+            other => return other,
+        }
+        // Pad events may be among what was lost: a client that ignores them
+        // ignores these too.
+        match self.transmit(session, wire::METHOD_GAMEPADLEAVE, &[]) {
+            Sent::Ok => {}
+            other => return other,
+        }
+        self.transmit(session, wire::METHOD_GAMEPADENTER, &[])
     }
 
     fn transmit(&self, session: u64, method: u32, body: &[u8]) -> Sent {

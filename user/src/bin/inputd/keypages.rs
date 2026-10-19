@@ -103,16 +103,7 @@ impl Hub {
         message: &Message,
         args: &wire::AttachKeyStateArgs,
     ) -> Result<Vec<u8>> {
-        // The page is the whole buffer from its start; the mapped size is
-        // the truth about how much there is.
-        if args.state.offset != 0 || args.state.len < keystate::SIZE as u64 {
-            return Err(Error::Errno(-errno::EINVAL));
-        }
-        self.own_session(args.session, message.sender)?;
-        let (va, size) = sys::buffer_map(args.state.handle).map_err(Error::Errno)?;
-        if va == 0 || va % 8 != 0 || !args.state.fits(size) {
-            return Err(Error::Errno(-errno::EINVAL));
-        }
+        let va = self.map_page(message, args.session, &args.state, keystate::SIZE)?;
         self.key_pages.forget(args.session);
         self.key_pages.pages.insert(
             args.session,
@@ -127,6 +118,29 @@ impl Hub {
         let keys = self.page_keys();
         self.key_pages.publish(&self.engine, focused, keys);
         Ok(Vec::new())
+    }
+
+    /// Map the page `state` carries for `session` (the caller's own), after
+    /// the checks every state page shares: the page is the whole buffer from
+    /// its start, at least `size` bytes, word aligned, and the mapped size is
+    /// the truth about how much there is. The caller closes the buffer when
+    /// this refuses.
+    pub(super) fn map_page(
+        &self,
+        message: &Message,
+        session: u64,
+        state: &libmessenger::Buffer,
+        size: usize,
+    ) -> Result<u64> {
+        if state.offset != 0 || state.len < size as u64 {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        self.own_session(session, message.sender)?;
+        let (va, mapped) = sys::buffer_map(state.handle).map_err(Error::Errno)?;
+        if va == 0 || va % 8 != 0 || !state.fits(mapped) {
+            return Err(Error::Errno(-errno::EINVAL));
+        }
+        Ok(va)
     }
 
     /// `session` exists and belongs to `sender` (else `ENOENT`, as `Close`).

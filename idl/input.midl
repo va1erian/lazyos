@@ -65,6 +65,17 @@ interface os.lazy.input.v1 {
     /// `KeyboardLeave` is sent. `inputd` only ever writes the page. Attaching
     /// again replaces the previous page.
     method AttachKeyState(session: U64 = 1, state: Buffer = 2) -> () = 7;
+    /// Attach a gamepad-state page to `session` (the caller's): `state`, a
+    /// shared buffer the client created (one page is plenty). While the
+    /// session has keyboard focus `inputd` writes every connected pad's
+    /// current state into it (layout: `inputmap::gamepad`, a seqlock word,
+    /// the newest raw `seq`, a focused flag, the pad count and up to four
+    /// slots of device id, 32 button bits, the d-pad hat and eight `i16`
+    /// axes, deadzone already applied); the moment focus leaves it clears the
+    /// page, before `GamepadLeave` is sent. `inputd` only ever writes the
+    /// page. Attaching again replaces the previous page; same contract as
+    /// `AttachKeyState`.
+    method AttachGamepadState(session: U64 = 1, state: Buffer = 2) -> () = 8;
     /// Event: a key changed state. `code` is the physical key, `sym` its
     /// keysym under the active layout (a Unicode scalar for character keys,
     /// an X11-style `0xFFxx` value otherwise, `0` when the key has no meaning
@@ -87,6 +98,26 @@ interface os.lazy.input.v1 {
     /// Event: the session's grab of kind `kind` started (`active`) or ended;
     /// `reason` is a `GrantReason`.
     method GrantChanged(kind: U32 = 1, active: Bool = 2, reason: U32 = 3) -> () = 15 oneway;
+    /// Event: a gamepad axis changed (only the focused session receives it).
+    /// `device` is the pad's id (as in the state page), `code` the Generic
+    /// Desktop usage (`0x30` X, `0x31` Y, `0x32` Z, `0x33` Rx, `0x34` Ry,
+    /// `0x35` Rz, `0x36` Slider, `0x37` Dial), `value` `-32768..=32767` with
+    /// `0` the axis's rest, the deadzone already applied (Y and Ry are
+    /// positive down). The hat is not an axis event: it arrives as the
+    /// d-pad buttons (`GamepadButton` codes 33..=36). Changes are coalesced
+    /// per drain: one event per axis, the newest value.
+    method GamepadAxis(device: U32 = 1, code: U32 = 2, value: I32 = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 16 oneway;
+    /// Event: a gamepad button changed (only the focused session receives
+    /// it). `code` is the HID button usage `1..=32`, or `33` d-pad up, `34`
+    /// down, `35` left, `36` right (the hat, one edge per direction;
+    /// diagonals press two). Edges are never merged.
+    method GamepadButton(device: U32 = 1, code: U32 = 2, pressed: Bool = 3, ts_ns: U64 = 4, seq: U64 = 5) -> () = 17 oneway;
+    /// Event: gamepad input arrived with this session's focus: read the
+    /// state page to seed. Sent whenever keyboard focus enters the session.
+    method GamepadEnter() -> () = 18 oneway;
+    /// Event: focus left. The client **must release every pad button** it
+    /// believes is down and centre the axes; the page was cleared first.
+    method GamepadLeave() -> () = 19 oneway;
 
     /// What happened to a key. Numeric values are the wire values.
     enum KeyState { Down, Up, Repeat }

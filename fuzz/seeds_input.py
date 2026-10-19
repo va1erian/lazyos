@@ -1,5 +1,5 @@
-"""Seeds for the input fuzz targets (`gen_corpus.py`): inputmap pointer
-scripts, USB HID descriptors, reports and report descriptors.
+"""Seeds for the input fuzz targets (`gen_corpus.py`): inputmap pointer and
+gamepad scripts, USB HID descriptors, reports and report descriptors.
 """
 import struct
 
@@ -54,6 +54,80 @@ def inputmap_pointer_seeds():
         "hostile": p_screen(1, 1) + p_raw(4, 0, 1) + p_raw(4, 6, 1) + p_raw(4, 1, 2) + p_raw(5, 2, 1)
         + p_raw(2, 1, 5) + p_raw(1, 4, 1) + p_raw(200, 0xFFFF, -1) + p_raw(5, 0, 0x7FFFFFFF),
         "degenerate_screen": p_screen(0, 0) + p_rel(100, 100, flush=True) + p_abs(0xFFFF, 0xFFFF),
+        "empty": b"",
+    }
+
+
+# ---- inputmap gamepad grammar -------------------------------------------------
+#
+# `libs/inputmap/src/fuzz_gamepad.rs`: ops, each a byte (low 7 bits mod 11
+# select it, bit 7 is a flag) and a device byte (low 3 bits), then:
+#   0/1 button: usage (mod 36), value (mod 3)
+#   2/3 axis: code - 0x2F (mod 12), then the hat's value (mod 11, minus 1) or an
+#       i16 (flag: an i32)
+#   4 register: class (mod 5); flag: its SOURCE record is lost
+#   5 close: class for the SOURCE record (mod 5); flag: record lost
+#   6 table read, 7 flush, 8 Dropped (resync, then a table read)
+#   9 pointer kind (2 + mod 4), code (mod 3), i32
+#   10 anything: kind, u16 code, i32 value
+
+G_BUTTON, G_AXIS, G_REGISTER, G_CLOSE, G_TABLE, G_FLUSH, G_DROPPED, G_RAW = 0, 2, 4, 5, 6, 7, 8, 10
+G_LOST = 0x80
+CLASS_POINTER, CLASS_TABLET, CLASS_GAMEPAD = 2, 3, 4
+AXIS_X, AXIS_Y, AXIS_HAT = 0x30, 0x31, 0x39
+
+
+def g_button(device, usage, value):
+    return bytes([G_BUTTON, device, usage, value])
+
+
+def g_axis(device, usage, value, wide=False):
+    code = usage - 0x2F
+    if usage == AXIS_HAT:
+        return bytes([G_AXIS, device, code, value + 1])
+    if wide:
+        return bytes([G_AXIS | G_LOST, device, code]) + struct.pack("<i", value)
+    return bytes([G_AXIS, device, code]) + struct.pack("<h", value)
+
+
+def g_register(device, cls, lost=False):
+    return bytes([G_REGISTER | (G_LOST if lost else 0), device, cls])
+
+
+def g_close(device, cls, lost=False):
+    return bytes([G_CLOSE | (G_LOST if lost else 0), device] + ([] if lost else [cls]))
+
+
+def g_raw(device, kind, code, value):
+    return bytes([G_RAW, device, kind]) + struct.pack("<Hi", code, value)
+
+
+def inputmap_gamepad_seeds():
+    table, flush, dropped = bytes([G_TABLE, 0]), bytes([G_FLUSH, 0]), bytes([G_DROPPED, 0])
+    return {
+        # A pad registers, is pressed, swept and released.
+        "basic_pad": g_register(1, CLASS_GAMEPAD) + g_button(1, 1, 1) + g_button(1, 32, 1)
+        + g_axis(1, AXIS_X, 32767) + g_axis(1, AXIS_Y, -32768) + g_axis(1, AXIS_HAT, 1) + flush
+        + g_axis(1, AXIS_HAT, 8) + g_axis(1, AXIS_X, 100) + g_button(1, 1, 0) + flush,
+        # A pad is unplugged (the SOURCE close is lost) and a mouse takes its id.
+        "unplug_reuse": g_register(2, CLASS_GAMEPAD) + g_button(2, 3, 1) + g_axis(2, AXIS_X, 20000)
+        + g_close(2, CLASS_GAMEPAD, lost=True) + g_register(2, CLASS_POINTER, lost=True) + table
+        + g_button(2, 1, 1) + g_button(2, 1, 0) + flush,
+        # The pad's SOURCE register is lost: only the table finds it.
+        "lost_source_gap": g_register(3, CLASS_GAMEPAD, lost=True) + g_button(3, 1, 1) + table
+        + g_button(3, 1, 1) + g_axis(3, AXIS_X, 30000) + dropped + g_button(3, 2, 1) + flush,
+        # Five pads on the bus: the fifth has no slot.
+        "pad_overflow": b"".join(g_register(d, CLASS_GAMEPAD) + g_button(d, 1, 1) for d in range(5))
+        + dropped + flush,
+        # The same id re-registered over a held pad, in the same class and another.
+        "reregister": g_register(4, CLASS_GAMEPAD) + g_button(4, 5, 1) + g_axis(4, AXIS_HAT, 3)
+        + g_register(4, CLASS_GAMEPAD) + g_button(4, 6, 1) + g_register(4, CLASS_TABLET)
+        + g_axis(4, AXIS_X, 1) + g_close(4, CLASS_TABLET),
+        # Out-of-range usages, values and codes, and kinds a pad may not publish.
+        "hostile": g_register(5, CLASS_GAMEPAD) + g_button(5, 0, 1) + g_button(5, 35, 1) + g_button(5, 1, 2)
+        + g_axis(5, AXIS_X, 2147483647, wide=True) + g_axis(5, AXIS_HAT, 9) + g_raw(5, 2, 0, 1)
+        + g_raw(5, 3, 0, 1) + g_raw(5, 5, 0, 1) + g_raw(5, 10, 4, 7) + g_raw(5, 10, 300, 1)
+        + g_raw(5, 10, 0, 1) + g_raw(5, 9, 0x2dc8, 1) + g_raw(5, 200, 0xFFFF, -1) + flush,
         "empty": b"",
     }
 
