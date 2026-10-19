@@ -172,12 +172,22 @@ impl Gamepads {
         }
     }
 
-    /// The bus opened: read the table and apply it at once, before any record
-    /// is handled (what is queued so far was published after the open, and
-    /// the pads already plugged in are only known from the table).
+    /// Before the bus is opened: read the table and apply it at once, so the
+    /// pads already plugged in are known when the first record is handled
+    /// (`SOURCES` needs `CAP_INPUT_RAW` only, not a ring). Nothing is queued
+    /// for us yet, so there is no stream for the table to run ahead of.
     pub(super) fn start(&mut self) {
         self.read_table();
         self.settle();
+    }
+
+    /// Right after the bus opened: read the table again and *hold* it. What
+    /// the ring collected since the open (and what the rest of the start-up
+    /// lets pile up) is exactly the stream a table read now runs ahead of, and
+    /// the first read cannot know what changed between it and the open; this
+    /// one is applied where the stream reaches it, like any other.
+    pub(super) fn opened(&mut self) {
+        self.read_table();
     }
 
     /// The bus lost records: release and centre the pads, then find out which
@@ -345,6 +355,10 @@ impl<'a> Resyncer<'a> {
 impl Resync for Resyncer<'_> {
     fn keyboard_enter(&self) -> Option<Vec<u8>> {
         keyboard_enter(self.engine)
+    }
+
+    fn focused(&self, session: u64) -> bool {
+        self.focused == Some(session)
     }
 
     fn pad_events(&self, session: u64) -> bool {

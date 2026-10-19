@@ -29,7 +29,7 @@
 
 use alloc::vec::Vec;
 
-use super::route::{Change, Classifier, Route, SourceEntry};
+use super::route::{Change, Classifier, Route, SourceEntry, GAMEPAD_CLASS};
 use super::{Gamepad, PadOut, RawPad};
 
 /// What happened to a pad's slot, for the service's trace.
@@ -83,8 +83,27 @@ impl Pads {
     }
 
     /// Where a `BUTTON`, `AXIS` or pointer record of `device` goes.
+    ///
+    /// Fail safe while a table is held: a device the classifier knows nothing
+    /// of, but which the held table lists as a gamepad, is a pad whose
+    /// `SOURCE` record was lost, so its records are dropped rather than given
+    /// to the cursor (a missed press beats a stray click). A device the stream
+    /// has classified keeps its class: records before the table's cut are
+    /// that source's, whatever the table says of its successor.
     pub fn route(&self, device: u8, kind: u8) -> Route {
-        self.classifier.route(device, kind)
+        match self.classifier.route(device, kind) {
+            Route::Pointer if self.held_pad(device) => Route::Drop,
+            route => route,
+        }
+    }
+
+    fn held_pad(&self, device: u8) -> bool {
+        !self.classifier.is_known(device)
+            && self.held.as_ref().is_some_and(|held| {
+                held.entries
+                    .iter()
+                    .any(|e| e.device == device && e.class == GAMEPAD_CLASS)
+            })
     }
 
     /// A record [`route`](Pads::route) sent to [`Route::Pad`].

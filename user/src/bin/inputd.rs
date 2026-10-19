@@ -81,7 +81,15 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn run() -> Result<(), &'static str> {
+    let mut hub = hub::Hub::new(config::default_layout());
+    // Who is a pad is the kernel's to say: read its table before the bus is
+    // opened and apply it at once, so pads already plugged in are known to the
+    // first record. (A `SOURCE` record from before the open is not in the
+    // ring.) A second read right after the open is held and applied in step
+    // with the stream: it covers what changed between the first and the open.
+    hub.gamepads.start();
     let mut source = source::Source::open().map_err(|_| "cannot open the raw input bus")?;
+    hub.gamepads.opened();
     // One endpoint serves both interfaces. The loop parks on it and on the raw
     // bus together (`wait_any`), so a request is answered and a key or a
     // pointer move handled the moment it arrives (docs/performance-plan.md
@@ -96,12 +104,8 @@ fn run() -> Result<(), &'static str> {
     // app's one-shot input session open cannot race the registration above
     // (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
-    let mut hub = hub::Hub::new(config::default_layout());
     let mut config = config::Config::new();
     let mut trace = trace::Trace::from_args();
-    // Who is a pad is the kernel's to say: read its table now that the bus is
-    // ours (a `SOURCE` record from before this is not in the ring).
-    hub.gamepads.start();
     let mut outputs: Vec<Output> = Vec::new();
     let mut pointer_outputs: Vec<PointerOut> = Vec::new();
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];

@@ -98,6 +98,11 @@ impl Classifier {
         self.rejected
     }
 
+    /// Whether anything is known of `device`'s class.
+    pub fn is_known(&self, device: u8) -> bool {
+        self.known[usize::from(device)].class != 0
+    }
+
     /// Whether `device` is a known gamepad.
     pub fn is_pad(&self, device: u8) -> bool {
         self.known[usize::from(device)].class == GAMEPAD_CLASS

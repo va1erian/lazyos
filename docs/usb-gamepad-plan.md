@@ -448,7 +448,11 @@ The verdict is what the guest *did*, as with keyboard, mouse and tablet.
    and needs the same care as any holder of it. (d) Across a `Dropped` gap
    the classifier is wrong for a device whose `SOURCE` records were lost until
    the fresh table is applied (the end of that drain): such a device's queued
-   records are classified from the stream alone.
+   records are classified from the stream alone. It fails safe where it can: a
+   device the stream has not classified but the held table lists as a gamepad
+   has its records dropped, not given to the cursor (a missed press beats a
+   stray click); a device the stream classified keeps that class until the
+   table is applied.
 
 ## Suggested order of work
 

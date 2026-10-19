@@ -92,8 +92,10 @@ fn the_table_applies_at_the_first_record_at_or_beyond_its_cut() {
     rig.seq = 8;
     rig.hold(&[(3, GAMEPAD_CLASS, 1)], 10);
     assert!(rig.pads.has_held_table());
-    // seq 9 is below the cut: the stream alone classifies it (unknown).
-    assert_eq!(rig.button(3, 1, true), Route::Pointer);
+    // seq 9 is below the cut: the stream alone classifies it (unknown), and
+    // the held table says a pad, so it is dropped rather than clicked.
+    assert_eq!(rig.button(3, 1, true), Route::Drop);
+    assert_eq!(rig.cursor.buttons(), 0);
     assert!(rig.pads.has_held_table(), "applied too early");
     assert_eq!(rig.pads.applied_table(), 0);
     // seq 10 is the cut: the table first, then the record.
@@ -227,4 +229,32 @@ fn a_refused_pad_gets_a_slot_when_another_pad_leaves() {
         (30, GAMEPAD_CLASS, 1),
     ]);
     assert!(rig.pads.engine().pad(30).is_some(), "13 left, 30 follows");
+}
+
+/// While a table is held, a device it lists as a pad but the stream has not
+/// classified (its `SOURCE` was lost) is not given to the cursor.
+#[test]
+fn a_device_the_held_table_calls_a_pad_never_clicks_before_it_applies() {
+    let mut rig = Rig::new();
+    rig.hold(&[(3, GAMEPAD_CLASS, 1)], 50);
+    assert_eq!(rig.button(3, 1, true), Route::Drop);
+    assert_eq!(rig.bus(3, raw::AXIS, 0x30, 30000), Route::Drop);
+    assert_eq!(
+        rig.bus(3, 2, 0, 0x0001_0001),
+        Route::Drop,
+        "pointer motion too"
+    );
+    assert_eq!(rig.cursor.buttons(), 0);
+    assert!(rig.cursor_out.is_empty());
+    // Other unknown devices keep pointer routing.
+    assert_eq!(rig.button(4, 1, true), Route::Pointer);
+    // A device the stream classified as a pointer keeps its class, whatever
+    // the table (read after a pad took the slot) says.
+    rig.source(5, POINTER, true);
+    rig.hold(&[(3, GAMEPAD_CLASS, 1), (5, GAMEPAD_CLASS, 2)], 60);
+    assert_eq!(rig.button(5, 1, false), Route::Pointer);
+    // Once applied the classifier knows and the hold is off.
+    rig.settle();
+    assert_eq!(rig.button(3, 2, true), Route::Pad);
+    assert!(!rig.pads.has_held_table());
 }

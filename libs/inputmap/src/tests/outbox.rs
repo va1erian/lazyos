@@ -189,3 +189,34 @@ fn soak_a_stalled_client_drops_in_counted_whole_backlogs() {
     assert_eq!(64 + outbox.len() + dropped, total as usize);
     assert!(dropped > 0);
 }
+
+#[test]
+fn a_resync_enters_only_the_session_that_has_focus() {
+    use crate::outbox::{resync_steps, Step::*};
+    assert_eq!(
+        resync_steps(true, false),
+        [KeyboardLeave, KeyboardEnter],
+        "a keyboard-only client"
+    );
+    assert_eq!(
+        resync_steps(true, true),
+        [KeyboardLeave, KeyboardEnter, PadsLeave, PadsEnter]
+    );
+    // Focus moved on after the overflow: it only learns what it lost.
+    assert_eq!(resync_steps(false, false), [KeyboardLeave]);
+    assert_eq!(resync_steps(false, true), [KeyboardLeave, PadsLeave]);
+    // Whatever the focus, a Leave comes before its Enter and an Enter never
+    // comes without its Leave, nor to a session that does not have the focus.
+    for focused in [false, true] {
+        for pads in [false, true] {
+            let steps = resync_steps(focused, pads);
+            for (leave, enter) in [(KeyboardLeave, KeyboardEnter), (PadsLeave, PadsEnter)] {
+                let at = |s| steps.iter().position(|&x| x == s);
+                assert_eq!(at(enter).is_some(), focused && at(leave).is_some());
+                if let (Some(l), Some(e)) = (at(leave), at(enter)) {
+                    assert!(l < e);
+                }
+            }
+        }
+    }
+}
