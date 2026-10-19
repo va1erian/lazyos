@@ -130,6 +130,7 @@ impl Backend for TestBackend {
         set_capture(id: WidgetId);
         release_capture();
         focus(id: WidgetId);
+        focus_holder(window: WindowId) -> Option<WidgetId>;
         set_text(id: WidgetId, text: &str);
         set_cue(id: WidgetId, cue: &str);
         text(id: WidgetId) -> String;

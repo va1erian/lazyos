@@ -15,6 +15,7 @@ use xui_core::{Rect, Theme};
 use crate::client_window::{self, ClientWindow, OpenError, SurfaceRole};
 use crate::sys;
 
+use super::focus::focus_stop;
 use super::{moves, LazyOSBackend, Mode, Node, Timer, Window, DEFAULT_DPI, POLL_MILLIS};
 
 impl Backend for LazyOSBackend {
@@ -202,6 +203,7 @@ impl Backend for LazyOSBackend {
                 enabled: spec.enabled,
                 focus_stop: focus_stop(spec),
                 wants_tab: spec.wants_tab,
+                popup: spec.popup,
                 clip: None,
                 text: spec.text.clone(),
                 painter: None,
@@ -348,6 +350,10 @@ impl Backend for LazyOSBackend {
         self.set_focus(id);
     }
 
+    fn focus_holder(&self, window: WindowId) -> Option<WidgetId> {
+        LazyOSBackend::focus_holder(self, window)
+    }
+
     fn set_text(&self, id: WidgetId, text: &str) {
         self.with_node(id, |node| node.text = text.to_string());
     }
@@ -474,23 +480,4 @@ impl Backend for LazyOSBackend {
     fn set_clipboard_text(&self, text: &str) {
         crate::platform::clipboard::set_text(text);
     }
-}
-
-/// Whether a node joins click-focus and the focus cycle: the explicit Tab
-/// order, plus the button-like controls xui marks as focusable at the platform
-/// layer but not as tab stops.
-fn focus_stop(spec: &NodeSpec) -> bool {
-    spec.tab_stop
-        || matches!(
-            spec.kind,
-            NodeKind::Button
-                | NodeKind::CheckBox
-                | NodeKind::Radio
-                | NodeKind::Slider
-                | NodeKind::ListView
-                | NodeKind::TreeView
-                | NodeKind::Toolbar
-                | NodeKind::Tabs
-                | NodeKind::ComboBox
-        )
 }

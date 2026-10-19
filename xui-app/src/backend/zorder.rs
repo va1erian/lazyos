@@ -80,6 +80,7 @@ mod tests {
             enabled: true,
             focus_stop: false,
             wants_tab: false,
+            popup: false,
             text: String::new(),
             painter: None,
             clip: None,
