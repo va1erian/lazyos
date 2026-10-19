@@ -1,0 +1,16 @@
+insmod part_gpt
+insmod ext2
+set lz=0
+search --no-floppy --fs-uuid --set=lzsys @SYSTEM_FS_UUID@
+if [ -n "$lzsys" ]; then
+  load_env -f ($lzsys)/releases/grubenv lazyos_boots
+  if   [ "$lazyos_boots" = 4 ]; then set lazyos_boots=3; set lz=1
+  elif [ "$lazyos_boots" = 3 ]; then set lazyos_boots=2; set lz=1
+  elif [ "$lazyos_boots" = 2 ]; then set lazyos_boots=1; set lz=1
+  elif [ "$lazyos_boots" = 1 ]; then set lazyos_boots=0; set lz=1
+  fi
+  if [ "$lz" = 1 ]; then
+    save_env -f ($lzsys)/releases/grubenv lazyos_boots
+    set default=lazyos; set timeout_style=menu; set timeout=5
+  fi
+fi

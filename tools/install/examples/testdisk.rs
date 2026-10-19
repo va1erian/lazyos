@@ -5,6 +5,8 @@
 //! testdisk disk OUT.img [--esp MIB] [--system MIB] [--home MIB]
 //! testdisk esp-put DISK.img SRC DST       # a host file onto the image's ESP
 //! testdisk esp-get DISK.img PATH OUT      # a file of the image's ESP to the host
+//! testdisk grubenv-get DISK.img OUT      # /releases/grubenv of the system volume (U2a)
+//! testdisk grubenv-put DISK.img SRC      # overwrite it in place (1024 bytes)
 //! testdisk unpack-stick STICK.img DIR     # the stick's FAT partition into DIR
 //! testdisk check DISK.img                 # both LazyOS volumes: checker, contents
 //! ```
@@ -60,6 +62,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 .ok_or_else(|| format!("no {path} on the ESP"))?;
             std::fs::write(out, bytes).map_err(|e| format!("{out}: {e}"))
         }
+        Some("grubenv-get") => {
+            let [_, disk, out] = args else {
+                return Err("grubenv-get DISK.img OUT".into());
+            };
+            std::fs::write(out, testdisk::grubenv_get(Path::new(disk))?)
+                .map_err(|e| format!("{out}: {e}"))
+        }
+        Some("grubenv-put") => {
+            let [_, disk, src] = args else {
+                return Err("grubenv-put DISK.img SRC".into());
+            };
+            let bytes = std::fs::read(src).map_err(|e| format!("{src}: {e}"))?;
+            testdisk::grubenv_put(Path::new(disk), &bytes)
+        }
         Some("check") => {
             let [_, disk] = args else {
                 return Err("check DISK.img".into());
@@ -76,6 +92,9 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("{count} files into {dir}");
             Ok(())
         }
-        _ => Err("usage: testdisk disk|esp-put|esp-get|unpack-stick|check ...".into()),
+        _ => Err(
+            "usage: testdisk disk|esp-put|esp-get|grubenv-get|grubenv-put|unpack-stick|check ..."
+                .into(),
+        ),
     }
 }

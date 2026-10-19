@@ -39,3 +39,10 @@ menu shows when you hold Shift or press Esc at power-on.
 
 40_lazyos.in is the GRUB entry the installer writes, for adding it by hand
 (replace @ESP_UUID@ with the ESP's FAT serial, from `blkid`).
+
+U2a spike (docs/update-plan.md decision 6): `lazyos-install --image DISK --test-grubenv 4`
+(test mode only) creates /releases/grubenv on the system volume and puts the
+boot-counting snippet (grubenv.in) before the GRUB entry. `python
+tools/install/grubenv_run.py` boots the disk under OVMF through real GRUB and
+judges the countdown and the corrupt-value default from the host
+(grubenv_judge.py, test_grubenv_judge.py).

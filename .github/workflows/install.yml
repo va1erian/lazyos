@@ -12,6 +12,7 @@ on:
     paths:
       - "tools/install/**"
       - "libs/gpt/**"
+      - "libs/fhs/src/boot.rs"
       - "kernel/src/block/**"
       - "kernel/src/fs/mounts.rs"
       - "vendor/bootloader/uefi/**"
@@ -54,10 +55,16 @@ jobs:
         run: python tools/xui/build.py
 
       - name: The judge fails when it should
-        run: python tools/install/test_judge.py
+        run: |
+          python tools/install/test_judge.py
+          python tools/install/test_grubenv_judge.py
 
       - name: Install and boot (GRUB)
         run: python tools/install/run.py --via grub
+
+      # docs/update-plan.md U2a: GRUB counts trial boots in /releases/grubenv.
+      - name: Boot counting in the GRUB environment block (U2a)
+        run: python tools/install/grubenv_run.py --no-build
 
       - uses: actions/upload-artifact@v4
         if: always()

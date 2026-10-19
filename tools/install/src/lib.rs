@@ -41,6 +41,7 @@ mod usb_stick;
 pub mod args;
 pub mod esp;
 pub mod grub;
+pub mod grubenv;
 #[cfg(unix)]
 pub mod linux;
 pub mod payload;

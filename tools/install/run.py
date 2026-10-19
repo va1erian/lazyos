@@ -149,7 +149,7 @@ def make_disk(args, out: Path) -> Path:
     (out / "stub.cfg").write_text(STUB_CFG)
     (out / "grub.cfg").write_text(GRUB_CFG)
     run(["grub-mkstandalone", "-O", "x86_64-efi", "-o", out / "BOOTX64.EFI",
-         "--modules=part_gpt fat chain search configfile normal loadenv echo halt serial sleep test",
+         "--modules=part_gpt ext2 fat chain search configfile normal loadenv echo halt serial sleep test",
          f"boot/grub/grub.cfg={out / 'stub.cfg'}"])
     run([TESTDISK, "esp-put", disk, out / "BOOTX64.EFI", "EFI/BOOT/BOOTX64.EFI"])
     run([TESTDISK, "esp-put", disk, out / "grub.cfg", "EFI/BOOT/grub.cfg"])

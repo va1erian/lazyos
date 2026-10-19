@@ -129,16 +129,25 @@ impl Linux {
 }
 
 /// Test mode: the entry in `<dir>/custom.cfg` on the image's ESP.
-pub fn register_image(esp: &mut ImageEsp, dir: &str, serial: &str) -> Result<String, String> {
+///
+/// `counting` is the boot-counting snippet (U2a), put before the entry.
+pub fn register_image(
+    esp: &mut ImageEsp,
+    dir: &str,
+    serial: &str,
+    counting: Option<&str>,
+) -> Result<String, String> {
     let path = format!("{dir}/custom.cfg");
     let old = esp
         .read(&path)?
         .map(|b| String::from_utf8_lossy(&b).into_owned())
         .unwrap_or_default();
-    esp.write_file(
-        &path,
-        plan::with_block(&old, &plan::menu_entry(serial)?).as_bytes(),
-    )?;
+    let entry = format!(
+        "{}{}",
+        counting.unwrap_or_default(),
+        plan::menu_entry(serial)?
+    );
+    esp.write_file(&path, plan::with_block(&old, &entry).as_bytes())?;
     Ok(format!("added the entry to {path} on the image's ESP"))
 }
 
