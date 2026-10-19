@@ -22,17 +22,13 @@
 //!   global ceiling, so a process cannot park an unbounded number of open
 //!   files in a socket it never reads (`ETOOMANYREFS`).
 //!
-//! A socket end sent through its own pair, or a socket whose queue already
-//! holds descriptors, is refused (`ETOOMANYREFS`), and so is a listener with
-//! such a connection pending and every epoll instance: each is the edge that
-//! can close a cycle of sockets carrying each other, which nothing would ever
-//! read or purge, leaking the in-flight budget for the rest of the boot.
-//! Linux reclaims such cycles with a garbage collector; there is none here,
-//! and a connection socket is sent with an empty queue (WebKit's pattern),
-//! which the rule allows ([`Rights::would_cycle`]). The check runs under the
-//! destination ring's lock at the moment the message is queued, so a send
-//! that waited for room re-checks when it resumes: what travelled through
-//! the carried pair while it slept counts.
+//! A send that would close a cycle of sockets carrying each other (a socket
+//! end through its own pair, or through any pair its queue leads back to) is
+//! refused with `ETOOMANYREFS`, and so is every epoll instance: nothing would
+//! ever read or purge such a cycle ([`super::reach`] has the exact rule). The
+//! check is made each time the message is about to be queued, so a send that
+//! waited for room re-checks when it resumes: what travelled through the
+//! carried pair while it slept counts.
 //!
 //! Locking: descriptors are dropped only with the ring unlocked, since
 //! closing a socket or pipe end takes other rings' locks and wakes queues.
@@ -106,27 +102,9 @@ impl Rights {
         self.fds.len()
     }
 
-    /// Whether queueing these descriptors on `dest` could close a cycle of
-    /// sockets carrying each other: one of them is an end of `dest` itself,
-    /// or of a pair whose queue already holds descriptors. A cycle needs
-    /// every pair in it to carry one, so its last edge always starts from a
-    /// pair that already carries, and refusing that edge keeps the graph a
-    /// forest without a collector.
-    ///
-    /// Descriptors that *contain* sockets count by what they contain: a
-    /// listener holds the server half of every connection nobody accepted yet
-    /// (a connection that is `dest` is the edge `dest -> listener -> dest`),
-    /// and an epoll instance holds each descriptor it watches. An epoll can
-    /// gain a watched socket after it is in flight (`epoll_ctl` on a copy that
-    /// stays in a table), so there is no moment at which its content could be
-    /// checked once: it does not travel at all.
-    pub fn would_cycle(&self, dest: &SocketPair) -> bool {
-        self.fds.iter().any(|fd| match fd {
-            Fd::Socket { pair, .. } => core::ptr::eq(&**pair, dest) || pair.carries_rights(),
-            Fd::UnixListener { listener } => listener.pending_reaches(dest),
-            Fd::Epoll { .. } => true,
-            _ => false,
-        })
+    /// The descriptors this carries.
+    pub(super) fn fds(&self) -> &[Fd] {
+        &self.fds
     }
 
     /// The descriptors, handed to their new owner; the in-flight charge ends.
@@ -243,9 +221,9 @@ impl Pipe {
     /// [`Pipe::write_until`] that also queues `rights` beside the bytes it
     /// stores. `rights` is left in place when nothing was stored (an error),
     /// for the caller to close. `guard` is the socket pair this pipe is a
-    /// direction of: with descriptors to queue, [`Rights::would_cycle`] is
-    /// asked under the ring lock, right before they are queued, and refuses
-    /// with [`Error::TooManyRefs`].
+    /// direction of: descriptors that would close a cycle of sockets
+    /// ([`super::reach`]) are refused with [`Error::TooManyRefs`], checked on
+    /// every attempt, so a send that slept for room checks again.
     pub fn write_rights(
         &self,
         src: &[u8],
@@ -264,6 +242,19 @@ impl Pipe {
             return Ok(0);
         }
         loop {
+            // Descriptors that hold sockets add edges to the graph of sockets
+            // in flight: checked under the graph lock, held until they are
+            // queued (`reach`). `held` keeps what the walk met alive until
+            // every lock is released (declared first, it is dropped last).
+            let mut held = Vec::new();
+            let graph = match reach::admit(rights.as_ref(), guard, &mut held) {
+                Ok(graph) => graph,
+                Err(why) => {
+                    drop(held);
+                    reach::note_refusal(why);
+                    return Err(Error::TooManyRefs);
+                }
+            };
             {
                 let mut ring = self.state.lock();
                 if self.readers.load(Ordering::Acquire) == 0 {
@@ -273,16 +264,6 @@ impl Pipe {
                     return Err(Error::MessageTooLong);
                 }
                 if self.space_for(&ring, src.len()) {
-                    // Decided here, with the ring locked and room found, so
-                    // a send that slept for room sees the queues as they are
-                    // now. The carried pairs' rings are other pipes' locks
-                    // (a pair's own ends are refused before any lock is
-                    // taken), and nothing else runs with this one held.
-                    if let (Some(carried), Some(pair)) = (rights.as_ref(), guard) {
-                        if carried.would_cycle(pair) {
-                            return Err(Error::TooManyRefs);
-                        }
-                    }
                     let was_empty = !ring.has_data();
                     let start = ring.total_in;
                     let n = ring.fill_from(src);
@@ -301,6 +282,7 @@ impl Pipe {
                         });
                     }
                     drop(ring);
+                    drop(graph);
                     self.read_events.fetch_add(1, Ordering::AcqRel);
                     self.read_wq.notify_all();
                     crate::task::notify_poll_key(self as *const Self as u64);
@@ -311,6 +293,8 @@ impl Pipe {
             if nonblock {
                 return Err(Error::WouldBlock);
             }
+            drop(graph);
+            drop(held);
             block_on(&self.write_wq, deadline)?;
         }
     }
@@ -435,6 +419,15 @@ impl Pipe {
         drop(records);
     }
 
+    /// Call `each` with every descriptor queued, under the ring lock, until it
+    /// answers false; whether it never did.
+    pub(super) fn queued_fds(&self, each: &mut dyn FnMut(&Fd) -> bool) -> bool {
+        let ring = self.state.lock();
+        ring.records
+            .iter()
+            .all(|record| record.rights.fds.iter().all(&mut *each))
+    }
+
     /// Messages with descriptors queued.
     pub fn queued_rights(&self) -> usize {
         self.state.lock().records.len()
@@ -487,7 +480,8 @@ impl SocketPair {
         self.directions(side).0.queued_rights()
     }
 
-    /// Whether either direction holds descriptors in flight.
+    /// Whether either direction holds descriptors in flight (test observable).
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn carries_rights(&self) -> bool {
         let (read, write) = self.directions(Side::A);
         read.queued_rights() + write.queued_rights() > 0

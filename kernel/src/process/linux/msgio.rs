@@ -186,7 +186,7 @@ pub(super) fn sys_sendmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     let mut rights = if header.control != 0 && header.controllen != 0 {
         match scm::parse_send(header.control, header.controllen) {
             Ok(rights) => rights,
-            Err(code) => return code,
+            Err(code) => return scm::note_quota(code),
         }
     } else {
         None

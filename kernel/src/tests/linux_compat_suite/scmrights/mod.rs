@@ -10,12 +10,16 @@ use crate::quota::{self, Resource};
 mod blocked;
 mod containers;
 mod delivery;
+mod graph;
 mod queue;
+mod reach;
 
 pub use blocked::*;
 pub use containers::*;
 pub use delivery::*;
+pub use graph::*;
 pub use queue::*;
+pub use reach::*;
 
 const SENDMSG: u64 = 46;
 const RECVMSG: u64 = 47;

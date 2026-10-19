@@ -283,6 +283,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
         scmrights_blocked_send_revalidates,
     ),
     ("compat_scmrights_soak", scmrights_soak),
+    (
+        "compat_scmrights_carrying_pair_travels",
+        scmrights_carrying_pair_travels,
+    ),
+    (
+        "compat_scmrights_carrying_pair_soak",
+        scmrights_carrying_pair_soak,
+    ),
+    (
+        "compat_scmrights_random_graph_soak",
+        scmrights_random_graph_soak,
+    ),
+    ("compat_scmrights_walk_bound", scmrights_walk_bound),
     ("compat_memfd_file_operations", memfd_file_operations),
     (
         "compat_memfd_shared_between_spaces",

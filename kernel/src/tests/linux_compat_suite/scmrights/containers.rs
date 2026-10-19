@@ -121,8 +121,9 @@ pub fn scmrights_epoll_cycle_soak() -> Result<(), String> {
 }
 
 /// A listener with a connection pending cannot be sent through that
-/// connection (it holds the connection's other half), but travels through
-/// anything else, and a listener nobody connected to is free to go.
+/// connection (it holds the connection's other half), nor through a pair that
+/// connection carries; it travels through anything else, and a listener
+/// nobody connected to is free to go.
 pub fn scmrights_listener_pending_connection() -> Result<(), String> {
     let pipes_before = pipe::Pipe::live();
     let p = processes()?;
@@ -149,15 +150,26 @@ pub fn scmrights_listener_pending_connection() -> Result<(), String> {
         got.fds.len()
     );
     close(got.fds[0]);
-    // Once a pending connection carries descriptors itself, the listener that
-    // holds it cannot travel either: it would be a node of a cycle.
+    // A pending connection that carries descriptors does not pin the
+    // listener: it travels unless what the connection carries leads back.
     check!(
         send_fds(client, b"c", &[p.sa]) == 1,
         "the pending connection carries an idle pair"
     );
     check!(
-        send_fds(p.a, b"l", &[listener]) == ETOOMANYREFS,
+        send_fds(p.a, b"l", &[listener]) == 1,
         "a listener holding a carrying connection through an unrelated pair"
+    );
+    let got = recv_fds(p.b, &mut buf, Some(4), 0);
+    check!(
+        got.n == 1 && got.fds.len() == 1,
+        "receive the listener again: n={:#x}",
+        got.n
+    );
+    close(got.fds[0]);
+    check!(
+        send_fds(p.sa, b"l", &[listener]) == ETOOMANYREFS,
+        "a listener through the pair its pending connection carries"
     );
     for fd in [listener, client, p.a, p.b, p.sa, p.sb, p.r, p.w] {
         close(fd);

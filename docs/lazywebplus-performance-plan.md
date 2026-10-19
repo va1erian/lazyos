@@ -685,5 +685,8 @@ and alt-svc waits were found. `LOCK:WAIT` gained `held_in=`. `INFO:SMOOTH` and `
 2. **Whole frames on webkit.org.** 3 to 4 a second still reach the window while scrolling (the animation and the
    scroll in one update), and drawing one costs 50-80 ms at this size: the long gaps that remain. Keep the delta
    when an update both scrolls and repaints, or composite the animated element apart.
-3. **Two hangs seen once each, not reproduced**: input stopped reaching the window after Ars Technica loaded (the
-   input services alive), and a WebProcess waited for good in `GetNetworkProcessConnection` at startup.
+3. **Two hangs seen once each.** A WebProcess waiting for good in `GetNetworkProcessConnection` at startup was the
+   kernel refusing WebKit's hand-off of a new NetworkProcess connection whose queue already held a handle
+   (`SCM_RIGHTS`, `ETOOMANYREFS`, issue #865). The cycle check is now exact (`kernel/src/ipc/pipe/reach.rs`), and
+   `python tools/webplus/relaunch_run.py` closes and starts the browser until it would show again. Still open:
+   input stopped reaching the window after Ars Technica loaded (the input services alive), not reproduced.

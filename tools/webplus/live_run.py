@@ -64,6 +64,9 @@ def live_session(urls: list[str], wait: float, timeout: float, scroll: float = 0
 #: SIGILL, SIGABRT, SIGBUS, SIGFPE, SIGSEGV: a program that ended by one of these crashed.
 CRASH_SIGNALS = (4, 6, 7, 8, 11)
 BROWSER_PROGRAMS = ("lazywebplus.elf", "webprocess", "networkprocess", "WebProcess", "NetworkProcess")
+#: An execve of a 100 MB browser program can hold the ext2 lock (or run in the kernel) for seconds: the known
+#: start-up cost, not a hang, below this many milliseconds (the slowest seen took about 9 s).
+EXECVE_MS = 15000
 
 
 def verdict(text: str) -> tuple[list[str], list[str]]:
@@ -80,13 +83,20 @@ def verdict(text: str) -> tuple[list[str], list[str]]:
     for tgid, sig, comm in re.findall(r"PROC:EXIT tgid=(\d+) \S+ status=\S+ sig=(\d+) \S+ \S+ \S+ comm=(\S+)", text):
         if int(sig) in CRASH_SIGNALS and comm in BROWSER_PROGRAMS:
             hang.append(f"{comm} (tgid {tgid}) died of signal {sig}")
-    waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) .*? ms=(\d+) comm=(\S+)", text)
-    for lock, holder, thread, ms, comm in waits:
-        if int(ms) >= 500:
+    waits = re.findall(r"LOCK:WAIT lock=(\w+) holder=(\S+) thread=(\S+) (.*?) ms=(\d+) comm=(\S+)", text)
+    for lock, holder, thread, middle, ms, comm in waits:
+        execve = "held_in=linux:59 " in middle + " "
+        if int(ms) >= 500 and not (execve and int(ms) < EXECVE_MS):
             hang.append(f"{comm} waited {ms} ms for {lock}, held by {holder}")
     for line in re.findall(r"SCHED:STUCK [^\n]*", text):
-        if "abi=linux nr=59 " not in line:  # a slow execve of a 100 MB program is the known start-up cost
+        ms = re.search(r" ms=(\d+)", line)
+        if not ("abi=linux nr=59 " in line and ms and int(ms.group(1)) < EXECVE_MS):
             hang.append(line[:160])
+    # A refused SCM_RIGHTS send: WebKit drops that message (issue #865, a page waiting for good).
+    for line in re.findall(r"PROC:SCM:REFUSE [^\n]*", text):
+        hang.append(line.strip())
+    if "Error sending IPC message" in text:
+        hang.append("WebKit lost an IPC message to a failed sendmsg (Error sending IPC message)")
     fall = re.findall(r"ENOSYS 285 fallocate count=(\d+)", text)
     if fall:
         facts.append(f"fallocate answered ENOSYS {fall[-1]} times")

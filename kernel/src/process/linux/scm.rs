@@ -181,3 +181,13 @@ pub(super) fn deliver(
         flags,
     })
 }
+
+/// `code` as it is, after reporting it (`PROC:SCM:REFUSE why=quota`) when it
+/// is the `ETOOMANYREFS` of a spent in-flight budget. The other refusals are
+/// reported where they are decided (`ipc::pipe::reach`).
+pub(super) fn note_quota(code: u64) -> u64 {
+    if code == err(ETOOMANYREFS) {
+        crate::ipc::pipe::note_refusal(crate::ipc::pipe::Refusal::Quota);
+    }
+    code
+}

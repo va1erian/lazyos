@@ -2,7 +2,7 @@
 
 use super::*;
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 
 /// A pair of cross-connected pipes: each side reads what the other writes.
 ///
@@ -23,6 +23,8 @@ pub struct SocketPair {
     nonblock: [AtomicBool; 2],
     /// Shut directions per side: bit 0 = `SHUT_RD`, bit 1 = `SHUT_WR`.
     shut: [AtomicU8; 2],
+    /// The last `SCM_RIGHTS` cycle walk that met this pair (`reach.rs`).
+    pub(super) walk: AtomicU64,
 }
 
 /// `shutdown(2)` direction bits.
@@ -65,6 +67,7 @@ impl SocketPair {
             open: [AtomicUsize::new(0), AtomicUsize::new(0)],
             nonblock: [AtomicBool::new(false), AtomicBool::new(false)],
             shut: [AtomicU8::new(0), AtomicU8::new(0)],
+            walk: AtomicU64::new(0),
         })
     }
 
