@@ -7,6 +7,8 @@
 
 #[path = "../accounts_seed.rs"]
 mod accounts_seed;
+#[path = "../agent_embed.rs"]
+mod agent_embed;
 #[path = "../assets_embed.rs"]
 mod assets_embed;
 #[path = "../ca_bundle.rs"]
@@ -19,8 +21,6 @@ mod docs_embed;
 mod gen9gfx_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
-#[path = "../agent_embed.rs"]
-mod agent_embed;
 #[path = "../lazysky_embed.rs"]
 mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
@@ -61,6 +61,8 @@ mod wifi_embed;
 #[cfg(test)]
 mod accounts_tests;
 #[cfg(test)]
+mod agent_tests;
+#[cfg(test)]
 mod assets_tests;
 #[cfg(test)]
 mod bench_tests;
@@ -78,8 +80,6 @@ mod gen9gfx_tests;
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
-#[cfg(test)]
-mod agent_tests;
 #[cfg(test)]
 mod lazysky_tests;
 #[cfg(test)]

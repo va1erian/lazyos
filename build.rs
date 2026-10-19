@@ -9,6 +9,8 @@ use std::path::PathBuf;
 
 #[path = "build_support/accounts_seed.rs"]
 mod accounts_seed;
+#[path = "build_support/agent_embed.rs"]
+mod agent_embed;
 #[path = "build_support/assets_embed.rs"]
 mod assets_embed;
 #[path = "build_support/busybox_embed.rs"]
@@ -33,8 +35,6 @@ mod evidence_embed;
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
-#[path = "build_support/agent_embed.rs"]
-mod agent_embed;
 #[path = "build_support/lazysky_embed.rs"]
 mod lazysky_embed;
 #[path = "build_support/lazyweb_embed.rs"]
