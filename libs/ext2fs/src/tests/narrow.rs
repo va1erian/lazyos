@@ -266,3 +266,37 @@ fn renaming_an_unsynced_file_never_exposes_stale_bytes() {
         }
     }
 }
+
+/// Inodes beyond group 0: the inode-table mapping of a patched write. A
+/// 64 MiB image has eight groups of 512 inodes; the files synced here have
+/// numbers past the first group, beside a neighbour whose data stays dirty.
+#[test]
+fn sync_file_patches_the_right_inode_in_a_later_group() {
+    let disk = formatted(64 << 20, 1024);
+    let fs = Ext2::open_cached(
+        Box::new(disk.clone()),
+        clock,
+        CacheConfig::heap(16384),
+    )
+    .unwrap();
+    for n in 0..700 {
+        fs.write_file(&std::format!("/pad{n}"), &[5u8; 10], 0o644, 0, 0, 1)
+            .unwrap();
+    }
+    fs.flush().unwrap();
+    fs.write_file("/neighbour", &[7u8; 90_000], 0o644, 0, 0, 1)
+        .unwrap();
+    fs.write_file("/synced", &[8u8; 5_000], 0o644, 0, 0, 1)
+        .unwrap();
+    let synced = fs.open_file("/synced").unwrap();
+    let neighbour = fs.open_file("/neighbour").unwrap();
+    assert!(synced.ino() > 512 && neighbour.ino() > 512, "past group 0");
+    let dirty = fs.dirty_blocks();
+    fs.sync_file(synced).unwrap();
+    assert!(fs.dirty_blocks() >= dirty / 2, "the neighbour is still dirty");
+    let image = crashed(&disk);
+    assert!(read_all(&image, synced, 5_000) == [8u8; 5_000]);
+    // The neighbour's inode was not carried along: it is not on the disk yet.
+    let mut buf = [0u8; 16];
+    assert!(image.read_handle(neighbour, 0, &mut buf).is_err());
+}

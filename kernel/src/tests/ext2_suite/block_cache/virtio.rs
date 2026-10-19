@@ -238,7 +238,7 @@ pub fn fsync_beside_dirty_data() -> Result<(), String> {
     vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
         .map_err(fs_error)?;
     check!(
-        read_file(&mut vfs, "/bulk")?[8192..] == bulk[8192..],
+        read_file(&mut vfs, "/bulk")? == bulk,
         "/bulk after a remount"
     );
     Ok(())

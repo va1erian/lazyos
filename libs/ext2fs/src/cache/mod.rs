@@ -10,8 +10,10 @@
 //! by block number and coalesced into requests of up to `max_request` bytes.
 //! A writeback runs when the volume commits (sync, fsync, unmount, the
 //! kernel's periodic flusher), when `dirty_limit` blocks are dirty, and when
-//! a block is needed and every page is dirty. Nothing else ever writes, so
-//! the phase order holds for every byte that reaches the disk.
+//! a block is needed and every page is dirty. Two things write less than
+//! everything: `fsync` of one file and an operation's barriers ([`targeted`]),
+//! which add what the blocks they write depend on, so the phase order holds
+//! for every byte that reaches the disk.
 //!
 //! Eviction is CLOCK over clean blocks only: a dirty block is never dropped,
 //! it is written back first. Memory is bounded by `blocks` pages, and a host
@@ -47,7 +49,7 @@ pub struct CacheStats {
     pub readahead: u64,
     /// Blocks read straight into a caller's buffer, past the cache.
     pub bypassed: u64,
-    /// Full writebacks, and the requests and blocks they wrote.
+    /// Writebacks (full or targeted), and the requests and blocks they wrote.
     pub writebacks: u64,
     pub write_requests: u64,
     pub written: u64,
@@ -106,7 +108,7 @@ pub(crate) struct BlockCache {
     journal: Option<Journal>,
     /// The inode the running operation writes for (see [`Slot::owner`]).
     owner: u32,
-    /// Scopes recording the blocks they write ([`BlockCache::track`]).
+    /// Scopes recording the blocks they write ([`BlockCache::track_begin`]).
     tracking: u32,
     /// Blocks written since the innermost scope began or last flushed them.
     touched: BTreeSet<u64>,

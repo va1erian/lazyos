@@ -131,7 +131,7 @@ pub trait Filesystem: Send + Sync {
 
     /// Make one regular file durable (`fsync` of a descriptor). A backend
     /// that can do it without writing everything else overrides this; the
-    /// default flushes the whole filesystem. It never marks a volume clean.
+    /// default flushes the whole filesystem. An override does not mark a volume clean.
     fn flush_node(&self, node: NodeId) -> Result<(), FsError> {
         let _ = node;
         self.flush()

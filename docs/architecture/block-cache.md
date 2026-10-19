@@ -146,6 +146,13 @@ reaches the disk, so the subset is widened by its dependencies:
   taken from the cache (one read and one write); the neighbours' newer
   inodes, and the pointers in them, stay in the cache with their data. The
   cached block stays dirty until a full writeback.
+- **Other operations' directory entries may land without their inodes.** The
+  directory blocks written (all unowned dirty ones for `fsync`, the touched
+  ones for a barrier) can carry entries of operations whose inodes are not
+  written. That is the documented "entry naming an inode whose initialisation
+  was lost" (and a parent link count too low after a `mkdir`), which `repair`
+  fixes; the inode bitmap is always written first, and freed inodes are
+  written zeroed before their bit clears, so it never names a free or stale one.
 - Not the superblock and not the frees: counters that disagree with the
   bitmaps are a state `repair` handles, and frees stay deferred to the commit.
 

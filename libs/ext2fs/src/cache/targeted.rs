@@ -133,10 +133,8 @@ impl BlockCache {
         let size = self.block_size;
         let entry = self.roles.inode_size as usize;
         let mut image = alloc::vec![0u8; size];
-        if let Err(error) = io.read_sectors(block * self.sectors_per_block, &mut image) {
-            self.failed = true;
-            return Err(error);
-        }
+        // A failed read is the caller's error alone, not a failed writeback.
+        io.read_sectors(block * self.sectors_per_block, &mut image)?;
         let cached = &page(&self.slots[index])[..size];
         for &ino in wanted.iter().filter(|ino| range.contains(ino)) {
             let at = (ino - range.start) as usize * entry;
@@ -191,7 +189,10 @@ impl BlockCache {
             }
         }
         // The fresh blocks any of those inodes could point at.
-        for (&block, &index) in &self.map {
+        for (seen, (&block, &index)) in self.map.iter().enumerate() {
+            if seen % super::flush::PACE_EVERY == 0 {
+                io.pace();
+            }
             let slot = &self.slots[index];
             if slot.dirty
                 && self.roles.phase(block, slot.fresh) == Phase::Fresh
