@@ -970,7 +970,12 @@ shell gives a running resident app a default item with Open and Quit from
 `init` over `os.lazy.init.app.v1`: `Reopen` on a second launch (queued until
 it watches), `Quit` on a `Stop` with a hard 3 s grace from the `Stop` (then a
 kill, `INIT:APP:QUIT:TIMEOUT`); `Stop` answers once every target is reaped
-(`INIT:STOP:DONE`). The tray applets Volume (`os.lazy.volume`, every desktop:
+(`INIT:STOP:DONE`). A resident app the session's autostart opens gets
+`--background` (`INIT:LAUNCH:BACKGROUND`; issue #928) and must start with its
+tray icon only: ask `xui_app::resident::started_in_background()` before the
+first window (session `tray_background.json`, image `LAZYOS_DESKTOP=1
+LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term,traydemo`, judged
+by `python tools/tray/background_check.py shots/<out>/serial.log`). The tray applets Volume (`os.lazy.volume`, every desktop:
 the wheel sets the mixer's master volume) and Network Status
 (`os.lazy.netstatus`, `LAZYOS_NETD=1` images) open with every session. The
 lifecycle session needs `rhai` (`python tools/rhai/build.py`); the applets

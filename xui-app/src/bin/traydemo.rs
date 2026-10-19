@@ -17,7 +17,11 @@
 //! and `/tmp/traydemo-ignore-quit` makes it ignore `Quit` (so `init` kills
 //! it when the grace ends).
 //!
+//! Started by the session's autostart (`init` passes `--background`), it
+//! opens no window until a reopen or a click on its icon asks for one.
+//!
 //! Serial evidence: `TRAYDEMO:UP:PASS` after the first frame,
+//! `TRAYDEMO:BACKGROUND:PASS` for a start with no window,
 //! `TRAYDEMO:WATCH:PASS`, `TRAYDEMO:TRAY:SET:PASS`, `TRAYDEMO:ICON:<kind>`,
 //! `TRAYDEMO:ACTIVATE:PASS n=<clicks>`, `TRAYDEMO:SECONDARY:PASS`,
 //! `TRAYDEMO:SCROLL:<delta>`, `TRAYDEMO:MENU:<id>:<checked>`,
@@ -31,7 +35,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use demo::{Demo, Flow, Kind, Shared};
-use xui_app::resident::Resident;
+use xui_app::resident::{self, Resident};
+use xui_app::trace::{self, Channel};
 use xui_core::prelude::*;
 
 /// The window size when a compositor lays the app out.
@@ -200,7 +205,15 @@ fn main() {
         quitting: false,
     }));
     demo.borrow_mut().set_item();
-    let mut quit = show_window(&demo, true);
+    // The session's autostart opens the demo in the tray only (issue #928);
+    // the first window, and `TRAYDEMO:UP:PASS`, wait for a reopen.
+    let mut shown = !resident::started_in_background();
+    let mut quit = if shown {
+        show_window(&demo, true)
+    } else {
+        trace::pass!(Channel::Traydemo, "BACKGROUND");
+        false
+    };
     while !quit {
         // Handle the whole batch before opening the window: a `Quit` after a
         // `Reopen` in the same batch must still be heard (else `init` kills
@@ -220,7 +233,8 @@ fn main() {
             }
         }
         if !quit && show {
-            quit = show_window(&demo, false);
+            quit = show_window(&demo, !shown);
+            shown = true;
         }
     }
     let _ = demo.borrow().res.tray.borrow_mut().clear();

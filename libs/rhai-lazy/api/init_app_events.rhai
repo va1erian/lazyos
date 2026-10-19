@@ -19,7 +19,9 @@ fn connect() {
 ///
 /// The app was launched again in this session (the start menu, a
 /// desktop icon, `mimed`, the tray's Open row) while this instance runs:
-/// show yourself and open `args` (empty, or `Launch`'s one path).
+/// show yourself and open `args` (empty, or `Launch`'s one path). The
+/// first launch of a resident app by the session's autostart carries
+/// `--background` in its argv instead (no window until this arrives).
 ///
 /// One-way: returns `()` once the message is queued.
 fn reopen(args) {

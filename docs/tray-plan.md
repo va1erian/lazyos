@@ -233,6 +233,16 @@ resident = true       # new: may run with no window; single instance; always in 
   the same either way. The queue is per instance and dropped with it; past
   16 entries the oldest go (repeated launches of a starting app). Reacting
   to them is the app's job (§5.1).
+- **Background start** (issue #928). A resident app the session's autostart
+  opens must not show a window at every login, while the same app opened
+  from the menu must. Only `init` knows which launch is which, so it says so:
+  the autostart launch of a resident app gets `--background` after the
+  manifest's arguments (`svcpolicy::starts_in_background`,
+  `INIT:LAUNCH:BACKGROUND app=<id> pid=<n> session=<n>`), and no other
+  launch does. The app reads it (`xui_app::resident::started_in_background`)
+  and starts with its tray icon only; the next launch is a `Reopen` and
+  shows the window. The row keeps the flag, so a restart after a crash stays
+  in the tray. `lrplay` accepts the flag and still opens its form.
 - **Quit.** `init.Stop` (the tray's Quit row, `pkgd` removing the
   package), a logout and the shutdown's apps stage all stop an app by one
   rule (`svcpolicy::stop_mode`, issue #651): `Quit(grace_ms)` for an app
@@ -275,7 +285,7 @@ choices one line each, but the app owns them:
 
 | Event | The app should |
 |---|---|
-| start | call `init.app.Watch`, then `tray.Set` with its icon, tooltip and menu |
+| start | call `init.app.Watch`, then `tray.Set` with its icon, tooltip and menu; open its window unless started with `--background` |
 | `Reopen(args)` | open or raise its main window, open `args` if any |
 | `Activate` | its primary action (often the same as `Reopen`, or a flyout) |
 | `MenuItem(id)` | run the action; send `Update` if a check or label changed |

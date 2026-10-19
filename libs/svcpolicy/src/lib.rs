@@ -28,6 +28,8 @@ extern crate alloc;
 use alloc::format;
 use alloc::string::String;
 
+mod background;
+pub use background::{is_background_start, starts_in_background, BACKGROUND_ARG};
 mod roster;
 pub use roster::{Member, Roster};
 mod sink;

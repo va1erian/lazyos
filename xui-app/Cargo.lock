@@ -5394,6 +5394,10 @@ name = "surfbuf"
 version = "0.1.0"
 
 [[package]]
+name = "svcpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "svgtypes"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6916,6 +6920,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "svcpolicy",
  "timezone",
  "tracefmt",
  "trayclient",

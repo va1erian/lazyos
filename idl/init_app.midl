@@ -19,7 +19,9 @@ interface os.lazy.init.app.v1 {
 interface os.lazy.init.app.events.v1 {
     /// The app was launched again in this session (the start menu, a
     /// desktop icon, `mimed`, the tray's Open row) while this instance runs:
-    /// show yourself and open `args` (empty, or `Launch`'s one path).
+    /// show yourself and open `args` (empty, or `Launch`'s one path). The
+    /// first launch of a resident app by the session's autostart carries
+    /// `--background` in its argv instead (no window until this arrives).
     method Reopen(args: String = 1) -> () = 1 oneway;
     /// The user, a logout or the package manager asked the app to quit:
     /// save and exit within `grace_ms`, after which `init` kills it. The

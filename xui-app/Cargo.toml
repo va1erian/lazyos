@@ -119,6 +119,8 @@ timezone = { path = "../libs/timed" }
 devinspect = { path = "../libs/devinspect" }
 # `mountd`'s request rules, so Network Drives refuses what the service would.
 mounttable = { path = "../libs/mounttable" }
+# `init`'s launch rules: the `--background` start of a resident app (#928).
+svcpolicy = { path = "../libs/svcpolicy" }
 # The client half of the pipelined `Present` (issue #372): the same pure slot
 # state machine `xdemo` and the kernel display suite drive.
 surfbuf = { path = "../libs/surfbuf" }
