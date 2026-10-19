@@ -238,7 +238,9 @@ fn admit_system(
 
 /// Launch one installed app: [`launch_row`]'s path with the installed row, its
 /// label and its own program. The app id may be a core app's short alias
-/// (`editor`); the row is always named by its `system_name`.
+/// (`editor`); the row is always named by its `system_name`. A resident app
+/// the session's autostart opens gets `--background` after its manifest
+/// arguments (`svcpolicy::starts_in_background`, `INIT:LAUNCH:BACKGROUND`).
 fn launch_installed(
     services: &mut Vec<Service>,
     broker: &mut router::TopicBroker,
@@ -256,7 +258,21 @@ fn launch_installed(
     retire_stopped(services, app.id);
     let mut row = Service::from_installed(app, path_arg, cred);
     row.env = sessions::env(session, cred.uid);
+    // A resident app the session opens itself starts with its tray icon only
+    // (issue #928); the row keeps the flag, so a restart stays windowless.
+    let background = svcpolicy::starts_in_background(app.resident, autostart);
+    if background {
+        row.args.insert(app.args.len(), String::from(svcpolicy::BACKGROUND_ARG));
+    }
     let result = start_row(services, broker, row, &cred, session, autostart)?;
+    if background {
+        trace::line!(
+            trace::Channel::Init,
+            "LAUNCH:BACKGROUND app={} pid={} session={session}",
+            app.id,
+            result.pid
+        );
+    }
     report_label(result.pid, app.id);
     Ok(result)
 }

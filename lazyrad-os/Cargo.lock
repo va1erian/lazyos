@@ -1261,6 +1261,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyhttps"
+version = "0.1.0"
+dependencies = [
+ "nettls-crypto",
+ "rustls",
+ "rustls-pki-types",
+ "ureq",
+]
+
+[[package]]
 name = "lazyicons"
 version = "0.1.0"
 dependencies = [
@@ -1376,6 +1386,7 @@ dependencies = [
  "pkgstore",
  "rhai",
  "rhai-lazy",
+ "svcpolicy",
  "xui-app",
  "xui-canvas",
  "xui-core",
@@ -1454,13 +1465,10 @@ name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
  "image",
- "nettls-crypto",
- "rustls",
- "rustls-pki-types",
+ "lazyhttps",
  "serde",
  "serde_json",
  "toml 0.8.23",
- "ureq",
 ]
 
 [[package]]
@@ -2569,6 +2577,10 @@ name = "surfbuf"
 version = "0.1.0"
 
 [[package]]
+name = "svcpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "swash"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3280,6 +3292,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "svcpolicy",
  "timezone",
  "tracefmt",
  "trayclient",

@@ -14,6 +14,12 @@
 //! hands `init` a channel, and `init` sends `Reopen(args)` when the app is
 //! launched again and `Quit(grace_ms)` when someone stops it (the grace is a
 //! hard 3 s counted from the `Stop`; `init` kills the app after it).
+//!
+//! An app with a window asks [`started_in_background`] before it opens its
+//! first one: `init` passes `--background` when the session's autostart
+//! opened the app (issue #928), and the app then starts with its tray icon
+//! only. Any other launch shows the window, the first as a plain start and
+//! the later ones as `Reopen`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -39,6 +45,13 @@ const WATCH_TICKS: u64 = 100;
 const IDLE_MILLIS: u64 = 500;
 /// Receive buffer for one lifecycle event.
 const EVENT_BYTES: usize = 2048;
+
+/// Whether `init` started this app in the background (the session's
+/// autostart, `svcpolicy::BACKGROUND_ARG`): open no window until a `Reopen`
+/// or a tray click asks for one.
+pub fn started_in_background() -> bool {
+    svcpolicy::is_background_start(std::env::args_os().map(|arg| arg.to_string_lossy().into_owned()))
+}
 
 /// Something that woke a resident app.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1459,7 +1459,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Reopen",
                 id: 1,
                 oneway: true,
-                doc: "The app was launched again in this session (the start menu, a\ndesktop icon, `mimed`, the tray's Open row) while this instance runs:\nshow yourself and open `args` (empty, or `Launch`'s one path).",
+                doc: "The app was launched again in this session (the start menu, a\ndesktop icon, `mimed`, the tray's Open row) while this instance runs:\nshow yourself and open `args` (empty, or `Launch`'s one path). The\nfirst launch of a resident app by the session's autostart carries\n`--background` in its argv instead (no window until this arrives).",
                 params: &[Field { name: "args", id: 1, ty: Ty::String }],
                 returns: &[],
                 objects: &[],

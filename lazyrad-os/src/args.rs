@@ -123,8 +123,10 @@ where
             parsed.client = true;
         } else if text == "--debug" {
             parsed.debug = true;
-        } else if text.starts_with("attempt=") {
-            // `init`'s retry counter; meaningless here.
+        } else if text.starts_with("attempt=") || text == svcpolicy::BACKGROUND_ARG {
+            // `init`'s retry counter, and its background start of a resident
+            // package (#928): the player has no windowless mode, so a form
+            // still opens.
         } else if text == "--project" {
             let value = args.next().ok_or(ArgError::MissingValue)?;
             set_project(&mut parsed, value)?;
@@ -334,6 +336,8 @@ mod tests {
             args.project,
             Some(PathBuf::from("/system/share/lazyrad/hello"))
         );
+        let resident = parse(&["--client", "--background", "attempt=1"]).unwrap();
+        assert!(resident.client && resident.project.is_none());
     }
 
     #[test]

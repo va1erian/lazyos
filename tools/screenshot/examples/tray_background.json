@@ -1,0 +1,21 @@
+[
+  {"wait_for": "SHELL:TRAY:SERVICE:PASS", "timeout": 240, "note": "image: LAZYOS_DESKTOP=1 LAZYOS_TRAYDEMO=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term,traydemo (issue #928); judge with tools/tray/background_check.py"},
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "INIT:LAUNCH:BACKGROUND app=os.lazy.traydemo", "timeout": 240, "note": "the session's autostart opens the resident demo with --background"},
+  {"wait_for": "TRAYDEMO:BACKGROUND:PASS", "timeout": 120},
+  {"wait_for": "SHELL:TRAY:SET app=os.lazy.traydemo", "timeout": 60},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait": 3.0, "note": "time for a window to appear, were one coming"},
+  {"shot": "01_login_tray_only"},
+
+  {"click_at": {"target": "taskbar:start"}, "until": "SHELL:MENU:OPEN", "timeout": 30, "retries": 2},
+  {"wait": 1.5},
+  {"move_to": {"menu": "Development"}, "until": "SHELL:SUBMENU:OPEN category=development", "timeout": 30, "retries": 1},
+  {"wait": 0.4},
+  {"click_at": {"menu": "Tray Demo"}, "until": "INIT:LAUNCH:EXISTING app=os.lazy.traydemo", "timeout": 60, "retries": 1},
+  {"wait_for": "TRAYDEMO:REOPEN:PASS via=reopen", "timeout": 30},
+  {"wait_for": "TRAYDEMO:UP:PASS", "timeout": 120},
+  {"wait": 1.5},
+  {"shot": "02_opened_from_menu"},
+  {"quit": true}
+]

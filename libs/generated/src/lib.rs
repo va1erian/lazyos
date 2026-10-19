@@ -8506,7 +8506,9 @@ pub mod os_lazy_init_app_events_v1 {
 
     /// The app was launched again in this session (the start menu, a
     /// desktop icon, `mimed`, the tray's Open row) while this instance runs:
-    /// show yourself and open `args` (empty, or `Launch`'s one path).
+    /// show yourself and open `args` (empty, or `Launch`'s one path). The
+    /// first launch of a resident app by the session's autostart carries
+    /// `--background` in its argv instead (no window until this arrives).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ReopenArgs {
         pub args: alloc::string::String,

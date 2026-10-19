@@ -289,7 +289,9 @@ files   = ["write:$HOME/.apps/org.lazy.web"]
   in the background and shows an icon in the taskbar" (kind `resident`); they
   count toward the 24-entry limit and are loaded only by an `Install` after
   consent. Listing one of them explicitly as well adds no second row or rule.
-  Often combined with `autostart`.
+  Often combined with `autostart`: `init` then starts it with `--background`
+  at login (no window until it is opened again; docs/tray-plan.md section 5,
+  issue #928), and with no flag from the menu.
 * **`entry.binary`** and every MIME `icon` prefix must resolve to files in the
   archive.
 

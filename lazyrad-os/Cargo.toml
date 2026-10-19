@@ -41,6 +41,8 @@ messenger-generated = { path = "../libs/generated" }
 # reader `pkgd` uses): `pkgd` refuses labelled callers, and the IDE is one.
 lazypkg = { path = "../libs/lazypkg" }
 pkgstore = { path = "../libs/pkgstore" }
+# `init`'s `--background` flag for a resident package's autostart (#928).
+svcpolicy = { path = "../libs/svcpolicy" }
 # The `msg` module and the generated `sys::*` modules (Messenger from scripts,
 # docs/rhai/msg.md) with the real `int 0x80` transport, registered as a LazyRAD
 # script extension. Same exact Rhai pin as LazyRAD, so one Rhai links.
