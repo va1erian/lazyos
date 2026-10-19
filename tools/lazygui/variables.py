@@ -11,7 +11,7 @@ import shutil
 import tkinter as tk
 
 from .catalog import (DATA_IMAGE, DEFAULT_MEMORY, HOME_IMAGE, MODES, SCRIPTS, SIMPLE_BUILDS,
-                      SIMPLE_GROUPS, SIMPLE_INTERFACES)
+                      SIMPLE_GROUPS, SIMPLE_INTERFACES, SOFTWARE_CUSTOM)
 
 
 def make_vars() -> dict:
@@ -160,6 +160,9 @@ def make_vars() -> dict:
         "script": s(value=SCRIPTS[0][1]),
         # The Simple tab's feature groups (`simplecfg.SIMPLE_GROUPS`).
         **{f"simple_group_{key}": b(value=False) for key, *_ in SIMPLE_GROUPS},
+        # The Simple tab's Software choice (`simplecfg.software_choices`) and SRB2Kart's option.
+        "simple_software": s(value=SOFTWARE_CUSTOM),
+        "simple_suite_srb2kart": b(value=False),
         "simple_build": s(value=SIMPLE_BUILDS[0][0]),
         "simple_iface": s(value=SIMPLE_INTERFACES[0][0]),
     }

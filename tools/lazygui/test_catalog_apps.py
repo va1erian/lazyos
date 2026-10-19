@@ -316,10 +316,12 @@ class LazyWebTests(unittest.TestCase):
         self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyweb"])
 
     def test_the_simple_tab_passes_it_by_name(self) -> None:
-        # `simple.SIMPLE_EXTRAS` lists simple_config's switches in its argument order.
+        # `simple.SIMPLE_EXTRAS` lists `plain_config`'s switches in its argument order
+        # (`simple_config` adds the suite and passes the rest on).
         import inspect
         from lazygui.simple import SIMPLE_EXTRAS
-        params = list(inspect.signature(catalog.simple_config).parameters)[3:]
+        from lazygui.simplecfg import plain_config
+        params = list(inspect.signature(plain_config).parameters)[3:]
         self.assertEqual(params, list(SIMPLE_EXTRAS))
 
     def test_sessions_get_the_card_with_lazyweb_alone(self) -> None:

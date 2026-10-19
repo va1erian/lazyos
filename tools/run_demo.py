@@ -52,6 +52,7 @@ Examples
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
     python tools/run_demo.py --pictures      # desktop + the Picture Viewer (docs/lazyrad-pictures.md)
+    python tools/run_demo.py --suite full --with srb2kart --build-only  # a named software suite (tools/suites.toml)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
@@ -86,6 +87,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "screenshot"))
 from qemu_qmp import accel_args, data_disk_args, find_qemu, home_disk_args  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import demo_dry  # noqa: E402
 import mkdisk  # noqa: E402
 import qemu_serial  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
@@ -268,6 +270,8 @@ def require_busybox(allow_missing: bool) -> bool:
 def main(argv: list[str]) -> int:
     parser = make_parser(__doc__, DEFAULT_IMAGE)
     args, net_qemu, forwards, limits = parse_args(parser, argv)
+    if args.dry_run:
+        return demo_dry.run(sys.modules[__name__], argv, args)
 
     if not args.no_build:
         cargo = ["cargo", "build"]
@@ -289,12 +293,7 @@ def main(argv: list[str]) -> int:
         if not args.reset_os and not osvolume.configured():
             # The build cannot resize an OS volume: fit it to the selection, or
             # say now (not after the build) that it has to be recreated.
-            wants = args.srb2kart or os.environ.get("LAZYOS_SRB2KART") == "1"
-            wants_webkit = (args.webkit or args.webkit_port or args.lazywebplus
-                            or os.environ.get("LAZYOS_WEBKIT") == "1"
-                            or os.environ.get("LAZYOS_WEBKIT_PORT") == "1"
-                            or os.environ.get("LAZYOS_LAZYWEBPLUS") == "1")
-            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, wants, wants_webkit)
+            size, recreate = osvolume.plan(osvolume.DEFAULT_IMAGE, *osvolume.args_wants(args))
             if recreate:
                 have = (osvolume.existing_bytes(osvolume.DEFAULT_IMAGE) or 0) >> 20
                 if not args.yes and not confirm(

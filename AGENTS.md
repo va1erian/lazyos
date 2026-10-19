@@ -106,6 +106,19 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img \
     --out shots/demo --script tools/screenshot/examples/multitask_demo.json
 ```
 
+### Software suites
+
+`python tools/run_demo.py --suite base|full [--with srb2kart]` turns on a named
+set of the flags below (`tools/suites.toml`, read through `tools/suites.py`), so
+each flag's own prerequisite build runs and the OS volume is sized for it;
+explicit flags still add on top. `base` is the desktop, `full` adds every
+optional app (WebKit browsers, games and all), `srb2kart` is an option (its
+data is downloaded at build time: never publish it). `--dry-run` prints the
+flags, build steps and environment without building. The launcher's Simple tab
+and `tools/boot/stick_gui.py` have the same *Software* choice. A new optional
+app joins `full`, an option or the file's `test_only` list
+(`python tools/test_suites.py` fails otherwise).
+
 ### Login and the session user
 
 A desktop image boots to a login screen (`greeter`, run as the `_greeter`

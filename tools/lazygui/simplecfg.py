@@ -5,8 +5,18 @@ takes (split out of `catalog.py`, which re-exports it).
 
 from __future__ import annotations
 
+import inspect
+import os
+import sys
+
 from .display import HIDPI_MODE
 from .login import DEFAULT_ACCOUNT
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import suites  # noqa: E402
+
+#: The Simple tab's Software choices: ("", the groups below decide), then each suite.
+SOFTWARE_CUSTOM = "Custom"
 
 # Simple mode: (label, cargo profile) and (label, description) choices.
 SIMPLE_BUILDS = [("Debug", "dev"), ("Release", "release")]
@@ -56,6 +66,46 @@ SIMPLE_GROUPS = (
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
 
 
+def software_choices() -> list[str]:
+    """The Simple tab's Software radio labels: Custom, then each suite, `base` first."""
+    return [SOFTWARE_CUSTOM, *(name.capitalize() for name in suites.suite_names())]
+
+
+def suite_name(label: str) -> str:
+    """The suite a Software label names (``""`` for Custom)."""
+    return "" if label == SOFTWARE_CUSTOM else label.lower()
+
+
+def suite_argv(cfg: dict) -> list[str]:
+    """`--suite NAME [--with srb2kart]` for `run_demo.py` (none without a build:
+    "Skip build" boots the image as it is)."""
+    if not cfg.get("suite") or cfg.get("skip_build"):
+        return []
+    return ["--suite", cfg["suite"], *(["--with", "srb2kart"] if cfg.get("suite_srb2kart") else [])]
+
+
+def simple_config(base: dict, build: str, interface: str, suite: str = "",
+                  suite_srb2kart: bool = False, **switches: bool) -> dict:
+    """:func:`plain_config` for a Simple-mode choice, with a software suite on top
+    (`tools/suites.toml`): its flags are turned on beside the switches given, and
+    the ones the Simple tab has no checkbox for (`smb`, the big-app profile) go
+    straight into the configuration. A suite is Desktop only, as its apps are."""
+    extra: dict[str, bool] = {}
+    if suite and interface == "Desktop":
+        known = inspect.signature(plain_config).parameters
+        for flag in suites.resolve(suite, ["srb2kart"] if suite_srb2kart else []):
+            name = suites.dest(flag)
+            if name in known:
+                switches[name] = True
+            elif name != "desktop":
+                extra[name] = True
+    cfg = plain_config(base, build, interface, **switches)
+    cfg.update(extra)
+    if suite and interface == "Desktop":
+        cfg.update({"suite": suite, "suite_srb2kart": suite_srb2kart})
+    return cfg
+
+
 def group_switches(selected: set[str]) -> dict[str, bool]:
     """The per-app `simple_config` switches the groups in ``selected`` (keys of
     :data:`SIMPLE_GROUPS`) turn on; the Picture Viewer is always on."""
@@ -64,7 +114,7 @@ def group_switches(selected: set[str]) -> dict[str, bool]:
     return {name: name in on for name in sorted(every)} | {"pictures": True}
 
 
-def simple_config(base: dict, build: str, interface: str, lazyrad: bool = False,
+def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   quake: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,

@@ -26,6 +26,11 @@ class StickGuiTest(unittest.TestCase):
         self.assertNotIn("--release", stick_gui.build_step(release=False)["argv"])
         self.assertNotIn("--installer", argv)
         self.assertIn("--installer", stick_gui.build_step(release=True, installer=True)["argv"])
+        self.assertEqual(argv[argv.index("--suite") + 1], "base")
+        self.assertNotIn("--with", argv)
+        full = stick_gui.build_step(release=True, suite="full", srb2kart=True)["argv"]
+        self.assertEqual(full[full.index("--suite") + 1], "full")
+        self.assertEqual(full[full.index("--with") + 1], "srb2kart")
         self.assertEqual(stick_gui.build_env("8G"), {"LAZYOS_USB_HOME_SIZE": "8G"})
 
     def test_write_step_skips_the_prompts_with_absolute_paths(self) -> None:
