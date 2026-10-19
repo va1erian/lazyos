@@ -1,11 +1,11 @@
-//! The adopted pipe's beam (`gen9gfx::vblank`): the refresh rate measured
+//! The adopted pipe's beam (`intelgfx::vblank`): the refresh rate measured
 //! from the frame counter once at start (G1's "vblank ticks at the monitor's
 //! rate", `GPU:VBLANK`), the FIFO underrun state (`GPU:UNDERRUN`), and the
 //! live read `GetBeam` answers with. Every access is a read through the
 //! read-only BAR.
 
-use gen9gfx::adopt::ActivePipe;
-use gen9gfx::vblank::{self, Beam, PipeIrq, Underrun};
+use intelgfx::adopt::ActivePipe;
+use intelgfx::vblank::{self, Beam, PipeIrq, Underrun};
 use user::messenger::gpu::wire;
 use user::sys;
 use user::trace::{self, Channel};

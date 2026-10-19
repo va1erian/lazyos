@@ -2,7 +2,7 @@
 
 > **Re-scoped 2026-10-17: the goal is the whole OS at 60 fps at 1440p, LazyWeb+ first (§11, with a measured baseline). Read §11 before §4: it changes the order.**
 >
-> **Status: draft, revision 4 (2026-10-13). The Linux-side G0 survey ran on the box and settled most of §2 (§2.1); the hardware-independent prep is built (survey script, `libs/gen9gfx` parsers, now also tested against the box's real EDID and VBT; §10). No kernel, `user/` or `idl/` code yet.**
+> **Status: draft, revision 4 (2026-10-13). The Linux-side G0 survey ran on the box and settled most of §2 (§2.1); the hardware-independent prep is built (survey script, `libs/intelgfx` parsers, now also tested against the box's real EDID and VBT; §10). No kernel, `user/` or `idl/` code yet.**
 > Goals: (1) mode setting, (2) audio over HDMI, (3) richer video,
 > (4) hardware graphics acceleration where achievable, all on the i3-7100U
 > mini PC ([kabylake-box-plan.md](kabylake-box-plan.md)).
@@ -79,7 +79,7 @@
 Source: [compat/kabylake/gpu/linux/](compat/kabylake/gpu/README.md), captured by
 `tools/boot/survey_gpu.sh` on the box while Linux's i915 drove the monitor with
 the HDMI PCM open. The EDID serial and the hostname are redacted; the EDID,
-VBT and OpRegion are in the tree as binaries and `libs/gen9gfx` tests them.
+VBT and OpRegion are in the tree as binaries and `libs/intelgfx` tests them.
 
 | Question | Answer | Where |
 |---|---|---|
@@ -98,7 +98,7 @@ VBT and OpRegion are in the tree as binaries and `libs/gen9gfx` tests them.
 | Idle baseline (plan §7) | GT 300 MHz (RPn) of 1000 MHz (RP0); RC6 working; package 49 °C, PCH 39.5 °C, ACPI zones 28 and 30 °C, with Linux's desktop running. | `07-*.txt`, `i915_frequency_info` |
 
 The two modes this box can run, and what that does to G2's N/CTS (computed
-with `libs/gen9gfx::hdmi_audio`, 8 bpc so TMDS = pixel clock). Neither clock
+with `libs/intelgfx::hdmi_audio`, 8 bpc so TMDS = pixel clock). Neither clock
 is in i915's audio table, so there is no table N to reuse:
 
 | Pixel clock | 32 kHz | 48 kHz | 44.1 kHz |
@@ -117,7 +117,7 @@ is in i915's audio table, so there is no table N to reuse:
 - **The audio registers.** `intel_reg dump` does not list `AUD_CONFIG`,
   `AUD_PIN_ELD_CP_VLD`, the ELD buffer or `AUD_MISC_CTRL`, and
   `02-mmio-ranges.txt` failed (`mmap` of the BAR resource gave `EINVAL`), so
-  the audio offsets in `libs/gen9gfx::regs` are still **to confirm**, as are
+  the audio offsets in `libs/intelgfx::regs` are still **to confirm**, as are
   `DDI_BUF_CTL` and the DDI buffer translations. `survey_gpu.sh` now captures
   the ranges with `intel_reg read` and needs one more run (§10).
 - **Why `sndd` saw "pin 3".** boot-1's `SNDD:HDA codec=2 afg=1 pin=3` names a
@@ -156,14 +156,14 @@ working; `init` restarts it and it re-adopts the live state from registers.
         │  os.lazy.display.v1 (existing, + GetModes/SetMode)      os.lazy.gpu.v1 (new)
         ▼                                                          ▼
    kernel display grant ◄── set_scanout ── gpud (_gpu, device grant: BAR0, BAR2, MSI, DMA)
-        │ present (copy into aperture)        ├─ libs/gen9gfx: display (edid, vbt, gmbus, dpll, ddi,
+        │ present (copy into aperture)        ├─ libs/intelgfx: display (edid, vbt, gmbus, dpll, ddi,
         ▼                                      │   pipe, plane, wm), gtt, power/forcewake, ring/exec,
    GGTT-mapped scanout  ───────────────────────┘   blitter, render kernels, media
         │
         ▼ HDMI  ─ ELD / audio enable ─►  sndd (HDA codec side)  ◄─ os.lazy.audio.card
 ```
 
-- **`libs/gen9gfx`** (`no_std`, host-tested like `libs/rtw88`): pure
+- **`libs/intelgfx`** (`no_std`, host-tested like `libs/rtw88`): pure
   register programming and parsing behind an `Mmio` trait so a host fake can
   check sequences. Modules: `edid` (parse, fuzzed), `vbt`, `gmbus` (EDID over DDC; DP `aux` is out of scope here),
   `clock` (CDCLK check, DPLL1–3 params from pixel clock), `ddi`, `pipe`,
@@ -232,7 +232,7 @@ wanted; they are kept so the register knowledge gathered in G0 has a home.
   box ran CDCLK 337.5 MHz with a 277.82 MHz pixel clock (2560x1440@70, the
   sink's 280 MHz TMDS ceiling), so 1440p at 59.95 or 70 Hz both fit; the
   firmware leaves CDCLK at 675 MHz (G0's LazyOS half, `docs/compat/kabylake/gpu/lazyos/`).
-- **EDID** is parsed in `libs/gen9gfx::edid` with a seeded fuzz entry point
+- **EDID** is parsed in `libs/intelgfx::edid` with a seeded fuzz entry point
   shared with a cargo-fuzz target, like every other parser here. Block 0 plus
   CEA extension (modes, audio SADs, speaker allocation, HDMI VSDB).
 - **Single output** (HDMI-A-1) in v1; the model is `Output{ddi, pipe}` so
@@ -322,8 +322,8 @@ AGENTS.md: *do not claim a graphics change works from source alone*.
 
 | Layer | What | How |
 |---|---|---|
-| Host unit | EDID/VBT parsers, DPLL parameter search (pixel clock → dividers, checked against the PRM's tables), timing math, watermark/DDB conservative rules, command-batch builders, ELD/SAD parsing | `cargo test -p gen9gfx`, seeded fuzz entry points shared with `fuzz/` |
-| Sequence fake | A register-file model of the display engine that enforces the PRM's ordering rules (enable only after PLL locked, no pipe enable before transcoder timings, plane off before pipe off) and fails on violations, like `libs/hda/src/fake.rs` | in `cargo test -p gen9gfx` |
+| Host unit | EDID/VBT parsers, DPLL parameter search (pixel clock → dividers, checked against the PRM's tables), timing math, watermark/DDB conservative rules, command-batch builders, ELD/SAD parsing | `cargo test -p intelgfx`, seeded fuzz entry points shared with `fuzz/` |
+| Sequence fake | A register-file model of the display engine that enforces the PRM's ordering rules (enable only after PLL locked, no pipe enable before transcoder timings, plane off before pipe off) and fails on violations, like `libs/hda/src/fake.rs` | in `cargo test -p intelgfx` |
 | Software render reference | Every blitter/render kernel result compared with the CPU path | host tests over recorded batches; box run for the real engine |
 | Kernel suite | `set_scanout`, aperture window bounds, `present` into it, a soak of mode changes (display-grant rebinding), stress of repeated scanout re-publish | `LAZYOS_TEST_FILTER=display python tools/test/run.py --accel none`, per the kernel-component rule |
 | Box, observable | `GPU:*` markers over `dbgd`; pipe **CRC** registers (compare a known test pattern run-to-run and against a golden per mode); FIFO underrun and vblank counters; register diffs against Linux's dump | `python tools/gpu/run.py` driving the box through `dbgctl` (build, `app-install`/`reload gpud`, set mode, read CRC, judge); `tools/gpu/test_judge.py` self-test |
@@ -337,7 +337,7 @@ kernel and compositor side of a mode change is covered without the box.
 
 The failure mode is a dark screen on a machine with no serial port.
 
-- **Opt-in.** `LAZYOS_GEN9GFX=1` / `display.gen9=1` in `lazyos.cfg`; off by
+- **Opt-in.** `LAZYOS_INTELGFX=1` / `display.gen9=1` in `lazyos.cfg`; off by
   default until G2 (audio) and G5 (flips) have soaked on the box, the first
   stages that write display state. `devd` matches `8086:5916` (and
   the Skylake/Coffee Lake ids once confirmed) only when on.
@@ -373,8 +373,8 @@ The failure mode is a dark screen on a machine with no serial port.
 
 Per AGENTS.md, a feature is not done until each is true:
 
-- **Switches and launchers**: `LAZYOS_GEN9GFX=1` in `build.rs`/`build_support`,
-  `run_demo.py --gen9gfx`, a control on the GUI's Advanced tab
+- **Switches and launchers**: `LAZYOS_INTELGFX=1` in `build.rs`/`build_support`,
+  `run_demo.py --intelgfx`, a control on the GUI's Advanced tab
   (`tools/lazygui/catalog.py` `build_env`/`build_plan`, tests in
   `test_catalog.py`). It is a service, not an app, so no core package; if a
   *Display* page is added to Settings, it is an addition to the existing app.
@@ -382,7 +382,7 @@ Per AGENTS.md, a feature is not done until each is true:
   `midlc`; no hand-written TLVs; `LAZYOS_LABEL_TRACE=1` run to derive the
   `_gpu` label's permissions and `messengerd` `system/` gating (as `sndpolicy`).
 - **Paths and files**: new well-known paths from `libs/fhs`; files under 500
-  lines (`libs/gen9gfx` is split by block precisely for this).
+  lines (`libs/intelgfx` is split by block precisely for this).
 - **Tests**: correctness and soak per kernel component (§6); `trace::`
   channels in `docs/trace/channels.md` (`python tools/trace/catalog.py`).
 - **Licences**: translated code keeps its MIT notice and a `THIRD_PARTY.md`
@@ -425,7 +425,7 @@ Still open (answer at G0/G1, none blocks starting):
 
 ## 10. Status and next steps
 
-**Status (2026-10-13): G1's read-only skeleton is built (`gpud`, `idl/gpu.midl`, `libs/gen9gfx::adopt`, switch `LAZYOS_GEN9GFX=1`, `run_demo.py --gen9gfx`); it has not run on the box yet, and no QEMU model of the GPU exists.**
+**Status (2026-10-13): G1's read-only skeleton is built (`gpud`, `idl/gpu.midl`, `libs/intelgfx::adopt`, switch `LAZYOS_INTELGFX=1`, `run_demo.py --intelgfx`); it has not run on the box yet, and no QEMU model of the GPU exists.**
 
 Hardware-independent work and the Linux-side G0; the G0 prep itself touches
 neither the kernel, `user/`, `idl/` nor `build.rs`.
@@ -442,8 +442,8 @@ neither the kernel, `user/`, `idl/` nor `build.rs`.
   duplicates of it, so the tree keeps one copy, named
   `03-dri0000_00_02.0-*` as the script now writes it, and a re-run
   overwrites it in place). **One more run on the box fills both gaps.**
-- **`libs/gen9gfx`** (`cargo test -p gen9gfx`; seeded fuzz shared with
-  `fuzz/fuzz_targets/gen9gfx.rs`): `Mmio` trait, `edid` and `cea` (base block,
+- **`libs/intelgfx`** (`cargo test -p intelgfx`; seeded fuzz shared with
+  `fuzz/fuzz_targets/intelgfx.rs`): `Mmio` trait, `edid` and `cea` (base block,
   CEA extension: timings, VICs, SADs, speaker allocation, HDMI and HDMI Forum
   vendor blocks), `eld` (parse, build from an EDID), `vbt` (header, block
   walk, child devices: DDI port, DDC pin, HDMI/DVI/DP/DP++, LSPCON),
@@ -458,7 +458,7 @@ neither the kernel, `user/`, `idl/` nor `build.rs`.
 - **A real-fixture lesson**: the first redacted EDID was 257 bytes and failed
   `tests_real` at once. Keep the redaction recipe in
   `docs/compat/kabylake/gpu/README.md` (serial bytes 12 to 15 and the 0xFF
-  descriptor, then fix the checksum) and let `cargo test -p gen9gfx` judge any
+  descriptor, then fix the checksum) and let `cargo test -p intelgfx` judge any
   new capture.
 - **Finding for G2**: N/CTS for both modes the box can run is in §2.1: 32 and
   48 kHz are exact at the default N; 44.1 kHz needs N 6384 (241.5 MHz) or
@@ -491,9 +491,9 @@ neither the kernel, `user/`, `idl/` nor `build.rs`.
    `DDI_BUF_CTL` *as Linux uses them while playing*; then correct `regs.rs`
    (move the audio block above the `TO CONFIRM` marker or fix the offsets).
 3. **G1**: the `gpud` skeleton (`user/src/bin/gpud/`, `idl/gpu.midl`, the
-   `LAZYOS_GEN9GFX` switch and launcher flags of §8, the device claim for
+   `LAZYOS_INTELGFX` switch and launcher flags of §8, the device claim for
    00:02.0, then `set_scanout` in the kernel). Its first job is the same read
-   as step 1, decoded with `libs/gen9gfx::regs` and reported as `GPU:*`
+   as step 1, decoded with `libs/intelgfx::regs` and reported as `GPU:*`
    markers.
 
 ## 11. Re-scoped goal: 60 fps at 1440p, LazyWeb+ first (2026-10-17)
@@ -590,15 +590,15 @@ if the box can reach a host serving it).
 
 ### 11.4 Status of the implementation for this goal
 
-- **Merged and building**: `gpud` G1 (read-only, `LAZYOS_GEN9GFX=1`) on current
-  main; `cargo test -p gen9gfx -p gpupolicy -p devmatch` passes; a console image
-  with `LAZYOS_GEN9GFX=1 LAZYOS_NETD=1` builds. **Not run on the box.**
+- **Merged and building**: `gpud` G1 (read-only, `LAZYOS_INTELGFX=1`) on current
+  main; `cargo test -p intelgfx -p gpupolicy -p devmatch` passes; a console image
+  with `LAZYOS_INTELGFX=1 LAZYOS_NETD=1` builds. **Not run on the box.**
 - **Built for the measurement**: `tools/webplus/frame_run.py` (+
   `test_frame.py`, `scroll_page.py`), the kernel's `present_mpx` metric
   (`LAZYOS_PERF=1`; kernel test `display_present_damage_pixels`, the display
   suite passes 50 of 50).
 - **Built 2026-10-19, still read-only, not run on the box**: the beam
-  (`libs/gen9gfx::vblank`, `gpud/beam.rs`). `gpud` reads the adopted pipe's
+  (`libs/intelgfx::vblank`, `gpud/beam.rs`). `gpud` reads the adopted pipe's
   frame counter (`PIPE_FRMCOUNT`, +0x40) and scan line (`PIPEDSL`, +0x00)
   twice a second apart and prints `GPU:VBLANK:PASS measured_mhz=...
   expected_mhz=...` when the counter agrees with the timing registers within
@@ -610,13 +610,26 @@ if the box can reach a host serving it).
   vertical total, monotonic time): what a presenter needs to keep its copy
   out of the beam's way before G5 flips exist. The two pipe offsets are
   i915's and **to confirm** on the box (the Linux dump does not name them);
-  the interrupt registers are confirmed. Host tests: `cargo test -p gen9gfx
+  the interrupt registers are confirmed. Host tests: `cargo test -p intelgfx
   vblank`. **Used already**: `xuid` hands the measured rate to every client
   (`GetOutput.refresh_millihz`) and xui paces each window's presents to it
   (`lazywebplus-performance-plan.md` section 12), so on the box a 70 Hz mode
   is paced at 70 Hz, not 60. Every desktop also prints `XUID:COMPOSE` (the
   compositor's compose and present time per megapixel), which, beside
   `PERF:present_mpx`, is the box number 11.2's G6 rule asks for.
+- **Built 2026-10-19, the Alder Lake box too**: the crate is now
+  `libs/intelgfx` (the switch `LAZYOS_INTELGFX=1`, `run_demo.py --intelgfx`)
+  and `gpud` adopts the i3-1220P's UHD Graphics (`8086:46b3`, display 13)
+  with the same `Adopted` and the same beam: `adopt::Display::{Gen9, D13}`
+  picks the half by device id (`intelgfx::gen9`, `intelgfx::d13`: power
+  wells by index, CDCLK from its own PLL and `DSSM`'s reference, the port in
+  `TRANS_DDI_FUNC_CTL` bits 30:27 as `port + 1`, the combo PLL from
+  `DPCLKA_CFGCR0` and its DCO dividers). `tests_d13` runs it on the box's
+  GOP capture (`docs/compat/alderlake/gpu/lazyos/`): pipe A, DDI B HDMI,
+  DPLL1 (not DPLL0 as under Linux), 241.436 MHz, 2560x1440 at 59.934 Hz,
+  CDCLK 652.8 MHz, the plane linear XRGB8888 at GGTT 0 over 3600 contiguous
+  pages from stolen memory `0x4c800000`. `BDSM` is read at config 0xC0 on
+  display 13. `pciprobe` lists the 46b3 ranges `gpud` and `dbgd` read.
 - **Not built yet** (honestly): vblank *interrupts*, `set_scanout`, CRC, any
   display write, G3 and everything after it. None of it is justified by the
   numbers above until the box answers 11.3; on the box run, also read

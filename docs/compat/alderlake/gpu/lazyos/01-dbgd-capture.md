@@ -115,7 +115,7 @@ The host bridge `00:00.0` is `8086:4601` rev `0x04`.
 ## Devices and drivers
 
 `devd` matched nothing for `00:02.0` (`unmatched`): `gpud` is not started
-(its manifest matches `8086:5916` only, and only in a `LAZYOS_GEN9GFX=1`
+(its manifest matches `8086:5916` only, and only in a `LAZYOS_GEN9GFX=1`, since renamed `LAZYOS_INTELGFX=1`
 image). Both RTL8168h NICs are claimed by `netdrv`; one (`eth1`) later hit a
 `tx timeout` and was detached. The HDA controller `8086:51c8` and the AX101
 Wi-Fi `8086:51f0` are unmatched in this image.

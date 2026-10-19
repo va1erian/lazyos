@@ -211,7 +211,7 @@ else
             i915_frequency_info i915_ips_status i915_sr_status; do
             [ -r "$dir/$f" ] && grab "$dir/$f" "03-dri$n-$f.txt"
         done
-        # The VBT as a blob, for tools/boot (libs/gen9gfx::vbt) and
+        # The VBT as a blob, for tools/boot (libs/intelgfx::vbt) and
         # intel_vbt_decode; the OpRegion as a blob when this kernel has it.
         grab "$dir/i915_vbt" "03-dri$n-vbt.bin"
         [ -r "$dir/i915_opregion" ] && grab "$dir/i915_opregion" "03-dri$n-opregion.bin"

@@ -120,7 +120,7 @@ members = [
     "libs/hda",
     # Intel Gen9 display and HDMI audio logic for the Kaby Lake GPU plan
     # (docs/kabylake-gpu-plan.md): EDID, ELD, VBT, N/CTS, register map.
-    "libs/gen9gfx",
+    "libs/intelgfx",
     # devd's static driver manifest (issue #497, driver-plan 3.6).
     "libs/devmatch",
     "libs/ftpwire",
@@ -177,7 +177,7 @@ members = [
     "libs/simair",
     "libs/usbpolicy",
     "libs/sndpolicy",
-    # The Intel GPU service's device-class rules (`gpud`, LAZYOS_GEN9GFX=1).
+    # The Intel GPU service's device-class rules (`gpud`, LAZYOS_INTELGFX=1).
     "libs/gpupolicy",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
     # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.

@@ -43,7 +43,7 @@ def advanced_cfg(ui) -> dict:
         "sound": ui.v["sound"].get(),
         "sound_card": ui.v["sound_card"].get(),
         "nic": ui.v["nic"].get(),
-        **{key: ui.v[key].get() for key in ("devd", "irqchip", "msi", "gen9gfx")},
+        **{key: ui.v[key].get() for key in ("devd", "irqchip", "msi", "intelgfx")},
         "abi_build": ui.v["abi_build"].get(),
         "desktop": ui.v["desktop"].get(),
         "services": ui.v["services"].get(),

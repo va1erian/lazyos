@@ -6,8 +6,8 @@
 //! Nothing secret is here: register values, addresses of the display's own
 //! state.
 
-use gen9gfx::adopt::{ActivePipe, Adopted, FbMap, RegFile};
-use gen9gfx::regs::{plane_ctl, DdiMode};
+use intelgfx::adopt::{ActivePipe, Adopted, FbMap, RegFile};
+use intelgfx::regs::{plane_ctl, DdiMode};
 use user::trace::{self, Channel};
 
 use crate::device::{Command, Identity};
@@ -81,7 +81,7 @@ pub(super) fn adopted(state: &Adopted, fb: Option<&FbMap>) {
     );
     trace::line!(
         Channel::Gpu,
-        "CDCLK khz={} lcpll1_locked={}",
+        "CDCLK khz={} pll_locked={}",
         state.cdclk_khz,
         u8::from(state.cdclk_pll_locked)
     );
@@ -97,7 +97,7 @@ pub(super) fn adopted(state: &Adopted, fb: Option<&FbMap>) {
     let port = pipe.port.map_or(-1, i32::from);
     trace::line!(
         Channel::Gpu,
-        "PIPE pipe={} port={} link={} bpc={} hsync={} vsync={} pll={} pll_hdmi={} ddi_clock_off={} \
+        "PIPE pipe={} port={} link={} bpc={} hsync={} vsync={} pll={} pll_ready={} ddi_clock_off={} \
          pipes_enabled={:#05b}",
         pipe.pipe,
         port,
@@ -106,7 +106,7 @@ pub(super) fn adopted(state: &Adopted, fb: Option<&FbMap>) {
         char::from(b"-+"[usize::from(pipe.func.hsync_positive)]),
         char::from(b"-+"[usize::from(pipe.func.vsync_positive)]),
         pipe.pll.map_or(-1, i32::from),
-        u8::from(pipe.pll_hdmi_mode),
+        u8::from(pipe.pll_ready),
         u8::from(pipe.ddi_clock_off),
         state.pipes_enabled
     );

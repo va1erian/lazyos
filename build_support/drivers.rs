@@ -12,9 +12,9 @@ use std::path::PathBuf;
 
 use crate::os_image::Sink;
 
-// The Intel GPU service (`LAZYOS_GEN9GFX=1`): `gpud`.
-#[path = "gen9gfx_embed.rs"]
-mod gen9gfx_embed;
+// The Intel GPU service (`LAZYOS_INTELGFX=1`): `gpud`.
+#[path = "intelgfx_embed.rs"]
+mod intelgfx_embed;
 // Wi-Fi (`LAZYOS_WIFI=1`): `wifid`, `wlanmd`, `wifictl` and the firmware.
 #[path = "wifi_embed.rs"]
 mod wifi_embed;
@@ -166,5 +166,5 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
     wifi_embed::embed(sink, manifest_dir);
     // `gpud`, the Intel GPU service, only on request: `devd` starts it for
     // the HD Graphics 620 it finds (docs/kabylake-gpu-plan.md, stage G1).
-    gen9gfx_embed::embed(sink, sound || net);
+    intelgfx_embed::embed(sink, sound || net);
 }

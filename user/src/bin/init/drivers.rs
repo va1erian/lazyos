@@ -28,19 +28,19 @@ pub(super) const DRIVER_ROWS: &[ServiceSpec] = &[
     super::state::NETDRV_ROW,
     #[cfg(lazyos_wifi)]
     WIFID_ROW,
-    #[cfg(lazyos_gen9gfx)]
+    #[cfg(lazyos_intelgfx)]
     GPUD_ROW,
 ];
 
 /// The Intel GPU service (docs/kabylake-gpu-plan.md, stage G1), present only
-/// on `LAZYOS_GEN9GFX=1` images and started only by `devd`, for the HD
+/// on `LAZYOS_INTELGFX=1` images and started only by `devd`, for the HD
 /// Graphics 620 it found; it runs as `_gpu` with `CAP_DEV_CLAIM`
 /// (`service_creds::GPU_CRED`). Started by hand without the device it says
 /// `GPU:NO-DEVICE:FAIL` and exits 0, so `OnFailure` restarts it only after a
 /// crash, and it never exits on purpose while it holds the claim (a release
 /// switches the function's memory decode off under the kernel console).
 /// `dbgctl reload gpud` replaces its binary (`reload.rs`).
-#[cfg(lazyos_gen9gfx)]
+#[cfg(lazyos_intelgfx)]
 pub(super) const GPUD_ROW: ServiceSpec = ServiceSpec {
     name: "gpud",
     path: fhs::bin::GPUD,

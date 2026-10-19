@@ -2,8 +2,8 @@
 //! start (`GetState`) and the live beam (`GetBeam`). Read-only.
 
 use alloc::vec;
-use gen9gfx::adopt::{Adopted, FbMap};
-use gen9gfx::regs::{plane_ctl, DdiMode};
+use intelgfx::adopt::{Adopted, FbMap};
+use intelgfx::regs::{plane_ctl, DdiMode};
 use user::messenger::gpu::{self as api, wire};
 use user::messenger::services;
 use user::messenger::{self, errno, registry, Error as MsgError, Message, Parcel};
@@ -95,7 +95,7 @@ pub(super) fn state(facts: &Facts, adopted: &Adopted, fb: Option<&FbMap>) -> wir
     out
 }
 
-fn axis(axis: &gen9gfx::adopt::Axis) -> wire::Axis {
+fn axis(axis: &intelgfx::adopt::Axis) -> wire::Axis {
     wire::Axis {
         active: axis.active,
         total: axis.total,

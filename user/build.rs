@@ -322,18 +322,18 @@ fn main() {
     }
 
     // The Intel GPU service (docs/kabylake-gpu-plan.md, stage G1):
-    // `LAZYOS_GEN9GFX=1` adds the `gpud` driver row `devd` asks for when it
+    // `LAZYOS_INTELGFX=1` adds the `gpud` driver row `devd` asks for when it
     // finds the Kaby Lake HD Graphics 620 (the ELF is embedded by the root
     // build script), and makes `devd` name that device at all. Only `devd`
     // starts `gpud`, so the switch needs `devd`. Off by default.
-    println!("cargo:rerun-if-env-changed=LAZYOS_GEN9GFX");
-    println!("cargo:rustc-check-cfg=cfg(lazyos_gen9gfx)");
-    if env::var_os("LAZYOS_GEN9GFX").as_deref() == Some(std::ffi::OsStr::new("1")) {
+    println!("cargo:rerun-if-env-changed=LAZYOS_INTELGFX");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_intelgfx)");
+    if env::var_os("LAZYOS_INTELGFX").as_deref() == Some(std::ffi::OsStr::new("1")) {
         assert!(
             (sound || net) && !devd_off,
-            "LAZYOS_GEN9GFX=1 needs devd (a desktop, LAZYOS_SOUND=1 or the network stack, \
+            "LAZYOS_INTELGFX=1 needs devd (a desktop, LAZYOS_SOUND=1 or the network stack, \
              and no LAZYOS_DEVD=0): only devd starts gpud for the device it finds"
         );
-        println!("cargo:rustc-cfg=lazyos_gen9gfx");
+        println!("cargo:rustc-cfg=lazyos_intelgfx");
     }
 }

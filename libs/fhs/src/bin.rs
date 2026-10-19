@@ -67,7 +67,7 @@ programs! {
     /// `wifid`, the RTL8822CE Wi-Fi driver (`LAZYOS_WIFI=1` images,
     /// docs/wifi-rtw88-plan.md).
     WIFID = "wifid";
-    /// `gpud`, the Intel GPU service (`LAZYOS_GEN9GFX=1` images,
+    /// `gpud`, the Intel GPU service (`LAZYOS_INTELGFX=1` images,
     /// docs/kabylake-gpu-plan.md).
     GPUD = "gpud";
     /// `netd`, the network stack service.

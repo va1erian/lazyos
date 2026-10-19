@@ -136,21 +136,22 @@ pub const MANIFEST: &[Entry] = &[
     },
 ];
 
-/// The device ids `gpud` drives (`libs/gen9gfx`'s target: the Kaby Lake
-/// GT2 HD Graphics 620 of the i3-7100U box, Intel's vendor id).
-pub const GEN9GFX_DEVICES: &[u16] = &[0x5916];
+/// The device ids `gpud` drives (`libs/intelgfx`'s targets, Intel's vendor
+/// id): the Kaby Lake GT2 HD Graphics 620 of the i3-7100U box (Gen9) and the
+/// Alder Lake-UP3 GT1 UHD Graphics of the i3-1220P box (display 13).
+pub const INTELGFX_DEVICES: &[u16] = &[0x5916, 0x46B3];
 
-/// The entries only an image built with `LAZYOS_GEN9GFX=1` matches
+/// The entries only an image built with `LAZYOS_INTELGFX=1` matches
 /// (docs/kabylake-gpu-plan.md section 7): `devd` passes them to
 /// [`plan_with`] and [`entry_for_with`] when it is built with that switch,
 /// so an ordinary image does not even name the GPU. After [`MANIFEST`] in
 /// priority; nothing in it overlaps a [`MANIFEST`] entry.
-pub const GEN9GFX_MANIFEST: &[Entry] = &[Entry {
+pub const INTELGFX_MANIFEST: &[Entry] = &[Entry {
     driver: "gpud",
-    model: "Intel HD Graphics 620",
+    model: "Intel graphics",
     matches: Match::Ids {
         vendor: 0x8086,
-        devices: GEN9GFX_DEVICES,
+        devices: INTELGFX_DEVICES,
     },
     ifname_prefix: None,
 }];
@@ -207,7 +208,7 @@ pub fn plan(functions: &[Function]) -> Vec<Planned> {
 }
 
 /// [`plan`] with `extra` entries after [`MANIFEST`]'s (see
-/// [`GEN9GFX_MANIFEST`]).
+/// [`INTELGFX_MANIFEST`]).
 pub fn plan_with(functions: &[Function], extra: &'static [Entry]) -> Vec<Planned> {
     let mut chosen: Vec<Planned> = Vec::new();
     let mut named: Vec<(&'static str, usize)> = Vec::new();
@@ -425,35 +426,38 @@ mod tests {
     }
 
     #[test]
-    fn the_gpu_matches_only_with_the_gen9gfx_manifest() {
+    fn the_gpu_matches_only_with_the_intelgfx_manifest() {
         let gpu = function(2, 0x8086, 0x5916, 0x03, 0x00);
+        let alder_lake = function(2, 0x8086, 0x46B3, 0x03, 0x00);
         // An ordinary image never names the GPU, whatever else it matches.
-        assert!(entry_for(&gpu).is_none());
+        assert!(entry_for(&gpu).is_none() && entry_for(&alder_lake).is_none());
+        assert!(entry_for_with(&alder_lake, INTELGFX_MANIFEST).is_some_and(|e| e.driver == "gpud"));
         assert!(plan(&[gpu]).is_empty());
-        let entry = entry_for_with(&gpu, GEN9GFX_MANIFEST).expect("matched with the switch");
+        let entry = entry_for_with(&gpu, INTELGFX_MANIFEST).expect("matched with the switch");
         assert_eq!((entry.driver, entry.ifname_prefix), ("gpud", None));
-        let planned = plan_with(&[gpu], GEN9GFX_MANIFEST);
+        let planned = plan_with(&[gpu], INTELGFX_MANIFEST);
         assert_eq!(planned.len(), 1);
         assert_eq!((planned[0].driver, planned[0].id), ("gpud", 2));
         assert!(planned[0].ifname.is_empty());
-        // Exactly the one id; another Intel display function is not taken,
+        // Exactly the listed ids; another Intel display function is not taken,
         // nor is any other class of the same id.
         for other in [
             function(2, 0x8086, 0x5917, 0x03, 0x00),
             function(2, 0x8086, 0x5912, 0x03, 0x00),
+            function(2, 0x8086, 0x46A3, 0x03, 0x00),
             function(2, 0x1AF4, 0x5916, 0x03, 0x00),
         ] {
-            assert!(entry_for_with(&other, GEN9GFX_MANIFEST).is_none());
+            assert!(entry_for_with(&other, INTELGFX_MANIFEST).is_none());
         }
         // The extra rows never shadow the main manifest's.
         for entry in MANIFEST {
-            for extra in GEN9GFX_MANIFEST {
+            for extra in INTELGFX_MANIFEST {
                 assert_ne!(entry.driver, extra.driver);
             }
         }
         // Two display functions: one `gpud` only, as for every one-device row.
         let two = [gpu, function(3, 0x8086, 0x5916, 0x03, 0x00)];
-        assert_eq!(plan_with(&two, GEN9GFX_MANIFEST).len(), 1);
+        assert_eq!(plan_with(&two, INTELGFX_MANIFEST).len(), 1);
     }
 
     #[test]

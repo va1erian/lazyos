@@ -86,7 +86,7 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     if name == "wifid" {
         return Some(WIFI_CRED);
     }
-    #[cfg(lazyos_gen9gfx)]
+    #[cfg(lazyos_intelgfx)]
     if name == "gpud" {
         return Some(GPU_CRED);
     }

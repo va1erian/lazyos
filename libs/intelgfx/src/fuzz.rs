@@ -1,5 +1,5 @@
 //! Fuzz entry point, shared by the seeded tests and the cargo-fuzz target
-//! (`fuzz/fuzz_targets/gen9gfx.rs`), so a crash found by one replays under
+//! (`fuzz/fuzz_targets/intelgfx.rs`), so a crash found by one replays under
 //! the other.
 //!
 //! [`run`] reads a mode byte and feeds the rest to one parser (`0` EDID,

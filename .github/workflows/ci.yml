@@ -164,12 +164,12 @@ jobs:
           FUZZ_CASES: "5000"
       - name: Clippy (gpt, tests and fuzz entry point)
         run: cargo clippy -p gpt --all-targets --features fuzz -- -D warnings -D clippy::undocumented_unsafe_blocks
-      - name: gen9gfx (EDID, CEA, ELD, VBT parsers, HDMI N/CTS, adopt decoders, seeded fuzz) and gpupolicy
-        run: cargo test -p gen9gfx -p gpupolicy
+      - name: intelgfx (EDID, CEA, ELD, VBT parsers, HDMI N/CTS, adopt decoders, seeded fuzz) and gpupolicy
+        run: cargo test -p intelgfx -p gpupolicy
         env:
           FUZZ_CASES: "5000"
-      - name: Clippy (gen9gfx, tests and fuzz entry point)
-        run: cargo clippy -p gen9gfx --all-targets --features fuzz -- -D warnings
+      - name: Clippy (intelgfx, tests and fuzz entry point)
+        run: cargo clippy -p intelgfx --all-targets --features fuzz -- -D warnings
       - name: lazyos-install (plan refusals, install/update/uninstall on a disk image)
         run: cargo test -p lazyos-install
       - name: Clippy (lazyos-install, host and Linux)

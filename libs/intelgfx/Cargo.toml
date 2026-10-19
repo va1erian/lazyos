@@ -1,5 +1,5 @@
 [package]
-name = "gen9gfx"
+name = "intelgfx"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -7,13 +7,13 @@ description = "Intel Gen9 (Skylake to Coffee Lake) display and HDMI audio logic,
 license = "GPL-3.0-or-later"
 
 [lib]
-name = "gen9gfx"
+name = "intelgfx"
 path = "src/lib.rs"
 
 [features]
 # Expose `fuzz::run` and the fixture builders (`build`), the byte entry point
 # shared by the in-tree seeded tests and the cargo-fuzz target
-# (`fuzz/fuzz_targets/gen9gfx.rs`). Needs `std`.
+# (`fuzz/fuzz_targets/intelgfx.rs`). Needs `std`.
 fuzz = []
 
 [dev-dependencies]

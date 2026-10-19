@@ -43,7 +43,7 @@ by hand or note why they are absent.
 | `01-intel_reg-dump.txt` | named register dump (intel-gpu-tools) | display, pipe, DDI, DPLL, CDCLK registers by name (**not** the audio block or `DDI_BUF_CTL`) |
 | `02-mmio-ranges.txt` | raw dwords of the display ranges (power wells, CDCLK, transcoder, DDI, audio, scalers, DPLL, pipe/plane, DDB/watermarks, forcewake) | the baseline G1 adopts; the audio and DDI-buffer offsets. **Empty in the first capture** (see below) |
 | `03-dri*-i915_display_info`, `-i915_dmc_info`, `-i915_ddb_info`, `-i915_shared_dplls_info`, `-i915_power_domain_info`, `-i915_engine_info`, ... | the driver's own decode | pipe/DDI/PLL in use, DDB layout, engines and their MMIO bases |
-| `03-dri*-vbt.bin`, `03-intel_vbt_decode.txt`, `03-dri*-opregion.bin` | the VBT blob and its decode, the OpRegion | **DDI port, DDC pin, HDMI vs DP vs DVI, LSPCON flag**; `libs/gen9gfx` `tests_real` parses these |
+| `03-dri*-vbt.bin`, `03-intel_vbt_decode.txt`, `03-dri*-opregion.bin` | the VBT blob and its decode, the OpRegion | **DDI port, DDC pin, HDMI vs DP vs DVI, LSPCON flag**; `libs/intelgfx` `tests_real` parses these |
 | `04-card*-connector.txt`, `04-*-edid.bin`, `.hex`, `-edid-decode.txt` | connector state, raw EDID, decode | modes, CEA audio blocks, HDMI VSDB; `tests_real` parses the EDID |
 | `05-eld.txt`, `05-codecs.txt`, `05-aplay-cards.txt`, `05-pcm-info.txt`, `05-amixer.txt` | ELD per pin, full HDA codec dump, card and PCM listing | ELD valid/presence detect, converter-to-pin mapping, rates |
 | `06-dmesg-*.txt`, `06-firmware.txt` | `i915`/`snd_hda`/`hdmi`/`dmc`/`guc`/`huc` log lines | DMC/GuC state, stepping, any quirk i915 applied |
@@ -57,7 +57,7 @@ The first capture (`linux/`) has two gaps; one more run fixes both:
    returned `EINVAL`. The script now uses `intel_reg read` for the ranges.
 2. **No audio registers**: `intel_reg dump` does not list `AUD_CONFIG`,
    `AUD_PIN_ELD_CP_VLD`, `AUD_MISC_CTRL` or the ELD buffer, nor
-   `DDI_BUF_CTL`. These are the offsets `libs/gen9gfx::regs` still marks
+   `DDI_BUF_CTL`. These are the offsets `libs/intelgfx::regs` still marks
    `TO CONFIRM`, and G2 (HDMI audio) depends on them.
 
 Also worth knowing when reading the capture: i915 had already driven the
@@ -86,8 +86,8 @@ Redact before committing:
    spaces: **13 bytes exactly**, anything else changes the block length) and
    fix block 0's checksum (byte 127 so the block sums to 0 mod 256); update the
    hex dump embedded in the `edid-decode` text and its checksum line to match.
-   `libs/gen9gfx::edid` validates checksums and `tests_real` parses the file,
-   so a wrong edit shows up in `cargo test -p gen9gfx`.
+   `libs/intelgfx::edid` validates checksums and `tests_real` parses the file,
+   so a wrong edit shows up in `cargo test -p intelgfx`.
 3. Do not commit the firmware image blobs (`/lib/firmware/i915/*`); only the
    names and versions in `06-firmware.txt` are kept.
 4. File names must not contain `:` and must not differ only in case
@@ -96,5 +96,5 @@ Redact before committing:
    the script names debugfs files `03-dri<name>-...` with `:` turned into `_`
    and skips the symlinked duplicates (`dri/1`, `dri/128`).
 
-Then mark the `// TO CONFIRM against dump` register offsets in `libs/gen9gfx`
+Then mark the `// TO CONFIRM against dump` register offsets in `libs/intelgfx`
 as confirmed or corrected from `02-mmio-ranges.txt`.

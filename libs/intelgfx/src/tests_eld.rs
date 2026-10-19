@@ -143,7 +143,7 @@ fn seeded_fuzz() {
             .unwrap()
             .to_bytes()
     };
-    fuzzkit::for_seeds("gen9gfx_eld_mutated", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_eld_mutated", |_, rng| {
         let mut data = if rng.one_in(2) {
             seed.clone()
         } else {
@@ -156,7 +156,7 @@ fn seeded_fuzz() {
         }
         crate::fuzz::eld_bytes(&data);
     });
-    fuzzkit::for_seeds("gen9gfx_eld_random", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_eld_random", |_, rng| {
         let n = rng.range(0, 280) as usize;
         let mut data = rng.bytes(n);
         if !data.is_empty() && rng.one_in(2) {

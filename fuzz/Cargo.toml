@@ -32,7 +32,7 @@ raster = { path = "../libs/raster", features = ["fuzz"] }
 nvme = { path = "../libs/nvme", features = ["fuzz"] }
 ahci = { path = "../libs/ahci", features = ["fuzz"] }
 gpt = { path = "../libs/gpt", features = ["fuzz"] }
-gen9gfx = { path = "../libs/gen9gfx", features = ["fuzz"] }
+intelgfx = { path = "../libs/intelgfx", features = ["fuzz"] }
 passwd = { path = "../libs/passwd", features = ["fuzz"] }
 accountdb = { path = "../libs/accountdb", features = ["fuzz"] }
 elevpolicy = { path = "../libs/elevpolicy", features = ["fuzz"] }
@@ -200,8 +200,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "gen9gfx"
-path = "fuzz_targets/gen9gfx.rs"
+name = "intelgfx"
+path = "fuzz_targets/intelgfx.rs"
 test = false
 doc = false
 bench = false

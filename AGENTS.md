@@ -1381,19 +1381,21 @@ cargo test -p fwload -p devmatch -p netpolicy
 python tools/firmware/fetch.py --check && python tools/firmware/test_fetch.py
 python tools/wifi/licenses.py           # Wi-Fi crates' licences, THIRD_PARTY.md rows
 
-## Intel Gen9 GPU service (`gpud`, `LAZYOS_GEN9GFX=1`)
+## Intel GPU service (`gpud`, `LAZYOS_INTELGFX=1`)
 
 `gpud` (`user/src/bin/gpud/`, uid `_gpu` 915 holding only `CAP_DEV_CLAIM`,
 rules in `libs/gpupolicy`) is stage G1 of
 [`docs/kabylake-gpu-plan.md`](docs/kabylake-gpu-plan.md), **read-only**:
-`devd` starts it for the Kaby Lake HD Graphics 620 (`8086:5916`, matched only
-in an image built with the switch: `devmatch::GEN9GFX_MANIFEST`), it claims
+`devd` starts it for the Kaby Lake HD Graphics 620 (`8086:5916`, Gen9) or the
+Alder Lake-P UHD Graphics (`8086:46b3`, display 13), matched only in an image
+built with the switch (`devmatch::INTELGFX_MANIFEST`); it claims
 the function without an interrupt, maps BAR 0 behind a read-only
-`gen9gfx::Mmio` (reads only inside `libs/pciprobe`'s range allowlist), reads
-and decodes what the firmware left (`libs/gen9gfx::adopt`: pipe, DDI, link
-mode, timing, pixel clock, CDCLK, plane, the GGTT pages of the scanout) and
+`intelgfx::Mmio` (reads only inside `libs/pciprobe`'s range allowlist), reads
+and decodes what the firmware left (`libs/intelgfx::adopt`, one
+`adopt::Display` per generation, `gen9` and `d13`: pipe, DDI, link mode,
+timing, pixel clock, CDCLK, plane, the GGTT pages of the scanout) and
 prints it as `GPU:*` lines, measures the refresh rate from the pipe's frame
-counter (`libs/gen9gfx::vblank`: `GPU:VBLANK`, `GPU:UNDERRUN`), then serves
+counter (`libs/intelgfx::vblank`: `GPU:VBLANK`, `GPU:UNDERRUN`), then serves
 `os.lazy.gpu.v1` (`idl/gpu.midl`, `GetState` from that snapshot, `GetBeam`
 live: frame counter and scan line). It writes no display register, takes no
 interrupt and sets no mode. A claim switches the function's decode and bus
@@ -1402,10 +1404,10 @@ once and never exits on purpose while it holds the claim (a release would
 stop the kernel console's writes into the aperture).
 
 ```bash
-python tools/run_demo.py --gen9gfx                  # QEMU has no such GPU: gpud is not started there
-python tools/run_demo.py --desktop --gen9gfx --dbgd --usb-image --build-only   # the Kaby Lake box's stick
+python tools/run_demo.py --intelgfx                  # QEMU has no such GPU: gpud is not started there
+python tools/run_demo.py --desktop --intelgfx --dbgd --usb-image --build-only   # a stick for either box
 python tools/dbg/dbgctl.py --host <ip> log --source programs | grep GPU:       # what the firmware left
-cargo test -p gen9gfx -p gpupolicy -p devmatch      # decoders against the box's real register dump
+cargo test -p intelgfx -p gpupolicy -p devmatch      # decoders against both boxes' real register dumps
 LAZYOS_TEST_FILTER=gpu python tools/test/run.py --accel none   # _gpu's class rules through claim
 ```
 
