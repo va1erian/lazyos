@@ -30,6 +30,6 @@ pub fn service() {
     super::stuck::sample();
     super::cpustat::sample();
     #[cfg(lazyos_perf)]
-    super::blocksample::sample();
+    super::cpustat::sample_blocked();
     super::lockwait::sample();
 }
