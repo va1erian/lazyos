@@ -44,6 +44,13 @@ impl Pkgd {
             Err(error) => return Err(self.refuse(&subject, uid, "REMOVE", registry_down(error))),
         };
         let subject = Subject::of_row(&row);
+        // Only the user who installed it (or a system caller) removes an app:
+        // another user's, or a machine-wide one, stays.
+        if let Err(why) =
+            pkgstore::access::may_change(caller.system, caller.uid, row.machine_wide, row.installer)
+        {
+            return Err(self.refuse(&subject, uid, "REMOVE", fail(EPERM, why)));
+        }
         if let Err(why) = provision::removal(&row.name, self.is_core(system_name)) {
             return Err(self.refuse(&subject, uid, "REMOVE", fail(EPERM, why)));
         }

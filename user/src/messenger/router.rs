@@ -8,7 +8,12 @@ use alloc::vec::Vec;
 
 use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 
+use svcpolicy::{Delivery, Member, Roster, SendFailure, Sink, Transport};
+
 use super::{create_pair, errno, registry, Endpoint, Error, Message, Result};
+
+mod client;
+pub use client::{Bus, Subscriber};
 
 /// Topic router interface id. The human interface is
 /// `os.lazy.local.topics.v1`; this is its interim eight-byte ABI id (a
@@ -119,20 +124,68 @@ impl Event {
     }
 }
 
-/// One attached subscriber.
-struct Subscription {
-    filter: String,
-    sink: String,
-    /// Cached endpoint; `None` until the sink resolves, or after a delivery
-    /// failed (the next publish retries the registry).
-    endpoint: Option<Endpoint>,
+/// Most subscribers a broker serves: each holds a handle in the broker's table
+/// (`init`'s has 256 slots, shared with everything else it does) and a name in
+/// the kernel's 64-entry registry, so a flood of subscriptions must not be
+/// able to take them all.
+pub const MAX_SUBSCRIBERS: usize = 64;
+/// Most subscribers one unprivileged caller (no `CAP_SETUID`) may hold: a
+/// session can reach the broker, and 64 resolvable names would take every
+/// slot. System services subscribe a handful each, within the global bound.
+pub const MAX_PER_USER: usize = 8;
+
+/// The real handles behind one delivery: `svcpolicy::Sink` decides what to do
+/// with them, this opens, uses and releases them (audit H12).
+struct Wire<'a> {
+    event: Option<&'a Parcel>,
+}
+
+impl Transport for Wire<'_> {
+    type Handle = Endpoint;
+
+    fn resolve(&mut self, name: &str) -> Option<Endpoint> {
+        registry::resolve(name).ok()
+    }
+
+    fn send(&mut self, handle: Endpoint) -> core::result::Result<(), SendFailure> {
+        let Some(event) = self.event else {
+            return Err(SendFailure::Gone);
+        };
+        handle.send(event).map_err(|error| {
+            if error.errno() == Some(-errno::EAGAIN) {
+                SendFailure::Backpressure
+            } else {
+                SendFailure::Gone
+            }
+        })
+    }
+
+    fn release(&mut self, handle: Endpoint) {
+        // The handle is this broker's alias of the sink's endpoint: releasing
+        // closes the alias, never the side the subscriber serves on.
+        let _ = handle.release();
+    }
+
+    fn alive(&mut self, name: &str) -> bool {
+        // A name that still resolves is registered; the lookup's own handle
+        // is given straight back.
+        match registry::resolve(name) {
+            Ok(endpoint) => {
+                let _ = endpoint.release();
+                true
+            }
+            Err(_) => false,
+        }
+    }
 }
 
 /// The broker half of the router: embed one in a service endpoint and call
 /// [`TopicBroker::handle`] for every message on the router interface.
 pub struct TopicBroker {
     prefix: &'static str,
-    subscribers: Vec<Subscription>,
+    /// The attached subscribers, each with its topic filter, and their caps
+    /// (`svcpolicy::Roster`).
+    subscribers: Roster<Endpoint, String>,
     retained: Vec<Retained>,
     next_sink: u64,
     next_seq: u64,
@@ -150,7 +203,7 @@ impl TopicBroker {
     pub fn new(prefix: &'static str) -> TopicBroker {
         TopicBroker {
             prefix,
-            subscribers: Vec::new(),
+            subscribers: Roster::new(MAX_SUBSCRIBERS, MAX_PER_USER),
             retained: Vec::new(),
             next_sink: 0,
             next_seq: 0,
@@ -177,13 +230,14 @@ impl TopicBroker {
             method::SUBSCRIBE => {
                 let sink = string_field(&message.parcel, field::SINK)?;
                 let filter = string_field(&message.parcel, field::FILTER)?;
-                self.attach(filter, sink)?;
+                let caller = message.caller();
+                let system = caller.caps & crate::sys::CAP_SETUID != 0;
+                self.attach(filter, sink, caller.uid, system)?;
                 Ok(parcel(method::SUBSCRIBE, Encoder::new()))
             }
             method::UNSUBSCRIBE => {
                 let sink = string_field(&message.parcel, field::SINK)?;
-                self.subscribers
-                    .retain(|subscriber| subscriber.sink != sink);
+                self.detach(&sink);
                 Ok(parcel(method::UNSUBSCRIBE, Encoder::new()))
             }
             method::PUBLISH => {
@@ -221,7 +275,7 @@ impl TopicBroker {
             }
         }
         for index in 0..self.subscribers.len() {
-            if !matches(&self.subscribers[index].filter, topic) {
+            if !matches(&self.subscribers.members()[index].data, topic) {
                 continue;
             }
             let Ok(event) = event_parcel(topic, payload, retained, seq) else {
@@ -230,6 +284,7 @@ impl TopicBroker {
             };
             self.deliver(index, &event);
         }
+        self.subscribers.prune();
         seq
     }
 
@@ -245,25 +300,31 @@ impl TopicBroker {
 
     /// Resolve `sink`, record the subscription, and replay the retained
     /// values `filter` already matches.
-    fn attach(&mut self, filter: String, sink: String) -> Result<()> {
-        if self
-            .subscribers
-            .iter()
-            .any(|subscriber| subscriber.sink == sink)
-        {
+    fn attach(&mut self, filter: String, sink: String, owner: u32, system: bool) -> Result<()> {
+        if self.subscribers.has_sink(&sink) {
             return Ok(());
+        }
+        // A subscriber whose sink died is dead weight for the caps: its name
+        // is gone, and every restart of a service subscribes under a new one.
+        // A full table looks each name up before it refuses.
+        if !self
+            .subscribers
+            .admit(&mut Wire { event: None }, owner, system)
+        {
+            return Err(Error::Errno(-errno::ENOSPC));
         }
         let endpoint = registry::resolve(&sink)?;
         let index = self.subscribers.len();
-        self.subscribers.push(Subscription {
-            filter,
-            sink,
-            endpoint: Some(endpoint),
+        self.subscribers.push(Member {
+            sink: Sink::new(sink, endpoint),
+            owner,
+            system,
+            data: filter,
         });
         let retained: Vec<(String, Vec<u8>, u64)> = self
             .retained
             .iter()
-            .filter(|entry| matches(&self.subscribers[index].filter, &entry.topic))
+            .filter(|entry| matches(&self.subscribers.members()[index].data, &entry.topic))
             .map(|entry| (entry.topic.clone(), entry.payload.clone(), entry.seq))
             .collect();
         for (topic, payload, seq) in retained {
@@ -274,26 +335,22 @@ impl TopicBroker {
         Ok(())
     }
 
-    /// Push one event to subscriber `index`, falling back to one registry
-    /// re-resolution when the cached endpoint is stale.
+    /// Drop the subscriber attached with `sink`, giving its handle back.
+    fn detach(&mut self, sink: &str) {
+        self.subscribers.detach(&mut Wire { event: None }, sink);
+    }
+
+    /// Push one event to subscriber `index`. A stalled subscriber costs the
+    /// event, never a handle; a dead one gives its handle back and is looked
+    /// up again once (`svcpolicy::Sink`).
     fn deliver(&mut self, index: usize, event: &Parcel) {
-        if let Some(endpoint) = self.subscribers[index].endpoint {
-            if endpoint.send(event).is_ok() {
-                self.delivered += 1;
-                return;
-            }
-        }
-        let resolved = registry::resolve(&self.subscribers[index].sink)
-            .and_then(|endpoint| endpoint.send(event).map(|()| endpoint));
-        match resolved {
-            Ok(endpoint) => {
-                self.subscribers[index].endpoint = Some(endpoint);
-                self.delivered += 1;
-            }
-            Err(_) => {
-                self.subscribers[index].endpoint = None;
-                self.dropped += 1;
-            }
+        let mut wire = Wire { event: Some(event) };
+        match self.subscribers.members_mut()[index]
+            .sink
+            .deliver(&mut wire)
+        {
+            Delivery::Delivered => self.delivered += 1,
+            Delivery::Dropped => self.dropped += 1,
         }
     }
 }
@@ -309,59 +366,6 @@ fn event_parcel(topic: &str, payload: &[u8], retained: bool, seq: u64) -> Result
     Ok(parcel(method::EVENT, body))
 }
 
-/// The client half: connect to a service's broker, subscribe, publish.
-pub struct Bus {
-    endpoint: Endpoint,
-}
-
-impl Bus {
-    /// Resolve `name` (a broker service, e.g. `os.lazy.healthd`).
-    pub fn connect(name: &str) -> Result<Bus> {
-        Ok(Bus {
-            endpoint: registry::resolve(name)?,
-        })
-    }
-
-    /// The underlying broker endpoint (diagnostics).
-    pub fn endpoint(&self) -> Endpoint {
-        self.endpoint
-    }
-
-    /// Subscribe to `filter`; returns a receiver already attached to the
-    /// broker. Retained matching values are queued by the broker.
-    pub fn subscribe(&self, filter: &str) -> Result<Subscriber> {
-        // One round trip reserves a unique sink name; the subscriber then
-        // registers its own endpoint under it, so no handle transfer is
-        // needed across processes.
-        let reply = self
-            .endpoint
-            .call(&parcel(method::RESERVE, Encoder::new()), None)?;
-        let sink = string_field(&reply, field::SINK)?;
-        let (published, received) = create_pair()?;
-        registry::register(&sink, &published, &[], 0)?;
-
-        let mut body = Encoder::new();
-        body.string(field::SINK, &sink).map_err(Error::Parcel)?;
-        body.string(field::FILTER, filter).map_err(Error::Parcel)?;
-        self.endpoint.call(&parcel(method::SUBSCRIBE, body), None)?;
-        Ok(Subscriber {
-            endpoint: received,
-            filter: String::from(filter),
-        })
-    }
-
-    /// Publish `payload` on `topic` through the broker.
-    pub fn publish(&self, topic: &str, payload: &[u8], retained: bool) -> Result<()> {
-        let mut body = Encoder::new();
-        body.string(field::TOPIC, topic).map_err(Error::Parcel)?;
-        body.bytes(field::PAYLOAD, payload).map_err(Error::Parcel)?;
-        body.u64(field::RETAINED, retained as u64)
-            .map_err(Error::Parcel)?;
-        self.endpoint.call(&parcel(method::PUBLISH, body), None)?;
-        Ok(())
-    }
-}
-
 /// The transport the generated `topic` helpers publish through: the interim
 /// broker's publish is infallible and returns the fanout sequence, so the
 /// generated result is always `Ok`.
@@ -370,61 +374,6 @@ impl messenger_generated::topics::Publish for TopicBroker {
 
     fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
         Ok(self.publish(topic, payload, retained))
-    }
-}
-
-/// The transport the generated `topic` helpers publish through when the
-/// publisher is a client of someone else's broker (e.g. `logind` publishing on
-/// `init`'s). The interim `Bus::publish` discards the broker's fanout count.
-impl messenger_generated::topics::Publish for Bus {
-    type Error = Error;
-
-    fn publish_topic(&mut self, topic: &str, payload: &[u8], retained: bool) -> Result<u64> {
-        self.publish(topic, payload, retained).map(|()| 0)
-    }
-}
-
-/// The transport the generated `topic` helpers subscribe through. The interim
-/// router has no QoS queues, so the declared `qos` is accepted and ignored.
-impl messenger_generated::topics::Subscribe for Bus {
-    type Error = Error;
-    type Subscription = Subscriber;
-
-    fn subscribe_topic(&mut self, filter: &str, _qos: u32) -> Result<Subscriber> {
-        self.subscribe(filter)
-    }
-}
-
-/// A subscriber's receiving end.
-pub struct Subscriber {
-    endpoint: Endpoint,
-    /// The filter this subscriber attached with.
-    pub filter: String,
-}
-
-impl Subscriber {
-    /// The endpoint the broker pushes events into, to park on beside others
-    /// (`wait::wait_any`).
-    pub fn endpoint(&self) -> Endpoint {
-        self.endpoint
-    }
-
-    /// Receive the next event, or `None` when `deadline` passes first.
-    ///
-    /// Allocates the receive buffer per call; a polling loop should use
-    /// [`Subscriber::recv_with`] and reuse one buffer.
-    pub fn recv(&self, deadline: Option<u64>) -> Result<Option<Event>> {
-        let mut buf = alloc::vec![0u8; super::DEFAULT_BUFFER];
-        self.recv_with(&mut buf, deadline)
-    }
-
-    /// [`Subscriber::recv`] with a caller-owned buffer.
-    pub fn recv_with(&self, buf: &mut [u8], deadline: Option<u64>) -> Result<Option<Event>> {
-        match self.endpoint.recv_with(buf, deadline) {
-            Ok(message) => Ok(Some(Event::from_message(&message)?)),
-            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => Ok(None),
-            Err(error) => Err(error),
-        }
     }
 }
 

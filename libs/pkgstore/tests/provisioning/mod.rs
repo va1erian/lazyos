@@ -235,6 +235,7 @@ impl Pkgd {
                 version: row.version.clone(),
                 digest: row.digest.clone(),
                 core: row.core,
+                machine_wide: true,
             })
             .collect()
     }

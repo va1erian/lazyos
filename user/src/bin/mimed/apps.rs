@@ -79,78 +79,115 @@ const DEFAULT_FALLBACKS: &[(&str, &str, &str)] = &[
     ("image/bmp", "open", "os.lazy.paint"),
 ];
 
-/// One open-with registration: the app for `(mime, verb)`, plus an optional
-/// fallback to use when the primary's ELF is not shipped.
+/// One app's claim on a `(mime, verb)`: the app, the app to use when it is not
+/// shipped, and whose claim it is.
+struct Claim {
+    app: String,
+    fallback: Option<String>,
+    /// The uid that installed the app; [`MACHINE_WIDE`] for the image's own
+    /// and for what an administrator installed for everyone. Only that user's
+    /// `Open` sees a claim of one user (audit H10: a user's package must not
+    /// take over a type for the next user who opens a file).
+    owner: u32,
+}
+
+/// The owner of a claim everyone sees.
+pub(crate) const MACHINE_WIDE: u32 = 0;
+
+impl Claim {
+    /// Whether `uid` (`None`: the service's own self-test, which sees all)
+    /// may be sent to this claim's app.
+    fn visible_to(&self, uid: Option<u32>) -> bool {
+        self.owner == MACHINE_WIDE || uid.is_none_or(|uid| uid == self.owner)
+    }
+}
+
+/// One open-with registration: the claims on `(mime, verb)`, the current one
+/// last.
 struct Registration {
     mime: String,
     verb: String,
-    app: String,
-    fallback: Option<String>,
-    /// Registrations this one replaced, oldest first, so withdrawing the
-    /// replacing app (an installed app being removed) gives the type back to
-    /// the handler it took it from instead of leaving it with none.
-    shadowed: Vec<(String, Option<String>)>,
+    /// Never empty. Earlier claims are the registrations the later ones
+    /// replaced, oldest first, so withdrawing the replacing app (an installed
+    /// app being removed) gives the type back to the handler it took it from
+    /// instead of leaving it with none.
+    claims: Vec<Claim>,
 }
 
-/// Most replaced registrations remembered per `(mime, verb)`.
+/// Most claims remembered per `(mime, verb)` besides the current one.
 const MAX_SHADOWED: usize = 8;
+
+/// Most `(mime, verb)` pairs the registry holds. The user allocator never
+/// gives memory back, so an unbounded table is a heap that only grows; the
+/// image's seeded defaults and every installed app's handlers fit with room to
+/// spare.
+pub(crate) const MAX_REGISTRATIONS: usize = 1024;
 
 /// The open-with registry: `(mime, verb)` to app. Re-registering a pair
 /// replaces its app, so a later policy wins.
 pub(crate) struct AppRegistry {
     entries: Vec<Registration>,
+    /// Most pairs held ([`MAX_REGISTRATIONS`]; smaller in the self-test).
+    limit: usize,
 }
 
 impl AppRegistry {
     pub(crate) fn new() -> AppRegistry {
+        AppRegistry::with_limit(MAX_REGISTRATIONS)
+    }
+
+    /// A registry that refuses a `limit + 1`-th pair.
+    pub(crate) fn with_limit(limit: usize) -> AppRegistry {
         AppRegistry {
             entries: Vec::new(),
+            limit,
         }
     }
 
-    /// Add or replace the app for `(mime, verb)`. Any fallback the pair had is
-    /// cleared: the new policy has not named one.
-    pub(crate) fn register(&mut self, mime_type: &str, app: &str, verb: &str) {
-        self.register_with_fallback(mime_type, app, verb, None);
+    /// Add or replace the machine-wide app for `(mime, verb)`. Any fallback
+    /// the pair had is cleared: the new policy has not named one. `false` when
+    /// the registry is full and the pair is new; replacing a held pair always
+    /// succeeds.
+    pub(crate) fn register(&mut self, mime_type: &str, app: &str, verb: &str) -> bool {
+        self.register_owned(mime_type, app, verb, MACHINE_WIDE)
     }
 
-    /// [`register`](Self::register), naming the app to use when `app` is not
-    /// shipped.
-    fn register_with_fallback(
+    /// [`register`](Self::register) for an app `owner` installed.
+    pub(crate) fn register_owned(
         &mut self,
         mime_type: &str,
         app: &str,
         verb: &str,
-        fallback: Option<&str>,
-    ) {
+        owner: u32,
+    ) -> bool {
         let mime_type = mime_type.trim().to_ascii_lowercase();
         let verb = verb.trim().to_ascii_lowercase();
-        let app = app.trim();
-        let fallback = fallback.map(str::trim);
+        let claim = Claim {
+            app: app.trim().to_string(),
+            fallback: None,
+            owner,
+        };
         if let Some(entry) = self
             .entries
             .iter_mut()
             .find(|entry| entry.mime == mime_type && entry.verb == verb)
         {
-            if entry.app != app {
-                let replaced = (core::mem::take(&mut entry.app), entry.fallback.take());
-                entry.shadowed.retain(|(shadowed, _)| shadowed != app);
-                entry.shadowed.push(replaced);
-                if entry.shadowed.len() > MAX_SHADOWED {
-                    entry.shadowed.remove(0);
-                }
+            // The app's own earlier claim is replaced, wherever it sits.
+            entry.claims.retain(|held| held.app != claim.app);
+            entry.claims.push(claim);
+            if entry.claims.len() > MAX_SHADOWED + 1 {
+                entry.claims.remove(0);
             }
-            entry.app = app.to_string();
-            entry.fallback = fallback.map(str::to_string);
-        } else {
+        } else if self.entries.len() < self.limit {
             self.entries.push(Registration {
                 mime: mime_type,
                 verb,
-                app: app.to_string(),
-                fallback: fallback.map(str::to_string),
-                shadowed: Vec::new(),
+                claims: alloc::vec![claim],
             });
+        } else {
+            return false;
         }
+        true
     }
 
     /// Withdraw `app`'s registration for `(mime, verb)`. If `app` holds it, the
@@ -169,29 +206,27 @@ impl AppRegistry {
             return false;
         };
         let entry = &mut self.entries[index];
-        if entry.app == app {
-            match entry.shadowed.pop() {
-                Some((previous, fallback)) => {
-                    entry.app = previous;
-                    entry.fallback = fallback;
-                }
-                None => {
-                    self.entries.remove(index);
-                }
-            }
-            true
-        } else {
-            let before = entry.shadowed.len();
-            entry.shadowed.retain(|(shadowed, _)| shadowed != app);
-            entry.shadowed.len() != before
+        let before = entry.claims.len();
+        entry.claims.retain(|held| held.app != app);
+        if entry.claims.is_empty() {
+            self.entries.remove(index);
+            return true;
         }
+        entry.claims.len() != before
     }
 
-    /// Whether two apps handle `(mime, verb)`: the only case in which a user's choice of app matters,
-    /// so the only one that costs the `confd` lookup of it (`mimed` serves every open from one thread).
-    pub(crate) fn contested(&self, mime_type: &str, verb: &str) -> bool {
-        self.entry(mime_type, verb)
-            .is_some_and(|entry| !entry.shadowed.is_empty())
+    /// Whether two apps `uid` may be sent to handle `(mime, verb)`: the only
+    /// case in which a user's choice of app matters, so the only one that
+    /// costs the `confd` lookup of it (`mimed` serves every open from one thread).
+    pub(crate) fn contested(&self, mime_type: &str, verb: &str, uid: Option<u32>) -> bool {
+        self.entry(mime_type, verb).is_some_and(|entry| {
+            entry
+                .claims
+                .iter()
+                .filter(|claim| claim.visible_to(uid))
+                .count()
+                > 1
+        })
     }
 
     /// Name the fallback for an already-registered `(mime, verb)`; a no-op for
@@ -199,12 +234,13 @@ impl AppRegistry {
     fn set_fallback(&mut self, mime_type: &str, verb: &str, fallback: &str) {
         let mime_type = mime_type.trim().to_ascii_lowercase();
         let verb = verb.trim().to_ascii_lowercase();
-        if let Some(entry) = self
+        if let Some(claim) = self
             .entries
             .iter_mut()
             .find(|entry| entry.mime == mime_type && entry.verb == verb)
+            .and_then(|entry| entry.claims.last_mut())
         {
-            entry.fallback = Some(fallback.trim().to_string());
+            claim.fallback = Some(fallback.trim().to_string());
         }
     }
 
@@ -216,36 +252,35 @@ impl AppRegistry {
     /// The app registered for a type and verb, plus its fallback app when the
     /// registration names one. Both keys are matched case-insensitively.
     pub(crate) fn resolve(&self, mime_type: &str, verb: &str) -> Option<(&str, Option<&str>)> {
-        self.entries
-            .iter()
-            .find(|entry| {
-                entry.mime.eq_ignore_ascii_case(mime_type.trim())
-                    && entry.verb.eq_ignore_ascii_case(verb.trim())
-            })
-            .map(|entry| (entry.app.as_str(), entry.fallback.as_deref()))
+        let claim = self.entry(mime_type, verb)?.claims.last()?;
+        Some((claim.app.as_str(), claim.fallback.as_deref()))
     }
 
-    /// [`resolve`](Self::resolve) for a user with a preference: `preferred`, when that app holds a
-    /// registration for the pair (it is the registered app, or one it replaced: installed, and
-    /// handling the type), else what `resolve` says. An app that does not handle the type is never
-    /// chosen, whatever the preference says.
+    /// [`resolve`](Self::resolve) for the user `uid` with a preference: only
+    /// claims `uid` may be sent to count (the machine's, and its own).
+    /// `preferred`, when that app holds a visible claim for the pair (it is
+    /// the registered app, or one it replaced: installed, and handling the
+    /// type), else the newest visible claim. An app that does not handle the
+    /// type is never chosen, whatever the preference says.
     pub(crate) fn resolve_preferred(
         &self,
         mime_type: &str,
         verb: &str,
         preferred: Option<&str>,
+        uid: Option<u32>,
     ) -> Option<(&str, Option<&str>)> {
         let entry = self.entry(mime_type, verb)?;
         let preferred = preferred.map(str::trim).filter(|app| !app.is_empty());
-        if let Some(app) = preferred {
-            if entry.app == app {
-                return Some((entry.app.as_str(), entry.fallback.as_deref()));
-            }
-            if let Some((held, fallback)) = entry.shadowed.iter().find(|(held, _)| held == app) {
-                return Some((held.as_str(), fallback.as_deref()));
-            }
-        }
-        Some((entry.app.as_str(), entry.fallback.as_deref()))
+        let mut visible = entry.claims.iter().rev().filter(|c| c.visible_to(uid));
+        let newest = visible.next()?;
+        let chosen = preferred
+            .and_then(|app| {
+                core::iter::once(newest)
+                    .chain(visible)
+                    .find(|claim| claim.app == app)
+            })
+            .unwrap_or(newest);
+        Some((chosen.app.as_str(), chosen.fallback.as_deref()))
     }
 
     fn entry(&self, mime_type: &str, verb: &str) -> Option<&Registration> {
@@ -285,7 +320,7 @@ pub(crate) fn choose<'a>(
 pub(crate) fn seed_default_apps(apps: &mut AppRegistry) {
     for (mime_type, app, verbs) in DEFAULT_APPS {
         for verb in *verbs {
-            apps.register(mime_type, app, verb);
+            let _ = apps.register(mime_type, app, verb);
         }
     }
     for (mime_type, verb, fallback) in DEFAULT_FALLBACKS {

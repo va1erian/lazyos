@@ -15,7 +15,7 @@ use user::files;
 use user::messenger::pkgd::Installed;
 
 use super::handlers::Pkgd;
-use super::install::{one_line, row_of};
+use super::install::{one_line, row_of, Installer};
 use super::store::{self, describe, SysFs};
 
 /// Largest stored manifest read back (the format's own cap is 1 MiB).
@@ -50,6 +50,11 @@ impl Pkgd {
                 return;
             }
         };
+        // Core apps first: `mimed`'s registry is bounded and global, and a user
+        // package activated before them must not be able to take the room
+        // their handlers need (the confd list order is by name).
+        let mut rows = rows;
+        rows.sort_by_key(|row| row.origin != user::messenger::pkgd::wire::ORIGIN_CORE);
         let mut activated = 0;
         for row in &rows {
             let present = layout::install_path(&row.install_dir)
@@ -67,7 +72,7 @@ impl Pkgd {
                 continue;
             }
             let outcome = stored_manifest(&row.install_dir).and_then(|manifest| {
-                self.activate(&manifest)?;
+                self.activate(&manifest, Installer::of_row(row).owner())?;
                 self.refresh_row(row, &manifest);
                 Ok(())
             });
@@ -100,6 +105,7 @@ impl Pkgd {
             &row.digest,
             row.installed_at,
             row.origin,
+            Installer::of_row(row),
         );
         if fresh != *row {
             let _ = self.registry.put(&fresh);

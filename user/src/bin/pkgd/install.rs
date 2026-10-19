@@ -83,6 +83,52 @@ pub(crate) fn one_line(text: &str) -> String {
         .collect()
 }
 
+/// Who an install is for (`Installed::installer`, `Installed::machine_wide`):
+/// the uid that asked, and whether a system caller made it for everyone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Installer {
+    pub(crate) uid: u32,
+    pub(crate) machine_wide: bool,
+}
+
+impl Installer {
+    /// The image's own provisioning of its core packages.
+    pub(crate) const SYSTEM: Installer = Installer {
+        uid: 0,
+        machine_wide: true,
+    };
+
+    /// The installer of a request `caller` made: a system caller (`elevd`
+    /// after an administrator approved, `dbgd`) installs for everyone, any
+    /// other for its own user.
+    pub(crate) fn of(caller: &Caller) -> Installer {
+        Installer {
+            uid: caller.uid,
+            machine_wide: caller.system,
+        }
+    }
+
+    /// The `mimed` owner of what this installer installs: `0` (everyone) for
+    /// a machine-wide install, else the installing uid.
+    pub(crate) fn owner(&self) -> u32 {
+        if self.machine_wide {
+            0
+        } else {
+            self.uid
+        }
+    }
+
+    /// The installer a stored row recorded. A core app (one the image ships)
+    /// is machine-wide whatever an older row said.
+    pub(crate) fn of_row(row: &Installed) -> Installer {
+        Installer {
+            uid: row.installer,
+            machine_wide: row.machine_wide
+                || row.origin == user::messenger::pkgd::wire::ORIGIN_CORE,
+        }
+    }
+}
+
 impl Pkgd {
     /// Refuse a request before anything changed: audited as `denied`.
     pub(crate) fn refuse(
@@ -177,7 +223,7 @@ impl Pkgd {
             return Err(self.refuse(&nobody, uid, "INSTALL", read_failure(code)));
         }
         let bytes = core::mem::take(&mut self.buffer);
-        let outcome = self.install_bytes(&bytes, uid, approval);
+        let outcome = self.install_bytes(&bytes, uid, Installer::of(caller), approval);
         self.buffer = bytes;
         outcome
     }
@@ -190,6 +236,7 @@ impl Pkgd {
         &mut self,
         bytes: &[u8],
         uid: u64,
+        installer: Installer,
         approval: Approval<'_>,
     ) -> Result<Installed, Failure> {
         let assessed = match assess(bytes) {
@@ -236,8 +283,20 @@ impl Pkgd {
             );
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
+        // A plain install replaces the app for whoever owns it: only the user
+        // who installed it, or a system caller, may.
+        if let Some(row) = &previous {
+            if let Err(why) = pkgstore::access::may_change(
+                installer.machine_wide,
+                installer.uid,
+                row.machine_wide,
+                row.installer,
+            ) {
+                return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+            }
+        }
         let origin = self.origin_of(system_name);
-        match self.install_package(package, &subject, previous, origin) {
+        match self.install_package(package, &subject, previous, origin, installer) {
             Ok(row) => {
                 self.audit
                     .record(&event("install", &subject, uid, true, ""));
@@ -270,6 +329,7 @@ impl Pkgd {
         subject: &Subject,
         previous: Option<Installed>,
         origin: u32,
+        installer: Installer,
     ) -> Result<Installed, Failure> {
         let manifest = package.manifest();
         let install_path = layout::install_path(&subject.install_dir)
@@ -299,6 +359,7 @@ impl Pkgd {
             &subject.digest,
             sys::clock(),
             origin,
+            installer,
         );
         if let Err(error) = self.registry.put(&row) {
             self.discard(&subject.system_name, &install_path);
@@ -310,7 +371,7 @@ impl Pkgd {
                 ),
             ));
         }
-        if let Err(text) = self.activate(manifest) {
+        if let Err(text) = self.activate(manifest, installer.owner()) {
             self.roll_back(&row.system_name, previous.as_ref());
             self.discard(&subject.system_name, &install_path);
             return Err(fail(EIO, format!("Installing failed while {text}")));
@@ -337,6 +398,7 @@ pub(crate) fn row_of(
     digest: &str,
     installed_at: u64,
     origin: u32,
+    installer: Installer,
 ) -> Installed {
     let mut verbs: Vec<String> = Vec::new();
     for verb in manifest
@@ -367,6 +429,8 @@ pub(crate) fn row_of(
         autostart: manifest.entry.autostart,
         verbs,
         resident: manifest.entry.resident,
+        installer: installer.uid,
+        machine_wide: installer.machine_wide,
     }
 }
 

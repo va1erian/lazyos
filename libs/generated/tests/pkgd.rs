@@ -22,6 +22,10 @@ fn installed() -> Installed {
         autostart: true,
         verbs: vec!["open".into()],
         resident: true,
+        installer: 1000,
+        // The last field is non-default, so a row cut right before it is
+        // visibly not the whole row.
+        machine_wide: true,
     }
 }
 
@@ -82,6 +86,22 @@ fn a_row_stored_before_resident_existed_is_not_resident() {
             .unwrap()
             .resident
     );
+}
+
+#[test]
+fn a_row_stored_before_installers_existed_has_none() {
+    // `installer` and `machine_wide` (fields 15, 16) were appended: an older
+    // row decodes to uid 0, which no login session has, and not machine-wide,
+    // so its `autostart` opens for nobody until it is installed again.
+    let old_style = Installed {
+        installer: 0,
+        machine_wide: false,
+        ..installed()
+    };
+    let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
+    assert_eq!((decoded.installer, decoded.machine_wide), (0, false));
+    let kept = decode_installed(&encode_installed(&installed()).unwrap()).unwrap();
+    assert_eq!((kept.installer, kept.machine_wide), (1000, true));
 }
 
 #[test]

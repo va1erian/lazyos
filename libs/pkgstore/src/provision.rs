@@ -57,6 +57,8 @@ pub struct Current {
     pub digest: String,
     /// The row records the app as core.
     pub core: bool,
+    /// A system caller installed it for the machine (`Installed::machine_wide`).
+    pub machine_wide: bool,
 }
 
 /// One provisioning step.
@@ -157,11 +159,20 @@ pub fn plan(shipped: &[Shipped], current: &[Current]) -> Vec<Action> {
                 }
                 Action::MarkCore(name)
             }
-            Some(row) if newer(&row.version, &package.version) => Action::Keep {
-                system_name: name,
-                installed: row.version.clone(),
-                shipped: package.version.clone(),
-            },
+            // A newer version stays only if it is the machine's own choice: a
+            // row that is already core, or one a system caller installed. A
+            // plain user's package under a core name must not become core (and
+            // so autostart in everyone's session) because the image began to
+            // ship that name later: the shipped package replaces it.
+            Some(row)
+                if newer(&row.version, &package.version) && (row.core || row.machine_wide) =>
+            {
+                Action::Keep {
+                    system_name: name,
+                    installed: row.version.clone(),
+                    shipped: package.version.clone(),
+                }
+            }
             Some(_) => Action::Upgrade(name),
         });
     }

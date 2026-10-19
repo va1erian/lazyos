@@ -111,6 +111,8 @@ EXPECTATIONS: dict[str, Expect] = {
     "read_conf_store": Expect("blocked", U1),
     # H2: keyd's Verify is accountsd's alone (no way around the brake).
     "keyd_verify": Expect("blocked", U1),
+    # Audit H11: mimed's Register is the package manager's alone.
+    "mime_register": Expect("blocked", U1),
     # H5: a session's Authenticate flood cannot lock admin out of elevd.
     "admin_lockout": Expect("blocked", U1),
     "auth_flood": Expect("blocked", U1),

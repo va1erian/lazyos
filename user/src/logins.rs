@@ -33,6 +33,8 @@ const POLL_TICKS: u64 = 3_000;
 /// How long `logind` may take to answer (a console `logind` at its prompt
 /// does not answer at all).
 const ANSWER_TICKS: u64 = 10;
+/// The broker subscriptions a follower holds.
+const SUBSCRIPTIONS: usize = 3;
 /// Events read per look.
 const MAX_PER_LOOK: usize = 32;
 /// The session states of a live session (`elevpolicy::sessions`).
@@ -40,7 +42,9 @@ const LIVE: [&str; 2] = ["starting", "active"];
 
 pub struct Logins {
     channel: trace::Channel,
-    subs: Vec<router::Subscriber>,
+    /// Start, end and session subscriptions; a slot the broker refused (it
+    /// was full, or briefly unreachable) stays empty and is tried again.
+    subs: [Option<router::Subscriber>; SUBSCRIPTIONS],
     next_connect: u64,
     next_poll: u64,
     buffer: Vec<u8>,
@@ -53,7 +57,7 @@ impl Logins {
     pub fn new(channel: trace::Channel) -> Logins {
         Logins {
             channel,
-            subs: Vec::new(),
+            subs: [None, None, None],
             next_connect: 0,
             next_poll: 0,
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
@@ -93,19 +97,24 @@ impl Logins {
     }
 
     fn subscribe(&mut self, now: u64) {
-        if !self.subs.is_empty() || now < self.next_connect {
+        if self.subs.iter().all(Option::is_some) || now < self.next_connect {
             return;
         }
         self.next_connect = now + RETRY_TICKS;
         let Ok(mut bus) = router::Bus::connect(services::INIT_NAME) else {
             return;
         };
-        let subs = [
-            logind::wire::subscribe_system_events_login_start(&mut bus),
-            logind::wire::subscribe_system_events_login_end(&mut bus),
-            logind::wire::subscribe_system_events_login_session(&mut bus, "+"),
-        ];
-        self.subs = subs.into_iter().filter_map(Result::ok).collect();
+        // Only the slots still empty: a broker that refused one (a full
+        // table) must not leave the follower deaf to that event for good.
+        if self.subs[0].is_none() {
+            self.subs[0] = logind::wire::subscribe_system_events_login_start(&mut bus).ok();
+        }
+        if self.subs[1].is_none() {
+            self.subs[1] = logind::wire::subscribe_system_events_login_end(&mut bus).ok();
+        }
+        if self.subs[2].is_none() {
+            self.subs[2] = logind::wire::subscribe_system_events_login_session(&mut bus, "+").ok();
+        }
     }
 
     /// Drain the hints: whether any came, and the uids an `end` (or a
@@ -113,7 +122,7 @@ impl Logins {
     fn hints(&mut self) -> (bool, Vec<u32>) {
         let (mut hinted, mut ended) = (false, Vec::new());
         let mut broken = false;
-        for sub in &self.subs {
+        for sub in self.subs.iter().flatten() {
             for _ in 0..MAX_PER_LOOK {
                 match sub.recv_with(&mut self.buffer, Some(EXPIRED_DEADLINE)) {
                     Ok(Some(event)) => {
@@ -132,7 +141,7 @@ impl Logins {
         }
         if broken {
             // The broker went away: subscribe again later (and replay).
-            self.subs.clear();
+            self.subs = [None, None, None];
         }
         (hinted, ended)
     }

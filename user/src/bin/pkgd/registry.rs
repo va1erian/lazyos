@@ -108,9 +108,15 @@ impl Registry {
     }
 
     /// Register `app` as the handler of `mime` for `verb`.
-    pub(crate) fn mime_register(&mut self, mime: &str, app: &str, verb: &str) -> Result<()> {
+    pub(crate) fn mime_register(
+        &mut self,
+        mime: &str,
+        app: &str,
+        verb: &str,
+        owner: u32,
+    ) -> Result<()> {
         self.mimed
-            .run(|endpoint| MimeClient::from_endpoint(endpoint).register(mime, app, verb))
+            .run(|endpoint| MimeClient::from_endpoint(endpoint).register(mime, app, verb, owner))
     }
 
     /// Withdraw `app`'s registration of `mime` for `verb`.

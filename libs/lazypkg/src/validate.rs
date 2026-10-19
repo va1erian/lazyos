@@ -28,6 +28,10 @@ const MAX_ARGS: usize = 16;
 const MAX_ARG: usize = 256;
 /// Longest verb in a `[[mime]]` block.
 const MAX_VERB: usize = 16;
+/// Most `(type, verb)` pairs one manifest may register with `mimed`, whose
+/// registry is global and bounded: a package that claimed a thousand invented
+/// types could fill it and keep every later install from registering.
+const MAX_MIME_PAIRS: usize = 64;
 
 /// Validate the manifest against the file names in the archive.
 pub(crate) fn validate(manifest: &Manifest, files: &BTreeSet<&str>) -> Vec<Problem> {
@@ -47,6 +51,12 @@ fn validate_with(manifest: &Manifest, files: Option<&BTreeSet<&str>>) -> Vec<Pro
     check_entry(manifest, files, &mut problems);
     for (index, mime) in manifest.mime.iter().enumerate() {
         check_mime(index, mime, files, &mut problems);
+    }
+    let pairs: usize = manifest.mime.iter().map(|mime| mime.verbs.len()).sum();
+    if pairs > MAX_MIME_PAIRS {
+        problems.push(Problem::new(format!(
+            "the [[mime]] blocks register {pairs} type/verb pairs; at most {MAX_MIME_PAIRS}"
+        )));
     }
     check_permissions(manifest, &mut problems);
     crate::processes::check(manifest, &mut problems);
@@ -220,6 +230,27 @@ mod tests {
 
     fn files(names: &[&'static str]) -> BTreeSet<&'static str> {
         names.iter().copied().collect()
+    }
+
+    #[test]
+    fn a_manifest_cannot_claim_unbounded_mime_pairs() {
+        let mut flood = minimal();
+        for n in 0..=MAX_MIME_PAIRS {
+            flood.mime.push(manifest::MimeHandler {
+                mime_type: format!("application/x-flood-{n}"),
+                verbs: vec!["open".into()],
+                icon: None,
+            });
+        }
+        let problems = validate(&flood, &files(&["bin/app.elf"]));
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.message().contains("type/verb pairs")),
+            "{problems:?}"
+        );
+        flood.mime.pop();
+        assert!(validate(&flood, &files(&["bin/app.elf"])).is_empty());
     }
 
     #[test]

@@ -89,6 +89,8 @@ typed reply; a package that fails validation reports every problem in
 - `autostart: Bool`
 - `verbs: Array<String>`
 - `resident: Bool`
+- `installer: U32`
+- `machine_wide: Bool`
 
 ## struct `PkgEvent`
 

@@ -9,7 +9,10 @@
 //! exactly that caller: the session's uid, gid and id, no capability, no
 //! label. An app a user installed with `autostart` therefore runs as that
 //! user at their next login, never as root at boot (the user-to-root hole
-//! of the accounts plan, docs/accounts-plan.md section 2).
+//! of the accounts plan, docs/accounts-plan.md section 2), and **only in that
+//! user's sessions**: a package installed by one user does not open in
+//! another's, an administrator's included. Core packages and apps an
+//! administrator installed for the machine open for everyone.
 //!
 //! Nothing here runs on a timer (docs/performance-plan.md P7.3): the apps
 //! open as soon as every boot service is ready (`ready::settled`) and `pkgd`
@@ -163,13 +166,15 @@ impl Autostart {
             return;
         }
         installed.refresh();
-        let mut ids = autostart_ids();
-        for id in installed.autostart_ids() {
-            if !ids.contains(&id) {
-                ids.push(id);
-            }
-        }
         for shell in opened {
+            // The built-in rows are everyone's; an installed app opens for the
+            // users it is meant for (`InstalledApp::autostarts_for`).
+            let mut ids = autostart_ids();
+            for id in installed.autostart_ids(shell.uid) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
             // The session's own identity, exactly: no capability, no label.
             let caller = SysCred::new(shell.uid, shell.gid, 0, 0, shell.session);
             trace::line!(

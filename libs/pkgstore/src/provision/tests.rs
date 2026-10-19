@@ -19,6 +19,7 @@ fn row(name: &str, version: &str, seed: char, core: bool) -> Current {
         version: version.into(),
         digest: digest(seed),
         core,
+        machine_wide: true,
     }
 }
 
@@ -253,4 +254,30 @@ fn autostart_packages_come_first() {
             Action::Upgrade("os.lazy.editor".into()),
         ]
     );
+}
+
+#[test]
+fn a_plain_users_newer_package_under_a_core_name_does_not_become_core() {
+    // The image began to ship `os.lazy.lazyweb` after a user installed a
+    // package of that name at a higher version: the shipped one replaces it
+    // (`Keep` would have promoted it to core and so to everyone's autostart),
+    // while a system caller's newer install, or an already-core row, stays.
+    let ship = [shipped("os.lazy.lazyweb", "0.1.0", 'a')];
+    let mut user_row = row("os.lazy.lazyweb", "99.0.0", 'b', false);
+    user_row.machine_wide = false;
+    assert_eq!(
+        plan(&ship, &[user_row.clone()]),
+        vec![Action::Upgrade("os.lazy.lazyweb".into())]
+    );
+    user_row.machine_wide = true;
+    assert!(matches!(
+        plan(&ship, &[user_row.clone()]).as_slice(),
+        [Action::Keep { .. }]
+    ));
+    user_row.machine_wide = false;
+    user_row.core = true;
+    assert!(matches!(
+        plan(&ship, &[user_row]).as_slice(),
+        [Action::Keep { .. }]
+    ));
 }

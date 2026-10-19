@@ -65,10 +65,21 @@ pub(crate) fn dispatch(
         }
         wire::METHOD_REGISTER => {
             let args = wire::decode_register_args(body).map_err(parse)?;
+            // Only the package manager (a system service) registers a
+            // handler, as only it withdraws one: the registry is global, so
+            // any session could otherwise rebind a type for everyone and have
+            // the next user's `Open` (an administrator's included) launch its
+            // chosen app (audit H11). A user's own choice of app is a
+            // preference (`prefs`), not a registration.
+            if !caller_is_system(message) {
+                return Err(Error::Errno(-errno::EPERM));
+            }
             if !valid_mime(&args.mime) || !valid_app_id(&args.app) || !valid_token(&args.verb) {
                 return Err(Error::Errno(-errno::EINVAL));
             }
-            apps.register(&args.mime, &args.app, &args.verb);
+            if !apps.register_owned(&args.mime, &args.app, &args.verb, args.owner) {
+                return Err(Error::Errno(-errno::ENOSPC));
+            }
             Ok(mime::ok_reply(wire::METHOD_REGISTER))
         }
         wire::METHOD_UNREGISTER => {
@@ -118,15 +129,15 @@ pub(crate) fn open_path(
 ) -> messenger::Result<mime::OpenResult> {
     let mime_type = db.guess(path);
     // The user's choice is read only when it can matter: two apps handle the type.
-    let contested =
-        apps.contested(&mime_type, verb) || apps.contested(&mime_type, mime::DEFAULT_VERB);
+    let contested = apps.contested(&mime_type, verb, uid)
+        || apps.contested(&mime_type, mime::DEFAULT_VERB, uid);
     let preferred = uid
         .filter(|_| contested)
         .and_then(|uid| prefs.default_app(uid, &mime_type));
     let preferred = preferred.as_deref();
     let (primary, fallback) = apps
-        .resolve_preferred(&mime_type, verb, preferred)
-        .or_else(|| apps.resolve_preferred(&mime_type, mime::DEFAULT_VERB, preferred))
+        .resolve_preferred(&mime_type, verb, preferred, uid)
+        .or_else(|| apps.resolve_preferred(&mime_type, mime::DEFAULT_VERB, preferred, uid))
         .ok_or(Error::Errno(-errno::ENOENT))?;
     // The gated `init` launch (issue #158): best-effort, so an absent
     // supervisor, an app it does not know, or an app whose ELF is not

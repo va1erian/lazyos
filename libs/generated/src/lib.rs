@@ -12093,12 +12093,22 @@ pub mod os_lazy_mimed_v1 {
     }
 
     /// Add or replace the app registered for `mime` and `verb`; the registry
-    /// keeps the latest registration for each pair.
+    /// keeps the latest registration for each pair. Only a system service (the
+    /// package manager, which registers an installed app's handlers) may
+    /// register, and the registry holds a bounded number of pairs: `EPERM`
+    /// from anyone else, `ENOSPC` when it is full and the pair is new. A
+    /// user's own choice of app for a type is a preference
+    /// (`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+    /// uid that installed the app, `0` for the image's own apps and what an
+    /// administrator installed for everyone: `Open` skips a registration whose
+    /// owner is neither `0` nor the uid that opens, so one user's package never
+    /// takes a type over for the next user.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RegisterArgs {
         pub mime: alloc::string::String,
         pub app: alloc::string::String,
         pub verb: alloc::string::String,
+        pub owner: u32,
     }
 
     pub fn encode_register_args(value: &RegisterArgs) -> Result<Vec<u8>, Error> {
@@ -12106,6 +12116,7 @@ pub mod os_lazy_mimed_v1 {
         target.string(1, &value.mime)?;
         target.string(2, &value.app)?;
         target.string(3, &value.verb)?;
+        target.u32(4, value.owner)?;
         Ok(target.finish())
     }
 
@@ -12122,6 +12133,9 @@ pub mod os_lazy_mimed_v1 {
                 }
                 3 => {
                     out.verb = field.as_str()?.into();
+                }
+                4 => {
+                    out.owner = field.as_u32()?;
                 }
                 _ => {}
             }
@@ -15824,6 +15838,8 @@ pub mod os_lazy_pkgd_v1 {
         pub autostart: bool,
         pub verbs: alloc::vec::Vec<alloc::string::String>,
         pub resident: bool,
+        pub installer: u32,
+        pub machine_wide: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -15850,6 +15866,8 @@ pub mod os_lazy_pkgd_v1 {
         }
         target.array(13, &nested)?;
         target.bool(14, value.resident)?;
+        target.u32(15, value.installer)?;
+        target.bool(16, value.machine_wide)?;
         Ok(target.finish())
     }
 
@@ -15906,6 +15924,12 @@ pub mod os_lazy_pkgd_v1 {
                 14 => {
                     out.resident = field.as_bool()?;
                 }
+                15 => {
+                    out.installer = field.as_u32()?;
+                }
+                16 => {
+                    out.machine_wide = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -15925,6 +15949,15 @@ pub mod os_lazy_pkgd_v1 {
     /// The manifest's `[[mime]]` verbs, de-duplicated, in manifest order.
     /// Whether the app is resident (`entry.resident`): it may run with no
     /// window, once per session, with an icon in the taskbar.
+    /// The uid that asked for the install, as the kernel stamped the
+    /// request. Only that user's sessions open the app at login when it
+    /// sets `autostart` (and it is neither core nor `machine_wide`): an
+    /// app one user installed must not start inside everyone else's
+    /// session, an administrator's included. A row recorded before this
+    /// field reads as 0, which no login session has.
+    /// Installed by a system caller (`elevd` after an administrator
+    /// approved it, `dbgd`, provisioning): a machine-wide choice, so
+    /// `autostart` opens it in every user's session.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),
