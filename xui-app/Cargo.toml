@@ -56,6 +56,7 @@ members = [
     "crates/https",
     # LazyAgent's headless core (docs/ai-agent-plan.md); the UI and the binary come in P2.
     "crates/agent-core",
+    "crates/agent-ui",
     # Host tool: renders the packages' app icons (`cargo run -p app-icons`).
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
@@ -170,6 +171,10 @@ xui-nes = { path = "crates/nes" }
 # binary only launches it and supplies the LazyOS `Platform`.
 lazysky-ui = { path = "crates/lazysky-ui" }
 lazysky-core = { path = "crates/lazysky-core" }
+# LazyAgent (docs/ai-agent-plan.md): the portable window; the `xui-agent` binary
+# only launches it and supplies the LazyOS `Platform`.
+lazyagent-ui = { path = "crates/agent-ui" }
+lazyagent-core = { path = "crates/agent-core" }
 # LazyShell (issue #157): the pure taskbar/menu/desktop/clock models; the
 # `xui-shell` binary paints them and talks to xuid, init, confd and timed.
 lazyshell = { path = "crates/shell" }
@@ -290,6 +295,13 @@ opt-level = 3
 [profile.release.package.lazysky-core]
 opt-level = 3
 
+# LazyAgent parses and shapes Markdown on its layout thread; at "z" a long reply lags.
+[profile.release.package.lazyagent-ui]
+opt-level = 3
+
+[profile.release.package.pulldown-cmark]
+opt-level = 3
+
 # The HTTP client LazySky used to carry itself (docs/ai-agent-plan.md).
 [profile.release.package.lazyhttps]
 opt-level = 3
@@ -400,6 +412,10 @@ path = "src/bin/video.rs"
 [[bin]]
 name = "xui-lazysky"
 path = "src/bin/lazysky.rs"
+
+[[bin]]
+name = "xui-agent"
+path = "src/bin/agent.rs"
 
 [[bin]]
 name = "xui-about"

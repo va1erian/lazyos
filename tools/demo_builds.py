@@ -190,6 +190,19 @@ def build_lazysky() -> bool:
     return False
 
 
+#: LazyAgent's binary (`tools/xui/build.py` builds it with the other apps).
+AGENT_ELF = ROOT / "target" / "xui" / "xui-agent.elf"
+
+
+def build_agent() -> bool:
+    """LazyAgent (`--agent`): the xui apps when its binary is missing."""
+    if AGENT_ELF.is_file() or (build_xui_apps() and AGENT_ELF.is_file()):
+        return True
+    print(f"error: {AGENT_ELF} was not built "
+          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
+    return False
+
+
 def build_xui_apps() -> bool:
     """The desktop's xui apps, which include the Devices app (`--devices`)."""
     return required("the xui apps", "xui/build.py")

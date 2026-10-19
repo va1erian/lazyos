@@ -1,0 +1,300 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 600
+ },
+ {
+  "wait_for": "NETD:ADDR 10.0.2.15",
+  "timeout": 300
+ },
+ {
+  "at": 0.5,
+  "type": "rm -rf ~/.apps/os.lazy.agent"
+ },
+ {
+  "at": 1.0,
+  "key": "enter"
+ },
+ {
+  "at": 2.0,
+  "type": "echo 'let i = msg::connect(\"os.lazy.init.v1\");' > /tmp/l.rhai"
+ },
+ {
+  "at": 2.5,
+  "key": "enter"
+ },
+ {
+  "at": 3.5,
+  "type": "echo 'for a in os::args() { print(i.launch(a, \"\", 0)); }' >> /tmp/l.rhai"
+ },
+ {
+  "at": 4.0,
+  "key": "enter"
+ },
+ {
+  "at": 5.0,
+  "type": "clear; rhai /tmp/l.rhai os.lazy.agent"
+ },
+ {
+  "at": 5.5,
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "AGENT:READY:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "01_consent"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "key": "space"
+ },
+ {
+  "wait_for": "AGENT:CONSENT:PASS",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "02_key"
+ },
+ {
+  "type": "wrong-key-for-the-harness",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:KEY:PASS:SET",
+  "timeout": 60,
+  "occurrence": 1
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "hello",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:CHAT:FAIL:401",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "03_key_refused"
+ },
+ {
+  "type_secret": "AGENT_TEST_KEY",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:KEY:PASS:SET",
+  "timeout": 60,
+  "occurrence": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "What is a DHCP lease?",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:CHAT:FIRST:",
+  "timeout": 300.0
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "shot": "04_streaming"
+ },
+ {
+  "wait_for": "AGENT:CHAT:DONE:",
+  "timeout": 300.0,
+  "occurrence": 1
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "05_answer"
+ },
+ {
+  "type": "LONG answer please",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:CHAT:DONE:",
+  "timeout": 300.0,
+  "occurrence": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "move_to": {
+   "window": "AI Agent"
+  }
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "mouse_scroll": 5
+ },
+ {
+  "wait": 0.2
+ },
+ {
+  "wait_for": "AGENT:FOLLOW:0",
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "06_scrolled"
+ },
+ {
+  "type": "STALL please",
+  "delay": 0.05
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait_for": "AGENT:CHAT:FIRST:",
+  "timeout": 300.0,
+  "occurrence": 3
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait_for": "AGENT:CHAT:FAIL:stopped",
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "07_stopped"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "n"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": ","
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "08_settings"
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "09_back"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "f4"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait_for": "AGENT:QUIT:PASS",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "quit": true
+ }
+]

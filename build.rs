@@ -33,6 +33,8 @@ mod evidence_embed;
 mod hosts_embed;
 #[path = "build_support/lazyrad_embed.rs"]
 mod lazyrad_embed;
+#[path = "build_support/agent_embed.rs"]
+mod agent_embed;
 #[path = "build_support/lazysky_embed.rs"]
 mod lazysky_embed;
 #[path = "build_support/lazyweb_embed.rs"]

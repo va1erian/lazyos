@@ -267,6 +267,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="the desktop profile with the LazySky Bluesky client "
                              "(LAZYOS_LAZYSKY=1, a core package) and networking "
                              "(docs/lazysky.md)")
+    parser.add_argument("--agent", action="store_true",
+                        help="the desktop profile with LazyAgent, the AI chat and diagnostics "
+                             "agent (LAZYOS_AGENT=1, a core package) and networking "
+                             "(docs/agent.md)")
     parser.add_argument("--mail", action="store_true",
                         help="the desktop with HTTPS and Mail, esMail's IMAP/SMTP client "
                              "(LAZYOS_MAIL=1, docs/mail.md)")
@@ -325,7 +329,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
+                    or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.agent or args.mail
                     or args.pictures
                     or args.traydemo or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
@@ -335,7 +339,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
-    args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
+    args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.agent or args.wifi
                 or args.webkit_deps or args.webkit_port or args.webkit or args.lazywebplus)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.

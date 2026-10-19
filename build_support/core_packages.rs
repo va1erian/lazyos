@@ -156,6 +156,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         "lazyweb",
         // LazySky, only with `LAZYOS_LAZYSKY=1` (`lazysky_embed`).
         "lazysky",
+        // LazyAgent, only with `LAZYOS_AGENT=1` (`agent_embed`).
+        "agent",
         // WebKit, the browser, only with `LAZYOS_WEBKIT=1` (`webkit_embed`).
         "webkit",
         // LazyWeb+, LazyWeb's chrome on WebKit, only with `LAZYOS_LAZYWEBPLUS=1`

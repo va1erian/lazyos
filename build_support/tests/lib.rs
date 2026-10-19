@@ -19,6 +19,8 @@ mod docs_embed;
 mod gen9gfx_embed;
 #[path = "../hosts_embed.rs"]
 mod hosts_embed;
+#[path = "../agent_embed.rs"]
+mod agent_embed;
 #[path = "../lazysky_embed.rs"]
 mod lazysky_embed;
 #[path = "../lazyweb_embed.rs"]
@@ -76,6 +78,8 @@ mod gen9gfx_tests;
 mod image_tests;
 #[cfg(test)]
 mod layout_tests;
+#[cfg(test)]
+mod agent_tests;
 #[cfg(test)]
 mod lazysky_tests;
 #[cfg(test)]

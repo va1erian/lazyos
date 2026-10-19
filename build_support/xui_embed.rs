@@ -219,6 +219,7 @@ pub fn rerun_if_changed() {
         "lazywebplus_embed",
         "webkit_embed",
         "lazysky_embed",
+        "agent_embed",
         "pictures_embed",
     ] {
         println!("cargo:rerun-if-changed=build_support/{module}.rs");
@@ -331,12 +332,14 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     }
     // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
     // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
-    // `LAZYOS_LAZYSKY=1`, `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1`,
+    // `LAZYOS_LAZYSKY=1`, `LAZYOS_AGENT=1`, `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1`,
     // `LAZYOS_PICTURES=1`); asking for one without having built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
     crate::os_image::rerun_if_changed(&lazyweb_elf);
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     crate::os_image::rerun_if_changed(&lazysky_elf);
+    let agent_elf = dir.join(crate::agent_embed::ELF);
+    crate::os_image::rerun_if_changed(&agent_elf);
     let webkit_elf = dir.join(crate::webkit_embed::ELF);
     crate::os_image::rerun_if_changed(&webkit_elf);
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
@@ -360,6 +363,11 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazysky_embed::enabled(desktop),
             crate::lazysky_embed::PACKAGE_SHORT,
             crate::lazysky_embed::not_built(lazysky_elf.is_file()),
+        ),
+        (
+            crate::agent_embed::enabled(desktop),
+            crate::agent_embed::PACKAGE_SHORT,
+            crate::agent_embed::not_built(agent_elf.is_file()),
         ),
         (
             crate::webkit_embed::enabled(desktop),

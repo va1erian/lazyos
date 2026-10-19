@@ -21,7 +21,7 @@ from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-expo
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, group_switches, simple_config)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import agent_step, app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webkit_deps_step, webkit_port_step, webkit_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
@@ -126,7 +126,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     env: dict[str, str] = {}
     # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if any(cfg.get(name) for name in ("desktop", "lazyweb", "lazysky", "webkit", "lazywebplus", "setup")):
+    if any(cfg.get(name) for name in ("desktop", "lazyweb", "lazysky", "agent", "webkit", "lazywebplus", "setup")):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
@@ -261,6 +261,10 @@ def build_env(cfg: dict) -> dict[str, str]:
         # The LazySky Bluesky client's core package; with the desktop and the
         # stack set above.
         env["LAZYOS_LAZYSKY"] = "1"
+    if cfg.get("agent"):
+        # LazyAgent, the AI chat and diagnostics agent's core package; with the
+        # desktop and the stack set above.
+        env["LAZYOS_AGENT"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg) | netboot_env(cfg))  # LAZYOS_DEVD (#497); target/netboot (netboot plan N1)
     return env
@@ -373,6 +377,10 @@ def build_plan(cfg: dict) -> list[dict]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.
             argv.append("--lazysky")
+        if cfg.get("agent") and not cfg["skip_build"]:
+            # run_demo builds the app and sets the desktop, the stack and
+            # LAZYOS_AGENT itself.
+            argv.append("--agent")
         argv += desktop_app_argv(cfg) + login_argv(cfg) + installer_argv(cfg)  # --mail, --traydemo; --autologin NAME (#623)
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).

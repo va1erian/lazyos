@@ -22,7 +22,7 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
                 lazyweb_var=None, smb_var=None, dbgd_var=None,
                 dbgd_control_var=None, lazysky_var=None, wifi_var=None,
                 dbgd_mmio_var=None, dbgd_mmio_claimed_var=None,
-                dbgd_mmio_allow_var=None) -> None:
+                dbgd_mmio_allow_var=None, agent_var=None) -> None:
     """Populate the Networking group: the switch, the HTTPS tools, the LazyWeb
     browser, the SMB client, the forwards, isolation."""
     ttk.Checkbutton(parent, text="Network card + stack (LAZYOS_NETD; run_demo --net; "
@@ -40,6 +40,10 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
         ttk.Checkbutton(parent, text="LazySky Bluesky client (LAZYOS_LAZYSKY; run_demo --lazysky; "
                                      "implies the desktop and the stack)",
                         variable=lazysky_var).pack(anchor="w", padx=6)
+    if agent_var is not None:
+        ttk.Checkbutton(parent, text="LazyAgent AI chat and diagnostics (LAZYOS_AGENT; run_demo --agent; "
+                                     "implies the desktop and the stack)",
+                        variable=agent_var).pack(anchor="w", padx=6)
     if smb_var is not None:
         ttk.Checkbutton(parent, text="SMB client smb (LAZYOS_SMB; run_demo --smb; implies the stack; "
                                      "docs/smb-plan.md)",
@@ -89,6 +93,7 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
             {"net": net_var.get(), "tls": tls_var.get() if tls_var else False,
              "lazyweb": lazyweb_var.get() if lazyweb_var else False,
              "lazysky": lazysky_var.get() if lazysky_var else False,
+             "agent": agent_var.get() if agent_var else False,
              "smb": smb_var.get() if smb_var else False,
              "dbgd": dbgd_var.get() if dbgd_var else False,
              "dbgd_control": dbgd_control_var.get() if dbgd_control_var else False,
@@ -96,7 +101,7 @@ def build_group(parent: ttk.Frame, net_var, forwards_var, restrict_var, nics_var
         ) else ["disabled"])
 
     for var in (net_var, tls_var, lazyweb_var, smb_var, dbgd_var, dbgd_control_var, lazysky_var,
-                wifi_var):
+                wifi_var, agent_var):
         if var is not None:
             var.trace_add("write", sync)
     sync()

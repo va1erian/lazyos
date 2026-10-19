@@ -87,7 +87,7 @@ DIAGNOSTIC_PREFIXES = frozenset(
 )
 
 # Channels whose arguments must never carry a secret (plan section 7).
-SECRET_CHANNELS = ("LOGIN:", "GREETER:", "KEYD:", "ELEVD:", "SMB:", "ACCOUNTS:")
+SECRET_CHANNELS = ("LOGIN:", "GREETER:", "KEYD:", "ELEVD:", "SMB:", "ACCOUNTS:", "AGENT:")
 # Lower-case identifiers only: `KEYD_SECRETS` is a path constant, not a value.
 # An underscore separates words (`api_token`); upper case never matches.
 SECRET_WORDS = re.compile(r"(?<![A-Za-z0-9])(?:password|secret|token)s?(?![A-Za-z0-9])")

@@ -834,6 +834,43 @@ The offscreen window tests write `xui-app/target/snapshots/lazysky-*.png`:
 Read them. Serial markers are `SKY:*` (listed in `docs/lazysky.md`); a
 password or token must never appear in any log.
 
+## LazyAgent, the AI chat and diagnostics agent (`LAZYOS_AGENT=1`)
+
+LazyAgent (`os.lazy.agent`, binary `xui-agent.elf`, menu name **AI Agent**) is a
+chat client for Fireworks AI, built as a headless core
+(`xui-app/crates/agent-core`: no xui type, no LazyOS crate; the Fireworks
+client, SSE parser, conversation store, compaction and the `Core` a window
+drives), HTTPS shared with LazySky (`xui-app/crates/https`, `lazyhttps`) and a
+portable xui window (`xui-app/crates/agent-ui`, which also has a `desktop`
+example); `xui-app/src/bin/agent.rs` only launches it. The plan is
+[`docs/ai-agent-plan.md`](docs/ai-agent-plan.md) (read its section 3, the trust
+model, and section 11, the rules, before changing anything); the page for what
+exists is [`docs/agent.md`](docs/agent.md). The API key is held in memory only,
+the app reaches `api.fireworks.ai` (later also `api.github.com`) over HTTPS with
+no redirects and nothing else, and no marker, log or file ever carries a key.
+**Stop must work while bytes keep arriving**: `lazyhttps::Watch` is checked
+before every socket read, and a stopped read is not `ErrorKind::Interrupted`
+(`read_to_end` retries that for ever). The package (`xui-app/packages/agent`) is
+shipped only by `LAZYOS_AGENT=1` images, which need `LAZYOS_DESKTOP=1` and
+`LAZYOS_NETD=1`.
+
+```bash
+python tools/run_demo.py --agent          # desktop + networking + the agent
+cd xui-app && cargo test -p lazyhttps -p lazyagent-core -p lazyagent-ui
+FUZZ_CASES=100000 cargo test -p lazyagent-core --release fuzz::    # the SSE parser
+python tools/agent/run.py                 # QEMU: mock Fireworks over TLS on host port 443, judge
+python tools/agent/run.py --label-trace   # also: no LABEL:DENY
+python tools/agent/test_judge.py          # the harness's judges fail when they should
+python tools/nettls/licenses.py --lazysky --agent   # GPLv2-compatible trees
+```
+
+The harness binds host port 443: check no web harness runs. The offscreen window
+tests write `xui-app/target/snapshots/agent-*.png`: Read them. Markers are
+`AGENT:*` (listed in `docs/agent.md`). `FIREWORKS_API_KEY` (a developer's real
+key) is only ever read from the environment by `agent_cli`, `tools/agent/p0_guest.py`
+and `tools/agent/run.py --live`; never write it to a file, log, argument or PR text,
+and never let a test file an issue on the real repository.
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command

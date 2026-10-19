@@ -49,6 +49,7 @@ Examples
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
     python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --lazysky       # desktop + networking + the LazySky Bluesky client
+    python tools/run_demo.py --agent         # desktop + networking + LazyAgent, the AI chat and diagnostics agent
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
     python tools/run_demo.py --pictures      # desktop + the Picture Viewer (docs/lazyrad-pictures.md)
@@ -95,7 +96,7 @@ from demo_qemu import (  # noqa: E402
 )
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
+    build_agent, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webkit, build_webkit_deps, build_webkit_port, build_wifi, build_xui_apps,
@@ -337,6 +338,7 @@ def main(argv: list[str]) -> int:
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),
+                                      (args.agent, build_agent, "LAZYOS_AGENT"),
                                       (args.wifi, build_wifi, "LAZYOS_WIFI"),
                                       (args.installer, build_installer, "LAZYOS_INSTALLER")):
             if not wanted:

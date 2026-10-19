@@ -20,6 +20,16 @@ pub trait Platform: Send + Sync {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs())
     }
+    /// Where requests go: the real service. A test platform points it at a
+    /// scripted server (`Endpoint::for_testing`).
+    fn endpoint(&self) -> crate::provider::Endpoint {
+        crate::provider::Endpoint::fireworks()
+    }
+    /// Hands a link to the OS (the browser, or `mimed` on LazyOS). The window
+    /// only calls it after the user confirmed the address.
+    fn open_url(&self, url: &str) -> Result<(), String> {
+        Err(format!("cannot open {url} here"))
+    }
     /// One evidence line: a serial marker on LazyOS, stdout on a desktop.
     /// Never a key, a token or message text.
     fn log(&self, line: &str);
