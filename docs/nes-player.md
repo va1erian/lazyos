@@ -22,13 +22,13 @@ window, the mixer integration and the files — is this repository's own work.
 ## Running it
 
 ```bash
-python tools/run_demo.py --desktop --sound    # then open NES from the menu
-python tools/run_demo.py --desktop --sound --xui-autostart nes   # start it at login
+python tools/run_demo.py --games --sound      # then open NES from the menu
 python tools/xui/build.py                     # just the apps
 ```
 
-The app is a core package: `pkgd` installs it at boot and the start menu shows
-it. Opening a `.nes` file in Files launches it on that cartridge (`mimed`
+The app is an optional core package: only a `LAZYOS_GAMES=1` image (`--games`, the
+launcher's Games group, with LazyGolf) ships it; `pkgd` installs it at boot and
+the start menu shows it. Opening a `.nes` file in Files launches it on that cartridge (`mimed`
 maps the extension); a cartridge dropped on the window opens too
 (`text/uri-list`). The welcome screen offers the sample the image ships,
 `/system/share/samples/lazyos-sample.nes`.

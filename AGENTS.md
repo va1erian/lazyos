@@ -442,7 +442,7 @@ It is validated in a second emulator (jsnes, via Node). See
 [`docs/nes-player.md`](docs/nes-player.md) and [`tools/nes/README.md`](tools/nes/README.md).
 
 ```bash
-python tools/run_demo.py --desktop --sound   # then open NES from the menu
+python tools/run_demo.py --games --sound   # then open NES from the menu
 cargo test --manifest-path xui-app/Cargo.toml -p xui-nes   # session, window, pacer, scaler
 python tools/nes/test_nesasm.py            # the assembler and the sample ROM
 python tools/nes/make_sample.py --check    # the checked-in sample is current
