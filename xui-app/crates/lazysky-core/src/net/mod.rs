@@ -1,15 +1,16 @@
-//! HTTPS for the core: one rustls configuration, a ureq connector, a
-//! resolver that stays on the calling thread, and a capped blocking GET.
-//!
-//! `tls.rs`, `roots.rs` and `resolve.rs` are adaptations of LazyWeb's
-//! `xui-app/web/src/fetch/{tls,roots,resolve}.rs`; LazyWeb is declared
-//! GPL-2.0-only, so they are copied, not depended on. Keep them in step.
+//! HTTPS for the core: the shared `lazyhttps` crate (TLS, roots, resolver,
+//! capped blocking requests; docs/ai-agent-plan.md §2), the Bluesky API
+//! client and URL encoding.
 
 pub mod api;
-pub mod http;
-mod resolve;
-pub mod roots;
-pub(crate) mod tls;
 pub mod url;
 
-pub use http::{Http, HttpOptions, Response};
+pub use lazyhttps::{roots, Http, HttpOptions, Response};
+
+/// The client's options: the shared defaults with LazySky's `User-Agent`.
+pub fn http_options() -> HttpOptions {
+    HttpOptions {
+        user_agent: concat!("LazySky/", env!("CARGO_PKG_VERSION")).to_string(),
+        ..HttpOptions::default()
+    }
+}

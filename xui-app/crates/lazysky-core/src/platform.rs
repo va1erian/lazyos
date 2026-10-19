@@ -3,18 +3,8 @@
 //! crate or a Windows API.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-/// Where the TLS trust anchors come from.
-#[derive(Clone, Debug)]
-pub enum Roots {
-    /// A PEM bundle on disk (LazyOS: `fhs::etc::CA_BUNDLE`).
-    Bundle(PathBuf),
-    /// A PEM bundle in memory (tests; a throwaway CA).
-    Pem(Arc<Vec<u8>>),
-    /// The host's trust store (feature `native-roots`, desktop only).
-    Native,
-}
+pub use lazyhttps::Roots;
 
 pub trait Platform: Send + Sync {
     /// The trust anchors for every `https:` request.

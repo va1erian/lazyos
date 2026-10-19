@@ -29,14 +29,7 @@ pub use platform::{Platform, Roots};
 pub use proto::{Page, Post};
 pub use settings::{Settings, ThemeChoice};
 
-/// Installs `nettls-crypto` as the process's default rustls provider (the
-/// GPLv2-compatible one, docs/tls-plan.md §3.2). Call it once, before any
-/// thread starts; `false` means another provider was already installed. The
-/// core's own TLS configuration names its provider explicitly, so this only
-/// matters to other rustls users in the same process.
-pub fn install_tls_provider() -> bool {
-    rustls::crypto::CryptoProvider::install_default(nettls_crypto::provider()).is_ok()
-}
+pub use lazyhttps::install_tls_provider;
 
 /// A password. It has no `Debug` output of its own worth reading and is
 /// never logged.

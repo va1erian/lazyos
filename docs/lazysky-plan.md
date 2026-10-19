@@ -338,7 +338,9 @@ example does the same.
 
 ### 7.2 HTTP/TLS
 
-`net/tls.rs` and `net/roots.rs` are small adaptations of LazyWeb's
+`tls.rs`, `roots.rs` and `resolve.rs` (now in the shared `lazyhttps` crate,
+`xui-app/crates/https`, which LazyAgent uses too; docs/ai-agent-plan.md) are
+small adaptations of LazyWeb's
 `xui-app/web/src/fetch/tls.rs` and `roots.rs` (rustls client config with
 `nettls_crypto::provider_arc()`, ALPN `http/1.1`, a ureq `Connector`; roots
 from `Platform::ca_roots()`). Do not depend on the `lazyweb` crate (declared

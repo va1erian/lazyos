@@ -10,20 +10,53 @@
 use std::cell::RefCell;
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use rustls::pki_types::ServerName;
 use rustls::{CertificateError, ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use ureq::unversioned::transport::time::Duration as UreqDuration;
 use ureq::unversioned::transport::{
     Buffers, ConnectionDetails, Connector, Either, LazyBuffers, NextTimeout, Transport,
     TransportAdapter,
 };
 use ureq::Error;
 
-use super::roots;
-use crate::platform::Roots;
+use crate::roots;
+use crate::Roots;
+
+/// How a streaming request is watched (docs/ai-agent-plan.md §5.2): every
+/// wait for bytes wakes after `poll` to look at `stop` and at how long the
+/// connection has been silent.
+#[derive(Clone, Debug)]
+pub struct Watch {
+    /// Set by another thread to end the request; reads then fail with
+    /// `ErrorKind::Interrupted`.
+    pub stop: Arc<AtomicBool>,
+    /// Silence longer than this fails a read with `ErrorKind::TimedOut`.
+    pub idle: Duration,
+    /// How often a blocked read wakes (the socket's read timeout).
+    pub poll: Duration,
+    /// Counts the reads that timed out and were taken up again.
+    pub wakes: Arc<AtomicU64>,
+}
+
+impl Watch {
+    /// The plan's values: wake every 250 ms, give up after 60 s of silence.
+    pub fn new(stop: Arc<AtomicBool>) -> Watch {
+        Watch {
+            stop,
+            idle: Duration::from_secs(60),
+            poll: Duration::from_millis(250),
+            wakes: Arc::default(),
+        }
+    }
+}
 
 thread_local! {
+    /// The watch of the request this thread is running, if any.
+    static WATCH: RefCell<Option<Watch>> = const { RefCell::new(None) };
     /// Why this thread's last handshake failed, in words: ureq's error type
     /// only carries a static string.
     static LAST_FAILURE: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -32,6 +65,21 @@ thread_local! {
 /// Takes the reason the calling thread's last TLS handshake failed.
 pub(crate) fn take_failure() -> Option<String> {
     LAST_FAILURE.with(|slot| slot.borrow_mut().take())
+}
+
+/// Puts `watch` on the calling thread until the guard drops.
+pub(crate) fn watching(watch: Watch) -> impl Drop {
+    struct Guard(Option<Watch>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            WATCH.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    Guard(WATCH.with(|slot| slot.borrow_mut().replace(watch)))
+}
+
+fn current_watch() -> Option<Watch> {
+    WATCH.with(|slot| slot.borrow().clone())
 }
 
 fn record_failure(why: String) {
@@ -74,6 +122,7 @@ impl LazyConfig {
 }
 
 /// The ureq connector adding TLS to `https:` connections.
+#[derive(Clone)]
 pub(crate) struct TlsConnector {
     config: Arc<LazyConfig>,
 }
@@ -192,6 +241,22 @@ impl fmt::Debug for TlsTransport {
     }
 }
 
+impl TlsTransport {
+    fn read_once(&mut self) -> Result<bool, Error> {
+        let input = self.buffers.input_append_buf();
+        let amount = match self.stream.read(input) {
+            Ok(amount) => amount,
+            // A server that closes without close_notify. Many do, and
+            // browsers accept it; a body framed by Content-Length or chunking
+            // that ends early is still caught by ureq.
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => 0,
+            Err(e) => return Err(e.into()),
+        };
+        self.buffers.input_appended(amount);
+        Ok(amount > 0)
+    }
+}
+
 impl Transport for TlsTransport {
     fn buffers(&mut self) -> &mut dyn Buffers {
         &mut self.buffers
@@ -206,18 +271,39 @@ impl Transport for TlsTransport {
     }
 
     fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, Error> {
-        self.stream.get_mut().set_timeout(timeout);
-        let input = self.buffers.input_append_buf();
-        let amount = match self.stream.read(input) {
-            Ok(amount) => amount,
-            // A server that closes without close_notify. Many do, and
-            // browsers accept it; a body framed by Content-Length or chunking
-            // that ends early is still caught by ureq.
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => 0,
-            Err(e) => return Err(e.into()),
+        let Some(watch) = current_watch() else {
+            self.stream.get_mut().set_timeout(timeout);
+            return self.read_once();
         };
-        self.buffers.input_appended(amount);
-        Ok(amount > 0)
+        // A watched read wakes every `poll`; ureq never sees the wake-ups,
+        // so its body reader is never resumed after an error. rustls keeps a
+        // record it has only part of, so the next read carries on.
+        let quiet_since = Instant::now();
+        let step = NextTimeout {
+            after: UreqDuration::Exact(watch.poll),
+            reason: timeout.reason,
+        };
+        loop {
+            self.stream.get_mut().set_timeout(step);
+            match self.read_once() {
+                Err(Error::Timeout(_)) => {}
+                Err(Error::Io(e))
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                    ) => {}
+                other => return other,
+            }
+            watch.wakes.fetch_add(1, Ordering::Relaxed);
+            if watch.stop.load(Ordering::Relaxed) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "stopped").into());
+            }
+            if quiet_since.elapsed() >= watch.idle {
+                return Err(
+                    io::Error::new(io::ErrorKind::TimedOut, "no data from the server").into(),
+                );
+            }
+        }
     }
 
     fn is_open(&mut self) -> bool {

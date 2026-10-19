@@ -47,7 +47,9 @@ refuses it otherwise (`build_support/lazysky_embed.rs`). `--service URL`
 ## How it is built
 
 ```text
-xui-app/crates/lazysky-core   no xui, no LazyOS: protocol, session, HTTPS,
+xui-app/crates/https          TLS, roots, resolver and capped requests, shared
+                              with LazyAgent (docs/ai-agent-plan.md)
+xui-app/crates/lazysky-core   no xui, no LazyOS: protocol, session, HTTPS client,
                               images, saving, settings, the feed model
 xui-app/crates/lazysky-ui     the portable xui window (FeedView, pages)
 xui-app/src/bin/lazysky.rs    the LazyOS launcher and its Platform
