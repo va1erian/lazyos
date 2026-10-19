@@ -94,7 +94,7 @@ pub(super) fn scan_poll(fds: u64, nfds: u64) -> u64 {
         };
         let (Ok(fd), Ok(events)) = (
             user_ptr::try_read::<i32>(entry),
-            user_ptr::try_read::<u16>(entry + 4),
+            user_ptr::try_read_field::<u16>(entry, 4),
         ) else {
             return err(EFAULT);
         };
@@ -106,7 +106,7 @@ pub(super) fn scan_poll(fds: u64, nfds: u64) -> u64 {
         if revents != 0 {
             ready += 1;
         }
-        if user_ptr::try_write::<u16>(entry + 6, revents).is_err() {
+        if user_ptr::try_write_field::<u16>(entry, 6, revents).is_err() {
             return err(EFAULT);
         }
     }

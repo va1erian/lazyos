@@ -278,7 +278,7 @@ pub(super) fn ioctl(fd: u64, request: u64, arg: u64) -> u64 {
         0x5414 => {
             let (Ok(rows), Ok(cols)) = (
                 user_ptr::try_read::<u16>(arg),
-                user_ptr::try_read::<u16>(arg + 2),
+                user_ptr::try_read_field::<u16>(arg, 2),
             ) else {
                 return err(EFAULT);
             };

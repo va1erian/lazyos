@@ -158,6 +158,33 @@ pub fn try_read_at<T: Pod>(addr: u64, index: usize) -> Result<T, Fault> {
     try_read(addr.checked_add(offset as u64).ok_or(Fault)?)
 }
 
+/// The address `off` bytes past the user pointer `base`, or [`Fault`] when the
+/// sum leaves the address space. `base` is attacker controlled: a plain
+/// `base + off` panics the kernel (overflow checks) for a pointer near
+/// `u64::MAX`, so every field offset on a user pointer goes through here.
+pub fn field(base: u64, off: u64) -> Result<u64, Fault> {
+    base.checked_add(off).ok_or(Fault)
+}
+
+/// As [`field`] for the infallible primitives ([`read`], [`write`], ...) that
+/// have no error path: an overflowing sum saturates to `u64::MAX`, which no
+/// access check accepts (it is outside the lower half), so the access
+/// degrades like any other bad range instead of wrapping to a low address.
+#[inline]
+pub fn at(base: u64, off: u64) -> u64 {
+    base.saturating_add(off)
+}
+
+/// Read the `T` at byte offset `off` of the user struct at `base`.
+pub fn try_read_field<T: Pod>(base: u64, off: u64) -> Result<T, Fault> {
+    try_read(field(base, off)?)
+}
+
+/// Write `value` at byte offset `off` of the user struct at `base`.
+pub fn try_write_field<T: Pod>(base: u64, off: u64, value: T) -> Result<(), Fault> {
+    try_write(field(base, off)?, value)
+}
+
 /// Borrow `len` bytes at `addr` as a slice.
 ///
 /// The slice aliases user memory for `'a`; the caller must not hold it across

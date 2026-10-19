@@ -134,10 +134,10 @@ struct MsgHdr {
 }
 
 fn read_msghdr(ptr: u64) -> Result<MsgHdr, u64> {
-    let word = |at: u64| user_ptr::try_read::<u64>(ptr + at).map_err(|_| err(EFAULT));
+    let word = |at: u64| user_ptr::try_read_field::<u64>(ptr, at).map_err(|_| err(EFAULT));
     Ok(MsgHdr {
         name: word(0)?,
-        namelen: u64::from(user_ptr::try_read::<u32>(ptr + 8).map_err(|_| err(EFAULT))?),
+        namelen: u64::from(user_ptr::try_read_field::<u32>(ptr, 8).map_err(|_| err(EFAULT))?),
         iov: word(16)?,
         iovlen: word(24)?,
         control: word(32)?,
@@ -254,7 +254,7 @@ pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
     };
     let dest = Scatter::new(segments(iov));
     let from = if header.name != 0 {
-        (header.name, msg + 8)
+        (header.name, user_ptr::at(msg, 8))
     } else {
         (0, 0)
     };
@@ -271,8 +271,8 @@ pub(super) fn sys_recvmsg(fd: u64, msg: u64, flags: u64) -> u64 {
         Err(code) => return code,
     };
     let msg_flags = delivered.flags | if got.truncated { MSG_TRUNC } else { 0 };
-    if user_ptr::try_write::<u64>(msg + 40, delivered.used).is_err()
-        || user_ptr::try_write::<i32>(msg + 48, msg_flags).is_err()
+    if user_ptr::try_write_field::<u64>(msg, 40, delivered.used).is_err()
+        || user_ptr::try_write_field::<i32>(msg, 48, msg_flags).is_err()
     {
         return err(EFAULT);
     }

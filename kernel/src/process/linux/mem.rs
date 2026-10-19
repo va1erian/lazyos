@@ -141,6 +141,11 @@ pub(super) fn sys_munmap(addr: u64, len: u64) -> u64 {
     let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
         return err(EINVAL);
     };
+    // Beyond the user window there is nothing to unmap (Linux: `len >
+    // TASK_SIZE - start` is `EINVAL`).
+    if end > crate::mem::USER_TOP {
+        return err(EINVAL);
+    }
     let table = crate::mem::kernel_table();
     let gone = unmap_vmas(table, start, end, false);
     if !gone.vmas.is_empty() {
@@ -161,6 +166,11 @@ pub(super) fn dontneed(addr: u64, len: u64) -> u64 {
     let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
         return err(EINVAL);
     };
+    // Unmapped memory is `ENOMEM` for `madvise`, and the user window ends at
+    // `USER_TOP`.
+    if end > crate::mem::USER_TOP {
+        return err(ENOMEM);
+    }
     let table = crate::mem::kernel_table();
     let vmas = crate::mem::vma::find_range(table, addr, end);
     if vmas.iter().any(|vma| vma.kind == Kind::File) {
@@ -232,6 +242,11 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
     let Some(end) = addr.checked_add(len).and_then(|end| align_up(end, PAGE)) else {
         return err(EINVAL);
     };
+    // A range running past the user window includes unmapped addresses:
+    // `ENOMEM`, as on Linux.
+    if end > crate::mem::USER_TOP {
+        return err(ENOMEM);
+    }
     let prot = Prot(prot as u8);
     let table = crate::mem::kernel_table();
     if crate::mem::vma::find_range(table, start, end).is_empty() {

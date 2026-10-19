@@ -104,6 +104,7 @@ mod native_random;
 mod overflow_guards;
 mod pointer_validation;
 mod teardown_and_credentials;
+mod user_dos;
 mod user_limits;
 
 pub(super) use epoll_and_fs::*;
@@ -112,6 +113,7 @@ pub(super) use native_random::*;
 pub(super) use overflow_guards::*;
 pub(super) use pointer_validation::*;
 pub(super) use teardown_and_credentials::*;
+pub(super) use user_dos::*;
 pub(super) use user_limits::*;
 
 pub(super) const CASES: &[(&str, Test)] = &[
@@ -230,6 +232,27 @@ pub(super) const CASES: &[(&str, Test)] = &[
         lseek_overflow_and_past_eof,
     ),
     ("hardening_native_heap_has_room", native_heap_has_room),
+    (
+        "hardening_user_pointer_field_offsets_do_not_overflow",
+        user_pointer_field_offsets_do_not_overflow,
+    ),
+    (
+        "hardening_user_ptr_field_helpers_check_overflow",
+        user_ptr_field_helpers_check_overflow,
+    ),
+    (
+        "hardening_huge_memory_ranges_return_fast",
+        huge_memory_ranges_return_fast,
+    ),
+    (
+        "hardening_mremap_is_bounded_by_the_mmap_area",
+        mremap_is_bounded_by_the_mmap_area,
+    ),
+    (
+        "hardening_unmap_range_skips_device_leaves",
+        unmap_range_skips_device_leaves,
+    ),
+    ("hardening_soak_sparse_huge_ranges", soak_sparse_huge_ranges),
     (
         "hardening_mmap_family_rejects_overflowing_lengths",
         mmap_family_rejects_overflowing_lengths,

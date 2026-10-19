@@ -78,7 +78,7 @@ fn timer_error(error: itimer::Error) -> u64 {
 fn read_time(addr: u64, unit: u64) -> Option<Result<u64, u64>> {
     let (Ok(sec), Ok(frac)) = (
         user_ptr::try_read::<i64>(addr),
-        user_ptr::try_read::<i64>(addr + 8),
+        user_ptr::try_read_field::<i64>(addr, 8),
     ) else {
         return Some(Err(err(EFAULT)));
     };
@@ -96,20 +96,20 @@ fn write_time(addr: u64, ns: u64, unit: u64) -> Result<(), u64> {
     let sec = (ns / NS_PER_SEC) as i64;
     let frac = ((ns % NS_PER_SEC) / unit) as i64;
     user_ptr::try_write::<i64>(addr, sec).map_err(|_| err(EFAULT))?;
-    user_ptr::try_write::<i64>(addr + 8, frac).map_err(|_| err(EFAULT))
+    user_ptr::try_write_field::<i64>(addr, 8, frac).map_err(|_| err(EFAULT))
 }
 
 /// An `itimerval`/`itimerspec` (interval at 0, value at 16) from user space:
 /// `(value_ns, interval_ns)`.
 fn read_spec(addr: u64, unit: u64) -> Result<(u64, u64), u64> {
     let interval = read_time(addr, unit).ok_or(err(EINVAL))??;
-    let value = read_time(addr + 16, unit).ok_or(err(EINVAL))??;
+    let value = read_time(user_ptr::at(addr, 16), unit).ok_or(err(EINVAL))??;
     Ok((value, interval))
 }
 
 fn write_spec(addr: u64, reading: Reading, unit: u64) -> Result<(), u64> {
     write_time(addr, reading.interval_ns, unit)?;
-    write_time(addr + 16, reading.remaining_ns, unit)
+    write_time(user_ptr::at(addr, 16), reading.remaining_ns, unit)
 }
 
 /// `alarm(seconds)`: arm `ITIMER_REAL` once (0 cancels) and return the whole
@@ -216,9 +216,9 @@ pub(super) fn sys_timer_create(clock: u64, sevp: u64, timerid: u64) -> u64 {
     } else {
         let (Ok(value), Ok(signo), Ok(mode), Ok(tid)) = (
             user_ptr::try_read::<u64>(sevp),
-            user_ptr::try_read::<i32>(sevp + 8),
-            user_ptr::try_read::<i32>(sevp + 12),
-            user_ptr::try_read::<i32>(sevp + 16),
+            user_ptr::try_read_field::<i32>(sevp, 8),
+            user_ptr::try_read_field::<i32>(sevp, 12),
+            user_ptr::try_read_field::<i32>(sevp, 16),
         ) else {
             return err(EFAULT);
         };

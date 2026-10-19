@@ -39,10 +39,12 @@ pub(super) fn sys_pipe(fds: u64, flags: u64) -> u64 {
         pipe.set_nonblock(End::Read, true);
         pipe.set_nonblock(End::Write, true);
     }
-    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
-    unsafe {
-        user_ptr::write::<i32>(fds, read_fd as i32);
-        user_ptr::write::<i32>(fds + 4, write_fd as i32);
+    let written = user_ptr::try_write::<i32>(fds, read_fd as i32)
+        .and_then(|()| user_ptr::try_write_field::<i32>(fds, 4, write_fd as i32));
+    if written.is_err() {
+        task::fd_close(read_fd);
+        task::fd_close(write_fd);
+        return err(EFAULT);
     }
     0
 }
@@ -82,10 +84,12 @@ pub(super) fn sys_socketpair(domain: u64, kind: u64, protocol: u64, sv: u64) -> 
         pair.set_nonblock(Side::A, true);
         pair.set_nonblock(Side::B, true);
     }
-    // Safety: user array of two `int` descriptors (the syscall ABI's contract).
-    unsafe {
-        user_ptr::write::<i32>(sv, a as i32);
-        user_ptr::write::<i32>(sv + 4, b as i32);
+    let written = user_ptr::try_write::<i32>(sv, a as i32)
+        .and_then(|()| user_ptr::try_write_field::<i32>(sv, 4, b as i32));
+    if written.is_err() {
+        task::fd_close(a);
+        task::fd_close(b);
+        return err(EFAULT);
     }
     0
 }
