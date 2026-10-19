@@ -262,7 +262,8 @@ fn launch_installed(
     // (issue #928); the row keeps the flag, so a restart stays windowless.
     let background = svcpolicy::starts_in_background(app.resident, autostart);
     if background {
-        row.args.insert(app.args.len(), String::from(svcpolicy::BACKGROUND_ARG));
+        row.args
+            .insert(app.args.len(), String::from(svcpolicy::BACKGROUND_ARG));
     }
     let result = start_row(services, broker, row, &cred, session, autostart)?;
     if background {

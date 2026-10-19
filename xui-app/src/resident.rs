@@ -50,7 +50,9 @@ const EVENT_BYTES: usize = 2048;
 /// autostart, `svcpolicy::BACKGROUND_ARG`): open no window until a `Reopen`
 /// or a tray click asks for one.
 pub fn started_in_background() -> bool {
-    svcpolicy::is_background_start(std::env::args_os().map(|arg| arg.to_string_lossy().into_owned()))
+    svcpolicy::is_background_start(
+        std::env::args_os().map(|arg| arg.to_string_lossy().into_owned()),
+    )
 }
 
 /// Something that woke a resident app.

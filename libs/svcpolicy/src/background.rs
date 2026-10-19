@@ -58,8 +58,16 @@ mod tests {
 
     #[test]
     fn a_menu_launch_or_a_lookalike_is_not_a_background_start() {
-        assert!(!is_background_start(["/apps/x/bin/x.elf", "--client", "attempt=1"]));
-        assert!(!is_background_start(["x", "--background=1", "--backgrounds"]));
+        assert!(!is_background_start([
+            "/apps/x/bin/x.elf",
+            "--client",
+            "attempt=1"
+        ]));
+        assert!(!is_background_start([
+            "x",
+            "--background=1",
+            "--backgrounds"
+        ]));
         assert!(!is_background_start(["x", "/home/user/--background"]));
         assert!(!is_background_start(Vec::<&str>::new()));
     }
