@@ -86,7 +86,8 @@ interface os.lazy.gpu.v1 {
         /// Monotonic time of the read, nanoseconds since boot.
         at_ns: U64 = 4,
         /// The refresh rate `gpud` measured from the counter when it
-        /// started, millihertz; 0 when it could not.
+        /// started, millihertz; 0 when it could not, or when the
+        /// measurement disagreed with the timing registers.
         measured_millihz: U32 = 5,
         /// An `Underrun` ordinal.
         underrun: U32 = 6

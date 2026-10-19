@@ -115,30 +115,33 @@ pub enum Underrun {
 
 /// The refresh rate two beam reads `elapsed_ns` apart imply, in millihertz;
 /// `None` when the interval or the frame count is too small to say anything
-/// (fewer than 2 frames, or under a millisecond). The counter is assumed to
-/// have wrapped at most once.
+/// (fewer than 2 frames, or under a millisecond), or too large to be a screen
+/// (more than one frame a millisecond: a counter that went backwards, a
+/// pipe re-enabled between the reads, or a refused read of all ones). The
+/// counter is assumed to have wrapped at most once.
 pub fn measured_millihz(first: Beam, last: Beam, elapsed_ns: u64, vtotal: u32) -> Option<u32> {
     if elapsed_ns < 1_000_000 {
         return None;
     }
     let frames = u64::from(last.frame.wrapping_sub(first.frame));
-    if frames < 2 {
+    if frames < 2 || frames > elapsed_ns / 1_000_000 {
         return None;
     }
     // Count the partial frames at both ends from the scan lines when the
     // vertical total is known: a whole frame count over 1 s is only good to
     // one frame in sixty, the lines make it good to one line in a frame.
-    let scaled = match u64::from(vtotal) {
+    // In u128: every product below stays far inside it whatever the registers said.
+    let (frames, elapsed) = (u128::from(frames), u128::from(elapsed_ns));
+    let scaled = match u128::from(vtotal) {
         0 => frames * 1_000_000,
         total => {
-            let first_line = u64::from(first.line).min(total);
-            let last_line = u64::from(last.line).min(total);
+            let first_line = u128::from(first.line).min(total);
+            let last_line = u128::from(last.line).min(total);
             (frames * total + last_line - first_line) * 1_000_000 / total
         }
     };
     // frames per ns * 1e9 * 1000 = millihertz.
-    let millihz = scaled * 1_000_000 / elapsed_ns;
-    u32::try_from(millihz).ok()
+    u32::try_from(scaled * 1_000_000 / elapsed).ok()
 }
 
 /// Whether a measured rate agrees with the one the timing registers imply,
@@ -235,6 +238,35 @@ mod tests {
         assert!(agrees(rough, expected, 1_000_000 / 100), "{rough}");
         // A 70 Hz mode is not mistaken for it.
         assert!(!agrees(70_000, expected, 1000));
+    }
+
+    #[test]
+    fn a_counter_that_went_backwards_is_not_a_rate() {
+        let first = Beam {
+            frame: 500,
+            line: 10,
+        };
+        // Re-enabled pipe: the counter restarted below the first read.
+        let last = Beam {
+            frame: 3,
+            line: 8191,
+        };
+        assert_eq!(measured_millihz(first, last, 1_000_000_000, 8191), None);
+        // A refused read of all ones on one side.
+        let ones = Beam {
+            frame: u32::MAX,
+            line: 0x1FFF,
+        };
+        assert_eq!(
+            measured_millihz(Beam::default(), ones, 1_000_000_000, 8191),
+            None
+        );
+        // The worst sane input does not overflow.
+        let fast = Beam {
+            frame: 1000,
+            line: 8191,
+        };
+        assert!(measured_millihz(Beam::default(), fast, 1_000_000_000, 8191).is_some());
     }
 
     #[test]

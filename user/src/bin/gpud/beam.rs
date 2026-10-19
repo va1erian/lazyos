@@ -74,7 +74,10 @@ impl Watch {
             regs,
             pipe: index,
             vtotal,
-            measured_millihz: measured.unwrap_or(0),
+            // Only a rate the timing registers confirm is handed on (clients pace their frames to it).
+            measured_millihz: measured
+                .filter(|&millihz| vblank::agrees(millihz, expected, TOLERANCE_PPM))
+                .unwrap_or(0),
         }
     }
 

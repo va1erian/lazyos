@@ -6606,7 +6606,8 @@ pub mod os_lazy_gpu_v1 {
     /// Lines per frame, active and blank (the transcoder's total).
     /// Monotonic time of the read, nanoseconds since boot.
     /// The refresh rate `gpud` measured from the counter when it
-    /// started, millihertz; 0 when it could not.
+    /// started, millihertz; 0 when it could not, or when the
+    /// measurement disagreed with the timing registers.
     /// An `Underrun` ordinal.
     /// The adopted display state.
     #[derive(Clone, Debug, Default, PartialEq)]

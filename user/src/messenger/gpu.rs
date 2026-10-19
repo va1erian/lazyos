@@ -48,9 +48,10 @@ pub struct Client {
 }
 
 impl Client {
-    /// Close the endpoint (a long-lived caller that asked once).
-    pub fn close(self) {
-        let _ = self.endpoint.close();
+    /// Give up the handle (a long-lived caller that asked once). The endpoint was obtained by name, so it
+    /// is released, not closed: closing would end `gpud`'s service side for every other client.
+    pub fn release(self) {
+        let _ = self.endpoint.release();
     }
 
     /// Resolve [`NAME`]; the endpoint is opened in this task's handle table.

@@ -5,8 +5,11 @@
 //! (QEMU, a GPU nobody drives) there is no vblank to follow and 60 Hz is the answer.
 //!
 //! `gpud` may start after the compositor (`devd` starts it when it finds the device) and only knows the
-//! rate a second after it starts, so a miss is asked again at later `GetOutput`s, a few times at most.
-//! The call is bounded: the compositor never waits long on another service.
+//! rate a second after it starts, so a miss is asked again at a later `GetOutput`, at most once every
+//! [`RETRY_NS`] and [`TRIES`] times in all: the session's first apps, which all start in the same second,
+//! cannot use the tries up before `gpud` answers (they keep 60 Hz). The call is bounded: the compositor
+//! never waits long on another service. Each try costs a reply buffer on the compositor's heap, which is
+//! a bump allocator, hence the small bound.
 
 use user::messenger::gpu;
 use user::sys;
@@ -21,11 +24,15 @@ const MAX_MILLIHZ: u32 = 250_000;
 const TRIES: u8 = 8;
 /// How long one question may take, in 100 Hz ticks.
 const DEADLINE_TICKS: u64 = 5;
+/// The least time between two questions.
+const RETRY_NS: u64 = 2_000_000_000;
 
 /// The rate answered so far, and how many more times a miss asks again.
 pub(super) struct Refresh {
     known: Option<u32>,
     tries_left: u8,
+    /// When the last question was asked (monotonic ns, 0: never).
+    asked_ns: u64,
 }
 
 impl Default for Refresh {
@@ -33,6 +40,7 @@ impl Default for Refresh {
         Refresh {
             known: None,
             tries_left: TRIES,
+            asked_ns: 0,
         }
     }
 }
@@ -43,10 +51,13 @@ impl Refresh {
         if let Some(known) = self.known {
             return known;
         }
-        if self.tries_left == 0 {
+        let now = sys::monotonic_ns();
+        let soon = self.asked_ns != 0 && now.saturating_sub(self.asked_ns) < RETRY_NS;
+        if self.tries_left == 0 || soon {
             return DEFAULT_MILLIHZ;
         }
         self.tries_left -= 1;
+        self.asked_ns = now;
         match measured() {
             Some(millihz) => {
                 trace::line!(Channel::Xuid, "REFRESH source=gpud millihz={millihz}");
@@ -70,7 +81,7 @@ impl Refresh {
 fn measured() -> Option<u32> {
     let client = gpu::Client::connect().ok()?;
     let beam = client.beam_by(Some(sys::clock() + DEADLINE_TICKS));
-    client.close();
+    client.release();
     sane(beam.ok()?.measured_millihz)
 }
 
