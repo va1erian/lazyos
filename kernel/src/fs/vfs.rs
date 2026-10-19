@@ -33,7 +33,8 @@
 //! # Caches
 //!
 //! A dentry cache maps `(mount, path)` to an inode number and an inode cache
-//! maps `(mount, ino)` to [`Meta`]. Lookups hit the caches first; mutations
+//! maps `(mount, ino)` to [`Meta`] (the mount being the first one holding the
+//! same filesystem instance, so a filesystem mounted twice has one cache). Lookups hit the caches first; mutations
 //! refresh or invalidate the affected paths, including cached descendants of a
 //! removed or renamed directory, so a stale name or size cannot be read back.
 //! [`Vfs::cache_stats`] exposes the counters so tests can see the caches work.
@@ -113,6 +114,21 @@ impl Vfs {
         self.mounts.push(Mount { point, fs, flags });
         self.stats.mounts = self.mounts.len();
         Ok(())
+    }
+
+    /// The index of the first mount of the filesystem instance mount `mount`
+    /// holds: its own for the first, the earlier one for a filesystem mounted
+    /// at two points (`/tmp` and `/transient` are one ramfs). That is the key
+    /// of its cached names and inodes, since the two names are one set of
+    /// files; keyed by `mount` itself, a `chmod 600 /tmp/x` left
+    /// `/transient/x` cached as 0644 (audit H6). Derived each time, not
+    /// stored: an unmount shifts the indices and a stored one would go stale.
+    pub(super) fn cache_key(&self, mount: usize) -> usize {
+        let fs = &self.mounts[mount].fs;
+        self.mounts
+            .iter()
+            .position(|other| Arc::ptr_eq(&other.fs, fs))
+            .unwrap_or(mount)
     }
 
     /// Mount points in mount order, paired with the filesystem's short name.

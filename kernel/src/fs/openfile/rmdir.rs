@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 
 use super::{hidden_name, Inode, OPEN};
-use crate::fs::vfs::{FsError, Id, Path};
+use crate::fs::vfs::{FsError, Id};
 /// `rmdir` of `path` (issue #612). On Linux an unlinked-but-open file has no
 /// name left, so its directory is empty and can go; here the file is parked
 /// as a hidden entry *in* that directory. So when the directory holds nothing
@@ -21,7 +21,7 @@ use crate::fs::vfs::{FsError, Id, Path};
 /// A directory with any other entry, or a stray reserved name no open file
 /// owns, is not empty: the backend answers `ENOTEMPTY` as before.
 pub(in crate::fs) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
-    let dir = Path::parse(path).to_path_string();
+    let dir = crate::fs::nodes::abi_canonical(path);
     let parked = parked_in(&dir);
     let root = if parked.is_empty() {
         None
@@ -39,7 +39,7 @@ pub(in crate::fs) fn rmdir(id: Id, path: &str) -> Result<(), FsError> {
             unpark(moved);
             return rmdir_raw(id, &dir);
         }
-        *inode.path.lock() = to;
+        inode.set_key(to);
         moved.push((inode, from));
     }
     let result = rmdir_raw(id, &dir);
@@ -60,8 +60,7 @@ fn parked_in(dir: &str) -> Vec<Arc<Inode>> {
         .filter(|inode| {
             inode.orphan.load(Ordering::Relaxed)
                 && inode
-                    .path
-                    .lock()
+                    .path()
                     .rsplit_once('/')
                     .is_some_and(|(parent, _)| parent == dir || (parent.is_empty() && dir == "/"))
         })
@@ -90,7 +89,7 @@ fn only(dir: &str, parked: &[Arc<Inode>]) -> bool {
 fn unpark(moved: Vec<(Arc<Inode>, String)>) {
     for (inode, original) in moved {
         match crate::fs::abi_rename_raw(Id::ROOT, &inode.path(), &original) {
-            Ok(()) => *inode.path.lock() = original,
+            Ok(()) => inode.set_key(original),
             // The file stays valid and reclaimable at its mount-root name; the
             // refused rmdir just cannot put it back.
             Err(error) => crate::serial_println!(

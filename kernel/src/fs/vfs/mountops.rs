@@ -62,8 +62,9 @@ impl Vfs {
     }
 
     /// Remove the mount at exactly `point` (a user-space filesystem going
-    /// away, `fs::fuse`). A mount with another mount below it is
-    /// [`FsError::Invalid`]; no mount there is [`FsError::NotFound`].
+    /// away, `fs::fuse`). A mount with another mount below it, or whose
+    /// filesystem is mounted at another point too, is [`FsError::Invalid`];
+    /// no mount there is [`FsError::NotFound`].
     ///
     /// The caches key on mount indices, which shift, so they are dropped
     /// whole: unmounting is rare, and a cold cache only costs lookups.
@@ -83,6 +84,18 @@ impl Vfs {
         if nested || point.is_root() {
             return Err(FsError::Invalid);
         }
+        // A filesystem also mounted elsewhere stays: the open-file registry
+        // names its files by the first mount point (`canonical_path`), and
+        // taking that name away would orphan every registered file.
+        let fs = &self.mounts[index].fs;
+        if self
+            .mounts
+            .iter()
+            .enumerate()
+            .any(|(other, mount)| other != index && alloc::sync::Arc::ptr_eq(&mount.fs, fs))
+        {
+            return Err(FsError::Invalid);
+        }
         self.mounts.remove(index);
         self.dentry.clear();
         self.inodes.clear();
@@ -96,6 +109,25 @@ impl Vfs {
     pub fn mount_point(&self, path: &str) -> Option<alloc::string::String> {
         let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;
         Some(self.mounts[mount].point.to_path_string())
+    }
+
+    /// `path` as it is named at the first mount of the filesystem holding it:
+    /// `/tmp/x` is `/transient/x` while one ramfs is mounted at both points.
+    /// Anything keyed by path text (the open-file registry) uses this form, so
+    /// two names of one file are one key. It assumes the two mount points have
+    /// the same mounts below them (true for the one alias in use, `/tmp` and
+    /// `/transient`; a mount under one name only would be misnamed).
+    pub fn canonical_path(&self, path: &str) -> alloc::string::String {
+        let path = Path::parse(path);
+        let Ok((mount, rel)) = self.resolve_mount(&path) else {
+            return path.to_path_string();
+        };
+        let base = self.mounts[self.cache_key(mount)].point.to_path_string();
+        match (base.as_str(), rel.is_empty()) {
+            (_, true) => base,
+            ("/", false) => alloc::format!("/{rel}"),
+            (_, false) => alloc::format!("{base}/{rel}"),
+        }
     }
 
     /// The short name of the filesystem holding `path` (`"ext2 (rw)"`, ...).

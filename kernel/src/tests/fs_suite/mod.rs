@@ -22,6 +22,8 @@ fn fs_error(error: FsError) -> String {
     format!("{} ({error:?})", error.message())
 }
 
+mod alias_mount;
+mod alias_names;
 mod attrs;
 mod fat_corruption;
 pub(super) mod fat_image;
@@ -31,6 +33,8 @@ mod ramfs_limits;
 mod ramfs_quota;
 mod traversal_and_cache;
 
+pub(super) use alias_mount::*;
+pub(super) use alias_names::*;
 pub(super) use attrs::*;
 pub(super) use fat_corruption::*;
 pub(super) use fat_lfn::*;
@@ -51,6 +55,25 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("fs_traversal_and_sticky_bits", traversal_and_sticky_bits),
     ("fs_cache_invalidation", cache_invalidation),
+    ("fs_alias_mount_caches_agree", alias_mount_caches_agree),
+    ("fs_alias_mount_cache_soak", alias_mount_cache_soak),
+    (
+        "fs_alias_mount_survives_unmount",
+        alias_mount_survives_unmount,
+    ),
+    (
+        "fs_alias_mount_open_files_are_one_file",
+        alias_mount_open_files_are_one_file,
+    ),
+    ("fs_alias_names_follow_renames", alias_names_follow_renames),
+    (
+        "fs_alias_holders_use_canonical_names",
+        alias_holders_use_canonical_names,
+    ),
+    (
+        "fs_alias_open_unlink_recreate_soak",
+        alias_open_unlink_recreate_soak,
+    ),
     ("fs_fat_read_only_erofs", fat_read_only_erofs),
     ("fs_getdents64_ramfs_directory", getdents64_ramfs_directory),
     (

@@ -251,7 +251,10 @@ pub fn flush_table(table: PhysAddr) {
         let pages = (piece.vma.end - piece.vma.start) / FRAME_SIZE;
         if pages > 0 {
             if let Err(error) = file.writeback(first, first + pages - 1) {
-                crate::serial_println!("mmap: writeback of {} failed: {error:?}", file.path());
+                crate::serial_println!(
+                    "mmap: writeback of {} failed: {error:?}",
+                    file.display_path()
+                );
             }
         }
     }
