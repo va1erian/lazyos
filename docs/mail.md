@@ -20,7 +20,7 @@ The GUI launcher has it as *Mail* on the Simple tab (Desktop extras) and
 | Mail core (IMAP sessions, SMTP, cache, rendering to sanitised HTML) | `esmail` and `esmail-glue` crates, git dependency pinned in `xui-app/mail/Cargo.toml` |
 | TLS | rustls through esMail's `rustls` feature; the crypto is `nettls-crypto` (RustCrypto, docs/tls-plan.md §3.2), installed as the process default in `main.rs` |
 | Trust roots | `/etc/ssl/certs/ca-certificates.crt`, the bundle `LAZYOS_TLS=1` ships (`rustls-native-certs` finds it) |
-| Passwords | `secrets.rs`: an in-memory `keyring` backend, so a password is asked once per session and never written to disk, argv, the environment or the serial log (docs/tls-plan.md §6.3) |
+| Passwords | `secrets.rs`: a `keyring` backend that keeps a password in memory for the session and, when the account form's *Remember this password* is ticked, in `keyd`'s app secrets (`os.lazy.keyd.appsecret.v1`, docs/security-model.md section 8), sealed on disk, scoped to Mail and the user and read back at the next start; unticked, nothing is stored and a stored copy is deleted. A password is never written to a file by Mail, argv, the environment or the serial log (docs/tls-plan.md §6.3) |
 | Files | `~/.config/esmail/config.toml` (accounts, no secrets) and `~/.local/share/esmail/` (the cache), under the user's home or `/transient` |
 | Window | `xui-app/mail/src/app/`: folder pane, message list, reading pane (a Blitz `BlitzView`), compose and account pages |
 

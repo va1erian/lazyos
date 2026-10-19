@@ -246,6 +246,9 @@ mod tests {
         assert_eq!(clipboard.risk, MEDIUM);
         assert_eq!(clipboard.text, "Read and change what you copy and paste");
         assert_eq!(interface("os.lazy.keyd.v1").risk, HIGH);
+        let secrets = interface("os.lazy.keyd.appsecret.v1");
+        assert_eq!(secrets.risk, MEDIUM);
+        assert_eq!(secrets.text, "Keep this app's own passwords and keys");
         assert_eq!(interface("os.lazy.display.v1").risk, LOW);
     }
 

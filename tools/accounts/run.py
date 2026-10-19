@@ -70,7 +70,7 @@ GUEST = "/system/share/accounts"
 
 #: The attack session's commands, in order (attack.sh or a rhai script each).
 SHELL_ATTACKS = ["uid", "rm_system", "overwrite_init", "write_conf", "read_conf_store",
-                 "read_keyd_secrets", "read_home_admin", "nic_attach",
+                 "read_keyd_secrets", "read_keyd_appsecrets", "read_home_admin", "nic_attach",
                  "signal_service", "autostart_pkg", "core_replace", "fork_bomb", "disk_fill"]
 RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "confd_sys", "keyd_provision",
@@ -83,6 +83,8 @@ RHAI_ATTACKS = {name: f"{name}.rhai" for name in (
     "mime_register",
     # WP2: keyd's named secrets (the Wi-Fi PMK is wlanmd's, system secrets elevd's).
     "wifi_pmk", "wifi_system_store", "wifi_store_for",
+    # P2b: an app's secrets in keyd are its own label's alone.
+    "appsecret_read",
     # The NIC's owner methods are netd's (netpolicy::may_own_nic).
     "nic_rx_mode",
     # U2 (#625): the privileged paths answer elevd alone; the prompt is elevd's.

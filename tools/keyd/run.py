@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""keyd's named secrets, end to end (docs/wifi-prerequisites-plan.md WP2).
+"""keyd's named secrets (docs/wifi-prerequisites-plan.md WP2) and apps' own
+secrets (`os.lazy.keyd.appsecret.v1`, docs/ai-agent-plan.md P2b), end to end.
 
 Boots a desktop image three times on a COPY of `target/lazyos.img` and drives
 the Terminal as the session user (`user`):
@@ -15,6 +16,22 @@ the Terminal as the session user (`user`):
    lists still show them, `WifiPmk` is still refused; delete the user secret
    directly and the system one through `elevd`.
 3. **third**: both lists are empty after another reboot.
+
+App secrets ride the same three boots, through two test apps
+(`tools/keyd/keyd_probes.py`: `rhai` packaged as `org.keyd.probea` and
+`org.keyd.probeb`, so each runs under its own `app:<id>` label):
+
+* **first**: the session's own `rhai` (unlabelled) is refused every call
+  (`app_denied`, EPERM). Install both probes; `probea` finds no `token`, keeps
+  one, reads it back, is refused bad input and a 17th secret; `probeb` (another
+  label, the same name) finds no `token` of its own, which is the proof it
+  cannot read `probea`'s, and keeps one too. Remove `probeb`.
+* **second**: `keyd` loads both app secrets (`KEYD:APPSECRETS:PASS count=2`),
+  the sweep finds `probeb` no longer installed and deletes its secret
+  (`KEYD:SWEEP:PASS removed=1`), and `probea`'s secret survived the reboot.
+* **third**: one app secret is left (`count=1`) and `probea` still reads it.
+  No secret value appears in any serial log, and `appsecrets` on the volume
+  is a 0600 file of its own with a version header and nothing in the clear.
 
 The positive `WifiPmk` path (the Annex J.4 vector, answered to uid 912
 only) is covered by the host tests in `libs/secretstore`: nothing in the
@@ -47,6 +64,7 @@ sys.path.insert(0, str(ROOT / "tools/accounts"))
 
 import audit  # noqa: E402  (tools/accounts: the volume listing)
 import keyd_judge as judge  # noqa: E402
+import keyd_probes  # noqa: E402
 
 # The accounts harness already knows how to focus the Terminal, type a
 # command, power off and run one session; reuse it rather than copy it.
@@ -56,7 +74,10 @@ _spec.loader.exec_module(accounts_run)
 
 IMAGE = ROOT / "target/lazyos.img"
 ASSETS = HERE / "assets"
+#: The probe packages' asset tree, generated at build time (keyd_probes.py).
+GENERATED = ROOT / "target" / "keyd-assets"
 GUEST = "/system/share/keyd/secrets.rhai"
+PROBE = "/system/share/keyd/probe.sh"
 #: What the trusted prompt takes: the development administrator's name,
 #: Tab, password, Enter (docs/accounts-plan.md U2).
 ADMIN, ADMIN_PASSWORD = "admin", "nimda"
@@ -68,9 +89,14 @@ def build() -> bool:
         return False
     import demo_builds
     demo_builds.build_rhai()
+    problems = keyd_probes.build_all(GENERATED)
+    for problem in problems:
+        print(problem)
+    if problems:
+        return False
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
-               LAZYOS_ASSETS=str(ASSETS))
+               LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
     return (subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT, env=env).returncode == 0
             and subprocess.run(["cargo", "build"], cwd=ROOT, env=env).returncode == 0)
 
@@ -91,10 +117,25 @@ def step(name: str, prompt: bool = False) -> list[dict]:
     ]
 
 
+def probe(verb: str, app: str) -> tuple[str, bool]:
+    """A probe-app step (`probe.sh <verb> <app>`), reported as
+    `KEYD:APP:<app>:<verb>:...`."""
+    return (f"probe:{verb}:{app}", False)
+
+
+def probe_step(verb: str, app: str) -> list[dict]:
+    until = f"TERM:OUT:KEYD:APP:{app}:"
+    return accounts_run.command(f"sh {PROBE} {verb} {app}", until, timeout=240)
+
+
 def session(steps: list[tuple[str, bool]]) -> list[dict]:
     script = accounts_run.focus_terminal()
     for name, prompt in steps:
-        script += step(name, prompt)
+        if name.startswith("probe:"):
+            _, verb, app = name.split(":")
+            script += probe_step(verb, app)
+        else:
+            script += step(name, prompt)
     # The flusher runs every 5 s; `shutdown` goes through init and syncs.
     return script + accounts_run.power_off()
 
@@ -102,11 +143,14 @@ def session(steps: list[tuple[str, bool]]) -> list[dict]:
 SESSIONS = {
     "first": session([("user_store", False), ("user_list", False), ("bad_input", False),
                       ("pmk_denied", False), ("pmk_other", False), ("system_denied", False),
-                      ("system_list", False), ("system_store", True), ("system_list", False)]),
+                      ("system_list", False), ("system_store", True), ("system_list", False),
+                      ("app_denied", False), probe("install", "probea"),
+                      probe("install", "probeb"), probe("run", "probea"),
+                      probe("run", "probeb"), probe("remove", "probeb")]),
     "second": session([("user_list", False), ("system_list", False), ("pmk_denied", False),
                        ("user_delete", False), ("user_list", False), ("system_delete", True),
-                       ("system_list", False)]),
-    "third": session([("user_list", False), ("system_list", False)]),
+                       ("system_list", False), probe("run", "probea")]),
+    "third": session([("user_list", False), ("system_list", False), probe("run", "probea")]),
 }
 
 
@@ -146,6 +190,9 @@ def main() -> int:
             tree = audit.parse(audit.read_tree(work))
             failures += judge.judge_files(
                 tree, osread(work, "cat", "/conf/svc/keyd/secrets"),
+                osread(work, "cat", "/conf/svc/keyd/machine.key"))
+            failures += judge.judge_app_file(
+                tree, osread(work, "cat", "/conf/svc/keyd/appsecrets"),
                 osread(work, "cat", "/conf/svc/keyd/machine.key"))
     for failure in failures:
         print(f"FAIL: {failure}")

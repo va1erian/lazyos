@@ -9,6 +9,7 @@
 //! and the OS specifics live in one place.
 
 pub mod accounts;
+pub mod appsecret;
 pub mod argv;
 pub mod audio;
 pub mod clipboard;

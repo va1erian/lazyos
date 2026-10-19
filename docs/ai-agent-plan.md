@@ -303,6 +303,27 @@ refused, a removed package's secrets are swept), plus attack-harness rows.
 With it, "Remember key" appears in settings. **P2b is required before P5's
 live use**, so a diagnosis session does not ask for the key on every boot.
 
+* **As built (P2b).** `idl/keyd_appsecret.midl` has `Put`, `Get`, `Delete`
+  and `List` (names only). keyd serves it on its own endpoint, also
+  registered as `os.lazy.keyd.appsecret`; the table and file are
+  `libs/secretstore` (`app.rs`, `app_file.rs`, magic `LZAPSECR`, version 1),
+  the disk and the label check `user/src/bin/keyd/appsecrets.rs`, the sweep
+  `keyd/sweep.rs`. The scope is the caller's uid and `app:<system_name>`
+  label, read with `label_name`; `dev:` and `app:<name>/<child>` labels are not
+  an app and are refused. The sweep first runs 5 s after start (pkgd is not up
+  when keyd starts) and retries every 5 s until pkgd has finished
+  provisioning and answered for every app, then runs hourly. `Get` returns
+  the secret, which `StoreSecret` never does, so the scope rule is the
+  whole defence. The client for xui apps is
+  `xui_app::platform::appsecret`; Mail uses it for "Remember this password"
+  (`xui-app/mail/src/secrets.rs`, `docs/mail.md`).
+* **LazyAgent (TODO for P5).** `xui-app/crates/agent-core` has no `Secrets`
+  platform trait yet (`platform.rs` only plans it), so nothing is wired. When
+  P5 adds it, back it with `xui_app::platform::appsecret` (one name per key,
+  e.g. `agent:fireworks`), list `os.lazy.keyd.appsecret.v1` in the package's
+  manifest, and add the "Remember key" checkbox that deletes the stored key
+  when unticked, as Mail does.
+
 ## 6. Diagnostics: `diagd` and `os.lazy.diag.v1`
 
 ### 6.1 Why a service

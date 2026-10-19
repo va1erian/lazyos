@@ -247,11 +247,20 @@ impl Client {
 
     /// `Installed(system_name)`.
     pub fn installed(&self, system_name: &str) -> core::result::Result<Option<Installed>, Failure> {
+        self.installed_until(system_name, None)
+    }
+
+    /// [`Client::installed`] given up at the absolute PIT tick `deadline`.
+    pub fn installed_until(
+        &self,
+        system_name: &str,
+        deadline: Option<u64>,
+    ) -> core::result::Result<Option<Installed>, Failure> {
         let body = wire::encode_installed_args(&wire::InstalledArgs {
             system_name: String::from(system_name),
         })
         .map_err(Error::Parcel)?;
-        let reply = self.call(wire::METHOD_INSTALLED, body)?;
+        let reply = self.call_until(wire::METHOD_INSTALLED, body, deadline)?;
         Ok(wire::decode_installed_reply(&reply.body)
             .map_err(Error::Parcel)?
             .app)

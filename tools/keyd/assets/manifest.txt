@@ -1,2 +1,4 @@
-# The keyd secrets check's guest script (tools/keyd/run.py).
+# The keyd secrets check's guest scripts (tools/keyd/run.py).
 keyd/secrets.rhai | GPL-3.0-or-later | desktop | LazyOS original: one step of the keyd named-secrets check per call, prints one KEYD:T line
+keyd/appprobe.rhai | GPL-3.0-or-later | desktop | LazyOS original: the labelled probe app of the keyd app-secrets check
+keyd/probe.sh | GPL-3.0-or-later | desktop | LazyOS original: launches a keyd probe app and prints its one result line

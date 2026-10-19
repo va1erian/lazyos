@@ -73,17 +73,26 @@ use user::messenger::{self, errno, keyd as wire, registry, Error, Message, Parce
 use user::sys;
 use user::trace;
 
+#[path = "keyd/appsecrets.rs"]
+mod appsecrets;
+#[path = "keyd/appserve.rs"]
+mod appserve;
 #[path = "keyd/secrets.rs"]
 mod secrets;
 #[path = "keyd/selftest.rs"]
 mod selftest;
 #[path = "keyd/state.rs"]
 mod state;
+#[path = "keyd/sweep.rs"]
+mod sweep;
 
+use appsecrets::AppSecrets;
 use secrets::{denied_error, Secrets};
 use secretstore::{authorize, Caller, Op, Owner};
 use selftest::{self_test, SELF_TEST_OWNER};
 use state::{Keyd, MAX_BYTES, MAX_TEXT};
+use sweep::Sweep;
+use user::messenger::keyd::appsecret;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -107,6 +116,8 @@ fn run() -> messenger::Result<()> {
     }
     load_db(&mut keyd);
     let mut secrets = Secrets::load(&mut keyd.entropy);
+    let mut app_secrets = AppSecrets::load(secrets.machine_key_ref());
+    let mut sweep = Sweep::new();
     match self_test(&mut keyd) {
         Ok(()) => trace::line!(trace::Channel::Keyd, "SELFTEST:PASS"),
         // Keep serving: some operations may still be usable, and `init` would
@@ -122,7 +133,9 @@ fn run() -> messenger::Result<()> {
     keyd.forget_account("selftest-user");
 
     let (published, server) = messenger::create_pair()?;
-    registry::register(wire::NAME, &published, &[wire::INTERFACE], 0)?;
+    let interfaces = [wire::INTERFACE, appsecret::INTERFACE];
+    registry::register(wire::NAME, &published, &interfaces, 0)?;
+    registry::register(appsecret::NAME, &published, &interfaces, 0)?;
     trace::line!(trace::Channel::Keyd, "READY");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
@@ -132,11 +145,20 @@ fn run() -> messenger::Result<()> {
     // allocate one per request.
     let mut buffer = alloc::vec![0u8; messenger::DEFAULT_BUFFER];
     loop {
-        let message = server.recv_with(&mut buffer, None)?;
+        // Wake for the sweep of removed apps' secrets (sweep.rs).
+        let message = match server.recv_with(&mut buffer, Some(sweep.deadline())) {
+            Ok(message) => message,
+            Err(Error::Errno(code)) if code == -errno::ETIMEDOUT => {
+                sweep.tick(&mut app_secrets, &mut keyd.entropy);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        sweep.tick(&mut app_secrets, &mut keyd.entropy);
         let method = message.method();
-        let reply = match dispatch(&mut keyd, &mut secrets, &message) {
+        let reply = match dispatch(&mut keyd, &mut secrets, &mut app_secrets, &message) {
             Ok(reply) => reply,
-            Err(error) => wire::error_reply(method, error),
+            Err(error) => wire::error_reply_on(message.interface_id(), method, error),
         };
         if let Some(txn) = message.txn {
             server.reply_or_drop(txn, &reply)?;
@@ -176,8 +198,12 @@ fn from_accountsd(message: &Message) -> bool {
 fn dispatch(
     keyd: &mut Keyd,
     secrets: &mut Secrets,
+    app_secrets: &mut AppSecrets,
     message: &Message,
 ) -> messenger::Result<Parcel> {
+    if message.interface_id() == appsecret::INTERFACE {
+        return appserve::dispatch_app(&mut keyd.entropy, app_secrets, message);
+    }
     if message.interface_id() != wire::INTERFACE {
         return Err(Error::Errno(-errno::EINVAL));
     }

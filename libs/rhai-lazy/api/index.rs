@@ -127,6 +127,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "keyd_appsecret",
+        interface: "os.lazy.keyd.appsecret.v1",
+        source: include_str!("keyd_appsecret.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "lifecycle",
         interface: "os.lazy.lifecycle.v1",
         source: include_str!("lifecycle.rhai"),

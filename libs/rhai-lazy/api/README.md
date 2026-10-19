@@ -51,6 +51,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::input`](#sysinput) | `os.lazy.input.v1` |
 | [`sys::input_shell`](#sysinput_shell) | `os.lazy.input.shell.v1` |
 | [`sys::keyd`](#syskeyd) | `os.lazy.keyd.v1` |
+| [`sys::keyd_appsecret`](#syskeyd_appsecret) | `os.lazy.keyd.appsecret.v1` |
 | [`sys::lifecycle`](#syslifecycle) | `os.lazy.lifecycle.v1` |
 | [`sys::logd`](#syslogd) | `os.lazy.logd.v1` |
 | [`sys::logind`](#syslogind) | `os.lazy.logind.v1` |
@@ -518,6 +519,19 @@ The secrets and crypto service (issue #102).
 | `store_secret_for(scope, name, secret, owner)` | `StoreSecretFor(scope: String, name: String, secret: Bytes, owner: U32) -> ()` | Keep `secret` under `name` for the user `owner` (scope `user`). |
 | `delete_secret_for(scope, name, owner)` | `DeleteSecretFor(scope: String, name: String, owner: U32) -> ()` | Forget the secret `name` of `owner` in `scope` (the rules of |
 | `new_key_info()` | struct `KeyInfo` | a `KeyInfo` at its zero value |
+
+## `sys::keyd_appsecret`
+
+Interface `os.lazy.keyd.appsecret.v1`, source [`keyd_appsecret.rhai`](keyd_appsecret.rhai).
+
+An app's own passwords and keys, kept by `keyd` across reboots
+
+| Function | IDL | About |
+|---|---|---|
+| `put(name, secret)` | `Put(name: String, secret: Bytes) -> ()` | Keep `secret` under `name` for the calling app and user, replacing one |
+| `get(name)` | `Get(name: String) -> (secret: Bytes)` | The calling app's secret `name` (`ENOENT` when there is none). |
+| `delete(name)` | `Delete(name: String) -> ()` | Forget the calling app's secret `name` (`ENOENT` when there is none). |
+| `list()` | `List() -> (names: Array<String>)` | The names of the calling app's secrets, sorted. Names only. |
 
 ## `sys::lifecycle`
 

@@ -74,6 +74,19 @@ pub const KEYD_SECRETS_NEW: &str = "/conf/svc/keyd/secrets.new";
 /// another key), so the next write never destroys it. Written by `keyd`.
 pub const KEYD_SECRETS_BAD: &str = "/conf/svc/keyd/secrets.bad";
 
+/// Apps' own secrets (`os.lazy.keyd.appsecret.v1`, docs/ai-agent-plan.md
+/// section 5.3), a separate versioned file sealed under the same machine key,
+/// 0600. Written by `keyd` (a temporary file renamed over it).
+pub const KEYD_APPSECRETS: &str = "/conf/svc/keyd/appsecrets";
+
+/// The temporary file `keyd` writes before renaming it over
+/// [`KEYD_APPSECRETS`]. Written by `keyd`.
+pub const KEYD_APPSECRETS_NEW: &str = "/conf/svc/keyd/appsecrets.new";
+
+/// Where `keyd` moves an [`KEYD_APPSECRETS`] it refused (damaged, a newer
+/// version, or sealed under another key). Written by `keyd`.
+pub const KEYD_APPSECRETS_BAD: &str = "/conf/svc/keyd/appsecrets.bad";
+
 /// The machine key the secrets are sealed under: 32 random bytes, 0600,
 /// generated on `keyd`'s first start. Written by `keyd`.
 pub const KEYD_MACHINE_KEY: &str = "/conf/svc/keyd/machine.key";
@@ -229,6 +242,9 @@ mod tests {
             KEYD_SECRETS,
             KEYD_SECRETS_NEW,
             KEYD_SECRETS_BAD,
+            KEYD_APPSECRETS,
+            KEYD_APPSECRETS_NEW,
+            KEYD_APPSECRETS_BAD,
             KEYD_MACHINE_KEY,
             KEYD_MACHINE_KEY_NEW,
         ] {

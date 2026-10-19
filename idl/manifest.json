@@ -1227,6 +1227,33 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.keyd.appsecret.v1",
+    "interface_id": "0x37fbc58e057aa734",
+    "methods": [
+      {
+        "name": "Put",
+        "id": 1316564366,
+        "oneway": false
+      },
+      {
+        "name": "Get",
+        "id": 915881719,
+        "oneway": false
+      },
+      {
+        "name": "Delete",
+        "id": 1469573738,
+        "oneway": false
+      },
+      {
+        "name": "List",
+        "id": 220805025,
+        "oneway": false
+      }
+    ],
+    "topics": []
+  },
+  {
     "interface": "os.lazy.lifecycle.v1",
     "interface_id": "0x778a92e489f41682",
     "methods": [

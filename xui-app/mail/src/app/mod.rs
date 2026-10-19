@@ -246,6 +246,7 @@ impl Mail {
                     .show_error(Some(error.field), error.message);
             }
         };
+        crate::secrets::set_remember(self.account_page.remember());
         let auth = Auth::Password(SecretString::from(form.password));
         match account_setup::save_account(&self.config, account, &auth) {
             Ok(config) => {
