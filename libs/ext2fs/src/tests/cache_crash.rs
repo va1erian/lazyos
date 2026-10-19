@@ -19,7 +19,7 @@ use super::*;
 use crate::{BlockIo, CacheConfig, IoError, SECTOR_SIZE};
 
 /// Problems the documented crash semantics never allow.
-const FORBIDDEN: [&str; 8] = [
+pub(super) const FORBIDDEN: [&str; 8] = [
     "is in use but marked free",
     "is reachable but marked free",
     "claimed by inodes",

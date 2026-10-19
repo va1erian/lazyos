@@ -43,6 +43,7 @@ impl Ext2 {
     /// Create an empty directory owned by `owner`.
     pub fn mkdir(&self, path: &str, mode: u16, owner: Owner) -> Result<InodeMeta, Ext2Error> {
         let _guard = self.lock.lock();
+        let _scope = self.op_scope();
         let (parent_path, name) = split_parent(path)?;
         let parent_ino = self.resolve(parent_path)?;
         let mut parent = self.read_inode(parent_ino)?;
@@ -105,15 +106,72 @@ impl Ext2 {
             return Err(error);
         }
 
+        // The parent's count covers the new `..` before the entry makes the
+        // child reachable: a cut in between leaks a count, never undercounts.
+        let parent_before = le16(&parent, INO_LINKS);
         put16(&mut parent, INO_LINKS, parent_links);
+        let raised = self
+            .write_inode(parent_ino, &parent)
+            .and_then(|()| self.barrier());
+        if let Err(error) = raised {
+            put16(&mut parent, INO_LINKS, parent_before);
+            let _ = self.write_inode(parent_ino, &parent);
+            let _ = self.free_block(block);
+            let _ = self.free_inode(ino, true);
+            return Err(error);
+        }
         match self.add_entry(parent_ino, &mut parent, name, ino, FT_DIRECTORY) {
             Ok(()) => self.meta_of(ino),
             Err(error) => {
+                put16(&mut parent, INO_LINKS, parent_before);
+                let _ = self.write_inode(parent_ino, &parent);
                 let _ = self.free_block(block);
                 let _ = self.free_inode(ino, true);
                 Err(error)
             }
         }
+    }
+
+    /// Give the regular file at `existing` a second name, `new_path`.
+    ///
+    /// Ordered for crash safety: the inode's link count rises first and is on
+    /// the disk (a [`barrier`](Ext2::barrier) when cached) before the entry
+    /// appears, so a power cut leaves the count too high (a leak) at worst,
+    /// never lower than the number of names.
+    pub fn link(&self, existing: &str, new_path: &str) -> Result<(), Ext2Error> {
+        let _guard = self.lock.lock();
+        let _scope = self.op_scope();
+        let ino = self.resolve(existing)?;
+        let mut inode = self.read_inode(ino)?;
+        if kind_from_mode(le16(&inode, INO_MODE)) != Some(FileKind::File) {
+            return Err(Ext2Error::IsDir);
+        }
+        let (parent_path, name) = split_parent(new_path)?;
+        let parent_ino = self.resolve(parent_path)?;
+        let mut parent = self.read_inode(parent_ino)?;
+        if kind_from_mode(le16(&parent, INO_MODE)) != Some(FileKind::Dir) {
+            return Err(Ext2Error::NotDir);
+        }
+        if self.find_entry(parent_ino, name).is_ok() {
+            return Err(Ext2Error::Exists);
+        }
+        let links = le16(&inode, INO_LINKS);
+        put16(
+            &mut inode,
+            INO_LINKS,
+            links.checked_add(1).ok_or(Ext2Error::Invalid)?,
+        );
+        touch(&mut inode, self.now());
+        self.write_inode(ino, &inode)?;
+        let added = self
+            .barrier()
+            .and_then(|()| self.add_entry(parent_ino, &mut parent, name, ino, FT_REGULAR));
+        if let Err(error) = added {
+            put16(&mut inode, INO_LINKS, links);
+            let _ = self.write_inode(ino, &inode);
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Remove the file at `path` (its blocks and inode go with the last link).
@@ -131,6 +189,7 @@ impl Ext2 {
 
     fn unlink_inner(&self, path: &str, parked: bool) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
+        let _scope = self.op_scope();
         let (parent_path, name) = split_parent(path)?;
         let parent_ino = self.resolve(parent_path)?;
         let mut parent = self.read_inode(parent_ino)?;
@@ -147,6 +206,10 @@ impl Ext2 {
             return self.discard_orphan(parent_ino, &mut parent, name, child_ino, &mut child);
         }
         self.remove_entry(parent_ino, &mut parent, name)?;
+        // The entry must be on the disk before the count drops (or the inode
+        // is freed): a cut in between then leaves a count too high, never one
+        // below its names (see [`Ext2::barrier`]).
+        self.barrier()?;
         let links = le16(&child, INO_LINKS);
         if links <= 1 {
             // Last link: release the data blocks, then the inode itself.

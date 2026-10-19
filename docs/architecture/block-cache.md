@@ -115,7 +115,10 @@ the direct driver's promise exactly:
 | Operation | Barrier | Promise kept |
 |---|---|---|
 | rename of a file (`rename_file.rs`, confd's #407 commit) | after the new name; after the old name goes, before the link count drops | a crash shows the old or the new name (or both, link count 2), never neither, never two names on one link |
-| rename of a directory (`rename.rs`) | after the new entry, before `..` moves and the old entry goes | the directory is reachable under one name at least |
+| rename of a directory (`rename.rs`) | the directory's count is raised first; after the new entry, before `..` moves; after `..` moves, before the old entry and the old parent's count go; after the old entry, before the extra count drops | the directory is reachable under one name at least, and no count is ever below its entries |
+| `mkdir` (`links.rs`) | after the parent's raised count, before the new entry | the parent's count covers the child's `..` whenever the child is reachable |
+| `link` (`links.rs`) | after the raised link count, before the new entry | a crash leaves the count too high (a leak), never below the names |
+| `unlink`, `rmdir` (`links.rs`, `rmdir.rs`) | after the entry goes, before the count drops or the inode is freed | same: a leak at worst, never an inode freed under a live name |
 | deleting a parked orphan (`orphans.rs`) | after the blocks, inode and bitmaps, before the name goes (its frees are not deferred: that order *is* the design) | the next mount's reclaim can always finish the delete, with no leak |
 | truncate to a size inside a block (`truncate.rs`) | after zeroing the cut tail, before the new size | a later grow never shows the bytes that were cut |
 
