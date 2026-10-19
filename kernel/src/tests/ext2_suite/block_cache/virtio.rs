@@ -206,7 +206,9 @@ pub fn fsync_beside_dirty_data() -> Result<(), String> {
         let (before, start) = (requests(), tsc());
         run()?;
         let (writes, us) = (requests() - before, elapsed_us(start));
-        crate::trace::test!("bcache_virtio_fsync_beside_dirty_data:INFO:{what}: {writes} write requests, {us} us");
+        crate::trace::test!(
+            "bcache_virtio_fsync_beside_dirty_data:INFO:{what}: {writes} write requests, {us} us"
+        );
         Ok::<u64, String>(writes)
     };
     // Each measurement starts with the same state: the 3 MiB dirty again

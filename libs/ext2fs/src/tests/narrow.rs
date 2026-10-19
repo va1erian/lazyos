@@ -19,12 +19,8 @@ fn recorded(block_size: u32, blocks: usize) -> (MemIo, Recorder, Ext2) {
         block_size: block_size as usize,
         log: Arc::default(),
     };
-    let fs = Ext2::open_cached(
-        Box::new(recorder.clone()),
-        clock,
-        CacheConfig::heap(blocks),
-    )
-    .unwrap();
+    let fs =
+        Ext2::open_cached(Box::new(recorder.clone()), clock, CacheConfig::heap(blocks)).unwrap();
     (disk, recorder, fs)
 }
 
@@ -54,7 +50,7 @@ fn sync_file_writes_that_file_and_not_the_others() {
         fs.write_file("/bulk", &[2u8; 600 * 1024], 0o644, 0, 0, 1)
             .unwrap();
         let small = fs.open_file("/small").unwrap();
-        fs.write(&"/small", 3_000, &[3u8; 5_000]).unwrap();
+        fs.write("/small", 3_000, &[3u8; 5_000]).unwrap();
         let dirty = fs.dirty_blocks();
         let written = fs.cache_stats().unwrap().written;
 
@@ -140,12 +136,8 @@ fn sync_file_survives_a_crash_at_every_write() {
             log: Arc::default(),
         };
         let blocks = [4, 16, 256][rng.below(3) as usize];
-        let fs = Ext2::open_cached(
-            Box::new(recorder.clone()),
-            clock,
-            CacheConfig::heap(blocks),
-        )
-        .unwrap();
+        let fs = Ext2::open_cached(Box::new(recorder.clone()), clock, CacheConfig::heap(blocks))
+            .unwrap();
         let mut model = Model::default();
         for _ in 0..rng.range(10, 60) {
             if !workload::step(&[&fs], &mut model, rng) {
@@ -273,12 +265,7 @@ fn renaming_an_unsynced_file_never_exposes_stale_bytes() {
 #[test]
 fn sync_file_patches_the_right_inode_in_a_later_group() {
     let disk = formatted(64 << 20, 1024);
-    let fs = Ext2::open_cached(
-        Box::new(disk.clone()),
-        clock,
-        CacheConfig::heap(16384),
-    )
-    .unwrap();
+    let fs = Ext2::open_cached(Box::new(disk.clone()), clock, CacheConfig::heap(16384)).unwrap();
     for n in 0..700 {
         fs.write_file(&std::format!("/pad{n}"), &[5u8; 10], 0o644, 0, 0, 1)
             .unwrap();
@@ -293,7 +280,10 @@ fn sync_file_patches_the_right_inode_in_a_later_group() {
     assert!(synced.ino() > 512 && neighbour.ino() > 512, "past group 0");
     let dirty = fs.dirty_blocks();
     fs.sync_file(synced).unwrap();
-    assert!(fs.dirty_blocks() >= dirty / 2, "the neighbour is still dirty");
+    assert!(
+        fs.dirty_blocks() >= dirty / 2,
+        "the neighbour is still dirty"
+    );
     let image = crashed(&disk);
     assert!(read_all(&image, synced, 5_000) == [8u8; 5_000]);
     // The neighbour's inode was not carried along: it is not on the disk yet.

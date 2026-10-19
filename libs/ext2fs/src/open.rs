@@ -201,8 +201,8 @@ impl Ext2 {
             inode_size: u32::from(self.inode_size),
             ..Default::default()
         };
-        for (group, desc) in (0..self.groups)
-            .filter_map(|group| Some((group, self.read_group(group).ok()?)))
+        for (group, desc) in
+            (0..self.groups).filter_map(|group| Some((group, self.read_group(group).ok()?)))
         {
             roles.bitmaps.push(u64::from(desc.block_bitmap));
             roles.bitmaps.push(u64::from(desc.inode_bitmap));
@@ -213,7 +213,9 @@ impl Ext2 {
             });
         }
         roles.bitmaps.sort_unstable();
-        roles.inode_tables.sort_unstable_by_key(|table| table.blocks.start);
+        roles
+            .inode_tables
+            .sort_unstable_by_key(|table| table.blocks.start);
         roles
     }
 }

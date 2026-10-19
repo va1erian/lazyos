@@ -25,11 +25,15 @@ pub fn fsync_file_leaves_other_files_dirty() -> Result<(), String> {
     let (fs, mut vfs) = cached(disk, 512)?;
     write_file(&mut vfs, "/small", &pattern_bytes(1, 3_000))?;
     vfs.flush(Id::ROOT, "/small").map_err(fs_error)?;
-    check!(raw_state(disk) & 1 == 1, "a whole flush marks the volume clean");
+    check!(
+        raw_state(disk) & 1 == 1,
+        "a whole flush marks the volume clean"
+    );
 
     write_file(&mut vfs, "/bulk", &pattern_bytes(2, BULK_KB * 1024))?;
     let grown = pattern_bytes(3, 7_000);
-    vfs.write(Id::ROOT, "/small", 3_000, &grown).map_err(fs_error)?;
+    vfs.write(Id::ROOT, "/small", 3_000, &grown)
+        .map_err(fs_error)?;
     let node = node_of(&mut vfs, "/small")?;
     node.flush().map_err(fs_error)?;
 
@@ -73,7 +77,8 @@ pub fn rename_leaves_other_files_dirty() -> Result<(), String> {
     vfs.flush(Id::ROOT, "/d").map_err(fs_error)?;
 
     write_file(&mut vfs, "/bulk", &pattern_bytes(6, BULK_KB * 1024))?;
-    vfs.rename(Id::ROOT, "/d/tmp", "/d/final").map_err(fs_error)?;
+    vfs.rename(Id::ROOT, "/d/tmp", "/d/final")
+        .map_err(fs_error)?;
     check!(
         fs.dirty_blocks() >= BULK_KB * 9 / 10,
         "the rename wrote the other file's blocks ({} still dirty)",

@@ -50,6 +50,7 @@ impl Vfs {
     /// The path must resolve (search permission on every ancestor, as with any
     /// other VFS call) but needs no read or write bit: flushing is not reading
     /// or writing the file's data.
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))] // the suites' fsync; the kernel uses `flush_target`
     pub fn flush(&mut self, id: Id, path: &str) -> Result<(), FsError> {
         let path = Path::parse(path);
         self.check_path(id, &path, 0)?;
@@ -80,7 +81,10 @@ impl Vfs {
 
     /// The mounted filesystems, for a flush after the lock is released.
     pub fn filesystems(&self) -> Vec<Arc<dyn Filesystem>> {
-        self.mounts.iter().map(|mount| Arc::clone(&mount.fs)).collect()
+        self.mounts
+            .iter()
+            .map(|mount| Arc::clone(&mount.fs))
+            .collect()
     }
 
     /// Flush every mounted filesystem (`sync(2)`, and the shutdown path).

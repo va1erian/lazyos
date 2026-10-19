@@ -171,11 +171,13 @@ impl BlockCache {
             let wanted = match phase {
                 Phase::Alloc => true,
                 Phase::Super => asked(block),
-                Phase::Inodes => self.roles.inodes_of(block).is_some_and(|range| {
-                    targets.inodes.iter().any(|ino| range.contains(ino))
-                }),
+                Phase::Inodes => self
+                    .roles
+                    .inodes_of(block)
+                    .is_some_and(|range| targets.inodes.iter().any(|ino| range.contains(ino))),
                 Phase::Fresh | Phase::Content => {
-                    let owned = slot.owner != 0 && targets.owners.binary_search(&slot.owner).is_ok();
+                    let owned =
+                        slot.owner != 0 && targets.owners.binary_search(&slot.owner).is_ok();
                     let unknown = targets.unknown && slot.owner == 0 && phase == Phase::Content;
                     asked(block) || owned || unknown
                 }
