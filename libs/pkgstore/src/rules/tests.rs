@@ -221,6 +221,27 @@ fn a_service_whose_name_differs_gets_both_names() {
 }
 
 #[test]
+fn a_client_of_webd_may_resolve_the_name_webd_registers() {
+    let resolve = |name: &str| allow(resolve_scope::INTERFACE_ID, fnv1a32(name));
+    let rules = compile(&manifest("interfaces = [\"os.lazy.webd.view.v1\"]
+")).unwrap();
+    // `webd` (label `app:os.lazy.webd`) may register only `app.os.lazy.webd.<name>`, so the
+    // interface name alone would resolve nothing.
+    assert!(rules.contains(&resolve("app.os.lazy.webd.view")));
+    assert!(rules.contains(&allow(fnv1a64("os.lazy.webd.view.v1"), ANY_METHOD)));
+}
+
+#[test]
+fn a_light_only_client_of_webd_cannot_resolve_the_full_service() {
+    let resolve = |name: &str| allow(resolve_scope::INTERFACE_ID, fnv1a32(name));
+    let rules = compile(&manifest("interfaces = [\"os.lazy.webd.light.v1\"]
+")).unwrap();
+    assert!(rules.contains(&resolve("app.os.lazy.webd.light")));
+    assert!(!rules.contains(&resolve("app.os.lazy.webd.view")));
+    assert!(!rules.contains(&allow(fnv1a64("os.lazy.webd.view.v1"), ANY_METHOD)));
+}
+
+#[test]
 fn network_outbound_allows_the_socket_interface_and_files_compile_to_nothing() {
     let rules = compile(&manifest("network = [\"outbound\"]\n")).unwrap();
     assert!(rules.contains(&allow(fnv1a64("os.lazy.net.socket.v1"), ANY_METHOD)));
