@@ -3,6 +3,7 @@
 pub mod acpi_tables;
 pub mod clock;
 pub mod cpu;
+pub mod cpufreq;
 pub mod event_timer;
 pub mod fault;
 pub mod fault_report;
@@ -55,4 +56,6 @@ pub fn init() {
     if crate::input::i8042::present() {
         crate::input::ps2::enable();
     }
+    // After `init_hardware`: the TSC is calibrated by the tick's setup.
+    cpufreq::report_boot();
 }
