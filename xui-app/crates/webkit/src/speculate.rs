@@ -46,6 +46,29 @@ pub const PROBE_MS: u64 = 900;
 /// and then forward again when the answer came.
 pub const SETTLE_MS: u64 = 500;
 
+/// A page move this soon after a plain wheel notch is the page's answer to it: with nothing shown
+/// ahead the view glides to it rather than jumping.
+pub const ANSWER_MS: u64 = 1_000;
+
+thread_local! {
+    /// Whether the views of this thread show the picture ahead of the page.
+    static AHEAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Turns showing the picture ahead on or off for the views of this thread. Off by default: on a real
+/// PC with `/home` on a USB stick the page answers late often enough that a picture shown ahead had to
+/// jump back (two to thirteen times a minute, issue #940), which reads worse than a view that waits for
+/// the page; off, a notch moves the view when the page has scrolled, gliding there. The tests of the
+/// model turn it on.
+pub fn set_ahead(on: bool) {
+    AHEAD.with(|ahead| ahead.set(on));
+}
+
+/// Whether the views of this thread show the picture ahead of the page ([`set_ahead`]).
+pub fn ahead() -> bool {
+    AHEAD.with(std::cell::Cell::get)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Counters {
     /// Wheel events that moved the picture ahead.

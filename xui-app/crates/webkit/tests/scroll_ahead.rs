@@ -78,7 +78,18 @@ fn run_with(
     smooth: bool,
     script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static,
 ) -> Shown {
+    // These tests are of the picture shown ahead, off by default since #940.
+    run_mode(smooth, true, script)
+}
+
+/// `run`, with smooth scrolling and showing the picture ahead each on or off.
+fn run_mode(
+    smooth: bool,
+    ahead: bool,
+    script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static,
+) -> Shown {
     xui_webkit::glide::set_smooth(smooth);
+    xui_webkit::speculate::set_ahead(ahead);
     register_fonts();
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());
@@ -196,6 +207,58 @@ fn a_modified_wheel_does_not_scroll_the_picture() {
     }
 }
 
+/// The page did one notch: its rows moved up, and it painted the rows it uncovered blue.
+fn answer_one_notch(stage: &Stage<'_, Msg>, (w, h): (i32, i32), mailbox: &Mailbox) {
+    mailbox.set_scroll_offset(STEP, false);
+    let delta = Delta {
+        size: (w as u32, h as u32),
+        scroll: Some(Scroll {
+            area: IRect::new(0, 0, w, h),
+            dx: 0,
+            dy: -STEP,
+        }),
+        patches: vec![Patch {
+            rect: IRect::new(0, h - STEP, w, STEP),
+            rgba: solid(w, STEP, BLUE),
+        }],
+    };
+    assert!(!mailbox.post_delta(delta), "the delta was queued");
+    stage.emit(Msg::Frame);
+}
+
+#[test]
+fn without_showing_ahead_a_notch_waits_for_the_page() {
+    // The default since #940: nothing moves, no checkerboard, until the page has scrolled.
+    let shown = run_mode(false, false, |stage, _, _, at| {
+        wheel(stage, at, -1, Modifiers::default())
+    });
+    let h = shown.size.1;
+    for y in [0, 1, h / 2, h - STEP, h - 1] {
+        assert_eq!(
+            shown.at(10, y),
+            row_colour(y),
+            "row {y} moved before the page did"
+        );
+    }
+}
+
+#[test]
+fn without_showing_ahead_the_pages_answer_moves_the_view() {
+    let shown = run_mode(false, false, |stage, view, mailbox, at| {
+        wheel(stage, at, -1, Modifiers::default());
+        answer_one_notch(stage, view, mailbox);
+    });
+    let (w, h) = shown.size;
+    for y in [0, 1, h / 2, h - STEP - 1] {
+        assert_eq!(shown.at(10, y), row_colour(y + STEP), "row {y}");
+    }
+    for y in [h - STEP, h - 1] {
+        for x in [0, w / 2, w - 1] {
+            assert_eq!(shown.at(x, y), BLUE, "({x},{y}) is what the page painted");
+        }
+    }
+}
+
 #[test]
 fn the_pages_answer_takes_the_picture_to_exact_and_no_checkerboard_is_left() {
     let shown = run(|stage, (w, h), mailbox, at| {
@@ -246,7 +309,13 @@ fn with_smooth_scrolling_a_notch_starts_a_slide() {
 
 /// The page's answer to a notch it could only do part of, the page's end: it scrolled `moved` rows (its
 /// rows move up, the rows it uncovered are painted) and says it is at the bottom.
-fn answer_at_the_end(stage: &Stage<'_, Msg>, (w, h): (i32, i32), mailbox: &Mailbox, offset: i32, moved: i32) {
+fn answer_at_the_end(
+    stage: &Stage<'_, Msg>,
+    (w, h): (i32, i32),
+    mailbox: &Mailbox,
+    offset: i32,
+    moved: i32,
+) {
     mailbox.set_scroll_offset(offset, true);
     let delta = Delta {
         size: (w as u32, h as u32),
@@ -276,11 +345,19 @@ fn at_the_end_of_the_page_with_no_bands_what_was_shown_past_it_is_given_back() {
     });
     let (w, h) = shown.size;
     for y in [0, 1, h / 2, h - STEP - 1] {
-        assert_eq!(shown.at(10, y), row_colour(y + STEP), "row {y} is where the page is");
+        assert_eq!(
+            shown.at(10, y),
+            row_colour(y + STEP),
+            "row {y} is where the page is"
+        );
     }
     for y in [h - STEP, h - 1] {
         for x in [0, w / 2, w - 9] {
-            assert_eq!(shown.at(x, y), BLUE, "({x},{y}) is the page's last rows, not a checkerboard");
+            assert_eq!(
+                shown.at(x, y),
+                BLUE,
+                "({x},{y}) is the page's last rows, not a checkerboard"
+            );
         }
     }
 }

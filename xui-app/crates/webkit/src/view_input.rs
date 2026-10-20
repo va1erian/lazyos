@@ -180,9 +180,14 @@ pub(crate) fn handle<M: 'static>(
             let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
             engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
             // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
-            // page has answered (a modified wheel zooms or scrolls sideways).
-            let moved = !horizontal
-                && modifier_bits(modifiers) == 0
+            // page has answered, if pictures are shown ahead (a modified wheel zooms or scrolls
+            // sideways). Otherwise the view moves with the page's answer (`View::apply`).
+            let plain = !horizontal && modifier_bits(modifiers) == 0;
+            if plain {
+                state.wheel_ms.set(Some(speculate::now_ms()));
+            }
+            let moved = plain
+                && speculate::ahead()
                 && state.spec.borrow_mut().wheel(ticks, speculate::now_ms());
             state.smooth.borrow_mut().wheel(speculate::now_ms(), moved);
             if moved {
