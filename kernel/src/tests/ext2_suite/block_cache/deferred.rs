@@ -1,50 +1,75 @@
 //! A provider disk's volume (`fs/ext2/deferred.rs`, issue #940): cached, but
-//! written back by its users, never by the kernel task. The rule apart from any
-//! state, the wiring (writes stay in memory, the flusher and a kernel-task hold
-//! leave them, a user's hold writes them back once due, `sync` as everywhere),
-//! the mapped-page path the kernel task must skip, and a soak against reboots.
+//! written back by user tasks at a syscall's end, never by the kernel task and
+//! never inside a hold of the gate. The rules apart from any state (the
+//! schedule, who may write and when, the global claim), the wiring (writes
+//! stay in memory, holds and the kernel task leave them, a user's due
+//! writeback commits them, an interactive one waits, a dead disk refuses
+//! changes, `sync` as everywhere), and a soak against reboots.
 
 use super::*;
-use crate::fs::ext2::{decide, may_write_here, DeferredAction as Action};
+use crate::fs::ext2::{
+    claim_deferred as claim, may_write_here, note_deferred_due as note_due, schedule, writer_due,
+    DEFERRED_CLEAN as CLEAN,
+};
 use crate::fs::flusher::INTERVAL_TICKS;
 use crate::fs::vfs::Filesystem;
-use crate::task::KERNEL_TASK;
+use crate::task::{PriorityClass, KERNEL_TASK};
 
-/// `due` with no schedule (the module's `CLEAN`).
-const NONE: u64 = u64::MAX;
-
-/// The rule: nothing dirty forgets the schedule, a first dirty set starts one
-/// an interval away, and only a holder that may write does, once it is due.
+/// The rules: the schedule starts an interval after a volume first needs a
+/// writeback and ends when it needs none; a writer that may not never
+/// commits, an interactive one an interval late; the global claim goes to
+/// exactly one caller, and only to one that may write once it is due.
 pub fn deferred_rule() -> Result<(), String> {
-    check!(decide(0, 700, 900, true) == Action::Clean, "clean volume");
+    check!(schedule(false, 700, 900) == CLEAN, "clean volume");
     check!(
-        decide(0, NONE, 900, false) == Action::Clean,
-        "clean, no writer"
+        schedule(true, CLEAN, 900) == 900 + INTERVAL_TICKS,
+        "a newly dirty volume waits an interval"
     );
+    check!(schedule(true, 1000, 5000) == 1000, "a standing schedule");
     check!(
-        decide(3, NONE, 900, true) == Action::Wait(900 + INTERVAL_TICKS),
-        "a new dirty set waits an interval"
-    );
-    check!(
-        decide(3, 1000, 999, true) == Action::Wait(1000),
-        "not yet due"
-    );
-    check!(decide(3, 1000, 1000, true) == Action::WriteBack, "due");
-    check!(
-        decide(3, 1000, 5000, false) == Action::Wait(1000),
-        "due, but no writer"
-    );
-    check!(
-        decide(1, NONE, u64::MAX - 1, true) == Action::Wait(u64::MAX),
+        schedule(true, CLEAN, u64::MAX - 1) == u64::MAX,
         "the schedule saturates"
     );
-    task::register_kernel();
-    task::harness::switch_current(KERNEL_TASK);
+    check!(writer_due(1000, false, false).is_none(), "no writer");
+    check!(writer_due(CLEAN, true, false).is_none(), "nothing due");
     check!(
-        !may_write_here(),
-        "the kernel task may write a provider back"
+        writer_due(1000, true, false) == Some(1000),
+        "a normal writer"
     );
-    Ok(())
+    check!(
+        writer_due(1000, true, true) == Some(1000 + INTERVAL_TICKS),
+        "an interactive writer waits an interval"
+    );
+    let user = as_user()?;
+    let result = (|| {
+        // Whatever an earlier test left scheduled is taken first.
+        let _ = claim(u64::MAX - 1);
+        note_due(100);
+        check!(!claim(99), "claimed before it was due");
+        task::harness::switch_current(KERNEL_TASK);
+        check!(
+            !may_write_here(),
+            "the kernel task may write a provider back"
+        );
+        check!(!claim(100), "the kernel task claimed");
+        task::harness::switch_current(user);
+        check!(claim(100), "a user task did not claim");
+        check!(!claim(100), "claimed twice");
+        task::set_priority(user, PriorityClass::Interactive);
+        note_due(100);
+        check!(
+            !claim(100 + INTERVAL_TICKS - 1),
+            "an interactive task claimed early"
+        );
+        check!(
+            claim(100 + INTERVAL_TICKS),
+            "an interactive task never claims"
+        );
+        task::set_priority(user, PriorityClass::Normal);
+        Ok(())
+    })();
+    back_to_kernel();
+    result
 }
 
 /// A user task: a fork of the kernel task, made current.
@@ -53,6 +78,9 @@ fn as_user() -> Result<usize, String> {
     task::harness::reset();
     task::harness::switch_current(KERNEL_TASK);
     let user = task::spawn_fork().map_err(|error| format!("spawn: {error}"))?;
+    // A fork inherits the kernel task's class, `Interactive`: a user program
+    // runs `Normal`.
+    task::set_priority(user, PriorityClass::Normal);
     task::harness::switch_current(user);
     check!(may_write_here(), "a user task may not write back");
     Ok(user)
@@ -90,29 +118,38 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
             !on_disk(disk, "/f", &data)?,
             "the write reached the disk at once"
         );
-        // A user's hold before the interval leaves the blocks dirty.
-        let _ = fs.lookup("/f").map_err(fs_error)?;
-        check!(fs.dirty_blocks() > 30, "written back before it was due");
-        // The kernel task's flusher, and its own holds, leave it alone even
-        // once it is due.
-        task::harness::switch_current(KERNEL_TASK);
-        vfs.writeback_all(false).map_err(fs_error)?;
-        crate::fs::flusher::service();
+        // A hold never writes back, even once due: it may sit inside a mount
+        // table, which every other volume's callers need.
         fs.make_writeback_due();
         let _ = fs.lookup("/f").map_err(fs_error)?;
+        check!(fs.dirty_blocks() > 30, "a hold wrote back");
+        // Nor the kernel task: not its flusher, not a due deferred writeback.
+        task::harness::switch_current(KERNEL_TASK);
+        vfs.writeback_all(false).map_err(fs_error)?;
+        fs.make_writeback_due();
+        fs.writeback_deferred();
         check!(
             fs.dirty_blocks() > 30,
             "the kernel task wrote a provider volume back"
         );
-        // Nor does it push mapped pages into such a volume.
+        // A mapped page still reaches the file (into the cache, no I/O).
         let node = fs.open_node("/f").map_err(fs_error)?.ok_or("no node")?;
         check!(
-            fs.flush_page(node, 0, &data[..4096], false).is_none(),
-            "the kernel task flushed a mapped page into a provider volume"
+            matches!(fs.flush_page(node, 0, &data[..4096], false), Some(Ok(4096))),
+            "a mapped page did not reach the file"
         );
-        // The next user's hold, the writeback being due, writes it all back.
+        // An interactive task waits a whole interval past the due tick.
         task::harness::switch_current(user);
-        let _ = fs.lookup("/f").map_err(fs_error)?;
+        task::set_priority(user, PriorityClass::Interactive);
+        fs.make_writeback_due();
+        fs.writeback_deferred();
+        check!(
+            fs.dirty_blocks() > 30,
+            "an interactive task wrote back at once"
+        );
+        // A normal user task writes everything back once due.
+        task::set_priority(user, PriorityClass::Normal);
+        fs.writeback_deferred();
         check!(
             fs.dirty_blocks() == 0,
             "the due writeback left dirty blocks"
@@ -123,6 +160,17 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
             "a writeback marked the volume clean"
         );
         check_volume(pooled(1), BLOCKS)?;
+        // A dead disk refuses changes instead of caching and losing them.
+        disk.set_read_only(true);
+        check!(
+            matches!(vfs.write(Id::ROOT, "/f", 0, b"x"), Err(FsError::Invalid)),
+            "a dead disk took a write"
+        );
+        check!(
+            read_file(&mut vfs, "/f")? == data,
+            "a dead disk's cached read"
+        );
+        disk.set_read_only(false);
         // `sync` is unchanged: everything, then the clean marker.
         write_file(&mut vfs, "/g", &data[..9_000])?;
         vfs.sync_all().map_err(fs_error)?;
@@ -141,9 +189,10 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
     result
 }
 
-/// Soak: hundreds of writes, rewrites and deletes with due writebacks between
-/// them; after each checkpoint a reboot finds exactly the files written back,
-/// the volume checks clean, and unmounting gives every cache frame back.
+/// Soak: hundreds of writes, rewrites, truncates and deletes with due
+/// writebacks between them; after each checkpoint a reboot finds exactly the
+/// files written back, the volume checks clean, and unmounting gives every
+/// cache frame back.
 pub fn soak_deferred_writeback() -> Result<(), String> {
     let _user = as_user()?;
     let result = (|| {
@@ -168,10 +217,7 @@ pub fn soak_deferred_writeback() -> Result<(), String> {
             }
             if round % 7 == 6 || round % 60 == 59 {
                 fs.make_writeback_due();
-                // A call into the volume itself: the VFS may answer a `stat`
-                // without one, and only a call into the volume ends a hold.
-                let newest = &live.last().ok_or("no live file")?.0;
-                let _ = fs.lookup(newest).map_err(fs_error)?;
+                fs.writeback_deferred();
                 check!(
                     fs.dirty_blocks() == 0,
                     "round {round}: dirty after a due writeback"

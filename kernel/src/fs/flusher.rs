@@ -45,6 +45,26 @@ pub fn service() {
     NEXT.store(now + next, Ordering::Relaxed);
 }
 
+/// At the end of every syscall (both ABIs): commit the volumes on provider
+/// disks whose deferred writeback is due (`fs/ext2/deferred.rs`, issue #940),
+/// if the calling task is one that may. The mount table is held only to copy
+/// its list, and never waited for, so the commit holds no lock but the
+/// volume's own gate. Nothing due costs one load and a compare.
+pub fn deferred_service() {
+    let now = crate::task::ticks();
+    if !super::ext2::claim_deferred(now) {
+        return;
+    }
+    match super::try_with(|vfs| vfs.filesystems()) {
+        Some(filesystems) => {
+            for fs in filesystems {
+                fs.writeback_deferred();
+            }
+        }
+        None => super::ext2::note_deferred_due(now + RETRY_TICKS),
+    }
+}
+
 /// Whether free frames are short (under 1/16 of all of them): caches then
 /// give back their clean pages.
 pub fn under_pressure() -> bool {

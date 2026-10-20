@@ -281,6 +281,13 @@ impl Ext2 {
         self.commit_locked()
     }
 
+    /// Whether [`Ext2::writeback`] has anything to commit: dirty blocks, or
+    /// frees still pending (a host that schedules writebacks itself asks).
+    pub fn needs_writeback(&self) -> bool {
+        let _guard = self.lock.lock();
+        !self.read_only && (self.dirty_blocks_locked() > 0 || self.has_pending())
+    }
+
     /// Dirty blocks waiting in the cache (0 uncached).
     pub fn dirty_blocks(&self) -> usize {
         let _guard = self.lock.lock();

@@ -176,7 +176,7 @@ journaled or uncached volume commits as a whole.
 | `fsync` of a directory, `syncfs`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
 | orderly power-off / reboot | `power` (syscall 21) -> `fs::sync_all` -> the same `Ext2::flush` on every mount; the power path itself is unchanged |
 | every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy. A volume on a provider disk (a USB stick) is skipped: see below |
-| 5 s after a provider volume's blocks first went dirty | the next user task to end an operation on it commits it, in its own context (`fs/ext2/deferred.rs`, issue #940); never the kernel task, never a provider |
+| 5 s after a provider volume first needed a writeback | the next user task to return from a syscall commits it (`fs::flusher::deferred_service`, `fs/ext2/deferred.rs`, issue #940): no mount table held; never the kernel task or a provider; an interactive task only 5 s later still |
 | memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back (a provider volume only gives its clean pages back) |
 | dirty limit / cache full | a writeback inside the operation that needed room |
 | unmount (`Ext2` dropped) | commit, `s_state` untouched (as before the cache) |
@@ -194,13 +194,20 @@ for 0.5 to 2.7 s at a time (issue #940).
 
 Now only *who* commits differs. The kernel task never does: the flusher skips
 the writeback (it still gives clean pages back under pressure, which needs no
-I/O) and pushes no mapped page into such a volume (`msync`, `munmap` and
-`fsync` do, in their caller's context). Instead, when a task that may park and
-serves no provider disk ends a hold of the volume's gate, and the dirty set is
-5 s old, it commits, still holding the gate. A volume nobody touches keeps its
-dirty blocks until the next access or `sync` (the desktop shell reads `/home`
-every second; the power path syncs). Pulling the stick out loses what a crash
-loses: the last few seconds, in the commit's crash-safe order.
+I/O). Every hold of the volume's gate ends by scheduling a commit 5 s after
+the volume first needed one (no I/O: the hold may sit inside a mount table
+that every other volume's callers need). Once it is due, the next user task to
+return from a syscall commits it: at that point it holds no mount table and
+has a shallow stack, it takes the volume's gate only if it is free, and every
+other volume stays reachable. Syscalls are made all the time, so the 5 s
+bound holds whether or not anyone reads `/home`. Never the kernel task, never
+a task that serves a provider disk (`usbd` waiting on its own disk), never one
+that may not park; an interactive or realtime task (the compositor, a shell's
+UI) only once the commit is a further 5 s late, so frames do not pay for it
+while anything else runs. Pulling the stick out loses what a crash loses: the
+last few seconds, in the commit's crash-safe order. Once the disk is dead
+(`is_writable` turned false) the volume refuses every change, as it did
+uncached, instead of caching and losing it; reads still answer from the cache.
 
 ## Crash semantics
 

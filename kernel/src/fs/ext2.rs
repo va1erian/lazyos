@@ -30,8 +30,9 @@ mod fsimpl;
 mod volio;
 
 pub use cache::cache_frames;
-#[cfg_attr(not(lazyos_tests), allow(unused_imports))]
-pub use deferred::{decide, may_write_here, Action as DeferredAction};
+pub use deferred::{claim as claim_deferred, note_due as note_deferred_due};
+#[cfg(lazyos_tests)]
+pub use deferred::{may_write_here, schedule, writer_due, CLEAN as DEFERRED_CLEAN};
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 ///
@@ -113,7 +114,7 @@ impl Ext2 {
             device: device.name(),
             gate: volio::Gate::named("ext2", ()),
             io: shared,
-            deferred: defer.then(deferred::Deferred::new),
+            deferred: defer.then(|| deferred::Deferred::new(device.is_writable())),
         })
     }
 

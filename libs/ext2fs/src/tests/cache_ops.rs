@@ -176,6 +176,28 @@ fn writeback_makes_data_durable_but_leaves_the_volume_dirty() {
     assert_clean(&crashed);
 }
 
+/// `needs_writeback` says exactly when `writeback` has work: dirty blocks or
+/// pending frees, and nothing once it ran (a host scheduling its own
+/// writebacks relies on it, the kernel's provider volumes).
+#[test]
+fn needs_writeback_tracks_dirty_blocks_and_pending_frees() {
+    let io = formatted(BYTES, 1024);
+    let fs = cached(&io, 512);
+    assert!(!fs.needs_writeback(), "a fresh mount");
+    fs.write_file("/f", &[5u8; 30_000], 0o644, 0, 0, 1).unwrap();
+    assert!(fs.needs_writeback(), "after a write");
+    fs.writeback().unwrap();
+    assert!(!fs.needs_writeback(), "after its writeback");
+    fs.unlink("/f").unwrap();
+    assert!(fs.needs_writeback(), "after an unlink (frees pending)");
+    fs.writeback().unwrap();
+    assert!(!fs.needs_writeback(), "after the frees were committed");
+    fs.flush().unwrap();
+    assert!(!fs.needs_writeback(), "after a flush");
+    drop(fs);
+    assert_clean(&io);
+}
+
 #[test]
 fn frees_wait_for_the_commit_but_count_as_free() {
     let io = formatted(BYTES, 1024);

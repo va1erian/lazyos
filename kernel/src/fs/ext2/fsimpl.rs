@@ -55,6 +55,7 @@ impl Filesystem for Ext2 {
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        self.refuse_dead()?;
         let gate = self.enter();
         let mut done = 0;
         for piece in data.chunks(WRITE_PIECE) {
@@ -101,6 +102,7 @@ impl Filesystem for Ext2 {
     }
 
     fn write_node(&self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        self.refuse_dead()?;
         let handle = handle_of(node)?;
         let gate = self.enter();
         let mut done = 0;
@@ -132,12 +134,9 @@ impl Filesystem for Ext2 {
             Err(error) => return Some(Err(error)),
         };
         // The periodic flusher runs on the kernel task: it skips a volume
-        // another task holds (`Ext2::writeback`) and writes next round. It
-        // also skips a provider disk's volume, whose cache could write back
-        // to the provider here (`deferred.rs`): `msync`, `munmap` and `fsync`
-        // write those pages in their caller's context.
-        if !wait && self.defers_writeback() {
-            return None;
+        // another task holds (`Ext2::writeback`) and writes next round.
+        if let Err(error) = self.refuse_dead() {
+            return Some(Err(error));
         }
         let gate = if wait {
             self.enter()
@@ -180,17 +179,20 @@ impl Filesystem for Ext2 {
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.truncate(path, size)?)
     }
 
     fn truncate_node(&self, node: NodeId, size: u64) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let handle = handle_of(node)?;
         let _gate = self.enter();
         Ok(self.volume.truncate_handle(handle, size)?)
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         let change = AttrChange {
             mode: attr.mode,
@@ -204,16 +206,19 @@ impl Filesystem for Ext2 {
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(meta(self.volume.create(path, mode, owner_of(owner))?))
     }
 
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         // A parked orphan (a reserved name) is deleted inode-first so a stop
         // part-way can be resumed by the next mount's reclaim.
@@ -226,11 +231,13 @@ impl Filesystem for Ext2 {
     }
 
     fn rmdir(&self, path: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.rmdir(path)?)
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.rename(from, to)?)
     }
@@ -255,6 +262,10 @@ impl Filesystem for Ext2 {
 
     fn writeback(&self, pressure: bool) -> Result<(), FsError> {
         Ext2::writeback(self, pressure)
+    }
+
+    fn writeback_deferred(&self) {
+        Ext2::writeback_deferred(self)
     }
 
     fn statfs(&self) -> Result<StatFs, FsError> {

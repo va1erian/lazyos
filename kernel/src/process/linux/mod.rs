@@ -401,6 +401,8 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     extra::raise_sigpipe(nr, [a1, a2, a3, a4, a5, a6], result);
     let restart = restartable(nr).then_some(nr);
     let result = task::signal::deliver_linux_restartable(result, restart);
+    // No mount table is held here: a provider volume's due commit (#940).
+    crate::fs::flusher::deferred_service();
     crate::arch::irqoff::exit();
     crate::perf::syscall_exit();
     slow::end(probe, "linux", nr, [a1, a2, a3]);
