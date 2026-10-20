@@ -219,6 +219,13 @@ impl Ext2 {
         }
     }
 
+    /// Whether no task holds the gate right now (tests: what an `fsync`'s
+    /// device flush leaves free).
+    #[cfg(lazyos_tests)]
+    pub fn gate_is_free(&self) -> bool {
+        self.gate.try_lock().is_some()
+    }
+
     /// Make the deferred writeback due now (tests: no 5 s wait).
     #[cfg(lazyos_tests)]
     pub fn make_writeback_due(&self) {

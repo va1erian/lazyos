@@ -256,15 +256,29 @@ impl Filesystem for Ext2 {
 
     /// `fsync` of one file writes that file's blocks and what they depend on,
     /// not everything every other program left dirty (`ext2fs::Ext2::sync_file`).
+    ///
+    /// The device's cache flush comes after the gate is released: the
+    /// file's blocks are on the device by then, so the flush still makes
+    /// them durable before `fsync` returns, and on a USB stick it is most of
+    /// an `fsync`, which no other caller of the volume should wait for (a
+    /// path syscall waits for the gate holding its mount table, #940).
     fn flush_node(&self, node: NodeId) -> Result<(), FsError> {
         let handle = handle_of(node)?;
-        let _gate = self.enter();
-        match self.volume.sync_file(handle) {
-            // The file is gone (deleted while open and reclaimed): there is
-            // nothing of it to write, but the caller asked for durability.
-            Err(ext2fs::Ext2Error::NotFound) => Ok(self.volume.flush()?),
-            other => Ok(other?),
+        let start = crate::arch::clock::monotonic_ns();
+        {
+            let _gate = self.enter();
+            match self.volume.sync_file_written(handle) {
+                // The file is gone (deleted while open and reclaimed): there
+                // is nothing of it to write, but the caller asked for
+                // durability.
+                Err(ext2fs::Ext2Error::NotFound) => return Ok(self.volume.flush()?),
+                other => other?,
+            }
         }
+        let written = crate::arch::clock::monotonic_ns();
+        let flushed = self.flush_device();
+        self.note_fsync(start, written);
+        flushed
     }
 
     fn writeback(&self, pressure: bool) -> Result<(), FsError> {

@@ -103,11 +103,28 @@ impl Ext2 {
     ///
     /// A volume with no cache or with a journal commits as a whole.
     pub fn sync_file(&self, handle: FileHandle) -> Result<(), Ext2Error> {
+        self.sync_file_flushing(handle, true)
+    }
+
+    /// [`Ext2::sync_file`] without its last step, the device's cache flush,
+    /// which the caller then makes itself ([`BlockIo::flush`]) once it has let
+    /// go of whatever serializes the volume: on a USB stick that flush is
+    /// most of an `fsync`, and nothing else needs to wait for it. Until then
+    /// the file's blocks have reached the device but may sit in its volatile
+    /// cache. A volume with no cache or with a journal commits (and flushes)
+    /// as a whole, as `sync_file` does.
+    ///
+    /// [`BlockIo::flush`]: crate::BlockIo::flush
+    pub fn sync_file_written(&self, handle: FileHandle) -> Result<(), Ext2Error> {
+        self.sync_file_flushing(handle, false)
+    }
+
+    fn sync_file_flushing(&self, handle: FileHandle, flush: bool) -> Result<(), Ext2Error> {
         {
             let _guard = self.lock.lock();
             self.handle_inode(handle)?;
             if self.cache.is_some() && !self.journal_active() && !self.read_only {
-                let synced = self.sync_owner(handle.ino);
+                let synced = self.sync_owner(handle.ino, flush);
                 let unreported = self.take_unreported_error();
                 synced?;
                 return unreported;

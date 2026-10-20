@@ -200,6 +200,33 @@ fn needs_writeback_tracks_dirty_blocks_and_pending_frees() {
     assert_clean(&io);
 }
 
+/// `sync_file_written` puts the file on the device without the device flush,
+/// which the caller then makes; `sync_file` makes both.
+#[test]
+fn sync_file_written_leaves_the_device_flush_to_the_caller() {
+    let io = formatted(BYTES, 1024);
+    let fs = cached(&io, 512);
+    fs.write_file("/f", &[7u8; 25_000], 0o644, 0, 0, 1).unwrap();
+    fs.write_file("/other", &[8u8; 9_000], 0o644, 0, 0, 1)
+        .unwrap();
+    let handle = fs.open_file("/f").unwrap();
+    let flushes = io.flushes();
+    fs.sync_file_written(handle).unwrap();
+    assert_eq!(io.flushes(), flushes, "it flushed the device");
+    // The file's blocks are on the device already (a crash that keeps the
+    // device's cache finds it), and unrelated files are still dirty.
+    let after = open(&MemIo::from_bytes(io.snapshot()));
+    let mut back = std::vec![0u8; 25_000];
+    assert_eq!(after.read("/f", 0, &mut back), Ok(25_000));
+    assert_eq!(back, [7u8; 25_000]);
+    assert!(fs.dirty_blocks() > 0, "it wrote unrelated files");
+    fs.sync_file(handle).unwrap();
+    assert_eq!(io.flushes(), flushes + 1, "sync_file flushes once");
+    fs.flush().unwrap();
+    drop(fs);
+    assert_clean(&io);
+}
+
 #[test]
 fn frees_wait_for_the_commit_but_count_as_free() {
     let io = formatted(BYTES, 1024);

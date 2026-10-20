@@ -172,6 +172,30 @@ impl Ext2 {
         Ok(self.volume.flush()?)
     }
 
+    /// Flush the device's write cache, outside the gate (`fsync`'s last
+    /// step). A failure is reported like the library's own.
+    fn flush_device(&self) -> Result<(), FsError> {
+        BlockDevice::flush(self.io.device).map_err(|error| match io_error(error) {
+            ext2fs::IoError::ReadOnly => FsError::ReadOnly,
+            _ => FsError::Invalid,
+        })
+    }
+
+    /// `FS:FSYNC` for an `fsync` of 20 ms or more: how long the gate was
+    /// held (the writes) and how long the device flush took after it.
+    fn note_fsync(&self, start: u64, written: u64) {
+        let end = crate::arch::clock::monotonic_ns();
+        if end - start >= 20_000_000 {
+            crate::trace::event!(
+                tracefmt::Channel::Fs,
+                "FSYNC",
+                device = self.device,
+                write_us = (written - start) / 1000,
+                flush_us = (end - written) / 1000
+            );
+        }
+    }
+
     /// Whether the volume was flagged clean when it was mounted.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // diagnostics/tests
     pub fn was_clean_at_mount(&self) -> bool {
