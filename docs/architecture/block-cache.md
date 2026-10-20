@@ -172,7 +172,7 @@ journaled or uncached volume commits as a whole.
 
 | Event | What happens |
 |---|---|
-| `fsync` of a regular file | `Ext2::sync_file_written` under the volume's gate (that file's blocks and inode and their dependencies), then the device flush with the gate released (on a USB stick the flush is most of an `fsync`; issue #940; `FS:FSYNC write_us=.. flush_us=..` reports one of 20 ms or more); the volume stays flagged dirty |
+| `fsync` of a regular file | `Ext2::sync_file_written` under the volume's gate (that file's blocks and inode and their dependencies), then the device flush with the gate released (on a USB stick the flush is most of an `fsync`; issue #940; `FS:FSYNC write_us=.. flush_us=..` reports one of 20 ms or more); a volume with a journal or no cache commits and flushes as a whole under the gate instead, and a read-only one flushes nothing; the volume stays flagged dirty |
 | `fsync` of a directory, `syncfs`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
 | orderly power-off / reboot | `power` (syscall 21) -> `fs::sync_all` -> the same `Ext2::flush` on every mount; the power path itself is unchanged |
 | every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy. A volume on a provider disk (a USB stick) is skipped: see below |

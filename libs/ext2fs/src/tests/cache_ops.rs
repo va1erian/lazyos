@@ -211,7 +211,7 @@ fn sync_file_written_leaves_the_device_flush_to_the_caller() {
         .unwrap();
     let handle = fs.open_file("/f").unwrap();
     let flushes = io.flushes();
-    fs.sync_file_written(handle).unwrap();
+    assert!(fs.sync_file_written(handle).unwrap(), "the flush is owed");
     assert_eq!(io.flushes(), flushes, "it flushed the device");
     // The file's blocks are on the device already (a crash that keeps the
     // device's cache finds it), and unrelated files are still dirty.
@@ -225,6 +225,24 @@ fn sync_file_written_leaves_the_device_flush_to_the_caller() {
     fs.flush().unwrap();
     drop(fs);
     assert_clean(&io);
+}
+
+/// A volume with no cache commits as a whole (as `sync_file` does there): no flush is owed.
+#[test]
+fn an_uncached_sync_file_written_owes_no_flush() {
+    let io = formatted(BYTES, 1024);
+    let fs = open(&io);
+    fs.write_file("/f", &[3u8; 5_000], 0o644, 0, 0, 1).unwrap();
+    let handle = fs.open_file("/f").unwrap();
+    let flushes = io.flushes();
+    assert!(
+        !fs.sync_file_written(handle).unwrap(),
+        "a flush is still owed"
+    );
+    assert!(
+        io.flushes() > flushes,
+        "the whole-volume commit flushed the device"
+    );
 }
 
 #[test]

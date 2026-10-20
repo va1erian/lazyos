@@ -117,7 +117,10 @@ impl Browser {
         let on = !crate::memory::enabled(&profile);
         match crate::memory::set(&profile, on) {
             Ok(()) => {
-                crate::marker(&format!("PROFILE:MEMORY:{}", if on { "ON" } else { "OFF" }));
+                crate::marker(&format!(
+                    "PROFILE:MEMORY:SET:{}",
+                    if on { "ON" } else { "OFF" }
+                ));
                 self.set_status(crate::memory::status(on));
             }
             Err(error) => self.set_status(&format!("Could not change it: {error}")),

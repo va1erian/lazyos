@@ -103,7 +103,7 @@ impl Ext2 {
     ///
     /// A volume with no cache or with a journal commits as a whole.
     pub fn sync_file(&self, handle: FileHandle) -> Result<(), Ext2Error> {
-        self.sync_file_flushing(handle, true)
+        self.sync_file_flushing(handle, true).map(|_| ())
     }
 
     /// [`Ext2::sync_file`] without its last step, the device's cache flush,
@@ -111,15 +111,17 @@ impl Ext2 {
     /// go of whatever serializes the volume: on a USB stick that flush is
     /// most of an `fsync`, and nothing else needs to wait for it. Until then
     /// the file's blocks have reached the device but may sit in its volatile
-    /// cache. A volume with no cache or with a journal commits (and flushes)
-    /// as a whole, as `sync_file` does.
+    /// cache. Returns whether that flush is still owed: a volume with no cache
+    /// or with a journal commits (and flushes) as a whole here, as `sync_file`
+    /// does, and a read-only one has nothing to flush.
     ///
     /// [`BlockIo::flush`]: crate::BlockIo::flush
-    pub fn sync_file_written(&self, handle: FileHandle) -> Result<(), Ext2Error> {
+    pub fn sync_file_written(&self, handle: FileHandle) -> Result<bool, Ext2Error> {
         self.sync_file_flushing(handle, false)
     }
 
-    fn sync_file_flushing(&self, handle: FileHandle, flush: bool) -> Result<(), Ext2Error> {
+    /// The `fsync` itself; `Ok(true)` when the device's flush was left out.
+    fn sync_file_flushing(&self, handle: FileHandle, flush: bool) -> Result<bool, Ext2Error> {
         {
             let _guard = self.lock.lock();
             self.handle_inode(handle)?;
@@ -127,10 +129,10 @@ impl Ext2 {
                 let synced = self.sync_owner(handle.ino, flush);
                 let unreported = self.take_unreported_error();
                 synced?;
-                return unreported;
+                return unreported.map(|()| !flush);
             }
         }
-        self.flush()
+        self.flush().map(|()| false)
     }
 
     /// The inode behind `handle` while it is still the file the handle

@@ -55,6 +55,23 @@ thread_local! {
     static AHEAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// With nothing shown ahead: whether a page move of `moved` pixels (positive: down) at `now_ms` is
+/// the answer to what the wheel asked (`asked`: when the last notch came and the pixels asked since
+/// the page last answered), soon enough after a notch, the same way and no larger. Returns the
+/// verdict and what is still asked (an answer is taken off it; anything else leaves it).
+pub fn answer(asked: Option<(u64, i32)>, moved: i32, now_ms: u64) -> (bool, Option<(u64, i32)>) {
+    let Some((at, wanted)) = asked else {
+        return (false, None);
+    };
+    let fresh = now_ms.saturating_sub(at) <= ANSWER_MS;
+    let follows = moved != 0 && moved.signum() == wanted.signum() && moved.abs() <= wanted.abs();
+    if fresh && follows {
+        (true, Some((at, wanted - moved)))
+    } else {
+        (false, asked)
+    }
+}
+
 /// Turns showing the picture ahead on or off for the views of this thread. Off by default: on a real
 /// PC with `/home` on a USB stick the page answers late often enough that a picture shown ahead had to
 /// jump back (two to thirteen times a minute, issue #940), which reads worse than a view that waits for

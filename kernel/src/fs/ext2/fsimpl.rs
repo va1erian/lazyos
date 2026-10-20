@@ -267,12 +267,17 @@ impl Filesystem for Ext2 {
         let start = crate::arch::clock::monotonic_ns();
         {
             let _gate = self.enter();
-            match self.volume.sync_file_written(handle) {
+            let owed = match self.volume.sync_file_written(handle) {
                 // The file is gone (deleted while open and reclaimed): there
                 // is nothing of it to write, but the caller asked for
                 // durability.
                 Err(ext2fs::Ext2Error::NotFound) => return Ok(self.volume.flush()?),
                 other => other?,
+            };
+            // A journaled or uncached volume committed and flushed as a
+            // whole; a read-only one has nothing to flush.
+            if !owed {
+                return Ok(());
             }
         }
         let written = crate::arch::clock::monotonic_ns();

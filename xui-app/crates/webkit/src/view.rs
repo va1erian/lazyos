@@ -66,9 +66,11 @@ pub(crate) struct State {
     pub(crate) smooth: RefCell<Smooth>,
     /// When the wheel event that moved the picture ahead arrived, until it is drawn.
     pub(crate) wheel_at: Cell<Option<Instant>>,
-    /// When the last plain vertical wheel notch arrived (`speculate::now_ms`): a page move soon after
-    /// is its answer, glided to when nothing is shown ahead.
-    pub(crate) wheel_ms: Cell<Option<u64>>,
+    /// With nothing shown ahead: when the last plain vertical notch arrived (`speculate::now_ms`)
+    /// and the page pixels the wheel has asked for since the page last answered (positive: down). A
+    /// page move soon after, the same way and no larger, is that answer and is glided to; a click or
+    /// a key forgets it.
+    pub(crate) wheel_asked: Cell<Option<(u64, i32)>>,
     /// The timer that gives up on a picture shown ahead; it runs only while one is.
     pub(crate) settle: Cell<Option<TimerId>>,
 }
@@ -277,16 +279,21 @@ impl<M: Clone + 'static> PageView<M> {
         let mut glide_answer = false;
         if let Some(y) = scroll_y {
             let before = state.target();
+            let known = state.spec.borrow().actual().is_some();
             changed |= state.spec.borrow_mut().report(y, speculate::now_ms());
             // What the page did that the wheel did not ask for (a script, an anchor, going further) is
             // shown at once; catching up with the wheel leaves the target, and the glide, where they are.
             // With nothing shown ahead, the page's answer to a recent notch is glided to instead.
             let after = state.target();
-            let answered = !speculate::ahead()
-                && after != before
-                && state.wheel_ms.get().is_some_and(|at| {
-                    speculate::now_ms().saturating_sub(at) <= speculate::ANSWER_MS
-                });
+            let answered = !speculate::ahead() && known && {
+                let (answer, left) = speculate::answer(
+                    state.wheel_asked.get(),
+                    after.saturating_sub(before),
+                    speculate::now_ms(),
+                );
+                state.wheel_asked.set(left);
+                answer
+            };
             if answered {
                 state.glide.borrow_mut().start(before, speculate::now_us());
                 glide_answer = true;
