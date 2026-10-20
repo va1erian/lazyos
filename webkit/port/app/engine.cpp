@@ -123,6 +123,12 @@ std::string profileDirectory()
 // gives an ephemeral store, never a directory of the working directory.
 WKWebsiteDataStoreRef createDataStore(const std::string& profile)
 {
+    // The window asked for the page's data to stay in memory (issue #940): the profile still holds
+    // the content-blocking store (startBlocking), but nothing of the page is written to it.
+    if (lzw_ui_profile_ephemeral()) {
+        say("PROFILE:MEMORY:the page's data is kept in memory");
+        return WKWebsiteDataStoreCreateNonPersistentDataStore();
+    }
     if (profile.empty() || !makeDirectories(profile)) {
         say("PROFILE:NONE:the browser keeps nothing");
         return WKWebsiteDataStoreCreateNonPersistentDataStore();

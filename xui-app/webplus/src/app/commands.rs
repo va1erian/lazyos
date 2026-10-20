@@ -108,6 +108,22 @@ impl Browser {
         self.open(&url);
     }
 
+    /// Flips whether the page's data is kept in memory from the next start (`memory.rs`).
+    fn toggle_page_data_in_memory(&mut self) {
+        let Some(profile) = self.host.profile.clone() else {
+            self.set_status("There is no profile folder: nothing is kept anyway");
+            return;
+        };
+        let on = !crate::memory::enabled(&profile);
+        match crate::memory::set(&profile, on) {
+            Ok(()) => {
+                crate::marker(&format!("PROFILE:MEMORY:{}", if on { "ON" } else { "OFF" }));
+                self.set_status(crate::memory::status(on));
+            }
+            Err(error) => self.set_status(&format!("Could not change it: {error}")),
+        }
+    }
+
     pub(super) fn clear_history(&mut self) {
         match self.visits.clear() {
             Ok(()) => self.set_status("History cleared"),
@@ -149,6 +165,7 @@ impl Browser {
             Command::About => self.open(ABOUT),
             Command::Blocker => self.open(BLOCKER),
             Command::ReloadUnblocked => self.reload_unblocked(),
+            Command::PageDataInMemory => self.toggle_page_data_in_memory(),
             Command::OpenLink => {
                 if let Some(link) = self.context.link().map(str::to_string) {
                     // As a click does: a page command is run (from our own pages only), anything
