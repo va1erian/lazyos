@@ -16,3 +16,8 @@ pub const LAZYOS_CFG_PATH: &str = "/boot/lazyos.cfg";
 /// case-sensitively, so a caller that runs [`crate::bin::BUSYBOX`] sets it
 /// explicitly rather than relying on the file name.
 pub const BUSYBOX_ARGV0: &str = "busybox";
+
+/// The GRUB environment block on the OS volume (docs/update-plan.md decision
+/// 6): the distro's GRUB reads and rewrites `lazyos_boots` there, so it lives
+/// beside the releases and is never moved. Read by GRUB, not by LazyOS.
+pub const GRUBENV_PATH: &str = "/releases/grubenv";

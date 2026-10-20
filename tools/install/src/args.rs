@@ -23,6 +23,9 @@ options:
                     newly formatted home
   --dry-run         stop after printing the plan
   --yes             do not ask for the device name back
+  --test-grubenv V  test mode (needs --image): create /releases/grubenv with
+                    lazyos_boots=V and add the boot-counting snippet to the
+                    GRUB entry (docs/update-plan.md U2a)
   --trial-boot      boot LazyOS once at the next restart (grub-reboot)
   --check-limit N   largest volume (MiB) checked in memory (default 2048)";
 
@@ -50,6 +53,7 @@ pub struct Options {
     pub dry_run: bool,
     pub yes: bool,
     pub trial_boot: bool,
+    pub test_grubenv: Option<String>,
     pub check_limit: u64,
 }
 
@@ -68,6 +72,7 @@ impl Options {
             dry_run: false,
             yes: false,
             trial_boot: false,
+            test_grubenv: None,
             check_limit: 2048 << 20,
         }
     }
@@ -111,6 +116,7 @@ fn parse_options(
                     .map_err(|_| format!("--check-limit {text:?} is not a number"))?;
                 options.check_limit = mib << 20;
             }
+            "--test-grubenv" => options.test_grubenv = Some(value("--test-grubenv")?),
             "--format-home" => options.format_home = true,
             "--dry-run" => options.dry_run = true,
             "--yes" | "-y" => options.yes = true,
@@ -125,6 +131,9 @@ fn parse_options(
     }
     if options.image.is_some() && options.esp.is_some() {
         return Err("--esp names a mounted ESP; an --image carries its own".into());
+    }
+    if options.test_grubenv.is_some() && (options.image.is_none() || !installs) {
+        return Err("--test-grubenv is test mode: install with --image".into());
     }
     Ok(options)
 }

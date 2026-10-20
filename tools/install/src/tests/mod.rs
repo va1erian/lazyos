@@ -3,4 +3,5 @@
 
 mod e2e;
 mod fixture;
+mod grubenv_tests;
 mod plan_tests;

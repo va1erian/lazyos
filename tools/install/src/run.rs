@@ -139,6 +139,13 @@ fn write(options: &Options, found: &mut Found, payload: &Payload) -> Result<(), 
     if installing {
         println!("formatting and populating {} ...", found.system.device);
         populate::install_system(&found.system_extent, system_uuid, &dirs, &files)?;
+        if let Some(boots) = &options.test_grubenv {
+            crate::grubenv::create(&found.system_extent, boots)?;
+            println!(
+                "test: {} with lazyos_boots={boots}",
+                fhs::boot::GRUBENV_PATH
+            );
+        }
         if !keep_home {
             println!("formatting {} ...", found.home.device);
             let accounts = populate::accounts(&source);
@@ -163,7 +170,7 @@ fn write(options: &Options, found: &mut Found, payload: &Payload) -> Result<(), 
     println!("wrote {} files to {ESP_DIR} on the ESP", esp_files.len());
     // Step 7 (an update keeps the entry it has).
     if installing {
-        println!("{}", register(found)?);
+        println!("{}", register(options, found, system_uuid)?);
     } else if !registered(found)? {
         println!("warning: GRUB has no LazyOS entry; run install again or add it by hand");
     }
@@ -267,7 +274,7 @@ fn confirm(device: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn register(found: &mut Found) -> Result<String, String> {
+fn register(options: &Options, found: &mut Found, system: [u8; 16]) -> Result<String, String> {
     match &found.grub {
         GrubSite::Linux => grub::Linux { root: "/".into() }.register(&found.esp_serial, &on_path),
         GrubSite::Image { dir } => {
@@ -275,7 +282,11 @@ fn register(found: &mut Found) -> Result<String, String> {
                 .image_esp
                 .as_mut()
                 .ok_or("test mode without an image ESP")?;
-            grub::register_image(esp, dir, &found.esp_serial)
+            let counting = options
+                .test_grubenv
+                .is_some()
+                .then(|| crate::grubenv::snippet(system));
+            grub::register_image(esp, dir, &found.esp_serial, counting.as_deref())
         }
     }
 }

@@ -118,6 +118,21 @@ pub fn esp_get(image: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
     crate::esp::Esp::read(&mut image_esp(image)?, path.trim_start_matches('/'))
 }
 
+fn system_extent(image: &Path) -> Result<crate::populate::Extent, String> {
+    let options = crate::args::parse(["status".to_string()])?;
+    Ok(crate::target::in_image(image, &options)?.system_extent)
+}
+
+/// `/releases/grubenv` on the system volume of `image` (U2a), read from the host.
+pub fn grubenv_get(image: &Path) -> Result<Vec<u8>, String> {
+    crate::grubenv::read(&system_extent(image)?)
+}
+
+/// Overwrite `/releases/grubenv` of `image` in place with the 1024-byte `bytes`.
+pub fn grubenv_put(image: &Path, bytes: &[u8]) -> Result<(), String> {
+    crate::grubenv::overwrite(&system_extent(image)?, bytes)
+}
+
 /// The installed volumes of `image`, from the host: the checker's verdict
 /// on both, and what LazyOS wrote while it ran (`/apps`, `/logs`, homes).
 /// One `key: value` line each, for `tools/install/judge.py`.
