@@ -168,6 +168,10 @@ Nothing the provider does can hang or crash the kernel:
   row**, the provider's death (`ipc::teardown_task`), a `GONE` status or a
   `REMOVE` mark the disk **dead**: every pending and future request fails at
   once with `Io`, and `is_writable` turns false.
+- `/home` on the stick goes through the ext2 write-back cache; its users,
+  never the kernel task or `usbd`, commit it every 5 s
+  ([block-cache.md](block-cache.md#volumes-on-a-provider-disk), issue #940).
+  Uncached, every write held the volume for a round trip per block.
 - A mount on a dead disk stays mounted and fails its I/O: the session sees
   errors under `/home`, never a hang. Unplugging the stick makes `usbd`
   `REMOVE` the disk (`USBD:MSC:GONE`); a re-plugged stick is a new `usb<n>`

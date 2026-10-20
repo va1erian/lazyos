@@ -132,7 +132,13 @@ impl Filesystem for Ext2 {
             Err(error) => return Some(Err(error)),
         };
         // The periodic flusher runs on the kernel task: it skips a volume
-        // another task holds (`Ext2::writeback`) and writes next round.
+        // another task holds (`Ext2::writeback`) and writes next round. It
+        // also skips a provider disk's volume, whose cache could write back
+        // to the provider here (`deferred.rs`): `msync`, `munmap` and `fsync`
+        // write those pages in their caller's context.
+        if !wait && self.defers_writeback() {
+            return None;
+        }
         let gate = if wait {
             self.enter()
         } else {

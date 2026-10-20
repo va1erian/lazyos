@@ -175,10 +175,32 @@ journaled or uncached volume commits as a whole.
 | `fsync` of a regular file | `Ext2::sync_file`: that file's blocks and inode and their dependencies, a device flush; the volume stays flagged dirty |
 | `fsync` of a directory, `syncfs`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
 | orderly power-off / reboot | `power` (syscall 21) -> `fs::sync_all` -> the same `Ext2::flush` on every mount; the power path itself is unchanged |
-| every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy |
-| memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back |
+| every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy. A volume on a provider disk (a USB stick) is skipped: see below |
+| 5 s after a provider volume's blocks first went dirty | the next user task to end an operation on it commits it, in its own context (`fs/ext2/deferred.rs`, issue #940); never the kernel task, never a provider |
+| memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back (a provider volume only gives its clean pages back) |
 | dirty limit / cache full | a writeback inside the operation that needed room |
 | unmount (`Ext2` dropped) | commit, `s_state` untouched (as before the cache) |
+
+### Volumes on a provider disk
+
+A volume on a disk served from user space (`/home` on the boot stick, served
+by `usbd`) is cached like any other (`Ext2::open_deferred`). It used to be
+mounted uncached, because the flusher runs on the kernel task and the kernel
+task must never wait for `usbd`. But uncached, every write held the volume's
+gate for a round trip to the stick per block (data, inode, bitmaps, directory,
+counters), so every reader and writer of `/home` waited for the stick: on a
+real PC LazyWeb+'s cache writes froze its network process, and so the page,
+for 0.5 to 2.7 s at a time (issue #940).
+
+Now only *who* commits differs. The kernel task never does: the flusher skips
+the writeback (it still gives clean pages back under pressure, which needs no
+I/O) and pushes no mapped page into such a volume (`msync`, `munmap` and
+`fsync` do, in their caller's context). Instead, when a task that may park and
+serves no provider disk ends a hold of the volume's gate, and the dirty set is
+5 s old, it commits, still holding the gate. A volume nobody touches keeps its
+dirty blocks until the next access or `sync` (the desktop shell reads `/home`
+every second; the power path syncs). Pulling the stick out loses what a crash
+loses: the last few seconds, in the commit's crash-safe order.
 
 ## Crash semantics
 

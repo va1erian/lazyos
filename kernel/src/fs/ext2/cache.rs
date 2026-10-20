@@ -111,6 +111,21 @@ impl Ext2 {
         Ext2::mount(
             device,
             Some(CacheConfig::with_memory(pages, Box::new(memory))),
+            false,
+        )
+    }
+
+    /// [`Ext2::open_deferred`] with a cache of exactly `pages` frames.
+    #[cfg(lazyos_tests)]
+    pub fn open_deferred_with_pages(
+        device: &'static dyn crate::block::BlockDevice,
+        pages: usize,
+    ) -> Result<Ext2, FsError> {
+        let memory = FrameMemory { reserve: 0 };
+        Ext2::mount(
+            device,
+            Some(CacheConfig::with_memory(pages, Box::new(memory))),
+            true,
         )
     }
 
@@ -126,6 +141,14 @@ impl Ext2 {
         let Some(_gate) = self.try_enter() else {
             return Ok(());
         };
+        // A provider disk's users write it back (`deferred.rs`): this task
+        // must not wait for its provider. Giving clean pages back needs no I/O.
+        if self.defers_writeback() {
+            if pressure {
+                self.volume.shrink_cache();
+            }
+            return Ok(());
+        }
         let result = self.volume.writeback();
         if pressure {
             self.volume.shrink_cache();
