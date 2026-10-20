@@ -1,7 +1,7 @@
 """LazyWeb+'s harness verdict (`run.py`), as pure functions with their own tests (`test_judge.py`).
 
-Four kinds of evidence, each judged on its own, as for LazyWeb (`tools/web/judge.py`) and the W5
-window (`tools/webkit/appjudge.py`, whose pixel helpers are used here):
+Four kinds of evidence, each judged on its own, as for LazyWeb (`tools/web/judge.py`, whose
+helpers are loaded here):
 
 * **serial** - the window's markers (`WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`, `NAV`,
   `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,

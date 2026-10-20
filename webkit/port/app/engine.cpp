@@ -1,4 +1,4 @@
-// WebKit's UI-process half for the desktop window (docs/webkit-port-plan.md, W5).
+// WebKit's UI-process half for the desktop window (docs/webkit-port-plan.md; docs/lazywebplus.md).
 //
 // Everything here runs on WebKit's main thread (the run loop main() starts). The window's
 // thread calls the lzw_engine_* functions, each of which only queues a task for this
@@ -44,14 +44,6 @@
 #ifndef LAZYOS_NETWORKPROCESS_PATH
 #error "LAZYOS_NETWORKPROCESS_PATH must name the image's networkprocess (libs/fhs)"
 #endif
-// The app's per-user folder is `<home>/<LAZYOS_APP_DATA_DIR>/<LAZYOS_WEBKIT_APP_ID>` (libs/fhs
-// `app_data_dir`; the package's `write:$HOME/.apps/os.lazy.webkit` rule names exactly it).
-#ifndef LAZYOS_APP_DATA_DIR
-#error "LAZYOS_APP_DATA_DIR must name the per-user app data directory (libs/fhs state::APP_DATA_DIR)"
-#endif
-#ifndef LAZYOS_WEBKIT_APP_ID
-#error "LAZYOS_WEBKIT_APP_ID must be this package's system_name (xui-app/packages/webkit)"
-#endif
 
 namespace webkitapp {
 
@@ -92,29 +84,21 @@ bool makeDirectories(const std::string& path)
     return true;
 }
 
-// The user's profile directory, `<home>/.apps/os.lazy.webkit`: the app's own per-user folder
-// (`init` gives every app its `HOME`), and the one place the browser's rules let any of its
-// processes write. Empty when there is no home: the browser then keeps nothing at all.
+// The user's profile directory: the window names it (LazyWeb+: `$HOME/.apps/os.lazy.lazywebplus`,
+// the app's own per-user folder, which `init` gives every app a `HOME` for), and it is the one place
+// the browser's rules let any of its processes write. Empty when the window asks for no profile or
+// there is no home: the browser then keeps nothing at all.
 std::string profileDirectory()
 {
-    // A window with a profile of its own (LazyWeb+: `$HOME/.apps/os.lazy.lazywebplus`) names it;
-    // the W5 window does not, and gets the browser's.
-    if (has(LZW_FEATURE_PROFILE)) {
-        const char* chosen = lzw_ui_profile_dir();
-        if (!chosen || *chosen != '/')
-            return std::string();
-        std::string chosenPath(chosen);
-        while (chosenPath.size() > 1 && chosenPath.back() == '/')
-            chosenPath.pop_back();
-        return chosenPath;
-    }
-    const char* home = getenv("HOME");
-    if (!home || *home != '/')
+    if (!has(LZW_FEATURE_PROFILE))
         return std::string();
-    std::string root(home);
-    while (root.size() > 1 && root.back() == '/')
-        root.pop_back();
-    return root + "/" LAZYOS_APP_DATA_DIR "/" LAZYOS_WEBKIT_APP_ID;
+    const char* chosen = lzw_ui_profile_dir();
+    if (!chosen || *chosen != '/')
+        return std::string();
+    std::string chosenPath(chosen);
+    while (chosenPath.size() > 1 && chosenPath.back() == '/')
+        chosenPath.pop_back();
+    return chosenPath;
 }
 
 // The website data store the page lives in: everything WebKit keeps (cookies, the HTTP cache,

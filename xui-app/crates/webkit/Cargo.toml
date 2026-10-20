@@ -1,32 +1,24 @@
-# The WebKit browser's window (docs/webkit-port-plan.md W5): the toolbar, the
-# address field, the page view that shows the bitmap WebKit paints and forwards
-# the mouse and keyboard to it, and the C ABI the WebKit UI process
-# (`webkit/port/app`, C++) calls. Built as a static library: the UI process is a
-# C++ program linked by zig with WebKit's own static libraries and this one
-# (`tools/webkit/app.py`); the window logic stays portable and host-tested
-# against a recording engine.
+# The seam between WebKit's UI process and a window (docs/webkit-port-plan.md, docs/lazywebplus.md):
+# the engine trait, the mailbox, the page view that shows the bitmap WebKit paints and forwards
+# the mouse and keyboard to it, and the C ABI the WebKit UI process (`webkit/port/app`, C++) calls.
+# An rlib: LazyWeb+'s window (`xui-app/webplus`) is the static library the C++ program links
+# (`tools/webkit/app.py`); the logic stays portable and host-tested against a recording engine.
 #
 # The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is GPL-3.0-or-later like the
 # rest of the tree, and also GPL-2.0-only: LazyWeb+'s window (`xui-app/webplus`, which links this
-# crate without its W5 window) keeps LazyWeb's GPLv2-compatible rule (docs/lazywebplus.md).
+# crate) keeps LazyWeb's GPLv2-compatible rule (docs/lazywebplus.md).
 [package]
 name = "xui-webkit"
 version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-2.0-only OR GPL-3.0-or-later"
-description = "WebKit's window for LazyOS: chrome, page view and the UI-process C ABI"
+description = "The seam between WebKit's UI process and a LazyOS window: page view, mailbox and the C ABI"
 
 [lib]
 name = "xui_webkit"
 path = "src/lib.rs"
-crate-type = ["rlib", "staticlib"]
-
-[features]
-default = ["window"]
-# The W5 window (`os.lazy.webkit`): toolbar, address field, status line, and the C ABI functions
-# that decide for it. LazyWebPlus links this crate without it and defines those functions itself.
-window = []
+crate-type = ["rlib"]
 
 [dependencies]
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }

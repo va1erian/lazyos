@@ -1,6 +1,6 @@
-// Markers and text helpers for the UI process (docs/webkit-port-plan.md, W5, and LazyWebPlus,
+// Markers and text helpers for the UI process (docs/webkit-port-plan.md and LazyWebPlus,
 // docs/lazywebplus.md). A marker is "<prefix>:<text>", the prefix being the window's
-// (lzw_ui_marker_prefix: WEBKIT:W5 for os.lazy.webkit, WEBPLUS for LazyWebPlus).
+// (lzw_ui_marker_prefix: WEBPLUS for LazyWebPlus).
 
 #include <WebKit/WKString.h>
 #include <WebKit/WKType.h>

@@ -1,4 +1,4 @@
-// Painting the page into a bitmap for the window (docs/webkit-port-plan.md, W5).
+// Painting the page into a bitmap for the window (docs/webkit-port-plan.md; docs/lazywebplus.md).
 //
 // One CPU runs the page's process, this one, the window and the compositor, so nothing here overlaps
 // with anything else: every pass over the frame is paid for by whoever is scrolling

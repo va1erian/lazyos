@@ -4,7 +4,7 @@ issue #862): build the desktop image, browse a page whose button runs a loop tha
 judge that the browser says so and lets the person out.
 
 The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
-``app.py --plus``, then ``python tools/xui/build.py``). The page is
+``app.py``, then ``python tools/xui/build.py``). The page is
 ``tools/web/fixtures/theoldnet.com/webplus/hang.html``, served over HTTPS from the host with the run's
 throwaway CA like the rest of LazyWeb+'s pages.
 

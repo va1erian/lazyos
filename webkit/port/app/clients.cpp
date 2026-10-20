@@ -1,8 +1,8 @@
 // What the page tells the UI process: navigation and state clients, the markers a session
-// reads, and the state handed to the window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
+// reads, and the state handed to the window (docs/webkit-port-plan.md; docs/lazywebplus.md).
 //
-// Markers (one line each, on stdout, after the window's prefix: WEBKIT:W5 or WEBPLUS;
-// tools/webkit/appjudge.py and tools/webplus/judge.py read them):
+// Markers (one line each, on stdout, after the window's prefix: WEBPLUS;
+// tools/webplus/judge.py reads them):
 //   WEBPROCESS:UP:<pid>       the page's WebProcess is running (printed again when its id changes)
 //   NETWORKPROCESS:UP:<pid>   the NetworkProcess is running (a replacement prints its own)
 //   WEBPROCESS:GONE:<pid>:<reason>    the page's process ended (crash, memory, cpu, requested)

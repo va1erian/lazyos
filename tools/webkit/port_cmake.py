@@ -26,10 +26,9 @@ BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
 OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
-           "webkit-app": "webkit-app", "lazywebplus-app": "lazywebplus-app"}
-#: The windows' static libraries (``tools/webkit/app.py`` builds them on the host); with one the
-#: ``webkit-app`` or ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
-UI_LIBRARY = wkpins.OUT / "lib" / "libxui_webkit.a"
+           "lazywebplus-app": "lazywebplus-app"}
+#: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
+#: ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
 PLUS_LIBRARY = wkpins.OUT / "lib" / "libxui_webplus.a"
 #: Static archives of the bundle, in an order a single-pass linker would accept
 #: (every archive after the ones that use it). lld does not need the order.
@@ -51,9 +50,7 @@ def options() -> dict[str, str]:
     wrap = toolenv.wrappers()
     flags = " ".join(toolenv.CODEGEN)
     libs = ";".join(str(PREFIX / "lib" / name) for name in STATIC_LIBRARIES)
-    window = {"LAZYOS_UI_LIBRARY": str(UI_LIBRARY)} if UI_LIBRARY.is_file() else {}
-    if PLUS_LIBRARY.is_file():
-        window["LAZYOS_PLUS_LIBRARY"] = str(PLUS_LIBRARY)
+    window = {"LAZYOS_PLUS_LIBRARY": str(PLUS_LIBRARY)} if PLUS_LIBRARY.is_file() else {}
     return {
         **window,
         "PORT": "LazyOS", "CMAKE_BUILD_TYPE": "Release", "DEVELOPER_MODE": "OFF",

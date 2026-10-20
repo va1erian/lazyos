@@ -510,7 +510,11 @@ hardware. `webkit-smoke` prints one `WEBKIT:W4:INFO:*` line each for what a
 reader would otherwise have to guess (fonts Fontconfig sees, the glyphs as
 text, timings).
 
-### W5. The window (built)
+### W5. The window (built, then removed)
+
+> **Removed** (webd plan P1.0, [`webd-plan.md`](webd-plan.md) 9.1): `os.lazy.webkit`, `LAZYOS_WEBKIT`, `webkit-app`
+> and `tools/webkit/app_run.py` are gone; LazyWeb+ (W6) is the browser on this engine. What follows is the
+> record of how W5 was built and measured; names in it (`webkit-app`, `--webkit`, `app_run.py`) no longer exist.
 
 **The seam, decided.** There were two routes. (A) A Rust `xui-app` binary that links the WebKit
 UI-process libraries through the C API, with zig as the final linker. (B) A C++ UI process (the

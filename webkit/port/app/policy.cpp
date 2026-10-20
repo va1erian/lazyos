@@ -8,7 +8,7 @@
 // the window renames it when every byte arrived.
 //
 // Markers (the window prefix first; the ones that name a page only in a UI-probe image):
-//   CLICK:<url>        a link was clicked: the navigation it started (W5's window only)
+//   CLICK:<url>        a link was clicked: the navigation it started (a window that prints no markers of its own)
 //   DOWNLOAD:REFUSED   the window refused a download
 
 #include <WebKit/WKDownloadClient.h>

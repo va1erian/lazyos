@@ -65,7 +65,7 @@ Simple tab have the same *Software: Base / Full* choice. Write
 `target/lazyos-usb.img` to a USB stick ([`usb-stick.md`](usb-stick.md)).
 Before U1b, a full stick is the long list of flags that
 `python tools/run_demo.py --help` shows (`--lazyrad --pictures --lazyweb
---webkit --lazywebplus --mail --lazysky --games --doom --quake ...`).
+--lazywebplus --mail --lazysky --games --doom --quake ...`).
 
 ### 3. Install (today, plus U0 and U2 for the update-ready layout)
 

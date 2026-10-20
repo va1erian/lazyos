@@ -97,7 +97,7 @@ def configured() -> bool:
 def wants_webkit(cfg: dict) -> bool:
     """Whether a launcher configuration selects the browser or the console proof: the same three
     programs of about 107 MiB each."""
-    return bool(cfg.get("webkit") or cfg.get("webkit_port") or cfg.get("lazywebplus"))
+    return bool(cfg.get("webkit_port") or cfg.get("lazywebplus"))
 
 
 def args_wants(args) -> tuple[bool, bool]:
@@ -106,8 +106,7 @@ def args_wants(args) -> tuple[bool, bool]:
     def on(flag: str, switch: str) -> bool:
         return bool(getattr(args, flag, False)) or os.environ.get(switch) == "1"
     return (on("srb2kart", "LAZYOS_SRB2KART"),
-            on("webkit", "LAZYOS_WEBKIT") or on("webkit_port", "LAZYOS_WEBKIT_PORT")
-            or on("lazywebplus", "LAZYOS_LAZYWEBPLUS"))
+            on("webkit_port", "LAZYOS_WEBKIT_PORT") or on("lazywebplus", "LAZYOS_LAZYWEBPLUS"))
 
 
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:

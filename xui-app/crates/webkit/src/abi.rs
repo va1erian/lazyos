@@ -254,16 +254,16 @@ mod tests {
 
     #[test]
     fn the_first_address_skips_the_program_options_and_the_supervisors_note() {
-        assert_eq!(first_address(&args(&["webkit-app"])), None);
+        assert_eq!(first_address(&args(&["lazywebplus-app"])), None);
         assert_eq!(
-            first_address(&args(&["webkit-app", "example.com"])),
+            first_address(&args(&["lazywebplus-app", "example.com"])),
             Some("http://example.com/".to_owned())
         );
         assert_eq!(
-            first_address(&args(&["webkit-app", "--client", "attempt=1", "http://a/"])),
+            first_address(&args(&["lazywebplus-app", "--client", "attempt=1", "http://a/"])),
             Some("http://a/".to_owned())
         );
-        assert_eq!(first_address(&args(&["webkit-app", "attempt=2"])), None);
+        assert_eq!(first_address(&args(&["lazywebplus-app", "attempt=2"])), None);
         // The program's own name is never an address.
         assert_eq!(first_address(&args(&["http://a/"])), None);
     }

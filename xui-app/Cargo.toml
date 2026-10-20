@@ -15,7 +15,7 @@ members = [
     # LazyWeb, the web browser (Blitz, pure Rust).
     "web",
     # LazyWebPlus: LazyWeb's chrome on the WebKit engine (docs/lazywebplus.md); built as a
-    # static library by `tools/webkit/app.py --plus`.
+    # static library by `tools/webkit/app.py`.
     "webplus",
     "crates/code-editor",
     "crates/paint",

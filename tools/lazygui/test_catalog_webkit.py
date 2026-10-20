@@ -80,7 +80,6 @@ class WebkitPortTests(unittest.TestCase):
         for desktop in (False, True):
             env = catalog.build_env({**self.base(), "desktop": desktop, "webkit_port": True})
             self.assertEqual(env["LAZYOS_WEBKIT_PORT"], "1")
-            self.assertNotIn("LAZYOS_WEBKIT", env)
             self.assertNotIn("LAZYOS_WEBKIT_PORT", catalog.build_env({**self.base(), "desktop": desktop}))
 
     def test_the_demo_passes_the_run_demo_flag(self) -> None:
@@ -102,68 +101,6 @@ class WebkitPortTests(unittest.TestCase):
         at = labels.index("Build image (cargo build)")
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/webkit/port.py", "--require"])
         self.assertEqual(plan[at].get("env", {}).get("LAZYOS_WEBKIT_PORT", "1"), "1")
-
-
-class WebkitBrowserTests(unittest.TestCase):
-    """The WebKit browser (LAZYOS_WEBKIT=1, docs/webkit-port-plan.md W5): a desktop app that brings
-    the desktop profile and the network stack, built in Docker and packaged by the xui build."""
-
-    def base(self) -> dict:
-        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
-                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
-
-    def test_the_switch_brings_the_desktop_and_the_stack(self) -> None:
-        # The Advanced checkbox alone: the image build refuses LAZYOS_WEBKIT without them.
-        env = catalog.build_env({**self.base(), "webkit": True})
-        for name in ("LAZYOS_WEBKIT", "LAZYOS_DESKTOP", "LAZYOS_NETD"):
-            self.assertEqual(env.get(name), "1", name)
-        self.assertNotIn("LAZYOS_WEBKIT_PORT", env)
-        self.assertNotIn("LAZYOS_WEBKIT", catalog.build_env({**self.base(), "desktop": True}))
-
-    def test_simple_desktop_offers_it_and_cli_does_not(self) -> None:
-        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", webkit=True)
-        self.assertTrue(cfg["webkit"] and cfg["net"])
-        cli = catalog.simple_config(demo_config(), "dev", "CLI", webkit=True)
-        self.assertFalse(cli["webkit"])
-        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["webkit"])
-
-    def test_the_demo_passes_the_run_demo_flag(self) -> None:
-        self.assertIn("--webkit", demo_argv(webkit=True, skip_build=False))
-        self.assertNotIn("--webkit", demo_argv(skip_build=False))
-        self.assertNotIn("--webkit", demo_argv(webkit=True, skip_build=True))
-        self.assertIn("--net", demo_argv(webkit=True, skip_build=False))
-
-    def test_it_builds_the_bundle_the_port_the_app_then_packages_it(self) -> None:
-        steps = catalog.app_steps({"webkit": True})
-        self.assertEqual([s["argv"][1] for s in steps],
-                         ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py",
-                          "tools/xui/build.py"])
-        # The browser starts two engine processes; the smoke program and its host
-        # reference run belong to the console proof (`webkit_port`) alone.
-        self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
-
-    def test_the_quota_covers_three_processes_unless_the_launcher_chose_one(self) -> None:
-        self.assertEqual(catalog.build_env({**self.base(), "webkit": True})["LAZYOS_LIMIT_QUOTA_USER_MEMORY"], "8G")
-        chosen = catalog.build_env({**self.base(), "webkit": True, "limits": "quota_user_memory=5G fd_max=4096"})
-        self.assertEqual((chosen["LAZYOS_LIMIT_QUOTA_USER_MEMORY"], chosen["LAZYOS_LIMIT_FD_MAX"]), ("5G", "4096"))
-        self.assertNotIn("LAZYOS_LIMIT_QUOTA_USER_MEMORY", catalog.build_env({**self.base(), "desktop": True}))
-
-    def test_the_os_volume_is_a_large_one(self) -> None:
-        from lazygui import osvolume
-        self.assertEqual(osvolume.required_bytes(False, True), osvolume.required_bytes(True, False))
-        self.assertGreater(osvolume.required_bytes(False, True), osvolume.required_bytes(False, False))
-        self.assertTrue(osvolume.wants_webkit({"webkit_port": True}) and osvolume.wants_webkit({"webkit": True}))
-        self.assertFalse(osvolume.wants_webkit({"desktop": True}))
-
-    def test_session_modes_build_it_before_the_image(self) -> None:
-        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
-               "accel": "auto", "memory": "4G", "qemu": "", "out": "shots",
-               "timeout": "300", "tablet": False, "script": 0, "webkit": True}
-        plan = catalog.build_plan(cfg)
-        labels = [step["label"] for step in plan]
-        at = labels.index("Build image (cargo build)")
-        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py"])
-        self.assertIn("--net", plan[-1]["argv"])
 
 
 if __name__ == "__main__":

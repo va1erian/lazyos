@@ -1,9 +1,8 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE 1
 #endif
-// The desktop UI process: WebKit in a window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
-// One program for both windows: `webkit-app` links the W5 window, `lazywebplus-app` LazyWeb's
-// (the Rust library each one links is the only difference).
+// The desktop UI process: WebKit in a window (docs/webkit-port-plan.md; docs/lazywebplus.md).
+// `lazywebplus-app` links LazyWeb+'s window, a Rust static library.
 //
 // The UI process has two threads that matter: WebKit's run loop on the process's main thread, as
 // in webkit-smoke (engine.cpp), and the xui window on a second one (a Rust static library through
@@ -12,7 +11,7 @@
 // the WebProcess and the NetworkProcess (SIGTERM, SIGKILL after a grace period), waits for them
 // (<prefix>:CHILD:<name>:<pid>:GONE) and exits.
 //
-// Markers, after the window's prefix (WEBKIT:W5 or WEBPLUS):
+// Markers, after the window's prefix (WEBPLUS):
 //   UP                 the UI process started and WebKit2 initialised
 //   CHILD:<name>:<pid>:GONE   a child process ended (ALIVE: it did not), with the results of the
 //                      SIGTERM, SIGKILL and wait that ended it (children.cpp)

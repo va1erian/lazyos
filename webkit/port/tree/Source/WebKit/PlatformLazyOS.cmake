@@ -24,17 +24,14 @@ include(Platform/Curl.cmake)
 
 # The image's paths of the programs, from libs/fhs (tools/webkit/port_cmake.py passes them):
 # the launcher's defaults and the smoke program's.
-foreach (_lazyos_path LAZYOS_WEBPROCESS_PATH LAZYOS_NETWORKPROCESS_PATH LAZYOS_APP_DATA_DIR LAZYOS_WEBKIT_APP_ID)
+foreach (_lazyos_path LAZYOS_WEBPROCESS_PATH LAZYOS_NETWORKPROCESS_PATH)
     if (NOT ${_lazyos_path})
         message(FATAL_ERROR "${_lazyos_path} is not set (tools/webkit/port_cmake.py passes it from libs/fhs)")
     endif ()
 endforeach ()
-# The UI process's profile directory is `<home>/<LAZYOS_APP_DATA_DIR>/<LAZYOS_WEBKIT_APP_ID>`.
 set(_lazyos_program_definitions
     "LAZYOS_WEBPROCESS_PATH=\"${LAZYOS_WEBPROCESS_PATH}\""
     "LAZYOS_NETWORKPROCESS_PATH=\"${LAZYOS_NETWORKPROCESS_PATH}\""
-    "LAZYOS_APP_DATA_DIR=\"${LAZYOS_APP_DATA_DIR}\""
-    "LAZYOS_WEBKIT_APP_ID=\"${LAZYOS_WEBKIT_APP_ID}\""
 )
 set_source_files_properties("${WEBKIT_DIR}/UIProcess/Launcher/ProcessLauncherLazyOS.cpp"
     PROPERTIES COMPILE_DEFINITIONS "${_lazyos_program_definitions}")
@@ -176,11 +173,10 @@ target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR}
 target_compile_definitions(webkit-smoke PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
 
-# The desktop UI process (webkit/port/app/, docs W5 and docs/lazywebplus.md): WebKit's run loop in
-# C++, the window in a Rust static library. One set of sources, one program per window:
-# webkit-app links xui-app/crates/webkit's own window (LAZYOS_UI_LIBRARY, built by
-# tools/webkit/app.py) and lazywebplus-app LazyWeb's (LAZYOS_PLUS_LIBRARY, `app.py --plus`). Without
-# a library its target does not exist, so the W4 programs build as before.
+# The desktop UI process (webkit/port/app/, docs/lazywebplus.md): WebKit's run loop in C++, the
+# window in a Rust static library. lazywebplus-app links LazyWeb+'s window (LAZYOS_PLUS_LIBRARY,
+# built by tools/webkit/app.py). Without the library its target does not exist, so the W4
+# programs build as before.
 set(_lazyos_app_sources
     "${LAZYOS_PORT_DIR}/app/main.cpp"
     "${LAZYOS_PORT_DIR}/app/engine.cpp"
@@ -201,9 +197,6 @@ function (lazyos_add_app name library)
     target_link_libraries(${name} PRIVATE WebKit "${library}")
 endfunction ()
 
-if (LAZYOS_UI_LIBRARY)
-    lazyos_add_app(webkit-app "${LAZYOS_UI_LIBRARY}")
-endif ()
 if (LAZYOS_PLUS_LIBRARY)
     lazyos_add_app(lazywebplus-app "${LAZYOS_PLUS_LIBRARY}")
 endif ()

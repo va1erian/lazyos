@@ -59,13 +59,13 @@ class SimpleGroups(unittest.TestCase):
     def test_web_has_lazyweb_and_mail_over_networking(self) -> None:
         cfg = desktop("web")
         self.assertTrue(cfg["lazyweb"] and cfg["mail"] and cfg["tls"] and cfg["net"])
-        self.assertFalse(cfg["webkit"], "the WebKit browser is its own group (a Docker build)")
+        self.assertFalse(cfg["lazywebplus"], "LazyWeb+ is its own group (a Docker build)")
 
-    def test_webkit_is_its_own_group_over_networking(self) -> None:
-        cfg = desktop("webkit")
-        self.assertTrue(cfg["webkit"] and cfg["net"])
+    def test_lazywebplus_is_its_own_group_over_networking(self) -> None:
+        cfg = desktop("lazywebplus")
+        self.assertTrue(cfg["lazywebplus"] and cfg["net"])
         self.assertFalse(cfg["lazyweb"] or cfg["mail"])
-        self.assertFalse(desktop("webkit", iface="CLI")["webkit"], "a browser needs the desktop")
+        self.assertFalse(desktop("lazywebplus", iface="CLI")["lazywebplus"], "a browser needs the desktop")
 
 
 if __name__ == "__main__":
