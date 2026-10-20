@@ -208,7 +208,7 @@ fn seeded_fuzz() {
         build::vbt(180, &[lspcon_dp()]),
         build::vbt(120, &[]),
     ];
-    fuzzkit::for_seeds("gen9gfx_vbt_mutated", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_vbt_mutated", |_, rng| {
         let mut data = rng.pick(&seeds).clone();
         let flips = rng.range(1, 10) as usize;
         rng.flip_bits(&mut data, flips);
@@ -220,7 +220,7 @@ fn seeded_fuzz() {
         framed.extend_from_slice(&data);
         crate::fuzz::run(&framed);
     });
-    fuzzkit::for_seeds("gen9gfx_vbt_random", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_vbt_random", |_, rng| {
         let n = rng.range(0, 400) as usize;
         let mut data = rng.bytes(n);
         // Give the header a valid look half the time so the walk is reached.

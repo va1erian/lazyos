@@ -5,8 +5,8 @@ QEMU gets, and whether `init` starts the device manager `devd`. Split out of
 The cards are run_demo flags (`--sound-card`, `--nic`); `devd` is the build
 switch `LAZYOS_DEVD` (on by default, `run_demo.py --no-devd` turns it off).
 Interrupt routing (issue #616) is `LAZYOS_IRQCHIP` (`--irqchip`) and
-`LAZYOS_MSI` (`--no-msi`). The Intel GPU service `gpud` is `LAZYOS_GEN9GFX`
-(`--gen9gfx`, docs/kabylake-gpu-plan.md): devd starts it for the HD Graphics
+`LAZYOS_MSI` (`--no-msi`). The Intel GPU service `gpud` is `LAZYOS_INTELGFX`
+(`--intelgfx`, docs/kabylake-gpu-plan.md): devd starts it for the HD Graphics
 620 it finds, so the image needs devd and a driver stack to start it from.
 """
 
@@ -27,17 +27,17 @@ IRQCHIPS = ["ioapic", "pic"]
 
 
 def driver_env(cfg: dict) -> dict[str, str]:
-    """`LAZYOS_DEVD`, `LAZYOS_IRQCHIP`, `LAZYOS_MSI` and `LAZYOS_GEN9GFX` as
+    """`LAZYOS_DEVD`, `LAZYOS_IRQCHIP`, `LAZYOS_MSI` and `LAZYOS_INTELGFX` as
     the launcher chose them, so an inherited value never overrides the
     controls. `gpud` is started by devd, which needs a driver stack: the
     launcher always builds the network stack (`netplan.wants_dbgd`), so the
-    switch needs nothing more here (`run_demo.py --gen9gfx` itself adds the
+    switch needs nothing more here (`run_demo.py --intelgfx` itself adds the
     sound stack when it is run with none)."""
     return {
         "LAZYOS_DEVD": "1" if cfg.get("devd", True) else "0",
         "LAZYOS_IRQCHIP": cfg.get("irqchip", IRQCHIPS[0]),
         "LAZYOS_MSI": "1" if cfg.get("msi", True) else "0",
-        "LAZYOS_GEN9GFX": "1" if cfg.get("gen9gfx") else "0",
+        "LAZYOS_INTELGFX": "1" if cfg.get("intelgfx") else "0",
     }
 
 
@@ -61,8 +61,8 @@ def device_flags(cfg: dict) -> list[str]:
         flags += ["--irqchip", cfg["irqchip"]]
     if not cfg.get("msi", True):
         flags.append("--no-msi")
-    if cfg.get("gen9gfx"):
-        flags.append("--gen9gfx")
+    if cfg.get("intelgfx"):
+        flags.append("--intelgfx")
     return flags
 
 

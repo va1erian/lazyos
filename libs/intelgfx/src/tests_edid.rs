@@ -222,7 +222,7 @@ fn timing_encoding_round_trips_wide_fields() {
 fn seeded_fuzz() {
     use crate::fuzz;
     let seeds = [build::monitor_2560x1440(), build::dvi_monitor_1080p()];
-    fuzzkit::for_seeds("gen9gfx_edid_mutated", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_edid_mutated", |_, rng| {
         let mut data = rng.pick(&seeds).clone();
         let flips = rng.range(1, 12) as usize;
         rng.flip_bits(&mut data, flips);
@@ -239,7 +239,7 @@ fn seeded_fuzz() {
         framed.extend_from_slice(&data);
         fuzz::run(&framed);
     });
-    fuzzkit::for_seeds("gen9gfx_edid_random", |_, rng| {
+    fuzzkit::for_seeds("intelgfx_edid_random", |_, rng| {
         let n = rng.range(0, 300) as usize;
         let mut data = rng.bytes(n);
         // Make a block pass the cheap gates half the time.

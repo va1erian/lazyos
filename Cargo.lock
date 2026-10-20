@@ -699,14 +699,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gen9gfx"
-version = "0.1.0"
-dependencies = [
- "fuzzkit",
- "pciprobe",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -826,6 +818,14 @@ name = "inputmap"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+]
+
+[[package]]
+name = "intelgfx"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "pciprobe",
 ]
 
 [[package]]
@@ -1769,11 +1769,11 @@ dependencies = [
  "ftpwire",
  "fused",
  "fwload",
- "gen9gfx",
  "gpupolicy",
  "hda",
  "ieee80211",
  "inputmap",
+ "intelgfx",
  "lazyos-crypto",
  "lazyos-sys",
  "lazypkg",

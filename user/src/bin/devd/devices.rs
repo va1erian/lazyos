@@ -104,11 +104,11 @@ impl Tracked {
     }
 }
 
-/// The manifest entries only a `LAZYOS_GEN9GFX=1` image matches
-/// (`user/build.rs` sets `cfg(lazyos_gen9gfx)`): the Intel GPU's `gpud`. An
+/// The manifest entries only a `LAZYOS_INTELGFX=1` image matches
+/// (`user/build.rs` sets `cfg(lazyos_intelgfx)`): the Intel GPU's `gpud`. An
 /// ordinary image's `devd` does not name the GPU at all.
-pub(super) const EXTRA_MANIFEST: &[Entry] = if cfg!(lazyos_gen9gfx) {
-    devmatch::GEN9GFX_MANIFEST
+pub(super) const EXTRA_MANIFEST: &[Entry] = if cfg!(lazyos_intelgfx) {
+    devmatch::INTELGFX_MANIFEST
 } else {
     &[]
 };

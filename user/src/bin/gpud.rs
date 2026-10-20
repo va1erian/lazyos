@@ -1,21 +1,23 @@
-//! `gpud` (`/system/bin/gpud`): the Intel Gen9 GPU service
+//! `gpud` (`/system/bin/gpud`): the Intel GPU service
 //! (docs/kabylake-gpu-plan.md), as far as stage G1's first half: **adopt and
-//! observe, read-only**.
+//! observe, read-only**, for the two display engines `libs/intelgfx`
+//! decodes (Gen9, display 13).
 //!
 //! `devd` starts it through `init`'s `gpud` driver row when it finds the Kaby
-//! Lake HD Graphics 620 (`8086:5916`, `libs/devmatch`, only in an image built
-//! with `LAZYOS_GEN9GFX=1`), with `dev=<id>`, as `_gpu` (uid 915) holding
+//! Lake HD Graphics 620 (`8086:5916`) or the Alder Lake-P UHD Graphics
+//! (`8086:46b3`) (`libs/devmatch`, only in an image built with
+//! `LAZYOS_INTELGFX=1`), with `dev=<id>`, as `_gpu` (uid 915) holding
 //! only `CAP_DEV_CLAIM`, which the kernel's class rules narrow to display
 //! controllers (`libs/gpupolicy`). It:
 //!
 //! 1. finds the function and claims it **without** an interrupt channel, and
 //!    undoes the claim's quiesce of memory decode and bus mastering so the
 //!    kernel console keeps drawing (`device.rs`: `GPU:PCI`);
-//! 2. maps BAR 0 and wraps it in a read-only `gen9gfx::Mmio` (`bar.rs`:
+//! 2. maps BAR 0 and wraps it in a read-only `intelgfx::Mmio` (`bar.rs`:
 //!    no write path, reads only inside the ranges `dbgd` may read);
-//! 3. reads the display state the firmware left (`gen9gfx::adopt`: power
-//!    wells, CDCLK, DPLLs, pipes A to C with transcoder, DDI function and
-//!    first plane, the GGTT pages of the scanout surface) and prints it
+//! 3. reads the display state the firmware left (`intelgfx::adopt`, with the
+//!    device's generation: power wells, CDCLK, DPLLs, every pipe with its
+//!    transcoder, DDI function and first plane, the GGTT pages of the scanout surface) and prints it
 //!    (`report.rs`: `GPU:REG`, `GPU:PIPE`, `GPU:MODE`, `GPU:ADOPT:PASS`, ...);
 //! 4. measures the adopted pipe's refresh rate from its frame counter and
 //!    reads its FIFO underrun state (`beam.rs`: `GPU:VBLANK`,
@@ -45,7 +47,7 @@ extern crate alloc;
 
 use core::panic::PanicInfo;
 
-use gen9gfx::adopt::{self, Adopted, RegFile};
+use intelgfx::adopt::{self, Display};
 use user::sys;
 use user::trace::{self, Channel};
 
@@ -90,9 +92,9 @@ pub extern "C" fn _start() -> ! {
             trace::fail!(
                 Channel::Gpu,
                 "NO-DEVICE",
-                "no Intel HD Graphics 620 ({:04x}:{:04x}) in the device list (dev={wanted:?})",
+                "no Intel display function intelgfx knows ({:04x}:{:?}) in the device list \n                 (dev={wanted:?})",
                 device::VENDOR,
-                device::DEVICE
+                devmatch::INTELGFX_DEVICES
             );
             sys::exit(0)
         }
@@ -143,7 +145,11 @@ fn adopt_and_serve(
     claimed: &device::Claimed,
     command: &device::Command,
 ) -> Result<core::convert::Infallible, Failure> {
-    let identity = device::identity(claimed).map_err(step)?;
+    // `device::find` took only a device `Display::for_device` knows.
+    let display = Display::for_device(claimed.row.device)
+        .ok_or_else(|| Failure("display", alloc::format!("{:04x}", claimed.row.device)))?;
+    trace::line!(Channel::Gpu, "DISPLAY engine={}", display.name());
+    let identity = device::identity(claimed, display).map_err(step)?;
     report::pci(&identity, command);
     let (base, len) = device::map(claimed).map_err(step)?;
     // SAFETY: `device::map` mapped the whole BAR, `len` bytes, uncached; the
@@ -151,7 +157,7 @@ fn adopt_and_serve(
     // on purpose (the module docs).
     let mut regs =
         unsafe { bar::ReadOnlyBar::new(base, len, claimed.row.vendor, claimed.row.device) };
-    let file = RegFile::read(&mut regs);
+    let file = display.read(&mut regs);
     report::registers(&file);
     if file.looks_dead() {
         return Err(Failure(
@@ -163,7 +169,7 @@ fn adopt_and_serve(
             ),
         ));
     }
-    let adopted = Adopted::decode(&file);
+    let adopted = display.decode(&file);
     // The scanout surface's GGTT pages: where the framebuffer really is.
     let fb = adopted
         .active

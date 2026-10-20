@@ -2,7 +2,7 @@
 //! Linux's state: 2560x1440 at 70 Hz on DDI B, pipe A) and against
 //! hostile register values.
 
-use crate::adopt::{self, Adopted, RegFile, GGTT_OFFSET};
+use crate::adopt::{self, Display, GGTT_OFFSET};
 use crate::mmio::FakeMmio;
 use crate::regs::{plane_ctl, DdiMode};
 use alloc::vec::Vec;
@@ -42,8 +42,8 @@ fn the_dump_fixture_parses() {
 #[test]
 fn reads_the_boxs_display_state() {
     let mut mmio = dump_mmio();
-    let file = RegFile::read(&mut mmio);
-    let adopted = Adopted::decode(&file);
+    let file = Display::Gen9.read(&mut mmio);
+    let adopted = Display::Gen9.decode(&file);
     assert_eq!(adopted.pipes_enabled, 0b001, "only pipe A runs");
     assert!(!adopted.edp_enabled);
     assert_eq!(adopted.cdclk_khz, 337_500);
@@ -58,7 +58,7 @@ fn reads_the_boxs_display_state() {
     assert!(pipe.hdmi_link());
     assert_eq!(pipe.func.bits_per_component, Some(8));
     assert_eq!(pipe.pll, Some(1));
-    assert!(pipe.pll_hdmi_mode);
+    assert!(pipe.pll_ready);
     assert!(!pipe.ddi_clock_off);
     assert_eq!(pipe.pixel_clock_khz, Some(277_820));
     assert_eq!(pipe.refresh_millihz(), Some(69_927));
@@ -87,7 +87,7 @@ fn reads_the_boxs_display_state() {
 fn reading_writes_nothing_and_stays_inside_the_dbgd_allowlist() {
     let mut mmio = dump_mmio();
     let before = mmio.regs.clone();
-    let file = RegFile::read(&mut mmio);
+    let file = Display::Gen9.read(&mut mmio);
     let _ = adopt::read_fb_map(&mut mmio, 0x0110_0000, 2560 * 4 * 1440);
     assert!(mmio.log.iter().all(|&(_, _, write)| !write), "a write");
     assert_eq!(mmio.regs, before);
@@ -162,18 +162,18 @@ fn hostile_values_do_not_panic_or_overrun() {
             panic!("a write");
         }
     }
-    let file = RegFile::read(&mut Ones);
+    let file = Display::Gen9.read(&mut Ones);
     assert!(file.looks_dead());
     // Nothing past the always-on registers is read from a dead bus.
     assert!(file.regs.len() < 20, "{} registers", file.regs.len());
-    let adopted = Adopted::decode(&file);
+    let adopted = Display::Gen9.decode(&file);
     assert_eq!(adopted.pipes_enabled, 0);
     assert_eq!(adopted.active, None);
 
     // The same on a quiet device: nothing is running.
-    let file = RegFile::read(&mut FakeMmio::default());
+    let file = Display::Gen9.read(&mut FakeMmio::default());
     assert!(!file.looks_dead());
-    let adopted = Adopted::decode(&file);
+    let adopted = Display::Gen9.decode(&file);
     assert_eq!(adopted.active, None);
     assert_eq!(adopted.pipes_enabled, 0);
 }
@@ -186,7 +186,7 @@ fn blocks_behind_a_downed_well_are_not_read() {
     // block (well 2) are not touched.
     mmio.regs
         .insert(regs::PWR_WELL_CTL_DRIVER, pwr_well::PW1_STATE | 0x1);
-    let file = RegFile::read(&mut mmio);
+    let file = Display::Gen9.read(&mut mmio);
     for gated in ["PIPE_B", "PIPE_C", "AUDIO", "DDI_BUF_CTL_B"] {
         assert!(file.gated.iter().any(|g| g == gated), "{gated} was read");
     }
@@ -197,10 +197,10 @@ fn blocks_behind_a_downed_well_are_not_read() {
             "{offset:#x} is behind well 2"
         );
     }
-    assert_eq!(Adopted::decode(&file).active.map(|p| p.pipe), Some(0));
+    assert_eq!(Display::Gen9.decode(&file).active.map(|p| p.pipe), Some(0));
     // No well up: only the global registers.
     mmio.regs.insert(regs::PWR_WELL_CTL_DRIVER, 0);
-    let file = RegFile::read(&mut mmio);
+    let file = Display::Gen9.read(&mut mmio);
     assert!(file.gated.iter().any(|g| g == "PIPE_A"));
-    assert_eq!(Adopted::decode(&file).active, None);
+    assert_eq!(Display::Gen9.decode(&file).active, None);
 }

@@ -2,11 +2,12 @@
 
 Interface id: `0x53ecd075e99e0064`
 
-The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
+The Intel GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 "Adopt + observe").
 
 **Read-only.** In this stage `gpud` claims the HD Graphics 620 of the
-Kaby Lake box (PCI `8086:5916`), maps its register BAR and only *reads*
+Kaby Lake box (PCI `8086:5916`, Gen9) or the UHD Graphics of the Alder
+Lake box (`8086:46b3`, display 13), maps its register BAR and only *reads*
 and decodes what the firmware left on the display: the pipe, transcoder
 and DDI that are running, the link mode, the timing and pixel clock, the
 core display clock, the first plane's surface and the GGTT pages behind

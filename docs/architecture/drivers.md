@@ -173,11 +173,11 @@ space's own ([physical-memory.md](physical-memory.md), teardown invariants).
 
 ## The Intel GPU: `gpud` (G1, read-only)
 
-`LAZYOS_GEN9GFX=1` adds `gpud`, which `devd` starts for `8086:5916`
-(`devmatch::GEN9GFX_MANIFEST`, passed to `plan_with` only by a build with the
+`LAZYOS_INTELGFX=1` adds `gpud`, which `devd` starts for `8086:5916` or `8086:46b3`
+(`devmatch::INTELGFX_MANIFEST`, passed to `plan_with` only by a build with the
 switch, so an ordinary image does not name the GPU) as `_gpu`
 (`libs/gpupolicy`: claim, map and DMA on the display class). It reads and
-decodes the display state the firmware left (`libs/gen9gfx::adopt`), prints
+decodes the display state the firmware left (`libs/intelgfx::adopt`), prints
 `GPU:*` lines and serves `os.lazy.gpu.v1` from the snapshot; it writes no
 display register and takes no interrupt
 ([../kabylake-gpu-plan.md](../kabylake-gpu-plan.md) stage G1).

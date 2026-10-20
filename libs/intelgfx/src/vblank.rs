@@ -119,7 +119,19 @@ pub enum Underrun {
 /// (more than one frame a millisecond: a counter that went backwards, a
 /// pipe re-enabled between the reads, or a refused read of all ones). The
 /// counter is assumed to have wrapped at most once.
-pub fn measured_millihz(first: Beam, last: Beam, elapsed_ns: u64, vtotal: u32) -> Option<u32> {
+///
+/// `count_line` is the scan line the counter increments at: the start of
+/// the vertical blank (the transcoder's `VBLANK` start, which is the active
+/// height), not line 0. Seen on the Alder Lake box: a read at line 1475 of
+/// 1481 already carries the next frame's number, so counting lines from 0
+/// put the rate 1.6% low.
+pub fn measured_millihz(
+    first: Beam,
+    last: Beam,
+    elapsed_ns: u64,
+    vtotal: u32,
+    count_line: u32,
+) -> Option<u32> {
     if elapsed_ns < 1_000_000 {
         return None;
     }
@@ -135,9 +147,10 @@ pub fn measured_millihz(first: Beam, last: Beam, elapsed_ns: u64, vtotal: u32) -
     let scaled = match u128::from(vtotal) {
         0 => frames * 1_000_000,
         total => {
-            let first_line = u128::from(first.line).min(total);
-            let last_line = u128::from(last.line).min(total);
-            (frames * total + last_line - first_line) * 1_000_000 / total
+            // Lines since the counter last moved, at either read.
+            let start = u128::from(count_line) % total;
+            let since = |line: u32| (u128::from(line).min(total - 1) + total - start) % total;
+            (frames * total + since(last.line) - since(first.line)) * 1_000_000 / total
         }
     };
     // frames per ns * 1e9 * 1000 = millihertz.
@@ -231,13 +244,32 @@ mod tests {
             frame: first.frame.wrapping_add(120),
             line: 400,
         };
-        let measured = measured_millihz(first, last, elapsed, 1481).unwrap();
+        let measured = measured_millihz(first, last, elapsed, 1481, 0).unwrap();
         assert!(agrees(measured, expected, 100), "{measured} vs {expected}");
         // Without the line count it is still within a frame of 120.
-        let rough = measured_millihz(first, last, elapsed, 0).unwrap();
+        let rough = measured_millihz(first, last, elapsed, 0, 0).unwrap();
         assert!(agrees(rough, expected, 1_000_000 / 100), "{rough}");
         // A 70 Hz mode is not mistaken for it.
         assert!(!agrees(70_000, expected, 1000));
+    }
+
+    #[test]
+    fn the_counter_moves_at_vblank_start_not_line_0() {
+        // `gpud` on the Alder Lake box: 60 frames in 1.0026 s, the first
+        // read in the vertical blank, the last in the active area.
+        let first = Beam {
+            frame: 1059,
+            line: 1475,
+        };
+        let last = Beam {
+            frame: 1119,
+            line: 150,
+        };
+        let measured = measured_millihz(first, last, 1_002_583_553, 1481, 1440).unwrap();
+        assert!(agrees(measured, 59_950, 100), "{measured}");
+        // Counted from line 0 it read 58.95 Hz, which failed the check.
+        let from_zero = measured_millihz(first, last, 1_002_583_553, 1481, 0).unwrap();
+        assert!(!agrees(from_zero, 59_950, 2000), "{from_zero}");
     }
 
     #[test]
@@ -251,14 +283,14 @@ mod tests {
             frame: 3,
             line: 8191,
         };
-        assert_eq!(measured_millihz(first, last, 1_000_000_000, 8191), None);
+        assert_eq!(measured_millihz(first, last, 1_000_000_000, 8191, 0), None);
         // A refused read of all ones on one side.
         let ones = Beam {
             frame: u32::MAX,
             line: 0x1FFF,
         };
         assert_eq!(
-            measured_millihz(Beam::default(), ones, 1_000_000_000, 8191),
+            measured_millihz(Beam::default(), ones, 1_000_000_000, 8191, 8190),
             None
         );
         // The worst sane input does not overflow.
@@ -266,15 +298,15 @@ mod tests {
             frame: 1000,
             line: 8191,
         };
-        assert!(measured_millihz(Beam::default(), fast, 1_000_000_000, 8191).is_some());
+        assert!(measured_millihz(Beam::default(), fast, 1_000_000_000, 8191, u32::MAX).is_some());
     }
 
     #[test]
     fn too_little_to_measure_is_none() {
         let a = Beam { frame: 5, line: 0 };
-        assert_eq!(measured_millihz(a, a, 1_000_000_000, 1481), None);
+        assert_eq!(measured_millihz(a, a, 1_000_000_000, 1481, 1440), None);
         assert_eq!(
-            measured_millihz(a, Beam { frame: 9, line: 0 }, 10, 1481),
+            measured_millihz(a, Beam { frame: 9, line: 0 }, 10, 1481, 1440),
             None
         );
         assert!(!agrees(60_000, 0, 1_000_000));

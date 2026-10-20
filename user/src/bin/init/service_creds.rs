@@ -73,7 +73,7 @@ pub(super) const WIFI_CRED: SysCred = SysCred::new(
 /// The Intel GPU service's identity (docs/kabylake-gpu-plan.md): `_gpu`
 /// holding only `CAP_DEV_CLAIM`, which the kernel's class rules narrow to
 /// display controllers (`gpupolicy::GPU_DRIVER_CLASS_RULES`).
-#[cfg(lazyos_gen9gfx)]
+#[cfg(lazyos_intelgfx)]
 pub(super) const GPU_CRED: SysCred = SysCred::new(
     gpupolicy::GPU_UID,
     gpupolicy::GPU_UID,

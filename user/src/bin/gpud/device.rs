@@ -1,5 +1,6 @@
-//! Find and claim the GPU: the HD Graphics 620 `devd` named (`dev=<id>`), or
-//! the first one in the device list when started by hand.
+//! Find and claim the GPU: the Intel display function `devd` named
+//! (`dev=<id>`), or the first one `intelgfx` knows in the device list when
+//! started by hand.
 //!
 //! Only the `dev_*` ops every driver uses: claim *without* interrupts (this
 //! stage takes none), the command register, `cfg_read` of the identity words
@@ -19,24 +20,24 @@
 //! console's writes into the aperture until `init` starts it again: `gpud`
 //! therefore never exits while it holds the claim on purpose (`park`).
 
+use intelgfx::adopt::Display;
 use user::dev::{self, Row};
 
 /// PCI configuration registers read or written here.
 const COMMAND: u64 = 0x04;
 const REVISION: u64 = 0x08;
 const SUBSYSTEM: u64 = 0x2C;
-/// `GMCH_CTRL` (graphics mode select, GTT size), `BDSM` (stolen memory
-/// base) and `ASLS` (the OpRegion address): the words the survey reads.
+/// `GMCH_CTRL` (graphics mode select, GTT size) and `ASLS` (the OpRegion
+/// address): the words the survey reads, with `BDSM` (the stolen memory
+/// base, at `Display::bdsm_config_offset`).
 const GMCH_CTRL: u64 = 0x50;
-const BDSM: u64 = 0x5C;
 const ASLS: u64 = 0xFC;
 const COMMAND_IO: u64 = 1 << 0;
 const COMMAND_MEMORY: u64 = 1 << 1;
 const COMMAND_BUS_MASTER: u64 = 1 << 2;
 
-/// The part this driver adopts.
+/// The vendor of the parts this driver adopts (`devmatch::INTELGFX_DEVICES`).
 pub(super) const VENDOR: u16 = 0x8086;
-pub(super) const DEVICE: u16 = devmatch::GEN9GFX_DEVICES[0];
 /// PCI base class of a display controller.
 const CLASS_DISPLAY: u8 = 0x03;
 /// The register BAR (`GTTMMADR`): registers in the lower half, the GGTT in
@@ -53,7 +54,7 @@ pub(super) fn is_gpu(row: &Row) -> bool {
     row.flags & dev::row_flag::PCI != 0
         && row.class == CLASS_DISPLAY
         && row.vendor == VENDOR
-        && row.device == DEVICE
+        && Display::for_device(row.device).is_some()
 }
 
 /// The GPU to drive: device `wanted` when `devd` named one (it must be the
@@ -116,7 +117,7 @@ pub(super) struct Identity {
     pub(super) asls: u32,
 }
 
-pub(super) fn identity(claimed: &Claimed) -> Result<Identity, StepError> {
+pub(super) fn identity(claimed: &Claimed, display: Display) -> Result<Identity, StepError> {
     let word =
         |offset, width| dev::cfg_read(claimed.handle, offset, width).map_err(|e| ("pci-config", e));
     let subsystem = word(SUBSYSTEM, 4)?;
@@ -125,7 +126,7 @@ pub(super) fn identity(claimed: &Claimed) -> Result<Identity, StepError> {
         subsystem_vendor: subsystem as u16,
         subsystem_device: (subsystem >> 16) as u16,
         gmch_ctrl: word(GMCH_CTRL, 2)? as u16,
-        bdsm: word(BDSM, 4)?,
+        bdsm: word(display.bdsm_config_offset(), 4)?,
         asls: word(ASLS, 4)?,
     })
 }

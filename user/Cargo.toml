@@ -111,11 +111,11 @@ fatvol = { path = "../libs/fatvol" }
 wlansta = { path = "../libs/wlansta" }
 usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
-# `gpud`'s uid and class rules (LAZYOS_GEN9GFX=1, docs/kabylake-gpu-plan.md).
+# `gpud`'s uid and class rules (LAZYOS_INTELGFX=1, docs/kabylake-gpu-plan.md).
 gpupolicy = { path = "../libs/gpupolicy" }
 # The Intel Gen9 display decoders `gpud` reads the firmware's state with
 # (docs/kabylake-gpu-plan.md, stage G1).
-gen9gfx = { path = "../libs/gen9gfx" }
+intelgfx = { path = "../libs/intelgfx" }
 # The range allowlist `gpud` holds its register reads to, the one `dbgd` and
 # the kernel use (libs/pciprobe/src/builtin.rs).
 pciprobe = { path = "../libs/pciprobe" }
@@ -465,7 +465,7 @@ bench = false
 
 # The Intel GPU service (docs/kabylake-gpu-plan.md, stage G1): `devd` starts
 # it for the HD Graphics 620 it found, under `_gpu`. Read-only: it adopts and
-# reports what the firmware left. Embedded with `LAZYOS_GEN9GFX=1`.
+# reports what the firmware left. Embedded with `LAZYOS_INTELGFX=1`.
 [[bin]]
 name = "gpud"
 path = "src/bin/gpud.rs"

@@ -1,11 +1,12 @@
-//! The adopted pipe's beam (`gen9gfx::vblank`): the refresh rate measured
+//! The adopted pipe's beam (`intelgfx::vblank`): the refresh rate measured
 //! from the frame counter once at start (G1's "vblank ticks at the monitor's
 //! rate", `GPU:VBLANK`), the FIFO underrun state (`GPU:UNDERRUN`), and the
 //! live read `GetBeam` answers with. Every access is a read through the
 //! read-only BAR.
 
-use gen9gfx::adopt::ActivePipe;
-use gen9gfx::vblank::{self, Beam, PipeIrq, Underrun};
+use intelgfx::adopt::ActivePipe;
+use intelgfx::regs::DdiMode;
+use intelgfx::vblank::{self, Beam, PipeIrq, Underrun};
 use user::messenger::gpu::wire;
 use user::sys;
 use user::trace::{self, Channel};
@@ -33,10 +34,23 @@ impl Watch {
     pub(super) fn start(mut regs: ReadOnlyBar, pipe: &ActivePipe) -> Watch {
         let index = u32::from(pipe.pipe);
         let vtotal = pipe.v.total;
+        // The counter moves at the start of the vertical blank, where raw
+        // `PIPEDSL` still reads 2 lines short on a TMDS link and 1 on
+        // DisplayPort (i915's `intel_crtc_scanline_offset`, DDI platforms).
+        // On display 13 the vertical blank also starts `TRANS_SET_CONTEXT_
+        // LATENCY` lines after `TRANS_VBLANK`'s start; both boxes' firmware
+        // leaves it 0, which is all this reads.
+        let lag = if pipe.hdmi_link() || pipe.func.mode == DdiMode::Dvi {
+            2
+        } else {
+            1
+        };
+        let count_line = pipe.v.blank_start.saturating_sub(lag);
         let (first, t0) = (Beam::read(&mut regs, index), sys::monotonic_ns());
         let _ = sys::sleep_ns(MEASURE_NS);
         let (last, t1) = (Beam::read(&mut regs, index), sys::monotonic_ns());
-        let measured = vblank::measured_millihz(first, last, t1.saturating_sub(t0), vtotal);
+        let measured =
+            vblank::measured_millihz(first, last, t1.saturating_sub(t0), vtotal, count_line);
         let expected = pipe.refresh_millihz().unwrap_or(0);
         let frames = last.frame.wrapping_sub(first.frame);
         match measured {

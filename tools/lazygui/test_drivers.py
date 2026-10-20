@@ -68,21 +68,21 @@ class DriverChoiceTests(unittest.TestCase):
         self.assertEqual((env.get("LAZYOS_IRQCHIP"), env.get("LAZYOS_MSI")), ("pic", "0"))
         self.assertEqual(drivers.IRQCHIPS, demo_qemu.IRQCHIPS)
 
-    def test_gen9gfx_is_off_by_default_and_reaches_the_run_and_the_build(self) -> None:
+    def test_intelgfx_is_off_by_default_and_reaches_the_run_and_the_build(self) -> None:
         # docs/kabylake-gpu-plan.md section 8: off, and always set so an
-        # inherited LAZYOS_GEN9GFX never overrides the control.
-        self.assertNotIn("--gen9gfx", demo_argv())
+        # inherited LAZYOS_INTELGFX never overrides the control.
+        self.assertNotIn("--intelgfx", demo_argv())
         env = catalog.build_env(advanced())
-        self.assertEqual(env.get("LAZYOS_GEN9GFX"), "0")
-        argv = demo_argv(gen9gfx=True)
-        self.assertEqual(argv.count("--gen9gfx"), 1)
-        env = catalog.build_env(advanced(gen9gfx=True))
-        self.assertEqual(env.get("LAZYOS_GEN9GFX"), "1")
+        self.assertEqual(env.get("LAZYOS_INTELGFX"), "0")
+        argv = demo_argv(intelgfx=True)
+        self.assertEqual(argv.count("--intelgfx"), 1)
+        env = catalog.build_env(advanced(intelgfx=True))
+        self.assertEqual(env.get("LAZYOS_INTELGFX"), "1")
         # devd, which starts gpud, needs a driver stack: the launcher always
         # builds the network stack, and devd stays on.
         self.assertEqual((env.get("LAZYOS_NETD"), env.get("LAZYOS_DEVD")), ("1", "1"))
         # devd off cannot start it: the build refuses the pair (build.rs).
-        self.assertEqual(catalog.build_env(advanced(gen9gfx=True, devd=False)).get("LAZYOS_DEVD"), "0")
+        self.assertEqual(catalog.build_env(advanced(intelgfx=True, devd=False)).get("LAZYOS_DEVD"), "0")
 
     def test_the_choices_are_run_demos(self) -> None:
         self.assertEqual(sorted(drivers.SOUND_CARDS), sorted(demo_qemu.SOUND_CARDS))

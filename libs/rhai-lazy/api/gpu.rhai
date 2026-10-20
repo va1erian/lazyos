@@ -4,11 +4,12 @@
 //
 // `sys::gpu`: the Messenger interface `os.lazy.gpu.v1`.
 //
-// The Intel Gen9 GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
+// The Intel GPU service (`gpud`, docs/kabylake-gpu-plan.md, stage G1:
 // "Adopt + observe").
 //
 // **Read-only.** In this stage `gpud` claims the HD Graphics 620 of the
-// Kaby Lake box (PCI `8086:5916`), maps its register BAR and only *reads*
+// Kaby Lake box (PCI `8086:5916`, Gen9) or the UHD Graphics of the Alder
+// Lake box (`8086:46b3`, display 13), maps its register BAR and only *reads*
 // and decodes what the firmware left on the display: the pipe, transcoder
 // and DDI that are running, the link mode, the timing and pixel clock, the
 // core display clock, the first plane's surface and the GGTT pages behind
@@ -42,8 +43,10 @@ fn connect() {
 /// Core display clock in kHz.
 /// Bit `n`: pipe `n` (A = 0) is enabled.
 /// The pipe (and transcoder) adopted, 0 = A.
-/// The DDI port it drives (0 = A to 4 = E), 4294967295 when the
-/// registers name none.
+/// The DDI port it drives (0 = A, 1 = B, ...; Gen9 has A to E,
+/// display 13 A, B and the Type-C ports TC1 to TC4 as 3 to 6; a
+/// register that names another value is passed on as read),
+/// 4294967295 when the registers name none.
 /// A `LinkMode` ordinal.
 /// Bits per colour component, 0 when not a defined value.
 /// Pixel clock in kHz and refresh rate in millihertz, 0 when the

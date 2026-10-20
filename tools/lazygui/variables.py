@@ -61,9 +61,9 @@ def make_vars() -> dict:
         # Interrupt routing (issue #616): the controller and MSI.
         "irqchip": s(value="ioapic"),
         "msi": b(value=True),
-        # The Intel GPU service gpud (LAZYOS_GEN9GFX, run_demo --gen9gfx):
+        # The Intel GPU service gpud (LAZYOS_INTELGFX, run_demo --intelgfx):
         # read-only adoption of the firmware's display state; off.
-        "gen9gfx": b(value=False),
+        "intelgfx": b(value=False),
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),

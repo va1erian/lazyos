@@ -1,4 +1,4 @@
-//! The register BAR as a *read-only* [`gen9gfx::Mmio`].
+//! The register BAR as a *read-only* [`intelgfx::Mmio`].
 //!
 //! The kernel maps a BAR writable (`dev::map_bar` has no read-only flag), so
 //! the guarantee that stage G1's `gpud` writes no display register is made
@@ -13,11 +13,11 @@
 //!   port, out), so a register with a side effect on read stays unreachable
 //!   until somebody has listed it there.
 //!
-//! A refused or out-of-range read returns all ones, which `gen9gfx::adopt`
+//! A refused or out-of-range read returns all ones, which `intelgfx::adopt`
 //! treats like a dead bus, and is counted (`refused_reads`).
 
 use alloc::vec::Vec;
-use gen9gfx::Mmio;
+use intelgfx::Mmio;
 
 /// A mapped register BAR and the ranges reads may touch.
 pub(super) struct ReadOnlyBar {

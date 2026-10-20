@@ -522,7 +522,7 @@ name = "framering"
 version = "0.1.0"
 
 [[package]]
-name = "gen9gfx"
+name = "intelgfx"
 version = "0.1.0"
 
 [[package]]
@@ -730,7 +730,7 @@ dependencies = [
  "elevpolicy",
  "ext2fs",
  "framering",
- "gen9gfx",
+ "intelgfx",
  "gpt",
  "ieee80211",
  "inputmap",

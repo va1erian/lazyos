@@ -6741,8 +6741,10 @@ pub mod os_lazy_gpu_v1 {
     /// Core display clock in kHz.
     /// Bit `n`: pipe `n` (A = 0) is enabled.
     /// The pipe (and transcoder) adopted, 0 = A.
-    /// The DDI port it drives (0 = A to 4 = E), 4294967295 when the
-    /// registers name none.
+    /// The DDI port it drives (0 = A, 1 = B, ...; Gen9 has A to E,
+    /// display 13 A, B and the Type-C ports TC1 to TC4 as 3 to 6; a
+    /// register that names another value is passed on as read),
+    /// 4294967295 when the registers name none.
     /// A `LinkMode` ordinal.
     /// Bits per colour component, 0 when not a defined value.
     /// Pixel clock in kHz and refresh rate in millihertz, 0 when the
