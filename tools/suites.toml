@@ -49,7 +49,7 @@ flags = ["srb2kart"]
 description = "Switches for tests, harnesses and development only."
 flags = [
     "jsc", "webkit-deps", "webkit-port",
-    "traydemo", "wifi", "wifi-sim", "gen9gfx",
+    "traydemo", "wifi", "wifi-sim", "intelgfx",
     "dbgd", "dbgd-control", "dbgd-mmio",
     "assets",
 ]
