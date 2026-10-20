@@ -7,6 +7,7 @@ use crate::{fadt, Error, Platform};
 
 pub(crate) mod golden;
 mod hostile;
+mod s5;
 
 use golden::*;
 

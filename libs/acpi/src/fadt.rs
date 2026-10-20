@@ -77,6 +77,9 @@ pub struct Fadt {
     /// PM1a control: where `SLP_TYP`/`SLP_EN` are written for S5.
     pub pm1a_control: Option<Gas>,
     pub pm1b_control: Option<Gas>,
+    /// `SLEEP_CONTROL_REG` (ACPI 5.0+): how a hardware-reduced platform
+    /// enters S5, since it has no PM1 blocks.
+    pub sleep_control: Option<Gas>,
     pub pm_timer: Option<PmTimer>,
     /// CMOS index of the RTC century register (0 when none).
     pub century: u8,
@@ -113,6 +116,7 @@ impl Fadt {
             pm1b_event: r.block(160, 60, 88)?,
             pm1a_control: r.block(172, 64, 89)?,
             pm1b_control: r.block(184, 68, 89)?,
+            sleep_control: r.gas(244)?,
             pm_timer: None,
             century: mem.u8_at(phys + 108)?,
             iapc_boot_arch: if table.revision >= 2 {

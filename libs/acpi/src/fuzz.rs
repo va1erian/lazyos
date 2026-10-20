@@ -166,6 +166,9 @@ fn decoded(data: &[u8]) -> bool {
     if let Ok(dsdt) = &platform.dsdt {
         assert_eq!(&dsdt.signature, b"DSDT");
         check_sealed(&image, dsdt.phys, dsdt.length);
+        if let Ok(sleep) = crate::s5::find_s5(&image, dsdt) {
+            assert!(sleep.a <= 7 && sleep.b <= 7, "SLP_TYP out of range");
+        }
     }
     platform.fadt.is_ok() || platform.madt.is_ok() || platform.hpet.is_ok()
 }
