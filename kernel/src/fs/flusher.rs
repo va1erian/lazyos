@@ -55,6 +55,9 @@ pub fn deferred_service() {
     if !super::ext2::claim_deferred(now) {
         return;
     }
+    // Stores through shared mappings first, as the kernel task's round does
+    // for other volumes: it skips these, and parks a dead task's pages.
+    super::openfile::writeback_all(true);
     match super::try_with(|vfs| vfs.filesystems()) {
         Some(filesystems) => {
             for fs in filesystems {

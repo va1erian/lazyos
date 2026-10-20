@@ -194,12 +194,16 @@ for 0.5 to 2.7 s at a time (issue #940).
 
 Now only *who* commits differs. The kernel task never does: the flusher skips
 the writeback (it still gives clean pages back under pressure, which needs no
-I/O). Every hold of the volume's gate ends by scheduling a commit 5 s after
-the volume first needed one (no I/O: the hold may sit inside a mount table
-that every other volume's callers need). Once it is due, the next user task to
-return from a syscall commits it: at that point it holds no mount table and
-has a shallow stack, it takes the volume's gate only if it is free, and every
-other volume stays reachable. Syscalls are made all the time, so the 5 s
+I/O) and pushes no mapped page into such a volume, which past the dirty limit
+or on a cache miss would wait for the provider. Every hold of the volume's
+gate ends by scheduling a commit 5 s after the volume first needed one (no
+I/O: the hold may sit inside a mount table that every other volume's callers
+need). Once it is due, the next user task to return from a syscall writes the
+mapped pages, then commits it: at that point it holds no mount table and has a
+shallow stack, and it takes the volume's gate only if it is free. While it
+commits, a path syscall that meets the gate still waits for it holding its
+mount table, so the commit's length matters: `FS:DEFERRED device=.. blocks=..
+us=..` reports each one. Syscalls are made all the time, so the 5 s
 bound holds whether or not anyone reads `/home`. Never the kernel task, never
 a task that serves a provider disk (`usbd` waiting on its own disk), never one
 that may not park; an interactive or realtime task (the compositor, a shell's

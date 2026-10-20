@@ -12,14 +12,17 @@
 //!
 //! So the volume is cached like any other, and only *who writes it back*
 //! differs. The kernel task never does ([`Ext2::writeback`] skips a deferred
-//! volume, except for giving clean pages back, which needs no I/O). Every hold
-//! of the gate ends by scheduling a commit [`INTERVAL_TICKS`] after the volume
-//! first went dirty ([`Ext2::end_hold`], no I/O), and once one is due, the
-//! next user task to *return from a syscall* commits it
-//! (`fs::flusher::deferred_service`, then [`Ext2::writeback_deferred`]):
-//! with no mount table held (other volumes are never waited for), with the
-//! shallow stack of a syscall's end, and taking the volume's gate only if it is
-//! free. One sorted, coalesced commit every few seconds replaces a round trip
+//! volume, except for giving clean pages back, which needs no I/O, and
+//! `flush_page` pushes no mapped page into one). Every hold of the gate ends
+//! by scheduling a commit [`INTERVAL_TICKS`] after the volume first went dirty
+//! ([`Ext2::end_hold`], no I/O), and once one is due, the next user task to
+//! *return from a syscall* writes the mapped pages and commits it
+//! (`fs::flusher::deferred_service`, then [`Ext2::writeback_deferred`]): with
+//! no mount table held, with the shallow stack of a syscall's end, and taking
+//! the volume's gate only if it is free. A path syscall that meets the gate
+//! meanwhile still waits holding its mount table, so each commit says how long
+//! it held the gate (`FS:DEFERRED`). One sorted, coalesced commit every few
+//! seconds replaces a round trip
 //! per metadata block, and a file written and deleted in between never reaches
 //! the stick at all. `fsync`, `sync` and the power path commit as on every
 //! volume; a writer that fills the dirty limit writes back in its own context.
@@ -92,10 +95,15 @@ pub fn writer_due(due: u64, may_write: bool, interactive: bool) -> Option<u64> {
 }
 
 /// Whether the current task may write a provider disk back: not the kernel
-/// task, not a provider, and able to park.
+/// task, not one about to die (its commit would delay its end), able to
+/// park, and not a provider. Cheapest tests first; `serves_disk` takes the
+/// disk table's lock.
 pub fn may_write_here() -> bool {
     let me = task::current();
-    me != task::KERNEL_TASK && !crate::block::provider::serves_disk(me) && task::relax::can_block()
+    me != task::KERNEL_TASK
+        && !task::signal::fatal_pending()
+        && task::relax::can_block()
+        && !crate::block::provider::serves_disk(me)
 }
 
 /// Whether the current task's commits wait an extra interval.
@@ -108,14 +116,15 @@ fn interactive_here() -> bool {
 
 /// At a syscall's end: whether the current task takes the due commits at
 /// `now` (it then commits every due volume, each scheduling itself again if
-/// it still needs to). Nothing due costs one load and a compare.
+/// it still needs to). Nothing due costs one load and a compare; a due
+/// commit costs the class lookup, then the writer checks, until claimed.
 pub fn claim(now: u64) -> bool {
     let due = NEXT_DUE.load(Ordering::Relaxed);
     if now < due {
         return false;
     }
-    match writer_due(due, may_write_here(), interactive_here()) {
-        Some(at) if now >= at => {}
+    match writer_due(due, true, interactive_here()) {
+        Some(at) if now >= at && may_write_here() => {}
         _ => return false,
     }
     NEXT_DUE
@@ -168,7 +177,21 @@ impl Ext2 {
             note_due(now.saturating_add(RETRY_TICKS));
             return;
         };
-        if self.volume.writeback().is_err() {
+        // How long the gate is held, and for how much: a path syscall that
+        // meets the gate meanwhile holds its mount table while it waits.
+        let blocks = self.volume.dirty_blocks();
+        let start = crate::arch::clock::monotonic_ns();
+        let result = self.volume.writeback();
+        let us = (crate::arch::clock::monotonic_ns() - start) / 1000;
+        crate::trace::event!(
+            tracefmt::Channel::Fs,
+            "DEFERRED",
+            device = self.device,
+            blocks = blocks,
+            us = us,
+            ok = result.is_ok()
+        );
+        if result.is_err() {
             // Recorded for the next `sync` to report; tried again an interval
             // later, not at every syscall. The hold's end keeps this schedule.
             deferred

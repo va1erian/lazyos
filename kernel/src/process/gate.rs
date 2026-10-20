@@ -174,9 +174,10 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     // A default-fatal signal (a supervisor's `SIGTERM`) that arrived while the
     // task was blocked in this call ends it here, on its way back to user
     // mode, instead of waiting for a tick to catch it there.
-    task::signal::deliver_native();
-    // No mount table is held here: a provider volume's due commit (#940).
+    // No mount table is held here: a provider volume's due commit (#940),
+    // before signals, so one that arrived meanwhile is acted on now.
     crate::fs::flusher::deferred_service();
+    task::signal::deliver_native();
     crate::arch::irqoff::exit();
     crate::perf::syscall_exit();
     super::linux::slow::end(probe, "native", nr, [regs.rdi, regs.rsi, regs.rdx]);

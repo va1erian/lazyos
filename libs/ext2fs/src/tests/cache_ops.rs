@@ -189,7 +189,9 @@ fn needs_writeback_tracks_dirty_blocks_and_pending_frees() {
     fs.writeback().unwrap();
     assert!(!fs.needs_writeback(), "after its writeback");
     fs.unlink("/f").unwrap();
-    assert!(fs.needs_writeback(), "after an unlink (frees pending)");
+    // (Its directory and inode blocks are dirty too: this does not isolate
+    // the pending frees; the commit below must clear both.)
+    assert!(fs.needs_writeback(), "after an unlink");
     fs.writeback().unwrap();
     assert!(!fs.needs_writeback(), "after the frees were committed");
     fs.flush().unwrap();

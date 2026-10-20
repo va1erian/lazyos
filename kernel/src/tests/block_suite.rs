@@ -48,6 +48,11 @@ impl FakeDisk {
         self.read_only.store(read_only, Ordering::Relaxed);
     }
 
+    /// Writes the disk has taken so far (each request counts once).
+    pub(super) fn writes(&self) -> u32 {
+        self.writes.load(Ordering::Relaxed)
+    }
+
     /// Fail the `n`th write from now (`n == 1` is the very next one), then
     /// resume succeeding. Test-only fault injection for the ext2 short-write
     /// suite; no production code path can trigger a device write failure on

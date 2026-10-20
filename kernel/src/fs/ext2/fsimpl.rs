@@ -134,7 +134,14 @@ impl Filesystem for Ext2 {
             Err(error) => return Some(Err(error)),
         };
         // The periodic flusher runs on the kernel task: it skips a volume
-        // another task holds (`Ext2::writeback`) and writes next round.
+        // another task holds (`Ext2::writeback`) and writes next round. It
+        // skips a provider disk's volume too: a write past the cache's dirty
+        // limit, or a miss on a block it needs, would wait for the provider
+        // here. The page stays dirty; the user task that commits the volume
+        // writes it first (`fs::flusher::deferred_service`).
+        if !wait && self.defers_writeback() {
+            return None;
+        }
         if let Err(error) = self.refuse_dead() {
             return Some(Err(error));
         }

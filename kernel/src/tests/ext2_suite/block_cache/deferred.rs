@@ -124,6 +124,8 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
         let _ = fs.lookup("/f").map_err(fs_error)?;
         check!(fs.dirty_blocks() > 30, "a hold wrote back");
         // Nor the kernel task: not its flusher, not a due deferred writeback.
+        // The disk's write counter is the proof: no request at all.
+        let writes = disk.writes();
         task::harness::switch_current(KERNEL_TASK);
         vfs.writeback_all(false).map_err(fs_error)?;
         fs.make_writeback_due();
@@ -132,11 +134,23 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
             fs.dirty_blocks() > 30,
             "the kernel task wrote a provider volume back"
         );
-        // A mapped page still reaches the file (into the cache, no I/O).
+        // Nor does it push a mapped page in: past the dirty limit, or on a
+        // miss, that would wait for the provider. The page stays dirty.
         let node = fs.open_node("/f").map_err(fs_error)?.ok_or("no node")?;
         check!(
-            matches!(fs.flush_page(node, 0, &data[..4096], false), Some(Ok(4096))),
-            "a mapped page did not reach the file"
+            fs.flush_page(node, 0, &data[..4096], false).is_none(),
+            "the kernel task flushed a mapped page into a provider volume"
+        );
+        check!(
+            disk.writes() == writes,
+            "the kernel task wrote {} requests to a provider disk",
+            disk.writes() - writes
+        );
+        // A waiting caller (a user task's `msync`) does write it.
+        task::harness::switch_current(user);
+        check!(
+            matches!(fs.flush_page(node, 0, &data[..4096], true), Some(Ok(4096))),
+            "a user task's mapped page did not reach the file"
         );
         // An interactive task waits a whole interval past the due tick.
         task::harness::switch_current(user);
