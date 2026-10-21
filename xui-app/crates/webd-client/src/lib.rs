@@ -12,7 +12,8 @@
 //!
 //! * [`transport`]: the OS seam. [`view`]: the view, its slots and its events. [`input`]: oneway
 //!   input. [`event`]: the events, errors and the reasons a view is lost. [`picture`]: the picture.
-//! * [`page`]: the HTML of the demo client (`webddemo`), shared with the end-to-end tests.
+//! * [`page`], [`demo`]: the HTML and the logic of the demo client (`webddemo`), apart from its window, so
+//!   the host tests and the QEMU harness (`tools/webd`) agree with the app.
 //!
 //! What a client sees when things go wrong, each tested: a refused call is [`Error::Refused`] with
 //! the service's errno and leaves the view as it was; a service that is not there is
@@ -20,6 +21,7 @@
 //! [`ViewEvent::Lost`] (from `poll`) and [`Error::Lost`] (from any later call), never a panic or a
 //! hang; [`LightWebView::recreate`] makes a new view and loads the last page again.
 
+pub mod demo;
 pub mod event;
 pub mod input;
 pub mod page;

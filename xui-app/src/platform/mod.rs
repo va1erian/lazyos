@@ -2,8 +2,8 @@
 //! the pickers' default folder, the Paint storage and atomic writes, the Files
 //! launcher, the clipboard client, the drag-and-drop `text/uri-list` codec,
 //! the audio transport, the print spooler's interface, the central topics
-//! broker's publisher and the Settings app's config store and system
-//! services.
+//! broker's publisher, the Settings app's config store and system
+//! services, and the transport of webd's light views.
 //!
 //! Everything here is behind a small, testable seam so the apps stay portable
 //! and the OS specifics live in one place.
@@ -26,3 +26,4 @@ pub mod system;
 pub mod topic_feed;
 pub mod topics;
 pub mod urilist;
+pub mod webd;

@@ -188,6 +188,8 @@ lazymotion = { path = "crates/motion" }
 lazyicons = { path = "crates/named-icons" }
 # One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).
 trayclient = { path = "../libs/trayclient" }
+# webd's light views (docs/webd-plan.md P2 slice 2): the client; `platform::webd` binds it to Messenger.
+xui-webd-client = { path = "crates/webd-client" }
 # The shell themes its surfaces from the same `sys/ui/*` palette as xuid
 # (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
@@ -421,3 +423,7 @@ path = "src/bin/removable.rs"
 [[bin]]
 name = "xui-nes"
 path = "src/bin/nes.rs"
+
+[[bin]]
+name = "xui-webddemo"
+path = "src/bin/webddemo.rs"

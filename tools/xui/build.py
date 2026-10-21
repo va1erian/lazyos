@@ -144,6 +144,9 @@ BINS = {
     "xui-removable": "xui-removable.elf",
     # NES: Play NES game ROMs, with sound.
     "xui-nes": "xui-nes.elf",
+    # Web View Demo: the client of webd's light views (docs/webd-plan.md P2 slice 2); only a
+    # `LAZYOS_WEBD=1` image ships it.
+    "xui-webddemo": "xui-webddemo.elf",
 }
 
 

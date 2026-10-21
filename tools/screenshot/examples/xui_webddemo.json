@@ -1,0 +1,7 @@
+[
+  {"wait_for": "WEBDDEMO:UP:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "webddemo_initial"},
+  {"key": "q", "until": "WEBDDEMO:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"quit": true}
+]

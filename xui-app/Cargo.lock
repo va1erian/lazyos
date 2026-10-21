@@ -6941,6 +6941,7 @@ dependencies = [
  "xui-rich-text",
  "xui-settings",
  "xui-videoview",
+ "xui-webd-client",
  "xui-writer",
 ]
 
