@@ -12,6 +12,8 @@
 //!
 //! * [`transport`]: the OS seam. [`view`]: the view, its slots and its events. [`input`]: oneway
 //!   input. [`event`]: the events, errors and the reasons a view is lost. [`picture`]: the picture.
+//!   `outbox`: the oneway messages that must arrive (slot releases, button and key releases) when
+//!   webd's inbox is full.
 //! * [`page`], [`demo`]: the HTML and the logic of the demo client (`webddemo`), apart from its window, so
 //!   the host tests and the QEMU harness (`tools/webd`) agree with the app.
 //!
@@ -24,6 +26,7 @@
 pub mod demo;
 pub mod event;
 pub mod input;
+mod outbox;
 pub mod page;
 pub mod picture;
 pub mod transport;

@@ -25,10 +25,16 @@ pub const HTML_BYTES_MAX: u64 = 8 << 20;
 /// A view's `user_style`, at most (`webd_view_config` says the same).
 pub const USER_STYLE_BYTES_MAX: usize = 64 << 10;
 
-/// The largest text (title, error, URL, copied text) the service puts in one event: a client's
-/// receive buffer is 64 KiB (xui's `Server` precedent) and the parcel header and the other fields
-/// share it. Longer text is cut at a character boundary.
+/// The largest text (title, error, URL, copied text) the service puts in one event. Longer text is
+/// cut at a character boundary, when the engine's news is queued (`events`) and again when it is
+/// sent. The cut is what lets a client's receive buffer be a fixed size ([`EVENT_BYTES_MAX`]).
 pub const EVENT_TEXT_BYTES: usize = 48 << 10;
+
+/// The largest event parcel the service sends, and so the receive buffer a client must offer (the
+/// kernel drops a message larger than the buffer with `EMSGSIZE`): a `State` carries two texts of
+/// [`EVENT_TEXT_BYTES`] (title and error), plus the parcel header and the TLV framing. The client
+/// crate's `EVENT_BYTES` is this number; a test keeps the two together.
+pub const EVENT_BYTES_MAX: usize = 2 * EVENT_TEXT_BYTES + (4 << 10);
 
 /// The receive buffer the program that hosts the service must offer: a `CreateView` with the
 /// largest `user_style` is a little over 64 KiB, and a message larger than the buffer is dropped by

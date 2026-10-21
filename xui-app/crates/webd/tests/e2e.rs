@@ -165,6 +165,31 @@ fn long_texts_are_cut_and_news_about_a_view_nobody_has_is_ignored() {
 }
 
 #[test]
+fn the_largest_event_fits_the_receive_buffer_a_client_must_offer() {
+    use libmessenger::Header;
+    let mut rig = rig();
+    let app = origin(7);
+    let (view, events) = rig.create_plain(app, 8, 8);
+    let huge = "\u{20ac}".repeat(100_000);
+    rig.queue.state(view, &huge, false, 1, &huge);
+    rig.queue.link_clicked(view, &huge);
+    rig.queue.clipboard_write(view, &huge);
+    rig.service.pump(0);
+    let sizes: Vec<usize> = rig
+        .fabric
+        .take_events(events)
+        .into_iter()
+        .map(|(_, body)| body.len())
+        .collect();
+    assert_eq!(sizes.len(), 3);
+    // The parcel header travels with the body; the kernel drops what the buffer cannot hold.
+    let header = std::mem::size_of::<Header>() + 64;
+    let biggest = *sizes.iter().max().unwrap();
+    assert!(biggest > 2 * xui_webd::limits::EVENT_TEXT_BYTES, "the State has two texts");
+    assert!(biggest + header <= xui_webd::limits::EVENT_BYTES_MAX, "{biggest}");
+}
+
+#[test]
 fn input_goes_to_the_engine_with_the_modifier_bits_it_knows() {
     let mut rig = rig();
     let app = origin(7);

@@ -11,6 +11,7 @@ use libmessenger::Buffer;
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 
 use crate::event::{self, Error, Lost, PageState, ViewEvent, Wire};
+use crate::outbox::Outbox;
 use crate::picture::Picture;
 use crate::transport::{errno, SharedMem, Transport};
 
@@ -28,7 +29,7 @@ struct Slot<M> {
 }
 
 pub(crate) struct Live {
-    view: u64,
+    pub(crate) view: u64,
     /// Where the events arrive (our end of the pair `CreateView` moved the other end of).
     events: u64,
 }
@@ -62,6 +63,8 @@ pub struct LightWebView<T: Transport> {
     html: Option<(Vec<u8>, String)>,
     pub(crate) visible: bool,
     pub(crate) focused: bool,
+    /// Oneway messages webd's full inbox refused and that must still arrive.
+    pub(crate) outbox: Outbox,
     counters: Counters,
 }
 
@@ -83,6 +86,7 @@ impl<T: Transport> LightWebView<T> {
             html: None,
             visible: true,
             focused: false,
+            outbox: Outbox::default(),
             counters: Counters::default(),
         }
     }
@@ -187,6 +191,7 @@ impl<T: Transport> LightWebView<T> {
         self.size = (width, height);
         // The old slots are the wrong size and webd no longer has them.
         self.slots.clear();
+        self.outbox.forget_slots();
         self.attach_slots()
     }
 
@@ -194,6 +199,8 @@ impl<T: Transport> LightWebView<T> {
     /// slots, and report what happened.
     pub fn poll(&mut self) -> Vec<ViewEvent> {
         let mut out = Vec::new();
+        // What webd's full inbox refused earlier goes first (`crate::outbox`).
+        self.flush_outbox();
         let Some(events) = self.live.as_ref().map(|live| live.events) else {
             return out;
         };
@@ -300,16 +307,14 @@ impl<T: Transport> LightWebView<T> {
     }
 
     fn release(&mut self, slot: u32) {
-        let Some(live) = self.live.as_ref() else {
+        if self.live.is_none() {
             return;
-        };
+        }
         if let Some(held) = self.slots.get_mut(slot as usize) {
             held.held = false;
         }
-        let view = live.view;
-        if let Ok(body) = wire::encode_release_slot_args(&wire::ReleaseSlotArgs { view, slot }) {
-            self.send(wire::METHOD_RELEASESLOT, body);
-        }
+        // Owed to webd until it has taken it: a slot it never hears released stays busy for good.
+        self.owe_release(slot);
     }
 
     /// Allocate and attach the slots for the current size.
@@ -391,19 +396,6 @@ impl<T: Transport> LightWebView<T> {
         }
     }
 
-    /// A oneway message. A service that is gone turns the view lost; nothing else can go wrong
-    /// that the caller could do anything about.
-    pub(crate) fn send(&mut self, method: u32, body: Vec<u8>) {
-        if self.lost.is_some() {
-            return;
-        }
-        if let Err(code) = self.transport.send(method, body) {
-            if matches!(-code, errno::ENOENT | errno::EPIPE) {
-                self.lost = Some(Lost::ServiceGone);
-            }
-        }
-    }
-
     /// What a failed call means for the view: a service or view that is gone loses it, a refusal
     /// leaves it as it was.
     fn failed(&mut self, errno: i64) -> Error {
@@ -437,6 +429,7 @@ impl<T: Transport> LightWebView<T> {
             self.transport.close_channel(live.events);
         }
         self.slots.clear();
+        self.outbox.clear();
         self.lost = None;
     }
 
