@@ -434,7 +434,8 @@ fn main() {
     produced!(files, ca_bundle::embed, roots.map(|der| der.as_ref()));
     produced!(files, tls_embed::embed, &manifest_dir);
     produced!(files, linuxapps_embed::embed, &manifest_dir);
-    // linuxapps_embed places dash, sqlite3, jq and rg. The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
+    // linuxapps_embed places dash, sqlite3, jq and rg.
+    // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     produced!(files, docs_embed::embed, &manifest_dir);
     // The LazyRAD IDE is a core package (embedded with the others above when

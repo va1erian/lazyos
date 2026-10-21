@@ -54,8 +54,8 @@ impl Default for Owners {
 
 impl Owners {
     /// Everything added from now on belongs to `producer`.
-    pub fn producer(&mut self, producer: &'static str) {
-        self.current = producer;
+    pub fn producer(&mut self, producer: &'static str) -> &'static str {
+        std::mem::replace(&mut self.current, producer)
     }
 
     /// Record that the current producer placed `path` (already cleaned).
@@ -120,9 +120,9 @@ impl OsFiles {
         producer: &'static str,
         add: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        self.owners.producer(producer);
+        let outer = self.owners.producer(producer);
         let result = add(self);
-        self.owners.producer(DEFAULT_PRODUCER);
+        self.owners.producer(outer);
         result
     }
 
@@ -133,10 +133,16 @@ impl OsFiles {
     /// Write the ownership table to `<root>/target/os-owners.tsv` and report collisions: as cargo
     /// warnings, or as an error with `LAZYOS_OWNER_STRICT=1`.
     pub fn write_owners(&self, root: &Path) -> Result<(), String> {
-        let table = root.join("target/os-owners.tsv");
         println!("cargo:rerun-if-env-changed=LAZYOS_OWNER_STRICT");
         let strict =
             std::env::var_os("LAZYOS_OWNER_STRICT").as_deref() == Some(std::ffi::OsStr::new("1"));
+        self.write_owners_with(root, strict)
+    }
+
+    /// [`OsFiles::write_owners`] with `strict` given rather than read from the
+    /// environment.
+    pub fn write_owners_with(&self, root: &Path, strict: bool) -> Result<(), String> {
+        let table = root.join("target/os-owners.tsv");
         std::fs::write(&table, self.owners.table())
             .map_err(|e| format!("{}: {e}", table.display()))?;
         let collisions = self.owners.describe_collisions();

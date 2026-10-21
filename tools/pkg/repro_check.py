@@ -52,9 +52,11 @@ def config_rustflags(checkout: Path) -> list[str]:
     return list(config.get("target", {}).get(TARGET, {}).get("rustflags", []))
 
 
-def remap_flags(checkout: Path, sysroot: Path, cargo_home: Path) -> list[str]:
-    """`--remap-path-prefix` for every absolute prefix a build embeds."""
-    pairs = [(checkout, "/src"), (cargo_home, "/cargo"), (sysroot, "/rustc")]
+def remap_flags(checkout: Path, sysroot: Path, cargo_home: Path, target_dir: Path) -> list[str]:
+    """`--remap-path-prefix` for every absolute prefix a build embeds: the
+    checkout, cargo home, the toolchain, and the target directory (generated
+    code is included from `OUT_DIR`, which lives in it)."""
+    pairs = [(checkout, "/src"), (cargo_home, "/cargo"), (sysroot, "/rustc"), (target_dir, "/target")]
     return [f"--remap-path-prefix={src}={dst}" for src, dst in pairs]
 
 
@@ -71,6 +73,21 @@ def digests(directory: Path) -> dict[str, str]:
     }
 
 
+# What a build of each set must at least have produced: a comparison of two
+# empty results would otherwise pass.
+EXPECTED = {"user": ("init", "messengerd", "keyd", "netd"), "kernel": ("kernel",)}
+MIN_PROGRAMS = {"user": 30, "kernel": 1}
+
+
+def missing(results: dict[str, str], sets: list[str]) -> list[str]:
+    """Problems with a build's output: expected programs absent or too few."""
+    problems = [f"{name} was not built" for s in sets for name in EXPECTED[s] if name not in results]
+    floor = sum(MIN_PROGRAMS[s] for s in sets)
+    if len(results) < floor:
+        problems.append(f"only {len(results)} programs built, expected at least {floor}")
+    return problems
+
+
 def differences(a: dict[str, str], b: dict[str, str]) -> list[str]:
     names = sorted(set(a) | set(b))
     return [name for name in names if a.get(name) != b.get(name)]
@@ -79,7 +96,7 @@ def differences(a: dict[str, str], b: dict[str, str]) -> list[str]:
 def build(checkout: Path, target_dir: Path, sets: list[str], remap: bool, env: dict[str, str]) -> dict[str, str]:
     flags = config_rustflags(checkout)
     if remap:
-        flags += remap_flags(checkout, Path(env["_SYSROOT"]), Path(env["_CARGO_HOME"]))
+        flags += remap_flags(checkout, Path(env["_SYSROOT"]), Path(env["_CARGO_HOME"]), target_dir)
     build_env = {k: v for k, v in env.items() if not k.startswith("_")}
     build_env["CARGO_ENCODED_RUSTFLAGS"] = encoded_flags(flags)
     build_env["CARGO_TARGET_DIR"] = str(target_dir)
@@ -115,6 +132,11 @@ def main() -> int:
         total = len(set(results[0]) | set(results[1]))
         for name in bad:
             print(f"DIFFERS  {name}")
+        empty = [problem for result in results for problem in missing(result, sets)]
+        for problem in empty:
+            print(f"BUILD    {problem}")
+        if empty:
+            return 1
         print(f"{total - len(bad)}/{total} programs bit-identical ({'remapped' if not args.no_remap else 'no remap'})")
         return 1 if bad else 0
     finally:

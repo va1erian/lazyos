@@ -229,7 +229,6 @@ paths = [
     "/system/bin/hello", "/system/bin/faultprobe", "/system/bin/msgbench",
     "/system/bin/async-echo", "/system/bin/clipcp", "/system/bin/clippaste",
     "/system/bin/flaky", "/system/bin/wifiprobe", "/system/bin/wifisim",
-    "/system/etc/ui-probe",
 ]
 producers = ["evidence_embed", "ui_probe_embed"]
 

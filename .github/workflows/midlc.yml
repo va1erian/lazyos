@@ -68,9 +68,11 @@ jobs:
       - name: IDL stays append-only against the base branch
         if: github.event_name == 'pull_request'
         continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-          python tools/pkg/idl_compat.py FETCH_HEAD HEAD
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          python tools/pkg/idl_compat.py FETCH_HEAD HEAD || { echo "::warning::IDL has non-append-only changes against $BASE_REF (see the job summary)"; exit 1; }
 
       - name: Generated stubs round-trip and match the corpus
         run: cargo test -p messenger-generated

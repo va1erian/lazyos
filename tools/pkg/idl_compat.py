@@ -49,44 +49,77 @@ def read(ref: str | None, path: str) -> str:
     return git("show", f"{ref}:{path}")
 
 
-def schema(ref: str | None) -> dict[str, dict]:
-    """interface name -> {methods, structs, enums} as plain data."""
+def schema_of_text(text: str) -> dict[str, dict]:
+    """interface name -> its methods, structs, enums, topics and rings as plain data."""
     out: dict[str, dict] = {}
-    for path in midl_paths(ref):
-        try:
-            interfaces = Parser(lex(read(ref, path))).parse_interfaces()
-        except Exception as error:  # an older tree may not parse with today's midlc
-            out[f"<unparsed {path}>"] = {"error": str(error)}
-            continue
-        for itf in interfaces:
-            def fields(params):
-                return {p.id: (p.name, str(p.ty)) for p in params}
+    for itf in Parser(lex(text)).parse_interfaces():
+        def fields(params):
+            return {p.id: (p.name, str(p.ty), p.ty.objects) for p in params}
 
-            out[itf.name] = {
-                "methods": {
-                    m.name: {"id": m.method_id, "oneway": m.oneway, "params": fields(m.params), "returns": fields(m.returns)}
-                    for m in itf.methods
-                },
-                "structs": {s.name: fields(s.fields) for s in itf.structs},
-                "enums": {e.name: list(e.variants) for e in itf.enums},
-                "topics": {t.name: (t.payload, t.qos) for t in itf.topics},
-            }
+        out[itf.name] = {
+            "methods": {
+                m.name: {
+                    "id": m.method_id,
+                    "oneway": m.oneway,
+                    "params": fields(m.params),
+                    "returns": fields(m.returns),
+                    # The kernel refuses a request whose object list is not
+                    # exactly the declared one, so any change to it breaks.
+                    "objects": [(o.kind, o.interface, o.dotted) for o in m.objects],
+                }
+                for m in itf.methods
+            },
+            "structs": {s.name: fields(s.fields) for s in itf.structs},
+            "enums": {e.name: list(e.variants) for e in itf.enums},
+            "topics": {
+                # Wildcard names are documentation; their kinds are the wire.
+                t.name: (t.payload, t.qos, t.retained, tuple(p.kind for p in t.params))
+                for t in itf.topics
+            },
+            "rings": {r.name: (r.layout, r.producer, r.doorbell, r.advance) for r in itf.rings},
+        }
     return out
 
 
-def diff_fields(where: str, old: dict, new: dict, *, reply: bool) -> list[str]:
+def schema(ref: str | None) -> dict[str, dict]:
+    """The schema of every `idl/*.midl` at `ref` (the work tree for None)."""
+    out: dict[str, dict] = {}
+    for path in midl_paths(ref):
+        try:
+            out.update(schema_of_text(read(ref, path)))
+        except Exception as error:  # an older tree may not parse with today's midlc
+            out[f"<unparsed {path}>"] = {"error": str(error)}
+    return out
+
+
+def diff_fields(where: str, old: dict, new: dict) -> list[str]:
+    """Breaking differences between two field tables (id -> (name, type, objects)).
+
+    Appending is compatible, except a field that carries a kernel object:
+    that changes the request's object list. A pure rename (same id and type)
+    is wire-compatible and not reported; a *swap* is, because each name now
+    means the other field.
+    """
     problems = []
-    for fid, (name, ty) in old.items():
+    new_ids = {name: fid for fid, (name, _, _) in new.items()}
+    for fid, (name, ty, _) in old.items():
         if fid not in new:
-            problems.append(f"{where}: field {name} (id {fid}) removed")
+            if name in new_ids:
+                problems.append(f"{where}: field {name} moved from id {fid} to id {new_ids[name]}")
+            else:
+                problems.append(f"{where}: field {name} (id {fid}) removed")
         elif new[fid][1] != ty:
             problems.append(f"{where}: field {name} (id {fid}) retyped {ty} -> {new[fid][1]}")
-        elif new[fid][0] != name:
-            problems.append(f"{where}: field id {fid} renamed {name} -> {new[fid][0]} (wire-compatible, note only)")
+        elif new[fid][0] != name and name in new_ids:
+            problems.append(f"{where}: field {name} (id {fid}) swapped with {new[fid][0]}: the names now mean the other field")
+    for fid, (name, ty, objects) in new.items():
+        if fid not in old and objects:
+            problems.append(f"{where}: appended field {name} ({ty}) carries a kernel object")
     return problems
 
 
 def compare(old: dict[str, dict], new: dict[str, dict]) -> list[str]:
+    """The non-append-only changes from `old` to `new`."""
     problems: list[str] = []
     for name, o in old.items():
         if "error" in o:
@@ -107,14 +140,16 @@ def compare(old: dict[str, dict], new: dict[str, dict]) -> list[str]:
                 problems.append(f"{name}.{mname}: method id {om['id']} -> {nm['id']}")
             if nm["oneway"] != om["oneway"]:
                 problems.append(f"{name}.{mname}: oneway changed")
-            problems += diff_fields(f"{name}.{mname} args", om["params"], nm["params"], reply=False)
-            problems += diff_fields(f"{name}.{mname} reply", om["returns"], nm["returns"], reply=True)
+            if nm["objects"] != om["objects"]:
+                problems.append(f"{name}.{mname}: the request's object list changed {om['objects']} -> {nm['objects']}")
+            problems += diff_fields(f"{name}.{mname} args", om["params"], nm["params"])
+            problems += diff_fields(f"{name}.{mname} reply", om["returns"], nm["returns"])
         for sname, os_ in o["structs"].items():
             ns = n["structs"].get(sname)
             if ns is None:
                 problems.append(f"{name}: struct {sname} removed")
             else:
-                problems += diff_fields(f"{name} struct {sname}", os_, ns, reply=False)
+                problems += diff_fields(f"{name} struct {sname}", os_, ns)
         for ename, ov in o["enums"].items():
             nv = n["enums"].get(ename)
             if nv is None:
@@ -124,7 +159,10 @@ def compare(old: dict[str, dict], new: dict[str, dict]) -> list[str]:
         for tname, ot in o["topics"].items():
             if n["topics"].get(tname) != ot:
                 problems.append(f"{name}: topic {tname} changed {ot} -> {n['topics'].get(tname)}")
-    return [p for p in problems if "note only" not in p]
+        for rname, orng in o["rings"].items():
+            if n["rings"].get(rname) != orng:
+                problems.append(f"{name}: ring {rname} changed {orng} -> {n['rings'].get(rname)}")
+    return problems
 
 
 def history(since: str | None) -> int:

@@ -64,18 +64,34 @@ fn the_table_lists_every_path_with_its_owner_in_path_order() {
 }
 
 #[test]
-fn the_table_file_is_written_and_a_collision_is_only_a_warning_by_default() {
+fn the_table_file_is_written_and_strictness_decides_whether_a_collision_fails() {
     let mut files = OsFiles::default();
     files.produced_by("one", |f| add(f, "/system/x", "1"));
     files.produced_by("two", |f| add(f, "/system/x", "2"));
     let root = std::env::temp_dir().join(format!("lazyos-owners-{}", std::process::id()));
     std::fs::create_dir_all(root.join("target")).unwrap();
-    // `LAZYOS_OWNER_STRICT` is unset in the test environment.
-    assert!(files.write_owners(&root).is_ok());
+    // Not `write_owners`: CI sets `LAZYOS_OWNER_STRICT`, which that reads.
+    assert!(files.write_owners_with(&root, false).is_ok());
+    let table = std::fs::read_to_string(root.join("target/os-owners.tsv")).unwrap();
     assert_eq!(
-        std::fs::read_to_string(root.join("target/os-owners.tsv")).unwrap(),
+        table,
         "/system/x	two
 "
     );
+    assert!(files
+        .write_owners_with(&root, true)
+        .unwrap_err()
+        .contains("1 path"));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_nested_scope_restores_the_outer_producer() {
+    let mut files = OsFiles::default();
+    files.produced_by("outer", |f| {
+        f.produced_by("inner", |g| add(g, "/system/a", "a"));
+        add(f, "/system/b", "b");
+    });
+    assert_eq!(files.owners().owner("/system/a"), Some("inner"));
+    assert_eq!(files.owners().owner("/system/b"), Some("outer"));
 }

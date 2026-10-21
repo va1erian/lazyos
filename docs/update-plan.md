@@ -1091,12 +1091,16 @@ discipline is better than feared.** The id is `fnv1a64(name)`
 (`midlc_model.Interface.id`), so appending a method or field leaves it alone
 and removing one leaves it alone too. `tools/pkg/idl_compat.py` (new, with
 `test_idl_compat.py`) diffs two IDL trees for non-append-only changes
-(removed or retyped fields, changed method ids, reordered enums, removed
-interfaces, changed topics). Run over all 82 commits that touched
-`idl/*.midl` (3 minutes; commits in an older syntax today's `midlc` refuses are
-skipped and counted), it found **2 commits with a break inside one `.vN`**: the
+(removed, retyped, moved or swapped fields, changed method ids, reordered
+enums, removed interfaces, changed topics and rings, an appended argument that
+carries a kernel object, which changes the request's object list). Run over all
+82 commits that touched `idl/*.midl` (3 minutes; 29 of them are in an older
+syntax today's `midlc` refuses and are skipped, so the result covers 53), it
+found **2 commits with a break inside one `.vN`**: the
 `Tick` method moving to a topic in `de4831856` and the `regd` to `confd` rename
-in `d7fa3864a`. Both are early renames, not drift in a live interface. Field
+in `d7fa3864a`. Both are early renames, not drift in a live interface (a third
+hit, a topic wildcard renamed in `32d4be647`, is wire-compatible and no longer
+reported). Field
 ids are positional unless pinned, but every field in `idl/` is already pinned
 and `test_midlc_fields.py` fails on an unpinned one, so a reorder cannot
 renumber the wire unnoticed.
@@ -1148,13 +1152,13 @@ model.
 
 | Item | State |
 |---|---|
-| IDL compatibility check | done: `tools/pkg/idl_compat.py` and tests, run by `midlc.yml` on pull requests against the base branch. It is informational (`continue-on-error`, with a job summary): there is no release tag yet and an early deliberate break inside a `.vN` is still allowed. Making it a gate is removing one line once the first snapshot exists |
+| IDL compatibility check | done: `tools/pkg/idl_compat.py` and tests, run by `midlc.yml` on pull requests against the base branch. It is informational (`continue-on-error`, with a job summary and a warning annotation): there is no release tag yet and an early deliberate break inside a `.vN` is still allowed. Making it a gate is removing one line once the first snapshot exists. It parses real MIDL text in its tests and covers swaps, moved fields, topics, rings and object-list changes |
 | Pin field ids | already true and already enforced (see S1); nothing to do |
-| Owner-tagging sink | done: `build_support/os_owners.rs`; `OsFiles::produced_by(name, ...)` scopes each producer in `build.rs`; `target/os-owners.tsv` lists `path<TAB>owner` on every build; a path placed by two producers is a warning, and `LAZYOS_OWNER_STRICT=1` (set in `ci.yml` and `image.yml`) makes it a build error. Tests: `build_support/tests/owners_tests.rs`. Measured on the console, services and two desktop images (231 to 317 files): no collisions. Inline `files.add_file(...)` lines in `build.rs` are owned by `build.rs` until P1 gives each service its own package |
+| Owner-tagging sink | done: `build_support/os_owners.rs`; `OsFiles::produced_by(name, ...)` scopes each producer in `build.rs`; `target/os-owners.tsv` lists `path<TAB>owner` on every build; a path placed by two producers is a warning, and `LAZYOS_OWNER_STRICT=1` makes it a build error. Strict is set in `image.yml` only, which builds the console and the services image; the other workflows and the desktop and optional-app images are not checked there. Tests: `build_support/tests/owners_tests.rs` (they do not read the variable). Measured locally on the console, services and two desktop images (231 to 317 files): no collisions. Inline `files.add_file(...)` lines in `build.rs` are owned by `build.rs` until P1 gives each service its own package |
 | `repro_check.py` | done: `tools/pkg/repro_check.py` and tests build a revision in two checkouts with different path lengths, with the cargo home, toolchain and checkout paths remapped, and compare. Result: 64/64 `user` programs and the kernel bit-identical. `repro.yml` runs it weekly, on dispatch and when the toolchain or the checker changes. Still unmeasured: musl xui apps, zig C programs, Docker WebKit, Linux versus Windows, core `.lzp` archives |
 | Official-build remap flags | the checker applies them; the official build script that signs a snapshot does not exist yet (P1) |
-| `kernel-abi` and the frozen-syscall table | done: `lazyos_sys::abi::{KERNEL_ABI, KERNEL_ABI_COMPAT_FROM}` (both 1) and `libs/lazyos-sys/abi/syscalls.abi`, 79 entries (35 native syscalls, 29 Messenger ops, 15 device ops). `tests/abi_freeze.rs` fails on a renumbered or renamed constant, on a new constant missing from the table, on a vanished entry without a `removed` mark, and when `KERNEL_ABI` is not the newest `since`/`removed` in the table. It runs in CI with the rest of `lazyos-sys` and complements `kernel_tables.rs`, which ties the numbers to the kernel's dispatch. The kernel does not export the value at run time yet (P6) |
-| Package list and `owners.py` | done as a first cut: `packaging/packages.toml` lists 40 packages (the kernel and boot files included) by exact path, pattern or producer; `tools/pkg/owners.py` joins it with `target/os-owners.tsv` and fails on an unowned or ambiguous file; `image.yml` runs it on the fresh image. The union of four image variants (326 files) is fully owned; the one unowned file it found (`pkgdemo.lzp`) is fixed. Optional-app producers that need external artifacts (WebKit, Doom, Quake, ...) are covered by producer only and unverified until a CI image builds them. Per-package `package.toml` files next to the code, and splitting `lazyos-core-apps` and `lazyos-assets`, are P1 |
+| `kernel-abi` and the frozen-syscall table | done: `lazyos_sys::abi::{KERNEL_ABI, KERNEL_ABI_COMPAT_FROM}` (both 1) and `libs/lazyos-sys/abi/syscalls.abi`, 79 entries (35 native syscalls, 29 Messenger ops, 15 device ops). `tests/abi_freeze.rs` fails on a renumbered or renamed constant, on a new constant missing from the table, on a vanished entry without a `removed` mark, and when `KERNEL_ABI` is not the newest `since`/`removed` in the table. On pull requests `ci.yml` also compares the table with the base branch's (`LAZYOS_ABI_BASE`), so editing a line and its constant together, or adding a line without an ABI bump, fails too. The frozen scope is `nr`, `msg::op` and `dev::op`; the other ABI constants (`display` and `input` ops, credential ops and capabilities, the wait flags, `REGISTRY_TARGET_SELF`) are not frozen yet and join the table when P6 exports the version. It runs in CI with the rest of `lazyos-sys` and complements `kernel_tables.rs`, which ties the numbers to the kernel's dispatch. The kernel does not export the value at run time yet (P6) |
+| Package list and `owners.py` | done as a first cut: `packaging/packages.toml` lists 40 packages (the kernel and boot files included) by exact path, pattern or producer; `tools/pkg/owners.py` joins it with `target/os-owners.tsv` and fails on an unowned or ambiguous file; `image.yml` runs it on the console and the services image (and on changes to `packaging/` and `tools/pkg/`). Locally, the union of four image variants (326 files) is fully owned; the one unowned file it found (`pkgdemo.lzp`) is fixed. Optional-app producers that need external artifacts (WebKit, Doom, Quake, ...) are covered by producer only (and the desktop image by the listed bin paths and `/system/packages/*`), so files they place elsewhere would show as unowned in an image CI does not build. Per-package `package.toml` files next to the code, and splitting `lazyos-core-apps` and `lazyos-assets`, are P1 |
 
 P0 is done apart from the unmeasured reproducibility cases and the producers
 above, both of which only widen coverage of checks that already exist.
