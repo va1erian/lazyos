@@ -51,6 +51,10 @@ struct ViewState {
     const char* committedUrl { "" };
     bool secure { false };
     int finished { 0 };
+    // Why the page's process ended when `crashed`: "crash", "memory", "cpu" or "requested" (terminationReason).
+    const char* terminated { "" };
+    // Bumped by a state the owner must hear even when nothing else in it changed (a refused load).
+    int serial { 0 };
 };
 
 // What a view tells its owner. Called on WebKit's main thread (the run loop's); none may block.
@@ -61,6 +65,9 @@ public:
 
     virtual void state(const ViewState&) { }
     virtual void responsive(bool) { }
+    // A light view (ViewConfig::light) refused a navigation of the main frame (a link click, a form submit, a
+    // meta refresh, a script's location change) and loaded nothing: the address it asked for, absolute.
+    virtual void linkClicked(const char* /*url*/) { }
 
     // Painting. The damage a paint has to cover is kept by the owner (paint*), in the form it likes;
     // the paint asks for the plan (kPaintNothing, kPaintFull, kPaintDelta) and sends pixels back.
@@ -145,6 +152,19 @@ struct ViewConfig {
     int group { 0 };
     int width { kInitialWidth };
     int height { kInitialHeight };
+    // A LIGHT view (docs/webd-plan.md 3.6; light.cpp): content comes from View::loadHtml only. Everything
+    // below is read only when `light` is set, so a browser view (legacy.cpp) is as it always was. A light view
+    // has a data store of its own that keeps nothing (give it no profile), scripts as `scripts` says, no
+    // network of any kind (a content rule list that blocks every load but data:, blob: and about: URLs, and a
+    // navigation policy that loads nothing the owner did not ask for), and the owner's features should be 0.
+    bool light { false };
+    bool scripts { false };
+    // 1: prefers-color-scheme is dark. 0: follows the page (light).
+    int colorScheme { 0 };
+    // The page's default and minimum font size in CSS pixels; 0 keeps WebKit's.
+    int defaultFontSize { 0 };
+    // Extra CSS for every page loaded with loadHtml (empty: none).
+    std::string userStyle;
 };
 
 struct Host;
@@ -225,8 +245,18 @@ struct View {
     bool blockWanted { true };
     bool blockAttached { false };
     int blockedCount { 0 };
+    // Light views (light.cpp): the loadHtml loads whose navigation the policy has not yet allowed, and the
+    // address they are for (the base URL as WebKit spells it, without a fragment). Why the page's process
+    // ended, for ViewState::terminated.
+    int lightLoads { 0 };
+    std::string lightBase;
+    std::string terminated;
+    int stateSerial { 0 };
 
     // The owner's calls, by name (the C ABI's lzw_engine_* for view 1). Main thread only.
+    // A light view's only load: the owner's HTML (UTF-8) with a base URL that is about:blank or a data: URL
+    // (empty is about:blank). Anything else loads nothing and the next state carries an error. Replaces the page.
+    void loadHtml(const std::string& html, const std::string& baseUrl);
     void load(const std::string& url);
     void reload();
     void stop();
@@ -374,6 +404,24 @@ void dropDownloads(View& view);
 void installUiClient(View& view);
 // The view client's pointer-shape callback (engine.cpp installs it with the others).
 void viewSetCursor(WKViewRef view, uint32_t cursorType, const void* clientInfo);
+
+// ---- light.cpp: light views (docs/webd-plan.md 3.6) ----------------------------------------------
+
+// The rule list that blocks every load but data:, blob: and about: URLs is compiled once for the process
+// (WebKit's content-extension store, in a folder of its own: $LAZYOS_WEBD_RULES_DIR or
+// /tmp/webd-rules-<pid>). Call after startHost, with the run loop about to turn; a light view cannot be
+// made before it is ready (createView returns null), so an owner waits with whenLightLockSettled.
+enum class LightLock { Pending, Ready, Failed };
+void prepareLightLock();
+LightLock lightLock();
+// Runs `task` on the main thread once the lock is Ready or Failed (at once, if it already is).
+void whenLightLockSettled(std::function<void()> task);
+// Before the view exists: the preferences (scripts, font size, no storage, no windows) and the rule list.
+// False when the lock is not ready (the view must not be made).
+bool configureLight(View& view, WKPageConfigurationRef configuration);
+// The navigation client's decisions for a light view (policy.cpp calls them for a view with `light`).
+void lightNavigationAction(View& view, WKNavigationActionRef action, WKFramePolicyListenerRef listener);
+void lightNavigationResponse(View& view, WKNavigationResponseRef response, WKFramePolicyListenerRef listener);
 
 // ---- notify.cpp: the Notifications API -----------------------------------------------------------
 

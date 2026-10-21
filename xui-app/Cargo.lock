@@ -6941,6 +6941,7 @@ dependencies = [
  "xui-rich-text",
  "xui-settings",
  "xui-videoview",
+ "xui-webd-client",
  "xui-writer",
 ]
 
@@ -7171,6 +7172,37 @@ dependencies = [
  "lazyvideo",
  "xui-canvas",
  "xui-core",
+]
+
+[[package]]
+name = "xui-webd"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
+name = "xui-webd-client"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+ "xui-webd",
+]
+
+[[package]]
+name = "xui-webd-host"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "lazyos-sys",
+ "libc",
+ "libmessenger",
+ "messenger-generated",
+ "xui-app",
+ "xui-webd",
 ]
 
 [[package]]

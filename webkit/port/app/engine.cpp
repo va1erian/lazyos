@@ -294,7 +294,7 @@ static View* groupMate(const ViewConfig& config)
     for (auto& entry : H.views) {
         View& other = *entry.second;
         if (!other.page || other.config.group != config.group || other.config.profile != config.profile
-            || other.config.memoryOnly != config.memoryOnly)
+            || other.config.memoryOnly != config.memoryOnly || other.config.light != config.light)
             continue;
         if (!other.crashed && !other.recovering && WKPageGetProcessIdentifier(other.page) > 0)
             return &other;
@@ -305,7 +305,16 @@ static View* groupMate(const ViewConfig& config)
 
 View* createView(const ViewConfig& config, ViewSink* sink)
 {
-    auto owned = std::make_unique<View>(H.nextView++, config, sink);
+    // A light view without its network lock would be a browser view: never made (light.cpp).
+    if (config.light && lightLock() != LightLock::Ready) {
+        say("FAIL:view:the light network lock is not ready");
+        return nullptr;
+    }
+    // None of a browser's clients for a light view, whatever the owner asked for.
+    ViewConfig effective = config;
+    if (config.light)
+        effective.features = 0;
+    auto owned = std::make_unique<View>(H.nextView++, effective, sink);
     View& view = *owned;
     View* mate = groupMate(config);
     // A group shares the mate's store (an ephemeral one is the mate's own, there is no other way to
@@ -323,6 +332,11 @@ View* createView(const ViewConfig& config, ViewSink* sink)
         installNotifications();
     // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
     startBlocking(view, pageConfiguration);
+    // A light view's preferences and network lock, before the view too.
+    if (config.light && !configureLight(view, pageConfiguration)) {
+        say("FAIL:view:the light view could not be configured");
+        return nullptr;
+    }
     // The configuration is not released, as before: the view keeps what it needs of it.
     view.view = WKViewCreate(pageConfiguration);
     if (!view.view) {

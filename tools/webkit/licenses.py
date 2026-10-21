@@ -206,6 +206,29 @@ def check_webplus_licence() -> list[str]:
     return problems
 
 
+#: webd's crates (docs/webd.md): the program links WebKit (LGPL-2.1) and OpenSSL (Apache-2.0), so it is
+#: GPL-3.0-or-later, and so are the crates linked into it that are its own (docs/webd-plan.md section 10).
+WEBD_CRATES = ["xui-app/webd/Cargo.toml", "xui-app/crates/webd/Cargo.toml"]
+
+
+def check_webd_licence() -> list[str]:
+    """webd's own crates are declared exactly GPL-3.0-or-later and never reference OpenSSL."""
+    problems = []
+    for name in WEBD_CRATES:
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        found = re.search(r'^license\s*=\s*"([^"]+)"', text, re.M)
+        expression = found.group(1) if found else ""
+        if expression != "GPL-3.0-or-later":
+            problems.append(f"{name}: license {expression!r} must be exactly 'GPL-3.0-or-later' "
+                            "(the program links WebKit, LGPL-2.1, and OpenSSL, Apache-2.0: docs/webd-plan.md)")
+        if re.search(r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
+            problems.append(f"{name} depends on OpenSSL itself: the bundle's copy is WebKit's alone")
+    return problems
+
+
 def check_manifest(manifest: dict) -> list[str]:
     """The licences a build recorded are the pins' (a stale build is named)."""
     problems = []
@@ -237,6 +260,7 @@ def main() -> int:
     problems += check_notices(third_party, README.read_text(encoding="utf-8"))
     problems += check_lazyweb_apart()
     problems += check_webplus_licence()
+    problems += check_webd_licence()
     print("\n".join(table(nettls)))
     if MANIFEST.is_file():
         problems += check_manifest(json.loads(MANIFEST.read_text(encoding="utf-8")))

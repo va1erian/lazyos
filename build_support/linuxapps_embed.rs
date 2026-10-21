@@ -24,7 +24,7 @@
 //! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf.in`,
 //! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_LAZYWEBPLUS=1` is the browser
 //! (`lazywebplus_embed`): the same two processes and configuration, without the proof, beside
-//! the app's core package.
+//! the app's core package. `LAZYOS_WEBD=1` (`webd_embed`) is webd, which starts the same two.
 
 use std::path::Path;
 
@@ -99,6 +99,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
     println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
     if switch_on("LAZYOS_DYNLINK") {
         let built = manifest_dir.join(DYNLINK_BUILT);
@@ -157,6 +158,8 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
         ("LAZYOS_LAZYWEBPLUS", WEBKIT_PROCESSES),
+        // webd starts the same two processes (docs/webd.md).
+        ("LAZYOS_WEBD", WEBKIT_PROCESSES),
     ] {
         if !switch_on(switch) {
             continue;

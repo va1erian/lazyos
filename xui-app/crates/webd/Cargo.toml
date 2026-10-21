@@ -1,0 +1,34 @@
+# The service half of `webd` (docs/webd-plan.md, phase P2): the Messenger service that gives apps
+# WebKit views. Portable and host-tested, like `xui-webkit` and `xui-webplus`: the view table, the
+# quotas, the configuration checks, the slot state machine and the dispatch of
+# `os.lazy.webd.light.v1` run against an in-memory fabric (`mem`) and a recording engine
+# (`recording`). The `host` feature adds the C ABI of the WebKit half (`webkit/port/webd/webd_abi.h`),
+# which slice 2 links into the `webd` program; nothing links it yet.
+#
+# webd links WebKit (LGPL-2.1) and OpenSSL (Apache-2.0), so the program is GPL-3.0-or-later and so is
+# this crate (docs/webd-plan.md section 10). No xui and no LazyOS crate: the program that hosts it
+# supplies the Messenger endpoint (`fabric::Fabric`) and the traces (`Service::take_notes`).
+[package]
+name = "xui-webd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "webd's service half: light views over Messenger, the view table, quotas and the slot state machine"
+
+[lib]
+name = "xui_webd"
+path = "src/lib.rs"
+
+[features]
+# The C ABI of webd's WebKit half: an `Engine` over the `webd_engine_*` functions and the exported
+# `webd_ui_*` callbacks.
+host = []
+
+[dependencies]
+libmessenger = { path = "../../../libs/messenger" }
+messenger-generated = { path = "../../../libs/generated" }
+
+[dev-dependencies]
+# Seeded fuzz of the slot state machine, the dispatch and the request decoders (`FUZZ_CASES`).
+fuzzkit = { path = "../../../libs/fuzzkit" }

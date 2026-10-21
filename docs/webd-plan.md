@@ -335,11 +335,142 @@ browser moves onto webd**.
 |---|---|---|---|
 | **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
 | **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
-| **P2 webd, light first** | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
+| **P2 webd, light first** (slices 1 and 2 done; 3 is the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
 | **P4 LazyWeb+ thin client, LazyWeb out** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible; then LazyWeb deleted | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
+
+### P2 slice 1: light views, headless (started 2026-10-21)
+
+The first slice builds the light interface end to end up to, but not including, the program and package. Two
+halves written against one contract, `webkit/port/webd/webd_abi.h` (C ABI, light views, whole frames only):
+
+* **Service half (Rust)**: `idl/webd_light.midl`, the `pkgstore::explain` row, `xui-app/crates/webd` (view table,
+  quotas, light config validation, slot state machine, the Messenger service on its own thread), host-tested
+  against an in-memory fabric and a recording `Engine` trait. An `ffi` module (feature `host`) implements that
+  trait over the C ABI and exports the `webd_ui_*` callbacks; it is not linked into anything yet.
+* **Engine half (C++)**: `webkit/port/webd/abi.cpp` implements `webd_engine_*` over the engine's Host and Views,
+  with the light-view behaviour the engine lacks (scripts off, `LoadHtml` with a base URL, navigation locked and
+  reported as `webd_ui_link_clicked`, no network scheme loads, no browser clients), and `webd-abi-test`, a
+  headless program in the build container that drives the ABI like the service will (modes under
+  `tools/webkit/port.py --run-views`' sibling flag).
+
+**As built, service half** (`idl/webd_light.midl`, `xui-app/crates/webd`; host tests only, nothing is linked):
+
+* One interface for both directions, like the display protocol: calls and oneway input, and the events
+  (`Frame`, `State`, `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost`, plus a `Ping` liveness probe) on the
+  endpoint moved in with `CreateView`. Ids: calls 1-7, 11, 20-23; events 100-106. `midlc` has no imports, so
+  the shared structs of the full interface will be declared again in `webd.midl` (same ids and field numbers;
+  `CreateView` leaves field 4, `scale`, unused in the light one).
+* Numbers (`limits.rs`, each with its reason): 8 views per client, 1..=8192 per side and 16 Mpixel, 3 slots per
+  view, 512 MiB of declared slot memory per client, `html` at most 8 MiB, `user_style` at most 64 KiB; events cut
+  text at 48 KiB and the host must offer a 128 KiB receive buffer. Refusals: `EINVAL` (size, config, base URL,
+  slot too small), `ENOSPC` (views), `EDQUOT` (slot memory), `E2BIG` (page), `EBUSY` (slot in use), `ENOENT`
+  (not your view, same as no view), `ENODEV` (the engine lost the view), `EACCES` (another login session).
+* Identity: the caller is `(uid, label)` from the kernel stamp (an unlabelled caller is told apart by task and
+  shares nothing); the `group` handed to the engine is a number the service allocates per client and never
+  reuses, so one client's views share a web process and two clients' never do.
+* Slots: a frame goes to the lowest free slot or is dropped; a dropped frame marks the view `dirty` and the
+  next `ReleaseSlot` (or `AttachSlot`) asks the engine for a whole frame (`webd_engine_refresh`), so the client
+  ends on the latest picture without the service holding frames. `Resize` detaches every slot; the client
+  attaches new ones. The engine's callbacks fill an `EventQueue` that keeps only the latest frame, state and
+  scroll per view; `Service::pump` runs on the service thread.
+* Engine loss: `ViewLost` keeps the table entry (quota held) until `DestroyView`; calls on it answer `ENODEV`.
+  A client that stops answering `Ping`s (`EPIPE`) loses its views.
+
+Slice 2 links the two into the `webd` program, adds the package, `LAZYOS_WEBD=1`, `run_demo.py --webd`, the GUI
+control, `tools/webd/run.py` and a demo client; slice 3 is the full interface.
+### P2 slice 1, engine half: done (2026-10-21)
+
+`webkit/port/webd/abi.cpp` implements every `webd_engine_*` of `webd_abi.h` over the engine, with the light-view
+behaviour in `webkit/port/app/light.cpp`; `webd-abi-test` (`port.py --only WebProcess NetworkProcess webd-abi-test
+--run-webd`) plays the service and passes its eight modes in the build container (`html script config lock network
+many lost cycle`), with `webkit-views` unchanged. Details and measurements: `webkit/README.md`, "webd's engine half".
+What it found:
+
+* **The network lock is a content rule list, not the navigation policy.** The policy sees navigations only; a light
+  view with scripts on and no rule list made 26 connections to a listener (images, style sheets, `@import`, scripts,
+  fetch, XHR, WebSocket, `import()`, ...); with it, none, scripts on or off. The list is compiled once at start into a
+  folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, else `/tmp/webd-rules-<pid>`), so webd's label needs one
+  writable folder, and the first view waits for the compile.
+* **`color_scheme` is not implementable here**: `prefers-color-scheme` is compiled out (`ENABLE_DARK_MODE_CSS` is off
+  and turning it on rebuilds WebCore). The engine says `CONFIG:IGNORED:color_scheme`; a caller that wants a dark page
+  passes `user_style`. `user_style` is appended to the document (the C API has no user style sheet);
+  `default_font_size` is applied (default and minimum).
+* **A page's navigation cancels its own scheduled one** (a refused click before a meta refresh fires loses the
+  refresh); a relative URL against `about:blank` is told as it is, not absolute; `<noscript>` is not rendered with
+  scripts off.
+* **The mouse `kind` of `webd_abi.h` (0 move, 1 press, 2 release) is not the engine's** (0 down, 1 up, 2 move, as
+  `xui_webkit::MouseKind` and `lazyos_ui.h`): `abi.cpp` translates; the Rust half must send the header's numbers.
+
+### P2 slice 2: the program, the package and the switch: done (2026-10-21)
+
+`webd-app` joins the two halves (`webkit/port/webd/main.cpp`, `xui-app/webd`), the package `os.lazy.webd` is
+resident and opens with every session of a `LAZYOS_WEBD=1` image, and `run_demo.py --webd`, the launcher's
+Advanced tab, `tools/webkit/webd.py`, `docs/build-switches.md` and `tools/suites.toml` (`test_only`) carry the
+switch. As built and measured: [`webd.md`](webd.md). What it found:
+
+* **The first thread must run the service, not WebKit.** `init`'s lifecycle `Watch` is keyed by the sender's
+  task slot (`row.pid == message.sender`), and a thread other than the process's first carries its own slot, so
+  it is `ESRCH` (the same fact as the notification service's, `lazywebplus.md`). webd therefore runs the
+  service on the process's first thread and WebKit's run loop on a thread `main.cpp` makes; the engine's calls
+  are queued tasks and its callbacks run on that thread, so which thread is "main" does not matter to it.
+  (If WebKit had to stay on the first thread, the lifecycle channel would be a main-thread handle watched by an
+  endpoint descriptor and read through `lzw_engine_run_on_main`, as the shell's toast channel is.)
+* **Wake-up** is one `wait_any` on the endpoint, the lifecycle channel and an `eventfd` (`WAIT_FD`), with a
+  one-second deadline for the `Ping`s and the watchdog; `docs/webd.md` has the design and the numbers.
+* **No `webd_abi.h` change for engine loss.** The per-view loss is the engine's `webd_ui_view_lost`; the
+  engine as a whole is lost when WebKit's main thread stops turning, which the service detects itself (a probe
+  task through `webd_engine_run_on_main`, unanswered for 20 s: `Service::engine_lost`, exit status 4). A
+  "network process ended" callback was dropped: WebKit restarts it on demand and a light view does not use it.
+* **`rhai` cannot create a view** (`CreateView` carries a channel, `LoadHtml`/`AttachSlot` a buffer, and a script
+  cannot send either), so the proof of a client round trip is webd's built-in client (`Reopen("/selftest")`),
+  which uses the real road from a thread of the daemon. A real client app is `webddemo` (another branch).
+* **Contract notes** for the next slice: `webd_abi.h` says the view-start calls run "on the process's main
+  thread"; read it as "the thread that runs the loop". `Service::new` takes the session as a number the host
+  reads with `cred_get`; a second login session's webd is still not supported (section 3.1).
+
+* **Measured** (WHPX, [`webd.md`](webd.md) "Measured"): idle webd costs about 0 % CPU and **5.4 MiB of frames** (`frames_live`; the program's
+  text is mapped from the page cache since #942 and is not in that counter, so the 108 MiB the plan assumed is
+  not resident memory in that sense, and section 8's "idle cost is the program image" needs the page cache's
+  accounting to be judged); a view that is up adds about 28.7 MiB (web process and network process) and costs no CPU while it sits;
+  the first view takes about 1 s (the web process starts), later loads and `Refresh` come back in 32-34 ms, which
+  is the engine's 33 ms paint pacer, so the plan's hop-latency criterion (3.4) still wants a probe that does not
+  paint.
+* **Permissions derived** ([`webd.md`](webd.md) "Permissions"): `os.lazy.webd.light.v1` and one writable folder;
+  no `LABEL:DENY` for webd's own label in any run, and for its children only the optional ones LazyWeb+
+  documents. The NetworkProcess runs with no socket and no file (`network = []`, `files = []`).
+* **Lifecycle**: `init`'s `Quit` and `SIGTERM` both end it cleanly (`WEBD:QUIT:PASS`, exit status 0, no engine
+  process left); started again, the name registers again; the shell's tray item follows it.
+### P2 slice 2, client half (2026-10-21)
+
+The client side of the light interface and its proof; the program, package and `LAZYOS_WEBD=1` are the other half.
+
+* **`xui-app/crates/webd-client`** (`xui-webd-client`, portable, no xui, no WebKit): `LightWebView<T: Transport>`
+  creates a view (`CreateView` moving the events channel), attaches three slots of the view's size, `set_html`,
+  `resize` (re-attach), `set_visible`/`refresh`/input (oneway), and `poll()`: it reads what has arrived without
+  parking, copies only the **newest** frame of the batch into a persistent `Picture` (every frame is a whole one) and
+  releases every slot it was handed, so a slow client loses frames and never the picture; webd's `Refresh` on a
+  release brings it back to the newest. A stale frame (a size the view no longer has) is ignored, not copied and not
+  released. Failures: a call webd refuses is `Error::Refused(errno)` and leaves the view as it was; no service on
+  `create` is `Error::NotRunning`; a service or view that goes away is `ViewEvent::Lost(Lost::ServiceGone)` from
+  `poll` and `Error::Lost` from every later call; `ViewLost` is `Lost::Engine(reason)`; `recreate()` makes a new view
+  and loads the last page again (the client keeps its `LoadHtml` bytes, section 8). Host tests run it against
+  `xui-webd`'s `MemFabric` and `RecordingEngine` (`tests/view.rs`, `failures.rs`, `demo.rs`).
+* **Binding.** `xui_app::platform::webd::WebdTransport` implements `Transport` over Messenger exactly as
+  `xui_app::tray` does for `trayclient`: `Service::try_connect("app.os.lazy.webd.light")` (never waits: an app that
+  starts before webd retries), bounded `call_moving_within` (200 ticks), a new `Service::send_oneway`, the event
+  channel read with the channel counters first, slots and HTML in `buffer_create` pages.
+* **`webddemo`** (`os.lazy.webddemo`): the demo client. Its logic is `xui_webd_client::demo::Demo` (host-tested);
+  the bin only paints the picture, forwards input and prints the markers: `WEBDDEMO:UP:PASS`, `VIEW:PASS id=<n>`,
+  `FRAME:PASS colour=<c> w= h= seq= ms=`, `LATENCY:<ms>`, `LINK:<url>`, `STATE:<title>`, `LOST:<reason>`,
+  `RECREATE:PASS`, `QUIT:PASS`. A core package that only `LAZYOS_WEBD=1` images ship; it lists
+  `os.lazy.webd.light.v1` and never the network.
+* **`tools/webd`**: `run.py` builds the image through `run_demo.py --webd`, listens on 127.0.0.1:18080 (the page's
+  picture; it must see nothing), boots once, clicks the link, kills the web process from the Terminal and judges the
+  demo's recovery (`tools/webd/README.md`). The judge, session and listener are tested on canned logs
+  (`test_judge.py`); the end-to-end run needs the program of the other half.
 
 ### What P1 found (2026-10-21, `webkit-views`)
 
@@ -395,9 +526,10 @@ charge for ended processes).
 ## 8. Failure and lifecycle
 
 * **Start and stop.** webd is a resident app with `autostart = true` (the LazyCal precedent): it starts at login,
-  creates the WebKit context only when the first view arrives, and has no idle exit in v1. Idle cost is the
-  program image (about 108 MiB, no text sharing); this is the price of making it mandatory for Docs and Mail
-  (section 9.2). If the user quits it from the tray, or `init` does not restart a failed launched app, the name no
+  creates the WebKit context only when the first view arrives, and has no idle exit in v1. Idle cost
+  (measured in P2 slice 2, `webd.md`) is about 5.4 MiB of frames and no CPU (the program's text is mapped from the page cache and is not counted in
+  that figure);
+  this is the price of making it mandatory for Docs and Mail (section 9.2). If the user quits it from the tray, or `init` does not restart a failed launched app, the name no
   longer resolves: the client library shows "The web engine is not running" with a *Start* button
   (`init.Launch`, P2 checks the permission it needs), never a blank view.
 * **webd's UI process crashes** (history above): every client gets `ViewLost(reason)` when its channel closes;

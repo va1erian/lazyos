@@ -111,6 +111,9 @@ def make_vars() -> dict:
         # LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
         # run_demo --lazywebplus; implies the desktop, the stack and the big-app profile).
         "lazywebplus": b(value=False),
+        # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
+        # run_demo --webd; implies the desktop and the big-app profile, not the stack).
+        "webd": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).

@@ -79,6 +79,8 @@ mod usb_payload;
 mod usb_ramdisk;
 #[path = "build_support/usb_stick.rs"]
 mod usb_stick;
+#[path = "build_support/webd_embed.rs"]
+mod webd_embed;
 #[path = "build_support/xui_embed.rs"]
 mod xui_embed;
 

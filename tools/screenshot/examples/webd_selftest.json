@@ -1,0 +1,18 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420, "note": "image: LAZYOS_DESKTOP=1 LAZYOS_WEBD=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term (and LAZYOS_LABEL_TRACE=1 to derive the permissions), with rhai (tools/rhai/build.py); docs/webd.md"},
+  {"wait_for": "WEBD:UP:PASS", "timeout": 240},
+  {"wait_for": "WEBD:SERVE:app.os.lazy.webd.light", "timeout": 60},
+  {"wait_for": "TERM:UP:PASS", "timeout": 240},
+  {"wait": 1.0},
+  {"shot": "01_running"},
+  {"type": "rhai -e 'sys::init::launch(\"os.lazy.webd\", \"/selftest\", 0)'"},
+  {"key": "enter", "until": "INIT:LAUNCH:EXISTING app=os.lazy.webd", "timeout": 60, "retries": 1, "note": "webd is resident and single: a second launch is a Reopen with the path, which starts its built-in client"},
+  {"wait_for": "WEBD:VIEW:CREATE client=app:os.lazy.webd view=1", "timeout": 120},
+  {"wait_for": "WEBD:SELFTEST:STEP green frame", "timeout": 240},
+  {"wait_for": "WEBD:SELFTEST:STEP red frame", "timeout": 120},
+  {"wait_for": "WEBD:LOST view=1 reason=crashed", "timeout": 120},
+  {"wait_for": "WEBD:SELFTEST:PASS", "timeout": 240},
+  {"wait": 1.0},
+  {"shot": "02_after"},
+  {"quit": true}
+]

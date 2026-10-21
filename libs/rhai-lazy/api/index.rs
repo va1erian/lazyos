@@ -253,6 +253,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "webd_light",
+        interface: "os.lazy.webd.light.v1",
+        source: include_str!("webd_light.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "net_wifi_hw",
         interface: "os.lazy.net.wifi.hw.v1",
         source: include_str!("net_wifi_hw.rhai"),

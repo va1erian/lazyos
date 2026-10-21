@@ -116,6 +116,21 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
             {"label": "Build xui apps with LazyWeb+", "argv": [PY, "tools/xui/build.py"]}]
 
 
+def webd_step(cfg: dict) -> list[dict]:
+    """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
+    (the service as a static library and the program, in Docker), then the xui apps, which package
+    it as `os.lazy.webd` (with the demo client, when the tree has it)."""
+    if not cfg.get("webd"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]},
+            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
+             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
+            {"label": "Build webd: the service and the program (Docker)",
+             "argv": [PY, "tools/webkit/webd.py", "--require"]},
+            {"label": "Build xui apps with webd", "argv": [PY, "tools/xui/build.py"]}]
+
+
 def tls_step(cfg: dict) -> list[dict]:
     """The step that builds the HTTPS clients (`fetch`, `curl`, `wget`), when embedded."""
     if not cfg.get("tls"):
@@ -204,12 +219,13 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
-            | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {}))
+            | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {})
+            | ({"LAZYOS_WEBD": "1"} if cfg.get("webd") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
     """run_demo's `--mail`, `--traydemo`, `--games`, `--pictures`, `--jsc` and `--webkit-port`,
-    which set those switches themselves, and `--lazywebplus`."""
+    which set those switches themselves, and `--lazywebplus` and `--webd`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
             + (["--games"] if wants_games(cfg) and building else [])
@@ -217,7 +233,8 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--jsc"] if cfg.get("jsc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
-            + (["--lazywebplus"] if cfg.get("lazywebplus") and building else []))
+            + (["--lazywebplus"] if cfg.get("lazywebplus") and building else [])
+            + (["--webd"] if cfg.get("webd") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:
@@ -240,5 +257,5 @@ def app_steps(cfg: dict) -> list[dict]:
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
-            + lazywebplus_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

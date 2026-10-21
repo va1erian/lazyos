@@ -57,6 +57,15 @@ impl Request {
     }
 }
 
+impl Request {
+    /// Take over the objects the kernel installed for this request, in object-list order, for a
+    /// service that routes them itself (`webd` hands them to its `Service`, which keeps, maps or
+    /// closes each). The request then closes nothing on drop.
+    pub fn take_objects(&self) -> Vec<Object> {
+        std::mem::take(&mut *self.objects.borrow_mut())
+    }
+}
+
 impl Drop for Request {
     fn drop(&mut self) {
         for object in self.objects.get_mut().drain(..) {
@@ -138,6 +147,12 @@ impl Server {
             parcel,
             objects: RefCell::new(objects),
         }))
+    }
+
+    /// The endpoint calls arrive on, to wait on together with other handles and a descriptor
+    /// (`webd` parks on this, its lifecycle line and a doorbell at once).
+    pub fn endpoint(&self) -> u64 {
+        self.endpoint
     }
 
     /// Park until a request is queued or the absolute PIT `deadline` passes
