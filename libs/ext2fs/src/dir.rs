@@ -394,6 +394,7 @@ impl Ext2 {
             size,
             kind,
             times: attr::times_of(&inode),
+            nlink: u32::from(le16(&inode, INO_LINKS)),
         })
     }
 }

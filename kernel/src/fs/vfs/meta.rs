@@ -156,6 +156,9 @@ pub enum FsError {
     /// truncated or opened for writing (`ETXTBSY`), or a file open for
     /// writing cannot become a program's image.
     TextBusy,
+    /// The file already has as many names as its filesystem allows
+    /// (`EMLINK`).
+    TooManyLinks,
 }
 
 impl FsError {
@@ -176,6 +179,7 @@ impl FsError {
             FsError::NotSupported => "operation not supported",
             FsError::Io => "input/output error",
             FsError::TextBusy => "text file busy",
+            FsError::TooManyLinks => "too many links",
         }
     }
 }

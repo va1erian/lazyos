@@ -40,6 +40,7 @@ const ENOTDIR: i64 = 20;
 const EISDIR: i64 = 21;
 const EINVAL: i64 = 22;
 const ETXTBSY: i64 = 26;
+const EMLINK: i64 = 31;
 const ENOSPC: i64 = 28;
 const EROFS: i64 = 30;
 const ENAMETOOLONG: i64 = 36;
@@ -75,6 +76,7 @@ fn errno_of(error: FsError) -> i64 {
         FsError::NotSupported => ENOSYS,
         FsError::Io => EIO,
         FsError::TextBusy => ETXTBSY,
+        FsError::TooManyLinks => EMLINK,
     }
 }
 
