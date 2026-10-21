@@ -400,7 +400,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             None => panic!("{missing}"),
         }
     }
-    if webd_wanted {
+    if webd_wanted && crate::webd_embed::demo_clients() {
         embed_webd_clients(&built, &mut packages);
     }
     core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
@@ -426,7 +426,7 @@ fn embed_webd_clients<'a>(
         match built.iter().find(|p| p.short == *short) {
             Some(package) => packages.push(package),
             None => panic!(
-                "LAZYOS_WEBD=1 but core package {short} is not built (target/xui/{elf}); run \
+                "LAZYOS_WEBDDEMO=1 but core package {short} is not built (target/xui/{elf}); run \
                  `python tools/xui/build.py`"
             ),
         }
