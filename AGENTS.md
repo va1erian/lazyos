@@ -286,15 +286,17 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/te
 
 ## Docs app and the zig toolchain
 
-`xui-docs` renders Markdown on a Blitz view (`xui-blitz`, pure Rust), so
-`python tools/xui/build.py` builds it with the other apps and no zig (see
-[`docs/xui-docs.md`](docs/xui-docs.md)). zig (`pip install ziglang==0.16.0`) is
-now needed only for Mail's SQLite (`--mail`); without it the script skips Mail
-with a warning and every other app still builds. Blitz draws its own glyphs
-from font files, so an app with a `BlitzView` calls `webfonts::register()`
-(`xui-app/crates/webfonts`) at start or its pages show no text.
-`python tools/xui/test_zig.py` tests the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
-(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
+`xui-docs` turns Markdown into HTML (pulldown-cmark) and shows it in a **light view of `webd`**
+(`xui_app::lightview::LightView`, over `xui_webd_client::Pane`), so `python tools/xui/build.py` builds it
+with the other apps and no zig (see [`docs/xui-docs.md`](docs/xui-docs.md)). The OS has **one web engine,
+WebKit in webd**: there is no Blitz, no `webfonts` and no in-process HTML renderer; an app that wants to show
+HTML asks webd for a light view (a `LightView` in an xui window; one view for the life of the window, a new page
+with `set_html`, never a view per page) and declares `os.lazy.webd.light.v1` in its manifest. zig
+(`pip install ziglang==0.16.0`) is needed only for Mail's SQLite (`--mail`); without it the script skips Mail
+with a warning and every other app still builds. `python tools/xui/test_zig.py` tests the toolchain helper.
+`python tools/docs/run.py` builds an image with Docs and webd, runs `xui_docs.json` (wheel scrolling) and
+`xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`) and judges the markers and pictures
+(it needs webd built: `tools/webkit/webd.py`; `tools/docs/test_judge.py` is the judge's self-test).
 
 ## LazyWriter (word processor)
 
@@ -734,8 +736,9 @@ portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-me
 because `init` and the shell know an app by its first thread) with the Rust static library `xui-app/webd`
 (the real Messenger binding, an `eventfd` doorbell, the lifecycle line, a watchdog on WebKit's main thread, the
 `WEBD:*` markers). The package `xui-app/packages/webd` is resident and opens with every session of a
-`LAZYOS_WEBD=1` image (desktop, big-app profile, 1 GiB OS volume; no network stack: `run_demo.py --webd`, the
-launcher's Advanced tab). `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
+desktop image that has built it (`LAZYOS_WEBD` is `1`: required, `0`: left out, unset: shipped when
+`target/xui/xui-webd.elf` exists; no network stack; a 1 GiB OS volume; `run_demo.py --desktop` builds it, `--no-webd`
+leaves it out, `--webd-demo` adds the demo client): Docs and Mail need it, so every desktop ships it. `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
 LazyWeb+ (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
 
 ```bash
@@ -751,7 +754,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/we
 Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
-`webd` is in `tools/suites.toml`'s `test_only` until Mail and Docs use it (docs/webd-plan.md P3).
+The demo client `os.lazy.webddemo` ships only with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
@@ -786,7 +789,8 @@ trusts that proxy's CA too.
 
 `xui-mail` (`os.lazy.mail`, `xui-app/mail/`) is va1erian/esmail's IMAP/SMTP
 core (a pinned git dependency, built with its `rustls` feature over
-`nettls-crypto`) behind a xui window, its reading pane a Blitz view; zig builds
+`nettls-crypto`) behind a xui window, its reading pane a light view of webd (HTML mail, scripts off, no
+network: `reader.rs`, `tools/mail/hostile.py` is the hostile message the harness plants); zig builds
 it for SQLite (`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
 See [`docs/mail.md`](docs/mail.md).
 

@@ -33,7 +33,9 @@ Examples
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
     python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, the web browser on WebKit (same profile)
-    python tools/run_demo.py --webd          # desktop + webd, the daemon that serves WebKit light views (no network stack; big-app profile)
+    python tools/run_demo.py --desktop       # every desktop ships webd (WebKit light views for Docs and Mail); --no-webd leaves it out
+    python tools/run_demo.py --webd          # webd, required (a failed build stops the run); big-app profile
+    python tools/run_demo.py --webd-demo     # + the webd demo client (tools/webd/run.py)
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
@@ -99,7 +101,7 @@ from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
-    build_srb2kart, build_tls, build_webd, build_webkit_deps, build_webkit_port, build_wifi,
+    build_srb2kart, build_tls, build_webd, webd_built, build_webkit_deps, build_webkit_port, build_wifi,
     build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
@@ -383,6 +385,19 @@ def main(argv: list[str]) -> int:
                       + (GAMES_APPS if args.games else []) + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
+        if args.no_webd:
+            env["LAZYOS_WEBD"] = "0"
+        elif args.webd_implicit:
+            # Docs and Mail need webd: build it when its programs are missing, and go on without it (the
+            # apps then say the web engine is not running) when that fails, as with no Docker.
+            if webd_built() or build_webd():
+                env["LAZYOS_WEBD"] = "1"
+            else:
+                print("warning: webd could not be built (Docker?): this desktop has none, so Docs and Mail "
+                      "cannot show their pages; `--no-webd` silences this", file=sys.stderr)
+                env["LAZYOS_WEBD"] = "0"
+        if args.webd_demo:
+            env["LAZYOS_WEBDDEMO"] = "1"
         if args.mail:
             # After the other apps: one incremental build that adds Mail.
             if not build_mail():

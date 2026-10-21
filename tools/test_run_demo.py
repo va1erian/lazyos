@@ -74,6 +74,8 @@ class RunDemoCase(unittest.TestCase):
     `test_run_demo_apps.py`)."""
 
     def setUp(self) -> None:
+        #: Whether webd's programs count as built (a desktop run builds them when they are not).
+        self.webd_present = True
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name)
@@ -105,6 +107,7 @@ class RunDemoCase(unittest.TestCase):
         with mock.patch.object(run_demo.busybox, "ensure_busybox",
                                return_value=busybox_found), \
                 mock.patch.object(run_demo, "build_rhai"), \
+                mock.patch.object(run_demo, "webd_built", lambda: self.webd_present), \
                 mock.patch.object(run_demo, "find_qemu", return_value="qemu"), \
                 mock.patch.object(run_demo, "accel_args", return_value=[]), \
                 mock.patch.object(run_demo.subprocess, "run", fake_build), \

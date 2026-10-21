@@ -144,6 +144,17 @@ def build_webd() -> bool:
             and build_xui_apps())
 
 
+#: What `LAZYOS_WEBD` embeds (`build_support/webd_embed.rs`, `linuxapps_embed.rs`).
+WEBD_ARTIFACTS = (ROOT / "target" / "xui" / "xui-webd.elf", ROOT / "target" / "webkit" / "bin" / "WebProcess",
+                  ROOT / "target" / "webkit" / "bin" / "NetworkProcess")
+
+
+def webd_built() -> bool:
+    """webd's programs are all there: a desktop run uses them as they are (a Docker build of WebKit is
+    minutes even when nothing changed); `--webd` rebuilds."""
+    return all(path.is_file() for path in WEBD_ARTIFACTS)
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""

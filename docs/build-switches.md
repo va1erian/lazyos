@@ -73,7 +73,8 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_WEBKIT_DEPS` | `depsproof`, one C++ program linking the WebKit dependency bundle (zlib to curl, Skia), in `/system/bin` (built in Docker; implies networking and `--big-app`). | `tools/webkit/deps.py` | `--webkit-deps` |
 | `LAZYOS_WEBKIT_PORT` | The WebKit port's console proof (W4): `WebProcess`, `NetworkProcess` and the headless UI process `webkit-smoke` in `/system/bin`, `fonts.conf` in `/system/etc/fonts` (built in Docker after the bundle; implies networking and `--big-app`). | `tools/webkit/port.py` | `--webkit-port` |
 | `LAZYOS_LAZYWEBPLUS` | LazyWeb+, the web browser on WebKit, `os.lazy.lazywebplus` ([lazywebplus.md](lazywebplus.md)): the app's core package (the browser's window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py` | `--lazywebplus` |
-| `LAZYOS_WEBD` | webd, the daemon that owns WebKit for a session and serves light views to other apps, `os.lazy.webd` ([webd.md](webd.md)): a resident, windowless core package (one 75 MB static program, opened with every session) and, when its tree is present, the demo client `os.lazy.webddemo`; `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop and `--big-app`. No network stack: a light view has no network. | desktop; `tools/webkit/deps.py`, `port.py`, `webd.py` | `--webd` |
+| `LAZYOS_WEBD` | webd, the daemon that owns WebKit for a session and serves light views to other apps, `os.lazy.webd` ([webd.md](webd.md)): a resident, windowless core package (one 75 MB static program, opened with every session); `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. **Every desktop ships it** (Docs and Mail draw their pages with it): `1` requires it (a missing program fails the build), `0` leaves it out (Docs and Mail then say the web engine is not running), unset ships it on a desktop whenever `target/xui/xui-webd.elf` exists and warns when it does not. Built in Docker after the bundle, packaged by `tools/xui/build.py`; `run_demo.py --desktop` builds it when missing (`--no-webd` leaves it out), `--webd` requires it and adds the big-app profile. No network stack: a light view has no network. | desktop; `tools/webkit/deps.py`, `port.py`, `webd.py` | `--webd`, `--no-webd` |
+| `LAZYOS_WEBDDEMO` | The demo client of webd, `os.lazy.webddemo` (`tools/webd/run.py` drives it); only with webd. | `LAZYOS_WEBD` | `--webd-demo` |
 | `LAZYOS_TLS` | `curl`, `wget`, `fetch` and the Mozilla CA bundle. | - | `--tls` |
 | `LAZYOS_FETCH` | Path to the `nettls` binary to embed (default: `target/nettls/fetch.elf`). | `LAZYOS_TLS` | - |
 | `LAZYOS_SMB` | The `smb` client and `smbfuse`. | `LAZYOS_NETD` | `--smb` |
@@ -113,7 +114,7 @@ or an option must be in the suite file's `test_only` list
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
-| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBD=1` or `LAZYOS_WEBKIT_PORT=1`, so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
+| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBKIT_PORT=1` or a desktop that ships webd (every one with webd built), so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
 | `LAZYOS_RESET_OS` | Recreate the OS volume with a new UUID instead of updating in place. CI sets it everywhere. | `--reset-os` |
 | `LAZYOS_UPDATE_DAMAGED_OS` | Update a volume anyway when the checker finds damage a crash does not leave. | - |
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |
@@ -165,7 +166,7 @@ The build refuses combinations that cannot work and says why:
 - `LAZYOS_LAZYWEBPLUS=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`, and `target/xui/xui-lazywebplus.elf`
   (`tools/webkit/app.py`).
 - `LAZYOS_WEBD=1` needs `LAZYOS_DESKTOP=1` (not the network stack) and `target/xui/xui-webd.elf`
-  (`tools/webkit/webd.py`).
+  (`tools/webkit/webd.py`); unset, a desktop ships it when that file exists.
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
 - `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
   `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;

@@ -76,6 +76,8 @@ def advanced_cfg(ui) -> dict:
         "webkit_port": ui.v["webkit_port"].get(),
         "lazywebplus": ui.v["lazywebplus"].get(),
         "webd": ui.v["webd"].get(),
+        "webd_demo": ui.v["webd_demo"].get(),
+        "no_webd": ui.v["no_webd"].get(),
         **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "dbgd_mmio", "dbgd_mmio_claimed",
                                                           "wifi", "wifi_sim")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),

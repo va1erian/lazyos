@@ -216,9 +216,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="webd, the daemon that serves WebKit light views to other apps, os.lazy.webd "
                              "(LAZYOS_WEBD=1; docs/webd.md): the desktop, the big-app profile, a 1 GiB OS "
                              "volume, WebProcess and NetworkProcess in /system/bin and the resident "
-                             "app's core package (opened with every session) with its demo client; "
-                             "built in Docker (tools/webkit/deps.py, port.py, webd.py) and packaged by "
-                             "tools/xui/build.py. No network stack: a light view has no network")
+                             "app's core package (opened with every session); built in Docker "
+                             "(tools/webkit/deps.py, port.py, webd.py) and packaged by tools/xui/build.py. "
+                             "No network stack: a light view has no network. Every --desktop image already "
+                             "ships webd (Docs and Mail draw their pages with it): it is built when its "
+                             "programs are missing, and the run goes on without it if that fails; this flag "
+                             "makes a failure fatal and forces the big-app profile")
+    parser.add_argument("--no-webd", action="store_true",
+                        help="leave webd out of a desktop (LAZYOS_WEBD=0): Docs and Mail then say the web "
+                             "engine is not running; no Docker build")
+    parser.add_argument("--webd-demo", action="store_true",
+                        help="webd plus its demo client os.lazy.webddemo (LAZYOS_WEBDDEMO=1), which "
+                             "tools/webd/run.py drives; implies --webd")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -324,6 +333,9 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         parser.error("--with needs --suite")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
+    if args.no_webd and (args.webd or args.webd_demo):
+        parser.error("--no-webd conflicts with --webd and --webd-demo")
+    args.webd = args.webd or args.webd_demo
     if args.lazywebplus or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
@@ -345,6 +357,9 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.setup)
+    # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
+    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails).
+    args.webd_implicit = args.desktop and not args.webd and not args.no_webd
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
     args.tls = args.tls or args.mail or args.lazywebplus

@@ -378,10 +378,11 @@ class PictureViewerTests(unittest.TestCase):
         self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=True))
 
     def test_a_plain_build_builds_the_player_first(self) -> None:
-        steps = catalog.app_steps({"pictures": True, "desktop": True})
+        # `no_webd`: every desktop also builds webd, which is not what this is about.
+        steps = catalog.app_steps({"pictures": True, "desktop": True, "no_webd": True})
         self.assertEqual([step["argv"][1:] for step in steps], [["tools/lazyrad/build.py"]])
         self.assertEqual(catalog.app_steps({"pictures": True}), [], "a CLI image has no viewer")
-        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True})
+        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True, "no_webd": True})
         self.assertEqual(len(both), 1, "one LazyRAD build serves both")
 
     def test_the_session_asks_for_the_viewer_and_the_ui_probe(self) -> None:

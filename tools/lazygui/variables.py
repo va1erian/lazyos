@@ -114,6 +114,10 @@ def make_vars() -> dict:
         # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
         # run_demo --webd; implies the desktop and the big-app profile, not the stack).
         "webd": b(value=False),
+        # The demo client of webd (LAZYOS_WEBDDEMO, run_demo --webd-demo) and the opt-out (LAZYOS_WEBD=0,
+        # run_demo --no-webd): every desktop ships webd.
+        "webd_demo": b(value=False),
+        "no_webd": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).

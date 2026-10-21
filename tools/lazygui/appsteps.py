@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import sys
 
+from . import osvolume
+
 PY = sys.executable
 
 
@@ -119,13 +121,16 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
 def webd_step(cfg: dict) -> list[dict]:
     """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
     (the service as a static library and the program, in Docker), then the xui apps, which package
-    it as `os.lazy.webd` (with the demo client, when the tree has it)."""
-    if not cfg.get("webd"):
+    it as `os.lazy.webd`. Every desktop ships it (Docs and Mail need it) unless the launcher left it out."""
+    if not osvolume.wants_webd(cfg):
         return []
-    return [{"label": "Build the WebKit dependency bundle (Docker)",
-             "argv": [PY, "tools/webkit/deps.py", "--require"]},
-            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
-             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
+    # LazyWeb+'s steps already built the bundle and the engine processes webd starts.
+    shared = [] if cfg.get("lazywebplus") else [
+        {"label": "Build the WebKit dependency bundle (Docker)",
+         "argv": [PY, "tools/webkit/deps.py", "--require"]},
+        {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
+         "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]}]
+    return shared + [
             {"label": "Build webd: the service and the program (Docker)",
              "argv": [PY, "tools/webkit/webd.py", "--require"]},
             {"label": "Build xui apps with webd", "argv": [PY, "tools/xui/build.py"]}]
@@ -214,7 +219,9 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
             | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {})
-            | ({"LAZYOS_WEBD": "1"} if cfg.get("webd") else {}))
+            | ({"LAZYOS_WEBD": "1"} if osvolume.wants_webd(cfg) else {})
+            | ({"LAZYOS_WEBD": "0"} if cfg.get("no_webd") else {})
+            | ({"LAZYOS_WEBDDEMO": "1"} if cfg.get("webd_demo") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
@@ -228,7 +235,9 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
             + (["--lazywebplus"] if cfg.get("lazywebplus") and building else [])
-            + (["--webd"] if cfg.get("webd") and building else []))
+            + (["--webd"] if cfg.get("webd") and building else [])
+            + (["--webd-demo"] if cfg.get("webd_demo") and building else [])
+            + (["--no-webd"] if cfg.get("no_webd") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:

@@ -126,7 +126,7 @@ def build_env(cfg: dict) -> dict[str, str]:
     env: dict[str, str] = {}
     # LazyWeb+ and LazySky are desktop apps: they bring the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if any(cfg.get(name) for name in ("desktop", "lazysky", "lazywebplus", "webd", "setup")):
+    if any(cfg.get(name) for name in osvolume.DESKTOP_KEYS):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
