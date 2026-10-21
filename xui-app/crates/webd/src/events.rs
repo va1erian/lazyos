@@ -10,8 +10,9 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
+use crate::config::clip;
 use crate::engine::EngineEvents;
-use crate::limits::QUEUE_KEPT;
+use crate::limits::{EVENT_TEXT_BYTES, QUEUE_KEPT};
 
 /// The latest page state of a view.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +72,14 @@ struct Inner {
 type Wake = Box<dyn Fn() + Send + Sync>;
 /// Where the user's memory charge comes from (the host's quota read).
 type MemorySource = Box<dyn Fn() -> Option<(u64, u64)> + Send + Sync>;
+
+/// What the queue keeps of a text the page controls (a URL it clicked, what it copied, its title):
+/// at most [`EVENT_TEXT_BYTES`], cut at a character boundary *before* it is stored, because a page
+/// with scripts on can make tens of megabytes of it and [`QUEUE_KEPT`] of those would be gigabytes.
+/// Nothing is sent longer than that anyway (`service/events.rs`).
+fn kept(text: &str) -> String {
+    clip(text, EVENT_TEXT_BYTES).to_owned()
+}
 
 /// The queue the engine's callbacks fill and the service drains.
 #[derive(Default)]
@@ -145,10 +154,10 @@ impl EventQueue {
 impl EngineEvents for EventQueue {
     fn state(&self, view: u64, title: &str, loading: bool, finished: i32, error: &str) {
         let now = StateNow {
-            title: title.to_owned(),
+            title: kept(title),
             loading,
             finished,
-            error: error.to_owned(),
+            error: kept(error),
         };
         self.lock().states.insert(view, now);
         self.ring();
@@ -179,14 +188,14 @@ impl EngineEvents for EventQueue {
     fn link_clicked(&self, view: u64, url: &str) {
         self.push_once(Once::LinkClicked {
             view,
-            url: url.to_owned(),
+            url: kept(url),
         });
     }
 
     fn clipboard_write(&self, view: u64, text: &str) {
         self.push_once(Once::ClipboardWrite {
             view,
-            text: text.to_owned(),
+            text: kept(text),
         });
     }
 
@@ -202,7 +211,7 @@ impl EngineEvents for EventQueue {
     }
 
     fn say(&self, line: &str) {
-        self.push_once(Once::Say(line.to_owned()));
+        self.push_once(Once::Say(kept(line)));
     }
 
     fn user_memory(&self) -> Option<(u64, u64)> {
@@ -258,6 +267,42 @@ mod tests {
                 view: 1,
                 url: "https://x/10".into()
             }
+        );
+    }
+
+    #[test]
+    fn a_page_cannot_queue_more_than_the_text_limit_per_event() {
+        let queue = EventQueue::new();
+        // A 50 MB URL, a 50 MB copy, a title and an error of the same size, a marker line, all of
+        // them cut where they are stored (multi-byte characters: the cut must stay on a boundary).
+        let huge = "é".repeat(25 << 20);
+        queue.link_clicked(1, &huge);
+        queue.clipboard_write(1, &huge);
+        queue.state(1, &huge, false, 1, &huge);
+        queue.say(&huge);
+        let drained = queue.drain();
+        let limit = EVENT_TEXT_BYTES;
+        assert_eq!(drained.states[&1].title.len(), limit);
+        assert_eq!(drained.states[&1].error.len(), limit);
+        let sizes: Vec<usize> = drained
+            .once
+            .iter()
+            .map(|event| match event {
+                Once::LinkClicked { url, .. } => url.len(),
+                Once::ClipboardWrite { text, .. } => text.len(),
+                Once::Say(line) => line.len(),
+                Once::Lost { .. } => 0,
+            })
+            .collect();
+        assert_eq!(sizes, vec![limit, limit, limit]);
+        // A short text is stored whole.
+        queue.link_clicked(1, "https://x/");
+        assert_eq!(
+            queue.drain().once,
+            vec![Once::LinkClicked {
+                view: 1,
+                url: "https://x/".into()
+            }]
         );
     }
 
