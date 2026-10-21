@@ -125,6 +125,13 @@ jobs:
       - name: Check the fresh image
         run: bash tools/ci/check_os_image.sh target/lazyos.img fresh
 
+      # Every file the build placed belongs to one system package
+      # (packaging/packages.toml, docs/update-plan.md decisions 16-17).
+      - name: Every file has one owning package
+        run: |
+          python tools/pkg/test_owners.py
+          python tools/pkg/owners.py
+
       # No LAZYOS_RESET_OS here: the second build must update in place and
       # keep the volume's UUID.
       - name: Rebuild in place
