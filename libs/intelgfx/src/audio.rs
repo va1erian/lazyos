@@ -38,6 +38,13 @@ use crate::Mmio;
 /// be uploaded.
 pub const ELD_BUFFER_BYTES: usize = 84;
 
+/// `HSW_AUD_CHICKENBIT` and its codec wake bit (i915's
+/// `SKL_AUD_CODEC_WAKE_SIGNAL`, which the HDA driver asserts through the audio
+/// component while it talks to the codec): without it the Kaby Lake HDMI codec
+/// answers with a reduced topology. **To confirm** on the box.
+pub const AUD_CHICKENBIT: u32 = 0x6_5F10;
+pub const CODEC_WAKE: u32 = 1 << 15;
+
 /// `AUD_PIN_ELD_CP_VLD` holds one nibble per transcoder (A at bit 0).
 const NIBBLE_BITS: u32 = 4;
 const ELD_VALID: u32 = 1 << 0;
@@ -58,7 +65,8 @@ pub fn may_write(offset: u32) -> bool {
             .chain(base(AUD_DIP_ELD_CTRL_ST_A))
             .chain(base(AUD_HDMIW_HDMIEDID_A))
             .any(|reg| reg == offset)
-            || offset == AUD_PIN_ELD_CP_VLD)
+            || offset == AUD_PIN_ELD_CP_VLD
+            || offset == AUD_CHICKENBIT)
 }
 
 /// What a request asks of the display engine.
@@ -168,6 +176,7 @@ pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
 
 fn program(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     let t = req.transcoder;
+    m.update32(AUD_CHICKENBIT, CODEC_WAKE, CODEC_WAKE);
 
     // Output enable on, ELD invalid, so the codec sees "sink present, no
     // ELD yet" while the buffer is filled.
@@ -235,6 +244,7 @@ pub fn disable(m: &mut impl Mmio, transcoder: u8) -> Result<(), Error> {
         AUD_PIN_ELD_CP_VLD,
         v & !(OUTPUT_ENABLE << shift(transcoder)),
     );
+    m.update32(AUD_CHICKENBIT, CODEC_WAKE, 0);
     Ok(())
 }
 

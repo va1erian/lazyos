@@ -254,7 +254,7 @@ fn the_write_grant_is_only_the_audio_block() {
         assert!(!audio::may_write(offset), "{offset:#x}");
     }
     for offset in [
-        0x6_5000, 0x6_5100, 0x6_5200, 0x6_50B4, 0x6_5050, 0x6_5250, 0x6_50C0,
+        0x6_5000, 0x6_5100, 0x6_5200, 0x6_50B4, 0x6_5050, 0x6_5250, 0x6_50C0, 0x6_5F10,
     ] {
         assert!(audio::may_write(offset), "{offset:#x}");
     }
@@ -395,4 +395,27 @@ fn a_reserved_bit_that_reads_back_differently_is_not_a_failure() {
     let bytes = eld();
     audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap();
     assert_eq!(e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101, 0b101);
+}
+
+#[test]
+fn the_codec_wake_bit_is_set_by_enable_cleared_by_disable_and_nothing_else_moves() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.regs.insert(crate::audio::AUD_CHICKENBIT, 0x0000_0123);
+    let bytes = eld();
+    audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap();
+    assert_eq!(e.regs[&crate::audio::AUD_CHICKENBIT], 0x0000_8123);
+    audio::disable(&mut e, 0).unwrap();
+    assert_eq!(e.regs[&crate::audio::AUD_CHICKENBIT], 0x0000_0123);
+}
+
+#[test]
+fn a_failed_enable_does_not_leave_the_codec_awake() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.config_forced = Some((aud_config::N_PROG_ENABLE, 0));
+    let bytes = eld();
+    audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap_err();
+    assert_eq!(
+        e.regs[&crate::audio::AUD_CHICKENBIT] & crate::audio::CODEC_WAKE,
+        0
+    );
 }
