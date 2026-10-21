@@ -167,6 +167,14 @@ impl<T> YieldMutex<T> {
 
     /// Take the lock if it is free.
     pub fn try_lock(&self) -> Option<YieldGuard<'_, T>> {
+        // A fair lock released to its waiters is not free for a task that
+        // only tries (the deferred commit's next piece): the caller retries.
+        if self.info.fair
+            && self.info.handoff.load(Ordering::Acquire)
+            && self.info.waiting.load(Ordering::Acquire) > 0
+        {
+            return None;
+        }
         self.inner.try_lock().map(|guard| self.held(guard))
     }
 

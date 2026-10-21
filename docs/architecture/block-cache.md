@@ -235,7 +235,7 @@ the kernel tests are `bcache_deferred_commit_in_pieces` and
 (`fsync`, a full commit, `sync`) leaves the snapshot, and a full commit ends
 the piecewise one. The device's cache flush follows the last piece, outside
 the gate. `FS:DEFERRED` is printed per piece (`more=true` while it goes on).
-A journaled or uncached volume commits whole.
+A journaled or uncached volume commits whole (one long gate hold; `/home` on a stick is not journaled by default). The gate's `try_lock` (the next piece) also yields to waiters.
 
 ## Crash semantics
 
