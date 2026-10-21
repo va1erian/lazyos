@@ -66,6 +66,13 @@ impl ThemeFeed {
         self.settings.mode == Mode::Dark
     }
 
+    /// Whether light text reads better on the plain desktop colour than dark
+    /// text: the colour in use, not the mode, since a dark background can be
+    /// chosen in the light mode (and the other way round).
+    pub fn background_is_dark(&self) -> bool {
+        uitheme::text_on(self.palette().background) == uitheme::LIGHT_TEXT
+    }
+
     /// Re-read the settings when due; `true` when they changed.
     pub fn poll(&mut self) -> bool {
         let now = sys::clock_ticks();
@@ -130,8 +137,8 @@ pub fn color(rgb: u32) -> Color {
 /// The xui theme for the desktop surface: the preset's widget theme on the
 /// wallpaper colour, so the icon view's background is the wallpaper. In dark
 /// mode the wallpaper deepens toward the bottom (Midnight's window gradient).
-/// `dark` is what the launcher labels sit on: the mode, or the picture when
-/// one is shown (it may be dark in the light mode).
+/// `dark` is what the launcher labels sit on: the picture when one is shown,
+/// else the background colour in use (either may be dark in the light mode).
 pub fn desktop_theme(palette: &Palette, dark: bool) -> Theme {
     let mut theme = chrome_look(dark);
     theme.background = color(palette.background);
@@ -147,24 +154,27 @@ pub fn desktop_theme(palette: &Palette, dark: bool) -> Theme {
 }
 
 /// The decoration the shell's own surfaces (taskbar, menu) paint with:
-/// Midnight's gradients and bevels in dark mode, flat in light mode.
+/// Midnight's gradients and bevels in dark mode, Daylight's in light mode.
 pub fn chrome_look(dark: bool) -> Theme {
     if dark {
         Theme::midnight()
     } else {
-        Theme::light()
+        xui_settings::theme_ops::daylight()
     }
 }
 
 /// Fills `rect` with a bar background around `rgb`: a vertical gradient from a
-/// little lighter to darker when `look` is decorated, flat otherwise.
+/// little lighter to darker when `look` is decorated, flat otherwise. A light
+/// look darkens less: the bar holds dark text, which a navy-style fade to
+/// mid-grey would starve of contrast.
 pub fn fill_bar(canvas: &mut dyn Canvas, rect: Rect, rgb: u32, look: &Theme) {
     let mut bar = *look;
     bar.background = color(rgb);
     bar.background_end = color(rgb);
     if xui_core::theme::look::decorated(look) {
         bar.background = color(uitheme::mix(rgb, 0xFF_FF_FF, 1, 12));
-        bar.background_end = color(uitheme::mix(rgb, 0, 1, 4));
+        let fade = if look.is_dark { 4 } else { 12 };
+        bar.background_end = color(uitheme::mix(rgb, 0, 1, fade));
     }
     xui_core::theme::look::paint_background(canvas, rect, rect, &bar);
 }
@@ -172,6 +182,17 @@ pub fn fill_bar(canvas: &mut dyn Canvas, rect: Rect, rgb: u32, look: &Theme) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn labels_follow_the_background_colour_not_the_mode() {
+        let mut feed = ThemeFeed::new();
+        assert!(feed.background_is_dark());
+        feed.settings.mode = Mode::Light;
+        assert!(!feed.background_is_dark());
+        // A dark swatch chosen in the light mode needs light labels.
+        feed.settings.bg = Some(0x3A_42_56);
+        assert!(feed.background_is_dark());
+    }
 
     #[test]
     fn the_desktop_theme_paints_on_the_wallpaper() {
