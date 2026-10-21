@@ -57,7 +57,7 @@ jobs:
         run: cargo test --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core
 
       - name: A longer seeded fuzz of the SSE parser
-        run: FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyagent-core --release fuzz::
+        run: 'FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyagent-core --release fuzz::'
 
       - name: Clippy
         run: cargo clippy --manifest-path xui-app/Cargo.toml -p lazyhttps -p lazyagent-core -p lazysky-core --all-targets -- -D warnings
