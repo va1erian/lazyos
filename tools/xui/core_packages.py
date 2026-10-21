@@ -172,6 +172,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # NES: Play NES game ROMs, with sound. Shipped by `LAZYOS_GAMES=1` images
     # only, like LazyGolf.
     "nes": xui_app("xui-nes.elf", "nes", optional=True),
+    # Web View Demo (docs/webd-plan.md P2 slice 2): the client of webd's light views, driven by
+    # `python tools/webd/run.py`. Only a `LAZYOS_WEBD=1` image ships it.
+    "webddemo": xui_app("xui-webddemo.elf", "webddemo", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

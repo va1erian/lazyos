@@ -73,6 +73,9 @@ members = [
     # webd's host (docs/webd.md): the real Messenger binding, the wake-up loop and the markers around
     # xui-webd; built as a static library by `tools/webkit/webd.py`.
     "webd",
+    # The client of webd's light views (docs/webd-plan.md P2 slice 2): `LightWebView` over a
+    # `Transport`; `xui_app::platform::webd` binds it to Messenger and `webddemo` uses it.
+    "crates/webd-client",
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
@@ -188,6 +191,8 @@ lazymotion = { path = "crates/motion" }
 lazyicons = { path = "crates/named-icons" }
 # One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).
 trayclient = { path = "../libs/trayclient" }
+# webd's light views (docs/webd-plan.md P2 slice 2): the client; `platform::webd` binds it to Messenger.
+xui-webd-client = { path = "crates/webd-client" }
 # The shell themes its surfaces from the same `sys/ui/*` palette as xuid
 # (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
@@ -421,3 +426,7 @@ path = "src/bin/removable.rs"
 [[bin]]
 name = "xui-nes"
 path = "src/bin/nes.rs"
+
+[[bin]]
+name = "xui-webddemo"
+path = "src/bin/webddemo.rs"

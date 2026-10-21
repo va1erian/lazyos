@@ -443,6 +443,34 @@ switch. As built and measured: [`webd.md`](webd.md). What it found:
   documents. The NetworkProcess runs with no socket and no file (`network = []`, `files = []`).
 * **Lifecycle**: `init`'s `Quit` and `SIGTERM` both end it cleanly (`WEBD:QUIT:PASS`, exit status 0, no engine
   process left); started again, the name registers again; the shell's tray item follows it.
+### P2 slice 2, client half (2026-10-21)
+
+The client side of the light interface and its proof; the program, package and `LAZYOS_WEBD=1` are the other half.
+
+* **`xui-app/crates/webd-client`** (`xui-webd-client`, portable, no xui, no WebKit): `LightWebView<T: Transport>`
+  creates a view (`CreateView` moving the events channel), attaches three slots of the view's size, `set_html`,
+  `resize` (re-attach), `set_visible`/`refresh`/input (oneway), and `poll()`: it reads what has arrived without
+  parking, copies only the **newest** frame of the batch into a persistent `Picture` (every frame is a whole one) and
+  releases every slot it was handed, so a slow client loses frames and never the picture; webd's `Refresh` on a
+  release brings it back to the newest. A stale frame (a size the view no longer has) is ignored, not copied and not
+  released. Failures: a call webd refuses is `Error::Refused(errno)` and leaves the view as it was; no service on
+  `create` is `Error::NotRunning`; a service or view that goes away is `ViewEvent::Lost(Lost::ServiceGone)` from
+  `poll` and `Error::Lost` from every later call; `ViewLost` is `Lost::Engine(reason)`; `recreate()` makes a new view
+  and loads the last page again (the client keeps its `LoadHtml` bytes, section 8). Host tests run it against
+  `xui-webd`'s `MemFabric` and `RecordingEngine` (`tests/view.rs`, `failures.rs`, `demo.rs`).
+* **Binding.** `xui_app::platform::webd::WebdTransport` implements `Transport` over Messenger exactly as
+  `xui_app::tray` does for `trayclient`: `Service::try_connect("app.os.lazy.webd.light")` (never waits: an app that
+  starts before webd retries), bounded `call_moving_within` (200 ticks), a new `Service::send_oneway`, the event
+  channel read with the channel counters first, slots and HTML in `buffer_create` pages.
+* **`webddemo`** (`os.lazy.webddemo`): the demo client. Its logic is `xui_webd_client::demo::Demo` (host-tested);
+  the bin only paints the picture, forwards input and prints the markers: `WEBDDEMO:UP:PASS`, `VIEW:PASS id=<n>`,
+  `FRAME:PASS colour=<c> w= h= seq= ms=`, `LATENCY:<ms>`, `LINK:<url>`, `STATE:<title>`, `LOST:<reason>`,
+  `RECREATE:PASS`, `QUIT:PASS`. A core package that only `LAZYOS_WEBD=1` images ship; it lists
+  `os.lazy.webd.light.v1` and never the network.
+* **`tools/webd`**: `run.py` builds the image through `run_demo.py --webd`, listens on 127.0.0.1:18080 (the page's
+  picture; it must see nothing), boots once, clicks the link, kills the web process from the Terminal and judges the
+  demo's recovery (`tools/webd/README.md`). The judge, session and listener are tested on canned logs
+  (`test_judge.py`); the end-to-end run needs the program of the other half.
 
 ### What P1 found (2026-10-21, `webkit-views`)
 

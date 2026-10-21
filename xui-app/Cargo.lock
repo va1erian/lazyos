@@ -6941,6 +6941,7 @@ dependencies = [
  "xui-rich-text",
  "xui-settings",
  "xui-videoview",
+ "xui-webd-client",
  "xui-writer",
 ]
 
@@ -7180,6 +7181,15 @@ dependencies = [
  "fuzzkit",
  "libmessenger",
  "messenger-generated",
+]
+
+[[package]]
+name = "xui-webd-client"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+ "xui-webd",
 ]
 
 [[package]]

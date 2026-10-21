@@ -165,6 +165,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/nes",
         Art::Lucide(Lucide::Play, Tone::Clay),
     ),
+    // Web View Demo: scaffolded with a placeholder; pick its art.
+    (
+        "xui-app/packages/webddemo",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

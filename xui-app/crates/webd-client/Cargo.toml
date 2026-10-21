@@ -1,0 +1,27 @@
+# The client side of webd's light views (docs/webd-plan.md, phase P2 slice 2): a `LightWebView` that
+# creates a view over `os.lazy.webd.light.v1`, hands webd shared slots, copies the frames it paints
+# into a picture the app draws, and forwards input. Portable and host-tested against the service
+# half's in-memory fabric (`xui-webd`, a dev-dependency); the OS binding is a `Transport`
+# (`xui_app::platform::webd` on LazyOS), exactly as `trayclient` and `audioclient` are bound.
+#
+# The crate links no WebKit and no xui: a client of any licence may use it (docs/webd-plan.md
+# section 10, the process boundary is the licence firewall). It is GPL-3.0-or-later like the tree.
+[package]
+name = "xui-webd-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The client of webd's light views: LightWebView over os.lazy.webd.light.v1"
+
+[lib]
+name = "xui_webd_client"
+path = "src/lib.rs"
+
+[dependencies]
+libmessenger = { path = "../../../libs/messenger" }
+messenger-generated = { path = "../../../libs/generated" }
+
+[dev-dependencies]
+# The service half: its in-memory fabric and recording engine are the other end in the tests.
+xui-webd = { path = "../webd" }
