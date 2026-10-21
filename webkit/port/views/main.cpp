@@ -1,0 +1,388 @@
+// webkit-views: the engine's views, headless (docs/webd-plan.md, P1). Two owners of the engine's core
+// (webkit/port/app: engine, clients, policy, uiclient, notify, blocking, paint, children, log) without
+// the C ABI of lazyos_ui.h or a window: this file is the HostEnv and the ViewSinks.
+//
+//   webkit-views light   one view, a non-persistent store, no features: a "light view" (docs/webd-plan.md 3.6)
+//   webkit-views two     two views at once, one with a profile directory and one without
+//   webkit-views twoeph  two views at once, neither with a profile directory
+//   webkit-views cycle   twelve views made, shown and destroyed one after the other
+//
+// Each view loads a data: page of its own colour and title and must end up painting that colour and no
+// other, whatever the other view does; then the first is destroyed and the second, still alive, loads
+// another page and paints it. The engine processes the launcher started are counted (the answer to
+// "does a light view need a NetworkProcess", docs/webd-plan.md L1), and a destroyed view's WebProcess must
+// end. One line per fact, after "VIEWS:":
+//   LAUNCH:web=<n>:network=<n>   the launches seen when the pages were up
+//   PAGE:<name>:title=<t>:colour=<c>:ms=<n>   a view showed its page
+//   PASS / FAIL:<what>
+// Exit status 0 on PASS.
+
+#include <WebKit/WKRunLoop.h>
+
+#include <ctype.h>
+#include <pthread.h>
+#include <signal.h>
+#include <ucontext.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <atomic>
+#include <memory>
+#include <string>
+#include <time.h>
+#include <unistd.h>
+#include <vector>
+
+#include "engine.h"
+#include "lazyos_ui.h"
+
+using namespace webkitapp;
+
+extern "C" const char __ehdr_start;
+
+namespace {
+
+// A crash leaves no message: print the signal and every word of the first stack kilobytes that points
+// into the program's code, for `addr2line -f -C -e <the unstripped program> <at>` (the program is not
+// position independent). The same idea as main.cpp's handler, smaller.
+void reportCrash(int signal, siginfo_t*, void* context)
+{
+    const unsigned long base = reinterpret_cast<unsigned long>(&__ehdr_start);
+    auto* uc = static_cast<ucontext_t*>(context);
+    const unsigned long* words = reinterpret_cast<const unsigned long*>(uc->uc_mcontext.gregs[REG_RSP]);
+    char line[64];
+    int printed = 0;
+    int length = snprintf(line, sizeof line, "VIEWS:CRASH:signal=%d:base=%lx\n", signal, base);
+    ssize_t ignored = write(STDOUT_FILENO, line, static_cast<size_t>(length));
+    for (int i = 0; i < 4096 && printed < 40; ++i) {
+        const unsigned long word = words[i];
+        if (word > base && word < base + 0x8000000UL) {
+            length = snprintf(line, sizeof line, "VIEWS:CRASH:at=%lx\n", word);
+            ignored = write(STDOUT_FILENO, line, static_cast<size_t>(length));
+            ++printed;
+        }
+    }
+    (void)ignored;
+    _exit(134);
+}
+
+char crashStack[64 * 1024];
+
+long monotonicMs()
+{
+    timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
+}
+
+struct Counters {
+    int web { 0 };
+    int network { 0 };
+    int webExits { 0 };
+};
+Counters launches;
+
+class Env final : public HostEnv {
+public:
+    int features() override { return 0; }
+    void say(const char* line) override
+    {
+        if (!strncmp(line, "PROCESS:LAUNCH:web:", 19) && !strstr(line, "FAIL"))
+            ++launches.web;
+        else if (!strncmp(line, "PROCESS:LAUNCH:network:", 23) && !strstr(line, "FAIL"))
+            ++launches.network;
+        else if (!strncmp(line, "PROCESS:EXIT:web:", 17))
+            ++launches.webExits;
+        printf("VIEWS:%s\n", line);
+        fflush(stdout);
+    }
+    bool probe() override { return true; }
+    int userMemory(uint64_t*, uint64_t*) override { return 1; }
+};
+
+// The colour a frame is mostly made of: 'r', 'g', 'b', 'w' (white), '?' (none of them covers half).
+char dominant(const uint8_t* rgba, int width, int height)
+{
+    long counts[4] = { 0, 0, 0, 0 };
+    for (long i = 0, n = static_cast<long>(width) * height; i < n; ++i) {
+        const uint8_t r = rgba[4 * i], g = rgba[4 * i + 1], b = rgba[4 * i + 2];
+        if (r > 200 && g < 80 && b < 80)
+            ++counts[0];
+        else if (g > 100 && r < 80 && b < 80)
+            ++counts[1];
+        else if (b > 200 && r < 80 && g < 80)
+            ++counts[2];
+        else if (r > 240 && g > 240 && b > 240)
+            ++counts[3];
+    }
+    const long total = static_cast<long>(width) * height;
+    const char names[4] = { 'r', 'g', 'b', 'w' };
+    for (int i = 0; i < 4; ++i) {
+        if (counts[i] * 2 > total)
+            return names[i];
+    }
+    return '?';
+}
+
+// A view's owner: remembers what the page said and what the pixels were, and every colour it ever
+// painted (a view must never show the other view's page).
+class Probe final : public ViewSink {
+public:
+    explicit Probe(const char* name)
+        : name(name)
+    {
+    }
+    void state(const ViewState& s) override
+    {
+        title = s.title;
+        finished = s.finished;
+        error = s.error;
+        crashed = s.crashed;
+    }
+    int paintPlan(int*, int*, int, int* count) override
+    {
+        *count = 0;
+        return kPaintFull;
+    }
+    void frame(const uint8_t* rgba, int width, int height) override
+    {
+        ++frames;
+        last = dominant(rgba, width, height);
+        seen += last;
+    }
+
+    const char* name;
+    std::string title;
+    std::string error;
+    int finished { 0 };
+    bool crashed { false };
+    int frames { 0 };
+    char last { '?' };
+    std::string seen; // the dominant colour of every frame, in order
+};
+
+std::string encode(const std::string& text)
+{
+    std::string out;
+    for (unsigned char c : text) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.')
+            out += static_cast<char>(c);
+        else {
+            char hex[4];
+            snprintf(hex, sizeof hex, "%%%02X", c);
+            out += hex;
+        }
+    }
+    return out;
+}
+
+std::string page(const char* title, const char* colour)
+{
+    return "data:text/html," + encode(std::string("<title>") + title + "</title><body style=\"margin:0;background:" + colour + "\">");
+}
+
+Env env;
+Probe first("A"), second("B");
+int firstId = 0, secondId = 0;
+bool bothViews = false;
+int phase = 0;
+long started = 0, phaseStarted = 0;
+// The cycle mode: a view at a time, N in all.
+constexpr int kCycles = 12;
+bool cycling = false;
+int cycleIndex = 0;
+int cycleView = 0;
+std::unique_ptr<Probe> cycleProbe;
+const char* const cycleColours[3] = { "red", "green", "blue" };
+const char cycleLetters[3] = { 'r', 'g', 'b' };
+std::atomic<bool> done { false };
+bool passed = false;
+
+void finish(const char* verdict, const char* detail)
+{
+    if (done)
+        return;
+    done = true;
+    passed = !strcmp(verdict, "PASS");
+    printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web, launches.network);
+    if (detail && *detail)
+        printf("VIEWS:%s:%s\n", verdict, detail);
+    else
+        printf("VIEWS:%s\n", verdict);
+    fflush(stdout);
+    WKRunLoopStopMain();
+}
+
+bool shows(Probe& probe, const char* title, char colour)
+{
+    return probe.finished >= 1 && probe.title == title && probe.last == colour;
+}
+
+// Never a colour that is another view's page.
+bool clean(Probe& probe, const char* forbidden)
+{
+    for (char c : probe.seen) {
+        if (strchr(forbidden, c))
+            return false;
+    }
+    return true;
+}
+
+void step(void*)
+{
+    if (done)
+        return;
+    const long now = monotonicMs();
+    if (now - started > 90000) {
+        char detail[512];
+        snprintf(detail, sizeof detail, "timeout in phase %d: A title='%s' frames=%d seen=%s finished=%d, B title='%s' frames=%d seen=%s finished=%d err='%s'",
+            phase, first.title.c_str(), first.frames, first.seen.c_str(), first.finished, second.title.c_str(), second.frames, second.seen.c_str(), second.finished, second.error.c_str());
+        finish("FAIL", detail);
+        return;
+    }
+    if (first.crashed || second.crashed) {
+        finish("FAIL", "a page's process crashed");
+        return;
+    }
+    if (cycling && phase != 2) {
+        if (!cycleProbe) {
+            ViewConfig config;
+            config.width = 240;
+            config.height = 160;
+            cycleProbe = std::make_unique<Probe>("cycle");
+            View* made = createView(config, cycleProbe.get());
+            if (!made) {
+                finish("FAIL", "a view in the cycle was refused");
+                return;
+            }
+            cycleView = made->id;
+            made->load(page("Cycle", cycleColours[cycleIndex % 3]));
+            return;
+        }
+        if (cycleProbe->finished >= 1 && cycleProbe->last == cycleLetters[cycleIndex % 3]) {
+            destroyView(cycleView);
+            cycleProbe.reset();
+            if (++cycleIndex == kCycles) {
+                phase = 2;
+                phaseStarted = now;
+            }
+        }
+        return;
+    }
+    if (phase == 2) {
+        // Every destroyed view's WebProcess must end.
+        if (launches.webExits >= kCycles) {
+            printf("VIEWS:CYCLED:%d:web launches=%d exits=%d\n", kCycles, launches.web, launches.webExits);
+            finish("PASS", "");
+        } else if (now - phaseStarted > 20000) {
+            char detail[128];
+            snprintf(detail, sizeof detail, "only %d of %d web processes ended", launches.webExits, kCycles);
+            finish("FAIL", detail);
+        }
+        return;
+    }
+    if (phase == 0) {
+        const bool upA = !bothViews || shows(first, "Alpha", 'r');
+        if (upA && shows(second, "Beta", 'b')) {
+            printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web, launches.network);
+            if (bothViews)
+                printf("VIEWS:PAGE:A:title=Alpha:colour=red:ms=%ld\n", now - started);
+            printf("VIEWS:PAGE:B:title=Beta:colour=blue:ms=%ld\n", now - started);
+            fflush(stdout);
+            if (bothViews && (!clean(first, "bg") || !clean(second, "rg"))) {
+                finish("FAIL", "a view painted the other view's colour");
+                return;
+            }
+            phase = 1;
+            phaseStarted = now;
+            if (bothViews) {
+                destroyView(firstId);
+                printf("VIEWS:DESTROYED:A\n");
+            }
+            if (View* v = viewById(secondId))
+                v->load(page("Gamma", "green"));
+        }
+        return;
+    }
+    if (phase == 1 && second.finished >= 2 && second.title == "Gamma" && second.last == 'g') {
+        // A's WebProcess ended with its view (its view was the only one that used it).
+        if (bothViews && launches.webExits < 1) {
+            if (now - phaseStarted > 20000)
+                finish("FAIL", "the destroyed view's web process did not end");
+            return;
+        }
+        printf("VIEWS:PAGE:B:title=Gamma:colour=green:ms=%ld\n", now - phaseStarted);
+        finish("PASS", "");
+    }
+}
+
+void* ticker(void*)
+{
+    while (!done) {
+        usleep(100 * 1000);
+        WKRunLoopCallOnMainThread(step, nullptr);
+    }
+    return nullptr;
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    const bool ephemeralPair = argc > 1 && !strcmp(argv[1], "twoeph");
+    cycling = argc > 1 && !strcmp(argv[1], "cycle");
+    bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair);
+    setvbuf(stdout, nullptr, _IOLBF, 0);
+    signal(SIGPIPE, SIG_IGN);
+    stack_t alternate = { };
+    alternate.ss_sp = crashStack;
+    alternate.ss_size = sizeof crashStack;
+    sigaltstack(&alternate, nullptr);
+    struct sigaction action = { };
+    action.sa_sigaction = reportCrash;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    sigaction(SIGABRT, &action, nullptr);
+    sigaction(SIGSEGV, &action, nullptr);
+    WKRunLoopInitializeMain();
+    const std::string profile = bothViews && !ephemeralPair ? "/tmp/webkit-views-profile" : "";
+    if (!startHost(&env, profile)) {
+        printf("VIEWS:FAIL:the host did not start\n");
+        return 1;
+    }
+    ViewConfig lightConfig;
+    lightConfig.width = 320;
+    lightConfig.height = 200;
+    if (bothViews) {
+        ViewConfig persistent = lightConfig;
+        persistent.profile = profile;
+        View* a = createView(persistent, &first);
+        if (!a) {
+            printf("VIEWS:FAIL:view A\n");
+            return 1;
+        }
+        firstId = a->id;
+    }
+    View* b = cycling ? nullptr : createView(lightConfig, &second);
+    if (!b && !cycling) {
+        printf("VIEWS:FAIL:view B\n");
+        return 1;
+    }
+    secondId = b ? b->id : 0;
+    started = monotonicMs();
+    // The loads go through the run loop, as the owner's calls do.
+    onMain([] {
+        if (cycling)
+            return;
+        if (bothViews)
+            viewById(firstId)->load(page("Alpha", "red"));
+        viewById(secondId)->load(page("Beta", "blue"));
+    });
+    pthread_t thread;
+    pthread_create(&thread, nullptr, ticker, nullptr);
+    WKRunLoopRunMain();
+    const int surviving = shutdownChildren();
+    printf("VIEWS:CHILDREN:left=%d\n", surviving);
+    fflush(stdout);
+    _exit(passed && surviving == 0 ? 0 : 1);
+}

@@ -50,6 +50,8 @@ NAMES = ["WebProcess", "NetworkProcess", "webkit-smoke"]
 #: The desktop UI process: built only on request, once the window's static library exists
 #: (``tools/webkit/app.py`` builds that first and then runs ``--only lazywebplus-app``).
 PLUS = "lazywebplus-app"
+#: The engine's views without a window, built on request and run by ``--run-views``.
+VIEWS = "webkit-views"
 
 
 def in_container() -> bool:
@@ -110,9 +112,11 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, PLUS])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
+    parser.add_argument("--run-views", action="store_true",
+                        help="after the build, run webkit-views in the container (build it with --only webkit-views)")
     parser.add_argument("--require", action="store_true",
                         help="fail (exit 1) when Docker or a download is unavailable")
     parser.add_argument("--no-docker", action="store_true",
@@ -136,6 +140,13 @@ def main() -> int:
     except BuildError as error:
         wkpins.log(str(error))
         return 1
+    if args.run_views:
+        import port_cmake
+        try:
+            port_cmake.run_views()
+        except BuildError as error:
+            wkpins.log(str(error))
+            return 1
     print(json.dumps(built, indent=2))
     return 0
 

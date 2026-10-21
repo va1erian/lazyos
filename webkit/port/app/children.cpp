@@ -202,8 +202,10 @@ void processCrashed(const char* type, int pid)
 
 int shutdownChildren()
 {
-    if (E.page && E.context)
-        rememberChildren();
+    if (H.context) {
+        for (auto& entry : H.views)
+            rememberChildren(*entry.second);
+    }
     {
         std::lock_guard<std::mutex> guard(registryLock);
         shuttingDown = true;
@@ -311,9 +313,9 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
         return;
     // WebKit's answers go on naming a process after it ended: nothing may use that id again.
     int expected = pid;
-    E.webPid.compare_exchange_strong(expected, 0);
+    H.webPid.compare_exchange_strong(expected, 0);
     expected = pid;
-    E.networkPid.compare_exchange_strong(expected, 0);
+    H.networkPid.compare_exchange_strong(expected, 0);
     if (quiet)
         return;
     if (what == "exit")
@@ -327,19 +329,20 @@ void lzw_launcher_event(const char* type, int pid, const char* event, int detail
 // WebKit's patch 0021 keeps the proxy of an ended web process alive (a leak of a few kilobytes each, for
 // a reason that is not found): the count is evidence of how many a run leaked. WebKit no longer knows
 // the process's id when it calls (it is cleared as the process is torn down): the page's last announced
-// id is the process that ended.
+// id is the process that ended (the first view that announced one; with several views WebKit's own id is
+// the better answer when it gives one).
 void lzw_proxy_kept(int pid, int kept)
 {
-    webkitapp::say("PROCESS:KEPT:%d:%d", pid > 0 ? pid : webkitapp::E.webPidShown, kept);
-}
-
-// The ids of the page's WebProcess and of the NetworkProcess as last seen (0: none yet); any thread.
-void lzw_engine_children(int* web, int* network)
-{
-    if (web)
-        *web = webkitapp::E.webPid;
-    if (network)
-        *network = webkitapp::E.networkPid;
+    int shown = pid;
+    if (shown <= 0) {
+        for (auto& entry : webkitapp::H.views) {
+            if (entry.second->webPidShown > 0) {
+                shown = entry.second->webPidShown;
+                break;
+            }
+        }
+    }
+    webkitapp::say("PROCESS:KEPT:%d:%d", shown, kept);
 }
 
 } // extern "C"

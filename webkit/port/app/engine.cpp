@@ -1,12 +1,15 @@
-// WebKit's UI-process half for the desktop window (docs/webkit-port-plan.md; docs/lazywebplus.md).
+// WebKit's UI-process half (docs/webkit-port-plan.md; docs/lazywebplus.md; docs/webd-plan.md).
 //
-// Everything here runs on WebKit's main thread (the run loop main() starts). The window's
-// thread calls the lzw_engine_* functions, each of which only queues a task for this
-// thread (lazyos_ui.h). WebKit is used through its C API alone, as webkit-smoke does:
-// a context pointed at the WebProcess and NetworkProcess binaries, a page configuration,
-// the PlayStation port's WKView; the page is painted into a bitmap with WKPagePaint
-// (paint.cpp) and handed to the window; mouse, wheel and key events go in through
-// WKPageHandle*Event. What the page says back, and the markers, are in clients.cpp.
+// Everything here runs on WebKit's main thread (the run loop main() starts). The owner's thread
+// calls the View methods through onView(), which only queues a task for this thread (the C ABI of
+// lazyos_ui.h does it in legacy.cpp). WebKit is used through its C API alone, as webkit-smoke does:
+// a context pointed at the WebProcess and NetworkProcess binaries, a page configuration per view,
+// the PlayStation port's WKView; the page is painted into a bitmap with WKPagePaint (paint.cpp) and
+// handed to the view's sink; mouse, wheel and key events go in through WKPageHandle*Event. What the
+// page says back, and the markers, are in clients.cpp.
+//
+// One WKContext serves every view; a view's data store is its profile directory's, shared by the
+// views of that directory, or a non-persistent store of its own.
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -47,7 +50,32 @@
 
 namespace webkitapp {
 
-Engine E;
+Host H;
+
+Profile::~Profile()
+{
+    for (auto& list : lists)
+        WKRelease(list.second);
+    if (rules)
+        WKRelease(rules);
+    if (store)
+        WKRelease(store);
+}
+
+View* viewById(int id)
+{
+    auto it = H.views.find(id);
+    return it == H.views.end() ? nullptr : it->second.get();
+}
+
+View* viewOfPage(WKPageRef page)
+{
+    for (auto& entry : H.views) {
+        if (entry.second->page == page)
+            return entry.second.get();
+    }
+    return nullptr;
+}
 
 namespace {
 
@@ -58,15 +86,6 @@ void runTask(void* context)
     (*task)();
     delete task;
 }
-
-} // namespace
-
-void onMain(std::function<void()> task)
-{
-    WKRunLoopCallOnMainThread(runTask, new std::function<void()>(std::move(task)));
-}
-
-namespace {
 
 // The cookie jar, below the profile directory (a SQLite database the NetworkProcess owns).
 constexpr const char* kCookieJar = "cookies/cookie.jar.db";
@@ -84,21 +103,21 @@ bool makeDirectories(const std::string& path)
     return true;
 }
 
-// The user's profile directory: the window names it (LazyWeb+: `$HOME/.apps/os.lazy.lazywebplus`,
-// the app's own per-user folder, which `init` gives every app a `HOME` for), and it is the one place
-// the browser's rules let any of its processes write. Empty when the window asks for no profile or
-// there is no home: the browser then keeps nothing at all.
-std::string profileDirectory()
+// What the children inherit: the launcher starts them in the profile directory, WebKit's default
+// data directories (patch 0015) are below it, and curl opens its cookie database at
+// CURL_COOKIE_JAR_PATH (the working directory otherwise) before the data store's own file is applied
+// (WebCore/platform/network/curl/NetworkStorageSessionCurl.cpp). A process takes its environment when
+// it starts and one NetworkProcess serves every profile, so the first persistent profile's directory is
+// the one named: a second profile's explicit directories (below) are right, its curl cookie jar is not
+// yet (docs/webd-plan.md, "Profiles, processes, isolation").
+void exportProfileEnvironment(const std::string& profile)
 {
-    if (!has(LZW_FEATURE_PROFILE))
-        return std::string();
-    const char* chosen = lzw_ui_profile_dir();
-    if (!chosen || *chosen != '/')
-        return std::string();
-    std::string chosenPath(chosen);
-    while (chosenPath.size() > 1 && chosenPath.back() == '/')
-        chosenPath.pop_back();
-    return chosenPath;
+    static bool exported = false;
+    if (exported)
+        return;
+    exported = true;
+    setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
+    setenv("CURL_COOKIE_JAR_PATH", (profile + "/" + kCookieJar).c_str(), 1);
 }
 
 // The website data store the page lives in: everything WebKit keeps (cookies, the HTTP cache,
@@ -111,12 +130,7 @@ WKWebsiteDataStoreRef createDataStore(const std::string& profile)
         say("PROFILE:NONE:the browser keeps nothing");
         return WKWebsiteDataStoreCreateNonPersistentDataStore();
     }
-    // The children inherit these: the launcher starts them in the profile directory, WebKit's
-    // default data directories (patch 0015) are below it, and curl opens its cookie database at
-    // CURL_COOKIE_JAR_PATH (the working directory otherwise) before the data store's own file is
-    // applied (WebCore/platform/network/curl/NetworkStorageSessionCurl.cpp).
-    setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
-    setenv("CURL_COOKIE_JAR_PATH", (profile + "/" + kCookieJar).c_str(), 1);
+    exportProfileEnvironment(profile);
 
     auto path = [&profile](const char* leaf) {
         return WKStringCreateWithUTF8CString((profile + "/" + leaf).c_str());
@@ -152,20 +166,66 @@ WKWebsiteDataStoreRef createDataStore(const std::string& profile)
     return store;
 }
 
+// The profile a view of this configuration lives in: the directory's, when it has one and another view
+// has it open already, else a new one.
+std::shared_ptr<Profile> profileFor(const std::string& directory)
+{
+    if (!directory.empty()) {
+        auto known = H.profiles.find(directory);
+        if (known != H.profiles.end()) {
+            if (std::shared_ptr<Profile> shared = known->second.lock())
+                return shared;
+        }
+    }
+    auto profile = std::make_shared<Profile>();
+    profile->directory = directory;
+    profile->store = createDataStore(directory);
+    if (!directory.empty()) {
+        H.profiles[directory] = profile;
+        // A persistent data store lives as long as the process: releasing the last one while its
+        // NetworkProcess session is open aborted the UI process (webkit-views two), and the old
+        // single-page host never let go of its store either.
+        H.keptProfiles.push_back(profile);
+    }
+    return profile;
+}
+
+void clearClients(View& view)
+{
+    if (!view.page)
+        return;
+    WKPageSetPageNavigationClient(view.page, nullptr);
+    WKPageSetPageStateClient(view.page, nullptr);
+    WKPageSetPageUIClient(view.page, nullptr);
+    // The update, scroll-offset and band callbacks are the process's, not the page's (paint.cpp): the
+    // other views still use them.
+    if (view.view)
+        WKViewSetViewClient(view.view, nullptr);
+}
+
 } // namespace
 
-} // namespace webkitapp
-
-using namespace webkitapp;
-
-extern "C" {
-
-int lzw_engine_start(void)
+void onMain(std::function<void()> task)
 {
+    WKRunLoopCallOnMainThread(runTask, new std::function<void()>(std::move(task)));
+}
+
+void onView(int id, std::function<void(View&)> task)
+{
+    onMain([id, task = std::move(task)] {
+        if (View* view = viewById(id))
+            task(*view);
+    });
+}
+
+bool startHost(HostEnv* env, const std::string& profileHint)
+{
+    H.env = env;
     elapsedMs();
-    // The user's profile directory first: it goes into the environment the children inherit,
-    // and nothing may start a process before it is there.
-    WKWebsiteDataStoreRef dataStore = createDataStore(profileDirectory());
+    // The profile directory first: it goes into the environment the children inherit, and nothing
+    // may start a process before it is there.
+    if (!profileHint.empty() && makeDirectories(profileHint))
+        exportProfileEnvironment(profileHint);
     // The page's process paints a view's height of the page above and below the view ahead of a
     // scroll (WebKit patch 0030, paint.cpp "bands"); a harness may set another amount, 0 for none.
     setenv("LAZYOS_WEBKIT_OVERSCAN", "1", 0);
@@ -179,162 +239,175 @@ int lzw_engine_start(void)
     WKStringRef networkPath = WKStringCreateWithUTF8CString(LAZYOS_NETWORKPROCESS_PATH);
     WKContextConfigurationSetWebProcessPath(configuration, webPath);
     WKContextConfigurationSetNetworkProcessPath(configuration, networkPath);
-    // One WebProcess for every page, started with the view: a cross-site navigation does not get
-    // a fresh process (108 MB loaded whole into RAM, a JIT region and heaps of its own: the second
-    // one's `exec` failed with ENOMEM under the user's memory quota), and none is kept warm.
+    // One WebProcess for every page of a data store, started with the view: a cross-site navigation
+    // does not get a fresh process (108 MB loaded whole into RAM, a JIT region and heaps of its own:
+    // the second one's `exec` failed with ENOMEM under the user's memory quota), and none is kept warm.
     WKContextConfigurationSetProcessSwapsOnNavigation(configuration, false);
     WKContextConfigurationSetPrewarmsProcessesAutomatically(configuration, false);
     WKContextConfigurationSetUsesWebProcessCache(configuration, false);
-    E.context = WKContextCreateWithConfiguration(configuration);
+    H.context = WKContextCreateWithConfiguration(configuration);
     // The notification provider before any page process: it reads the decisions when it starts.
     installNotifications();
+    installContextClient();
+    return H.context != nullptr;
+}
+
+View* createView(const ViewConfig& config, ViewSink* sink)
+{
+    auto owned = std::make_unique<View>(H.nextView++, config, sink);
+    View& view = *owned;
+    view.profile = profileFor(config.profile);
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
-    WKPageConfigurationSetContext(pageConfiguration, E.context);
-    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, dataStore);
+    WKPageConfigurationSetContext(pageConfiguration, H.context);
+    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, view.profile->store);
     // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
-    startBlocking(pageConfiguration, profileDirectory());
-    E.store = dataStore; // the page configuration keeps it alive
-    WKRelease(dataStore);
-    E.view = WKViewCreate(pageConfiguration);
-    if (!E.view) {
+    startBlocking(view, pageConfiguration);
+    // The configuration is not released, as before: the view keeps what it needs of it.
+    view.view = WKViewCreate(pageConfiguration);
+    if (!view.view) {
         say("FAIL:view:WKViewCreate returned null");
-        return 1;
+        return nullptr;
     }
-    E.page = WKViewGetPage(E.view);
+    view.page = WKViewGetPage(view.view);
 
-    static WKViewClientV0 viewClient = { };
+    WKViewClientV0 viewClient = { };
     viewClient.base.version = 0;
+    viewClient.base.clientInfo = &view;
     viewClient.setViewNeedsDisplay = viewNeedsDisplay;
-    if (has(LZW_FEATURE_PAGE_UI))
+    if (view.has(LZW_FEATURE_PAGE_UI))
         viewClient.setCursor = viewSetCursor;
-    WKViewSetViewClient(E.view, &viewClient.base);
-    WKViewSetSize(E.view, WKSizeMake(E.width, E.height));
-    installPaintObserver();
-    WKViewSetActive(E.view, true);
-    WKViewSetFocus(E.view, true);
-    WKViewSetVisible(E.view, true);
+    WKViewSetViewClient(view.view, &viewClient.base);
+    WKViewSetSize(view.view, WKSizeMake(view.width, view.height));
+    installPaintObserver(view);
+    WKViewSetActive(view.view, true);
+    WKViewSetFocus(view.view, true);
+    WKViewSetVisible(view.view, true);
 
-    installClients();
-    installContextClient();
-    if (has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_NOTIFICATIONS))
-        installUiClient();
-    return 0;
+    installClients(view);
+    if (view.has(LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_NOTIFICATIONS))
+        installUiClient(view);
+    H.views[view.id] = std::move(owned);
+    return &view;
 }
 
-int lzw_engine_running(void) { return E.running ? 1 : 0; }
-
-void lzw_engine_quit(void) { WKRunLoopCallOnMainThread([](void*) { WKRunLoopStopMain(); }, nullptr); }
-
-int lzw_engine_shutdown(void) { return shutdownChildren(); }
-
-void lzw_engine_recover(int reload)
+void destroyView(int id)
 {
-    onMain([reload] {
-        if (!E.page)
-            return;
-        if (WKPageGetProcessIdentifier(E.page) <= 0) {
-            // No process to end (it is gone already): reload starts one.
-            if (reload)
-                WKPageReload(E.page);
-            return;
-        }
-        E.recovering = true;
-        E.recoverReload = reload != 0;
-        say("WEBPROCESS:RECOVER:%d:%s", static_cast<int>(WKPageGetProcessIdentifier(E.page)), reload ? "reload" : "stop");
-        // The termination comes back as webProcessDidTerminate (clients.cpp), which carries on.
-        WKPageTerminate(E.page);
-    });
+    View* view = viewById(id);
+    if (!view)
+        return;
+    // Nothing the page says reaches a view that is going: its clients are cleared, then its questions
+    // get the answers a closed page gives.
+    clearClients(*view);
+    dropDialogs(*view);
+    dropDownloads(*view);
+    // The page closes itself before the view lets go of it: released with messages from its process still
+    // on the way, WebKit's page proxy aborts the UI process (a CheckedPtr to a dead object in
+    // didReachLayoutMilestone, found by webkit-views two, one run in six).
+    if (view->page) {
+        WKViewSetVisible(view->view, false);
+        WKPageStopLoading(view->page);
+        // Its process goes with it (107 MB); the page proxy stays, hollow (see below).
+        if (WKPageGetProcessIdentifier(view->page) > 0)
+            WKPageTerminate(view->page);
+    }
+    for (auto it = H.notificationViews.begin(); it != H.notificationViews.end();) {
+        if (it->second == id)
+            it = H.notificationViews.erase(it);
+        else
+            ++it;
+    }
+    // Parked, never released: WebKit's WebPageProxy aborts the UI process when it is destroyed on this
+    // port (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family
+    // of patches 0021 and 0027). A few kilobytes of proxy per view that ever was, no process.
+    H.parked.push_back(std::move(H.views[id]));
+    H.views.erase(id);
 }
 
-void lzw_engine_load(const char* url)
+// ---- the owner's calls ------------------------------------------------------------------------------
+
+void View::recover(bool reload)
 {
-    std::string address = url ? url : "";
-    onMain([address] {
-        WKURLRef wkUrl = WKURLCreateWithUTF8CString(address.c_str());
-        sayHarness("NAV:%s", oneLine(address).c_str());
-        WKPageLoadURL(E.page, wkUrl);
-        WKRelease(wkUrl);
-    });
+    if (!page)
+        return;
+    if (WKPageGetProcessIdentifier(page) <= 0) {
+        // No process to end (it is gone already): reload starts one.
+        if (reload)
+            WKPageReload(page);
+        return;
+    }
+    recovering = true;
+    recoverReload = reload;
+    say("WEBPROCESS:RECOVER:%d:%s", static_cast<int>(WKPageGetProcessIdentifier(page)), reload ? "reload" : "stop");
+    // The termination comes back as webProcessDidTerminate (clients.cpp), which carries on.
+    WKPageTerminate(page);
 }
 
-void lzw_engine_run_on_main(void (*task)(void*), void* context)
+void View::load(const std::string& address)
 {
-    if (task)
-        onMain([task, context] { task(context); });
+    WKURLRef wkUrl = WKURLCreateWithUTF8CString(address.c_str());
+    sayHarness("NAV:%s", oneLine(address).c_str());
+    WKPageLoadURL(page, wkUrl);
+    WKRelease(wkUrl);
 }
 
-void lzw_engine_reload(void) { onMain([] { WKPageReload(E.page); }); }
-void lzw_engine_stop(void)
-{
-    onMain([] {
-        // The error WebKit reports for this is the user's own doing, not a failure.
-        E.stopRequested = E.loading;
-        WKPageStopLoading(E.page);
-    });
-}
-void lzw_engine_back(void) { onMain([] { WKPageGoBack(E.page); }); }
-void lzw_engine_forward(void) { onMain([] { WKPageGoForward(E.page); }); }
+void View::reload() { WKPageReload(page); }
 
-void lzw_engine_resize(int width, int height)
+void View::stop()
 {
-    onMain([width, height] {
-        static bool windowSeen = false;
-        if (!windowSeen) {
-            windowSeen = true;
-            say("INFO:TIME:window=%ld:size=%dx%d", elapsedMs(), width, height);
-        }
-        if (width <= 0 || height <= 0 || (width == E.width && height == E.height))
-            return;
-        E.width = width;
-        E.height = height;
-        say("INFO:RESIZE:%dx%d", width, height);
-        WKViewSetSize(E.view, WKSizeMake(width, height));
-        schedulePaint();
-    });
+    // The error WebKit reports for this is the user's own doing, not a failure.
+    stopRequested = loading;
+    WKPageStopLoading(page);
 }
 
-void lzw_engine_mouse_now(int kind, int button, int x, int y, uint32_t mods)
+void View::back() { WKPageGoBack(page); }
+void View::forward() { WKPageGoForward(page); }
+
+void View::resize(int newWidth, int newHeight)
 {
-    notePointer(false);
+    static bool windowSeen = false;
+    if (!windowSeen) {
+        windowSeen = true;
+        say("INFO:TIME:window=%ld:size=%dx%d", elapsedMs(), newWidth, newHeight);
+    }
+    if (newWidth <= 0 || newHeight <= 0 || (newWidth == width && newHeight == height))
+        return;
+    width = newWidth;
+    height = newHeight;
+    say("INFO:RESIZE:%dx%d", newWidth, newHeight);
+    WKViewSetSize(view, WKSizeMake(newWidth, newHeight));
+    schedulePaint(*this);
+}
+
+void View::mouse(int kind, int button, int x, int y, uint32_t mods)
+{
+    notePointer(*this, false);
     WKEventType type = kind == 0 ? kWKEventMouseDown : kind == 1 ? kWKEventMouseUp : kWKEventMouseMove;
     WKEventMouseButton which = button == 0 ? kWKEventMouseButtonLeftButton
         : button == 1                      ? kWKEventMouseButtonMiddleButton
         : button == 2                      ? kWKEventMouseButtonRightButton
                                            : kWKEventMouseButtonNoButton;
-    WKPageHandleMouseEvent(E.page, WKMouseEventMake(type, which, WKPointMake(x, y), 1, mods));
+    WKPageHandleMouseEvent(page, WKMouseEventMake(type, which, WKPointMake(x, y), 1, mods));
 }
 
-void lzw_engine_mouse(int kind, int button, int x, int y, uint32_t mods)
+void View::wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
 {
-    // Moves reach here only as the one the window took out of its slot ahead of a press, a release
-    // or a wheel (xui-webkit's pointer.rs): the others come through lzw_engine_mouse_now.
-    onMain([=] { lzw_engine_mouse_now(kind, button, x, y, mods); });
+    notePointer(*this, true);
+    // One call per notch: the page takes the sign of each axis and scrolls a line step.
+    for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
+        WKPageHandleWheelEvent(page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));
+    // xui's positive x is to the right; WebKit's is to the left (as GTK's GDK_SCROLL_LEFT is +1).
+    for (int i = 0; i < (ticksX < 0 ? -ticksX : ticksX) && i < 8; ++i)
+        WKPageHandleWheelEvent(page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(ticksX < 0 ? 1 : -1, 0), WKSizeMake(0, 0), mods));
 }
 
-void lzw_engine_wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
+void View::key(bool press, uint32_t keysym, const std::string& typed, uint32_t mods)
 {
-    onMain([=] {
-        notePointer(true);
-        // One call per notch: the page takes the sign of each axis and scrolls a line step.
-        for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
-            WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));
-        // xui's positive x is to the right; WebKit's is to the left (as GTK's GDK_SCROLL_LEFT is +1).
-        for (int i = 0; i < (ticksX < 0 ? -ticksX : ticksX) && i < 8; ++i)
-            WKPageHandleWheelEvent(E.page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(ticksX < 0 ? 1 : -1, 0), WKSizeMake(0, 0), mods));
-    });
+    WKKeyboardEvent event = WKKeyboardEventMake(press ? kWKEventKeyDown : kWKEventKeyUp, kWKInputTypeNormal,
+        typed.c_str(), static_cast<uint32_t>(typed.size()), nullptr, static_cast<int32_t>(keysym), 0, 0, mods);
+    WKPageHandleKeyboardEvent(page, event);
 }
 
-void lzw_engine_key(int press, uint32_t keysym, const char* text, uint32_t mods)
-{
-    std::string typed = text ? text : "";
-    onMain([=] {
-        WKKeyboardEvent event = WKKeyboardEventMake(press ? kWKEventKeyDown : kWKEventKeyUp, kWKInputTypeNormal,
-            typed.c_str(), static_cast<uint32_t>(typed.size()), nullptr, static_cast<int32_t>(keysym), 0, 0, mods);
-        WKPageHandleKeyboardEvent(E.page, event);
-    });
-}
+void View::focus(bool focused) { WKViewSetFocus(view, focused); }
 
-void lzw_engine_focus(int focused) { onMain([focused] { WKViewSetFocus(E.view, focused != 0); }); }
-
-} // extern "C"
+} // namespace webkitapp

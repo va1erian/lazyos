@@ -26,7 +26,7 @@ BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
 OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
-           "lazywebplus-app": "lazywebplus-app"}
+           "lazywebplus-app": "lazywebplus-app", "webkit-views": "webkit-views"}
 #: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
 #: ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
 PLUS_LIBRARY = wkpins.OUT / "lib" / "libxui_webplus.a"
@@ -235,6 +235,36 @@ def host_reference() -> bool:
                          + done.stdout[-1500:] + done.stderr[-500:])
     REFERENCE.write_text(done.stdout)
     wkpins.log("host reference run passed")
+    return True
+
+
+def run_views() -> bool:
+    """Run ``webkit-views`` (``webkit/port/views``, docs/webd-plan.md P1) on the build host: the engine's
+    views without a window, once with one light view, twice with two views (of different profiles, and of none), and once
+    making, showing and destroying twelve views in turn.
+    Each run prints ``VIEWS:`` lines (the engine processes it launched among them) and ends with
+    ``VIEWS:PASS``; a run that does not is a ``BuildError``. Only in the build container, like
+    ``host_reference``; False when it did not run."""
+    import subprocess
+    import tempfile
+    if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
+        wkpins.log("not in the build container: webkit-views did not run")
+        return False
+    install_host_layout()
+    wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
+    for mode in ("light", "twoeph", "two", "cycle"):
+        with tempfile.TemporaryDirectory(prefix="webkit-views-", dir=wkpins.jsc_pins.WORK,
+                                         ignore_cleanup_errors=True) as scratch:
+            try:
+                done = subprocess.run([str(HOST_BIN / "webkit-views"), mode], capture_output=True, text=True,
+                                      timeout=300, cwd=scratch, env=smoke_environment())
+            except subprocess.TimeoutExpired as error:
+                raise BuildError(f"webkit-views {mode} timed out after 300 s:\n" + _tail(error.stdout)) from error
+        lines = [line for line in done.stdout.splitlines() if line.startswith("VIEWS:")]
+        wkpins.log(f"webkit-views {mode}:\n" + "\n".join(lines))
+        if done.returncode != 0 or "VIEWS:PASS" not in done.stdout:
+            raise BuildError(f"webkit-views {mode} failed (exit {done.returncode}):\n"
+                             + done.stdout[-2500:] + done.stderr[-500:])
     return True
 
 

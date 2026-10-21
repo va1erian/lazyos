@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #include "engine.h"
+#include "legacy.h"
 #include "lazyos_ui.h"
 
 extern "C" const char __ehdr_start;
@@ -193,6 +194,7 @@ int main(int argc, char** argv)
     // plain write do not.) A C++ `main` does not get the Rust runtime's ignore of it.
     signal(SIGPIPE, SIG_IGN);
     WKRunLoopInitializeMain();
+    webkitapp::useLegacyEnvironment();
     webkitapp::say("UP");
     if (lzw_engine_start() != 0)
         return 1;
@@ -210,7 +212,7 @@ int main(int argc, char** argv)
     pthread_detach(window);
 
     // The first thing the loop runs: from here on it is turning (the window's heartbeat times it).
-    WKRunLoopCallOnMainThread([](void*) { webkitapp::E.running = true; }, nullptr);
+    WKRunLoopCallOnMainThread([](void*) { webkitapp::H.running = true; }, nullptr);
     WKRunLoopRunMain();
     // End the WebProcess and the NetworkProcess ourselves and wait for them: the sockets closing
     // is not something to rely on, and a process left behind holds its 107 MB and its share of the

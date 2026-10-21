@@ -30,11 +30,11 @@ namespace webkitapp {
 namespace {
 
 // Keeps a dialog's listener for the window's answer; returns its id.
-uint64_t keep(int kind, WKTypeRef listener)
+uint64_t keep(View& v, int kind, WKTypeRef listener)
 {
     WKRetain(listener);
-    const uint64_t id = E.nextDialog++;
-    E.dialogs[id] = PendingDialog { kind, listener };
+    const uint64_t id = v.nextDialog++;
+    v.dialogs[id] = PendingDialog { kind, listener };
     return id;
 }
 
@@ -61,40 +61,45 @@ void answer(PendingDialog& dialog, bool accepted, const std::string& value)
     dialog.listener = nullptr;
 }
 
-void runJavaScriptAlert(WKPageRef, WKStringRef text, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptAlertResultListenerRef listener, const void*)
+void runJavaScriptAlert(WKPageRef, WKStringRef text, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptAlertResultListenerRef listener, const void* clientInfo)
 {
-    const uint64_t id = keep(LZW_DIALOG_ALERT, listener);
-    lzw_ui_dialog(id, LZW_DIALOG_ALERT, utf8(text).c_str(), "");
+    View& v = *viewOf(clientInfo);
+    const uint64_t id = keep(v, LZW_DIALOG_ALERT, listener);
+    v.sink->dialog(id, LZW_DIALOG_ALERT, utf8(text).c_str(), "");
 }
 
-void runJavaScriptConfirm(WKPageRef, WKStringRef text, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptConfirmResultListenerRef listener, const void*)
+void runJavaScriptConfirm(WKPageRef, WKStringRef text, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptConfirmResultListenerRef listener, const void* clientInfo)
 {
-    const uint64_t id = keep(LZW_DIALOG_CONFIRM, listener);
-    lzw_ui_dialog(id, LZW_DIALOG_CONFIRM, utf8(text).c_str(), "");
+    View& v = *viewOf(clientInfo);
+    const uint64_t id = keep(v, LZW_DIALOG_CONFIRM, listener);
+    v.sink->dialog(id, LZW_DIALOG_CONFIRM, utf8(text).c_str(), "");
 }
 
-void runJavaScriptPrompt(WKPageRef, WKStringRef text, WKStringRef defaultValue, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptPromptResultListenerRef listener, const void*)
+void runJavaScriptPrompt(WKPageRef, WKStringRef text, WKStringRef defaultValue, WKFrameRef, WKSecurityOriginRef, WKPageRunJavaScriptPromptResultListenerRef listener, const void* clientInfo)
 {
-    const uint64_t id = keep(LZW_DIALOG_PROMPT, listener);
-    lzw_ui_dialog(id, LZW_DIALOG_PROMPT, utf8(text).c_str(), utf8(defaultValue).c_str());
+    View& v = *viewOf(clientInfo);
+    const uint64_t id = keep(v, LZW_DIALOG_PROMPT, listener);
+    v.sink->dialog(id, LZW_DIALOG_PROMPT, utf8(text).c_str(), utf8(defaultValue).c_str());
 }
 
-void mouseDidMoveOverElement(WKPageRef, WKHitTestResultRef hit, WKEventModifiers, WKTypeRef, const void*)
+void mouseDidMoveOverElement(WKPageRef, WKHitTestResultRef hit, WKEventModifiers, WKTypeRef, const void* clientInfo)
 {
+    View& v = *viewOf(clientInfo);
     WKURLRef link = hit ? WKHitTestResultCopyAbsoluteLinkURL(hit) : nullptr;
     const std::string address = utf8(link);
     if (link)
         WKRelease(link);
-    if (address == E.hover)
+    if (address == v.hover)
         return;
-    E.hover = address;
-    lzw_ui_hover(address.c_str());
+    v.hover = address;
+    v.sink->hover(address.c_str());
 }
 
-// A page asked for a new window. None is made: the window decides what to do with the address
+// A page asked for a new window. None is made: the owner decides what to do with the address
 // (LazyWebPlus opens it in its one view when a user gesture started the request).
-WKPageRef createNewPage(WKPageRef, WKPageConfigurationRef, WKNavigationActionRef action, WKWindowFeaturesRef, const void*)
+WKPageRef createNewPage(WKPageRef, WKPageConfigurationRef, WKNavigationActionRef action, WKWindowFeaturesRef, const void* clientInfo)
 {
+    View& v = *viewOf(clientInfo);
     WKURLRequestRef request = WKNavigationActionCopyRequest(action);
     WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
     const std::string address = utf8(url);
@@ -104,10 +109,10 @@ WKPageRef createNewPage(WKPageRef, WKPageConfigurationRef, WKNavigationActionRef
         WKRelease(request);
     // The gesture is read where the policy decided on this action; the action itself may have
     // used it up by now.
-    const bool gesture = (E.popupUrl == address || address.empty()) ? E.popupGesture : WKNavigationActionHasUnconsumedUserGesture(action);
-    E.popupUrl.clear();
-    E.popupGesture = false;
-    lzw_ui_new_window(address.c_str(), gesture ? 1 : 0);
+    const bool gesture = (v.popupUrl == address || address.empty()) ? v.popupGesture : WKNavigationActionHasUnconsumedUserGesture(action);
+    v.popupUrl.clear();
+    v.popupGesture = false;
+    v.sink->newWindow(address.c_str(), gesture);
     return nullptr;
 }
 
@@ -138,51 +143,50 @@ int cursorShape(uint32_t type)
 
 } // namespace
 
-void viewSetCursor(WKViewRef, uint32_t cursorType, const void*) { lzw_ui_cursor(cursorShape(cursorType)); }
+void viewSetCursor(WKViewRef, uint32_t cursorType, const void* clientInfo)
+{
+    viewOf(clientInfo)->sink->cursor(cursorShape(cursorType));
+}
 
-void dropDialogs()
+void dropDialogs(View& v)
 {
     // A request to notify belongs to the page that asked too.
-    dropNotificationRequests();
+    dropNotificationRequests(v);
     // The page that asked is going away (or its process is): its question gets the "no" a closed
     // dialog gives, so nothing waits on a listener that is released.
-    auto pending = std::move(E.dialogs);
-    E.dialogs.clear();
+    auto pending = std::move(v.dialogs);
+    v.dialogs.clear();
     for (auto& entry : pending)
         answer(entry.second, false, std::string());
 }
 
-void installUiClient()
+void installUiClient(View& view)
 {
-    static WKPageUIClientV6 ui = { };
+    WKPageUIClientV6 ui = { };
     ui.base.version = 6;
-    if (has(LZW_FEATURE_PAGE_UI)) {
+    ui.base.clientInfo = &view;
+    if (view.has(LZW_FEATURE_PAGE_UI)) {
         ui.mouseDidMoveOverElement = mouseDidMoveOverElement;
         ui.createNewPage = createNewPage;
     }
-    if (has(LZW_FEATURE_DIALOGS)) {
+    if (view.has(LZW_FEATURE_DIALOGS)) {
         ui.runJavaScriptAlert = runJavaScriptAlert;
         ui.runJavaScriptConfirm = runJavaScriptConfirm;
         ui.runJavaScriptPrompt = runJavaScriptPrompt;
     }
-    if (has(LZW_FEATURE_NOTIFICATIONS))
+    if (view.has(LZW_FEATURE_NOTIFICATIONS))
         ui.decidePolicyForNotificationPermissionRequest = notificationPermissionRequest;
-    WKPageSetPageUIClient(E.page, &ui.base);
+    WKPageSetPageUIClient(view.page, &ui.base);
+}
+
+void View::replyDialog(uint64_t id, bool accepted, const std::string& value)
+{
+    auto it = dialogs.find(id);
+    if (it == dialogs.end())
+        return; // the page went away; its question was answered already
+    PendingDialog dialog = it->second;
+    dialogs.erase(it);
+    answer(dialog, accepted, value);
 }
 
 } // namespace webkitapp
-
-using namespace webkitapp;
-
-extern "C" void lzw_engine_dialog_reply(uint64_t id, int accepted, const char* value)
-{
-    std::string text = value ? value : "";
-    onMain([id, accepted, text] {
-        auto it = E.dialogs.find(id);
-        if (it == E.dialogs.end())
-            return; // the page went away; its question was answered already
-        PendingDialog dialog = it->second;
-        E.dialogs.erase(it);
-        answer(dialog, accepted != 0, text);
-    });
-}
