@@ -82,7 +82,7 @@ class DefinitionTests(unittest.TestCase):
         self.assertEqual(full[:len(base)], base)
         self.assertIn("srb2kart", suites.option_names(self.data))
         self.assertNotIn("srb2kart", full)
-        for flag in ("lazywebplus", "lazyweb", "mail", "lazysky", "games", "doom",
+        for flag in ("lazywebplus", "mail", "lazysky", "games", "doom",
                      "quake", "emusic", "linuxapps", "lazyrad", "modplayer", "pictures", "tls",
                      "net", "big-app"):
             self.assertIn(flag, full)
@@ -128,7 +128,7 @@ class RunDemoTests(unittest.TestCase):
     def test_suite_turns_on_its_flags_and_their_implications(self) -> None:
         args = self.parse("--suite", "full")
         for name in ("desktop", "net", "tls", "lazywebplus", "games", "doom", "quake",
-                     "emusic", "linuxapps", "mail", "lazysky", "lazyweb", "lazyrad", "modplayer", "pictures"):
+                     "emusic", "linuxapps", "mail", "lazysky", "lazyrad", "modplayer", "pictures"):
             self.assertTrue(getattr(args, name), name)
         self.assertFalse(args.srb2kart)
         self.assertFalse(args.jsc)

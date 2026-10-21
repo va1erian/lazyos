@@ -83,6 +83,6 @@ def advanced_cfg(ui) -> dict:
         # LazyWeb+'s ad blocker updates its lists with curl.
         "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazywebplus"].get(),
         "journal": ui.v["journal"].get(),
-        **{app: ui.v[app].get() for app in ("lazyweb", "lazysky", "mail", "traydemo", "games", "pictures")},
+        **{app: ui.v[app].get() for app in ("lazysky", "mail", "traydemo", "games", "pictures")},
         "script": SCRIPTS.index(names[0]) if names else 0,
     }

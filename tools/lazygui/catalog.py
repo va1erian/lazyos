@@ -21,7 +21,7 @@ from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-expo
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, SOFTWARE_CUSTOM, group_switches, simple_config, software_choices, suite_argv, suite_name)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazywebplus_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
@@ -124,9 +124,9 @@ def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
-    # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
+    # LazyWeb+ and LazySky are desktop apps: they bring the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if any(cfg.get(name) for name in ("desktop", "lazyweb", "lazysky", "lazywebplus", "webd", "setup")):
+    if any(cfg.get(name) for name in ("desktop", "lazysky", "lazywebplus", "webd", "setup")):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
@@ -253,10 +253,6 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("journal"):
         # An ext2 journal on the OS volume (added in place to an old image).
         env["LAZYOS_JOURNAL"] = "1"
-    if cfg.get("lazyweb"):
-        # The LazyWeb browser's core package (`tools/xui/build.py` builds it
-        # with the other apps); with the desktop, the stack and HTTPS set above.
-        env["LAZYOS_LAZYWEB"] = "1"
     if cfg.get("lazysky"):
         # The LazySky Bluesky client's core package; with the desktop and the
         # stack set above.
@@ -365,10 +361,6 @@ def build_plan(cfg: dict) -> list[dict]:
             # Also with "Skip build": run_demo starts the fake access points
             # and attaches the air card, not only the build switch.
             argv.append("--wifi-sim")
-        if cfg.get("lazyweb") and not cfg["skip_build"]:
-            # run_demo builds the browser and sets the desktop, the stack,
-            # HTTPS and LAZYOS_LAZYWEB itself.
-            argv.append("--lazyweb")
         if cfg.get("lazysky") and not cfg["skip_build"]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.

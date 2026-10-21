@@ -206,7 +206,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "(docs/webkit-port-plan.md W4); three static programs of tens of MB "
                              "(big-app profile) over the network stack, so this implies networking")
     parser.add_argument("--lazywebplus", action="store_true",
-                        help="LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus "
+                        help="LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus "
                              "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
                              "stack, the big-app profile, a 1 GiB OS volume, WebProcess and "
                              "NetworkProcess in /system/bin and the app's core package; built in "
@@ -273,10 +273,6 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "stop needs no repair (docs/architecture/journal.md). BLOCKS "
                              "sets the log size; default 4096 blocks (16 MiB). An existing "
                              "image gets one on the next in-place update")
-    parser.add_argument("--lazyweb", action="store_true",
-                        help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
-                             "a core package; NetSurf compiled with zig by tools/xui/build.py), "
-                             "networking and the HTTPS tools (docs/lazyweb.md)")
     parser.add_argument("--lazysky", action="store_true",
                         help="the desktop profile with the LazySky Bluesky client "
                              "(LAZYOS_LAZYSKY=1, a core package) and networking "
@@ -341,17 +337,17 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
-    # as do the desktop-only apps (Doom, LazyWeb, LazyWeb+, Mail, the Picture Viewer, the
+    # as do the desktop-only apps (Doom, LazyWeb+, Mail, the Picture Viewer, the
     # tray demo, the games) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.lazywebplus or args.webd or args.lazysky or args.mail
+                    or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
-    args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus
+    args.tls = args.tls or args.mail or args.lazywebplus
     args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is

@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
-`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
+`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
 """
@@ -126,7 +126,7 @@ def build_webkit_processes() -> bool:
 
 def build_lazywebplus() -> bool:
     """LazyWeb+ (`--lazywebplus`): the bundle and the port's processes, then
-    LazyWeb's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
+    the browser's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
     xui apps, whose build packages `xui-lazywebplus.elf` as the core package
     `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
     return (build_webkit_processes()
@@ -161,20 +161,6 @@ def build_wifi() -> bool:
     pinned linux-firmware files into `target/firmware` (cached once
     verified); `wifid` itself is a `user` binary the image build compiles."""
     return required("the Wi-Fi firmware", "firmware/fetch.py", ("--switch", "wifi"))
-
-
-#: LazyWeb's browser binary (`tools/xui/build.py` builds it with the other apps).
-LAZYWEB_ELF = ROOT / "target" / "xui" / "xui-lazyweb.elf"
-
-
-def build_lazyweb() -> bool:
-    """LazyWeb (`--lazyweb`): the xui apps when its binary is missing. It is
-    pure Rust (Blitz), so `tools/xui/build.py` builds it with the rest."""
-    if LAZYWEB_ELF.is_file() or (build_xui_apps() and LAZYWEB_ELF.is_file()):
-        return True
-    print(f"error: {LAZYWEB_ELF} was not built "
-          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
-    return False
 
 
 #: LazySky's client binary (`tools/xui/build.py` builds it with the other apps).

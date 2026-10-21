@@ -3,8 +3,8 @@ flags run_demo and the screenshot tools share. Split out of `catalog` (file-size
 budget); `catalog` re-exports everything here.
 
 Networking is asked for directly (`net`), or brought by a feature that cannot
-work without it: the HTTPS clients (`tls`), the LazyWeb browser
-(`lazyweb`, which also brings the HTTPS clients and the desktop) and Wi-Fi
+work without it: the HTTPS clients (`tls`), the LazyWeb+ browser
+(`lazywebplus`, which also brings the HTTPS clients and the desktop) and Wi-Fi
 (`wifi`, a wireless interface of the same stack).
 """
 
@@ -20,7 +20,7 @@ import qemu_net  # noqa: E402  (the QEMU network arguments run_demo and the tool
 
 def wants_tls(cfg: dict) -> bool:
     """Whether the image carries the HTTPS clients (LAZYOS_TLS)."""
-    return bool(cfg.get("tls") or cfg.get("lazyweb") or cfg.get("lazywebplus"))
+    return bool(cfg.get("tls") or cfg.get("lazywebplus"))
 
 
 def wants_net(cfg: dict) -> bool:

@@ -1,5 +1,5 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail,
+player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, Mail,
 the Wi-Fi firmware, the stick's `lazyos-install`),
 run before `cargo build`, and the switches of the opt-in desktop apps (the tray demo, the
 Picture Viewer).
@@ -103,7 +103,7 @@ def webkit_port_step(cfg: dict) -> list[dict]:
 
 def lazywebplus_step(cfg: dict) -> list[dict]:
     """The steps that build LazyWeb+ (docs/lazywebplus.md): the bundle, the port's processes and
-    the app (LazyWeb's window as a static library and the UI process, in Docker), then the xui
+    the app (the browser's window as a static library and the UI process, in Docker), then the xui
     apps, which package it as `os.lazy.lazywebplus`."""
     if not cfg.get("lazywebplus"):
         return []
@@ -148,12 +148,6 @@ def wifi_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/firmware/fetch.py", "--switch", "wifi"]}]
 
 
-def lazyweb_step(cfg: dict) -> list[dict]:
-    """The step that builds the LazyWeb browser (with the other xui apps and
-    their core packages), when the image embeds it."""
-    if not cfg.get("lazyweb"):
-        return []
-    return [{"label": "Build xui apps with LazyWeb", "argv": [PY, "tools/xui/build.py"]}]
 def lazysky_step(cfg: dict) -> list[dict]:
     """The step that builds the LazySky client (with the other xui apps and
     their core packages), when the image embeds it."""
@@ -211,7 +205,7 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
     `tools/jsc/build.py`; a console program, so desktop or not) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
     (the W4 console proof, `tools/webkit/port.py`). LazyWeb+, `LAZYOS_LAZYWEBPLUS`, is a
-    desktop app like LazyWeb: it brings the desktop profile (`catalog.build_env`) and the stack,
+    desktop app like LazySky: it brings the desktop profile (`catalog.build_env`) and the stack,
     and `run_demo --lazywebplus` builds it and sets the big-app profile and the OS volume size."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
             | ({"LAZYOS_GAMES": "1"} if wants_games(cfg) else {})
@@ -257,5 +251,5 @@ def app_steps(cfg: dict) -> list[dict]:
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
-            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))
