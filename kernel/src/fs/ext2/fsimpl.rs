@@ -72,6 +72,10 @@ impl Filesystem for Ext2 {
         Ok(done)
     }
 
+    fn image_shareable(&self) -> bool {
+        true
+    }
+
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
         let _gate = self.enter();
         let handle = self.volume.open_file(path)?;

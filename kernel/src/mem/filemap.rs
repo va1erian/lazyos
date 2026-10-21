@@ -13,7 +13,9 @@
 //!   write-protects every mapping of the page again ([`write_protect`]), so a
 //!   page that is only read is never written back and a written one is
 //!   written once per change.
-//! * `MAP_PRIVATE`: a read fault maps the cache frame read-only and
+//! * `MAP_PRIVATE` (and a program's read-only segments, `Kind::FileImage`,
+//!   which every process running the program shares this way): a read fault
+//!   maps the cache frame read-only and
 //!   copy-on-write (the state `fork` leaves a page in), so the first store
 //!   ([`super::cow_fault`]) takes a private copy and the file never changes.
 //!   A write to a page not yet mapped skips the shared step and builds the
@@ -37,8 +39,9 @@ use x86_64::{PhysAddr, VirtAddr};
 
 use super::{
     alloc_frame, free_frame, kernel_table, leaf_entry, make_walk_writable, map_page_in, prot_flags,
-    pte, vma, FRAME_SIZE,
+    pte, vma, Resolve, FRAME_SIZE,
 };
+use crate::fs::openfile::MapError;
 
 /// `pte::SHARED` as the `x86_64` crate names the bit (52).
 const SHARED_BIT: PageTableFlags = PageTableFlags::BIT_52;
@@ -69,25 +72,38 @@ fn parked_here() {
     }
 }
 
-/// Resolve a not-present fault at `va` inside the file mapping `vma`. True
-/// when the access should be retried (the page is mapped, or the mapping
-/// changed while the file was read and the fault re-evaluates).
-pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vma::Vma) -> bool {
+/// Why a page of a file could not be had: a machine with no frame left to
+/// give is not the program's `SIGSEGV` (a program's text is mapped this way
+/// too), anything else is.
+fn unavailable(error: MapError) -> Resolve {
+    if error == MapError::NoMemory {
+        Resolve::OutOfFrames
+    } else {
+        Resolve::Refused
+    }
+}
+
+/// Resolve a not-present fault at `va` inside the file mapping `vma`.
+/// [`Resolve::Handled`] when the access should be retried (the page is
+/// mapped, or the mapping changed while the file was read and the fault
+/// re-evaluates).
+pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vma::Vma) -> Resolve {
     // As for anonymous memory, only `PROT_NONE` has nothing to materialise.
     if vma.prot.0 & 7 == 0 {
-        return false;
+        return Resolve::Refused;
     }
     let page = va & !(FRAME_SIZE - 1);
     let Some(file) = vma::file_of(table, &vma) else {
-        return false;
+        return Resolve::Refused;
     };
     let index = vma.offset_at(page) / FRAME_SIZE;
     let store = error.contains(PageFaultErrorCode::CAUSED_BY_WRITE);
     FAULT_EPOCH.fetch_add(1, Ordering::AcqRel);
     let (frame, flags) = match vma.kind {
         vma::Kind::FileShared => {
-            let Ok(frame) = file.page_frame(index) else {
-                return false;
+            let frame = match file.page_frame(index) {
+                Ok(frame) => frame,
+                Err(error) => return unavailable(error),
             };
             let mut flags = prot_flags(vma.prot) | SHARED_BIT;
             if store && vma.prot.has_write() {
@@ -100,24 +116,25 @@ pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vm
             }
             (frame, flags)
         }
-        vma::Kind::FilePrivate if store && vma.prot.has_write() => {
+        vma::Kind::FilePrivate | vma::Kind::FileImage if store && vma.prot.has_write() => {
             let Some(frame) = alloc_frame() else {
-                return false;
+                return Resolve::OutOfFrames;
             };
-            if file.copy_page(index, frame).is_err() {
+            if let Err(error) = file.copy_page(index, frame) {
                 free_frame(frame);
-                return false;
+                return unavailable(error);
             }
             (frame, prot_flags(vma.prot))
         }
-        vma::Kind::FilePrivate => {
-            let Ok(frame) = file.page_frame(index) else {
-                return false;
+        vma::Kind::FilePrivate | vma::Kind::FileImage => {
+            let frame = match file.page_frame(index) {
+                Ok(frame) => frame,
+                Err(error) => return unavailable(error),
             };
             let flags = (prot_flags(vma.prot) - PageTableFlags::WRITABLE) | COW_FLAG;
             (frame, flags)
         }
-        _ => return false,
+        _ => return Resolve::Refused,
     };
     parked_here();
     // Reading the file may have parked: another thread can have mapped the
@@ -135,14 +152,16 @@ pub(super) fn fault(table: PhysAddr, va: u64, error: PageFaultErrorCode, vma: vm
         free_frame(frame);
         // The page may have stayed in the cache with nothing mapping it.
         file.trim_page(index);
-        return true;
+        return Resolve::Handled;
     }
     if !map_page_in(table, VirtAddr::new(page), frame, flags) {
         free_frame(frame);
         file.trim_page(index);
-        return false;
+        // The page is not mapped yet (checked above): what failed is a
+        // page-table frame.
+        return Resolve::OutOfFrames;
     }
-    true
+    Resolve::Handled
 }
 
 /// A store to a present, read-only page of a shared mapping: if the VMA

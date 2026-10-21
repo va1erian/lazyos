@@ -61,12 +61,19 @@ pub enum Kind {
     /// the file's page cache that every mapper shares (`pte::SHARED`), written
     /// back to the file. Charged to the mapper like [`Kind::SharedAnon`].
     FileShared,
+    /// A read-only (or read-execute) `PT_LOAD` segment of a program, mapped
+    /// from the program file's page cache: the frames are shared with every
+    /// process running the same file and demand-faulted, exactly as a
+    /// [`Kind::FilePrivate`] mapping, but charged to no one. The segment
+    /// never held private pages, so neither the load nor the unmap touches
+    /// the user-memory quota.
+    FileImage,
 }
 
 impl Kind {
     /// Whether the range is a file-backed mapping that names its file.
     pub fn is_file_mapping(self) -> bool {
-        matches!(self, Kind::FilePrivate | Kind::FileShared)
+        matches!(self, Kind::FilePrivate | Kind::FileShared | Kind::FileImage)
     }
 }
 

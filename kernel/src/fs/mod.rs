@@ -236,6 +236,7 @@ pub fn vfs_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<us
 
 /// Write at an offset through the VFS (used by tests and future writers).
 pub fn vfs_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+    openfile::refuse_text_write(path)?;
     let written = with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound));
     native_changed(path, Change::Content, &written);
     written
@@ -259,6 +260,7 @@ pub fn vfs_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
 
 /// Truncate or extend a regular file through the VFS.
 pub fn vfs_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
+    openfile::refuse_text_write(path)?;
     let truncated = with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound));
     native_changed(path, Change::Content, &truncated);
     truncated
@@ -272,12 +274,17 @@ pub fn vfs_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
 /// Remove an empty directory through the native VFS.
 pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
     let removed = with(|vfs| vfs.rmdir(id, path)).unwrap_or(Err(FsError::NotFound));
+    let removed = openfile::rmdir_parked(id, path, removed);
     native_changed(path, Change::Name, &removed);
     removed
 }
 
 /// Remove a regular file through the VFS.
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
+    // A running program keeps its data under a hidden name (`openfile::image`).
+    if openfile::unlink_text(id, path)? {
+        return Ok(());
+    }
     let unlinked = with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
     native_changed(path, Change::Name, &unlinked);
     unlinked
@@ -286,7 +293,11 @@ pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
 /// Rename within one mount through the VFS.
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
+    let displaced = openfile::displace_text(id, to)?;
     let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
+    if let (Err(_), Some(displaced)) = (&renamed, displaced) {
+        displaced.restore();
+    }
     native_changed(from, Change::Name, &renamed);
     native_changed(to, Change::Name, &renamed);
     renamed
@@ -365,6 +376,7 @@ pub fn abi_readdir(id: Id, path: &str) -> Result<Vec<DirEntry>, FsError> {
 
 /// Write at an offset through the Linux ABI VFS.
 pub fn abi_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+    openfile::refuse_text_write(path)?;
     let written =
         abi_with(|vfs| vfs.write(id, path, offset, data)).unwrap_or(Err(FsError::NotFound));
     abi_changed(path, Change::Content, &written);
@@ -373,6 +385,7 @@ pub fn abi_write(id: Id, path: &str, offset: u64, data: &[u8]) -> Result<usize, 
 
 /// Truncate a file through the Linux ABI VFS (`O_TRUNC`).
 pub fn abi_truncate(id: Id, path: &str, size: u64) -> Result<(), FsError> {
+    openfile::refuse_text_write(path)?;
     let truncated = abi_with(|vfs| vfs.truncate(id, path, size)).unwrap_or(Err(FsError::NotFound));
     abi_changed(path, Change::Content, &truncated);
     truncated

@@ -9,8 +9,10 @@
 //! and the test suite's synthetic ELFs are plain byte slices.
 
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use crate::fs::openfile::OpenFile;
 use crate::fs::vfs::{FileKind, FsError, Id, Node};
 
 /// The reason a load fails when the filesystem could not read the image: an
@@ -24,6 +26,15 @@ pub trait Image {
     /// Fill all of `buf` from `offset`; an error when the file ends early or
     /// cannot be read.
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), &'static str>;
+
+    /// The image as an open program file whose page cache the loader may map
+    /// read-only segments from, shared with every other process running it,
+    /// instead of copying them. `None` (the default) when the bytes are not
+    /// a file the kernel owns the writes of: an embedded image, a byte
+    /// slice, a file on a FAT or FUSE volume, one open for writing.
+    fn shared_pages(&self) -> Option<Arc<OpenFile>> {
+        None
+    }
 }
 
 impl Image for [u8] {
@@ -136,6 +147,11 @@ impl VfsFile {
 impl Image for VfsFile {
     fn len(&self) -> u64 {
         self.len
+    }
+
+    fn shared_pages(&self) -> Option<Arc<OpenFile>> {
+        let node = self.node.as_ref().filter(|node| node.image_shareable())?;
+        OpenFile::open_image(&self.path, node.clone(), self.len).ok()
     }
 
     fn read_exact_at(&self, offset: u64, buf: &mut [u8]) -> Result<(), &'static str> {
