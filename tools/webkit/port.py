@@ -52,6 +52,8 @@ NAMES = ["WebProcess", "NetworkProcess", "webkit-smoke"]
 PLUS = "lazywebplus-app"
 #: The engine's views without a window, built on request and run by ``--run-views``.
 VIEWS = "webkit-views"
+#: webd's engine half and the program that tests it, built on request and run by ``--run-webd``.
+WEBD = "webd-abi-test"
 
 
 def in_container() -> bool:
@@ -112,11 +114,14 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS, WEBD], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS, WEBD])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
     parser.add_argument("--run-views", action="store_true",
                         help="after the build, run webkit-views in the container (build it with --only webkit-views)")
+    parser.add_argument("--run-webd", nargs="*", metavar="MODE",
+                        help="after the build, run webd-abi-test in the container (build it with --only webd-abi-test): "
+                        "every mode, or only the ones named")
     parser.add_argument("--require", action="store_true",
                         help="fail (exit 1) when Docker or a download is unavailable")
     parser.add_argument("--no-docker", action="store_true",
@@ -144,6 +149,13 @@ def main() -> int:
         import port_cmake
         try:
             port_cmake.run_views()
+        except BuildError as error:
+            wkpins.log(str(error))
+            return 1
+    if args.run_webd is not None:
+        import port_cmake
+        try:
+            port_cmake.run_webd(args.run_webd or None)
         except BuildError as error:
             wkpins.log(str(error))
             return 1
