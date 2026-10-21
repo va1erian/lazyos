@@ -1,15 +1,15 @@
 # LazyWeb+: a core LazyOS app, packaged by `tools/xui/core_packages.py` (docs/lazywebplus.md).
 #
-# LazyWeb's browser window on the WebKit engine (WebKit2 ported, docs/webkit-port-plan.md): the
-# same menu bar, toolbar, status bar, history and downloads as LazyWeb, with a real engine
-# (JavaScript, forms, the modern web) in place of Blitz. One static program (`lazywebplus-app`,
+# The web browser, on the WebKit engine (WebKit2 ported, docs/webkit-port-plan.md): a menu bar,
+# toolbar, status bar, history and downloads around a real engine (JavaScript, forms, the modern
+# web). One static program (`lazywebplus-app`,
 # about 108 MB: ICU's data is inside, and LazyOS loads a program whole into RAM) that starts
 # `/system/bin/webprocess` and `/system/bin/networkprocess`, which a `LAZYOS_LAZYWEBPLUS=1` image
 # ships beside it. The build copies the built program (`target/xui/xui-lazywebplus.elf`, from
 # `python tools/webkit/app.py`) into a scratch copy of this tree; `version` is replaced by
 # the workspace version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`. Only a desktop image
 # with the network stack ships it (`LAZYOS_LAZYWEBPLUS=1`, `python tools/run_demo.py --lazywebplus`).
-# LazyWeb stays the browser every image ships. The window is declared GPL-2.0-only OR
+# The window is declared GPL-2.0-only OR
 # GPL-3.0-or-later (the program links OpenSSL, Apache-2.0, through WebKit's curl: docs/lazywebplus.md).
 
 [app]
@@ -30,7 +30,7 @@ autostart = false
 
 # Web links other apps open (Mail, Files, the Terminal) come here when this is the browser
 # `mimed` picks for the type (a `user/<uid>/mimed/default/<type>` setting chooses between this and
-# LazyWeb, which registers the same types). Local HTML files open here too.
+# any other browser that registers the same types). Local HTML files open here too.
 [[mime]]
 type = "x-scheme-handler/http"
 verbs = ["open"]

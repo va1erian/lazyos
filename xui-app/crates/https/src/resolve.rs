@@ -3,8 +3,8 @@
 //! ureq's default resolver moves a lookup to a helper thread whenever a
 //! timeout applies. On LazyOS a thread has its own descriptor table, so the
 //! resolver's socket would live in a thread nobody else can see. This one
-//! asks `getaddrinfo` (through std) directly. Adapted from LazyWeb's
-//! `fetch/resolve.rs`, without its answer cache.
+//! asks `getaddrinfo` (through std) directly. Adapted from the fetcher of
+//! LazyWeb (the Blitz browser, removed), without its answer cache.
 
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};

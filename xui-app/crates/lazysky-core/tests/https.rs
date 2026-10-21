@@ -1,5 +1,5 @@
 //! The core's HTTPS path against a local rustls server with a throwaway CA
-//! (modelled on LazyWeb's `tests/support` and `fetch_tls.rs`).
+//! (modelled on the removed LazyWeb's HTTPS tests).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;

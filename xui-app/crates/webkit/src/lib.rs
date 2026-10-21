@@ -7,7 +7,7 @@
 //! wheel and keyboard ([`view`], [`keys`]), the pure parts of the C ABI ([`abi`]) and, on LazyOS,
 //! the C ABI itself (`ffi`).
 //!
-//! The window that uses it is LazyWebPlus (`xui-app/webplus`), which brings LazyWeb's chrome and
+//! The window that uses it is LazyWebPlus (`xui-app/webplus`), which brings the browser's chrome and
 //! defines the per-window functions of the C ABI. The logic here is portable and tested on the
 //! host against a recording [`engine`].
 

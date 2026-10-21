@@ -1,7 +1,7 @@
 //! Which navigations the engine may make (`lzw_ui_navigate`, called from WebKit's
 //! `decidePolicyForNavigationAction` for every navigation, redirect and window request).
 //!
-//! This is the rule LazyWeb could take for granted because Blitz has no scripts, and WebKit
+//! This is the rule a browser without scripts could take for granted, and WebKit
 //! cannot: **a page's script must never be able to start another program or run one of the
 //! browser's commands**. The engine tells the window whether a user gesture started the
 //! navigation (`WKNavigationActionHasUnconsumedUserGesture`: a click, a key, not a timer, a

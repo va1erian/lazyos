@@ -9,7 +9,7 @@ All fonts here are redistributed unmodified under permissive licenses.
 | `DroidSerif-Regular.ttf` | Droid Serif (proportional serif) | `xuid` headings and placeholders (Alt+Tab title, "Waiting for buffer"); LazyWriter's Serif family | Apache-2.0 |
 | `JetBrainsMono-Regular.ttf` | JetBrains Mono (monospace) | kernel framebuffer console; the xui Terminal | SIL OFL 1.1 |
 | `JetBrainsMono-{Bold,Italic,BoldItalic}.ttf` | JetBrains Mono Bold, Italic and Bold Italic | the xui Terminal (compiled in with the Regular) | SIL OFL 1.1 |
-| `liberation/Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf` | Liberation Sans, Serif and Mono 2.1.5 | LazyWeb's web pages (installed to `/system/share/fonts/liberation` in desktop images) | SIL OFL 1.1 |
+| `liberation/Liberation{Sans,Serif,Mono}-{Regular,Bold,Italic,BoldItalic}.ttf` | Liberation Sans, Serif and Mono 2.1.5 | web pages: WebKit's Fontconfig prefers them (installed to `/system/share/fonts/liberation` in desktop images) | SIL OFL 1.1 |
 
 ## Credits
 
@@ -59,10 +59,10 @@ Sans / Noto Serif (OFL); Droid remains the redistributable Apache-2.0 release.
   LazyWriter (`font::register_writer`) also registers Droid Sans Bold, Droid
   Serif and JetBrains Mono for its Sans, Serif and Mono families; with no
   italic face, its italic is slanted from the regular one by the shaper.
-- LazyWeb (`xui-app/web/src/fonts.rs`) reads the twelve Liberation faces from
-  `/system/share/fonts/liberation` at start and draws pages with them: they
+- WebKit (LazyWeb+, webd) draws pages with the twelve Liberation faces from
+  `/system/share/fonts/liberation`, which its Fontconfig file
+  (`webkit/port/fonts.conf.in`) prefers for the generic families: they
   are metric-compatible with Arial, Times New Roman and Courier New, and
-  have real bold and italic faces. Its window keeps Droid Sans. A family
-  whose regular face is missing falls back to the Droid one.
+  have real bold and italic faces.
 - The 5x7 bitmap font in `display::font` remains for the small demo clients
   (`xdemo`, `dragdemo`, `shellprobe`).
