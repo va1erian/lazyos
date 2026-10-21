@@ -1933,6 +1933,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazyhttps"
+version = "0.1.0"
+dependencies = [
+ "nettls-crypto",
+ "rustls",
+ "rustls-pki-types",
+ "ureq",
+]
+
+[[package]]
 name = "lazyicons"
 version = "0.1.0"
 dependencies = [
@@ -1975,13 +1985,10 @@ name = "lazysky-core"
 version = "0.1.0"
 dependencies = [
  "image",
- "nettls-crypto",
- "rustls",
- "rustls-pki-types",
+ "lazyhttps",
  "serde",
  "serde_json",
  "toml 0.8.23",
- "ureq",
 ]
 
 [[package]]
@@ -3292,6 +3299,10 @@ name = "surfbuf"
 version = "0.1.0"
 
 [[package]]
+name = "svcpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "swash"
 version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4458,7 +4469,7 @@ dependencies = [
 [[package]]
 name = "xui"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "embed-resource",
  "xui-core",
@@ -4496,6 +4507,7 @@ dependencies = [
  "netstack",
  "printd",
  "surfbuf",
+ "svcpolicy",
  "timezone",
  "tracefmt",
  "trayclient",
@@ -4537,7 +4549,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -4564,7 +4576,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -4589,7 +4601,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "xui-core",
 ]
@@ -4622,7 +4634,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "serde",
  "serde_json",

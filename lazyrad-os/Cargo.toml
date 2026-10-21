@@ -21,8 +21,8 @@ resolver = "2"
 # so `xui-app` resolves to it too and one `xui_core` links.
 # `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
-xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-canvas = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6", default-features = false }
+xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }
 # The LazyOS backend (xuid client), fonts, clipboardd client and the portable
 # file-dialog plumbing.
 xui-app = { path = "../xui-app" }
@@ -78,18 +78,19 @@ lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "fbd3fc417
 # (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
 xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "fbd3fc417b2fae0a56c15ae3fe8147961a9fbe3a" }
 
-# While LazyRAD's own workspace pins xui 93592fd (the LAGGING state in
-# tools/xui/check_pin.py) and `xui-app` is already ahead, every xui package this
-# graph pulls is patched back to the held revision, so one `xui_core` links.
+# LazyRAD's own workspace still pins an older xui (fbd3fc4, and main b24f9ee,
+# pin 93592fd) while `xui-app` is ahead, so every xui package this graph pulls
+# is patched to the common revision, so one `xui_core` links and `xui-app`
+# compiles against the `Backend` trait it implements.
 # The `www.` alias keeps the patch's source distinct from this manifest's own
 # xui dependency (cargo refuses a patch that points to the same source).
-# Drop this table when LazyRAD catches up.
+# Drop this table when LazyRAD pins the common revision.
 [patch."https://github.com/va1erian/xui"]
-xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-code-editor = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-core = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-code-editor = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 
 [dev-dependencies]
 # `modplay::synth` builds the songs the `modplay` script tests play.
