@@ -4,16 +4,55 @@
 //! *nothing* wrong with (the journal's bar, stricter than the unjournaled
 //! "never a count below its names" of `link_crash.rs`), and every surviving
 //! name of a linked file must still read its data.
+//!
+//! That bar holds for a cache that can hold an operation's metadata. A cache
+//! of a few pages may have to commit in the middle of an operation, when
+//! every page holds metadata (`docs/architecture/journal.md`, "Making room
+//! mid-operation"): that transaction ends inside the operation, as every
+//! write of an unjournaled volume does. Since each operation writes its
+//! blocks in its crash-safe order (a count rises before its new name, a name
+//! goes before its count drops), such a commit holds a prefix of that order:
+//! a count too high at worst, never one below its names, and `Ext2::repair`
+//! settles it. [`judge`] holds a tiny cache to exactly that.
 
 use std::sync::Arc;
 
-use fuzzkit::for_seeds;
+use fuzzkit::{for_seeds, Rng};
 
 use super::cache_crash::{holds, image_at, Recorder};
 use super::journal::{journaled, mount_and_settle};
+use super::link_crash::{classify, Verdict};
 use super::workload;
 use super::*;
 use crate::{CacheConfig, Owner};
+
+/// Pages a cache needs so that no operation here commits mid-way.
+const ROOMY: usize = 64;
+
+/// Judge a replayed image of a volume cached in `blocks` pages: clean with a
+/// roomy cache; with a tiny one never a count below its names, and what is
+/// left (counts too high, unreachable inodes) repaired to a clean volume.
+fn judge(image: Vec<u8>, blocks: usize, what: &str) -> Verdict {
+    let verdict = classify(&image);
+    match &verdict {
+        Verdict::Clean => {}
+        Verdict::TooLow(why) => panic!("{what}: {why}"),
+        Verdict::Leak if blocks >= ROOMY => {
+            panic!("{what}: a cache of {blocks} pages left {:#?}", fsck(&image))
+        }
+        Verdict::Leak => {
+            let io = MemIo::from_bytes(image);
+            let fs = open(&io);
+            fs.repair()
+                .unwrap_or_else(|error| panic!("{what}: repair refused: {error:?}"));
+            fs.flush().unwrap();
+            drop(fs);
+            let left = fsck(&io.snapshot());
+            assert!(left.is_empty(), "{what}: after the repair: {left:#?}");
+        }
+    }
+    verdict
+}
 
 const DATA: [u8; 3000] = [7; 3000];
 
@@ -28,9 +67,9 @@ fn mkdirs(fs: &Ext2, dirs: &[&str]) {
 }
 
 /// Build with `setup`, record `op` (and its flush) through a cache of `blocks`
-/// blocks, then cut at every write: each image replays clean (link counts
-/// equal to names, as the checker demands), and at least one of the names in
-/// `shared` survives, every survivor reading [`DATA`].
+/// blocks, then cut at every write: each image replays to what [`judge`]
+/// accepts, and at least one of the names in `shared` survives, every
+/// survivor reading [`DATA`].
 fn sweep(setup: fn(&Ext2), op: fn(&Ext2), shared: &[&str], blocks: usize) {
     let disk = journaled(2 << 20, 1024);
     let recorder = Recorder {
@@ -51,10 +90,10 @@ fn sweep(setup: fn(&Ext2), op: fn(&Ext2), shared: &[&str], blocks: usize) {
     assert!(!log.is_empty(), "the operation wrote nothing");
     for point in 0..=log.len() {
         let (image, _) = mount_and_settle(image_at(&base, &log, point));
-        let problems = fsck(&image);
-        assert!(
-            problems.is_empty(),
-            "cut after write {point}: {problems:#?}"
+        judge(
+            image.clone(),
+            blocks,
+            &std::format!("cut after write {point}"),
         );
         let fs = open(&MemIo::from_bytes(image));
         let live: Vec<_> = shared.iter().filter(|n| fs.lookup(n).is_ok()).collect();
@@ -69,7 +108,7 @@ fn sweep(setup: fn(&Ext2), op: fn(&Ext2), shared: &[&str], blocks: usize) {
 }
 
 fn every_cache(setup: fn(&Ext2), op: fn(&Ext2), shared: &[&str]) {
-    for blocks in [4, 64] {
+    for blocks in [4, ROOMY] {
         sweep(setup, op, shared, blocks);
     }
 }
@@ -119,8 +158,69 @@ fn renames_over_and_of_linked_names_replay_clean() {
     );
 }
 
+/// One random link/unlink/rename sequence, with writebacks between some
+/// operations, through a cache of 4 or [`ROOMY`] pages; then `cuts` random
+/// cut points (every one when `None`) are judged. Returns how many cuts were
+/// clean and how many only leaked.
+fn random_sequence(rng: &mut Rng, cuts: Option<usize>) -> (usize, usize) {
+    let disk = journaled(2 << 20, 1024);
+    let recorder = Recorder {
+        disk: disk.clone(),
+        block_size: 1024,
+        log: Arc::default(),
+    };
+    let blocks = [4, ROOMY][rng.below(2) as usize];
+    let fs =
+        Ext2::open_cached(Box::new(recorder.clone()), clock, CacheConfig::heap(blocks)).unwrap();
+    const DIRS: [&str; 3] = ["/a", "/b", "/a/x"];
+    mkdirs(&fs, &DIRS);
+    for n in 0..4u8 {
+        put(
+            &fs,
+            &std::format!("{}/s{n}", DIRS[rng.below(3) as usize]),
+            n + 1,
+        );
+    }
+    fs.flush().unwrap();
+    let base = disk.snapshot();
+    let start = recorder.log.lock().unwrap().len();
+    for _ in 0..rng.range(6, 24) {
+        let mut name = || std::format!("{}/n{}", DIRS[rng.below(3) as usize], rng.below(4));
+        let (from, to) = (name(), name());
+        let seed = std::format!("{}/s{}", DIRS[rng.below(3) as usize], rng.below(4));
+        // Errors (missing names, taken names) are part of the mix.
+        let _ = match rng.below(4) {
+            0 => fs.link(&seed, &to),
+            1 => fs.link(&from, &to),
+            2 => fs.unlink(&from),
+            _ => fs.rename(&from, &to),
+        };
+        if rng.one_in(5) {
+            fs.writeback().unwrap();
+        }
+    }
+    drop(fs);
+    let log = recorder.log.lock().unwrap()[start..].to_vec();
+    let points: Vec<usize> = match cuts {
+        Some(count) => (0..count)
+            .map(|_| rng.below(log.len() as u64 + 1) as usize)
+            .collect(),
+        None => (0..=log.len()).collect(),
+    };
+    let (mut clean, mut leaks) = (0, 0);
+    for point in points {
+        let (image, _) = mount_and_settle(image_at(&base, &log, point));
+        let what = std::format!("cut after write {point} of {} ({blocks} pages)", log.len());
+        match judge(image, blocks, &what) {
+            Verdict::Clean => clean += 1,
+            _ => leaks += 1,
+        }
+    }
+    (clean, leaks)
+}
+
 /// Random link/unlink/rename sequences with flushes and writebacks between
-/// them, cut at random writes: every cut replays to a clean volume.
+/// them, cut at random writes: every cut replays to what [`judge`] accepts.
 #[test]
 fn random_link_sequences_replay_clean() {
     let mut case = 0;
@@ -129,55 +229,19 @@ fn random_link_sequences_replay_clean() {
         if case > workload::cases(16) {
             return;
         }
-        let disk = journaled(2 << 20, 1024);
-        let recorder = Recorder {
-            disk: disk.clone(),
-            block_size: 1024,
-            log: Arc::default(),
-        };
-        let blocks = [4, 64][rng.below(2) as usize];
-        let fs = Ext2::open_cached(Box::new(recorder.clone()), clock, CacheConfig::heap(blocks))
-            .unwrap();
-        const DIRS: [&str; 3] = ["/a", "/b", "/a/x"];
-        mkdirs(&fs, &DIRS);
-        for n in 0..4u8 {
-            put(
-                &fs,
-                &std::format!("{}/s{n}", DIRS[rng.below(3) as usize]),
-                n + 1,
-            );
-        }
-        fs.flush().unwrap();
-        let base = disk.snapshot();
-        let start = recorder.log.lock().unwrap().len();
-        for _ in 0..rng.range(6, 24) {
-            let mut name = || std::format!("{}/n{}", DIRS[rng.below(3) as usize], rng.below(4));
-            let (from, to) = (name(), name());
-            let seed = std::format!("{}/s{}", DIRS[rng.below(3) as usize], rng.below(4));
-            // Errors (missing names, taken names) are part of the mix.
-            let _ = match rng.below(4) {
-                0 => fs.link(&seed, &to),
-                1 => fs.link(&from, &to),
-                2 => fs.unlink(&from),
-                _ => fs.rename(&from, &to),
-            };
-            if rng.one_in(5) {
-                fs.writeback().unwrap();
-            }
-        }
-        drop(fs);
-        let log = recorder.log.lock().unwrap()[start..].to_vec();
-        for _ in 0..20 {
-            let point = rng.below(log.len() as u64 + 1) as usize;
-            let (image, _) = mount_and_settle(image_at(&base, &log, point));
-            let problems = fsck(&image);
-            assert!(
-                problems.is_empty(),
-                "cut after write {point} of {}: {problems:#?}",
-                log.len()
-            );
-        }
+        random_sequence(rng, Some(20));
     });
+}
+
+/// The CI seed that found a journaled 4-page cache committing in the middle
+/// of a `link` (its count raised, its new name not yet logged): replayed at
+/// every cut, the half-done link only leaks a count, which the repair
+/// settles, and never leaves a count below its names.
+#[test]
+fn a_mid_operation_commit_of_a_tiny_cache_only_leaks() {
+    let (clean, leaks) = random_sequence(&mut Rng::new(0xb071_afd9_303b_d51e), None);
+    assert!(clean > 0, "no cut replayed clean");
+    assert!(leaks > 0, "the seed no longer commits mid-operation");
 }
 
 #[test]
