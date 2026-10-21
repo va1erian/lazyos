@@ -19,11 +19,11 @@ per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 | File | Content |
 |---|---|
 | `kernel/src/arch/lapic.rs` | ICR support: `send()` (xAPIC MMIO with delivery-status poll / x2APIC single MSR write at `0x830`), `send_init`, `send_sipi(dest, vector_page)`, `send_fixed(dest, vector)`; `init_ap_local()` (the AP's own LVTs: timer masked, **LINT0 masked** — the 8259 is the BSP's alone — LINT1 NMI) |
-| `kernel/src/arch/percpu.rs` | `Cpu.ipi: IpiState` — `tsc_entry` (the bring-up's coherence stamp), `sd_addr`/`sd_pages`/`sd_ack` (the shootdown mailbox); `online` is now an **`AtomicBool`** (Release publish / Acquire poll) |
+| `kernel/src/arch/percpu.rs` | `Cpu.ipi: IpiState` — `tsc_entry` (stamped just before `online`; the bring-up logs the latency, not a skew), `sd_addr`/`sd_pages`/`sd_ack` (the shootdown mailbox); `online` is now an **`AtomicBool`** (Release publish / Acquire poll) |
 | `kernel/src/arch/smp/trampoline.rs` | The 16→32→64-bit blob (`global_asm!`, `.code16/32/64`), position-independent by construction: fixed numeric offsets only, `ds = 0x0800` so every `[offset]` is `0x8000 + offset`, the two mode transitions `push` their `(offset, segment)` from **BSP-patched slots** and `retf` (LLVM IAS refuses symbol arithmetic in immediates — do not try to bring it back), a magic check (`0x5A5A_0001` at `0x0F00`) before anything runs. The temp GDT: 0x08 32-bit code, 0x10 data base `0x8000` (keeps the fixed offsets working in 32-bit mode), 0x18 data base 0 (stack SS), 0x20 64-bit code. Exports `smp_trampoline_start/prot/long_stub/end` |
-| `kernel/src/arch/smp.rs` | `apply_config` (`smp.cpus=`, `smp.tsc=force` test-only), the TSC gates (invariance `CPUID.8000_0007.EDX[8]` + per-AP coherence via `Cpu.ipi.tsc_entry`), `prepare()` (page-table build, blob copy + patch), `bring_up(count)` / `bring_up_for_test` (the SDM INIT → 1 tick → SIPI → SIPI sequence, bounded poll on `online`), `ap_entry` (NXE/PAT/`cpu::init`/`linux::init`/`init_ap_local` on the AP, then idle with **interrupts on** — the AP must service IPI mailboxes), the three IPI handlers (window-safe contract), `shootdown_others` (mailbox + doorbell + bounded ack wait → panic on timeout) |
+| `kernel/src/arch/smp.rs` | `apply_config` (`smp.cpus=`, `smp.tsc=force` test-only), the TSC invariance gate (`CPUID.8000_0007.EDX[8]`; the plan's per-AP skew gate is not built yet), `prepare()` (page-table build, blob copy + patch), `bring_up(count)` / `bring_up_for_test` (the SDM INIT → 1 tick → SIPI → SIPI sequence, bounded poll on `online`), `ap_entry` (NXE/PAT/`cpu::init`/`linux::init`/`init_ap_local` on the AP, then idle with **interrupts on** — the AP must service IPI mailboxes), the three IPI handlers (window-safe contract), `shootdown_others` (mailbox + doorbell + bounded ack wait → panic on timeout) |
 | `kernel/src/mem/tlb.rs` | `shootdown(va, pages)` (local flush + `shootdown_others` when >1 CPU) and `shootdown_all()` (address 0 = the "everything" case in the handler) |
-| `kernel/src/mem/{mod,dma,frames}.rs` | The trampoline page (`0x8000`) is a **keep-out at `mem::init`**: out of the DMA pool (`DmaPool::keep_out`) when the pool owns low memory (it does: the pool is carved from the first usable region), else `RESERVED` in the general allocator; accounted in `frames.total`. `frames::reserve_frame` exists but is unused by smp now (the boot keep-out replaced it) |
+| `kernel/src/mem/mod.rs` | The trampoline page (`0x8000`): the frame allocator never hands out anything below 1 MiB (`LOWEST_FRAME`), so nothing competes for it; `mem::init` records what the boot memory map says of it (`trampoline_page_kind`) and `smp::prepare` refuses SMP unless it is wholly usable RAM. The real-mode stack lives inside the page (`0x8D00`), so no other low page is touched |
 | `kernel/src/arch/idt.rs` | The three IPI vectors registered: `0x60` RESCHED, `0x61` SHOOTDOWN, `0x62` STOP (audit-pinned free range 0x60..0x7F) |
 | `kernel/src/fs/bootcfg.rs` | `smp.` prefix routed to `arch::smp::apply_config` |
 | `kernel/src/main.rs` | `arch::smp::init()` right after `arch::init()` (test builds diverge at `tests::run()` before this, so the suite drives `bring_up_for_test` itself) |
@@ -82,6 +82,62 @@ the `abi_x86_interrupt` feature is gone. **A new ring-3-reachable vector must
 use `irq_gate!`/`paranoid_gate!`** (or splice the same tests into a naked
 stub), and **`CR4.FSGSBASE` must stay off.**
 
+## Pre-PR review (2026-10-21) — fixed, and what was declined
+
+Two fresh-context reviewers read the branch (one on the entry gates, one on
+the per-CPU areas and the bring-up). Fixed:
+
+- **NMI on its own IST** (`gdt::NMI_IST`, `Cpu::nmi_stack`): an NMI could
+  land between `syscall`'s `swapgs` and the stack switch, or between
+  `pop rsp` and `sysretq`, and run ring 0 on a user-chosen RSP (pre-existing,
+  but the new docs claimed the window covered).
+- **Exception stubs halt on a swap-window fault** (`gs_entry_paranoid!`,
+  `gs_window_fault`): their entry (GS base) and exit (resumed `CS`) rules
+  disagree exactly there, and resuming would leave ring 3 on the kernel's base.
+- **`cli` before every exit `swapgs`**, so "IF is clear in every swap window"
+  holds by construction; **`CR4.FSGSBASE` forced off** on every CPU.
+- **AP CR0**: the trampoline loads `PE|MP|ET|NE` outright and `cpu::init`
+  clears `CD`/`NW` and sets `NE` (INIT leaves the caches off; TCG hid it).
+- **Bring-up timeout** (`bound` double-counted `started`), a refusal without a
+  calibrated TSC, only MADT entries with the *enabled* flag
+  (`Madt::startable`; online-capable-only sockets would each wait out a
+  timeout), xAPIC ids above 0xFF skipped.
+- **AP local APIC** put in the BSP's mode (`LAZYOS_X2APIC=1` would #GP).
+- **Trampoline page** checked against the boot memory map (the old keep-out
+  was dead code: nothing is allocated below 1 MiB anyway); stack moved into it.
+- **Timed-out areas retired**, `gdt::init_cpu` starts from a fresh table, the
+  AP's and the STOP handler's lines go through `RawSerial` (no lock).
+- **Shootdowns never truncate**: above 64 pages a target flushes everything;
+  the ack timeout is a calibrated second.
+- **`AREAS` back in `.bss`** (the `GlobalDescriptorTable::new()` initializer
+  had moved 3.3 MiB into `.data`).
+- **Tests**: `gs_suite` now checks the GS *base* from ring 3 every round,
+  crosses `int3`'s paranoid gate, proves the timer interrupted the task, runs
+  six tasks at once, and tests the paranoid in-window branch from ring 0;
+  `smp_ipi_soak_shootdowns_and_rescheds` is 20000 shootdown round trips
+  (short and full-flush ranges) with reschedule IPIs.
+
+Declined for this PR, recorded as **must-fix before S8.3**:
+
+- `percpu::current()`/`area()` return `&'static mut Cpu`: two live `&mut` to
+  one area exist today (formally UB, no miscompile seen), and S8.3's remote
+  wakes would make it a cross-CPU alias. Return `&'static Cpu` and reach the
+  few non-atomic fields (TSS, GDT, syscall entry) through raw accessors.
+- One shootdown sender at a time: two CPUs writing one target's mailbox, or a
+  sender spinning with IF clear while it is itself a target, deadlock. Not
+  reachable while APs never send; S8.3 needs a sender lock or an ack spin
+  that services its own mailbox. The two-write xAPIC ICR send needs the same.
+- Nested NMIs on the IST stack (an exception inside the NMI handler whose
+  `iretq` unblocks NMIs would let a second NMI reuse the stack), and an NMI
+  between SIPI and `ap_entry`'s IDT load triple-faults. Neither happens in
+  normal operation; Linux-style nesting detection is future work.
+- The plan's TSC skew gate (a two-way exchange) and the S8.2 acceptance items
+  still open: a test that another CPU really faults after a shootdown, the
+  STOP vector, failed-AP tolerance, the kernel-half tripwire, and the caller
+  conversions above.
+- `limit.cpu_max` stays 1 by default (APs parked on a normal boot); S8.3
+  decides whether the MADT count becomes the default.
+
 ## After the APs come up
 
 - The two failing suite cases should flip green (the resched one was
@@ -98,7 +154,7 @@ stub), and **`CR4.FSGSBASE` must stay off.**
 - The docs: mark the S8.2 rows done in `smp-audit.md`, the §S8.2 status in
   `smp-plan.md`, and write the as-built `docs/architecture/smp.md` (the
   trampoline page layout, the mailbox, the IPI vectors and their
-  window-safe contract, the TSC gates, the keep-out).
+  window-safe contract, the TSC gate, the low-page check).
 - The end-to-end gate: a desktop `core_apps` session at `-smp 4` with the
   APs online-idle (build with `LAZYOS_DESKTOP=1 LAZYOS_UI_PROBE=1
   LAZYOS_XUI_AUTOSTART=term LAZYOS_RESET_OS=1`; BusyBox and rhai must be

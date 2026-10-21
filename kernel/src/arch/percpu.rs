@@ -39,6 +39,10 @@ pub const MAX_CPUS: usize = 64;
 /// per-CPU stacks' sizes).
 pub const KERNEL_STACK_SIZE: usize = 32 * 1024;
 pub const DOUBLE_FAULT_STACK_SIZE: usize = 4 * 1024 * 5;
+/// The NMI's own stack (IST 1): an NMI can land where `rsp` is still the
+/// user's (between `syscall` and the stack switch, or `pop rsp` and
+/// `sysretq`), so it must never run on the interrupted stack.
+pub const NMI_STACK_SIZE: usize = 4 * 1024 * 4;
 
 /// The Linux `syscall` entry's transient state (was `arch/linux.rs` globals).
 #[repr(C)]
@@ -111,11 +115,11 @@ pub struct PreemptState {
 /// The state an IPI lands on and the bring-up stamps (S8.2).
 #[repr(C)]
 pub struct IpiState {
-    /// The TSC this CPU read as its first kernel instruction (the bring-up's
-    /// coherence check compares it against the BSP's).
+    /// The TSC this CPU read just before publishing `online` (the bring-up
+    /// logs the latency the BSP sees; it is not a skew measure).
     pub tsc_entry: AtomicU64,
-    /// Shootdown request: the first virtual address to invalidate (0 = none)
-    /// and the page count, then the generation the sender bumped.
+    /// Shootdown request: the first virtual address and the page count to
+    /// invalidate (0 and 0 = everything; a long range flushes everything).
     pub sd_addr: AtomicU64,
     pub sd_pages: AtomicU64,
     /// The last shootdown generation this CPU acknowledged.
@@ -151,9 +155,13 @@ pub struct Cpu {
     /// rewritten at every task switch. Written by `gdt::init_cpu` before the
     /// GDT that names it is loaded; read through [`Cpu::tss`] after that.
     pub tss: MaybeUninit<TaskStateSegment>,
-    pub gdt: GlobalDescriptorTable,
+    /// Written fresh by every `gdt::init_cpu` (zero bytes until then: a
+    /// `GlobalDescriptorTable::new()` initializer is not all-zero and would
+    /// move the whole array out of `.bss`).
+    pub gdt: MaybeUninit<GlobalDescriptorTable>,
     pub kernel_stack: [u8; KERNEL_STACK_SIZE],
     pub double_fault_stack: [u8; DOUBLE_FAULT_STACK_SIZE],
+    pub nmi_stack: [u8; NMI_STACK_SIZE],
 }
 
 impl Cpu {
@@ -218,9 +226,10 @@ impl Cpu {
         // writes the real `TaskStateSegment::new()` (whose `iomap_base`
         // points past the struct, denying every port bit) before loading it.
         tss: MaybeUninit::zeroed(),
-        gdt: GlobalDescriptorTable::new(),
+        gdt: MaybeUninit::zeroed(),
         kernel_stack: [0; KERNEL_STACK_SIZE],
         double_fault_stack: [0; DOUBLE_FAULT_STACK_SIZE],
+        nmi_stack: [0; NMI_STACK_SIZE],
     };
 
     /// Install the "nothing charged, nothing pending" sentinels the code

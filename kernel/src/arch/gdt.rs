@@ -12,7 +12,7 @@
 
 use x86_64::instructions::segmentation::{Segment, CS, DS, ES, FS, GS, SS};
 use x86_64::instructions::tables::load_tss;
-use x86_64::structures::gdt::Descriptor;
+use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
 
@@ -20,6 +20,8 @@ use super::percpu;
 
 /// IST index used by the double-fault handler.
 pub const DOUBLE_FAULT_IST: u16 = 0;
+/// IST slot of the NMI's stack (`percpu::Cpu::nmi_stack`).
+pub const NMI_IST: u16 = 1;
 
 static mut USER_CODE: u16 = 0;
 static mut USER_DATA: u16 = 0;
@@ -57,8 +59,13 @@ pub(crate) unsafe fn init_cpu(area: &'static mut percpu::Cpu) -> Selectors {
     let df = area.double_fault_stack.as_ptr() as u64;
     tss.interrupt_stack_table[DOUBLE_FAULT_IST as usize] =
         VirtAddr::new(df + percpu::DOUBLE_FAULT_STACK_SIZE as u64);
+    let nmi = area.nmi_stack.as_ptr() as u64;
+    tss.interrupt_stack_table[NMI_IST as usize] =
+        VirtAddr::new(nmi + percpu::NMI_STACK_SIZE as u64);
 
-    let gdt = &mut area.gdt;
+    // A fresh table every time: an area can be set up again (an AP that
+    // timed out and was retried), and appending to the old one overflows.
+    let gdt = area.gdt.write(GlobalDescriptorTable::new());
     let kcode = gdt.append(Descriptor::kernel_code_segment());
     let kdata = gdt.append(Descriptor::kernel_data_segment());
     // Order matters for `sysret`: it loads CS = base+16 and SS = base+8, so

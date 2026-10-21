@@ -270,9 +270,12 @@ for the IRQ-stack pointer the stub needs before any read).
   first draft got wrong: the bootloader (0.11.17) maps physical memory at a
   **dynamic offset and identity-maps nothing low**, so the kernel builds a
   small dedicated AP page table (identity-mapped low page + the shared kernel
-  half) at boot, and reserves the trampoline page and the per-AP mailbox
-  **before `mem::init` makes the frame allocator live**. Host test: the blob
-  links at two addresses to identical bytes (position independence).
+  half) at boot. The trampoline page (`0x8000`, mailbox and stack inside it)
+  needs no reservation: the frame allocator never hands out anything below
+  1 MiB; the bring-up instead refuses SMP unless the boot memory map calls
+  the page usable RAM (as built; the first draft planned a reservation).
+  Host test: the blob links at two addresses to identical bytes (position
+  independence) — not built yet.
 - **LAPIC ICR** (`arch/lapic.rs`): `send_init`, `send_sipi`, `send_fixed`,
   `send_nmi` for xAPIC MMIO (0x300/0x310, delivery-status polling) and x2APIC
   MSR (0x83F/0x830... per SDM; one write in x2APIC). Bring-up sequence per AP:

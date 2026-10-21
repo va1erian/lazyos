@@ -70,6 +70,41 @@ pub(crate) fn boot_table() -> PhysAddr {
 
 /// Usable RAM in bytes, as the memory map reported it.
 static USABLE_RAM: AtomicU64 = AtomicU64::new(0);
+/// What the boot memory map says of the SMP trampoline page
+/// (`arch::smp::TRAMPOLINE_PHYS`), one of the `LOW_PAGE_*` values.
+static LOW_PAGE: AtomicU64 = AtomicU64::new(LOW_PAGE_UNLISTED);
+/// The page is in no region of the map.
+pub const LOW_PAGE_UNLISTED: u64 = 0;
+/// Wholly inside one `Usable` region.
+pub const LOW_PAGE_USABLE: u64 = 1;
+/// Overlaps a region of another kind (the bootloader's, firmware's, ...).
+pub const LOW_PAGE_OTHER: u64 = 2;
+
+/// Classify the trampoline page against the boot memory map. The frame
+/// allocator never hands out anything below `LOWEST_FRAME` (1 MiB), so the
+/// page is the kernel's to write exactly when the map calls it usable RAM.
+fn low_page_kind(regions: impl Iterator<Item = (u64, u64, MemoryRegionKind)>) -> u64 {
+    let (start, end) = (
+        crate::arch::smp::TRAMPOLINE_PHYS,
+        crate::arch::smp::TRAMPOLINE_PHYS + FRAME_SIZE,
+    );
+    let mut kind = LOW_PAGE_UNLISTED;
+    for (from, to, region) in regions {
+        if to <= start || from >= end {
+            continue;
+        }
+        if region != MemoryRegionKind::Usable || from > start || to < end {
+            return LOW_PAGE_OTHER;
+        }
+        kind = LOW_PAGE_USABLE;
+    }
+    kind
+}
+
+/// What the boot memory map said of the SMP trampoline page (`LOW_PAGE_*`).
+pub fn trampoline_page_kind() -> u64 {
+    LOW_PAGE.load(Ordering::Relaxed)
+}
 
 /// Usable RAM in bytes (the merged usable regions of the memory map).
 pub fn usable_ram() -> u64 {
@@ -122,6 +157,15 @@ pub fn init(boot_info: &'static mut BootInfo) {
         Efer::update(|flags| flags.insert(EferFlags::NO_EXECUTE_ENABLE));
     }
 
+    LOW_PAGE.store(
+        low_page_kind(
+            boot_info
+                .memory_regions
+                .iter()
+                .map(|r| (r.start, r.end, r.kind)),
+        ),
+        Ordering::Relaxed,
+    );
     // Gather the usable regions (merged, sorted, clamped away from the low
     // megabyte that holds the kernel and the bootloader's metadata).
     let mut regions = Regions::gather(
@@ -202,19 +246,7 @@ pub fn init(boot_info: &'static mut BootInfo) {
         }
         pool_pages = pages as usize;
     }
-    // The SMP trampoline page (docs/smp-plan.md S8.2): the SIPI vector can
-    // only start code below 1 MiB, so the kernel must own one low page
-    // always — out of the DMA pool when the pool owns low memory, else from
-    // the general allocator. One page, reserved on every boot.
-    let mut smp_page = 0usize;
-    if !frames.pool.keep_out(crate::arch::smp::TRAMPOLINE_PHYS)
-        && frames.contains(crate::arch::smp::TRAMPOLINE_PHYS)
-        && frames.refcount(Frames::index(crate::arch::smp::TRAMPOLINE_PHYS)) == 0
-    {
-        frames.set_refcount(Frames::index(crate::arch::smp::TRAMPOLINE_PHYS), RESERVED);
-        smp_page = 1;
-    }
-    frames.total = in_regions - table_frames - pool_pages - smp_page;
+    frames.total = in_regions - table_frames - pool_pages;
     let boot = frames.stats();
     *FRAMES.lock() = Some(frames);
     // The slab allocator needs only frames and the physical-memory mapping, so

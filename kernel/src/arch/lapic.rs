@@ -87,7 +87,7 @@ static MODE: AtomicU8 = AtomicU8::new(0);
 /// Virtual address of the xAPIC register page.
 static MMIO: AtomicU64 = AtomicU64::new(0);
 
-fn mode() -> Option<Mode> {
+pub(crate) fn mode() -> Option<Mode> {
     match MODE.load(Ordering::Relaxed) {
         1 => Some(Mode::XApic),
         2 => Some(Mode::X2Apic),
@@ -279,6 +279,19 @@ pub fn send_fixed(dest: u32, vector: u8) {
 /// timer masked until S8.3 arms it, LINT0 masked (the 8259 is the BSP's
 /// alone — two ExtINT sources would double-deliver), LINT1 stays NMI.
 pub fn init_ap_local() {
+    // `IA32_APIC_BASE` is per CPU and `MODE` machine-wide: put this APIC in
+    // the BSP's mode first, or an x2APIC kernel's first MSR access #GPs here.
+    // Enable before EXTD: disabled -> x2APIC directly is an invalid
+    // transition (SDM 10.12.5).
+    let mut base = msr::read(IA32_APIC_BASE);
+    if base & BASE_ENABLE == 0 {
+        base |= BASE_ENABLE;
+        msr::write(IA32_APIC_BASE, base);
+    }
+    if mode() == Some(Mode::X2Apic) && base & BASE_X2APIC == 0 {
+        base |= BASE_X2APIC;
+        msr::write(IA32_APIC_BASE, base);
+    }
     write(SVR, SVR_ENABLE | u32::from(SPURIOUS_VECTOR));
     write(TPR, 0);
     write(LVT_TIMER, LVT_MASKED | u32::from(TIMER_VECTOR));

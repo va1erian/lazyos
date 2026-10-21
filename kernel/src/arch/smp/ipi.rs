@@ -9,6 +9,9 @@ use x86_64::structures::idt::InterruptStackFrameValue;
 use x86_64::VirtAddr;
 
 use super::{rdtsc, spin_loop, SHOOTDOWN_VECTOR};
+
+/// Above this many pages a shootdown target flushes everything instead.
+const FLUSH_ALL_ABOVE: u64 = 64;
 use crate::arch::gsgate::irq_gate;
 use crate::arch::{lapic, percpu};
 
@@ -30,9 +33,11 @@ extern "C" fn resched_handler(_frame: &InterruptStackFrameValue) {
 extern "C" fn shootdown_handler(_frame: &InterruptStackFrameValue) {
     let cpu = percpu::current();
     let addr = cpu.ipi.sd_addr.load(Ordering::Acquire);
-    let pages = cpu.ipi.sd_pages.load(Ordering::Acquire).min(1024);
-    if addr == 0 && pages == 0 {
-        // The "everything" case (`mem::tlb::shootdown_all`).
+    let pages = cpu.ipi.sd_pages.load(Ordering::Acquire);
+    // The "everything" case (`mem::tlb::shootdown_all`, 0/0), and any range
+    // too long to walk page by page in a handler: a full flush covers it
+    // (never truncate: an entry left stale here is a use-after-free).
+    if (addr == 0 && pages == 0) || pages > FLUSH_ALL_ABOVE {
         x86_64::instructions::tlb::flush_all();
     } else {
         for page in 0..pages {
@@ -47,8 +52,15 @@ extern "C" fn shootdown_handler(_frame: &InterruptStackFrameValue) {
 /// halts with interrupts off and never returns — the panicking CPU owns the
 /// machine from here.
 extern "C" fn stop_handler(_frame: &InterruptStackFrameValue) {
+    use core::fmt::Write;
     lapic::eoi();
-    serial_println!("HW:SMP:STOP cpu={}", percpu::current().index);
+    // `RawSerial`: no lock (the window-safe contract; the panicking CPU may
+    // hold the serial lock).
+    let _ = writeln!(
+        crate::arch::raw_serial::RawSerial,
+        "HW:SMP:STOP cpu={}",
+        percpu::current().index
+    );
     loop {
         x86_64::instructions::interrupts::disable();
         x86_64::instructions::hlt();
@@ -76,8 +88,11 @@ pub fn shootdown_others(addr: u64, pages: u64) {
         cpu.ipi.sd_pages.store(pages, Ordering::Release);
         lapic::send_fixed(cpu.apic_id, SHOOTDOWN_VECTOR);
         let started = rdtsc();
+        // A second of the calibrated clock (the bring-up refuses to start
+        // APs without one, so it is never 0 here).
+        let bound = crate::arch::clock::cycles_per_tick() * 100;
         while cpu.ipi.sd_ack.load(Ordering::Acquire) == before {
-            if rdtsc().wrapping_sub(started) > 1_000_000_000 {
+            if rdtsc().wrapping_sub(started) > bound {
                 panic!(
                     "shootdown: CPU{index} apic={:#x} never acknowledged ({pages} pages at {addr:#x})",
                     cpu.apic_id

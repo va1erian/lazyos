@@ -68,7 +68,7 @@ its naked stub), never an `x86-interrupt` handler.
 | Site | What | Disposition |
 |---|---|---|
 | `libs/acpi/src/madt.rs` | Only a processor count and `first_apic_id` were kept | **done** (S8.0): `apic_ids` list, logged as `apic_ids=[..]` at boot |
-| `vendor/bootloader` | Hands over on the BSP only; physical memory at a dynamic offset, nothing identity-mapped low | trampoline (`global_asm!`, `.code16`) + a dedicated AP page table; trampoline page and mailbox reserved before `mem::init` (S8.2) |
+| `vendor/bootloader` | Hands over on the BSP only; physical memory at a dynamic offset, nothing identity-mapped low | trampoline (`global_asm!`, `.code16`) + a dedicated AP page table; the trampoline page (mailbox and stack inside) is below the allocator's 1 MiB floor, and the bring-up refuses SMP unless the memory map calls it usable RAM (S8.2) |
 | `arch/lapic.rs` | Timer, EOI, x2APIC; no ICR | `send_init`/`send_sipi`/`send_fixed`/`send_nmi` (S8.2) |
 | `arch/irqchip.rs:102-104`, `dev/msi.rs:96-99` | I/O APIC and MSI destinations hardwired to the BSP's APIC ID | entry lock keeps them sound (all IRQs on the entry-lock CPU's APIC); steering per device (S8.6) |
 | IPI vectors | none exist | `RESCHED`/`SHOOTDOWN`/`STOP` in 0x60–0x7F, pinned here so MSI (0x40–0x5F) cannot collide (S8.2) |

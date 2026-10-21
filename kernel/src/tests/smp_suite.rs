@@ -38,9 +38,8 @@ pub fn bring_up_bring_every_ap_online() -> Result<(), String> {
         "expected {} CPUs online, got {after}",
         madt.min(percpu::MAX_CPUS)
     );
-    // Every online AP stamped an entry TSC that agrees with the BSP's clock:
-    // the coherence gate ran per AP, and `bring_up` left the failures
-    // offline (a skew is a degraded machine, never a dead one).
+    // Every online AP stamped an entry TSC just before going online (the
+    // bring-up logs its latency; a real skew gate is still to come).
     for index in 1..percpu::MAX_CPUS {
         let Some(cpu) = percpu::area(index) else {
             break;
@@ -129,6 +128,52 @@ pub fn shootdown_ipi_is_acked_by_every_online_ap() -> Result<(), String> {
     Ok(())
 }
 
+/// Shootdown and reschedule IPIs under sustained load: 20000 round trips to
+/// every online AP, alternating a one-page range, a range long enough that
+/// the target flushes everything instead, and a reschedule IPI to each AP in
+/// between. Every shootdown must be acknowledged by every AP exactly once
+/// (the generation counts match), and no AP may drop offline. Vacuous at one
+/// CPU.
+pub fn ipi_soak_shootdowns_and_rescheds() -> Result<(), String> {
+    const ROUNDS: u64 = 20_000;
+    if smp::online_cpus() <= 1 {
+        return Ok(());
+    }
+    let online = || {
+        (1..percpu::MAX_CPUS)
+            .filter_map(percpu::area)
+            .filter(|cpu| cpu.online.load(Ordering::Acquire))
+    };
+    let before: Vec<u64> = online()
+        .map(|cpu| cpu.ipi.sd_ack.load(Ordering::Acquire))
+        .collect();
+    let apics: Vec<u32> = online().map(|cpu| cpu.apic_id).collect();
+    for round in 0..ROUNDS {
+        let pages = if round % 2 == 0 { 1 } else { 4096 };
+        crate::mem::tlb::shootdown(0xE000_0000 + (round % 64) * 4096, pages);
+        for &apic in &apics {
+            crate::arch::lapic::send_fixed(apic, smp::RESCHED_VECTOR);
+        }
+    }
+    let after: Vec<u64> = online()
+        .map(|cpu| cpu.ipi.sd_ack.load(Ordering::Acquire))
+        .collect();
+    check!(
+        after.len() == before.len(),
+        "an AP went offline during the soak: {} -> {}",
+        before.len(),
+        after.len()
+    );
+    for (b, a) in before.iter().zip(after.iter()) {
+        check!(
+            a - b == ROUNDS,
+            "an AP acknowledged {} of {ROUNDS} shootdowns",
+            a - b
+        );
+    }
+    Ok(())
+}
+
 /// A second bring-up is a no-op: online APs are skipped, the count holds.
 pub fn bring_up_is_idempotent() -> Result<(), String> {
     let before = smp::online_cpus();
@@ -153,6 +198,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "smp_shootdown_ipi_is_acked_by_every_online_ap",
         shootdown_ipi_is_acked_by_every_online_ap,
+    ),
+    (
+        "smp_ipi_soak_shootdowns_and_rescheds",
+        ipi_soak_shootdowns_and_rescheds,
     ),
     ("smp_bring_up_is_idempotent", bring_up_is_idempotent),
 ];

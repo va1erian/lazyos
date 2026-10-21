@@ -21,6 +21,7 @@
 //! | Offset | Content |
 //! |---|---|
 //! | `0x0000` | the code (real → protected → long mode) |
+//! | `..0x0D00` | the real/protected-mode stack, growing down (the code stays below) |
 //! | `0x0E00` | the temp GDT, five 8-byte entries |
 //! | `0x0E30` | the GDTR (`u16` limit, `u32` base patched by the BSP) |
 //! | `0x0E40` | retf patch slots: `u16` CS₁, `u16` offset₁, `u32` CS₂, `u32` offset₂ |
@@ -84,7 +85,7 @@ smp_trampoline_start:
     mov ds, ax                      /* IVT-safe for the first writes */
     mov es, ax
     mov ss, ax
-    mov sp, 0x7C00                  /* a stack below the trampoline page */
+    mov sp, 0x8D00                  /* a stack inside this page (below the GDT) */
     mov ax, 0x0800                  /* ds: every [offset] = 0x8000 + offset */
     mov ds, ax
 
@@ -93,8 +94,9 @@ smp_trampoline_start:
 
     lgdt [0x0E30]
 
-    mov eax, cr0
-    or eax, 1                       /* CR0.PE: 32-bit protected mode */
+    /* CR0 set outright, not ORed: INIT leaves CD and NW set (caches off)
+       and NE clear. PE | MP | ET | NE: protected mode, caches on. */
+    mov eax, 0x00000033
     mov cr0, eax
     push word ptr [0x0E40]          /* the BSP-patched CS first ... */
     push word ptr [0x0E42]          /* ... then the offset, which retf pops first */
@@ -106,9 +108,9 @@ smp_trampoline_start:
 smp_prot:
     mov ax, 0x0010                  /* ds: base 0x8000, the fixed offsets live */
     mov ds, ax
-    mov ax, 0x0018                  /* ss: base 0, the 0x7C00 stack */
+    mov ax, 0x0018                  /* ss: base 0, the 0x8D00 stack */
     mov ss, ax
-    mov esp, 0x00007C00
+    mov esp, 0x00008D00
 
     mov eax, cr4
     or eax, 1 << 5                  /* CR4.PAE */

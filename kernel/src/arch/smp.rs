@@ -13,10 +13,12 @@
 //! user code there yet (TLB shootdowns land with the entry lock in S8.3,
 //! when a second CPU first holds user translations).
 //!
-//! Configuration (`lazyos.cfg`, [`PREFIX`]): `smp.cpus=N` caps the CPU
-//! count (default: the MADT's, clamped by `limit.cpu_max`); `smp.tsc=force`
-//! skips the invariance gate for TCG rigs (which refuse `invtsc`), built
-//! into test kernels only.
+//! Configuration (`lazyos.cfg`, [`PREFIX`]): the CPU count is the MADT's
+//! enabled processors, capped by `smp.cpus=N` and by `limit.cpu_max`, whose
+//! default is **1**: until S8.3 gives the APs work, a normal boot keeps them
+//! parked, and an image opts in with `LAZYOS_LIMIT_CPU_MAX=N`
+//! (`run_demo.py --limit cpu_max=N`). `smp.tsc=force` skips the invariance
+//! gate for TCG rigs (which refuse `invtsc`), built into test kernels only.
 
 mod ipi;
 mod trampoline;
@@ -61,12 +63,12 @@ static APS_ONLINE: AtomicUsize = AtomicUsize::new(0);
 pub fn apply_config(text: &str) {
     for line in text.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix(PREFIX) else {
-            continue;
-        };
         if line.starts_with('#') {
             continue;
         }
+        let Some(rest) = line.strip_prefix(PREFIX) else {
+            continue;
+        };
         let Some((key, value)) = rest.split_once('=') else {
             serial_println!("fs: lazyos.cfg: smp.{rest} is not key=value, ignored");
             continue;
@@ -124,8 +126,10 @@ pub fn init() {
         serial_println!("HW:SMP:CPUS=1 (no APs to bring up)");
         return;
     }
-    // The TSC invariance gate (the coherence half runs per AP below): the
-    // catch-up clock needs an invariant TSC for wall-clock sanity; TCG
+    // The TSC invariance gate (the plan's coherence half, a skew
+    // measurement per AP, is still to come: today only the entry latency is
+    // logged): the catch-up clock needs an invariant TSC for wall-clock
+    // sanity; TCG
     // refuses `invtsc`, so the gate yields to the test-rig override rather
     // than disarming every TCG-based SMP test.
     if !invariant_tsc() && !TSC_FORCE.load(Ordering::Relaxed) {
@@ -134,12 +138,17 @@ pub fn init() {
         serial_println!("HW:SMP:CPUS=1");
         return;
     }
-    let Some(page) = prepare() else {
+    if super::clock::cycles_per_tick() == 0 {
+        // Every bring-up wait (INIT-SIPI, the online poll) is timed on it.
+        serial_println!("HW:SMP:CPUS=1 (the TSC is not calibrated: no time base)");
+        CPUS.store(1, Ordering::Relaxed);
+        return;
+    }
+    if prepare().is_none() {
         serial_println!("HW:SMP:CPUS=1 (trampoline refused)");
         CPUS.store(1, Ordering::Relaxed);
         return;
-    };
-    let _ = page;
+    }
     bring_up(cpus());
     serial_println!("HW:SMP:CPUS={}", online_cpus());
 }
@@ -159,17 +168,23 @@ fn decide() {
 fn platform_apic_ids() -> Option<Vec<u32>> {
     let platform = super::acpi_tables::platform()?;
     let madt = platform.madt.as_ref().ok()?;
-    let ids: Vec<u32> = madt.apic_ids.as_slice().to_vec();
+    let ids: Vec<u32> = madt.startable.as_slice().to_vec();
     (!ids.is_empty()).then_some(ids)
 }
 
 /// Build the AP page table, copy and patch the trampoline. `None` (with the
 /// reason on serial) leaves the machine single-CPU.
 fn prepare() -> Option<u64> {
-    // The trampoline page below 1 MiB was reserved by `mem::init` (out of
-    // the DMA pool when the pool owns low memory, else from the general
-    // allocator) — an invariant from the first boot on, so the copy below
-    // cannot land on a frame anything else ever holds.
+    // The frame allocator never hands out anything below 1 MiB, so the page
+    // is the kernel's to write exactly when the boot memory map calls it
+    // usable RAM; anything else (firmware, the bootloader's own data) is
+    // refused rather than overwritten.
+    let kind = mem::trampoline_page_kind();
+    if kind != mem::LOW_PAGE_USABLE {
+        serial_println!("HW:SMP:CPUS=1 (page {TRAMPOLINE_PHYS:#x} is not usable RAM, kind {kind})");
+        CPUS.store(1, Ordering::Relaxed);
+        return None;
+    }
     let pml4 = build_ap_page_table()?;
     AP_PML4.store(pml4, Ordering::Relaxed);
 
@@ -274,10 +289,24 @@ pub fn bring_up(count: usize) {
     };
     let bsp = lapic::id();
     let cycles_per_tick = super::clock::cycles_per_tick();
+    if cycles_per_tick == 0 {
+        serial_println!(
+            "HW:SMP:CPUS={} (no time base for the bring-up)",
+            online_cpus()
+        );
+        return;
+    }
     let ms = cycles_per_tick / 10; // one 10 ms tick -> 1 ms
+    let xapic = lapic::mode() == Some(lapic::Mode::XApic);
     for &id in ids.iter() {
         if online_cpus() >= count {
             break;
+        }
+        // An xAPIC ICR names 8-bit destinations: a larger id would be
+        // truncated, possibly onto a running CPU (the BSP's 0).
+        if xapic && id > 0xFF {
+            serial_println!("HW:SMP:apic={id:#x} skipped (beyond xAPIC addressing)");
+            continue;
         }
         // Never INIT a CPU that runs: the BSP, or an AP already online (an
         // INIT resets it mid-flight, the idempotence the doc promises).
@@ -290,8 +319,8 @@ pub fn bring_up(count: usize) {
         if bring_up_one(index, id, ms) {
             APS_ONLINE.fetch_add(1, Ordering::Relaxed);
             serial_println!(
-                "HW:SMP:CPU{index} apic={id:#x} online (skew={})",
-                skew_of(index)
+                "HW:SMP:CPU{index} apic={id:#x} online (latency={})",
+                entry_latency(index)
             );
         }
     }
@@ -304,16 +333,26 @@ fn apic_online(id: u32) -> bool {
         .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id == id)
 }
 
-/// A per-CPU area no CPU owns yet (an offline one).
+/// Areas given to an AP that timed out: it may still be running on one (a
+/// late start the parking INIT did not catch), so none is handed out again.
+/// One bit per area (`MAX_CPUS` is 64).
+static RETIRED: AtomicU64 = AtomicU64::new(0);
+
+/// A per-CPU area no CPU owns yet (offline and never retired).
 fn free_area_index() -> Option<usize> {
-    (0..percpu::MAX_CPUS)
-        .find(|&index| percpu::area(index).is_some_and(|cpu| !cpu.online.load(Ordering::Acquire)))
+    let retired = RETIRED.load(Ordering::Relaxed);
+    (0..percpu::MAX_CPUS).find(|&index| {
+        retired & (1 << index) == 0
+            && percpu::area(index).is_some_and(|cpu| !cpu.online.load(Ordering::Acquire))
+    })
 }
 
-/// The |AP entry TSC - BSP observation TSC| of an online AP, in cycles (the
-/// coherence measure: a TSC that starts at 0 or ticks on another base stands
-/// out immediately; two cores of one clock differ by the start-up delay).
-fn skew_of(index: usize) -> u64 {
+/// How long ago, in cycles, an online AP stamped its entry TSC: the
+/// bring-up's latency as the BSP sees it. Not a skew measure (that needs a
+/// two-way exchange, and the plan's coherence gate is still to come); a TSC
+/// that started elsewhere shows as an absurd value. Wraps if the AP's TSC is
+/// ahead.
+fn entry_latency(index: usize) -> u64 {
     let Some(cpu) = percpu::area(index) else {
         return 0;
     };
@@ -357,16 +396,17 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
 
     // The AP either publishes `online` (Release) or never comes: wait a
     // generous second of ticks, then leave it offline and carry on.
-    let bound = started + super::clock::cycles_per_tick() * 100;
+    let bound = super::clock::cycles_per_tick() * 100;
     while rdtsc().wrapping_sub(started) < bound {
         if cpu.online.load(Ordering::Acquire) {
             return true;
         }
         spin_loop();
     }
-    // Park it: an AP that started but never published may still run on this
-    // area, which the next AP would be given.
+    // Park it, and never hand its area out again: an AP that started but
+    // never published may still be running on it.
     lapic::send_init(apic_id);
+    RETIRED.fetch_or(1 << index, Ordering::Relaxed);
     serial_println!("HW:SMP:CPU{index} apic={apic_id:#x} FAIL (no start)");
     false
 }
@@ -422,8 +462,16 @@ extern "C" fn ap_entry() -> ! {
             x86_64::instructions::hlt();
         }
     }
-    let cpu = percpu::current();
-    serial_println!("HW:SMP:CPU{} entered long mode", cpu.index);
+    // Without the serial lock: if the BSP's timeout INIT stopped this CPU
+    // inside a locked print, the BSP's next print would deadlock.
+    {
+        use core::fmt::Write;
+        let index = percpu::current().index;
+        let _ = writeln!(
+            super::raw_serial::RawSerial,
+            "HW:SMP:CPU{index} entered long mode"
+        );
+    }
     mem::wc::pat_this_cpu();
     super::cpu::init();
     super::linux::init();

@@ -216,6 +216,7 @@ global_asm!(
         pop rcx
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
+        cli                             /* no IRQ in the swap window (r11 has IF) */
         swapgs                          /* back to the user's GS base */
         sysretq
     2:
@@ -245,6 +246,7 @@ global_asm!(
         push qword ptr [rsp + 24]
         push {user_cs}
         push qword ptr [rsp + 32]
+        cli                             /* no IRQ in the swap window */
         swapgs                          /* back to the user's GS base */
         iretq
     "#

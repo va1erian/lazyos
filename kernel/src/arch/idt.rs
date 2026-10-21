@@ -26,11 +26,15 @@ pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
     faults::install(&mut idt);
     // Issue #382: an injected NMI prints a hang report, even over IF=0 spins.
+    // Its own IST stack: an NMI can land where `rsp` is still the user's
+    // (the `syscall` stub before its stack switch, or after `pop rsp`).
     // SAFETY: `nmi_gate` is a paranoid gate (`arch::gsgate`) for a vector
-    // without an error code, ending in `iretq`.
+    // without an error code, ending in `iretq`; `NMI_IST` names the TSS slot
+    // `gdt::init_cpu` gave every CPU's `nmi_stack`.
     unsafe {
         idt.non_maskable_interrupt
-            .set_handler_addr(gate(super::nmi::nmi_gate));
+            .set_handler_addr(gate(super::nmi::nmi_gate))
+            .set_stack_index(super::gdt::NMI_IST);
     }
     // Safety: the naked `*_isr` stubs below match each exception's frame
     // layout (`divide_error_isr`/`invalid_opcode_isr` push no error code,
@@ -154,7 +158,7 @@ global_asm!(concat!(
         push r14
         push r15
 "#,
-    crate::gs_entry_paranoid!(),
+    crate::gs_entry_paranoid!(r"[rsp + 128 + 8 * \has_error]"),
     r#"
         cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
@@ -217,7 +221,7 @@ global_asm!(concat!(
         push r14
         push r15
 "#,
-    crate::gs_entry_paranoid!(),
+    crate::gs_entry_paranoid!("[rsp + 136]"),
     r#"
         cld                         /* see task::switch: DF may be set */
         mov rdi, rsp

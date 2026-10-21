@@ -26,7 +26,13 @@
 //! [`paranoid_gate!`] reads `IA32_GS_BASE` itself: a kernel-half address
 //! (sign bit set) is the kernel's, anything else is a user's and is swapped.
 //! It swaps back on exit iff it swapped on entry (these handlers never
-//! switch tasks on a path that returns).
+//! switch tasks on a path that returns). The naked `#DE`/`#UD`/`#GP`/`#PF`
+//! stubs, whose dispatch may resume another task, take the same entry but
+//! swap back by the resumed frame's `CS`; the one case where those rules
+//! disagree — a fault inside a window — halts (`gs_entry_paranoid!`).
+//! Every exit `cli`s before its `swapgs`, so the windows really are IF-clear,
+//! and `arch::cpu::init` keeps `CR4.FSGSBASE` off on every CPU. The NMI runs
+//! on its own IST stack: it can land where `rsp` is still the user's.
 //!
 //! The targets are `extern "C"` functions taking the hardware frame
 //! (`&InterruptStackFrameValue`, plus the error code where the CPU pushes
@@ -72,7 +78,7 @@ macro_rules! irq_gate {
                 "lea rdi, [rsp + 88]\n",
                 $crate::arch::gsgate::gate_call!(),
                 $crate::arch::gsgate::gate_restore!(),
-                "test byte ptr [rsp + 8], 3\n jz 2f\n swapgs\n2:\n iretq\n"
+                "cli\n test byte ptr [rsp + 8], 3\n jz 2f\n swapgs\n2:\n iretq\n"
             ),
             target = sym $target,
         );
@@ -83,8 +89,9 @@ macro_rules! irq_gate {
 }
 
 /// A gate for an exception or NMI: swap iff `IA32_GS_BASE` is not a
-/// kernel-half address, swap back iff it swapped. `$target` takes the frame,
-/// and the error code when `err` is given.
+/// kernel-half address, swap back iff it swapped (its targets resume the
+/// frame they entered on, or never return). `$target` takes the frame, and
+/// the error code when `err` is given.
 macro_rules! paranoid_gate {
     ($stub:ident => $target:path) => {
         $crate::arch::gsgate::paranoid_gate!(@emit $stub, $target, "lea rdi, [rsp + 88]\n", "");
@@ -123,21 +130,37 @@ macro_rules! paranoid_gate {
 // The asm the naked stubs elsewhere (`task::switch`, `process::gate`,
 // `arch::idt`, `arch::linux`) splice in, so every gate follows one rule.
 
+// Local labels: these snippets own `7:`, `8:` and `9:`; a stub that splices
+// them must not jump across a splice to its own label of the same number.
+
 /// [`irq_gate!`]'s exit test for a naked stub, right before its `iretq`
-/// (`rsp` at the resumed frame's RIP).
+/// (`rsp` at the resumed frame's RIP). The `cli` makes "IF is clear in every
+/// swap window" hold by construction rather than by every syscall body
+/// ending with interrupts off (`iretq` restores `IF` from the frame).
 #[macro_export]
 macro_rules! gs_exit_swap_on_user_cs {
     () => {
-        "test byte ptr [rsp + 8], 3\n jz 8f\n swapgs\n8:\n"
+        "cli\n test byte ptr [rsp + 8], 3\n jz 8f\n swapgs\n8:\n"
     };
 }
 
 /// [`paranoid_gate!`]'s entry test for a naked exception stub, after it saved
-/// `rax`, `rcx` and `rdx` (it clobbers them).
+/// `rax`, `rcx` and `rdx` (it clobbers them). `$cs` is the operand naming the
+/// interrupted `CS` at that point. These stubs swap back by the *resumed*
+/// frame's `CS` (a dispatch may resume another task), which disagrees with
+/// the entry in exactly one case: a fault raised inside a swap window, with
+/// a kernel `CS` and a user GS (a faulting exit `iretq`/`sysretq`).
+/// Resuming such a frame would leave ring 3 on the kernel's GS base, so the
+/// stub halts in [`gs_window_fault`] instead.
 #[macro_export]
 macro_rules! gs_entry_paranoid {
-    () => {
-        "mov ecx, 0xC0000101\n rdmsr\n test edx, edx\n js 9f\n swapgs\n9:\n"
+    ($cs:literal) => {
+        concat!(
+            "mov ecx, 0xC0000101\n rdmsr\n test edx, edx\n js 9f\n swapgs\n",
+            "test byte ptr ",
+            $cs,
+            ", 3\n jnz 9f\n and rsp, -16\n call gs_window_fault\n9:\n"
+        )
     };
 }
 
@@ -151,6 +174,19 @@ macro_rules! gs_entry_swap_on_user_cs {
 }
 
 pub(crate) use {gate_call, gate_restore, gate_save, irq_gate, paranoid_gate};
+
+/// A fault inside a `swapgs` window (`gs_entry_paranoid!`): the kernel's own
+/// exit `iretq`/`sysretq` faulted. Unreachable while every return frame is
+/// kernel-built and hardened (`task::signal::harden`); never resumed.
+#[no_mangle]
+extern "C" fn gs_window_fault() -> ! {
+    use core::fmt::Write;
+    let _ = writeln!(
+        super::raw_serial::RawSerial,
+        "EXCEPTION: fault inside a swapgs window (a kernel exit faulted)"
+    );
+    crate::halt();
+}
 
 /// Set up this CPU's two GS bases for the invariant: `IA32_GS_BASE` = its
 /// area (ring 0 runs on it), `IA32_KERNEL_GS_BASE` = 0 (the user GS base the
