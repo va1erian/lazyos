@@ -521,6 +521,13 @@ The client side of the light interface and its proof; the program, package and `
 * **Findings.** A view per message would have leaked a parked proxy each time: one view is reused. The wheel burst above.
   WebKit paints its own scrollbar into the picture. The engine's `LIGHT:*` and fontconfig denials in the label trace are the documented
   optional ones (`tools/webd/judge.py`); neither app is denied anything.
+* **Review** (a fresh Sonnet-class agent, then fixes): a page webd refuses (over 8 MiB) is now reported (`LightEvent::LoadRefused`) and
+  Docs and Mail say so instead of leaving the old page under the new header; both list `os.lazy.clipboard.v1` (Ctrl+C was not exercised in a
+  session: the grant is by reading, not by a run); Docs refuses launch targets with spaces or control characters and Mail opens only `http(s)`
+  and `mailto:`; the pane debounces resizes (48 ms), retries a service lost while the view is made, and does not take a still-loading page's
+  finish for the next page's; an unset `LAZYOS_WEBD` needs the engine processes too, and the LazyWeb+ and attack harnesses set `LAZYOS_WEBD=0`;
+  the launcher starts no Docker build for a plain desktop (only `run_demo --desktop` does, softly); `suites.py` and the stick maker size the volume for
+  a desktop's webd.
 * **Not done / known limits.** No `Find`, text `Zoom` or jump-to-anchor in a light view. No *Start* button when webd is not running
   (it needs `init`'s interface, which an app is not given): the screen says so and the pane keeps trying. HiDPI zoom is by CSS, unverified at 2x.
   An existing OS volume keeps `os.lazy.lazyweb` as a demoted user app until it is reset (`pkgd` demotes retired core apps).
