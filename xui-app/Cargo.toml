@@ -62,9 +62,9 @@ members = [
     "crates/named-icons",
     # Registers the Liberation fonts with xui-blitz for LazyWeb, Mail and Docs.
     "crates/webfonts",
-    # WebKit's window (docs/webkit-port-plan.md W5): chrome, page view and the
-    # C ABI of the C++ UI process; built as a static library by
-    # `tools/webkit/app.py`.
+    # The seam between WebKit's UI process and a window (docs/lazywebplus.md): engine trait,
+    # mailbox, page view and the C ABI of the C++ UI process. An rlib: LazyWeb+'s window
+    # (`webplus`) is the static library `tools/webkit/app.py` builds.
     "crates/webkit",
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).

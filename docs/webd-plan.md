@@ -326,7 +326,7 @@ browser moves onto webd**.
 
 | Phase | Deliverable | Exit criteria | Size *est.* |
 |---|---|---|---|
-| **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` pass; `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
+| **P1.0 remove webkit-app** (code done; the QEMU and Docker gates below not yet run) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` pass; `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
 | **P1 multi-view engine** | `Host`/`View` split in `webkit/port/app`, view ids in the ABI, the **light/full split of what is installed per view** (3.6); LazyWeb+'s window runs on a one-view full adapter; `webkit-smoke` learns a two-view mode and a light view | `webplus/run.py` judges unchanged; smoke judges a full and a light view loaded and painted independently, and answers L1 (is a network process launched for a light view) | 1.5-2.5 weeks |
 | **P2 webd, light first** | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
@@ -374,6 +374,12 @@ process's table includes it. Patch `0015` still names `os.lazy.webkit` in a comm
 rebuilds all of WebKit, so it is left. **Not run** (no Docker, WebKit build or QEMU in this session): the C++
 (`engine.cpp`, `PlatformLazyOS.cmake`), the Rust sandbox probe, the kernel `confine_suite` and every QEMU
 harness. Host tests that pass are listed in the commit message.
+
+**Upgrading an existing OS volume.** `pkgd`'s provisioning demotes a core package a newer image no longer
+ships to a user app instead of removing it (`libs/pkgstore/src/provision.rs`, `Action::Demote`), so a volume that
+already had `os.lazy.webkit` keeps it in `/apps` and the menu until it is uninstalled or the volume is reset
+(`--reset-os`). That is existing behaviour for every retired core app; say so in the PR rather than add a
+one-off retire step.
 
 Why first: W5 is LazyWeb+ minus chrome, `lazywebplus.md` already says the retirement was held back only for
 lack of a page-for-page harness run, and the multi-view refactor would otherwise port two windows to the new ABI.

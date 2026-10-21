@@ -15,18 +15,17 @@ python tools/webplus/test_judge.py        # the judge fails when it should; the 
 
 ## What it is
 
-One C++ program, the UI process of the W5 browser (`webkit/port/app/`), with LazyWeb's window as the Rust
+One C++ program, WebKit's UI process (`webkit/port/app/`), with LazyWeb's window as the Rust
 static library it links (`xui-app/webplus`, crate `xui-webplus`): `lazywebplus-app`, 108 MiB stripped, which
 starts `/system/bin/webprocess` and `/system/bin/networkprocess`. The package is
 `xui-app/packages/lazywebplus` (core package, `LAZYOS_LAZYWEBPLUS=1`, which needs `LAZYOS_DESKTOP=1` and
-`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). The W5 browser (`os.lazy.webkit`, a bare window on the same engine) was removed
-by webd's P1.0 ([`webd-plan.md`](webd-plan.md) 9.1); `lzw_ui_features()` tells the UI process which of the new behaviours the window it links wants (the W5
-window asks for none, so it behaves as before).
+`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). A bare W5 browser (`os.lazy.webkit`, the same engine without LazyWeb's chrome) was removed
+by webd's P1.0 ([`webd-plan.md`](webd-plan.md) 9.1); `lzw_ui_features()` tells the UI process which of the
+browser behaviours the window it links wants.
 
 The window is a fork of `xui-app/web`'s LazyWeb on the engine seam of `xui-app/crates/webkit` (`xui-webkit`:
 the `Engine` trait, the mailbox between the two threads, the generic page view, the pure ABI helpers).
-`xui-webkit` is built with its `window` feature for the W5 browser and without it for LazyWeb+, which
-defines the per-window symbols the C++ side calls itself (`lzw_ui_main`, `lzw_ui_features`,
+`xui-webkit` is an rlib; LazyWeb+'s window defines the per-window symbols the C++ side calls (`lzw_ui_main`, `lzw_ui_features`,
 `lzw_ui_marker_prefix`, `lzw_ui_profile_dir`, `lzw_ui_navigate`, `lzw_ui_download_start`, ...).
 
 LazyWeb's look is kept: the menu bar (File, View, History, Downloads, Help), the toolbar (Back, Forward,

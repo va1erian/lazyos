@@ -82,7 +82,7 @@ SLOW_NAME = sites.SLOW_DOWNLOAD_NAME
 SLOW_BYTES = len(sites.slow_download_payload())
 TALL_URL = SITE + "/webkit/tall.html"
 TALL_TITLE = "WebKit tall"
-#: LazyWeb's links page (W5's fixtures, `fixtures/theoldnet.com/webkit/`): its red box is a link
+#: LazyWeb's links page (`fixtures/theoldnet.com/webkit/`): its red box is a link
 #: to the form, whose field takes the typed text and whose submit goes to the echo.
 LINKS_FORM_URL = SITE + "/webkit/links.html"
 LINKS_FORM_TITLE = "WebKit links"
@@ -362,7 +362,7 @@ def judge_second(text: str) -> list[str]:
 
 
 def judge_servers(first, second, assets: list[str]) -> list[str]:
-    """What the stand-in sites saw: the first boot's pages and pictures (as W5's harness), the form's
+    """What the stand-in sites saw: the first boot's pages and pictures the form's
     query, no cookie on the first boot's cookie request and the cookie on the second's."""
     problems = []
     browser = list(first.requests)
@@ -450,7 +450,7 @@ def judge_profile(listing: dict[str, bytes | None], first_history: str, second_h
 
 
 def window_region(text: str, last: bool = False) -> tuple[int, int, int, int] | None:
-    """The page area on the screen, from the probe lines (as `appjudge.window_region` for this window's name)."""
+    """The page area on the screen, from the probe lines."""
     pages = []
     for match in session_pointer._WIDGET.finditer(text):  # noqa: SLF001 - one regex for both readers
         x, y, w, h, name, window = match.groups()

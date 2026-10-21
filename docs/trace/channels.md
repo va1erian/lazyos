@@ -88,7 +88,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PERF` | `Perf` | `perf` | kernel, kernel suite, user | tools/webplus | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
-| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
+| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webplus, tools/wifi | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
 | `PROC` | `Proc` | `proc` | kernel, kernel suite | tools/webplus | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
@@ -117,12 +117,12 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/storage, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
-| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot, tools/tray, tools/webkit, tools/webplus, tools/wifi | programs |
+| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/screenshot, tools/tray, tools/webplus, tools/wifi | programs |
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEB` | `Web` | `web` | xui-app | sessions, tools/test_qemu_serial.py, tools/web | programs |
-| `WEBKIT` | `Webkit` | `webkit` | xui-app | sessions, tools/webkit | programs |
+| `WEBKIT` | `Webkit` | `webkit` | - | tools/webkit | programs |
 | `WEBPLUS` | `Webplus` | `webplus` | xui-app | sessions, tools/webplus | programs |
 | `WIDGET` | `Widget` | `widget` | xui-app | sessions | programs |
 | `WIFID` | `Wifid` | `wifid` | user | - | programs |

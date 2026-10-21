@@ -2,7 +2,8 @@
 """Build LazyWeb+ into a desktop image, browse in it twice, and judge what the guest, the host's
 servers, the OS volume and the screen saw (docs/lazywebplus.md).
 
-Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py``; then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
+Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py``;
+then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
 
 1. a throwaway test CA and a leaf for theoldnet.com (``tools/web/certs.py``); the image is built
    with ``LAZYOS_LAZYWEBPLUS=1`` (desktop, ``netd``, the big-app limits), the CA appended to the

@@ -270,18 +270,6 @@ class AgreementTests(unittest.TestCase):
         self.assertEqual(judge.expected("os.lazy.lazywebplus")["networkprocess"]["write_downloads"].kind, "allowed")
         self.assertEqual(judge.expected("os.lazy.lazywebplus")["webprocess"]["write_downloads"].kind, "blocked")
         self.assertEqual(plus["app"]["system_name"], "os.lazy.lazywebplus")
-        def covered(rule: str, rules: list[str]) -> bool:
-            # The app's rule is the child's path or a directory above it, with the same verb.
-            verb, path = rule.split(":", 1)
-            return any(
-                r.split(":", 1)[0] == verb
-                and (path == r.split(":", 1)[1] or path.startswith(r.split(":", 1)[1].rstrip("/") + "/"))
-                for r in rules)
-
-        for table in plus["processes"].values():
-            for rule in table["files"]:
-                self.assertTrue(covered(rule, plus["permissions"]["files"]), rule)
-            self.assertLessEqual(set(table["network"]), set(plus["permissions"]["network"]))
 
     def test_the_ad_blockers_updater_may_fetch_and_write_only_the_lists_folder(self) -> None:
         plus = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))

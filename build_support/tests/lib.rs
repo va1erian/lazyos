@@ -109,5 +109,4 @@ mod usb_tests;
 #[cfg(test)]
 mod wallpapers_tests;
 #[cfg(test)]
-#[cfg(test)]
 mod wifi_tests;

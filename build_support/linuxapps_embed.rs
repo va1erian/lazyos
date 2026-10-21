@@ -185,7 +185,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             sink.add_file(fhs::etc::FONTS_CONF, conf);
         } else {
             println!(
-                "cargo:warning=LAZYOS_LAZYWEBPLUS: {} not built, no fonts.conf (run tools/webkit/port.py)",
+                "cargo:warning={switch}: {} not built, no fonts.conf (run tools/webkit/port.py)",
                 conf.display()
             );
         }
@@ -198,7 +198,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
 fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
     crate::os_image::rerun_if_changed(&dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
-        println!("cargo:warning=LAZYOS_LAZYWEBPLUS: no fonts in {}", dir.display());
+        println!("cargo:warning=WebKit: no fonts in {}", dir.display());
         return;
     };
     for entry in entries.flatten() {
