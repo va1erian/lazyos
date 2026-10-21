@@ -13,6 +13,7 @@ use crate::mem;
 
 mod confd_cut;
 mod deferred;
+mod deferred_pieces;
 mod fsync;
 mod latency;
 mod narrow;
@@ -63,6 +64,14 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     (
         "bcache_soak_deferred_writeback",
         deferred::soak_deferred_writeback,
+    ),
+    (
+        "bcache_deferred_commit_in_pieces",
+        deferred_pieces::commit_in_pieces,
+    ),
+    (
+        "bcache_soak_deferred_pieces",
+        deferred_pieces::soak_in_pieces,
     ),
     (
         "bcache_fsync_flushes_outside_the_gate",

@@ -24,7 +24,18 @@
 //! it held the gate (`FS:DEFERRED`). One sorted, coalesced commit every few
 //! seconds replaces a round trip
 //! per metadata block, and a file written and deleted in between never reaches
-//! the stick at all. `fsync`, `sync` and the power path commit as on every
+//! the stick at all.
+//!
+//! A commit is written in *pieces* (`ext2fs::Ext2::writeback_piece`): one that
+//! wrote 685 blocks held the gate for 1.37 s on a real PC. Each call takes the
+//! gate for at most [`PIECE_NS`] or [`PIECE_REQUESTS`] requests and lets go;
+//! the commit stays due, so the next syscall's end of a task that may write
+//! continues it, and the device flush after the last piece is made outside
+//! the gate. `FS:DEFERRED` is per piece (`blocks` dirty at its start, `us` the
+//! gate hold of that piece, `more` whether the commit goes on). Changes made
+//! between pieces are not lost or half written: the pieces write the dirty
+//! set as it was when the commit began, and later changes wait for the next
+//! commit. `fsync`, `sync` and the power path commit as on every
 //! volume; a writer that fills the dirty limit writes back in its own context.
 //!
 //! Who commits: never the kernel task, never a task that serves a provider
@@ -38,7 +49,7 @@
 //! few seconds, in the commit's crash-safe order. Once its disk is dead the
 //! volume refuses every change ([`Ext2::refuse_dead`]), as it did uncached.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use super::Ext2;
 use crate::fs::flusher::INTERVAL_TICKS;
@@ -49,6 +60,11 @@ use crate::task::{self, PriorityClass};
 pub const CLEAN: u64 = u64::MAX;
 /// Ticks before a commit that found the gate busy is tried again.
 const RETRY_TICKS: u64 = 10;
+/// One piece of a commit ends after this many requests or this long (ns),
+/// whichever comes first: the longest a commit holds the gate at a stretch,
+/// besides one request.
+static PIECE_REQUESTS: AtomicU32 = AtomicU32::new(32);
+const PIECE_NS: u64 = 25_000_000;
 
 /// The earliest commit due over every deferred volume ([`CLEAN`]: none): the
 /// one load a syscall's end pays when nothing is due.
@@ -173,22 +189,31 @@ impl Ext2 {
                 return;
             }
         }
-        let Some(_gate) = self.try_enter() else {
+        let Some(gate) = self.try_enter() else {
             note_due(now.saturating_add(RETRY_TICKS));
             return;
         };
-        // How long the gate is held, and for how much: a path syscall that
-        // meets the gate meanwhile holds its mount table while it waits.
+        // One bounded piece per call (see the module docs): the gate is held
+        // for the piece alone, and the commit goes on at the next syscall's
+        // end of a task that may, which is long enough for a waiter to take
+        // the gate (it hands off to its waiters, `task::yieldlock`).
         let blocks = self.volume.dirty_blocks();
         let start = crate::arch::clock::monotonic_ns();
-        let result = self.volume.writeback();
+        let mut requests = 0u32;
+        let limit = PIECE_REQUESTS.load(Ordering::Relaxed);
+        let result = self.volume.writeback_piece(&mut || {
+            requests += 1;
+            requests >= limit || crate::arch::clock::monotonic_ns() - start >= PIECE_NS
+        });
         let us = (crate::arch::clock::monotonic_ns() - start) / 1000;
+        let more = matches!(result, Ok(ext2fs::Progress::More));
         crate::trace::event!(
             tracefmt::Channel::Fs,
             "DEFERRED",
             device = self.device,
             blocks = blocks,
             us = us,
+            more = more,
             ok = result.is_ok()
         );
         if result.is_err() {
@@ -197,6 +222,12 @@ impl Ext2 {
             deferred
                 .due
                 .store(now.saturating_add(INTERVAL_TICKS), Ordering::Relaxed);
+            log_failure(self.device);
+        }
+        drop(gate);
+        // The commit is on the device only after its flush, which no other
+        // user of the volume waits for.
+        if matches!(result, Ok(ext2fs::Progress::Done)) && self.flush_device().is_err() {
             log_failure(self.device);
         }
     }
@@ -226,6 +257,13 @@ impl Ext2 {
         self.gate.try_lock().is_some()
     }
 
+    /// Whether a commit has been written in part and goes on at the next
+    /// call of [`Ext2::writeback_deferred`] (tests).
+    #[cfg(lazyos_tests)]
+    pub fn commit_in_progress(&self) -> bool {
+        self.volume.commit_in_progress()
+    }
+
     /// Make the deferred writeback due now (tests: no 5 s wait).
     #[cfg(lazyos_tests)]
     pub fn make_writeback_due(&self) {
@@ -241,4 +279,10 @@ fn log_failure(device: &str) {
     if !LOGGED.swap(true, Ordering::Relaxed) {
         serial_println!("ext2: {device}: deferred writeback failed; the next sync reports it");
     }
+}
+
+/// Tests: requests per piece of a deferred commit (default 32).
+#[cfg(lazyos_tests)]
+pub fn set_piece_requests(requests: u32) {
+    PIECE_REQUESTS.store(requests.max(1), Ordering::Relaxed);
 }

@@ -73,7 +73,7 @@ pub fn deferred_rule() -> Result<(), String> {
 }
 
 /// A user task: a fork of the kernel task, made current.
-fn as_user() -> Result<usize, String> {
+pub(super) fn as_user() -> Result<usize, String> {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(KERNEL_TASK);
@@ -86,13 +86,13 @@ fn as_user() -> Result<usize, String> {
     Ok(user)
 }
 
-fn back_to_kernel() {
+pub(super) fn back_to_kernel() {
     task::harness::switch_current(KERNEL_TASK);
     task::harness::reset();
 }
 
 /// `disk` mounted as a provider disk would be, as a private VFS root.
-fn deferred(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Vfs), String> {
+pub(super) fn deferred(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Vfs), String> {
     let fs = Arc::new(Ext2::open_deferred_with_pages(disk, 256).map_err(fs_error)?);
     let mut vfs = Vfs::new();
     vfs.mount("/", fs.clone(), crate::fs::vfs::MountFlags::default())
@@ -101,7 +101,7 @@ fn deferred(disk: &'static FakeDisk) -> Result<(Arc<Ext2>, Vfs), String> {
 }
 
 /// Whether a reboot right now finds `path` holding `data`.
-fn on_disk(disk: &FakeDisk, path: &str, data: &[u8]) -> Result<bool, String> {
+pub(super) fn on_disk(disk: &FakeDisk, path: &str, data: &[u8]) -> Result<bool, String> {
     let (_, _, mut after) = reboot_copy(disk)?;
     Ok(read_file(&mut after, path).is_ok_and(|bytes| bytes == data))
 }
@@ -163,7 +163,7 @@ pub fn deferred_writeback_by_users() -> Result<(), String> {
         );
         // A normal user task writes everything back once due.
         task::set_priority(user, PriorityClass::Normal);
-        fs.writeback_deferred();
+        super::deferred_pieces::drain(&fs)?;
         check!(
             fs.dirty_blocks() == 0,
             "the due writeback left dirty blocks"
@@ -230,8 +230,7 @@ pub fn soak_deferred_writeback() -> Result<(), String> {
                 vfs.unlink(Id::ROOT, &gone).map_err(fs_error)?;
             }
             if round % 7 == 6 || round % 60 == 59 {
-                fs.make_writeback_due();
-                fs.writeback_deferred();
+                super::deferred_pieces::drain(&fs)?;
                 check!(
                     fs.dirty_blocks() == 0,
                     "round {round}: dirty after a due writeback"

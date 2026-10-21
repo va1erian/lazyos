@@ -134,7 +134,7 @@ fn soak_on(lock: &'static YieldMutex<u64>) -> ! {
 /// Spawn `(entry, class)` threads, idle the kernel task until all finished or
 /// `limit_ns` passed (interrupts on, only the tick unmasked, contenders
 /// allowed to park), then end and reap them.
-pub(super) fn run(threads: &[(extern "C" fn() -> !, PriorityClass)], limit_ns: u64) -> Result<(), String> {
+fn run(threads: &[(extern "C" fn() -> !, PriorityClass)], limit_ns: u64) -> Result<(), String> {
     use crate::arch::irqchip;
     task::register_kernel();
     task::harness::reset();

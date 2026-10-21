@@ -7,7 +7,8 @@
 //!    the noted frees wait for is in it.
 //! 2. When it is all written, return the noted frees to their bitmaps (frees
 //!    queued since wait for the next commit: their detaches are not in the
-//!    snapshot), snapshot again, and write that piece by piece.
+//!    snapshot), snapshot again, and write that piece by piece. With no
+//!    frees noted there is no second stage, as in a plain commit.
 //!
 //! Between pieces other operations run. A block they change while its piece
 //! is pending is written as the snapshot saw it (`cache/piecewise.rs`), so
@@ -132,11 +133,11 @@ impl Ext2 {
                 inodes: pending.inodes.drain(..piecewise.inodes).collect(),
             }
         };
-        piecewise.applied = if taken.is_empty() {
-            Ok(())
-        } else {
-            self.apply(&taken)
-        };
+        if taken.is_empty() {
+            // Nothing to free: the one writeback was the whole commit.
+            return Ok(Progress::Done);
+        }
+        piecewise.applied = self.apply(&taken);
         piecewise.second = true;
         let began = self.cache.as_ref().is_some_and(|cache| {
             self.with_cache(cache, |cache, io| Ok(cache.begin_snapshot(io)))

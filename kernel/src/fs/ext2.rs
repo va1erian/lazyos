@@ -32,7 +32,9 @@ mod volio;
 pub use cache::cache_frames;
 pub use deferred::{claim as claim_deferred, note_due as note_deferred_due};
 #[cfg(lazyos_tests)]
-pub use deferred::{may_write_here, schedule, writer_due, CLEAN as DEFERRED_CLEAN};
+pub use deferred::{
+    may_write_here, schedule, set_piece_requests, writer_due, CLEAN as DEFERRED_CLEAN,
+};
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 ///
