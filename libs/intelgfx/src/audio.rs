@@ -46,6 +46,13 @@ pub const ELD_BUFFER_BYTES: usize = 84;
 pub const AUD_CHICKENBIT: u32 = 0x6_5F10;
 pub const CODEC_WAKE: u32 = 1 << 15;
 
+/// `AUD_PIN_BUF_CTL` and its enable bit (i915: `AUD_PIN_BUF_ENABLE`, set in
+/// `i915_audio_component_get_power` on Gen9 big-core parts, cleared in
+/// `put_power`): the audio pin buffers pass nothing without it. From memory,
+/// **to confirm**; the box's value before and after is logged.
+pub const AUD_PIN_BUF_CTL: u32 = 0x4_8414;
+pub const AUD_PIN_BUF_ENABLE: u32 = 1 << 31;
+
 /// `AUD_PIN_ELD_CP_VLD` holds one nibble per transcoder (A at bit 0).
 const NIBBLE_BITS: u32 = 4;
 const ELD_VALID: u32 = 1 << 0;
@@ -67,7 +74,8 @@ pub fn may_write(offset: u32) -> bool {
             .chain(base(AUD_HDMIW_HDMIEDID_A))
             .any(|reg| reg == offset)
             || offset == AUD_PIN_ELD_CP_VLD
-            || offset == AUD_CHICKENBIT)
+            || offset == AUD_CHICKENBIT
+            || offset == AUD_PIN_BUF_CTL)
 }
 
 /// What a request asks of the display engine.
@@ -106,6 +114,8 @@ pub enum Error {
 pub struct Enabled {
     pub eld_dwords: u8,
     pub config: u32,
+    /// `AUD_PIN_BUF_CTL` as read back after the enable.
+    pub pin_buf: u32,
 }
 
 fn pipe_reg(base: u32, transcoder: u8) -> u32 {
@@ -187,6 +197,7 @@ pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
 fn program(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     let t = req.transcoder;
     m.update32(AUD_CHICKENBIT, CODEC_WAKE, CODEC_WAKE);
+    m.update32(AUD_PIN_BUF_CTL, AUD_PIN_BUF_ENABLE, AUD_PIN_BUF_ENABLE);
 
     // Output enable on, ELD invalid, so the codec sees "sink present, no
     // ELD yet" while the buffer is filled.
@@ -223,6 +234,7 @@ fn program(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     Ok(Enabled {
         eld_dwords: (req.eld.len() / 4) as u8,
         config: value,
+        pin_buf: m.read32(AUD_PIN_BUF_CTL),
     })
 }
 
@@ -255,6 +267,7 @@ pub fn disable(m: &mut impl Mmio, transcoder: u8) -> Result<(), Error> {
         v & !(OUTPUT_ENABLE << shift(transcoder)),
     );
     m.update32(AUD_CHICKENBIT, CODEC_WAKE, 0);
+    m.update32(AUD_PIN_BUF_CTL, AUD_PIN_BUF_ENABLE, 0);
     Ok(())
 }
 

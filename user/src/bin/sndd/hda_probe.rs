@@ -152,3 +152,24 @@ fn detail(verbs: &mut impl Verbs, codec: u8, nid: u8, kind: u32) -> alloc::strin
         _ => alloc::format!("power={power}"),
     }
 }
+
+/// The controller registers that tie the HDA link clock to the display's
+/// `CDCLK` on Intel PCHs: `EM4` and `EM5` (offsets `0x100C`, `0x1010`), which
+/// Linux's i915 binding sets so that BCLK is 24 MHz whatever the display
+/// clock is (`snd_hdac_i915_set_bclk`). What the firmware left in them is the
+/// question; `GCAP`, `GCTL`, `LLCH` and the first stream descriptor's format
+/// are logged beside them.
+pub(super) fn controller(regs: &impl hda::regs::Regs) {
+    trace::line!(
+        Channel::Sndd,
+        "PROBE ctrl gcap={:#06x} vmin={} vmaj={} gctl={:#010x} em4={:#010x} em5={:#010x} em2={:#010x} em1={:#010x}",
+        regs.read16(0x00),
+        regs.read8(0x02),
+        regs.read8(0x03),
+        regs.read32(0x08),
+        regs.read32(0x100C),
+        regs.read32(0x1010),
+        regs.read32(0x1008),
+        regs.read32(0x1004)
+    );
+}

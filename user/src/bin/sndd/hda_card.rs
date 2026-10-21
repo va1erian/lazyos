@@ -18,7 +18,8 @@ use alloc::vec::Vec;
 use core::ptr;
 use user::trace;
 
-use crate::hda_probe::{dump as probe, widgets};
+use crate::dma::flush;
+use crate::hda_probe::{controller as probe_ctrl, dump as probe, widgets};
 use crate::hdmi_path;
 
 use hda::codec::{read_graph, Graph, Path};
@@ -121,6 +122,7 @@ impl HdaCard {
             unsafe { Controller::new(regs, rings, sys::nap) }.map_err(hda_error("controller"))?;
         let codec = controller.codec;
         let graph = Box::new(read_graph(&mut controller, codec).map_err(hda_error("codec"))?);
+        probe_ctrl(controller.regs());
         widgets(&graph, codec);
         let (path, hdmi) = hdmi_path::choose(&mut controller, codec, &graph)?;
         let output = Output {
@@ -325,6 +327,7 @@ impl HdaCard {
         // it (`set_params`); the stream is stopped, so the controller is not
         // reading it, and the driver's own writes happen between calls.
         unsafe { ptr::write_bytes(self.staging_va, 0, buffer as usize) };
+        flush(self.staging_va, buffer as usize);
         // SAFETY: the BDL area lies inside `core` (`CORE_BYTES` covers
         // `MAX_SLOTS` entries) and the stream is stopped.
         unsafe {
@@ -335,6 +338,7 @@ impl HdaCard {
                 params.periods as usize,
             )
         };
+        flush(self.core.ptr(BDL_OFFSET)?, MAX_SLOTS * BDL_ENTRY);
         self.stream.program(
             self.controller.regs_mut(),
             TAG,
@@ -412,6 +416,16 @@ impl HdaCard {
                     ptr::write_bytes(self.staging_va.add(slot * period + from), 0, period - from)
                 };
             }
+            self.flush_slot(slot, period);
+        }
+    }
+
+    /// Push slot `slot` out of the CPU caches (`dma::flush`).
+    fn flush_slot(&self, slot: usize, period: usize) {
+        if slot < MAX_SLOTS {
+            // SAFETY: `slot < periods <= MAX_SLOTS` and `periods * period <=
+            // STAGING_BYTES` (`set_params`), so the slot is inside staging.
+            flush(unsafe { self.staging_va.add(slot * period) }, period);
         }
     }
 
@@ -435,6 +449,7 @@ impl HdaCard {
         }
         // A short final period: the rest of the slot must be silence.
         self.silence(slot, len);
+        self.flush_slot(slot, period_bytes);
         self.queued[slot] = true;
         if self.state == State::Armed && self.queued[..periods].iter().all(|&queued| queued) {
             self.start_dma()?;

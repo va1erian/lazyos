@@ -59,12 +59,13 @@ pub(super) fn run(args: &Args, regs: &mut Bar, adopted: &Adopted) {
         Ok(done) => trace::pass!(
             Channel::Gpu,
             "AUDIO",
-            "transcoder={} tmds_khz={} n={:?} eld_dwords={} aud_config={:#010x} writes={}",
+            "transcoder={} tmds_khz={} n={:?} eld_dwords={} aud_config={:#010x} pin_buf={:#010x} writes={}",
             prepared.transcoder,
             prepared.tmds_khz,
             prepared.n,
             done.eld_dwords,
             done.config,
+            done.pin_buf,
             regs.writes()
         ),
         Err(why) => trace::fail!(Channel::Gpu, "AUDIO", "{why:?} writes={}", regs.writes()),

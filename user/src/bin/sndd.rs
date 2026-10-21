@@ -90,6 +90,11 @@ const TONE_ON_START: bool = option_env!("LAZYOS_SNDD_TONE").is_some();
 /// Tones played, and the pause between them (PIT ticks).
 const START_TONES: u32 = 3;
 const START_TONE_GAP_TICKS: u64 = 100;
+/// The start tones are made to be heard on a monitor's small speakers: 1 kHz,
+/// near full scale, longer than the boot demo's.
+const START_TONE_HZ: u32 = 1000;
+const START_TONE_MS: u32 = 1500;
+const START_TONE_AMPLITUDE: i32 = 30000;
 
 /// Longest park in the serve loop while no stream is running (PIT ticks).
 const IDLE_TICKS: u64 = 100;
@@ -101,6 +106,8 @@ struct Args {
     dev: Option<u64>,
     freq_hz: u32,
     ms: u32,
+    /// Peak level, Q15.
+    amplitude: i32,
 }
 
 impl Args {
@@ -113,6 +120,7 @@ impl Args {
             dev: None,
             freq_hz: DEFAULT_FREQ_HZ,
             ms: DEFAULT_MS,
+            amplitude: AMPLITUDE_Q15,
         };
         for part in text.split_whitespace() {
             match part.split_once('=') {
@@ -189,9 +197,16 @@ fn run(args: &Args) -> Result<(), Error> {
         );
     }
     if TONE_ON_START {
+        let loud = Args {
+            demo: false,
+            dev: args.dev,
+            freq_hz: START_TONE_HZ,
+            ms: START_TONE_MS,
+            amplitude: START_TONE_AMPLITUDE,
+        };
         for round in 1..=START_TONES {
             trace::line!(trace::Channel::Sndd, "TONE:START round={round}");
-            if let Err(error) = self_test(&mut card, &infos, args) {
+            if let Err(error) = self_test(&mut card, &infos, &loud) {
                 trace::line!(trace::Channel::Sndd, "TONE:FAIL {}", error.describe());
             }
             let _ = sys::wait(sys::clock() + START_TONE_GAP_TICKS);
@@ -223,10 +238,18 @@ fn self_test(card: &mut Card, infos: &[PcmInfo], args: &Args) -> Result<(), Erro
     let mut stream = Stream::open(card, index as u32, info, &request)?;
     let grant = stream.grant;
     let frames = u64::from(grant.rate_hz) * u64::from(args.ms) / 1000;
-    let mut tone = Tone::new(args.freq_hz, grant.rate_hz, AMPLITUDE_Q15);
+    let mut tone = Tone::new(args.freq_hz, grant.rate_hz, args.amplitude);
 
     stream.start(card)?;
+    let started = sys::clock();
     let played = stream.play_tone(card, &mut tone, frames)?;
+    // 100 ticks a second: a link running at the right BCLK takes `ms / 10`.
+    trace::line!(
+        trace::Channel::Sndd,
+        "TONE:TIME ticks={} expected={}",
+        sys::clock() - started,
+        u64::from(args.ms) / 10
+    );
     stream.halt(card)?;
     card.give_back(stream.into_region());
     if played != frames {

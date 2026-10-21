@@ -253,7 +253,7 @@ fn the_write_grant_is_only_the_audio_block() {
         assert!(!audio::may_write(offset), "{offset:#x}");
     }
     for offset in [
-        0x6_5000, 0x6_5100, 0x6_5200, 0x6_50B4, 0x6_5050, 0x6_5250, 0x6_50C0, 0x6_5F10,
+        0x6_5000, 0x6_5100, 0x6_5200, 0x6_50B4, 0x6_5050, 0x6_5250, 0x6_50C0, 0x6_5F10, 0x4_8414,
     ] {
         assert!(audio::may_write(offset), "{offset:#x}");
     }
@@ -459,4 +459,15 @@ fn a_clock_index_that_does_not_stick_still_fails() {
     let err = audio::enable(&mut e, &request(&bytes, 241_500, None)).unwrap_err();
     assert!(matches!(err, Error::Readback(AUD_CONFIG_A, _, _)));
     assert_eq!(e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101, 0);
+}
+
+#[test]
+fn the_pin_buffer_is_enabled_by_enable_and_released_by_disable() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.regs.insert(crate::audio::AUD_PIN_BUF_CTL, 0x0000_0042);
+    let bytes = eld();
+    let done = audio::enable(&mut e, &request(&bytes, 241_500, None)).unwrap();
+    assert_eq!(done.pin_buf, 0x8000_0042);
+    audio::disable(&mut e, 0).unwrap();
+    assert_eq!(e.regs[&crate::audio::AUD_PIN_BUF_CTL], 0x0000_0042);
 }

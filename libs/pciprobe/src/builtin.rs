@@ -186,6 +186,9 @@ pub const RANGES: &[Range] = &[
     // DBUF and CDCLK.
     r(INTEL, HD620, 0, 0x0004_2000, 0x0004_3000),
     r(INTEL, HD620, 0, 0x0004_4000, 0x0004_7000),
+    // `AUD_PIN_BUF_CTL` (0x48414) and its neighbours: i915 sets its enable bit
+    // while the audio component holds the audio power domain (gpud, G2).
+    r(INTEL, HD620, 0, 0x0004_8400, 0x0004_8430),
     // Transcoder timings, DDI buffers, AUX channel, DPLLs, pipe CRC, audio
     // configuration (less the ELD port), pipes and planes.
     r(INTEL, HD620, 0, 0x0006_0000, 0x0006_5050),

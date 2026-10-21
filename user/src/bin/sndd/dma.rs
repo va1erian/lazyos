@@ -67,3 +67,31 @@ impl Region {
         Ok(unsafe { core::slice::from_raw_parts_mut(self.va.add(offset), len) })
     }
 }
+
+/// Cache line size for [`flush`]: 64 bytes on every x86-64 part.
+const LINE: usize = 64;
+
+/// Write back and evict the cache lines of `len` bytes at `ptr`, so a device
+/// that reads RAM without snooping the CPU caches sees what was just written.
+///
+/// The Intel HDA controller on the Kaby Lake box has `DEVC.NSNPEN` (PCI config
+/// `0x78`, bit 11) set by the firmware, and the kernel lets no driver clear it
+/// (`cfg_write` takes only the command register): its stream DMA then reads
+/// the cached write-back buffer's stale RAM, and the codec is fed silence.
+/// Flushing after each write is what Linux does when it runs a controller in
+/// no-snoop mode. Harmless where the controller does snoop.
+pub(super) fn flush(ptr: *const u8, len: usize) {
+    let start = (ptr as usize) & !(LINE - 1);
+    let end = (ptr as usize).saturating_add(len);
+    let mut line = start;
+    while line < end {
+        // SAFETY: `clflush` of an address inside a mapping this task owns
+        // (the callers pass pointers into a `Region`); it writes back and
+        // evicts one line and changes no program-visible memory value.
+        unsafe { core::arch::x86_64::_mm_clflush(line as *const u8) };
+        line += LINE;
+    }
+    // SAFETY: a fence has no memory-safety requirement; `clflush` is only
+    // ordered against stores by it.
+    unsafe { core::arch::x86_64::_mm_mfence() };
+}
