@@ -20,7 +20,7 @@ import run  # noqa: E402  (this directory's: it loads tools/webd/judge.py under 
 import webjudge  # noqa: E402
 
 WIDTH, HEIGHT = 1000, 640
-BOX = (560, 1000, 100, 600)
+BOX = (640, 1100, 110, 650)
 
 
 def write_png(path: Path, painter) -> Path:

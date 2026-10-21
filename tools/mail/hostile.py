@@ -59,6 +59,8 @@ def raw_message() -> bytes:
 def append(port: int, ca: Path, user: str, password: str, timeout: float = 15.0) -> None:
     """`APPEND` the message to INBOX of the mock server's IMAP side (TLS with its own CA, host `localhost`)."""
     context = ssl.create_default_context(cafile=str(ca))
+    # The mock's CA is the test one (no key-usage extension): Python 3.13+'s strict mode refuses it.
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
     client = imaplib.IMAP4_SSL("localhost", port, ssl_context=context, timeout=timeout)
     try:
         client.login(user, password)

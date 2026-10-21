@@ -32,6 +32,10 @@ esmail-glue = { git = "https://github.com/va1erian/esmail", rev = "a065da5133006
 # (docs/tls-plan.md §3.2), installed as rustls's process default.
 nettls-crypto = { path = "../../nettls/crypto" }
 rustls = { version = "=0.23.45", default-features = false, features = ["std", "tls12"] }
+# esMail's sanitiser (a transitive dependency) panics under ammonia 4.2, whose `Builder::clean` refuses a
+# builder that allows `<style>` and filters style properties: the Mail process died on the first HTML
+# message. esMail's own lock file has 4.1.4; hold it here until esMail moves.
+ammonia = "=4.1.4"
 # The credential store esMail reads passwords through; `secrets.rs` gives it a
 # session-only store (docs/tls-plan.md §6.3, "prompted, never stored").
 keyring = "3.2"

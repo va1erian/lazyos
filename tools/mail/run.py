@@ -35,6 +35,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -75,9 +76,9 @@ ESMAIL_REV = re.search(r'esmail = \{[^}]*rev = "([0-9a-f]+)"',
 MOCK_ROOT = ROOT / "target" / "mail-mock"
 IMAPS_PORT, SMTPS_PORT = 9993, 9465
 MOCK_IMAP_PORT, MOCK_SMTP_PORT = 21993, 21025
-#: The reading pane in the 1000x620 window's screenshot (x0, x1, y0, y1): right of the folder pane and the
+#: The reading pane in the screenshot (x0, x1, y0, y1): right of the folder pane and the
 #: message list (`xui-app/mail/src/app/layout.rs`), below the toolbar. Checked against `shot_03_message.png`.
-PANE = (560, 1000, 100, 600)
+PANE = (640, 1100, 110, 650)
 #: The mock's account (esmail `mail-mock-server/src/fixtures.rs`).
 ACCOUNT = "alice@example.com"
 PASSWORD = "hunter2"
@@ -150,7 +151,11 @@ def start_mock(binary: Path, out: Path) -> tuple[subprocess.Popen, Path]:
             raise RuntimeError(f"mail-mock-server did not start SMTP (see {out / 'mock.log'})")
         time.sleep(0.2)
     # The mock's IMAP side is up before its SMTP side. The hostile message goes in now, before the guest asks.
-    hostile.append(MOCK_IMAP_PORT, ca, ACCOUNT, PASSWORD)
+    try:
+        hostile.append(MOCK_IMAP_PORT, ca, ACCOUNT, PASSWORD)
+    except BaseException:
+        process.terminate()
+        raise
     return process, ca
 
 
@@ -210,8 +215,15 @@ def main() -> int:
         return 1
     hosts = out / "certs" / "hosts"
     hosts.write_text(f"10.0.2.2 {tlscerts.NAME}\n")
+    pristine, run_image = out / "pristine.img", out / "run.img"
     if not args.no_build:
         build(certs, hosts, args.label_trace)
+        # The session adds an account to the image's home: every run starts from this copy of the fresh build.
+        shutil.copyfile(IMAGE, pristine)
+    elif not pristine.is_file():
+        print(f"MAIL:HARNESS:FAIL --no-build needs {pristine} (the fresh image of a run that built)")
+        return 1
+    shutil.copyfile(pristine, run_image)
     if listener.busy():
         print(f"MAIL:HARNESS:FAIL port {listener.PORT} on {listener.HOST} is already in use (another harness?)")
         return 1
@@ -225,7 +237,7 @@ def main() -> int:
     try:
         fronts = tlsproxy.Fronts(certs["good"].cert, certs["good"].key, mock_ca,
                                  (IMAPS_PORT, MOCK_IMAP_PORT), (SMTPS_PORT, MOCK_SMTP_PORT))
-        command = [PY, "tools/screenshot/qemu_session.py", "--image", str(IMAGE), "--out", str(out),
+        command = [PY, "tools/screenshot/qemu_session.py", "--image", str(run_image), "--out", str(out),
                    "--script", str(SCRIPT), "--accel", args.accel, "--memory", args.memory,
                    "--net", "--net-forward", "none", "--fail-on", "PANIC", "--fail-on", "EXCEPTION"]
         session_ok = subprocess.call(command, cwd=ROOT) == 0
