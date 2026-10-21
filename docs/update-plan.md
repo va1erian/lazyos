@@ -822,10 +822,12 @@ dependency solver with alternatives, Linux-side changes of any kind.
        the packager reads which interfaces a binary serves and binds from the
        generated code (`idl/manifest.json` is the index). A requirement is met
        by the same `.vN` from a provider at least as new (append-only makes
-       newer providers compatible). **To confirm in P0:** the interface hash
-       checked at bind time must not change when a field is appended, or it
-       cannot serve as the compatibility test; if it does change, the manifest
-       needs a separate `compat` number per interface.
+       newer providers compatible). **Settled by spike S1:** the interface id
+       checked at bind time is the FNV-1a hash of the `.vN` *name* only, so it
+       never changes on an append but also says nothing about shape; it cannot
+       be the compatibility test. The test is `tools/pkg/idl_compat.py`, a
+       schema diff between two IDL trees, run by CI against the previous
+       snapshot's tree.
     3. **Boot protocol** (`requires_loader`), checked against the ESP.
     4. **State schema** (decision 25).
     5. **Named packages**, `>=` only, no upper bounds, no alternatives, no
@@ -1077,6 +1079,76 @@ markers go through `trace` (a `PKG` channel), files stay under 500 lines.
 | **P5** Live activation | `vfs_retarget` (kernel and `SubtreeFs`), `init.Reload` and unit restarts in dependency order, classes enforced, swap-back, `--dev` installs | kernel tests: retarget under open files, concurrent lookups, a 10^5-cycle retarget soak, `EROFS` everywhere else; harness: update `netd` and a driver during a download and audio playback, a mixed-generation window against a deliberately older `confd`, a forced failure swaps back, a too-cheap class is caught; the IDL conformance suite runs previous-snapshot clients against new providers and the reverse |
 | **P6** Kernel and boot packages (with U2) | kernel-only snapshots under the ABI window; `lazyos-boot` requirement check; the rescue-kernel pin; `lazyos-install update` stages loader and rescue kernel from the same snapshot | OVMF/GRUB harness: a new kernel with older services boots, a failing trial falls back; an ABI-incompatible pairing is refused by the build, by `updated` and by the kernel, in that order |
 | **P7** Retire the old paths | delete the in-place `os_update.rs` paths, the `LAZYOS_*_embed.rs` modules that duplicate package contents and the `MANIFEST` const; suites compile to meta-packages; launcher, CLI and GUI wiring finished; `docs/architecture/`, `build-switches.md`, `packages.md` and AGENTS.md rewritten (no aliases, no deprecation stage) | no reference to `.image-manifest` remains; `check_literals.py`, `check_file_length.py`, `check_adhoc.py --ratchet` green |
+
+#### P0 spike results (2026-10-21)
+
+Three questions the plan rested on, measured on the Windows dev host with the
+pinned nightly (`nightly-2026-09-25`). Scratch builds only; nothing in the
+image changed.
+
+**S1. Is the bind-time interface hash a compatibility check? No, and the IDL
+discipline is better than feared.** The id is `fnv1a64(name)`
+(`midlc_model.Interface.id`), so appending a method or field leaves it alone
+and removing one leaves it alone too. `tools/pkg/idl_compat.py` (new, with
+`test_idl_compat.py`) diffs two IDL trees for non-append-only changes
+(removed or retyped fields, changed method ids, reordered enums, removed
+interfaces, changed topics). Run over all 82 commits that touched
+`idl/*.midl` (3 minutes; commits in an older syntax today's `midlc` refuses are
+skipped and counted), it found **2 commits with a break inside one `.vN`**: the
+`Tick` method moving to a topic in `de4831856` and the `regd` to `confd` rename
+in `d7fa3864a`. Both are early renames, not drift in a live interface. Open
+gap: field ids are positional unless pinned (`--pin-field-ids`), so a reordered
+unpinned struct silently renumbers the wire; the tool sees that as a retype or
+removal, but nothing enforces pinning yet (P0 should make `midlc --check`
+refuse an unpinned field in a released interface).
+
+**S2. Are builds reproducible? Yes for what was measured, with two leaks.**
+
+| Experiment | Result |
+|---|---|
+| 64 `user` binaries, release, rebuilt into a fresh target dir | all 64 bit-identical |
+| the same, from a second checkout at a different path, a minute later | all 64 bit-identical |
+| kernel, release profile, two checkouts at different paths | bit-identical (5.1 MB) |
+| kernel, default dev profile (`debug = line-tables-only`) | **differs**: debug info carries absolute checkout paths |
+| absolute paths left in the release kernel | 4: three `.cargo\registry\src\...` crate paths and the `.rustup` toolchain path (panic locations) |
+| release kernel with `--remap-path-prefix` for `.cargo` and `.rustup` | no absolute path left |
+
+So local crates already embed relative paths and nothing embeds a timestamp,
+which is the hard part. The leaks are the cargo and rustup homes (identical on
+one machine, different in a CI container, so official builds pin them or
+remap) and the dev kernel's debug info (dev builds are not signed anyway).
+Remapping needs `CARGO_ENCODED_RUSTFLAGS`, because setting `RUSTFLAGS`
+replaces `.cargo/config.toml`'s `--cfg aes_force_soft`. **Not measured, and
+still open for P0:** the static-musl xui apps and their Blitz/WebKit
+dependencies, the zig-built C programs (dash, sqlite3, jq, Doom, Quake),
+Docker-built WebKit, a Windows-versus-Linux comparison, and the core `.lzp`
+archives against their inputs. Builds are fast (all 64 services in 27 s, the
+kernel in 45 s), so a CI `repro_check.py` is cheap.
+
+**S3. Can every file be given one owner? The seam exists.** Every file of the
+image goes through one trait, `Sink::add_placed` (`build_support/os_image.rs`),
+called from about twenty producer modules (`*_embed.rs`, `drivers.rs`,
+`core_packages.rs`, `docs_embed.rs`, `samples_embed.rs`, ...). Today it is a
+`BTreeMap` insert where **a later entry for the same path silently replaces
+the earlier one**, so a double owner cannot be detected, and `/system/.image-manifest` is the
+only record. Wrapping the sink to tag each file with its producer gives the
+ownership table with no change to the producers, and those twenty modules are
+a natural first cut of the package list (a producer is a package or a group
+of them). The default console image has only 16 programs in `/system/bin`
+(`init`, `messengerd`, `keyd`, `logd`, `healthd`, `clipboardd`, test probes),
+217 doc files and a handful of data files; the full service set exists only
+in the services and desktop images. A package set is therefore a function of
+the build switches, which the snapshot build must enumerate per suite, not one
+fixed list.
+
+**Consequences for the phases.** P0's three open questions are answered, so
+P0 shrinks to: land `idl_compat.py` in CI against the previous release tag;
+pin the unpinned field ids; add the owner-tagging sink and a failing check on
+a doubly-owned path; add `repro_check.py` for the cases listed as unmeasured
+and wire the path remap into the official build; add the `kernel-abi` constant
+and frozen-syscall table (`libs/lazyos-sys` already holds the numbers and is
+checked against the kernel's dispatch tables by host tests, which is the base
+to extend). Nothing found argues for changing the package model.
 
 **Package track order:** P0 first and alone, because it is where the plan can
 turn out wrong (interface hashes, reproducibility, the number of unowned
