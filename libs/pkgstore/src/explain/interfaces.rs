@@ -215,6 +215,12 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         LOW,
         "Be told when you click or dismiss one of its notices",
     ),
+    // webd's light views (docs/webd-plan.md 3.6): HTML and CSS the app gives it, no network, no storage.
+    (
+        "os.lazy.webd.light.v1",
+        LOW,
+        "Show formatted text and pictures that you give it",
+    ),
     (
         "os.lazy.init.app.v1",
         LOW,

@@ -201,7 +201,7 @@ EGL and GLESv2 stand-ins and are never reached.
 ## The engine: one Host, any number of Views
 
 `port/app/` is two things. The **engine** (`engine.cpp`, `clients.cpp`, `policy.cpp`, `uiclient.cpp`,
-`notify.cpp`, `blocking.cpp`, `paint.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
+`notify.cpp`, `blocking.cpp`, `paint.cpp`, `light.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
 UI process without a window: one `Host` (the `WKContext`, the notification manager, the engine processes)
 and any number of `View`s, a page each with its own state (loading, dialogs, downloads, permission
 requests, paint state, rule-list controller). Whatever a view says goes to its `ViewSink`, whatever the host
@@ -255,6 +255,84 @@ made:
   `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
   its environment when it starts, and one NetworkProcess serves every profile): a second profile's explicit
   data directories are right, its curl cookie jar is not yet.
+
+## webd's engine half (`port/webd`): light views behind a C ABI
+
+`port/webd/webd_abi.h` is the contract between the engine and webd's service (Rust, `xui-app/crates/webd`,
+docs/webd-plan.md, P2 slice 1): `webd_engine_*` calls the service makes from any thread, `webd_ui_*` callbacks
+the engine makes on WebKit's main thread. `abi.cpp` implements the first over the engine's `Host` and `View`s
+and the second as a `ViewSink` per view and one `HostEnv`: the service chooses every view id (a `Slot` maps it to
+the engine's), every call copies its arguments and queues a task for the run loop (so nothing waits for WebKit),
+a call about an id the engine does not know does nothing, and a call that arrives before the view exists waits for
+it, in order (the first view waits for the network lock, below). A frame is always a whole one; a view that is
+not visible is painted no more (its page runs), and `set_visible(1)` or `refresh` paints it. A web process that
+ends (`ViewState::crashed`) is `webd_ui_view_lost` (`CRASHED`, or `MEMORY`) and the id is dropped; the engine's
+view is destroyed behind it. Mouse `kind` is the header's (0 move, 1 press, 2 release); the engine's own
+`View::mouse` takes 0 down, 1 up, 2 move, and `abi.cpp` translates.
+
+A **light view** (`ViewConfig::light`, `light.cpp`) is the engine with a lock on it, all of it enforced in the UI
+process and none of it left to the page:
+
+* *No network.* A content rule list (WebKit's content-extension store, compiled once at start into
+  `$LAZYOS_WEBD_RULES_DIR` or `/tmp/webd-rules-<pid>`: the one thing the engine writes for a light view) blocks
+  every load but `data:`, `blob:` and `about:` URLs, and a navigation policy loads only the owner's own
+  `loadHtml`. The list is what stops subresources: the navigation client sees navigations, not requests.
+  Measured with a listener on 127.0.0.1 (`network` below): a page that asks for an image, a style sheet, an
+  `@import`, a font, a script, a frame, a video poster, audio, an `<object>`, an `<embed>`, an image input, an SVG
+  `<image>`, a `<picture>`, a favicon, `preconnect`, `prefetch`, `dns-prefetch` and a ping link, and (scripts on)
+  `fetch`, `XMLHttpRequest`, `WebSocket`, `new Image`, `sendBeacon`, `EventSource`, `import()`, a script and a
+  link added by script and a `Worker`, makes **no connection**. The same page in a light view *without* the rule
+  list made 26 (the first thirteen distinct, in order: `/img.png /a.css /import.css /s.js /svg.png /poster.png /pic.png
+  /input.png /fetch /xhr /jsimg /ws /mod.js`), so the lock is the rule list, not the scripts being off. Not
+  observable by that test: a DNS lookup for a *name* (`WKPreferencesSetDNSPrefetchingEnabled` is a no-op in this
+  WebKit; the rule list covers the `dns-prefetch` link, but a lookup would not reach a listener either way). A
+  light view still launches the NetworkProcess (the plan's L1), idle.
+* *Navigation locked.* A main-frame navigation the owner did not ask for is refused and told as
+  `ViewSink::linkClicked` (`webd_ui_link_clicked`): a link click, a form submit (GET: with its query), a meta
+  refresh, a script's `location`, a `target=_blank` link. A `#fragment` link is the page's own and scrolls.
+  Any navigation the page starts, even a refused one, cancels the one it had scheduled (WebKit's
+  `NavigationScheduler`): a click before a meta refresh fires loses the refresh. A *relative* URL cannot be made
+  absolute against `about:blank` or a `data:` base (WebKit's URL stays `r3`): it is told as it is. A refresh to
+  the document's own URL is a reload and is refused without a word. Frames of the page load only `data:`,
+  `blob:` and `about:` URLs.
+* *Scripts* as `scripts` says (`WKPreferencesSetJavaScriptEnabled`; event handlers too), and with them on: no
+  local storage, no storage of any kind, no automatic windows, no beacons. `<noscript>` content is not
+  rendered even with scripts off (the parser's scripting flag is not the preference: `script` mode prints the
+  colour the page ended with).
+* *None of a browser's clients*: `createView` forces `features` to 0 for a light view (no UI client, dialogs,
+  downloads, notifications, blocking or policy callbacks to the owner), and a light view groups only with
+  light views.
+* `loadHtml(html, base_url)`: `base_url` must be `about:blank`, empty (the same) or a `data:` URL; anything else
+  (`http:`, `https:`, `file:`, `ftp:`, `blob:`) loads nothing and the next state carries an error. The load is
+  `WKPageLoadData`, UTF-8, `text/html`.
+* Best-effort fields: `default_font_size` sets WebKit's default *and minimum* font size; `user_style` is
+  appended to the document as a `<style>` after the caller's markup (the C API has no user style sheet and a
+  light view has no other kind of load; text that could close the element is refused and said
+  `CONFIG:IGNORED:user_style`); `color_scheme = 1` is **not implemented**: `prefers-color-scheme` is compiled out
+  of this WebKit (`ENABLE_DARK_MODE_CSS` is off in the port, and `WKPageSetUseDarkAppearanceForTesting` changes
+  nothing without it), so the engine says `CONFIG:IGNORED:color_scheme` and an owner that wants a dark page
+  passes a `user_style`. Copy: `Ctrl+C` reads the selection with script (`getSelection()`; the C API has no
+  selected-text call), so `webd_ui_clipboard_write` happens only when scripts are on.
+
+`webd-abi-test` (`port/webd/test`) plays the service: the `webd_ui_*` callbacks record what is told per view id
+and a driver thread calls `webd_engine_*` as the Rust thread will, one mode per process. Every mode ends with
+`WEBD:<mode>:PASS` or `WEBD:<mode>:FAIL:<why>`, and an engine process left behind is a failure:
+
+```bash
+python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd            # Docker; every mode
+python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd lock lost  # some of them
+```
+
+| mode | what it asserts |
+|---|---|
+| `html` | a light view paints a `LoadHtml` page (colour, title, size, a scroll offset, `finished` rises), a second load replaces it, resize gives frames of the new size, a hidden view gets no frame but its page runs and it is painted when shown, `refresh` sends a frame, nothing is told after `view_destroy` and calls about the dead id do nothing |
+| `script` | `scripts=0`: an inline script and an event handler do not run; `scripts=1`: the script does; two views at once |
+| `config` | `default_font_size` and `user_style` apply; `color_scheme` is reported ignored |
+| `lock` | a click on a link, a form submit, a meta refresh and (scripts on) a script's `location` each become `link_clicked` with the absolute URL and the page stays (title, colour, `finished`, no error); a `#fragment` link is not reported |
+| `network` | a listener on 127.0.0.1 is reached by a plain engine view (the control) and by no road of a light view, scripts on or off; five bad base URLs are refused with an error and load nothing, three good ones load |
+| `many` | twelve views of one group (scripts alternating on and off, so the process holds both) share ONE web process and each paints its own colour and title; destroyed in another order than made, the process lives until the last view and ends with it |
+| `lost` | `SIGKILL` of the web process (pid from `webd_engine_children`) is `view_lost(CRASHED)`, the id is dead, a new view works; the same for both views of a group, which is then rebuilt with one new process |
+| `cycle` | twenty views made, painted and destroyed in turn: every web process ends, nothing is told after `view_destroy` |
 
 ## The desktop app
 

@@ -341,6 +341,69 @@ browser moves onto webd**.
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
+### P2 slice 1: light views, headless (started 2026-10-21)
+
+The first slice builds the light interface end to end up to, but not including, the program and package. Two
+halves written against one contract, `webkit/port/webd/webd_abi.h` (C ABI, light views, whole frames only):
+
+* **Service half (Rust)**: `idl/webd_light.midl`, the `pkgstore::explain` row, `xui-app/crates/webd` (view table,
+  quotas, light config validation, slot state machine, the Messenger service on its own thread), host-tested
+  against an in-memory fabric and a recording `Engine` trait. An `ffi` module (feature `host`) implements that
+  trait over the C ABI and exports the `webd_ui_*` callbacks; it is not linked into anything yet.
+* **Engine half (C++)**: `webkit/port/webd/abi.cpp` implements `webd_engine_*` over the engine's Host and Views,
+  with the light-view behaviour the engine lacks (scripts off, `LoadHtml` with a base URL, navigation locked and
+  reported as `webd_ui_link_clicked`, no network scheme loads, no browser clients), and `webd-abi-test`, a
+  headless program in the build container that drives the ABI like the service will (modes under
+  `tools/webkit/port.py --run-views`' sibling flag).
+
+**As built, service half** (`idl/webd_light.midl`, `xui-app/crates/webd`; host tests only, nothing is linked):
+
+* One interface for both directions, like the display protocol: calls and oneway input, and the events
+  (`Frame`, `State`, `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost`, plus a `Ping` liveness probe) on the
+  endpoint moved in with `CreateView`. Ids: calls 1-7, 11, 20-23; events 100-106. `midlc` has no imports, so
+  the shared structs of the full interface will be declared again in `webd.midl` (same ids and field numbers;
+  `CreateView` leaves field 4, `scale`, unused in the light one).
+* Numbers (`limits.rs`, each with its reason): 8 views per client, 1..=8192 per side and 16 Mpixel, 3 slots per
+  view, 512 MiB of declared slot memory per client, `html` at most 8 MiB, `user_style` at most 64 KiB; events cut
+  text at 48 KiB and the host must offer a 128 KiB receive buffer. Refusals: `EINVAL` (size, config, base URL,
+  slot too small), `ENOSPC` (views), `EDQUOT` (slot memory), `E2BIG` (page), `EBUSY` (slot in use), `ENOENT`
+  (not your view, same as no view), `ENODEV` (the engine lost the view), `EACCES` (another login session).
+* Identity: the caller is `(uid, label)` from the kernel stamp (an unlabelled caller is told apart by task and
+  shares nothing); the `group` handed to the engine is a number the service allocates per client and never
+  reuses, so one client's views share a web process and two clients' never do.
+* Slots: a frame goes to the lowest free slot or is dropped; a dropped frame marks the view `dirty` and the
+  next `ReleaseSlot` (or `AttachSlot`) asks the engine for a whole frame (`webd_engine_refresh`), so the client
+  ends on the latest picture without the service holding frames. `Resize` detaches every slot; the client
+  attaches new ones. The engine's callbacks fill an `EventQueue` that keeps only the latest frame, state and
+  scroll per view; `Service::pump` runs on the service thread.
+* Engine loss: `ViewLost` keeps the table entry (quota held) until `DestroyView`; calls on it answer `ENODEV`.
+  A client that stops answering `Ping`s (`EPIPE`) loses its views.
+
+Slice 2 links the two into the `webd` program, adds the package, `LAZYOS_WEBD=1`, `run_demo.py --webd`, the GUI
+control, `tools/webd/run.py` and a demo client; slice 3 is the full interface.
+### P2 slice 1, engine half: done (2026-10-21)
+
+`webkit/port/webd/abi.cpp` implements every `webd_engine_*` of `webd_abi.h` over the engine, with the light-view
+behaviour in `webkit/port/app/light.cpp`; `webd-abi-test` (`port.py --only WebProcess NetworkProcess webd-abi-test
+--run-webd`) plays the service and passes its eight modes in the build container (`html script config lock network
+many lost cycle`), with `webkit-views` unchanged. Details and measurements: `webkit/README.md`, "webd's engine half".
+What it found:
+
+* **The network lock is a content rule list, not the navigation policy.** The policy sees navigations only; a light
+  view with scripts on and no rule list made 26 connections to a listener (images, style sheets, `@import`, scripts,
+  fetch, XHR, WebSocket, `import()`, ...); with it, none, scripts on or off. The list is compiled once at start into a
+  folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, else `/tmp/webd-rules-<pid>`), so webd's label needs one
+  writable folder, and the first view waits for the compile.
+* **`color_scheme` is not implementable here**: `prefers-color-scheme` is compiled out (`ENABLE_DARK_MODE_CSS` is off
+  and turning it on rebuilds WebCore). The engine says `CONFIG:IGNORED:color_scheme`; a caller that wants a dark page
+  passes `user_style`. `user_style` is appended to the document (the C API has no user style sheet);
+  `default_font_size` is applied (default and minimum).
+* **A page's navigation cancels its own scheduled one** (a refused click before a meta refresh fires loses the
+  refresh); a relative URL against `about:blank` is told as it is, not absolute; `<noscript>` is not rendered with
+  scripts off.
+* **The mouse `kind` of `webd_abi.h` (0 move, 1 press, 2 release) is not the engine's** (0 down, 1 up, 2 move, as
+  `xui_webkit::MouseKind` and `lazyos_ui.h`): `abi.cpp` translates; the Rust half must send the header's numbers.
+
 ### What P1 found (2026-10-21, `webkit-views`)
 
 * **One NetworkProcess, one WebProcess per view.** Two views with different stores, and two views of one profile
