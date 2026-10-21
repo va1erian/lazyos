@@ -20,6 +20,8 @@ on:
       - "libs/fhs/**"
       - "tools/ci/check_*image.sh"
       - "tools/mkdisk/**"
+      - "packaging/**"
+      - "tools/pkg/**"
       - ".github/workflows/image.yml"
   pull_request:
     paths:
@@ -29,6 +31,8 @@ on:
       - "libs/fhs/**"
       - "tools/ci/check_*image.sh"
       - "tools/mkdisk/**"
+      - "packaging/**"
+      - "tools/pkg/**"
       - ".github/workflows/image.yml"
   workflow_dispatch:
 
@@ -43,6 +47,8 @@ env:
   # Hermetic CI (docs/filesystem-plan.md F2): images are created fresh unless a
   # step deliberately unsets this to test the in-place update.
   LAZYOS_RESET_OS: "1"
+  # A file has one owning producer (build_support/os_owners.rs, update plan P0).
+  LAZYOS_OWNER_STRICT: "1"
 
 jobs:
   library-image:
@@ -123,6 +129,13 @@ jobs:
       - name: Check the fresh image
         run: bash tools/ci/check_os_image.sh target/lazyos.img fresh
 
+      # Every file the build placed belongs to one system package
+      # (packaging/packages.toml, docs/update-plan.md decisions 16-17).
+      - name: Every file has one owning package
+        run: |
+          python tools/pkg/test_owners.py
+          python tools/pkg/owners.py
+
       # No LAZYOS_RESET_OS here: the second build must update in place and
       # keep the volume's UUID.
       - name: Rebuild in place
@@ -133,3 +146,12 @@ jobs:
 
       - name: Check the updated image
         run: bash tools/ci/check_os_image.sh target/lazyos.img updated
+
+      # The services image places the daemons, drivers and accounts files; a
+      # file of one producer must not land on another's path, and every one
+      # must belong to a package. Desktop and optional-app images are checked
+      # locally (they need the xui and external builds).
+      - name: Services image has one owner per file
+        run: |
+          LAZYOS_RESET_OS=1 LAZYOS_SERVICES=1 LAZYOS_NETD=1 LAZYOS_USB=1 LAZYOS_SOUND=1 cargo build
+          python tools/pkg/owners.py

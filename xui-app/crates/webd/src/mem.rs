@@ -159,6 +159,10 @@ impl Mapping for MemMapping {
         self.len
     }
 
+    fn mapped_bytes(&self) -> u64 {
+        self.data.borrow().len() as u64
+    }
+
     fn write(&mut self, bytes: &[u8]) {
         let mut data = self.data.borrow_mut();
         data[self.offset..self.offset + bytes.len()].copy_from_slice(bytes);

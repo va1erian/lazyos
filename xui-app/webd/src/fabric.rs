@@ -46,17 +46,18 @@ impl Fabric for RealFabric {
     }
 
     fn map(&self, buffer: Buffer) -> Result<Box<dyn Mapping>, i64> {
-        let (base, len) = map_range(buffer)?;
+        let (base, len, size) = map_range(buffer)?;
         Ok(Box::new(SlotMapping {
             handle: buffer.handle,
             base,
             len,
+            size,
         }))
     }
 
     fn read(&self, buffer: Buffer) -> Result<Vec<u8>, i64> {
         let mapped = map_range(buffer);
-        let result = mapped.map(|(base, len)| {
+        let result = mapped.map(|(base, len, _)| {
             // SAFETY: `map_range` checked that `base..base + len` lies inside the mapping the
             // kernel reported, which stays mapped until the handle is closed below. The client
             // may write the bytes while they are read; a torn page of HTML is its own doing.
@@ -68,9 +69,9 @@ impl Fabric for RealFabric {
 }
 
 /// Map `buffer`'s handle and check its declared range against the size the kernel reports (the
-/// kernel never reads the range): the address of the range's first byte and its length. The handle
-/// is closed again when the range does not fit.
-fn map_range(buffer: Buffer) -> Result<(usize, usize), i64> {
+/// kernel never reads the range): the address of the range's first byte, its length and the size
+/// of the whole mapping the kernel reports. The handle is closed again when the range does not fit.
+fn map_range(buffer: Buffer) -> Result<(usize, usize, u64), i64> {
     let (address, size) = match sys::buffer_map(buffer.handle) {
         Ok(mapped) => mapped,
         Err(code) => {
@@ -86,7 +87,7 @@ fn map_range(buffer: Buffer) -> Result<(usize, usize), i64> {
     );
     match (fits, start, len) {
         (true, Some(start), Ok(len)) => match usize::try_from(start) {
-            Ok(start) => Ok((start, len)),
+            Ok(start) => Ok((start, len, size)),
             Err(_) => close_and_refuse(buffer.handle),
         },
         _ => close_and_refuse(buffer.handle),
@@ -103,11 +104,17 @@ struct SlotMapping {
     handle: u64,
     base: usize,
     len: usize,
+    /// What the kernel mapped: the whole buffer, which the client's quota is charged.
+    size: u64,
 }
 
 impl Mapping for SlotMapping {
     fn capacity(&self) -> usize {
         self.len
+    }
+
+    fn mapped_bytes(&self) -> u64 {
+        self.size
     }
 
     fn write(&mut self, bytes: &[u8]) {

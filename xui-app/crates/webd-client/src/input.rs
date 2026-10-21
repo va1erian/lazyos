@@ -1,6 +1,8 @@
 //! Input and visibility: oneway messages to the view. Nothing here waits for webd or can fail in a
 //! way the caller could act on (a view that is gone is reported by [`crate::LightWebView::poll`]
-//! and the next call that has an answer), so none returns a result.
+//! and the next call that has an answer), so none returns a result. A message webd's full inbox
+//! refuses is dropped, except the ones that must arrive: a button or key release and the
+//! visible and focus states are kept and sent again (`crate::outbox`).
 
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 
@@ -41,7 +43,7 @@ impl<T: Transport> LightWebView<T> {
         if let Some(view) = self.sendable() {
             if let Ok(body) = wire::encode_set_visible_args(&wire::SetVisibleArgs { view, visible })
             {
-                self.send(wire::METHOD_SETVISIBLE, body);
+                self.send_state(wire::METHOD_SETVISIBLE, body);
             }
         }
     }
@@ -60,7 +62,7 @@ impl<T: Transport> LightWebView<T> {
         self.focused = focused;
         if let Some(view) = self.sendable() {
             if let Ok(body) = wire::encode_focus_args(&wire::FocusArgs { view, focused }) {
-                self.send(wire::METHOD_FOCUS, body);
+                self.send_state(wire::METHOD_FOCUS, body);
             }
         }
     }
@@ -77,7 +79,11 @@ impl<T: Transport> LightWebView<T> {
                 mods,
             };
             if let Ok(body) = wire::encode_mouse_args(&args) {
-                self.send(wire::METHOD_MOUSE, body);
+                // A button up that is lost leaves the button down in the page.
+                match kind {
+                    MouseKind::Release => self.send_edge(wire::METHOD_MOUSE, body),
+                    _ => self.send(wire::METHOD_MOUSE, body),
+                }
             }
         }
     }
@@ -110,7 +116,12 @@ impl<T: Transport> LightWebView<T> {
                 mods,
             };
             if let Ok(body) = wire::encode_key_args(&args) {
-                self.send(wire::METHOD_KEY, body);
+                // A key up that is lost leaves the key down in the page.
+                if press {
+                    self.send(wire::METHOD_KEY, body);
+                } else {
+                    self.send_edge(wire::METHOD_KEY, body);
+                }
             }
         }
     }

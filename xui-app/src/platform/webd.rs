@@ -16,7 +16,9 @@
 
 use libmessenger::{Object, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
-use xui_webd_client::transport::{RawEvent, SharedMem, Transport, SERVICE_NAME};
+use xui_webd_client::transport::{
+    close_unqueued, RawEvent, SharedMem, Transport, EVENT_BYTES, SERVICE_NAME,
+};
 
 use crate::platform::messenger::Service;
 use crate::server::ERROR_FIELD;
@@ -25,11 +27,6 @@ use crate::sys::{self, errno};
 /// Ticks (100 Hz) one call to `webd` may take: it answers from its service thread, and a UI
 /// thread must not wait long for it.
 const CALL_TICKS: u64 = 200;
-/// Receive buffer for one event. `webd` cuts texts at 48 KiB so that an event fits 64 KiB.
-const EVENT_BYTES: usize = 64 << 10;
-
-/// `E2BIG`: the reply or message does not fit the buffer offered.
-const E2BIG: i64 = 7;
 /// What `recv` hands up for a message that is not one of the interface's events (method 0 is none).
 const NOT_AN_EVENT: RawEvent = (0, Vec::new());
 
@@ -93,18 +90,18 @@ impl WebdTransport {
     }
 }
 
-/// Close the objects of a request that never left: the channel the client meant to move, the buffer
-/// it meant to share.
-fn close_unsent(objects: Vec<Object>) {
-    for object in objects {
-        match object {
-            Object::Channel(handle) => {
-                let _ = sys::msg_close(handle);
-            }
-            // The caller's `Pages` closes its own buffer when it drops.
-            Object::Buffer(_) => {}
-        }
-    }
+/// Close the channels of a request that never left (the service is not there, or the kernel
+/// refused it before queuing it): the kernel moves a request's channels only once it is queued, so
+/// a handle this task still has is the client's to close, and one it has not was moved. A buffer
+/// is the caller's `Pages`, which closes it when it drops.
+fn close_unsent(objects: &[Object]) {
+    close_unqueued(
+        objects,
+        |handle| sys::msg_queued(handle).is_ok(),
+        |handle| {
+            let _ = sys::msg_close(handle);
+        },
+    );
 }
 
 impl Transport for WebdTransport {
@@ -112,9 +109,10 @@ impl Transport for WebdTransport {
 
     fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>, i64> {
         let Some(service) = Self::service() else {
-            close_unsent(objects);
+            close_unsent(&objects);
             return Err(-errno::ENOENT);
         };
+        let carried = objects.clone();
         service
             .call_moving_within(
                 wire::INTERFACE_ID,
@@ -125,6 +123,7 @@ impl Transport for WebdTransport {
                 CALL_TICKS,
             )
             .map(|reply| reply.body)
+            .inspect_err(|_| close_unsent(&carried))
     }
 
     fn send(&mut self, method: u32, body: Vec<u8>) -> Result<(), i64> {
@@ -144,8 +143,10 @@ impl Transport for WebdTransport {
         }
         let result = match sys::msg_recv(channel, &mut self.buf, sys::EXPIRED_DEADLINE) {
             Ok(result) => result,
-            // A message larger than the buffer is dropped by the kernel; it is not the end of the view.
-            Err(code) if code == -E2BIG => return Ok(Some(NOT_AN_EVENT)),
+            // A message larger than the buffer is dropped by the kernel (`EMSGSIZE`, which a receive
+            // reports, where a reply that does not fit is `E2BIG`); it is not the end of the view.
+            // `EVENT_BYTES` holds the largest event webd sends, so this is a service gone wrong.
+            Err(code) if code == -errno::EMSGSIZE => return Ok(Some(NOT_AN_EVENT)),
             Err(code) => return Err(code),
         };
         let parcel = self
@@ -163,11 +164,14 @@ impl Transport for WebdTransport {
 
     fn alloc(&mut self, bytes: usize) -> Result<Pages, i64> {
         let (handle, va, size) = sys::buffer_create(bytes as u64)?;
-        Ok(Pages {
-            handle,
-            va,
-            len: (size as usize).max(bytes),
-        })
+        // `len` is what the kernel mapped: claiming more would let `write` and `read` run past it.
+        match usize::try_from(size) {
+            Ok(len) if len >= bytes => Ok(Pages { handle, va, len }),
+            _ => {
+                let _ = sys::buffer_close(handle);
+                Err(-errno::ENOMEM)
+            }
+        }
     }
 
     fn close_channel(&mut self, handle: u64) {

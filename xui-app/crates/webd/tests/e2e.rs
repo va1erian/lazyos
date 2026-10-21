@@ -362,11 +362,13 @@ fn a_full_client_queue_loses_the_frame_but_not_the_slot_and_the_picture_is_asked
     rig.paint(view, 2, 2, 7);
     rig.service.pump(0);
     assert!(rig.events(events).is_empty());
-    // The slot is still free, and the picture is asked for again.
-    assert_eq!(rig.engine.take(), vec![Call::Refresh(view)]);
+    // The slot is still free; the picture is asked for again once the back-off is over.
+    assert!(rig.engine.take().is_empty(), "not at the paint rate");
     rig.fabric.set_full(events, false);
+    rig.service.pump(300);
+    assert_eq!(rig.engine.take(), vec![Call::Refresh(view)]);
     rig.paint(view, 2, 2, 8);
-    rig.service.pump(1);
+    rig.service.pump(301);
     assert_eq!(
         rig.events(events),
         vec![Ev::Frame(wire::FrameArgs {

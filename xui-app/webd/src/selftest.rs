@@ -5,6 +5,8 @@
 //! resolves `app.os.lazy.webd.light` in its own handle table, moves an event channel in with
 //! `CreateView`, shares pixel buffers with `AttachSlot` and `LoadHtml`, reads the events and the pixels,
 //! then ends the web process under the view with `SIGKILL` and expects `ViewLost`, and makes a new view.
+//! The only process it ever kills is the one that serves its own view, and only when it can tell which
+//! that is ([`own_web_process`]); the views it made are destroyed on every way out ([`Client`]'s `Drop`).
 //! Each step is a `WEBD:SELFTEST:*` line; the last is `WEBD:SELFTEST:PASS` or `WEBD:SELFTEST:FAIL:<why>`.
 //!
 //! It proves the Messenger binding, the kernel's shared buffers and the engine end to end in an
@@ -12,7 +14,7 @@
 //! does that: `webd-abi-test network`, `tools/webd/run.py`) and it runs as webd's own label, so it does
 //! not prove the manifest grants a *client* what it needs: `webddemo` does.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Instant;
 
 use libmessenger::{flags, Buffer, Header, Parcel, VERSION};
@@ -33,6 +35,9 @@ pub const HOLD_ARG: &str = "/selftest/hold";
 const HOLD_SECS: u64 = 40;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// The web process an earlier run of the test proved was its own (0: none yet): the engine's "newest
+/// web process" is the same number before and after a view that reused it, which says nothing then.
+static OWN_WEB: AtomicI32 = AtomicI32::new(0);
 
 const WIDTH: u32 = 160;
 const HEIGHT: u32 = 90;
@@ -78,8 +83,10 @@ struct Client {
     service: Service,
     /// A second handle on the service, for the oneway messages `Service` has no call for.
     endpoint: u64,
-    /// The end of the event channel this thread keeps.
-    events: u64,
+    /// The end of the event channel this thread keeps, while it has one.
+    events: Option<u64>,
+    /// The view this thread has made and not destroyed.
+    live: Option<u64>,
     /// The pixel buffers this thread attached: handle and the address it mapped.
     slots: Vec<(u64, u64)>,
 }
@@ -114,7 +121,8 @@ impl Client {
         Ok(Client {
             service,
             endpoint,
-            events: 0,
+            events: None,
+            live: None,
             slots: Vec::new(),
         })
     }
@@ -137,7 +145,7 @@ impl Client {
     /// `CreateView`, with two slots attached.
     fn create_view(&mut self) -> Result<u64, String> {
         let (sent, kept) = sys::msg_create_pair().map_err(|code| format!("pair: err={}", -code))?;
-        self.events = kept;
+        self.events = Some(kept);
         let args = wire::encode_create_view_args(&wire::CreateViewArgs {
             config: wire::LightConfig::default(),
             width: WIDTH,
@@ -151,6 +159,8 @@ impl Client {
         let view = wire::decode_create_view_reply(&reply.body)
             .map_err(|_| "CreateView reply".to_string())?
             .view;
+        // From here on the view is this thread's to end, whatever fails next.
+        self.live = Some(view);
         self.slots.clear();
         for slot in 0..2u32 {
             let bytes = u64::from(WIDTH) * u64::from(HEIGHT) * 4;
@@ -195,7 +205,17 @@ impl Client {
         if let Ok(body) = wire::encode_destroy_view_args(&wire::DestroyViewArgs { view }) {
             let _ = self.call(wire::METHOD_DESTROYVIEW, (body, Vec::new()));
         }
-        let _ = sys::msg_close(self.events);
+        if self.live == Some(view) {
+            self.live = None;
+        }
+        self.close_local();
+    }
+
+    /// Close this thread's side of the view: the events and the pixel buffers.
+    fn close_local(&mut self) {
+        if let Some(events) = self.events.take() {
+            let _ = sys::msg_close(events);
+        }
         for (handle, _) in self.slots.drain(..) {
             let _ = sys::buffer_close(handle);
         }
@@ -205,7 +225,7 @@ impl Client {
     fn next_event(&self) -> Option<Event> {
         let mut buf = vec![0u8; 4096];
         let deadline = sys::clock_ticks() + WAIT_TICKS;
-        let result = sys::msg_recv(self.events, &mut buf, deadline).ok()?;
+        let result = sys::msg_recv(self.events?, &mut buf, deadline).ok()?;
         let parcel = Parcel::decode(buf.get(..result.bytes as usize)?).ok()?;
         Some(match parcel.header.method {
             wire::METHOD_FRAME => {
@@ -268,6 +288,18 @@ impl Client {
     }
 }
 
+impl Drop for Client {
+    /// Every way out of the test ends the view it made (a failed step must not leave one behind in
+    /// webd, holding a web process and its share of the quota), and gives the resolved endpoint back.
+    fn drop(&mut self) {
+        match self.live.take() {
+            Some(view) => self.destroy(view),
+            None => self.close_local(),
+        }
+        let _ = sys::msg_release(self.endpoint);
+    }
+}
+
 impl Client {
     /// How long `Refresh` takes to come back as a frame (the hop out, the engine's paint and the hop
     /// back), `count` times: milliseconds, sorted.
@@ -297,12 +329,51 @@ impl Client {
     }
 }
 
+/// The newest web process the engine knows of.
+fn newest_web() -> i32 {
+    FfiEngine.children().0
+}
+
+/// The id of the web process that serves this test's view, or why that cannot be told.
+///
+/// The engine reports only the *newest* web process of any client (`webd_engine_children`), and a
+/// `SIGKILL` of another client's page is not a test of anything. The test's view is the only one in
+/// the group of webd's own label, so it has a process of its own, and that process is the newest one
+/// right after it was announced. `before` is the newest before the view was made, `first` and `second`
+/// the newest at two moments after its first frame, `known` the process an earlier run proved to be its
+/// own. The answer is `first` when it is a process the view brought (it is not `before`, or it is
+/// `known`) and the two samples agree; otherwise there is no answer, and nothing is killed.
+fn own_web_process(before: i32, first: i32, second: i32, known: i32) -> Result<i32, String> {
+    if first <= 0 {
+        return Err("no web process id".into());
+    }
+    if first != second {
+        return Err(format!(
+            "the newest web process changed from {first} to {second} (another client is starting a page): cannot tell which one is ours"
+        ));
+    }
+    if first == before && first != known {
+        return Err(format!(
+            "the newest web process, {first}, is the one that was there before the view: cannot tell it from another client's"
+        ));
+    }
+    Ok(first)
+}
+
+/// The test's own web process after its view painted: two looks, a moment apart.
+fn find_own_web(before: i32) -> Result<i32, String> {
+    let first = newest_web();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    own_web_process(before, first, newest_web(), OWN_WEB.load(Ordering::Acquire))
+}
+
 fn step(text: &str) {
     trace::line!(Channel::Webd, "SELFTEST:STEP {text}");
 }
 
 fn run(hold: bool) -> Result<String, String> {
     let mut client = Client::new()?;
+    let before = newest_web();
     // 1. A light view paints the colour of the page it was given.
     let view = client.create_view()?;
     step("created");
@@ -333,11 +404,11 @@ fn run(hold: bool) -> Result<String, String> {
         times[times.len() - 1]
     ));
     // 3. The web process dies: the client is told, the view answers ENODEV, a new one works.
-    let (web, _network) = FfiEngine.children();
-    if web <= 0 {
-        return Err("no web process id".into());
-    }
-    // SAFETY: a plain `kill` of the web process this service started.
+    let web = find_own_web(before)?;
+    OWN_WEB.store(web, Ordering::Release);
+    step(&format!("web process {web} serves this view"));
+    // SAFETY: a plain `kill` of the web process that `find_own_web` told apart as the one serving
+    // this test's own view, a child of this service.
     unsafe { libc::kill(web, libc::SIGKILL) };
     loop {
         match client.next_event() {
@@ -363,10 +434,44 @@ fn run(hold: bool) -> Result<String, String> {
         .map_err(|code| format!("LoadHtml: err={}", -code))?;
     client.wait_color(view, GREEN)?;
     step("recovered");
+    // The process of the new view is this test's own too: remember it for the next run.
+    OWN_WEB.store(find_own_web(web).unwrap_or(0), Ordering::Release);
     if hold {
         trace::line!(Channel::Webd, "SELFTEST:HOLD seconds={HOLD_SECS}");
         std::thread::sleep(std::time::Duration::from_secs(HOLD_SECS));
     }
     client.destroy(view);
     Ok("frame colours right, ViewLost on a killed web process, recovered".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_process_that_stays_the_newest_is_ours() {
+        assert_eq!(own_web_process(0, 41, 41, 0), Ok(41));
+        assert_eq!(own_web_process(40, 41, 41, 0), Ok(41));
+    }
+
+    #[test]
+    fn a_process_that_was_already_the_newest_is_ours_only_if_an_earlier_run_proved_it() {
+        assert!(own_web_process(41, 41, 41, 0).is_err());
+        assert!(own_web_process(41, 41, 41, 40).is_err());
+        assert_eq!(own_web_process(41, 41, 41, 41), Ok(41));
+    }
+
+    #[test]
+    fn nothing_is_killed_when_the_newest_changes_or_is_none() {
+        assert!(own_web_process(0, 0, 0, 0).is_err());
+        assert!(own_web_process(0, -1, -1, 0).is_err());
+        assert!(
+            own_web_process(0, 41, 42, 0).is_err(),
+            "another client started a page"
+        );
+        assert!(
+            own_web_process(40, 41, 0, 0).is_err(),
+            "it ended while we looked"
+        );
+    }
 }

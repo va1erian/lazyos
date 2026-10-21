@@ -22,6 +22,10 @@ pub mod errno {
 pub trait Mapping {
     /// Bytes available (the declared range of the buffer, checked against what is really mapped).
     fn capacity(&self) -> usize;
+    /// Bytes the kernel mapped for the buffer: all of it, not just the declared range. This is
+    /// what the client's slot quota is charged, because it is what webd holds the client's memory
+    /// for, whatever the client declared.
+    fn mapped_bytes(&self) -> u64;
     /// Copy `bytes` to the start of the range. The service checks `bytes.len() <= capacity()` first.
     fn write(&mut self, bytes: &[u8]);
 }
@@ -38,7 +42,7 @@ pub trait Fabric {
     fn close_buffer(&self, handle: u64);
     /// Map the range `offset..offset + len` of `buffer` for writing, taking over the handle: it is
     /// closed when the mapping drops, and at once on failure. `-EINVAL` when the range does not fit
-    /// the buffer's real size.
+    /// the buffer's real size. The mapping reports that size ([`Mapping::mapped_bytes`]).
     fn map(&self, buffer: libmessenger::Buffer) -> Result<Box<dyn Mapping>, i64>;
     /// Copy the range out of `buffer` and close the handle (also on failure).
     fn read(&self, buffer: libmessenger::Buffer) -> Result<Vec<u8>, i64>;

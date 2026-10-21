@@ -29,8 +29,10 @@ const SYSTEM_NAME: &str = "os.lazy.webd";
 
 /// Point the engine at a folder for its network-lock rule store (`LAZYOS_WEBD_RULES_DIR`,
 /// `webkit/port/app/light.cpp`): the one thing a light view makes it write. Inside the app's own
-/// data folder, which the manifest lets the app write; without `$HOME` the engine falls back to a
-/// folder in `/tmp`. Before the engine starts, while the process has one thread.
+/// data folder, which the manifest lets the app write. The folder is required and there is no
+/// fallback (not a shared one like `/tmp`): without `$HOME`, or when the folder cannot be made, the
+/// variable stays unset and the engine refuses to prepare the network lock, so no light view is
+/// served. Before the engine starts, while the process has one thread.
 fn choose_rules_folder() {
     let Some(home) = std::env::var("HOME")
         .ok()

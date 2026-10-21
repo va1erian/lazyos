@@ -17,7 +17,16 @@ const MALFORMED: Refusal = Refusal::new(errno::EINVAL, "malformed request");
 const NO_VIEW: Refusal = Refusal::new(errno::ENOENT, "no such view");
 const LOST: Refusal = Refusal::new(errno::ENODEV, "the view was lost");
 
+const TOO_MUCH: Refusal = Refusal::new(errno::EDQUOT, "too much slot memory");
+
 type Reply = Result<Vec<u8>, Refusal>;
+
+/// Whether `held` bytes of slot memory plus `charge` more pass the client's quota (a sum that does
+/// not fit in a `u64` does).
+fn over_quota(held: u64, charge: u64) -> bool {
+    held.checked_add(charge)
+        .is_none_or(|total| total > SLOT_BYTES_PER_CLIENT)
+}
 
 /// The caller's view that is still alive: `ENOENT` for one that is not the caller's, `ENODEV`
 /// for one the engine gave up.
@@ -93,9 +102,11 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if view.slots.is_busy(slot) {
             return Err(Refusal::new(errno::EBUSY, "slot is busy"));
         }
-        let replaced = view.slots.bytes_of(slot);
-        if used - replaced + buffer.len > SLOT_BYTES_PER_CLIENT {
-            return Err(Refusal::new(errno::EDQUOT, "too much slot memory"));
+        // What the client holds besides the slot this one replaces. A declared range never exceeds
+        // its buffer, so a client over its quota on that alone is refused before anything is mapped.
+        let held = used.saturating_sub(view.slots.bytes_of(slot));
+        if over_quota(held, buffer.len) {
+            return Err(TOO_MUCH);
         }
         // `map` takes the handle over, also when it fails.
         claim(pending, Object::Buffer(buffer.handle));
@@ -106,8 +117,14 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if (mapping.capacity() as u64) < needed {
             return Err(Refusal::new(errno::EINVAL, "slot is smaller than the view"));
         }
+        // The whole buffer is mapped whatever range the client declared, so that is the charge;
+        // refused here, the mapping drops and the handle is closed.
+        let charge = mapping.mapped_bytes();
+        if over_quota(held, charge) {
+            return Err(TOO_MUCH);
+        }
         // Not busy and in range: the attach cannot fail.
-        let _ = view.slots.attach(slot, mapping, buffer.len);
+        let _ = view.slots.attach(slot, mapping, charge);
         let wanted = view.should_refresh();
         if wanted {
             self.engine.refresh(args.view);

@@ -87,6 +87,8 @@ mod limits_tests;
 #[cfg(test)]
 mod netboot_tests;
 #[cfg(test)]
+mod owners_tests;
+#[cfg(test)]
 mod pictures_tests;
 #[cfg(test)]
 mod recover_tests;

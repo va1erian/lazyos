@@ -42,6 +42,8 @@ pub struct World {
     pub sent: Vec<(u32, Vec<u8>)>,
     /// How many channel handles the client closed.
     pub channels_closed: usize,
+    /// The next this-many oneway sends fail with `-EAGAIN` (webd's inbox is full) and are lost.
+    pub eagain: usize,
 }
 
 pub type SharedWorld = Rc<RefCell<World>>;
@@ -62,6 +64,7 @@ pub fn world() -> SharedWorld {
         clock: 0,
         sent: Vec::new(),
         channels_closed: 0,
+        eagain: 0,
     }))
 }
 
@@ -184,6 +187,10 @@ impl Transport for TestTransport {
         let mut world = self.world.borrow_mut();
         if world.down {
             return Err(-32);
+        }
+        if world.eagain > 0 {
+            world.eagain -= 1;
+            return Err(-11);
         }
         world.sent.push((method, body.clone()));
         world

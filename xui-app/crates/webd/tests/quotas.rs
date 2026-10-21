@@ -300,6 +300,67 @@ fn a_client_may_hold_512_mib_of_slots_and_not_a_byte_more() {
 }
 
 #[test]
+fn a_buffer_is_charged_in_full_whatever_range_the_client_declares_of_it() {
+    let mut rig = rig();
+    let app = origin(7);
+    let slot_bytes = 4096u64 * 4096 * 4;
+    // Each buffer is 64 MiB and declares 64 bytes (a 4x4 view): the old charge was 64 bytes, so
+    // all 24 slots fitted; the kernel maps all 64 MiB of each one, so the ninth does not.
+    let (_, region) = rig.fabric.new_buffer(slot_bytes as usize);
+    let views: Vec<u64> = (0..limits::VIEWS_PER_CLIENT)
+        .map(|_| rig.create_plain(app, 4, 4).0)
+        .collect();
+    let mut attached = 0u64;
+    let mut refused = None;
+    'all: for slot in 0..limits::SLOTS_PER_VIEW as u32 {
+        for view in &views {
+            let handle = rig.fabric.new_buffer_shared(region.clone());
+            match rig.attach_handle(app, *view, slot, handle, 64) {
+                Ok(_) => attached += 1,
+                Err(code) => {
+                    refused = Some(code);
+                    break 'all;
+                }
+            }
+        }
+    }
+    assert_eq!(attached * slot_bytes, limits::SLOT_BYTES_PER_CLIENT);
+    assert_eq!(refused, Some(EDQUOT));
+    // The refused buffer was closed, not kept; destroying everything closes the rest (what stays
+    // open is the test's own handle on the region).
+    for view in views {
+        rig.destroy(app, view).unwrap();
+    }
+    assert_eq!(rig.fabric.open_handles(), 1);
+    assert_eq!(rig.fabric.double_closes(), 0);
+}
+
+#[test]
+fn a_declared_length_near_u64_max_is_refused_without_wrapping_the_quota_sum() {
+    let mut rig = rig();
+    let app = origin(7);
+    let (view, _) = rig.create_plain(app, 4, 4);
+    // Something is already charged, so `used + len` would wrap in the old arithmetic.
+    rig.attach(app, view, 0, 4, 4);
+    let base = rig.fabric.open_handles();
+    for len in [u64::MAX, u64::MAX - 1, u64::MAX - 64, 1 << 63] {
+        let (handle, _) = rig.fabric.new_buffer(64);
+        assert!(
+            rig.attach_handle(app, view, 1, handle, len).is_err(),
+            "{len}"
+        );
+    }
+    assert_eq!(
+        rig.fabric.open_handles(),
+        base,
+        "every refused buffer was closed"
+    );
+    assert_eq!(rig.fabric.double_closes(), 0);
+    // The client's honest slot is untouched and the next honest attach works.
+    assert!(rig.attach_bytes(app, view, 1, 64).0.is_ok());
+}
+
+#[test]
 fn unknown_methods_wrong_interfaces_and_other_sessions_are_refused() {
     use libmessenger::Object;
     let mut rig = rig();

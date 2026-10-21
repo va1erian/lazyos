@@ -4,7 +4,10 @@
 //! A send that fails with `EPIPE` means the client is gone (its endpoint closed with it): the view
 //! is destroyed in the engine and forgotten here. `EAGAIN` means the client is slow and the event is
 //! lost; for a frame that means the slot goes back to free and the picture is asked for again later,
-//! for anything else the next state or scroll event carries the news.
+//! for anything else the next state or scroll event carries the news. A full queue also puts the
+//! view in back-off: no picture is asked for or copied for it for `FULL_BACKOFF_MS`, or until a send
+//! to it gets through, so a client that stopped reading costs one frame in four per second, not
+//! one per paint. The one event that must not be lost, `ViewLost`, is sent again until it arrives.
 
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 
@@ -13,7 +16,7 @@ use crate::config::clip;
 use crate::engine::{self, Engine};
 use crate::events::{Drained, FrameNow, Once, StateNow};
 use crate::fabric::{errno, Fabric};
-use crate::limits::{EVENT_TEXT_BYTES, PING_INTERVAL_MS};
+use crate::limits::{EVENT_TEXT_BYTES, FULL_BACKOFF_MS, PING_INTERVAL_MS};
 
 /// How an event send ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +33,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// turn, then ping the clients if one is due (`now_ms` is any monotonic clock), and ask for
     /// pictures that a full client queue lost.
     pub fn pump(&mut self, now_ms: u64) {
+        self.now_ms = now_ms;
         let drained = self.queue.drain();
         self.deliver(drained);
         // The first turn only starts the clock: a view made a moment ago needs no probe yet.
@@ -42,6 +46,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         } else {
             self.next_ping_ms = Some(due);
         }
+        self.retry_lost();
         self.retry_refreshes();
     }
 
@@ -132,6 +137,16 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if view.lost.is_some() {
             return;
         }
+        if view.backing_off(self.now_ms) {
+            // The client's queue was full a moment ago: the copy would be lost again. The picture is
+            // owed, and asked for once the wait is over.
+            view.want_frame();
+            self.note(Note::FrameDropped {
+                view: id,
+                why: "client backing off",
+            });
+            return;
+        }
         let size_ok = u32::try_from(frame.width).is_ok_and(|w| w == view.width)
             && u32::try_from(frame.height).is_ok_and(|h| h == view.height)
             && frame.rgba.len() as u64 == crate::config::frame_bytes(view.width, view.height);
@@ -202,11 +217,35 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             return;
         }
         view.lost = Some(reason);
+        view.lost_unsent = true;
         view.slots.detach_all();
-        let channel = view.channel;
         self.note(Note::ViewLost { view: id, reason });
-        if let Ok(body) = wire::encode_view_lost_args(&wire::ViewLostArgs { view: id, reason }) {
-            self.send(id, channel, wire::METHOD_VIEWLOST, body);
+        self.tell_lost(id);
+    }
+
+    /// Send the `ViewLost` of a lost view the client has not been told about. A full queue leaves
+    /// it owed: without it the client would wait forever for a picture of a view that is gone.
+    fn tell_lost(&mut self, id: u64) {
+        let Some(view) = self.views.any_mut(id) else {
+            return;
+        };
+        let (Some(reason), true, channel) = (view.lost, view.lost_unsent, view.channel) else {
+            return;
+        };
+        let Ok(body) = wire::encode_view_lost_args(&wire::ViewLostArgs { view: id, reason }) else {
+            return;
+        };
+        if self.send(id, channel, wire::METHOD_VIEWLOST, body) == Sent::Yes {
+            if let Some(view) = self.views.any_mut(id) {
+                view.lost_unsent = false;
+            }
+        }
+    }
+
+    /// Tell the clients of the lost views that were not told yet, at every turn.
+    fn retry_lost(&mut self) {
+        for id in self.views.ids() {
+            self.tell_lost(id);
         }
     }
 
@@ -222,21 +261,35 @@ impl<E: Engine, F: Fabric> Service<E, F> {
 
     /// Views whose last frame was lost to a full queue, or that were waiting for a slot.
     fn retry_refreshes(&mut self) {
+        let now = self.now_ms;
         for id in self.views.ids() {
             if self
                 .views
                 .any_mut(id)
-                .is_some_and(|view| view.should_refresh())
+                .is_some_and(|view| !view.backing_off(now) && view.should_refresh())
             {
                 self.engine.refresh(id);
             }
         }
     }
 
+    /// Send an event; the result also keeps the view's back-off: a full queue starts it (no
+    /// picture is asked for or copied for [`FULL_BACKOFF_MS`]) and a send that gets through ends it.
     fn send(&mut self, id: u64, channel: u64, method: u32, body: Vec<u8>) -> Sent {
         match self.fabric.send(channel, method, body) {
-            Ok(()) => Sent::Yes,
-            Err(code) if -code == errno::EAGAIN => Sent::Full,
+            Ok(()) => {
+                if let Some(view) = self.views.any_mut(id) {
+                    view.backoff_until = None;
+                }
+                Sent::Yes
+            }
+            Err(code) if -code == errno::EAGAIN => {
+                let until = self.now_ms.saturating_add(FULL_BACKOFF_MS);
+                if let Some(view) = self.views.any_mut(id) {
+                    view.backoff_until = Some(until);
+                }
+                Sent::Full
+            }
             Err(_) => {
                 self.drop_view(id, "client gone");
                 Sent::Gone
