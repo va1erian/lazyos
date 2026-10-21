@@ -137,7 +137,10 @@ fn write_includes_read_and_stat() {
 
 #[test]
 fn home_rules_follow_any_user_home_and_only_homes() {
-    let rules = ["write:$HOME/.apps/os.lazy.lazywebplus/*", "read:$HOME/Pictures"];
+    let rules = [
+        "write:$HOME/.apps/os.lazy.lazywebplus/*",
+        "read:$HOME/Pictures",
+    ];
     for user in ["user", "admin", "x"] {
         let own = format!("/home/{user}/.apps/os.lazy.lazywebplus/cookie.jar.db");
         assert!(ok(&rules, &own, Access::Write), "{own}");
@@ -154,7 +157,11 @@ fn home_rules_follow_any_user_home_and_only_homes() {
         assert!(!ok(&rules, &other_app, Access::Read), "{other_app}");
     }
     // `$HOME` is a home, not a place anywhere.
-    assert!(!ok(&rules, "/tmp/.apps/os.lazy.lazywebplus/x", Access::Read));
+    assert!(!ok(
+        &rules,
+        "/tmp/.apps/os.lazy.lazywebplus/x",
+        Access::Read
+    ));
     assert!(!ok(
         &rules,
         "/srv/user/.apps/os.lazy.lazywebplus/x",
