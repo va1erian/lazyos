@@ -26,9 +26,8 @@ JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 
-The Docs app (``xui-docs.elf``) renders with Blitz (``xui-blitz``), which is
-pure Rust, so it builds in the same invocation as the other apps with no zig
-(issue #649).
+The Docs app (``xui-docs.elf``) is pure Rust (its pages are drawn by a light view
+of webd), so it builds in the same invocation as the other apps with no zig.
 Mail (``xui-mail.elf``, esMail's IMAP/SMTP core, which links SQLite's C) is
 built last, in its own cargo invocation and target directory, with the zig
 toolchain (``tools/xui/zig.py``), only with ``--mail`` or ``LAZYOS_MAIL=1``;
@@ -124,7 +123,7 @@ BINS = {
     "xui-netstatus": "xui-netstatus.elf",
     # Network Drives: Mount FTP servers as folders under /mnt.
     "xui-netdrives": "xui-netdrives.elf",
-    # Docs (Markdown) on Blitz: a member of the same workspace, built in the
+    # Docs (Markdown, drawn by webd): a member of the same workspace, built in the
     # same invocation.
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",
     # LazyGolf: Fly over a procedurally generated golf course.

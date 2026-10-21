@@ -17,7 +17,7 @@ Status: plan only. Nothing under `book/` exists yet.
 
 1. **True to the code on `main`.** The source of truth is the code, not the
    plan documents. The plans in `docs/` drift: `platform-plan.md` §11 still
-   says LazyWeb runs on NetSurf, but #655 moved it to Blitz. Every chapter is
+   says LazyWeb runs on NetSurf, but #655 moved it to Blitz (both since removed: LazyWeb+ on WebKit is the browser, docs/webd-plan.md P3). Every chapter is
    written from the source and checked against it (§5).
 2. **Pleasant to read.** Each chapter is a story about one problem, not a
    tour of a directory listing. Short code excerpts, a diagram where the
@@ -241,7 +241,7 @@ this chapter is about the seam. The `LazyOSBackend`
 (`xui-app/src/backend/`): event loop, painter on tiny-skia, focus, pointer,
 z-order, drag gestures. Apps as static-musl ELFs in their own workspace.
 Writing one: `tools/xui/new_app.py` and the evidence markers (`UP`, `QUIT`).
-Blitz views (`xui-blitz`) and `webfonts` as the bridge to HTML/CSS content.
+Light views of `webd` (`xui_app::lightview`) as the bridge to HTML/CSS content (Blitz and `webfonts`, the earlier bridge, are gone).
 
 ### Part VI: The desktop
 
@@ -299,7 +299,7 @@ grant anything:
   player (`lazyrad-os/src/tracker`, `libs/modplay`, sound through `audiod`)
   as the showcase of what a form app can do, judged by its recording.
 
-**16. LazyWeb, a browser in userspace** (16 pp.)
+**16. LazyWeb, a browser in userspace** (16 pp.; LazyWeb was removed in webd's P3, so this chapter becomes LazyWeb+ on WebKit, or a history chapter)
 Blitz for layout and paint, the fetcher with its cookie jar, HTTPS on the
 in-tree stack (`nettls/`: rustls, a pure-Rust provider, the GPLv2
 constraint), sockets through `netd` and smoltcp, the virtio-net driver at

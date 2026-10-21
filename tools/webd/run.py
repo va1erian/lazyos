@@ -41,7 +41,7 @@ ROOT = HERE.parent.parent
 for sub in ("tools/abi", "tools"):
     sys.path.append(str(ROOT / sub))
 sys.path.insert(0, str(HERE))
-import judge as j  # noqa: E402  (this directory's: tools/web has one of the same name)
+import judge as j  # noqa: E402  (this directory's)
 import listener  # noqa: E402
 import session  # noqa: E402
 from lazygui import limits  # noqa: E402

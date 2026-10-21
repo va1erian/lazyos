@@ -66,8 +66,7 @@ ACCEPTABLE = {
     "Unicode-3.0", "Unicode-DFS-2016", "Unlicense", "CC0-1.0", "BSL-1.0",
     "GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later", "GPL-2.0+",
     "LGPL-2.1", "LGPL-2.1-only", "LGPL-2.1-or-later",
-    # MPL-2.0 section 3.3 lets it combine with GPL code as a Secondary License
-    # (Stylo, Blitz's style system).
+    # MPL-2.0 section 3.3 lets it combine with GPL code as a Secondary License.
     "MPL-2.0",
     # LLVM's exception exists precisely to make Apache-2.0 GPLv2-compatible.
     "Apache-2.0 WITH LLVM-exception",

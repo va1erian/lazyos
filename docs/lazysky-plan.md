@@ -809,7 +809,7 @@ same lines.)
   first draft said `e50e69d`), every crate must use the same one; local
   checkout under `~/.cargo/git/checkouts/xui-e7bf80847fe0275b/93592fd/`.
 * `xui_core::Image::decode` handles PNG and JPEG only; GIF/WebP come from the
-  `image` crate (already in `xui-app/Cargo.lock` via `xui-blitz`).
+  `image` crate (`lazysky-core` depends on it directly).
   `Canvas::draw_image` is bilinear and backends cache uploads by `Image::id`.
 * There is no standalone image widget; images are drawn from a custom
   `Control`, a `GridView` tile painter, or tree rows.

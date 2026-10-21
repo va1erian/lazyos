@@ -3,7 +3,7 @@
 `os.lazy.lazywebplus` ("LazyWeb+" in the menu) is the web browser of LazyOS: a window with menus, history and
 downloads on the WebKit engine of [`webkit-port-plan.md`](webkit-port-plan.md): JavaScript, forms, cookies,
 the modern web. It began as a second browser beside LazyWeb, a smaller one on the pure-Rust Blitz engine with
-no script engine. LazyWeb was removed and this is the only browser now.
+no script engine. LazyWeb and Blitz were removed (docs/webd-plan.md P3) and this is the only browser now.
 Issue #835.
 
 ```bash

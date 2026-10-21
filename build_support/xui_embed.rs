@@ -156,8 +156,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
-/// warning) when they were not. Docs is built with the other apps (Blitz, pure
-/// Rust), but a build that skipped it leaves a smaller desktop, not a broken
+/// warning) when they were not. Docs is built with the other apps (pure Rust,
+/// its pages drawn by webd), but a build that skipped it leaves a smaller desktop, not a broken
 /// one.
 const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 

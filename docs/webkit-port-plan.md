@@ -109,7 +109,7 @@ first thing a port has to satisfy (§4.1).
   the window, input and sound ([doom-port-plan.md](doom-port-plan.md)).
 * **HTTPS**: rustls over an in-tree pure-Rust provider, the Mozilla roots in
   the image ([tls-plan.md](tls-plan.md)); fonts: the Liberation family under
-  `/system/share`, registered by every Blitz app.
+  `/system/share`, registered by every Blitz app (Blitz is gone; WebKit reads them through Fontconfig).
 * **Memory and tasks sized by boot-time limits**
   ([architecture/limits.md](architecture/limits.md)).
 
