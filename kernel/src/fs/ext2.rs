@@ -25,16 +25,21 @@ use super::vfs::FsError;
 use crate::block::{BlockDevice, BlockError, SECTOR_SIZE};
 
 mod cache;
+mod deferred;
 mod fsimpl;
 mod volio;
 
 pub use cache::cache_frames;
+pub use deferred::{claim as claim_deferred, note_due as note_deferred_due};
+#[cfg(lazyos_tests)]
+pub use deferred::{may_write_here, schedule, writer_due, CLEAN as DEFERRED_CLEAN};
 
 /// A mounted ext2 volume. See `libs/ext2fs` for the supported surface.
 ///
 /// `gate` serialises every call into the library. The library's own lock is
 /// a plain spin lock, and a call may park inside it: waiting for a user-space
-/// block provider (a USB stick), or for virtio-blk (`block::iowait`). Both
+/// block provider (a USB stick), or for virtio-blk (`block::iowait`). A hold
+/// ends with [`Ext2::end_hold`] (a provider volume's deferred writeback). Both
 /// mount tables reach the same volume, so a second task must meet a lock that
 /// yields (`task::relax`) before it can reach the library's ([`volio`]).
 pub struct Ext2 {
@@ -45,27 +50,37 @@ pub struct Ext2 {
     /// The device as the library reaches it, and whether the gate's holder
     /// may sleep in it.
     io: Arc<volio::VolumeIo>,
+    /// On a provider disk: the kernel task never writes back, the volume's
+    /// users do ([`deferred`]).
+    deferred: Option<deferred::Deferred>,
 }
 
 impl Ext2 {
     /// Probe `device` for an ext2 superblock and mount it, reading and
     /// writing the device directly. Any malformed or unsupported image is
     /// refused with a friendly [`FsError`]; nothing here trusts the disk. The
-    /// tests that judge the device's bytes after every write use this, and so
-    /// does a volume on a user-space provider disk (`mounts::open_ext2`);
-    /// other mounts go through [`Ext2::open_cached`].
+    /// tests that judge the device's bytes after every write use this; mounts
+    /// go through [`Ext2::open_cached`] or [`Ext2::open_deferred`].
+    #[cfg_attr(not(lazyos_tests), allow(dead_code))]
     pub fn open(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
-        Ext2::mount(device, None)
+        Ext2::mount(device, None, false)
     }
 
     /// [`Ext2::open`] through the write-back block cache (`cache.rs`).
     pub fn open_cached(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
-        Ext2::mount(device, Some(cache::config()))
+        Ext2::mount(device, Some(cache::config()), false)
+    }
+
+    /// [`Ext2::open_cached`] for a disk the kernel task must never wait for
+    /// (a user-space provider's): its users write it back ([`deferred`]).
+    pub fn open_deferred(device: &'static dyn BlockDevice) -> Result<Ext2, FsError> {
+        Ext2::mount(device, Some(cache::config()), true)
     }
 
     fn mount(
         device: &'static dyn BlockDevice,
         config: Option<ext2fs::CacheConfig>,
+        defer: bool,
     ) -> Result<Ext2, FsError> {
         // Every block device in this tree speaks 512-byte sectors, which is
         // what the library's `BlockIo` assumes; another size is refused.
@@ -99,6 +114,7 @@ impl Ext2 {
             device: device.name(),
             gate: volio::Gate::named("ext2", ()),
             io: shared,
+            deferred: defer.then(|| deferred::Deferred::new(device.is_writable())),
         })
     }
 
@@ -154,6 +170,30 @@ impl Ext2 {
     pub fn flush(&self) -> Result<(), FsError> {
         let _gate = self.enter();
         Ok(self.volume.flush()?)
+    }
+
+    /// Flush the device's write cache, outside the gate (`fsync`'s last
+    /// step). A failure is reported like the library's own.
+    fn flush_device(&self) -> Result<(), FsError> {
+        BlockDevice::flush(self.io.device).map_err(|error| match io_error(error) {
+            ext2fs::IoError::ReadOnly => FsError::ReadOnly,
+            _ => FsError::Invalid,
+        })
+    }
+
+    /// `FS:FSYNC` for an `fsync` of 20 ms or more: how long the gate was
+    /// held (the writes) and how long the device flush took after it.
+    fn note_fsync(&self, start: u64, written: u64) {
+        let end = crate::arch::clock::monotonic_ns();
+        if end - start >= 20_000_000 {
+            crate::trace::event!(
+                tracefmt::Channel::Fs,
+                "FSYNC",
+                device = self.device,
+                write_us = (written - start) / 1000,
+                flush_us = (end - written) / 1000
+            );
+        }
     }
 
     /// Whether the volume was flagged clean when it was mounted.

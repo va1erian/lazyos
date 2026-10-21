@@ -398,6 +398,9 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
     // recorded in the signal frame is `rax` after `rt_sigreturn`, so an
     // interrupted syscall resumes as `-EINTR`, or is issued again when the
     // handler asked for `SA_RESTART` and the call is one Linux restarts.
+    // No mount table is held here: a provider volume's due commit (#940),
+    // before signals, so one that arrived meanwhile is acted on now.
+    crate::fs::flusher::deferred_service();
     extra::raise_sigpipe(nr, [a1, a2, a3, a4, a5, a6], result);
     let restart = restartable(nr).then_some(nr);
     let result = task::signal::deliver_linux_restartable(result, restart);

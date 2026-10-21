@@ -1,8 +1,10 @@
 //! Architecture-level invariants that only bite on real hardware: the
 //! `sysretq` return path's selector arithmetic, and locks an IRQ handler also
-//! takes.
+//! takes. `cpufreq`: the CPU clock report.
 
 use super::*;
+
+mod cpufreq;
 
 /// `sysretq` must land in ring 3 with exactly the GDT's user selectors, RPL 3
 /// included. AMD loads SS = STAR[63:48] + 8 without forcing RPL 3, so a base
@@ -197,4 +199,8 @@ pub(super) const CASES: &[(&str, Test)] = &[
         irq_shared_locks_disable_interrupts,
     ),
     ("arch_soak_irq_shared_locks", soak_irq_shared_locks),
+    ("arch_cpufreq_decoders", cpufreq::decoders),
+    ("arch_cpufreq_arithmetic_edges", cpufreq::arithmetic_edges),
+    ("arch_cpufreq_arithmetic_soak", cpufreq::arithmetic_soak),
+    ("arch_cpufreq_live_path", cpufreq::live_path),
 ];

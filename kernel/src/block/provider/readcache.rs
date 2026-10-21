@@ -1,14 +1,14 @@
 //! A write-through read cache for a provider disk (a USB stick served by
 //! `usbd`, docs/architecture/usb-storage.md).
 //!
-//! The ext2 volume on a stick is opened uncached on purpose
-//! (`fs/mounts.rs::open_ext2`): the write-back block cache flushes from the
-//! kernel task, which must never wait for `usbd`, and a stick can be pulled,
-//! so its writes go straight through in the writer's context. But *reads*
-//! need none of that, and uncached they cost a whole round trip to a polled
-//! user-space driver each: a directory open walks several blocks, and a shell
-//! that looked at its desktop folder once a second kept the stick busy for
-//! ever (0.27-0.33 s per `open`, measured on a real PC).
+//! The ext2 volume on a stick was first opened uncached (the write-back block
+//! cache flushed from the kernel task, which must never wait for `usbd`), and
+//! every read cost a whole round trip to a polled user-space driver: a
+//! directory open walks several blocks, and a shell that looked at its
+//! desktop folder once a second kept the stick busy for ever (0.27-0.33 s per
+//! `open`, measured on a real PC). The volume is now cached, with its users
+//! writing it back (`fs/ext2/deferred.rs`, issue #940); this cache still
+//! serves what reads the disk below it (the mount probe, a raw claim).
 //!
 //! So the disk keeps clean pages of what it read. Nothing else about the
 //! stick changes: every write still goes to the device before it returns, in

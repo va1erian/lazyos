@@ -28,6 +28,9 @@ pub struct Host {
     pub launcher: Rc<dyn Launcher>,
     /// The probe (a normal image has none: nothing is printed).
     pub probe: Probe,
+    /// The profile folder (`$HOME/.apps/<SYSTEM_NAME>`), where the File menu records whether the
+    /// page's data is kept in memory (`memory.rs`); `None` without a home.
+    pub profile: Option<std::path::PathBuf>,
 }
 
 impl Host {
@@ -47,6 +50,7 @@ impl Host {
             focused: Rc::new(|| None),
             launcher: Rc::new(NoLauncher),
             probe: Box::new(|_, _, _| {}),
+            profile: None,
         }
     }
 }

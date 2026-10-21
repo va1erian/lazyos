@@ -55,6 +55,7 @@ impl Filesystem for Ext2 {
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        self.refuse_dead()?;
         let gate = self.enter();
         let mut done = 0;
         for piece in data.chunks(WRITE_PIECE) {
@@ -101,6 +102,7 @@ impl Filesystem for Ext2 {
     }
 
     fn write_node(&self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        self.refuse_dead()?;
         let handle = handle_of(node)?;
         let gate = self.enter();
         let mut done = 0;
@@ -132,7 +134,17 @@ impl Filesystem for Ext2 {
             Err(error) => return Some(Err(error)),
         };
         // The periodic flusher runs on the kernel task: it skips a volume
-        // another task holds (`Ext2::writeback`) and writes next round.
+        // another task holds (`Ext2::writeback`) and writes next round. It
+        // skips a provider disk's volume too: a write past the cache's dirty
+        // limit, or a miss on a block it needs, would wait for the provider
+        // here. The page stays dirty; the user task that commits the volume
+        // writes it first (`fs::flusher::deferred_service`).
+        if !wait && self.defers_writeback() {
+            return None;
+        }
+        if let Err(error) = self.refuse_dead() {
+            return Some(Err(error));
+        }
         let gate = if wait {
             self.enter()
         } else {
@@ -174,17 +186,20 @@ impl Filesystem for Ext2 {
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.truncate(path, size)?)
     }
 
     fn truncate_node(&self, node: NodeId, size: u64) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let handle = handle_of(node)?;
         let _gate = self.enter();
         Ok(self.volume.truncate_handle(handle, size)?)
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         let change = AttrChange {
             mode: attr.mode,
@@ -198,16 +213,19 @@ impl Filesystem for Ext2 {
     }
 
     fn create(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(meta(self.volume.create(path, mode, owner_of(owner))?))
     }
 
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         // A parked orphan (a reserved name) is deleted inode-first so a stop
         // part-way can be resumed by the next mount's reclaim.
@@ -220,11 +238,13 @@ impl Filesystem for Ext2 {
     }
 
     fn rmdir(&self, path: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.rmdir(path)?)
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
+        self.refuse_dead()?;
         let _gate = self.enter();
         Ok(self.volume.rename(from, to)?)
     }
@@ -236,19 +256,42 @@ impl Filesystem for Ext2 {
 
     /// `fsync` of one file writes that file's blocks and what they depend on,
     /// not everything every other program left dirty (`ext2fs::Ext2::sync_file`).
+    ///
+    /// The device's cache flush comes after the gate is released: the
+    /// file's blocks are on the device by then, so the flush still makes
+    /// them durable before `fsync` returns, and on a USB stick it is most of
+    /// an `fsync`, which no other caller of the volume should wait for (a
+    /// path syscall waits for the gate holding its mount table, #940).
     fn flush_node(&self, node: NodeId) -> Result<(), FsError> {
         let handle = handle_of(node)?;
-        let _gate = self.enter();
-        match self.volume.sync_file(handle) {
-            // The file is gone (deleted while open and reclaimed): there is
-            // nothing of it to write, but the caller asked for durability.
-            Err(ext2fs::Ext2Error::NotFound) => Ok(self.volume.flush()?),
-            other => Ok(other?),
+        let start = crate::arch::clock::monotonic_ns();
+        {
+            let _gate = self.enter();
+            let owed = match self.volume.sync_file_written(handle) {
+                // The file is gone (deleted while open and reclaimed): there
+                // is nothing of it to write, but the caller asked for
+                // durability.
+                Err(ext2fs::Ext2Error::NotFound) => return Ok(self.volume.flush()?),
+                other => other?,
+            };
+            // A journaled or uncached volume committed and flushed as a
+            // whole; a read-only one has nothing to flush.
+            if !owed {
+                return Ok(());
+            }
         }
+        let written = crate::arch::clock::monotonic_ns();
+        let flushed = self.flush_device();
+        self.note_fsync(start, written);
+        flushed
     }
 
     fn writeback(&self, pressure: bool) -> Result<(), FsError> {
         Ext2::writeback(self, pressure)
+    }
+
+    fn writeback_deferred(&self) {
+        Ext2::writeback_deferred(self)
     }
 
     fn statfs(&self) -> Result<StatFs, FsError> {

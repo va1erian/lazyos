@@ -12,6 +12,8 @@ use crate::block::BlockDevice;
 use crate::mem;
 
 mod confd_cut;
+mod deferred;
+mod fsync;
 mod latency;
 mod narrow;
 mod soak;
@@ -53,6 +55,23 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     ("bcache_virtio_scatter_gather", virtio::scatter_gather),
     ("bcache_virtio_cached_volume", virtio::cached_volume),
+    ("bcache_deferred_rule", deferred::deferred_rule),
+    (
+        "bcache_deferred_writeback_by_users",
+        deferred::deferred_writeback_by_users,
+    ),
+    (
+        "bcache_soak_deferred_writeback",
+        deferred::soak_deferred_writeback,
+    ),
+    (
+        "bcache_fsync_flushes_outside_the_gate",
+        fsync::fsync_flushes_outside_the_gate,
+    ),
+    (
+        "bcache_soak_fsync_outside_the_gate",
+        fsync::soak_fsync_outside_the_gate,
+    ),
     ("bcache_soak_block_ops", soak::block_ops),
     ("bcache_soak_remount_cycles", soak::remount_cycles),
     (

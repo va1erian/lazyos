@@ -36,6 +36,7 @@ pub mod hang;
 pub mod indicators;
 pub mod internal;
 pub mod keys;
+pub mod memory;
 pub mod notify;
 pub mod pages;
 pub mod policy;

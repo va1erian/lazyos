@@ -51,6 +51,12 @@ pub extern "C" fn lzw_ui_profile_dir() -> *const c_char {
     std::ptr::null()
 }
 
+/// The page's data is kept as the engine's profile says (this window has no in-memory option).
+#[no_mangle]
+pub extern "C" fn lzw_ui_profile_ephemeral() -> c_int {
+    0
+}
+
 /// Every navigation loads.
 #[no_mangle]
 pub extern "C" fn lzw_ui_navigate(

@@ -71,3 +71,30 @@ pub fn soak_provider_vfs_refusals() -> Result<(), String> {
     teardown();
     result
 }
+
+/// A provider never writes a deferred volume back (issue #940): `usbd`
+/// ending a hold of `/home` while its writeback is due would wait for its own
+/// disk. Any other user task may.
+pub fn provider_never_writes_back_a_deferred_volume() -> Result<(), String> {
+    setup(Mode::Normal)?;
+    let result = (|| {
+        let owner = with_fake(|fake| fake.owner);
+        task::harness::switch_current(owner);
+        check!(
+            !crate::fs::ext2::may_write_here(),
+            "a provider may write back a deferred volume"
+        );
+        task::harness::switch_current(task::KERNEL_TASK);
+        let other = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+        task::harness::switch_current(other);
+        check!(
+            crate::fs::ext2::may_write_here(),
+            "an ordinary task may not write back"
+        );
+        task::harness::switch_current(task::KERNEL_TASK);
+        Ok(())
+    })();
+    task::harness::switch_current(task::KERNEL_TASK);
+    teardown();
+    result
+}

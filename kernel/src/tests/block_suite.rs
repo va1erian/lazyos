@@ -26,6 +26,9 @@ pub(super) struct FakeDisk {
     sticky: AtomicBool,
     /// A sticky failure has fired; the disk accepts no more writes.
     dead: AtomicBool,
+    /// Run at every flush, before it counts (a test watching what else is
+    /// held while a filesystem flushes the device).
+    flush_hook: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl FakeDisk {
@@ -39,13 +42,24 @@ impl FakeDisk {
             read_only: AtomicBool::new(false),
             sticky: AtomicBool::new(false),
             dead: AtomicBool::new(false),
+            flush_hook: Mutex::new(None),
         }))
+    }
+
+    /// Run `hook` at every flush from now on (`None` stops it).
+    pub(super) fn set_flush_hook(&self, hook: Option<Box<dyn Fn() + Send + Sync>>) {
+        *self.flush_hook.lock() = hook;
     }
 
     /// Make the device claim it cannot be written (or writable again), so a
     /// filesystem opened next mounts read-only.
     pub(super) fn set_read_only(&self, read_only: bool) {
         self.read_only.store(read_only, Ordering::Relaxed);
+    }
+
+    /// Writes the disk has taken so far (each request counts once).
+    pub(super) fn writes(&self) -> u32 {
+        self.writes.load(Ordering::Relaxed)
     }
 
     /// Fail the `n`th write from now (`n == 1` is the very next one), then
@@ -111,6 +125,9 @@ impl BlockDevice for FakeDisk {
     }
 
     fn flush(&self) -> Result<(), BlockError> {
+        if let Some(hook) = self.flush_hook.lock().as_ref() {
+            hook();
+        }
         self.flushes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }

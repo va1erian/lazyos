@@ -63,7 +63,10 @@ fn the_end_of_the_page_is_a_ceiling_once_the_engine_says_so() {
     assert_eq!(s.shift(), LINE_PX);
     s.reset();
     s.report(5000, 10);
-    assert!(s.wheel(DOWN, 11), "a reset forgets the end of the old picture");
+    assert!(
+        s.wheel(DOWN, 11),
+        "a reset forgets the end of the old picture"
+    );
 }
 
 #[test]
@@ -74,10 +77,16 @@ fn rows_painted_below_the_view_outweigh_a_stale_end_of_the_page() {
     // but the page's process has painted rows below the view.
     s.set_at_bottom(true);
     s.set_reach(1200, 0);
-    assert!(s.wheel(DOWN, 1), "there are rows below: the notch is shown at once");
+    assert!(
+        s.wheel(DOWN, 1),
+        "there are rows below: the notch is shown at once"
+    );
     assert_eq!(s.shift(), LINE_PX);
     s.set_reach(0, 0);
-    assert!(!s.wheel(DOWN, 2), "no rows below and the engine says the end: nothing further");
+    assert!(
+        !s.wheel(DOWN, 2),
+        "no rows below and the engine says the end: nothing further"
+    );
 }
 
 #[test]
@@ -109,7 +118,10 @@ fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
         s.wheel(3 * DOWN, t);
     }
     assert_eq!(s.shift(), MAX_AHEAD, "not at the end: the usual allowance");
-    assert!(s.set_at_bottom(true), "what is ahead past the end is dropped");
+    assert!(
+        s.set_at_bottom(true),
+        "what is ahead past the end is dropped"
+    );
     assert_eq!(s.shift(), 0);
     assert!(!s.set_at_bottom(true));
 }
@@ -403,4 +415,44 @@ fn the_meter_reports_a_second_of_use_and_then_starts_again() {
     s.wheel(UP, 2200);
     let next = meter.line(3100, s.counters(), s.shift()).unwrap();
     assert!(next.starts_with("INFO:SPEC:shifts=1:"), "{next}");
+}
+
+#[test]
+fn the_pages_answer_to_the_wheel_is_bounded_by_what_it_asked() {
+    use xui_webkit::speculate::{answer, ANSWER_MS};
+    // Two notches down asked 80 px at 1000 ms.
+    let asked = Some((1000, 80));
+    assert_eq!(
+        answer(asked, 40, 1100),
+        (true, Some((1000, 40))),
+        "half of it"
+    );
+    assert_eq!(
+        answer(Some((1000, 40)), 40, 1150),
+        (true, Some((1000, 0))),
+        "the rest"
+    );
+    assert_eq!(
+        answer(asked, 81, 1100),
+        (false, asked),
+        "further than asked: a jump"
+    );
+    assert_eq!(
+        answer(asked, -40, 1100),
+        (false, asked),
+        "the other way: a jump"
+    );
+    assert_eq!(answer(asked, 0, 1100), (false, asked), "no move");
+    assert_eq!(
+        answer(asked, 40, 1000 + ANSWER_MS + 1),
+        (false, asked),
+        "too late: not the answer"
+    );
+    assert_eq!(
+        answer(None, 40, 1100),
+        (false, None),
+        "nothing asked (a click, a key)"
+    );
+    // Up is negative.
+    assert_eq!(answer(Some((5, -120)), -120, 10), (true, Some((5, 0))));
 }

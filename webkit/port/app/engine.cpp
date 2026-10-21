@@ -123,6 +123,19 @@ std::string profileDirectory()
 // gives an ephemeral store, never a directory of the working directory.
 WKWebsiteDataStoreRef createDataStore(const std::string& profile)
 {
+    // The window asked for the page's data to stay in memory (issue #940): the profile still holds
+    // the content-blocking store (startBlocking), but nothing of the page is written to it.
+    // The children still start in the profile (the one folder their rules let them write, and where
+    // WebKit's default directories of patch 0015 go), and curl's default session keeps its cookie
+    // database in SQLite's memory (`CookieJarDB::isOnMemory`), not as cookie.jar.db in the working
+    // directory.
+    if (lzw_ui_profile_ephemeral()) {
+        if (!profile.empty() && makeDirectories(profile))
+            setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
+        setenv("CURL_COOKIE_JAR_PATH", ":memory:", 1);
+        say("PROFILE:EPHEMERAL:the page's data is kept in memory");
+        return WKWebsiteDataStoreCreateNonPersistentDataStore();
+    }
     if (profile.empty() || !makeDirectories(profile)) {
         say("PROFILE:NONE:the browser keeps nothing");
         return WKWebsiteDataStoreCreateNonPersistentDataStore();

@@ -218,8 +218,9 @@ impl Ext2 {
     /// Make one file durable: its data, its indirect tables, its inode and
     /// what they depend on, without writing what unrelated files left dirty
     /// or marking the volume clean. The caller holds the volume lock and has
-    /// checked there is a cache without a journal.
-    pub(super) fn sync_owner(&self, ino: u32) -> Result<(), Ext2Error> {
+    /// checked there is a cache without a journal. Without `flush` the
+    /// device's cache flush is left to the caller (`Ext2::sync_file_written`).
+    pub(super) fn sync_owner(&self, ino: u32, flush: bool) -> Result<(), Ext2Error> {
         let Some(cache) = &self.cache else {
             return Ok(());
         };
@@ -234,7 +235,10 @@ impl Ext2 {
                 },
             )
         })?;
-        self.io.flush().map_err(io_error)
+        if flush {
+            self.io.flush().map_err(io_error)?;
+        }
+        Ok(())
     }
 
     /// Write every dirty cached block back (nothing to do uncached).
@@ -279,6 +283,13 @@ impl Ext2 {
             return Ok(());
         }
         self.commit_locked()
+    }
+
+    /// Whether [`Ext2::writeback`] has anything to commit: dirty blocks, or
+    /// frees still pending (a host that schedules writebacks itself asks).
+    pub fn needs_writeback(&self) -> bool {
+        let _guard = self.lock.lock();
+        !self.read_only && (self.dirty_blocks_locked() > 0 || self.has_pending())
     }
 
     /// Dirty blocks waiting in the cache (0 uncached).
