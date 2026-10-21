@@ -7,6 +7,7 @@
 //! register accessors an [`Mmio`] and these modules do the parsing and the
 //! arithmetic that can be settled on a host:
 //!
+//! * [`args`]: the words `gpud` is started with, parsed once;
 //! * [`edid`]: the base block and its extension list (timings, descriptors);
 //! * [`cea`]: the CEA-861 extension (video and audio data blocks, speaker
 //!   allocation, HDMI vendor blocks);
@@ -38,6 +39,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod adopt;
+pub mod args;
 pub mod audio;
 pub mod cea;
 pub mod d13;

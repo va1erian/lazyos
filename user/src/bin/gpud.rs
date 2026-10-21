@@ -38,9 +38,11 @@
 //! decode off), which would stop the console's writes into the aperture
 //! until `init` restarts it. A failure after the claim prints `GPU:FAIL:<step>`
 //! and parks with the claim held; `dbgctl reload gpud` replaces the binary.
-//! A failure before it (the device list, the claim: `EBUSY` while the kernel
-//! still tears down a reloaded driver's claim) exits 1 for `init`'s
-//! `OnFailure` row to try again.
+//! Arguments that do not parse, or do not fit the read buffer, print
+//! `GPU:ARGS:FAIL` and exit 0 before anything is claimed (a restart would read
+//! the same words). A failure before the claim of another kind (the device
+//! list, the claim: `EBUSY` while the kernel still tears down a reloaded
+//! driver's claim) exits 1 for `init`'s `OnFailure` row to try again.
 
 #![no_std]
 #![no_main]
@@ -50,6 +52,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use intelgfx::adopt::{self, Display};
+use intelgfx::args::{self, Args, ArgsError};
 use user::sys;
 use user::trace::{self, Channel};
 
@@ -69,14 +72,13 @@ mod serve;
 /// Longest park between wake-ups (100 Hz ticks) of the parked state.
 const IDLE_TICKS: u64 = 6000;
 
-/// `dev=<id>`: the device `devd` matched this driver to.
-fn device_arg() -> Option<u64> {
-    let mut buffer = [0u8; 128];
-    let len = sys::service_args(&mut buffer).min(buffer.len());
-    let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-    text.split_whitespace()
-        .find_map(|part| part.strip_prefix("dev="))
-        .and_then(|id| id.parse().ok())
+/// The words `init` started this driver with (`dev=<id>` from `devd`, and
+/// `audio=1 edid=<path>` from the image), parsed once. A buffer too short for
+/// them, or a bad value, is an error: see `intelgfx::args`.
+fn read_args() -> Result<Args, ArgsError> {
+    let mut buffer = [0u8; args::BUFFER_BYTES];
+    let needed = sys::service_args(&mut buffer);
+    args::parse(args::text(&buffer, needed)?)
 }
 
 #[no_mangle]
@@ -85,7 +87,17 @@ pub extern "C" fn _start() -> ! {
         Ok(cred) => trace::line!(Channel::Gpu, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Gpu, "CRED unavailable (errno {errno})"),
     }
-    let wanted = device_arg();
+    let args = match read_args() {
+        Ok(args) => args,
+        Err(why) => {
+            // Nothing is claimed yet. A restart would read the same words, so
+            // say so once and exit cleanly (`OnFailure` does not restart a
+            // clean exit) rather than guess a device or switch audio off.
+            trace::fail!(Channel::Gpu, "ARGS", "{why:?}");
+            sys::exit(0)
+        }
+    };
+    let wanted = args.dev;
     let row = match device::find(wanted) {
         Ok(Some(row)) => row,
         Ok(None) => {
@@ -127,7 +139,7 @@ pub extern "C" fn _start() -> ! {
             sys::exit(1)
         }
     };
-    match adopt_and_serve(&claimed, &command) {
+    match adopt_and_serve(&claimed, &command, &args) {
         Err(why) => {
             trace::fail!(Channel::Gpu, why.0, "{}", why.1);
             park()
@@ -148,6 +160,7 @@ fn step((step, errno): device::StepError) -> Failure {
 fn adopt_and_serve(
     claimed: &device::Claimed,
     command: &device::Command,
+    args: &Args,
 ) -> Result<core::convert::Infallible, Failure> {
     // `device::find` took only a device `Display::for_device` knows.
     let display = Display::for_device(claimed.row.device)
@@ -180,7 +193,7 @@ fn adopt_and_serve(
         .map(|pipe| adopt::read_fb_map(&mut regs, pipe.plane.surf, pipe.plane.bytes()));
     report::adopted(&adopted, fb.as_ref());
     // Stage G2, only when started with `audio=1`: the one place that writes.
-    audio::run(&audio::Args::read(), &mut regs, &adopted);
+    audio::run(args, &mut regs, &adopted);
     trace::line!(
         Channel::Gpu,
         "DONE reads={} writes={} refused_reads={} refused_writes={}",

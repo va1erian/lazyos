@@ -19,39 +19,16 @@
 //! Evidence: `GPU:AUDIO:PASS`, `GPU:AUDIO:SKIP:<why>`, `GPU:AUDIO:FAIL`.
 
 use alloc::format;
-use alloc::string::String;
 use intelgfx::adopt::Adopted;
+use intelgfx::args::Args;
 use intelgfx::audio::{self, PrepareError};
 use intelgfx::hdmi_audio::Rate;
-use user::sys;
 use user::trace::{self, Channel};
 
 use crate::bar::Bar;
 
 /// An EDID is 128 bytes per block; a monitor has a handful of extensions.
 const EDID_LIMIT: usize = 1024;
-
-/// What the service was started with.
-pub(super) struct Args {
-    pub(super) audio: bool,
-    pub(super) edid: Option<String>,
-}
-
-impl Args {
-    /// `dev=<id> audio=1 edid=<path>` from the service arguments.
-    pub(super) fn read() -> Args {
-        let mut buffer = [0u8; 256];
-        let len = sys::service_args(&mut buffer).min(buffer.len());
-        let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
-        Args {
-            audio: text.split_whitespace().any(|part| part == "audio=1"),
-            edid: text
-                .split_whitespace()
-                .find_map(|part| part.strip_prefix("edid="))
-                .map(String::from),
-        }
-    }
-}
 
 /// Enable the display side of HDMI audio for the adopted pipe, if asked to.
 pub(super) fn run(args: &Args, regs: &mut Bar, adopted: &Adopted) {
