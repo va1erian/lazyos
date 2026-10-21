@@ -26,7 +26,8 @@ BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
 OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
-           "lazywebplus-app": "lazywebplus-app", "webkit-views": "webkit-views"}
+           "lazywebplus-app": "lazywebplus-app", "webkit-views": "webkit-views",
+           "webd-abi-test": "webd-abi-test"}
 #: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
 #: ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
 PLUS_LIBRARY = wkpins.OUT / "lib" / "libxui_webplus.a"
@@ -282,6 +283,42 @@ def run_views() -> bool:
         if done.returncode != 0 or "VIEWS:PASS" not in done.stdout:
             raise BuildError(f"webkit-views {mode} failed (exit {done.returncode}):\n"
                              + done.stdout[-2500:] + done.stderr[-500:])
+    return True
+
+
+#: The modes of ``webd-abi-test`` (webkit/port/webd/test): each runs in a process of its own.
+WEBD_MODES = ("html", "script", "config", "lock", "network", "many", "lost", "cycle")
+
+
+def run_webd(modes: list[str] | None = None) -> bool:
+    """Run ``webd-abi-test`` (``webkit/port/webd``, docs/webd-plan.md P2 slice 1) on the build host: the
+    engine's half of webd driven through ``webd_abi.h`` by a program that plays the service, one mode per
+    process (all of them, or the `modes` named). Each prints ``WEBD:`` lines and ends with
+    ``WEBD:<mode>:PASS``; a mode that does not is a ``BuildError``. Only in the build container, like ``run_views``; False when it did not run."""
+    import subprocess
+    import tempfile
+    if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
+        wkpins.log("not in the build container: webd-abi-test did not run")
+        return False
+    install_host_layout()
+    if not (HOST_BIN / "webd-abi-test").is_file():
+        raise BuildError("webd-abi-test is not built (python tools/webkit/port.py --only webd-abi-test)")
+    wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
+    for mode in modes or WEBD_MODES:
+        if mode not in WEBD_MODES:
+            raise BuildError(f"webd-abi-test has no mode {mode} (modes: {', '.join(WEBD_MODES)})")
+        with tempfile.TemporaryDirectory(prefix="webd-abi-", dir=wkpins.jsc_pins.WORK,
+                                         ignore_cleanup_errors=True) as scratch:
+            try:
+                done = subprocess.run([str(HOST_BIN / "webd-abi-test"), mode], capture_output=True, text=True,
+                                      timeout=400, cwd=scratch, env=smoke_environment())
+            except subprocess.TimeoutExpired as error:
+                raise BuildError(f"webd-abi-test {mode} timed out after 400 s:\n" + _tail(error.stdout)) from error
+        lines = [line for line in done.stdout.splitlines() if line.startswith("WEBD:")]
+        wkpins.log(f"webd-abi-test {mode}:\n" + "\n".join(lines))
+        if done.returncode != 0 or f"WEBD:{mode}:PASS" not in done.stdout:
+            raise BuildError(f"webd-abi-test {mode} failed (exit {done.returncode}):\n"
+                             + done.stdout[-3000:] + done.stderr[-500:])
     return True
 
 

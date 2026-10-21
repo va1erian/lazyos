@@ -381,6 +381,28 @@ halves written against one contract, `webkit/port/webd/webd_abi.h` (C ABI, light
 
 Slice 2 links the two into the `webd` program, adds the package, `LAZYOS_WEBD=1`, `run_demo.py --webd`, the GUI
 control, `tools/webd/run.py` and a demo client; slice 3 is the full interface.
+### P2 slice 1, engine half: done (2026-10-21)
+
+`webkit/port/webd/abi.cpp` implements every `webd_engine_*` of `webd_abi.h` over the engine, with the light-view
+behaviour in `webkit/port/app/light.cpp`; `webd-abi-test` (`port.py --only WebProcess NetworkProcess webd-abi-test
+--run-webd`) plays the service and passes its eight modes in the build container (`html script config lock network
+many lost cycle`), with `webkit-views` unchanged. Details and measurements: `webkit/README.md`, "webd's engine half".
+What it found:
+
+* **The network lock is a content rule list, not the navigation policy.** The policy sees navigations only; a light
+  view with scripts on and no rule list made 26 connections to a listener (images, style sheets, `@import`, scripts,
+  fetch, XHR, WebSocket, `import()`, ...); with it, none, scripts on or off. The list is compiled once at start into a
+  folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, else `/tmp/webd-rules-<pid>`), so webd's label needs one
+  writable folder, and the first view waits for the compile.
+* **`color_scheme` is not implementable here**: `prefers-color-scheme` is compiled out (`ENABLE_DARK_MODE_CSS` is off
+  and turning it on rebuilds WebCore). The engine says `CONFIG:IGNORED:color_scheme`; a caller that wants a dark page
+  passes `user_style`. `user_style` is appended to the document (the C API has no user style sheet);
+  `default_font_size` is applied (default and minimum).
+* **A page's navigation cancels its own scheduled one** (a refused click before a meta refresh fires loses the
+  refresh); a relative URL against `about:blank` is told as it is, not absolute; `<noscript>` is not rendered with
+  scripts off.
+* **The mouse `kind` of `webd_abi.h` (0 move, 1 press, 2 release) is not the engine's** (0 down, 1 up, 2 move, as
+  `xui_webkit::MouseKind` and `lazyos_ui.h`): `abi.cpp` translates; the Rust half must send the header's numbers.
 
 ### What P1 found (2026-10-21, `webkit-views`)
 

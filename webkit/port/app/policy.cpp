@@ -161,6 +161,11 @@ void navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKD
 void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WKFramePolicyListenerRef listener, WKTypeRef, const void* clientInfo)
 {
     View& v = *viewOf(clientInfo);
+    // A light view loads what its owner gave it and nothing else (light.cpp).
+    if (v.config.light) {
+        lightNavigationAction(v, action, listener);
+        return;
+    }
     const WKFrameNavigationType type = WKNavigationActionGetNavigationType(action);
     WKURLRequestRef request = WKNavigationActionCopyRequest(action);
     WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
@@ -209,6 +214,10 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
 void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef response, WKFramePolicyListenerRef listener, WKTypeRef, const void* clientInfo)
 {
     View& v = *viewOf(clientInfo);
+    if (v.config.light) {
+        lightNavigationResponse(v, response, listener);
+        return;
+    }
     bool download = false;
     if (v.has(LZW_FEATURE_DOWNLOADS)) {
         WKFrameInfoRef frame = WKNavigationResponseCopyFrameInfo(response);
