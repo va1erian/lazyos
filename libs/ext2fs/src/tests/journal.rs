@@ -20,7 +20,7 @@ const POINTS: usize = 60;
 const JOURNAL_BLOCKS: u32 = 128;
 
 /// A formatted image of `bytes` that already has a journal.
-fn journaled(bytes: u64, block_size: u32) -> MemIo {
+pub(super) fn journaled(bytes: u64, block_size: u32) -> MemIo {
     let io = formatted(bytes, block_size);
     let fs = open(&io);
     fs.add_journal(JOURNAL_BLOCKS).expect("add journal");
@@ -30,7 +30,7 @@ fn journaled(bytes: u64, block_size: u32) -> MemIo {
 
 /// Mount `image` writable (replaying its log), return what was found, and
 /// leave the replayed bytes behind.
-fn mount_and_settle(image: Vec<u8>) -> (Vec<u8>, bool) {
+pub(super) fn mount_and_settle(image: Vec<u8>) -> (Vec<u8>, bool) {
     let io = MemIo::from_bytes(image);
     let fs = open_cached(&io, 64);
     let recovered = fs.journal_recovered();

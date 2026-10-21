@@ -37,6 +37,25 @@ impl Node {
         self.id
     }
 
+    /// Whether `other` is the same file: the same filesystem instance (a
+    /// filesystem mounted at two points is one) and the same node. Two names
+    /// of one file (hard links) open as nodes that are the same file.
+    pub fn same_file(&self, other: &Node) -> bool {
+        self.fs_key() == other.fs_key() && self.id == other.id
+    }
+
+    /// Whether this node is its file ([`Filesystem::stable_nodes`]): the
+    /// open-file registry knows the file by it rather than by its name.
+    pub fn stable(&self) -> bool {
+        self.fs.stable_nodes()
+    }
+
+    /// The filesystem instance this node lives on, as a number that tells
+    /// filesystems apart ([`Vfs::identity`] answers the same for a path).
+    pub fn fs_key(&self) -> usize {
+        fs_key(&self.fs)
+    }
+
     pub fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         self.fs.read_node(self.id, offset, buf)
     }
@@ -94,6 +113,12 @@ impl Node {
     }
 }
 
+/// The address of a filesystem instance, without its vtable (two `Arc`s of
+/// one instance may carry different vtable pointers).
+fn fs_key(fs: &Arc<dyn Filesystem>) -> usize {
+    Arc::as_ptr(fs) as *const () as usize
+}
+
 impl Vfs {
     /// Open the regular file at `path` as a [`Node`] after checking `mask`
     /// for `id` (and search on every ancestor). `Ok(None)` when its backend
@@ -108,6 +133,26 @@ impl Vfs {
         let fs = Arc::clone(&self.mounts[mount].fs);
         let writable = !self.mounts[mount].flags.ro;
         Ok(fs.open_node(&rel)?.map(|id| Node { fs, id, writable }))
+    }
+
+    /// What `path` names, cheaply: its filesystem instance (as
+    /// [`Node::fs_key`] numbers it) and its metadata, from the caches when
+    /// they hold it. No permission is checked: the open-file registry asks
+    /// which open file a name is (`openfile`), on the caller's behalf only
+    /// after the caller's own checks.
+    pub fn identity(&mut self, path: &str) -> Result<(usize, Meta), FsError> {
+        let path = Path::parse(path);
+        let meta = self.stat_path(&path)?;
+        let (mount, _) = self.resolve_mount(&path)?;
+        Ok((fs_key(&self.mounts[mount].fs), meta))
+    }
+
+    /// The filesystem instance holding `path` ([`Node::fs_key`]) and whether
+    /// its nodes are its files ([`Filesystem::stable_nodes`]).
+    pub fn fs_of(&self, path: &str) -> Option<(usize, bool)> {
+        let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;
+        let fs = &self.mounts[mount].fs;
+        Some((fs_key(fs), fs.stable_nodes()))
     }
 
     /// Record `meta` as the current metadata of `path` (after a write through

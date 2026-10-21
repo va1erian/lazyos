@@ -174,6 +174,29 @@ pub fn every_vfs_entry_point() -> Result<(), String> {
         refused("flush", vfs.flush(confined, outside))?;
         refused("statfs", vfs.statfs(confined, outside).map(|_| ()))?;
         refused("open_node", vfs.open_node(confined, outside, 4).map(|_| ()))?;
+        refused(
+            "link",
+            vfs.link(confined, outside, &format!("{PROFILE}/l1")),
+        )?;
+        // A hard link never reaches through a granted path what the rules
+        // refuse through the old one: a file the label may only read (one
+        // the user could write, so only the gate stands in the way) gets no
+        // name in the profile it may write.
+        let shared = "/system/share/fonts/shared.ttf";
+        file(&mut vfs, Id::ROOT, shared, 0o666, b"shared")?;
+        refused(
+            "link of a read grant into a write grant",
+            vfs.link(confined, shared, &format!("{PROFILE}/stolen")),
+        )?;
+        check!(
+            vfs.link(plain, shared, "/home/user/shared.ttf").is_ok(),
+            "the plain user could not link a file it may write"
+        );
+        check!(
+            vfs.link(confined, COOKIES, &format!("{PROFILE}/cookies.bak"))
+                .is_ok(),
+            "confined link inside its grant"
+        );
 
         // The same calls as the plain user are not refused by the gate.
         check!(vfs.stat(plain, outside).is_ok(), "plain stat");

@@ -15,8 +15,8 @@ use super::path::{resolve, Target};
 use super::uaccess::{write_u32, write_u64};
 
 /// What the stat-family calls report about a file: type and mode, size, inode,
-/// owner and the three timestamps (whole seconds; nodes with no backing file
-/// report zero).
+/// owner, link count and the three timestamps (whole seconds; nodes with no
+/// backing file report zero).
 pub(super) struct Attrs {
     pub(super) mode: u32,
     pub(super) size: u64,
@@ -24,6 +24,9 @@ pub(super) struct Attrs {
     pub(super) uid: u32,
     pub(super) gid: u32,
     pub(super) times: Times,
+    /// `st_nlink`: the file's names (hard links) as its filesystem counts
+    /// them; `1` for anything no directory names.
+    pub(super) nlink: u32,
 }
 
 impl Attrs {
@@ -36,6 +39,7 @@ impl Attrs {
             uid: 0,
             gid: 0,
             times: Times::default(),
+            nlink: 1,
         }
     }
 
@@ -47,6 +51,7 @@ impl Attrs {
             uid: meta.uid,
             gid: meta.gid,
             times: meta.times,
+            nlink: meta.nlink,
         }
     }
 }
@@ -62,7 +67,7 @@ fn fill_stat(buf: u64, attrs: &Attrs) {
         return;
     }
     write_u64(user_ptr::at(buf, 8), attrs.ino);
-    write_u64(user_ptr::at(buf, 16), 1); // st_nlink
+    write_u64(user_ptr::at(buf, 16), u64::from(attrs.nlink)); // st_nlink
     write_u32(user_ptr::at(buf, 24), attrs.mode); // st_mode
     write_u32(user_ptr::at(buf, 28), attrs.uid); // st_uid
     write_u32(user_ptr::at(buf, 32), attrs.gid); // st_gid
@@ -100,6 +105,7 @@ pub(super) fn fd_attrs(fd: u64) -> Result<Attrs, u64> {
                     uid: opened.uid,
                     gid: opened.gid,
                     times: Times::default(),
+                    nlink: 1,
                 },
             },
             // A description made without a record of its open.

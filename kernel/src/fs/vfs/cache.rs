@@ -79,6 +79,15 @@ impl Vfs {
         self.inodes.remove(&(key, ino));
     }
 
+    /// Drop the cached metadata of `path`'s parent directory: a name made or
+    /// removed in it changed its size, times and (for a subdirectory) its
+    /// link count.
+    pub(super) fn forget_parent(&mut self, path: &Path) {
+        if !path.is_root() {
+            self.forget(&path.parent().to_path_string());
+        }
+    }
+
     /// Cache-aware metadata lookup for an absolute path.
     pub(super) fn stat_path(&mut self, path: &Path) -> Result<Meta, FsError> {
         let (mount, rel) = self.resolve_mount(path)?;

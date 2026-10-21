@@ -23,7 +23,7 @@ const DATA: [u8; 3000] = [7; 3000];
 
 /// What a crashed image's link counts say.
 #[derive(Debug, PartialEq, Eq)]
-enum Verdict {
+pub(super) enum Verdict {
     Clean,
     /// Counts too high or unreachable inodes: space lost, nothing unsafe.
     Leak,
@@ -31,7 +31,7 @@ enum Verdict {
     TooLow(String),
 }
 
-fn classify(image: &[u8]) -> Verdict {
+pub(super) fn classify(image: &[u8]) -> Verdict {
     let problems = fsck(image);
     if problems.is_empty() {
         return Verdict::Clean;

@@ -244,6 +244,7 @@ impl From<ext2fs::Ext2Error> for FsError {
             E::Invalid | E::Io => FsError::Invalid,
             E::NoSpace => FsError::NoSpace,
             E::NameTooLong => FsError::NameTooLong,
+            E::TooManyLinks => FsError::TooManyLinks,
             E::NotSupported => FsError::NotSupported,
         }
     }

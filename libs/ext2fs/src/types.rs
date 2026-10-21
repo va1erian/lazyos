@@ -63,6 +63,9 @@ pub struct InodeMeta {
     pub size: u64,
     pub kind: FileKind,
     pub times: Times,
+    /// `i_links_count`: the names of a file (hard links), or for a directory
+    /// its `.`, its parent's entry and each subdirectory's `..`.
+    pub nlink: u32,
 }
 
 /// Capacity figures for the volume (the payload of `statfs`).

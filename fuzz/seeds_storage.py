@@ -11,6 +11,8 @@ from pathlib import Path
 # image's first 48 KiB (corruption mode).
 
 MKDIR, CREATE, WRITE, TRUNCATE, UNLINK, RMDIR, RENAME, READ = range(8)
+# A hard link `a/b -> c/(b // 4)`: kind 8 modulo 16, so 0..7 keep their meaning.
+LINK = 8
 
 
 def e2_op(kind, a=0, b=0, c=0):
@@ -43,6 +45,16 @@ def ext2fs_seeds():
         + e2_op(UNLINK, 0, 0) + e2_op(RMDIR, 0, 0) + e2_op(READ, 0, 0) + e2_op(TRUNCATE, 0, 0, 5)
         + tree + e2_op(MKDIR, 0, 0) + e2_op(RENAME, 1, 0, 0) + e2_op(RENAME, 1, 0, 1)
     )
+    # Hard links: write through one name, read through the other, rename onto
+    # a second name of the same file (a no-op), unlink names one by one, and
+    # the refusals (a missing source, a taken name).
+    links = (
+        tree + e2_op(CREATE, 1, 0) + e2_op(WRITE, 1, 0, 40)
+        + e2_op(LINK, 1, 0, 2) + e2_op(WRITE, 2, 0, 90) + e2_op(READ, 1, 0)
+        + e2_op(LINK, 1, 4, 1) + e2_op(RENAME, 1, 0, 2) + e2_op(UNLINK, 1, 0)
+        + e2_op(READ, 2, 0) + e2_op(TRUNCATE, 2, 0, 2) + e2_op(READ, 1, 1)
+        + e2_op(LINK, 1, 0, 0) + e2_op(LINK, 2, 0, 2) + e2_op(UNLINK, 2, 0) + e2_op(UNLINK, 1, 1)
+    )
     sb = 1024  # superblock byte offset; descriptors follow in block 2 (1 KiB blocks)
     gdt = 2048
     return {
@@ -52,6 +64,8 @@ def ext2fs_seeds():
         "model_indirect_4k": bytes([2]) + indirect,
         "model_churn": bytes([0]) + churn,
         "model_errors": bytes([0]) + errors,
+        "model_links_1k": bytes([0]) + links,
+        "model_links_cached": bytes([4]) + links,
         "corrupt_magic": bytes([1]) + e2_poke(sb + 0x38, 0),
         "corrupt_log_block_size": bytes([1]) + e2_poke(sb + 0x18, 3),
         "corrupt_counts": bytes([1]) + e2_poke(sb + 0x07, 0x7F) + e2_poke(sb + 0x0F, 0xFF),

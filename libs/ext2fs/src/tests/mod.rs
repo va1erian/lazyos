@@ -18,6 +18,7 @@ mod format_tests;
 mod handles;
 mod journal;
 mod link_crash;
+mod link_journal;
 mod malformed;
 mod narrow;
 mod ops;

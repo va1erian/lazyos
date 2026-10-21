@@ -48,6 +48,7 @@ mod attr;
 mod cache;
 mod filesystem;
 mod flags;
+mod link;
 mod meta;
 mod mountops;
 mod node;
@@ -266,6 +267,7 @@ impl Vfs {
         let (mount, rel) = self.resolve_writable(&path)?;
         let meta = self.mounts[mount].fs.create(&rel, mode, id)?;
         self.insert_cache(mount, &rel, meta);
+        self.forget_parent(&path);
         Ok(meta)
     }
 
@@ -291,6 +293,7 @@ impl Vfs {
         let (mount, rel) = self.resolve_writable(&path)?;
         let meta = self.mounts[mount].fs.mkdir(&rel, mode, id)?;
         self.insert_cache(mount, &rel, meta);
+        self.forget_parent(&path);
         Ok(meta)
     }
 
@@ -310,6 +313,7 @@ impl Vfs {
         let (mount, rel) = self.resolve_writable(&path)?;
         self.mounts[mount].fs.unlink(&rel)?;
         self.invalidate_mount_path(mount, &rel);
+        self.forget_parent(&path);
         Ok(())
     }
 
@@ -329,6 +333,7 @@ impl Vfs {
         let (mount, rel) = self.resolve_writable(&path)?;
         self.mounts[mount].fs.rmdir(&rel)?;
         self.invalidate_mount_path(mount, &rel);
+        self.forget_parent(&path);
         Ok(())
     }
 
@@ -361,6 +366,8 @@ impl Vfs {
         self.mounts[from_mount].fs.rename(&from_rel, &to_rel)?;
         self.invalidate_mount_path(from_mount, &from_rel);
         self.invalidate_mount_path(from_mount, &to_rel);
+        self.forget_parent(&from);
+        self.forget_parent(&to);
         Ok(())
     }
 
