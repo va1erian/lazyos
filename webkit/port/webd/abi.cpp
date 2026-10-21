@@ -266,6 +266,11 @@ extern "C" {
 
 int webd_engine_start(void)
 {
+    // Once: a second host would be a second WKContext and its processes.
+    static bool started = false;
+    if (started)
+        return 1;
+    started = true;
     // No profile directory: a light view keeps nothing.
     if (!startHost(&env))
         return 1;

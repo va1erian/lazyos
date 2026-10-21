@@ -282,7 +282,7 @@ process and none of it left to the page:
   `<image>`, a `<picture>`, a favicon, `preconnect`, `prefetch`, `dns-prefetch` and a ping link, and (scripts on)
   `fetch`, `XMLHttpRequest`, `WebSocket`, `new Image`, `sendBeacon`, `EventSource`, `import()`, a script and a
   link added by script and a `Worker`, makes **no connection**. The same page in a light view *without* the rule
-  list made 25 (the first thirteen, in order: `/img.png /a.css /import.css /s.js /svg.png /poster.png /pic.png
+  list made 26 (the first thirteen distinct, in order: `/img.png /a.css /import.css /s.js /svg.png /poster.png /pic.png
   /input.png /fetch /xhr /jsimg /ws /mod.js`), so the lock is the rule list, not the scripts being off. Not
   observable by that test: a DNS lookup for a *name* (`WKPreferencesSetDNSPrefetchingEnabled` is a no-op in this
   WebKit; the rule list covers the `dns-prefetch` link, but a lookup would not reach a listener either way). A

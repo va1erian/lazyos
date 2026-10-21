@@ -350,7 +350,7 @@ many lost cycle`), with `webkit-views` unchanged. Details and measurements: `web
 What it found:
 
 * **The network lock is a content rule list, not the navigation policy.** The policy sees navigations only; a light
-  view with scripts on and no rule list made 25 connections to a listener (images, style sheets, `@import`, scripts,
+  view with scripts on and no rule list made 26 connections to a listener (images, style sheets, `@import`, scripts,
   fetch, XHR, WebSocket, `import()`, ...); with it, none, scripts on or off. The list is compiled once at start into a
   folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, else `/tmp/webd-rules-<pid>`), so webd's label needs one
   writable folder, and the first view waits for the compile.
