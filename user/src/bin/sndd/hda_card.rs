@@ -18,10 +18,14 @@ use alloc::vec::Vec;
 use core::ptr;
 use user::trace;
 
-use hda::codec::{find_output, read_graph, Graph, Path};
+use crate::hda_probe::{dump as probe, widgets};
+use crate::hdmi_path;
+
+use hda::codec::{read_graph, Graph, Path};
 use hda::cursor::Cursor;
+use hda::hdmi::Hdmi;
 use hda::program::Output;
-use hda::regs::{intctl, Regs, INTCTL, MIN_BAR_BYTES, RIRBSTS};
+use hda::regs::{intctl, Regs, INTCTL, MIN_BAR_BYTES};
 use hda::stream::{write_bdl, OutStream, BDL_ENTRY};
 use hda::{format as fmt, Controller, Mmio, RingMemory};
 use user::dev::Row;
@@ -70,6 +74,8 @@ pub(super) struct HdaCard {
     controller: Controller<Mmio>,
     graph: Box<Graph>,
     path: Path,
+    /// The HDMI pin and converters when the codec is a display codec.
+    hdmi: Option<Hdmi>,
     stream: OutStream,
     /// Held for the driver's lifetime: command rings and the BDL.
     core: Region,
@@ -115,19 +121,16 @@ impl HdaCard {
             unsafe { Controller::new(regs, rings, sys::nap) }.map_err(hda_error("controller"))?;
         let codec = controller.codec;
         let graph = Box::new(read_graph(&mut controller, codec).map_err(hda_error("codec"))?);
-        // Every widget, before any path is chosen: boot-1 reported pin 3 on
-        // the Kaby Lake HDMI codec, where Linux sees pins 5 to 7 (plan 2.1),
-        // and only the real numbering separates the explanations.
-        for widget in graph.widgets() {
-            trace::line!(trace::Channel::Sndd, "WIDGET codec={codec} {widget}");
-        }
-        let path = find_output(&graph).map_err(hda_error("output path"))?;
+        widgets(&graph, codec);
+        let (path, hdmi) = hdmi_path::choose(&mut controller, codec, &graph)?;
         let output = Output {
             codec,
             graph: &graph,
             path,
         };
         output.enable(&mut controller).map_err(hda_error("path"))?;
+        hdmi_path::enable(&mut controller, codec, hdmi.as_ref())?;
+        probe(&mut controller, codec, &graph, &path, "open");
         let pcm = output.pcm(&mut controller).map_err(hda_error("pcm"))?;
         let channels = output.channels();
         let stream = OutStream {
@@ -158,6 +161,7 @@ impl HdaCard {
             controller,
             graph,
             path,
+            hdmi,
             stream,
             core,
             staging: Some(staging),
@@ -214,7 +218,17 @@ impl HdaCard {
         };
         output
             .bind(&mut self.controller, tag, format)
-            .map_err(hda_error("bind"))
+            .map_err(hda_error("bind"))?;
+        let codec = self.controller.codec;
+        let channels = self.channels;
+        hdmi_path::bind(
+            &mut self.controller,
+            codec,
+            self.hdmi.as_ref(),
+            tag,
+            format,
+            channels,
+        )
     }
 
     pub(super) fn set_params(
@@ -330,6 +344,14 @@ impl HdaCard {
             params.format,
         );
         self.bind(TAG, params.format)?;
+        let codec = self.controller.codec;
+        probe(
+            &mut self.controller,
+            codec,
+            &self.graph,
+            &self.path,
+            "prepare",
+        );
         self.cursor = Cursor::new(params.period, params.periods);
         self.queued = [false; MAX_SLOTS];
         self.done.clear();
@@ -451,41 +473,7 @@ impl HdaCard {
             }
         }
     }
-
-    pub(super) fn wait_event(&mut self) {
-        let Some(irq) = self.claimed.irq else {
-            return sys::nap();
-        };
-        if let Ok(message) = irq.recv_with(&mut self.irq_buf, Some(sys::clock() + 1)) {
-            self.handle_irq(&message);
-        }
-    }
-
-    pub(super) fn service_irq(&mut self) {
-        let Some(irq) = self.claimed.irq else {
-            return;
-        };
-        if let Ok(Some(message)) = irq.poll_recv_with(&mut self.irq_buf) {
-            self.handle_irq(&message);
-        }
-    }
-
-    /// Acknowledge one interrupt: only the kernel (slot 0) may send one.
-    /// Clearing the stream's status (and the response ring's) deasserts the
-    /// line before the kernel is told to unmask it.
-    fn handle_irq(&mut self, message: &user::messenger::Message) {
-        if message.sender != 0 || user::dev::parse_irq_body(&message.parcel.body).is_none() {
-            trace::line!(trace::Channel::Sndd, "IRQ:REJECT sender={}", message.sender);
-            return;
-        }
-        self.irqs += 1;
-        let regs = self.controller.regs_mut();
-        let _ = self.stream.take_status(regs);
-        regs.write8(RIRBSTS, 0xFF);
-        let _ = user::dev::irq_ack(self.claimed.handle);
-    }
-
-    pub(super) fn irq_report(&self) -> (bool, u64) {
-        (self.claimed.irq.is_some(), self.irqs)
-    }
 }
+
+#[path = "hda_irq.rs"]
+mod irq;

@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::vec::Vec;
 
 use crate::controller::RingMemory;
+use crate::hdmi::{GET_DIGI_CONVERT, GET_PIN_SENSE};
 use crate::regs::*;
 use crate::verbs::{param, GET_CONFIG_DEFAULT, GET_CONN_LIST, GET_PARAMETER};
 
@@ -57,6 +58,10 @@ pub struct Node {
     pub conn_raw: Vec<u16>,
     pub long_form: bool,
     pub config: u32,
+    /// `GET_PIN_SENSE` (an HDMI pin: presence in bit 31, ELD valid in 30).
+    pub sense: u32,
+    /// `GET_DIGI_CONVERT` (a converter).
+    pub digital: u32,
 }
 
 /// A codec: a node table, and every set-verb it received.
@@ -78,6 +83,8 @@ impl Codec {
         match verb12 {
             GET_PARAMETER => node.params.get(&(payload as u8)).copied().unwrap_or(0),
             GET_CONFIG_DEFAULT => node.config,
+            GET_PIN_SENSE => node.sense,
+            GET_DIGI_CONVERT => node.digital,
             GET_CONN_LIST => {
                 let (per, width) = if node.long_form { (2, 16) } else { (4, 8) };
                 let start = payload as usize;
@@ -331,6 +338,8 @@ pub fn node(params: &[(u8, u32)], conns: &[u16], config: u32) -> Node {
         conn_raw: conns.to_vec(),
         long_form: false,
         config,
+        sense: 0,
+        digital: 0,
     }
 }
 

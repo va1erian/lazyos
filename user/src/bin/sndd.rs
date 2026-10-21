@@ -52,6 +52,10 @@ mod dma;
 mod error;
 #[path = "sndd/hda_card.rs"]
 mod hda_card;
+#[path = "sndd/hda_probe.rs"]
+mod hda_probe;
+#[path = "sndd/hdmi_path.rs"]
+mod hdmi_path;
 #[path = "sndd/service.rs"]
 mod service;
 #[path = "sndd/session.rs"]

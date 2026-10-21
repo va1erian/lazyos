@@ -12,6 +12,8 @@
 //! * [`controller`]: link reset, codec discovery, the CORB/RIRB transport;
 //! * [`verbs`]: codec verbs and parameters;
 //! * [`codec`]: the widget graph and the output path through it;
+//! * [`hdmi`]: an HDMI display codec: the pin with a sink, the stream, the
+//!   Audio InfoFrame;
 //! * [`program`]: switching the path on and binding the converter;
 //! * [`format`]: stream format words and supported rates;
 //! * [`stream`]: an output stream descriptor and its buffer descriptor list;
@@ -31,6 +33,7 @@ pub mod codec;
 pub mod controller;
 pub mod cursor;
 pub mod format;
+pub mod hdmi;
 pub mod program;
 pub mod regs;
 pub mod stream;
@@ -42,6 +45,8 @@ mod fake;
 mod tests;
 #[cfg(test)]
 mod tests_codec;
+#[cfg(test)]
+mod tests_hdmi;
 
 pub use controller::{Controller, ControllerError, RingMemory};
 pub use regs::{Mmio, Regs};

@@ -209,6 +209,9 @@ fn connections(
     Ok((out, count as u8))
 }
 
+/// Widget type of a vendor-defined widget.
+const VENDOR_DEFINED: u32 = 0xF;
+
 /// Read the codec's audio function group and its widgets.
 pub fn read_graph(verbs: &mut impl Verbs, codec: u8) -> Result<Graph, CodecError> {
     let (start, count) = children(verbs.param(codec, 0, param::NODE_COUNT)?);
@@ -229,31 +232,57 @@ pub fn read_graph(verbs: &mut impl Verbs, codec: u8) -> Result<Graph, CodecError
     for offset in 0..count {
         let nid = first.wrapping_add(offset as u8);
         let caps = verbs.param(codec, nid, param::WIDGET_CAPS)?;
-        let (conns, conn_count) = if caps & caps::CONN_LIST != 0 {
-            connections(verbs, codec, nid)?
-        } else {
-            ([0; MAX_CONNS], 0)
-        };
-        let is_pin = (caps >> caps::TYPE_SHIFT) & 0xF == caps::PIN;
-        let (pin_caps, config) = if is_pin {
-            (
-                verbs.param(codec, nid, param::PIN_CAPS)?,
-                verbs.verb(codec, nid, GET_CONFIG_DEFAULT, 0)?,
-            )
-        } else {
-            (0, 0)
-        };
-        graph.widgets[graph.count] = Some(Widget {
-            nid,
-            caps,
-            conns,
-            conn_count,
-            pin_caps,
-            config,
-        });
+        graph.widgets[graph.count] = Some(read_widget(verbs, codec, nid, caps)?);
         graph.count += 1;
     }
+    // Past the reported count: the Kaby Lake HDMI codec reports 2 widgets and
+    // has 7 (pins 5 to 7 answer, as does the vendor widget at 8), so keep
+    // reading while a node answers with capabilities. An unused node id
+    // answers 0 or, on that codec, not at all (a timeout), which ends it; a
+    // vendor-defined widget (type 15) ends it too, since on Intel's display
+    // codecs it is the last, and stopping there spares the timeout. The table
+    // and the 8-bit id bound it anyway.
+    let mut next = u16::from(first) + count as u16;
+    let mut last_was_vendor = false;
+    while next <= 0xFF && graph.count < MAX_WIDGETS && !last_was_vendor {
+        let nid = next as u8;
+        let caps = match verbs.param(codec, nid, param::WIDGET_CAPS) {
+            Ok(caps) if caps != 0 => caps,
+            _ => break,
+        };
+        last_was_vendor = (caps >> caps::TYPE_SHIFT) & 0xF == VENDOR_DEFINED;
+        graph.widgets[graph.count] = Some(read_widget(verbs, codec, nid, caps)?);
+        graph.count += 1;
+        next += 1;
+    }
     Ok(graph)
+}
+
+/// One widget: its capabilities (already read), connection list and, for a
+/// pin, its capabilities and configuration default.
+fn read_widget(verbs: &mut impl Verbs, codec: u8, nid: u8, caps: u32) -> Result<Widget, VerbError> {
+    let (conns, conn_count) = if caps & caps::CONN_LIST != 0 {
+        connections(verbs, codec, nid)?
+    } else {
+        ([0; MAX_CONNS], 0)
+    };
+    let is_pin = (caps >> caps::TYPE_SHIFT) & 0xF == caps::PIN;
+    let (pin_caps, config) = if is_pin {
+        (
+            verbs.param(codec, nid, param::PIN_CAPS)?,
+            verbs.verb(codec, nid, GET_CONFIG_DEFAULT, 0)?,
+        )
+    } else {
+        (0, 0)
+    };
+    Ok(Widget {
+        nid,
+        caps,
+        conns,
+        conn_count,
+        pin_caps,
+        config,
+    })
 }
 
 /// The output pins in order of preference: attached, output capable, line out
