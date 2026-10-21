@@ -76,26 +76,28 @@ impl Docs {
         let page_colour = Color::hex(if dark { DARK_PAGE } else { LIGHT_PAGE });
         let path_label = Handle::new();
         let view: Handle<LightView<Msg>> = Handle::new();
-        ui.root(column().children((
-            row()
-                .gap(8)
-                .align(Align::Center)
-                .padding(Insets::symmetric(Dip(8.0), Dip(5.0)))
-                .children((
-                    button("Open...").on_click(Msg::Open).width(Dip(92.0)),
-                    label("").bind(&path_label).align_y(Align::Center).fill(1),
-                ))
-                .fixed(Dip(TOOLBAR_H)),
-            build(move |ui: &Ui<Msg>| {
-                LightView::new(ui, Rect::default(), page_colour, |event| match event {
-                    LightEvent::Link(href) => Some(Msg::Link(href)),
-                    LightEvent::Painted => Some(Msg::Painted),
-                    LightEvent::Status(status) => Some(Msg::Engine(status)),
+        ui.root(
+            column().children((
+                row()
+                    .gap(8)
+                    .align(Align::Center)
+                    .padding(Insets::symmetric(Dip(8.0), Dip(5.0)))
+                    .children((
+                        button("Open...").on_click(Msg::Open).width(Dip(92.0)),
+                        label("").bind(&path_label).align_y(Align::Center).fill(1),
+                    ))
+                    .fixed(Dip(TOOLBAR_H)),
+                build(move |ui: &Ui<Msg>| {
+                    LightView::new(ui, Rect::default(), page_colour, |event| match event {
+                        LightEvent::Link(href) => Some(Msg::Link(href)),
+                        LightEvent::Painted => Some(Msg::Painted),
+                        LightEvent::Status(status) => Some(Msg::Engine(status)),
+                    })
                 })
-            })
-            .bind(&view)
-            .fill(1),
-        )))?;
+                .bind(&view)
+                .fill(1),
+            )),
+        )?;
         let path_label = path_label.get();
         let view = view.get();
 
@@ -214,13 +216,11 @@ impl App for Docs {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Painted => {
-                match self.render_marker.take() {
-                    Some(path) if path.is_empty() => trace::pass!(Channel::Docs, "RENDER"),
-                    Some(path) => trace::pass!(Channel::Docs, "RENDER", "{path}"),
-                    None => {}
-                }
-            }
+            Msg::Painted => match self.render_marker.take() {
+                Some(path) if path.is_empty() => trace::pass!(Channel::Docs, "RENDER"),
+                Some(path) => trace::pass!(Channel::Docs, "RENDER", "{path}"),
+                None => {}
+            },
             Msg::Link(href) => self.follow(ui, &href),
             Msg::Engine(Status::Live) => trace::line!(Channel::Docs, "ENGINE:UP"),
             Msg::Engine(Status::NotRunning) => {

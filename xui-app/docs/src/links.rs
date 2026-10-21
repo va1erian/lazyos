@@ -66,7 +66,10 @@ pub fn classify(href: &str, current: Option<&Path>) -> Link {
 fn scheme_of(href: &str) -> Option<&str> {
     let end = href.find([':', '/', '?', '#'])?;
     let (scheme, rest) = href.split_at(end);
-    let valid = scheme.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+    let valid = scheme
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic())
         && scheme
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
@@ -127,27 +130,51 @@ mod tests {
     #[test]
     fn an_anchor_stays_on_the_page() {
         assert_eq!(classify_in("#section"), Link::Anchor);
-        assert_eq!(classify_in("intro.md#section"), Link::Document("/docs/os/guide/intro.md".into()));
+        assert_eq!(
+            classify_in("intro.md#section"),
+            Link::Document("/docs/os/guide/intro.md".into())
+        );
         assert_eq!(classify_in("?x=1"), Link::Anchor);
     }
 
     #[test]
     fn a_relative_markdown_link_opens_beside_the_current_document() {
-        assert_eq!(classify_in("other.md"), Link::Document("/docs/os/guide/other.md".into()));
-        assert_eq!(classify_in("./sub/a.MD"), Link::Document("/docs/os/guide/sub/a.MD".into()));
-        assert_eq!(classify_in("../index.markdown"), Link::Document("/docs/os/index.markdown".into()));
-        assert_eq!(classify_in("a%20b.md"), Link::Document("/docs/os/guide/a b.md".into()));
+        assert_eq!(
+            classify_in("other.md"),
+            Link::Document("/docs/os/guide/other.md".into())
+        );
+        assert_eq!(
+            classify_in("./sub/a.MD"),
+            Link::Document("/docs/os/guide/sub/a.MD".into())
+        );
+        assert_eq!(
+            classify_in("../index.markdown"),
+            Link::Document("/docs/os/index.markdown".into())
+        );
+        assert_eq!(
+            classify_in("a%20b.md"),
+            Link::Document("/docs/os/guide/a b.md".into())
+        );
     }
 
     #[test]
     fn dot_dot_cannot_leave_the_root() {
-        assert_eq!(classify_in("../../../../../x.md"), Link::Document("/x.md".into()));
+        assert_eq!(
+            classify_in("../../../../../x.md"),
+            Link::Document("/x.md".into())
+        );
     }
 
     #[test]
     fn an_absolute_path_is_taken_as_written() {
-        assert_eq!(classify_in("/docs/apps/a.md"), Link::Document("/docs/apps/a.md".into()));
-        assert_eq!(classify_in("/system/share/samples/x.pdf"), Link::File("/system/share/samples/x.pdf".into()));
+        assert_eq!(
+            classify_in("/docs/apps/a.md"),
+            Link::Document("/docs/apps/a.md".into())
+        );
+        assert_eq!(
+            classify_in("/system/share/samples/x.pdf"),
+            Link::File("/system/share/samples/x.pdf".into())
+        );
     }
 
     #[test]
@@ -160,15 +187,29 @@ mod tests {
 
     #[test]
     fn other_files_go_to_mimed() {
-        assert_eq!(classify_in("diagram.png"), Link::File("/docs/os/guide/diagram.png".into()));
+        assert_eq!(
+            classify_in("diagram.png"),
+            Link::File("/docs/os/guide/diagram.png".into())
+        );
     }
 
     #[test]
     fn web_and_mail_addresses_are_handed_on_and_other_schemes_refused() {
-        assert_eq!(classify_in("https://example.com/a?b#c"), Link::Url("https://example.com/a?b#c".into()));
+        assert_eq!(
+            classify_in("https://example.com/a?b#c"),
+            Link::Url("https://example.com/a?b#c".into())
+        );
         assert_eq!(classify_in("HTTP://x"), Link::Url("HTTP://x".into()));
-        assert_eq!(classify_in("mailto:a@b.c"), Link::Url("mailto:a@b.c".into()));
-        for refused in ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "x-lazyweb:about"] {
+        assert_eq!(
+            classify_in("mailto:a@b.c"),
+            Link::Url("mailto:a@b.c".into())
+        );
+        for refused in [
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "file:///etc/passwd",
+            "x-lazyweb:about",
+        ] {
             assert_eq!(classify_in(refused), Link::Refused, "{refused}");
         }
     }
@@ -185,6 +226,9 @@ mod tests {
 
     #[test]
     fn a_colon_after_a_slash_is_not_a_scheme() {
-        assert_eq!(classify_in("a/b:c.md"), Link::Document("/docs/os/guide/a/b:c.md".into()));
+        assert_eq!(
+            classify_in("a/b:c.md"),
+            Link::Document("/docs/os/guide/a/b:c.md".into())
+        );
     }
 }

@@ -64,7 +64,9 @@ pub enum PaneEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     /// No view: create one at `at` (milliseconds) or later.
-    Creating { at: u64 },
+    Creating {
+        at: u64,
+    },
     Running,
     /// Gave up; [`Pane::retry`] starts again.
     Dead,

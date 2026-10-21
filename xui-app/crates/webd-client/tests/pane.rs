@@ -70,10 +70,7 @@ fn webd_late_is_quiet_then_not_running_then_the_page_appears() {
     assert!(pane.tick((0, 0), 4000).is_empty());
 
     world.borrow_mut().down = false;
-    assert_eq!(
-        pane.tick(SIZE, 4000),
-        vec![PaneEvent::Status(Status::Live)]
-    );
+    assert_eq!(pane.tick(SIZE, 4000), vec![PaneEvent::Status(Status::Live)]);
     // The page goes in with the next turn.
     pane.tick(SIZE, 4016);
     assert_eq!(loads(&world), vec!["<p>one</p>".to_owned()]);
@@ -93,11 +90,7 @@ fn a_page_is_painted_once_after_its_load_finishes() {
     assert!(pane.tick(SIZE, 32).is_empty());
     world.borrow().queue.state(view, "t", false, 1, "");
     assert!(pane.tick(SIZE, 48).is_empty(), "finished, not yet drawn");
-    assert!(world
-        .borrow()
-        .engine
-        .calls()
-        .contains(&Call::Refresh(view)));
+    assert!(world.borrow().engine.calls().contains(&Call::Refresh(view)));
     paint(&world, view);
     assert_eq!(pane.tick(SIZE, 64), vec![PaneEvent::Painted]);
     assert!(!pane.picture().is_empty());

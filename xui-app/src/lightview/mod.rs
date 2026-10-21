@@ -20,8 +20,8 @@ use std::time::Instant;
 
 use xui_core::app::Ui;
 use xui_core::backend::{Event, NodeKind, NodeSpec, Result, WidgetId};
-use xui_core::image::Image;
 use xui_core::geometry::Size;
+use xui_core::image::Image;
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Canvas, Color, Dip, MouseButton, Rect, TextStyle};
@@ -69,7 +69,23 @@ struct Shared {
     held: Option<MouseButton>,
     mods: u32,
     background: Color,
+    /// The newest pointer move and the wheel turns since the last tick, sent once per tick: a burst of
+    /// either would overflow webd's inbox (a full inbox drops a oneway message), and the page only needs
+    /// where the pointer is and how far the wheel went.
+    pending: Pending,
 }
+
+/// Pointer input that waits for the next tick (see [`Shared::pending`]).
+#[derive(Default)]
+struct Pending {
+    /// `(x, y, held button, modifiers)` of the newest move.
+    motion: Option<(i32, i32, i32, u32)>,
+    /// `(x, y, horizontal notches, vertical notches, modifiers)` summed since the last send.
+    wheel: Option<(i32, i32, i32, i32, u32)>,
+}
+
+/// Most notches one `Wheel` message carries: the engine takes at most this many per call.
+const WHEEL_NOTCHES_MAX: i32 = 8;
 
 impl<M: 'static> LightView<M> {
     /// A view at `bounds` (device pixels; a layout may move it). `background` shows before the first
@@ -93,6 +109,7 @@ impl<M: 'static> LightView<M> {
             held: None,
             mods: 0,
             background,
+            pending: Pending::default(),
         }));
         {
             let shared = Rc::clone(&shared);
@@ -200,6 +217,7 @@ fn zoom_css(dpi: u32) -> String {
 impl Shared {
     /// One turn of the pane's clock; whether the picture needs drawing, and what the app is told.
     fn tick<M: 'static>(&mut self, ui: &Ui<M>) -> (bool, Vec<LightEvent>) {
+        self.flush_pointer();
         let now_ms = self.started.elapsed().as_millis() as u64;
         let mut told = Vec::new();
         let mut dirty = false;
@@ -221,6 +239,22 @@ impl Shared {
         (changed, told)
     }
 
+    /// Sends the pointer move and the wheel turns that waited for this tick.
+    fn flush_pointer(&mut self) {
+        if let Some((x, y, button, mods)) = self.pending.motion.take() {
+            self.pane.view().mouse(MouseKind::Move, button, x, y, mods);
+        }
+        if let Some((x, y, mut across, mut down, mods)) = self.pending.wheel.take() {
+            while across != 0 || down != 0 {
+                let step_x = across.clamp(-WHEEL_NOTCHES_MAX, WHEEL_NOTCHES_MAX);
+                let step_y = down.clamp(-WHEEL_NOTCHES_MAX, WHEEL_NOTCHES_MAX);
+                self.pane.view().wheel(x, y, step_x, step_y, mods);
+                across -= step_x;
+                down -= step_y;
+            }
+        }
+    }
+
     fn paint(&mut self, canvas: &mut dyn Canvas) {
         let bounds = canvas.bounds();
         self.size = (bounds.width().max(0) as u32, bounds.height().max(0) as u32);
@@ -229,9 +263,10 @@ impl Shared {
         let picture = self.pane.picture();
         if !picture.is_empty() {
             if self.image.as_ref().map(|(made_at, _)| *made_at) != Some(applied) {
-                self.image = Image::from_rgba(picture.width(), picture.height(), picture.rgba().to_vec())
-                    .ok()
-                    .map(|image| (applied, image));
+                self.image =
+                    Image::from_rgba(picture.width(), picture.height(), picture.rgba().to_vec())
+                        .ok()
+                        .map(|image| (applied, image));
             }
             if let Some((_, image)) = &self.image {
                 // At its own size from the corner: while a resize is in flight it is never stretched.
@@ -258,7 +293,8 @@ impl Shared {
             Status::Starting | Status::Live => return,
             Status::NotRunning => (
                 "The web engine is not running".to_owned(),
-                "Log out and in again, or start \"Web Engine\" from the applications menu.".to_owned(),
+                "Log out and in again, or start \"Web Engine\" from the applications menu."
+                    .to_owned(),
             ),
             Status::Failed(why) => (
                 "The web engine stopped".to_owned(),
@@ -270,20 +306,44 @@ impl Shared {
             let middle = (bounds.top + bounds.bottom) / 2;
             let head = Rect::new(bounds.left, middle - 30, bounds.right, middle - 4);
             let tail = Rect::new(bounds.left, middle + 4, bounds.right, middle + 28);
-            canvas.draw_text(&headline, head, &TextStyle::new(ink, Dip(16.0)).centered().middle());
-            canvas.draw_text(&detail, tail, &TextStyle::new(ink, Dip(13.0)).centered().middle());
+            canvas.draw_text(
+                &headline,
+                head,
+                &TextStyle::new(ink, Dip(16.0)).centered().middle(),
+            );
+            canvas.draw_text(
+                &detail,
+                tail,
+                &TextStyle::new(ink, Dip(13.0)).centered().middle(),
+            );
         } else {
             let strip = Rect::new(bounds.left, bounds.top, bounds.right, bounds.top + BANNER_H);
             canvas.fill_rect(strip, self.background);
             let text = format!("{headline}. {detail}");
-            canvas.draw_text(&text, strip, &TextStyle::new(ink, Dip(13.0)).centered().middle());
+            canvas.draw_text(
+                &text,
+                strip,
+                &TextStyle::new(ink, Dip(13.0)).centered().middle(),
+            );
         }
     }
 
     fn event<M: 'static>(&mut self, ui: &Ui<M>, id: WidgetId, event: &Event) {
         match *event {
-            Event::MouseDown { x, y, button, modifiers }
-            | Event::MouseDoubleClick { x, y, button, modifiers } => {
+            Event::MouseDown {
+                x,
+                y,
+                button,
+                modifiers,
+            }
+            | Event::MouseDoubleClick {
+                x,
+                y,
+                button,
+                modifiers,
+            } => {
+                // A move that waits for the tick goes first: the press is where the pointer is.
+                self.flush_pointer();
                 self.mods = modifier_bits(modifiers);
                 ui.focus(id);
                 if self.held.is_none() {
@@ -294,7 +354,13 @@ impl Shared {
                     .view()
                     .mouse(MouseKind::Press, button_number(button), x, y, self.mods);
             }
-            Event::MouseUp { x, y, button, modifiers } => {
+            Event::MouseUp {
+                x,
+                y,
+                button,
+                modifiers,
+            } => {
+                self.flush_pointer();
                 self.mods = modifier_bits(modifiers);
                 self.pane
                     .view()
@@ -306,14 +372,26 @@ impl Shared {
             }
             Event::MouseMove { x, y, modifiers } => {
                 let held = self.held.map_or(0, button_number);
-                self.pane
-                    .view()
-                    .mouse(MouseKind::Move, held, x, y, modifier_bits(modifiers));
+                self.pending.motion = Some((x, y, held, modifier_bits(modifiers)));
             }
-            Event::MouseWheel { delta, horizontal, x, y, modifiers } => {
+            Event::MouseWheel {
+                delta,
+                horizontal,
+                x,
+                y,
+                modifiers,
+            } => {
                 let ticks = notches(delta);
                 let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
-                self.pane.view().wheel(x, y, tx, ty, modifier_bits(modifiers));
+                let (_, _, across, down, _) = self.pending.wheel.unwrap_or_default();
+                let sum = |a: i32, b: i32| a.saturating_add(b);
+                self.pending.wheel = Some((
+                    x,
+                    y,
+                    sum(across, tx),
+                    sum(down, ty),
+                    modifier_bits(modifiers),
+                ));
             }
             Event::CaptureChanged => self.held = None,
             Event::SetFocus => self.pane.view().focus(true),
@@ -324,14 +402,16 @@ impl Shared {
                 if matches!(self.pane.status(), Status::Failed(_)) {
                     self.pane.retry();
                 }
-                let sym = keysym(key).or_else(|| modifiers.ctrl.then(|| ctrl_letter(key)).flatten());
+                let sym =
+                    keysym(key).or_else(|| modifiers.ctrl.then(|| ctrl_letter(key)).flatten());
                 if let Some(sym) = sym {
                     self.pane.view().key(true, sym, "", self.mods);
                 }
             }
             Event::KeyUp { key, modifiers, .. } => {
                 self.mods = modifier_bits(modifiers);
-                let sym = keysym(key).or_else(|| modifiers.ctrl.then(|| ctrl_letter(key)).flatten());
+                let sym =
+                    keysym(key).or_else(|| modifiers.ctrl.then(|| ctrl_letter(key)).flatten());
                 if let Some(sym) = sym {
                     self.pane.view().key(false, sym, "", self.mods);
                 }
@@ -351,7 +431,9 @@ impl Shared {
 
 /// Black or white, whichever reads on `background`.
 fn readable_on(background: Color) -> Color {
-    let luminance = u32::from(background.r) * 299 + u32::from(background.g) * 587 + u32::from(background.b) * 114;
+    let luminance = u32::from(background.r) * 299
+        + u32::from(background.g) * 587
+        + u32::from(background.b) * 114;
     if luminance > 128_000 {
         Color::hex(0x20_20_20)
     } else {
