@@ -114,7 +114,10 @@ mmio_ranges="
 0x06F000 0x06F100 EDP transcoder
 0x064000 0x064400 DDI A-E buffer, AUX
 0x064E00 0x064F00 DDI buffer translations
-0x065000 0x065200 audio: AUD_CONFIG, ELD, DIP
+0x065000 0x065500 audio: AUD_CONFIG, MISC_CTRL, ELD control and port, DIP, ELD_CP_VLD (all pipes)
+0x065800 0x065A00 audio: AUD_FREQ_CNTRL and neighbours
+0x065F00 0x066000 audio: AUD_CHICKENBIT (codec wake)
+0x048400 0x048430 audio: AUD_PIN_BUF_CTL (WA #1154)
 0x068000 0x068200 pipe scalers
 0x06C000 0x06C100 DPLL_CTRL1/2/STATUS, DPLL CFGCR
 0x070000 0x070300 pipe A conf/misc, plane 1/2/3, cursor, DDB, watermarks
