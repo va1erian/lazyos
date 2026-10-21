@@ -41,6 +41,21 @@ STATIC_LIBRARIES = [
 ]
 
 
+#: WebKit is built -fno-exceptions and the programs never unwind (no backtrace, no catch), so the
+#: unwind tables are dead weight: `.eh_frame`, its index and `.gcc_except_table` were 8.2 MB of
+#: every 107 MiB program. (The bundle's libraries keep theirs: about 1.5 MB.)
+NO_UNWIND = ["-fno-asynchronous-unwind-tables", "-fno-unwind-tables"]
+#: lld folds functions and constants that are byte for byte the same, never one whose address
+#: is taken (`-faddrsig`): 5.3 MB of NetworkProcess. (It warns for the three objects of the
+#: bundle whose address-significance table objcopy damaged, and leaves those unfolded.)
+#: zig's driver cannot pass `--icf`: the `zc++` wrapper links twice when this is set (toolenv.icf_wrapper).
+LINK_ENV = {"LAZYOS_LINK_ICF": "1"}
+
+
+def size_flags() -> str:
+    return " ".join(NO_UNWIND)
+
+
 def simd_flags() -> str:
     """simdutf's AVX paths need `evex512` and LazyOS enables no AVX state (tools/jsc/webkit.py)."""
     return " ".join(f"-DSIMDUTF_IMPLEMENTATION_{n}=0" for n in ("ICELAKE", "HASWELL", "WESTMERE"))
@@ -63,7 +78,7 @@ def options() -> dict[str, str]:
         "ENABLE_CONTENT_EXTENSIONS": "ON",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],
         "CMAKE_AR": wrap["zar"], "CMAKE_RANLIB": wrap["zranlib"],
-        "CMAKE_C_FLAGS": flags, "CMAKE_CXX_FLAGS": f"{flags} {simd_flags()} -std=c++2b",
+        "CMAKE_C_FLAGS": f"{flags} {size_flags()}", "CMAKE_CXX_FLAGS": f"{flags} {size_flags()} {simd_flags()} -std=c++2b",
         "CMAKE_C_FLAGS_RELEASE": "-DNDEBUG", "CMAKE_CXX_FLAGS_RELEASE": "-DNDEBUG",
         "CMAKE_EXE_LINKER_FLAGS": " ".join(toolenv.LINK),
         "ICU_ROOT": str(PREFIX), "CMAKE_PREFIX_PATH": str(PREFIX),
@@ -104,7 +119,7 @@ def build(tree: Path, jobs: int, targets: list[str]) -> dict[str, str]:
         wkpins.log("linking again with the fixed allocator: " + ", ".join(old))
     began = time.monotonic()
     run(["ninja", "-C", str(BUILD), f"-j{jobs}", "-k", "0", *targets], BUILD, "webkit port build",
-        env=buildkit.pkg_env())
+        env={**buildkit.pkg_env(), **LINK_ENV})
     wkpins.log(f"ninja finished in {time.monotonic() - began:.0f} s")
     zigfix.mark(record, targets)
     return collect(targets)

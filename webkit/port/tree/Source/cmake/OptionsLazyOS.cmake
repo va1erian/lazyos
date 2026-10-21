@@ -195,6 +195,20 @@ set(CMAKE_C_VISIBILITY_PRESET hidden)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
+# Cold code is built for size: the generated JavaScript bindings (9 MB of text), the IPC and
+# process management of the WebKit layer and the inspector. Everything on a hot path (JavaScriptCore,
+# WTF, layout, style, painting, Skia) stays -O2. -Os takes about a fifth off such code
+# (docs/webkit-port-plan.md, section 6). Deferred: the targets are made after this file.
+function(lazyos_size_optimize)
+    foreach (_target IN ITEMS WebCoreJSBindings WebCoreInspector WebKitShared WebKitWebProcess
+                              WebKitNetworkProcess WebKitUIProcess)
+        if (TARGET ${_target})
+            target_compile_options(${_target} PRIVATE -Os)
+        endif ()
+    endforeach ()
+endfunction()
+cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL lazyos_size_optimize)
+
 check_symbol_exists(memmem string.h HAVE_MEMMEM)
 if (HAVE_MEMMEM)
     add_definitions(-DHAVE_MEMMEM=1)

@@ -56,6 +56,31 @@ def zig_command() -> list[str]:
     return command
 
 
+def icf_wrapper(cxx: str, lld: str) -> str:
+    """The `zc++` script. With `LAZYOS_LINK_ICF` set a link step runs twice: zig's `cc` driver
+    refuses `-Wl,--icf=...` (lld folds identical functions and constants with it: 5 MB of a WebKit
+    program), so the first link only reports (`ZIG_VERBOSE_LINK`) the exact `ld.lld` command line,
+    and the second runs that line again, with `--icf=safe`, through zig's own lld."""
+    return f"""#!/bin/sh
+if [ -z "$LAZYOS_LINK_ICF" ]; then exec {cxx} "$@"; fi
+case " $* " in *" -c "*|*" -E "*|*" -S "*) exec {cxx} "$@" ;; esac
+log=$(mktemp)
+ZIG_VERBOSE_LINK=1 {cxx} "$@" 2>"$log"
+status=$?
+grep -v '^\\(ld.lld\\|ar rcs\\) ' "$log" >&2
+line=$(grep '^ld.lld ' "$log" | tail -1)
+rm -f "$log"
+if [ $status -eq 0 ] && [ -n "$line" ]; then
+  out=$(mktemp)
+  eval "{lld} --icf=safe ${{line#ld.lld }}" >"$out" 2>&1
+  status=$?
+  grep -v 'conservatively ignores SHT_LLVM_ADDRSIG' "$out" >&2
+  rm -f "$out"
+fi
+exit $status
+"""
+
+
 def wrappers() -> dict[str, str]:
     """Write the compiler wrappers; the `CC`/`CXX`/`AR`/`RANLIB` paths."""
     base = pins.WORK / "wrap"
@@ -69,7 +94,8 @@ def wrappers() -> dict[str, str]:
         "zranlib": f"{zig} ranlib",
     }.items():
         script = base / name
-        script.write_text(f'#!/bin/sh\nexec {body} "$@"\n')
+        script.write_text(icf_wrapper(body, f"{zig} ld.lld") if name == "zc++"
+                          else f'#!/bin/sh\nexec {body} "$@"\n')
         script.chmod(0o755)
         paths[name] = str(script)
     return paths
