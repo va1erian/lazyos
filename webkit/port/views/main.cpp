@@ -5,7 +5,10 @@
 //   webkit-views light   one view, a non-persistent store, no features: a "light view" (docs/webd-plan.md 3.6)
 //   webkit-views two     two views at once, one with a profile directory and one without
 //   webkit-views twoeph  two views at once, neither with a profile directory
+//   webkit-views share   two views of the same profile directory; the first is destroyed, the second goes on
 //   webkit-views cycle   twelve views made, shown and destroyed one after the other
+//   webkit-views rush    twelve views made and destroyed at once, before their pages are up
+// The first view of the pairs has every feature (the clients of a full browser view), the second none.
 //
 // Each view loads a data: page of its own colour and title and must end up painting that colour and no
 // other, whatever the other view does; then the first is destroyed and the second, still alive, loads
@@ -76,10 +79,11 @@ long monotonicMs()
     return now.tv_sec * 1000L + now.tv_nsec / 1000000L;
 }
 
+// Written from the launcher's and reapers' threads (through HostEnv::say), read on the main thread.
 struct Counters {
-    int web { 0 };
-    int network { 0 };
-    int webExits { 0 };
+    std::atomic<int> web { 0 };
+    std::atomic<int> network { 0 };
+    std::atomic<int> webExits { 0 };
 };
 Counters launches;
 
@@ -133,6 +137,7 @@ public:
         : name(name)
     {
     }
+    void paintUpdate(int, int, int, int, int, int, const int*, int) override { ++updates; }
     void state(const ViewState& s) override
     {
         title = s.title;
@@ -158,6 +163,7 @@ public:
     int finished { 0 };
     bool crashed { false };
     int frames { 0 };
+    int updates { 0 }; // updates from the page's process that reached this view (paint.cpp, viewOfPage)
     char last { '?' };
     std::string seen; // the dominant colour of every frame, in order
 };
@@ -191,6 +197,8 @@ long started = 0, phaseStarted = 0;
 // The cycle mode: a view at a time, N in all.
 constexpr int kCycles = 12;
 bool cycling = false;
+bool rush = false; // destroy a view at once, before its page is up
+bool sameProfile = false;
 int cycleIndex = 0;
 int cycleView = 0;
 std::unique_ptr<Probe> cycleProbe;
@@ -205,7 +213,7 @@ void finish(const char* verdict, const char* detail)
         return;
     done = true;
     passed = !strcmp(verdict, "PASS");
-    printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web, launches.network);
+    printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web.load(), launches.network.load());
     if (detail && *detail)
         printf("VIEWS:%s:%s\n", verdict, detail);
     else
@@ -258,9 +266,10 @@ void step(void*)
             }
             cycleView = made->id;
             made->load(page("Cycle", cycleColours[cycleIndex % 3]));
-            return;
+            if (!rush)
+                return;
         }
-        if (cycleProbe->finished >= 1 && cycleProbe->last == cycleLetters[cycleIndex % 3]) {
+        if (rush || (cycleProbe->finished >= 1 && cycleProbe->last == cycleLetters[cycleIndex % 3])) {
             destroyView(cycleView);
             cycleProbe.reset();
             if (++cycleIndex == kCycles) {
@@ -273,11 +282,11 @@ void step(void*)
     if (phase == 2) {
         // Every destroyed view's WebProcess must end.
         if (launches.webExits >= kCycles) {
-            printf("VIEWS:CYCLED:%d:web launches=%d exits=%d\n", kCycles, launches.web, launches.webExits);
+            printf("VIEWS:CYCLED:%d:web launches=%d exits=%d\n", kCycles, launches.web.load(), launches.webExits.load());
             finish("PASS", "");
         } else if (now - phaseStarted > 20000) {
             char detail[128];
-            snprintf(detail, sizeof detail, "only %d of %d web processes ended", launches.webExits, kCycles);
+            snprintf(detail, sizeof detail, "only %d of %d web processes ended", launches.webExits.load(), kCycles);
             finish("FAIL", detail);
         }
         return;
@@ -285,7 +294,13 @@ void step(void*)
     if (phase == 0) {
         const bool upA = !bothViews || shows(first, "Alpha", 'r');
         if (upA && shows(second, "Beta", 'b')) {
-            printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web, launches.network);
+            printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web.load(), launches.network.load());
+            printf("VIEWS:UPDATES:A=%d:B=%d\n", first.updates, second.updates);
+            if (first.updates + second.updates == 0) {
+                // Every frame so far came from the load finishing: the page callbacks never found a view.
+                finish("FAIL", "no update from a page's process reached a view");
+                return;
+            }
             if (bothViews)
                 printf("VIEWS:PAGE:A:title=Alpha:colour=red:ms=%ld\n", now - started);
             printf("VIEWS:PAGE:B:title=Beta:colour=blue:ms=%ld\n", now - started);
@@ -307,7 +322,7 @@ void step(void*)
     }
     if (phase == 1 && second.finished >= 2 && second.title == "Gamma" && second.last == 'g') {
         // A's WebProcess ended with its view (its view was the only one that used it).
-        if (bothViews && launches.webExits < 1) {
+        if (bothViews && !sameProfile && launches.webExits < 1) {
             if (now - phaseStarted > 20000)
                 finish("FAIL", "the destroyed view's web process did not end");
             return;
@@ -331,8 +346,10 @@ void* ticker(void*)
 int main(int argc, char** argv)
 {
     const bool ephemeralPair = argc > 1 && !strcmp(argv[1], "twoeph");
-    cycling = argc > 1 && !strcmp(argv[1], "cycle");
-    bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair);
+    rush = argc > 1 && !strcmp(argv[1], "rush");
+    cycling = rush || (argc > 1 && !strcmp(argv[1], "cycle"));
+    sameProfile = argc > 1 && !strcmp(argv[1], "share");
+    bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair || sameProfile);
     setvbuf(stdout, nullptr, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
     stack_t alternate = { };
@@ -342,31 +359,37 @@ int main(int argc, char** argv)
     struct sigaction action = { };
     action.sa_sigaction = reportCrash;
     action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
-    sigaction(SIGABRT, &action, nullptr);
-    sigaction(SIGSEGV, &action, nullptr);
+    for (int number : { SIGABRT, SIGSEGV, SIGILL, SIGTRAP, SIGBUS })
+        sigaction(number, &action, nullptr);
     WKRunLoopInitializeMain();
     const std::string profile = bothViews && !ephemeralPair ? "/tmp/webkit-views-profile" : "";
     if (!startHost(&env, profile)) {
         printf("VIEWS:FAIL:the host did not start\n");
-        return 1;
+        _exit(1);
     }
     ViewConfig lightConfig;
     lightConfig.width = 320;
     lightConfig.height = 200;
     if (bothViews) {
-        ViewConfig persistent = lightConfig;
-        persistent.profile = profile;
-        View* a = createView(persistent, &first);
+        ViewConfig full = lightConfig;
+        full.profile = profile;
+        // Every client a browser view has: the page UI, dialogs, downloads, policy, notifications and blocking.
+        full.features = LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_DOWNLOADS | LZW_FEATURE_POLICY
+            | LZW_FEATURE_NOTIFICATIONS | LZW_FEATURE_BLOCKING;
+        View* a = createView(full, &first);
         if (!a) {
             printf("VIEWS:FAIL:view A\n");
-            return 1;
+            _exit(1);
         }
         firstId = a->id;
     }
-    View* b = cycling ? nullptr : createView(lightConfig, &second);
+    ViewConfig second_config = lightConfig;
+    if (sameProfile)
+        second_config.profile = profile;
+    View* b = cycling ? nullptr : createView(second_config, &second);
     if (!b && !cycling) {
         printf("VIEWS:FAIL:view B\n");
-        return 1;
+        _exit(1);
     }
     secondId = b ? b->id : 0;
     started = monotonicMs();

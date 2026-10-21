@@ -222,8 +222,10 @@ WKSecurityOriginRef originFromString(const std::string& text)
 
 void installNotifications()
 {
-    if (!has(LZW_FEATURE_NOTIFICATIONS))
+    static bool installed = false;
+    if (installed)
         return;
+    installed = true;
     static WKNotificationProviderV0 provider = { };
     provider.base.version = 0;
     provider.show = providerShow;

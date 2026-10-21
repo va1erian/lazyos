@@ -688,6 +688,7 @@ thread other than the process's first. `python tools/webplus/notify_run.py` is i
 
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # the engine's views, headless, in the container
 python tools/xui/build.py                                                                         # the package
 python tools/webplus/run.py --accel auto                                                          # boot four times, judge
 python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge

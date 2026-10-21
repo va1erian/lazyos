@@ -196,8 +196,9 @@ int main(int argc, char** argv)
     WKRunLoopInitializeMain();
     webkitapp::useLegacyEnvironment();
     webkitapp::say("UP");
+    // _exit, not return: a return would run the host's destructors, and releasing a page proxy aborts.
     if (lzw_engine_start() != 0)
-        return 1;
+        _exit(1);
 
     static Arguments arguments { argc, argv, 0 };
     pthread_attr_t attributes;
@@ -207,7 +208,7 @@ int main(int argc, char** argv)
     pthread_t window;
     if (pthread_create(&window, &attributes, windowThread, &arguments) != 0) {
         webkitapp::say("FAIL:window:cannot start the window's thread");
-        return 1;
+        _exit(1);
     }
     pthread_detach(window);
 

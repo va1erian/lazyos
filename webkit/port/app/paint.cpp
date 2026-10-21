@@ -182,7 +182,7 @@ struct ScrollOffset {
 };
 
 // WKRunLoop has no timer, so a thread sleeps the gap and posts the paint; a view has one, started the
-// first time a paint has to wait, and ended with the view.
+// first time a paint has to wait, and ended when the view is destroyed (releasePaint).
 struct Pacer {
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
@@ -641,6 +641,12 @@ View::View(int id, const ViewConfig& config, ViewSink* sink)
     , width(config.width)
     , height(config.height)
 {
+}
+
+void releasePaint(View& v)
+{
+    v.painting.reset(); // ends the pacer thread
+    std::vector<uint8_t>().swap(v.pixels);
 }
 
 View::~View()

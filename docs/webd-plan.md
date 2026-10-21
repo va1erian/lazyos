@@ -1,6 +1,6 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: **plan**, P0 spike (a) done, light views added and P1.0 (webkit-app removal) done 2026-10-21 (sections 3.6, 7, 9.1); the engine and the daemon are not built. Builds on W4/W5/W6 of
+Status: **plan**, P0 spike (a), P1.0 (webkit-app removal) and the engine half of P1 (Host/View, section 7) done 2026-10-21; the engine and the daemon are not built. Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -216,7 +216,9 @@ the light interface cannot even resolve the full service.
 * *Client simplicity.* The light widget is `LightWebView`: `new(html)`, `set_html`, events. No chrome, no address,
   no downloads UI, no dialogs to draw.
 
-**Spike L1 (P1, first task of the multi-view engine): can a light view run with no NetworkProcess?** Try in
+**Spike L1 (P1): can a light view run with no NetworkProcess? No** (`webkit-views light`: one web process and one NetworkProcess for a non-persistent store and a `data:` page, launched as the page loads; `webkit/README.md`, "The engine"). The steps below are what was planned; (3) is the outcome, so the 107 MiB saving is dropped from the claims and a light view is cheap only in what it does not install.
+
+Planned: Try in
 order: (1) a second `WKContext` with `WKWebsiteDataStoreCreateNonPersistentDataStore` and only
 `data:`/`LoadHtml` content; see whether WebKit launches a NetworkProcess at all (the launcher's
 `PROCESS:LAUNCH:network` marker answers it). (2) If it does, check that one launched for a non-persistent store
@@ -327,12 +329,32 @@ browser moves onto webd**.
 | Phase | Deliverable | Exit criteria | Size *est.* |
 |---|---|---|---|
 | **P1.0 remove webkit-app** (code done; the QEMU and Docker gates below not yet run) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` pass; `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
-| **P1 multi-view engine** | `Host`/`View` split in `webkit/port/app`, view ids in the ABI, the **light/full split of what is installed per view** (3.6); LazyWeb+'s window runs on a one-view full adapter; `webkit-smoke` learns a two-view mode and a light view | `webplus/run.py` judges unchanged; smoke judges a full and a light view loaded and painted independently, and answers L1 (is a network process launched for a light view) | 1.5-2.5 weeks |
+| **P1 multi-view engine** (done, windowed harness pending) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py` judges unchanged (**not yet run against this engine**) | 1.5-2.5 weeks |
 | **P2 webd, light first** | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
 | **P4 LazyWeb+ thin client, LazyWeb out** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible; then LazyWeb deleted | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
+
+### What P1 found (2026-10-21, `webkit-views`)
+
+* **One NetworkProcess, one WebProcess per view.** Two views with different stores, and two views of one profile
+  directory, each launched a web process, and all shared one network process. **A view costs 107 MiB, not a
+  profile**: decision D4's "web processes are never shared across profiles" is a floor, and section 6's arithmetic
+  (one web process per profile) is too kind. A light view
+  launches the network process too (L1, above). A destroyed view's web process ends with it.
+* **A WebPageProxy cannot be destroyed on this port.** `webkit-views two` aborted the UI process one run in three
+  after the first view was released (a CheckedPtr to a dead run-loop timer inside `didReachLayoutMilestone`; the
+  family of patches `0021` and `0027`); `WKPageClose` first made it worse; ending the page's process and parking
+  the hollow proxy passes ten runs in a row. For webd this means a client's view that comes and goes (Mail's
+  message pane) leaves a proxy behind each time (and the store and session of a private view): bitmaps, the pacer
+  thread and the process are freed. **P5 needs a pool of parked views reused by the same owner and profile**, or a
+  WebKit patch that finds the dead timer.
+* **Three of the page callbacks are process-wide** (patches `0024`, `0028`, `0030`): fixed in the engine by finding
+  the view from the page argument. A patch that makes them per page would be cleaner and costs a WebKit rebuild.
+* **The children's environment is the first persistent profile's** (`LAZYOS_WEBKIT_PROFILE`, `CURL_COOKIE_JAR_PATH`):
+  a second profile's cookies in a shared NetworkProcess need a patch or a second process (decision D4's "per-profile
+  cookie jars at first" is true for the data store, not yet for curl's jar).
 
 Kernel testing requirement: nothing above adds kernel code. webd's correctness tests are host tests (model
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view

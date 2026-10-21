@@ -247,7 +247,8 @@ bool startHost(HostEnv* env, const std::string& profileHint)
     WKContextConfigurationSetUsesWebProcessCache(configuration, false);
     H.context = WKContextCreateWithConfiguration(configuration);
     // The notification provider before any page process: it reads the decisions when it starts.
-    installNotifications();
+    if (has(LZW_FEATURE_NOTIFICATIONS))
+        installNotifications();
     installContextClient();
     return H.context != nullptr;
 }
@@ -261,6 +262,9 @@ View* createView(const ViewConfig& config, ViewSink* sink)
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, H.context);
     WKPageConfigurationSetWebsiteDataStore(pageConfiguration, view.profile->store);
+    // The provider, for an owner whose host features did not ask for it but whose view does.
+    if (view.has(LZW_FEATURE_NOTIFICATIONS))
+        installNotifications();
     // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
     startBlocking(view, pageConfiguration);
     // The configuration is not released, as before: the view keeps what it needs of it.
@@ -301,16 +305,21 @@ void destroyView(int id)
     clearClients(*view);
     dropDialogs(*view);
     dropDownloads(*view);
-    // The page closes itself before the view lets go of it: released with messages from its process still
-    // on the way, WebKit's page proxy aborts the UI process (a CheckedPtr to a dead object in
-    // didReachLayoutMilestone, found by webkit-views two, one run in six).
     if (view->page) {
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
-        // Its process goes with it (107 MB); the page proxy stays, hollow (see below).
-        if (WKPageGetProcessIdentifier(view->page) > 0)
+        // Its process goes with it (107 MB), unless a view that is staying uses it too; the page proxy
+        // stays, hollow (see below).
+        const WKProcessID process = WKPageGetProcessIdentifier(view->page);
+        bool shared = false;
+        for (auto& entry : H.views) {
+            View& other = *entry.second;
+            shared = shared || (other.id != id && other.page && WKPageGetProcessIdentifier(other.page) == process);
+        }
+        if (process > 0 && !shared)
             WKPageTerminate(view->page);
     }
+    releasePaint(*view);
     for (auto it = H.notificationViews.begin(); it != H.notificationViews.end();) {
         if (it->second == id)
             it = H.notificationViews.erase(it);
@@ -319,7 +328,8 @@ void destroyView(int id)
     }
     // Parked, never released: WebKit's WebPageProxy aborts the UI process when it is destroyed on this
     // port (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family
-    // of patches 0021 and 0027). A few kilobytes of proxy per view that ever was, no process.
+    // of patches 0021 and 0027). A proxy per view that ever was, and the store of a view that had one of
+    // its own; no process, no bitmap, no thread.
     H.parked.push_back(std::move(H.views[id]));
     H.views.erase(id);
 }

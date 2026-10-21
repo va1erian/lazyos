@@ -156,6 +156,54 @@ composited classes (`LayerTreeHost`, `ThreadedCompositor`,
 `AcceleratedSurface`) for `USE_COORDINATED_GRAPHICS`; they link against the
 EGL and GLESv2 stand-ins and are never reached.
 
+## The engine: one Host, any number of Views
+
+`port/app/` is two things. The **engine** (`engine.cpp`, `clients.cpp`, `policy.cpp`, `uiclient.cpp`,
+`notify.cpp`, `blocking.cpp`, `paint.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
+UI process without a window: one `Host` (the `WKContext`, the notification manager, the engine processes)
+and any number of `View`s, a page each with its own state (loading, dialogs, downloads, permission
+requests, paint state, rule-list controller). Whatever a view says goes to its `ViewSink`, whatever the host
+needs of its owner is a `HostEnv`; neither names `lazyos_ui.h`, and the engine files call no `lzw_ui_*`.
+`legacy.cpp` is the C ABI of `lazyos_ui.h` over it: LazyWeb+'s window is the sink and environment of view 1,
+and its `lzw_engine_*` calls are that view's methods, so the window did not change.
+
+A second owner implements the same two interfaces. The first is `port/views/main.cpp`, `webkit-views`, which is
+also the engine's test (docs/webd-plan.md, P1):
+
+```bash
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # Docker; builds, runs in the container
+```
+
+It runs six modes in the build container (the programs are static musl executables): `light` (one view with
+a non-persistent store and no features), `twoeph`, `two` and `share` (two views, with stores of their own,
+with a profile directory and without, and of one profile directory; the first, which has every client of a
+browser view, is destroyed and the second loads another page), `cycle` (twelve views made, shown and destroyed
+in turn) and `rush` (twelve made and destroyed at once, before their pages are up); every destroyed view's web
+process must end. Each view loads a `data:` page of its own colour and title and must paint that colour and
+never the other view's, and the page's updates must reach it (they find their view by the page). Findings it
+made:
+
+* **Every view gets a WebProcess of its own**, even two views of one profile directory (`share`: two web
+  processes, one network process): 107 MiB a view, not a profile. A destroyed view's process ends with it
+  (`destroyView` terminates it unless another view's has the same id).
+* **A view with nothing to fetch still launches a NetworkProcess** (`VIEWS:LAUNCH:web=1:network=1` for the
+  light view's `data:` page): the answer to L1 of the plan is no, a light view cannot avoid it with this
+  WebKit. Two views of different data stores share the one NetworkProcess and have a WebProcess each.
+* **Three page callbacks are process-wide** (`WKPageSetUpdateCallback`, `...ScrollOffsetCallback`,
+  `...BandCallback`, patches `0024`, `0028`, `0030`: static callback and context, whichever page registered
+  last). With two views the second registration took the first's updates, which never painted again. The engine
+  registers them once and finds the view by the page argument (`paint.cpp`, `viewOfPage`).
+* **Destroying a `WebPageProxy` aborts the UI process** (`crashDueToCheckedPtrToDeadObject` in
+  `WebPageProxy::didReachLayoutMilestone`, a timer of the run loop: one run in three with a persistent
+  profile, the family of patches `0021` and `0027`). `destroyView` therefore ends the page's process
+  (`WKPageTerminate`, 107 MB back), clears its clients, frees its bitmaps and pacer thread and parks the hollow
+  proxy, never released: a proxy per view that ever was, and the data store and session of one that had a store
+  of its own. `WKPageClose` before the release made it worse.
+* **A persistent profile lives as long as the process**, for the same reason, and the children take
+  `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
+  its environment when it starts, and one NetworkProcess serves every profile): a second profile's explicit
+  data directories are right, its curl cookie jar is not yet.
+
 ## The desktop app
 
 `os.lazy.lazywebplus` ([`docs/lazywebplus.md`](../docs/lazywebplus.md)) is one static-PIE program,

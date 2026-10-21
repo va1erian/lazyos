@@ -285,9 +285,11 @@ inline View* viewOf(const void* clientInfo) { return static_cast<View*>(const_ca
 bool startHost(HostEnv* env, const std::string& profileHint = std::string());
 // A page with its own state; null when WebKit refuses. Main thread.
 View* createView(const ViewConfig& config, ViewSink* sink);
-// Ends a page: its clients are cleared, its dialogs and downloads answered, its WebProcess ended, and the
-// view is gone for the owner (its id names nothing). The page proxy itself is parked, never released:
-// WebKit's WebPageProxy aborts the UI process when it is destroyed on this port. Main thread.
+// Ends a page: its clients are cleared, its dialogs and downloads answered, its paint state and bitmaps
+// freed, its WebProcess ended unless another view uses it, and the view is gone for the owner (its id
+// names nothing). The page proxy itself is parked, never released: WebKit's WebPageProxy aborts the UI
+// process when it is destroyed on this port. What stays per view that ever was: the proxy and, for a view
+// with a store of its own, the store and its session. Main thread.
 void destroyView(int id);
 // Queues a task on the run loop (callable from any thread).
 void onMain(std::function<void()> task);
@@ -363,8 +365,9 @@ void viewSetCursor(WKViewRef view, uint32_t cursorType, const void* clientInfo);
 
 // ---- notify.cpp: the Notifications API -----------------------------------------------------------
 
-// Registers WebKit's notification provider and tells it the decisions the owner kept (a no-op
-// without LZW_FEATURE_NOTIFICATIONS in the host's features). After the context exists.
+// Registers WebKit's notification provider and tells it the decisions the owner kept (once; the host
+// does it at start when its features ask, and the first view that uses notifications does it otherwise).
+// After the context exists.
 void installNotifications();
 // The page UI client's permission request callback (uiclient.cpp installs it).
 void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef, WKNotificationPermissionRequestRef, const void*);
@@ -412,5 +415,7 @@ void installPaintObserver(View& view);
 void notePointer(View& view, bool wheel);
 // The page's process is gone: the next paint starts from white and covers the whole view.
 void invalidatePaint(View& view);
+// The view is going: its pacer thread is ended and its bitmaps freed.
+void releasePaint(View& view);
 
 } // namespace webkitapp
