@@ -109,9 +109,9 @@ class Dep:
 #: into the port's programs too: THIRD_PARTY.md says so once, above the rows).
 DEPSPROOF_LINK = "linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`)"
 #: Libraries of the bundle that only the WebKit port's programs link (``depsproof`` does not).
-PORT_LINK = ("linked into the port's `/system/bin/webprocess` and `networkprocess` (`LAZYOS_WEBKIT=1`, "
+PORT_LINK = ("linked into the port's `/system/bin/webprocess` and `networkprocess` ("
              "`LAZYOS_LAZYWEBPLUS=1` or `LAZYOS_WEBKIT_PORT=1`), `webkit-smoke` (`LAZYOS_WEBKIT_PORT=1`) and the "
-             "browsers' `webkit-app` (`LAZYOS_WEBKIT=1`) and `lazywebplus-app` (`LAZYOS_LAZYWEBPLUS=1`; `tools/webkit`)")
+             "browser's `lazywebplus-app` (`LAZYOS_LAZYWEBPLUS=1`; `tools/webkit`)")
 
 H = "https://github.com"
 SF = "https://downloads.sourceforge.net/project"

@@ -64,13 +64,13 @@ mod tests {
     fn webkit_tables_compile_to_the_ids_the_kernel_looks_for() {
         let rules = compile(&[
             "read:/system/share/fonts",
-            "write:$HOME/.apps/os.lazy.webkit",
+            "write:$HOME/.apps/os.lazy.lazywebplus",
         ])
         .unwrap();
         let ids: Vec<u64> = rules.iter().map(|rule| rule.interface_id).collect();
         let kernel = filepolicy::compile(&[
             "read:/system/share/fonts",
-            "write:$HOME/.apps/os.lazy.webkit",
+            "write:$HOME/.apps/os.lazy.lazywebplus",
         ])
         .unwrap();
         assert_eq!(ids, kernel);

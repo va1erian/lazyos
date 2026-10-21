@@ -9,8 +9,7 @@
 //!
 //! The functions that differ from one window to another (`lzw_ui_main`, `lzw_ui_features`,
 //! `lzw_ui_profile_dir`, `lzw_ui_navigate`, `lzw_ui_download_start`, `lzw_ui_marker_prefix`) are
-//! defined by the window's own crate: `window_ffi.rs` for the W5 window (feature `window`),
-//! `xui-app/webplus` for LazyWebPlus. The C++ is the same for both.
+//! defined by the window's own crate, `xui-app/webplus`.
 //!
 //! This is a static library with no `main`: Rust's runtime start-up never ran, so
 //! `std::env::args` is empty. The arguments come in explicitly, and the window is always a

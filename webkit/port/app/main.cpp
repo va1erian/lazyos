@@ -1,9 +1,8 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE 1
 #endif
-// The desktop UI process: WebKit in a window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
-// One program for both windows: `webkit-app` links the W5 window, `lazywebplus-app` LazyWeb's
-// (the Rust library each one links is the only difference).
+// The desktop UI process: WebKit in a window (docs/webkit-port-plan.md; docs/lazywebplus.md).
+// `lazywebplus-app` links LazyWeb+'s window, a Rust static library.
 //
 // The UI process has two threads that matter: WebKit's run loop on the process's main thread, as
 // in webkit-smoke (engine.cpp), and the xui window on a second one (a Rust static library through
@@ -12,7 +11,7 @@
 // the WebProcess and the NetworkProcess (SIGTERM, SIGKILL after a grace period), waits for them
 // (<prefix>:CHILD:<name>:<pid>:GONE) and exits.
 //
-// Markers, after the window's prefix (WEBKIT:W5 or WEBPLUS):
+// Markers, after the window's prefix (WEBPLUS):
 //   UP                 the UI process started and WebKit2 initialised
 //   CHILD:<name>:<pid>:GONE   a child process ended (ALIVE: it did not), with the results of the
 //                      SIGTERM, SIGKILL and wait that ended it (children.cpp)
@@ -29,6 +28,7 @@
 #include <unistd.h>
 
 #include "engine.h"
+#include "legacy.h"
 #include "lazyos_ui.h"
 
 extern "C" const char __ehdr_start;
@@ -194,9 +194,11 @@ int main(int argc, char** argv)
     // plain write do not.) A C++ `main` does not get the Rust runtime's ignore of it.
     signal(SIGPIPE, SIG_IGN);
     WKRunLoopInitializeMain();
+    webkitapp::useLegacyEnvironment();
     webkitapp::say("UP");
+    // _exit, not return: a return would run the host's destructors, and releasing a page proxy aborts.
     if (lzw_engine_start() != 0)
-        return 1;
+        _exit(1);
 
     static Arguments arguments { argc, argv, 0 };
     pthread_attr_t attributes;
@@ -206,12 +208,12 @@ int main(int argc, char** argv)
     pthread_t window;
     if (pthread_create(&window, &attributes, windowThread, &arguments) != 0) {
         webkitapp::say("FAIL:window:cannot start the window's thread");
-        return 1;
+        _exit(1);
     }
     pthread_detach(window);
 
     // The first thing the loop runs: from here on it is turning (the window's heartbeat times it).
-    WKRunLoopCallOnMainThread([](void*) { webkitapp::E.running = true; }, nullptr);
+    WKRunLoopCallOnMainThread([](void*) { webkitapp::H.running = true; }, nullptr);
     WKRunLoopRunMain();
     // End the WebProcess and the NetworkProcess ourselves and wait for them: the sockets closing
     // is not something to rely on, and a process left behind holds its 107 MB and its share of the

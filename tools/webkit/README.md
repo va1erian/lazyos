@@ -110,7 +110,7 @@ lazyos-jsc-work` (this also drops the `jsc` build), or delete
 
 `LAZYOS_WEBKIT_DEPS=1` (`run_demo.py --webkit-deps`, the launcher's Advanced
 tab) puts `depsproof` in `/system/bin` through
-`build_support/linuxapps_embed.rs`; it is 45 MB (30 MB of it ICU's data) and
+`build_support/linuxapps_embed.rs`; it is 25 MB (10 MB of it ICU's data, cut by `tools/jsc/icudata.py`) and
 LazyOS loads an ELF whole, so the switch implies the `--big-app` profile (4 GiB)
 and networking. `run.py` builds a console image with the harness's test CA and
 `tls.test` mapped to the host (the mechanism of `tools/net/tls_run.py`), starts

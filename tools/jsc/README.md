@@ -28,9 +28,29 @@ python tools/run_demo.py --jsc            # an interactive image with jsc in /sy
 
 ICU 74.2 is built twice, as the cross-build recipe wants: a host build for its
 tools (`icupkg`, `genrb`, `pkgdata`), then a static musl build with
-`--with-data-packaging=static`, which makes `libicudata.a` carry the 30 MB
+`--with-data-packaging=static`, which makes `libicudata.a` carry the (cut, see below) 
 data file as an object (there is no file-backed `mmap` to load it from).
 `--disable-tools` must not be used: it leaves a stub `libicudata.a` of 1 KB.
+
+**The data is cut before it is compiled in** (`icudata.py`): the release tarball only carries the
+prebuilt `icudt74l.dat` (30.8 MB; CLDR's sources are a separate download, so ICU's own
+`ICU_DATA_FILTER_FILE` cannot be used), and `icupkg` removes items from it by a policy: every
+locale and its collation, currency and zone names for about 60 languages (all other locales fall
+back to root/English), language/region/unit names for English only, the converters WebKit never
+opens (the Encoding Standard's and the four `EncodingTables.cpp` builds its tables from stay),
+transliteration, spell-out rules but English's, character names, and the CJK, Khmer, Lao and
+Burmese break dictionaries (replaced by one-word stand-ins that `brkitr/root.res` can still
+name; Thai's stays). 30.8 MB become 9.9 MB, in every program that links ICU (the WebKit
+programs carry it in RAM). `icudata_check.c` proves it: 245 results of ICU (converters of every
+kept code page over all byte pairs, number, currency, date, zone, plural, list and relative-time
+formats, collation keys, the four break iterators over Latin, Thai, Devanagari, Arabic and emoji
+text, IDNA, normalization, case mapping, properties, spoof check) are computed on the full data
+and on the cut package alone (linked against ICU's empty stub data, otherwise ICU falls through to
+its own) and must be identical, and what the cut removed must fail cleanly. `python
+tools/jsc/test_icudata.py` tests the policy; a change to it (its signature is in `lib/.icudata`)
+rebuilds only the data library. Known costs: `Intl` in a language outside the list formats like
+English, `Intl.supportedLocalesOf` still names every CLDR locale, CJK word segmentation
+(double-click, `Intl.Segmenter`) breaks per character.
 
 ## Docker, and why
 

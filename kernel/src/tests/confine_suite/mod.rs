@@ -54,8 +54,8 @@ const O_DIRECTORY: u64 = 0o200000;
 
 /// Paths of the world: a granted font, the profile directory and a file in it, and a private file.
 pub(super) const FONT: &str = "/system/share/fonts/liberation/LiberationSans-Regular.ttf";
-pub(super) const PROFILE: &str = "/home/user/.apps/os.lazy.webkit";
-pub(super) const COOKIES: &str = "/home/user/.apps/os.lazy.webkit/cookie.jar.db";
+pub(super) const PROFILE: &str = "/home/user/.apps/os.lazy.lazywebplus";
+pub(super) const COOKIES: &str = "/home/user/.apps/os.lazy.lazywebplus/cookie.jar.db";
 pub(super) const NOTES: &str = "/home/user/notes.txt";
 
 /// What the sandbox of these tests is granted, in the manifest's words: the
@@ -63,7 +63,7 @@ pub(super) const NOTES: &str = "/home/user/notes.txt";
 /// resolver to read.
 pub(super) const RULES: &[&str] = &[
     "read:/system/share/fonts",
-    "write:$HOME/.apps/os.lazy.webkit",
+    "write:$HOME/.apps/os.lazy.lazywebplus",
     "read:/etc/ssl/certs/ca-certificates.crt",
     "read:/etc/resolv.conf",
 ];
@@ -140,7 +140,7 @@ fn table() -> Result<Vfs, String> {
         "/home/user",
         "/home/user/.ssh",
         "/home/user/.apps",
-        "/home/user/.apps/os.lazy.webkit",
+        "/home/user/.apps/os.lazy.lazywebplus",
         "/home/user/.apps/org.lazy.mail",
         "/home/user/Documents",
     ] {
@@ -158,7 +158,7 @@ fn table() -> Result<Vfs, String> {
     file(
         &mut vfs,
         USER,
-        "/home/user/.apps/os.lazy.webkit/cookie.jar.db",
+        "/home/user/.apps/os.lazy.lazywebplus/cookie.jar.db",
         0o644,
         b"cookies",
     )?;

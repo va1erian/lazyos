@@ -77,6 +77,13 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
     // The pointer scope travels on the display service's endpoint
     // (`idl/display_cursor.midl`).
     ("os.lazy.display.cursor.v1", "os.lazy.display.v1"),
+    // An app serving other apps (docs/webd-plan.md section 3.1): `webd` registers the name in its
+    // own `app.<system_name>.` namespace and advertises an interface of its own domain; an app that
+    // lists the interface may resolve it. The server judges the caller's label on every request.
+    ("os.lazy.webd.view.v1", "app.os.lazy.webd.view"),
+    // The light interface (HTML and CSS only: no network, no storage) is served on a name of its own so a
+    // package that lists only it cannot resolve the full service.
+    ("os.lazy.webd.light.v1", "app.os.lazy.webd.light"),
 ];
 
 /// Why a manifest cannot be compiled.

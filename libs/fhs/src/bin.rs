@@ -218,10 +218,10 @@ programs! {
     DYNLINK = "dynlink";
     /// `dynpie`, the same program as a PIE (`LAZYOS_DYNLINK=1`).
     DYNPIE = "dynpie";
-    /// `webprocess`, WebKit's page process (`LAZYOS_WEBKIT=1` or `LAZYOS_WEBKIT_PORT=1`, Linux ABI, W4; the build
+    /// `webprocess`, WebKit's page process (`LAZYOS_LAZYWEBPLUS=1` or `LAZYOS_WEBKIT_PORT=1`, Linux ABI, W4; the build
     /// calls it `WebProcess`, the image keeps program names lowercase).
     WEBPROCESS = "webprocess";
-    /// `networkprocess`, WebKit's network process (`LAZYOS_WEBKIT=1` or `LAZYOS_WEBKIT_PORT=1`, W4).
+    /// `networkprocess`, WebKit's network process (`LAZYOS_LAZYWEBPLUS=1` or `LAZYOS_WEBKIT_PORT=1`, W4).
     NETWORKPROCESS = "networkprocess";
     /// `webkit-smoke`, the headless WebKit UI process of the W4 check (`LAZYOS_WEBKIT_PORT=1`).
     WEBKIT_SMOKE = "webkit-smoke";

@@ -15,19 +15,17 @@ python tools/webplus/test_judge.py        # the judge fails when it should; the 
 
 ## What it is
 
-One C++ program, the UI process of the W5 browser (`webkit/port/app/`), with LazyWeb's window as the Rust
+One C++ program, WebKit's UI process (`webkit/port/app/`), with LazyWeb's window as the Rust
 static library it links (`xui-app/webplus`, crate `xui-webplus`): `lazywebplus-app`, 108 MiB stripped, which
 starts `/system/bin/webprocess` and `/system/bin/networkprocess`. The package is
 `xui-app/packages/lazywebplus` (core package, `LAZYOS_LAZYWEBPLUS=1`, which needs `LAZYOS_DESKTOP=1` and
-`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). The W5 browser (`os.lazy.webkit`, `LAZYOS_WEBKIT=1`) is
-the same engine with a bare window; both programs come from one C++ source, and
-`lzw_ui_features()` tells the UI process which of the new behaviours the window it links wants (the W5
-window asks for none, so it behaves as before).
+`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). A bare W5 browser (`os.lazy.webkit`, the same engine without LazyWeb's chrome) was removed
+by webd's P1.0 ([`webd-plan.md`](webd-plan.md) 9.1); `lzw_ui_features()` tells the UI process which of the
+browser behaviours the window it links wants.
 
 The window is a fork of `xui-app/web`'s LazyWeb on the engine seam of `xui-app/crates/webkit` (`xui-webkit`:
 the `Engine` trait, the mailbox between the two threads, the generic page view, the pure ABI helpers).
-`xui-webkit` is built with its `window` feature for the W5 browser and without it for LazyWeb+, which
-defines the per-window symbols the C++ side calls itself (`lzw_ui_main`, `lzw_ui_features`,
+`xui-webkit` is an rlib; LazyWeb+'s window defines the per-window symbols the C++ side calls (`lzw_ui_main`, `lzw_ui_features`,
 `lzw_ui_marker_prefix`, `lzw_ui_profile_dir`, `lzw_ui_navigate`, `lzw_ui_download_start`, ...).
 
 LazyWeb's look is kept: the menu bar (File, View, History, Downloads, Help), the toolbar (Back, Forward,
@@ -189,7 +187,7 @@ Markers (UI-probe images only: they name sites), after `WEBPLUS:NOTIFY:`: `ASK:<
 
 The data store is built by `createDataStore` in `webkit/port/app/engine.cpp` (#836): every directory of it
 below one profile folder, which the window names (`lzw_ui_profile_dir`: `$HOME/.apps/os.lazy.lazywebplus`;
-the W5 window gets `$HOME/.apps/os.lazy.webkit`). Cookies (`cookies/cookie.jar.db`), the HTTP cache and site
+a window that names none gets an ephemeral store). Cookies (`cookies/cookie.jar.db`), the HTTP cache and site
 storage live there, so a second run of the app finds the first one's cookie and history (the harness checks
 both, from the OS volume and from the second boot). The folder and `$HOME/Downloads` exist before a child that
 may only write inside them looks for them.
@@ -581,10 +579,12 @@ without a gesture, a post before the permission) is judged from the page's own t
   boot self-test), a real PC.
 * The harness's stand-in sites are LazyWeb's (`tools/web/sites.py`): nothing was loaded from the internet.
 
-## `os.lazy.webkit` is not retired
+## `os.lazy.webkit` is retired
 
-The issue allows retiring the W5 browser once this harness passes everything W5's did. It was not done: LazyWeb+
-is the same engine with LazyWeb's window, W5's `app_run.py` harness has not been run against it page for page,
-and the W5 package is the smaller program for anyone who wants the engine with no chrome. The two stay; the
-retirement (the package, `LAZYOS_WEBKIT`, `app.py` without `--plus`, `xui-app/crates/webkit`'s window feature)
-is a follow-up once someone decides that.
+LazyWeb+ is the same engine with LazyWeb's window, and its harness (`tools/webplus/run.py`) covers what W5's
+`app_run.py` checked (HTTPS pages with SNI, a form typed into and Back, script, the wheel, resize and
+maximize, both children reaped), so the W5 browser was removed (webd plan P1.0, [`webd-plan.md`](webd-plan.md)
+9.1): the package `os.lazy.webkit`, `LAZYOS_WEBKIT`, `run_demo.py --webkit`, the launcher's WebKit group,
+`app.py` without the LazyWeb+ window (`--plus` is gone: `app.py` builds LazyWeb+), the `window` feature of
+`xui-app/crates/webkit` (its page-view tests now run in a small rig, `tests/support`) and `tools/webkit/app_run.py`
+with its judge and session. The engine processes, `webkit-smoke` and `LAZYOS_WEBKIT_PORT` stay.

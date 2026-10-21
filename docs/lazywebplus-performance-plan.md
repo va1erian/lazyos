@@ -187,6 +187,8 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
    baseline of `x86-64-v2` (SSE4.2, POPCNT) only once the launchers guarantee a CPU model (#810), with runtime
    dispatch kept for the AVX2 kernels Skia and simdutf carry. PGO is a later, separate decision.
 3. **ICU data filter** (locales and converters a browser UI needs): 30 MB to about 8 MB in each of three programs.
+   **Done** (`tools/jsc/icudata.py`): 9.9 MB, and with no unwind tables, `-Os` for cold code and lld ICF the
+   WebProcess went from 112.8 to 78.1 MB (`webkit/README.md`, "Size of the programs").
 4. **OpenSSL with assembly** now that AVX state is on (#822) and AES-NI/PCLMUL are used when CPUID reports them
    (verify the dispatch under `qemu64`); libjpeg-turbo with SIMD; zlib's SIMD paths. TLS handshakes are about
    half the CPU of a cold ad-heavy page.

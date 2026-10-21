@@ -6,7 +6,7 @@ holds the table of what each role must be refused and what it must still be allo
 judges a serial log against it:
 
 * every probe of the table is present exactly once per role, with the expected verdict;
-* the process runs under the label the harness expects (``app:os.lazy.webkit/webprocess`` for
+* the process runs under the label the harness expects (``app:os.lazy.lazywebplus/webprocess`` for
   the browser, ``app:os.lazy.sandbox-web`` for the kernel-only mode);
 * each refusal a kernel gate makes is also a ``LABEL:DENY`` line of that label for that
   operation (the trace of ``LAZYOS_LABEL_TRACE=1``): the attempt was *refused by the policy*,
@@ -33,9 +33,9 @@ DRIVER = re.compile(r"^ATTACK:driver:(?P<what>\S+?)(?::(?P<rest>.*?))?\s*$", re.
 
 ROLES = ("webprocess", "networkprocess")
 
-#: The browsers the harness attacks: the package id of the WebKit window and of LazyWeb+ (both start the
-#: same two programs under labels of their own, `app:<id>/<name>`).
-APPS = ("os.lazy.webkit", "os.lazy.lazywebplus")
+#: The browsers the harness attacks: LazyWeb+'s package id (it starts the two programs under labels of
+#: its own, `app:<id>/<name>`).
+APPS = ("os.lazy.lazywebplus",)
 DEFAULT_APP = APPS[0]
 
 
@@ -107,7 +107,7 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_dev_urandom": allowed(),
         "read_resolv_conf": blocked(r"file=/etc/resolv\.conf access=stat"),
         "read_ca_bundle": blocked(r"file=/etc/ssl/certs/ca-certificates\.crt access=stat"),
-        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.(webkit|lazywebplus))? access=(write|stat)"),
+        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.lazywebplus)? access=(write|stat)"),
         "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": blocked(r"net=inet"),
         "inet_serve": blocked(r"net=inet"),
@@ -123,8 +123,8 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_resolv_conf": allowed(browser_loose=True),
         "read_ca_bundle": allowed(browser_loose=True),
         "write_profile": allowed(),
-        # Blocked for WebKit's network process; LazyWeb+'s may save a download here (see `expected`).
-        "write_downloads": blocked(DOWNLOADS_DENY),
+        # A download's `.part` file is written by the process that fetches it.
+        "write_downloads": allowed(),
         "inet_socket": allowed(),
         "inet_serve": blocked(r"net=serve"),
         "tcp_connect": allowed(loose=True),
@@ -136,12 +136,8 @@ EXPECTED: dict[str, dict[str, Expect]] = {
 }
 
 def expected(app: str = DEFAULT_APP) -> dict[str, dict[str, Expect]]:
-    """The table for `app`: LazyWeb+'s network process alone may write the user's Downloads folder (a
-    download's `.part` file is written by the process that fetches it)."""
-    table = {role: dict(rows) for role, rows in EXPECTED.items()}
-    if app == "os.lazy.lazywebplus":
-        table["networkprocess"]["write_downloads"] = allowed()
-    return table
+    """The table for `app`: the network process alone may write the user's Downloads folder."""
+    return {role: dict(rows) for role, rows in EXPECTED.items()}
 
 
 #: What a blocked probe's errno may be: the policy's `EPERM`, a Messenger refusal's `EACCES`,

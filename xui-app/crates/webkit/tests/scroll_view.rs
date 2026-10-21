@@ -9,7 +9,8 @@ use std::sync::Arc;
 
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::{Dip, Image, Theme};
-use xui_webkit::app::{Browser, Host, Msg};
+mod support;
+use support::{Browser, Host, Msg};
 use xui_webkit::damage::{IRect, Scroll};
 use xui_webkit::engine::{Call, Recorder};
 use xui_webkit::mailbox::{Delta, Mailbox, Patch};

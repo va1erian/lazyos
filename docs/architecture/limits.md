@@ -299,7 +299,7 @@ launcher has no checkbox for it: type the memory in the Machine settings and
 `quota_user_memory=3G fd_max=8192 task_max=1024` in the Advanced tab's
 "Kernel limits".
 
-**The WebKit browser** (`run_demo.py --webkit`, docs/webkit-port-plan.md W5) adds `quota_user_memory=8G`
+**The WebKit browser** (`run_demo.py --lazywebplus`, docs/lazywebplus.md) adds `quota_user_memory=8G`
 (`lazygui.limits.WEBKIT_LIMITS`; `--limit` still wins). The quota used to charge the *length* of every
 `mmap`, and the three WebKit processes (the UI process, one WebProcess, the NetworkProcess) took what it let
 them: 2989 MiB of the profile's 3072 after the first page and 3059 after seven, 6957 and 7027 MiB of 8192 at

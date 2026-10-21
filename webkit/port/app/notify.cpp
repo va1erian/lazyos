@@ -3,14 +3,15 @@
 //
 // WebKit has the whole machinery in the UI process (`WKNotificationManager`, the provider, the UI
 // client's `decidePolicyForNotificationPermissionRequest`) but a port must supply the provider, or
-// every page sees `Notification.permission === "denied"` and nothing shows. The window decides
+// every page sees `Notification.permission === "denied"` and nothing shows. The owner decides
 // everything (which sites may notify, what a toast says, how many); this file only translates:
 //
-//   page -> window   lzw_ui_notify_show / _cancel / _gone / _permission_request
-//   window -> page   lzw_engine_notify_shown / _clicked / _closed / _permission / _forget
+//   page -> owner   ViewSink::notifyShow / notifyCancel / notifyGone / notifyPermissionRequest
+//   owner -> page   notifyShown / notifyClicked / notifyClosed / notifyPermission / notifyForget
 //
-// A permission request is held, retained, until the window answers; the answer for an origin
-// settles every pending request of that origin at once. The decisions the window kept are given to
+// The manager is the context's, one for every view; a notification is the view's whose page showed it
+// (H.notificationViews). A permission request is held, retained, by its view until the owner answers;
+// the answer for an origin settles every pending request of that origin, in every view, at once. The decisions the window kept are given to
 // WebKit when it asks (`notificationPermissions`, read when a page's process starts) and told to it
 // when they change (`WKNotificationManagerProviderDidUpdateNotificationPolicy`).
 //
@@ -70,11 +71,22 @@ std::string copied(WKStringRef text)
 
 // ---- the provider: what a page asks to show ----------------------------------------------
 
+// The view a live notification belongs to, or null (its view or the notification is gone).
+View* ownerOf(uint64_t id)
+{
+    auto it = H.notificationViews.find(id);
+    return it == H.notificationViews.end() ? nullptr : viewById(it->second);
+}
+
 void providerShow(WKPageRef page, WKNotificationRef notification, const void*)
 {
     if (!notification || WKNotificationGetIsPersistent(notification))
         return; // a service worker's: there is no page to bring back, and v1 shows none
+    View* view = page ? viewOfPage(page) : nullptr;
+    if (!view || !view->has(LZW_FEATURE_NOTIFICATIONS))
+        return;
     const uint64_t id = WKNotificationGetID(notification);
+    H.notificationViews[id] = view->id;
     const std::string origin = originOf(WKNotificationGetSecurityOrigin(notification));
     std::string pageUrl;
     if (page) {
@@ -86,7 +98,7 @@ void providerShow(WKPageRef page, WKNotificationRef notification, const void*)
     const std::string title = copied(WKNotificationCopyTitle(notification));
     const std::string body = copied(WKNotificationCopyBody(notification));
     const std::string tag = copied(WKNotificationCopyTag(notification));
-    lzw_ui_notify_show(id, origin.c_str(), pageUrl.c_str(), title.c_str(), body.c_str(), tag.c_str());
+    view->sink->notifyShow(id, origin.c_str(), pageUrl.c_str(), title.c_str(), body.c_str(), tag.c_str());
 }
 
 // The page took it down (`Notification.close()`), or the page is being suspended into the
@@ -98,25 +110,32 @@ void providerCancel(WKNotificationRef notification, const void*)
     if (!notification)
         return;
     const uint64_t id = WKNotificationGetID(notification);
-    if (E.loading)
-        lzw_ui_notify_gone(id);
+    View* view = ownerOf(id);
+    if (!view)
+        return;
+    if (view->loading)
+        view->sink->notifyGone(id);
     else
-        lzw_ui_notify_cancel(id);
+        view->sink->notifyCancel(id);
 }
 
 // The page's object is gone (its document was): the toast, if any, is the person's now.
 void providerDidDestroy(WKNotificationRef notification, const void*)
 {
-    if (notification)
-        lzw_ui_notify_gone(WKNotificationGetID(notification));
+    if (!notification)
+        return;
+    const uint64_t id = WKNotificationGetID(notification);
+    if (View* view = ownerOf(id))
+        view->sink->notifyGone(id);
+    H.notificationViews.erase(id);
 }
 
-void providerAddManager(WKNotificationManagerRef manager, const void*) { E.notifications = manager; }
+void providerAddManager(WKNotificationManagerRef manager, const void*) { H.notifications = manager; }
 
 void providerRemoveManager(WKNotificationManagerRef manager, const void*)
 {
-    if (E.notifications == manager)
-        E.notifications = nullptr;
+    if (H.notifications == manager)
+        H.notifications = nullptr;
 }
 
 // The decisions the window kept, as WebKit wants them: origin string to boolean. The dictionary
@@ -126,7 +145,7 @@ WKDictionaryRef providerPermissions(const void*)
     WKMutableDictionaryRef dictionary = WKMutableDictionaryCreate();
     char origin[512];
     for (size_t index = 0; index < 4096; ++index) {
-        const int decision = lzw_ui_notify_permission_at(index, origin, sizeof origin);
+        const int decision = H.env->notifyPermissionAt(index, origin, sizeof origin);
         if (decision == -1)
             break;
         if (decision < 0)
@@ -148,43 +167,47 @@ void providerClear(WKArrayRef, const void*) { }
 
 } // namespace
 
-void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef origin, WKNotificationPermissionRequestRef request, const void*)
+void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef origin, WKNotificationPermissionRequestRef request, const void* clientInfo)
 {
     if (!request)
         return;
-    if (E.permissionRequests.size() >= kMaxPendingRequests) {
+    View& v = *viewOf(clientInfo);
+    if (v.permissionRequests.size() >= kMaxPendingRequests) {
         WKNotificationPermissionRequestDeny(request);
         return;
     }
     const std::string text = originOf(origin);
     WKRetain(request);
-    E.permissionRequests.emplace_back(text, request);
+    v.permissionRequests.emplace_back(text, request);
     // WebKit has already required a user gesture (Notification.requestPermission is refused
-    // without a transient activation); the window looks at the input it forwarded as well.
-    lzw_ui_notify_permission_request(text.c_str(), 1);
+    // without a transient activation); the owner looks at the input it forwarded as well.
+    v.sink->notifyPermissionRequest(text.c_str());
 }
 
 namespace {
 
-// Answers every pending request of `origin`: allowed, or not; whether the decision is remembered is
-// the caller's business.
+// Answers every pending request of `origin`, in every view: allowed, or not; whether the decision is
+// remembered is the caller's business.
 void settle(const std::string& origin, bool allow)
 {
-    std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> keep;
-    auto pending = std::move(E.permissionRequests);
-    E.permissionRequests.clear();
-    for (auto& entry : pending) {
-        if (entry.first != origin) {
-            keep.push_back(entry);
-            continue;
+    for (auto& viewEntry : H.views) {
+        View& v = *viewEntry.second;
+        std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> keep;
+        auto pending = std::move(v.permissionRequests);
+        v.permissionRequests.clear();
+        for (auto& entry : pending) {
+            if (entry.first != origin) {
+                keep.push_back(entry);
+                continue;
+            }
+            if (allow)
+                WKNotificationPermissionRequestAllow(entry.second);
+            else
+                WKNotificationPermissionRequestDeny(entry.second);
+            WKRelease(entry.second);
         }
-        if (allow)
-            WKNotificationPermissionRequestAllow(entry.second);
-        else
-            WKNotificationPermissionRequestDeny(entry.second);
-        WKRelease(entry.second);
+        v.permissionRequests = std::move(keep);
     }
-    E.permissionRequests = std::move(keep);
 }
 
 WKSecurityOriginRef originFromString(const std::string& text)
@@ -199,8 +222,10 @@ WKSecurityOriginRef originFromString(const std::string& text)
 
 void installNotifications()
 {
-    if (!has(LZW_FEATURE_NOTIFICATIONS))
+    static bool installed = false;
+    if (installed)
         return;
+    installed = true;
     static WKNotificationProviderV0 provider = { };
     provider.base.version = 0;
     provider.show = providerShow;
@@ -210,13 +235,13 @@ void installNotifications()
     provider.removeNotificationManager = providerRemoveManager;
     provider.notificationPermissions = providerPermissions;
     provider.clearNotifications = providerClear;
-    WKNotificationManagerRef manager = WKContextGetNotificationManager(E.context);
-    E.notifications = manager;
+    WKNotificationManagerRef manager = WKContextGetNotificationManager(H.context);
+    H.notifications = manager;
     WKNotificationManagerSetProvider(manager, &provider.base);
     // A page's process may already be running: it learns the decisions now, not at its next start.
     char origin[512];
     for (size_t index = 0; index < 4096; ++index) {
-        const int decision = lzw_ui_notify_permission_at(index, origin, sizeof origin);
+        const int decision = H.env->notifyPermissionAt(index, origin, sizeof origin);
         if (decision == -1)
             break;
         if (decision < 0)
@@ -228,11 +253,11 @@ void installNotifications()
 }
 
 // The page that asked is going away: its requests get the answer a closed bar gives, and the
-// window hears that its question is moot (once per site).
-void dropNotificationRequests()
+// owner hears that its question is moot (once per site).
+void dropNotificationRequests(View& v)
 {
-    auto pending = std::move(E.permissionRequests);
-    E.permissionRequests.clear();
+    auto pending = std::move(v.permissionRequests);
+    v.permissionRequests.clear();
     std::vector<std::string> told;
     for (auto& entry : pending) {
         WKNotificationPermissionRequestDeny(entry.second);
@@ -242,78 +267,63 @@ void dropNotificationRequests()
             already = already || origin == entry.first;
         if (!already) {
             told.push_back(entry.first);
-            lzw_ui_notify_permission_gone(entry.first.c_str());
+            v.sink->notifyPermissionGone(entry.first.c_str());
         }
     }
 }
 
-} // namespace webkitapp
+// ---- the owner's answers (main thread) ------------------------------------------------------
 
-using namespace webkitapp;
-
-extern "C" {
-
-void lzw_engine_notify_shown(uint64_t id)
+void notifyShown(uint64_t id)
 {
-    onMain([id] {
-        if (E.notifications)
-            WKNotificationManagerProviderDidShowNotification(E.notifications, id);
-    });
+    if (H.notifications)
+        WKNotificationManagerProviderDidShowNotification(H.notifications, id);
 }
 
-void lzw_engine_notify_clicked(uint64_t id)
+void notifyClicked(uint64_t id)
 {
-    onMain([id] {
-        if (E.notifications)
-            WKNotificationManagerProviderDidClickNotification(E.notifications, id);
-    });
+    if (H.notifications)
+        WKNotificationManagerProviderDidClickNotification(H.notifications, id);
 }
 
-void lzw_engine_notify_closed(uint64_t id)
+void notifyClosed(uint64_t id)
 {
-    onMain([id] {
-        if (!E.notifications)
-            return;
-        WKUInt64Ref value = WKUInt64Create(id);
-        WKTypeRef values[] = { value };
-        WKArrayRef array = WKArrayCreate(values, 1);
-        WKNotificationManagerProviderDidCloseNotifications(E.notifications, array);
-        WKRelease(array);
-        WKRelease(value);
-    });
+    if (!H.notifications)
+        return;
+    WKUInt64Ref value = WKUInt64Create(id);
+    WKTypeRef values[] = { value };
+    WKArrayRef array = WKArrayCreate(values, 1);
+    WKNotificationManagerProviderDidCloseNotifications(H.notifications, array);
+    WKRelease(array);
+    WKRelease(value);
+    H.notificationViews.erase(id);
 }
 
 // answer: 1 allow, 0 block (both remembered), -1 dismiss (the pending requests are refused and
 // nothing is remembered: the site may ask again).
-void lzw_engine_notify_permission(const char* origin, int answer)
+void notifyPermission(const std::string& origin, int answer)
 {
-    const std::string text = origin ? origin : "";
-    onMain([text, answer] {
-        // The policy first: the WebProcess handles its messages in order, and the page's
-        // continuation (which makes `new Notification` look the permission up) must run after it.
-        if (answer >= 0 && E.notifications && !text.empty()) {
-            WKSecurityOriginRef site = originFromString(text);
-            WKNotificationManagerProviderDidUpdateNotificationPolicy(E.notifications, site, answer > 0);
-            WKRelease(site);
-        }
-        settle(text, answer > 0);
-    });
+    // The policy first: the WebProcess handles its messages in order, and the page's
+    // continuation (which makes `new Notification` look the permission up) must run after it.
+    if (answer >= 0 && H.notifications && !origin.empty()) {
+        WKSecurityOriginRef site = originFromString(origin);
+        WKNotificationManagerProviderDidUpdateNotificationPolicy(H.notifications, site, answer > 0);
+        WKRelease(site);
+    }
+    settle(origin, answer > 0);
 }
 
 // The person revoked the decision about `origin`: the pages of that site get "default" again.
-void lzw_engine_notify_forget(const char* origin)
+void notifyForget(const std::string& origin)
 {
-    const std::string text = origin ? origin : "";
-    onMain([text] {
-        if (!E.notifications || text.empty())
-            return;
-        WKSecurityOriginRef site = originFromString(text);
-        WKTypeRef values[] = { site };
-        WKArrayRef array = WKArrayCreate(values, 1);
-        WKNotificationManagerProviderDidRemoveNotificationPolicies(E.notifications, array);
-        WKRelease(array);
-        WKRelease(site);
-    });
+    if (!H.notifications || origin.empty())
+        return;
+    WKSecurityOriginRef site = originFromString(origin);
+    WKTypeRef values[] = { site };
+    WKArrayRef array = WKArrayCreate(values, 1);
+    WKNotificationManagerProviderDidRemoveNotificationPolicies(H.notifications, array);
+    WKRelease(array);
+    WKRelease(site);
 }
 
-} // extern "C"
+} // namespace webkitapp

@@ -4,7 +4,7 @@ image, browse a page that uses the Notifications API in two boots, and judge wha
 shell, the OS volume and the host's servers saw.
 
 The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
-``app.py --plus``, then ``python tools/xui/build.py``). The test page is
+``app.py``, then ``python tools/xui/build.py``). The test page is
 ``tools/web/fixtures/theoldnet.com/webplus/notify.html``, served over HTTPS from the host with the
 run's throwaway CA like the rest of LazyWeb+'s pages.
 

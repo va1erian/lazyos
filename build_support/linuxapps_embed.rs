@@ -22,8 +22,8 @@
 //! `LAZYOS_WEBKIT_PORT=1` embeds the WebKit port's console proof (`tools/webkit/port.py`,
 //! W4): the `WebProcess` and `NetworkProcess` it launches, the headless UI process
 //! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf.in`,
-//! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_WEBKIT=1` is the browser
-//! (`webkit_embed`, W5): the same two processes and configuration, without the proof, beside
+//! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_LAZYWEBPLUS=1` is the browser
+//! (`lazywebplus_embed`): the same two processes and configuration, without the proof, beside
 //! the app's core package.
 
 use std::path::Path;
@@ -63,7 +63,7 @@ const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
 
 /// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT_PORT=1`
-/// embeds; `LAZYOS_WEBKIT=1` embeds the first two (the browser starts them).
+/// embeds; `LAZYOS_LAZYWEBPLUS=1` embeds the first two (the browser starts them).
 const WEBKIT_BUILT: &str = "target/webkit/bin";
 const WEBKIT_PROCESSES: &[(&str, &str)] = &[
     ("WebProcess", fhs::bin::WEBPROCESS),
@@ -97,7 +97,6 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_LINUXAPPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
-    println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
     println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
@@ -157,7 +156,6 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_ATTACK");
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
-        ("LAZYOS_WEBKIT", WEBKIT_PROCESSES),
         ("LAZYOS_LAZYWEBPLUS", WEBKIT_PROCESSES),
     ] {
         if !switch_on(switch) {
@@ -166,10 +164,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         // The sandbox attack harness (`tools/webkit/attack_run.py`): the browser's two engine
         // processes are replaced by a stand-in that attacks from inside their labels. Never
         // for an image anyone uses: it is a test fixture, and says so.
-        let browser = matches!(switch, "LAZYOS_WEBKIT" | "LAZYOS_LAZYWEBPLUS");
+        let browser = switch == "LAZYOS_LAZYWEBPLUS";
         let attack = browser && switch_on("LAZYOS_WEBKIT_ATTACK");
         let (built, builder) = if browser {
-            crate::webkit_embed::engine_source(attack)
+            crate::lazywebplus_embed::engine_source(attack)
         } else {
             (WEBKIT_BUILT, "tools/webkit/port.py")
         };
@@ -187,7 +185,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
             sink.add_file(fhs::etc::FONTS_CONF, conf);
         } else {
             println!(
-                "cargo:warning=LAZYOS_WEBKIT: {} not built, no fonts.conf (run tools/webkit/port.py)",
+                "cargo:warning={switch}: {} not built, no fonts.conf (run tools/webkit/port.py)",
                 conf.display()
             );
         }
@@ -200,7 +198,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
 fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
     crate::os_image::rerun_if_changed(&dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
-        println!("cargo:warning=LAZYOS_WEBKIT: no fonts in {}", dir.display());
+        println!("cargo:warning=WebKit: no fonts in {}", dir.display());
         return;
     };
     for entry in entries.flatten() {

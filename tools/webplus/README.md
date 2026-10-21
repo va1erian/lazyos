@@ -5,7 +5,7 @@ the browsers: serial markers say when the guest is done, the verdict is what cro
 the OS volume and what is on the screen.
 
 ```bash
-python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
+python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
 python tools/xui/build.py                                  # the other core apps, and the package
 python tools/webplus/run.py --accel auto                   # build the image, boot it twice, judge
 python tools/webplus/run.py --no-build                     # the image and certificates of the last run

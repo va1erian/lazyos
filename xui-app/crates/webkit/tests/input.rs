@@ -1,0 +1,155 @@
+//! The page view's input, driven offscreen against a recording engine: the pointer, the wheel and the
+//! keyboard reach the engine as WebKit wants them, in page coordinates (what the W5 window's tests
+//! used to cover through its chrome; a window's own shortcuts are that window's tests).
+
+use std::rc::Rc;
+use std::sync::Arc;
+
+use xui_canvas::snapshot::{render_with, Snapshot, Stage};
+use xui_core::backend::Event;
+use xui_core::{Dip, Key, Modifiers, MouseButton, Theme};
+use xui_webkit::engine::{Button, Call, MouseKind, Recorder};
+use xui_webkit::mailbox::Mailbox;
+
+mod support;
+use support::{Browser, Host, Msg, STRIP};
+
+const SIZE: (i32, i32) = (800, 500);
+
+fn register_fonts() {
+    let fonts: [&[u8]; 2] = [
+        include_bytes!("../../../../assets/fonts/DroidSans.ttf"),
+        include_bytes!("../../../../assets/fonts/DroidSans-Bold.ttf"),
+    ];
+    for font in fonts {
+        xui_canvas::add_font(font.to_vec());
+    }
+    xui_canvas::set_default_family("Droid Sans");
+}
+
+/// Runs `step` against a view with an empty recording engine and returns what the engine was told.
+fn drive(step: impl FnOnce(&Stage<'_, Msg>, &Recorder) + 'static) -> Vec<Call> {
+    register_fonts();
+    let engine = Rc::new(Recorder::default());
+    let mailbox = Arc::new(Mailbox::default());
+    let (build_engine, build_mailbox, drive_engine) =
+        (Rc::clone(&engine), Arc::clone(&mailbox), Rc::clone(&engine));
+    render_with(
+        Snapshot::new(Dip(SIZE.0 as f32), Dip(SIZE.1 as f32)).theme(Theme::light()),
+        move |ui| Browser::build(ui, build_engine, build_mailbox, None, Host::none()),
+        move |stage| step(stage, &drive_engine),
+    )
+    .expect("the headless render");
+    engine.calls()
+}
+
+/// The view's top-left corner in the window: below the strip.
+fn page_origin(stage: &Stage<'_, Msg>) -> (i32, i32) {
+    (0, Dip(STRIP).to_px(stage.dpi()).0)
+}
+
+#[test]
+fn clicks_and_wheel_reach_the_engine_in_page_coordinates() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        engine.take();
+        stage.click(ox + 50, oy + 40);
+        stage.inject(Event::MouseWheel {
+            delta: -120,
+            horizontal: false,
+            x: ox + 60,
+            y: oy + 70,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    let mouse: Vec<_> = calls
+        .iter()
+        .filter_map(|c| match c {
+            Call::Mouse(kind, button, x, y, _) => Some((*kind, *button, *x, *y)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        mouse,
+        vec![
+            (MouseKind::Down, Button::Left, 50, 40),
+            (MouseKind::Up, Button::Left, 50, 40)
+        ],
+        "{calls:?}"
+    );
+    assert!(
+        calls.contains(&Call::Wheel(60, 70, 0, -1, 0)),
+        "a notch down is one step down: {calls:?}"
+    );
+}
+
+#[test]
+fn typing_in_the_page_sends_text_and_the_keys_that_type_nothing() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        stage.click(ox + 50, oy + 40);
+        engine.take();
+        stage.inject(Event::Char('h'));
+        stage.inject(Event::Char('é'));
+        stage.inject(Event::KeyDown {
+            key: Key::BACK,
+            modifiers: Modifiers::NONE,
+            repeat: 1,
+            system: false,
+        });
+        stage.inject(Event::KeyUp {
+            key: Key::BACK,
+            modifiers: Modifiers::NONE,
+            system: false,
+        });
+        stage.inject(Event::KeyDown {
+            key: Key::RETURN,
+            modifiers: Modifiers::NONE,
+            repeat: 1,
+            system: false,
+        });
+    });
+    let keys: Vec<_> = calls
+        .iter()
+        .filter(|c| matches!(c, Call::Key(..)))
+        .cloned()
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            Call::Key(true, 0x68, "h".into(), 0),
+            Call::Key(false, 0x68, String::new(), 0),
+            Call::Key(true, 0xe9, "é".into(), 0),
+            Call::Key(false, 0xe9, String::new(), 0),
+            Call::Key(true, 0xff08, String::new(), 0),
+            Call::Key(false, 0xff08, String::new(), 0),
+            Call::Key(true, 0xff0d, String::new(), 0),
+        ],
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_right_button_drag_keeps_the_capture_until_it_is_released() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        engine.take();
+        stage.inject(Event::MouseDown {
+            x: ox + 10,
+            y: oy + 10,
+            button: MouseButton::Right,
+            modifiers: Modifiers::NONE,
+        });
+        stage.hover(ox + 30, oy + 30);
+        stage.inject(Event::MouseUp {
+            x: ox + 30,
+            y: oy + 30,
+            button: MouseButton::Right,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    assert!(
+        calls.contains(&Call::Mouse(MouseKind::Move, Button::Right, 30, 30, 0)),
+        "a move during the drag names the held button: {calls:?}"
+    );
+}

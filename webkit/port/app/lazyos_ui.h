@@ -1,7 +1,6 @@
 // The C ABI between WebKit's UI process (engine.cpp, main.cpp, clients.cpp, policy.cpp, uiclient.cpp)
-// and a window (Rust static libraries: xui-app/crates/webkit is the part every window shares,
-// os.lazy.webkit's window lives beside it, LazyWebPlus's is xui-app/webplus):
-// docs/webkit-port-plan.md W5 and docs/lazywebplus.md.
+// and a window (a Rust static library: xui-app/crates/webkit is the part every window shares,
+// LazyWebPlus's is xui-app/webplus): docs/webkit-port-plan.md and docs/lazywebplus.md.
 //
 // Two threads. WebKit's run loop owns the process's main thread; main() starts a
 // second one that calls lzw_ui_main() and stays in it until the window closes.
@@ -13,7 +12,7 @@
 // are pure decisions and a file name, never a call into the window's thread.
 //
 // What the UI process installs depends on lzw_ui_features(): a window that asks for nothing gets
-// the page, its state and its input, as in W5.
+// the page, its state and its input.
 
 #pragma once
 
@@ -90,7 +89,7 @@ extern "C" {
 // Which features this window uses (LZW_FEATURE_*). Called before the window thread exists.
 int lzw_ui_features(void);
 
-// The prefix of every marker the UI process prints ("WEBKIT:W5", "WEBPLUS"), a static string.
+// The prefix of every marker the UI process prints ("WEBPLUS"), a static string.
 const char* lzw_ui_marker_prefix(void);
 
 // Writes "<prefix>:<line>" as one line on the window's trace channel (one write, so another

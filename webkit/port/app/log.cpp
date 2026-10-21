@@ -1,6 +1,6 @@
-// Markers and text helpers for the UI process (docs/webkit-port-plan.md, W5, and LazyWebPlus,
-// docs/lazywebplus.md). A marker is "<prefix>:<text>", the prefix being the window's
-// (lzw_ui_marker_prefix: WEBKIT:W5 for os.lazy.webkit, WEBPLUS for LazyWebPlus).
+// Markers and text helpers for the UI process (docs/webkit-port-plan.md and LazyWebPlus,
+// docs/lazywebplus.md). A marker is "<prefix>:<text>", the prefix being the owner's (HostEnv::say;
+// the window's lzw_ui_marker_prefix, WEBPLUS for LazyWebPlus).
 
 #include <WebKit/WKString.h>
 #include <WebKit/WKType.h>
@@ -11,7 +11,7 @@
 #include <time.h>
 
 #include "engine.h"
-#include "lazyos_ui.h"
+#include "lazyos_ui.h" // the feature bits
 
 namespace webkitapp {
 
@@ -30,7 +30,9 @@ void print(const char* format, va_list args)
         if (*at == '\n' || *at == '\r')
             *at = ' ';
     }
-    lzw_ui_say(line);
+    // Before the owner is known (a marker from a static initializer) there is nowhere to say it.
+    if (H.env)
+        H.env->say(line);
 }
 
 } // namespace
@@ -45,14 +47,12 @@ void say(const char* format, ...)
 
 bool harness()
 {
-    static const bool on = lzw_ui_probe_enabled() != 0;
-    return on;
+    return H.env && H.env->probe();
 }
 
 bool has(int feature)
 {
-    static const int features = lzw_ui_features();
-    return (features & feature) != 0;
+    return H.env && (H.env->features() & feature) != 0;
 }
 
 void sayHarness(const char* format, ...)

@@ -32,7 +32,6 @@ Examples
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
-    python tools/run_demo.py --webkit        # desktop + networking + the WebKit browser (big-app profile, 1 GiB OS volume)
     python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, LazyWeb's browser on WebKit (same profile)
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
@@ -100,7 +99,7 @@ from demo_builds import (  # noqa: E402
     build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
-    build_srb2kart, build_tls, build_webkit, build_webkit_deps, build_webkit_port, build_wifi, build_xui_apps,
+    build_srb2kart, build_tls, build_webkit_deps, build_webkit_port, build_wifi, build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -331,7 +330,6 @@ def main(argv: list[str]) -> int:
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
                                       (args.webkit_port, build_webkit_port, "LAZYOS_WEBKIT_PORT"),
-                                      (args.webkit, build_webkit, "LAZYOS_WEBKIT"),
                                       (args.lazywebplus, build_lazywebplus, "LAZYOS_LAZYWEBPLUS"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),

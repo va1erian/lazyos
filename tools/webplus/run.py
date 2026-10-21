@@ -2,8 +2,8 @@
 """Build LazyWeb+ into a desktop image, browse in it twice, and judge what the guest, the host's
 servers, the OS volume and the screen saw (docs/lazywebplus.md).
 
-Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py
---plus``; then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
+Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py``;
+then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
 
 1. a throwaway test CA and a leaf for theoldnet.com (``tools/web/certs.py``); the image is built
    with ``LAZYOS_LAZYWEBPLUS=1`` (desktop, ``netd``, the big-app limits), the CA appended to the
@@ -68,7 +68,7 @@ HOME = "/home/user"
 APP_DIR = f"{HOME}/.apps/os.lazy.lazywebplus"
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS",
-         "LAZYOS_WEBKIT", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS",
+         "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS",
          "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS")
 
 
@@ -77,7 +77,7 @@ def built() -> str | None:
     missing = [str(p.relative_to(ROOT)) for p in (BIN / "WebProcess", BIN / "NetworkProcess", ELF, CURL_ELF)
                if not p.is_file()]
     if missing:
-        return (f"not built: {', '.join(missing)} (python tools/webkit/deps.py, port.py, app.py --plus; "
+        return (f"not built: {', '.join(missing)} (python tools/webkit/deps.py, port.py, app.py; "
                 "then python tools/xui/build.py; python tools/nettls/build.py for curl)")
     return None
 

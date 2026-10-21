@@ -29,7 +29,7 @@ def wants_net(cfg: dict) -> bool:
     over HTTPS, and the WebKit port and browser need it too)."""
     return bool(cfg.get("net") or cfg.get("smb") or cfg.get("lazysky") or wants_dbgd(cfg)
                 or wants_tls(cfg) or wants_wifi(cfg) or cfg.get("webkit_deps")
-                or cfg.get("webkit_port") or cfg.get("webkit") or cfg.get("lazywebplus"))
+                or cfg.get("webkit_port") or cfg.get("lazywebplus"))
 
 
 def wants_wifi(cfg: dict) -> bool:

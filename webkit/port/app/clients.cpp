@@ -1,8 +1,8 @@
 // What the page tells the UI process: navigation and state clients, the markers a session
-// reads, and the state handed to the window (docs/webkit-port-plan.md, W5; docs/lazywebplus.md).
+// reads, and the state handed to the window (docs/webkit-port-plan.md; docs/lazywebplus.md).
 //
-// Markers (one line each, on stdout, after the window's prefix: WEBKIT:W5 or WEBPLUS;
-// tools/webkit/appjudge.py and tools/webplus/judge.py read them):
+// Markers (one line each, on stdout, after the window's prefix: WEBPLUS;
+// tools/webplus/judge.py reads them):
 //   WEBPROCESS:UP:<pid>       the page's WebProcess is running (printed again when its id changes)
 //   NETWORKPROCESS:UP:<pid>   the NetworkProcess is running (a replacement prints its own)
 //   WEBPROCESS:GONE:<pid>:<reason>    the page's process ended (crash, memory, cpu, requested)
@@ -52,9 +52,9 @@
 
 namespace webkitapp {
 
-std::string activeUrl()
+std::string activeUrl(View& v)
 {
-    WKURLRef url = WKPageCopyActiveURL(E.page);
+    WKURLRef url = WKPageCopyActiveURL(v.page);
     std::string text = utf8(url);
     if (url)
         WKRelease(url);
@@ -64,39 +64,39 @@ std::string activeUrl()
 // Tells the window whether the page's process answers WebKit's pings, as WebKit says now (also when a
 // process the window has not heard of appears, and when a page commits: a stale "not responding" must
 // not make Reload or Stop end a healthy process).
-static void reportResponsiveness()
+static void reportResponsiveness(View& v)
 {
-    const bool responsive = WKPageIsWebProcessResponsive(E.page);
-    E.unresponsive = !responsive;
-    lzw_ui_page_responsive(responsive ? 1 : 0);
+    const bool responsive = WKPageIsWebProcessResponsive(v.page);
+    v.unresponsive = !responsive;
+    v.sink->responsive(responsive);
 }
 
-void rememberChildren()
+void rememberChildren(View& v)
 {
-    if (!E.page)
+    if (!v.page)
         return;
     // A process is announced when WebKit names an id the launcher has started and not seen end, and it
     // is another launch than the one announced (the kernel gives the lowest free slot, so a replacement
     // often takes the dead process's id: the id alone cannot tell). An id the launcher does not hold is a
     // stale answer (WebKit names a process after it ended): not announced, not remembered.
-    const int web = static_cast<int>(WKPageGetProcessIdentifier(E.page));
+    const int web = static_cast<int>(WKPageGetProcessIdentifier(v.page));
     const unsigned webOrdinal = web > 0 ? processOrdinal("web", web) : 0;
-    if (webOrdinal && (web != E.webPidShown || webOrdinal != E.webOrdinalShown)) {
-        E.webPid = web;
-        E.webPidShown = web;
-        E.webOrdinalShown = webOrdinal;
+    if (webOrdinal && (web != v.webPidShown || webOrdinal != v.webOrdinalShown)) {
+        H.webPid = web;
+        v.webPidShown = web;
+        v.webOrdinalShown = webOrdinal;
         say("WEBPROCESS:UP:%d", web);
-        // A process the window has not heard of: whatever it was told of the last one (not answering)
+        // A process the owner has not heard of: whatever it was told of the last one (not answering)
         // does not hold for this one.
-        reportResponsiveness();
+        reportResponsiveness(v);
     }
-    WKWebsiteDataStoreRef store = E.store ? E.store : WKContextGetWebsiteDataStore(E.context);
+    WKWebsiteDataStoreRef store = v.profile && v.profile->store ? v.profile->store : WKContextGetWebsiteDataStore(H.context);
     const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
     const unsigned networkOrdinal = network > 0 ? processOrdinal("network", network) : 0;
-    if (networkOrdinal && (network != E.networkPidShown || networkOrdinal != E.networkOrdinalShown)) {
-        E.networkPid = network;
-        E.networkPidShown = network;
-        E.networkOrdinalShown = networkOrdinal;
+    if (networkOrdinal && (network != v.networkPidShown || networkOrdinal != v.networkOrdinalShown)) {
+        H.networkPid = network;
+        v.networkPidShown = network;
+        v.networkOrdinalShown = networkOrdinal;
         say("NETWORKPROCESS:UP:%d", network);
     }
 }
@@ -115,18 +115,18 @@ const char* terminationReason(uint32_t reason)
     }
 }
 
-std::string committedUrl()
+std::string committedUrl(View& v)
 {
-    WKURLRef url = WKPageCopyCommittedURL(E.page);
+    WKURLRef url = WKPageCopyCommittedURL(v.page);
     std::string text = utf8(url);
     if (url)
         WKRelease(url);
     return text;
 }
 
-std::string pageTitle()
+std::string pageTitle(View& v)
 {
-    WKStringRef title = WKPageCopyTitle(E.page);
+    WKStringRef title = WKPageCopyTitle(v.page);
     std::string text = utf8(title);
     if (title)
         WKRelease(title);
@@ -135,26 +135,35 @@ std::string pageTitle()
 
 // ---- state for the window -------------------------------------------------------------
 
-void postState()
+void postState(View& v)
 {
     // The WebProcess exists as soon as the page does: when did it come up? A process that replaced
     // another (a crash, a recovery) or a new NetworkProcess is noticed here as well.
-    static bool webProcessSeen = false;
-    if (!webProcessSeen && WKPageGetProcessIdentifier(E.page) > 0) {
-        webProcessSeen = true;
+    if (!v.webProcessSeen && WKPageGetProcessIdentifier(v.page) > 0) {
+        v.webProcessSeen = true;
         say("INFO:TIME:webprocess=%ld", elapsedMs());
     }
-    rememberChildren();
-    std::string url = activeUrl();
-    std::string committed = committedUrl();
-    std::string title = pageTitle();
-    int progress = static_cast<int>(WKPageGetEstimatedProgress(E.page) * 1000.0);
+    rememberChildren(v);
+    std::string url = activeUrl(v);
+    std::string committed = committedUrl(v);
+    std::string title = pageTitle(v);
+    int progress = static_cast<int>(WKPageGetEstimatedProgress(v.page) * 1000.0);
     // A committed https: page was fetched over a verified connection: a certificate that does not
     // verify fails the load (the TLS plan's rule), it never shows a page.
     const bool secure = committed.size() > 8 && committed.compare(0, 8, "https://") == 0;
-    lzw_ui_state(url.c_str(), title.c_str(), E.loading ? 1 : 0, WKPageCanGoBack(E.page) ? 1 : 0,
-        WKPageCanGoForward(E.page) ? 1 : 0, E.loading ? progress : 1000, E.error.c_str(), E.crashed ? 1 : 0,
-        committed.c_str(), secure ? 1 : 0, E.finished);
+    ViewState state;
+    state.url = url.c_str();
+    state.title = title.c_str();
+    state.loading = v.loading;
+    state.canBack = WKPageCanGoBack(v.page);
+    state.canForward = WKPageCanGoForward(v.page);
+    state.progress = v.loading ? progress : 1000;
+    state.error = v.error.c_str();
+    state.crashed = v.crashed;
+    state.committedUrl = committed.c_str();
+    state.secure = secure;
+    state.finished = v.finished;
+    v.sink->state(state);
 }
 
 namespace {
@@ -175,28 +184,28 @@ void reportMemory()
         firstFreeMiB = freeMiB;
     say("INFO:MEM:total=%ld:free=%ld:used_since_first_load=%ld", totalMiB, freeMiB, firstFreeMiB - freeMiB);
     uint64_t used = 0, limit = 0;
-    if (!lzw_ui_user_memory(&used, &limit))
+    if (!H.env->userMemory(&used, &limit))
         say("INFO:QUOTA:user_memory_mib=%lu:limit_mib=%lu", static_cast<unsigned long>(used >> 20), static_cast<unsigned long>(limit >> 20));
 }
 
-void sayTitle()
+void sayTitle(View& v)
 {
-    std::string title = oneLine(pageTitle());
+    std::string title = oneLine(pageTitle(v));
     if (title.empty())
         return;
     sayHarness("TITLE:%s", title.c_str());
-    E.lastTitleSaid = title;
+    v.lastTitleSaid = title;
 }
 
 // The title of the page a form submission led to: what the server echoed back.
-void sayInput()
+void sayInput(View& v)
 {
-    if (!E.inputPending || !E.loadFinished)
+    if (!v.inputPending || !v.loadFinished)
         return;
-    std::string title = oneLine(pageTitle());
+    std::string title = oneLine(pageTitle(v));
     if (title.empty())
         return;
-    E.inputPending = false;
+    v.inputPending = false;
     sayHarness("INPUT:%s", title.c_str());
 }
 
@@ -209,86 +218,89 @@ void scriptResult(WKTypeRef result, WKErrorRef, void*)
     sayHarness("JS:%s", oneLine(title).c_str());
 }
 
-void readTitleBySript()
+void readTitleBySript(View& v)
 {
     // Only for a session: it is the proof that script ran in the page, and costs a round trip
     // to the WebProcess per page.
     if (!harness())
         return;
     WKStringRef script = WKStringCreateWithUTF8CString("document.title");
-    WKPageEvaluateJavaScriptInMainFrame(E.page, script, nullptr, scriptResult);
+    WKPageEvaluateJavaScriptInMainFrame(v.page, script, nullptr, scriptResult);
     WKRelease(script);
 }
 
-void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
+void didStartProvisionalNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void* clientInfo)
 {
-    dropDialogs();
-    E.error.clear();
-    E.crashed = false;
-    E.stopRequested = false;
-    E.loading = true;
-    E.loadFinished = false;
-    sayHarness("START:%s", oneLine(activeUrl()).c_str());
-    E.navStartMs = elapsedMs();
-    E.committedSincePaint = false;
-    E.firstPaintMs = -1;
-    ++E.navigations;
-    postState();
+    View& v = *viewOf(clientInfo);
+    dropDialogs(v);
+    v.error.clear();
+    v.crashed = false;
+    v.stopRequested = false;
+    v.loading = true;
+    v.loadFinished = false;
+    sayHarness("START:%s", oneLine(activeUrl(v)).c_str());
+    v.navStartMs = elapsedMs();
+    v.committedSincePaint = false;
+    v.firstPaintMs = -1;
+    ++v.navigations;
+    postState(v);
 }
 
-void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
+void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void* clientInfo)
 {
-    E.saveNext = false; // a page was committed: whatever was to be saved is not this
-    E.commitMs = elapsedMs();
-    E.committedSincePaint = true;
-    reportResponsiveness();
+    View& v = *viewOf(clientInfo);
+    v.saveNext = false; // a page was committed: whatever was to be saved is not this
+    v.commitMs = elapsedMs();
+    v.committedSincePaint = true;
+    reportResponsiveness(v);
     // After redirects the committed address is the one that counts, and it is known before the page's
     // first subresource is asked for.
-    blockingSettle();
-    blockingCommitted();
-    postState();
+    blockingSettle(v);
+    blockingCommitted(v);
+    postState(v);
 }
 
-void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void*)
+void didFinishNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void* clientInfo)
 {
-    E.error.clear();
-    E.loading = false;
-    E.loadFinished = true;
-    ++E.finished;
+    View& v = *viewOf(clientInfo);
+    v.error.clear();
+    v.loading = false;
+    v.loadFinished = true;
+    ++v.finished;
     long finished = elapsedMs();
-    sayHarness("LOAD:%s", oneLine(activeUrl()).c_str());
-    sayTitle();
-    if (E.formNavigation) {
+    sayHarness("LOAD:%s", oneLine(activeUrl(v)).c_str());
+    sayTitle(v);
+    if (v.formNavigation) {
         // The echo is the response's title; it can arrive a moment after the load finished.
-        E.formNavigation = false;
-        E.inputPending = true;
-        sayInput();
+        v.formNavigation = false;
+        v.inputPending = true;
+        sayInput(v);
     }
-    readTitleBySript();
-    rememberChildren();
-    say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", E.navigations, E.navStartMs, E.commitMs,
-        finished, finished - E.navStartMs);
+    readTitleBySript(v);
+    rememberChildren(v);
+    say("INFO:TIME:nav=%d:start=%ld:commit=%ld:finish=%ld:load=%ld", v.navigations, v.navStartMs, v.commitMs,
+        finished, finished - v.navStartMs);
     reportMemory();
-    blockingFinished();
-    postState();
-    schedulePaint();
+    blockingFinished(v);
+    postState(v);
+    schedulePaint(v);
 }
 
 // Stop (or a download taking over, or the page's own redirect) ends a load with an error that is
 // not a failure: nothing to show, nothing to report.
-bool cancelled(WKErrorRef error)
+bool cancelled(View& v, WKErrorRef error)
 {
     const int code = error ? WKErrorGetErrorCode(error) : 0;
-    return E.stopRequested || code == kWKErrorCodeCancelled || code == kWKErrorCodeFrameLoadInterruptedByPolicyChange;
+    return v.stopRequested || code == kWKErrorCodeCancelled || code == kWKErrorCodeFrameLoadInterruptedByPolicyChange;
 }
 
-void didFail(const char* what, WKErrorRef error)
+void didFail(View& v, const char* what, WKErrorRef error)
 {
-    E.loading = false;
-    if (cancelled(error)) {
-        E.stopRequested = false;
+    v.loading = false;
+    if (cancelled(v, error)) {
+        v.stopRequested = false;
         sayHarness("CANCELLED:%s", what);
-        postState();
+        postState(v);
         return;
     }
     std::string description;
@@ -306,69 +318,74 @@ void didFail(const char* what, WKErrorRef error)
         if (url)
             WKRelease(url);
     }
-    E.error = "Could not load " + (failing.empty() ? std::string("the page") : oneLine(failing)) + ": "
+    v.error = "Could not load " + (failing.empty() ? std::string("the page") : oneLine(failing)) + ": "
         + (description.empty() ? std::string("unknown error") : oneLine(description));
     say("FAIL:%s:%s:%s (code %d)", what, harness() ? oneLine(failing).c_str() : "", oneLine(description).c_str(),
         error ? WKErrorGetErrorCode(error) : 0);
-    postState();
+    postState(v);
 }
 
-void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void*) { didFail("navigation", error); }
-
-void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void*)
+void didFailNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void* clientInfo)
 {
+    didFail(*viewOf(clientInfo), "navigation", error);
+}
+
+void didFailProvisionalNavigation(WKPageRef, WKNavigationRef, WKErrorRef error, WKTypeRef, const void* clientInfo)
+{
+    View& v = *viewOf(clientInfo);
     // A "save this page" load that failed before a response must not turn the next page into a download.
-    E.saveNext = false;
+    v.saveNext = false;
     // The page on show stays, and so does what blocks it (issue #845).
-    blockingSettle();
-    didFail("provisional", error);
+    blockingSettle(v);
+    didFail(v, "provisional", error);
 }
 
-// The page's process ended: WebKit says why. The window blanks the page and says so, except when the
-// window itself asked (lzw_engine_recover): then the process is replaced by a reload, or the page stays
-// stopped.
-void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const void*)
+// The page's process ended: WebKit says why. The owner blanks the page and says so, except when it
+// asked itself (View::recover): then the process is replaced by a reload, or the page stays stopped.
+void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const void* clientInfo)
 {
-    say("WEBPROCESS:GONE:%d:%s", E.webPidShown, terminationReason(reason));
+    View& v = *viewOf(clientInfo);
+    say("WEBPROCESS:GONE:%d:%s", v.webPidShown, terminationReason(reason));
     lzw_launcher_reap();
     // A crashed process the kernel has not finished with yet is still the launcher's: keep collecting.
-    processCrashed("web", E.webPidShown);
-    dropDialogs();
-    E.loading = false;
-    E.unresponsive = false;
-    lzw_ui_page_responsive(1);
-    invalidatePaint();
-    if (E.recovering && reason == kWKProcessTerminationReasonRequestedByClient) {
-        const bool reload = E.recoverReload;
-        E.recovering = false;
-        E.recoverReload = false;
+    processCrashed("web", v.webPidShown);
+    dropDialogs(v);
+    v.loading = false;
+    v.unresponsive = false;
+    v.sink->responsive(true);
+    invalidatePaint(v);
+    if (v.recovering && reason == kWKProcessTerminationReasonRequestedByClient) {
+        const bool reload = v.recoverReload;
+        v.recovering = false;
+        v.recoverReload = false;
         if (reload) {
-            E.error.clear();
-            E.crashed = false;
-            postState();
+            v.error.clear();
+            v.crashed = false;
+            postState(v);
             // After WebKit has finished with this termination: a reload now would start in the dead process.
-            onMain([] { WKPageReload(E.page); });
+            onView(v.id, [](View& again) { WKPageReload(again.page); });
             return;
         }
-        E.crashed = true;
-        E.error = "The page was stopped because it was not responding. Reload (F5) starts it again.";
+        v.crashed = true;
+        v.error = "The page was stopped because it was not responding. Reload (F5) starts it again.";
         say("FAIL:webprocess:stopped");
-        postState();
+        postState(v);
         return;
     }
-    E.recovering = false;
-    E.crashed = true;
-    E.error = "The page's process stopped. Reload (F5) starts it again.";
+    v.recovering = false;
+    v.crashed = true;
+    v.error = "The page's process stopped. Reload (F5) starts it again.";
     say("FAIL:webprocess:crashed");
-    postState();
+    postState(v);
 }
 
 // WebKit's 6 s ping of the WebProcess went unanswered, or was answered after all.
-void responsivenessChanged(const void*)
+void responsivenessChanged(const void* clientInfo)
 {
-    const bool responsive = WKPageIsWebProcessResponsive(E.page);
-    say("WEBPROCESS:%s:%d", responsive ? "RESPONSIVE" : "UNRESPONSIVE", static_cast<int>(WKPageGetProcessIdentifier(E.page)));
-    reportResponsiveness();
+    View& v = *viewOf(clientInfo);
+    const bool responsive = WKPageIsWebProcessResponsive(v.page);
+    say("WEBPROCESS:%s:%d", responsive ? "RESPONSIVE" : "UNRESPONSIVE", static_cast<int>(WKPageGetProcessIdentifier(v.page)));
+    reportResponsiveness(v);
 }
 
 // The NetworkProcess ended. WebKit also kills the one that did not answer for 6 s and starts another
@@ -380,23 +397,25 @@ void networkProcessDidCrash(WKContextRef, WKProcessID pid, WKProcessTerminationR
     processCrashed("network", static_cast<int>(pid));
 }
 
-void stateChanged(const void*) { postState(); }
+void stateChanged(const void* clientInfo) { postState(*viewOf(clientInfo)); }
 
 // The title can change after the load finished (script): say so, once per new title.
-void titleChanged(const void*)
+void titleChanged(const void* clientInfo)
 {
-    if (E.loadFinished && oneLine(pageTitle()) != E.lastTitleSaid)
-        sayTitle();
-    sayInput();
-    postState();
+    View& v = *viewOf(clientInfo);
+    if (v.loadFinished && oneLine(pageTitle(v)) != v.lastTitleSaid)
+        sayTitle(v);
+    sayInput(v);
+    postState(v);
 }
 
 } // namespace
 
-void installClients()
+void installClients(View& view)
 {
-    static WKPageNavigationClientV3 navigation = { };
+    WKPageNavigationClientV3 navigation = { };
     navigation.base.version = 3;
+    navigation.base.clientInfo = &view;
     navigation.decidePolicyForNavigationAction = decidePolicyForNavigationAction;
     navigation.decidePolicyForNavigationResponse = decidePolicyForNavigationResponse;
     navigation.navigationActionDidBecomeDownload = navigationActionDidBecomeDownload;
@@ -408,12 +427,13 @@ void installClients()
     navigation.didFailProvisionalNavigation = didFailProvisionalNavigation;
     navigation.webProcessDidTerminate = webProcessDidTerminate;
     // What the content rule lists did (issue #845): the count of blocked loads (patch 0018).
-    if (has(LZW_FEATURE_BLOCKING))
+    if (view.has(LZW_FEATURE_BLOCKING))
         navigation.contentRuleListNotification = contentRuleListNotification;
-    WKPageSetPageNavigationClient(E.page, &navigation.base);
+    WKPageSetPageNavigationClient(view.page, &navigation.base);
 
-    static WKPageStateClientV0 state = { };
+    WKPageStateClientV0 state = { };
     state.base.version = 0;
+    state.base.clientInfo = &view;
     state.didChangeIsLoading = stateChanged;
     state.didChangeTitle = titleChanged;
     state.didChangeActiveURL = stateChanged;
@@ -421,15 +441,15 @@ void installClients()
     state.didChangeCanGoBack = stateChanged;
     state.didChangeCanGoForward = stateChanged;
     state.didChangeWebProcessIsResponsive = responsivenessChanged;
-    WKPageSetPageStateClient(E.page, &state.base);
+    WKPageSetPageStateClient(view.page, &state.base);
 }
 
 void installContextClient()
 {
-    static WKContextClientV4 client = { };
+    WKContextClientV4 client = { };
     client.base.version = 4;
     client.networkProcessDidCrashWithDetails = networkProcessDidCrash;
-    WKContextSetClient(E.context, &client.base);
+    WKContextSetClient(H.context, &client.base);
 }
 
 } // namespace webkitapp

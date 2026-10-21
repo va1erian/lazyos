@@ -119,8 +119,6 @@ class Launcher:
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
                     "webkit_port")
-        self._check(g, "WebKit browser, os.lazy.webkit, built in Docker (LAZYOS_WEBKIT; run_demo "
-                       "--webkit; desktop, networking, big-app profile, 1 GiB OS volume)", "webkit")
         self._check(g, "LazyWeb+ browser: LazyWeb's window on WebKit, os.lazy.lazywebplus, built in "
                        "Docker (LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, "
                        "big-app profile, 1 GiB OS volume)", "lazywebplus")
