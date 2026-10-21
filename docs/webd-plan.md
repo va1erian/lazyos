@@ -341,6 +341,24 @@ browser moves onto webd**.
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
+### P2 slice 1: light views, headless (started 2026-10-21)
+
+The first slice builds the light interface end to end up to, but not including, the program and package. Two
+halves written against one contract, `webkit/port/webd/webd_abi.h` (C ABI, light views, whole frames only):
+
+* **Service half (Rust)**: `idl/webd_light.midl`, the `pkgstore::explain` row, `xui-app/crates/webd` (view table,
+  quotas, light config validation, slot state machine, the Messenger service on its own thread), host-tested
+  against an in-memory fabric and a recording `Engine` trait. An `ffi` module (feature `host`) implements that
+  trait over the C ABI and exports the `webd_ui_*` callbacks; it is not linked into anything yet.
+* **Engine half (C++)**: `webkit/port/webd/abi.cpp` implements `webd_engine_*` over the engine's Host and Views,
+  with the light-view behaviour the engine lacks (scripts off, `LoadHtml` with a base URL, navigation locked and
+  reported as `webd_ui_link_clicked`, no network scheme loads, no browser clients), and `webd-abi-test`, a
+  headless program in the build container that drives the ABI like the service will (modes under
+  `tools/webkit/port.py --run-views`' sibling flag).
+
+Slice 2 links the two into the `webd` program, adds the package, `LAZYOS_WEBD=1`, `run_demo.py --webd`, the GUI
+control, `tools/webd/run.py` and a demo client; slice 3 is the full interface.
+
 ### What P1 found (2026-10-21, `webkit-views`)
 
 * **One NetworkProcess, one WebProcess per view.** Two views with different stores, and two views of one profile
