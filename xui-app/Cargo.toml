@@ -70,6 +70,9 @@ members = [
     # quotas and the slot state machine; portable and host-tested, with the C ABI of the WebKit
     # half behind the `host` feature.
     "crates/webd",
+    # The client of webd's light views (docs/webd-plan.md P2 slice 2): `LightWebView` over a
+    # `Transport`; `xui_app::platform::webd` binds it to Messenger and `webddemo` uses it.
+    "crates/webd-client",
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
