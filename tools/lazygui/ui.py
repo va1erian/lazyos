@@ -122,6 +122,9 @@ class Launcher:
         self._check(g, "LazyWeb+ browser: LazyWeb's window on WebKit, os.lazy.lazywebplus, built in "
                        "Docker (LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, "
                        "big-app profile, 1 GiB OS volume)", "lazywebplus")
+        self._check(g, "webd: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
+                       "(LAZYOS_WEBD; run_demo --webd; desktop, big-app profile, 1 GiB OS volume, "
+                       "no network stack)", "webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")

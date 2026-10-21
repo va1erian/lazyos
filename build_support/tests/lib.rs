@@ -51,6 +51,8 @@ mod usb_fat;
 mod usb_ramdisk;
 #[path = "../usb_stick.rs"]
 mod usb_stick;
+#[path = "../webd_embed.rs"]
+mod webd_embed;
 #[path = "../wifi_embed.rs"]
 mod wifi_embed;
 
@@ -110,5 +112,7 @@ mod usb_root_tests;
 mod usb_tests;
 #[cfg(test)]
 mod wallpapers_tests;
+#[cfg(test)]
+mod webd_tests;
 #[cfg(test)]
 mod wifi_tests;

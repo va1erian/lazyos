@@ -187,6 +187,7 @@ set(_lazyos_engine_sources
     "${LAZYOS_PORT_DIR}/app/children.cpp"
     "${LAZYOS_PORT_DIR}/app/blocking.cpp"
     "${LAZYOS_PORT_DIR}/app/paint.cpp"
+    "${LAZYOS_PORT_DIR}/app/light.cpp"
     "${LAZYOS_PORT_DIR}/app/log.cpp"
 )
 # ... and the C ABI of lazyos_ui.h over it, for a program with a window of that kind.
@@ -213,3 +214,29 @@ add_executable(webkit-views "${LAZYOS_PORT_DIR}/views/main.cpp" ${_lazyos_engine
 target_include_directories(webkit-views PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
 target_compile_definitions(webkit-views PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-views PRIVATE WebKit)
+
+# webd's engine half (webkit/port/webd/, docs/webd-plan.md P2): the C ABI of webd_abi.h over the engine's light
+# views, and the headless program that plays the service to test it (`port.py --only webd-abi-test`,
+# `--run-webd`).
+set(_lazyos_webd_sources "${LAZYOS_PORT_DIR}/webd/abi.cpp")
+add_executable(webd-abi-test
+    "${LAZYOS_PORT_DIR}/webd/test/main.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/support.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_basic.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_net.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_procs.cpp"
+    ${_lazyos_webd_sources}
+    ${_lazyos_engine_sources})
+target_include_directories(webd-abi-test PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app" "${LAZYOS_PORT_DIR}/webd" "${LAZYOS_PORT_DIR}/webd/test")
+target_compile_definitions(webd-abi-test PRIVATE ${_lazyos_program_definitions})
+target_link_libraries(webd-abi-test PRIVATE WebKit)
+
+# webd itself (webkit/port/webd/main.cpp, docs/webd.md): the engine, its C ABI and the service, a Rust static
+# library (LAZYOS_WEBD_LIBRARY, built on the host by tools/webkit/webd.py; xui-app/webd). Without the library
+# its target does not exist, so the other programs build as before. `port.py --only webd-app`.
+if (LAZYOS_WEBD_LIBRARY)
+    add_executable(webd-app "${LAZYOS_PORT_DIR}/webd/main.cpp" ${_lazyos_webd_sources} ${_lazyos_engine_sources})
+    target_include_directories(webd-app PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app" "${LAZYOS_PORT_DIR}/webd")
+    target_compile_definitions(webd-app PRIVATE ${_lazyos_program_definitions})
+    target_link_libraries(webd-app PRIVATE WebKit "${LAZYOS_WEBD_LIBRARY}")
+endif ()

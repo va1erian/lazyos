@@ -1,0 +1,43 @@
+# The host of webd's service (docs/webd.md, docs/webd-plan.md P2 slice 2): the glue that turns
+# `xui-webd` (the portable service half, `../crates/webd`) into a running Messenger service.
+#
+# `webd-app` (`webkit/port/webd/main.cpp`) is one static-PIE musl program in two halves that meet
+# through two small C ABIs, as `lazywebplus-app` is: WebKit's engine half (`webkit/port/webd/abi.cpp`,
+# `webd_abi.h`) in C++ on one thread, and this crate, a Rust static library (`libxui_webd_host.a`, built
+# on the host by `tools/webkit/webd.py` and linked in the WebKit build container), on the process's first
+# thread: the thread `init` and the shell know the app by. This crate supplies what the portable service
+# leaves to its host: the real Messenger binding (`Fabric`: the registered endpoint, replies, events
+# on the clients' channels, shared buffers), the doorbell and the loop that wakes on it, the app's
+# lifecycle line to `init`, the hang watchdog and the evidence markers (`WEBD:*`).
+#
+# Licence: webd links WebKit (LGPL-2.1) and OpenSSL (Apache-2.0), so the program, and this crate with
+# it, is GPL-3.0-or-later (docs/webd-plan.md section 10).
+[package]
+name = "xui-webd-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "webd's host: the real Messenger binding, the wake-up loop and the markers around xui-webd"
+
+[lib]
+name = "xui_webd_host"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+# The portable half: its notes become markers here, on any host (`lines`, `heartbeat`).
+xui-webd = { path = "../crates/webd" }
+
+# Everything that touches the kernel is built for LazyOS only; the pure parts above run on any host.
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+# The C ABI of the WebKit half: an `Engine` over `webd_engine_*` and the exported `webd_ui_*`.
+xui-webd = { path = "../crates/webd", features = ["host"] }
+libmessenger = { path = "../../libs/messenger" }
+messenger-generated = { path = "../../libs/generated" }
+# `server::Server` (the registered endpoint), `resident::Lifecycle`, `sys` and `trace`.
+xui-app = { path = ".." }
+lazyos-sys = { path = "../../libs/lazyos-sys", features = ["std", "parcel"] }
+libc = "0.2"
+# The app's data folder (`app_data_dir`), where the engine keeps its network-lock rule store.
+fhs = { path = "../../libs/fhs", features = ["alloc"] }

@@ -1,0 +1,169 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "TERM:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBD:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBDDEMO:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "WEBDDEMO:VIEW:PASS id=",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBDDEMO:FRAME:PASS colour=blue",
+  "timeout": 300.0
+ },
+ {
+  "click_at": {
+   "target": "title:Web View Demo"
+  },
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "w01_page"
+ },
+ {
+  "click_at": {
+   "window": "Web View Demo",
+   "widget": "link"
+  },
+  "timeout": 60,
+  "until": "WEBDDEMO:LINK:https://example.com/clicked",
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "w02_link"
+ },
+ {
+  "click_at": {
+   "window": "Web View Demo",
+   "widget": "field"
+  },
+  "timeout": 60
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "type": "ok",
+  "delay": 0.1
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "w03_form"
+ },
+ {
+  "wait_for": "PROCESS:LAUNCH:web:(\\d+)",
+  "timeout": 60,
+  "regex": true,
+  "capture": "webpid"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "wget -q -O /dev/null http://10.0.2.2:18080/control"
+ },
+ {
+  "wait": 0.6
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:wget ",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "type": "kill -9 ${webpid}"
+ },
+ {
+  "wait": 0.6
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:kill -9 ",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBDDEMO:LOST:",
+  "timeout": 120
+ },
+ {
+  "wait_for": "WEBDDEMO:RECREATE:PASS",
+  "timeout": 240
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "w04_recreated"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "WEBDDEMO:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 5.0
+ },
+ {
+  "quit": true
+ }
+]

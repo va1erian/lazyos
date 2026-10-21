@@ -243,6 +243,7 @@ fn a_light_only_client_of_webd_cannot_resolve_the_full_service() {
     ))
     .unwrap();
     assert!(rules.contains(&resolve("app.os.lazy.webd.light")));
+    assert!(rules.contains(&allow(fnv1a64("os.lazy.webd.light.v1"), ANY_METHOD)));
     assert!(!rules.contains(&resolve("app.os.lazy.webd.view")));
     assert!(!rules.contains(&allow(fnv1a64("os.lazy.webd.view.v1"), ANY_METHOD)));
 }

@@ -69,7 +69,7 @@ APP_DIR = f"{HOME}/.apps/os.lazy.lazywebplus"
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS",
          "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS",
-         "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS")
+         "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBD")
 
 
 def built() -> str | None:

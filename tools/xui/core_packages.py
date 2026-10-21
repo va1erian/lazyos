@@ -114,6 +114,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
     "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,
                            built_by="python tools/webkit/app.py"),
+    # webd (docs/webd.md): the resident daemon that serves WebKit views to other apps, one static program
+    # linked by `tools/webkit/webd.py`. Only a `LAZYOS_WEBD=1` image ships it
+    # (`build_support/webd_embed.rs`, which fails that build when it is missing).
+    "webd": CoreApp({"xui-webd.elf": "bin/webd.elf"}, optional=True,
+                    built_by="python tools/webkit/webd.py"),
     # The Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1` image
     # ships it (`build_support/lazysky_embed.rs`, which fails that build when
     # it is missing).
@@ -167,6 +172,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # NES: Play NES game ROMs, with sound. Shipped by `LAZYOS_GAMES=1` images
     # only, like LazyGolf.
     "nes": xui_app("xui-nes.elf", "nes", optional=True),
+    # Web View Demo (docs/webd-plan.md P2 slice 2): the client of webd's light views, driven by
+    # `python tools/webd/run.py`. Only a `LAZYOS_WEBD=1` image ships it.
+    "webddemo": xui_app("xui-webddemo.elf", "webddemo", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

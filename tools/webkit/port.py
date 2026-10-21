@@ -11,7 +11,10 @@ dependency bundle, as static-PIE ``x86_64-linux-musl`` programs by zig:
   (``webkit/port/smoke/``);
 * ``lazywebplus-app`` (``--only lazywebplus-app``): the desktop UI process, WebKit's run loop in
   C++ (``webkit/port/app/``) and LazyWebPlus's window in a Rust static library
-  (``xui-app/webplus``); ``tools/webkit/app.py`` does both halves (docs/lazywebplus.md).
+  (``xui-app/webplus``); ``tools/webkit/app.py`` does both halves (docs/lazywebplus.md);
+* ``webd-app`` (``--only webd-app``): webd, the daemon that serves light views: the engine's second owner
+  (``webkit/port/webd/``) with its service in a Rust static library (``xui-app/webd``);
+  ``tools/webkit/webd.py`` does both halves (docs/webd.md).
 
 Runs inside the ``jsc`` build's Docker container (``tools/jsc/Dockerfile``, the
 volume ``lazyos-jsc-work``) like ``deps.py``; ``--no-docker`` runs the same
@@ -52,6 +55,11 @@ NAMES = ["WebProcess", "NetworkProcess", "webkit-smoke"]
 PLUS = "lazywebplus-app"
 #: The engine's views without a window, built on request and run by ``--run-views``.
 VIEWS = "webkit-views"
+#: webd's engine half and the program that tests it, built on request and run by ``--run-webd``.
+WEBD = "webd-abi-test"
+#: webd itself, once the service's static library exists (``tools/webkit/webd.py`` builds that first and
+#: then runs ``--only webd-app``).
+WEBD_APP = "webd-app"
 
 
 def in_container() -> bool:
@@ -112,11 +120,14 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS, WEBD, WEBD_APP], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS, WEBD, WEBD_APP])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
     parser.add_argument("--run-views", action="store_true",
                         help="after the build, run webkit-views in the container (build it with --only webkit-views)")
+    parser.add_argument("--run-webd", nargs="*", metavar="MODE",
+                        help="after the build, run webd-abi-test in the container (build it with --only webd-abi-test): "
+                        "every mode, or only the ones named")
     parser.add_argument("--require", action="store_true",
                         help="fail (exit 1) when Docker or a download is unavailable")
     parser.add_argument("--no-docker", action="store_true",
@@ -144,6 +155,13 @@ def main() -> int:
         import port_cmake
         try:
             port_cmake.run_views()
+        except BuildError as error:
+            wkpins.log(str(error))
+            return 1
+    if args.run_webd is not None:
+        import port_cmake
+        try:
+            port_cmake.run_webd(args.run_webd or None)
         except BuildError as error:
             wkpins.log(str(error))
             return 1

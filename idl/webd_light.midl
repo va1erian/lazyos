@@ -1,0 +1,135 @@
+/// webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app
+/// that only needs WebKit's HTML/CSS/layout/font engine asks `webd` for a
+/// view, hands it the page's HTML, and gets the page's pixels back in shared
+/// memory slots plus a few page events. A light view has **no network** (no
+/// scheme but `data:`, `blob:` and `about:blank` ever loads, and the engine
+/// refuses the rest too), no cookies, cache or storage, no hand-off to other
+/// programs, and a **locked navigation**: a link click, a form submit or a
+/// `<meta http-equiv=refresh>` becomes `LinkClicked` and nothing loads. Scripts
+/// are off unless `LightConfig.scripts` asks, and even then have no network
+/// and no windows. Served by `webd` as `app.os.lazy.webd.light`; a package
+/// that lists only this interface cannot resolve the full service
+/// (`os.lazy.webd.view.v1`, a later interface).
+///
+/// Like `os.lazy.display.v1`, one interface carries both directions. **Calls**
+/// (app to webd) are ordinary request/reply methods, input and slot returns
+/// are `oneway`. **Events** (webd to app) are `oneway` methods sent on the
+/// endpoint the app moved in with `CreateView` (`events`): `Frame`, `State`,
+/// `Scroll`, `LinkClicked`, `ClipboardWrite`, `ViewLost` and `Ping`. Method
+/// ids are append-only from the first release; the full interface reuses
+/// these ids and wire shapes (its `CreateView` also carries a `scale` as
+/// field 4, which this one does not have yet), so client code is shared.
+///
+/// **Identity comes from the kernel, never from the call.** A view belongs
+/// to the (user, label) of the task that created it and is unusable by any
+/// other caller: every call on someone else's view fails like a call on a view
+/// that does not exist (`ENOENT`). Nothing in a request names the owner. A
+/// caller in another login session than webd's gets `EACCES`.
+///
+/// **Pixels.** The app owns the memory: it attaches up to three `Buffer` slots
+/// of the view's size (`AttachSlot`, RGBA8, `width * 4` bytes per row, at
+/// least `width * height * 4` bytes). webd copies a whole frame into a slot the
+/// app has released and sends `Frame(view, slot, seq, width, height)`; the slot
+/// is the app's until it calls `ReleaseSlot`. When every slot is busy a frame
+/// is dropped and webd asks the engine for a fresh whole frame as soon as one
+/// is released, so the app always ends on the latest picture and webd never
+/// queues frames or blocks on a slow app. `Resize` detaches every slot (their
+/// size is no longer right): attach new ones before the next frame can come.
+///
+/// Limits (`xui-app/crates/webd/src/limits.rs`): at most 8 live views per
+/// client (`ENOSPC`); width and height 1..=8192 and at most 16 Mpixel
+/// (`EINVAL`); at most 3 slots per view, and at most 512 MiB of slot memory per
+/// client (`EDQUOT`); `html` at most 8 MiB (`E2BIG`); `user_style` at most 64
+/// KiB (`EINVAL`). A call on a view the engine lost (`ViewLost`) fails with
+/// `ENODEV` until the app calls `DestroyView`. Failures reply with the
+/// standard error field (id 15, `docs/midl.md`).
+interface os.lazy.webd.light.v1 {
+    /// Make a view of `width` x `height` pixels and return its id (non-zero,
+    /// chosen by webd and never reused). `events` is the endpoint webd sends
+    /// this view's events on; it is closed when the view ends. The view shows
+    /// a blank page until `LoadHtml`. webd derives the web process group from
+    /// the caller's kernel-stamped label: the views of one app share a web
+    /// process, the views of two apps never do.
+    method CreateView(config: LightConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.light.v1> = 5) -> (view: U64 = 1) = 1;
+    /// End the view, its page and its event endpoint. Slots the app still
+    /// holds stay its own memory. Not an error for a view that is already gone.
+    method DestroyView(view: U64 = 1) -> () = 2;
+    /// Register `pixels` as slot `slot` (0 to 2) of `view`; it starts free.
+    /// The buffer must hold at least `width * height * 4` bytes of the view's
+    /// current size after its `offset`. Replaces a free slot of that number
+    /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
+    /// after `ReleaseSlot`.
+    method AttachSlot(view: U64 = 1, slot: U32 = 2, pixels: Buffer = 3) -> () = 3;
+    /// The app is done reading `slot`; webd may paint into it again. A slot
+    /// that is not busy, or a view that is not the caller's, is ignored.
+    method ReleaseSlot(view: U64 = 1, slot: U32 = 2) -> () = 4 oneway;
+    /// Change the view's size. Every slot is detached (attach new ones of the
+    /// new size); the next frame has the new size.
+    method Resize(view: U64 = 1, width: U32 = 2, height: U32 = 3) -> () = 5;
+    /// A view that is not visible gets no paints (its page still runs).
+    method SetVisible(view: U64 = 1, visible: Bool = 2) -> () = 6 oneway;
+    /// Ask for a whole frame (the app lost or discarded its picture).
+    method Refresh(view: U64 = 1) -> () = 7 oneway;
+    /// Replace the page with `html` (UTF-8, the buffer's range) at the base
+    /// URL `base_url`: empty, `about:blank`, `about:...` or a `data:` URL; a
+    /// network or `file:` base is `EINVAL`. webd copies the bytes before it
+    /// replies, so the app may reuse the buffer.
+    method LoadHtml(view: U64 = 1, html: Buffer = 2, base_url: String = 3) -> () = 11;
+    /// Input, as the display protocol delivers it, in view pixels. `kind` is a
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
+    /// control, 2 alt, 3 meta.
+    method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
+    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
+    /// A key edge: `keysym` is the X11 keysym the display protocol carries,
+    /// `text` the character it types (empty for none).
+    method Key(view: U64 = 1, press: Bool = 2, keysym: U32 = 3, text: String = 4, mods: U32 = 5) -> () = 22 oneway;
+    /// The view gained or lost keyboard focus.
+    method Focus(view: U64 = 1, focused: Bool = 2) -> () = 23 oneway;
+
+    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
+    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
+    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5) -> () = 100 oneway;
+    /// Event: what the page says about itself. `loading` while a load is in
+    /// progress; `finished` counts the loads that have finished (so the first
+    /// paint of a `LoadHtml` can be told from the old page's); `error` is
+    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
+    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5) -> () = 101 oneway;
+    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
+    /// when it cannot scroll further.
+    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 oneway;
+    /// Event: a link was clicked, a form submitted or a meta refresh fired,
+    /// and nothing loaded. `url` is absolute.
+    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 oneway;
+    /// Event: the user copied `text` out of the page.
+    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 oneway;
+    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
+    /// the app's to `DestroyView`; the app makes a new view and loads again.
+    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 oneway;
+    /// Event: liveness probe, about once a second; nothing to answer. `EPIPE`
+    /// on the endpoint tells webd the app is gone and ends its views.
+    method Ping() -> () = 106 oneway;
+
+    /// How a light view is configured: these four fields and nothing else. No
+    /// origins, profile, scheme policy or storage exists to ask for.
+    struct LightConfig {
+        /// JavaScript runs in the page (default off). Still no network,
+        /// storage or windows.
+        scripts: Bool = 1,
+        /// A `ColorScheme` value.
+        color_scheme: U32 = 2,
+        /// The page's default font size in CSS pixels; 0 keeps WebKit's.
+        default_font_size: U32 = 3,
+        /// Extra CSS applied to every page of the view; at most 64 KiB.
+        user_style: String = 4
+    }
+
+    /// `LightConfig.color_scheme`: follow the page (light) or force dark
+    /// (`prefers-color-scheme: dark`). Best effort.
+    enum ColorScheme { Auto, Dark }
+    /// `Mouse.kind`.
+    enum MouseKind { Move, Press, Release }
+    /// `ViewLost.reason`: the configuration or the load was refused, the web
+    /// process crashed, ran out of memory, or the engine ended otherwise.
+    enum LostReason { Unknown, Refused, Crashed, OutOfMemory, Other }
+}

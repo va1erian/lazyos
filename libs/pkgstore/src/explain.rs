@@ -250,6 +250,12 @@ mod tests {
         assert_eq!(secrets.risk, MEDIUM);
         assert_eq!(secrets.text, "Keep this app's own passwords and keys");
         assert_eq!(interface("os.lazy.display.v1").risk, LOW);
+        let web = interface("os.lazy.webd.light.v1");
+        assert_eq!(web.risk, LOW);
+        assert_eq!(
+            web.text,
+            "Show formatted text and pictures that you give it"
+        );
     }
 
     #[test]
