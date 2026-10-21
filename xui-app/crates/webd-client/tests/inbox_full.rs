@@ -214,7 +214,5 @@ fn nothing_kept_outlives_the_view() {
     );
 }
 
-#[test]
-fn the_receive_buffer_holds_the_largest_event_webd_sends() {
-    assert!(xui_webd_client::transport::EVENT_BYTES >= xui_webd::limits::EVENT_BYTES_MAX);
-}
+/// The receive buffer holds the largest event webd sends (a compile-time check).
+const _: () = assert!(xui_webd_client::transport::EVENT_BYTES >= xui_webd::limits::EVENT_BYTES_MAX);

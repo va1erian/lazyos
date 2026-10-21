@@ -63,22 +63,6 @@ pub fn close_unqueued(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_channels_still_held_are_closed() {
-        let objects = [Object::Channel(4), Object::Buffer(5), Object::Channel(6)];
-        let mut closed = Vec::new();
-        close_unqueued(&objects, |handle| handle == 4, |handle| closed.push(handle));
-        assert_eq!(closed, vec![4], "5 is a buffer, 6 was moved away");
-        let mut closed = Vec::new();
-        close_unqueued(&objects, |_| true, |handle| closed.push(handle));
-        assert_eq!(closed, vec![4, 6]);
-    }
-}
-
 /// How requests reach `webd` and its events reach the app. Errors are negative errno values.
 pub trait Transport {
     type Mem: SharedMem;
@@ -89,8 +73,8 @@ pub trait Transport {
     ///
     /// The transport takes `objects` over whatever happens: a channel is moved to the service when
     /// the request is queued, and **closed by the transport when the request never was** (the
-    /// service is not there, the kernel refused it: [`close_unqueued`]). The client closes neither
-    /// (a request the service refused after queuing it has already closed what it carried).
+    /// service is not there, the kernel refused it: [`close_unqueued`]). The client never closes the
+    /// end it passed (a request the service refused after queuing it has closed what it carried).
     fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>, i64>;
     /// A oneway message to the service; `-EPIPE` or `-ENOENT` when it is gone, `-EAGAIN` when the
     /// service's inbox is full (the message is not delivered; the client keeps the ones that must
@@ -106,4 +90,20 @@ pub trait Transport {
     fn alloc(&mut self, bytes: usize) -> Result<Self::Mem, i64>;
     /// Close a channel handle this task holds.
     fn close_channel(&mut self, handle: u64);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_channels_still_held_are_closed() {
+        let objects = [Object::Channel(4), Object::Buffer(5), Object::Channel(6)];
+        let mut closed = Vec::new();
+        close_unqueued(&objects, |handle| handle == 4, |handle| closed.push(handle));
+        assert_eq!(closed, vec![4], "5 is a buffer, 6 was moved away");
+        let mut closed = Vec::new();
+        close_unqueued(&objects, |_| true, |handle| closed.push(handle));
+        assert_eq!(closed, vec![4, 6]);
+    }
 }
