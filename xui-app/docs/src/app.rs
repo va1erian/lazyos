@@ -1,40 +1,50 @@
-//! The Docs window: a slim toolbar (an Open button and the current path) above
-//! the Blitz page, and the Open dialog behind the button and `Ctrl+O`.
+//! The Docs window: a slim toolbar (an Open button and the current path) above the page, and the
+//! Open dialog behind the button and `Ctrl+O`. The page is a light view of `webd` (WebKit): one view
+//! for the whole life of the window, every document a new page in it.
 //!
-//! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once
-//! the welcome page's first frame has been painted, `DOCS:OPEN:PASS:<path>` after
-//! a document loads and `DOCS:RENDER:PASS:<path>` once *its* view has painted (a
-//! fresh view per document, so the first marker says nothing about it), `DOCS:OPEN:FAIL:<path>` when it cannot be read, and
-//! `DOCS:LINK:<href>` on a link click.
+//! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once the welcome page's
+//! first frame has been painted, `DOCS:OPEN:PASS:<path>` after a document loads and
+//! `DOCS:RENDER:PASS:<path>` once *its* page has painted (the first marker says nothing about it),
+//! `DOCS:OPEN:FAIL:<path>` when it cannot be read, `DOCS:LINK:<href>` on a link click (then
+//! `DOCS:LINK:OPEN:<path>`, `DOCS:LINK:URL:<url>` or `DOCS:LINK:REFUSED:<href>` for what was done with
+//! it) and `DOCS:ENGINE:UP` / `DOCS:ENGINE:FAIL:<why>` when the web engine comes and goes.
 
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use xui_app::lightview::{LightEvent, LightView};
+use xui_app::platform::launcher;
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
-use xui_core::arrange::{absolute, button, label, Handle, LayoutExt};
+use xui_core::arrange::{build, button, column, label, row, Align, Handle, LayoutExt};
 use xui_core::backend::Result;
-use xui_core::widget::StdFileSystem;
-use xui_core::widget::{FileDialog, HasText, Label};
-use xui_core::{Key, Px, Rect};
+use xui_core::layout::Insets;
+use xui_core::widget::{FileDialog, HasText, Label, StdFileSystem};
+use xui_core::{Color, Dip, Key, Rect};
+use xui_docs::links::{classify, Link};
 use xui_docs::{error_page, load_file, themed};
-use xui_blitz::{BlitzView, BlitzViewEvent};
+use xui_webd_client::Status;
 
-/// Height of the toolbar above the page, in pixels.
-const TOOLBAR_H: i32 = 36;
+/// Height of the toolbar above the page, in design units.
+const TOOLBAR_H: f32 = 36.0;
 /// Where the Open dialog starts when no document is open yet: the
 /// documentation root, holding the OS docs (`/docs/os`) and, from F4, the
 /// installed apps' docs (`/docs/apps`).
 const START_DIR: &str = fhs::docs::DOCS_ROOT;
+/// The page's own background, so the view matches it before the first picture ([`xui_docs`]'s CSS).
+const LIGHT_PAGE: u32 = 0xff_ff_ff;
+const DARK_PAGE: u32 = 0x23_2a_40;
 
 /// Everything the window reacts to.
+#[derive(Clone)]
 pub enum Msg {
-    /// The engine drew a new frame.
-    Frame,
-    /// Polls for the first painted frame, to print the render marker once.
-    Tick,
+    /// The page was clicked on a link.
     Link(String),
-    Copy(String),
+    /// The page set last has been drawn.
+    Painted,
+    /// The web engine came up, or went away.
+    Engine(Status),
     /// The Open button or `Ctrl+O`.
     Open,
     /// The dialog accepted `path`.
@@ -43,61 +53,51 @@ pub enum Msg {
     DialogClosed,
 }
 
-/// A view of `html` filling `bounds`. One view per document: a fresh view
-/// starts clean, and dropping the old one stops its engine thread.
-fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String) -> Result<BlitzView<Msg>> {
-    BlitzView::builder(|| Msg::Frame, |event| match event {
-        BlitzViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
-        BlitzViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
-        _ => None,
-    })
-    .html(themed(html, ui.theme().is_dark))
-    .build(ui, bounds)
-}
-
 /// The window's widgets and state.
 pub struct Docs {
-    view: BlitzView<Msg>,
-    /// Where the page view sits (below the toolbar).
-    view_bounds: Rect,
+    view: Rc<LightView<Msg>>,
     path_label: Rc<Label<Msg>>,
     open_dialog: FileDialog<Msg>,
     /// While the modal dialog is up the hotkey must not open a second one.
     dialog_open: Rc<Cell<bool>>,
-    /// The document on show, for the dialog's start folder.
+    /// The document on show, for the dialog's start folder and for relative links.
     current: Option<PathBuf>,
-    /// What to append to `DOCS:RENDER:PASS` when the current view first paints
-    /// (empty for the welcome page, `:<path>` for a document); `None` once
-    /// reported.
+    /// What follows `DOCS:RENDER:PASS:` when the current page first paints (empty for the welcome
+    /// page, the path for a document); `None` once reported.
     render_marker: Option<String>,
+    dark: bool,
 }
 
 impl Docs {
-    /// Builds the toolbar and the page view showing `html`; `path` is the
-    /// document it came from, if any.
+    /// Builds the toolbar and the page view showing `html`; `path` is the document it came from, if
+    /// any.
     pub fn build(ui: &mut Ui<Msg>, html: String, path: Option<PathBuf>) -> Result<Docs> {
-        let client = ui.client_rect();
-        // The toolbar is laid out in pixels, like the page view under it.
-        let dpi = ui.dpi();
-        let px = |value: i32| Px(value).to_dip(dpi);
+        let dark = ui.theme().is_dark;
+        let page_colour = Color::hex(if dark { DARK_PAGE } else { LIGHT_PAGE });
         let path_label = Handle::new();
-        ui.root(absolute().children(
-            (
-                button("Open...").on_click_with(|| Some(Msg::Open)).at(
-                    px(8),
-                    px(5),
-                    px(92),
-                    px(26),
-                ),
-                label("").bind(&path_label).at(
-                    px(110),
-                    px(8),
-                    px((client.width() - 118).max(0)),
-                    px(22),
-                ),
-            ),
-        ))?;
+        let view: Handle<LightView<Msg>> = Handle::new();
+        ui.root(column().children((
+            row()
+                .gap(8)
+                .align(Align::Center)
+                .padding(Insets::symmetric(Dip(8.0), Dip(5.0)))
+                .children((
+                    button("Open...").on_click(Msg::Open).width(Dip(92.0)),
+                    label("").bind(&path_label).align_y(Align::Center).fill(1),
+                ))
+                .fixed(Dip(TOOLBAR_H)),
+            build(move |ui: &Ui<Msg>| {
+                LightView::new(ui, Rect::default(), page_colour, |event| match event {
+                    LightEvent::Link(href) => Some(Msg::Link(href)),
+                    LightEvent::Painted => Some(Msg::Painted),
+                    LightEvent::Status(status) => Some(Msg::Engine(status)),
+                })
+            })
+            .bind(&view)
+            .fill(1),
+        )))?;
         let path_label = path_label.get();
+        let view = view.get();
 
         let dialog_open = Rc::new(Cell::new(false));
         let closed = Rc::clone(&dialog_open);
@@ -119,19 +119,17 @@ impl Docs {
             (command && key == Key::O && !hotkey_gate.get()).then_some(Msg::Open)
         });
 
-        let view_bounds = Rect::new(0, TOOLBAR_H, client.width(), client.height().max(TOOLBAR_H));
-        let view = make_view(ui, view_bounds, html)?;
-        let tick = ui.set_timer(100);
-        ui.on_timer(move |id| (id == tick).then_some(Msg::Tick));
-
+        view.set_html(themed(html, dark));
+        // Arrow keys and `PageDown` scroll the page from the start, no click needed.
+        view.focus();
         let mut docs = Docs {
             view,
-            view_bounds,
             path_label,
             open_dialog,
             dialog_open,
             current: None,
             render_marker: Some(String::new()),
+            dark,
         };
         docs.show(ui, path);
         Ok(docs)
@@ -157,22 +155,46 @@ impl Docs {
         self.current = path;
     }
 
-    /// Shows the document at `path` in a fresh view, or the reason it cannot be
-    /// read.
+    /// Shows the document at `path` in the page, or the reason it cannot be read.
     pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) {
-        let (html, marker) = match load_file(&path) {
-            Ok(html) => (html, "PASS"),
-            Err(error) => (error_page(&format!("{}: {error}", path.display())), "FAIL"),
+        let shown = path.display();
+        let (html, opened) = match load_file(&path) {
+            Ok(html) => (html, true),
+            Err(error) => (error_page(&format!("{shown}: {error}")), false),
         };
-        match make_view(ui, self.view_bounds, html) {
-            // Assigning drops the old view, which destroys its node and stops
-            // its worker thread.
-            Ok(view) => self.view = view,
-            Err(error) => println!("DOCS:VIEW:FAIL:{error}"),
+        self.view.set_html(themed(html, self.dark));
+        self.render_marker = Some(shown.to_string());
+        if opened {
+            trace::pass!(Channel::Docs, "OPEN", "{shown}");
+        } else {
+            trace::fail!(Channel::Docs, "OPEN", "{shown}");
         }
-        self.render_marker = Some(format!(":{}", path.display()));
         self.show(ui, Some(path.clone()));
-        println!("DOCS:OPEN:{marker}:{}", path.display());
+    }
+
+    /// What a click on `href` does (`xui_docs::links`).
+    fn follow(&mut self, ui: &mut Ui<Msg>, href: &str) {
+        trace::line!(Channel::Docs, "LINK:{href}");
+        match classify(href, self.current.as_deref()) {
+            Link::Anchor => {}
+            Link::Document(path) => {
+                trace::line!(Channel::Docs, "LINK:OPEN:{}", path.display());
+                self.open(ui, path);
+            }
+            Link::File(path) => {
+                trace::line!(Channel::Docs, "LINK:FILE:{}", path.display());
+                if let Err(error) = launcher::open_path(&path.display().to_string()) {
+                    trace::fail!(Channel::Docs, "LINK", "{}: {error}", path.display());
+                }
+            }
+            Link::Url(url) => {
+                trace::line!(Channel::Docs, "LINK:URL:{url}");
+                if let Err(error) = launcher::open_url(&url) {
+                    trace::fail!(Channel::Docs, "LINK", "{url}: {error}");
+                }
+            }
+            Link::Refused => trace::line!(Channel::Docs, "LINK:REFUSED:{href}"),
+        }
     }
 
     /// Shows the Open dialog, starting in the current document's folder.
@@ -192,19 +214,20 @@ impl App for Docs {
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
-            Msg::Frame => self.view.update(),
-            Msg::Tick => {
-                if self.render_marker.is_some() && self.view.is_ready() {
-                    let suffix = self.render_marker.take().unwrap_or_default();
-                    println!("DOCS:RENDER:PASS{suffix}");
+            Msg::Painted => {
+                match self.render_marker.take() {
+                    Some(path) if path.is_empty() => trace::pass!(Channel::Docs, "RENDER"),
+                    Some(path) => trace::pass!(Channel::Docs, "RENDER", "{path}"),
+                    None => {}
                 }
             }
-            Msg::Link(href) => println!("DOCS:LINK:{href}"),
-            Msg::Copy(text) => {
-                // `BlitzView` only reports the request; the app owns the clipboard.
-                ui.set_clipboard_text(&text);
-                println!("DOCS:COPY:{} bytes", text.len());
+            Msg::Link(href) => self.follow(ui, &href),
+            Msg::Engine(Status::Live) => trace::line!(Channel::Docs, "ENGINE:UP"),
+            Msg::Engine(Status::NotRunning) => {
+                trace::fail!(Channel::Docs, "ENGINE", "not running");
             }
+            Msg::Engine(Status::Failed(why)) => trace::fail!(Channel::Docs, "ENGINE", "{why}"),
+            Msg::Engine(Status::Starting) => {}
             Msg::Open => self.ask_for_a_document(),
             Msg::OpenChosen(path) => {
                 self.dialog_open.set(false);

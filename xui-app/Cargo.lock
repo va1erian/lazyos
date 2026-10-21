@@ -7046,10 +7046,9 @@ version = "0.1.0"
 dependencies = [
  "fhs",
  "pulldown-cmark",
- "webfonts",
  "xui-app",
- "xui-blitz",
  "xui-core",
+ "xui-webd-client",
 ]
 
 [[package]]

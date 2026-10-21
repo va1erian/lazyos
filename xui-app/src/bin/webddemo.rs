@@ -13,8 +13,6 @@
 //! `WEBDDEMO:LOST:<reason>`, `WEBDDEMO:RECREATE:PASS`, `WEBDDEMO:<what>:FAIL:<why>` and
 //! `WEBDDEMO:QUIT:PASS`.
 
-#[path = "webddemo/keys.rs"]
-mod keys;
 #[path = "webddemo/screen.rs"]
 mod screen;
 
