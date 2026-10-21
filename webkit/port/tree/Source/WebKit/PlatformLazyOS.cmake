@@ -166,7 +166,8 @@ endif ()
 
 # The headless UI process: a program that drives WebKit through the C API
 # (webkit/port/smoke/, docs W4). Linked like the auxiliary processes.
-add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp" "${LAZYOS_PORT_DIR}/smoke/monitor.cpp" "${LAZYOS_PORT_DIR}/smoke/cache.cpp")
+add_executable(webkit-smoke "${LAZYOS_PORT_DIR}/smoke/main.cpp" "${LAZYOS_PORT_DIR}/smoke/monitor.cpp" "${LAZYOS_PORT_DIR}/smoke/cache.cpp" "${LAZYOS_PORT_DIR}/smoke/spawn.cpp")
+# spawn.cpp is the launcher's embedder here (lzw_launcher_event) and probes what a program started at a launch inherits (issue #889).
 # monitor.cpp tests the IPC socket monitor's own header (SocketMonitorLazyOS.h, issue #867).
 target_include_directories(webkit-smoke PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${WEBKIT_DIR}/Platform/IPC/unix")
 target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR} ${Fontconfig_INCLUDE_DIRS})

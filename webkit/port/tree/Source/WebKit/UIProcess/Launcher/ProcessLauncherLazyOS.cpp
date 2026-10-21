@@ -26,8 +26,9 @@
 //
 // The PlayStation launcher calls a closed library; the GLib one needs GSubprocess.
 // This one is plain POSIX: a SOCK_SEQPACKET socketpair, fork, and exec of the
-// WebProcess or NetworkProcess with the client end left open across the exec
-// (the server end is close-on-exec), the command line the generic unix
+// WebProcess or NetworkProcess with the client end open across the exec (both ends are
+// close-on-exec; only the forked child clears the flag on the client end, issue #889, so no other
+// program this process starts meanwhile inherits it), the command line the generic unix
 // AuxiliaryProcessMain expects: "<program> <process identifier> <client fd>".
 //
 // fork and execv rather than posix_spawn: LazyOS's musl posix_spawn is a
@@ -55,6 +56,7 @@
 
 #include "IPCUtilities.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,6 +73,7 @@
 #include <wtf/RunLoop.h>
 #include <wtf/Threading.h>
 #include <wtf/text/CString.h>
+#include <wtf/unix/UnixFileDescriptor.h>
 
 // The image's paths of the two programs, from libs/fhs (set by tools/webkit/port_cmake.py and
 // WebKit/PlatformLazyOS.cmake).
@@ -300,10 +303,35 @@ static void reapInBackground(pid_t pid, uint64_t generation)
     })->detach();
 }
 
+// The connection's two ends, both close-on-exec from the moment they exist (issue #889). The client end
+// is the engine process's: only the child between fork and exec clears the flag on it. Another thread of
+// this process may start a program at any time (LazyWeb+'s list worker runs `curl`); with the client end
+// left inheritable until the parent closed it, that program held a live end of the engine's connection
+// (and the UI side got no hangup when the engine died). Returns false, errno set, when no pair can be made.
+static bool makeConnectionPair(int& clientFd, UnixFileDescriptor& server)
+{
+    int ends[2];
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, ends) == -1)
+        return false;
+    clientFd = ends[1];
+    server = UnixFileDescriptor { ends[0], UnixFileDescriptor::Adopt };
+    return true;
+}
+
 void ProcessLauncher::launchProcess()
 {
-    // The client end stays open across exec; only the server end is close-on-exec.
-    IPC::SocketPair socketPair = IPC::createPlatformConnection(SOCK_SEQPACKET, IPC::PlatformConnectionOptions::SetCloexecOnServer);
+    int clientFd = -1;
+    UnixFileDescriptor serverFd;
+    if (!makeConnectionPair(clientFd, serverFd)) {
+        const int error = errno;
+        fprintf(stderr, "WebKit: no IPC socket pair for the auxiliary process: %s\n", strerror(error));
+        report(m_launchOptions.processType, 0, "fail", error);
+        // As for a failed fork: an invalid identifier ends the launch, the proxy does not wait for it.
+        RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
+            protectedThis->didFinishLaunchingProcess(0, IPC::Connection::Identifier { });
+        });
+        return;
+    }
 
     CString path = !m_launchOptions.processPath.isEmpty()
         ? m_launchOptions.processPath.utf8()
@@ -312,7 +340,7 @@ void ProcessLauncher::launchProcess()
     char processIdentifier[24];
     snprintf(processIdentifier, sizeof processIdentifier, "%llu", static_cast<unsigned long long>(m_launchOptions.processIdentifier.toUInt64()));
     char connection[16];
-    snprintf(connection, sizeof connection, "%d", socketPair.client.value());
+    snprintf(connection, sizeof connection, "%d", clientFd);
 
     char* argv[] = { const_cast<char*>(path.data()), processIdentifier, connection, nullptr };
 
@@ -329,6 +357,7 @@ void ProcessLauncher::launchProcess()
         const int error = errno;
         fprintf(stderr, "WebKit: fork failed for %s: %s\n", path.data(), strerror(error));
         report(m_launchOptions.processType, 0, "fail", error);
+        close(clientFd);
         // Finish the launch without a connection (an invalid identifier, as the other launchers do
         // when they cannot start the process): the proxy stops waiting for a launch that never was.
         RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }] {
@@ -337,6 +366,10 @@ void ProcessLauncher::launchProcess()
         return;
     }
     if (!pid) {
+        // The one place the client end becomes inheritable: this child, about to exec. fcntl is
+        // async-signal-safe. A failure leaves the flag set and the exec closes the end: the engine
+        // process then finds no connection and exits, which the reaper reports, never a leak.
+        fcntl(clientFd, F_SETFD, 0);
         // Its own process group (a kill of the group ends whatever it started), and a SIGKILL when
         // this process dies: the kernel refuses the second with EINVAL until issue #859, which is
         // tolerated. Both are plain system calls, safe between fork and exec.
@@ -384,10 +417,10 @@ void ProcessLauncher::launchProcess()
     }
     deliverReports();
     reapInBackground(pid, generation);
-    close(socketPair.client.release()); // the child holds its end now
+    close(clientFd); // the child holds its end now
 
     // We've finished launching the process, message back to the main run loop.
-    RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, pid, serverIdentifier = WTF::move(socketPair.server)] mutable {
+    RunLoop::mainSingleton().dispatch([protectedThis = Ref { *this }, pid, serverIdentifier = WTF::move(serverFd)] mutable {
         protectedThis->didFinishLaunchingProcess(pid, IPC::Connection::Identifier { WTF::move(serverIdentifier) });
     });
 }
