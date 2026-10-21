@@ -104,19 +104,42 @@ fn paint_entry(
         );
         canvas.fill_rounded_rect(line, s as f32, color(accent));
     } else if hovered {
-        canvas.fill_rect_rgba(area.shrink(s), Rgba::with_alpha(0xFF, 0xFF, 0xFF, 0x12));
+        // A faint wash toward the ink: white on a dark bar, black on a light one.
+        let wash = if bar_is_light(palette) {
+            Rgba::with_alpha(0, 0, 0, 0x14)
+        } else {
+            Rgba::with_alpha(0xFF, 0xFF, 0xFF, 0x12)
+        };
+        canvas.fill_rect_rgba(area.shrink(s), wash);
     }
 }
 
-/// A dark bar entry's text colour: readable on the focused pill's tint
-/// whatever the accent, dimmed when minimised.
+/// Whether dark text reads better on the bar than light text (the light mode,
+/// or a light bar colour chosen in the dark one).
+fn bar_is_light(palette: &uitheme::Palette) -> bool {
+    uitheme::text_on(palette.taskbar_bg) == uitheme::DARK_TEXT
+}
+
+/// A decorated bar entry's text colour: readable on the focused pill's tint
+/// whatever the accent, dimmed when minimised. The unfocused ink is the
+/// mode's own while it suits the bar colour, else the one that reads on the
+/// bar (a dark bar picked in the light mode, or the other way round).
 fn entry_ink(palette: &uitheme::Palette, focused: bool, minimized: bool) -> u32 {
     if focused {
-        uitheme::text_on(focus_tint(palette))
-    } else if minimized {
-        uitheme::mix(palette.overlay_text, palette.taskbar_bg, 1, 2)
-    } else {
+        return uitheme::text_on(focus_tint(palette));
+    }
+    let light_bar = bar_is_light(palette);
+    let ink = if light_bar == (palette.mode == uitheme::Mode::Light) {
         palette.overlay_text
+    } else {
+        uitheme::text_on(palette.taskbar_bg)
+    };
+    if !minimized {
+        ink
+    } else if light_bar {
+        uitheme::mix(ink, palette.taskbar_bg, 1, 3)
+    } else {
+        uitheme::mix(ink, palette.taskbar_bg, 1, 2)
     }
 }
 

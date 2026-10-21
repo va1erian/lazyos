@@ -66,7 +66,7 @@ pub struct DesktopApp {
     wallpaper: Wallpaper,
     /// The icon columns in screen pixels: where the labels sit.
     labels: ShellRect,
-    /// Whether the icons sit on something dark (the picture, else the mode).
+    /// Whether the icons sit on something dark (the picture, else the background colour).
     dark: bool,
     /// How the view's slots map to icons.
     grid: Grid,
@@ -85,7 +85,7 @@ impl DesktopApp {
     /// Build the desktop, then the taskbar panel; take the work area and
     /// start the heartbeat. Called once the shell subscription is held.
     pub fn build(ctx: Rc<Ctx>, windows: usize, ui: &mut Ui<DeskMsg>) -> DesktopApp {
-        let dark = ctx.theme.borrow().is_dark();
+        let dark = ctx.theme.borrow().background_is_dark();
         ui.set_theme(desktop_theme(&ctx.theme.borrow().palette(), dark));
         let grid = Grid::new(ctx.icons.borrow().len(), rows_fit(&ctx));
         let area = icons_area(&ctx, grid);
@@ -248,7 +248,10 @@ impl DesktopApp {
                 .backend
                 .set_backdrop(ui.window(), self.wallpaper.image());
         }
-        self.dark = self.wallpaper.dark().unwrap_or(feed.is_dark());
+        self.dark = self
+            .wallpaper
+            .dark()
+            .unwrap_or_else(|| feed.background_is_dark());
         ui.set_theme(desktop_theme(&feed.palette(), self.dark));
     }
 

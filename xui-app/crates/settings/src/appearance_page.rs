@@ -28,8 +28,9 @@ pub fn pack(color: Color) -> u32 {
     (u32::from(color.r) << 16) | (u32::from(color.g) << 8) | u32::from(color.b)
 }
 
-/// The size a swatch grid is laid out at: one row of up to six swatches.
-const SWATCHES: (i32, i32) = (300, 48);
+/// The size of one swatch in a grid laid out as a single row.
+const SWATCH_W: i32 = 50;
+const SWATCH_H: i32 = 48;
 
 /// The page's widgets.
 pub struct AppearancePage {
@@ -44,12 +45,11 @@ pub struct AppearancePage {
     _mounted: Mounted<Msg>,
 }
 
-/// A swatch grid of `colors`, six to a row like the presets, raising `msg`
-/// with the picked colour.
+/// A swatch grid of `colors` in one row, raising `msg` with the picked colour.
 fn swatches(colors: &[u32], msg: fn(u32) -> Msg) -> Build<ColorPicker<Msg>, Msg> {
     let colors: Vec<Color> = colors.iter().copied().map(Color::hex).collect();
     color_picker(&colors)
-        .columns(6)
+        .columns(colors.len().max(1))
         .on_select(move |color| msg(pack(color)))
 }
 
@@ -84,7 +84,7 @@ impl AppearancePage {
                     column().child(
                         swatches(&ACCENTS.map(|a| a.1), Msg::Accent)
                             .bind(&accent)
-                            .size(SWATCHES.0, SWATCHES.1)
+                            .size(SWATCH_W * ACCENTS.len() as i32, SWATCH_H)
                             .align(Align::Start),
                     ),
                 ),
@@ -94,7 +94,7 @@ impl AppearancePage {
                     row().gap(16).children((
                         swatches(&BACKGROUNDS.map(|b| b.1), Msg::Background)
                             .bind(&background)
-                            .size(SWATCHES.0, SWATCHES.1)
+                            .size(SWATCH_W * BACKGROUNDS.len() as i32, SWATCH_H)
                             .align(Align::Start),
                         choice_list(&rows)
                             .on_select(Msg::Wallpaper)
