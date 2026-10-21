@@ -24,6 +24,8 @@ struct Engine {
     eld: Vec<u32>,
     violations: Vec<&'static str>,
     log: Vec<(u32, u32)>,
+    /// `AUD_CONFIG` bits the hardware forces on write: `(mask, value)`.
+    config_forced: Option<(u32, u32)>,
 }
 
 impl Engine {
@@ -61,6 +63,10 @@ impl Mmio for Engine {
         if offset == AUD_PIN_ELD_CP_VLD && value & 1 != 0 && self.eld.is_empty() {
             self.violations.push("valid with an empty ELD buffer");
         }
+        let value = match self.config_forced {
+            Some((mask, forced)) if offset == AUD_CONFIG_A => (value & !mask) | (forced & mask),
+            _ => value,
+        };
         self.regs.insert(offset, value);
     }
 }
@@ -340,4 +346,53 @@ fn prepare_refuses_what_it_cannot_serve() {
         audio::prepare(&adopted, &bad, Rate::Hz48000),
         Err(audio::PrepareError::BadEdid(_))
     ));
+}
+
+#[test]
+fn the_eld_is_declared_valid_last_after_the_clock() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    let bytes = eld();
+    audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap();
+    let at = |pred: &dyn Fn(&(u32, u32)) -> bool| e.log.iter().position(pred).unwrap();
+    let config = at(&|&(o, _)| o == AUD_CONFIG_A);
+    let valid = at(&|&(o, v)| o == AUD_PIN_ELD_CP_VLD && v & 1 != 0);
+    let last_eld = e
+        .log
+        .iter()
+        .rposition(|&(o, _)| o == AUD_HDMIW_HDMIEDID_A)
+        .unwrap();
+    assert!(last_eld < config && config < valid, "{:?}", e.log);
+}
+
+#[test]
+fn a_programmed_field_that_does_not_stick_undoes_the_enable() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.config_forced = Some((aud_config::N_PROG_ENABLE, 0));
+    let bytes = eld();
+    let err = audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap_err();
+    assert!(
+        matches!(err, Error::Readback(AUD_CONFIG_A, _, _)),
+        "{err:?}"
+    );
+    assert_eq!(
+        e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101,
+        0,
+        "output off, ELD invalid"
+    );
+    assert!(
+        e.log
+            .iter()
+            .all(|&(o, v)| o != AUD_PIN_ELD_CP_VLD || v & 1 == 0),
+        "valid was never set"
+    );
+    assert!(e.violations.is_empty());
+}
+
+#[test]
+fn a_reserved_bit_that_reads_back_differently_is_not_a_failure() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.config_forced = Some((0x1, 0x1)); // bit 0 is not ours
+    let bytes = eld();
+    audio::enable(&mut e, &request(&bytes, 241_500, Some(6144))).unwrap();
+    assert_eq!(e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101, 0b101);
 }

@@ -140,6 +140,10 @@ pub(super) fn start(
         return reply(false, row.pid);
     }
     let mut row = Service::from_manifest(spec);
+    // A driver's manifest arguments are configuration (`gpud`'s
+    // `audio=1 edid=...`), not boot evidence: `from_manifest` keeps them only
+    // on a boot that runs the evidence clients, and a desktop boot is not one.
+    row.args = driver_manifest_args(spec);
     row.args.push(String::from(device_arg.as_str()));
     if named {
         row.args.push(ifname_arg);
@@ -155,6 +159,11 @@ pub(super) fn start(
         request.ifname
     );
     reply(true, services[index].pid)
+}
+
+/// The words of a driver row's manifest argument string.
+fn driver_manifest_args(spec: &ServiceSpec) -> Vec<String> {
+    spec.args.split_whitespace().map(String::from).collect()
 }
 
 fn reply(started: bool, pid: u64) -> messenger::Result<Parcel> {

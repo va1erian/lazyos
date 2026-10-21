@@ -72,8 +72,8 @@ pub(super) fn run(args: &Args, regs: &mut Bar, adopted: &Adopted) {
         Ok(prepared) => prepared,
         Err(why) => return skip(why_name(why), &format!("{why:?}")),
     };
-    regs.grant_audio_writes();
-    match audio::enable(regs, &prepared.request()) {
+    let outcome = regs.with_audio_writes(|regs| audio::enable(regs, &prepared.request()));
+    match outcome {
         Ok(done) => trace::pass!(
             Channel::Gpu,
             "AUDIO",

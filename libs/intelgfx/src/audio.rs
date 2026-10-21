@@ -16,10 +16,12 @@
 //!    a partial mode set, and it is out of this module's reach on purpose);
 //! 2. output enable on, ELD valid off;
 //! 3. reset the ELD write address, write the ELD one dword at a time;
-//! 4. ELD valid on;
-//! 5. `AUD_CONFIG`: the pixel-clock index (or an explicit `N`).
+//! 4. `AUD_CONFIG`: the pixel-clock index (or an explicit `N`), read back;
+//! 5. ELD valid on, last, so a sink never looks ready with the clock unset.
 //!
-//! Disabling is the reverse of 2 and 4: valid off, output enable off.
+//! (i915 sets valid before the clock; the order here is deliberate.) Any
+//! failure after step 2 runs [`disable`]. Disabling is valid off, then output
+//! enable off.
 
 use alloc::vec::Vec;
 
@@ -145,12 +147,29 @@ pub fn config_value(old: u32, tmds_khz: u32, n: Option<u32>) -> Option<u32> {
     Some(v)
 }
 
-/// Run the enable sequence. Nothing is written when [`check`] refuses.
+/// The `AUD_CONFIG` bits this module programs: a readback is judged on these
+/// alone, since the register's other bits (reserved, read-only) may read back
+/// differently from what the read-modify-write carried over.
+const CONFIG_PROGRAMMED: u32 = aud_config::CLOCK_MASK
+    | aud_config::N_VALUE_INDEX
+    | aud_config::N_PROG_ENABLE
+    | aud_config::UPPER_N_MASK
+    | aud_config::LOWER_N_MASK;
+
+/// Run the enable sequence. Nothing is written when [`check`] refuses; a
+/// failure after the first write undoes it ([`disable`]), so an error never
+/// leaves the output on or an ELD valid.
 pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     check(m, req)?;
+    program(m, req).inspect_err(|_| {
+        let _ = disable(m, req.transcoder);
+    })
+}
+
+fn program(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     let t = req.transcoder;
 
-    // 2. Output enable on, ELD invalid, so the codec sees "sink present, no
+    // Output enable on, ELD invalid, so the codec sees "sink present, no
     // ELD yet" while the buffer is filled.
     let v = m.read32(AUD_PIN_ELD_CP_VLD);
     m.write32(
@@ -158,7 +177,7 @@ pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
         (v | OUTPUT_ENABLE << shift(t)) & !(ELD_VALID << shift(t)),
     );
 
-    // 3. Reset the write address, then fill the buffer.
+    // Reset the write address, then fill the buffer.
     let ctrl = pipe_reg(AUD_DIP_ELD_CTRL_ST_A, t);
     let c = m.read32(ctrl);
     m.write32(ctrl, c & !ELD_ADDRESS_MASK);
@@ -167,19 +186,21 @@ pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
         m.write32(data, u32::from_le_bytes(*dword));
     }
 
-    // 4. ELD valid.
-    let v = m.read32(AUD_PIN_ELD_CP_VLD);
-    m.write32(AUD_PIN_ELD_CP_VLD, v | ELD_VALID << shift(t));
-
-    // 5. Clock regeneration.
+    // Clock regeneration, checked before the ELD is declared valid: the
+    // codec starts streaming once it sees a valid ELD, and must not find an
+    // unprogrammed clock behind it.
     let cfg = pipe_reg(AUD_CONFIG_A, t);
     let value = config_value(m.read32(cfg), req.tmds_khz, req.n)
         .ok_or(Error::NoClockIndex(req.tmds_khz))?;
     m.write32(cfg, value);
     let back = m.read32(cfg);
-    if back != value {
+    if back & CONFIG_PROGRAMMED != value & CONFIG_PROGRAMMED {
         return Err(Error::Readback(cfg, value, back));
     }
+
+    // ELD valid.
+    let v = m.read32(AUD_PIN_ELD_CP_VLD);
+    m.write32(AUD_PIN_ELD_CP_VLD, v | ELD_VALID << shift(t));
     Ok(Enabled {
         eld_dwords: (req.eld.len() / 4) as u8,
         config: value,

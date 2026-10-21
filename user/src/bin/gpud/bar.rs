@@ -8,9 +8,9 @@
 //! * a new [`Bar`] has no write path: [`Mmio::write32`] does nothing but
 //!   count the attempt (`refused_writes`, reported on `GPU:DONE`), so even
 //!   code that was handed an `Mmio` to program cannot reach the hardware;
-//! * [`Bar::grant_audio_writes`] (stage G2, started with `audio=1`) opens the
-//!   one grant there is: the audio registers `intelgfx::audio::may_write`
-//!   lists, which are not a mode set. A write anywhere else is still refused
+//! * [`Bar::with_audio_writes`] (stage G2, started with `audio=1`) opens the
+//!   one grant there is, for the length of one closure: the audio registers
+//!   `intelgfx::audio::may_write` lists, which are not a mode set. A write anywhere else is still refused
 //!   and counted;
 //! * a read is performed only for a dword that lies inside a range
 //!   `libs/pciprobe` lets `dbgd` read for this exact device (the same
@@ -71,10 +71,15 @@ impl Bar {
         self.writes
     }
 
-    /// Open the audio-register write grant (stage G2). Nothing else becomes
-    /// writable.
-    pub(super) fn grant_audio_writes(&mut self) {
+    /// Run `f` with the audio-register write grant open (stage G2), and close
+    /// it again however `f` ends: the grant never outlives the one operation
+    /// that needs it, because this `Bar` goes on serving reads for the life of
+    /// the service. Nothing but the audio registers becomes writable.
+    pub(super) fn with_audio_writes<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         self.audio_writes = true;
+        let result = f(self);
+        self.audio_writes = false;
+        result
     }
 
     fn may_write(&self, offset: u32) -> bool {
