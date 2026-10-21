@@ -76,6 +76,8 @@ fn run_with(
     script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static,
 ) -> Shown {
     xui_webkit::glide::set_smooth(smooth);
+    // These tests are of the picture shown ahead, off by default since #940.
+    xui_webkit::speculate::set_ahead(true);
     register_fonts();
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());

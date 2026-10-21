@@ -143,7 +143,7 @@ dependency `inputd` is still stopped; `usbd`'s input then goes nowhere.
 | Program ignores its stop | Killed at its deadline (`init: <name> killed (stop deadline)`); a killed row not reaped within 0.5 s is written off. |
 | Dependency cycle or cross-tier dependency | The order is relaxed (logged); the stop always progresses. |
 | Whole sequence too slow | At 20 s everything left is killed and the machine stops. |
-| `init` crashes or hangs mid-shutdown | The kernel watchdog (armed at phase 1) fires at 30 s from the kernel task: kills every user task, syncs, performs the armed stop. |
+| `init` crashes or hangs mid-shutdown | The kernel watchdog (armed at phase 1) fires at 30 s from the kernel task: kills every user task except the processes serving a block provider disk (`usbd`: a `/home` on the boot stick keeps dirty blocks in memory until a commit, and the sync reaches the stick only through its provider; issue #940), syncs, performs the armed stop. A provider that has stopped answering is given up on by its request deadlines. (`fatfuse` daemons of FAT sticks are still killed.) |
 | A service crashes while stopping | Retired like a stop (`init: stopped <name> (status N)`), never restarted. |
 | `sync_all` fails | Logged; the stop proceeds and the volume stays dirty, so the next mount sees it. |
 | Second request while stopping | `accepted: true` with the current phase; `force: true` skips to killing what is left. |

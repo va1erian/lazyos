@@ -32,6 +32,7 @@ use crate::{BlockIo, IoError, SECTOR_SIZE};
 mod flush;
 mod journaled;
 pub mod memory;
+mod piecewise;
 mod range;
 pub mod roles;
 mod targeted;
@@ -77,6 +78,11 @@ struct Slot {
     owner: u32,
     /// CLOCK's second-chance bit.
     referenced: bool,
+    /// A member of the piecewise writeback in progress ([`piecewise`]).
+    snap: bool,
+    /// The member's content as the snapshot saw it, kept once the block is
+    /// changed again before its piece is written.
+    shadow: Option<piecewise::Shadow>,
 }
 
 pub(crate) struct BlockCache {
@@ -114,6 +120,12 @@ pub(crate) struct BlockCache {
     touched: BTreeSet<u64>,
     /// ... and the inodes written through [`BlockCache::touch_inode`].
     touched_inodes: BTreeSet<u32>,
+    /// The piecewise writeback in progress, if any.
+    snapshot: Option<piecewise::Snapshot>,
+    /// How far the piecewise commit that `snapshot` belongs to has come
+    /// (`commit_piece.rs`). Kept here, under the cache's lock, rather than
+    /// behind a lock of its own: it is only touched under the volume lock.
+    pub(crate) commit: Option<crate::commit_piece::Piecewise>,
     stats: CacheStats,
 }
 
@@ -144,6 +156,8 @@ impl BlockCache {
             tracking: 0,
             touched: BTreeSet::new(),
             touched_inodes: BTreeSet::new(),
+            snapshot: None,
+            commit: None,
             stats: CacheStats::default(),
         }
     }
@@ -206,6 +220,7 @@ impl BlockCache {
             }
         };
         let slot = &mut self.slots[index];
+        piecewise::keep_snapshot_version(slot, self.block_size, fresh);
         page_mut(slot)[..self.block_size].copy_from_slice(buf);
         slot.referenced = true;
         slot.fresh |= fresh;
@@ -301,6 +316,8 @@ impl BlockCache {
                     data: false,
                     owner: 0,
                     referenced: false,
+                    snap: false,
+                    shadow: None,
                 };
                 return Ok(match self.bare.pop() {
                     Some(index) => {

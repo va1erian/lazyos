@@ -146,6 +146,11 @@ pub trait Filesystem: Send + Sync {
         Ok(())
     }
 
+    /// The writeback the kernel task leaves to user tasks (a volume on a
+    /// provider disk, `fs/ext2/deferred.rs`), run at a syscall's end if due.
+    /// The default has none.
+    fn writeback_deferred(&self) {}
+
     /// Capacity and free space (`statfs(2)`). Backends with nothing sensible to
     /// report keep the default [`FsError::NotSupported`].
     fn statfs(&self) -> Result<StatFs, FsError> {

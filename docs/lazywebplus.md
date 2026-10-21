@@ -44,7 +44,7 @@ with host tests and in the recording engine; the table with the WebKit side is i
 
 | Need | ABI |
 |---|---|
-| Features, marker prefix, profile directory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir` |
+| Features, marker prefix, profile directory, page data in memory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir`, `lzw_ui_profile_ephemeral` |
 | Committed URL, the padlock, how a load ended | `lzw_ui_state` grows `committed_url`, `secure`, `finished` |
 | Link under the pointer, pointer shape | `lzw_ui_hover`, `lzw_ui_cursor` (patch `0016` teaches WebKit's PlayStation view the I-beam, wait and resize arrows) |
 | Navigation policy | `lzw_ui_navigate(url, kind, user_gesture, committed_url)` |
@@ -191,6 +191,18 @@ a window that names none gets an ephemeral store). Cookies (`cookies/cookie.jar.
 storage live there, so a second run of the app finds the first one's cookie and history (the harness checks
 both, from the OS volume and from the second boot). The folder and `$HOME/Downloads` exist before a child that
 may only write inside them looks for them.
+
+**Page data in memory** (issue #940): *File > Keep Page Data in Memory (on/off)* writes or removes
+`page-data-in-memory` in the profile folder (`xui-app/webplus/src/memory.rs`); at the next start the UI process
+answers `lzw_ui_profile_ephemeral` from it and `createDataStore` uses WebKit's non-persistent store: cookies,
+the HTTP cache and site storage stay in memory and are gone when the browser quits (`WEBPLUS:PROFILE:MEMORY`).
+The history, the notification choices and the ad blocker's compiled lists stay in the profile. The children
+still start in the profile folder, and curl's default session keeps its cookie database at `:memory:`
+(`CURL_COOKIE_JAR_PATH`). Off by default; it is meant for a `/home` on a USB stick, where every write of the
+network process stalled the page. Turning it on does not delete what earlier runs kept (cookies, cache): that
+stays in the profile, unused, until it is turned off again. The marker lives in a folder the network process may
+write, so a compromised network process could flip it for the next start; it can already read and write the
+cookie jar itself, so this gives it nothing new.
 
 **The HTTP cache is used across boots.** The second boot of the harness reloads theoldnet.com, which the first
 one fetched with `max-age=604800`: it is served from the cache on the profile, no request for the page or any

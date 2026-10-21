@@ -36,13 +36,13 @@ const PAUSE_EVERY: usize = 256;
 /// Blocks and inodes freed since the last commit, applied by it.
 #[derive(Default)]
 pub(crate) struct Pending {
-    blocks: Vec<u32>,
+    pub(super) blocks: Vec<u32>,
     /// Inode number and whether it was a directory.
-    inodes: Vec<(u32, bool)>,
+    pub(super) inodes: Vec<(u32, bool)>,
 }
 
 impl Pending {
-    fn is_empty(&self) -> bool {
+    pub(super) fn is_empty(&self) -> bool {
         self.blocks.is_empty() && self.inodes.is_empty()
     }
 }
@@ -106,6 +106,9 @@ impl Ext2 {
     /// Commit with the volume lock held: write back, apply the deferred
     /// frees, write those back, flush the device. Does not touch `s_state`.
     pub(super) fn commit_locked(&self) -> Result<(), Ext2Error> {
+        // Writes everything and applies every free: a piecewise commit in
+        // progress has nothing left to do (`commit_piece.rs`).
+        self.cancel_piecewise();
         // A journaled commit is atomic, so the detach and the free may share
         // one transaction: the first writeback exists only for plain ext2.
         let journaled = self.journal_active();
@@ -134,7 +137,7 @@ impl Ext2 {
 
     /// Return every pending free to its bitmap. One bad entry (a double free
     /// means the image was already inconsistent) does not stop the rest.
-    fn apply(&self, pending: &Pending) -> Result<(), Ext2Error> {
+    pub(super) fn apply(&self, pending: &Pending) -> Result<(), Ext2Error> {
         let mut first = Ok(());
         for (index, &block) in pending.blocks.iter().enumerate() {
             first = first.and(self.release_block(block));
@@ -218,8 +221,9 @@ impl Ext2 {
     /// Make one file durable: its data, its indirect tables, its inode and
     /// what they depend on, without writing what unrelated files left dirty
     /// or marking the volume clean. The caller holds the volume lock and has
-    /// checked there is a cache without a journal.
-    pub(super) fn sync_owner(&self, ino: u32) -> Result<(), Ext2Error> {
+    /// checked there is a cache without a journal. Without `flush` the
+    /// device's cache flush is left to the caller (`Ext2::sync_file_written`).
+    pub(super) fn sync_owner(&self, ino: u32, flush: bool) -> Result<(), Ext2Error> {
         let Some(cache) = &self.cache else {
             return Ok(());
         };
@@ -234,7 +238,10 @@ impl Ext2 {
                 },
             )
         })?;
-        self.io.flush().map_err(io_error)
+        if flush {
+            self.io.flush().map_err(io_error)?;
+        }
+        Ok(())
     }
 
     /// Write every dirty cached block back (nothing to do uncached).
@@ -281,13 +288,21 @@ impl Ext2 {
         self.commit_locked()
     }
 
+    /// Whether [`Ext2::writeback`] has anything to commit: dirty blocks, or
+    /// frees still pending (a host that schedules writebacks itself asks).
+    pub fn needs_writeback(&self) -> bool {
+        let _guard = self.lock.lock();
+        !self.read_only
+            && (self.dirty_blocks_locked() > 0 || self.has_pending() || self.commit_in_progress())
+    }
+
     /// Dirty blocks waiting in the cache (0 uncached).
     pub fn dirty_blocks(&self) -> usize {
         let _guard = self.lock.lock();
         self.dirty_blocks_locked()
     }
 
-    fn dirty_blocks_locked(&self) -> usize {
+    pub(super) fn dirty_blocks_locked(&self) -> usize {
         self.cache
             .as_ref()
             .map_or(0, |cache| cache.lock().dirty_blocks())

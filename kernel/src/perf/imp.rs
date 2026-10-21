@@ -346,6 +346,12 @@ pub fn service() {
     }
     super::wakeups::report(now);
     super::runwait::report(now, per_tick);
+    if let Some((mhz, c0, ms)) = crate::arch::cpufreq::interval() {
+        line(format_args!(
+            "PERF:clock:mhz={mhz} c0_permille={c0} ms={ms}
+"
+        ));
+    }
     let worst = WORST_IRQOFF.load(Ordering::Relaxed);
     if worst != 0 && worst != REPORTED_WORST.swap(worst, Ordering::Relaxed) {
         let nr = WORST_NR.load(Ordering::Relaxed);

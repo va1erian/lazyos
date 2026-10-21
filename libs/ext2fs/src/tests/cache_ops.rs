@@ -176,6 +176,75 @@ fn writeback_makes_data_durable_but_leaves_the_volume_dirty() {
     assert_clean(&crashed);
 }
 
+/// `needs_writeback` says exactly when `writeback` has work: dirty blocks or
+/// pending frees, and nothing once it ran (a host scheduling its own
+/// writebacks relies on it, the kernel's provider volumes).
+#[test]
+fn needs_writeback_tracks_dirty_blocks_and_pending_frees() {
+    let io = formatted(BYTES, 1024);
+    let fs = cached(&io, 512);
+    assert!(!fs.needs_writeback(), "a fresh mount");
+    fs.write_file("/f", &[5u8; 30_000], 0o644, 0, 0, 1).unwrap();
+    assert!(fs.needs_writeback(), "after a write");
+    fs.writeback().unwrap();
+    assert!(!fs.needs_writeback(), "after its writeback");
+    fs.unlink("/f").unwrap();
+    // (Its directory and inode blocks are dirty too: this does not isolate
+    // the pending frees; the commit below must clear both.)
+    assert!(fs.needs_writeback(), "after an unlink");
+    fs.writeback().unwrap();
+    assert!(!fs.needs_writeback(), "after the frees were committed");
+    fs.flush().unwrap();
+    assert!(!fs.needs_writeback(), "after a flush");
+    drop(fs);
+    assert_clean(&io);
+}
+
+/// `sync_file_written` puts the file on the device without the device flush,
+/// which the caller then makes; `sync_file` makes both.
+#[test]
+fn sync_file_written_leaves_the_device_flush_to_the_caller() {
+    let io = formatted(BYTES, 1024);
+    let fs = cached(&io, 512);
+    fs.write_file("/f", &[7u8; 25_000], 0o644, 0, 0, 1).unwrap();
+    fs.write_file("/other", &[8u8; 9_000], 0o644, 0, 0, 1)
+        .unwrap();
+    let handle = fs.open_file("/f").unwrap();
+    let flushes = io.flushes();
+    assert!(fs.sync_file_written(handle).unwrap(), "the flush is owed");
+    assert_eq!(io.flushes(), flushes, "it flushed the device");
+    // The file's blocks are on the device already (a crash that keeps the
+    // device's cache finds it), and unrelated files are still dirty.
+    let after = open(&MemIo::from_bytes(io.snapshot()));
+    let mut back = std::vec![0u8; 25_000];
+    assert_eq!(after.read("/f", 0, &mut back), Ok(25_000));
+    assert_eq!(back, [7u8; 25_000]);
+    assert!(fs.dirty_blocks() > 0, "it wrote unrelated files");
+    fs.sync_file(handle).unwrap();
+    assert_eq!(io.flushes(), flushes + 1, "sync_file flushes once");
+    fs.flush().unwrap();
+    drop(fs);
+    assert_clean(&io);
+}
+
+/// A volume with no cache commits as a whole (as `sync_file` does there): no flush is owed.
+#[test]
+fn an_uncached_sync_file_written_owes_no_flush() {
+    let io = formatted(BYTES, 1024);
+    let fs = open(&io);
+    fs.write_file("/f", &[3u8; 5_000], 0o644, 0, 0, 1).unwrap();
+    let handle = fs.open_file("/f").unwrap();
+    let flushes = io.flushes();
+    assert!(
+        !fs.sync_file_written(handle).unwrap(),
+        "a flush is still owed"
+    );
+    assert!(
+        io.flushes() > flushes,
+        "the whole-volume commit flushed the device"
+    );
+}
+
 #[test]
 fn frees_wait_for_the_commit_but_count_as_free() {
     let io = formatted(BYTES, 1024);

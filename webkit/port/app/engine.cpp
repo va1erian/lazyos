@@ -124,8 +124,21 @@ void exportProfileEnvironment(const std::string& profile)
 // local storage, IndexedDB, ...) below `profile`; WebKit's own defaults for the directories this
 // does not name follow the profile too (patch 0015, through LAZYOS_WEBKIT_PROFILE). No profile
 // gives an ephemeral store, never a directory of the working directory.
-WKWebsiteDataStoreRef createDataStore(const std::string& profile)
+WKWebsiteDataStoreRef createDataStore(const std::string& profile, bool memoryOnly)
 {
+    // The owner asked for the page's data to stay in memory (issue #940): the profile still holds
+    // the content-blocking store (startBlocking), but nothing of the page is written to it.
+    // The children still start in the profile (the one folder their rules let them write, and where
+    // WebKit's default directories of patch 0015 go), and curl's default session keeps its cookie
+    // database in SQLite's memory (`CookieJarDB::isOnMemory`), not as cookie.jar.db in the working
+    // directory.
+    if (memoryOnly) {
+        if (!profile.empty() && makeDirectories(profile))
+            setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
+        setenv("CURL_COOKIE_JAR_PATH", ":memory:", 1);
+        say("PROFILE:EPHEMERAL:the page's data is kept in memory");
+        return WKWebsiteDataStoreCreateNonPersistentDataStore();
+    }
     if (profile.empty() || !makeDirectories(profile)) {
         say("PROFILE:NONE:the browser keeps nothing");
         return WKWebsiteDataStoreCreateNonPersistentDataStore();
@@ -168,10 +181,12 @@ WKWebsiteDataStoreRef createDataStore(const std::string& profile)
 
 // The profile a view of this configuration lives in: the directory's, when it has one and another view
 // has it open already, else a new one.
-std::shared_ptr<Profile> profileFor(const std::string& directory)
+std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnly)
 {
+    // A directory used both ways is two profiles: one persistent store, one in memory.
+    const std::string key = directory + (memoryOnly ? "\n:memory" : "");
     if (!directory.empty()) {
-        auto known = H.profiles.find(directory);
+        auto known = H.profiles.find(key);
         if (known != H.profiles.end()) {
             if (std::shared_ptr<Profile> shared = known->second.lock())
                 return shared;
@@ -179,9 +194,9 @@ std::shared_ptr<Profile> profileFor(const std::string& directory)
     }
     auto profile = std::make_shared<Profile>();
     profile->directory = directory;
-    profile->store = createDataStore(directory);
+    profile->store = createDataStore(directory, memoryOnly);
     if (!directory.empty()) {
-        H.profiles[directory] = profile;
+        H.profiles[key] = profile;
         // A persistent data store lives as long as the process: releasing the last one while its
         // NetworkProcess session is open aborted the UI process (webkit-views two), and the old
         // single-page host never let go of its store either.
@@ -278,7 +293,8 @@ static View* groupMate(const ViewConfig& config)
     View* any = nullptr;
     for (auto& entry : H.views) {
         View& other = *entry.second;
-        if (!other.page || other.config.group != config.group || other.config.profile != config.profile)
+        if (!other.page || other.config.group != config.group || other.config.profile != config.profile
+            || other.config.memoryOnly != config.memoryOnly)
             continue;
         if (!other.crashed && !other.recovering && WKPageGetProcessIdentifier(other.page) > 0)
             return &other;
@@ -294,7 +310,7 @@ View* createView(const ViewConfig& config, ViewSink* sink)
     View* mate = groupMate(config);
     // A group shares the mate's store (an ephemeral one is the mate's own, there is no other way to
     // name it), else the profile directory's or a new one.
-    view.profile = mate ? mate->profile : profileFor(config.profile);
+    view.profile = mate ? mate->profile : profileFor(config.profile, config.memoryOnly);
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, H.context);

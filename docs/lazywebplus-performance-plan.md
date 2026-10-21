@@ -454,6 +454,12 @@ and `tools/webplus/cpu_profile.py` (the 30 Hz sampler's recording by function). 
 
 ## Scrolling ahead of the page (checkerboard)
 
+**Off by default since issue #940 (2026-10-21).** On the Alder Lake box with `/home` on the USB stick the
+page answered late often enough that the picture shown ahead had to jump back two to thirteen times a
+minute, which the user found worse than a view that waits; `xui_webkit::speculate::set_ahead(true)` turns
+it back on (its tests do). Off, a notch moves the view only once the page has scrolled, gliding there when
+the page's move comes within `ANSWER_MS` of the notch.
+
 The page answers a wheel notch 70 ms later on average on Ars Technica, 480 ms at worst, so a notch used to
 be seen that late. The window now moves the picture it has at once, as the first smartphone browsers did, and
 leaves what that uncovers as a checkerboard (64 px squares, light grey, fixed to the page's rows) until the

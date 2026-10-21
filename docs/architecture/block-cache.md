@@ -172,13 +172,70 @@ journaled or uncached volume commits as a whole.
 
 | Event | What happens |
 |---|---|
-| `fsync` of a regular file | `Ext2::sync_file`: that file's blocks and inode and their dependencies, a device flush; the volume stays flagged dirty |
+| `fsync` of a regular file | `Ext2::sync_file_written` under the volume's gate (that file's blocks and inode and their dependencies), then the device flush with the gate released (on a USB stick the flush is most of an `fsync`; issue #940; `FS:FSYNC write_us=.. flush_us=..` reports one of 20 ms or more); a volume with a journal or no cache commits and flushes as a whole under the gate instead, and a read-only one flushes nothing; the volume stays flagged dirty |
 | `fsync` of a directory, `syncfs`, `sync`, `Vfs::sync_all` | `Ext2::flush`: commit, then the clean marker (written back and flushed last) |
 | orderly power-off / reboot | `power` (syscall 21) -> `fs::sync_all` -> the same `Ext2::flush` on every mount; the power path itself is unchanged |
-| every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy |
-| memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back |
+| every 5 s | `fs::flusher::service` (kernel task loop): commit every mount, volume stays flagged dirty; skipped (retried in 0.1 s) while the VFS is busy. A volume on a provider disk (a USB stick) is skipped: see below |
+| 5 s after a provider volume first needed a writeback | the next user task to return from a syscall commits it (`fs::flusher::deferred_service`, `fs/ext2/deferred.rs`, issue #940): no mount table held; never the kernel task or a provider; an interactive task only 5 s later still |
+| memory pressure | the flusher, with fewer than 1/16 of frames free: commit, then every clean page is given back (a provider volume only gives its clean pages back) |
 | dirty limit / cache full | a writeback inside the operation that needed room |
 | unmount (`Ext2` dropped) | commit, `s_state` untouched (as before the cache) |
+
+### Volumes on a provider disk
+
+A volume on a disk served from user space (`/home` on the boot stick, served
+by `usbd`) is cached like any other (`Ext2::open_deferred`). It used to be
+mounted uncached, because the flusher runs on the kernel task and the kernel
+task must never wait for `usbd`. But uncached, every write held the volume's
+gate for a round trip to the stick per block (data, inode, bitmaps, directory,
+counters), so every reader and writer of `/home` waited for the stick: on a
+real PC LazyWeb+'s cache writes froze its network process, and so the page,
+for 0.5 to 2.7 s at a time (issue #940).
+
+Now only *who* commits differs. The kernel task never does: the flusher skips
+the writeback (it still gives clean pages back under pressure, which needs no
+I/O) and pushes no mapped page into such a volume, which past the dirty limit
+or on a cache miss would wait for the provider. Every hold of the volume's
+gate ends by scheduling a commit 5 s after the volume first needed one (no
+I/O: the hold may sit inside a mount table that every other volume's callers
+need). Once it is due, the next user task to return from a syscall writes the
+mapped pages, then commits it: at that point it holds no mount table and has a
+shallow stack, and it takes the volume's gate only if it is free. While it
+commits, a path syscall that meets the gate still waits for it holding its
+mount table, so the commit's length matters: `FS:DEFERRED device=.. blocks=..
+us=..` reports each one. Syscalls are made all the time, so the 5 s
+bound holds whether or not anyone reads `/home`. Never the kernel task, never
+a task that serves a provider disk (`usbd` waiting on its own disk), never one
+that may not park; an interactive or realtime task (the compositor, a shell's
+UI) only once the commit is a further 5 s late, so frames do not pay for it
+while anything else runs. Pulling the stick out loses what a crash loses: the
+last few seconds, in the commit's crash-safe order. Once the disk is dead
+(`is_writable` turned false) the volume refuses every change, as it did
+uncached, instead of caching and losing it; reads still answer from the cache.
+
+**A commit in pieces.** One commit of 685 blocks held the gate for 1.37 s, so
+the commit is written in pieces (`Ext2::writeback_piece`, `commit_piece.rs`,
+`cache/piecewise.rs`): each call to `writeback_deferred` holds the gate for at
+most 25 ms or 32 requests (`PIECE_NS`, `PIECE_REQUESTS`) and lets go, and the
+commit stays due, so the next qualifying syscall's end continues it. The
+gate hands off to its waiting tasks on release (`YieldMutex::named_fair`,
+`task/yieldlock.rs`), so a reader waits for at most the piece in progress.
+The first stage *snapshots* the dirty set and notes the pending frees, then
+writes the snapshot in phase order; the second applies the noted frees (their
+detaches are in the snapshot) and snapshots and writes again, as the plain
+commit's two writebacks do (no frees noted: no second stage). A block that
+operations change between pieces keeps the snapshot's version aside (a
+*shadow*) for its piece, and stays dirty with the new one for the next commit;
+otherwise a new inode block could reach the disk ahead of the data block it
+names. The disk thus receives a prefix of one consistent image in the phase
+order, whatever runs between the pieces (`cargo test -p ext2fs piecewise`
+judges every prefix of the writes with operations between every two requests;
+the kernel tests are `bcache_deferred_commit_in_pieces` and
+`bcache_soak_deferred_pieces`). A block written by someone else meanwhile
+(`fsync`, a full commit, `sync`) leaves the snapshot, and a full commit ends
+the piecewise one. The device's cache flush follows the last piece, outside
+the gate. `FS:DEFERRED` is printed per piece (`more=true` while it goes on).
+A journaled or uncached volume commits whole (one long gate hold; `/home` on a stick is not journaled by default). The gate's `try_lock` (the next piece) also yields to waiters.
 
 ## Crash semantics
 

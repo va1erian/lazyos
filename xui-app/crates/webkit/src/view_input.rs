@@ -117,6 +117,11 @@ pub(crate) fn handle<M: 'static>(
     let Ok(state) = state.try_borrow() else {
         return;
     };
+    // A click or a key may move the page (a link to an anchor, Page Down): that move is not the
+    // wheel's answer, and jumps.
+    if matches!(*event, Event::MouseDown { .. } | Event::KeyDown { .. }) {
+        state.wheel_asked.set(None);
+    }
     match *event {
         Event::MouseDown {
             x,
@@ -180,11 +185,28 @@ pub(crate) fn handle<M: 'static>(
             let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
             engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
             // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
-            // page has answered (a modified wheel zooms or scrolls sideways).
-            let moved = !horizontal
-                && modifier_bits(modifiers) == 0
-                && state.spec.borrow_mut().wheel(ticks, speculate::now_ms());
-            state.smooth.borrow_mut().wheel(speculate::now_ms(), moved);
+            // page has answered, if pictures are shown ahead (a modified wheel zooms or scrolls
+            // sideways). Otherwise the view moves with the page's answer (`View::apply`).
+            let plain = !horizontal && modifier_bits(modifiers) == 0;
+            let now_ms = speculate::now_ms();
+            if plain && !speculate::ahead() {
+                // What the wheel asks for since the page last answered (a notch down is a negative
+                // tick and a positive move of the page), to glide to that answer and only to it.
+                let asked = state
+                    .wheel_asked
+                    .get()
+                    .filter(|(at, _)| now_ms.saturating_sub(*at) <= speculate::ANSWER_MS)
+                    .map_or(0, |(_, px)| px);
+                let step =
+                    -ticks.clamp(-speculate::MAX_TICKS, speculate::MAX_TICKS) * speculate::LINE_PX;
+                state.wheel_asked.set(Some((now_ms, asked + step)));
+            }
+            let moved = plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms);
+            // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too.
+            state
+                .smooth
+                .borrow_mut()
+                .wheel(now_ms, moved || (plain && !speculate::ahead()));
             if moved {
                 if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
                     state.wheel_at.set(Some(Instant::now()));

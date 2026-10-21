@@ -132,6 +132,7 @@ int lzw_engine_start(void)
     ViewConfig config;
     config.features = env.features();
     config.profile = profile;
+    config.memoryOnly = lzw_ui_profile_ephemeral() != 0;
     return createView(config, &sink) ? 0 : 1;
 }
 

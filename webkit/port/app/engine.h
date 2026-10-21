@@ -132,6 +132,9 @@ struct ViewConfig {
     int features { 0 };
     // The directory for cookies and site data, or empty for a non-persistent store of its own.
     std::string profile;
+    // The page's data stays in memory (issue #940): the store is non-persistent, the directory (if any) holds
+    // only what the engine keeps there for itself (the content-blocking store, the children's folder).
+    bool memoryOnly { false };
     // Views of one owner with the same non-zero group and the same profile directory (or both none) share
     // one WebProcess and one data store: a page costs its own memory, not a 107 MiB process. A view with
     // no group, or whose profile differs from its group's first view, gets a process of its own. The

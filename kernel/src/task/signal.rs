@@ -75,7 +75,7 @@ pub use sweep::{deliver_on_resume, finish_sweep, sweep, wait_interrupted};
 pub use fpframe::{FP_XSTATE_MAGIC1, FP_XSTATE_MAGIC2};
 pub use harden::{die_with_segv, restore_frame};
 pub use native::{deliver_native, fatal_pending, must_unwind, native_fatal_pending};
-pub use send::{kill, kill_terminal_group, send_tid};
+pub use send::{kill, kill_all_but, kill_terminal_group, send_tid};
 
 pub use access::*;
 pub use consts::*;

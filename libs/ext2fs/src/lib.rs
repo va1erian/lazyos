@@ -87,6 +87,7 @@ mod blocks;
 mod cache;
 mod capacity;
 mod commit;
+mod commit_piece;
 mod dir;
 mod error;
 mod file_io;
@@ -126,6 +127,7 @@ mod tests;
 
 pub use cache::memory::{CacheConfig, CacheMemory, CachePage, HeapMemory, CACHE_PAGE_SIZE};
 pub use cache::CacheStats;
+pub use commit_piece::Progress;
 pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;

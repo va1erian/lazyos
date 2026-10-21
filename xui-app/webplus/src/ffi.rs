@@ -59,6 +59,8 @@ struct Shared {
     saver: Arc<Saver>,
     internal: Internal,
     profile: Option<CString>,
+    /// The page's data is kept in memory (the profile's marker, `memory.rs`), read once at start.
+    ephemeral: bool,
     /// The sites allowed to notify: the UI process reads them when WebKit asks, before the window
     /// exists, and the window changes them.
     permissions: Permissions,
@@ -81,6 +83,10 @@ fn shared() -> &'static Shared {
             std::fs::create_dir_all(&dir).ok()?;
             CString::new(dir).ok()
         });
+        let ephemeral = profile
+            .as_ref()
+            .and_then(|dir| dir.to_str().ok())
+            .is_some_and(|dir| crate::memory::enabled(std::path::Path::new(dir)));
         let permissions = match &home {
             Some(home) => Permissions::open(
                 PathBuf::from(fhs::app_data_dir(home, SYSTEM_NAME)).join(NOTIFY_FILE),
@@ -92,6 +98,7 @@ fn shared() -> &'static Shared {
             saver: Arc::new(Saver::new(folder)),
             internal: Internal::default(),
             profile,
+            ephemeral,
             permissions,
             // Without its store: `confd` is connected to off WebKit's main thread (the first caller of
             // this is `lzw_ui_profile_dir`, which runs on it), and the settings attach afterwards.
@@ -132,6 +139,13 @@ pub extern "C" fn lzw_ui_profile_dir() -> *const c_char {
         .profile
         .as_ref()
         .map_or(std::ptr::null(), |dir| dir.as_ptr())
+}
+
+/// Whether the page's data is kept in memory only (`memory.rs`, the File menu): WebKit then uses a
+/// non-persistent data store, and the profile keeps only the ad blocker's store.
+#[no_mangle]
+pub extern "C" fn lzw_ui_profile_ephemeral() -> c_int {
+    c_int::from(shared().ephemeral)
 }
 
 /// The navigation policy (`policy.rs`): `url` is about to load; `kind` and `user_gesture` say how
@@ -369,6 +383,10 @@ pub unsafe extern "C" fn lzw_ui_main(argc: c_int, argv: *const *const c_char) ->
                 },
                 focused: Rc::new(move || focus_backend.focused()),
                 launcher: Rc::new(LazyLauncher),
+                profile: shared
+                    .home
+                    .as_ref()
+                    .map(|home| std::path::PathBuf::from(fhs::app_data_dir(home, SYSTEM_NAME))),
                 probe: Box::new(|window, name, rect| {
                     xui_app::probe::widget(
                         window,

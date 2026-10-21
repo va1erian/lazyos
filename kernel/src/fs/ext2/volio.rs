@@ -43,20 +43,23 @@ impl VolumeIo {
 /// The gate, held: the library may be called, and its requests may sleep.
 pub(super) struct Entered<'a> {
     _gate: crate::task::relax::YieldGuard<'a, ()>,
-    io: &'a VolumeIo,
+    fs: &'a Ext2,
 }
 
 impl Entered<'_> {
     /// Between two pieces of a long call (the library's lock released): let
     /// interrupts in and the scheduler act (`iowait::breathe`).
     pub(super) fn breathe(&self) {
-        iowait::breathe(self.io.wait());
+        iowait::breathe(self.fs.io.wait());
     }
 }
 
 impl Drop for Entered<'_> {
+    /// The hold's end ([`Ext2::end_hold`]) runs while the gate is still held
+    /// and its requests may still sleep; the gate is released after this.
     fn drop(&mut self) {
-        self.io.may_sleep.store(false, Ordering::Relaxed);
+        self.fs.end_hold();
+        self.fs.io.may_sleep.store(false, Ordering::Relaxed);
     }
 }
 
@@ -67,7 +70,7 @@ impl Ext2 {
         self.io.may_sleep.store(true, Ordering::Relaxed);
         Entered {
             _gate: gate,
-            io: &self.io,
+            fs: self,
         }
     }
 
@@ -77,7 +80,7 @@ impl Ext2 {
         self.io.may_sleep.store(true, Ordering::Relaxed);
         Some(Entered {
             _gate: gate,
-            io: &self.io,
+            fs: self,
         })
     }
 }

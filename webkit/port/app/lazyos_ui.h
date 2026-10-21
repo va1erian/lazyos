@@ -101,6 +101,12 @@ void lzw_ui_say(const char* line);
 // static string, valid for the process's life. Called on the main thread before WebKit starts.
 const char* lzw_ui_profile_dir(void);
 
+// Whether the page's data (cookies, the HTTP cache, site storage) is kept in memory only, gone when
+// the browser quits: WebKit's non-persistent data store, though the profile directory still holds
+// the content-blocking store (issue #940: a profile on a USB stick stalled the network process on
+// every write). Called on the main thread before WebKit starts.
+int lzw_ui_profile_ephemeral(void);
+
 // Whether this image carries the UI probe (LAZYOS_UI_PROBE=1): session scripts read markers that
 // name pages (LOAD, TITLE, JS, CLICK, INPUT, NAV), which a shipped browser does not print.
 int lzw_ui_probe_enabled(void);
