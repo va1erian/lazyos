@@ -44,10 +44,9 @@ must have a row for each. Two entries need the reader's attention:
 
 * **OpenSSL is Apache-2.0, which is GPLv2-incompatible.** LGPL-2.1 WebKit may
   link it (``WebCore/platform/network/curl`` and SubtleCrypto call its API)
-  and GPLv3 LazyOS may ship it, but it must **never be linked into LazyWeb**
-  (GPL-2.0-only, ``docs/lazyweb.md``, ``AGENTS.md``) or into the ``nettls``
-  stack: ``NEVER_IN_LAZYWEB`` names it, and ``licenses.py`` fails when
-  LazyWeb's tree references this bundle.
+  and GPLv3 LazyOS may ship it, but it must **never be linked into the ``nettls`` stack** (or any
+  GPL-2.0-only program; ``AGENTS.md``): ``NEVER_IN_GPL2`` names it, and
+  ``licenses.py`` fails when the notes and documents do not say so.
 * **libpsl is MIT, but the public-suffix list it embeds
   (``list/public_suffix_list.dat``, built in with ``--enable-builtin``) is
   MPL-2.0**; its entry records both (``MIT AND MPL-2.0``).
@@ -176,7 +175,7 @@ DEPS: list[Dep] = [
         "3.5.9", f"{H}/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz",
         "603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a", "openssl-3.5.9"),
         "Apache-2.0", "TLS for curl; WebCore's curl port and SubtleCrypto call the OpenSSL API directly",
-        notes="GPLv2-incompatible: never link into LazyWeb (GPL-2.0-only) or the nettls stack"),
+        notes="GPLv2-incompatible: never link into the nettls stack or any GPL-2.0-only program"),
     Dep("nghttp2", Source(
         "1.70.0", f"{H}/nghttp2/nghttp2/releases/download/v1.70.0/nghttp2-1.70.0.tar.xz",
         "e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2", "nghttp2-1.70.0"),
@@ -246,10 +245,10 @@ DATA_FILES: list[EmbeddedData] = [
 ]
 
 #: Libraries whose licence a GPL-2.0-only program cannot absorb. They may sit in
-#: the LGPL-2.1 WebKit binary and the GPLv3 image, and nowhere else: LazyWeb
-#: (``xui-app/web``, GPL-2.0-only) and the TLS stack must never link them.
+#: the LGPL-2.1 WebKit binary and the GPLv3 image, and nowhere else: the TLS stack
+#: (and any GPL-2.0-only program) must never link them.
 #: ``licenses.py`` enforces both halves.
-NEVER_IN_LAZYWEB = ("openssl",)
+NEVER_IN_GPL2 = ("openssl",)
 
 
 def log(message: str) -> None:

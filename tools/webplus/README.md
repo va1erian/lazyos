@@ -37,7 +37,7 @@ python tools/webplus/test_sample.py                        # its parser and summ
 
 | File | What |
 |---|---|
-| `run.py` | builds the image (`LAZYOS_LAZYWEBPLUS=1`, the UI probe, the big-app limits, a throwaway test CA), serves the host's stand-in sites (`tools/web/sites.py`), runs both boots, reads the OS volume with `osread`, judges |
+| `run.py` | builds the image (`LAZYOS_LAZYWEBPLUS=1`, the UI probe, the big-app limits, a throwaway test CA), serves the host's stand-in sites (`tools/webtest/sites.py`), runs both boots, reads the OS volume with `osread`, judges |
 | `session.py` | the two session scripts: the first boot browses, answers dialogs, clicks, downloads, closes; the second finds the history and the cookie and clears the history |
 | `judge.py`, `pixels.py` | the verdict as pure functions: serial markers, the host's request log, the profile, the page area of the screenshots |
 | `test_judge.py` | the judge's own tests |

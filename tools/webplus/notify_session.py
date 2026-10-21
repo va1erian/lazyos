@@ -4,7 +4,7 @@
 The image is the one `run.py` builds: a desktop with `LAZYOS_LAZYWEBPLUS=1`, the UI probe and
 `LAZYOS_XUI_AUTOSTART=lazywebplus`. Two boots of it (the profile in
 `$HOME/.apps/os.lazy.lazywebplus` must be found again), both on
-`https://theoldnet.com/webplus/notify.html` (`tools/web/fixtures/theoldnet.com/webplus/`):
+`https://theoldnet.com/webplus/notify.html` (`tools/webtest/fixtures/theoldnet.com/webplus/`):
 
 * **allow** (`allow`): the page asks for the permission at load with no gesture and learns
   `denied`, with no bar; a click on *Ask* opens the bar; *Allow* is kept; *Post* shows a toast

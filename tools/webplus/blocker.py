@@ -1,7 +1,7 @@
 """The ad blocker's part of LazyWeb+'s harness (issue #845, docs/lazywebplus.md).
 
 The image is the same one the other boots use. Its browser fetches the filter list from
-`easylist.to` (the harness serves a small list of its own there, `tools/web/sites.py`) at its
+`easylist.to` (the harness serves a small list of its own there, `tools/webtest/sites.py`) at its
 first start, so the **first boot** has the list fetched, converted and compiled in the
 background. Two more boots of the image:
 

@@ -34,8 +34,8 @@ class VerdictTests(unittest.TestCase):
         dep = wkpins.BY_NAME["openssl"]
         self.assertEqual(dep.license, "Apache-2.0")
         self.assertEqual(licenses.verdict(dep, NETTLS)[:2], (True, False))
-        self.assertIn("openssl", wkpins.NEVER_IN_LAZYWEB)
-        self.assertIn("LazyWeb", dep.notes)
+        self.assertIn("openssl", wkpins.NEVER_IN_GPL2)
+        self.assertIn("nettls", dep.notes)
 
     def test_webkit_itself_is_judged_and_registered(self) -> None:
         dep = wkpins.WEBKIT
@@ -60,7 +60,7 @@ class VerdictTests(unittest.TestCase):
             self.assertIn("lazywebplus-app", rows[name], name)
             self.assertIn("LAZYOS_LAZYWEBPLUS=1", rows[name], name)
 
-    def test_lazyweb_pluss_window_is_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
+    def test_lazywebplus_window_is_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
         self.assertEqual(licenses.check_webplus_licence(), [])
         for name in licenses.WEBPLUS_CRATES:
             self.assertTrue((licenses.ROOT / name).is_file(), name)
@@ -129,23 +129,23 @@ class VerdictTests(unittest.TestCase):
         self.assertIn("freetype", self.problem(with_license("freetype", "MIT AND (")))
 
     def test_openssl_must_say_why_it_is_exempt(self) -> None:
-        self.assertIn("LazyWeb", self.problem(with_license("openssl", "Apache-2.0", notes="")))
+        self.assertIn("nettls", self.problem(with_license("openssl", "Apache-2.0", notes="")))
 
     def test_a_gplv2_compatible_library_cannot_hide_in_the_exemption(self) -> None:
-        original = wkpins.NEVER_IN_LAZYWEB
-        wkpins.NEVER_IN_LAZYWEB = ("openssl", "zlib")
+        original = wkpins.NEVER_IN_GPL2
+        wkpins.NEVER_IN_GPL2 = ("openssl", "zlib")
         try:
-            self.assertIn("NEVER_IN_LAZYWEB", self.problem(wkpins.BY_NAME["zlib"]))
+            self.assertIn("NEVER_IN_GPL2", self.problem(wkpins.BY_NAME["zlib"]))
         finally:
-            wkpins.NEVER_IN_LAZYWEB = original
+            wkpins.NEVER_IN_GPL2 = original
 
     def test_a_gplv2_incompatible_library_must_be_listed(self) -> None:
-        original = wkpins.NEVER_IN_LAZYWEB
-        wkpins.NEVER_IN_LAZYWEB = ()
+        original = wkpins.NEVER_IN_GPL2
+        wkpins.NEVER_IN_GPL2 = ()
         try:
             self.assertIn("allowlist", self.problem(wkpins.BY_NAME["openssl"]))
         finally:
-            wkpins.NEVER_IN_LAZYWEB = original
+            wkpins.NEVER_IN_GPL2 = original
 
 
 class RegisterTests(unittest.TestCase):
@@ -175,7 +175,7 @@ class RegisterTests(unittest.TestCase):
         third_party = "| openssl 3.5.9 | url | Apache-2.0 | linked |"
         readme = "OpenSSL is Apache-2.0."
         self.assertEqual(len(licenses.check_notices(third_party, readme)), 2)
-        ok = "OpenSSL (Apache-2.0) must never be linked into LazyWeb."
+        ok = "OpenSSL (Apache-2.0) must never be linked into nettls."
         self.assertEqual(licenses.check_notices(ok, ok), [])
 
 
@@ -190,29 +190,6 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(len(problems), 2)
         self.assertIn("rebuild", problems[0])
         self.assertIn("mystery", problems[1])
-
-
-class LazyWebApartTests(unittest.TestCase):
-    def test_the_repository_keeps_lazyweb_apart(self) -> None:
-        self.assertEqual(licenses.check_lazyweb_apart(), [])
-
-    def test_a_reference_or_an_openssl_dependency_is_caught(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            web = root / "xui-app" / "web"
-            web.mkdir(parents=True)
-            (web / "Cargo.toml").write_text('[dependencies]\nopenssl = "0.10"\n')
-            (web / "build.rs").write_text("")
-            (web / "src.rs").write_text('const P: &str = "target/webkit/bin/depsproof";\n')
-            saved = licenses.ROOT
-            licenses.ROOT = root
-            try:
-                problems = licenses.check_lazyweb_apart()
-            finally:
-                licenses.ROOT = saved
-        self.assertTrue(any("depends on OpenSSL" in p for p in problems))
-        self.assertTrue(any("'target/webkit'" in p for p in problems))
-        self.assertTrue(any("'depsproof'" in p for p in problems))
 
 
 if __name__ == "__main__":

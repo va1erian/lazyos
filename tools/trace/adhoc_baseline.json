@@ -116,11 +116,6 @@
  "xui-app/src/shell/tray/tooltip.rs": 1,
  "xui-app/src/shell/wallpaper.rs": 3,
  "xui-app/src/tray.rs": 2,
- "xui-app/web/src/app.rs": 9,
- "xui-app/web/src/fonts.rs": 1,
- "xui-app/web/src/handoff.rs": 3,
- "xui-app/web/src/main.rs": 1,
- "xui-app/web/src/transfers.rs": 3,
  "xui-app/webplus/src/app/events.rs": 4,
  "xui-app/webplus/src/ffi.rs": 1,
  "xui-app/webplus/src/lib.rs": 1
