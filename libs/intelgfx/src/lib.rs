@@ -38,6 +38,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod adopt;
+pub mod audio;
 pub mod cea;
 pub mod d13;
 pub mod edid;
@@ -57,6 +58,8 @@ pub mod fuzz;
 
 #[cfg(test)]
 mod tests_adopt;
+#[cfg(test)]
+mod tests_audio;
 #[cfg(test)]
 mod tests_d13;
 #[cfg(test)]
