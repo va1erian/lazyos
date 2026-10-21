@@ -174,18 +174,21 @@ also the engine's test (docs/webd-plan.md, P1):
 python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # Docker; builds, runs in the container
 ```
 
-It runs six modes in the build container (the programs are static musl executables): `light` (one view with
+It runs eight modes in the build container (the programs are static musl executables): `light` (one view with
 a non-persistent store and no features), `twoeph`, `two` and `share` (two views, with stores of their own,
 with a profile directory and without, and of one profile directory; the first, which has every client of a
-browser view, is destroyed and the second loads another page), `cycle` (twelve views made, shown and destroyed
+browser view, is destroyed and the second loads another page), `group` and `groupprof` (two views of one group, without and with a profile directory: one web process, which
+outlives the destruction of the first view), `cycle` (twelve views made, shown and destroyed
 in turn) and `rush` (twelve made and destroyed at once, before their pages are up); every destroyed view's web
 process must end. Each view loads a `data:` page of its own colour and title and must paint that colour and
 never the other view's, and the page's updates must reach it (they find their view by the page). Findings it
 made:
 
-* **Every view gets a WebProcess of its own**, even two views of one profile directory (`share`: two web
-  processes, one network process): 107 MiB a view, not a profile. A destroyed view's process ends with it
-  (`destroyView` terminates it unless another view's has the same id).
+* **A view gets a WebProcess of its own unless it joins a group**, even two views of one profile directory
+  (`share`: two web processes, one network process): 107 MiB a view. Views with the same non-zero
+  `ViewConfig::group` and profile share the first one's data store and, as related pages
+  (`WKPageConfigurationSetRelatedPage`), its process (`group`, `groupprof`: one web process for two views).
+  A destroyed view's process ends with it (`destroyView` terminates it unless another view's has the same id).
 * **A view with nothing to fetch still launches a NetworkProcess** (`VIEWS:LAUNCH:web=1:network=1` for the
   light view's `data:` page): the answer to L1 of the plan is no, a light view cannot avoid it with this
   WebKit. Two views of different data stores share the one NetworkProcess and have a WebProcess each.

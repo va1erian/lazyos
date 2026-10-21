@@ -254,7 +254,7 @@ def run_views() -> bool:
     if not (HOST_BIN / "webkit-views").is_file():
         raise BuildError("webkit-views is not built (python tools/webkit/port.py --only webkit-views)")
     wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
-    for mode in ("light", "twoeph", "two", "share", "cycle", "rush"):
+    for mode in ("light", "twoeph", "two", "share", "group", "groupprof", "cycle", "rush"):
         with tempfile.TemporaryDirectory(prefix="webkit-views-", dir=wkpins.jsc_pins.WORK,
                                          ignore_cleanup_errors=True) as scratch:
             try:

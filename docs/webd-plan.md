@@ -22,7 +22,7 @@ Recommendations, each argued below:
 | D3 | The C++ engine becomes **multi-view first** (`Engine E` global to `View` objects), with the two existing browsers running on a one-view adapter until they move | it is the bulk of the risk, it is useful alone (tabs), and it can land before any daemon code |
 | D4 | **Profile = caller's label** by default; a shared `browser` profile needs a manifest scope; web processes are never shared across profiles; one NetworkProcess for all, with per-profile cookie jars at first | memory is the scarce resource (107 MiB per process, no text sharing); isolation of cookies and storage is the property worth paying for |
 | D5 | Navigation/handoff/download policy is **declared per view** and enforced inside webd; questions that need the app come back as asynchronous events with a deny-on-timeout | `lzw_ui_navigate` is a synchronous call today and cannot cross a process boundary |
-| D6 | **Remove `webkit-app` (W5) first, before the multi-view refactor**, then remove **Blitz** (LazyWeb, Docs' and Mail's `BlitzView`) once webd carries their views (section 9) | LazyWeb+ is a superset of W5, so the refactor has one consumer of the C ABI instead of two; after Blitz is gone there is one web renderer and one font path |
+| D6 | **One web view, not two: remove `webkit-app` (W5) first, before the multi-view refactor**, then remove **Blitz** (LazyWeb, Docs' and Mail's `BlitzView`) once webd carries their views (section 9) | LazyWeb+ is a superset of W5, so the refactor has one consumer of the C ABI instead of two; after Blitz is gone there is one web renderer and one font path |
 | D7 | **Light views**: a second, smaller interface (`os.lazy.webd.light.v1`) for callers that need HTML/CSS rendering only: no network at all, scripts off by default, no storage, none of a browser's client machinery (3.6) | most callers (Mail, Docs, help, forms) are not browsers; separate interfaces make "cannot reach the internet" a kernel-enforced property and make Blitz removable before the browser moves |
 
 ## 1. Why now: what the code says
@@ -306,9 +306,14 @@ Shared: one UI process, one NetworkProcess, the HTTP cache and DNS/TLS state, fo
 compiled ad-block store and its updater, one crash handler/heartbeat/shutdown path, the WebProcess pool's spare.
 Not shared: cookies, storage, history, web processes across profiles, JS heaps.
 Arithmetic (*est.*, 107 MiB per process): two browsers today = 2 x (UI + net + web) = 642 MiB; with webd and
-two views of one profile = UI + net + web = 321 MiB; add Mail's ephemeral view = +107 MiB (its own web
-process). A lone browser is not cheaper than today (+ the daemon's own thread and a hop); the gain starts at the
-second consumer and at the second browser window, and grows when file-backed `mmap` lands.
+**views of one group (an owner's windows of one profile) on one web process** = UI + net + web = 321 MiB for any
+number of windows of that browser; add Mail's ephemeral group = +107 MiB (its own web process, shared by every
+Mail pane). **Without grouping** each view is +107 MiB (measured: `webkit-views share`), so grouping is what makes
+the arithmetic true. A lone browser is not cheaper than today (+ the daemon's own thread and a hop); the gain
+starts at the second consumer and at the second browser window. Three further levers cut the 107 MiB itself:
+smaller images (ICU's data is about 45 MiB of it), and sharing text pages between the processes of one program
+(issue #942). A related page shares the process and the data store, so a **group is one owner's and one
+profile's**: webd groups by (client label, profile), never across clients.
 
 ## 7. Phases
 
@@ -342,7 +347,14 @@ browser moves onto webd**.
   directory, each launched a web process, and all shared one network process. **A view costs 107 MiB, not a
   profile**: decision D4's "web processes are never shared across profiles" is a floor, and section 6's arithmetic
   (one web process per profile) is too kind. A light view
-  launches the network process too (L1, above). A destroyed view's web process ends with it.
+  launches the network process too (L1, above). A destroyed view's web process ends with it, unless another view
+  of its group uses it.
+* **Related pages share a WebProcess** (`ViewConfig::group`; `WKPageConfigurationSetRelatedPage`, which also
+  needs the group's one data store): `webkit-views group` and `groupprof` launch one web process for two views,
+  destroying one leaves the process to the other, four runs of all eight modes in a row. This is the lever that
+  keeps a second window, or a second Mail pane, from costing 107 MiB. Not measured yet: a group's memory after
+  many navigations (one process now holds every page's heap), and process-swap on cross-site navigation, which
+  would give such a page a new process of its own.
 * **A WebPageProxy cannot be destroyed on this port.** `webkit-views two` aborted the UI process one run in three
   after the first view was released (a CheckedPtr to a dead run-loop timer inside `didReachLayoutMilestone`; the
   family of patches `0021` and `0027`); `WKPageClose` first made it worse; ending the page's process and parking
@@ -485,6 +497,6 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
 | 6 | Notification identity | webd posts the toast under its own name with the site host as title | the shell grows `on_behalf_of` |
-| 7 | Web processes per profile | one per profile (a light view: one per client app), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
+| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

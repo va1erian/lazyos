@@ -253,15 +253,34 @@ bool startHost(HostEnv* env, const std::string& profileHint)
     return H.context != nullptr;
 }
 
+// A live view the new one joins: the same group and profile directory, with a page.
+static View* groupMate(const ViewConfig& config)
+{
+    if (config.group == 0)
+        return nullptr;
+    for (auto& entry : H.views) {
+        View& other = *entry.second;
+        if (other.page && other.config.group == config.group && other.config.profile == config.profile)
+            return &other;
+    }
+    return nullptr;
+}
+
 View* createView(const ViewConfig& config, ViewSink* sink)
 {
     auto owned = std::make_unique<View>(H.nextView++, config, sink);
     View& view = *owned;
-    view.profile = profileFor(config.profile);
+    View* mate = groupMate(config);
+    // A group shares the mate's store (an ephemeral one is the mate's own, there is no other way to
+    // name it), else the profile directory's or a new one.
+    view.profile = mate ? mate->profile : profileFor(config.profile);
 
     WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
     WKPageConfigurationSetContext(pageConfiguration, H.context);
     WKPageConfigurationSetWebsiteDataStore(pageConfiguration, view.profile->store);
+    // Related pages share a WebProcess (WebPageProxy::create takes the related page's process).
+    if (mate)
+        WKPageConfigurationSetRelatedPage(pageConfiguration, mate->page);
     // The provider, for an owner whose host features did not ask for it but whose view does.
     if (view.has(LZW_FEATURE_NOTIFICATIONS))
         installNotifications();

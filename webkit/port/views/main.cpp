@@ -6,6 +6,9 @@
 //   webkit-views two     two views at once, one with a profile directory and one without
 //   webkit-views twoeph  two views at once, neither with a profile directory
 //   webkit-views share   two views of the same profile directory; the first is destroyed, the second goes on
+//   webkit-views group      two views of one group and no profile: ONE web process; the first is destroyed and
+//                           the second, still on that process, goes on
+//   webkit-views groupprof  the same with a profile directory
 //   webkit-views cycle   twelve views made, shown and destroyed one after the other
 //   webkit-views rush    twelve views made and destroyed at once, before their pages are up
 // The first view of the pairs has every feature (the clients of a full browser view), the second none.
@@ -199,6 +202,7 @@ constexpr int kCycles = 12;
 bool cycling = false;
 bool rush = false; // destroy a view at once, before its page is up
 bool sameProfile = false;
+bool grouped = false; // the two views are one group: they must share a single web process
 int cycleIndex = 0;
 int cycleView = 0;
 std::unique_ptr<Probe> cycleProbe;
@@ -296,6 +300,14 @@ void step(void*)
         if (upA && shows(second, "Beta", 'b')) {
             printf("VIEWS:LAUNCH:web=%d:network=%d\n", launches.web.load(), launches.network.load());
             printf("VIEWS:UPDATES:A=%d:B=%d\n", first.updates, second.updates);
+            if (grouped && launches.web != 1) {
+                finish("FAIL", "the views of a group did not share one web process");
+                return;
+            }
+            if (!grouped && bothViews && launches.web < 2) {
+                finish("FAIL", "two views of no group shared a web process");
+                return;
+            }
             if (first.updates + second.updates == 0) {
                 // Every frame so far came from the load finishing: the page callbacks never found a view.
                 finish("FAIL", "no update from a page's process reached a view");
@@ -322,7 +334,12 @@ void step(void*)
     }
     if (phase == 1 && second.finished >= 2 && second.title == "Gamma" && second.last == 'g') {
         // A's WebProcess ended with its view (its view was the only one that used it).
-        if (bothViews && !sameProfile && launches.webExits < 1) {
+        if (grouped && launches.webExits != 0) {
+            // The process stays: the second view is on it.
+            finish("FAIL", "destroying one view of a group ended the process the other one uses");
+            return;
+        }
+        if (bothViews && !sameProfile && !grouped && launches.webExits < 1) {
             if (now - phaseStarted > 20000)
                 finish("FAIL", "the destroyed view's web process did not end");
             return;
@@ -345,10 +362,11 @@ void* ticker(void*)
 
 int main(int argc, char** argv)
 {
-    const bool ephemeralPair = argc > 1 && !strcmp(argv[1], "twoeph");
+    grouped = argc > 1 && (!strcmp(argv[1], "group") || !strcmp(argv[1], "groupprof"));
+    const bool ephemeralPair = argc > 1 && (!strcmp(argv[1], "twoeph") || !strcmp(argv[1], "group"));
     rush = argc > 1 && !strcmp(argv[1], "rush");
     cycling = rush || (argc > 1 && !strcmp(argv[1], "cycle"));
-    sameProfile = argc > 1 && !strcmp(argv[1], "share");
+    sameProfile = argc > 1 && (!strcmp(argv[1], "share") || !strcmp(argv[1], "groupprof"));
     bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair || sameProfile);
     setvbuf(stdout, nullptr, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
@@ -373,6 +391,7 @@ int main(int argc, char** argv)
     if (bothViews) {
         ViewConfig full = lightConfig;
         full.profile = profile;
+        full.group = grouped ? 1 : 0;
         // Every client a browser view has: the page UI, dialogs, downloads, policy, notifications and blocking.
         full.features = LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_DOWNLOADS | LZW_FEATURE_POLICY
             | LZW_FEATURE_NOTIFICATIONS | LZW_FEATURE_BLOCKING;
@@ -386,6 +405,7 @@ int main(int argc, char** argv)
     ViewConfig second_config = lightConfig;
     if (sameProfile)
         second_config.profile = profile;
+    second_config.group = grouped ? 1 : 0;
     View* b = cycling ? nullptr : createView(second_config, &second);
     if (!b && !cycling) {
         printf("VIEWS:FAIL:view B\n");

@@ -132,6 +132,12 @@ struct ViewConfig {
     int features { 0 };
     // The directory for cookies and site data, or empty for a non-persistent store of its own.
     std::string profile;
+    // Views of one owner with the same non-zero group and the same profile directory (or both none) share
+    // one WebProcess and one data store: a page costs its own memory, not a 107 MiB process. A view with
+    // no group, or whose profile differs from its group's first view, gets a process of its own. The
+    // pages of a group can see each other's storage and script each other by name (they are related
+    // pages), so a group is one owner's, never a mix of untrusting parties.
+    int group { 0 };
     int width { kInitialWidth };
     int height { kInitialHeight };
 };
