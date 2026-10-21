@@ -44,6 +44,7 @@ use layout::Widgets;
 use mailto::Mailto;
 use models::{FolderRows, MessageRows};
 use reader::Reader;
+use xui_webd_client::Status;
 
 /// `(account, mailbox, uid)`: which message a body fetch is for.
 type BodyKey = (usize, String, u32);
@@ -53,12 +54,12 @@ type BodyKey = (usize, String, u32);
 pub enum Msg {
     /// An account session or the cache has something to apply.
     Wake,
-    /// The reading pane finished a layout pass.
-    Frame,
-    /// The poll for the reading pane's first paint of a message.
-    Tick,
+    /// The reading pane drew the page it was given.
+    Painted,
+    /// A link was clicked in the reading pane.
     Link(String),
-    Copy(String),
+    /// The web engine that draws the reading pane came up or went away.
+    Engine(Status),
     /// A row of the folder pane was picked.
     Folder(usize),
     /// A row of the message list was picked.
@@ -117,8 +118,6 @@ impl Mail {
         account_page.set_shown(ui, false);
         let mut compose_page = ComposePage::new(&widgets.compose);
         compose_page.close(ui);
-        let tick = ui.set_timer(100);
-        ui.on_timer(move |id| (id == tick).then_some(Msg::Tick));
         let mut mail = Mail {
             config,
             core: None,
@@ -366,14 +365,19 @@ impl App for Mail {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Wake => self.drain(ui),
-            Msg::Frame => self.reader.frame(),
-            Msg::Tick => {
+            Msg::Painted => {
                 if self.reader.first_paint() {
                     println!("MAIL:RENDER:PASS");
                 }
             }
             Msg::Link(href) => self.follow_link(ui, &href),
-            Msg::Copy(text) => ui.set_clipboard_text(&text),
+            Msg::Engine(Status::NotRunning) => {
+                self.set_status("The web engine is not running: messages cannot be shown yet");
+            }
+            Msg::Engine(Status::Failed(why)) => {
+                self.set_status(&format!("The web engine stopped: {why}"));
+            }
+            Msg::Engine(Status::Live | Status::Starting) => {}
             Msg::Folder(row) => {
                 if let Some(Some(folder)) = self.folder_rows.targets.get(row).cloned() {
                     self.open_folder(folder);

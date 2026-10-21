@@ -7100,11 +7100,10 @@ dependencies = [
  "rustls",
  "secrecy",
  "sha2",
- "webfonts",
  "xui-app",
- "xui-blitz",
  "xui-canvas",
  "xui-core",
+ "xui-webd-client",
 ]
 
 [[package]]
