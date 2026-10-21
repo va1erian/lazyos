@@ -335,7 +335,7 @@ browser moves onto webd**.
 |---|---|---|---|
 | **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
 | **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
-| **P2 webd, light first** | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
+| **P2 webd, light first** (slices 1 and 2 done; 3 is the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
 | **P4 LazyWeb+ thin client, LazyWeb out** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible; then LazyWeb deleted | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
@@ -431,7 +431,17 @@ switch. As built and measured: [`webd.md`](webd.md). What it found:
   thread"; read it as "the thread that runs the loop". `Service::new` takes the session as a number the host
   reads with `cred_get`; a second login session's webd is still not supported (section 3.1).
 
-Permissions derived and measured idle/loaded cost: [`webd.md`](webd.md), "Permissions" and "Measured".
+* **Measured** (WHPX, [`webd.md`](webd.md) "Measured"): idle webd costs about 0 % CPU and **5.4 MiB**, not the 108 MiB
+  the plan assumed (the program is demand-paged; section 8's "idle cost is the program image" is wrong by
+  20x); a view that is up adds about 28.7 MiB (web process and network process) and costs no CPU while it sits;
+  the first view takes about 1 s (the web process starts), later loads and `Refresh` come back in 32-34 ms, which
+  is the engine's 33 ms paint pacer, so the plan's hop-latency criterion (3.4) still wants a probe that does not
+  paint.
+* **Permissions derived** ([`webd.md`](webd.md) "Permissions"): `os.lazy.webd.light.v1` and one writable folder;
+  no `LABEL:DENY` for webd's own label in any run, and for its children only the optional ones LazyWeb+
+  documents. The NetworkProcess runs with no socket and no file (`network = []`, `files = []`).
+* **Lifecycle**: `init`'s `Quit` and `SIGTERM` both end it cleanly (`WEBD:QUIT:PASS`, exit status 0, no engine
+  process left); started again, the name registers again; the shell's tray item follows it.
 
 ### What P1 found (2026-10-21, `webkit-views`)
 
@@ -487,9 +497,9 @@ charge for ended processes).
 ## 8. Failure and lifecycle
 
 * **Start and stop.** webd is a resident app with `autostart = true` (the LazyCal precedent): it starts at login,
-  creates the WebKit context only when the first view arrives, and has no idle exit in v1. Idle cost is the
-  program image (about 108 MiB, no text sharing); this is the price of making it mandatory for Docs and Mail
-  (section 9.2). If the user quits it from the tray, or `init` does not restart a failed launched app, the name no
+  creates the WebKit context only when the first view arrives, and has no idle exit in v1. Idle cost
+  (measured in P2 slice 2, `webd.md`) is about 5.4 MiB and no CPU: the program is demand-paged, not loaded whole;
+  this is the price of making it mandatory for Docs and Mail (section 9.2). If the user quits it from the tray, or `init` does not restart a failed launched app, the name no
   longer resolves: the client library shows "The web engine is not running" with a *Start* button
   (`init.Launch`, P2 checks the permission it needs), never a blank view.
 * **webd's UI process crashes** (history above): every client gets `ViewLost(reason)` when its channel closes;

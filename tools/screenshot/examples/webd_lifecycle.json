@@ -58,6 +58,11 @@
   {"type": "rhai -e 'sys::init::launch(\"os.lazy.webd\", \"/selftest\", 0)'"},
   {"key": "enter", "until": "INIT:LAUNCH:EXISTING app=os.lazy.webd", "timeout": 60, "retries": 1},
   {"wait_for": "WEBD:SELFTEST:PASS", "timeout": 240, "occurrence": 2},
+  {"wait_for": "INIT:LAUNCH:PASS app=os.lazy.webd pid=(\\d+)", "regex": true, "capture": "wpid", "occurrence": 2, "timeout": 30, "note": "the pid of the second instance"},
+  {"type": "kill -TERM ${wpid}"},
+  {"key": "enter", "until": "TERM:CMD:kill -TERM", "timeout": 30, "retries": 1, "note": "SIGTERM is the same request as init's Quit from anyone else"},
+  {"wait_for": "WEBD:QUIT:PASS", "occurrence": 2, "timeout": 60},
+  {"wait_for": "INIT:LAUNCH:EXIT app=os.lazy.webd status=0", "timeout": 30},
   {"wait": 1.0},
   {"shot": "01_end"},
   {"quit": true}

@@ -132,6 +132,22 @@ python tools/run_demo.py --webd --dry-run                             # the flag
 every session. The launcher's Advanced tab has the same switch. Not in `--suite full` yet (`tools/suites.toml`,
 `test_only`): until Mail and Docs use it (docs/webd-plan.md P3) it serves only its demo.
 
+## Measured
+
+QEMU with WHPX, 4 GiB of guest RAM, 2026-10-21, an image with the self-test (`webd_lifecycle.json` for the
+cost, `webd_selftest.json` for the times). Memory is the kernel's `frames_live` (4 KiB frames, the
+`system/stats/memory` topic of `sysmond`); CPU is the task table's ticks (10 ms) and `PROC:EXIT cpu_ms`.
+
+| | |
+|---|---|
+| **Idle CPU**, no view | the service thread (`webd.elf`) 0 ticks in 95 s; WebKit's four threads together 2 ticks (20 ms) since the start, all of it the rule-list compile at start; **about 0 %**. The one-second park deadline and the doorbell's descriptor wait cost less than a tick per minute |
+| **Idle memory**, no view | 46,895 frames live running, 45,518 with webd stopped, 46,958 after starting it again: **1,377 to 1,440 frames, about 5.4 MiB** (the 75 MB program is demand-paged, not loaded whole), and +6 frames (24 KiB) over 60 idle seconds |
+| **One view held** (web process, network process, the view) | 54,237 frames: **+7,342 frames, about 28.7 MiB** over idle, and no CPU while it sits (every task 0 ticks) |
+| **After `DestroyView`** | 49,315 frames: +2,414 (about 9.4 MiB) over idle stays: the network process and what the engine never frees of a view (docs/webd-plan.md, "What P1 found"); the web process is gone |
+| **Cold first view** | `LoadHtml` to the first matching frame 1,031 ms (starts the web process; the network process and the rule list were ready) |
+| **A view that is up** | `LoadHtml` to frame 32 ms; `Refresh` to frame 31, 33, 34 ms (min, median, max of 20): the Messenger hop out, the engine's paint (a 33 ms pacer) and the hop back. The hops are inside that pacer's noise; a hop alone needs a probe method that does no painting |
+| **Whole lives** | `PROC:EXIT` of the web process after two pages and a kill: 30 to 40 ms of CPU |
+
 ## Files
 
 `$HOME/.apps/os.lazy.webd/rules/`: the engine's network-lock rule store, compiled at every start
@@ -140,5 +156,22 @@ every session. The launcher's Advanced tab has the same switch. Not in `--suite 
 
 ## Permissions
 
-Derived from runs under `LAZYOS_LABEL_TRACE=1` (`LABEL:DENY` lines; see "Permissions derived" in the P2 slice 2
-section of [`webd-plan.md`](webd-plan.md)).
+`xui-app/packages/webd/manifest.toml`, derived from runs of both sessions (`webd_selftest.json`,
+`webd_lifecycle.json`) on an image built with `LAZYOS_LABEL_TRACE=1` (every refused call is a `LABEL:DENY`
+line, AGENTS.md):
+
+* **Interfaces: `os.lazy.webd.light.v1` only.** The kernel judges every outbound call *and oneway send* by its
+  header (`authorize_parcel`, `kernel/src/ipc/syscalls.rs`), so the service's events on a client's channel are
+  judged against webd's own label: the permission is the service's, not only the self-test's. A reply is not
+  judged and the registration needs nothing (the name is in the app's own namespace, `app.os.lazy.webd.*`;
+  a resolve of it is allowed by namespace). Known only by reading the kernel, not by a run: removing the
+  entry also stops the self-test's first call, so no run shows the service's send refused. `webddemo`'s
+  traced run (another branch) is the check from a client's side.
+* **No `LABEL:DENY` for `app:os.lazy.webd` itself** in any run (start, a view, a killed web process, stop,
+  start again, SIGTERM).
+* **Files:** `write:$HOME/.apps/os.lazy.webd` (the rule store; no `/tmp` fallback was used) and the font reads of the
+  page process.
+* **The NetworkProcess holds nothing** (`network = []`, `files = []`): it starts, idles and ends, as a light view
+  has no network. Its only refusals are the optional one LazyWeb+ documents (#836, `tools/webplus/denies.py`):
+  a stat of `/etc/ssl/openssl.cnf`; the page process's are its stats of `/etc`, `/etc/localtime` and
+  `/usr/share/zoneinfo` (the time zone probe). None of the fontconfig ones appeared.

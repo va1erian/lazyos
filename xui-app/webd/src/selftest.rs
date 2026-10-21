@@ -13,6 +13,7 @@
 //! not prove the manifest grants a *client* what it needs: `webddemo` does.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use libmessenger::{flags, Buffer, Header, Parcel, VERSION};
 use messenger_generated::errors::ERROR_FIELD;
@@ -267,6 +268,35 @@ impl Client {
     }
 }
 
+impl Client {
+    /// How long `Refresh` takes to come back as a frame (the hop out, the engine's paint and the hop
+    /// back), `count` times: milliseconds, sorted.
+    fn refresh_times(&self, view: u64, count: usize) -> Result<Vec<u128>, String> {
+        let mut times = Vec::new();
+        for _ in 0..count {
+            let body = wire::encode_refresh_args(&wire::RefreshArgs { view })
+                .map_err(|_| "encode Refresh".to_string())?;
+            let began = Instant::now();
+            sys::msg_send(self.endpoint, &oneway(wire::METHOD_REFRESH, body))
+                .map_err(|code| format!("Refresh: err={}", -code))?;
+            loop {
+                match self.next_event() {
+                    Some(Event::Frame { slot, .. }) => {
+                        times.push(began.elapsed().as_millis());
+                        self.release(view, slot);
+                        break;
+                    }
+                    Some(Event::Lost { reason }) => return Err(format!("view lost: {reason}")),
+                    Some(Event::Other) => {}
+                    None => return Err("no frame after Refresh".into()),
+                }
+            }
+        }
+        times.sort_unstable();
+        Ok(times)
+    }
+}
+
 fn step(text: &str) {
     trace::line!(Channel::Webd, "SELFTEST:STEP {text}");
 }
@@ -276,17 +306,32 @@ fn run(hold: bool) -> Result<String, String> {
     // 1. A light view paints the colour of the page it was given.
     let view = client.create_view()?;
     step("created");
+    let began = Instant::now();
     client
         .load_html(view, &page(GREEN))
         .map_err(|code| format!("LoadHtml: err={}", -code))?;
     let frames = client.wait_color(view, GREEN)?;
-    step(&format!("green frame after {frames}"));
+    step(&format!(
+        "green frame after {frames} frames, {} ms from LoadHtml",
+        began.elapsed().as_millis()
+    ));
     // 2. A second load replaces the page and the slot is reused.
+    let began = Instant::now();
     client
         .load_html(view, &page(RED))
         .map_err(|code| format!("LoadHtml: err={}", -code))?;
     client.wait_color(view, RED)?;
-    step("red frame");
+    step(&format!(
+        "red frame, {} ms from LoadHtml",
+        began.elapsed().as_millis()
+    ));
+    let times = client.refresh_times(view, 20)?;
+    step(&format!(
+        "refresh to frame, 20 times: min {} median {} max {} ms",
+        times[0],
+        times[times.len() / 2],
+        times[times.len() - 1]
+    ));
     // 3. The web process dies: the client is told, the view answers ENODEV, a new one works.
     let (web, _network) = FfiEngine.children();
     if web <= 0 {
