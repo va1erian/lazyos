@@ -3,7 +3,7 @@ user network). The demo page's picture points at it; a light view has no network
 see nothing. It answers every request with a 404 and records it (`judge.judge_requests`).
 
 It binds nothing the web harnesses use (80, 81, 443), so a run does not collide with
-`tools/web/run.py` or `tools/webplus/run.py`.
+`tools/webplus/run.py`.
 """
 
 from __future__ import annotations

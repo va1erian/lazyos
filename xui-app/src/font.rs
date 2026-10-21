@@ -48,7 +48,7 @@ pub fn register_docs() {
     register_mono();
 }
 
-/// Registers a further font file read at run time (LazyWeb's web fonts),
+/// Registers a further font file read at run time (web fonts),
 /// with the same timing rule as [`register_mono`]: before the backend is
 /// created. The shaper parses the bytes in memory.
 pub fn add(bytes: Vec<u8>) {

@@ -3,9 +3,11 @@
 judge what the app and the server saw (docs/mail.md).
 
 1. The apps (`tools/xui/build.py --mail`, `tools/nettls/build.py`, `rhai`) and
-   an image with `LAZYOS_DESKTOP=1 LAZYOS_TLS=1 LAZYOS_MAIL=1`, the harness's
+   an image with `LAZYOS_DESKTOP=1 LAZYOS_TLS=1 LAZYOS_MAIL=1 LAZYOS_WEBD=1`, the harness's
    test CA in the system bundle and `tls.test` mapped to the host
    (`LAZYOS_TLS_TEST_CA`, `LAZYOS_TLS_TEST_HOSTS`, as `tools/net/tls_run.py`).
+   webd must be built first (`python tools/run_demo.py --webd --build-only`, or
+   `tools/webkit/webd.py` in Docker): the reading pane is its light view.
 2. esMail's `mail-mock-server` (built from the revision Mail pins) on the
    host, with TLS fronts for `tls.test` (`tlsproxy.py`): IMAPS on 9993 and
    SMTPS on 9465.
@@ -13,7 +15,11 @@ judge what the app and the server saw (docs/mail.md).
    in the account (the password is typed, never written anywhere), opens a
    message and sends one.
 4. The verdict: every `MAIL:` marker of the session; both fronts completed a
-   TLS handshake for `tls.test`; and the password never reached the serial log.
+   TLS handshake for `tls.test`; the password never reached the serial log; the
+   reading pane (a light view of webd) painted the fixture message and a hostile
+   HTML one (`hostile.py`, appended to the INBOX before the session) whose every
+   request to the harness's listener (port 18080) would show: it must stay empty,
+   after a control request the guest makes itself proves the listener reachable.
 
     python tools/mail/run.py                 # build, boot, judge
     python tools/mail/run.py --no-build      # reuse target/lazyos.img and shots/mail/certs
@@ -25,8 +31,11 @@ Exit status is non-zero on any failure; logs and screenshots go to `shots/mail`.
 from __future__ import annotations
 
 import argparse
+import importlib.util
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -37,9 +46,25 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "tools" / "net"))
 sys.path.insert(0, str(ROOT / "tools" / "abi"))
+sys.path.insert(0, str(ROOT / "tools" / "webd"))
 import busybox  # noqa: E402
+import hostile  # noqa: E402
+import listener  # noqa: E402  (tools/webd: the harness's host listener on 18080)
 import tlscerts  # noqa: E402
 import tlsproxy  # noqa: E402
+import webjudge  # noqa: E402
+
+
+def _load_webd_judge():
+    """`tools/webd/judge.py` under another name: this directory has no `judge`, but `tools/webd` has other
+    files of the names this one uses."""
+    spec = importlib.util.spec_from_file_location("webd_judge", ROOT / "tools" / "webd" / "judge.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+webd_judge = _load_webd_judge()
 
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
@@ -51,10 +76,25 @@ ESMAIL_REV = re.search(r'esmail = \{[^}]*rev = "([0-9a-f]+)"',
 MOCK_ROOT = ROOT / "target" / "mail-mock"
 IMAPS_PORT, SMTPS_PORT = 9993, 9465
 MOCK_IMAP_PORT, MOCK_SMTP_PORT = 21993, 21025
+#: The reading pane in the screenshot (x0, x1, y0, y1): right of the folder pane and the
+#: message list (`xui-app/mail/src/app/layout.rs`), below the toolbar. Checked against `shot_03_message.png`.
+PANE = (640, 1100, 110, 650)
 #: The mock's account (esmail `mail-mock-server/src/fixtures.rs`).
+ACCOUNT = "alice@example.com"
 PASSWORD = "hunter2"
 MARKERS = ["MAIL:UP:PASS", "MAIL:ACCOUNT:SAVED", "MAIL:CONNECTED:0", "MAIL:FOLDERS:0:",
            "MAIL:HEADERS:INBOX:", "MAIL:BODY:PASS:", "MAIL:RENDER:PASS", "MAIL:SEND:PASS"]
+
+
+def need_webd() -> None:
+    """The reading pane is webd's light view: its programs must be built (they are Docker builds)."""
+    missing = [str(p.relative_to(ROOT)) for p in (ROOT / "target" / "xui" / "xui-webd.elf",
+                                                  ROOT / "target" / "webkit" / "bin" / "WebProcess",
+                                                  ROOT / "target" / "webkit" / "bin" / "NetworkProcess")
+               if not p.is_file()]
+    if missing:
+        raise SystemExit(f"MAIL:HARNESS:FAIL webd is not built ({', '.join(missing)}): run "
+                         "`python tools/run_demo.py --webd --build-only` first")
 
 
 def run(argv: list[str], env: dict[str, str] | None = None) -> None:
@@ -63,6 +103,7 @@ def run(argv: list[str], env: dict[str, str] | None = None) -> None:
 
 
 def build(certs: dict, hosts: Path, label_trace: bool) -> None:
+    need_webd()
     run([PY, "tools/xui/build.py", "--mail"])
     run([PY, "tools/nettls/build.py", "--require"])
     run([PY, "tools/rhai/build.py"])
@@ -70,7 +111,7 @@ def build(certs: dict, hosts: Path, label_trace: bool) -> None:
     if busybox.ensure_busybox() is None:
         raise SystemExit("MAIL:HARNESS:FAIL no BusyBox for the Terminal (see tools/abi/busybox.py)")
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
-               LAZYOS_TLS="1", LAZYOS_MAIL="1", LAZYOS_RESET_OS="1",
+               LAZYOS_TLS="1", LAZYOS_MAIL="1", LAZYOS_WEBD="1", LAZYOS_RESET_OS="1",
                # The session types into a Terminal; nothing autostarts by default.
                LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_TLS_TEST_CA=str(certs["ca"]), LAZYOS_TLS_TEST_HOSTS=str(hosts))
@@ -109,6 +150,12 @@ def start_mock(binary: Path, out: Path) -> tuple[subprocess.Popen, Path]:
             process.terminate()
             raise RuntimeError(f"mail-mock-server did not start SMTP (see {out / 'mock.log'})")
         time.sleep(0.2)
+    # The mock's IMAP side is up before its SMTP side. The hostile message goes in now, before the guest asks.
+    try:
+        hostile.append(MOCK_IMAP_PORT, ca, ACCOUNT, PASSWORD)
+    except BaseException:
+        process.terminate()
+        raise
     return process, ca
 
 
@@ -137,6 +184,21 @@ def judge(text: str, record: tlsproxy.Record) -> list[str]:
     return problems
 
 
+def judge_pane(text: str, requests: dict, out: Path) -> list[str]:
+    """The reading pane, a light view of webd: it served the pane, painted both messages, and the hostile one
+    reached nothing on the host."""
+    problems = webjudge.judge_engine(text)
+    problems += webjudge.judge_requests(webd_judge, requests)
+    try:
+        problems += webjudge.judge_message_shot(out / "shot_03_message.png", PANE, "fixture message")
+        problems += webjudge.judge_hostile_shot(out / "shot_03b_hostile.png", PANE)
+    except (OSError, ValueError) as error:
+        problems.append(f"cannot read a reading-pane screenshot: {error}")
+    print(f"  pane: {len(requests.get('requests', []))} request(s), {requests.get('connections', 0)} "
+          "connection(s) reached the listener (the control request is one)")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--no-build", action="store_true")
@@ -153,14 +215,29 @@ def main() -> int:
         return 1
     hosts = out / "certs" / "hosts"
     hosts.write_text(f"10.0.2.2 {tlscerts.NAME}\n")
+    pristine, run_image = out / "pristine.img", out / "run.img"
     if not args.no_build:
         build(certs, hosts, args.label_trace)
-    mock, mock_ca = start_mock(mock_server(), out)
+        # The session adds an account to the image's home: every run starts from this copy of the fresh build.
+        shutil.copyfile(IMAGE, pristine)
+    elif not pristine.is_file():
+        print(f"MAIL:HARNESS:FAIL --no-build needs {pristine} (the fresh image of a run that built)")
+        return 1
+    shutil.copyfile(pristine, run_image)
+    if listener.busy():
+        print(f"MAIL:HARNESS:FAIL port {listener.PORT} on {listener.HOST} is already in use (another harness?)")
+        return 1
+    served = listener.Listener()
+    try:
+        mock, mock_ca = start_mock(mock_server(), out)
+    except BaseException:
+        served.close()
+        raise
     fronts = None
     try:
         fronts = tlsproxy.Fronts(certs["good"].cert, certs["good"].key, mock_ca,
                                  (IMAPS_PORT, MOCK_IMAP_PORT), (SMTPS_PORT, MOCK_SMTP_PORT))
-        command = [PY, "tools/screenshot/qemu_session.py", "--image", str(IMAGE), "--out", str(out),
+        command = [PY, "tools/screenshot/qemu_session.py", "--image", str(run_image), "--out", str(out),
                    "--script", str(SCRIPT), "--accel", args.accel, "--memory", args.memory,
                    "--net", "--net-forward", "none", "--fail-on", "PANIC", "--fail-on", "EXCEPTION"]
         session_ok = subprocess.call(command, cwd=ROOT) == 0
@@ -168,10 +245,15 @@ def main() -> int:
         if fronts:
             fronts.close()
         mock.terminate()
+        requests = served.snapshot()
+        served.close()
+    (out / "requests.json").write_text(json.dumps(requests, indent=1), encoding="utf-8")
     log = out / "serial.log"
     problems = [] if session_ok else ["the session did not finish (see summary.json)"]
     record = fronts.record if fronts else tlsproxy.Record()
-    problems += judge(log.read_text(errors="replace") if log.is_file() else "", record)
+    text = log.read_text(errors="replace") if log.is_file() else ""
+    problems += judge(text, record)
+    problems += judge_pane(text, requests, out)
     for problem in problems:
         print(f"  FAIL {problem}")
     print("MAIL:HARNESS:" + ("FAIL" if problems else "PASS"))

@@ -384,7 +384,7 @@ script unchanged unless the stage says otherwise.
 - Harnesses: `core_apps.json`, `xui_writer.json`, `xui_pdf.json`,
   `xui_archiver.json`, `xui_golf.json`, `doom.json`, `quake.json`,
   `notify.json`, `tools/emusic/run.py`, `tools/mail/run.py`,
-  `tools/web/run.py`, `tools/print/run.py`,
+  `tools/webplus/run.py`, `tools/print/run.py`,
   `tools/lazyrad/modplayer_run.py`, `lazyrad_pictures.json`, the
   `tray*.json` sessions, `login_logout.json`, `accounts_setup.json`.
 - `UI:STALL` from an app started in the Terminal now reaches

@@ -31,7 +31,7 @@ GPL-3.0-or-later:
 
 Refused: **GPL-2.0-only** code (Linux `mac80211`, `cfg80211`, `mt7601u`,
 `mt76x0`, `rtl8xxxu`, ...), Apache-2.0-only code (GPLv3-compatible, but not
-GPLv2-compatible, which the TLS stack and LazyWeb require; see
+GPLv2-compatible, which the TLS stack requires; see
 `tools/nettls/licenses.py`), and anything without a licence. The working rule that follows: **never read GPL-2.0-only code "for
 reference" while writing our own.** Where Linux is the only place a behaviour
 is documented, use the permissive trees (the `mt76` driver, OpenBSD and
@@ -73,7 +73,7 @@ image under its own licence text. Every entry below records its origin
 | libxml2 2.15.3 | `https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.3.tar.xz`, SHA-256 `78262a6e7ac170d6528ebfe2efccdf220191a5af6a6cd61ea4a9a9a5042c7a07` | MIT | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | sqlite 3.54.0 | `https://sqlite.org/2026/sqlite-amalgamation-3540000.zip`, SHA-256 `68e913b0fe8ec6b4e5f391c594a28872884e80d6cd042a1e50c957be46b5aa4d` | blessing | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | libpsl 0.23.3 | `https://github.com/rockdaboot/libpsl/releases/download/0.23.3/libpsl-0.23.3.tar.gz`, SHA-256 `93941f85a1e7bd593fa94f299233cb5dfc91cd144fd9a78a6ceb75001c5b03be` | MIT AND MPL-2.0; the library is MIT; the public-suffix list built into it is MPL-2.0 | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
-| openssl 3.5.9 | `https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz`, SHA-256 `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` | Apache-2.0; GPLv2-incompatible: never link into LazyWeb (GPL-2.0-only) or the nettls stack | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
+| openssl 3.5.9 | `https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz`, SHA-256 `603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a` | Apache-2.0; GPLv2-incompatible: never link into the nettls stack or any GPL-2.0-only program | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | nghttp2 1.70.0 | `https://github.com/nghttp2/nghttp2/releases/download/v1.70.0/nghttp2-1.70.0.tar.xz`, SHA-256 `e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2` | MIT | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | curl 8.22.0 | `https://github.com/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.tar.xz`, SHA-256 `f7ef3ae8a22e521f289803fe93543eb64c329b58aa73a9e224dfd915a2a5f4f7` | curl | linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`) |
 | libwpe 1.16.2 | `https://github.com/WebPlatformForEmbedded/libwpe/releases/download/1.16.2/libwpe-1.16.2.tar.xz`, SHA-256 `960bdd11c3f2cf5bd91569603ed6d2aa42fd4000ed7cac930a804eac367888d7` | BSD-2-Clause | linked into the port's `/system/bin/webprocess` and `networkprocess` (`LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBD=1` or `LAZYOS_WEBKIT_PORT=1`), `webkit-smoke` (`LAZYOS_WEBKIT_PORT=1`), the browser's `lazywebplus-app` (`LAZYOS_LAZYWEBPLUS=1`) and webd's `webd-app` (`LAZYOS_WEBD=1`; `tools/webkit`) |
@@ -99,10 +99,10 @@ into the tree.
 
 `lazywebplus-app` (LazyWeb+, `os.lazy.lazywebplus`, `LAZYOS_LAZYWEBPLUS=1`,
 [`docs/lazywebplus.md`](docs/lazywebplus.md)) is this repository's own code on top of
-WebKit: the C++ UI process (`webkit/port/app`) with LazyWeb's window
+WebKit: the C++ UI process (`webkit/port/app`) with its Rust window
 (`xui-app/webplus`, plus the `xui-webkit` seam it links). The program statically links
 the WebKit libraries above, so it is LGPL-2.1-or-later and GPL-3.0-or-later together.
-LazyWeb's rule for what is linked into its window holds: `python
+The rule for what is linked into its window (GPLv2-compatible licences only) holds: `python
 tools/nettls/licenses.py --lazywebplus` passes over the window's Cargo tree with one
 waiver, `unicode-linebreak` (Apache-2.0 only, in every xui app through xui-canvas).
 The window crates are declared `GPL-2.0-only OR GPL-3.0-or-later` and the program, which
@@ -113,14 +113,14 @@ Two rows are exceptions to the rule above, on purpose:
 
 - **OpenSSL is Apache-2.0**, which GPLv3 absorbs but GPLv2 does not. It is
   allowed only inside the WebKit bundle (LGPL-2.1 WebKit's curl port and
-  SubtleCrypto call its API) and **must never be linked into LazyWeb**
-  (GPL-2.0-only, `docs/lazyweb.md`) or the `nettls` TLS stack.
+  SubtleCrypto call its API) and **must never be linked into the `nettls`
+  TLS stack** or any GPL-2.0-only program.
 - **libpsl is MIT, but its embedded public-suffix list is MPL-2.0**
   (`MIT AND MPL-2.0`); MPL-2.0 section 3.3 lets it combine with (L)GPL code.
 
 `python tools/webkit/licenses.py` checks these rows against `wkpins.py`
 (`--rows` prints them), accepts only licences an LGPL-2.1 binary can absorb,
-and fails if LazyWeb's sources use the bundle or depend on OpenSSL.
+and fails if the window crates are not offered under the two licences or depend on OpenSSL.
 
 A row is updated, with the pinned commit and the file list, in the same
 commit that brings the code or blob in. "Not yet taken" rows are promises of

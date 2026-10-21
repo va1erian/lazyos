@@ -12,9 +12,7 @@ resolver = "2"
 members = [
     "docs",
     "mail",
-    # LazyWeb, the web browser (Blitz, pure Rust).
-    "web",
-    # LazyWebPlus: LazyWeb's chrome on the WebKit engine (docs/lazywebplus.md); built as a
+    # LazyWeb+, the web browser: the chrome on the WebKit engine (docs/lazywebplus.md); built as a
     # static library by `tools/webkit/app.py`.
     "webplus",
     "crates/code-editor",
@@ -63,8 +61,6 @@ members = [
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
     "crates/named-icons",
-    # Registers the Liberation fonts with xui-blitz for LazyWeb, Mail and Docs.
-    "crates/webfonts",
     # The seam between WebKit's UI process and a window (docs/lazywebplus.md): engine trait,
     # mailbox, page view and the C ABI of the C++ UI process. An rlib: LazyWeb+'s window
     # (`webplus`) is the static library `tools/webkit/app.py` builds.

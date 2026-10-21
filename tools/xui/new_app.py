@@ -131,7 +131,7 @@ def add_channel(text: str, app: App) -> str:
 
 def noted(app: App, comment: str, line: str) -> str:
     """`line` under a comment naming the app, so a new last item never reads
-    as part of the comment block above it (e.g. "LazyWeb, only with ...")."""
+    as part of the comment block above it (e.g. "LazySky, only with ...")."""
     return f"{comment} {app.name}: {app.description.rstrip('.')}.\n{line}"
 
 

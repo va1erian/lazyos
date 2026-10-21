@@ -31,11 +31,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-for sub in ("tools/web", "tools/abi", "tools"):
+for sub in ("tools/webtest", "tools/abi", "tools"):
     sys.path.insert(0, str(ROOT / sub))
 sys.path.insert(0, str(HERE))
 
-#: `run.py` by path: tools/web has a module of that name too.
+#: `run.py` by path: other directories on the path have a module of that name too.
 _spec = importlib.util.spec_from_file_location("webplus_run", HERE / "run.py")
 webplus_run = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(webplus_run)

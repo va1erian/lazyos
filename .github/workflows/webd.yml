@@ -15,6 +15,11 @@ on:
       - "xui-app/src/platform/webd.rs"
       - "xui-app/src/bin/webddemo.rs"
       - "xui-app/src/bin/webddemo/**"
+      - "xui-app/src/lightview/**"
+      - "xui-app/docs/**"
+      - "xui-app/mail/src/app/reader.rs"
+      - "tools/docs/**"
+      - "tools/mail/**"
       - "idl/webd_light.midl"
       - "tools/webd/**"
       - ".github/workflows/webd.yml"
@@ -26,6 +31,11 @@ on:
       - "xui-app/src/platform/webd.rs"
       - "xui-app/src/bin/webddemo.rs"
       - "xui-app/src/bin/webddemo/**"
+      - "xui-app/src/lightview/**"
+      - "xui-app/docs/**"
+      - "xui-app/mail/src/app/reader.rs"
+      - "tools/docs/**"
+      - "tools/mail/**"
       - "idl/webd_light.midl"
       - "tools/webd/**"
       - ".github/workflows/webd.yml"
@@ -59,7 +69,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host
+          cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host -p xui-docs
+          cargo test --manifest-path xui-app/Cargo.toml -p xui-app --lib lightview
           FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p xui-webd --release --test fuzz
 
       # tkinter: lazygui's package __init__ imports the Tk UI even for the limits table run.py reads.
@@ -72,3 +83,5 @@ jobs:
           set -euo pipefail
           python tools/webd/test_judge.py
           python tools/webd/session.py --check
+          python tools/docs/test_judge.py
+          python tools/mail/test_judge.py

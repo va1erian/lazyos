@@ -24,7 +24,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.append(str(HERE.parent.parent / "tools" / "web"))
+sys.path.append(str(HERE.parent.parent / "tools" / "webtest"))
 import judge as j  # noqa: E402
 import sites  # noqa: E402
 

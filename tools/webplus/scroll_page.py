@@ -5,7 +5,7 @@ WebKit's own `tall.html` is 40 bands (about 39 wheel notches of travel), too sho
 wheel turning for twenty seconds. This one is 24 000 CSS px tall and carries real text, so a
 repaint costs what a text page costs rather than that of a few flat rectangles.
 
-    python tools/webplus/scroll_page.py --write     # tools/web/fixtures/theoldnet.com/webplus/scroll.html
+    python tools/webplus/scroll_page.py --write     # tools/webtest/fixtures/theoldnet.com/webplus/scroll.html
     python tools/webplus/scroll_page.py --check     # the committed file is current
 """
 
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PAGE = ROOT / "tools" / "web" / "fixtures" / "theoldnet.com" / "webplus" / "scroll.html"
+PAGE = ROOT / "tools" / "webtest" / "fixtures" / "theoldnet.com" / "webplus" / "scroll.html"
 TITLE = "WebPlus scroll"
 LINES = 600
 LINE_PX = 40

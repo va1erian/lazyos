@@ -3,8 +3,10 @@
 
 use crate::core_packages::{is_core_stem, parse_autostart};
 use crate::webd_embed::{
-    client_tree_present, not_built, requirements, CLIENT_PACKAGES, ELF, PACKAGE_SHORT,
+    client_tree_present, not_built, parse_switch, requirements, shipped, Switch, CLIENT_PACKAGES,
+    ELF, PACKAGE_SHORT,
 };
+use std::ffi::OsStr;
 
 #[test]
 fn unset_needs_nothing() {
@@ -43,6 +45,28 @@ fn the_package_is_os_lazy_webd() {
 fn webd_is_not_in_the_default_autostart() {
     // The switch adds it (`autostart_shorts`); the plain list never names it.
     assert!(!parse_autostart(None).iter().any(|short| short == "webd"));
+}
+
+#[test]
+fn the_switch_is_on_off_or_left_to_the_desktop() {
+    assert_eq!(parse_switch(Some(OsStr::new("1"))), Switch::On);
+    assert_eq!(parse_switch(Some(OsStr::new("0"))), Switch::Off);
+    assert_eq!(parse_switch(None), Switch::Auto);
+    assert_eq!(parse_switch(Some(OsStr::new(""))), Switch::Auto);
+    assert_eq!(parse_switch(Some(OsStr::new("yes"))), Switch::Auto);
+}
+
+#[test]
+fn a_desktop_ships_it_once_built_and_a_forced_switch_does_not_look() {
+    // Docs and Mail are in every desktop and need it: unset, a desktop that has it ships it.
+    assert!(shipped(Switch::Auto, true, true));
+    // A checkout that cannot build WebKit still gets a desktop.
+    assert!(!shipped(Switch::Auto, true, false));
+    // Not a desktop: nothing changes.
+    assert!(!shipped(Switch::Auto, false, true));
+    // `0` leaves it out even when built; `1` asks for it (a missing program then fails the build).
+    assert!(!shipped(Switch::Off, true, true));
+    assert!(shipped(Switch::On, true, false));
 }
 
 #[test]

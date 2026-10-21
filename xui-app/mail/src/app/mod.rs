@@ -15,8 +15,8 @@
 mod account;
 mod compose;
 mod layout;
-pub mod mailto;
 mod mailbox;
+pub mod mailto;
 mod models;
 mod reader;
 #[cfg(test)]
@@ -44,6 +44,7 @@ use layout::Widgets;
 use mailto::Mailto;
 use models::{FolderRows, MessageRows};
 use reader::Reader;
+use xui_webd_client::Status;
 
 /// `(account, mailbox, uid)`: which message a body fetch is for.
 type BodyKey = (usize, String, u32);
@@ -53,12 +54,14 @@ type BodyKey = (usize, String, u32);
 pub enum Msg {
     /// An account session or the cache has something to apply.
     Wake,
-    /// The reading pane finished a layout pass.
-    Frame,
-    /// The poll for the reading pane's first paint of a message.
-    Tick,
+    /// The reading pane drew the page it was given.
+    Painted,
+    /// A link was clicked in the reading pane.
     Link(String),
-    Copy(String),
+    /// The web engine that draws the reading pane came up or went away.
+    Engine(Status),
+    /// webd refused the message's page (too large for a light view).
+    Refused,
     /// A row of the folder pane was picked.
     Folder(usize),
     /// A row of the message list was picked.
@@ -106,6 +109,8 @@ pub struct Mail {
     /// Whether the account page covers the panes (see `cover`).
     covered: bool,
     next_compose: u64,
+    /// The status line says the web engine is gone (to be cleared when it is back).
+    engine_down: bool,
 }
 
 impl Mail {
@@ -117,8 +122,6 @@ impl Mail {
         account_page.set_shown(ui, false);
         let mut compose_page = ComposePage::new(&widgets.compose);
         compose_page.close(ui);
-        let tick = ui.set_timer(100);
-        ui.on_timer(move |id| (id == tick).then_some(Msg::Tick));
         let mut mail = Mail {
             config,
             core: None,
@@ -139,6 +142,7 @@ impl Mail {
             password_queue: VecDeque::new(),
             covered: false,
             next_compose: 0,
+            engine_down: false,
         };
         mail.start_core(ui);
         Ok(mail)
@@ -288,6 +292,12 @@ impl Mail {
         if let Some(link) = mailto::parse(href) {
             return self.compose_mailto(ui, &link);
         }
+        // Only what a person expects a mail link to open: a page, or an address (a hostile message can link any
+        // scheme an app registered, `ssh:` or `magnet:`, with text of its choosing).
+        let scheme = href.split(':').next().unwrap_or("").to_ascii_lowercase();
+        if !matches!(scheme.as_str(), "http" | "https") {
+            return self.set_status(&format!("Not opening a {scheme}: link"));
+        }
         match xui_app::platform::launcher::open_url(href) {
             Ok(()) => {
                 println!("MAIL:LINK:OPEN");
@@ -366,14 +376,27 @@ impl App for Mail {
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
         match msg {
             Msg::Wake => self.drain(ui),
-            Msg::Frame => self.reader.frame(),
-            Msg::Tick => {
+            Msg::Painted => {
                 if self.reader.first_paint() {
                     println!("MAIL:RENDER:PASS");
                 }
             }
             Msg::Link(href) => self.follow_link(ui, &href),
-            Msg::Copy(text) => ui.set_clipboard_text(&text),
+            Msg::Engine(Status::NotRunning) => {
+                self.engine_down = true;
+                self.set_status("The web engine is not running: messages cannot be shown yet");
+            }
+            Msg::Engine(Status::Failed(why)) => {
+                self.engine_down = true;
+                self.set_status(&format!("The web engine stopped: {why}"));
+            }
+            Msg::Engine(Status::Live) => {
+                if std::mem::take(&mut self.engine_down) {
+                    self.set_status("Ready");
+                }
+            }
+            Msg::Engine(Status::Starting) => {}
+            Msg::Refused => self.reader.show_refused(),
             Msg::Folder(row) => {
                 if let Some(Some(folder)) = self.folder_rows.targets.get(row).cloned() {
                     self.open_folder(folder);

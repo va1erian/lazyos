@@ -28,7 +28,7 @@ flags = [
     "lazyrad", "modplayer", "pictures",
     # Browsers, mail and the Bluesky client. WebKit's three static programs
     # need the big-app profile (4G of RAM, 8G user memory quota).
-    "lazyweb", "lazywebplus", "big-app", "mail", "lazysky",
+    "lazywebplus", "big-app", "mail", "lazysky",
     # Games and the installable game and music packages.
     "games", "doom", "quake", "emusic",
     # Developer tools (the Messenger Playground); the switch needs the desktop and `rhai`.
@@ -52,9 +52,9 @@ description = "Switches for tests, harnesses and development only."
 flags = [
     "jsc", "webkit-deps", "webkit-port",
     "traydemo", "wifi", "wifi-sim", "intelgfx",
-    # webd serves no one but its demo client until Mail and Docs move onto it (docs/webd-plan.md P3); it
-    # joins `full` then.
-    "webd",
+    # Every desktop (so `base`) already ships webd, for Docs and Mail (docs/webd-plan.md P3): `webd` only makes
+    # that required, `no-webd` leaves it out and `webd-demo` adds its demo client.
+    "webd", "no-webd", "webd-demo",
     "dbgd", "dbgd-control", "dbgd-mmio",
     "assets",
 ]

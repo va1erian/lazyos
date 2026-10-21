@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launcher tests for the optional apps an image can embed: Doom, the LazyRAD
-MOD player, the Linux programs, the HTTPS tools, the SMB client, LazyWeb, Mail and the tray demo (from the Simple tab, the Advanced tab and
+MOD player, the Linux programs, the HTTPS tools, the SMB client, Mail and the tray demo (from the Simple tab, the Advanced tab and
 run_demo). `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_apps.py
@@ -284,38 +284,10 @@ class MailTests(unittest.TestCase):
         self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py", "--mail"])
 
 
-class LazyWebTests(unittest.TestCase):
-    """The LazyWeb browser (LAZYOS_LAZYWEB=1, docs/lazyweb.md) from the Simple
-    tab, the Advanced tab and run_demo: a desktop app that brings the network
-    stack and the HTTPS tools."""
+class SimpleTabTests(unittest.TestCase):
+    """The Simple tab's switch list against `plain_config`."""
 
-    def base(self) -> dict:
-        return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
-                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
-
-    def test_the_switch_brings_the_desktop_the_stack_and_https(self) -> None:
-        # The Advanced checkbox alone: the image build refuses LAZYOS_LAZYWEB
-        # without the desktop and the stack, so the plan sets them.
-        env = catalog.build_env({**self.base(), "lazyweb": True})
-        for name in ("LAZYOS_LAZYWEB", "LAZYOS_DESKTOP", "LAZYOS_NETD", "LAZYOS_TLS"):
-            self.assertEqual(env.get(name), "1", name)
-        self.assertEqual(env["LAZYOS_NETD_ARGS"], "demo=0")
-        off = catalog.build_env({**self.base(), "desktop": True})
-        self.assertNotIn("LAZYOS_LAZYWEB", off)
-        self.assertNotIn("LAZYOS_TLS", off)
-
-    def test_simple_desktop_offers_it_and_cli_does_not(self) -> None:
-        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", lazyweb=True)
-        self.assertTrue(cfg["lazyweb"])
-        self.assertTrue(cfg["tls"])
-        self.assertTrue(cfg["net"])
-        cli = catalog.simple_config(demo_config(), "dev", "CLI", lazyweb=True)
-        self.assertFalse(cli["lazyweb"])
-        self.assertFalse(cli["tls"])
-        self.assertFalse(cli["net"])
-        self.assertFalse(catalog.simple_config(demo_config(), "dev", "Desktop")["lazyweb"])
-
-    def test_the_simple_tab_passes_it_by_name(self) -> None:
+    def test_the_simple_tab_passes_the_switches_by_name(self) -> None:
         # `simple.SIMPLE_EXTRAS` lists `plain_config`'s switches in its argument order
         # (`simple_config` adds the suite and passes the rest on).
         import inspect
@@ -323,31 +295,6 @@ class LazyWebTests(unittest.TestCase):
         from lazygui.simplecfg import plain_config
         params = list(inspect.signature(plain_config).parameters)[3:]
         self.assertEqual(params, list(SIMPLE_EXTRAS))
-
-    def test_sessions_get_the_card_with_lazyweb_alone(self) -> None:
-        self.assertIn("--net", catalog.net_flags({"net": False, "tls": False, "lazyweb": True}))
-
-    def test_the_demo_passes_the_run_demo_flag(self) -> None:
-        self.assertIn("--lazyweb", demo_argv(lazyweb=True, skip_build=False))
-        self.assertNotIn("--lazyweb", demo_argv(skip_build=False))
-        self.assertNotIn("--lazyweb", demo_argv(lazyweb=True, skip_build=True))
-        self.assertIn("--net", demo_argv(lazyweb=True, skip_build=False))
-
-    def test_simple_start_plans_the_browser(self) -> None:
-        cfg = catalog.simple_config(demo_config(), "dev", "Desktop", lazyweb=True)
-        argv = catalog.build_plan(cfg)[-1]["argv"]
-        self.assertIn("--lazyweb", argv)
-        self.assertIn("--tls", argv)
-
-    def test_session_modes_build_the_browser_before_the_image(self) -> None:
-        cfg = {"mode": "Scripted session", "profile": "dev", "skip_build": False,
-               "accel": "auto", "memory": "1G", "qemu": "", "out": "shots",
-               "timeout": "300", "tablet": False, "script": 0, "lazyweb": True}
-        plan = catalog.build_plan(cfg)
-        labels = [step["label"] for step in plan]
-        at = labels.index("Build image (cargo build)")
-        self.assertEqual(plan[at - 1]["argv"][1:], ["tools/xui/build.py"])
-        self.assertIn("--net", plan[-1]["argv"])
 
 
 class TrayDemoTests(unittest.TestCase):
@@ -431,10 +378,11 @@ class PictureViewerTests(unittest.TestCase):
         self.assertNotIn("--pictures", demo_argv(pictures=True, desktop=True, skip_build=True))
 
     def test_a_plain_build_builds_the_player_first(self) -> None:
-        steps = catalog.app_steps({"pictures": True, "desktop": True})
+        # `no_webd`: every desktop also builds webd, which is not what this is about.
+        steps = catalog.app_steps({"pictures": True, "desktop": True, "no_webd": True})
         self.assertEqual([step["argv"][1:] for step in steps], [["tools/lazyrad/build.py"]])
         self.assertEqual(catalog.app_steps({"pictures": True}), [], "a CLI image has no viewer")
-        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True})
+        both = catalog.app_steps({"pictures": True, "desktop": True, "lazyrad": True, "no_webd": True})
         self.assertEqual(len(both), 1, "one LazyRAD build serves both")
 
     def test_the_session_asks_for_the_viewer_and_the_ui_probe(self) -> None:

@@ -36,8 +36,6 @@ mod hosts_embed;
 mod lazyrad_embed;
 #[path = "build_support/lazysky_embed.rs"]
 mod lazysky_embed;
-#[path = "build_support/lazyweb_embed.rs"]
-mod lazyweb_embed;
 #[path = "build_support/lazywebplus_embed.rs"]
 mod lazywebplus_embed;
 #[path = "build_support/linuxapps_embed.rs"]
@@ -111,7 +109,7 @@ fn main() {
             == Some(std::ffi::OsStr::new("1")),
         os_size: match std::env::var("LAZYOS_OS_SIZE") {
             Ok(text) => os_disk::parse_size(&text).unwrap_or_else(|error| panic!("{error}")),
-            Err(_) => os_disk::default_size_env(),
+            Err(_) => os_disk::default_size_env(webd_embed::shipped_env()),
         },
         journal: os_image::journal_blocks(std::env::var("LAZYOS_JOURNAL").ok().as_deref())
             .unwrap_or_else(|error| panic!("{error}")),

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build LazyWeb+ (``lazywebplus-app``), WebKit's desktop UI process with LazyWeb's window.
+"""Build LazyWeb+ (``lazywebplus-app``), WebKit's desktop UI process with its Rust window.
 
 ``docs/lazywebplus.md`` and ``docs/webkit-port-plan.md``. The app is one static-PIE musl program in
 two halves that meet through a small C ABI (``webkit/port/app/lazyos_ui.h``):
 
 1. the window, a Rust static library, built **on the host** with cargo for
-   ``x86_64-unknown-linux-musl`` into ``target/webkit/lib``: ``xui-app/webplus`` (LazyWeb's chrome
+   ``x86_64-unknown-linux-musl`` into ``target/webkit/lib``: ``xui-app/webplus`` (the browser's chrome
    on the seam of ``xui-app/crates/webkit``: ``libxui_webplus.a``). A static library needs no
    linker, so any host that has the target can build it;
 2. the UI process, C++ (``webkit/port/app/``): WebKit's run loop and C API on the main thread, the

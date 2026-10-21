@@ -28,7 +28,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-for sub in ("tools/web", "tools/abi", "tools"):
+for sub in ("tools/webtest", "tools/abi", "tools"):
     sys.path.insert(0, str(ROOT / sub))
 sys.path.insert(0, str(HERE))
 

@@ -1,8 +1,8 @@
 //! Pure operations behind the Default apps page (docs/lazywebplus.md): which web browser opens
 //! links, for the user running Settings.
 //!
-//! LazyWeb and LazyWeb+ both register `http`, `https` and HTML files with `mimed`, and the
-//! registry alone lets whichever registered last win. The user's choice is three `confd` keys in
+//! LazyWeb+ registers `http`, `https` and HTML files with `mimed`, and so would any other browser:
+//! the registry alone lets whichever registered last win. The user's choice is three `confd` keys in
 //! their own subtree (`deskmenu::defaults::user_key`, one per type of
 //! [`WEB_TYPES`](deskmenu::defaults::WEB_TYPES)) that `mimed` reads for the caller of `Open`:
 //! **Automatic** deletes them. Every edit is saved before the caller's copy changes, so the page
@@ -113,7 +113,6 @@ mod tests {
         vec![
             app("os.lazy.files", "Files", true),
             app("os.lazy.lazywebplus", "LazyWeb+", true),
-            app("os.lazy.lazyweb", "LazyWeb", true),
         ]
     }
 
@@ -122,13 +121,13 @@ mod tests {
     }
 
     #[test]
-    fn the_installed_browsers_are_listed_in_the_fixed_order_with_automatic_first() {
+    fn the_installed_browsers_are_listed_with_automatic_first() {
         let store = store(&both());
         let choices = load(&store).unwrap();
         assert_eq!(
             choices.rows(),
-            [AUTOMATIC, "LazyWeb", "LazyWeb+"],
-            "LazyWeb first whatever the registry's order"
+            [AUTOMATIC, "LazyWeb+"],
+            "only the apps of BROWSERS are offered, whatever the registry holds"
         );
         assert_eq!(choices.selected_row(), 0);
     }
@@ -146,7 +145,7 @@ mod tests {
     fn choosing_saves_all_three_types_and_automatic_takes_them_away() {
         let store = store(&both());
         let mut choices = load(&store).unwrap();
-        let said = choose(&store, &mut choices, 2).unwrap();
+        let said = choose(&store, &mut choices, 1).unwrap();
         assert_eq!(said, "LazyWeb+ opens web links.");
         for mime in WEB_TYPES {
             let key = defaults::user_key(1000, mime).unwrap();
@@ -156,9 +155,9 @@ mod tests {
                 "{key}"
             );
         }
-        assert_eq!(choices.selected_row(), 2);
+        assert_eq!(choices.selected_row(), 1);
         // A fresh load finds it again.
-        assert_eq!(load(&store).unwrap().selected_row(), 2);
+        assert_eq!(load(&store).unwrap().selected_row(), 1);
 
         choose(&store, &mut choices, 0).unwrap();
         assert!(store.is_empty(), "automatic leaves no key behind");

@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
-`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--lazyweb`, `--mail`, `--devices`, `--wifi`) return
+`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
 """
@@ -127,7 +127,7 @@ def build_webkit_processes() -> bool:
 
 def build_lazywebplus() -> bool:
     """LazyWeb+ (`--lazywebplus`): the bundle and the port's processes, then
-    LazyWeb's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
+    the browser's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
     xui apps, whose build packages `xui-lazywebplus.elf` as the core package
     `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
     return (build_webkit_processes()
@@ -143,6 +143,35 @@ def build_webd() -> bool:
     return (build_webkit_processes()
             and required("webd", "webkit/webd.py", ("--require",))
             and build_xui_apps())
+
+
+#: What `LAZYOS_WEBD` embeds (`build_support/webd_embed.rs`, `linuxapps_embed.rs`).
+WEBD_ARTIFACTS = (ROOT / "target" / "xui" / "xui-webd.elf", ROOT / "target" / "webkit" / "bin" / "WebProcess",
+                  ROOT / "target" / "webkit" / "bin" / "NetworkProcess")
+
+
+def webd_built() -> bool:
+    """webd's programs are all there: a desktop run uses them as they are (a Docker build of WebKit is
+    minutes even when nothing changed); `--webd` rebuilds."""
+    return all(path.is_file() for path in WEBD_ARTIFACTS)
+
+
+def webd_env(args, env: dict, built, build) -> None:
+    """The `LAZYOS_WEBD` and `LAZYOS_WEBDDEMO` switches of a run. Every desktop ships webd (Docs and Mail need it):
+    built when its programs are missing, and left out (the apps then say the web engine is not running)
+    when that fails, as with no Docker; `--no-webd` leaves it out, `--webd` (built by the caller) requires it."""
+    if args.no_webd:
+        env["LAZYOS_WEBD"] = "0"
+    elif getattr(args, "webd_implicit", False):
+        if built() or build():
+            env["LAZYOS_WEBD"] = "1"
+        else:
+            print("warning: webd could not be built (Docker?): this desktop has none, so Docs and Mail "
+                  "cannot show their pages; `--no-webd` silences this", file=sys.stderr)
+            env["LAZYOS_WEBD"] = "0"
+            args.webd_implicit = False  # the volume need not hold its programs
+    if args.webd_demo:
+        env["LAZYOS_WEBDDEMO"] = "1"
 
 
 def build_tls() -> bool:
@@ -162,20 +191,6 @@ def build_wifi() -> bool:
     pinned linux-firmware files into `target/firmware` (cached once
     verified); `wifid` itself is a `user` binary the image build compiles."""
     return required("the Wi-Fi firmware", "firmware/fetch.py", ("--switch", "wifi"))
-
-
-#: LazyWeb's browser binary (`tools/xui/build.py` builds it with the other apps).
-LAZYWEB_ELF = ROOT / "target" / "xui" / "xui-lazyweb.elf"
-
-
-def build_lazyweb() -> bool:
-    """LazyWeb (`--lazyweb`): the xui apps when its binary is missing. It is
-    pure Rust (Blitz), so `tools/xui/build.py` builds it with the rest."""
-    if LAZYWEB_ELF.is_file() or (build_xui_apps() and LAZYWEB_ELF.is_file()):
-        return True
-    print(f"error: {LAZYWEB_ELF} was not built "
-          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
-    return False
 
 
 #: LazySky's client binary (`tools/xui/build.py` builds it with the other apps).

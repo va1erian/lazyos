@@ -110,13 +110,9 @@ CORE_APPS: dict[str, CoreApp] = {
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
     # Network Drives: FTP servers as folders under /mnt, through `mountd`.
     "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
-    # Blitz (pure Rust), built with the other apps.
+    # Pure Rust, built with the other apps; its pages are drawn by webd.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
-    # The web browser (Blitz, pure Rust; docs/lazyweb.md). Only a
-    # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
-    # which fails that build when it is missing).
-    "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
-    # LazyWeb+ (docs/lazywebplus.md): LazyWeb's chrome on the same WebKit build, one static program
+    # LazyWeb+ (docs/lazywebplus.md), the web browser on WebKit, one static program
     # linked by `tools/webkit/app.py`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
     # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
     "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,

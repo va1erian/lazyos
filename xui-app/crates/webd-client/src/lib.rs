@@ -28,12 +28,14 @@ pub mod event;
 pub mod input;
 mod outbox;
 pub mod page;
+pub mod pane;
 pub mod picture;
 pub mod transport;
 pub mod view;
 
 pub use event::{Error, Lost, PageState, ViewEvent};
 pub use input::{mods, MouseKind};
+pub use pane::{Pane, PaneEvent, Status};
 pub use picture::{Colour, Picture};
 pub use transport::{SharedMem, Transport, SERVICE_NAME};
 pub use view::{Counters, LightConfig, LightWebView, EVENTS_PER_POLL, SLOTS};

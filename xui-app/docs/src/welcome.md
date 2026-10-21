@@ -1,9 +1,9 @@
 # Docs
 
-This is the LazyOS documentation viewer. It renders **Markdown** with
-[Blitz](https://github.com/DioxusLabs/blitz), so a page is laid out like a
-web page: wrapped text, tables, lists and code, in a window you can scroll with
-the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
+This is the LazyOS documentation viewer. It renders **Markdown** on WebKit,
+through the Web Engine (`webd`) that runs with your session, so a page is laid
+out like a web page: wrapped text, tables, lists and code, in a window you can
+scroll with the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
 
 ## Opening a document
 
@@ -89,5 +89,6 @@ Three dashes make a horizontal rule:
 ## Limits
 
 Raw HTML inside a document is shown as text, never interpreted. Documents over
-1 MiB are cut off. Links are drawn but not followed yet, and there is no network:
-images are not loaded.
+1 MiB are cut off. A link to another Markdown file opens it here, a web or mail
+address opens in the app registered for it, and a link to a place on the same page
+does nothing. Docs has no network: images are not loaded.

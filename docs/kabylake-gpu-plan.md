@@ -585,7 +585,7 @@ python tools/dbg/dbgctl.py --host <ip> log --source programs --lines 400 | grep 
 
 Wanted: `PERF:present_mpx` (n, p50, p99), `PERF:CPU` for the UI process, `xuid`
 and the WebProcess, and the `INFO:PAINT` lines. Compare with 11.1. Any page
-longer than the window will do (`tools/web/fixtures/theoldnet.com/webplus/scroll.html`
+longer than the window will do (`tools/webtest/fixtures/theoldnet.com/webplus/scroll.html`
 if the box can reach a host serving it).
 
 ### 11.4 Status of the implementation for this goal

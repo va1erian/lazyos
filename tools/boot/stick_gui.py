@@ -51,7 +51,7 @@ def too_small(suite: str, srb2kart: bool, image: Path | None = None) -> tuple[in
     (a build cannot resize it), else None."""
     flags = suites.resolve(suite, ["srb2kart"] if srb2kart else [])
     return osvolume.too_small(image or osvolume.DEFAULT_IMAGE, "srb2kart" in flags,
-                              bool(set(flags) & set(suites.WEBKIT_FLAGS)))
+                              suites.wants_webkit(flags))
 
 
 def build_step(release: bool, installer: bool = False, suite: str = "base",

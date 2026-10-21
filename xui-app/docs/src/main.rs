@@ -1,9 +1,9 @@
-//! `xui-docs`: renders Markdown files on a Blitz view.
+//! `xui-docs`: renders Markdown files in a light view of `webd` (WebKit).
 //!
 //! A `xuid` desktop client (or the display owner in a headless session). With no
 //! path argument it shows a built-in welcome page; a document is opened with the
-//! toolbar's Open button or `Ctrl+O`. Blitz lays the page out on its own
-//! engine thread; `app.rs` is the window, this file the LazyOS platform start-up.
+//! toolbar's Open button or `Ctrl+O`. `webd` lays the page out and paints it into shared memory;
+//! `app.rs` is the window, this file the LazyOS platform start-up.
 //!
 //! Serial evidence: `DOCS:UP:PASS` after the first frame, plus the markers
 //! documented in `app.rs`; `DOCS:BIND:FAIL:<code>` when the display cannot be
@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 use xui_app::backend::LazyOSBackend;
 use xui_app::themed::run_themed;
+use xui_app::trace::{self, Channel};
 use xui_core::backend::PlatformSpec;
 use xui_core::units::Dip;
 use xui_docs::page;
@@ -30,17 +31,16 @@ const WELCOME: &str = include_str!("welcome.md");
 
 fn main() -> std::process::ExitCode {
     xui_app::font::register_docs();
-    webfonts::register();
     let path = xui_app::platform::argv::file_arg(std::env::args_os());
     let backend = match LazyOSBackend::connect() {
         Ok(backend) => Rc::new(backend),
         Err(code) => {
-            println!("DOCS:BIND:FAIL:{code}");
+            trace::fail!(Channel::Docs, "BIND", "{code}");
             return std::process::ExitCode::FAILURE;
         }
     };
     let (width, height) = backend.window_size(WINDOW);
-    backend.on_first_frame(|| println!("DOCS:UP:PASS"));
+    backend.on_first_frame(|| trace::pass!(Channel::Docs, "UP"));
 
     let spec = PlatformSpec::new("Docs").size(Dip(width as f32), Dip(height as f32));
     let outcome = run_themed(&backend, spec, move |ui| {
@@ -55,8 +55,5 @@ fn main() -> std::process::ExitCode {
         docs
     });
     backend.unbind();
-    std::process::ExitCode::from(xui_app::launch::finish(
-        xui_app::trace::Channel::Docs,
-        outcome,
-    ))
+    std::process::ExitCode::from(xui_app::launch::finish(Channel::Docs, outcome))
 }

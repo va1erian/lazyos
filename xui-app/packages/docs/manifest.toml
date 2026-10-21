@@ -25,5 +25,15 @@ type = "text/markdown"
 verbs = ["open", "view"]
 
 [permissions]
-# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`).
-interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1"]
+# Derived from a run of the app under its label (`LAZYOS_LABEL_TRACE=1`). The pages are drawn by a
+# light view of `webd` (`os.lazy.webd.light.v1`: no network, no scripts, no files); a link in a
+# document to a web address or another kind of file goes to `mimed`.
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.webd.light.v1",
+    # Ctrl+C in the page puts the selection on the clipboard.
+    "os.lazy.clipboard.v1",
+    "os.lazy.mimed.v1",
+]
