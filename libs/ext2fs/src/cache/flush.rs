@@ -42,7 +42,7 @@ impl BlockCache {
     /// order, so one pass into a bucket per phase sorts them: no comparison
     /// sort over thousands of entries in one stretch, and the host gets a
     /// pause every [`PACE_EVERY`] blocks ([`BlockIo::pace`]).
-    fn order(&self, io: &dyn BlockIo) -> Vec<(Phase, u64, usize)> {
+    pub(super) fn order(&self, io: &dyn BlockIo) -> Vec<(Phase, u64, usize)> {
         let mut buckets: [Vec<(Phase, u64, usize)>; Phase::ALL.len()] = Default::default();
         for (seen, (&block, &index)) in self.map.iter().enumerate() {
             if seen % PACE_EVERY == 0 {
@@ -100,6 +100,9 @@ impl BlockCache {
             let slot = &mut self.slots[index];
             slot.dirty = false;
             slot.fresh = false;
+            // The disk now has this version, newer than any snapshot's.
+            slot.snap = false;
+            slot.shadow = None;
             self.dirty -= 1;
         }
         Ok(())

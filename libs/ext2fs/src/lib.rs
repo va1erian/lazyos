@@ -87,6 +87,7 @@ mod blocks;
 mod cache;
 mod capacity;
 mod commit;
+mod commit_piece;
 mod dir;
 mod error;
 mod file_io;
@@ -126,6 +127,7 @@ mod tests;
 
 pub use cache::memory::{CacheConfig, CacheMemory, CachePage, HeapMemory, CACHE_PAGE_SIZE};
 pub use cache::CacheStats;
+pub use commit_piece::Progress;
 pub use error::{zeroed, BlockIo, Ext2Error, IoError, SECTOR_SIZE};
 pub use format::format;
 pub use geometry::Geometry;
@@ -205,6 +207,8 @@ pub struct Ext2 {
     /// Whether frees wait for the next commit (`commit.rs`); on with a cache.
     defer_frees: bool,
     pending: Mutex<commit::Pending>,
+    /// A commit written in pieces, between two of them (`commit_piece.rs`).
+    piecewise: Mutex<Option<commit_piece::Piecewise>>,
     /// The volume has a journal (`FEATURE_COMPAT_HAS_JOURNAL`); a cached
     /// mount logs its metadata commits there (`journal/`).
     journaled: bool,
