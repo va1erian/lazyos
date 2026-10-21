@@ -72,10 +72,12 @@ paid per view. What was done, measured on the stripped programs (`WebProcess` / 
 | `-fno-asynchronous-unwind-tables -fno-unwind-tables` (`port_cmake.py`: `.eh_frame`, its index and `.gcc_except_table` 8.3 MB to 1.1 MB, the rest is the bundle's libraries) | 82,363,760 | |
 | `-Os` for the cold targets (`OptionsLazyOS.cmake`, below) | (about 2.4 MB of that step) | |
 | lld `--icf=safe` (`toolenv.icf_wrapper`) | 78,054,768 | 78,447,984 |
+| `WebKitUIProcess` and `WebKitWebProcess` back at `-O2` (the scroll and paint path; the final state) | 78,534,000 | 78,517,616 |
 
 `-Os` covers `WebCoreJSBindings` (generated, 9 MB of text), `WebCoreInspector` and the
-`WebKitShared`, `WebKitWebProcess`, `WebKitNetworkProcess` and `WebKitUIProcess` object libraries (IPC and process
-management); a sample of objects came out 19 to 25% smaller than at `-O2`. JavaScriptCore, WTF, WebCore's layout, style
+`WebKitShared` and `WebKitNetworkProcess` object libraries (IPC and process management); `WebKitUIProcess` and
+`WebKitWebProcess` stay at `-O2` because they hold the per-frame scroll and paint path (the first measurement had
+them at `-Os`; the rows above were taken that way, see the note after the table); a sample of objects came out 19 to 25% smaller than at `-O2`. JavaScriptCore, WTF, WebCore's layout, style
 and painting, and Skia stay at `-O2` (their share of text is another 45 MB: the next 10 MB if speed may be
 traded). ICF is on for the WebKit programs only: zig's `cc` driver rejects `-Wl,--icf`, so the `zc++` wrapper runs the
 link a second time through `zig ld.lld --icf=safe` (`LAZYOS_LINK_ICF=1`, set by `port_cmake.py`); `safe` folds only

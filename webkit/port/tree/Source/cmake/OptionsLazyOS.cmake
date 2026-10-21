@@ -197,11 +197,12 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 # Cold code is built for size: the generated JavaScript bindings (9 MB of text), the IPC and
 # process management of the WebKit layer and the inspector. Everything on a hot path (JavaScriptCore,
-# WTF, layout, style, painting, Skia) stays -O2. -Os takes about a fifth off such code
-# (docs/webkit-port-plan.md, section 6). Deferred: the targets are made after this file.
+# WTF, layout, style, painting, Skia) stays -O2, and so do WebKitUIProcess and WebKitWebProcess: they
+# hold the per-frame scroll and paint path (BackingStoreSkia, DrawingArea*, patches 0024, 0030, 0031).
+# -Os takes about a fifth off such code (docs/webkit-port-plan.md, section 6). Deferred: the targets
+# are made after this file.
 function(lazyos_size_optimize)
-    foreach (_target IN ITEMS WebCoreJSBindings WebCoreInspector WebKitShared WebKitWebProcess
-                              WebKitNetworkProcess WebKitUIProcess)
+    foreach (_target IN ITEMS WebCoreJSBindings WebCoreInspector WebKitShared WebKitNetworkProcess)
         if (TARGET ${_target})
             target_compile_options(${_target} PRIVATE -Os)
         endif ()

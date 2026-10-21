@@ -139,7 +139,9 @@ struct ViewConfig {
     // one WebProcess and one data store: a page costs its own memory, not a 107 MiB process. A view with
     // no group, or whose profile differs from its group's first view, gets a process of its own. The
     // pages of a group can see each other's storage and script each other by name (they are related
-    // pages), so a group is one owner's, never a mix of untrusting parties.
+    // pages), so a group is one owner's, never a mix of untrusting parties. The engine cannot tell owners
+    // apart (a sink is per view): the owner of several clients (webd) derives the number from the
+    // kernel-stamped client and the profile, never from anything a client sent.
     int group { 0 };
     int width { kInitialWidth };
     int height { kInitialHeight };
@@ -297,7 +299,8 @@ View* createView(const ViewConfig& config, ViewSink* sink);
 // Ends a page: its clients are cleared, its dialogs and downloads answered, its paint state and bitmaps
 // freed, its WebProcess ended unless another view uses it (then the page is unloaded: about:blank), and the view is gone for the owner (its id
 // names nothing). The page proxy itself is parked, never released: WebKit's WebPageProxy aborts the UI
-// process when it is destroyed on this port. What stays per view that ever was: the proxy and, for a view
+// process when it is destroyed on this port. Not from inside a call of the view's own sink (the code that
+// called it carries on and would start a paint thread on the parked view): queue it with onMain. What stays per view that ever was: the proxy and, for a view
 // with a store of its own, the store and its session. Main thread.
 void destroyView(int id);
 // Queues a task on the run loop (callable from any thread).

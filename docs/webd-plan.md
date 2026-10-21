@@ -333,8 +333,8 @@ browser moves onto webd**.
 
 | Phase | Deliverable | Exit criteria | Size *est.* |
 |---|---|---|---|
-| **P1.0 remove webkit-app** (code done; the QEMU and Docker gates below not yet run) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` pass; `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
-| **P1 multi-view engine** (done, windowed harness pending) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py` judges unchanged (**not yet run against this engine**) | 1.5-2.5 weeks |
+| **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
+| **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
 | **P2 webd, light first** | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
 | **P4 LazyWeb+ thin client, LazyWeb out** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible; then LazyWeb deleted | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
@@ -375,6 +375,14 @@ browser moves onto webd**.
   WebKit patch that finds the dead timer.
 * **Three of the page callbacks are process-wide** (patches `0024`, `0028`, `0030`): fixed in the engine by finding
   the view from the page argument. A patch that makes them per page would be cleaner and costs a WebKit rebuild.
+* **Memory-only and persistent owners cannot share a NetworkProcess's curl jar.** A `memoryOnly` view (#940) sets
+  `CURL_COOKIE_JAR_PATH=:memory:` and the children's folder for the whole process; a persistent profile exports its
+  own once. With both in one host the children's environment depends on which view was made first, and a running
+  NetworkProcess has read it already. For LazyWeb+'s single view this equals the old behaviour. For webd it needs
+  the children's environment decided once at host start (or a second NetworkProcess for memory-only owners): P2.
+* **Reserve the webd names.** `pkgstore` lets a client resolve `app.os.lazy.webd.*` to whoever holds the label
+  `app:os.lazy.webd`, and nothing yet stops a user package from being named `os.lazy.webd` on an image that does
+  not ship the core one. P2 has `pkgd` refuse user packages in `os.lazy.*`.
 * **The children's environment is the first persistent profile's** (`LAZYOS_WEBKIT_PROFILE`, `CURL_COOKIE_JAR_PATH`):
   a second profile's cookies in a shared NetworkProcess need a patch or a second process (decision D4's "per-profile
   cookie jars at first" is true for the data store, not yet for curl's jar).
@@ -416,9 +424,7 @@ their own (`xui-app/crates/webkit/tests/support`), and `tests/window.rs` (chrome
 `filepolicy` and `pkgstore` fixtures named `os.lazy.webkit` became `os.lazy.lazywebplus`; the sandbox attack
 harness attacks LazyWeb+'s labels only, and the kernel-only driver now creates `~/Downloads` because the network
 process's table includes it. Patch `0015` still names `os.lazy.webkit` in a comment: editing an applied patch
-rebuilds all of WebKit, so it is left. **Not run** (no Docker, WebKit build or QEMU in this session): the C++
-(`engine.cpp`, `PlatformLazyOS.cmake`), the Rust sandbox probe, the kernel `confine_suite` and every QEMU
-harness. Host tests that pass are listed in the commit message.
+rebuilds all of WebKit, so it is left.
 
 **Upgrading an existing OS volume.** `pkgd`'s provisioning demotes a core package a newer image no longer
 ships to a user app instead of removing it (`libs/pkgstore/src/provision.rs`, `Action::Demote`), so a volume that

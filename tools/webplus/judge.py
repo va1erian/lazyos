@@ -362,7 +362,7 @@ def judge_second(text: str) -> list[str]:
 
 
 def judge_servers(first, second, assets: list[str]) -> list[str]:
-    """What the stand-in sites saw: the first boot's pages and pictures the form's
+    """What the stand-in sites saw: the first boot's pages and pictures, the form's
     query, no cookie on the first boot's cookie request and the cookie on the second's."""
     problems = []
     browser = list(first.requests)
