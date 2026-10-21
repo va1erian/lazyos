@@ -7174,6 +7174,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-webd"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+ "libmessenger",
+ "messenger-generated",
+]
+
+[[package]]
 name = "xui-webkit"
 version = "0.1.0"
 dependencies = [

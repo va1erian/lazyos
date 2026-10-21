@@ -280,6 +280,11 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.notify.v1", "Listen"): [("events", "channel", "os.lazy.notify.events.v1")],
                 ("os.lazy.clipboard.v1", "OfferBuffer"): [("data", "buffer", None)],
                 ("os.lazy.clipboard.v1", "Fetch"): [("into", "buffer", None)],
+                ("os.lazy.webd.light.v1", "CreateView"): [
+                    ("events", "channel", "os.lazy.webd.light.v1")
+                ],
+                ("os.lazy.webd.light.v1", "AttachSlot"): [("pixels", "buffer", None)],
+                ("os.lazy.webd.light.v1", "LoadHtml"): [("html", "buffer", None)],
             },
         )
 

@@ -163,6 +163,8 @@ void postState(View& v)
     state.committedUrl = committed.c_str();
     state.secure = secure;
     state.finished = v.finished;
+    state.terminated = v.terminated.c_str();
+    state.serial = v.stateSerial;
     v.sink->state(state);
 }
 
@@ -346,6 +348,7 @@ void webProcessDidTerminate(WKPageRef, WKProcessTerminationReason reason, const 
 {
     View& v = *viewOf(clientInfo);
     say("WEBPROCESS:GONE:%d:%s", v.webPidShown, terminationReason(reason));
+    v.terminated = terminationReason(reason);
     lzw_launcher_reap();
     // A crashed process the kernel has not finished with yet is still the launcher's: keep collecting.
     processCrashed("web", v.webPidShown);

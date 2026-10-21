@@ -20644,6 +20644,898 @@ pub mod os_lazy_shell_tray_events_v1 {
     ];
 }
 
+/// `os.lazy.webd.light.v1` (interface id `0xc685c12f0603531c`).
+#[rustfmt::skip]
+pub mod os_lazy_webd_light_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xc685c12f0603531c;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.webd.light.v1";
+
+    /// `ColorScheme::Auto` wire value.
+    pub const COLOR_SCHEME_AUTO: u32 = 0;
+    /// `ColorScheme::Dark` wire value.
+    pub const COLOR_SCHEME_DARK: u32 = 1;
+
+    /// `MouseKind::Move` wire value.
+    pub const MOUSE_KIND_MOVE: u32 = 0;
+    /// `MouseKind::Press` wire value.
+    pub const MOUSE_KIND_PRESS: u32 = 1;
+    /// `MouseKind::Release` wire value.
+    pub const MOUSE_KIND_RELEASE: u32 = 2;
+
+    /// `LostReason::Unknown` wire value.
+    pub const LOST_REASON_UNKNOWN: u32 = 0;
+    /// `LostReason::Refused` wire value.
+    pub const LOST_REASON_REFUSED: u32 = 1;
+    /// `LostReason::Crashed` wire value.
+    pub const LOST_REASON_CRASHED: u32 = 2;
+    /// `LostReason::OutOfMemory` wire value.
+    pub const LOST_REASON_OUT_OF_MEMORY: u32 = 3;
+    /// `LostReason::Other` wire value.
+    pub const LOST_REASON_OTHER: u32 = 4;
+
+    /// How a light view is configured: these four fields and nothing else. No
+    /// origins, profile, scheme policy or storage exists to ask for.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LightConfig {
+        pub scripts: bool,
+        pub color_scheme: u32,
+        pub default_font_size: u32,
+        pub user_style: alloc::string::String,
+    }
+
+    pub fn encode_light_config(value: &LightConfig) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.bool(1, value.scripts)?;
+        target.u32(2, value.color_scheme)?;
+        target.u32(3, value.default_font_size)?;
+        target.string(4, &value.user_style)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_light_config(body: &[u8]) -> Result<LightConfig, Error> {
+        let mut out = LightConfig::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.scripts = field.as_bool()?;
+                }
+                2 => {
+                    out.color_scheme = field.as_u32()?;
+                }
+                3 => {
+                    out.default_font_size = field.as_u32()?;
+                }
+                4 => {
+                    out.user_style = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `CreateView` method id.
+    pub const METHOD_CREATEVIEW: u32 = 1;
+    /// `DestroyView` method id.
+    pub const METHOD_DESTROYVIEW: u32 = 2;
+    /// `AttachSlot` method id.
+    pub const METHOD_ATTACHSLOT: u32 = 3;
+    /// `ReleaseSlot` method id.
+    pub const METHOD_RELEASESLOT: u32 = 4;
+    /// `Resize` method id.
+    pub const METHOD_RESIZE: u32 = 5;
+    /// `SetVisible` method id.
+    pub const METHOD_SETVISIBLE: u32 = 6;
+    /// `Refresh` method id.
+    pub const METHOD_REFRESH: u32 = 7;
+    /// `LoadHtml` method id.
+    pub const METHOD_LOADHTML: u32 = 11;
+    /// `Mouse` method id.
+    pub const METHOD_MOUSE: u32 = 20;
+    /// `Wheel` method id.
+    pub const METHOD_WHEEL: u32 = 21;
+    /// `Key` method id.
+    pub const METHOD_KEY: u32 = 22;
+    /// `Focus` method id.
+    pub const METHOD_FOCUS: u32 = 23;
+    /// `Frame` method id.
+    pub const METHOD_FRAME: u32 = 100;
+    /// `State` method id.
+    pub const METHOD_STATE: u32 = 101;
+    /// `Scroll` method id.
+    pub const METHOD_SCROLL: u32 = 102;
+    /// `LinkClicked` method id.
+    pub const METHOD_LINKCLICKED: u32 = 103;
+    /// `ClipboardWrite` method id.
+    pub const METHOD_CLIPBOARDWRITE: u32 = 104;
+    /// `ViewLost` method id.
+    pub const METHOD_VIEWLOST: u32 = 105;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 106;
+
+    /// Make a view of `width` x `height` pixels and return its id (non-zero,
+    /// chosen by webd and never reused). `events` is the endpoint webd sends
+    /// this view's events on; it is closed when the view ends. The view shows
+    /// a blank page until `LoadHtml`. webd derives the web process group from
+    /// the caller's kernel-stamped label: the views of one app share a web
+    /// process, the views of two apps never do.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewArgs {
+        pub config: LightConfig,
+        pub width: u32,
+        pub height: u32,
+        pub events: u64,
+    }
+
+    /// The body and the object list of `CreateView`.
+    pub fn encode_create_view_args(value: &CreateViewArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.raw(Kind::Struct, 1, &encode_light_config(&value.config)?)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        target.channel(5, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `CreateView` from its body and the objects the kernel installed
+    /// (`CREATE_VIEW_OBJECTS`, each claimed by its field).
+    pub fn decode_create_view_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<CreateViewArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = CreateViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.config = decode_light_config(field.payload)?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                5 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewReply {
+        pub view: u64,
+    }
+
+    pub fn encode_create_view_reply(value: &CreateViewReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_view_reply(body: &[u8]) -> Result<CreateViewReply, Error> {
+        let mut out = CreateViewReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `CreateView` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.webd.light.v1` on.
+    pub const CREATE_VIEW_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// End the view, its page and its event endpoint. Slots the app still
+    /// holds stay its own memory. Not an error for a view that is already gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DestroyViewArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_destroy_view_args(value: &DestroyViewArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_destroy_view_args(body: &[u8]) -> Result<DestroyViewArgs, Error> {
+        let mut out = DestroyViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Register `pixels` as slot `slot` (0 to 2) of `view`; it starts free.
+    /// The buffer must hold at least `width * height * 4` bytes of the view's
+    /// current size after its `offset`. Replaces a free slot of that number
+    /// (`EBUSY` while webd has handed it out), so a slot is re-attached only
+    /// after `ReleaseSlot`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachSlotArgs {
+        pub view: u64,
+        pub slot: u32,
+        pub pixels: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `AttachSlot`.
+    pub fn encode_attach_slot_args(value: &AttachSlotArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        target.buffer(3, &value.pixels, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `AttachSlot` from its body and the objects the kernel installed
+    /// (`ATTACH_SLOT_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_slot_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachSlotArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `AttachSlot` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    pub const ATTACH_SLOT_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// The app is done reading `slot`; webd may paint into it again. A slot
+    /// that is not busy, or a view that is not the caller's, is ignored.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReleaseSlotArgs {
+        pub view: u64,
+        pub slot: u32,
+    }
+
+    pub fn encode_release_slot_args(value: &ReleaseSlotArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_release_slot_args(body: &[u8]) -> Result<ReleaseSlotArgs, Error> {
+        let mut out = ReleaseSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Change the view's size. Every slot is detached (attach new ones of the
+    /// new size); the next frame has the new size.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResizeArgs {
+        pub view: u64,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_resize_args(value: &ResizeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resize_args(body: &[u8]) -> Result<ResizeArgs, Error> {
+        let mut out = ResizeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A view that is not visible gets no paints (its page still runs).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetVisibleArgs {
+        pub view: u64,
+        pub visible: bool,
+    }
+
+    pub fn encode_set_visible_args(value: &SetVisibleArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.visible)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_visible_args(body: &[u8]) -> Result<SetVisibleArgs, Error> {
+        let mut out = SetVisibleArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.visible = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask for a whole frame (the app lost or discarded its picture).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RefreshArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_refresh_args(value: &RefreshArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_refresh_args(body: &[u8]) -> Result<RefreshArgs, Error> {
+        let mut out = RefreshArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Replace the page with `html` (UTF-8, the buffer's range) at the base
+    /// URL `base_url`: empty, `about:blank`, `about:...` or a `data:` URL; a
+    /// network or `file:` base is `EINVAL`. webd copies the bytes before it
+    /// replies, so the app may reuse the buffer.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoadHtmlArgs {
+        pub view: u64,
+        pub html: libmessenger::Buffer,
+        pub base_url: alloc::string::String,
+    }
+
+    /// The body and the object list of `LoadHtml`.
+    pub fn encode_load_html_args(value: &LoadHtmlArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.view)?;
+        target.buffer(2, &value.html, objects)?;
+        target.string(3, &value.base_url)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `LoadHtml` from its body and the objects the kernel installed
+    /// (`LOAD_HTML_OBJECTS`, each claimed by its field).
+    pub fn decode_load_html_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<LoadHtmlArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = LoadHtmlArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.html = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.base_url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `LoadHtml` request carries, in object-list order:
+    /// `html`, `objects[0]`, a shared buffer.
+    pub const LOAD_HTML_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// Input, as the display protocol delivers it, in view pixels. `kind` is a
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
+    /// control, 2 alt, 3 meta.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MouseArgs {
+        pub view: u64,
+        pub kind: u32,
+        pub button: i32,
+        pub x: i32,
+        pub y: i32,
+        pub mods: u32,
+    }
+
+    pub fn encode_mouse_args(value: &MouseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.kind)?;
+        target.i32(3, value.button)?;
+        target.i32(4, value.x)?;
+        target.i32(5, value.y)?;
+        target.u32(6, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mouse_args(body: &[u8]) -> Result<MouseArgs, Error> {
+        let mut out = MouseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                3 => {
+                    out.button = field.as_i32()?;
+                }
+                4 => {
+                    out.x = field.as_i32()?;
+                }
+                5 => {
+                    out.y = field.as_i32()?;
+                }
+                6 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WheelArgs {
+        pub view: u64,
+        pub x: i32,
+        pub y: i32,
+        pub ticks_x: i32,
+        pub ticks_y: i32,
+        pub mods: u32,
+    }
+
+    pub fn encode_wheel_args(value: &WheelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.i32(4, value.ticks_x)?;
+        target.i32(5, value.ticks_y)?;
+        target.u32(6, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wheel_args(body: &[u8]) -> Result<WheelArgs, Error> {
+        let mut out = WheelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.ticks_x = field.as_i32()?;
+                }
+                5 => {
+                    out.ticks_y = field.as_i32()?;
+                }
+                6 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A key edge: `keysym` is the X11 keysym the display protocol carries,
+    /// `text` the character it types (empty for none).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyArgs {
+        pub view: u64,
+        pub press: bool,
+        pub keysym: u32,
+        pub text: alloc::string::String,
+        pub mods: u32,
+    }
+
+    pub fn encode_key_args(value: &KeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.press)?;
+        target.u32(3, value.keysym)?;
+        target.string(4, &value.text)?;
+        target.u32(5, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_key_args(body: &[u8]) -> Result<KeyArgs, Error> {
+        let mut out = KeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.press = field.as_bool()?;
+                }
+                3 => {
+                    out.keysym = field.as_u32()?;
+                }
+                4 => {
+                    out.text = field.as_str()?.into();
+                }
+                5 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The view gained or lost keyboard focus.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FocusArgs {
+        pub view: u64,
+        pub focused: bool,
+    }
+
+    pub fn encode_focus_args(value: &FocusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.focused)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_focus_args(body: &[u8]) -> Result<FocusArgs, Error> {
+        let mut out = FocusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.focused = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: slot `slot` of `view` holds frame number `seq` (counting from 1)
+    /// of `width` x `height` pixels. The slot is the app's until `ReleaseSlot`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FrameArgs {
+        pub view: u64,
+        pub slot: u32,
+        pub seq: u64,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_frame_args(value: &FrameArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        target.u64(3, value.seq)?;
+        target.u32(4, value.width)?;
+        target.u32(5, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_frame_args(body: &[u8]) -> Result<FrameArgs, Error> {
+        let mut out = FrameArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.seq = field.as_u64()?;
+                }
+                4 => {
+                    out.width = field.as_u32()?;
+                }
+                5 => {
+                    out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: what the page says about itself. `loading` while a load is in
+    /// progress; `finished` counts the loads that have finished (so the first
+    /// paint of a `LoadHtml` can be told from the old page's); `error` is
+    /// empty or a short reason a load failed. Texts are cut at 48 KiB.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StateArgs {
+        pub view: u64,
+        pub title: alloc::string::String,
+        pub loading: bool,
+        pub finished: u32,
+        pub error: alloc::string::String,
+    }
+
+    pub fn encode_state_args(value: &StateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.title)?;
+        target.bool(3, value.loading)?;
+        target.u32(4, value.finished)?;
+        target.string(5, &value.error)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_state_args(body: &[u8]) -> Result<StateArgs, Error> {
+        let mut out = StateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
+                }
+                3 => {
+                    out.loading = field.as_bool()?;
+                }
+                4 => {
+                    out.finished = field.as_u32()?;
+                }
+                5 => {
+                    out.error = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page scrolled to `(x, y)` in document pixels; `at_bottom`
+    /// when it cannot scroll further.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScrollArgs {
+        pub view: u64,
+        pub x: i32,
+        pub y: i32,
+        pub at_bottom: bool,
+    }
+
+    pub fn encode_scroll_args(value: &ScrollArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.bool(4, value.at_bottom)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scroll_args(body: &[u8]) -> Result<ScrollArgs, Error> {
+        let mut out = ScrollArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.at_bottom = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a link was clicked, a form submitted or a meta refresh fired,
+    /// and nothing loaded. `url` is absolute.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LinkClickedArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_link_clicked_args(value: &LinkClickedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_link_clicked_args(body: &[u8]) -> Result<LinkClickedArgs, Error> {
+        let mut out = LinkClickedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the user copied `text` out of the page.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ClipboardWriteArgs {
+        pub view: u64,
+        pub text: alloc::string::String,
+    }
+
+    pub fn encode_clipboard_write_args(value: &ClipboardWriteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.text)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_clipboard_write_args(body: &[u8]) -> Result<ClipboardWriteArgs, Error> {
+        let mut out = ClipboardWriteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.text = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the view cannot go on (`reason` is a `LostReason`). The id stays
+    /// the app's to `DestroyView`; the app makes a new view and loads again.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ViewLostArgs {
+        pub view: u64,
+        pub reason: u32,
+    }
+
+    pub fn encode_view_lost_args(value: &ViewLostArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_view_lost_args(body: &[u8]) -> Result<ViewLostArgs, Error> {
+        let mut out = ViewLostArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.reason = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CREATEVIEW, CREATE_VIEW_OBJECTS),
+        (METHOD_ATTACHSLOT, ATTACH_SLOT_OBJECTS),
+        (METHOD_LOADHTML, LOAD_HTML_OBJECTS),
+    ];
+}
+
 /// `os.lazy.net.wifi.hw.v1` (interface id `0xa882dc6295ff08bd`).
 #[rustfmt::skip]
 pub mod os_lazy_net_wifi_hw_v1 {
@@ -22823,6 +23715,24 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
         interface: 0xc5734f978fef7231,
         method: 1766698328,
         kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.webd.light.v1.CreateView
+    objects::ObjectDecl {
+        interface: 0xc685c12f0603531c,
+        method: 1,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.webd.light.v1.AttachSlot
+    objects::ObjectDecl {
+        interface: 0xc685c12f0603531c,
+        method: 3,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.webd.light.v1.LoadHtml
+    objects::ObjectDecl {
+        interface: 0xc685c12f0603531c,
+        method: 11,
+        kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.shell.tray.v1.Set
     objects::ObjectDecl {
