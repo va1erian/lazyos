@@ -13,10 +13,11 @@ It resolves the revision through GitHub (`gh api`) to a full SHA, rewrites the
 `Cargo.toml.in` template Quake's build writes its manifest from), runs
 `cargo update` for the xui packages in each workspace that has a lockfile, and
 finishes with `check_pin.py`. `lazyrad-os` and `emusic` also fetch repositories
-that pin xui themselves (LazyRAD, emusic's frontend): bump those first and give
-LazyRAD's commit with `--lazyrad`, or `--skip lazyrad-os --skip emusic` until
-they have caught up, listing them in `LAGGING` of `check_pin.py` (each holds its
-graph at the old revision with a `[patch]`).
+that pin xui themselves (LazyRAD, emusic's frontend): their `[patch]`
+tables override those pins, and a plain bump moves the patch with the rest. Give
+LazyRAD's commit with `--lazyrad` once it has moved, or hold a workspace back
+with `--skip lazyrad-os --skip emusic` and list it in `LAGGING` of
+`check_pin.py` (it then holds its graph at the old revision).
 """
 
 from __future__ import annotations

@@ -37,8 +37,9 @@ audioclient = { path = "../libs/audioclient" }
 # The window backend (`LazyOSBackend`) and the musl audio transport.
 xui-app = { path = "../xui-app" }
 # `Backend`, for the host description; the revision `xui-app` pins, so one
-# `xui_core` links (emusic's frontend pins the same one).
-xui-core = { git = "https://github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+# `xui_core` links (the `[patch]` table below overrides emusic's frontend's own
+# older xui pin with it).
+xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 # Every well-known path (the app's per-user folder).
 fhs = { path = "../libs/fhs", features = ["alloc"] }
 # emusic at the revision `tools/emusic/build.py` pins (EMUSIC_REV there).
@@ -49,18 +50,18 @@ emusic-frontend-portable = { git = "https://github.com/va1erian/emusic", rev = "
 emusic-lazyaudio = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7" }
 emusic-player = { git = "https://github.com/va1erian/emusic", rev = "a13c7cd980037c860d5cbd0b51697b1e4988eca7", default-features = false }
 
-# While va1erian/emusic's frontend pins xui 93592fd (the LAGGING state in
-# tools/xui/check_pin.py) and `xui-app` is already ahead, every xui package this
-# graph pulls is patched back to the held revision, so one `xui_core` links.
+# va1erian/emusic's frontend still pins xui 93592fd while `xui-app` is ahead, so
+# every xui package this graph pulls is patched to the common revision and one
+# `xui_core` links.
 # The `www.` alias keeps the patch's source distinct from this manifest's own
 # xui dependency (cargo refuses a patch that points to the same source).
 # Drop this table when the emusic pin moves.
 [patch."https://github.com/va1erian/xui"]
-xui = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-core = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
-xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6" }
+xui = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-canvas = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-core = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-icons = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+xui-rich-text = { git = "https://www.github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 
 [profile.release]
 opt-level = 2
