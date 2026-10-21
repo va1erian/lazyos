@@ -139,8 +139,9 @@ the data segments are. The file is held busy while any process runs it
 through a descriptor and a native write fail with `ETXTBSY`, while `unlink` and
 `rename` over it (Linux ABI or native) park the running inode under a hidden
 `.unlinked-N` name until the last instance exits, which is how a running
-program is replaced. Hard links, once ext2 has them (#871), must key this
-protection by inode like the rest of the registry. Tests:
+program is replaced. The registry knows the file by its node, so the
+protection holds through every hard link of it (#871); unlinking one name of a
+running program that keeps another parks nothing. Tests:
 `linux_image_*` (`tests/ext2_suite/data_fds/filemap/image.rs`).
 **SMP:** the design assumes one CPU. The fault epoch (a
 validation is correct only while no other task ran), the write-protection of

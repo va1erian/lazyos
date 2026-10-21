@@ -56,7 +56,7 @@ synthetic paths (`/dev`, `/proc`, `/etc`, `/bin`) stay in `process/linux`.
   mount table, shows within that ([smb-plan.md](../smb-plan.md) §3.1).
   `cache_stats()` exposes hits/misses/expiries for tests.
 - `Filesystem` trait: `name`, `lookup`/`stat`, `read`, `write`, `truncate`,
-  `setattr`, `create`, `mkdir`, `unlink`, `rmdir`, `rename`, `readdir`,
+  `setattr`, `create`, `mkdir`, `link`, `unlink`, `rmdir`, `rename`, `readdir`,
   `flush`, `statfs` (`StatFs`: magic, block size, block/inode totals and free;
   default `NotSupported`, implemented by ext2, ramfs and the overlay). The VFS
   checks permissions before calling in, so a backend only enforces what is
@@ -245,6 +245,69 @@ write-temp-then-rename store depends on it, and `fs_ext2_confd_store_power_cut_s
 cuts the power at every write of a commit to prove it. Directory renames keep
 the older remove-then-add order (their link counts carry `..` bookkeeping).
 
+**Hard links** (`vfs/link.rs`, `libs/ext2fs/src/links.rs`, `ramfs/links.rs`, issue #871)
+
+`link`/`linkat` give a regular file another name on ext2 and the ramfs; FAT
+answers `EROFS`, a filesystem that holds no links (the copy-up root, a
+user-space filesystem) `EPERM`, and two mounts `EXDEV` (also `/tmp` and
+`/transient`, two mounts of one ramfs, as Linux compares mounts). `Vfs::link`
+checks search on both paths, write on the new name's directory, `EEXIST`,
+`EPERM` for a directory, Linux's `fs.protected_hardlinks` (a caller who does
+not own the file needs read *and* write on it, and it must not be set-user-ID
+or set-group-ID and group-executable), and for a confined label
+([process-sandbox.md](process-sandbox.md)) a *write* grant on the existing
+name, the most any of its names can give, so a link never reaches through a
+granted path what the rules refuse through the old one. The reserved
+`.unlinked-*` namespace stays the kernel's: no link is made into it
+(`EINVAL`), and a parked file gets no name back (`ENOENT`). `linkat` takes
+`AT_SYMLINK_FOLLOW` (there is no symbolic link to follow) and answers
+`AT_EMPTY_PATH` `ENOENT`, as Linux does for a caller without
+`CAP_DAC_READ_SEARCH`. Symbolic links are still not stored (`symlink` is
+`EPERM`).
+
+`Meta::nlink` is the filesystem's count (`stat`, `fstatat`, `statx` report
+it; `1` where nothing counts): a file's names, a directory's `.`, its entry in
+the parent and each subdirectory's `..`. A descriptor of a file unlinked
+while open reports `0`.
+
+* **ext2.** `Ext2::link` raises `i_links_count` first and puts it on the disk
+  (a barrier when cached) before the entry appears, so a cut leaves a count
+  too high (a leak the repair reclaims) and never one below the names; unlink
+  of one of several names drops the entry before the count. The crash tests
+  cut every write, uncached, cached and journaled (`link_crash.rs`,
+  `link_journal.rs`), the fuzz model shares one contents between the names of
+  a file, and Linux's `EXT2_LINK_MAX` (32000) is `EMLINK`.
+* **ramfs.** A directory holds named entries, so a file can have several; it
+  goes with its last. A further name costs a node of the filesystem's cap,
+  charged to whoever made it, so the per-owner half of the caps (issue #265)
+  bounds names too; when the name the node's own charge covered goes first,
+  another takes its place and its charge is given back. Its regular files
+  are reachable by inode number (`ramfs/nodeio.rs`), like ext2's.
+* **Open files.** The registry knows a file by its filesystem instance and
+  its node where the nodes are the files (`Filesystem::stable_nodes`: ext2,
+  ramfs), not by the name it was opened by (`openfile/registry.rs`), so every
+  name of a file opens one entry with one page cache: a shared mapping
+  through one name sees stores made through the other, and `flock`/`fcntl`
+  locks are the file's (`OpenFile::lock_key`). A name's lookup asks the
+  mount table's caches for its inode and confirms a match by the node's
+  generation, so a name nothing has open costs next to nothing.
+* **Unlink and rename of one name.** A name an open file loses while it keeps
+  another is removed outright: no `.unlinked-*` parking, the file goes on
+  under its other names and its count says so (what WebKit's blob cache reads
+  to delete unreferenced blobs). Only the last name is parked. A `rename` over
+  such a name drops that link the same way, and a `rename` between two names
+  of one file is a no-op that keeps both (POSIX). Each decision and its change
+  run under one lock (`openfile::names_lock`), so two unlinks of a file's two
+  names cannot both see the other and free an open file.
+
+Not done: `fchmod`/`fchown`/`futimens` on a descriptor whose name went while
+another remains answer `ENOENT` (attribute changes are made by name; the
+registry knows no current name of it); the native mount table's cached count
+of a file's *other* names can lag after an unlink through the Linux table.
+Tests: `linux_link_*` and `fs_ramfs_link_*`/`fs_ramfs_dir_link_counts`
+(`tests/ext2_suite/data_fds/links/`), `confine_every_vfs_entry_point`, the
+`hardlink` ABI fixture, and `cargo test -p ext2fs link`.
+
 **Working directory** (`process/linux/cwd.rs`, `task/cwd.rs`, issue #365)
 
 Each task has a working directory: an absolute, normalized string in
@@ -337,17 +400,20 @@ walk or mount lookup per call (a write refreshes the table's cached metadata of
 the path); `ftruncate` and `fsync` still go to the VFS through the `abi_*`
 helpers (see [processes.md](processes.md) for the syscall side), as does every
 call on a filesystem without nodes. The program loader opens its image the same
-way (`process::image::VfsFile`). Because the VFS names files by path, the
-registry of open files keeps each one meaning "the file I opened" (a name
-handed to another file behind the registry's back, by the native VFS, makes the
-old entry give the name up, so a new open gets the new file):
+way (`process::image::VfsFile`). The registry of open files knows a file by its
+node where the nodes are the files (ext2, ramfs: "Hard links" above), so every
+name of one file shares one entry, and keeps each one meaning "the file I
+opened" (a name handed to another file behind the registry's back, by the
+native VFS, makes the old entry give the name up, so a new open gets the new
+file):
 
 - `rename` (`abi_rename`) retargets every open file at or under the old path, and
   first parks a file it is about to replace (restoring it if the rename fails);
-- `unlink` (`abi_unlink`) of an open file renames it to `<dir>/.unlinked-<n>`
-  instead of freeing it, and the last close deletes that entry (all opens of one
-  file share one registry entry, so the last one out is known). A stop in
-  between leaves the hidden entry behind, the equivalent of an orphan inode.
+- `unlink` (`abi_unlink`) of an open file's last name renames it to
+  `<dir>/.unlinked-<n>` instead of freeing it, and the last close deletes that
+  entry (all opens of one file share one registry entry, so the last one out is
+  known). A stop in between leaves the hidden entry behind, the equivalent of an
+  orphan inode. A name of a file that keeps another is removed outright.
   The prefix is **reserved**: `open(O_CREAT)`, `mkdir` and `rename` onto a
   `.unlinked-` name answer `EINVAL` (`fs/hidden.rs`), so only the kernel makes
   one and reclaiming by name can never touch a user's file.
@@ -385,9 +451,9 @@ block, inode, descriptor and registry entry.
 
 | Backend | Status | Notes |
 |---|---|---|
-| `ramfs` | read/write | `BTreeMap` of nodes, ordered children, owner/mode stamped by VFS |
+| `ramfs` | read/write | `BTreeMap` of nodes, ordered named entries (hard links), files reachable by node, owner/mode stamped by VFS |
 | `fat` | read-only | FAT12/16, MBR partition, sector reads via the block layer; VFAT long names and nested subdirectories, ASCII case-insensitive; inode = on-disk entry position (root = 1); resolved-path cache |
-| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; optional internal JBD2 journal ([`journal.md`](journal.md)); no symlinks/device nodes |
+| `ext2` | read/write | 1/2/4 KiB blocks, group bitmaps, direct + single/double/triple indirect, truncate, clean/dirty state; rejects unknown incompat features and htree directories; optional internal JBD2 journal ([`journal.md`](journal.md)); hard links; no symlinks/device nodes |
 | `overlay` | read/write (copy-up) | Linux ABI root only; lower is any read-only backend, upper is ramfs |
 
 - ext2 keeps free counters in sync, stamps timestamps from the wall clock

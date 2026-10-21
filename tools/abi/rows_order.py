@@ -29,6 +29,7 @@ ORDER = [
     "statxio",
     "cwd",
     "fsops",
+    "hardlink",
     "fdinherit",
     "statmiss",
     "compat",

@@ -138,6 +138,10 @@ name = "fsops"
 path = "src/fsops.rs"
 
 [[bin]]
+name = "hardlink"
+path = "src/hardlink.rs"
+
+[[bin]]
 name = "statmiss"
 path = "src/statmiss.rs"
 

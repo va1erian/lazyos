@@ -109,7 +109,8 @@ a program, a process or a socket, followed to the VFS.
 | `open`/`openat`/`creat` of any path | label never consulted | gated by path (VFS) |
 | `stat`/`lstat`/`fstatat`/`statx`/`access`/`faccessat`/`statfs`/`readlink` | same | gated (`Stat`; `access(R_OK)` is `Read`) |
 | `mkdir`/`rmdir`/`unlink`/`rename*`/`truncate`/`chmod`/`chown`/`utime*` | same | gated (`Write` on the parent or the node) |
-| `link`/`symlink` | `EPERM` (no filesystem holds links) | unchanged: there are no links to follow |
+| `link`/`linkat` (#871) | `EPERM` (no filesystem held links) | gated: `Write` on the new name's parent, and `Write` on the existing name, so a link never reaches through a granted path what the old one refuses |
+| `symlink` | `EPERM` (no filesystem holds symbolic links) | unchanged: there are none to follow |
 | `chdir`/`fchdir`, relative paths, `dirfd`s, `..` | folded to an absolute path before the VFS (`cwd::resolve_at`) | the gate judges the folded path, so none of them leaves a grant |
 | `execve` | read + `x` bit only | refused outright; the image is loaded before the label applies |
 | native programs (`top`, `confctl`, ...) run by `execve` as a child | inherited creds and label | refused (`may_spawn`) |
@@ -152,8 +153,10 @@ a program, a process or a socket, followed to the VFS.
   string-keyed table would remove the argument; it would also need a second
   loader.
 * **Path-based, symlink-free.** The gate judges the folded absolute path
-  because no filesystem stores links. When symlinks arrive the resolver must
-  apply the gate to each target it follows.
+  because no filesystem stores symbolic links. When they arrive the resolver
+  must apply the gate to each target it follows. A hard link is a second path
+  to one file, so making one needs the label's write grant on the existing
+  name: whatever the new path is granted, the old one granted at least that.
 * **`/proc` is readable** (mount table, `cpuinfo`, `meminfo`): machine
   information, no per-process entries exist.
 * **Fabricated `/etc` entries** are judged by their Linux path, so granting
