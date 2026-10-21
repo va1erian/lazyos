@@ -1,7 +1,7 @@
 //! The interned label table (application package system, phase 1).
 //!
 //! A [`super::credentials::Cred`] carries a small `label_id`; this table maps
-//! the id back to the bounded string that names it. Labels have exactly four
+//! the id back to the bounded string that names it. Labels have exactly five
 //! forms, and nothing else is accepted:
 //!
 //! * `app:<reverse.dns.name>` -- a sandboxed application (`app:com.example.notes`),
@@ -15,7 +15,16 @@
 //!   (`app:os.lazy.lazywebplus/webprocess`, issue #832, [`super::children`]): a
 //!   helper program that runs with no more than the app holds. It owns no
 //!   names or topics, and its parent label must already be interned (the
-//!   link is part of the label, read back by [`parent_of`]).
+//!   link is part of the label, read back by [`parent_of`]),
+//! * `tool:<reverse.dns.name>` -- a *developer tool* (`tool:org.lazy.playground`,
+//!   `docs/devtool-packages-plan.md`): an app whose calls are chosen by the user
+//!   at run time. Its Messenger rules are default allow minus a short deny list
+//!   (rules are rules: nothing new in [`super::acl`]); the kernel's part is the
+//!   namespaces ([`super::policy`], [`super::tool`]). It owns the same
+//!   `app.<name>.*` services and `app/<name>/` topics as `app:<name>`, may
+//!   register any other name that is not reserved, and its children keep the
+//!   label. It never has child labels: `tool:<id>/<name>` is malformed and
+//!   [`parent_of`] is `None` for it.
 //!
 //! Id `0` is "unlabelled" and never names a string. The table is bounded
 //! ([`CAPACITY`]) and append-only: interning an equal string returns the
@@ -43,6 +52,8 @@ pub const APP_PREFIX: &str = "app:";
 pub const SYSTEM_PREFIX: &str = "system:";
 /// Prefix of a development label (an app run from an IDE).
 pub const DEV_PREFIX: &str = "dev:";
+/// Prefix of a developer-tool label.
+pub const TOOL_PREFIX: &str = "tool:";
 
 /// Longest child name (the part after the `/`), in bytes; the same bound as
 /// `lazypkg::MAX_PROCESS_NAME`, so `app:<system_name>/<name>` always fits
@@ -71,9 +82,11 @@ pub enum Kind {
     Dev,
     /// `app:<id>/<name>`: a helper program of the installed app `<id>`.
     Child,
+    /// `tool:<id>`: a developer tool (`docs/devtool-packages-plan.md`).
+    Tool,
 }
 
-/// Whether `part` is a dotted app id or a `system:`/`dev:` name: bytes of
+/// Whether `part` is a dotted app id or a `system:`/`dev:`/`tool:` name: bytes of
 /// `[a-z0-9.-]`, never starting or ending with `.` or `-`, no empty dot
 /// segment, so an app id maps to exactly one reverse-DNS name.
 fn valid_name(part: &str) -> bool {
@@ -103,7 +116,7 @@ fn valid_child_name(name: &str) -> bool {
 /// Split a label into its kind and the part after the prefix, validating
 /// every byte. The name part may contain `a-z 0-9 . -`, never starts or ends
 /// with `.` or `-`, and has no empty dot segment, so an app id maps to
-/// exactly one reverse-DNS name. An `app:` label may add `/<child>` (see
+/// exactly one reverse-DNS name. Only an `app:` label may add `/<child>` (see
 /// [`valid_child_name`]); the part returned for a [`Kind::Child`] is then
 /// `<id>/<child>`.
 pub fn parse(label: &str) -> Result<(Kind, &str), Error> {
@@ -116,6 +129,8 @@ pub fn parse(label: &str) -> Result<(Kind, &str), Error> {
         (Kind::System, name)
     } else if let Some(name) = label.strip_prefix(DEV_PREFIX) {
         (Kind::Dev, name)
+    } else if let Some(name) = label.strip_prefix(TOOL_PREFIX) {
+        (Kind::Tool, name)
     } else {
         return Err(Error::Malformed);
     };

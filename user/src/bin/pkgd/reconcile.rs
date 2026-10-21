@@ -4,18 +4,24 @@
 //! same [`activate`](Pkgd::activate) an install uses. It also repairs what a
 //! stop in the middle of a documentation replacement left in `/docs/apps`
 //! (`pkgstore::tree::repair_docs`).
+//!
+//! A developer tool is replayed only when its row says an administrator (or
+//! the image) installed it and the stored manifest still says what the row
+//! does (`pkgstore::toolgate::loadable`); otherwise its label is revoked, the
+//! refusal audited and the row left for `Remove`.
 
 use alloc::format;
 use alloc::string::String;
 use user::trace;
 
 use lazypkg::Manifest;
-use pkgstore::{layout, tree};
+use pkgstore::{layout, toolgate, tree};
 use user::files;
 use user::messenger::pkgd::Installed;
 
 use super::handlers::Pkgd;
-use super::install::{one_line, row_of, Installer};
+use super::install::{event, one_line, row_of, Installer, Subject};
+use super::policy;
 use super::store::{self, describe, SysFs};
 
 /// Largest stored manifest read back (the format's own cap is 1 MiB).
@@ -72,7 +78,19 @@ impl Pkgd {
                 continue;
             }
             let outcome = stored_manifest(&row.install_dir).and_then(|manifest| {
-                self.activate(&manifest, Installer::of_row(row).owner())?;
+                let installer = Installer::of_row(row);
+                let core = row.origin == user::messenger::pkgd::wire::ORIGIN_CORE;
+                // The same decision `init` makes before it starts the app: the
+                // class agrees, a tool is approved, and a manifest that claims
+                // the shell role (it lifts the label's credential denies)
+                // belongs to a package the image ships.
+                if let Err(why) =
+                    toolgate::stored_loadable(&row.kind, &manifest, installer.machine_wide, core)
+                {
+                    self.deny_load(row, &manifest, why);
+                    return Err(String::from(why));
+                }
+                self.activate(&manifest, installer.owner())?;
                 self.refresh_row(row, &manifest);
                 Ok(())
             });
@@ -95,6 +113,16 @@ impl Pkgd {
 }
 
 impl Pkgd {
+    /// A row whose app must not be loaded (`toolgate::loadable`): withdraw any
+    /// policy a previous `pkgd` left in the kernel under either label the row
+    /// or the stored manifest names, and audit the refusal.
+    fn deny_load(&mut self, row: &Installed, manifest: &Manifest, why: &str) {
+        let _ = policy::revoke_row(row);
+        let _ = policy::revoke(manifest);
+        self.audit
+            .record(&event("denied", &Subject::of_row(row), 0, false, why));
+    }
+
     /// Bring a row's manifest-derived fields (menu category, autostart,
     /// resident, MIME verbs) up to date with its stored manifest: a row
     /// recorded before they existed gets them without a reinstall.

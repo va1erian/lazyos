@@ -40,6 +40,21 @@ pub fn restartable(name: &str) -> bool {
 }
 
 impl Operation {
+    /// Whether a program stamped with the policy label `label_id` (`0`: an
+    /// unlabelled one, such as the Installer) may ask for the operation; `Err`
+    /// says why not. A labelled program (an app, or a developer tool, which
+    /// can reach `elevd`) never asks for a developer-tool install: a tool
+    /// that installed tools would hand its own authority on
+    /// (`docs/devtool-packages-plan.md` section 1).
+    pub fn asker_permitted(&self, label_id: u32) -> Result<(), &'static str> {
+        match self {
+            Operation::PkgInstallDevtool { .. } if label_id != 0 => {
+                Err("applications may not install developer tools")
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Whether the operation may be asked for at all; `Err` says why not.
     pub fn permitted(&self) -> Result<(), &'static str> {
         match self {

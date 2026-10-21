@@ -9,6 +9,16 @@
 //! the package, so every field is escaped and bounded ([`crate::text`]),
 //! and the whole fits [`crate::MAX_SUMMARY`].
 //!
+//! A developer-tool package (`pkg.install-devtool`) is asked about with
+//! [`tool_summary`], which leads with [`devtool::CONSENT_TEXT`] (a shell
+//! tool's [`devtool::SHELL_CONSENT_TEXT`]), the one text that says what a tool
+//! can do. The prompt has room for [`crate::MAX_SUMMARY`] characters, so what
+//! follows the warning is the identity of the package, that it is installed
+//! for all users and whether it declares `network` or `develop` (powers that
+//! lift denies of the class, so an update that adds one is shown to the
+//! administrator), then its author (unverified) when there is room; the
+//! rest of its permissions are on the Installer's consent screen.
+//!
 //! `pkgd` reported the archive's SHA-256 with the inspection; `elevd` hands
 //! it back with the install (`InstallApproved`), and `pkgd` installs only
 //! bytes with that digest, so the file cannot be swapped between the
@@ -61,6 +71,109 @@ pub fn summary(facts: &Facts) -> String {
         "{what}; author \"{author}\" (unverified); {}",
         permissions(&facts.permissions)
     )
+}
+
+/// What a tool's package may take of the characters after the warning:
+/// the app's name, its version and its `system_name`. Together with the
+/// warning, the fixed words of the install line (the longest verb, "shell
+/// tool", the quotes and brackets, "for all users", and "with network and
+/// develop") and its full stop they fit [`crate::MAX_SUMMARY`] with the
+/// longest warning, so the install line is trimmed and the warning never is
+/// (`devtool_tests` pins the room).
+const TOOL_NAME_SHOWN: usize = 20;
+/// The fewest characters of the name the line keeps when it is crowded.
+const TOOL_NAME_MIN: usize = 8;
+const TOOL_VERSION_SHOWN: usize = 8;
+const TOOL_SYSTEM_SHOWN: usize = 20;
+/// `; author "` and `".` around the author's name.
+const AUTHOR_FRAME: usize = 12;
+/// The shortest author name worth showing (an ellipsis alone says nothing).
+const AUTHOR_MIN: usize = 8;
+/// The `kind` of the inspection rows that carry the class, the one of
+/// its values that says the tool is the user's shell (`pkgstore::explain::tool`),
+/// and the kinds of the manifest's own rows that lift a deny-list entry.
+const KIND_ROW: &str = "kind";
+const NETWORK_ROW: &str = "network";
+const DEVELOP_ROW: &str = "develop";
+/// The one `network` value that lifts the socket, name-lookup and mount denies.
+const OUTBOUND: &str = "outbound";
+
+/// Whether the inspection's rows name the tool as the user's shell: a second
+/// `kind` row, beside the one that names the class.
+fn is_shell(permissions: &[Permission]) -> bool {
+    permissions
+        .iter()
+        .any(|row| row.kind == KIND_ROW && row.value == devtool::SHELL_ROW_VALUE)
+}
+
+/// Whether the package declares `network = ["outbound"]`, which lifts the
+/// three network denies of the class (`devtool::DenyWhen::UnlessNetwork`).
+fn has_network(permissions: &[Permission]) -> bool {
+    permissions
+        .iter()
+        .any(|row| row.kind == NETWORK_ROW && row.value == OUTBOUND)
+}
+
+/// Whether the package declares `develop = true`, which lifts the dev-spawn
+/// deny (`devtool::DenyWhen::UnlessDevelop`).
+fn has_develop(permissions: &[Permission]) -> bool {
+    permissions.iter().any(|row| row.kind == DEVELOP_ROW)
+}
+
+/// The prompt's summary of installing a developer tool: the warning first
+/// (a shell tool's own, [`devtool::SHELL_CONSENT_TEXT`], because the generic
+/// one says the credential services are refused), then which package
+/// (`Update` for a core developer tool it replaces, else `Install`; a shell
+/// tool is called one, because it is judged as the user), that it is
+/// installed for all users (the stored row is machine-wide, and its autostart
+/// opens in every session) and what it declares beyond the class: "with
+/// network" and "with develop" lift denies the class otherwise holds, so an
+/// approved update that adds one is shown, not silent. The author
+/// (unverified) follows when it still fits; the warning is never trimmed, the
+/// install line is. At most [`crate::MAX_SUMMARY`] characters.
+pub fn tool_summary(facts: &Facts) -> String {
+    // An update of a core developer tool (`replaces`) says so in one word.
+    let verb = if facts.replaces.is_some() {
+        "Update"
+    } else {
+        "Install"
+    };
+    let shell = is_shell(&facts.permissions);
+    let kind = if shell { " shell tool" } else { "" };
+    let powers = match (
+        has_network(&facts.permissions),
+        has_develop(&facts.permissions),
+    ) {
+        (true, true) => " with network and develop",
+        (true, false) => " with network",
+        (false, true) => " with develop",
+        (false, false) => "",
+    };
+    // The name is the most expendable part of the line: show up to
+    // `TOOL_NAME_SHOWN` characters of it, fewer when the longest wording
+    // (an update of a shell tool declaring both powers) would not fit.
+    let line_with = |name_width: usize| {
+        format!(
+            "{} {verb}{kind} \"{}\" {} ({}) for all users{powers}",
+            devtool::consent_text(shell),
+            elide(&facts.name, name_width),
+            elide(&facts.version, TOOL_VERSION_SHOWN),
+            elide(&facts.system_name, TOOL_SYSTEM_SHOWN)
+        )
+    };
+    let mut width = TOOL_NAME_SHOWN;
+    let mut line = line_with(width);
+    while line.chars().count() >= crate::MAX_SUMMARY && width > TOOL_NAME_MIN {
+        width -= 1;
+        line = line_with(width);
+    }
+    // One more character is the full stop that ends the line without an author.
+    let room = crate::MAX_SUMMARY.saturating_sub(line.chars().count());
+    if room >= AUTHOR_FRAME + AUTHOR_MIN && !facts.author.is_empty() {
+        let author = elide(&facts.author, room - AUTHOR_FRAME);
+        return format!("{line}; author \"{author}\".");
+    }
+    format!("{line}.")
 }
 
 /// The permissions grouped by risk, the riskiest first: up to three high

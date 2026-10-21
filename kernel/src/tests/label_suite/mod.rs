@@ -19,6 +19,13 @@ mod names;
 mod nic_names;
 mod session_topics;
 mod soak;
+mod tool;
+mod tool_inet;
+mod tool_names;
+mod tool_policy;
+mod tool_revoke;
+mod tool_soak;
+mod tool_soak_names;
 mod wifi_names;
 
 /// Scratch user address space for the syscall-level tests.
@@ -315,4 +322,74 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("label_child_label_cap", children::child_label_cap),
     ("label_child_soak", children::child_label_soak),
     ("label_child_real_execve", children::child_label_real_execve),
+    (
+        "label_tool_grammar_and_interning",
+        tool::grammar_and_interning,
+    ),
+    ("label_tool_table_capacity", tool::table_capacity),
+    ("label_tool_loader", tool::load_through_the_loader),
+    ("label_tool_default_allow_rules", tool::default_allow_rules),
+    (
+        "label_tool_register_verdicts",
+        tool_names::register_verdicts,
+    ),
+    (
+        "label_tool_register_syscalls",
+        tool_names::register_through_the_syscalls,
+    ),
+    ("label_tool_resolve_verdicts", tool_names::resolve_verdicts),
+    (
+        "label_tool_interface_domain_waived",
+        tool_names::interface_domain_waived,
+    ),
+    (
+        "label_tool_children_and_parentage",
+        tool_policy::children_inherit_and_never_parent,
+    ),
+    (
+        "label_tool_dev_spawn_scope_required",
+        tool_policy::dev_spawn_scope_still_required,
+    ),
+    ("label_tool_topic_verdicts", tool_policy::topic_verdicts),
+    (
+        "label_tool_inet_follows_rules",
+        tool_inet::inet_follows_the_tool_rules,
+    ),
+    (
+        "label_tool_inet_other_labels_unchanged",
+        tool_inet::inet_gate_unchanged_for_other_labels,
+    ),
+    ("label_tool_soak_inet_gate", tool_inet::inet_gate_soak),
+    (
+        "label_tool_explain_names_namespace",
+        tool_names::explain_names_the_tool_namespace,
+    ),
+    (
+        "label_tool_soak_load_replace_revoke",
+        tool_soak::churn_load_replace_revoke,
+    ),
+    (
+        "label_tool_soak_names_and_topics",
+        tool_soak_names::names_and_topics,
+    ),
+    (
+        "label_tool_revoked_registrations",
+        tool_revoke::revoked_tool_registrations,
+    ),
+    (
+        "label_tool_revoked_syscalls",
+        tool_revoke::revoked_tool_syscalls,
+    ),
+    (
+        "label_tool_soak_revoke_registrations",
+        tool_revoke::revoke_registration_churn,
+    ),
+    (
+        "label_tool_soak_table_churn",
+        tool_soak::table_churn_to_capacity,
+    ),
+    (
+        "label_tool_soak_rule_limit",
+        tool_soak::rule_list_at_the_limit,
+    ),
 ];

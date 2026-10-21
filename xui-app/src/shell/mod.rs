@@ -33,7 +33,7 @@ mod heartbeat;
 mod icons;
 mod keys;
 mod link;
-mod menu;
+pub(crate) mod menu;
 mod notify;
 mod power;
 mod probe;

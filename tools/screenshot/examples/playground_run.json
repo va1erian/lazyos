@@ -1,0 +1,270 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "print(\"hello from the playground\");\n"
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:1:EXIT:0:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_hello"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "1"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "store_dir"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "tree_row:1"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:OPEN:os.lazy.confd.v1",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:call_form"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_form"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "form_call"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:CALL:os.lazy.confd.v1.Info:OK",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_call_reply"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "confd get"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "tree_row:1"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:call_form"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "sys/ui/theme"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "form_call"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:CALL:os.lazy.confd.v1.Get:OK",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_call_args"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "print(sys::keyd::ping());\n"
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:4:EXIT:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_refused"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "print(\"serving\");\nmsg::on(\"demo/pg/wait\", |e| print(e.topic));\nmsg::run();\n"
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:5:START:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "run_serving"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "stop_button"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:RUN:5:EXIT:stopped:",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "run_stopped"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

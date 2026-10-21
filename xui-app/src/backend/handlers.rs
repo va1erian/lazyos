@@ -211,6 +211,7 @@ impl Backend for LazyOSBackend {
                 wants_tab: spec.wants_tab,
                 popup: spec.popup,
                 clip: None,
+                kind: spec.kind,
                 text: spec.text.clone(),
                 painter: None,
             },
@@ -290,7 +291,9 @@ impl Backend for LazyOSBackend {
         let track_damage = self.is_client();
         let moved = moves::apply(&mut self.nodes.borrow_mut(), moves, track_damage);
         if let Some(area) = moved.damage {
-            self.add_damage(window, area);
+            // A painter spills a pixel or two past its bounds (a button's edge, a
+            // focus ring): what a node left behind at its old place included.
+            self.add_damage(window, self.with_spill(area));
         }
         // As xui-canvas does: a moved node gets no other size notification,
         // so a resized one is told directly. A layout mounted in a container

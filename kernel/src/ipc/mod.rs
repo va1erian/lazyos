@@ -35,6 +35,7 @@ pub mod shared;
 pub mod shared_va;
 pub mod stats;
 pub mod syscalls;
+pub mod tool;
 pub mod topics;
 pub mod unix;
 

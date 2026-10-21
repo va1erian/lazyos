@@ -24,6 +24,8 @@ confd = { path = "../confd" }
 secretstore = { path = "../secretstore" }
 # The earliest clock `time.set` accepts (`timed`'s floor) and the latest.
 sntp = { path = "../sntp" }
+# The warning a developer-tool install leads its prompt with.
+devtool = { path = "../devtool" }
 # The civil date a `time.set` prompt shows.
 timezone = { path = "../timed" }
 

@@ -34,6 +34,7 @@ version = "1.0.0"
 binary = "bin/app.elf"
 """
 
+NL = chr(10)
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
 
 
@@ -197,6 +198,42 @@ class BuildTests(unittest.TestCase):
                 self.assertEqual(problems == [], ok, problems)
                 if not ok:
                     self.assertTrue(any("entry.abi" in p for p in problems), problems)
+
+    def test_a_developer_tool_is_default_allow_so_it_lists_no_interfaces(self):
+        """`app.kind` (docs/devtool-packages-plan.md section 2), as `lazypkg`'s `tool.rs` has it."""
+        def check(app_extra="", permissions=""):
+            text = MANIFEST.replace("[entry]", app_extra + NL + "[entry]") + permissions
+            return build.validate_manifest(tomllib.loads(text))
+
+        tool = 'kind = "developer-tool"'
+        self.assertEqual(check(tool, "[permissions]" + NL + "network = []" + NL), [])
+        listed = check(tool, '[permissions]' + NL + 'interfaces = ["os.lazy.display.v1"]' + NL)
+        self.assertTrue(any("permissions.interfaces" in p for p in listed), listed)
+        topics = check(tool, '[permissions]' + NL + 'topics = ["subscribe:system/events/*"]' + NL)
+        self.assertTrue(any("permissions.topics" in p for p in topics), topics)
+        wrong = check(tool + NL + 'category = "games"')
+        self.assertTrue(any("category" in p for p in wrong), wrong)
+        self.assertTrue(any("app.kind" in p for p in check('kind = "plugin"')))
+        # An application keeps its interface list.
+        plain = check('kind = "application"', '[permissions]' + NL + 'interfaces = ["os.lazy.display.v1"]' + NL)
+        self.assertEqual(plain, [])
+
+    def test_shell_is_only_for_a_developer_tool(self):
+        """`app.shell`, as `lazypkg`'s `tool.rs` has it."""
+        def check(app_extra):
+            text = MANIFEST.replace("[entry]", app_extra + NL + "[entry]")
+            return build.validate_manifest(tomllib.loads(text))
+
+        self.assertEqual(check('kind = "developer-tool"' + NL + "shell = true"), [])
+        for app in ("shell = true", 'kind = "application"' + NL + "shell = false"):
+            found = check(app)
+            self.assertTrue(any("app.shell" in p for p in found), found)
+        wrong = check('kind = "developer-tool"' + NL + 'shell = "yes"')
+        self.assertTrue(any("app.shell" in p for p in wrong), wrong)
+        # Only the shell may sit in the System group, as `lazypkg`'s tool.rs has it.
+        tool = 'kind = "developer-tool"' + NL + 'category = "system"'
+        self.assertTrue(any("app.category" in p for p in check(tool)))
+        self.assertEqual(check(tool + NL + "shell = true"), [])
 
     def test_every_problem_is_reported(self):
         with tempfile.TemporaryDirectory() as tmp:

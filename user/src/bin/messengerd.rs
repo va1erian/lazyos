@@ -99,9 +99,11 @@ fn serve() -> messenger::Result<()> {
         &[topics_client::INTERFACE],
         0,
     )?;
-    sys::write_str("messengerd: topics service registered as ");
-    sys::write_str(topics_client::NAME);
-    sys::write_str("\n");
+    // One write: three would let another task's line land between the parts.
+    sys::write_str(&format!(
+        "messengerd: topics service registered as {}\n",
+        topics_client::NAME
+    ));
 
     let mut broker = Broker::new();
     // Self-soak mode (`soak=N` from the supervisor's manifest): drive N

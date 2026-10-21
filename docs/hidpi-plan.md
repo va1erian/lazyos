@@ -99,6 +99,43 @@ How code reaches 2x:
 | LazyShell | model in design pixels; `Ctx::to_screen`/`to_design` at the protocol and pointer edges |
 | `xuid` chrome | `theme::px` and scaled metric accessors; 26 px atlases |
 
+## Hi-res (1440p at 1x)
+
+HiDPI turns 2560x1440 into a sharp 1280x720 desktop. **Hi-res** keeps the
+same screen but leaves the scale at 1: a 2560x1440-pixel desktop with room for
+four windows side by side, whose text, title bars and widgets keep their
+normal pixel size (so they look half as big as on HiDPI). Use HiDPI on a 4K
+monitor you read at arm's length, hi-res on a big or close monitor when you
+want space more than size.
+
+```bash
+python tools/run_demo.py --desktop --hires    # = --display-mode 2560x1440 --display-scale 1
+python tools/run_demo.py --desktop --hidpi    # the 2x desktop (auto scale)
+```
+
+The GUI has *Hi-res* beside *HiDPI* on the Simple tab (ticking one clears the
+other) and a *Display scale* choice (empty, `auto`, `1`, `2`) on the Advanced
+tab. The flags are `LAZYOS_DISPLAY_MODE=2560x1440` plus
+`LAZYOS_DISPLAY_SCALE=1` (and `LAZYOS_DISPLAY_MAX=2560x1440` so a real PC's
+firmware framebuffer is not capped at 1080p). The kernel still switches QEMU's
+std VGA to 2560x1440 after boot, so the BIOS-bootloader limit is the same.
+
+How the scale reaches the desktop: `LAZYOS_DISPLAY_SCALE` becomes
+`display.scale=1` in `lazyos.cfg`. The kernel uses it for the boot console
+(1x glyphs instead of pixel-doubled ones). `xuid` reads `sys/ui/scale` from
+`confd` at start and, when the key is unset, the same `display.scale=` line
+(`uitheme::UiScale::from_cfg`); unset everywhere it is `auto`. A scale chosen
+in `confd` (a set `sys/ui/scale`) wins over the image's default. The result
+is logged as `XUID:SCALE:<n> setting=<auto|1|2> screen=<w>x<h>`; clients then
+get it from `GetOutput` and run at 96 DPI, the cursor is drawn at 1x and the
+13 px Droid atlases are used. Before this, `LAZYOS_DISPLAY_SCALE` only reached
+the kernel console, so a 2560x1440 mode always resolved to scale 2 in `xuid`.
+
+Verify with `tools/screenshot/examples/hires_apps.json` (`pngstats --expect-width
+2560 --expect-height 1440`; the serial log has `XUID:SCALE:1 setting=1
+screen=2560x1440`): title bars are 22 px tall (44 px at 2x) with 13 px text,
+and the apps open at their normal 1x sizes in the large screen.
+
 ## Out of scope (follow-ups)
 
 - Live scale change (`DpiChanged`, relayout) and fractional scales (1.5x for

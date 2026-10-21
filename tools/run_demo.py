@@ -52,6 +52,7 @@ Examples
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
     python tools/run_demo.py --pictures      # desktop + the Picture Viewer (docs/lazyrad-pictures.md)
+    python tools/run_demo.py --devtools      # desktop + rhai + the developer tools (docs/devtool-packages-plan.md)
     python tools/run_demo.py --suite full --with srb2kart --build-only  # a named software suite (tools/suites.toml)
     python tools/run_demo.py --assets ~/mods # + ~/mods (with its manifest.txt) in /system/share
 
@@ -97,7 +98,7 @@ from demo_qemu import (  # noqa: E402
 )
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
+    build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, build_webkit_deps, build_webkit_port, build_wifi,
@@ -118,10 +119,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 # LazyShell, the desktop shell (`tools/xui/build.py` output, issue #157).
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
-# The apps every desktop image ships (`build_support/xui_embed.rs`
-# `DESKTOP_XUI_APPS` and `DOCUMENT_XUI_APPS`): the image build fails when one
-# is missing, so a `target/xui` built before an app was added (LazyWriter,
-# issue #533) is rebuilt first.
+# The apps every desktop image ships (`build_support/xui_embed.rs` `DESKTOP_XUI_APPS`,
+# `DOCUMENT_XUI_APPS` and the `always` developer tool, the Terminal): the image build fails when one
+# is missing, so a `target/xui` built before an app was added (LazyWriter, #533) is rebuilt first.
 DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
@@ -134,8 +134,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
 )]
 # LazyGolf and the NES Player: only `--games` images (xui_embed.rs GAMES_XUI_APPS).
 GAMES_APPS = [ROOT / "target" / "xui" / n for n in ("xui-golf.elf", "xui-nes.elf")]
-# The tray sample app, shipped only by `--traydemo` images
-# (`build_support/xui_embed.rs` TRAYDEMO_XUI_APPS, docs/tray-plan.md).
+# The tray sample app, shipped only by `--traydemo` images (`xui_embed.rs` TRAYDEMO_XUI_APPS).
 TRAYDEMO_APPS = [ROOT / "target" / "xui" / "xui-traydemo.elf"]
 # The network apps and print spooler a `--net` desktop ships (`build_support/xui_embed.rs`).
 NET_APPS = [ROOT / "target" / "xui" / n
@@ -337,6 +336,7 @@ def main(argv: list[str]) -> int:
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),
+                                      (args.devtools, build_devtools, "LAZYOS_DEVTOOLS"),
                                       (args.wifi, build_wifi, "LAZYOS_WIFI"),
                                       (args.installer, build_installer, "LAZYOS_INSTALLER")):
             if not wanted:

@@ -33,6 +33,14 @@ interface os.lazy.pkgd.v1 {
     method List() -> (apps: Array<Installed> = 1);
     /// One installed app by `system_name`, if present.
     method Installed(system_name: String = 1) -> (app: Option<Installed> = 1);
+    /// The name of the policy label with the kernel id `label_id`
+    /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+    /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+    /// here to tell a developer tool's shared label from an app's before it
+    /// lets an administrator's approval stand (`libs/elevpolicy`,
+    /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+    /// kernel does not know.
+    method LabelName(label_id: U32 = 1) -> (label: String = 1);
     /// Whether this start's core package provisioning is finished, and what
     /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
     /// provisions, so a client such as `init`'s autostart can wait for it
@@ -66,8 +74,13 @@ interface os.lazy.pkgd.v1 {
     /// swapped between the approval and the install. `core` says what was
     /// approved: `false` (`pkg.install`) refuses a package that would
     /// replace a core app, `true` (`pkg.update-core`) refuses one that would
-    /// not. Plain `Install` never replaces a core app for `elevd`.
-    method InstallApproved(path: String = 1, digest: String = 2, core: Bool = 3) -> (app: Installed = 1);
+    /// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+    /// says the administrator saw the developer-tool warning
+    /// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+    /// developer-tool package is installed only when it is `true` and any
+    /// other package only when it is `false`, so a tool is never installed
+    /// from a prompt that did not warn about it.
+    method InstallApproved(path: String = 1, digest: String = 2, core: Bool = 3, devtool: Bool = 4) -> (app: Installed = 1);
     /// `dbgd`'s install of a package a developer uploaded to a box built for
     /// remote control (docs/dbgd-plan.md, v2 app swapping): accepted from
     /// `dbgd` alone and only when `/boot/lazyos.cfg` says
@@ -179,7 +192,22 @@ interface os.lazy.pkgd.v1 {
         /// Installed by a system caller (`elevd` after an administrator
         /// approved it, `dbgd`, provisioning): a machine-wide choice, so
         /// `autostart` opens it in every user's session.
-        machine_wide: Bool = 16
+        machine_wide: Bool = 16,
+        /// The package class the manifest named when it was installed:
+        /// `developer-tool` (`[app] kind`, `docs/devtool-packages-plan.md`),
+        /// whose app runs under the label `tool:<system_name>`, or empty for
+        /// an application (`app:<system_name>`). A tool's row is used only
+        /// when it is `machine_wide` or core, which is how `pkgd` and `init`
+        /// know an administrator approved it.
+        kind: String = 17,
+        /// The tool is the user's shell (`[app] shell = true`,
+        /// `docs/devtool-packages-plan.md` "T-later: Terminal"): a program
+        /// run under its label acts as the session's owner towards `pkgd`
+        /// and `init`, as an unlabelled program would. Only a core package
+        /// (`origin` core) is ever recorded with it; `false` for every
+        /// application and every other tool. Readers go through
+        /// `pkgstore::shellrole::row_is_shell`, never this field alone.
+        shell: Bool = 18
     }
 
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`

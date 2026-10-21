@@ -279,6 +279,7 @@ mod tests {
             restarts: 1,
             deps: "logd".into(),
             health: health.into(),
+            label: 0,
         }
     }
 

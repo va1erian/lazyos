@@ -12,6 +12,7 @@
 //! |---|---|---|
 //! | `pkg.install` | path | `pkgd` `InstallApproved`, never over a core app |
 //! | `pkg.update-core` | path | `pkgd` `InstallApproved` replacing a core app |
+//! | `pkg.install-devtool` | path | `pkgd` `InstallApproved` of a developer-tool package, over a core app only if that is a developer tool too |
 //! | `pkg.remove` | system name | `pkgd` `Remove` |
 //! | `conf.set` | path, kind, value | `confd` `Set` (`sys/**`, any user's keys) |
 //! | `conf.delete` | path | `confd` `Delete` |
@@ -34,7 +35,9 @@
 //! caller (uid, label and session, [`approvals`]) may read every key
 //! (`conf.list`, `conf.get`) for [`APPROVAL_TICKS`] without a prompt per row.
 //! A read changes nothing, and every user's private keys stay behind that one
-//! approval.
+//! approval. It never stands for a label many programs share: not an
+//! unlabelled caller, and not a developer tool's `tool:` label, which every
+//! script the tool runs inherits ([`approvals::LabelKind`]).
 //!
 //! The prompt is never free to raise: [`backoff`] holds back a caller whose
 //! prompts were cancelled or timed out, [`queue`] gives each caller one
@@ -67,6 +70,8 @@ pub mod approvals;
 mod args;
 pub mod audit;
 pub mod backoff;
+#[cfg(test)]
+mod devtool_tests;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod package;
@@ -136,6 +141,12 @@ pub enum Operation {
         path: String,
     },
     PkgUpdateCore {
+        path: String,
+    },
+    /// A package of the developer-tool class (`docs/devtool-packages-plan.md`
+    /// section 4): the prompt leads with [`devtool::CONSENT_TEXT`], and the
+    /// plain `pkg.install` refuses such a package.
+    PkgInstallDevtool {
         path: String,
     },
     PkgRemove {
@@ -219,6 +230,7 @@ pub enum Class {
 pub const NAMES: &[&str] = &[
     "pkg.install",
     "pkg.update-core",
+    "pkg.install-devtool",
     "pkg.remove",
     "conf.set",
     "conf.delete",
@@ -251,13 +263,13 @@ impl Operation {
             }
         };
         let op = match operation {
-            "pkg.install" | "pkg.update-core" => {
+            "pkg.install" | "pkg.update-core" | "pkg.install-devtool" => {
                 want(1)?;
                 let path = package_path(arg(0).unwrap_or(""))?;
-                if operation == "pkg.install" {
-                    Operation::PkgInstall { path }
-                } else {
-                    Operation::PkgUpdateCore { path }
+                match operation {
+                    "pkg.install" => Operation::PkgInstall { path },
+                    "pkg.update-core" => Operation::PkgUpdateCore { path },
+                    _ => Operation::PkgInstallDevtool { path },
                 }
             }
             "pkg.remove" => {
@@ -437,21 +449,22 @@ impl Operation {
         match self {
             Operation::PkgInstall { .. } => 0,
             Operation::PkgUpdateCore { .. } => 1,
-            Operation::PkgRemove { .. } => 2,
-            Operation::ConfSet { .. } => 3,
-            Operation::ConfDelete { .. } => 4,
-            Operation::ConfList { .. } => 5,
-            Operation::ConfGet { .. } => 6,
-            Operation::ConfElevate => 7,
-            Operation::TimeSet { .. } => 8,
-            Operation::AccountCreate { .. } => 9,
-            Operation::AccountDelete { .. } => 10,
-            Operation::AccountAdmin { .. } => 11,
-            Operation::AccountPassword { .. } => 12,
-            Operation::PowerPolicy { .. } => 13,
-            Operation::NetConfig { .. } => 14,
-            Operation::ServiceRestart { .. } => 15,
-            Operation::WifiSystem(_) => 16,
+            Operation::PkgInstallDevtool { .. } => 2,
+            Operation::PkgRemove { .. } => 3,
+            Operation::ConfSet { .. } => 4,
+            Operation::ConfDelete { .. } => 5,
+            Operation::ConfList { .. } => 6,
+            Operation::ConfGet { .. } => 7,
+            Operation::ConfElevate => 8,
+            Operation::TimeSet { .. } => 9,
+            Operation::AccountCreate { .. } => 10,
+            Operation::AccountDelete { .. } => 11,
+            Operation::AccountAdmin { .. } => 12,
+            Operation::AccountPassword { .. } => 13,
+            Operation::PowerPolicy { .. } => 14,
+            Operation::NetConfig { .. } => 15,
+            Operation::ServiceRestart { .. } => 16,
+            Operation::WifiSystem(_) => 17,
         }
     }
 

@@ -141,6 +141,9 @@ pub fn short_of(stem: &str) -> &str {
 /// by `lazyrad_embed`): whether `stem`'s app ships as a package, built or not.
 pub fn is_core_stem(stem: &str) -> bool {
     const CORE: &[&str] = &[
+        // The Terminal, a developer tool that is the user's shell; every desktop
+        // image ships it (`devtools_embed`, `always`).
+        "terminal",
         "sysmon",
         "fabricmon",
         "widget",
@@ -194,6 +197,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         // NES: Play NES game ROMs, with sound; only `LAZYOS_GAMES=1` images
         // ship it (`xui_embed`).
         "nes",
+        // Messenger Playground, a developer tool; only `LAZYOS_DEVTOOLS=1` images ship it
+        // (`devtools_embed`).
+        "playground",
     ];
     CORE.contains(&short_of(stem))
 }

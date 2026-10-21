@@ -196,7 +196,7 @@ mod tests {
             "the launchers keep their places; the order file is hidden"
         );
         assert_eq!(items[0].app(), Some("os.lazy.files"));
-        assert_eq!(items[1].kind, Kind::App("terminal".into()));
+        assert_eq!(items[1].kind, Kind::App("os.lazy.terminal".into()));
     }
 
     #[test]

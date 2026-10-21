@@ -17,12 +17,13 @@ pub mod grid;
 /// The confd key, under `sys/ui/` like the theme and the menu.
 pub const KEY: &str = "sys/ui/desktop";
 
-/// The built-in launchers: core packages by `system_name` (issue #509), and
-/// the built-in Terminal.
+/// The built-in launchers: core packages by `system_name` (issue #509), the
+/// Terminal's `os.lazy.terminal` included (a saved desktop that says
+/// `terminal` still launches it: `init` answers a bare core id).
 pub fn defaults() -> Vec<Entry> {
     const ITEMS: [(&str, &str); 6] = [
         ("os.lazy.files", "Files"),
-        ("terminal", "Terminal"),
+        ("os.lazy.terminal", "Terminal"),
         ("os.lazy.editor", "Editor"),
         ("os.lazy.settings", "Settings"),
         ("os.lazy.sysmon", "System Monitor"),
@@ -56,7 +57,7 @@ mod tests {
             apps,
             [
                 "os.lazy.files",
-                "terminal",
+                "os.lazy.terminal",
                 "os.lazy.editor",
                 "os.lazy.settings",
                 "os.lazy.sysmon",

@@ -245,6 +245,14 @@ The wire stays in physical pixels. Code laid out in pixel constants uses
 `xui_app::hidpi` (`design_bounds`, `rect`, `design_rect`). Plan and status:
 [`docs/hidpi-plan.md`](docs/hidpi-plan.md).
 
+**Hi-res** is the same 2560x1440 screen at scale 1, a roomy desktop whose text
+and widgets keep their normal pixel size: `python tools/run_demo.py --desktop
+--hires` (GUI: *Hi-res* on the Simple tab, excluding *HiDPI*; *Display scale*
+on the Advanced tab; `--hires` = `--display-mode 2560x1440 --display-scale 1`).
+`LAZYOS_DISPLAY_SCALE` writes `display.scale=` to `lazyos.cfg`, which sets the
+boot console's scale and is `xuid`'s default for `sys/ui/scale` when that key is
+unset (`UiScale::from_cfg`); a set key wins.
+
 The mouse pointer is an antialiased vector sprite (`libs/cursorgfx`) drawn at
 `sys/ui/cursor/size` x the scale, with shapes (arrow, busy, I-beam, hand, four
 resize arrows) that the compositor picks over window borders and apps set with
@@ -256,6 +264,7 @@ manifest); see [`docs/cursor-plan.md`](docs/cursor-plan.md). Sessions:
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json
 python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expect-height 1440
+python tools/run_demo.py --desktop --hires   # 2560x1440 at 1x; session: hires_apps.json (serial: XUID:SCALE:1 setting=1 screen=2560x1440)
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 ```
 
@@ -264,7 +273,17 @@ LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 The desktop Terminal is `xui-app/src/bin/term.rs` and `term/` over the portable
 engine `xui-app/crates/term` (`lazyterm`: parser, grid, scrollback with reflow,
 selection, search, URL matching, settings); plan and as-built notes in
-[`docs/terminal-plan.md`](docs/terminal-plan.md). Settings are `confd` keys
+[`docs/terminal-plan.md`](docs/terminal-plan.md). It ships as the **core
+package `os.lazy.terminal`** in every desktop image: a developer tool
+(`kind = "developer-tool"`) that is **the user's shell** (`shell = true`), so
+its shell and every command typed in it run under `tool:os.lazy.terminal`
+(default-allow Messenger rules minus `devtool::DENY`) while `pkgd` and `init`
+treat them as the session's owner (`pkgctl`, `powerctl`; recorded in the
+app's row, core packages only: `pkgstore::shellrole`). Nothing else gets
+that; the Playground stays refused. Its app id is `os.lazy.terminal` (the
+bare `terminal` still launches it): a session waits for `INIT:AUTOSTART:PASS
+app=os.lazy.terminal`. The proof session is `term_devtool.json`
+(`docs/devtool-packages-plan.md` section 10). Settings are `confd` keys
 under `user/<uid>/term/*`, changed live from Preferences (`Ctrl+,`). Menu,
 find bar, close prompt and Preferences are drawn in the window (probe names
 `menu:<item>`, `find:*`, `prefs:*`). Sessions: `term_xterm.json`,
@@ -861,6 +880,43 @@ The offscreen window tests write `xui-app/target/snapshots/lazysky-*.png`:
 Read them. Serial markers are `SKY:*` (listed in `docs/lazysky.md`); a
 password or token must never appear in any log.
 
+## Developer tools and the Messenger Playground (`LAZYOS_DEVTOOLS=1`)
+
+A **developer tool** is a package with `[app] kind = "developer-tool"`: an app
+whose calls are chosen at run time by the user or a script, so no manifest can
+list them. It runs under the label `tool:<system_name>`, whose Messenger rules
+are default allow minus `devtool::DENY` (credentials unless the tool is the
+user's shell, sockets unless `network` is declared, the dev-spawn scope unless
+`develop`), its children keep
+the label, and `xui_app::devtool` gives every tool the same title suffix,
+strip (dismissible, remembered per user and tool), risk table and review gate. It is installed only by the
+image build or by an administrator through `elevd`'s `pkg.install-devtool`.
+Design and as-built notes: [`docs/devtool-packages-plan.md`](docs/devtool-packages-plan.md).
+One switch ships every optional tool: `python tools/run_demo.py --devtools` (the
+launcher's *Developer tools*; `full` suite). A tool with `always` in
+`build_support/devtools_embed.rs` ships in every desktop image without it: the
+Terminal, which is also the only tool with `shell = true` (a recorded property
+that makes `pkgd` and `init` treat what runs under its label as the session's
+owner; only the image's own packages can have it,
+[`docs/devtool-packages-plan.md`](docs/devtool-packages-plan.md) section 10).
+
+The Messenger Playground (`os.lazy.playground`, `xui-app/src/bin/playground*`,
+portable core `xui-app/crates/playground`, examples in
+`xui-app/packages/playground/examples/`) is the first tool: browse every
+interface and topic, listen with a doorbell subscription
+(`xui_app::fabric::Subscriber`, never polled on a timer: the broker never frees
+its receive buffers), and run Rhai through a child `rhai`; see
+[`docs/messenger-playground-plan.md`](docs/messenger-playground-plan.md).
+
+```bash
+python tools/run_demo.py --devtools
+python tools/playground/run.py          # build, boot, six sessions, judge (LABEL:DENY, markers, screenshots)
+python tools/playground/test_judge.py   # the judge fails when it should
+cargo test --manifest-path xui-app/Cargo.toml -p xui-playground        # the portable core
+LAZYOS_TEST_FILTER=label_tool python tools/test/run.py --accel none    # the kernel's `tool:` label
+python tools/devtool/check_interfaces.py                                # every interface classified for tools
+```
+
 ## Rhai scripting (`rhai` command and `msg` module)
 
 `rhai` (`rhai-host/`, bindings in `libs/rhai-lazy/`) is a static-musl command
@@ -892,8 +948,9 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 ## Packages and the label-policy trace
 
-Every desktop app except the Terminal, Devices, the Installer and LazyShell
-(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+Every desktop app except Devices, the Installer and LazyShell
+(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included, and the Terminal, a
+developer tool that is the user's shell) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
 `pkgd` installs it into `/apps` at boot and the kernel confines it to the
 permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
 debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
@@ -1842,6 +1899,12 @@ regressions, not kernel-internal correctness or resource leaks.
   editors, Paint, browsers, a custom painter, heavy data or threads; a Rust
   app starts from `tools/xui/new_app.py` (above). Verification goes headless
   first (offscreen renders and host tests), QEMU sessions last.
+- **A new interface that carries secrets or authority is added to
+  `devtool::DENY`** (`libs/devtool`): developer tools (`kind = "developer-tool"`,
+  `docs/devtool-packages-plan.md`) are default allow minus that list. Any other
+  new interface goes in `tools/devtool/reviewed_interfaces.txt` after deciding
+  a script the user runs may call it; `python tools/devtool/check_interfaces.py`
+  (a CI step) fails until every interface in `idl/` is in one of the two.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

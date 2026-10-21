@@ -1,0 +1,153 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "browse_initial"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "store_dir"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "browse_search"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "tree_row:1"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:OPEN:os.lazy.confd.v1",
+  "timeout": 60
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "browse_method_doc"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:insert_call"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:serve"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "browse_inserted"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "2"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 2.5
+ },
+ {
+  "shot": "browse_live"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "3"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "browse_topics"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "4"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "browse_gallery"
+ },
+ {
+  "key": "f1"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "browse_help"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

@@ -34,6 +34,14 @@ impl Operation {
             Operation::PkgUpdateCore { path } => {
                 format!("Replace a core app with {}", path_text(path))
             }
+            // Only until `elevd` has inspected the file: the prompt shows
+            // `package::tool_summary`.
+            Operation::PkgInstallDevtool { path } => {
+                format!(
+                    "Install the developer tool {} for all users",
+                    path_text(path)
+                )
+            }
             Operation::PkgRemove { system_name } => {
                 format!("Remove the app {}", elide(system_name, PATH_SHOWN))
             }

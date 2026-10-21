@@ -2,8 +2,7 @@
 //! crate into the BIOS part of the disk image (MBR, stage 2, the FAT `/boot`
 //! with the kernel and `lazyos.cfg`), put everything else on an ext2 OS volume
 //! written by `libs/ext2fs`, and expose the image path to the runner
-//! (`src/main.rs`). A rebuild updates an existing image in place
-//! (`build_support/os_image.rs`).
+//! (`src/main.rs`). A rebuild updates an existing image in place (`build_support/os_image.rs`).
 
 use std::path::PathBuf;
 
@@ -17,6 +16,8 @@ mod busybox_embed;
 mod ca_bundle;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
+#[path = "build_support/devtools_embed.rs"]
+mod devtools_embed;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]

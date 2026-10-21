@@ -41,6 +41,9 @@ members = [
     "crates/term",
     # The Calculator's engine and window (host-tested); `src/bin/calc.rs` runs it.
     "crates/calc",
+    # The Messenger Playground's portable core (docs/messenger-playground-plan.md);
+    # `src/bin/playground.rs` hosts it.
+    "crates/playground",
     # LazyGolf's generator, renderer and window; `src/bin/golf.rs` runs it.
     "crates/golf",
     # About LazyOS: a software 3D renderer and its window; `src/bin/about.rs` runs it.
@@ -131,6 +134,14 @@ devinspect = { path = "../libs/devinspect" }
 mounttable = { path = "../libs/mounttable" }
 # `init`'s launch rules: the `--background` start of a resident app (#928).
 svcpolicy = { path = "../libs/svcpolicy" }
+# The developer-tool package class (docs/devtool-packages-plan.md): the strip,
+# title, risk and consent texts every tool shows.
+devtool = { path = "../libs/devtool" }
+# The Messenger Playground's portable core.
+xui-playground = { path = "crates/playground" }
+# The interface table types the window names (`schema::Interface`, ...); the
+# same crate and features as `xui-playground` uses.
+rhai-lazy = { path = "../libs/rhai-lazy" }
 # The client half of the pipelined `Present` (issue #372): the same pure slot
 # state machine `xdemo` and the kernel display suite drive.
 surfbuf = { path = "../libs/surfbuf" }
@@ -139,7 +150,7 @@ surfbuf = { path = "../libs/surfbuf" }
 # the host; the `xui-editor`/`xui-paint`/`xui-files` binaries in `src/bin`
 # supply the LazyOS platform (filesystem, launcher, storage, clipboard) and
 # drive them.
-xui-code-editor = { path = "crates/code-editor" }
+xui-code-editor = { path = "crates/code-editor", features = ["rhai-syntax"] }
 # The `text` feature is the Text tool's rasterizer (cosmic-text + swash, the
 # stack the software backend draws UI text with).
 xui-paint = { path = "crates/paint", features = ["text"] }
@@ -426,6 +437,12 @@ path = "src/bin/removable.rs"
 [[bin]]
 name = "xui-nes"
 path = "src/bin/nes.rs"
+
+# The Messenger Playground, a developer tool (docs/messenger-playground-plan.md;
+# shipped only by `LAZYOS_DEVTOOLS=1` images).
+[[bin]]
+name = "xui-playground"
+path = "src/bin/playground.rs"
 
 [[bin]]
 name = "xui-webddemo"

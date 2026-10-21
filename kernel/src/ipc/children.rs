@@ -34,6 +34,11 @@
 //!   with it. A task that still holds the label then has no rules and is denied
 //!   everything.
 //!
+//! Only an `app:<id>` label has children: `tool:<id>/<name>` is not a label
+//! ([`super::labels::parse`]), no label has a developer tool as its
+//! [`parent`](super::labels::parent_of), and [`label_for_exec`] therefore never
+//! finds a binding for a tool task. A tool's children keep the tool's label.
+//!
 //! The bindings are a bounded table; the child-to-app link is the label's own
 //! (`labels::parent_of`), so there is nothing here to keep consistent with it.
 

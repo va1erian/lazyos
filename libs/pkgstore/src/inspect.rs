@@ -51,10 +51,15 @@ pub fn assess(bytes: &[u8]) -> Result<Assessed<'_>, Box<PackageInfo>> {
     let manifest = package.manifest();
     let mut problems = Vec::new();
     let permissions = explain::permissions(manifest);
-    if permissions.len() > MAX_PERMISSIONS {
+    // The rows that describe a developer tool's class are fixed text, not
+    // requests, so they do not count against the cap.
+    let requested = permissions
+        .iter()
+        .filter(|row| !explain::tool::is_class_row(row))
+        .count();
+    if requested > MAX_PERMISSIONS {
         problems.push(format!(
-            "the package requests {} permissions; at most {MAX_PERMISSIONS} are allowed",
-            permissions.len()
+            "the package requests {requested} permissions; at most {MAX_PERMISSIONS} are allowed"
         ));
     }
     // What `pkgd` will load: the app's rules, then each process table's, so a
