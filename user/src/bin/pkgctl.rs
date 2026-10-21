@@ -10,6 +10,11 @@
 //! pkgctl develop <path>      the development consent (issue #529), through mimed
 //! ```
 //!
+//! `list` ends a developer tool's line with `developer-tool` and `inspect`
+//! prints its class (`docs/devtool-packages-plan.md`); a tool is installed only
+//! after an administrator approved it, so a plain `install` of one is refused
+//! by `pkgd` with the reason.
+//!
 //! A thin client: all checks (who may install, which files may be read, whether
 //! the package is valid) are `pkgd`'s, so this prints its friendly refusals
 //! as they come. Exit status 0 on success, 1 otherwise.
@@ -157,8 +162,13 @@ fn show_installed(app: &Installed) {
     } else {
         "user"
     };
+    let kind = if pkgstore::toolgate::is_tool_kind(&app.kind) {
+        " developer-tool"
+    } else {
+        ""
+    };
     say(&format!(
-        "  {} {} ({}) {} {origin}",
+        "  {} {} ({}) {} {origin}{kind}",
         app.system_name, app.version, app.name, app.install_dir
     ));
 }
@@ -172,6 +182,13 @@ fn show_info(info: &PackageInfo) {
             info.system_name, info.version, info.install_dir
         ));
         say(&format!("  {} by {}", info.name, info.author));
+        // The class row the consent screen opens with (`pkgstore::explain::tool`).
+        if info.permissions.iter().any(|permission| {
+            permission.kind == pkgstore::explain::tool::KIND_ROW
+                && permission.value == pkgstore::toolgate::KIND
+        }) {
+            say(&format!("  kind: {}", pkgstore::toolgate::KIND));
+        }
         if !info.description.is_empty() {
             say(&format!("  {}", info.description));
         }

@@ -14,7 +14,7 @@ import shutil
 import sys
 
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
-from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
+from .display import HIDPI_MODE, HIRES_SCALE, check_mode, check_scale, display_env  # noqa: F401 (re-exported)
 from . import osvolume
 from .limits import LIMIT_KEYS, cfg_limit_env, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
@@ -75,7 +75,7 @@ MODES = [
 
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes", "playground"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -102,7 +102,8 @@ def check_limits(cfg: dict) -> None:
     skipped = cfg.get("skip_build") and cfg["mode"] in SKIP_BUILD_MODES
     if limit_env(cfg.get("limits", "")) and skipped:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
-    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))) and skipped:
+    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))
+            or check_scale(cfg.get("display_scale", ""))) and skipped:
         raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
     needs_build(cfg.get("assets", ""), skipped)
 
@@ -231,7 +232,8 @@ def build_env(cfg: dict) -> dict[str, str]:
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(cfg_limit_env(cfg))  # the browser's quota too (`limits.WEBKIT_LIMITS`)
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
-    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
+    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", ""),
+                           cfg.get("display_scale", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
         # dash, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
@@ -377,6 +379,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
+        if check_scale(cfg.get("display_scale", "")) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DISPLAY_SCALE (`display.scale`; 1 on 2560x1440 is hi-res).
+            argv += ["--display-scale", check_scale(cfg["display_scale"])]
         if check_mode(cfg.get("display_max", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MAX (`display.max`, issue #717).
             argv += ["--display-max", check_mode(cfg["display_max"])]

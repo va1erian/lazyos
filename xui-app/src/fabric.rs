@@ -16,8 +16,13 @@ mod broker;
 mod error;
 mod registry;
 mod stats;
+mod subscribe;
 
 pub use broker::{Broker, TopicRow, Topics, TOPICS_NAME};
 pub use error::errno_text;
 pub use registry::{registry, RegistryEntry};
 pub use stats::{fabric_stats, FabricStats, TaskUsage, FABRIC_TASKS};
+pub use subscribe::{
+    Drained, Errno, Qos, RawEvent, Rung, SubId, SubStats, Subscriber, SysTransport, Transport,
+    Wait, MAX_BELL_MESSAGES, MAX_DRAIN,
+};

@@ -132,6 +132,7 @@ mod tests {
             wants_tab: false,
             popup: false,
             clip: None,
+            kind: xui_core::backend::NodeKind::Container,
             text: String::new(),
             painter: None,
         }

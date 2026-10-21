@@ -17,6 +17,8 @@ mod busybox_embed;
 mod ca_bundle;
 #[path = "build_support/core_packages.rs"]
 mod core_packages;
+#[path = "build_support/devtools_embed.rs"]
+mod devtools_embed;
 #[path = "build_support/docs_embed.rs"]
 mod docs_embed;
 #[path = "build_support/doom_embed.rs"]

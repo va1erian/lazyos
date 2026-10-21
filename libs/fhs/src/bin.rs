@@ -90,8 +90,6 @@ programs! {
     SHELLPROBE = "shellprobe";
     /// The hello demo window.
     HELLO = "hello";
-    /// The Terminal xui app.
-    TERMINAL = "terminal";
     /// The Devices xui app (issue #481).
     DEVICES = "devices";
     /// The Package Installer xui app.

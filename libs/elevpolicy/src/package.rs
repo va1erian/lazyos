@@ -9,6 +9,14 @@
 //! the package, so every field is escaped and bounded ([`crate::text`]),
 //! and the whole fits [`crate::MAX_SUMMARY`].
 //!
+//! A developer-tool package (`pkg.install-devtool`) is asked about with
+//! [`tool_summary`], which leads with [`devtool::CONSENT_TEXT`], the one text
+//! that says what a tool can do. The prompt has room for [`crate::MAX_SUMMARY`]
+//! characters, so what follows the warning is the identity of the package
+//! and that it is installed for all users, then its author (unverified) when
+//! there is room; its permissions are on the Installer's consent screen, and
+//! a tool's permissions are the class's, not its own.
+//!
 //! `pkgd` reported the archive's SHA-256 with the inspection; `elevd` hands
 //! it back with the install (`InstallApproved`), and `pkgd` installs only
 //! bytes with that digest, so the file cannot be swapped between the
@@ -61,6 +69,48 @@ pub fn summary(facts: &Facts) -> String {
         "{what}; author \"{author}\" (unverified); {}",
         permissions(&facts.permissions)
     )
+}
+
+/// What a tool's package may take of the characters after the warning:
+/// the app's name, its version and its `system_name`. Together with the
+/// warning, the fixed words of the install line and its full stop they fill
+/// [`crate::MAX_SUMMARY`] exactly, so the install line never needs the
+/// warning trimmed.
+const TOOL_NAME_SHOWN: usize = 22;
+const TOOL_VERSION_SHOWN: usize = 8;
+const TOOL_SYSTEM_SHOWN: usize = 22;
+/// `; author "` and `".` around the author's name.
+const AUTHOR_FRAME: usize = 12;
+/// The shortest author name worth showing (an ellipsis alone says nothing).
+const AUTHOR_MIN: usize = 8;
+
+/// The prompt's summary of installing a developer tool: the warning first,
+/// then which package (`Update` for a core developer tool it replaces, else
+/// `Install`), and that it is installed for all users (the stored row
+/// is machine-wide, and its autostart opens in every session). The author
+/// (unverified) follows when it still fits; the warning is never trimmed.
+/// At most [`crate::MAX_SUMMARY`] characters.
+pub fn tool_summary(facts: &Facts) -> String {
+    // An update of a core developer tool (`replaces`) says so in one word.
+    let verb = if facts.replaces.is_some() {
+        "Update"
+    } else {
+        "Install"
+    };
+    let line = format!(
+        "{} {verb} \"{}\" {} ({}) for all users",
+        devtool::CONSENT_TEXT,
+        elide(&facts.name, TOOL_NAME_SHOWN),
+        elide(&facts.version, TOOL_VERSION_SHOWN),
+        elide(&facts.system_name, TOOL_SYSTEM_SHOWN)
+    );
+    // One more character is the full stop that ends the line without an author.
+    let room = crate::MAX_SUMMARY.saturating_sub(line.chars().count());
+    if room >= AUTHOR_FRAME + AUTHOR_MIN && !facts.author.is_empty() {
+        let author = elide(&facts.author, room - AUTHOR_FRAME);
+        return format!("{line}; author \"{author}\".");
+    }
+    format!("{line}.")
 }
 
 /// The permissions grouped by risk, the riskiest first: up to three high

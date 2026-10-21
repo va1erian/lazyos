@@ -151,8 +151,11 @@ impl Screen {
 pub enum Request {
     /// Inspect `path`.
     Inspect(String),
-    /// Install `path`.
+    /// Install `path` through `pkgd` (a core-app update falls back to `elevd`).
     Install(String),
+    /// Install the developer tool at `path` through `elevd`'s
+    /// `pkg.install-devtool`, where an administrator approves it.
+    InstallTool(String),
     /// Remove `system_name`.
     Remove(String),
 }
@@ -317,7 +320,11 @@ impl Model {
     pub fn install_started(&mut self) {
         let path = self.inspected_path.clone().unwrap_or_default();
         self.banner = None;
-        self.pending = Some(Request::Install(path));
+        self.pending = Some(if self.inspected_is_tool() {
+            Request::InstallTool(path)
+        } else {
+            Request::Install(path)
+        });
         self.screen = Screen::Installing;
     }
 
@@ -381,7 +388,7 @@ impl Model {
     /// permissions: that it updates a built-in app, and that it starts when
     /// the user logs in (honoured only because the user consents here).
     pub fn consent_notes(&self) -> Vec<String> {
-        let mut notes = Vec::new();
+        let mut notes = self.tool_notes();
         if let Some(app) = self.updates_core() {
             notes.push(format!("Updates built-in app {}", clean(&app.name)));
         }

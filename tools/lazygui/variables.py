@@ -32,6 +32,7 @@ def make_vars() -> dict:
         "limits": s(value=""),
         "display_mode": s(value=""),
         "display_max": s(value=""),
+        "display_scale": s(value=""),  # LAZYOS_DISPLAY_SCALE: "", auto, 1 or 2
         # run_demo --sample-port: a QMP socket for tools/webplus/sample.py (#861).
         "sample_port": s(value=""),
         "assets": s(value=""),
@@ -151,12 +152,16 @@ def make_vars() -> dict:
         "traydemo": b(value=False),
         # LazyGolf and the NES Player (LAZYOS_GAMES, run_demo --games; desktop only).
         "games": b(value=False),
+        # The developer tools, today the Messenger Playground (LAZYOS_DEVTOOLS, run_demo --devtools;
+        # desktop only; builds rhai).
+        "devtools": b(value=False),
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
         "simple_usb_image": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),
+        "simple_hires": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         # The Simple tab's feature groups (`simplecfg.SIMPLE_GROUPS`).
         **{f"simple_group_{key}": b(value=False) for key, *_ in SIMPLE_GROUPS},

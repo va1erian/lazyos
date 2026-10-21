@@ -151,8 +151,10 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   caller, icon) and launches them from there, `autostart` ones at login, with
   the manifest's `argv` (`[PATH, --client, ...]`) under the Linux personality
   (`spawnv`, `kernel/src/process/spawnv.rs`) and their `app:<system_name>`
-  label. The Terminal, Devices, the Installer and LazyShell stay unlabelled
-  programs in `/system/bin`; the LazyRAD IDE is a core package too
+  label. Devices, the Installer and LazyShell stay unlabelled
+  programs in `/system/bin`, and the Terminal is a core package of its own class
+  (`os.lazy.terminal`, a developer tool that is the user's shell, label
+  `tool:os.lazy.terminal`, `docs/devtool-packages-plan.md` section 10); the LazyRAD IDE is a core package too
   (`os.lazy.lazyrad`, `LAZYOS_LAZYRAD=1` images). `LAZYOS_XUI_APPS` narrows which apps are built in.
   The whole recipe is the single
   `LAZYOS_DESKTOP=1` switch (issue #217), which also drops the demo/evidence

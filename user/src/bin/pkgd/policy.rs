@@ -9,6 +9,11 @@
 //! at once, so a policy swap on upgrade is atomic and revoking is loading an
 //! empty list.
 //!
+//! A developer tool (`[app] kind = "developer-tool"`) is loaded the same way
+//! under its own label, `tool:<system_name>` (`rules::label_of`), with the
+//! tool rules `rules::installed` compiles for it; every revoke names the same
+//! label, from the manifest or from the row's recorded kind.
+//!
 //! An app that declares `[processes.<name>]` tables also gets one child label
 //! each (`app:<system_name>/<name>`, issue #832): loaded after the app's own
 //! label, which the kernel requires, and with the program that enters it. The
@@ -20,6 +25,7 @@ use alloc::vec::Vec;
 
 use lazypkg::Manifest;
 use pkgstore::rules::{self, CompileError};
+use user::messenger::pkgd::Installed;
 use user::messenger::policy;
 use user::messenger::{Error, Result};
 
@@ -54,7 +60,8 @@ pub(crate) struct Loaded {
 }
 
 /// Compile `manifest`'s permissions (plus the baseline, `rules::installed`)
-/// and load them as the policy of `app:<system_name>`, then each of its
+/// and load them as the policy of its label (`rules::label_of`:
+/// `app:<system_name>`, or `tool:<system_name>` for a developer tool), then each of its
 /// declared child labels. Everything is compiled before anything is loaded;
 /// if a child is refused, the app's own label is revoked again too (which
 /// takes the children with it): an app whose helpers could not be confined
@@ -62,8 +69,8 @@ pub(crate) struct Loaded {
 pub(crate) fn load(manifest: &Manifest) -> core::result::Result<Loaded, LoadError> {
     let app_rules = rules::installed(manifest).map_err(LoadError::Compile)?;
     let children = rules::children(manifest).map_err(LoadError::Compile)?;
-    let app = policy::load_label(&rules::label(&manifest.app.system_name), &app_rules)
-        .map_err(LoadError::Kernel)?;
+    let app =
+        policy::load_label(&rules::label_of(manifest), &app_rules).map_err(LoadError::Kernel)?;
     let mut loaded = Loaded {
         rules: app,
         children: Vec::with_capacity(children.len()),
@@ -75,7 +82,7 @@ pub(crate) fn load(manifest: &Manifest) -> core::result::Result<Loaded, LoadErro
                 .push((child.label.clone(), count, child.program.clone())),
             Err(error) => {
                 // Fail closed: the kernel drops the children with the app.
-                let _ = revoke(&manifest.app.system_name);
+                let _ = revoke(manifest);
                 return Err(LoadError::Kernel(error));
             }
         }
@@ -83,12 +90,18 @@ pub(crate) fn load(manifest: &Manifest) -> core::result::Result<Loaded, LoadErro
     Ok(loaded)
 }
 
-/// Withdraw every grant of `system_name`: an empty rule list. The label stays
-/// interned (the table is append-only) but a task still running under it is
-/// denied everything from this moment on. The kernel revokes the app's child
-/// labels with it.
-pub(crate) fn revoke(system_name: &str) -> Result<u64> {
-    revoke_label(&rules::label(system_name))
+/// Withdraw every grant of the app `manifest` describes: an empty rule list
+/// for its label. The label stays interned (the table is append-only) but a
+/// task still running under it is denied everything from this moment on. The
+/// kernel revokes the app's child labels with it.
+pub(crate) fn revoke(manifest: &Manifest) -> Result<u64> {
+    revoke_label(&rules::label_of(manifest))
+}
+
+/// [`revoke`] for an installed row, whose manifest may be unreadable: the
+/// label its recorded kind names.
+pub(crate) fn revoke_row(row: &Installed) -> Result<u64> {
+    revoke_label(&rules::label_for_kind(&row.system_name, &row.kind))
 }
 
 /// Revoke one label by name: an app label, or a child label (no rules, no

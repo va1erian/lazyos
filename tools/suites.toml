@@ -31,6 +31,8 @@ flags = [
     "lazyweb", "webkit", "lazywebplus", "big-app", "mail", "lazysky",
     # Games and the installable game and music packages.
     "games", "doom", "quake", "emusic",
+    # Developer tools (the Messenger Playground); the switch needs the desktop and `rhai`.
+    "devtools",
     # Real Linux programs.
     "linuxapps",
 ]
@@ -49,7 +51,7 @@ flags = ["srb2kart"]
 description = "Switches for tests, harnesses and development only."
 flags = [
     "jsc", "webkit-deps", "webkit-port",
-    "traydemo", "wifi", "wifi-sim", "gen9gfx",
+    "traydemo", "wifi", "wifi-sim", "intelgfx",
     "dbgd", "dbgd-control", "dbgd-mmio",
     "assets",
 ]

@@ -91,25 +91,29 @@ impl ThemeFeed {
     }
 
     /// Decide the UI scale for this compositor's lifetime (docs/hidpi-plan.md):
-    /// `sys/ui/scale` when `confd` already answers, else `auto`, resolved
-    /// against a `width x height` screen. One attempt only: the scale must be
-    /// fixed before the first client asks for it, and a late `confd` simply
-    /// leaves the automatic choice. The client stays held for the feed.
+    /// `sys/ui/scale` when `confd` already answers with one, else the image's
+    /// default (`display.scale=` in `/boot/lazyos.cfg`, `LAZYOS_DISPLAY_SCALE`;
+    /// `1` on a 2560x1440 screen is the roomy hi-res desktop), else `auto`,
+    /// resolved against a `width x height` screen. One attempt only: the scale
+    /// must be fixed before the first client asks for it, and a late `confd`
+    /// simply leaves the default. The client stays held for the feed.
     pub(super) fn decide_scale(&mut self, width: u32, height: u32) -> u32 {
         if self.client.is_none() {
             self.client = Client::connect().ok();
         }
-        let setting = match &self.client {
+        let stored = match &self.client {
             Some(client) => match client.get(uitheme::KEY_SCALE) {
-                Ok(value) => uitheme::UiScale::from_value(value.as_ref()),
-                Err(_) => uitheme::UiScale::Auto,
+                Ok(Some(value)) => Some(uitheme::UiScale::from_value(Some(&value))),
+                _ => None,
             },
-            None => uitheme::UiScale::Auto,
+            None => None,
         };
+        let setting = stored.or_else(boot_default_scale).unwrap_or_default();
         let scale = setting.resolve(width, height);
         theme::set_scale(scale);
         sys::write_str(&alloc::format!(
-            "XUID:SCALE:{scale} setting={} screen={width}x{height}\n",
+            "XUID:SCALE:{scale} setting={} screen={width}x{height}
+",
             setting.as_str()
         ));
         scale
@@ -286,4 +290,12 @@ pub(super) fn drain(watch: &mut Option<Subscription>, buffer: &mut [u8]) -> bool
         }
     }
     any
+}
+
+/// The image's default scale: the `display.scale=` line of `lazyos.cfg`.
+fn boot_default_scale() -> Option<uitheme::UiScale> {
+    /// Longest config read (the kernel accepts 4096 bytes).
+    const CFG_LIMIT: usize = 4096;
+    let bytes = user::files::read_up_to(fhs::boot::LAZYOS_CFG_PATH, CFG_LIMIT).ok()?;
+    uitheme::UiScale::from_cfg(core::str::from_utf8(&bytes).ok()?)
 }

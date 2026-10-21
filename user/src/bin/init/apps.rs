@@ -10,13 +10,19 @@
 //!   ([`AppSpec::system_uid`]), so only `CAP_SETUID` holders may start it;
 //! * the Installer, `pkgd`'s trusted UI, which a labelled app may never be
 //!   (`pkgstore::access` refuses every labelled caller);
-//! * the Terminal: its shell and every command typed in it are its children,
-//!   and a child inherits its parent's label, so a packaged Terminal would run
-//!   `pkgctl`, `powerctl` and `messengerctl` sandboxed as an app;
 //! * Devices, which reads the kernel's device inspection calls
 //!   (`os.kernel.dev`), something no package permission can name;
 //! * the console programs (`top`, `messengerctl`, BusyBox `sh`) and the
 //!   `runner` placeholder `mimed` names for `application/x-elf`.
+//!
+//! The Terminal is not here either: it is the core package `os.lazy.terminal`, a
+//! developer tool with `shell = true`. Its shell and every command typed in it
+//! are its children and keep its `tool:os.lazy.terminal` label, which allows
+//! every Messenger call but a short deny list, and `pkgd` and `init` judge a
+//! caller under it as the session's owner (`pkgstore::shellrole::row_is_shell`,
+//! [`super::installed::InstalledApps::owner_cred`]), so `pkgctl`, `powerctl`
+//! and `rhai` work from it as they did unlabelled
+//! (`docs/devtool-packages-plan.md`, "T-later: Terminal").
 //!
 //! The LazyRAD IDE is not here: it is a core package like the other desktop
 //! apps (`LAZYOS_LAZYRAD=1` ships `os.lazy.lazyrad`). Neither is Files: its
@@ -169,9 +175,9 @@ pub static APPS: &[AppSpec] = &[
             &["develop"],
         )
     },
-    // The desktop Terminal hosts the shell in a `xuid` window (`shell` below
-    // is the console shell, drawn in `init`'s mux window).
-    xui_app("terminal", "Terminal", fhs::bin::TERMINAL, &["open"]),
+    // The desktop Terminal is not here: it is the core package `os.lazy.terminal`, a
+    // developer tool that is the user's shell (`shell = true`, docs/devtool-packages-plan.md
+    // "T-later: Terminal"). `shell` below is the console shell, drawn in `init`'s mux window.
     // Devices, owners, rights and the driver class rules (issue #481).
     xui_app("devices", "Devices", fhs::bin::DEVICES, &["open"]),
     // `mimed`'s handler for `application/x-elf`; no image ships it yet.
@@ -225,8 +231,8 @@ pub fn is_available(app: &AppSpec) -> bool {
 }
 
 /// The built-in rows the image build asked to open at boot, comma-separated
-/// registry ids (`LAZYOS_XUI_AUTOSTART`, read by `user/build.rs`): the
-/// Terminal by default, Devices on request.
+/// registry ids (`LAZYOS_XUI_AUTOSTART`, read by `user/build.rs`): Devices on
+/// request (the Terminal is a package, whose manifest says it opens).
 const BUILTIN_AUTOSTART: &str = env!("LAZYOS_BUILTIN_AUTOSTART");
 
 /// The built-in rows that open with a desktop session (issue #623): those
@@ -326,7 +332,7 @@ pub fn selftest_builtins() -> bool {
         .iter()
         .all(|app| app.id == GREETER_APP_ID || app.system_uid.is_none());
     // The desktop apps are packages now; a row for one would shadow it.
-    let no_packaged = ["editor", "files", "paint", "settings", "sysmon"]
+    let no_packaged = ["editor", "files", "paint", "settings", "sysmon", "terminal"]
         .iter()
         .all(|id| find_app(id).is_none());
     let has_top = APPS

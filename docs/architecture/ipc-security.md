@@ -10,7 +10,8 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 |---|---|
 | `kernel/src/ipc/credentials.rs` | `Cred`, capability bits, audited transition gate (issue #68/#101) |
 | `kernel/src/ipc/acl.rs` | Ordered default-deny rule list, verdicts, reason codes; label-keyed rule sets |
-| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`, `dev:<id>`, `app:<id>/<name>`) |
+| `kernel/src/ipc/labels.rs` | Interned label table (`app:<id>`, `system:<name>`, `dev:<id>`, `app:<id>/<name>`, `tool:<id>`) |
+| `kernel/src/ipc/tool.rs` | Developer-tool labels: the topic trees a `tool:` task may not use |
 | `kernel/src/ipc/devspawn.rs` | A labelled task's spawn into a `dev:` label (issue #529) |
 | `kernel/src/ipc/children.rs` | Child labels: an app's `execve` of a declared helper program takes a narrower label (issue #832) |
 | `kernel/src/ipc/policy.rs` | Namespace rules for labelled tasks (`os.lazy.*`, `app.<id>.*`, `app/<id>/`) |
@@ -70,7 +71,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
 - **Labels.** `label_id` names an interned string (`labels.rs`): at most 160
   bytes, one of `app:<reverse.dns.name>` (an installed app),
   `system:<name>` (a platform service), `dev:<reverse.dns.name>` (an app run
-  from an IDE under its own permissions) or `app:<reverse.dns.name>/<name>` (a
+  from an IDE under its own permissions), `tool:<reverse.dns.name>` (a
+  *developer tool*, below; same charset and length as `app:`, no `/<child>`) or
+  `app:<reverse.dns.name>/<name>` (a
   *child* of an installed app, below; the name is `[a-z0-9][a-z0-9_-]*`, at
   most 24 bytes, and its app label must be interned first, a link the slot
   records and `labels::parent_of` reads back), 256 labels, append-only (`0` =
@@ -135,6 +138,39 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   `kernel/src/tests/label_suite/children/`: each clause, and a thousand-cycle
   soak.
 
+- **Developer tools** (`tool:<id>`, `tool.rs`, `docs/devtool-packages-plan.md`).
+  The fifth label form, for an app whose calls the user chooses at run time (a
+  scripting window, an inspector). *Rules:* loaded like any label's (first match
+  wins); `pkgd` loads explicit denies for the credential-class interfaces, then
+  `allow ANY_INTERFACE/ANY_METHOD`, so nothing in `acl.rs` is new (the denies
+  win, `label_allowed_ids` stops at the wildcard, no confinement marker, so the
+  label is unconfined). *Names:* a `tool:<id>` task owns `app.<id>.<name>` and
+  `app/<id>/` like `app:<id>`; it may also `Register` any name that is not
+  reserved (not `os.lazy.*`, not another app's `app.<id>.*`, not the NIC and
+  Wi-Fi namespaces, whose rules come first) with verdict `ALLOWED_BY_NAMESPACE`
+  (an unlabelled user task gets `BOOTSTRAP_ALLOW` there), and the
+  interface-domain rule of issue #495 does not apply to it, though a
+  registration whose names do not hash to its ids is still refused. Both
+  grants beyond an `app:` label's (the free names, the domain waiver) hold
+  **only while rules are loaded** for the label (`tool::holds_rules`, rule
+  count > 0): before `pkgd` loads them, and again after its revoke (an empty
+  list), the label is an `app:` label of the same id, so a still-running tool
+  process gets `OUTSIDE_NAMESPACE` for a free name and `FOREIGN_INTERFACE` for
+  a foreign one, and keeps what every `app:` label has implicitly (its own
+  `app.<id>.<name>` with the domain rule, its own `app/<id>/` topics). A
+  revoke does not unregister a name the process already holds; `pkgd` ends the
+  process. Resolving is judged by its rules. *Topics:* `user/<uid>/` is checked first and is the
+  uid's alone; the tool's own `app/<id>/` is granted; any other `app/...` is
+  refused (`RESERVED_NAMESPACE`), a filter starting with a wildcard is refused
+  (it reaches `app/`), and publishing under `system/` is refused (a tool must
+  not forge the platform's events); everything else goes to the label's rules.
+  *Children:* spawn, fork and `execve` children keep the label; there are no
+  child labels of a tool (`tool:<id>/<name>` is malformed, `parent_of` is
+  `None`, no `[processes.*]` binding can match its `execve`). *Dev-spawn:* as
+  for an app, the tool's rules must allow the spawn scope (the deny list refuses
+  it unless the package declared `develop`). Tests:
+  `kernel/src/tests/label_suite/tool*.rs` (`label_tool_*`).
+
 **ACL** (`acl.rs`)
 
 - `Rule { actor, interface_id, method, allow }` with `ANY_*` wildcards; first
@@ -195,7 +231,9 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   reveals nothing about which names exist. Every refusal is audited with the
   label id and a reason (`LABEL_DEFAULT_DENY`, `RESERVED_NAMESPACE`,
   `OUTSIDE_NAMESPACE`, ...); `policy::explain(label, reason)` renders the
-  friendly sentence naming the namespace the app may use.
+  friendly sentence naming the namespace the app may use. (A `tool:` label is
+  the exception to "a labelled task may register nothing else": see
+  *Developer tools* above.)
 - **Loading policy** (`OP_ACL_LOAD`, `idl/policy.midl`): the request parcel's
   body is the generated `LoadLabelArgs { label, rules: Array<LabelRule>,
   program: Option<String> }` (`program` only for a child label);

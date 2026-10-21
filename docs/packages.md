@@ -107,6 +107,8 @@ author = "Valerian"                  # plain string, unverified, 1..128 chars
 version = "1.2.0"                    # see "Versions" below
 description = "A tiny raster painter"   # optional, at most 1024 chars
 category = "graphics"                # optional menu group, default "accessories"
+kind = "application"                 # optional: "application" (default) or "developer-tool" (see "Developer tools")
+# shell = true                       # a developer-tool only, and honoured only for the image's own package: the user's shell
 
 [entry]
 binary = "bin/paint.elf"             # must exist in the archive
@@ -139,6 +141,60 @@ files = ["read:/system/share/fonts"]     # each covered by one of the app's rule
 Semantic validation runs in
 a separate pass that returns **every** problem as a list, so an installer can
 show them all at once.
+
+### Developer tools: `kind = "developer-tool"`
+
+`[app] kind` names the package class: `"application"` (the default when the
+key is absent) or `"developer-tool"`. Any other value is a problem. A
+developer tool is a package whose calls are chosen at run time by the user or
+by a script the user runs (a scripting window, an inspector), so they cannot be
+listed; it runs under the label `tool:<system_name>` and is default allow minus
+a short reviewed deny list (`libs/devtool`, `docs/devtool-packages-plan.md`).
+`lazypkg` validates it this way:
+
+* `category` is `development` or absent (a *shell*, below, may also say `system`);
+* `permissions.interfaces` and `permissions.topics` are empty or absent: a tool
+  has no list to keep, and a list that looked like a limit would be a lie;
+* `[processes.<name>]` is refused: the kernel has only `app:<id>/<name>` child
+  labels, and a tool's children keep the tool's own label;
+* `network`, `develop`, `files` and `[entry] resident` keep their meaning
+  (`network` and `develop` lift entries of the deny list, "What a manifest
+  compiles to"). `Manifest::is_developer_tool` and `App::kind` read the class.
+
+**`shell = true`** (`[app]`, a developer tool only) marks the tool as *the
+user's shell*: `pkgd` and `init` judge what runs under its label (the shell and
+every command typed in it) as the session's owner, which no other labelled
+caller is: `pkgctl install|remove|list|inspect`, `powerctl` and a launch of a
+built-in program work from it. It is the Terminal's (`os.lazy.terminal`) and
+nothing else's: a package asking for it is **refused at install** unless the
+image ships it, `pkgd` records it in the app's `confd` row (`Installed.shell`)
+only for such a package, and every reader re-checks the row's class and core
+origin (`pkgstore::shellrole`). It changes no Messenger rule, never makes the
+tool a system caller or lets `elevd` honour a standing approval for it, and
+leaves the `xuid` shell role and `pkg.install-devtool` refused. See
+`docs/devtool-packages-plan.md` section 10 for the table of every site that
+treats a labelled caller differently.
+
+What the deny list enforces: the tool's **Messenger calls**, and those of the
+scripts it runs (they inherit its label), are refused the listed interfaces.
+Native code the tool runs is not confined by that list: like the Terminal's
+programs, it runs with the user's permissions, so the list is not a sandbox
+against a program the user chose to run. The consent text says the same.
+
+```toml
+[app]
+name = "Messenger Playground"
+system_name = "org.lazy.playground"
+author = "Valerian"
+version = "1.0.0"
+kind = "developer-tool"
+
+[entry]
+binary = "bin/playground.elf"
+
+[permissions]
+network = []                         # its Messenger calls may not use the socket service unless "outbound"
+```
 
 ### Process tables: `[processes.<name>]` (child labels, issue #832)
 
@@ -546,6 +602,31 @@ identity, never a uid: a *system* caller is a service holding `CAP_SETUID`
 
 * only a system caller or the owner of a login session may `Install` or
   `Remove`; a task carrying an app label never may;
+* a package of kind `developer-tool` may be installed or updated only by a
+  system caller (`pkgstore::access::may_install_developer_tool`): the boot-time
+  install of the image's own core packages, or `elevd` after an administrator
+  approved it on the trusted prompt. The owner of a login session, an
+  administrator included, is refused directly with "a developer tool can only be
+  installed after an administrator approves it; ask an administrator to install
+  it", and so is a labelled task. This is checked in addition to the rule
+  above. Removing a tool is an ordinary `Remove`. As built (phase T3,
+  `pkgstore::toolgate`): `elevd` asks for it as `pkg.install-devtool` (the
+  plain `pkg.install` and `pkg.update-core` refuse a tool, the new one
+  refuses anything else), `InstallApproved` carries `devtool` so `pkgd`
+  decides again, and the row it writes has `kind = developer-tool` and is
+  machine-wide; at boot `pkgd` loads a tool row only with that mark and when
+  the stored manifest agrees with the row, and `init` lists and starts it
+  under `tool:<system_name>` on the same condition. The audit record of the
+  install says `developer tool`, a refusal is audited as `denied`, and
+  `pkgctl list`/`inspect` print the kind. The prompt leads with
+  `devtool::CONSENT_TEXT` and says the tool is installed for all users (its
+  row is machine-wide and its autostart opens in every session). **A core
+  developer tool** (the Playground, in a `LAZYOS_DEVTOOLS=1` image) is updated
+  with the same `pkg.install-devtool`: `elevd` and `pkgd` allow a tool package
+  to replace a core package only when the installed copy is a tool too
+  (`toolgate::core_class_change`), and the prompt says `Update`. A core
+  package never changes class: a tool package over a core application, or an
+  application over a core tool, is refused, whichever operation names it;
 * it reads a package *as root*, so for any other caller it only accepts
   paths that are readable by design:
 
@@ -596,6 +677,36 @@ the consent screen and the enforcement come from the same data:
   (`pkgstore::rules::children`, see "Process tables" in section 3): the same
   entries by the same functions, without the baseline, and its `files` and
   `network` are enforced by the kernel's file and `AF_INET` gates.
+
+A **developer tool** compiles the other way round
+(`pkgstore::rules::tool::compile`, used by `compile` and `installed` for a
+manifest of that kind; `rules::label_of` gives the label, `tool:<system_name>`
+against `app:<system_name>`). The kernel's first-match-wins rules are, in
+order: one explicit deny of every method (`ANY_METHOD`) for each entry of
+`devtool::DENY` that applies, then one allow of every interface and method.
+The entries: `os.lazy.keyd.v1`, `os.lazy.keyd.appsecret.v1` and
+`os.lazy.accounts.v1` unless the tool is the user's shell (`shell = true`:
+it acts as the session user and those services stay the authority);
+`os.lazy.messenger.policy.v1` (the label policy
+loader, also a capability-gated syscall: defence in depth) always;
+`os.lazy.process.label.spawn.v1` unless `develop = true`;
+`os.lazy.net.socket.v1` unless `network = ["outbound"]`. A plain tool is
+therefore six denies and the allow-all, seven rules (the Playground's
+`PKGD:POLICY:PASS ... rules=7`); `develop` and `outbound` remove one each. No
+baseline is added (the allow-all covers it), and
+`interfaces`, `topics` and `[entry] resident` add nothing. A tool has no child
+labels, and `Develop` refuses one (a `dev:` label is for an app being developed
+under its own exact permissions). A host test checks that every denied name is
+in `idl/manifest.json`, and `python tools/devtool/check_interfaces.py` (a CI
+step) fails when an interface in `idl/` is in neither `devtool::DENY` nor
+`tools/devtool/reviewed_interfaces.txt`, so a new interface that carries secrets
+or authority cannot become callable by tools by accident.
+
+The consent screen of a tool opens with three kinds of row before the
+manifest's own (`pkgstore::explain::tool`): `kind` carries
+`devtool::CONSENT_TEXT`, one `risk` row per `devtool::RISKS` entry, then one
+`denied` row per deny-list entry in force. These rows do not count against the
+24 permissions a package may request.
 
 A label carries at most 256 rules; a manifest that needs more is refused.
 The count includes the baseline every installed app gets (`init`'s
@@ -708,7 +819,7 @@ sandbox. `init` prints `PKGD:LAUNCH:LABEL app:<system_name> pid=<n>`, the label
 read back from the kernel.
 
 LazyShell's start menu is re-read each time it opens: one row per
-`category` that has a desktop app (the built-in Terminal, Installer and
+`category` that has a desktop app (the Terminal, the built-in Installer and
 Devices are under System), then the apps the user pinned in Settings -> Menu
 (`sys/ui/menu`, none by default), then the power rows; resting the pointer
 on a category row (or clicking it) opens a submenu beside the menu listing
@@ -729,13 +840,22 @@ launchers saved before F5 keep working.
 
 ### Core packages (issue #509)
 
-Every desktop app is a package, except four programs that stay unlabelled in
+Every desktop app is a package, except three programs that stay unlabelled in
 `/system/bin`: LazyShell (the desktop itself), the Installer (`pkgd`'s trusted
-UI; `pkgstore::access` refuses every labelled caller), the Terminal (a child
-inherits its parent's label, so a packaged Terminal would run the shell and
-every command typed in it, `pkgctl` and `powerctl` included, as a sandboxed
-app) and Devices (it reads the kernel's device inspection calls,
-`os.kernel.dev`, which no package permission can name).
+UI; `pkgstore::access` refuses every labelled caller) and Devices (it reads the
+kernel's device inspection calls, `os.kernel.dev`, which no package permission
+can name).
+
+The **Terminal** is a core package too (`os.lazy.terminal`,
+`xui-app/packages/terminal`, `kind = "developer-tool"` and `shell = true`,
+category `system`), shipped by **every** desktop image (`Tool.always` in
+`build_support/devtools_embed.rs`; the Playground, the other tool, is opt-in).
+A child inherits its parent's label, so its shell and every command typed in it
+run under `tool:os.lazy.terminal`: default-allow Messenger rules, and a caller
+`pkgd` and `init` treat as the session's owner because the recorded row says
+`shell` (see "Developer tools" above and `docs/devtool-packages-plan.md`
+section 10). It has no `[[mime]]` entry: the built-in row it replaced listed a
+verb but registered no type with `mimed`.
 
 The **LazyRAD IDE** is a core package too (`os.lazy.lazyrad`,
 `xui-app/packages/lazyrad`, category `development`), shipped only in images
@@ -811,7 +931,8 @@ run (`LAZYOS_LABEL_TRACE=1`) shows one `LABEL:DENY` for it.
   digest. `build_support/core_packages.rs` embeds one variant per app as
   `/system/packages/<system_name>.lzp`, picking the `autostart` one for the apps
   `LAZYOS_XUI_AUTOSTART` names (stems such as `sysmon` or system names; the
-  built-in Terminal and Devices are read from the same list by `user/build.rs`),
+  built-in Devices is read from the same list by `user/build.rs`; the Terminal's
+  `term` is the package `terminal`),
   and writes `/system/packages/index` (`<system_name> <version> <sha256>
   [autostart]` per line). Everything goes through the image manifest, so an
   in-place update replaces a changed package and deletes a dropped one.

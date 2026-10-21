@@ -291,6 +291,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--traydemo", action="store_true",
                         help="the desktop with the tray sample app os.lazy.traydemo "
                              "(LAZYOS_TRAYDEMO=1, docs/tray-plan.md)")
+    parser.add_argument("--devtools", action="store_true",
+                        help="the desktop with the developer tools, today the Messenger Playground "
+                             "(LAZYOS_DEVTOOLS=1, core packages that run under the label "
+                             "tool:<name>; builds the `rhai` command they run scripts with; "
+                             "docs/devtool-packages-plan.md)")
     parser.add_argument("--games", action="store_true",
                         help="the desktop with the built-in games, LazyGolf and the NES Player "
                              "(LAZYOS_GAMES=1, core packages)")
@@ -325,6 +330,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args = parser.parse_args(argv)
     if args.with_options and not args.suite:
         parser.error("--with needs --suite")
+    if args.devtools and args.no_rhai:
+        parser.error("--devtools needs the `rhai` command its tools run scripts with: drop --no-rhai")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
     if args.webkit or args.lazywebplus:
@@ -347,7 +354,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyrad
                     or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
                     or args.pictures
-                    or args.traydemo or args.games or args.setup)
+                    or args.traydemo or args.games or args.devtools or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
     args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus

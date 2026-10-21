@@ -1,7 +1,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::approvals::{Approvals, Caller};
+use crate::approvals::{Approvals, Caller, LabelKind};
 use crate::*;
 
 fn args(items: &[&str]) -> Vec<String> {
@@ -14,9 +14,10 @@ fn parse(op: &str, items: &[&str]) -> Result<Operation, &'static str> {
 
 #[test]
 fn every_row_parses_and_round_trips() {
-    let rows: [(&str, &[&str]); 19] = [
+    let rows: [(&str, &[&str]); 20] = [
         ("pkg.install", &["/transient/demo.lzp"]),
         ("pkg.update-core", &["/home/user/counter.lzp"]),
+        ("pkg.install-devtool", &["/home/user/playground.lzp"]),
         ("pkg.remove", &["org.lazy.demo"]),
         ("conf.set", &["sys/ui/demo", "str", "hello"]),
         ("conf.delete", &["sys/ui/demo"]),
@@ -44,15 +45,26 @@ fn every_row_parses_and_round_trips() {
         assert_eq!(Operation::parse(name, &op.args()), Ok(op.clone()), "{name}");
         assert!(!op.summary().is_empty());
     }
-    assert_eq!(NAMES.len(), 17);
+    assert_eq!(NAMES.len(), 18);
+    // Every row of the table is exercised above, once or more.
+    for name in NAMES {
+        assert!(rows.iter().any(|(row, _)| row == name), "{name}");
+    }
 }
 
 #[test]
 fn bad_arguments_are_refused() {
-    let cases: [(&str, &[&str]); 23] = [
+    let cases: [(&str, &[&str]); 27] = [
         ("rm -rf", &[]),
         ("pkg.install", &["relative.lzp"]),
         ("pkg.install", &["/a/../b.lzp"]),
+        ("pkg.install-devtool", &["relative.lzp"]),
+        ("pkg.install-devtool", &["/a/../b.lzp"]),
+        ("pkg.install-devtool", &[]),
+        (
+            "pkg.install-devtool",
+            &["/transient/a.lzp", "/transient/b.lzp"],
+        ),
         ("pkg.remove", &["Not.Valid"]),
         ("conf.set", &["sys/ui/demo", "str"]),
         ("conf.set", &["sys//x", "str", "v"]),
@@ -170,29 +182,35 @@ fn approvals_belong_to_one_caller_and_expire() {
         session: 1,
     };
     let mut approvals = Approvals::new();
-    approvals.grant(caller, Class::Once, 0);
+    approvals.grant(caller, LabelKind::Other, Class::Once, 0);
     assert!(
-        !approvals.covers(caller, Class::View, 1),
+        !approvals.covers(caller, LabelKind::Other, Class::View, 1),
         "a one-shot approval stood"
     );
-    approvals.grant(caller, Class::View, 0);
-    assert!(approvals.covers(caller, Class::View, 1));
-    assert!(!approvals.covers(caller, Class::Once, 1));
+    approvals.grant(caller, LabelKind::Other, Class::View, 0);
+    assert!(approvals.covers(caller, LabelKind::Other, Class::View, 1));
+    assert!(!approvals.covers(caller, LabelKind::Other, Class::Once, 1));
     // Another program of the same user, or the same in another session.
-    assert!(!approvals.covers(Caller { label: 8, ..caller }, Class::View, 1));
+    assert!(!approvals.covers(
+        Caller { label: 8, ..caller },
+        LabelKind::Other,
+        Class::View,
+        1
+    ));
     assert!(!approvals.covers(
         Caller {
             session: 2,
             ..caller
         },
+        LabelKind::Other,
         Class::View,
         1
     ));
-    assert!(!approvals.covers(caller, Class::View, APPROVAL_TICKS));
-    approvals.grant(caller, Class::View, 10);
+    assert!(!approvals.covers(caller, LabelKind::Other, Class::View, APPROVAL_TICKS));
+    approvals.grant(caller, LabelKind::Other, Class::View, 10);
     approvals.release(caller);
-    assert!(!approvals.covers(caller, Class::View, 11));
-    approvals.grant(caller, Class::View, 10);
+    assert!(!approvals.covers(caller, LabelKind::Other, Class::View, 11));
+    approvals.grant(caller, LabelKind::Other, Class::View, 10);
     approvals.end_session(1);
     assert_eq!(approvals.live(11), 0);
 }
@@ -206,7 +224,7 @@ fn the_table_is_bounded() {
             label: 5,
             session: 1,
         };
-        approvals.grant(caller, Class::View, 5);
+        approvals.grant(caller, LabelKind::Other, Class::View, 5);
     }
     assert_eq!(approvals.live(6), approvals::MAX_APPROVALS);
 }

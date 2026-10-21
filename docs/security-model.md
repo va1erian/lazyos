@@ -118,7 +118,7 @@ memory/fds/handles within their quota, and race multi-threaded code.
 | Group | `gid`; a user has a primary group + supplementary groups |
 | Service account | a user with no login, owning service state |
 | Session | `session_id`, created by `logind`; scopes topic/service namespaces and default ACLs |
-| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `app:<id>/<name>` for a helper program of that app that holds less (a *child label*, issue #832), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529) |
+| Process label | short string/profile id used in policy: `app:<id>` for an installed app (e.g. `app:com.example.editor`), `app:<id>/<name>` for a helper program of that app that holds less (a *child label*, issue #832), `system:<name>` for a platform service, `dev:<id>` for an app run from an IDE under the permissions the user approved for it (issue #529), `tool:<id>` for a developer tool (below) |
 | Kernel | the only component that stamps credentials; userspace can never set them |
 
 Credentials travel with every Messenger message and syscall and are copied into
@@ -130,6 +130,29 @@ with `develop = true` spawning a child into a `dev:` label that `pkgd` holds an
 approved rule set for: same uid, gid and session, never more capabilities
 (`docs/architecture/ipc-security.md`, "Spawning into `dev:`"), and an app's own
 `execve` of a helper program its manifest declares (below).
+
+### 2.0 Developer-tool labels
+
+A `tool:<id>` label is the fifth form, for an app whose calls are chosen by the
+user or by a script the user runs, so no manifest can list them
+([`devtool-packages-plan.md`](devtool-packages-plan.md)). Its Messenger rules are
+default allow after a short reviewed deny list (credentials, the dev-spawn scope
+unless declared, sockets unless declared); the kernel adds only namespace rules
+(`kernel/src/ipc/tool.rs`): the tool owns `app.<id>.*` and `app/<id>/` like an
+app and may also register any name that is not reserved (`os.lazy.*`, another
+app's names, the NIC and Wi-Fi namespaces) and use any topic but another app's
+`app/...`, wildcard filters at the root, other uids' `user/<uid>/` and
+publishing under `system/`; the interface-domain rule does not apply to it.
+Its children keep the label and it has no child labels.
+
+What the label does *not* confine: the deny list binds the tool's Messenger
+calls (and so every script it runs). A tool's own native code is an ordinary
+program with the user's permissions: `AF_INET` and the file gate treat an
+unconfined label like any app (`confine.rs`), so "no sockets unless declared"
+is enforced for `os.lazy.net.socket.v1`, not for a raw `socket(2)`. That is why
+a tool is installed only by the image build or an administrator. A shared label
+also means no standing `elevd` approval is ever granted to it (every script it
+runs would inherit it).
 
 ### 2.1 Child labels (issue #832)
 
@@ -328,7 +351,9 @@ unless the profile is privileged.
 - **Namespaces**: `os.lazy.*` service names are the platform's. An app labelled
   `app:<id>` registers only `app.<id>.<name>` (one dot-free segment) and owns the
   topics at or under `app/<id>/`; a `dev:<id>` label (an app run from the IDE
-  before it is installed) owns the same names and topics. Anything else is
+  before it is installed) owns the same names and topics, and a `tool:<id>`
+  label (a developer tool, section 2.0) the same plus every name and topic
+  that is not reserved. Anything else is
   refused and audited with a reason (`RESERVED_NAMESPACE`, `OUTSIDE_NAMESPACE`).
   The interfaces a service advertises are held to the app's own domain too,
   `<id>.<name>.v<N>`: the registration spells each interface id out by name and
@@ -500,8 +525,10 @@ capabilities = []
   scope is the whole defence: every call is for the caller's kernel-stamped
   **uid and label** (`app:<system_name>`, read back with `label_name`; `keyd`
   holds `CAP_SETUID` for that), never a name in the request, so an app cannot
-  ask for another's. An unlabelled caller (a service, the Terminal) is
-  refused (`EPERM`), and so is a development run (`dev:<name>`) or a helper
+  ask for another's. An unlabelled caller (a service) is
+  refused (`EPERM`), and so is a developer tool's label (`tool:<name>`, the
+  Terminal's included: it is labelled, but not an installed app's), a
+  development run (`dev:<name>`) or a helper
   process (`app:<name>/<child>`): their labels are not an installed app's, so
   a project under development or a sandboxed child never sees the installed
   app's secrets. Another user running the same app has secrets of their own.

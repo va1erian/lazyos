@@ -27,15 +27,39 @@ pub(super) const DOUBLE_CLICK_DISTANCE: i32 = 4;
 pub(super) enum PressKind {
     /// A plain press: the caller delivers [`Event::MouseDown`].
     Down,
-    /// The second press of a double-click: the caller delivers
-    /// [`Event::MouseDoubleClick`] in place of the second `MouseDown`, matching
-    /// Win32, where `WM_*BUTTONDBLCLK` replaces the second `WM_*BUTTONDOWN`.
+    /// The second press of a double-click: the caller delivers the plain
+    /// [`Event::MouseDown`] and then [`Event::MouseDoubleClick`] (GTK's order).
+    ///
+    /// Win32 puts the double-click *in place of* the second press, which only
+    /// works there because a native button or scroll bar treats
+    /// `WM_*BUTTONDBLCLK` as a press. `xui-core`'s `ScrollBar` and `Button`
+    /// look at `MouseDown` alone, so with a replacement the second press of
+    /// a quick pair never grabbed a scroll thumb or clicked a button. The
+    /// widgets that do read the double-click (`Edit`, the list, tree and icon
+    /// views, the editors) tolerate the press before it.
     DoubleClick,
 }
 
 impl PressKind {
-    /// The event this press delivers, at `(x, y)` in the widget's client
-    /// coordinates.
+    /// The plain press a double-click delivers before its
+    /// [`Event::MouseDoubleClick`]; `None` for an ordinary press.
+    pub(super) fn press_event(
+        self,
+        x: i32,
+        y: i32,
+        button: MouseButton,
+        modifiers: Modifiers,
+    ) -> Option<Event> {
+        (self == PressKind::DoubleClick).then_some(Event::MouseDown {
+            x,
+            y,
+            button,
+            modifiers,
+        })
+    }
+
+    /// The event this press delivers last, at `(x, y)` in the widget's client
+    /// coordinates; a double-click is preceded by [`PressKind::press_event`].
     pub(super) fn event(self, x: i32, y: i32, button: MouseButton, modifiers: Modifiers) -> Event {
         match self {
             PressKind::Down => Event::MouseDown {

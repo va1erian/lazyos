@@ -51,6 +51,9 @@ pub struct Child {
 /// app's children by itself as well (loading an empty rule list for an
 /// `app:` label), which covers a manifest `pkgd` can no longer read.
 pub fn dropped(old: &Manifest, new: Option<&Manifest>) -> Vec<String> {
+    if old.is_developer_tool() {
+        return Vec::new();
+    }
     let system_name = &old.app.system_name;
     old.processes
         .keys()
@@ -62,6 +65,11 @@ pub fn dropped(old: &Manifest, new: Option<&Manifest>) -> Vec<String> {
 /// The child labels `manifest` declares, in name order, each with its
 /// compiled rules.
 pub fn children(manifest: &Manifest) -> Result<Vec<Child>, CompileError> {
+    // A developer tool's children keep its own label (`lazypkg` refuses a
+    // `[processes.<name>]` table beside the kind), so there is nothing to load.
+    if manifest.is_developer_tool() {
+        return Ok(Vec::new());
+    }
     let system_name = &manifest.app.system_name;
     let mut out = Vec::with_capacity(manifest.processes.len());
     for (name, process) in &manifest.processes {

@@ -30,17 +30,24 @@ pub(crate) type Done = (String, Vec<String>);
 /// (`package.rs`): `pkgd` installs those bytes or nothing.
 pub(crate) fn perform(op: &Operation, package: Option<&Approved>) -> Result<Done, Refusal> {
     match op {
-        Operation::PkgInstall { .. } | Operation::PkgUpdateCore { .. } => {
+        Operation::PkgInstall { .. }
+        | Operation::PkgUpdateCore { .. }
+        | Operation::PkgInstallDevtool { .. } => {
             let approved = package.ok_or_else(|| {
                 Refusal::new(
                     errno::EINVAL,
                     "the package was not inspected before approval",
                 )
             })?;
-            let core = matches!(op, Operation::PkgUpdateCore { .. });
+            // Whether a core app is replaced, as `inspect` found: only
+            // `pkg.update-core`, or `pkg.install-devtool` of an update to a
+            // core developer tool. What the administrator was shown: only
+            // `pkg.install-devtool` led with the developer-tool warning, and
+            // `pkgd` installs a tool from no other.
+            let devtool = matches!(op, Operation::PkgInstallDevtool { .. });
             let client = pkgd::Client::connect().map_err(Refusal::of)?;
             let app = client
-                .install_approved(&approved.path, &approved.digest, core)
+                .install_approved(&approved.path, &approved.digest, approved.core, devtool)
                 .map_err(|failure| Refusal(failure.code, failure.text))?;
             done(format!("Installed {} {}", app.system_name, app.version))
         }

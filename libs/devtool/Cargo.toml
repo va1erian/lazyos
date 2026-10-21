@@ -1,0 +1,15 @@
+[package]
+name = "devtool"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The developer-tool package class: its kind, label prefix, deny list and the texts every tool shows (docs/devtool-packages-plan.md)"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "devtool"
+path = "src/lib.rs"
+
+[features]
+# `tool_label` allocates; the freestanding users leave it off.
+alloc = []

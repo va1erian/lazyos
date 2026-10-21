@@ -13,6 +13,8 @@ mod assets_embed;
 mod ca_bundle;
 #[path = "../core_packages.rs"]
 mod core_packages;
+#[path = "../devtools_embed.rs"]
+mod devtools_embed;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
 #[path = "../hosts_embed.rs"]
@@ -64,6 +66,8 @@ mod assets_tests;
 mod bench_tests;
 #[cfg(test)]
 mod dbgd_tests;
+#[cfg(test)]
+mod devtools_tests;
 #[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]

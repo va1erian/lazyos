@@ -321,3 +321,66 @@ fn the_clipboard_brings_its_copy_and_paste_scopes() {
     let rules = compile(&manifest("interfaces = [\"os.lazy.display.v1\"]")).unwrap();
     assert!(!rules.contains(&allow(fnv1a64("os.lazy.clipboard.write.v1"), ANY_METHOD)));
 }
+
+fn tool_manifest(extra: &str) -> Manifest {
+    let text = format!(
+        "[app]\nname = \"Tool\"\nsystem_name = \"org.lazy.tool\"\nauthor = \"A\"\n\
+         version = \"1.0.0\"\nkind = \"developer-tool\"\n\
+         [entry]\nbinary = \"bin/app.elf\"\n[permissions]\n{extra}"
+    );
+    lazypkg::parse_manifest(&text).expect("valid")
+}
+
+#[test]
+fn a_tool_runs_under_tool_colon_and_an_app_under_app_colon() {
+    assert_eq!(tool_label("org.lazy.tool"), "tool:org.lazy.tool");
+    assert_eq!(label("org.lazy.tool"), "app:org.lazy.tool");
+    assert_eq!(label_of(&tool_manifest("")), "tool:org.lazy.tool");
+    assert_eq!(label_of(&manifest("")), "app:org.lazy.demo");
+    assert!(devtool::is_tool_label(&label_of(&tool_manifest(""))));
+    assert!(!devtool::is_tool_label(&label_of(&manifest(""))));
+}
+
+#[test]
+fn a_tool_compiles_and_installs_to_the_deny_list_and_an_allow_all() {
+    let tool = tool_manifest("");
+    let compiled = compile(&tool).unwrap();
+    assert_eq!(compiled, tool::compile(&tool).unwrap());
+    assert_eq!(compiled.len(), devtool::DENY.len() + 1);
+    // No baseline is added: the allow-all covers it.
+    assert_eq!(installed(&tool).unwrap(), compiled);
+    let all = compiled.last().unwrap();
+    assert!(all.allow && all.interface_id == u64::MAX && all.method == ANY_METHOD);
+    // An app of the same permissions is untouched by the tool rules.
+    assert!(compile(&manifest(""))
+        .unwrap()
+        .iter()
+        .all(|rule| rule.allow));
+}
+
+#[test]
+fn declaring_a_power_removes_exactly_its_deny() {
+    let plain = compile(&tool_manifest("")).unwrap().len();
+    let outbound = compile(&tool_manifest("network = [\"outbound\"]\n"))
+        .unwrap()
+        .len();
+    let both = tool_manifest(
+        "network = [\"outbound\"]\ndevelop = true\nfiles = [\"write:$HOME/Documents/*\"]\n",
+    );
+    let most = compile(&both).unwrap().len();
+    assert_eq!((plain, outbound, most), (plain, plain - 1, plain - 2));
+    assert!(plain <= devtool::DENY.len() + 1 && plain < MAX_RULES);
+}
+
+#[test]
+fn a_tool_has_no_child_labels() {
+    let tool = tool_manifest("");
+    assert!(children(&tool).unwrap().is_empty());
+    assert!(dropped(&tool, None).is_empty());
+    // Declaring process tables beside the kind never validates.
+    let text = "[app]\nname = \"T\"\nsystem_name = \"org.lazy.tool\"\nauthor = \"A\"\n\
+                version = \"1.0.0\"\nkind = \"developer-tool\"\n\
+                [entry]\nbinary = \"bin/app.elf\"\n\
+                [processes.helper]\nprogram = \"/system/bin/helper\"\n";
+    assert!(lazypkg::parse_manifest(text).is_err());
+}

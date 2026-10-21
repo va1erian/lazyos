@@ -17,7 +17,7 @@ fn sender(uid: u32, session: u64, label: u32, pid: u64) -> Sender {
 
 #[test]
 fn the_sender_is_the_app_init_launched_or_a_script_in_the_session() {
-    let rows = [("os.lazy.files", 41u64), ("logd", 9)];
+    let rows = [("os.lazy.files", 41u64, 5u32), ("logd", 9, 0)];
     let is_app = |name: &str| name.starts_with("os.lazy.");
     assert_eq!(
         identify(sender(1000, 3, 7, 41), SHELL, rows, is_app),
@@ -28,10 +28,25 @@ fn the_sender_is_the_app_init_launched_or_a_script_in_the_session() {
         identify(sender(1000, 3, 0, 500), SHELL, rows, is_app),
         Ok(Owner::Script)
     );
-    // A labelled program that init does not list is nobody: it cannot post
-    // as the Terminal either.
+    // A labelled program that init does not list, whose label no launched app
+    // carries, is nobody: it cannot post as the Terminal either.
     assert_eq!(
         identify(sender(1000, 3, 7, 500), SHELL, rows, is_app),
+        Err(Deny::NotAnApp)
+    );
+    // The label of a launched app is that app's, whatever task carries it.
+    assert_eq!(
+        identify(sender(1000, 3, 5, 500), SHELL, rows, is_app),
+        Ok(Owner::App("os.lazy.files"))
+    );
+    // A row that is not running holds no label, and a service is no app.
+    let stopped = [("os.lazy.files", 0u64, 5u32), ("logd", 9, 6)];
+    assert_eq!(
+        identify(sender(1000, 3, 5, 500), SHELL, stopped, is_app),
+        Err(Deny::NotAnApp)
+    );
+    assert_eq!(
+        identify(sender(1000, 3, 6, 500), SHELL, stopped, is_app),
         Err(Deny::NotAnApp)
     );
     // A supervised service is no app, and with label 0 it is in session 0.
@@ -61,6 +76,31 @@ fn the_sender_is_the_app_init_launched_or_a_script_in_the_session() {
             is_app
         ),
         Err(Deny::Unknown)
+    );
+}
+
+#[test]
+fn the_terminal_and_what_runs_in_it_post_as_the_terminal() {
+    let rows = [(TERMINAL_APP, 50u64, 8u32), ("os.lazy.files", 41, 5)];
+    let is_app = |name: &str| name.starts_with("os.lazy.");
+    // The packaged Terminal itself, and a command it started (its label).
+    assert_eq!(
+        identify(sender(1000, 3, 8, 50), SHELL, rows, is_app),
+        Ok(Owner::Script)
+    );
+    assert_eq!(
+        identify(sender(1000, 3, 8, 777), SHELL, rows, is_app),
+        Ok(Owner::Script)
+    );
+    assert_eq!(Owner::Script.key(), "<terminal>");
+    // Another user's session, and a label no app carries, are still refused.
+    assert_eq!(
+        identify(sender(1001, 3, 8, 777), SHELL, rows, is_app),
+        Err(Deny::Uid)
+    );
+    assert_eq!(
+        identify(sender(1000, 3, 9, 777), SHELL, rows, is_app),
+        Err(Deny::NotAnApp)
     );
 }
 

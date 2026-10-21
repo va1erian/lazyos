@@ -12,12 +12,15 @@
 //! elevated view closes); the table is bounded and expired entries are
 //! dropped first.
 //!
-//! **No standing approval for an unlabelled caller** (label 0): every program
-//! started from a shell or a script shares that label, so an approval for
-//! one would cover all of them. Their every read prompts instead. (Binding
-//! the approval to the requesting endpoint was the alternative, but clients
-//! reach `elevd` through the one resolved endpoint they all share, so it
-//! would not tell those programs apart either.)
+//! **No standing approval for a label many programs share.** Every program
+//! started from a shell or a script has no label (label 0), and every script
+//! a developer tool runs inherits the tool's one label (`tool:<system_name>`,
+//! [`devtool::is_tool_label`]): an approval for one of them would cover all
+//! the others, so each of their reads prompts instead. A label `elevd` could
+//! not name is treated the same way ([`LabelKind::Unknown`]): fail closed.
+//! (Binding the approval to the requesting endpoint was the alternative, but
+//! clients reach `elevd` through the one resolved endpoint they all share, so
+//! it would not tell those programs apart either.)
 
 use alloc::vec::Vec;
 
@@ -32,6 +35,39 @@ pub struct Caller {
     pub uid: u32,
     pub label: u32,
     pub session: u64,
+}
+
+/// What a caller's kernel label says about whether an approval may stand for
+/// it. `elevd` has no capability to read a label's name, so it asks `pkgd`
+/// (which does) and classifies the answer with [`LabelKind::of`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LabelKind {
+    /// No label (`0`): a shell, a script, the Installer. Shared by all.
+    Unlabelled,
+    /// A developer tool's label: shared by every script the tool runs.
+    Tool,
+    /// Any other labelled caller (an installed app).
+    Other,
+    /// The label's name could not be read: never trusted.
+    Unknown,
+}
+
+impl LabelKind {
+    /// The kind of the label `label_id`, whose name is `name` when it could
+    /// be read.
+    pub fn of(label_id: u32, name: Option<&str>) -> LabelKind {
+        match (label_id, name) {
+            (0, _) => LabelKind::Unlabelled,
+            (_, None) => LabelKind::Unknown,
+            (_, Some(name)) if devtool::is_tool_label(name) => LabelKind::Tool,
+            (_, Some(_)) => LabelKind::Other,
+        }
+    }
+
+    /// Whether an approval may stand for a caller of this kind.
+    pub const fn may_stand(self) -> bool {
+        matches!(self, LabelKind::Other)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,20 +87,23 @@ impl Approvals {
         Approvals::default()
     }
 
-    /// Whether `caller` holds a live approval for an operation of `class`.
-    pub fn covers(&self, caller: Caller, class: Class, now: u64) -> bool {
+    /// Whether `caller` (whose label is of `kind`) holds a live approval for an
+    /// operation of `class`. A kind an approval may not stand for is never
+    /// covered, whatever the table holds.
+    pub fn covers(&self, caller: Caller, kind: LabelKind, class: Class, now: u64) -> bool {
         class == Class::View
+            && kind.may_stand()
             && self
                 .entries
                 .iter()
                 .any(|entry| entry.caller == caller && now < entry.until)
     }
 
-    /// Record an administrator's approval for `caller`, when its class
-    /// stands ([`Class::View`]) and the caller has a label; a renewed
-    /// approval restarts the clock.
-    pub fn grant(&mut self, caller: Caller, class: Class, now: u64) {
-        if class != Class::View || caller.label == 0 {
+    /// Record an administrator's approval for `caller` (whose label is of
+    /// `kind`), when its class stands ([`Class::View`]) and an approval may
+    /// stand for the label; a renewed approval restarts the clock.
+    pub fn grant(&mut self, caller: Caller, kind: LabelKind, class: Class, now: u64) {
+        if class != Class::View || caller.label == 0 || !kind.may_stand() {
             return;
         }
         self.entries

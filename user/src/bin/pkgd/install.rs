@@ -22,7 +22,7 @@ use user::trace;
 
 use lazypkg::{Manifest, Package};
 use pkgstore::access::Caller;
-use pkgstore::{layout, provision, tree};
+use pkgstore::{layout, provision, toolgate, tree};
 use user::messenger::pkgd::{Failure, Installed, PkgEvent};
 use user::sys;
 
@@ -154,20 +154,26 @@ impl Pkgd {
         self.install_from(caller, path, Approval::Plain { replace_core })
     }
 
-    /// `InstallApproved(path, digest, core)`: `elevd`'s alone.
+    /// `InstallApproved(path, digest, core, devtool)`: `elevd`'s alone.
     pub(crate) fn install_approved(
         &mut self,
         caller: &Caller,
         path: &str,
         digest: &str,
         core: bool,
+        devtool: bool,
     ) -> Result<Installed, Failure> {
         if !is_elevd(caller) {
             let why = "only elevd installs what an administrator approved";
             let uid = u64::from(caller.uid);
             return Err(self.refuse(&Subject::none(), uid, "INSTALL", fail(EPERM, why)));
         }
-        self.install_from(caller, path, Approval::Approved { digest, core })
+        let approval = Approval::Approved {
+            digest,
+            core,
+            devtool,
+        };
+        self.install_from(caller, path, approval)
     }
 
     /// `InstallDebug(path, digest)`: `dbgd`'s alone, on a box whose
@@ -223,7 +229,7 @@ impl Pkgd {
             return Err(self.refuse(&nobody, uid, "INSTALL", read_failure(code)));
         }
         let bytes = core::mem::take(&mut self.buffer);
-        let outcome = self.install_bytes(&bytes, uid, Installer::of(caller), approval);
+        let outcome = self.install_bytes(&bytes, caller, Installer::of(caller), approval);
         self.buffer = bytes;
         outcome
     }
@@ -231,14 +237,17 @@ impl Pkgd {
     /// Install `bytes` for `uid`. Replacing a core app is a system change
     /// (docs/accounts-plan.md U2): only `elevd`'s `pkg.update-core`, after
     /// an administrator approved it, or a `CAP_SETUID` service may
-    /// ([`Approval`]).
+    /// ([`Approval`]). A developer-tool package comes only from an
+    /// administrator's `pkg.install-devtool`, a system service or `dbgd`
+    /// (`pkgstore::toolgate::install`).
     fn install_bytes(
         &mut self,
         bytes: &[u8],
-        uid: u64,
+        caller: &Caller,
         installer: Installer,
         approval: Approval<'_>,
     ) -> Result<Installed, Failure> {
+        let uid = u64::from(caller.uid);
         let assessed = match assess(bytes) {
             Ok(assessed) => assessed,
             Err(info) => {
@@ -259,6 +268,16 @@ impl Pkgd {
         }
         let package = &assessed.package;
         let system_name = &info.system_name;
+        let tool = package.manifest().is_developer_tool();
+        if let Err(why) = toolgate::install(tool, approval.route(), caller, is_elevd(caller)) {
+            return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+        }
+        if let Err(why) = pkgstore::shellrole::shell_install(
+            package.manifest().is_shell(),
+            self.is_core(system_name),
+        ) {
+            return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+        }
         if let Err(failure) = self.approved(info, approval) {
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
@@ -295,17 +314,30 @@ impl Pkgd {
                 return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
             }
         }
+        if let Err(failure) = self.core_keeps_class(info, tool, previous.as_ref(), approval) {
+            return Err(self.refuse(&subject, uid, "INSTALL", failure));
+        }
         let origin = self.origin_of(system_name);
         match self.install_package(package, &subject, previous, origin, installer) {
             Ok(row) => {
+                // The audit trail records the class; a tool's label is on
+                // the serial line too, beside `POLICY:PASS`.
+                let detail = if tool { "developer tool" } else { "" };
                 self.audit
-                    .record(&event("install", &subject, uid, true, ""));
+                    .record(&event("install", &subject, uid, true, detail));
                 trace::line!(
                     trace::Channel::Pkgd,
                     "INSTALL:PASS {} {}",
                     row.system_name,
                     row.install_dir
                 );
+                if tool {
+                    trace::line!(
+                        trace::Channel::Pkgd,
+                        "INSTALL:DEVTOOL {} approved_by_uid={uid}",
+                        row.system_name
+                    );
+                }
                 Ok(row)
             }
             Err(failure) => {
@@ -372,7 +404,7 @@ impl Pkgd {
             ));
         }
         if let Err(text) = self.activate(manifest, installer.owner()) {
-            self.roll_back(&row.system_name, previous.as_ref());
+            self.roll_back(manifest, previous.as_ref());
             self.discard(&subject.system_name, &install_path);
             return Err(fail(EIO, format!("Installing failed while {text}")));
         }
@@ -431,6 +463,11 @@ pub(crate) fn row_of(
         resident: manifest.entry.resident,
         installer: installer.uid,
         machine_wide: installer.machine_wide,
+        kind: String::from(toolgate::kind_of(manifest)),
+        shell: pkgstore::shellrole::shell_of(
+            manifest,
+            origin == user::messenger::pkgd::wire::ORIGIN_CORE,
+        ),
     }
 }
 

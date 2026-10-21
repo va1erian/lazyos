@@ -144,6 +144,9 @@ BINS = {
     "xui-removable": "xui-removable.elf",
     # NES: Play NES game ROMs, with sound.
     "xui-nes": "xui-nes.elf",
+    # Messenger Playground (developer tool, docs/devtool-packages-plan.md): browse Messenger
+    # APIs and topics and script them in Rhai. Only a `LAZYOS_DEVTOOLS=1` image ships it.
+    "xui-playground": "xui-playground.elf",
 }
 
 

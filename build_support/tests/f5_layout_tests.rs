@@ -62,8 +62,8 @@ fn the_autostart_list_names_core_apps_by_stem_short_id_or_system_name() {
         ["writer", "writer"]
     );
     assert!(
-        !core_packages::is_core_stem("term"),
-        "the Terminal is a program"
+        core_packages::is_core_stem("term"),
+        "the Terminal is a core package, a developer tool that is the user's shell"
     );
     assert!(!core_packages::is_core_stem("installer"));
     assert!(!core_packages::is_core_stem("devices"));
@@ -128,7 +128,7 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
     let mut f4 = OsFiles::default();
     f4.add_bytes(fhs::etc::PASSWD, PASSWD.as_bytes().to_vec());
     f4.add_bytes(F4_EDITOR, b"editor elf".to_vec());
-    f4.add_bytes(fhs::bin::TERMINAL, b"terminal elf".to_vec());
+    f4.add_bytes(fhs::bin::DEVICES, b"devices elf".to_vec());
     f4.add_bytes(F4_APP_LIST, b"/system/bin/editor\n".to_vec());
     let old = write_volume(&volume, None, &layout, &f4.files(), STAMP).unwrap();
 
@@ -136,7 +136,7 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
     let built = core_packages::built(&dir);
     let mut f5 = OsFiles::default();
     f5.add_bytes(fhs::etc::PASSWD, PASSWD.as_bytes().to_vec());
-    f5.add_bytes(fhs::bin::TERMINAL, b"terminal elf".to_vec());
+    f5.add_bytes(fhs::bin::DEVICES, b"devices elf".to_vec());
     core_packages::embed(&mut f5, &built.iter().collect::<Vec<_>>(), &[]);
     let new = write_volume(&volume, Some(&old), &layout, &f5.files(), STAMP).unwrap();
 
@@ -146,8 +146,8 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
     );
     assert!(volume.lookup(F4_APP_LIST).is_err());
     assert_eq!(
-        volume.read_file(fhs::bin::TERMINAL).unwrap(),
-        b"terminal elf"
+        volume.read_file(fhs::bin::DEVICES).unwrap(),
+        b"devices elf"
     );
     assert_eq!(
         volume

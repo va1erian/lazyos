@@ -50,6 +50,53 @@ class OptInAppTests(RunDemoCase):
         self.assertEqual(sorted(path.name for path in run_demo.GAMES_APPS),
                          sorted(re.findall(r'"([^"]+\.elf)"', block.group(1))))
 
+    def test_devtools_bring_the_desktop_and_are_built_first(self) -> None:
+        # One switch for the developer-tool class (docs/devtool-packages-plan.md T4).
+        with mock.patch.object(run_demo, "build_xui_shell", return_value=True),                 mock.patch.object(run_demo, "build_devtools", return_value=True) as built:
+            self.assertEqual(self.run_main("--desktop")[0], 0)
+            self.assertNotIn("LAZYOS_DEVTOOLS", self.builds[-1])
+            built.assert_not_called()
+            self.assertEqual(self.run_main("--devtools")[0], 0)
+        built.assert_called_once()
+        self.assertEqual(self.builds[-1].get("LAZYOS_DEVTOOLS"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+
+    def test_a_failed_devtools_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_devtools", return_value=False):
+            self.assertEqual(self.run_main("--devtools")[0], 1)
+        self.assertEqual(self.builds, [])
+
+    def test_devtools_cannot_do_without_rhai(self) -> None:
+        # The tools run the user's scripts, and the image build refuses the switch without `rhai`.
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()) as error:
+            run_demo.main(["--devtools", "--no-rhai", "--build-only"])
+        self.assertIn("rhai", error.getvalue())
+        self.assertEqual(self.builds, [])
+
+    def test_building_the_devtools_builds_rhai_and_the_apps_only_when_missing(self) -> None:
+        from demo_builds import build_devtools
+        elf, rhai = self.dir / "xui-playground.elf", self.dir / "rhai.elf"
+        with mock.patch("demo_builds.DEVTOOLS_APPS", [elf]), mock.patch("demo_builds.RHAI_ELF", rhai),                 mock.patch("demo_builds.required", return_value=True) as tool,                 mock.patch("demo_builds.build_xui_apps", return_value=True) as apps:
+            self.assertFalse(build_devtools())  # rhai builds, but the app is still not there
+            self.assertEqual([call.args[0] for call in tool.call_args_list], ["rhai"])
+            apps.assert_called_once()
+            rhai.write_bytes(b"ELF")
+            elf.write_bytes(b"ELF")
+            tool.reset_mock()
+            apps.reset_mock()
+            self.assertTrue(build_devtools())
+            tool.assert_not_called()
+            apps.assert_not_called()
+
+    def test_the_devtools_match_the_image_build(self) -> None:
+        source = (run_demo.ROOT / "build_support" / "devtools_embed.rs").read_text(encoding="utf-8")
+        import demo_builds
+        # The opt-in tools; the one with `always` (the Terminal) ships in every desktop and is built
+        # with the desktop apps (`run_demo.DESKTOP_ELFS`, test_run_demo.py).
+        self.assertEqual(re.findall(r'elf: "([^"]+\.elf)",\s*always: true', source), ["xui-term.elf"])
+        self.assertEqual(sorted(path.name for path in demo_builds.DEVTOOLS_APPS),
+                         sorted(re.findall(r'elf: "([^"]+\.elf)",\s*always: false', source)))
+
     def test_emusic_brings_the_desktop_and_a_sound_card(self) -> None:
         with mock.patch.object(run_demo, "build_emusic", return_value=True) as package, \
                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):

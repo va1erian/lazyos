@@ -38,6 +38,8 @@
 //!   the memory tests judge what `pkgd` does);
 //! * [`resident`]: the permissions `[entry] resident = true` implies, read by
 //!   both [`explain`] and [`rules`];
+//! * [`toolgate`]: where a developer tool may come from and when it is
+//!   loaded (`docs/devtool-packages-plan.md`, phase T3);
 //! * [`hash`]: the FNV-1a hashes the kernel keys policy by.
 //!
 //! The crate is `no_std` + `alloc` and touches no syscall: [`tree`] reaches
@@ -62,4 +64,6 @@ pub mod provision;
 pub mod recycle;
 pub mod resident;
 pub mod rules;
+pub mod shellrole;
+pub mod toolgate;
 pub mod tree;

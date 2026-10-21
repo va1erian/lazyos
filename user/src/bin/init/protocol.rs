@@ -7,6 +7,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use user::sys;
 use user::trace;
 
 use user::messenger::{self, router, services, Endpoint, Message, Parcel};
@@ -212,7 +213,8 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
             services::init::METHOD_SHUTDOWN => {
                 let request = services::init::wire::decode_shutdown_args(&message.parcel.body)
                     .map_err(messenger::Error::Parcel)?;
-                let caller = actor(message)?;
+                // The Terminal, the user's shell, is the session's owner.
+                let caller = installed.owner_cred(actor(message)?);
                 let phase = shutdown::request(shutdown, services, broker, &request, &caller)?;
                 services::shutdown_reply(true, &phase)
             }
@@ -243,7 +245,7 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
                     trace::line!(trace::Channel::Init, "LOGOUT:GREETER:HELD");
                     return Err(messenger::Error::Errno(-messenger::errno::EAGAIN));
                 }
-                let caller = actor(message)?;
+                let caller = installed.owner_cred(actor(message)?);
                 match launch(services, broker, installed, &request, &caller, false) {
                     Ok(result) => services::launch_reply(&result),
                     Err(error) => {
@@ -274,6 +276,17 @@ fn dispatch_now(state: &mut Supervisor, message: &Message) -> messenger::Result<
     }
 }
 
+/// The kernel id of the label an installed app's running task carries, read
+/// back from the kernel (`ServiceStatus::label`); `0` for a row that is not an
+/// installed app or is not running. Called when the table is re-encoded,
+/// which a new task (a new pid) triggers.
+fn stamped_label(service: &Service) -> u32 {
+    if service.label.is_none() || service.pid == 0 {
+        return 0;
+    }
+    sys::cred_get(Some(service.pid)).map_or(0, |cred| cred.label_id)
+}
+
 /// Snapshot the supervision table as wire rows.
 fn status_rows(services: &[Service]) -> Vec<services::ServiceStatus> {
     services
@@ -293,6 +306,7 @@ fn status_rows(services: &[Service]) -> Vec<services::ServiceStatus> {
                 restarts: service.restarts,
                 deps,
                 health: service.phase.health().to_string(),
+                label: stamped_label(service),
             }
         })
         .collect()

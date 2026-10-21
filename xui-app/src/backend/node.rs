@@ -35,6 +35,13 @@ impl LazyOSBackend {
         sink.is_some_and(|sink| sink.deliver(target, event))
     }
 
+    /// Where `id` is in its window: its bounds lifted through every ancestor
+    /// (a node's own bounds are relative to its parent). What the UI probe
+    /// prints for a control that sits inside a container.
+    pub fn window_bounds(&self, id: WidgetId) -> Option<Rect> {
+        absolute_bounds(&self.nodes.borrow(), id)
+    }
+
     /// The window and window-absolute bounds of `id`: what a repaint of it
     /// damages (node bounds are parent-relative).
     pub(super) fn absolute_damage(&self, id: WidgetId) -> Option<(WindowId, Rect)> {

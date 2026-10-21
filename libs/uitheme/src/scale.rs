@@ -5,6 +5,11 @@
 //! that scale and hands it to every client (`GetOutput`), so an xui app runs
 //! at `96 * scale` DPI. The same rule picks the kernel console's scale
 //! (`kernel/src/display/modecfg.rs`).
+//!
+//! The image's default is the `display.scale=` line of `/boot/lazyos.cfg`
+//! (`LAZYOS_DISPLAY_SCALE` at build time): [`UiScale::from_cfg`], which `xuid`
+//! uses when `sys/ui/scale` is not set. `LAZYOS_DISPLAY_SCALE=1` on a
+//! 2560x1440 screen is the roomy "hi-res" desktop (no doubling).
 
 use confd::Value;
 
@@ -57,6 +62,17 @@ impl UiScale {
         }
     }
 
+    /// The `display.scale=` line of a `lazyos.cfg` text: the first one that
+    /// parses (the kernel ignores later duplicates, and so does this), with
+    /// an optional trailing `# comment`. `None` when there is no such line.
+    pub fn from_cfg(cfg: &str) -> Option<UiScale> {
+        let value = cfg
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("display.scale"))?;
+        let value = value.trim_start().strip_prefix('=')?;
+        UiScale::parse(value.split('#').next().unwrap_or(""))
+    }
+
     /// The scale in effect on a `width x height` screen.
     pub fn resolve(self, width: u32, height: u32) -> u32 {
         match self {
@@ -101,6 +117,37 @@ mod tests {
         assert_eq!(auto_scale(1280, 720), 1);
         assert_eq!(auto_scale(2559, 1440), 1);
         assert_eq!(auto_scale(0, 0), 1);
+    }
+
+    #[test]
+    fn reads_the_boot_cfg_default() {
+        let cfg = "root=UUID=x
+display.mode=2560x1440
+display.scale = 1  # roomy
+";
+        assert_eq!(UiScale::from_cfg(cfg), Some(UiScale::Fixed(1)));
+        assert_eq!(UiScale::from_cfg("display.scale=2
+"), Some(UiScale::Fixed(2)));
+        assert_eq!(UiScale::from_cfg("  display.scale=AUTO"), Some(UiScale::Auto));
+        // No line, other display keys, or a value the kernel refuses: no default.
+        for none in ["", "display.mode=2560x1440
+", "display.scale=3
+", "display.scale
+",
+                     "display.scale=
+", "display.scales=1
+", "# display.scale=1
+"] {
+            assert_eq!(UiScale::from_cfg(none), None, "{none:?}");
+        }
+        // The first line wins, as in the kernel's parser.
+        assert_eq!(UiScale::from_cfg("display.scale=1
+display.scale=2
+"), Some(UiScale::Fixed(1)));
+        assert_eq!(UiScale::from_cfg("display.mode=2560x1440
+display.scale=1
+")
+            .map(|scale| scale.resolve(2560, 1440)), Some(1));
     }
 
     #[test]

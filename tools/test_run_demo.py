@@ -392,7 +392,7 @@ class MainTests(RunDemoCase):
             self.assertIsNotNone(block, name)
             wanted += re.findall(r'"([^"]+\.elf)"', block.group(1))
         self.assertIn("xui-writer.elf", wanted)
-        self.assertEqual(sorted(path.name for path in run_demo.DESKTOP_ELFS), sorted(wanted))
+        self.assertEqual(sorted(path.name for path in run_demo.DESKTOP_ELFS), sorted(wanted + ["xui-term.elf"]))  # the `always` tool
 
     def test_a_console_build_does_not_package_apps(self) -> None:
         code, _ = self.run_main()

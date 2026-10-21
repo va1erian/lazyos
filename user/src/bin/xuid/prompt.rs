@@ -94,9 +94,15 @@ fn asker(label_id: u32, user: &str, uid: u32) -> String {
         id => match sys::label_name(id, &mut name) {
             Ok(len) => {
                 let label = core::str::from_utf8(&name[..len]).unwrap_or("?");
-                match label.strip_prefix("app:") {
-                    Some(app) => format!("The app {app}"),
-                    None => format!("A program labelled {label}"),
+                match (
+                    label.strip_prefix("app:"),
+                    pkgstore::toolgate::tool_system_name(label),
+                ) {
+                    (Some(app), _) => format!("The app {app}"),
+                    // A developer tool (the Terminal included): named as one,
+                    // since what runs under its label is whatever it was told to.
+                    (None, Some(tool)) => format!("The developer tool {tool}"),
+                    (None, None) => format!("A program labelled {label}"),
                 }
             }
             Err(_) => format!("An app (label #{id})"),

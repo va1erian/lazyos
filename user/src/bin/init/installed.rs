@@ -15,10 +15,23 @@
 //! which is what "re-read when an app is installed or removed" amounts to
 //! without a subscription (a change is visible on the very next request).
 //!
+//! A developer tool (`docs/devtool-packages-plan.md`) is started under the
+//! label `tool:<system_name>` instead of `app:<system_name>`
+//! (`pkgstore::rules::label_for_kind`, from the row's `kind`), and a tool row
+//! that no administrator or image installed is not listed at all
+//! (`pkgstore::toolgate::row_approved`): `pkgd` refuses to load it, and `init`
+//! must not open an app whose label has no rules.
+//!
+//! A *shell* tool (`shell = true`, the Terminal; `pkgstore::shellrole::row_is_shell`,
+//! decided from the row `pkgd` recorded and never from the package) is the
+//! user's own shell: [`InstalledApps::owner_cred`] judges a caller running under
+//! its label as the session's owner, so `powerctl` and a launch from the
+//! Terminal work as before. It is also listed first, so the session opens it
+//! before the other autostart apps as the built-in row it replaced did.
+//!
 //! Every call carries a deadline, so a wedged `confd` costs a request half a
 //! second, never the supervisor.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::trace;
@@ -52,7 +65,8 @@ pub(super) struct InstalledApp {
     pub(super) name: String,
     /// `/apps/<install_dir>/<binary>`.
     pub(super) path: &'static str,
-    /// The kernel policy label, `app:<system_name>`.
+    /// The kernel policy label, `app:<system_name>` (`tool:<system_name>` for
+    /// a developer tool).
     pub(super) label: &'static str,
     /// The manifest's fixed arguments, one `argv` item each.
     pub(super) args: Vec<String>,
@@ -77,6 +91,9 @@ pub(super) struct InstalledApp {
     pub(super) installer: u32,
     /// Installed by a system caller, for everyone (`Installed::machine_wide`).
     pub(super) machine_wide: bool,
+    /// The user's shell (`shellrole::row_is_shell`): a core developer tool whose
+    /// row says `shell`.
+    pub(super) shell: bool,
 }
 
 impl InstalledApp {
@@ -194,12 +211,46 @@ impl InstalledApps {
         }
         rows.sort_by(|a, b| {
             let core = |row: &pkgd::Installed| row.origin != pkgd::ORIGIN_CORE;
+            let not_shell = |row: &pkgd::Installed| !is_shell(row);
             core(a)
                 .cmp(&core(b))
+                .then_with(|| not_shell(a).cmp(&not_shell(b)))
                 .then_with(|| a.system_name.cmp(&b.system_name))
         });
-        let apps = rows.into_iter().map(|row| self.app_of(row)).collect();
+        let apps = rows
+            .into_iter()
+            .filter(approved)
+            .map(|row| self.app_of(row))
+            .collect();
         self.apps = apps;
+    }
+
+    /// `cred` as `init` judges its sender: a task running under a shell tool's
+    /// label (the Terminal's own and everything it starts) is the session's
+    /// owner, so its label is dropped; any other cred is returned as it is.
+    /// The label is named by the kernel (`init` holds the capability to read
+    /// it) and the shell flag comes from the row `pkgd` recorded. The apps are
+    /// re-read once when the package is not known yet.
+    pub(super) fn owner_cred(&mut self, cred: sys::Cred) -> sys::Cred {
+        if cred.label_id == 0 {
+            return cred;
+        }
+        let mut name = [0u8; sys::MAX_LABEL_BYTES];
+        let Some(system_name) = sys::label_name(cred.label_id, &mut name)
+            .ok()
+            .and_then(|len| core::str::from_utf8(&name[..len]).ok())
+            .and_then(pkgstore::toolgate::tool_system_name)
+        else {
+            return cred;
+        };
+        if !self.apps.iter().any(|app| app.id == system_name) {
+            self.refresh();
+        }
+        let shell = self
+            .apps
+            .iter()
+            .any(|app| app.id == system_name && app.shell);
+        owner_of(cred, shell)
     }
 
     /// The caller's hidden apps: `user/<uid>/menu/hidden/*` over
@@ -235,7 +286,8 @@ impl InstalledApps {
     fn app_of(&mut self, row: pkgd::Installed) -> InstalledApp {
         let id = self.intern(&row.system_name);
         let path = self.intern(&fhs::install_path(&row.install_dir, &row.binary));
-        let label = self.intern(&format!("app:{}", row.system_name));
+        let label = self.intern(&label_of(&row));
+        let shell = is_shell(&row);
         InstalledApp {
             id,
             name: row.name,
@@ -252,6 +304,7 @@ impl InstalledApps {
             icon: fhs::icon_path(&row.install_dir),
             installer: row.installer,
             machine_wide: row.machine_wide,
+            shell,
         }
     }
 
@@ -263,6 +316,34 @@ impl InstalledApps {
         self.interned.push(leaked);
         leaked
     }
+}
+
+/// The policy label an installed app is started under.
+fn label_of(row: &pkgd::Installed) -> String {
+    pkgstore::rules::label_for_kind(&row.system_name, &row.kind)
+}
+
+/// Whether a row records the user's shell: the row's own `kind`, `shell` and
+/// origin, as `pkgd` wrote them.
+fn is_shell(row: &pkgd::Installed) -> bool {
+    let core = row.origin == pkgd::ORIGIN_CORE;
+    pkgstore::shellrole::row_is_shell(&row.kind, row.shell, core)
+}
+
+/// `cred` with its label dropped when `shell` (see [`InstalledApps::owner_cred`]).
+fn owner_of(cred: sys::Cred, shell: bool) -> sys::Cred {
+    if shell {
+        sys::Cred::new(cred.uid, cred.gid, cred.caps, 0, cred.session)
+    } else {
+        cred
+    }
+}
+
+/// Whether a row may be used: not a developer tool, or one an administrator
+/// approved or the image ships.
+fn approved(row: &pkgd::Installed) -> bool {
+    let core = row.origin == pkgd::ORIGIN_CORE;
+    pkgstore::toolgate::row_approved(&row.kind, row.machine_wide, core)
 }
 
 /// The short id a core `system_name` answers to (`os.lazy.editor` ->

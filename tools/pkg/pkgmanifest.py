@@ -26,6 +26,10 @@ MAX_PROCESS_NAME = 24
 MAX_PROGRAM = 255
 
 # `lazypkg::Category::ALL`, in menu order; the first is the default.
+KINDS = ("application", "developer-tool")
+#: The kind whose permissions are default-allow (`lazypkg`'s `devtool::KIND`,
+#: docs/devtool-packages-plan.md section 2).
+DEVELOPER_TOOL = "developer-tool"
 CATEGORIES = ("accessories", "development", "games", "graphics", "internet", "office", "system", "utilities")
 DEFAULT_CATEGORY = CATEGORIES[0]
 
@@ -252,6 +256,14 @@ def _check_app(app, problems):
     category = app.get("category")
     if category is not None and category not in CATEGORIES:
         problems.append(f"app.category {category!r} must be one of {', '.join(CATEGORIES)}")
+    kind = app.get("kind")
+    if kind is not None and kind not in KINDS:
+        problems.append(f"app.kind {kind!r} must be one of {', '.join(KINDS)}")
+    shell = app.get("shell")
+    if shell is not None and not isinstance(shell, bool):
+        problems.append("app.shell must be true or false")
+    elif shell is not None and kind != DEVELOPER_TOOL:
+        problems.append(f"app.shell is only for a package with kind = {DEVELOPER_TOOL!r}")
 
 
 def _check_entry(entry, problems):
@@ -392,15 +404,37 @@ def _check_processes(processes, permissions, problems):
                 )
 
 
+def _check_developer_tool(manifest, problems):
+    """What a `developer-tool` may not declare (`lazypkg`'s `tool.rs`): it is default-allow minus a
+    reviewed deny list, so `interfaces` and `topics` would only look like a limit."""
+    allowed = (None, "development", "system") if manifest["app"].get("shell") is True else (None, "development")
+    if manifest["app"].get("category") not in allowed:
+        problems.append('app.category of a developer-tool must be "development" or absent'
+                        + (" (or \"system\" for a shell)" if "system" in allowed else ""))
+    permissions = manifest.get("permissions", {})
+    if isinstance(permissions, dict):
+        for field in ("interfaces", "topics"):
+            if permissions.get(field):
+                problems.append(
+                    f"permissions.{field} must be empty or absent for a developer-tool: it can call "
+                    "anything but the reviewed deny list, so a list would only look like a limit")
+    if manifest.get("processes"):
+        problems.append("a developer-tool cannot declare [processes.<name>] tables: the programs it "
+                        "starts keep its own label")
+
+
 def validate_manifest(manifest):
     """Return every problem in a parsed manifest (empty means valid)."""
     problems = []
     _check_keys(manifest, {"app", "entry", "mime", "permissions", "processes"}, "manifest", problems)
     app = manifest.get("app")
-    _check_keys(app, {"name", "system_name", "author", "version", "description", "category"}, "app", problems)
+    _check_keys(app, {"name", "system_name", "author", "version", "description", "category", "kind",
+                           "shell"}, "app", problems)
     if not isinstance(app, dict):
         return problems + ["app must be a table"]
     _check_app(app, problems)
+    if app.get("kind") == DEVELOPER_TOOL:
+        _check_developer_tool(manifest, problems)
     entry = manifest.get("entry")
     _check_keys(entry, {"binary", "args", "abi", "autostart", "resident"}, "entry", problems)
     if not isinstance(entry, dict):

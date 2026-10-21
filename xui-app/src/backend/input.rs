@@ -10,6 +10,7 @@ use xui_core::{Key, Modifiers, MouseButton, Rect};
 use crate::display::{self, Event as DisplayEvent};
 use crate::sys::{self, button, errno, event, key, EVENT_BYTES};
 
+use super::coalesce::Coalescer;
 use super::focus::{tab_action, TabAction};
 use super::{LazyOSBackend, CLIENT_INPUT_BYTES, INPUT_BATCH};
 
@@ -133,6 +134,8 @@ impl LazyOSBackend {
     /// syscall instead of a one-tick receive.
     pub(super) fn pump_client_input(&self, window: WindowId, events: u64) {
         let mut buf = [0u8; CLIENT_INPUT_BYTES];
+        // The moves of this batch are merged (`coalesce.rs`).
+        let mut held = Coalescer::default();
         while matches!(sys::msg_queued(events), Ok(queued) if queued > 0) {
             match sys::msg_recv(events, &mut buf, sys::EXPIRED_DEADLINE) {
                 Ok(result) => {
@@ -141,6 +144,7 @@ impl LazyOSBackend {
                         continue;
                     };
                     if parcel.header.method == display::METHOD_WINDOW_CLOSE {
+                        held.flush(self, window);
                         // Close only *this* window: the app (xui-core's
                         // runtime) decides whether that ends the loop, so the
                         // Files explorer's extra folder windows close one at a
@@ -149,11 +153,13 @@ impl LazyOSBackend {
                         continue;
                     }
                     if let Some(frame) = display::decode_frame_event(&parcel) {
+                        held.flush(self, window);
                         self.frame_event(window, frame);
                     } else if let Some(drag) = display::decode_drag_event(&parcel) {
+                        held.flush(self, window);
                         self.drag_message(window, drag);
                     } else if let Some(event) = display::decode_event(&parcel) {
-                        self.route_client_event(window, event);
+                        held.push(self, window, event);
                     }
                 }
                 Err(code) if code == -errno::ETIMEDOUT => break,
@@ -165,6 +171,7 @@ impl LazyOSBackend {
                 Err(_) => break,
             }
         }
+        held.flush(self, window);
     }
 
     /// Route one decoded compositor event. Pointer coordinates are already

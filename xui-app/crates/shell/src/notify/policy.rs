@@ -6,11 +6,16 @@
 //! to the app it launched. Nothing in the request names the sender, so an
 //! app cannot post as another app or as the system.
 //!
-//! A caller that is no launched app but is in the shell's login session, runs
-//! as the shell's user and carries no package label (a script run from the
-//! Terminal) is shown as [`SCRIPT_OWNER`]: the shell chooses that name, the
-//! caller never does. It is refused outside a login session (session 0 is
-//! where the system services run).
+//! A process that `init` did not launch itself but that runs under a launched
+//! app's label (everything an app starts keeps its label: a script a developer
+//! tool runs, the Terminal's shell and its commands) is that app: the kernel
+//! stamped the label, so nothing the sender says matters. The Terminal's own
+//! notices and those of the programs run in it are all [`SCRIPT_OWNER`], the
+//! owner key they had when the Terminal was not a package (users' mutes and
+//! harness lines use it). A caller that is no launched app and carries no
+//! package label, in the shell's login session and as the shell's user, is a
+//! script too. A label-less script is refused outside a login session
+//! (session 0 is where the system services run).
 
 use crate::tray::policy::{app_of, check, Caller, Deny, Shell};
 
@@ -19,6 +24,9 @@ use crate::tray::policy::{app_of, check, Caller, Deny, Shell};
 pub const SYSTEM_OWNER: &str = "<system>";
 /// The owner key of a script run from the Terminal.
 pub const SCRIPT_OWNER: &str = "<terminal>";
+/// The Terminal's app id (`os.lazy.terminal`): its notices, and its children's,
+/// are [`Owner::Script`].
+pub const TERMINAL_APP: &str = "os.lazy.terminal";
 /// The name shown for [`SCRIPT_OWNER`].
 pub const SCRIPT_NAME: &str = "Terminal";
 /// The name shown for [`SYSTEM_OWNER`].
@@ -62,19 +70,49 @@ pub struct Sender {
     pub pid: u64,
 }
 
-/// Decide who `sender` is, from `init`'s `(name, pid)` rows.
+/// Decide who `sender` is, from `init`'s `(name, pid, label)` rows: `label`
+/// is the kernel id of the policy label the row's task carries (`0`: none).
 pub fn identify<'a>(
     sender: Sender,
     shell: Shell,
-    rows: impl IntoIterator<Item = (&'a str, u64)>,
+    rows: impl IntoIterator<Item = (&'a str, u64, u32)> + Clone,
     is_app: impl Fn(&str) -> bool,
 ) -> Result<Owner<'a>, Deny> {
     check(sender.caller, shell)?;
-    match app_of(rows, sender.pid, is_app) {
-        Ok(app) => Ok(Owner::App(app)),
-        Err(Deny::NotAnApp) if sender.label == 0 && shell.session != Some(0) => Ok(Owner::Script),
-        Err(why) => Err(why),
-    }
+    let by_pid = app_of(
+        rows.clone().into_iter().map(|(name, pid, _)| (name, pid)),
+        sender.pid,
+        &is_app,
+    );
+    let owner = match by_pid {
+        Ok(app) => Owner::App(app),
+        Err(Deny::NotAnApp) if sender.label != 0 => {
+            match app_of_label(rows, sender.label, &is_app) {
+                Some(app) => Owner::App(app),
+                None => return Err(Deny::NotAnApp),
+            }
+        }
+        Err(Deny::NotAnApp) if shell.session != Some(0) => Owner::Script,
+        Err(why) => return Err(why),
+    };
+    Ok(match owner {
+        Owner::App(TERMINAL_APP) => Owner::Script,
+        owner => owner,
+    })
+}
+
+/// The launched app whose task carries the label `label`: a row naming an app
+/// of the registry (`is_app`) that is running (pid not 0). Every process an
+/// installed app starts keeps its label, so a sender with that label is that
+/// app's code.
+fn app_of_label<'a>(
+    rows: impl IntoIterator<Item = (&'a str, u64, u32)>,
+    label: u32,
+    is_app: impl Fn(&str) -> bool,
+) -> Option<&'a str> {
+    rows.into_iter()
+        .find(|(name, pid, row_label)| *pid != 0 && *row_label == label && is_app(name))
+        .map(|(name, ..)| name)
 }
 
 /// The user's do-not-disturb and per-app mute (`sys/ui/notify/*`), which

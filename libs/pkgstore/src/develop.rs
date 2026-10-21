@@ -48,7 +48,14 @@ pub fn label(system_name: &str) -> String {
 
 /// The rules `Develop` loads for `manifest`'s development label: the same
 /// compilation an install uses, then [`SENTINEL`].
+///
+/// A developer tool is refused ([`CompileError::DeveloperTool`]): a `dev:`
+/// label is judged by the exact permissions of an app, a tool has none, and it
+/// already runs under `tool:` with the reviewed deny list.
 pub fn rules(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
+    if manifest.is_developer_tool() {
+        return Err(CompileError::DeveloperTool);
+    }
     let mut compiled = rules::compile(manifest)?;
     if compiled.len() >= MAX_RULES {
         return Err(CompileError::TooManyRules {
@@ -233,6 +240,19 @@ mod tests {
             rules(&manifest(&text)),
             Err(CompileError::TooManyRules { .. })
         ));
+    }
+
+    #[test]
+    fn a_developer_tool_cannot_be_run_as_a_development_build() {
+        let tool = lazypkg::parse_manifest(
+            "[app]\nname = \"T\"\nsystem_name = \"org.lazy.tool\"\nauthor = \"A\"\n\
+             version = \"1.0.0\"\nkind = \"developer-tool\"\n\
+             [entry]\nbinary = \"bin/app.elf\"\n",
+        )
+        .expect("valid");
+        let refusal = rules(&tool).unwrap_err();
+        assert_eq!(refusal, CompileError::DeveloperTool);
+        assert!(format!("{refusal}").contains("developer tool"));
     }
 
     #[test]

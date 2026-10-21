@@ -85,6 +85,17 @@ jobs:
       - run: python -m unittest discover -s tools/fhs -p "test_*.py"
       - run: cargo test -p fhs --features alloc
 
+  devtool-interfaces:
+    # Developer tools are default allow minus a deny list, so every interface
+    # in idl/ must be denied (`devtool::DENY`) or reviewed
+    # (tools/devtool/reviewed_interfaces.txt); docs/devtool-packages-plan.md
+    # section 7.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python tools/devtool/check_interfaces.py
+      - run: python tools/devtool/test_check_interfaces.py
+
   xui-pin:
     # One xui revision across every manifest and lockfile (xui-app, doom,
     # lazyrad-os), so a bump cannot miss a workspace.

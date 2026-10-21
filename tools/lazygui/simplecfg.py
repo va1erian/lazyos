@@ -9,7 +9,7 @@ import inspect
 import os
 import sys
 
-from .display import HIDPI_MODE
+from .display import HIDPI_MODE, HIRES_SCALE
 from .login import DEFAULT_ACCOUNT
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -56,6 +56,10 @@ SIMPLE_GROUPS = (
                          "108 MB, 4 GiB of RAM and a 1 GiB OS volume (1.5 GiB with SRB2Kart); builds in Docker (turns "
                          "Networking on).",
      ("webkit",)),
+    ("devtools", "Developer tools", "The Messenger Playground: browse Messenger APIs and topics and script "
+                                    "them in Rhai. A developer tool runs with your own authority, like "
+                                    "the Terminal; builds the rhai command it runs scripts with (Desktop only).",
+     ("devtools",)),
     ("lazywebplus", "LazyWeb+", "LazyWeb's browser window on the WebKit engine: JavaScript and the "
                                 "modern web, with history, downloads and the rest of LazyWeb's "
                                 "chrome; three programs of about 108 MB, 4 GiB of RAM and a 1 GiB OS "
@@ -63,7 +67,7 @@ SIMPLE_GROUPS = (
      ("lazywebplus",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
-SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "autologin", "setup", "usb_image")
+SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "hires", "autologin", "setup", "usb_image")
 
 
 def software_choices() -> list[str]:
@@ -118,13 +122,13 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   quake: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,
-                  hidpi: bool = False, tls: bool = False, lazyweb: bool = False,
+                  hidpi: bool = False, hires: bool = False, tls: bool = False, lazyweb: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
                   srb2kart: bool = False, webkit: bool = False,
-                  lazywebplus: bool = False, games: bool = False) -> dict:
+                  lazywebplus: bool = False, games: bool = False, devtools: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -137,11 +141,13 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     network with host port 8080 forwarded, and on the desktop the Network and
     Net Tools apps), ``linuxapps`` the Linux command-line programs (dash,
     sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
-    at 2x (docs/hidpi-plan.md) and ``tls`` the HTTPS clients (curl, wget,
+    at 2x (docs/hidpi-plan.md), ``hires`` that screen as a roomy 2560x1440
+    desktop at 1x (text keeps its size; it excludes ``hidpi``) and ``tls`` the HTTPS clients (curl, wget,
     fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
     it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
     ``tls``); ``traydemo`` the tray sample app (Desktop only); ``games`` LazyGolf and the
-    NES Player (Desktop only; the Games group); ``autologin`` skips the
+    NES Player (Desktop only; the Games group); ``devtools`` the developer tools (the Messenger
+    Playground; Desktop only, docs/devtool-packages-plan.md); ``autologin`` skips the
     Desktop's login screen and logs ``user`` in (issue #623); ``setup`` starts
     the Desktop with no account, so the login screen asks for its owner (the
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
@@ -160,6 +166,9 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         raise ValueError(f"unknown build profile: {build!r}")
     if interface not in dict(SIMPLE_INTERFACES):
         raise ValueError(f"unknown interface: {interface!r}")
+    if hidpi and hires:
+        raise ValueError("HiDPI (a 1280x720 desktop at 2x) and Hi-res (a 2560x1440 desktop at 1x) "
+                         "exclude each other")
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
     lazysky = desktop and lazysky
@@ -217,6 +226,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "lazywebplus": lazywebplus,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "games": desktop and games,
+        "devtools": desktop and devtools,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,
         # The netboot payload is an Advanced-only control, like the kernel limits.
@@ -224,6 +234,8 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "netboot_key": "",
         "autologin": DEFAULT_ACCOUNT if desktop and autologin and not setup else "",
         "setup": desktop and setup,
-        "display_mode": HIDPI_MODE if hidpi else "",
+        "display_mode": HIDPI_MODE if hidpi or hires else "",
+        # Scale 1 on the 1440p screen is the roomy desktop; HiDPI leaves the image's auto (2).
+        "display_scale": HIRES_SCALE if hires else "",
     })
     return cfg

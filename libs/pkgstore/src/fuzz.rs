@@ -9,7 +9,8 @@
 //!
 //! * the rule list is at most [`rules::MAX_RULES`] long, holds no duplicate,
 //!   allows only, and is the same on every call; a refusal names a count
-//!   beyond the limit;
+//!   beyond the limit. A developer tool's list is the denies in force, then
+//!   one allow-all, and nothing else;
 //! * no `files` entry has a `..` segment or a `**` and every one is a `read:`
 //!   or `write:` rule; no topic has a `**` or a dot-only segment (`.`, `..`);
 //! * every permission is listed once, in order, with a known risk word and a
@@ -41,7 +42,14 @@ fn check_manifest(text: &str) -> bool {
     match rules::compile(&manifest) {
         Ok(list) => {
             assert!(list.len() <= MAX_RULES, "{} rules", list.len());
-            assert!(list.iter().all(|rule| rule.allow));
+            if manifest.is_developer_tool() {
+                let (last, denies) = list.split_last().expect("a tool holds its allow-all");
+                assert!(last.allow && last.interface_id == u64::MAX);
+                assert!(denies.iter().all(|rule| !rule.allow));
+                assert_eq!(rules::installed(&manifest), Ok(list.clone()));
+            } else {
+                assert!(list.iter().all(|rule| rule.allow));
+            }
             for (index, rule) in list.iter().enumerate() {
                 assert!(!list[..index].contains(rule), "duplicate rule");
             }
@@ -52,9 +60,11 @@ fn check_manifest(text: &str) -> bool {
                 Ok(rules) => assert!(rules.len() <= MAX_RULES),
                 Err(CompileError::Files(_)) => assert!(!manifest.processes.is_empty()),
                 Err(CompileError::TooManyRules { rules }) => assert!(rules > MAX_RULES),
+                Err(CompileError::DeveloperTool) => panic!("only Develop refuses a tool"),
             }
         }
         Err(CompileError::TooManyRules { rules }) => assert!(rules > MAX_RULES),
+        Err(CompileError::DeveloperTool) => panic!("only Develop refuses a tool"),
         Err(CompileError::Files(error)) => panic!("compile never reads files: {error}"),
     }
 
@@ -87,7 +97,11 @@ fn check_manifest(text: &str) -> bool {
             .filter(|e| !own.iter().any(|o| o == *e))
             .count()
     };
-    let implied = if manifest.entry.resident {
+    let implied = if manifest.is_developer_tool() {
+        // The class rows (kind, risks, denied) and the resident row alone.
+        let denied = rules::tool::denied(&manifest).count();
+        1 + devtool::RISKS.len() + denied + usize::from(manifest.entry.resident)
+    } else if manifest.entry.resident {
         1 + unlisted(&wanted.interfaces, &resident::INTERFACES)
             + unlisted(&wanted.topics, &resident::TOPICS)
     } else {
@@ -153,6 +167,34 @@ fn manifest_from_lines(text: &str) -> String {
     )
 }
 
+/// `HEADER` with `kind = "developer-tool"`.
+fn tool_header() -> String {
+    HEADER.replacen("[app]\n", "[app]\nkind = \"developer-tool\"\n", 1)
+}
+
+/// The same lines as the permissions of a developer tool: only `files`,
+/// `network` and `develop` are lists it may hold.
+fn tool_from_lines(text: &str) -> String {
+    let (mut files, mut network) = (Vec::new(), Vec::new());
+    for line in text.lines().take(400) {
+        let Some(item) = quoted(line) else {
+            continue;
+        };
+        if line.starts_with("read:") || line.starts_with("write:") {
+            files.push(item);
+        } else if line.starts_with("net") || line == "outbound" {
+            network.push(item);
+        }
+    }
+    format!(
+        "{}[permissions]\nfiles = [{}]\nnetwork = [{}]\ndevelop = {}\n",
+        tool_header(),
+        files.join(","),
+        network.join(","),
+        text.len() & 1 == 0
+    )
+}
+
 /// Run the pipeline on `input`. Never panics on a correct implementation.
 pub fn run(input: &[u8]) {
     let Ok(text) = core::str::from_utf8(input) else {
@@ -176,6 +218,7 @@ pub fn run(input: &[u8]) {
         let _ = rules::service_names(line);
     }
     check_manifest(&manifest_from_lines(text));
+    check_manifest(&tool_from_lines(text));
 }
 
 #[cfg(test)]
@@ -278,6 +321,36 @@ mod seeded {
             let text = format!("{HEADER}resident = true\n[permissions]\n{permissions}");
             assert!(check_manifest(&text), "{text}");
         }
+    }
+
+    #[test]
+    fn developer_tool_manifests_hold_the_invariants() {
+        for permissions in [
+            "",
+            "develop = true\n",
+            "network = [\"outbound\"]\n",
+            "network = [\"outbound\"]\ndevelop = true\nfiles = [\"read:$HOME/*\"]\n",
+        ] {
+            for resident in ["", "resident = true\n"] {
+                let text = format!("{}{resident}[permissions]\n{permissions}", tool_header());
+                assert!(check_manifest(&text), "{text}");
+            }
+        }
+        // A tool that lists interfaces is refused before it reaches the compiler.
+        let listed = format!(
+            "{}[permissions]\ninterfaces = [\"os.lazy.confd.v1\"]\n",
+            tool_header()
+        );
+        assert!(!check_manifest(&listed));
+        for_seeds("pkgstore::developer_tool_lines", |_, rng| {
+            let mut text = String::new();
+            for _ in 0..rng.range(0, 30) {
+                text.push_str(rng.pick(PATTERNS));
+                text.push('\n');
+            }
+            // Hostile lines make an invalid manifest; none may panic.
+            check_manifest(&tool_from_lines(&text));
+        });
     }
 
     #[test]

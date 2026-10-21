@@ -110,6 +110,26 @@ pub fn list_apps() -> Result<Vec<App>, i64> {
         .collect())
 }
 
+/// `init.Services` as [`launched`] reads it, with the kernel id of the label
+/// each running task carries: `(name, pid, label)`. A process an app started
+/// keeps the app's label, which is how the notification service names the
+/// sender of a call whose task is not the one `init` launched.
+pub fn launched_labelled() -> Result<Vec<(String, u64, u32)>, i64> {
+    let reply = call(
+        INIT,
+        init_wire::INTERFACE_ID,
+        init_wire::METHOD_SERVICES,
+        Vec::new(),
+        SERVICES_TICKS,
+    )?;
+    let table = init_wire::decode_services_reply(&reply.body).map_err(|_| -errno::EINVAL)?;
+    Ok(table
+        .services
+        .into_iter()
+        .map(|row| (row.name, row.pid, row.label))
+        .collect())
+}
+
 /// `init.Services`: every supervision row as `(name, pid)`, which maps a
 /// launched app's task to its app id (the tray's caller identity). `init`
 /// answers it from a cached reply, so the bound is short: the tray reads it

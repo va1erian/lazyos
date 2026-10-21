@@ -72,14 +72,12 @@ fn embed_shell(sink: &mut dyn Sink) {
 
 /// The xui programs that stay unlabelled in `/system/bin` (issue #509), by the
 /// stem of their binary (`xui-<stem>.elf`): the desktop shell, the Installer
-/// (`pkgd`'s trusted UI, which refuses every labelled caller) and the Terminal
-/// (a labelled Terminal would sandbox its shell and every command typed in it,
-/// `pkgctl` and `powerctl` included, since children inherit the label) and
-/// Devices (it reads the kernel's device inspection calls, `os.kernel.dev`,
-/// which no package permission can name). Every other desktop app is a core
-/// package.
+/// (`pkgd`'s trusted UI, which refuses every labelled caller) and Devices (it
+/// reads the kernel's device inspection calls, `os.kernel.dev`, which no
+/// package permission can name). Every other desktop app is a core package,
+/// the Terminal too (a developer tool that is the user's shell,
+/// `devtools_embed`).
 const XUI_DESTINATIONS: &[(&str, &str)] = &[
-    ("term", fhs::bin::TERMINAL),
     ("devices", fhs::bin::DEVICES),
     ("installer", fhs::bin::INSTALLER),
     ("shell", fhs::bin::LAZYSHELL),
@@ -116,7 +114,8 @@ fn xui_destination(stem: &str) -> Option<String> {
 /// desktop lists them; the names match `tools/xui/build.py`'s outputs and
 /// `lazygui`'s `DESKTOP_APPS`.
 const DESKTOP_XUI_APPS: &[&str] = &[
-    "xui-term.elf",
+    // The Terminal, `xui-term.elf`, is a developer tool that every desktop ships
+    // (`devtools_embed::TOOLS`, `always`), listed there and not here.
     "xui-sysmon.elf",
     "xui-fabricmon.elf",
     "xui-widget.elf",
@@ -227,6 +226,7 @@ pub fn rerun_if_changed() {
     for module in [
         "xui_embed",
         "core_packages",
+        "devtools_embed",
         "lazyweb_embed",
         "lazywebplus_embed",
         "webkit_embed",
@@ -345,7 +345,8 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
     // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
     // `LAZYOS_LAZYSKY=1`, `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1`,
-    // `LAZYOS_PICTURES=1`); asking for one without having built it is an error.
+    // `LAZYOS_PICTURES=1`, and the developer tools as a class, `LAZYOS_DEVTOOLS=1`);
+    // asking for one without having built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
     crate::os_image::rerun_if_changed(&lazyweb_elf);
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
@@ -354,7 +355,12 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     crate::os_image::rerun_if_changed(&webkit_elf);
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
     crate::os_image::rerun_if_changed(&lazywebplus_elf);
-    let requested = [
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    let devtools = crate::devtools_embed::enabled(
+        desktop,
+        crate::rhai_embed::find(&manifest_dir).is_some(),
+    );
+    let mut requested = vec![
         (
             crate::lazyrad_embed::enabled(),
             crate::lazyrad_embed::PACKAGE_SHORT,
@@ -390,6 +396,15 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::pictures_embed::not_built(),
         ),
     ];
+    for tool in crate::devtools_embed::TOOLS {
+        let elf = dir.join(tool.elf);
+        crate::os_image::rerun_if_changed(&elf);
+        requested.push((
+            crate::devtools_embed::ships(tool, devtools, desktop),
+            tool.short,
+            crate::devtools_embed::not_built(tool, elf.is_file()),
+        ));
+    }
     for (wanted, short, missing) in requested {
         if !wanted || packages.iter().any(|p| p.short == short) {
             continue;

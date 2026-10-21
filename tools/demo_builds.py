@@ -9,6 +9,7 @@ for.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -186,6 +187,27 @@ def build_lazysky() -> bool:
     if LAZYSKY_ELF.is_file() or (build_xui_apps() and LAZYSKY_ELF.is_file()):
         return True
     print(f"error: {LAZYSKY_ELF} was not built "
+          "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
+    return False
+
+
+#: The developer tools' programs (`build_support/devtools_embed.rs` TOOLS); `tools/xui/build.py`
+#: builds them with the other apps.
+DEVTOOLS_APPS = [ROOT / "target" / "xui" / "xui-playground.elf"]
+RHAI_ELF = ROOT / "target" / "rhai" / "rhai.elf"
+
+
+def build_devtools() -> bool:
+    """The developer tools (`--devtools`, docs/devtool-packages-plan.md): the xui apps when a
+    tool's binary is missing, and `rhai`, which the image build refuses to go without (a tool
+    runs the user's scripts; the soft `build_rhai` only warns)."""
+    explicit = Path(os.environ.get("LAZYOS_RHAI", ""))  # `rhai_embed::find`: a file, else the build
+    if not (explicit.is_file() or RHAI_ELF.is_file()) and not required("rhai", "rhai/build.py"):
+        return False
+    if all(app.is_file() for app in DEVTOOLS_APPS) or (
+            build_xui_apps() and all(app.is_file() for app in DEVTOOLS_APPS)):
+        return True
+    print(f"error: {DEVTOOLS_APPS[0]} was not built "
           "(run `python tools/xui/build.py` and read its errors)", file=sys.stderr)
     return False
 

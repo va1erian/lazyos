@@ -10,15 +10,11 @@ use super::double_click::PressKind;
 use super::geometry::{absolute_bounds, hit, translate};
 use super::LazyOSBackend;
 
-/// The `MouseWheel` delta of one notch: Windows' `WHEEL_DELTA`, the unit xui's
-/// widgets and `xui-litehtml` (which divides by it) expect.
-const WHEEL_NOTCH: i32 = 120;
-
 impl LazyOSBackend {
     /// The node a pointer event at window point `(x, y)` goes to, with its
     /// window-absolute bounds: the capturing node in `window` if any (so a drag
     /// survives leaving it), else the topmost node under the point.
-    fn pointer_target(&self, window: WindowId, x: i32, y: i32) -> Option<(WidgetId, Rect)> {
+    pub(super) fn pointer_target(&self, window: WindowId, x: i32, y: i32) -> Option<(WidgetId, Rect)> {
         let nodes = self.nodes.borrow();
         if let Some(id) = self.captured.get() {
             let in_window = nodes
@@ -35,7 +31,7 @@ impl LazyOSBackend {
 
     /// Deliver a pointer `event` (window coordinates) to `target`, translated to
     /// its local coordinates; with no target it goes to the window unchanged.
-    fn deliver_pointer(&self, window: WindowId, target: Option<(WidgetId, Rect)>, event: Event) {
+    pub(super) fn deliver_pointer(&self, window: WindowId, target: Option<(WidgetId, Rect)>, event: Event) {
         match target {
             Some((id, abs)) => {
                 let (x, y) = self.pointer.get();
@@ -89,27 +85,6 @@ impl LazyOSBackend {
         }
     }
 
-    /// Route a wheel roll of `notches` (positive scrolls up) at window point
-    /// `(x, y)` to the node under the pointer.
-    pub(super) fn pointer_wheel(&self, window: WindowId, x: i32, y: i32, notches: i32) {
-        self.pointer.set((x, y));
-        let delta = notches
-            .saturating_mul(WHEEL_NOTCH)
-            .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16;
-        if delta == 0 {
-            return;
-        }
-        let target = self.pointer_target(window, x, y);
-        let event = Event::MouseWheel {
-            delta,
-            horizontal: false,
-            x,
-            y,
-            modifiers: self.modifiers.get(),
-        };
-        self.deliver_pointer(window, target, event);
-    }
-
     /// Route one pointer press: click-to-focus, then the press itself, or a
     /// double-click in place of a quick second press on the same widget.
     pub(super) fn pointer_down(&self, window: WindowId, x: i32, y: i32, button: MouseButton) {
@@ -150,11 +125,13 @@ impl LazyOSBackend {
                 .borrow_mut()
                 .press(now, window, x, y, button, id)
         };
-        self.deliver_pointer(
-            window,
-            target,
-            kind.event(x, y, button, self.modifiers.get()),
-        );
+        // A double-click comes after its plain press, so a widget that only
+        // reads `MouseDown` (a scroll bar's thumb, a button) still gets it.
+        let modifiers = self.modifiers.get();
+        if let Some(press) = kind.press_event(x, y, button, modifiers) {
+            self.deliver_pointer(window, target, press);
+        }
+        self.deliver_pointer(window, target, kind.event(x, y, button, modifiers));
     }
 
     /// Route one pointer release.
@@ -215,6 +192,7 @@ mod tests {
             text: String::new(),
             painter: None,
             clip: None,
+            kind: xui_core::backend::NodeKind::Container,
         }
     }
 
@@ -264,6 +242,13 @@ mod tests {
             event,
             Event::MouseDoubleClick { x: 11, y: 14, .. }
         ));
+        // The plain press comes first: a widget that reads `MouseDown` alone
+        // (a scroll bar's thumb) must not lose the second press of a pair.
+        let events = log.0.borrow();
+        let before = &events[events.len() - 2];
+        assert_eq!(before.0, id(2));
+        assert!(matches!(before.1, Event::MouseDown { x: 11, y: 14, .. }));
+        drop(events);
         // A third quick press starts over.
         backend.pointer_down_at(W, 11, 41, MouseButton::Left, 125);
         assert!(matches!(last(&log).1, Event::MouseDown { .. }));
@@ -334,30 +319,21 @@ mod tests {
         backend.pointer_wheel(W, 160, 40, -2);
         let (target, event) = last(&log);
         assert_eq!(target, id(3));
-        assert!(matches!(event, Event::MouseWheel { delta: -240, .. }));
+        assert!(matches!(event, Event::MouseWheel { delta: -120, .. }));
+        assert_eq!(log.0.borrow().len(), 3, "two notches, two events");
     }
 
     #[test]
-    fn a_zero_wheel_is_dropped_and_a_huge_one_saturates() {
+    fn a_zero_wheel_is_dropped_and_a_huge_one_is_cut() {
         let (backend, log) = rig();
         backend.pointer_wheel(W, 10, 40, 0);
         assert!(log.0.borrow().is_empty(), "no event for zero notches");
         backend.pointer_wheel(W, 10, 40, i32::MAX);
-        assert!(matches!(
-            last(&log).1,
-            Event::MouseWheel {
-                delta: i16::MAX,
-                ..
-            }
-        ));
+        assert_eq!(log.0.borrow().len(), 16);
+        assert!(matches!(last(&log).1, Event::MouseWheel { delta: 120, .. }));
         backend.pointer_wheel(W, 10, 40, i32::MIN);
-        assert!(matches!(
-            last(&log).1,
-            Event::MouseWheel {
-                delta: i16::MIN,
-                ..
-            }
-        ));
+        assert_eq!(log.0.borrow().len(), 32);
+        assert!(matches!(last(&log).1, Event::MouseWheel { delta: -120, .. }));
     }
 
     #[test]

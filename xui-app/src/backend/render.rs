@@ -8,7 +8,7 @@
 //! composed last, so each damaged pixel is written once per frame.
 
 use xui_canvas::Surface;
-use xui_core::backend::{Painter, WindowId};
+use xui_core::backend::{Canvas, Painter, WindowId};
 use xui_core::Rect;
 
 use crate::client_window::{copy_rect, ClientWindow, Slots};
@@ -87,7 +87,7 @@ impl LazyOSBackend {
         // clip (a scroll view's row scrolled out of its viewport) is skipped:
         // painters are not clipped to it, so it would draw over its neighbours.
         let reach = inflate(damage, PAINT_SPILL * self.scale() as i32);
-        let paints: Vec<(Rect, Painter)> = {
+        let paints: Vec<(Rect, Painter, Option<Rect>)> = {
             let nodes = self.nodes.borrow();
             nodes
                 .iter()
@@ -95,8 +95,13 @@ impl LazyOSBackend {
                 .filter_map(|(id, node)| {
                     let painter = node.painter.clone()?;
                     let bounds = absolute_bounds(&nodes, *id)?;
-                    let shown =
-                        ancestor_clip(&nodes, *id).is_none_or(|clip| intersects(bounds, clip));
+                    let clip = ancestor_clip(&nodes, *id);
+                    let shown = clip.is_none_or(|clip| intersects(bounds, clip));
+                    // A node that sticks out of an ancestor's clip (a paragraph
+                    // of a scroll view, scrolled half out of the viewport) is
+                    // cut at it, as `xui-canvas`'s own compositor does; one
+                    // inside it needs no clip.
+                    let clip = clip.filter(|clip| !contains(*clip, bounds));
                     // A node that keeps its own picture (`direct.rs`) is opaque and spills nothing: its
                     // painter runs only for damage it overlaps (it is a whole frame through the canvas).
                     let near = if super::direct::is_direct(*id) {
@@ -104,7 +109,7 @@ impl LazyOSBackend {
                     } else {
                         reach
                     };
-                    (shown && intersects(bounds, near)).then_some((bounds, painter))
+                    (shown && intersects(bounds, near)).then_some((bounds, painter, clip))
                 })
                 .collect()
         };
@@ -120,8 +125,17 @@ impl LazyOSBackend {
             // In creation order a container paints before the widgets in it,
             // so the widgets draw on it instead of filling their own
             // background.
-            for (bounds, painter) in paints {
-                region.with_canvas_over_parents(bounds, dpi, |canvas| painter(canvas));
+            for (bounds, painter, clip) in paints {
+                region.with_canvas_over_parents(bounds, dpi, |canvas| match clip {
+                    // Window coordinates are the canvas's own (no transform
+                    // is set yet), like the clip `xui-canvas` pushes.
+                    Some(clip) => {
+                        canvas.push_clip(clip);
+                        painter(canvas);
+                        canvas.pop_clip();
+                    }
+                    None => painter(canvas),
+                });
             }
         });
         self.paint_damage.set(None);
@@ -357,6 +371,14 @@ fn inflate(rect: Rect, by: i32) -> Rect {
 /// Whether `a` and `b` share at least one pixel.
 fn intersects(a: Rect, b: Rect) -> bool {
     a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+/// Whether `outer` holds every pixel of `inner`.
+fn contains(outer: Rect, inner: Rect) -> bool {
+    outer.left <= inner.left
+        && outer.top <= inner.top
+        && inner.right <= outer.right
+        && inner.bottom <= outer.bottom
 }
 
 #[cfg(test)]

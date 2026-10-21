@@ -58,8 +58,22 @@ class CorePackageTests(unittest.TestCase):
     def test_every_core_app_has_a_source_tree_and_nothing_else_does(self) -> None:
         trees = sorted(p.name for p in core_packages.SOURCES.iterdir() if p.is_dir())
         self.assertEqual(trees, sorted(core_packages.CORE_APPS))
-        for kept_out in ("terminal", "installer", "devices", "shell"):
+        for kept_out in ("installer", "devices", "shell"):
             self.assertNotIn(kept_out, core_packages.CORE_APPS)
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_only_the_terminal_is_the_users_shell(self) -> None:
+        # `shell = true` makes what runs under a tool's label act as the session's
+        # owner towards pkgd and init (docs/devtool-packages-plan.md, "T-later:
+        # Terminal"): one core package has it, and it is a developer tool.
+        shells = []
+        for short in core_packages.CORE_APPS:
+            text = (core_packages.SOURCES / short / "manifest.toml").read_text(encoding="utf-8")
+            app = tomllib.loads(text)["app"]
+            if app.get("shell"):
+                shells.append(short)
+                self.assertEqual(app.get("kind"), "developer-tool", short)
+        self.assertEqual(shells, ["terminal"])
 
     @unittest.skipIf(tomllib is None, "needs Python 3.11+")
     def test_every_source_manifest_is_valid_and_names_its_app(self) -> None:
@@ -72,7 +86,12 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn(manifest["entry"]["binary"], core_packages.CORE_APPS[short].programs.values())
             self.assertEqual(manifest["entry"]["args"], ["--client"])
             self.assertEqual(manifest["entry"]["abi"], "linux")
-            if short in WINDOWLESS:
+            if manifest["app"].get("kind") == "developer-tool":
+                # Default-allow (docs/devtool-packages-plan.md section 2): no list that would
+                # look like a limit; the display comes with the label.
+                self.assertNotIn("interfaces", manifest["permissions"], short)
+                self.assertNotIn("topics", manifest["permissions"], short)
+            elif short in WINDOWLESS:
                 # A tray applet never opens a window: no display, but resident.
                 self.assertNotIn("os.lazy.display.v1", manifest["permissions"]["interfaces"])
                 self.assertTrue(manifest["entry"]["resident"], short)
@@ -175,6 +194,32 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("os.lazy.mimed.v1", manifest["permissions"]["interfaces"])
         for size in (16, 32, 128):
             self.assertTrue((core_packages.SOURCES / "archiver" / "icons" / f"app-{size}.png").is_file())
+
+    @unittest.skipIf(tomllib is None, "needs Python 3.11+")
+    def test_the_playground_is_a_developer_tool_with_its_examples_inside(self) -> None:
+        import zipfile
+        app = core_packages.CORE_APPS["playground"]
+        self.assertTrue(app.optional, "shipped only by LAZYOS_DEVTOOLS=1 images")
+        source = core_packages.SOURCES / "playground"
+        manifest = tomllib.loads((source / "manifest.toml").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["app"]["kind"], "developer-tool")
+        self.assertEqual(manifest["app"]["category"], "development")
+        self.assertEqual(manifest["permissions"].get("network", []), [])
+        archive = next(p for p in self.build("pg") if p.name.startswith("os.lazy.playground-"))
+        with zipfile.ZipFile(archive) as zf:
+            names = set(zf.namelist())
+        # `examples/` is not a top-level directory a package may have (`tools/pkg/build.py`).
+        self.assertLessEqual({"bin/playground.elf", "manifest.toml", "docs/README.md"}, names)
+        self.assertFalse([n for n in names if n.startswith("examples/")], names)
+        self.assertEqual({n for n in names if n.startswith("resources/examples/") and not n.endswith("/")},
+                         {f"resources/examples/{p.name}" for p in (source / "examples").rglob("*")
+                          if p.is_file()})
+
+    def test_relocating_a_missing_directory_is_an_error(self) -> None:
+        app = core_packages.CoreApp({}, relocate=(("examples", "resources/examples"),))
+        (self.dir / "tree").mkdir()
+        with self.assertRaises(core_packages.CoreError):
+            core_packages.relocate_dirs(app, self.dir / "tree")
 
     def test_the_image_build_lists_the_same_core_apps(self) -> None:
         # `build_support/core_packages.rs` `is_core_stem` mirrors CORE_APPS

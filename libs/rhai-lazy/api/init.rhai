@@ -225,7 +225,7 @@ fn new_power_state() {
 ///
 /// One row of `init`'s supervision table.
 fn new_service_status() {
-    #{ name: "", state: "", pid: 0, restarts: 0, deps: "", health: "" }
+    #{ name: "", state: "", pid: 0, restarts: 0, deps: "", health: "", label: 0 }
 }
 
 /// A `AppInfo` with every field at its zero value.
@@ -236,6 +236,12 @@ fn new_service_status() {
 /// Restart count.
 /// Comma-separated dependency names.
 /// Last known health string for the service.
+/// The kernel id of the policy label the task runs under, as the
+/// kernel stamped it (`0`: unlabelled, and for a row that is not
+/// running). Every process an installed app starts keeps it, so a
+/// caller whose stamped label equals a launched app's is that app's
+/// own code: how LazyShell names the sender of a notification whose
+/// task is not the one `init` launched (`os.lazy.notify.v1`).
 /// One row of `init`'s built-in app registry (issue #158): the S5 start
 /// menu's enumeration unit and the resolution table `Launch` uses.
 fn new_app_info() {

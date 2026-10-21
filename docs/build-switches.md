@@ -27,7 +27,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_SHELL` | `0` leaves LazyShell (taskbar, menu, icons) out of a desktop image. | `--no-shell` |
 | `LAZYOS_SERVICES` | Boot the userspace services (`messengerd`, `init`, ...) without the desktop. Implied by `LAZYOS_DESKTOP`. | - |
 | `LAZYOS_XUID` | Embed the `xuid` compositor without the rest of the desktop. Implied by `LAZYOS_DESKTOP`. | - |
-| `LAZYOS_XUI_AUTOSTART` | Comma list of core-app short names opened at login (`term`, `settings`, `writer`, ...). Unset: the session opens the Terminal only where an image says so. | - |
+| `LAZYOS_XUI_AUTOSTART` | Comma list of core-app short names opened at login (`term`, `settings`, `writer`, ...). Unset: the session opens the Terminal only where an image says so (`term` is the package `os.lazy.terminal`). | - |
 | `LAZYOS_XUI_APPS` | Platform path list (`;` on Windows, `:` elsewhere) of xui app ELFs to embed instead of the default set. | - |
 | `LAZYOS_XUI_APP` | Path to a single xui app ELF to run as the only client (single-app images). | - |
 | `LAZYOS_XUI_CLIENT` | `1`: that app runs as an `xuid` client rather than owning the framebuffer. | - |
@@ -67,7 +67,8 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
 | `LAZYOS_WIFI` | `wifid`, the RTL8822CE driver, and its fetched firmware. | `LAZYOS_NETD` | `--wifi` |
 | `LAZYOS_WIFI_SIM` | The simulated Wi-Fi radio `wlan0` (`wifisim`) and its fake access points. | `LAZYOS_NETD` | `--wifi-sim` |
-| `LAZYOS_GEN9GFX` | `gpud`, the read-only Intel Gen9 GPU service. | - | `--gen9gfx` |
+| `LAZYOS_INTELGFX` | `gpud`, the read-only Intel GPU service (Kaby Lake Gen9, Alder Lake display 13). | - | `--intelgfx` |
+| `LAZYOS_DEVTOOLS` | Every optional developer-tool core package (the Messenger Playground; [`docs/devtool-packages-plan.md`](devtool-packages-plan.md)): they run under the label `tool:<name>`. One switch for the class. The Terminal is a developer tool too (the user's shell, `shell = true`) and ships in every desktop image with no switch (`always`). | desktop, the `rhai` command (`tools/rhai/build.py`, which `--devtools` runs) | `--devtools` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
 | `LAZYOS_JSC` | JavaScriptCore's `jsc` shell and the C++/ICU check `cxxproof` in `/system/bin` (built in Docker; wants `--big-app`). | `tools/jsc/build.py` | `--jsc` |
@@ -132,9 +133,9 @@ or an option must be in the suite file's `test_only` list
 | Switch | Meaning | Front end |
 | --- | --- | --- |
 | `LAZYOS_LIMIT_<KEY>` | Kernel ceilings written to `lazyos.cfg`: `HEAP_MAX`, `FD_MAX`, `STACK_SIZE`, `QUOTA_USER_MEMORY`, `QUOTA_KERNEL_MEMORY`, `SHARED_BUFFER_MAX`. Sizes take `K/M/G/T`; `FD_MAX` is a count. See [architecture/limits.md](architecture/limits.md). | `--limit key=value` |
-| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--display-mode WxH` |
+| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--hires`, `--display-mode WxH` |
 | `LAZYOS_DISPLAY_MAX` | `<w>x<h>` cap on the logical screen of a firmware (real PC / UEFI) framebuffer; default 1920x1080. `2560x1440` on a 1440p panel gives a 1280x720 desktop at scale 2 (#717). | `--display-max WxH` |
-| `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2`: the default for `sys/ui/scale`. | - |
+| `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2` (`display.scale` in `lazyos.cfg`): the boot console's scale and `xuid`'s default for `sys/ui/scale` while that key is unset. `1` on a 2560x1440 mode is the hi-res desktop (no doubling); unset is `auto` (2 from 2560x1440). | `--display-scale {auto,1,2}`, `--hires` (= `--display-mode 2560x1440 --display-scale 1`; excludes `--hidpi`), the GUI's Hi-res (Simple) and Display scale (Advanced) |
 | `LAZYOS_KBD_LAYOUT` | `us` (default) or `fr` (AZERTY). | - |
 | `LAZYOS_REVISION` | Source revision (a SHA-1) the kernel embeds for `uname`'s version field and Settings -> About; default `git rev-parse HEAD`, or `unknown` outside a checkout (#754). | - |
 

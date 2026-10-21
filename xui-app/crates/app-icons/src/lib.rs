@@ -159,6 +159,14 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/nes",
         Art::Lucide(Lucide::Play, Tone::Clay),
     ),
+    // The Terminal: the Global Village terminal picture, as LazyShell's
+    // launcher drew it before the Terminal was a package.
+    ("xui-app/packages/terminal", Art::Village(Icon::Terminal)),
+    // Messenger Playground: Lucide `code`, a script, on a teal tile.
+    (
+        "xui-app/packages/playground",
+        Art::Lucide(Lucide::Code, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

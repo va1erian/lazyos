@@ -410,10 +410,31 @@ Headless first, QEMU last.
 
 ## 7. Launcher and packaging
 
-The Terminal is in every desktop image and is not a core package
-(`docs/packages.md`), so no build switch, `run_demo.py` flag or GUI control is
-needed. New shipped files (bold/italic faces, terminfo) go through
-`assets/manifest.txt` and `/system/.image-manifest` as usual.
+The Terminal is in every desktop image, so no build switch, `run_demo.py` flag
+or GUI control is needed. New shipped files (bold/italic faces, terminfo) go
+through `assets/manifest.txt` and `/system/.image-manifest` as usual.
+
+**It is a core package** (`os.lazy.terminal`, `xui-app/packages/terminal/`): a
+developer tool that is the user's shell (`kind = "developer-tool"`, `shell =
+true`, category `system`), shipped by every desktop image (`Tool.always` in
+`build_support/devtools_embed.rs`). It used to be a built-in program in
+`/system/bin` that `init` ran unlabelled, because a child inherits its parent's
+label and a packaged Terminal would have run `pkgctl` and `powerctl` as a
+sandboxed app. The shell, and every command typed in it, now run under
+`tool:os.lazy.terminal` (default-allow Messenger rules minus a short deny list,
+`libs/devtool`), and `pkgd` and `init` treat that label as the session's owner
+because the app's recorded row says `shell` (only an image's own package can):
+`docs/devtool-packages-plan.md` section 10 has the audit and the decisions.
+What a user sees: nothing changes in the window, the title, the `TERM:*`
+markers or the probe names. What changed around it: the app id is
+`os.lazy.terminal` (the bare `terminal` still launches it), so a session waits
+for `INIT:AUTOSTART:PASS app=os.lazy.terminal`; the Terminal does not show the
+developer-tool strip or title suffix (decision 2 of that section); Messenger
+calls to the label policy loader, a wildcard-leading topic filter
+(`messengerctl tail '#'`) and publishing under `system/` are refused to it and
+to everything run in it. Unlike the Playground, a shell tool is not denied the
+key, secret and account services: it acts as the session user and those
+services stay the authority. Session: `term_devtool.json`.
 
 ## 8. Order and size
 
