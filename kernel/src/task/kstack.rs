@@ -150,12 +150,48 @@ impl ClaimError {
     }
 }
 
+/// One bit per number that some task still names as its process group or
+/// session (issue #880).
+struct GroupNumbers([u64; MAX_TASKS.div_ceil(64)]);
+
+impl GroupNumbers {
+    fn of(tasks: &[Option<Task>; MAX_TASKS]) -> Self {
+        let mut bits = GroupNumbers([0; MAX_TASKS.div_ceil(64)]);
+        for task in tasks.iter().flatten() {
+            bits.set(task.pgid);
+            bits.set(task.sid);
+        }
+        bits
+    }
+
+    fn set(&mut self, number: usize) {
+        if let Some(word) = self.0.get_mut(number / 64) {
+            *word |= 1 << (number % 64);
+        }
+    }
+
+    fn contains(&self, number: usize) -> bool {
+        self.0
+            .get(number / 64)
+            .is_some_and(|word| word & (1 << (number % 64)) != 0)
+    }
+}
+
 /// The lowest free slot below `limit.task_max`, with a kernel stack for it.
 /// Callers take this first, before any other fallible step: a refusal then
 /// has nothing to undo.
+///
+/// A slot is the pid of whatever runs in it, and a process group or a
+/// session outlives its leader (its members keep `pgid == X` after the
+/// leader in slot X is gone). Handing X out again would let its new holder
+/// "form" group X with `setpgid(0, 0)` and silently join the old members, so
+/// a slot whose number some task still uses as its pgid or sid is skipped,
+/// as Linux's `alloc_pid` never returns a pid still in use as one (issue
+/// #880). A group cannot outlive all of its members, so the slot comes back.
 pub fn claim_slot(tasks: &[Option<Task>; MAX_TASKS]) -> Result<(usize, KernelStack), ClaimError> {
+    let held = GroupNumbers::of(tasks);
     let index = (1..limits::task_max().min(MAX_TASKS))
-        .find(|&slot| tasks[slot].is_none())
+        .find(|&slot| tasks[slot].is_none() && !held.contains(slot))
         .ok_or(ClaimError::NoSlot)?;
     let stack = KernelStack::new(index).ok_or(ClaimError::NoMemory)?;
     Ok((index, stack))
