@@ -38,6 +38,7 @@
 //! shutdown hook that makes it consistent on disk.
 
 mod abi_attr;
+mod abi_link;
 mod abi_rename;
 pub mod boot_image;
 pub mod bootcfg;
@@ -65,6 +66,7 @@ use alloc::vec::Vec;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
+pub use abi_link::abi_link;
 pub use abi_rename::abi_rename;
 pub(crate) use abi_rename::abi_rename_raw;
 use coherence::{abi_changed, native_changed, Change};

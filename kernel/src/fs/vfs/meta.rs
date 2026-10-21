@@ -51,6 +51,10 @@ pub struct Meta {
     /// Access, modification and change times (all zero where a backend keeps
     /// none, e.g. FAT and the fabricated ABI entries).
     pub times: Times,
+    /// `st_nlink`: the names of a file (hard links); for a directory its `.`,
+    /// its entry in the parent and each subdirectory's `..`. `1` where a
+    /// backend keeps no count (FAT, the fabricated ABI entries).
+    pub nlink: u32,
 }
 
 /// Capacity figures for one mounted filesystem, the payload of `statfs(2)`.
@@ -159,6 +163,8 @@ pub enum FsError {
     /// The file already has as many names as its filesystem allows
     /// (`EMLINK`).
     TooManyLinks,
+    /// The operation joins two mounts (a hard link across them, `EXDEV`).
+    CrossDevice,
 }
 
 impl FsError {
@@ -180,6 +186,7 @@ impl FsError {
             FsError::Io => "input/output error",
             FsError::TextBusy => "text file busy",
             FsError::TooManyLinks => "too many links",
+            FsError::CrossDevice => "invalid cross-device link",
         }
     }
 }

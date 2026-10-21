@@ -228,6 +228,12 @@ impl Filesystem for Ext2 {
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
+    fn link(&self, existing: &str, new: &str, _caller: Id) -> Result<(), FsError> {
+        self.refuse_dead()?;
+        let _gate = self.enter();
+        Ok(self.volume.link(existing, new)?)
+    }
+
     fn unlink(&self, path: &str) -> Result<(), FsError> {
         self.refuse_dead()?;
         let _gate = self.enter();
@@ -369,5 +375,6 @@ fn meta(meta: InodeMeta) -> Meta {
             mtime: meta.times.mtime,
             ctime: meta.times.ctime,
         },
+        nlink: meta.nlink,
     }
 }

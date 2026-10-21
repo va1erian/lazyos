@@ -149,6 +149,7 @@ fn entry_meta(index: usize, mode: u16, kind: FileKind, size: u64) -> Meta {
         size,
         kind,
         times: vfs::Times::default(),
+        nlink: 1,
     }
 }
 

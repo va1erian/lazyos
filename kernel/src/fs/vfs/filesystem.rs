@@ -116,7 +116,18 @@ pub trait Filesystem: Send + Sync {
     /// Create a directory with `mode` (already masked by the umask).
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError>;
 
-    /// Remove a regular file.
+    /// Give the regular file at `existing` the further name `new` (a hard
+    /// link), charging what the name costs to `caller` where the backend
+    /// keeps per-owner accounts (ramfs). The VFS has checked both paths, that
+    /// `existing` is not a directory and that both lie on this mount. The
+    /// default is a filesystem that cannot hold links: `EPERM`, as Linux
+    /// answers for one (FAT, the overlay, a user-space filesystem).
+    fn link(&self, existing: &str, new: &str, caller: Id) -> Result<(), FsError> {
+        let _ = (existing, new, caller);
+        Err(FsError::NotPermitted)
+    }
+
+    /// Remove one name of a regular file; the file goes with its last name.
     fn unlink(&self, path: &str) -> Result<(), FsError>;
 
     /// Remove an empty directory. The default answers

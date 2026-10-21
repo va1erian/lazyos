@@ -48,6 +48,7 @@ mod attr;
 mod cache;
 mod filesystem;
 mod flags;
+mod link;
 mod meta;
 mod mountops;
 mod node;
