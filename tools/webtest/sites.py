@@ -195,7 +195,7 @@ def fixture(site: str, path: str) -> Path | None:
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"  # keep-alive: a handshake under TCG is slow
     def version_string(self) -> str:
-        return "ECS (lazyweb-harness)"
+        return "ECS (web-harness)"
 
     def log_message(self, *_args) -> None:
         pass  # the record is the log
@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         with record.lock:
             record.requests.append(Request(scheme, host, self.command, self.path, status,
                                            self.headers.get("User-Agent", ""),
-                                           getattr(self.connection, "lazyweb_sni", None),
+                                           getattr(self.connection, "harness_sni", None),
                                            self.headers.get("Cookie", ""),
                                            self.headers.get("If-None-Match", "")
                                            or self.headers.get("If-Modified-Since", "")))
@@ -298,9 +298,9 @@ class Server(ThreadingHTTPServer):
                 request = self.context.wrap_socket(request, server_side=True)
             except (ssl.SSLError, OSError):
                 return  # a refused handshake: no request to record
-            request.lazyweb_sni = self._sni.pop(id(request), None)
+            request.harness_sni = self._sni.pop(id(request), None)
             with self.record.lock:
-                self.record.handshakes.append(request.lazyweb_sni)
+                self.record.handshakes.append(request.harness_sni)
             try:
                 super().finish_request(request, client_address)
             finally:

@@ -340,8 +340,8 @@ example does the same.
 
 `tls.rs`, `roots.rs` and `resolve.rs` (now in the shared `lazyhttps` crate,
 `xui-app/crates/https`, which LazyAgent uses too; docs/ai-agent-plan.md) are
-small adaptations of LazyWeb's
-`xui-app/web/src/fetch/tls.rs` and `roots.rs` (rustls client config with
+small adaptations of the fetcher of LazyWeb (the Blitz browser, since removed)
+(`xui-app/web/src/fetch/tls.rs` and `roots.rs`: rustls client config with
 `nettls_crypto::provider_arc()`, ALPN `http/1.1`, a ureq `Connector`; roots
 from `Platform::ca_roots()`). Do not depend on the `lazyweb` crate (declared
 GPL-2.0-only); copy, name the source in a comment, keep the two in step.
@@ -660,8 +660,8 @@ bulk download exactly as §7.6, with sanitize tests.
   there (so a second run is a no-op) and ends with
   `SKY:BULK:DONE:<n>:<errors>`; Cancel stops it.
 
-**P8: LazyOS integration.** Copy the LazyWeb route (list in
-`build_support/lazyweb_embed.rs` and AGENTS.md):
+**P8: LazyOS integration.** Copy the route LazyWeb took (it is gone; `build_support/lazysky_embed.rs` and
+AGENTS.md are the copy now):
 * `LAZYOS_LAZYSKY=1`: `build_support/lazysky_embed.rs` refuses it without
   `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` (the CA bundle is in every image);
   add to the requested table in `xui_embed.rs` and `core_packages.rs`; tests
@@ -682,7 +682,7 @@ bulk download exactly as §7.6, with sanitize tests.
   `docs/packages.md`). **Derive the final list** from a
   `LAZYOS_LABEL_TRACE=1` session: zero `LABEL:DENY`.
 * Icon (`xui-app/crates/app-icons` `PACKAGES`), `docs/lazysky.md`, package
-  README, `docs/build-switches.md` row, an AGENTS.md section like LazyWeb's,
+  README, `docs/build-switches.md` row, an AGENTS.md section like the other apps',
   and `python tools/nettls/licenses.py` over the tree (no `ring`/`aws-lc`).
 
 *P8 findings (2026-10-11).*
@@ -735,10 +735,10 @@ those in WSL (`.claude/skills/xui-app/SKILL.md`).
 
 ### 10.2 QEMU harness: `python tools/lazysky/run.py`
 
-Modelled on `tools/web/run.py` and `tools/mail/run.py`:
+Modelled on the LazyWeb harness (since removed) and `tools/mail/run.py`:
 1. `gen_fixtures.py` (deterministic): 400 posts, 0–4 images with varied or
    missing `aspectRatio`, quotes, reposts, facets, PNG/JPEG thumbs and
-   fullsizes (`tools/web/imgenc.py`, `jpegenc.py`), and one 6000×4000 JPEG to
+   fullsizes (`tools/webtest/imgenc.py`, `jpegenc.py`), and one 6000×4000 JPEG to
    prove downscaling stays off the UI thread.
 2. Build with `LAZYOS_DESKTOP=1 LAZYOS_NETD=1 LAZYOS_NETD_ARGS=demo=0
    LAZYOS_LAZYSKY=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term

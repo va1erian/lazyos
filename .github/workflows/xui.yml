@@ -119,7 +119,7 @@ jobs:
           path: ~/.cache/zig
           key: zig-0.16.0-${{ runner.os }}
 
-      # Docs and LazyWeb render with Blitz (pure Rust) and need no zig; it is
+      # Docs renders with Blitz (pure Rust) and needs no zig; it is
       # for Mail's SQLite (`tools/xui/zig.py`, docs/mail.md) and the helper's
       # tests, so the pin here is what makes CI exercise them.
       - name: Install zig (C toolchain for Mail and the helper's tests)

@@ -1,7 +1,7 @@
 # LazyWeb+ performance plan: make mainstream sites usable
 
 Status: **draft, 2026-10-13** (rebased on main at #851/#852). Scope: `os.lazy.lazywebplus` ([`lazywebplus.md`](lazywebplus.md)) on the WebKit
-port ([`webkit-port-plan.md`](webkit-port-plan.md)). Out of scope: LazyWeb (Blitz), a GPU or video path,
+port ([`webkit-port-plan.md`](webkit-port-plan.md)). Out of scope: a GPU or video path,
 WebAssembly, SMP. Method follows [`performance-plan.md`](performance-plan.md): measure first, and keep what was
 *measured* apart from what was only *read from the code*.
 
@@ -69,7 +69,7 @@ Phases are ordered by risk-adjusted value. Each ends with a number from the harn
 1. `python tools/webplus/perf.py [--live] [--hidpi] [--accel none] [--site NAME]`: builds like `tools/webplus/run.py`,
    boots once, loads each site, scripts the same interaction (settle, accept consent, five wheel bursts, one
    pointer sweep), prints a table and writes `docs/perf/webplus.md`. Sites: fixtures committed in
-   `tools/web/fixtures/theoldnet.com/webplus/perf/` (an animation page: CSS + `requestAnimationFrame` + GIF; a
+   `tools/webtest/fixtures/theoldnet.com/webplus/perf/` (an animation page: CSS + `requestAnimationFrame` + GIF; a
    script-busy page: 2 MB JSON, 20k DOM nodes; 200 pictures; WOFF2 fonts; a tall page; iframes with timers) so a
    run is repeatable offline; `--live` reads `tools/webplus/perf_sites.txt` (ars, google search, wikipedia, github,
    hn, bbc, nytimes, reddit) and is manual (no copies of third-party pages are kept).

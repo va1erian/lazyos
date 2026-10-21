@@ -224,9 +224,8 @@ With D6 + D7 nothing LazyWeb-specific is needed beyond the rev bump: the
 `NetSurfView`'s control is the hit node under the pointer. Verify: hovering a
 link on the example.com stand-in shows the hand. Add a `WEB:CURSOR:HAND` evidence
 line? No — the verdict is the screenshot (QEMU screendumps include the
-software cursor). Extend `tools/web/session.py` to hover the link and shoot,
-regenerate `lazyweb.json` with `--write`, and teach the judge
-(`tools/web/judge`/`test_judge.py`) nothing new unless cheap.
+software cursor). (The LazyWeb harness this extended, `tools/web`, was removed with
+LazyWeb; LazyWeb+'s is `tools/webplus`.)
 
 ### D9. Settings: Cursor group
 
@@ -265,7 +264,7 @@ regenerate `lazyweb.json` with `--write`, and teach the judge
 | C3 | Compositor-native resize cursors over borders and during resize | `window_resize.json` + a new `cursor_shapes.json` session hovering each border |
 | C4 | MIDL `SetCursor` + scope + xuid handler + pkgstore + manifests | `cargo test -p messenger-generated -p pkgstore`, midlc CI command clean diff, `core_apps.json` under `LAZYOS_LABEL_TRACE=1` shows no `LABEL:DENY` |
 | C5 | xui-app backend `set_cursor` + busy helper + host tests | `cargo test --manifest-path xui-app/Cargo.toml` (lib tests via WSL/musl per AGENTS.md); session hovering a hyperlink/edit in an app (e.g. Settings or Docs) shows Hand/I-beam |
-| C6 | xui upstream (Busy, NetSurf pointer) + rev bump | xui tests; `python tools/web/run.py` and a screenshot with the hand over a link |
+| C6 | xui upstream (Busy, NetSurf pointer) + rev bump | xui tests; the LazyWeb harness (since removed) and a screenshot with the hand over a link |
 | C7 | Settings Pointer group | settings crate tests; `xui_settings.json`-style session changing size, screenshot shows a bigger cursor live |
 | C8 | Docs | — |
 
@@ -289,9 +288,9 @@ the kernel mux cursor.
 | C3 | done | `cursor_shapes.json` (every border and corner, a resize in progress), `window_resize.json` |
 | C4 | done | `core_apps.json` under `LAZYOS_LABEL_TRACE=1`: no `LABEL:DENY`; `cargo test -p messenger-generated -p pkgstore` |
 | C5 | done | `cursor_docs.json` (hand over a link, I-beam over text, arrow over a button); `cursor_xdemo.json` (all eight shapes through `SetCursor`, busy animating); host tests in `xui-app/src/backend/cursor/tests.rs` |
-| C6 | done | `va1erian/xui#279` (`Cursor::Busy`, NetSurf pointer shapes) is in the pinned xui (`93592fd`, which contains `8ac63a0`); `wire_shape` maps `Cursor::Busy`. `python tools/web/run.py` passes and `shot_hover_link.png` shows the hand |
+| C6 | done | `va1erian/xui#279` (`Cursor::Busy`, NetSurf pointer shapes) is in the pinned xui (`93592fd`, which contains `8ac63a0`); `wire_shape` maps `Cursor::Busy`. The LazyWeb harness (since removed) passed and `shot_hover_link.png` showed the hand |
 | C7 | not landed | The Mouse pointer group on the Appearance page and the `cursor_size.json` session. They were written against `sys/ui/*` keys that Settings edited directly; Appearance is now each account's own `user/<uid>/ui/*` copy (`user_theme`), so the size key needs a `user_key` mapping and a Make-default path first. Until then the size is `sys/ui/cursor/size` set by hand (`confd`) |
-| C8 | done | this file, `docs/architecture/display.md`, `docs/hidpi-plan.md`, `docs/window-resize-plan.md`, `docs/packages.md`, `docs/settings-app-plan.md`, `docs/lazyweb.md`, `AGENTS.md` |
+| C8 | done | this file, `docs/architecture/display.md`, `docs/hidpi-plan.md`, `docs/window-resize-plan.md`, `docs/packages.md`, `docs/settings-app-plan.md`, `docs/lazyweb.md` (since removed), `AGENTS.md` |
 
 Deviations from the design above:
 
