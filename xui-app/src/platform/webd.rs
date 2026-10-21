@@ -95,9 +95,13 @@ impl WebdTransport {
 /// a handle this task still has is the client's to close, and one it has not was moved. A buffer
 /// is the caller's `Pages`, which closes it when it drops.
 fn close_unsent(objects: &[Object]) {
-    close_unqueued(objects, |handle| sys::msg_queued(handle).is_ok(), |handle| {
-        let _ = sys::msg_close(handle);
-    });
+    close_unqueued(
+        objects,
+        |handle| sys::msg_queued(handle).is_ok(),
+        |handle| {
+            let _ = sys::msg_close(handle);
+        },
+    );
 }
 
 impl Transport for WebdTransport {

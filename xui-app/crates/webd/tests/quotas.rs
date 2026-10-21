@@ -350,7 +350,11 @@ fn a_declared_length_near_u64_max_is_refused_without_wrapping_the_quota_sum() {
             "{len}"
         );
     }
-    assert_eq!(rig.fabric.open_handles(), base, "every refused buffer was closed");
+    assert_eq!(
+        rig.fabric.open_handles(),
+        base,
+        "every refused buffer was closed"
+    );
     assert_eq!(rig.fabric.double_closes(), 0);
     // The client's honest slot is untouched and the next honest attach works.
     assert!(rig.attach_bytes(app, view, 1, 64).0.is_ok());

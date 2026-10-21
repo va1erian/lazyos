@@ -46,7 +46,11 @@ fn a_slot_release_the_inbox_refused_is_sent_again_and_the_view_keeps_painting() 
     world.borrow().paint(id, 2, 2, BLUE);
     world.borrow_mut().eagain = 1;
     assert_eq!(frames(&view.poll()), 1);
-    assert_eq!(sent(&world, wire::METHOD_RELEASESLOT), 0, "the inbox was full");
+    assert_eq!(
+        sent(&world, wire::METHOD_RELEASESLOT),
+        0,
+        "the inbox was full"
+    );
     // webd still holds the only slot busy, so the next picture would have nowhere to go; the next
     // poll sends the release first and the picture then arrives.
     world.borrow().paint(id, 2, 2, WHITE);
@@ -79,7 +83,11 @@ fn a_key_up_the_inbox_refused_goes_out_before_the_next_message() {
     view.key(true, 97, "a", 0);
     world.borrow_mut().eagain = 1;
     view.key(false, 97, "a", 0);
-    assert_eq!(world.borrow().engine.calls().len(), 1, "only the press so far");
+    assert_eq!(
+        world.borrow().engine.calls().len(),
+        1,
+        "only the press so far"
+    );
     view.mouse(MouseKind::Move, 0, 1, 1, 0);
     assert_eq!(
         world.borrow().engine.take(),
@@ -134,7 +142,10 @@ fn a_full_inbox_drops_moves_and_presses_but_keeps_the_button_up_for_the_next_pol
         "only the release was kept"
     );
     view.poll();
-    assert!(world.borrow().engine.calls().is_empty(), "and it was sent once");
+    assert!(
+        world.borrow().engine.calls().is_empty(),
+        "and it was sent once"
+    );
 }
 
 #[test]
