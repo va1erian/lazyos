@@ -1,5 +1,5 @@
 //! Every number webd enforces on a client, in one place (docs/webd-plan.md sections 3.6 and 5). The
-//! first six are the plan's; the last four are not caps on what a client may do but the sizes a
+//! first six are the plan's; the rest are not caps on what a client may do but the sizes a
 //! message must fit in or the cadence of a probe. Nothing else limits a client: a number added here
 //! needs a reason that is not "to be safe".
 
@@ -37,6 +37,12 @@ pub const REQUEST_BYTES: usize = 128 << 10;
 
 /// Milliseconds between the `Ping` events that tell the service a client is gone (`EPIPE`).
 pub const PING_INTERVAL_MS: u64 = 1000;
+
+/// Milliseconds after a send met a client's full queue before webd asks the engine for another
+/// picture of that view (or copies one): a client that stopped reading would otherwise cost a whole
+/// frame, requested and copied, at the paint rate. A send to the client that gets through ends the
+/// wait early.
+pub const FULL_BACKOFF_MS: u64 = 250;
 
 /// Things that happened once (a link click, a copy, a lost view, an engine marker) and service
 /// notes kept for the service thread between two drains, so a page that clicks links in a loop

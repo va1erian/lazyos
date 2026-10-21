@@ -29,6 +29,12 @@ pub struct View {
     pub dirty: bool,
     /// A `Refresh` is already on its way to the engine for the picture `dirty` stands for.
     pub refresh_sent: bool,
+    /// The client's queue was full at the last failed send: no picture is asked for or copied for it
+    /// until this time (milliseconds on the pump's clock) passes or a send to it succeeds.
+    pub backoff_until: Option<u64>,
+    /// The view is lost and the client has not been told: its `ViewLost` met a full queue and is
+    /// sent again at every turn of the pump until it gets through.
+    pub lost_unsent: bool,
 }
 
 impl View {
@@ -44,7 +50,14 @@ impl View {
             lost: None,
             dirty: true,
             refresh_sent: false,
+            backoff_until: None,
+            lost_unsent: false,
         }
+    }
+
+    /// Whether the client's queue was full recently enough that a picture would only be lost again.
+    pub fn backing_off(&self, now_ms: u64) -> bool {
+        self.backoff_until.is_some_and(|until| now_ms < until)
     }
 
     /// A frame was lost or never seen: the next free slot needs a fresh one.

@@ -76,6 +76,8 @@ pub struct Service<E: Engine, F: Fabric> {
     notes: VecDeque<Note>,
     /// When the next `Ping` is due (milliseconds on the host's clock); `None` until the first `pump`.
     next_ping_ms: Option<u64>,
+    /// The host's clock at the last `pump` (0 before the first), for the per-client back-off.
+    now_ms: u64,
 }
 
 impl<E: Engine, F: Fabric> Service<E, F> {
@@ -91,6 +93,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             groups: Groups::default(),
             notes: VecDeque::new(),
             next_ping_ms: None,
+            now_ms: 0,
         }
     }
 
