@@ -32,6 +32,30 @@ pub enum Line {
     Flood(String),
 }
 
+/// The engine's markers (`webd_ui_say`, as the C++ half prints them without the `WEBD:NOTE:` prefix)
+/// that a page or a client can make fire in a loop: a link click, a refused frame or history entry,
+/// a refused base URL, an ignored configuration field, a duplicate view id, the ping of a hung page
+/// and its recovery, and the per-navigation timing. A prefix, so `CONFIG:IGNORED:*` and the
+/// `INFO:*` lines are covered whatever follows.
+pub const FLOODING_ENGINE_LINES: &[&str] = &[
+    "LIGHT:LINK",
+    "LIGHT:REFUSED:",
+    "LIGHT:BASE:REFUSED",
+    "CONFIG:IGNORED:",
+    "VIEW:DUPLICATE",
+    "WEBPROCESS:RESPONSIVE:",
+    "WEBPROCESS:UNRESPONSIVE:",
+    "WEBPROCESS:RECOVER",
+    "INFO:",
+];
+
+/// Whether an engine line is one of [`FLOODING_ENGINE_LINES`].
+pub fn engine_line_floods(line: &str) -> bool {
+    FLOODING_ENGINE_LINES
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+}
+
 /// The word for a `LostReason` wire value.
 pub fn reason_name(reason: u32) -> &'static str {
     match reason {
@@ -70,6 +94,7 @@ pub fn lines_of(note: Note, client_name: &mut dyn FnMut(ClientKey) -> String) ->
         Note::FrameDropped { view, why } => {
             vec![Line::Flood(format!("frame dropped view={view}: {why}"))]
         }
+        Note::Engine(line) if engine_line_floods(&line) => vec![Line::Flood(line)],
         Note::Engine(line) => vec![Line::Note(line)],
     }
 }
@@ -175,12 +200,38 @@ mod tests {
             lines_of(dropped, &mut name)[0],
             Line::Flood(ref text) if text.contains("no free slot")
         ));
-        assert_eq!(
-            lines_of(
-                Note::Engine("CONFIG:IGNORED:color_scheme".into()),
-                &mut name
-            ),
-            vec![Line::Note("CONFIG:IGNORED:color_scheme".into())]
-        );
+    }
+
+    #[test]
+    fn the_engines_per_page_markers_are_floods_and_its_lifecycle_markers_never_are() {
+        let say = |text: &str| lines_of(Note::Engine(text.into()), &mut name);
+        for text in [
+            "LIGHT:LINK",
+            "LIGHT:REFUSED:frame",
+            "LIGHT:REFUSED:history",
+            "LIGHT:BASE:REFUSED",
+            "CONFIG:IGNORED:color_scheme",
+            "CONFIG:IGNORED:user_style",
+            "VIEW:DUPLICATE",
+            "WEBPROCESS:UNRESPONSIVE:42",
+            "WEBPROCESS:RESPONSIVE:42",
+            "WEBPROCESS:RECOVER:SHARED:42",
+            "INFO:TIME:nav=3:start=1:commit=2:finish=3:load=4",
+        ] {
+            assert_eq!(say(text), vec![Line::Flood(text.into())], "{text}");
+        }
+        // What must not be lost stays a plain note.
+        for text in [
+            "PROCESS:LAUNCH:web:7",
+            "PROCESS:LAUNCH:web:FAIL:errno=12",
+            "WEBPROCESS:UP:7",
+            "NETWORKPROCESS:UP:8",
+            "FAIL:view:WKViewCreate returned null",
+            "LIGHT:LOCK:READY",
+            "PROCESS:EXIT:web:7:signal=9",
+            "ENGINE:UP",
+        ] {
+            assert_eq!(say(text), vec![Line::Note(text.into())], "{text}");
+        }
     }
 }
