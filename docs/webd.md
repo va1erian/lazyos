@@ -141,7 +141,7 @@ cost, `webd_selftest.json` for the times). Memory is the kernel's `frames_live` 
 | | |
 |---|---|
 | **Idle CPU**, no view | the service thread (`webd.elf`) 0 ticks in 95 s; WebKit's four threads together 2 ticks (20 ms) since the start, all of it the rule-list compile at start; **about 0 %**. The one-second park deadline and the doorbell's descriptor wait cost less than a tick per minute |
-| **Idle memory**, no view | 46,895 frames live running, 45,518 with webd stopped, 46,958 after starting it again: **1,377 to 1,440 frames, about 5.4 MiB** (the 75 MB program is demand-paged, not loaded whole), and +6 frames (24 KiB) over 60 idle seconds |
+| **Idle memory**, no view | 46,895 frames live running, 45,518 with webd stopped, 46,958 after starting it again: **1,377 to 1,440 frames, about 5.4 MiB** of anonymous memory (the program's own text is mapped from the page cache since #942 and is not in `frames_live`: the file's 75 MB are not counted here), and +6 frames (24 KiB) over 60 idle seconds |
 | **One view held** (web process, network process, the view) | 54,237 frames: **+7,342 frames, about 28.7 MiB** over idle, and no CPU while it sits (every task 0 ticks) |
 | **After `DestroyView`** | 49,315 frames: +2,414 (about 9.4 MiB) over idle stays: the network process and what the engine never frees of a view (docs/webd-plan.md, "What P1 found"); the web process is gone |
 | **Cold first view** | `LoadHtml` to the first matching frame 1,031 ms (starts the web process; the network process and the rule list were ready) |

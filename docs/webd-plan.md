@@ -431,9 +431,10 @@ switch. As built and measured: [`webd.md`](webd.md). What it found:
   thread"; read it as "the thread that runs the loop". `Service::new` takes the session as a number the host
   reads with `cred_get`; a second login session's webd is still not supported (section 3.1).
 
-* **Measured** (WHPX, [`webd.md`](webd.md) "Measured"): idle webd costs about 0 % CPU and **5.4 MiB**, not the 108 MiB
-  the plan assumed (the program is demand-paged; section 8's "idle cost is the program image" is wrong by
-  20x); a view that is up adds about 28.7 MiB (web process and network process) and costs no CPU while it sits;
+* **Measured** (WHPX, [`webd.md`](webd.md) "Measured"): idle webd costs about 0 % CPU and **5.4 MiB of frames** (`frames_live`; the program's
+  text is mapped from the page cache since #942 and is not in that counter, so the 108 MiB the plan assumed is
+  not resident memory in that sense, and section 8's "idle cost is the program image" needs the page cache's
+  accounting to be judged); a view that is up adds about 28.7 MiB (web process and network process) and costs no CPU while it sits;
   the first view takes about 1 s (the web process starts), later loads and `Refresh` come back in 32-34 ms, which
   is the engine's 33 ms paint pacer, so the plan's hop-latency criterion (3.4) still wants a probe that does not
   paint.
@@ -498,7 +499,8 @@ charge for ended processes).
 
 * **Start and stop.** webd is a resident app with `autostart = true` (the LazyCal precedent): it starts at login,
   creates the WebKit context only when the first view arrives, and has no idle exit in v1. Idle cost
-  (measured in P2 slice 2, `webd.md`) is about 5.4 MiB and no CPU: the program is demand-paged, not loaded whole;
+  (measured in P2 slice 2, `webd.md`) is about 5.4 MiB of frames and no CPU (the program's text is mapped from the page cache and is not counted in
+  that figure);
   this is the price of making it mandatory for Docs and Mail (section 9.2). If the user quits it from the tray, or `init` does not restart a failed launched app, the name no
   longer resolves: the client library shows "The web engine is not running" with a *Start* button
   (`init.Launch`, P2 checks the permission it needs), never a blank view.
