@@ -404,6 +404,35 @@ What it found:
 * **The mouse `kind` of `webd_abi.h` (0 move, 1 press, 2 release) is not the engine's** (0 down, 1 up, 2 move, as
   `xui_webkit::MouseKind` and `lazyos_ui.h`): `abi.cpp` translates; the Rust half must send the header's numbers.
 
+### P2 slice 2: the program, the package and the switch: done (2026-10-21)
+
+`webd-app` joins the two halves (`webkit/port/webd/main.cpp`, `xui-app/webd`), the package `os.lazy.webd` is
+resident and opens with every session of a `LAZYOS_WEBD=1` image, and `run_demo.py --webd`, the launcher's
+Advanced tab, `tools/webkit/webd.py`, `docs/build-switches.md` and `tools/suites.toml` (`test_only`) carry the
+switch. As built and measured: [`webd.md`](webd.md). What it found:
+
+* **The first thread must run the service, not WebKit.** `init`'s lifecycle `Watch` is keyed by the sender's
+  task slot (`row.pid == message.sender`), and a thread other than the process's first carries its own slot, so
+  it is `ESRCH` (the same fact as the notification service's, `lazywebplus.md`). webd therefore runs the
+  service on the process's first thread and WebKit's run loop on a thread `main.cpp` makes; the engine's calls
+  are queued tasks and its callbacks run on that thread, so which thread is "main" does not matter to it.
+  (If WebKit had to stay on the first thread, the lifecycle channel would be a main-thread handle watched by an
+  endpoint descriptor and read through `lzw_engine_run_on_main`, as the shell's toast channel is.)
+* **Wake-up** is one `wait_any` on the endpoint, the lifecycle channel and an `eventfd` (`WAIT_FD`), with a
+  one-second deadline for the `Ping`s and the watchdog; `docs/webd.md` has the design and the numbers.
+* **No `webd_abi.h` change for engine loss.** The per-view loss is the engine's `webd_ui_view_lost`; the
+  engine as a whole is lost when WebKit's main thread stops turning, which the service detects itself (a probe
+  task through `webd_engine_run_on_main`, unanswered for 20 s: `Service::engine_lost`, exit status 4). A
+  "network process ended" callback was dropped: WebKit restarts it on demand and a light view does not use it.
+* **`rhai` cannot create a view** (`CreateView` carries a channel, `LoadHtml`/`AttachSlot` a buffer, and a script
+  cannot send either), so the proof of a client round trip is webd's built-in client (`Reopen("/selftest")`),
+  which uses the real road from a thread of the daemon. A real client app is `webddemo` (another branch).
+* **Contract notes** for the next slice: `webd_abi.h` says the view-start calls run "on the process's main
+  thread"; read it as "the thread that runs the loop". `Service::new` takes the session as a number the host
+  reads with `cred_get`; a second login session's webd is still not supported (section 3.1).
+
+Permissions derived and measured idle/loaded cost: [`webd.md`](webd.md), "Permissions" and "Measured".
+
 ### What P1 found (2026-10-21, `webkit-views`)
 
 * **One NetworkProcess, one WebProcess per view.** Two views with different stores, and two views of one profile

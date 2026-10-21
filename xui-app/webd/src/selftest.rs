@@ -27,6 +27,9 @@ use crate::serve::NAME;
 
 /// The `Reopen` argument that starts the test (`init` takes one absolute path as `args`).
 pub const ARG: &str = "/selftest";
+/// The same test, keeping its last view alive for [`HOLD_SECS`] before it ends it: a view to measure.
+pub const HOLD_ARG: &str = "/selftest/hold";
+const HOLD_SECS: u64 = 40;
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 
@@ -38,8 +41,8 @@ const RED: [u8; 4] = [0xc8, 0x32, 0x1e, 0xff];
 /// Ticks (10 ms) a step may wait.
 const WAIT_TICKS: u64 = 3000;
 
-/// Run the test on a thread of its own, unless one is running.
-pub fn start() {
+/// Run the test on a thread of its own, unless one is running; `hold` keeps the last view for a while.
+pub fn start(hold: bool) {
     if RUNNING.swap(true, Ordering::AcqRel) {
         trace::line!(Channel::Webd, "SELFTEST:BUSY");
         return;
@@ -47,8 +50,8 @@ pub fn start() {
     let spawned = std::thread::Builder::new()
         .name("webd-selftest".into())
         .stack_size(1 << 20)
-        .spawn(|| {
-            match run() {
+        .spawn(move || {
+            match run(hold) {
                 Ok(summary) => trace::pass!(Channel::Webd, "SELFTEST", "{summary}"),
                 Err(why) => trace::fail!(Channel::Webd, "SELFTEST", "{why}"),
             }
@@ -268,7 +271,7 @@ fn step(text: &str) {
     trace::line!(Channel::Webd, "SELFTEST:STEP {text}");
 }
 
-fn run() -> Result<String, String> {
+fn run(hold: bool) -> Result<String, String> {
     let mut client = Client::new()?;
     // 1. A light view paints the colour of the page it was given.
     let view = client.create_view()?;
@@ -315,6 +318,10 @@ fn run() -> Result<String, String> {
         .map_err(|code| format!("LoadHtml: err={}", -code))?;
     client.wait_color(view, GREEN)?;
     step("recovered");
+    if hold {
+        trace::line!(Channel::Webd, "SELFTEST:HOLD seconds={HOLD_SECS}");
+        std::thread::sleep(std::time::Duration::from_secs(HOLD_SECS));
+    }
     client.destroy(view);
     Ok("frame colours right, ViewLost on a killed web process, recovered".into())
 }

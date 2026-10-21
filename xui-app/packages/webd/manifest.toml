@@ -24,8 +24,8 @@ category = "system"
 
 [entry]
 binary = "bin/webd.elf"
-# No window: nothing to tell it.
-args = []
+# The argument every desktop app gets (unused by a windowless daemon).
+args = ["--client"]
 # A static musl program: `init` starts it under the Linux ABI personality.
 abi = "linux"
 autostart = true

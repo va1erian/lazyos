@@ -719,6 +719,37 @@ The web harnesses bind host ports 80/81/443, and Windows lets a second process b
 listening: two harness runs at once (two agents) silently corrupt each other (certificate errors, an empty
 request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a run.
 
+## webd (`LAZYOS_WEBD=1`, `os.lazy.webd`)
+
+`webd` is the per-session daemon that owns WebKit and serves **light views** to other apps over Messenger
+([`docs/webd.md`](docs/webd.md), plan [`docs/webd-plan.md`](docs/webd-plan.md), P2): an app hands it HTML
+(`LoadHtml`) and gets pixels back in shared slots; a light view has no network, no storage, locked navigation
+and scripts off unless asked. The interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
+portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-memory fabric), the engine half
+`webkit/port/webd/abi.cpp` over `webd_abi.h` (`webd-abi-test`), and the program `webd-app` joins them:
+`webkit/port/webd/main.cpp` (WebKit's run loop on a thread of its own; **the first thread runs the service**,
+because `init` and the shell know an app by its first thread) with the Rust static library `xui-app/webd`
+(the real Messenger binding, an `eventfd` doorbell, the lifecycle line, a watchdog on WebKit's main thread, the
+`WEBD:*` markers). The package `xui-app/packages/webd` is resident and opens with every session of a
+`LAZYOS_WEBD=1` image (desktop, big-app profile, 1 GiB OS volume; no network stack: `run_demo.py --webd`, the
+launcher's Advanced tab). `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
+LazyWeb+ (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
+
+```bash
+python tools/webkit/deps.py && python tools/webkit/port.py          # Docker, once
+python tools/webkit/webd.py                                           # libxui_webd_host.a on the host, the link in Docker -> target/xui/xui-webd.elf
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views webd-abi-test --run-views --run-webd   # the engine suites
+cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-host    # service and host (pure parts), no Docker
+cargo test -p build-support-tests                                     # webd_tests: the switch's requirements
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/webd \
+    --script tools/screenshot/examples/webd_selftest.json            # the built-in client (Reopen "/selftest"); LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+```
+
+Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
+`VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
+`SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
+`webd` is in `tools/suites.toml`'s `test_only` until Mail and Docs use it (docs/webd-plan.md P3).
+
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
 `nettls/` (a standalone workspace, like `rhai-host/`) builds one static-musl

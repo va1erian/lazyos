@@ -334,6 +334,19 @@ python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run
 | `lost` | `SIGKILL` of the web process (pid from `webd_engine_children`) is `view_lost(CRASHED)`, the id is dead, a new view works; the same for both views of a group, which is then rebuilt with one new process |
 | `cycle` | twenty views made, painted and destroyed in turn: every web process ends, nothing is told after `view_destroy` |
 
+### The program: `webd-app`
+
+`port/webd/main.cpp` links the engine, `abi.cpp` and the service (`xui-app/webd`, a Rust static library,
+`libxui_webd_host.a`) into `webd-app`; `python tools/webkit/webd.py` builds the library on the host and runs
+`port.py --only webd-app` in the container (`LAZYOS_WEBD_LIBRARY` makes the CMake target exist), and copies
+the result to `target/xui/xui-webd.elf`, the package's program (`xui-app/packages/webd`, docs/webd.md). Unlike
+`lazywebplus-app`, **the process's first thread runs the service and WebKit's run loop runs on a thread
+`main.cpp` makes**: `init` and the shell know an app by its first thread. `host.h` is the C ABI of the Rust half
+(`webd_host_init`, `webd_host_main`, `webd_host_signal_quit`, `webd_host_fail`, `webd_host_report`);
+`SIGTERM` rings the service's doorbell, the service leaves its loop, `webd_engine_quit` stops the run loop, the
+engine processes are ended and waited for, and the program `_exit`s (status 4: the watchdog found WebKit's
+main thread hung, and nothing is waited for).
+
 ## The desktop app
 
 `os.lazy.lazywebplus` ([`docs/lazywebplus.md`](../docs/lazywebplus.md)) is one static-PIE program,

@@ -161,8 +161,8 @@ fn lifecycle(life: &mut Option<Lifecycle>) -> bool {
             Wake::Reopen(args) => {
                 // webd has no window to show; a second launch with the self-test path runs the
                 // built-in client (docs/webd.md).
-                if args == selftest::ARG {
-                    selftest::start();
+                if args == selftest::ARG || args == selftest::HOLD_ARG {
+                    selftest::start(args == selftest::HOLD_ARG);
                 }
             }
             Wake::Tray(_) => {}
