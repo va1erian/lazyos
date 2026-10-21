@@ -148,7 +148,7 @@ fn main() {
     }
     // The generated sample files (text, the Docs test document); the binary
     // samples are assets (below).
-    samples_embed::embed(&mut files);
+    produced!(files, samples_embed::embed);
     // The ring-3 demo window. The system shell is BusyBox `sh` (issue #254),
     // embedded separately below.
     let hello =
@@ -220,7 +220,7 @@ fn main() {
     files.add_file(fhs::bin::CLIPBOARDD, PathBuf::from(clipboardd));
 
     // The evidence-only programs, left out of the desktop profile.
-    evidence_embed::embed(&mut files, desktop);
+    produced!(files, evidence_embed::embed, desktop);
 
     // Accounts and console login (issue #101). `init` starts `accountsd` and
     // `logind` from its manifest; `accountsd` reads `passwd` when present. All
@@ -288,7 +288,7 @@ fn main() {
         let pkgctl =
             std::env::var_os("CARGO_BIN_FILE_USER_pkgctl").expect("user pkgctl artifact not found");
         files.add_file(fhs::bin::PKGCTL, PathBuf::from(pkgctl));
-        xui_embed::embed_sample_packages(&mut files);
+        produced!(files, xui_embed::embed_sample_packages);
         files.add_bytes(
             fhs::share::MIME_TYPES,
             b"# LazyOS MIME overrides, /etc/mime.types style: <mime> <ext>...\n\
@@ -300,7 +300,7 @@ fn main() {
         // The account database (`accountsd`'s, the verifiers `keyd` reads)
         // and its passwd and group views (docs/accounts-plan.md U1).
         if let Some(db) = account_db.as_ref() {
-            accounts_seed::place(&mut files, db);
+            produced!(files, accounts_seed::place, db);
         }
 
         // The system monitor (issue #144). `init` starts `sysmond` from its
@@ -352,7 +352,7 @@ fn main() {
     // The virtio-sound and virtio-net userspace drivers (`LAZYOS_SOUND=1`,
     // `LAZYOS_NET=1`; the desktop profile always ships the sound stack).
     // `LAZYOS_WIFI=1` adds `wifid`, `wlanmd`, `wifictl` and the firmware.
-    drivers::embed(&mut files, desktop, &manifest_dir);
+    produced!(files, drivers::embed, desktop, &manifest_dir);
 
     // The shell-protocol evidence client (issue #167): `LAZYOS_XUID=1` plus
     // the `LAZYOS_SHELLPROBE=1` demo hook embeds and boots it, so the default
@@ -389,10 +389,10 @@ fn main() {
     // The desktop shell (issue #157), on by default with the desktop profile.
     xui_embed::rerun_if_changed();
     let shell = xui_embed::shell_enabled(desktop, services, xuid);
-    xui_embed::embed_xui_apps(&mut files, desktop, shell);
+    produced!(files, xui_embed::embed_xui_apps, desktop, shell);
     // The data assets (`assets/` and `LAZYOS_ASSETS`, issue #454) in
     // `/system/share`: samples, and with the shell the desktop pictures.
-    assets_embed::embed(&mut files, &manifest_dir, shell);
+    produced!(files, assets_embed::embed, &manifest_dir, shell);
 
     // Rebuild the image when the kernel test switch flips (issue #62): the
     // kernel's own build script turns `LAZYOS_TESTS=1` into `cfg(lazyos_tests)`.
@@ -419,38 +419,40 @@ fn main() {
     }
 
     // BusyBox, the system shell (issue #254); `LAZYOS_INIT` images skip it.
-    busybox_embed::embed(&mut files, &manifest_dir);
+    produced!(files, busybox_embed::embed, &manifest_dir);
     // The `rhai` scripting command (issue #319), found from `sh` in /system/bin.
     println!("cargo:rerun-if-changed=build_support/rhai_embed.rs");
-    rhai_embed::embed(&mut files, &manifest_dir);
+    produced!(files, rhai_embed::embed, &manifest_dir);
     // The resolver's host table and the TLS trust anchors, in every image
     // (`/etc/hosts`, `/etc/ssl/certs/ca-certificates.crt` for Linux programs),
     // and with `LAZYOS_TLS=1` the HTTPS client as fetch/curl/wget.
-    hosts_embed::embed(&mut files);
-    ui_probe_embed::embed(&mut files); // `LAZYOS_UI_PROBE=1` only (issue #538)
+    produced!(files, hosts_embed::embed);
+    produced!(files, ui_probe_embed::embed); // `LAZYOS_UI_PROBE=1` only (issue #538)
     let roots = webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter();
-    ca_bundle::embed(&mut files, roots.map(|der| der.as_ref()));
-    tls_embed::embed(&mut files, &manifest_dir);
-    linuxapps_embed::embed(&mut files, &manifest_dir); // dash, sqlite3, jq, rg
-                                                       // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
+    produced!(files, ca_bundle::embed, roots.map(|der| der.as_ref()));
+    produced!(files, tls_embed::embed, &manifest_dir);
+    produced!(files, linuxapps_embed::embed, &manifest_dir);
+    // linuxapps_embed places dash, sqlite3, jq and rg.
+    // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
-    docs_embed::embed(&mut files, &manifest_dir);
+    produced!(files, docs_embed::embed, &manifest_dir);
     // The LazyRAD IDE is a core package (embedded with the others above when
     // `LAZYOS_LAZYRAD=1`); this adds the sample projects in `LAZYRAD_SAMPLES`.
     println!("cargo:rerun-if-changed=build_support/lazyrad_embed.rs");
-    lazyrad_embed::embed(&mut files, &manifest_dir);
+    produced!(files, lazyrad_embed::embed, &manifest_dir);
     // The Doom package (`LAZYOS_DOOM=1`) as a sample user package, installed
     // through pkgd.
-    doom_embed::embed(&mut files, &manifest_dir);
+    produced!(files, doom_embed::embed, &manifest_dir);
     // SRB2Kart (`LAZYOS_SRB2KART=1`): the engine package and, fetched at build
     // time, its game data in /system/share/srb2kart (never published).
-    srb2kart_embed::embed(&mut files, &manifest_dir);
+    produced!(files, srb2kart_embed::embed, &manifest_dir);
     // The emusic package (`LAZYOS_EMUSIC=1`), a sample user package too.
-    emusic_embed::embed(&mut files, &manifest_dir);
+    produced!(files, emusic_embed::embed, &manifest_dir);
     // The Quake package (`LAZYOS_QUAKE=1`), a sample user package too.
-    quake_embed::embed(&mut files, &manifest_dir);
+    produced!(files, quake_embed::embed, &manifest_dir);
     // The LazyRAD MOD player package (`LAZYOS_MODPLAYER=1`) in /system/share/samples.
-    modplayer_embed::embed(&mut files, &manifest_dir);
+    produced!(files, modplayer_embed::embed, &manifest_dir);
+    files.write_owners(&manifest_dir).expect("file owners");
     os_image::lap("collect the files", &mut clock);
     builder
         .create_bios_image(&bios_image)
