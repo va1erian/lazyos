@@ -5,7 +5,7 @@
 //! through **fixed numeric offsets inside its page** (the GDT, the GDTR, the
 //! retf patch slots and the mailbox live at fixed offsets; `ds = 0x0800`
 //! makes every 16/32-bit `[offset]` resolve to `0x8000 + offset`). The two
-//! mode transitions `push` their `(offset, segment)` from the patch slots
+//! mode transitions `push` their segment, then their offset, from the patch slots
 //! and `retf` — the offsets are **written into the copy by the BSP**
 //! (`smp.rs` computes them from the exported labels), so no symbol
 //! arithmetic survives in the assembled blob at all.
@@ -96,9 +96,11 @@ smp_trampoline_start:
     mov eax, cr0
     or eax, 1                       /* CR0.PE: 32-bit protected mode */
     mov cr0, eax
-    push word ptr [0x0E40]          /* (offset, segment) the BSP patched */
-    push word ptr [0x0E42]
-    retf
+    push word ptr [0x0E40]          /* the BSP-patched CS first ... */
+    push word ptr [0x0E42]          /* ... then the offset, which retf pops first */
+    .byte 0xCB                      /* a 16-bit retf: LLVM assembles `retf`
+                                       here as 66 CB (32-bit), which pops two
+                                       dwords and loads a junk CS */
 
     .code32
 smp_prot:
@@ -114,27 +116,36 @@ smp_prot:
     mov ecx, 0xC0000080             /* IA32_EFER */
     rdmsr
     or eax, 1 << 8                  /* EFER.LME: long mode enable */
+    or eax, 1 << 11                 /* EFER.NXE: the kernel half's NX bits
+                                       are reserved without it, so the
+                                       first stack touch would #PF */
     wrmsr
     mov eax, [0x0F08]               /* the AP page table (below 4 GiB) */
     mov cr3, eax
     mov eax, cr0
     or eax, 0x80010000              /* CR0.PG | CR0.WP: IA-32e mode on */
     mov cr0, eax
-    push dword ptr [0x0E48]         /* (offset, segment) for 64-bit mode */
-    push dword ptr [0x0E44]
+    push dword ptr [0x0E44]         /* CS first: retf pops EIP, then CS */
+    push dword ptr [0x0E48]         /* ... so the offset goes on top */
     retf
 
     .code64
 smp_long_stub:
     /* Long mode, still at the low identity-mapped page. Segment bases other
-       than FS/GS are ignored, so [disp32] is the absolute linear address. */
-    mov rsp, [0x0F20]               /* this AP's kernel stack top */
+       than FS/GS are ignored, so [disp32] is the absolute linear address:
+       the mailbox is at 0x8000 + 0x0F00 here, not at the ds-relative
+       0x0F00 the 16/32-bit code used. */
+    mov rsp, [0x8F20]               /* this AP's kernel stack top */
     mov ecx, 0xC0000101             /* IA32_GS_BASE */
-    mov eax, [0x0F18]               /* the Cpu area's virtual address */
-    mov edx, [0x0F1C]
+    mov eax, [0x8F18]               /* the Cpu area's virtual address */
+    mov edx, [0x8F1C]
     wrmsr
-    mov rax, [0x0F10]               /* ap_entry (kernel half, shared) */
-    jmp rax
+    mov rax, [0x8F10]               /* ap_entry (kernel half, shared) */
+    and rsp, -16                    /* the SysV entry alignment: `call`
+                                       leaves RSP = 8 mod 16, which the
+                                       compiler's aligned slots (fxsave)
+                                       rely on; ap_entry never returns */
+    call rax
 
 9:  hlt
     jmp 9b

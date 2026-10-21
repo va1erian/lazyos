@@ -18,13 +18,15 @@
 //! skips the invariance gate for TCG rigs (which refuse `invtsc`), built
 //! into test kernels only.
 
+mod ipi;
 mod trampoline;
+
+pub use ipi::shootdown_others;
+pub(crate) use ipi::{resched_handler, shootdown_handler, stop_handler};
 
 use alloc::vec::Vec;
 use core::arch::x86_64::_rdtsc;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use x86_64::structures::idt::InterruptStackFrame;
-use x86_64::VirtAddr;
 
 use super::lapic;
 use super::msr;
@@ -96,7 +98,7 @@ pub fn cpus() -> usize {
 
 /// Whether the TSC is invariant (`CPUID.8000_0007H.EDX[8]`).
 fn invariant_tsc() -> bool {
-    let leaf = unsafe { core::arch::x86_64::__cpuid(0x8000_0007) };
+    let leaf = core::arch::x86_64::__cpuid(0x8000_0007);
     leaf.edx & (1 << 8) != 0
 }
 
@@ -148,10 +150,8 @@ fn decide() {
     let madt_cpus = platform_apic_ids().map(|ids| ids.len()).unwrap_or(1);
     let config = CONFIG_CPUS.load(Ordering::Relaxed) as usize;
     let want = if config == 0 { madt_cpus } else { config };
-    let capped = want
-        .min(crate::limits::cpu_max())
-        .min(percpu::MAX_CPUS)
-        .max(1);
+    // `cpu_max` is at least 1 (its key's minimum), so the bounds are ordered.
+    let capped = want.clamp(1, crate::limits::cpu_max().min(percpu::MAX_CPUS));
     CPUS.store(capped, Ordering::Relaxed);
 }
 
@@ -159,7 +159,7 @@ fn decide() {
 fn platform_apic_ids() -> Option<Vec<u32>> {
     let platform = super::acpi_tables::platform()?;
     let madt = platform.madt.as_ref().ok()?;
-    let ids: Vec<u32> = madt.apic_ids.as_slice().iter().copied().collect();
+    let ids: Vec<u32> = madt.apic_ids.as_slice().to_vec();
     (!ids.is_empty()).then_some(ids)
 }
 
@@ -178,7 +178,7 @@ fn prepare() -> Option<u64> {
     let start = &raw const trampoline::smp_trampoline_start;
     let end = &raw const trampoline::smp_trampoline_end;
     let len = (end as usize - start as usize) as u64;
-    if len as u64 > 4096 {
+    if len > 4096 {
         serial_println!("HW:SMP:CPUS=1 (trampoline overflows its page)");
         CPUS.store(1, Ordering::Relaxed);
         return None;
@@ -198,7 +198,7 @@ fn prepare() -> Option<u64> {
         // The GDTR's base sits at +2 (after the `u16` limit) — unaligned by
         // construction, so the unaligned write.
         ((at_u + trampoline::GDTR_BASE_OFF as u64) as *mut u32)
-            .write_unaligned(TRAMPOLINE_PHYS as u32 + trampoline::GDTR_OFF);
+            .write_unaligned(TRAMPOLINE_PHYS as u32 + trampoline::GDT_OFF);
         put16(trampoline::RETF1_CS_OFF).write_volatile(0x0008);
         put16(trampoline::RETF1_OFF_OFF).write_volatile(prot_off);
         put32(trampoline::RETF2_CS_OFF).write_volatile(0x0020);
@@ -219,15 +219,21 @@ fn build_ap_page_table() -> Option<u64> {
     let pml4_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
     let pdpt_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
     let pd_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
+    // The trampoline loads `CR3` from a 32-bit register in protected mode,
+    // and walks the PDPT/PD before long mode: all three must sit below 4 GiB.
+    if pml4_phys.max(pdpt_phys).max(pd_phys) >= 1 << 32 {
+        serial_println!("HW:SMP:CPUS=1 (AP page table above 4 GiB)");
+        return None;
+    }
     const PRESENT: u64 = 1;
     const WRITE: u64 = 1 << 1;
     const HUGE: u64 = 1 << 7;
     // PML4[0] -> PDPT[0] -> PD[0] -> the 2 MiB identity huge page 0..2 MiB.
     entry(pml4_phys, 0, pdpt_phys | PRESENT | WRITE);
     entry(pdpt_phys, 0, pd_phys | PRESENT | WRITE);
-    entry(pd_phys, 0, 0x0000_0000 | PRESENT | WRITE | HUGE);
-    // The kernel half: entries 256..512 verbatim from the boot table (the
-    // kernel half is machine-wide; sharing the entries shares the mappings).
+    entry(pd_phys, 0, PRESENT | WRITE | HUGE); // physical 0, the 2 MiB page
+                                               // The kernel half: entries 256..512 verbatim from the boot table (the
+                                               // kernel half is machine-wide; sharing the entries shares the mappings).
     let boot = mem::boot_table().as_u64();
     for index in 256..512_usize {
         let value = read_entry(boot, index)?;
@@ -268,12 +274,14 @@ pub fn bring_up(count: usize) {
     };
     let bsp = lapic::id();
     let cycles_per_tick = super::clock::cycles_per_tick();
-    let ms = cycles_per_tick / 100;
+    let ms = cycles_per_tick / 10; // one 10 ms tick -> 1 ms
     for &id in ids.iter() {
         if online_cpus() >= count {
             break;
         }
-        if id == bsp {
+        // Never INIT a CPU that runs: the BSP, or an AP already online (an
+        // INIT resets it mid-flight, the idempotence the doc promises).
+        if id == bsp || apic_online(id) {
             continue;
         }
         let Some(index) = free_area_index() else {
@@ -289,27 +297,37 @@ pub fn bring_up(count: usize) {
     }
 }
 
+/// Whether an online area already belongs to APIC `id`.
+fn apic_online(id: u32) -> bool {
+    (1..percpu::MAX_CPUS)
+        .filter_map(percpu::area)
+        .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id == id)
+}
+
 /// A per-CPU area no CPU owns yet (an offline one).
 fn free_area_index() -> Option<usize> {
-    (0..percpu::MAX_CPUS).find(|&index| {
-        !percpu::area(index)
-            .expect("index below MAX_CPUS")
-            .online
-            .load(Ordering::Acquire)
-    })
+    (0..percpu::MAX_CPUS)
+        .find(|&index| percpu::area(index).is_some_and(|cpu| !cpu.online.load(Ordering::Acquire)))
 }
 
 /// The |AP entry TSC - BSP observation TSC| of an online AP, in cycles (the
 /// coherence measure: a TSC that starts at 0 or ticks on another base stands
 /// out immediately; two cores of one clock differ by the start-up delay).
 fn skew_of(index: usize) -> u64 {
-    let cpu = percpu::area(index).expect("online index");
+    let Some(cpu) = percpu::area(index) else {
+        return 0;
+    };
     rdtsc().wrapping_sub(cpu.ipi.tsc_entry.load(Ordering::Acquire))
 }
 
 /// The INIT-SIPI-SIPI sequence for one AP, and the wait for its online.
 fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
-    let cpu = percpu::area(index).expect("index below MAX_CPUS");
+    let Some(area_addr) = percpu::prepare_ap(index) else {
+        return false;
+    };
+    let Some(cpu) = percpu::area(index) else {
+        return false;
+    };
     cpu.apic_id = apic_id;
     // The mailbox: per AP, written before the sequence (the AP reads it only
     // after its SIPI; there is no concurrency until `online` publishes).
@@ -320,7 +338,7 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     // SAFETY: the reserved trampoline page's mapped copy; the BSP is the
     // only writer until the AP is online.
     unsafe {
-        mb(trampoline::MB_CPU_OFF).write_volatile((cpu as *mut percpu::Cpu) as u64);
+        mb(trampoline::MB_CPU_OFF).write_volatile(area_addr);
         mb(trampoline::MB_ENTRY_OFF).write_volatile(ap_entry as *const () as u64);
         mb(trampoline::MB_STACK_OFF)
             .write_volatile(cpu.kernel_stack.as_ptr() as u64 + percpu::KERNEL_STACK_SIZE as u64);
@@ -332,9 +350,9 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
 
     let started = rdtsc();
     lapic::send_init(apic_id);
-    spin_for(ms_cycles); // the SDM's INIT-to-SIPI wait
+    spin_for(ms_cycles * 10); // the SDM's 10 ms INIT-to-SIPI wait
     lapic::send_sipi(apic_id, (TRAMPOLINE_PHYS >> 12) as u8);
-    spin_for(ms_cycles / 10);
+    spin_for(ms_cycles / 5); // 200 us between the two SIPIs
     lapic::send_sipi(apic_id, (TRAMPOLINE_PHYS >> 12) as u8);
 
     // The AP either publishes `online` (Release) or never comes: wait a
@@ -346,6 +364,9 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
         }
         spin_loop();
     }
+    // Park it: an AP that started but never published may still run on this
+    // area, which the next AP would be given.
+    lapic::send_init(apic_id);
     serial_println!("HW:SMP:CPU{index} apic={apic_id:#x} FAIL (no start)");
     false
 }
@@ -375,21 +396,41 @@ fn rdtsc() -> u64 {
 /// The AP's first kernel instruction: long mode, its own stack, `%gs` base
 /// already pointed at its area by the trampoline.
 extern "C" fn ap_entry() -> ! {
-    let cpu = percpu::current();
-    serial_println!("HW:SMP:CPU{} entered long mode", cpu.index);
     // From here on the kernel half is all this CPU needs: drop the trampoline's
-    // page table for the boot table (the machine-wide kernel half).
+    // page table for the boot table (the machine-wide kernel half). The temp
+    // GDT at 0x8E00 is unmapped after this, which is fine: interrupts are off
+    // and no segment register is loaded until `init_cpu` below.
     mem::switch_to(mem::boot_table());
-    // The per-CPU MSRs and control state: exactly what the BSP's boot did.
-    // `EFER.NXE` must be set per CPU (no-exec is per-CPU MSR state).
-    const EFER_NXE: u64 = 1 << 63;
+    // `EFER.NXE` is per-CPU MSR state; the trampoline already set it (the
+    // kernel half's NX bits fault without it), this keeps it explicit.
+    const EFER_NXE: u64 = 1 << 11;
     let efer = msr::read(msr::IA32_EFER);
     msr::write(msr::IA32_EFER, efer | EFER_NXE);
+    // This CPU's own GDT, TSS and stacks (its area), then `%gs` again: the
+    // selector loads in `init_cpu` reset the hidden GS base to 0.
+    let area_addr = percpu::current().self_ptr;
+    // SAFETY: this AP owns its offline area (`prepare_ap`); nothing else
+    // touches it until `online` is published below, and the AP has left the
+    // trampoline's code and tables behind.
+    unsafe {
+        super::gdt::init_cpu(&mut *(area_addr as *mut percpu::Cpu));
+    }
+    percpu::set_gs_base(area_addr);
+    // The machine-wide IDT: an AP starts with IDTR = 0.
+    if !super::idt::load_on_this_cpu() {
+        loop {
+            x86_64::instructions::hlt();
+        }
+    }
+    let cpu = percpu::current();
+    serial_println!("HW:SMP:CPU{} entered long mode", cpu.index);
     mem::wc::pat_this_cpu();
     super::cpu::init();
     super::linux::init();
     lapic::init_ap_local();
 
+    // Re-fetch: the inits above read this CPU's area themselves.
+    let cpu = percpu::current();
     cpu.ipi.tsc_entry.store(rdtsc(), Ordering::Relaxed);
     cpu.online.store(true, Ordering::Release);
     // Idle with interrupts ON: the handlers that can reach this CPU are the
@@ -399,79 +440,5 @@ extern "C" fn ap_entry() -> ! {
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();
-    }
-}
-
-// --- the IPI handlers -----------------------------------------------------
-// All three obey the `irq_window` contract exactly: no lock but this CPU's
-// own area, no allocation, no task switch — the SMP generalization of the
-// window-safe handlers.
-
-/// "A wake made a task more deserving of the CPU than the current one": the
-/// next preemption point acts on the flag (S8.3 is when an AP has tasks).
-pub(crate) extern "x86-interrupt" fn resched_handler(_frame: InterruptStackFrame) {
-    percpu::current()
-        .preempt
-        .need_resched
-        .store(true, Ordering::Relaxed);
-    lapic::eoi();
-}
-
-/// The shootdown doorbell: the mailbox names the pages; invalidate and ack.
-pub(crate) extern "x86-interrupt" fn shootdown_handler(_frame: InterruptStackFrame) {
-    let cpu = percpu::current();
-    let addr = cpu.ipi.sd_addr.load(Ordering::Acquire);
-    let pages = cpu.ipi.sd_pages.load(Ordering::Acquire).min(1024);
-    if addr == 0 && pages == 0 {
-        // The "everything" case (`mem::tlb::shootdown_all`).
-        x86_64::instructions::tlb::flush_all();
-    } else {
-        for page in 0..pages {
-            x86_64::instructions::tlb::flush(VirtAddr::new(addr + page * 4096));
-        }
-    }
-    cpu.ipi.sd_ack.fetch_add(1, Ordering::AcqRel);
-    lapic::eoi();
-}
-
-/// Stop the world: someone is panicking (or the PAT changes). This CPU
-/// halts with interrupts off and never returns — the panicking CPU owns the
-/// machine from here.
-pub(crate) extern "x86-interrupt" fn stop_handler(_frame: InterruptStackFrame) {
-    lapic::eoi();
-    serial_println!("HW:SMP:STOP cpu={}", percpu::current().index);
-    loop {
-        x86_64::instructions::interrupts::disable();
-        x86_64::instructions::hlt();
-    }
-}
-
-/// `mem::tlb::shootdown`'s cross-CPU half: write every other online CPU's
-/// mailbox and ring its doorbell, waiting for each ack. Callers: only one
-/// CPU is in the kernel at a time today, so a mailbox is never contended;
-/// S8.3's entry lock keeps that true and records it.
-pub fn shootdown_others(addr: u64, pages: u64) {
-    let me = percpu::current().index;
-    for index in 0..percpu::MAX_CPUS {
-        let Some(cpu) = percpu::area(index) else {
-            break;
-        };
-        if index as u32 == me || !cpu.online.load(Ordering::Acquire) {
-            continue;
-        }
-        let before = cpu.ipi.sd_ack.load(Ordering::Acquire);
-        cpu.ipi.sd_addr.store(addr, Ordering::Release);
-        cpu.ipi.sd_pages.store(pages, Ordering::Release);
-        lapic::send_fixed(cpu.apic_id, SHOOTDOWN_VECTOR);
-        let started = rdtsc();
-        while cpu.ipi.sd_ack.load(Ordering::Acquire) == before {
-            if rdtsc().wrapping_sub(started) > 1_000_000_000 {
-                panic!(
-                    "shootdown: CPU{index} apic={:#x} never acknowledged ({pages} pages at {addr:#x})",
-                    cpu.apic_id
-                );
-            }
-            spin_loop();
-        }
     }
 }

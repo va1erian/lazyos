@@ -282,11 +282,12 @@ pub unsafe fn boot_area() -> &'static mut Cpu {
 /// Publish the boot CPU's area: write its self-pointer and point `%gs`'s
 /// base at it. Called twice on the boot CPU — at `kernel_main`'s first
 /// statement (everything below, including `fs::init`, reads per-CPU state)
-/// and again by `gdt::init` after its selector loads reset the base — and
-/// once per AP from its own bring-up (S8.2). Also installs the state
-/// sentinels into every area (the static is all-zero `.bss`).
+/// and again by `gdt::init` after its selector loads reset the base. An AP
+/// never calls it (it would claim area 0): the BSP runs [`prepare_ap`] and
+/// the AP [`set_gs_base`]. Also installs the state sentinels into every
+/// area (the static is all-zero `.bss`).
 pub fn init() {
-    // SAFETY: single-threaded boot (or an AP's own bring-up, S8.2); the
+    // SAFETY: single-threaded boot (the BSP only); the
     // areas are only reachable through `gs`-relative loads and these raw
     // pointers.
     unsafe {
@@ -297,6 +298,31 @@ pub fn init() {
         (*area).online.store(true, Ordering::Release);
         msr::write(IA32_GS_BASE, area as u64);
     }
+}
+
+/// Make area `index` addressable for the AP about to be started on it: its
+/// self-pointer and index, written by the BSP before the SIPI (the AP's
+/// first `current()` reads `gs:[0]`). Returns the area's address, which the
+/// trampoline loads into the AP's `IA32_GS_BASE`. `None` for index 0 (the
+/// BSP's) or out of range.
+pub fn prepare_ap(index: usize) -> Option<u64> {
+    if index == 0 || index >= MAX_CPUS {
+        return None;
+    }
+    // SAFETY: the area is offline (no CPU reads it through `%gs` yet) and
+    // the BSP is the only writer until the AP publishes `online`.
+    unsafe {
+        let area = addr_of_area(index);
+        (*area).self_ptr = area as u64;
+        (*area).index = index as u32;
+        Some(area as u64)
+    }
+}
+
+/// Point this CPU's `IA32_GS_BASE` at `area` again — an AP after
+/// `gdt::init_cpu`, whose `GS` selector load reset the hidden base to 0.
+pub fn set_gs_base(area: u64) {
+    msr::write(IA32_GS_BASE, area);
 }
 
 /// The current CPU's area: `gs:[0]` holds the area's own address.

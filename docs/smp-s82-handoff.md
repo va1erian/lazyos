@@ -7,20 +7,12 @@ per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 
 ## Branch and PR state
 
-- Branch `smp-s8.2-ap`, head `a2d90db0f` ("SMP S8.2 (WIP)"), pushed to
-  origin, **draft PR open against `smp-s8.0-groundwork`** (see the base
-  note below).
-- Base history: S8.0 (#901) and S8.1 (#902) are merged — but **#902 merged
-  into its base branch `smp-s8.0-groundwork` (`ca2fadbb1`), not into
-  `main`**, because it was a stacked PR. This branch carries everything
-  (it merged `origin/main` at `0c90f6a8a` on top, resolving the two
-  same-content-different-squash conflicts in `smp-plan.md` /
-  `smp-audit.md` by keeping the branch's superset). **Action for a human:
-  merge `smp-s8.0-groundwork` (`ca2fadbb1`) into `main`** — one PR, no
-  code, so `main` gets S8.1 and future PRs can base on it. There will be a
-  small AGENTS.md conflict (#900's "AMD NUC" → "Wi-Fi" renames happened on
-  main after the branch diverged): take main's headings, keep the branch's
-  `--smp` line in "Running the demo".
+- **`claude/smp-s8.2-ap-fixes`** (2026-10-21): S8.1 (#902's squash) and the
+  S8.2 commits replayed on `main` (the S8.0 duplicates and the old merge of
+  `main` dropped), plus the bring-up fixes below. It supersedes
+  `smp-s8.2-ap` / draft #905, whose base `smp-s8.0-groundwork` holds S8.1
+  only because #902 merged there after #901 had been squashed into `main`.
+  A PR of this branch against `main` lands S8.1 and S8.2 together.
 
 ## What exists and builds green (kernel + tests, `LAZYOS_TESTS=1 cargo build`)
 
@@ -37,53 +29,41 @@ per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 | `kernel/src/main.rs` | `arch::smp::init()` right after `arch::init()` (test builds diverge at `tests::run()` before this, so the suite drives `bring_up_for_test` itself) |
 | `kernel/src/tests/smp_suite.rs` | Four cases, registered after `percpu_suite`: the real bring-up (`-smp 4` expected: 4 online, per-AP TSC stamp + non-BSP APIC id), the resched self-IPI through the real ICR into an `irq_window_suite::in_syscall` window, the shootdown ack round-trip (vacuous at 1 CPU), idempotence |
 
-## Where it stopped — the current blocker (diagnosis CONFIRMED, one step left)
+## The bring-up blocker — fixed (2026-10-21)
 
-The suite at `-smp 4` (WHPX) **dies at the first INIT-SIPI with a machine
-reset**: `-d cpu_reset` shows **two sets of four CPU resets** — the power-on
-set, then a second full reset when an AP triple-faults (a triple fault
-resets every CPU; `-no-reboot` then exits QEMU, which is why the runner
-reports the missing summary). So the AP **starts and crashes** — the bug is
-in the trampoline's transitions or `ap_entry`, not in the ICR path.
+The APs now come up: `LAZYOS_TEST_FILTER=smp_ python tools/test/run.py
+--accel none --smp 4` prints `HW:SMP:CPU1..3 ... online` and passes all four
+`smp_` cases, with no exception logged on any CPU (`-d int,cpu_reset`). There
+was not one bug but nine, each found from QEMU's `-d int` log in turn:
 
-**One catch the debug run revealed**: `-d cpu_reset`'s dump shows the
-POST-reset firmware state (`EIP=0000fff0, CS=f000`) — useless for the RIP.
-The next run needs the exception log too:
+1. **xAPIC ICR destination** (`lapic::send`): the APIC id went into
+   `ICR_HI` bits 0..8 instead of 24..32, so every INIT targeted APIC 0 and
+   reset the **BSP** (the "triple fault" was the BSP restarting firmware).
+2. **GDTR base** patched to `0x8000 + GDTR_OFF` (the GDTR itself) instead of
+   `GDT_OFF`.
+3. **The 16-bit `retf`**: LLVM's integrated assembler emits `retf` under
+   `.code16` as `66 CB` (a 32-bit far return), which pops two dwords and loads
+   a junk CS. Now `.byte 0xCB`.
+4. **The 32-bit `retf` operands** were pushed in the wrong order (CS on top).
+5. **The 64-bit stub's mailbox reads** used the ds-relative `[0x0F..]`
+   offsets; long mode ignores DS's base, so they read the BDA. Now `[0x8F..]`.
+6. **`EFER.NXE`** was off when paging came on (the kernel half's NX bits are
+   reserved then: #PF on the first push). Set with LME in the trampoline; the
+   old `ap_entry` constant also named bit 63 (reserved) instead of bit 11.
+7. **Stack alignment**: `jmp` into `ap_entry` left RSP 16-aligned, so the
+   compiler's 16-aligned slots were off by 8 (`fxsave64` #GP in `cpu::init`).
+   Now `and rsp, -16; call`.
+8. **The AP's area** never had its `self_ptr`/`index` (`percpu::prepare_ap`
+   now writes them before the SIPI), and **`ap_entry` never loaded its GDT,
+   TSS or IDT** (now `gdt::init_cpu`, `percpu::set_gs_base` — the selector
+   loads zero the GS base — and `idt::load_on_this_cpu`).
+9. **Idempotence**: `bring_up` re-sent INIT to APIC ids already online
+   (resetting a running AP). It now skips them, and parks (INITs) an AP that
+   times out so its area can be reused safely. The INIT-to-SIPI wait is now
+   the SDM's 10 ms (it was 100 us: `cycles_per_tick` is a 10 ms tick).
 
-```bash
-python tools/test/run.py --accel auto --smp 4 --out shots/kernel-tests-s82e \
-    --extra-arg=-D --extra-arg=shots/qemu-int.log --extra-arg=-d \
-    --extra-arg="int,cpu_reset" --no-build
-```
-
-then read the **tail** of `shots/qemu-int.log`: the last `check_exception`
-/ `v=xx` lines before the resets carry the faulting `CS:RIP` (and a
-page-fault line carries CR2). `--no-build` reuses the previous
-`LAZYOS_TESTS=1` image — drop it if `target/lazyos.img` has moved.
-
-## What to check, in order (my suspects)
-
-1. **The faulting RIP from `-d int`** (above) — that settles it in one run.
-   A low RIP (`0x8xxx`) means the trampoline; a kernel-half RIP means
-   `ap_entry`.
-2. **The trampoline's most fragile pieces** (in blob order): the magic
-   check passes (the BSP writes it); `lgdt [0x0E30]`; the PE `retf` with
-   the patched `(0x0008, 0x8000+prot_off)` — verify the BSP's patch values
-   by dumping the copied page from the host (`osread`-style) or a
-   `HW:` line printing `blob_off(&smp_prot)`;
-   then PAE/LME/PG; then the 64-bit `retf`; then `ap_entry` (its
-   `serial_println!` line — `HW:SMP:CPU<n> entered long mode` — never
-   appeared, so the death is *before* it: the trampoline's transitions).
-3. **WHPX INIT/SIPI**: if `-d int` shows the AP running fine until an odd
-   fault, try `--accel none` (TCG) — WHPX's INIT/SIPI handling is the one
-   part not yet proven on this box, and TCG is the correctness rig anyway.
-4. **The AP page table**: the 2 MiB huge page needs no CR4.PSE in long
-   mode; the kernel-half copy reads `mem::boot_table()`'s entries through
-   the physical map (verify the boot PML4's physical address is sane with
-   a `HW:` line if the RIP points into the kernel half).
-5. **The stack**: SS:SP = `0x0000:0x7C00` in real mode (below the page ✓);
-   the 64-bit stub loads RSP from the mailbox (a kernel-half VA, mapped by
-   the copied kernel half ✓).
+The resched case now stages its window through `irq_window_suite::in_syscall`
+(a bare `irq_window::open()` outside a syscall span opens nothing).
 
 ## After the APs come up
 

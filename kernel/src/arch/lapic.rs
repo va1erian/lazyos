@@ -242,7 +242,9 @@ fn send(dest: u32, low: u32) {
                     break;
                 }
             }
-            write(ICR_HI, dest);
+            // The destination field is ICR_HI bits 24..32: a bare id there
+            // reads as destination 0, the BSP, and an INIT resets it.
+            write(ICR_HI, dest << 24);
             write(ICR_LO, low);
         }
         None => {}
@@ -265,6 +267,9 @@ pub fn send_sipi(dest: u32, vector_page: u8) {
 
 /// A fixed (ordinary interrupt) IPI carrying `vector` to one APIC: the
 /// kernel's reschedule/shootdown/stop IPIs.
+// The kernel's callers arrive with S8.2's shootdown conversions; the smp
+// suite drives it today.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn send_fixed(dest: u32, vector: u8) {
     send(dest, ICR_LEVEL_ASSERT | u32::from(vector));
 }

@@ -23,6 +23,9 @@ use x86_64::VirtAddr;
 /// locally first (this CPU is certainly one of them), then the other online
 /// CPUs. With one CPU online this is exactly the local flush the kernel did
 /// before SMP work began.
+// The kernel's callers arrive with S8.2's shootdown conversions; the smp
+// suite drives it today.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn shootdown(va: u64, pages: u64) {
     for page in 0..pages {
         x86_64::instructions::tlb::flush(VirtAddr::new(va + page * 4096));
@@ -35,6 +38,8 @@ pub fn shootdown(va: u64, pages: u64) {
 /// Invalidate everything (the `flush_all` case: a PAT change, a table
 /// switch that must be observed everywhere). The local `flush_all`, then
 /// the others' — each target runs its own `flush_all` in the handler.
+// No caller until S8.2's conversions (a PAT change is the first).
+#[allow(dead_code)]
 pub fn shootdown_all() {
     x86_64::instructions::tlb::flush_all();
     if crate::arch::smp::online_cpus() > 1 {

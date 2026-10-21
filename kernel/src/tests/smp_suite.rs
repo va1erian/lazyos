@@ -64,18 +64,34 @@ pub fn bring_up_bring_every_ap_online() -> Result<(), String> {
 /// the real ICR, let the window admit it (the handler is window-safe), and
 /// observe the flag the scheduler's next entry acts on.
 pub fn resched_ipi_sets_the_flag_through_the_icr() -> Result<(), String> {
-    let cpu = percpu::current();
-    let was = cpu.preempt.need_resched.load(Ordering::Relaxed);
+    use super::irq_window_suite::{in_syscall, NR_A};
+    let flag = || {
+        percpu::current()
+            .preempt
+            .need_resched
+            .load(Ordering::Relaxed)
+    };
+    let was = flag();
+    percpu::current()
+        .preempt
+        .need_resched
+        .store(false, Ordering::Relaxed);
     crate::arch::lapic::send_fixed(crate::arch::lapic::id(), smp::RESCHED_VECTOR);
-    // The suite runs with interrupts off: open exactly the window
-    // `irq_window::open` opens (the handler may run inside it).
-    crate::arch::irq_window::open();
-    check!(
-        cpu.preempt.need_resched.load(Ordering::Relaxed),
-        "the resched IPI handler did not run (window open: {})",
-        crate::arch::irq_window::is_open()
-    );
-    cpu.preempt.need_resched.store(was, Ordering::Relaxed);
+    // The suite runs with interrupts off and windows only open inside a
+    // syscall span: stage one, and give the self-IPI a few windows to land
+    // (its delivery is asynchronous to the ICR write). Re-read the flag
+    // through `current()` every time: the handler took its own `&mut`.
+    let (ran, _) = in_syscall(NR_A, || {
+        (0..1000).any(|_| {
+            crate::arch::irq_window::open();
+            flag()
+        })
+    });
+    percpu::current()
+        .preempt
+        .need_resched
+        .store(was, Ordering::Relaxed);
+    check!(ran, "the resched IPI handler did not run in 1000 windows");
     Ok(())
 }
 

@@ -14,6 +14,9 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 /// Timer ticks since boot.
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 
+mod table;
+pub use table::load_on_this_cpu;
+
 /// Build and load the IDT.
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
@@ -92,9 +95,7 @@ pub fn init() {
         .set_handler_fn(crate::process::syscall_gate())
         .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
 
-    // Leak so the table outlives this call; `load` needs a 'static reference.
-    let idt: &'static InterruptDescriptorTable = Box::leak(Box::new(idt));
-    idt.load();
+    table::publish_and_load(Box::new(idt));
 }
 
 /// Initialise interrupt hardware (PIC, PIT, the tick source) and load the IDT.
