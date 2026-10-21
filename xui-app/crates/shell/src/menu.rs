@@ -46,7 +46,7 @@ pub mod submenu;
 
 use crate::Rect;
 pub use groups::{Category, InstalledApp, MAX_PER_CATEGORY};
-pub use power::{Action, Choice, Power, POWER_ROWS};
+pub use power::{Action, Choice, Power, CONFIRM_QUIET_TICKS, POWER_ROWS};
 pub use submenu::{Submenu, SUB_WIDTH};
 
 /// Panel width.
@@ -86,6 +86,9 @@ pub struct Menu {
     scroll: usize,
     /// How many section rows are on screen.
     window: usize,
+    /// Until this tick a confirmation just swapped in ignores presses
+    /// ([`CONFIRM_QUIET_TICKS`]); 0 when none is quiet.
+    quiet_until: u64,
 }
 
 /// Where the installed section's visible part sits in it, for a scroll bar.
@@ -153,6 +156,7 @@ impl Menu {
             categories,
             scroll: 0,
             window,
+            quiet_until: 0,
         }
     }
 

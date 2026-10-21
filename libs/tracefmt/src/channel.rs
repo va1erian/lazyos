@@ -113,6 +113,7 @@ channels! {
     Ping => "PING",
     Pkgctl => "PKGCTL",
     Pkgd => "PKGD",
+    Playground => "PLAYGROUND",
     Printd => "PRINTD",
     Proc => "PROC",
     Quake => "QUAKE",

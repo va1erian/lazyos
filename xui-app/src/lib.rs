@@ -19,6 +19,7 @@ pub mod compact;
 pub mod cursor;
 pub mod dashboard;
 pub mod devinfo;
+pub mod devtool;
 pub mod display;
 pub mod fabric;
 pub mod font;

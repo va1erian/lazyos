@@ -73,6 +73,19 @@ fn installed(system_name) {
     msg::connect("os.lazy.pkgd.v1").invoke("Installed", [system_name])
 }
 
+/// `LabelName(label_id: U32) -> (label: String)`
+///
+/// The name of the policy label with the kernel id `label_id`
+/// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+/// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+/// here to tell a developer tool's shared label from an app's before it
+/// lets an administrator's approval stand (`libs/elevpolicy`,
+/// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+/// kernel does not know.
+fn label_name(label_id) {
+    msg::connect("os.lazy.pkgd.v1").invoke("LabelName", [label_id])
+}
+
 /// `Provisioned() -> (state: ProvisionState)`
 ///
 /// Whether this start's core package provisioning is finished, and what
@@ -113,7 +126,7 @@ fn develop_declined(path) {
     msg::connect("os.lazy.pkgd.v1").invoke("DevelopDeclined", [path])
 }
 
-/// `InstallApproved(path: String, digest: String, core: Bool) -> (app: Installed)`
+/// `InstallApproved(path: String, digest: String, core: Bool, devtool: Bool) -> (app: Installed)`
 ///
 /// `elevd`'s install of a package an administrator approved on the
 /// trusted prompt (docs/accounts-plan.md U2, review of #659); refused
@@ -123,9 +136,14 @@ fn develop_declined(path) {
 /// swapped between the approval and the install. `core` says what was
 /// approved: `false` (`pkg.install`) refuses a package that would
 /// replace a core app, `true` (`pkg.update-core`) refuses one that would
-/// not. Plain `Install` never replaces a core app for `elevd`.
-fn install_approved(path, digest, core) {
-    msg::connect("os.lazy.pkgd.v1").invoke("InstallApproved", [path, digest, core])
+/// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+/// says the administrator saw the developer-tool warning
+/// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+/// developer-tool package is installed only when it is `true` and any
+/// other package only when it is `false`, so a tool is never installed
+/// from a prompt that did not warn about it.
+fn install_approved(path, digest, core, devtool) {
+    msg::connect("os.lazy.pkgd.v1").invoke("InstallApproved", [path, digest, core, devtool])
 }
 
 /// `InstallDebug(path: String, digest: String) -> (app: Installed)`
@@ -188,7 +206,7 @@ fn new_permission() {
 ///
 /// An installed app, as `confd` records it under `sys/apps/<system_name>`.
 fn new_installed() {
-    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [], resident: false, installer: 0, machine_wide: false }
+    #{ system_name: "", name: "", version: "", install_dir: "", digest: "", binary: "", installed_at: 0, abi: "", args: [], origin: 0, category: "", autostart: false, verbs: [], resident: false, installer: 0, machine_wide: false, kind: "", shell: false }
 }
 
 /// A `PkgEvent` with every field at its zero value.
@@ -215,6 +233,19 @@ fn new_installed() {
 /// Installed by a system caller (`elevd` after an administrator
 /// approved it, `dbgd`, provisioning): a machine-wide choice, so
 /// `autostart` opens it in every user's session.
+/// The package class the manifest named when it was installed:
+/// `developer-tool` (`[app] kind`, `docs/devtool-packages-plan.md`),
+/// whose app runs under the label `tool:<system_name>`, or empty for
+/// an application (`app:<system_name>`). A tool's row is used only
+/// when it is `machine_wide` or core, which is how `pkgd` and `init`
+/// know an administrator approved it.
+/// The tool is the user's shell (`[app] shell = true`,
+/// `docs/devtool-packages-plan.md` "T-later: Terminal"): a program
+/// run under its label acts as the session's owner towards `pkgd`
+/// and `init`, as an unlabelled program would. Only a core package
+/// (`origin` core) is ever recorded with it; `false` for every
+/// application and every other tool. Readers go through
+/// `pkgstore::shellrole::row_is_shell`, never this field alone.
 /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
 /// is `install`, `remove`, `denied`, `provision` (a core package
 /// installed, upgraded or re-marked at startup, or the end of a pass),

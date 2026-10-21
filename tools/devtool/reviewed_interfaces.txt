@@ -1,0 +1,47 @@
+# Interfaces a developer tool (devtool::KIND) may call, reviewed.
+# Every interface in idl/manifest.json is either in devtool::DENY
+# (libs/devtool/src/lib.rs) or listed here, one name per line, sorted.
+# `python tools/devtool/check_interfaces.py` fails otherwise.
+# Add a new interface here only after deciding that it carries no secrets and
+# no authority that a script the user runs should not hold.
+os.lazy.audio.mixer.v1
+os.lazy.audio.v1
+os.lazy.clipboard.v1
+os.lazy.confd.v1
+os.lazy.devd.v1
+os.lazy.display.cursor.v1
+os.lazy.display.prompt.v1
+os.lazy.display.v1
+os.lazy.echo.v1
+os.lazy.elevd.v1
+os.lazy.files.v1
+os.lazy.gpu.v1
+os.lazy.healthd.v1
+os.lazy.init.app.events.v1
+os.lazy.init.app.v1
+os.lazy.init.v1
+os.lazy.input.shell.v1
+os.lazy.input.v1
+os.lazy.lifecycle.v1
+os.lazy.logd.v1
+os.lazy.logind.v1
+os.lazy.messenger.names.resolve.v1
+os.lazy.messenger.registry.v1
+os.lazy.messenger.topics.bell.v1
+os.lazy.messenger.topics.publish.v1
+os.lazy.messenger.topics.subscribe.v1
+os.lazy.messenger.topics.v1
+os.lazy.mimed.v1
+os.lazy.net.nic.v1
+os.lazy.net.wifi.hw.v1
+os.lazy.net.wifi.v1
+os.lazy.notify.events.v1
+os.lazy.notify.v1
+os.lazy.pkgd.v1
+os.lazy.print.v1
+os.lazy.shell.tray.events.v1
+os.lazy.shell.tray.v1
+os.lazy.shell.v1
+os.lazy.sysmond.v1
+os.lazy.timed.v1
+os.lazy.webd.light.v1

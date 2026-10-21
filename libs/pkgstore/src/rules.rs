@@ -32,6 +32,10 @@
 //!   [`crate::resident`] lists, compiled like the manifest's own entries.
 //! * **Processes** (`[processes.<name>]`, issue #832) are not part of the
 //!   app's rules: each is a child label of its own, compiled by [`children`].
+//! * **Developer tools** (`[app] kind = "developer-tool"`) are the other way
+//!   round: default allow, minus a reviewed deny list ([`tool`]). [`compile`]
+//!   and [`installed`] choose by the manifest's kind, and [`label_of`] names
+//!   the label (`tool:<system_name>` against `app:<system_name>`).
 //!
 //! [`installed`] is what `pkgd` loads for an installed app: the manifest's
 //! rules plus the [`baseline`] every app gets without asking, telling `init`
@@ -94,12 +98,19 @@ pub enum CompileError {
     /// A `files` entry of a process table (or the app's, beside one) that the
     /// file gate cannot compile.
     Files(crate::filerules::FileRuleError),
+    /// A developer tool was asked to run as a development build (`dev:`
+    /// labels are for apps being developed under their own exact permissions).
+    DeveloperTool,
 }
 
 impl core::fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             CompileError::Files(error) => write!(formatter, "{error}"),
+            CompileError::DeveloperTool => formatter.write_str(
+                "a developer tool cannot be run as a development build: it already runs \
+                 under its own label",
+            ),
             CompileError::TooManyRules { rules } => write!(
                 formatter,
                 "the requested permissions need {rules} policy rules, more than the {MAX_RULES} the system keeps per app"
@@ -111,6 +122,42 @@ impl core::fmt::Display for CompileError {
 /// The policy label of an installed app.
 pub fn label(system_name: &str) -> String {
     format!("app:{system_name}")
+}
+
+/// The policy label of an installed developer tool (`tool:<system_name>`).
+pub fn tool_label(system_name: &str) -> String {
+    format!("{}{system_name}", devtool::TOOL_PREFIX)
+}
+
+/// The policy label `manifest` runs under: [`tool_label`] for a developer
+/// tool, [`label`] otherwise.
+pub fn label_of(manifest: &Manifest) -> String {
+    if manifest.is_developer_tool() {
+        tool_label(&manifest.app.system_name)
+    } else {
+        label(&manifest.app.system_name)
+    }
+}
+
+/// The policy label of an installed app whose row records `kind` (the
+/// `Installed::kind` of `idl/pkgd.midl`: `developer-tool`, or empty for an
+/// application), when its manifest is not at hand.
+pub fn label_for_kind(system_name: &str, kind: &str) -> String {
+    if crate::toolgate::is_tool_kind(kind) {
+        tool_label(system_name)
+    } else {
+        label(system_name)
+    }
+}
+
+/// The label an upgrade leaves behind: the one the installed row (`kind` as
+/// `Installed::kind` records it) ran under, when `new` runs under another (an
+/// application that became a developer tool, or the reverse). `pkgd` revokes
+/// that label's rules and ends what still runs under it, because a process
+/// keeps its label and the new rules are loaded under the new name only.
+pub fn label_left_behind(system_name: &str, old_kind: &str, new: &Manifest) -> Option<String> {
+    let old = label_for_kind(system_name, old_kind);
+    (old != label_of(new)).then_some(old)
 }
 
 /// The names `interface` is served under, interface name first.
@@ -205,6 +252,9 @@ fn own_namespace(pattern: &str, system_name: &str) -> bool {
 /// the broker's methods), network. With the [`baseline`] rules it does not
 /// already hold, at most [`MAX_RULES`]: whatever compiles also installs.
 pub fn compile(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
+    if manifest.is_developer_tool() {
+        return tool::compile(manifest);
+    }
     let requested = &manifest.permissions;
     let system_name = &manifest.app.system_name;
     let mut list = RuleList::default();
@@ -285,6 +335,11 @@ pub fn baseline() -> Vec<LabelRule> {
 /// What `pkgd` loads for an installed app: [`compile`], then the
 /// [`baseline`] rules it does not already hold. At most [`MAX_RULES`].
 pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
+    // A tool's allow-all already covers the baseline, and it has no process
+    // tables (`lazypkg` refuses them), so its rules are what it compiles to.
+    if manifest.is_developer_tool() {
+        return tool::compile(manifest);
+    }
     let mut rules = compile(manifest)?;
     // An app with process tables holds its own `files` ids (not the confine
     // marker: the app stays unconfined), so the kernel can check that a
@@ -318,6 +373,7 @@ pub fn installed(manifest: &Manifest) -> Result<Vec<LabelRule>, CompileError> {
 }
 
 mod children;
+pub mod tool;
 pub use children::{children, dropped, Child};
 
 #[cfg(test)]

@@ -182,7 +182,14 @@ interface os.lazy.init.v1 {
         /// Comma-separated dependency names.
         deps: String = 5,
         /// Last known health string for the service.
-        health: String = 6
+        health: String = 6,
+        /// The kernel id of the policy label the task runs under, as the
+        /// kernel stamped it (`0`: unlabelled, and for a row that is not
+        /// running). Every process an installed app starts keeps it, so a
+        /// caller whose stamped label equals a launched app's is that app's
+        /// own code: how LazyShell names the sender of a notification whose
+        /// task is not the one `init` launched (`os.lazy.notify.v1`).
+        label: U32 = 7
     }
 
     /// One row of `init`'s built-in app registry (issue #158): the S5 start

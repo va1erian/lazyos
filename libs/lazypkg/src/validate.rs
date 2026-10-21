@@ -60,6 +60,7 @@ fn validate_with(manifest: &Manifest, files: Option<&BTreeSet<&str>>) -> Vec<Pro
     }
     check_permissions(manifest, &mut problems);
     crate::processes::check(manifest, &mut problems);
+    crate::tool::check(manifest, &mut problems);
     problems
 }
 

@@ -182,6 +182,9 @@ members = [
     # init's supervision decisions (restart, backoff, giving up, the desktop's
     # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.
     "libs/svcpolicy",
+    # The developer-tool package class (docs/devtool-packages-plan.md): kind,
+    # label prefix, deny list and the shared texts; data only, host-tested.
+    "libs/devtool",
     # File confinement of sandboxed process labels: what a manifest's `files`
     # rules compile to and the one path judgement the kernel's VFS makes
     # (docs/security-model.md): pure `no_std` + `alloc`, host-tested.

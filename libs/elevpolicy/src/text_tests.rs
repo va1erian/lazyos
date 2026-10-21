@@ -158,6 +158,8 @@ fn text_values_with_control_or_bidi_characters_are_refused() {
     assert!(parse("conf.list", &["sys/\u{202e}"]).is_err());
     assert!(parse("pkg.install", &["/home/user/a\u{202e}pzl.exe"]).is_err());
     assert!(parse("pkg.install", &["/home/user/a\nb.lzp"]).is_err());
+    assert!(parse("pkg.install-devtool", &["/home/user/a\u{202e}pzl.exe"]).is_err());
+    assert!(parse("pkg.install-devtool", &["/home/user/a\nb.lzp"]).is_err());
     assert!(parse("conf.set", &["sys/ui/demo", "str", "Café \"quoted\""]).is_ok());
 }
 
@@ -166,7 +168,7 @@ fn every_summary_is_printable_and_bounded() {
     let long_value = "v".repeat(MAX_ARG);
     let long_path = alloc::format!("sys/{}", ["segment"; 31].join("/"));
     let long_pkg = alloc::format!("/home/user/{}.lzp", "p".repeat(900));
-    let rows: [(&str, Vec<&str>); 6] = [
+    let rows: [(&str, Vec<&str>); 7] = [
         (
             "conf.set",
             alloc::vec![long_path.as_str(), "str", long_value.as_str()],
@@ -175,6 +177,7 @@ fn every_summary_is_printable_and_bounded() {
         ("conf.delete", alloc::vec![long_path.as_str()]),
         ("pkg.install", alloc::vec![long_pkg.as_str()]),
         ("pkg.update-core", alloc::vec![long_pkg.as_str()]),
+        ("pkg.install-devtool", alloc::vec![long_pkg.as_str()]),
         ("power.policy", alloc::vec!["button", "shutdown"]),
     ];
     for (name, items) in rows {

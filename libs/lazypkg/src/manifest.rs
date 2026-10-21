@@ -45,9 +45,68 @@ pub struct App {
     /// [`Category::Accessories`]; read it through [`App::category`].
     #[serde(default)]
     pub category: Option<String>,
+    /// The package class: `developer-tool` ([`devtool::KIND`]), or absent (or
+    /// `application`) for an ordinary application. Read it through [`App::kind`].
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// `shell = true`: the tool is the user's shell, so what runs under its
+    /// label acts as the session's owner towards `pkgd` and `init`
+    /// (`docs/devtool-packages-plan.md`, "T-later: Terminal"). Only a
+    /// `developer-tool` may say it, and only a core package (one the image
+    /// ships) is ever recorded with it. Read it through [`Manifest::is_shell`].
+    #[serde(default)]
+    pub shell: Option<bool>,
+}
+
+/// What kind of package this is (`[app] kind`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kind {
+    /// An ordinary application: default-deny, exactly the permissions it lists.
+    #[default]
+    Application,
+    /// A developer tool (`docs/devtool-packages-plan.md`): default-allow minus
+    /// a reviewed deny list, under the label `tool:<system_name>`.
+    DeveloperTool,
+}
+
+impl Kind {
+    /// The spelling of an application in a manifest that names it; an absent
+    /// `kind` means the same.
+    pub const APPLICATION: &'static str = "application";
+
+    /// The class spelled `name`, exactly.
+    pub fn parse(name: &str) -> Option<Kind> {
+        match name {
+            Kind::APPLICATION => Some(Kind::Application),
+            devtool::KIND => Some(Kind::DeveloperTool),
+            _ => None,
+        }
+    }
+}
+
+impl Manifest {
+    /// Whether the package is a developer tool.
+    pub fn is_developer_tool(&self) -> bool {
+        self.app.kind() == Kind::DeveloperTool
+    }
+
+    /// Whether the package asks to be the user's shell: a developer tool with
+    /// `shell = true`. A request only; `pkgd` honours it for a core package.
+    pub fn is_shell(&self) -> bool {
+        self.is_developer_tool() && self.app.shell == Some(true)
+    }
 }
 
 impl App {
+    /// The package class. A validated manifest names a known one; an absent
+    /// (or, in an unvalidated manifest, unknown) one is an application.
+    pub fn kind(&self) -> Kind {
+        self.kind
+            .as_deref()
+            .and_then(Kind::parse)
+            .unwrap_or_default()
+    }
+
     /// The menu category. A validated manifest always names a known one; an
     /// absent (or, in an unvalidated manifest, unknown) one is the default.
     pub fn category(&self) -> Category {

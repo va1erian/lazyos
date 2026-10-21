@@ -1,6 +1,6 @@
 [
   {"wait_for": "TERM:UP:PASS", "timeout": 240},
-  {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
+  {"wait_for": "INIT:AUTOSTART:PASS app=os.lazy.terminal", "timeout": 60},
   {"at": 2.0, "mouse_move": [-300, -300]},
   {"at": 2.2, "mouse_move": [-300, -300]},
   {"at": 2.4, "mouse_move": [-300, -300]},

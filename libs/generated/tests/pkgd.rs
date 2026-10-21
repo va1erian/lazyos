@@ -23,9 +23,11 @@ fn installed() -> Installed {
         verbs: vec!["open".into()],
         resident: true,
         installer: 1000,
+        machine_wide: true,
         // The last field is non-default, so a row cut right before it is
         // visibly not the whole row.
-        machine_wide: true,
+        kind: "developer-tool".into(),
+        shell: true,
     }
 }
 
@@ -102,6 +104,75 @@ fn a_row_stored_before_installers_existed_has_none() {
     assert_eq!((decoded.installer, decoded.machine_wide), (0, false));
     let kept = decode_installed(&encode_installed(&installed()).unwrap()).unwrap();
     assert_eq!((kept.installer, kept.machine_wide), (1000, true));
+}
+
+#[test]
+fn a_row_stored_before_shells_existed_is_no_shell() {
+    // `shell` (field 18) was appended with the Terminal's package: an older
+    // row decodes to `false`, and a row that says it keeps it.
+    let old_style = Installed {
+        shell: false,
+        ..installed()
+    };
+    let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
+    assert!(!decoded.shell);
+    let kept = decode_installed(&encode_installed(&installed()).unwrap()).unwrap();
+    assert!(kept.shell);
+}
+
+#[test]
+fn a_row_stored_before_kinds_existed_is_an_application() {
+    // `kind` (field 17) was appended with the developer-tool class: an older
+    // row decodes to the empty kind, which is an application's.
+    let old_style = Installed {
+        kind: String::new(),
+        ..installed()
+    };
+    let decoded = decode_installed(&encode_installed(&old_style).unwrap()).unwrap();
+    assert_eq!(decoded.kind, "");
+    let kept = decode_installed(&encode_installed(&installed()).unwrap()).unwrap();
+    assert_eq!(kept.kind, "developer-tool");
+}
+
+#[test]
+fn install_approved_carries_whether_the_warning_was_shown() {
+    // `devtool` (field 4) was appended to the request: a request cut before
+    // it decodes to `false`, the plain operations.
+    let args = InstallApprovedArgs {
+        path: "/transient/tool.lzp".into(),
+        digest: "ab".repeat(32),
+        core: false,
+        devtool: true,
+    };
+    let bytes = encode_install_approved_args(&args).unwrap();
+    assert_eq!(decode_install_approved_args(&bytes).unwrap(), args);
+    let plain = InstallApprovedArgs {
+        devtool: false,
+        ..args
+    };
+    let bytes = encode_install_approved_args(&plain).unwrap();
+    assert!(!decode_install_approved_args(&bytes).unwrap().devtool);
+}
+
+fn body_cut(body: &[u8]) -> Vec<u8> {
+    body[..body.len() - 1].to_vec()
+}
+
+#[test]
+fn label_name_round_trips_for_elevd() {
+    let args = LabelNameArgs { label_id: 12 };
+    let body = encode_label_name_args(&args).unwrap();
+    assert_eq!(decode_label_name_args(&body).unwrap().label_id, 12);
+    let reply = LabelNameReply {
+        label: "tool:os.lazy.playground".into(),
+    };
+    let body = encode_label_name_reply(&reply).unwrap();
+    assert_eq!(
+        decode_label_name_reply(&body).unwrap().label,
+        "tool:os.lazy.playground"
+    );
+    // A body cut short is an error, never another label id.
+    assert!(decode_label_name_args(&body_cut(&encode_label_name_args(&args).unwrap())).is_err());
 }
 
 #[test]

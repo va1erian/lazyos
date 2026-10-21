@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use user::trace;
 
 use lazypkg::Manifest;
-use pkgstore::{layout, tree};
+use pkgstore::{layout, rules, tree};
 use user::messenger::pkgd::Installed;
 
 use super::handlers::Pkgd;
@@ -50,7 +50,8 @@ impl Pkgd {
             Ok(loaded) => {
                 trace::line!(
                     trace::Channel::Pkgd,
-                    "POLICY:PASS app:{app} rules={}",
+                    "POLICY:PASS {} rules={}",
+                    pkgstore::rules::label_of(manifest),
                     loaded.rules
                 );
                 for (label, rules, program) in &loaded.children {
@@ -74,19 +75,25 @@ impl Pkgd {
         }
     }
 
-    /// Put the world back as it was before a failed install: the previous row
-    /// and its registrations (an upgrade), or nothing (a first install).
-    pub(crate) fn roll_back(&mut self, system_name: &str, previous: Option<&Installed>) {
+    /// Put the world back as it was before a failed install of `new`: the
+    /// previous row and its registrations (an upgrade), or nothing (a first
+    /// install). The label `new` would run under is withdrawn when it is not
+    /// the one the previous version keeps.
+    pub(crate) fn roll_back(&mut self, new: &Manifest, previous: Option<&Installed>) {
         match previous {
             Some(old) => {
                 let _ = self.registry.put(old);
+                let kept = rules::label_for_kind(&old.system_name, &old.kind);
+                if kept != rules::label_of(new) {
+                    let _ = policy::revoke(new);
+                }
                 if let Ok(manifest) = stored_manifest(&old.install_dir) {
                     let _ = self.activate(&manifest, Installer::of_row(old).owner());
                 }
             }
             None => {
-                let _ = self.registry.delete(system_name);
-                let _ = policy::revoke(system_name);
+                let _ = self.registry.delete(&new.app.system_name);
+                let _ = policy::revoke(new);
             }
         }
     }
@@ -103,9 +110,35 @@ impl Pkgd {
         }
     }
 
-    /// After an upgrade took effect: withdraw the old version's file types and
-    /// child labels the new one no longer has, then delete the old directory.
+    /// After an upgrade took effect: end what still runs under the old
+    /// version's label and withdraw it when the new one runs under another (an
+    /// application that became a developer tool or the reverse), its file
+    /// types and child labels the new one no longer has, then delete the old
+    /// directory.
+    ///
+    /// A process keeps its label, so one left running would hold its old
+    /// class (a tool's free names and unconfined native access, an app's
+    /// registrations) beside a new version that runs under another: it is
+    /// stopped first, as `Remove` does, and only then is the label revoked.
     pub(crate) fn retire(&mut self, old: &Installed, new: &Manifest) {
+        if let Some(old_label) = rules::label_left_behind(&old.system_name, &old.kind, new) {
+            match self.registry.stop(&old.system_name) {
+                Ok(count) => trace::line!(
+                    trace::Channel::Pkgd,
+                    "UPGRADE:STOPPED {} {count}",
+                    old.system_name
+                ),
+                Err(error) => trace::line!(
+                    trace::Channel::Pkgd,
+                    "UPGRADE:STOP:FAIL {}: {}",
+                    old.system_name,
+                    error.message()
+                ),
+            }
+            if policy::revoke_label(&old_label).is_ok() {
+                trace::line!(trace::Channel::Pkgd, "POLICY:REVOKED {old_label}");
+            }
+        }
         if let Ok(old_manifest) = stored_manifest(&old.install_dir) {
             // A child label the new version no longer declares goes with it.
             let revoked = policy::revoke_dropped(&old_manifest, Some(new));

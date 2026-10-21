@@ -31,6 +31,8 @@ flags = [
     "lazywebplus", "big-app", "mail", "lazysky",
     # Games and the installable game and music packages.
     "games", "doom", "quake", "emusic",
+    # Developer tools (the Messenger Playground); the switch needs the desktop and `rhai`.
+    "devtools",
     # Real Linux programs.
     "linuxapps",
 ]

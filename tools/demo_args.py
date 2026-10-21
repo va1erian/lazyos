@@ -297,6 +297,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--traydemo", action="store_true",
                         help="the desktop with the tray sample app os.lazy.traydemo "
                              "(LAZYOS_TRAYDEMO=1, docs/tray-plan.md)")
+    parser.add_argument("--devtools", action="store_true",
+                        help="the desktop with the developer tools, today the Messenger Playground "
+                             "(LAZYOS_DEVTOOLS=1, core packages that run under the label "
+                             "tool:<name>; builds the `rhai` command they run scripts with; "
+                             "docs/devtool-packages-plan.md)")
     parser.add_argument("--games", action="store_true",
                         help="the desktop with the built-in games, LazyGolf and the NES Player "
                              "(LAZYOS_GAMES=1, core packages)")
@@ -331,6 +336,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args = parser.parse_args(argv)
     if args.with_options and not args.suite:
         parser.error("--with needs --suite")
+    if args.devtools and args.no_rhai:
+        parser.error("--devtools needs the `rhai` command its tools run scripts with: drop --no-rhai")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
     if args.no_webd and (args.webd or args.webd_demo):
@@ -356,7 +363,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.lazyrad
                     or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
-                    or args.traydemo or args.games or args.setup)
+                    or args.traydemo or args.games or args.devtools or args.setup)
     # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
     # missing, and left out only by `--no-webd` (the run goes on without it when its build fails).
     args.webd_implicit = args.desktop and not args.webd and not args.no_webd

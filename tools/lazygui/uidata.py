@@ -26,6 +26,7 @@ def advanced_cfg(ui) -> dict:
         "limits": ui.v["limits"].get().strip(),
         "display_mode": ui.v["display_mode"].get().strip(),
         "display_max": ui.v["display_max"].get().strip(),
+        "display_scale": ui.v["display_scale"].get().strip(),
         "sample_port": ui.v["sample_port"].get().strip(),
         "assets": ui.v["assets"].get().strip(),
         "autologin": ui.v["autologin"].get().strip(), "setup": ui.v["setup"].get(),
@@ -85,6 +86,7 @@ def advanced_cfg(ui) -> dict:
         # LazyWeb+'s ad blocker updates its lists with curl.
         "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazywebplus"].get(),
         "journal": ui.v["journal"].get(),
-        **{app: ui.v[app].get() for app in ("lazysky", "mail", "traydemo", "games", "pictures")},
+        **{app: ui.v[app].get() for app in ("lazysky", "mail", "traydemo", "games", "devtools",
+                                                  "pictures")},
         "script": SCRIPTS.index(names[0]) if names else 0,
     }

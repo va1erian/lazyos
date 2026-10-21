@@ -97,7 +97,7 @@
  {
   "at": 0.5,
   "mouse_click": "left",
-  "until": "SHELL:LAUNCH:PASS app=terminal",
+  "until": "SHELL:LAUNCH:PASS app=os.lazy.terminal",
   "timeout": 30,
   "retries": 1
  },

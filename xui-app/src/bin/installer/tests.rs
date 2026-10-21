@@ -74,34 +74,116 @@ fn every_screen_lays_out_and_renders_light_and_dark() {
         ("confirm", Screen::ConfirmRemove),
     ];
     for (name, screen) in screens {
-        let backend = Rc::new(OffscreenBackend::new());
-        let client: Rc<RefCell<Rect>> = Rc::default();
-        let seen = Rc::clone(&client);
-        let capture = Rc::clone(&backend);
-        xui_core::app("installer")
-            .size(WINDOW.0, WINDOW.1)
-            .backend(Rc::clone(&backend) as Rc<dyn Backend>)
-            .run(move |ui| {
-                let view = view::build(ui, &model(screen)).expect("the screen");
-                *seen.borrow_mut() = ui.client_rect();
-                let ui = ui.clone();
-                capture.set_run_hook(move || {
-                    let _view = &view;
-                    let gallery = Gallery::parse(None, Some("target/snapshots"));
-                    for (variant, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
-                        ui.set_theme(theme);
-                        let image = ui.capture().expect("a render");
-                        gallery
-                            .save(&format!("installer-{name}"), variant, &image)
-                            .expect("saved");
-                    }
-                });
-                Ok(Shown)
-            })
-            .expect("the screen ran");
-        assert!(
-            !client.borrow().is_empty(),
-            "{name}: the window has a client area"
-        );
+        render(name, model(screen));
     }
+}
+
+/// Mounts `model`'s screen on the offscreen backend and saves it in both
+/// themes as `installer-<name>-{light,dark}.png`.
+fn render(name: &'static str, model: Model) {
+    register_fonts();
+    let backend = Rc::new(OffscreenBackend::new());
+    let client: Rc<RefCell<Rect>> = Rc::default();
+    let seen = Rc::clone(&client);
+    let capture = Rc::clone(&backend);
+    xui_core::app("installer")
+        .size(WINDOW.0, WINDOW.1)
+        .backend(Rc::clone(&backend) as Rc<dyn Backend>)
+        .run(move |ui| {
+            let view = view::build(ui, &model).expect("the screen");
+            *seen.borrow_mut() = ui.client_rect();
+            let ui = ui.clone();
+            capture.set_run_hook(move || {
+                let _view = &view;
+                let gallery = Gallery::parse(None, Some("target/snapshots"));
+                for (variant, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+                    ui.set_theme(theme);
+                    let image = ui.capture().expect("a render");
+                    gallery
+                        .save(&format!("installer-{name}"), variant, &image)
+                        .expect("saved");
+                }
+            });
+            Ok(Shown)
+        })
+        .expect("the screen ran");
+    assert!(
+        !client.borrow().is_empty(),
+        "{name}: the window has a client area"
+    );
+}
+
+/// The rows `pkgd` sends for a developer tool (`pkgstore::explain::tool`).
+fn tool_package() -> Package {
+    let row = |kind: &str, value: &str, risk: &str, text: &str| Permission {
+        kind: kind.to_owned(),
+        value: value.to_owned(),
+        risk: risk.to_owned(),
+        explanation: text.to_owned(),
+    };
+    let mut permissions = vec![row("kind", devtool::KIND, "high", devtool::CONSENT_TEXT)];
+    for risk in devtool::RISKS {
+        let text = format!("{}: {}", risk.what, risk.consequence);
+        permissions.push(row("risk", risk.what, "medium", &text));
+    }
+    for deny in devtool::DENY.iter().take(4) {
+        let text = format!("Cannot use: {}", deny.reason);
+        permissions.push(row("denied", deny.interface, "low", &text));
+    }
+    permissions.push(row(
+        "network",
+        "api.example.org",
+        "high",
+        "Connects to api.example.org",
+    ));
+    Package {
+        name: "Messenger Playground".to_owned(),
+        system_name: "org.example.playground".to_owned(),
+        author: "Example".to_owned(),
+        version: "1.0.0".to_owned(),
+        description: "Browse Messenger interfaces and run scripts".to_owned(),
+        install_dir: "org.example.playground".to_owned(),
+        permissions,
+        ..Package::default()
+    }
+}
+
+fn tool_model(screen: Screen) -> Model {
+    let mut model = model(screen);
+    model.inspected = Some(tool_package());
+    model
+}
+
+fn register_fonts() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        for font in [
+            include_bytes!("../../../../assets/fonts/DroidSans.ttf").as_slice(),
+            include_bytes!("../../../../assets/fonts/DroidSans-Bold.ttf").as_slice(),
+        ] {
+            xui_canvas::add_font(font.to_vec());
+        }
+        xui_canvas::set_default_family("Droid Sans");
+    });
+}
+
+#[test]
+fn the_developer_tool_consent_renders_light_and_dark() {
+    render("permissions-tool", tool_model(Screen::Permissions));
+    render("review-tool", tool_model(Screen::Review));
+}
+
+#[test]
+fn the_tool_consent_leads_with_the_warning_and_the_install_is_the_tool_operation() {
+    let mut model = tool_model(Screen::Review);
+    assert!(model.advance());
+    assert!(model.consent_notes()[0].starts_with("Developer tool"));
+    model.inspected_path = Some("/transient/p.lzp".to_owned());
+    model.install_started();
+    assert_eq!(
+        model.pending,
+        Some(xui_app::installer::Request::InstallTool(
+            "/transient/p.lzp".to_owned()
+        ))
+    );
 }

@@ -19,6 +19,8 @@
 //!   the `<id>` segment must be the task's own kernel-stamped session and is
 //!   then checked as `+`, so a manifest's `publish:session/+/selection` grants
 //!   exactly the app's own session (issue #488; [`policy_segment`]).
+//! * A developer-tool label (`tool:<id>`) is open to its rules but for the
+//!   few trees [`crate::ipc::tool::topic_reserved`] keeps back.
 //! * Evaluation is per segment and default-deny once a policy is loaded, and
 //!   every verdict goes through the audited [`crate::ipc::authorize`] hook, so
 //!   a denied publish shows up in the audit ring with its correlation id.
@@ -216,6 +218,16 @@ pub fn authorize(actor_slot: usize, mode: u32, name: &str, txn_id: u64) -> Resul
             });
         }
         return Ok(segments);
+    }
+    // A developer tool is open to its rules everywhere except the few trees a
+    // tool must not forge or reach through a wildcard (`ipc::tool`).
+    if crate::ipc::tool::topic_reserved(&cred, mode == MODE_PUBLISH, name) {
+        crate::ipc::tool::deny_topic(actor_slot, &cred, interface, name, txn_id);
+        crate::ipc::label_trace::denied(
+            cred.label_id,
+            format_args!("topic={name} mode={mode} reserved"),
+        );
+        return Err(Error::Denied);
     }
     for (index, segment) in name.split('/').enumerate() {
         let checked = policy_segment(&cred, name, index, segment);

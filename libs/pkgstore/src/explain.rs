@@ -29,6 +29,7 @@ pub const MEDIUM: &str = "medium";
 pub const HIGH: &str = "high";
 
 mod interfaces;
+pub mod tool;
 
 pub use interfaces::{DEVELOP, INTERFACES};
 
@@ -160,14 +161,26 @@ fn permission(kind: &str, value: &str, explained: Explained) -> Permission {
 /// then topics, files and network, each in manifest order, one entry per
 /// request, then `develop` and `resident` when asked for. The interfaces and
 /// topics `resident` implies follow the manifest's own ([`resident`]).
+///
+/// A developer tool's list opens with its class rows ([`tool::rows`]: the
+/// kind, the shared risks, what it may not use). It lists no interfaces or
+/// topics (`lazypkg` refuses them) and `resident` implies none, because the
+/// tool is default allow.
 pub fn permissions(manifest: &Manifest) -> Vec<Permission> {
     let requested = &manifest.permissions;
-    let mut out = Vec::new();
-    for name in resident::interfaces(manifest) {
-        out.push(permission("interface", name, interface(name)));
-    }
-    for entry in resident::topics(manifest) {
-        out.push(permission("topic", entry, topic(entry)));
+    let is_tool = manifest.is_developer_tool();
+    let mut out = if is_tool {
+        tool::rows(manifest)
+    } else {
+        Vec::new()
+    };
+    if !is_tool {
+        for name in resident::interfaces(manifest) {
+            out.push(permission("interface", name, interface(name)));
+        }
+        for entry in resident::topics(manifest) {
+            out.push(permission("topic", entry, topic(entry)));
+        }
     }
     for entry in &requested.files {
         let explained = file(entry, &manifest.app.system_name);

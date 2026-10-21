@@ -20,6 +20,8 @@ fuzz = []
 fhs = { path = "../fhs" }
 # The validated manifest the rules and explanations are derived from.
 lazypkg = { path = "../lazypkg" }
+# The developer-tool class: its label prefix, deny list and consent texts.
+devtool = { path = "../devtool" }
 # SHA-256 for the audit chain, hex for the log lines.
 lazyos-crypto = { path = "../crypto" }
 # What a sandboxed process's `files` rules compile to, shared with the kernel's file gate.

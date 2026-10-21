@@ -1,0 +1,123 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "4"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "run 2: trigger"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "gallery_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:load"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "f5",
+  "until": "XUID:PROMPT:UP",
+  "timeout": 120,
+  "retries": 1
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "elevd_prompt"
+ },
+ {
+  "type": "admin"
+ },
+ {
+  "key": "tab"
+ },
+ {
+  "type": "nimda"
+ },
+ {
+  "key": "ret",
+  "until": "outcome=granted",
+  "timeout": 120
+ },
+ {
+  "wait_for": "init: started inputd (pid",
+  "timeout": 120
+ },
+ {
+  "wait_for": "PLAYGROUND:RUN:1:EXIT:",
+  "timeout": 120
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "elevd_done"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

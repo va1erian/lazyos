@@ -965,6 +965,10 @@ name = "devmatch"
 version = "0.1.0"
 
 [[package]]
+name = "devtool"
+version = "0.1.0"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3841,6 +3845,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rhai-lazy"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+ "rhai",
+]
+
+[[package]]
 name = "rhai_codegen"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5794,6 +5807,7 @@ dependencies = [
  "cursorgfx",
  "deskmenu",
  "devinspect",
+ "devtool",
  "fhs",
  "inputmap",
  "lazyicons",
@@ -5809,6 +5823,7 @@ dependencies = [
  "mounttable",
  "netstack",
  "printd",
+ "rhai-lazy",
  "surfbuf",
  "svcpolicy",
  "timezone",
@@ -5828,6 +5843,7 @@ dependencies = [
  "xui-nes",
  "xui-paint",
  "xui-pdfview",
+ "xui-playground",
  "xui-rich-text",
  "xui-settings",
  "xui-videoview",
@@ -6001,6 +6017,17 @@ dependencies = [
  "lazypdf",
  "xui-canvas",
  "xui-core",
+]
+
+[[package]]
+name = "xui-playground"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "libmessenger",
+ "messenger-generated",
+ "rhai",
+ "rhai-lazy",
 ]
 
 [[package]]

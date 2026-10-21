@@ -1,0 +1,10 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "PLAYGROUND:UP:PASS", "timeout": 240},
+  {"wait": 2.0},
+  {"shot": "playground_initial"},
+  {"key_down": "ctrl"},
+  {"key": "q", "until": "PLAYGROUND:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"key_up": "ctrl"},
+  {"quit": true}
+]

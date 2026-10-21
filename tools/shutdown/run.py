@@ -93,7 +93,7 @@ def focus_terminal() -> list[dict]:
     return [
         {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
         {"wait_for": "TERM:UP:PASS", "timeout": 240},
-        {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
+        {"wait_for": "INIT:AUTOSTART:PASS app=os.lazy.terminal", "timeout": 60},
         *home(2.0),
         {"at": 3.4, "mouse_move": [400, 58]},
         {"at": 3.8, "mouse_click": "left"},
@@ -118,7 +118,7 @@ def command(text: str, until: str) -> list[dict]:
 def power_off_session(nonce: str) -> list[dict]:
     return [
         *focus_terminal(),
-        *command(f"echo {nonce} > {NOTE}; echo wrote-$?", "TERM:OUT:wrote-0"),
+        *command(f"echo {nonce} > ~/shutdown.txt; echo wrote-$?", "TERM:OUT:wrote-0"),  # short: 68 columns wrap
         *command("shutdown", "INIT:SHUTDOWN:BEGIN"),
         {"wait_for": "XUID:POWER:OVERLAY", "timeout": 30},
         *final_frame("poweroff_overlay"),

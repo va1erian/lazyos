@@ -475,6 +475,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "devtool"
+version = "0.1.0"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -530,6 +534,7 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "confd",
+ "devtool",
  "fuzzkit",
  "secretstore",
  "sntp",
@@ -964,6 +969,7 @@ name = "lazypkg"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "devtool",
  "fhs",
  "fuzzkit",
  "lazyos-crypto",
@@ -1199,6 +1205,7 @@ name = "pkgstore"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "devtool",
  "ext2fs",
  "fhs",
  "filepolicy",

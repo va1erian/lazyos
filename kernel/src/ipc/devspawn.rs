@@ -9,6 +9,10 @@
 //! topics ([`super::policy`]) and is judged by the rules `pkgd` loaded for that
 //! label after the user approved them in the Installer.
 //!
+//! A developer tool (`tool:<id>`) is a caller like an app: its rules must allow
+//! the scope, and the deny list of its default-allow rules refuses it unless
+//! the package declared `develop`.
+//!
 //! Only the credential gate's unlabelled `CAP_SETUID` holders could ever assign
 //! a label before. This is the one other way, and it is narrow:
 //!

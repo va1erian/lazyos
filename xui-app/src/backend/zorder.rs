@@ -84,6 +84,7 @@ mod tests {
             text: String::new(),
             painter: None,
             clip: None,
+            kind: xui_core::backend::NodeKind::Container,
         }
     }
 

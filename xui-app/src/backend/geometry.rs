@@ -31,7 +31,7 @@ pub(super) fn absolute_bounds(nodes: &[(WidgetId, Node)], id: WidgetId) -> Optio
     None
 }
 
-fn node_of(nodes: &[(WidgetId, Node)], id: WidgetId) -> Option<&Node> {
+pub(super) fn node_of(nodes: &[(WidgetId, Node)], id: WidgetId) -> Option<&Node> {
     nodes
         .iter()
         .find(|(node_id, _)| *node_id == id)
@@ -184,6 +184,7 @@ mod tests {
             text: String::new(),
             painter: None,
             clip: None,
+            kind: xui_core::backend::NodeKind::Container,
         }
     }
 

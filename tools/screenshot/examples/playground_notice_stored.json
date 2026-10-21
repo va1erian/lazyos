@@ -1,0 +1,67 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "PLAYGROUND:NOTICE:HIDDEN:stored",
+  "timeout": 90
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "notice_stored_hidden"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "d"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait_for": "PLAYGROUND:NOTICE:SHOWN",
+  "timeout": 60
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "notice_stored_shown"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

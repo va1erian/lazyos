@@ -27,6 +27,7 @@ use super::ctx::Ctx;
 use super::submenu;
 use super::theme::{chrome_look, color, fill_bar};
 use crate::client_window::SurfaceRole;
+use crate::sys;
 use xui_core::theme::look;
 
 /// Row text size.
@@ -54,6 +55,37 @@ pub enum MenuMsg {
     Wheel(i16),
     /// A navigation key from the panel-key grab (`super::keys`).
     Key(NavKey),
+}
+
+/// The message a pointer or wheel event on the menu panel stands for.
+///
+/// The panel is a self-painted node, so the backend delivers the second press
+/// of a quick pair *only* as a [`Event::MouseDoubleClick`] (never a plain press
+/// first): it maps to `Press(.., true)`, which the model never lets confirm a
+/// power row (`Menu::choose`).
+pub(crate) fn event_msg(event: &Event) -> Option<MenuMsg> {
+    match *event {
+        Event::MouseMove { x, y, .. } => Some(MenuMsg::Move(x, y)),
+        Event::MouseLeave => Some(MenuMsg::Leave),
+        Event::MouseDown {
+            x,
+            y,
+            button: MouseButton::Left,
+            ..
+        } => Some(MenuMsg::Press(x, y, false)),
+        Event::MouseDoubleClick {
+            x,
+            y,
+            button: MouseButton::Left,
+            ..
+        } => Some(MenuMsg::Press(x, y, true)),
+        Event::MouseWheel {
+            delta,
+            horizontal: false,
+            ..
+        } => Some(MenuMsg::Wheel(delta)),
+        _ => None,
+    }
 }
 
 /// Open the menu if it is closed, close it if it is open.
@@ -132,28 +164,7 @@ impl MenuApp {
             let ctx = Rc::clone(&ctx);
             root.set_painter(Rc::new(move |canvas| paint(canvas, &ctx)));
         }
-        root.on_events(|event| match *event {
-            Event::MouseMove { x, y, .. } => Some(MenuMsg::Move(x, y)),
-            Event::MouseLeave => Some(MenuMsg::Leave),
-            Event::MouseDown {
-                x,
-                y,
-                button: MouseButton::Left,
-                ..
-            } => Some(MenuMsg::Press(x, y, false)),
-            Event::MouseDoubleClick {
-                x,
-                y,
-                button: MouseButton::Left,
-                ..
-            } => Some(MenuMsg::Press(x, y, true)),
-            Event::MouseWheel {
-                delta,
-                horizontal: false,
-                ..
-            } => Some(MenuMsg::Wheel(delta)),
-            _ => None,
-        });
+        root.on_events(event_msg);
         MenuApp { ctx, root }
     }
 
@@ -220,7 +231,7 @@ impl MenuApp {
             let mut menu = self.ctx.menu.borrow_mut();
             let (ox, oy) = menu.origin(self.ctx.screen.1);
             let origin = menu.row_rect(index).map(|rect| rect.offset(ox, oy));
-            (menu.choose(index, repeat), origin)
+            (menu.choose(index, repeat, sys::clock_ticks()), origin)
         };
         match choice {
             Choice::Nothing => false,

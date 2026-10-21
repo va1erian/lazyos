@@ -15,16 +15,40 @@
 //! which is what "re-read when an app is installed or removed" amounts to
 //! without a subscription (a change is visible on the very next request).
 //!
+//! A developer tool (`docs/devtool-packages-plan.md`) is started under the
+//! label `tool:<system_name>` instead of `app:<system_name>`
+//! (`pkgstore::rules::label_for_kind`, from the row's `kind`), and a tool row
+//! that no administrator or image installed is not listed at all
+//! (`pkgstore::toolgate::row_approved`): `pkgd` refuses to load it, and `init`
+//! must not open an app whose label has no rules.
+//!
+//! `init` makes the same decision `pkgd`'s boot reconciliation makes before an
+//! app is started under a tool label: for a tool row it reads the stored
+//! manifest and applies `pkgstore::toolgate::stored_loadable` (the row and the
+//! manifest agree on the class, the tool was approved, a manifest that claims
+//! `shell` belongs to a package the image ships), cached by the row's digest.
+//! A tool `pkgd` refused to load (its label was revoked) is therefore not
+//! listed or launched either, instead of running as an unconfined process
+//! whose Messenger rules are empty. (An application row needs no such check: its
+//! `app:` label holds no rules unless `pkgd` loaded them.)
+//!
+//! A *shell* tool (`shell = true`, the Terminal; `pkgstore::shellrole::row_is_shell`,
+//! decided from the row `pkgd` recorded and never from the package) is the
+//! user's own shell: [`InstalledApps::owner_cred`] judges a caller running under
+//! its label as the session's owner, so `powerctl` and a launch from the
+//! Terminal work as before. It is also listed first, so the session opens it
+//! before the other autostart apps as the built-in row it replaced did.
+//!
 //! Every call carries a deadline, so a wedged `confd` costs a request half a
 //! second, never the supervisor.
 
-use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use user::trace;
 
 use confd::Value;
 use deskmenu::hidden::{self, Hidden};
+use pkgstore::verdicts::{self, Verdict, Verdicts};
 use user::messenger::confd::Client;
 use user::messenger::pkgd::wire as pkgd;
 use user::messenger::{registry, services, Endpoint};
@@ -52,7 +76,8 @@ pub(super) struct InstalledApp {
     pub(super) name: String,
     /// `/apps/<install_dir>/<binary>`.
     pub(super) path: &'static str,
-    /// The kernel policy label, `app:<system_name>`.
+    /// The kernel policy label, `app:<system_name>` (`tool:<system_name>` for
+    /// a developer tool).
     pub(super) label: &'static str,
     /// The manifest's fixed arguments, one `argv` item each.
     pub(super) args: Vec<String>,
@@ -77,6 +102,9 @@ pub(super) struct InstalledApp {
     pub(super) installer: u32,
     /// Installed by a system caller, for everyone (`Installed::machine_wide`).
     pub(super) machine_wide: bool,
+    /// The user's shell (`shellrole::row_is_shell`): a core developer tool whose
+    /// row says `shell`.
+    pub(super) shell: bool,
 }
 
 impl InstalledApp {
@@ -103,7 +131,22 @@ pub(super) struct InstalledApps {
     /// user heap never frees them anyway, so each distinct string is leaked
     /// once and reused across refreshes.
     interned: Vec<&'static str>,
+    /// The verdict of [`InstalledApps::stored_agrees`] for a tool row, by
+    /// `(system_name, version key)`: a package's files change with its
+    /// digest, so the manifest is read once per version, and a refusal is
+    /// printed once instead of on every `Launch` and `ListApps`. An
+    /// unreadable manifest is not remembered (it may be a hiccup). The entries
+    /// of a package that is no longer installed are dropped on a refresh
+    /// (`pkgstore::verdicts`).
+    verdicts: Verdicts,
 }
+
+/// The `APPS:REFUSE` lines allowed in a window: a handful of refused tools is
+/// the normal worst case, and the remembered verdict makes a repeat free.
+static REFUSALS: tracefmt::Budget = tracefmt::Budget::new(8, 6000);
+
+/// Largest stored manifest `init` reads back (the format's own cap is 1 MiB).
+const MAX_MANIFEST: usize = 1024 * 1024;
 
 impl InstalledApps {
     pub(super) const fn new() -> InstalledApps {
@@ -111,6 +154,46 @@ impl InstalledApps {
             apps: Vec::new(),
             endpoint: None,
             interned: Vec::new(),
+            verdicts: Verdicts::new(),
+        }
+    }
+
+    /// Whether a tool row's stored manifest still says what the row does and
+    /// the tool may be started (`pkgstore::toolgate::stored_loadable`, the
+    /// decision `pkgd` loads the label's rules by). Not a tool row: always.
+    /// An unreadable manifest fails closed, as `pkgd`'s reconciliation does.
+    fn stored_agrees(&mut self, row: &pkgd::Installed) -> bool {
+        if !pkgstore::toolgate::is_tool_kind(&row.kind) {
+            return true;
+        }
+        let core = row.origin == pkgd::ORIGIN_CORE;
+        let key = verdicts::version_key(&row.digest, &row.kind, row.machine_wide, core);
+        match self.verdicts.get(&row.system_name, &key) {
+            Some(Verdict::Agreed) => return true,
+            Some(Verdict::Refused) => return false,
+            None => {}
+        }
+        let Some(manifest) = stored_manifest(&row.install_dir) else {
+            return false;
+        };
+        match pkgstore::toolgate::stored_loadable(&row.kind, &manifest, row.machine_wide, core) {
+            Ok(()) => {
+                self.verdicts
+                    .remember(&row.system_name, &key, Verdict::Agreed);
+                true
+            }
+            Err(why) => {
+                self.verdicts
+                    .remember(&row.system_name, &key, Verdict::Refused);
+                if trace::within(&REFUSALS, trace::Channel::Init) {
+                    trace::line!(
+                        trace::Channel::Init,
+                        "APPS:REFUSE {}: {why}",
+                        row.system_name
+                    );
+                }
+                false
+            }
         }
     }
 
@@ -194,12 +277,49 @@ impl InstalledApps {
         }
         rows.sort_by(|a, b| {
             let core = |row: &pkgd::Installed| row.origin != pkgd::ORIGIN_CORE;
+            let not_shell = |row: &pkgd::Installed| !is_shell(row);
             core(a)
                 .cmp(&core(b))
+                .then_with(|| not_shell(a).cmp(&not_shell(b)))
                 .then_with(|| a.system_name.cmp(&b.system_name))
         });
-        let apps = rows.into_iter().map(|row| self.app_of(row)).collect();
+        let names: Vec<String> = rows.iter().map(|row| row.system_name.clone()).collect();
+        self.verdicts.forget_removed(&names);
+        let mut apps = Vec::new();
+        for row in rows.into_iter().filter(approved) {
+            if self.stored_agrees(&row) {
+                apps.push(self.app_of(row));
+            }
+        }
         self.apps = apps;
+    }
+
+    /// `cred` as `init` judges its sender: a task running under a shell tool's
+    /// label (the Terminal's own and everything it starts) is the session's
+    /// owner, so its label is dropped; any other cred is returned as it is.
+    /// The label is named by the kernel (`init` holds the capability to read
+    /// it) and the shell flag comes from the row `pkgd` recorded. The apps are
+    /// re-read once when the package is not known yet.
+    pub(super) fn owner_cred(&mut self, cred: sys::Cred) -> sys::Cred {
+        if cred.label_id == 0 {
+            return cred;
+        }
+        let mut name = [0u8; sys::MAX_LABEL_BYTES];
+        let Some(system_name) = sys::label_name(cred.label_id, &mut name)
+            .ok()
+            .and_then(|len| core::str::from_utf8(&name[..len]).ok())
+            .and_then(pkgstore::toolgate::tool_system_name)
+        else {
+            return cred;
+        };
+        if !self.apps.iter().any(|app| app.id == system_name) {
+            self.refresh();
+        }
+        let shell = self
+            .apps
+            .iter()
+            .any(|app| app.id == system_name && app.shell);
+        owner_of(cred, shell)
     }
 
     /// The caller's hidden apps: `user/<uid>/menu/hidden/*` over
@@ -235,7 +355,8 @@ impl InstalledApps {
     fn app_of(&mut self, row: pkgd::Installed) -> InstalledApp {
         let id = self.intern(&row.system_name);
         let path = self.intern(&fhs::install_path(&row.install_dir, &row.binary));
-        let label = self.intern(&format!("app:{}", row.system_name));
+        let label = self.intern(&label_of(&row));
+        let shell = is_shell(&row);
         InstalledApp {
             id,
             name: row.name,
@@ -252,6 +373,7 @@ impl InstalledApps {
             icon: fhs::icon_path(&row.install_dir),
             installer: row.installer,
             machine_wide: row.machine_wide,
+            shell,
         }
     }
 
@@ -263,6 +385,44 @@ impl InstalledApps {
         self.interned.push(leaked);
         leaked
     }
+}
+
+/// The manifest `pkgd` stored when it installed `install_dir`; `None` when it
+/// cannot be read or parsed.
+fn stored_manifest(install_dir: &str) -> Option<lazypkg::Manifest> {
+    let root = pkgstore::layout::install_path(install_dir).ok()?;
+    let path = alloc::format!("{root}/{}", pkgstore::layout::MANIFEST_FILE);
+    let bytes = user::files::read_up_to(&path, MAX_MANIFEST).ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    lazypkg::parse_manifest(&text).ok()
+}
+
+/// The policy label an installed app is started under.
+fn label_of(row: &pkgd::Installed) -> String {
+    pkgstore::rules::label_for_kind(&row.system_name, &row.kind)
+}
+
+/// Whether a row records the user's shell: the row's own `kind`, `shell` and
+/// origin, as `pkgd` wrote them.
+fn is_shell(row: &pkgd::Installed) -> bool {
+    let core = row.origin == pkgd::ORIGIN_CORE;
+    pkgstore::shellrole::row_is_shell(&row.kind, row.shell, core)
+}
+
+/// `cred` with its label dropped when `shell` (see [`InstalledApps::owner_cred`]).
+fn owner_of(cred: sys::Cred, shell: bool) -> sys::Cred {
+    if shell {
+        sys::Cred::new(cred.uid, cred.gid, cred.caps, 0, cred.session)
+    } else {
+        cred
+    }
+}
+
+/// Whether a row may be used: not a developer tool, or one an administrator
+/// approved or the image ships.
+fn approved(row: &pkgd::Installed) -> bool {
+    let core = row.origin == pkgd::ORIGIN_CORE;
+    pkgstore::toolgate::row_approved(&row.kind, row.machine_wide, core)
 }
 
 /// The short id a core `system_name` answers to (`os.lazy.editor` ->

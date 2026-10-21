@@ -369,7 +369,7 @@ jobs:
           python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/desktop \
             --timeout 300 --script tools/screenshot/examples/xui_desktop.json \
             --fail-on "(TERM|SYSMON|FABMON):(BIND|UP|RUN):FAIL" --fail-on "TERM:SPAWN:FAIL" --fail-on "INIT:AUTOSTART:FAIL"
-          for app in terminal os.lazy.sysmon os.lazy.fabricmon os.lazy.counter; do
+          for app in os.lazy.terminal os.lazy.sysmon os.lazy.fabricmon os.lazy.counter; do
             grep -q "INIT:AUTOSTART:PASS app=$app" shots/desktop/serial.log
           done
           grep -q "TERM:CMD:echo \$((6\*7))" shots/desktop/serial.log

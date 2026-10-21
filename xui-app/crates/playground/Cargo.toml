@@ -1,0 +1,22 @@
+[package]
+name = "xui-playground"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The Messenger Playground's portable core: catalog, docs, snippets, forms, listener and runner models (docs/messenger-playground-plan.md)"
+
+[dependencies]
+# Well-known paths (the docs tree) come from libs/fhs, never a literal.
+fhs = { path = "../../../libs/fhs" }
+# The interface table, value codec and Rhai engine the playground browses and
+# drives; host-testable against rhai-lazy's in-memory fabric.
+rhai-lazy = { path = "../../../libs/rhai-lazy", default-features = true }
+# The same exact pin as rhai-lazy (a Rhai bump is one reviewed change to both):
+# the value tree, form and "copy as Rhai" code walk `rhai::Dynamic`.
+rhai = { version = "=1.26.1", default-features = false }
+
+[dev-dependencies]
+# Tests build service error replies with the parcel codec, as the services do.
+libmessenger = { path = "../../../libs/messenger" }
+messenger-generated = { path = "../../../libs/generated" }

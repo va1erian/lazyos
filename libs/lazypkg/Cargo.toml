@@ -29,6 +29,8 @@ crc = { version = "3", default-features = false }
 lazyos-crypto = { path = "../crypto" }
 # The home-directory roots a `files` rule must not spell out (use `$HOME`).
 fhs = { path = "../fhs" }
+# The developer-tool class: its manifest spelling and the category it lives in.
+devtool = { path = "../devtool" }
 
 [dev-dependencies]
 fuzzkit = { path = "../fuzzkit" }

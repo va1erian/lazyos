@@ -10,9 +10,13 @@
 use xui_core::arrange::{column, label, list, Build, Layout, LayoutExt};
 use xui_core::widget::ListView;
 
-use xui_app::installer::{elide, group_by_risk, permission_line, short_digest, Model, Package};
+use xui_app::installer::{
+    approval_note, elide, group_by_risk, permission_line, short_digest, tool_items, warning_text,
+    Model, Package,
+};
 
 use crate::msg::Msg;
+use crate::notice::notice;
 use crate::wizard::{page, Next};
 
 /// A list of `items` with nothing selected.
@@ -79,6 +83,9 @@ pub fn review(model: &Model) -> Layout<Msg> {
 pub fn permissions(model: &Model) -> Layout<Msg> {
     let fallback = Package::default();
     let package = model.inspected.as_ref().unwrap_or(&fallback);
+    if model.inspected_is_tool() {
+        return tool_permissions(model, package);
+    }
     let intro = format!(
         "{} asks for these permissions. Install only if you trust it.",
         display_name(package)
@@ -100,6 +107,42 @@ pub fn permissions(model: &Model) -> Layout<Msg> {
         true,
         Next {
             text: "Install",
+            msg: Msg::Install,
+            enabled: model.can_install(),
+            focus: false,
+        },
+    )
+}
+
+/// Step 3 for a developer tool: the class warning first, in its own band, then
+/// what installing involves, then the rows `pkgd` sent (the risks every tool
+/// shares, the interfaces none may use, the package's own permissions).
+/// `Install` asks `elevd`, which shows the administrator prompt.
+fn tool_permissions(model: &Model, package: &Package) -> Layout<Msg> {
+    let name = display_name(package);
+    let mut content = column()
+        .gap(6)
+        .child(notice(warning_text(package)))
+        .child(label(elide(&approval_note(&name), 200)));
+    // The first note is the approval, said just above; the rest (a
+    // replacement) still apply.
+    let notes = model
+        .consent_notes()
+        .into_iter()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join("   ·   ");
+    if !notes.is_empty() {
+        content = content.child(label(elide(&notes, 160)));
+    }
+    let content = content.child(items_list(tool_items(package)).fill(1));
+    page(
+        model.screen,
+        model,
+        content,
+        true,
+        Next {
+            text: "Install…",
             msg: Msg::Install,
             enabled: model.can_install(),
             focus: false,

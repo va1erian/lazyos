@@ -63,7 +63,7 @@ pub(crate) fn dispatch_app(
 }
 
 /// The caller's uid and installed-app label, from its kernel-stamped
-/// credentials. An unlabelled caller (a system service, the Terminal) is
+/// credentials. An unlabelled caller (a system service) is
 /// refused: it has no app, so nothing of its could be scoped. A label the
 /// kernel cannot name is refused too, never guessed.
 fn app_caller(message: &Message) -> messenger::Result<(u32, String)> {

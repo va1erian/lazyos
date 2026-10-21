@@ -120,6 +120,14 @@ impl Pkgd {
         let Some(caller) = caller_of(message) else {
             return pkgd::error_reply(method, EPERM, "the caller's identity could not be read");
         };
+        // The user's shell (the Terminal) is a labelled caller that acts as
+        // the session's owner; every other labelled caller stays refused.
+        let caller = if caller.label_id != 0 && method != wire::METHOD_LABELNAME {
+            let shell = self.is_shell_label(caller.label_id);
+            pkgstore::shellrole::as_session_owner(caller, shell)
+        } else {
+            caller
+        };
         match self.handle(method, &caller, &message.parcel.body) {
             Ok(body) => pkgd::parcel(method, body),
             Err(failure) => pkgd::error_reply(method, failure.code, &failure.text),
@@ -141,7 +149,13 @@ impl Pkgd {
             }
             wire::METHOD_INSTALLAPPROVED => {
                 let args = wire::decode_install_approved_args(body).map_err(malformed)?;
-                let app = self.install_approved(caller, &args.path, &args.digest, args.core)?;
+                let app = self.install_approved(
+                    caller,
+                    &args.path,
+                    &args.digest,
+                    args.core,
+                    args.devtool,
+                )?;
                 wire::encode_install_approved_reply(&wire::InstallApprovedReply { app })
                     .map_err(malformed)
             }
@@ -180,6 +194,11 @@ impl Pkgd {
                 });
                 wire::encode_installed_reply(&wire::InstalledReply { app }).map_err(malformed)
             }
+            wire::METHOD_LABELNAME => {
+                let args = wire::decode_label_name_args(body).map_err(malformed)?;
+                let label = label_name_for_elevd(caller, args.label_id)?;
+                wire::encode_label_name_reply(&wire::LabelNameReply { label }).map_err(malformed)
+            }
             wire::METHOD_DEVELOP => {
                 let args = wire::decode_develop_args(body).map_err(malformed)?;
                 let (label, approved) = self.develop(caller, &args.path, args.confirm)?;
@@ -211,6 +230,28 @@ impl Pkgd {
         };
         self.buffer = bytes;
         Ok(info)
+    }
+
+    /// Whether the label `label_id` is a shell tool's (`shellrole::row_is_shell`
+    /// on the row of the package the label names): read from the row `pkgd`
+    /// recorded, never from the package after install. A label that cannot be
+    /// named, is not a tool's, or whose row is gone or not a core shell is not.
+    fn is_shell_label(&mut self, label_id: u32) -> bool {
+        let mut name = [0u8; user::sys::MAX_LABEL_BYTES];
+        let Ok(len) = user::sys::label_name(label_id, &mut name) else {
+            return false;
+        };
+        let Some(system_name) = core::str::from_utf8(&name[..len])
+            .ok()
+            .and_then(pkgstore::toolgate::tool_system_name)
+        else {
+            return false;
+        };
+        let Ok(Some(row)) = self.registry.get(system_name) else {
+            return false;
+        };
+        let core = self.origin_of(&row.system_name) == wire::ORIGIN_CORE;
+        pkgstore::shellrole::row_is_shell(&row.kind, row.shell, core)
     }
 
     /// Whether `pkgd` will read `path` for `caller` (see `pkgstore::access`),
@@ -249,6 +290,22 @@ fn caller_of(message: &Message) -> Option<Caller> {
         label_id: cred.label_id,
         system: cred.caps & user::sys::CAP_SETUID != 0 || elevd,
     })
+}
+
+/// `LabelName(label_id)`: the label's name, for `elevd` alone. `elevd` holds
+/// no capability, so it cannot read a label's name itself; `pkgd` (which
+/// holds `CAP_SETUID`) tells it whether a caller's label is a developer
+/// tool's, which no approval of the elevated editor's view may stand for.
+fn label_name_for_elevd(caller: &Caller, label_id: u32) -> Result<String, Failure> {
+    if !is_elevd(caller) {
+        return Err(fail(EPERM, "only elevd may ask for a label's name"));
+    }
+    let mut name = [0u8; user::sys::MAX_LABEL_BYTES];
+    let len = user::sys::label_name(label_id, &mut name)
+        .map_err(|_| fail(ENOENT, "that label is not known"))?;
+    core::str::from_utf8(&name[..len])
+        .map(String::from)
+        .map_err(|_| fail(EIO, "that label's name is not text"))
 }
 
 /// Whether `caller` is `elevd` (its system uid, unlabelled, no session).
