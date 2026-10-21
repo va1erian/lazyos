@@ -145,6 +145,16 @@ impl Inode {
         }
     }
 
+    /// [`Inode::path`] for an operation by name: a file the registry knows
+    /// no current name of is [`FsError::NotFound`] (an empty path would
+    /// name the root).
+    fn name(&self) -> Result<String, FsError> {
+        match self.path() {
+            path if path.is_empty() => Err(FsError::NotFound),
+            path => Ok(path),
+        }
+    }
+
     /// Whether `path` is the file's current name.
     fn is_named(&self, path: &str) -> bool {
         let names = self.names.lock();
@@ -168,10 +178,9 @@ impl Inode {
     fn links(&self) -> u32 {
         let meta = match &self.node {
             Some(node) => node.stat(),
-            None => match self.path() {
-                path if path.is_empty() => return 1,
-                path => super::abi_stat(Id::ROOT, &path),
-            },
+            None => self
+                .name()
+                .and_then(|path| super::abi_stat(Id::ROOT, &path)),
         };
         meta.map_or(1, |meta| meta.nlink)
     }
@@ -308,11 +317,18 @@ impl OpenFile {
         }
     }
 
+    /// The file's metadata. An unlinked file parked under its hidden name
+    /// counts that name out of `nlink`, so it reports `0` like an unlinked
+    /// open file on Linux.
     pub fn stat(&self) -> Result<Meta, FsError> {
-        match &self.inode.node {
+        let mut meta = match &self.inode.node {
             Some(node) => node.stat(),
-            None => super::abi_stat(Id::ROOT, &self.path()),
+            None => super::abi_stat(Id::ROOT, &self.inode.name()?),
+        }?;
+        if self.inode.orphan.load(Ordering::Relaxed) {
+            meta.nlink = meta.nlink.saturating_sub(1);
         }
+        Ok(meta)
     }
 
     /// Read at `offset`. A page a writable shared mapping may have changed
@@ -327,7 +343,7 @@ impl OpenFile {
     fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         match &self.inode.node {
             Some(node) => node.read(offset, buf),
-            None => super::abi_read_at(Id::ROOT, &self.path(), offset, buf),
+            None => super::abi_read_at(Id::ROOT, &self.inode.name()?, offset, buf),
         }
     }
 
@@ -335,7 +351,7 @@ impl OpenFile {
     /// of the path is refreshed afterwards, as a write by path does.
     pub fn write_at(&self, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let Some(node) = &self.inode.node else {
-            let written = super::abi_write(Id::ROOT, &self.path(), offset, data)?;
+            let written = super::abi_write(Id::ROOT, &self.inode.name()?, offset, data)?;
             self.inode.cache.update(offset, &data[..written]);
             return Ok(written);
         };
@@ -356,7 +372,7 @@ impl OpenFile {
     /// metadata of the path is refreshed afterwards, as a write by path does.
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
         let Some(node) = &self.inode.node else {
-            super::abi_truncate(Id::ROOT, &self.path(), size)?;
+            super::abi_truncate(Id::ROOT, &self.inode.name()?, size)?;
             self.inode.truncated(size);
             return Ok(());
         };
@@ -378,7 +394,7 @@ impl OpenFile {
         self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush(),
-            None => super::abi_flush(Id::ROOT, &self.path(), false),
+            None => super::abi_flush(Id::ROOT, &self.inode.name()?, false),
         }
     }
 
@@ -387,14 +403,14 @@ impl OpenFile {
         self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush_fs(),
-            None => super::abi_flush(Id::ROOT, &self.path(), true),
+            None => super::abi_flush(Id::ROOT, &self.inode.name()?, true),
         }
     }
 
     pub fn statfs(&self) -> Result<StatFs, FsError> {
         match &self.inode.node {
             Some(node) => node.statfs(),
-            None => super::abi_statfs(Id::ROOT, &self.path()),
+            None => super::abi_statfs(Id::ROOT, &self.inode.name()?),
         }
     }
 }

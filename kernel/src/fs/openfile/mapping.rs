@@ -407,21 +407,24 @@ impl Inode {
         match &self.node {
             Some(node) => node.flush_page(offset, data, wait),
             None if !wait => None,
-            None => Some(write_by_name(&self.path(), offset, data)),
+            None => Some(
+                self.name()
+                    .and_then(|path| write_by_name(&path, offset, data)),
+            ),
         }
     }
 
     fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         match &self.node {
             Some(node) => node.read(offset, buf),
-            None => crate::fs::abi_read_at(Id::ROOT, &self.path(), offset, buf),
+            None => crate::fs::abi_read_at(Id::ROOT, &self.name()?, offset, buf),
         }
     }
 
     pub(super) fn size(&self) -> Result<u64, FsError> {
         match &self.node {
             Some(node) => node.stat().map(|meta| meta.size),
-            None => crate::fs::abi_stat(Id::ROOT, &self.path()).map(|meta| meta.size),
+            None => crate::fs::abi_stat(Id::ROOT, &self.name()?).map(|meta| meta.size),
         }
     }
 }

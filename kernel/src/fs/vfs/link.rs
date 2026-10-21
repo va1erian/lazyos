@@ -55,6 +55,7 @@ impl Vfs {
         // writes the count first), so the cached inode goes either way.
         self.invalidate_mount_path(from_mount, &from_rel);
         self.invalidate_mount_path(to_mount, &to_rel);
+        self.forget_parent(&new);
         linked
     }
 }

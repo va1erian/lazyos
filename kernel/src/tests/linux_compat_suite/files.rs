@@ -26,7 +26,9 @@ fn readlink(path: &str) -> Result<String, u64> {
 }
 
 /// `/proc/self/{exe,cwd,fd/N}` resolve; a plain file is `EINVAL` (what
-/// `realpath` relies on), a missing one `ENOENT`; creating links is `EPERM`.
+/// `realpath` relies on), a missing one `ENOENT`; a symbolic link is `EPERM`
+/// (no filesystem stores one) and a hard link to a missing file `ENOENT`
+/// (hard links themselves: `linux_link_*`).
 pub fn links_and_readlink() -> Result<(), String> {
     fresh()?;
     check!(
@@ -71,8 +73,8 @@ pub fn links_and_readlink() -> Result<(), String> {
     );
     let (a, b) = (cpath("/tmp/a"), cpath("/tmp/b"));
     check!(
-        sys(LINK, &[a.as_ptr() as u64, b.as_ptr() as u64]) == EPERM,
-        "link"
+        sys(LINK, &[a.as_ptr() as u64, b.as_ptr() as u64]) == ENOENT,
+        "link of a missing file"
     );
     check!(
         sys(SYMLINK, &[a.as_ptr() as u64, b.as_ptr() as u64]) == EPERM,

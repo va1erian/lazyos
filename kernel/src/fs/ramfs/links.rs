@@ -64,6 +64,12 @@ impl RamFs {
         if node.links == 0 {
             let removed = Self::take_node(inner, ino);
             Self::forget_node(inner, &removed);
+            // The last name is the covered one (a covered name that goes
+            // first hands its role on); should it carry a charge all the
+            // same, that charge goes too rather than leak.
+            if let Some(uid) = entry.extra {
+                Self::release_name(inner, uid);
+            }
             return;
         }
         node.touch_ctime();
