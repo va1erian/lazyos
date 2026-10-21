@@ -4,7 +4,7 @@ the demo client, boot it once, and judge what the guest, the host's listener and
 
 Needs `webd` built first (its recipe is `python tools/run_demo.py --webd`, which builds what it
 needs); this harness calls it. The image is a desktop with the Terminal and the demo
-(`LAZYOS_XUI_AUTOSTART=term,webddemo`), the UI probe (the session clicks the page's link by name), the
+(`LAZYOS_XUI_AUTOSTART=webddemo,term`), the UI probe (the session clicks the page's link by name), the
 label trace (every refused call is printed as `LABEL:DENY`) and networking (so that a light view that
 did load its picture could reach the host: the picture is `http://10.0.2.2:18080/blocked.png`).
 
@@ -69,11 +69,11 @@ def build_image(args) -> str | None:
         return "no BusyBox for the Terminal's shell (see tools/abi/busybox.py)"
     # A hermetic build: none of the caller's switches, then ours.
     env = {k: v for k, v in os.environ.items() if not k.startswith("LAZYOS_")}
-    env.update(LAZYOS_XUI_AUTOSTART="term,webddemo", LAZYOS_UI_PROBE="1", LAZYOS_BUSYBOX=str(shell))
+    env.update(LAZYOS_XUI_AUTOSTART="webddemo,term", LAZYOS_UI_PROBE="1", LAZYOS_BUSYBOX=str(shell))
     if args.label_trace:
         env["LAZYOS_LABEL_TRACE"] = "1"
-    command = [PY, str(RUN_DEMO), "--webd", "--desktop", "--net", "--big-app", "--reset-os", "--build-only"]
-    print(f"webd: {' '.join(command[1:])} (LAZYOS_XUI_AUTOSTART=term,webddemo, UI probe"
+    command = [PY, str(RUN_DEMO), "--webd", "--desktop", "--net", "--big-app", "--reset-os", "--yes", "--autologin", "user", "--build-only"]
+    print(f"webd: {' '.join(command[1:])} (LAZYOS_XUI_AUTOSTART=webddemo,term, UI probe"
           f"{', label trace' if args.label_trace else ''})", flush=True)
     done = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
     if done.returncode != 0:
@@ -93,7 +93,7 @@ def run_session(steps: list[dict], out: Path, args) -> tuple[bool, str]:
                "--net", "--net-forward", "none", "--net-pcap", str(out / "net.pcap"),
                "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
                "--fail-on", rf"{j.D}:(BIND|RUN):FAIL", "--fail-on", rf"{j.D}:[A-Z]+:FAIL",
-               "--fail-on", rf"{j.W}:[A-Z_]+(:[A-Z_]+)*:FAIL"]
+               "--fail-on", rf"{j.W}:(?!NOTE:)[A-Z_]+(:[A-Z_]+)*:FAIL"]
     if args.qemu:
         command += ["--qemu", args.qemu]
     code = subprocess.call(command, cwd=ROOT, stdout=subprocess.DEVNULL)

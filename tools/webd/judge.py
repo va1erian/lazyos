@@ -35,7 +35,9 @@ BLUE_SHARE = 0.5
 #: The reasons `WEBDDEMO:LOST:` may give for a killed web process.
 KILLED_REASONS = ("crashed",)
 
-FAIL_LINE = re.compile(rf"^(?:{D}|{W})(?::[A-Z_]+)*:FAIL[^\r\n]*", re.M)
+# `WEBD:NOTE:<engine line>` relays the engine's own markers, among them the `FAIL:webprocess:crashed` that the
+# loss test provokes on purpose: a NOTE is not a failure of webd.
+FAIL_LINE = re.compile(rf"^(?:{D}|{W})(?::(?!NOTE:)[A-Z_]+)*:FAIL[^\r\n]*", re.M)
 VIEW = re.compile(rf"^{D}:VIEW:PASS id=(\d+)", re.M)
 FRAME = re.compile(rf"^{D}:FRAME:PASS colour=(\w+) w=(\d+) h=(\d+) seq=(\d+) ms=(\d+)", re.M)
 LATENCY = re.compile(rf"^{D}:LATENCY:(\d+)", re.M)
@@ -82,7 +84,9 @@ def judge_views(text: str) -> list[str]:
         client = created.get(view)
         if client is None:
             problems.append(f"the demo's view {view} has no WEBD:VIEW:CREATE line")
-        elif "webddemo" not in client:
+        elif client == "none" or (client.startswith("app:") and "webddemo" not in client):
+            # webd cannot name another app's label (the credential gate shows a label's name only to
+            # its own holder or to CAP_SETUID), so a client is `label#<id>` there: any such id passes.
             problems.append(f"view {view} was created for {client}, not for the demo")
     if len(set(views)) != len(views):
         problems.append(f"a view id was handed out twice: {views}")
@@ -196,6 +200,7 @@ OPTIONAL_CHILD = [
     r"file=/\S*/fontconfig/conf\.avail access=read",
     r"file=/system/share/fonts(/\S+)? access=write",
     r"file=/tmp(/fontconfig)? access=write",
+    r"file=/etc/ssl/openssl\.cnf access=stat",  # the network process
 ]
 DENY = re.compile(r"LABEL:DENY label=(?P<label>\S+) (?P<what>.*?)\s*$", re.M)
 #: The labels this harness answers for: the demo, webd and webd's children.

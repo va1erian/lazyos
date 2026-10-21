@@ -1,7 +1,7 @@
 """The session script of the webd harness (`run.py`, `tools/screenshot/examples/webd_light.json`).
 
 One boot of the image `run.py` builds: a desktop that opens the Terminal and the demo client
-(`LAZYOS_XUI_AUTOSTART=term,webddemo`) with `webd` (a resident app, started at login) serving light
+(`LAZYOS_XUI_AUTOSTART=webddemo,term`: the demo opens first, so the Terminal does not cover it) with `webd` (a resident app, started at login) serving light
 views. The demo shows one view of a blue page with a link, a form and a picture that a light view must
 never load. The session
 
@@ -54,6 +54,9 @@ def light(timeout: float = 300.0, skip_loss: bool = False) -> list[dict]:
         *boot_gates(timeout),
         wait(f"{j.D}:VIEW:PASS id="),
         wait(f"{j.D}:FRAME:PASS colour=blue"),
+        # The Terminal opened after the demo and sits over it: a click on the demo's title bar raises it
+        # (and gives it the keyboard, which the form below needs).
+        {"click_at": {"target": f"title:{j.WINDOW}"}, "timeout": 60},
         {"wait": 1.5},
         {"shot": "w01_page"},
         # The link comes back as an event and loads nothing.

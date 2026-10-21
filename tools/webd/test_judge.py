@@ -105,6 +105,8 @@ class Judge(unittest.TestCase):
         self.assert_fails(j.judge_views(good().replace("view=1\r\n", "view=7\r\n", 1)), "no WEBD:VIEW:CREATE")
         self.assert_fails(j.judge_views(good().replace("app:os.lazy.webddemo view=1", "app:os.lazy.other view=1")),
                           "not for the demo")
+        self.assertEqual(j.judge_views(good().replace("app:os.lazy.webddemo view=1", "label#4 view=1")), [])
+        self.assert_fails(j.judge_views(good().replace("app:os.lazy.webddemo view=1", "none view=1")), "not for the demo")
         self.assert_fails(j.judge_views(good().replace("id=2", "id=1")), "twice")
 
     def test_the_first_frame_must_be_the_blue_page(self):
@@ -173,6 +175,8 @@ class Judge(unittest.TestCase):
         self.assert_fails(j.judge_failures(good() + "WEBD:VIEW:FAIL:engine\r\n"), "WEBD:VIEW:FAIL")
         self.assert_fails(j.judge_failures(good() + "WEBDDEMO:RUN:FAIL:window\r\n"), "RUN:FAIL")
         self.assertEqual(j.judge_failures(good()), [])
+        # the engine's marker for the web process the loss test kills, relayed by webd, is not a failure
+        self.assertEqual(j.judge_failures(good() + "WEBD:NOTE:FAIL:webprocess:crashed\r\n"), [])
 
     def test_the_window_region_and_the_pixels(self):
         text = good() + "UI:RECT x=1 y=2 w=3 h=4 name=window:Terminal\r\n"

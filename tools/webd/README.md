@@ -20,7 +20,7 @@ failure.
 ## What it builds and boots
 
 `run.py` calls `python tools/run_demo.py --webd --desktop --net --big-app --reset-os --build-only` with
-`LAZYOS_XUI_AUTOSTART=term,webddemo`, `LAZYOS_UI_PROBE=1` and `LAZYOS_LABEL_TRACE=1` in the environment (the
+`LAZYOS_XUI_AUTOSTART=webddemo,term` (the Terminal last: it must not cover the demo), `LAZYOS_UI_PROBE=1` and `LAZYOS_LABEL_TRACE=1` in the environment (the
 caller's other `LAZYOS_*` switches are dropped, so the image is the same on every machine). Networking is on
 so that a light view that did load its picture could reach the host. `webd` is a resident app the session
 starts at login; the demo (`os.lazy.webddemo`, `xui-app/src/bin/webddemo.rs`, logic in

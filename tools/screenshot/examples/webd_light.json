@@ -31,6 +31,12 @@
   "timeout": 300.0
  },
  {
+  "click_at": {
+   "target": "title:Web View Demo"
+  },
+  "timeout": 60
+ },
+ {
   "wait": 1.5
  },
  {
