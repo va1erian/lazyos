@@ -5,7 +5,13 @@
 //! machine is still running [`TIMEOUT_TICKS`] later -- `init` hung on a
 //! service, crashed, or was killed -- the kernel task (the mux, which polls
 //! [`service`] every frame) kills every user task, syncs the filesystems and
-//! performs the stop `init` asked for. It is one-way: nothing disarms it, and
+//! performs the stop `init` asked for. The tasks that serve a block provider
+//! disk (`usbd`, for a `/home` on the boot stick) are the exception: a volume
+//! on such a disk keeps its dirty blocks in memory until a commit
+//! (`fs/ext2/deferred.rs`), and the commit reaches the stick only through
+//! them, so they are spared the kill, the sync runs through them, and then
+//! the machine stops (the orderly path keeps `usbd` alive the same way,
+//! `OUTLIVE` in `init`'s `shutdown.rs`). It is one-way: nothing disarms it, and
 //! a second arm never moves the first deadline, so a stalled supervisor cannot
 //! keep postponing the stop.
 //!
@@ -95,12 +101,33 @@ const SETTLE_TICKS: u64 = 10;
 /// and stop. Runs on the kernel task, which may sleep.
 #[cfg(not(lazyos_tests))]
 fn force(op: u64) -> ! {
-    use crate::task::signal::{self, SigInfo};
-    // Nothing must be writing while the filesystems sync. `-ESRCH` (no user
-    // task left) is fine.
-    let _ = signal::kill(task::KERNEL_TASK, -1, signal::SIGKILL, SigInfo::kernel());
+    kill_userspace();
     task::idle(task::ticks() + SETTLE_TICKS);
+    // The sync reaches the sticks through their surviving providers; a
+    // provider that stopped answering is given up on by its request
+    // deadlines (`block::provider`), so this ends either way.
     super::stop(op)
+}
+
+/// `SIGKILL` every user task so nothing writes while the filesystems sync,
+/// except the processes serving a block provider disk, whose dirty volumes
+/// are written through them by that sync. `-ESRCH` (no user task left) is
+/// fine.
+pub fn kill_userspace() {
+    use crate::task::signal::{self, SigInfo};
+    let providers = crate::block::provider::owners();
+    if !providers.is_empty() {
+        crate::serial_println!(
+            "power: watchdog sparing {} block provider task(s) for the sync",
+            providers.len()
+        );
+    }
+    let _ = signal::kill_all_but(
+        task::KERNEL_TASK,
+        signal::SIGKILL,
+        SigInfo::kernel(),
+        &providers,
+    );
 }
 
 /// The op's name, for the log.

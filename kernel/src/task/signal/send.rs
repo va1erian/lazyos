@@ -166,7 +166,24 @@ pub fn kill_terminal_group(pgid: usize, sid: usize, sig: u8) -> Result<(), Signa
 /// process (Linux skips the calling thread group so `kill(-1, SIGKILL)` does
 /// not take its sender down first).
 fn kill_all(caller: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
+    kill_all_but(caller, sig, info, &[])
+}
+
+/// [`kill`]`(-1)` that also leaves alone the processes `spared` name (every
+/// thread of the process a listed slot belongs to): the shutdown watchdog
+/// keeps the tasks that serve a block provider alive until the filesystems
+/// are synced through them (`process::power::watchdog`).
+pub fn kill_all_but(
+    caller: usize,
+    sig: u8,
+    info: SigInfo,
+    spared: &[usize],
+) -> Result<(), SignalError> {
     let caller_pml4 = slot_info(caller).map(|(pml4, _)| pml4);
+    let spared_pml4: alloc::vec::Vec<u64> = spared
+        .iter()
+        .filter_map(|&slot| slot_info(slot).map(|(pml4, _)| pml4))
+        .collect();
     let mut targets = SlotList::new();
     {
         let tasks = TASKS.lock();
@@ -174,7 +191,10 @@ fn kill_all(caller: usize, sig: u8, info: SigInfo) -> Result<(), SignalError> {
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
             };
-            if task.state != TaskState::Done && Some(task.pml4) != caller_pml4 {
+            if task.state != TaskState::Done
+                && Some(task.pml4) != caller_pml4
+                && !spared_pml4.contains(&task.pml4)
+            {
                 targets.push(slot);
             }
         }

@@ -443,3 +443,48 @@ pub fn stress() -> Result<(), String> {
     teardown();
     result
 }
+
+/// A `/home` on the stick keeps its dirty blocks in memory (a deferred
+/// volume); after the forced stop's kill, the sync that follows still writes
+/// them through the surviving provider, and the volume is clean on the stick.
+pub fn watchdog_sync_reaches_a_deferred_volume() -> Result<(), String> {
+    let disk = setup(Mode::Normal)?;
+    let result = (|| {
+        let geometry = ext2fs::Geometry {
+            block_size: 1024,
+            blocks_count: 1024,
+            bytes_per_inode: 8192,
+        };
+        ext2fs::format(&disk, geometry, "stick", [0x5A; 16], STAMP).map_err(lib_error)?;
+        let volume = Arc::new(crate::fs::ext2::Ext2::open_deferred(disk).map_err(fs_error)?);
+        let mut vfs = Vfs::new();
+        vfs.mount("/", volume.clone(), MountFlags::default())
+            .map_err(fs_error)?;
+        vfs.create(Id::ROOT, "/note", 0o644).map_err(fs_error)?;
+        let body = [0x5Au8; 9000];
+        vfs.write(Id::ROOT, "/note", 0, &body).map_err(fs_error)?;
+        check!(volume.dirty_blocks() > 0, "the write reached the stick");
+        let owner = with_fake(|fake| fake.owner);
+        task::harness::switch_current(task::KERNEL_TASK);
+        crate::process::power::watchdog::kill_userspace();
+        check!(
+            !crate::task::signal::killed(owner),
+            "the provider was killed before the sync"
+        );
+        vfs.sync_all().map_err(fs_error)?;
+        check!(volume.dirty_blocks() == 0, "the sync left dirty blocks");
+        drop((vfs, volume));
+        let device: &'static dyn BlockDevice = disk;
+        let library =
+            ext2fs::Ext2::open(Box::new(device), crate::fs::vfs::now).map_err(lib_error)?;
+        check!(library.was_clean_at_mount(), "the volume was left dirty");
+        check!(
+            library.read_file("/note").map_err(lib_error)? == body,
+            "the stick holds other bytes"
+        );
+        Ok(())
+    })();
+    crate::task::signal::harness::reset();
+    teardown();
+    result
+}
