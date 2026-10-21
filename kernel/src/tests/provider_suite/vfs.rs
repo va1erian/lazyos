@@ -98,3 +98,40 @@ pub fn provider_never_writes_back_a_deferred_volume() -> Result<(), String> {
     teardown();
     result
 }
+
+/// The shutdown watchdog's kill spares the process serving a block provider
+/// disk (issue #940): the dirty blocks of a volume on that disk reach the
+/// stick only through it. Everything else is killed, and a provider that is
+/// gone is no longer spared. (Slot 1 is `init`, which a broadcast never
+/// reaches: the provider under test is a later slot with a process of its
+/// own.)
+pub fn watchdog_spares_the_provider() -> Result<(), String> {
+    setup(Mode::Normal)?;
+    let result = (|| {
+        task::harness::switch_current(task::KERNEL_TASK);
+        let server = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+        let bystander = task::spawn_fork().map_err(|e| format!("spawn: {e}"))?;
+        check!(server > 1 && bystander > 1, "slots below init");
+        let disk = provider::register(server, 64, true).map_err(|e| format!("register: {e:?}"))?;
+        crate::process::power::watchdog::kill_userspace();
+        check!(
+            crate::task::signal::killed(bystander),
+            "an ordinary task survived the forced stop"
+        );
+        check!(
+            !crate::task::signal::killed(server),
+            "the provider was killed before the sync"
+        );
+        // Gone, it is an ordinary task again.
+        provider::remove(disk, server).map_err(|e| format!("remove: {e:?}"))?;
+        crate::process::power::watchdog::kill_userspace();
+        check!(
+            crate::task::signal::killed(server),
+            "a task that serves no disk was spared"
+        );
+        Ok(())
+    })();
+    crate::task::signal::harness::reset();
+    teardown();
+    result
+}

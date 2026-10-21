@@ -381,6 +381,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
         vfs::soak_provider_vfs_refusals,
     ),
     (
+        "provider_watchdog_spares_the_provider",
+        vfs::watchdog_spares_the_provider,
+    ),
+    (
+        "provider_watchdog_sync_reaches_a_deferred_volume",
+        io::watchdog_sync_reaches_a_deferred_volume,
+    ),
+    (
         "provider_never_writes_back_a_deferred_volume",
         vfs::provider_never_writes_back_a_deferred_volume,
     ),

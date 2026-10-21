@@ -213,6 +213,30 @@ last few seconds, in the commit's crash-safe order. Once the disk is dead
 (`is_writable` turned false) the volume refuses every change, as it did
 uncached, instead of caching and losing it; reads still answer from the cache.
 
+**A commit in pieces.** One commit of 685 blocks held the gate for 1.37 s, so
+the commit is written in pieces (`Ext2::writeback_piece`, `commit_piece.rs`,
+`cache/piecewise.rs`): each call to `writeback_deferred` holds the gate for at
+most 25 ms or 32 requests (`PIECE_NS`, `PIECE_REQUESTS`) and lets go, and the
+commit stays due, so the next qualifying syscall's end continues it. The
+gate hands off to its waiting tasks on release (`YieldMutex::named_fair`,
+`task/yieldlock.rs`), so a reader waits for at most the piece in progress.
+The first stage *snapshots* the dirty set and notes the pending frees, then
+writes the snapshot in phase order; the second applies the noted frees (their
+detaches are in the snapshot) and snapshots and writes again, as the plain
+commit's two writebacks do (no frees noted: no second stage). A block that
+operations change between pieces keeps the snapshot's version aside (a
+*shadow*) for its piece, and stays dirty with the new one for the next commit;
+otherwise a new inode block could reach the disk ahead of the data block it
+names. The disk thus receives a prefix of one consistent image in the phase
+order, whatever runs between the pieces (`cargo test -p ext2fs piecewise`
+judges every prefix of the writes with operations between every two requests;
+the kernel tests are `bcache_deferred_commit_in_pieces` and
+`bcache_soak_deferred_pieces`). A block written by someone else meanwhile
+(`fsync`, a full commit, `sync`) leaves the snapshot, and a full commit ends
+the piecewise one. The device's cache flush follows the last piece, outside
+the gate. `FS:DEFERRED` is printed per piece (`more=true` while it goes on).
+A journaled or uncached volume commits whole (one long gate hold; `/home` on a stick is not journaled by default). The gate's `try_lock` (the next piece) also yields to waiters.
+
 ## Crash semantics
 
 (A volume with a journal, [`journal.md`](journal.md), skips all of this: its

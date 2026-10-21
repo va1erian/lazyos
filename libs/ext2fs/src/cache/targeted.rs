@@ -149,6 +149,14 @@ impl BlockCache {
         }
         self.stats.write_requests += 1;
         self.stats.written += 1;
+        // A piecewise writeback may still hold this block's older version:
+        // it must not take back what was just made durable.
+        if let Some(shadow) = &mut self.slots[index].shadow {
+            for &ino in wanted.iter().filter(|ino| range.contains(ino)) {
+                let at = (ino - range.start) as usize * entry;
+                shadow.bytes[at..at + entry].copy_from_slice(&image[at..at + entry]);
+            }
+        }
         Ok(())
     }
 
