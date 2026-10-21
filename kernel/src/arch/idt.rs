@@ -1,7 +1,8 @@
 //! Interrupt descriptor table and handlers.
 
-use crate::arch::fault::{contain, Fault};
+use crate::arch::fault::Fault;
 use crate::arch::fault_storm::Path;
+use crate::arch::gsgate::irq_gate;
 use crate::arch::pic;
 use crate::mem::Resolve;
 use crate::task::signal::Exception;
@@ -9,33 +10,28 @@ use alloc::boxed::Box;
 use core::arch::global_asm;
 use core::sync::atomic::AtomicU64;
 use x86_64::registers::control::Cr2;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::structures::idt::{
+    InterruptDescriptorTable, InterruptStackFrameValue, PageFaultErrorCode,
+};
 
 /// Timer ticks since boot.
 pub static TICKS: AtomicU64 = AtomicU64::new(0);
 
+mod faults;
 mod table;
 pub use table::load_on_this_cpu;
 
 /// Build and load the IDT.
 pub fn init() {
     let mut idt = InterruptDescriptorTable::new();
-    idt.breakpoint.set_handler_fn(breakpoint_handler);
+    faults::install(&mut idt);
     // Issue #382: an injected NMI prints a hang report, even over IF=0 spins.
-    idt.non_maskable_interrupt
-        .set_handler_fn(super::nmi::nmi_handler);
-    idt.device_not_available
-        .set_handler_fn(device_not_available_handler);
-    idt.stack_segment_fault
-        .set_handler_fn(stack_segment_fault_handler);
-    idt.segment_not_present
-        .set_handler_fn(segment_not_present_handler);
-    idt.invalid_tss.set_handler_fn(invalid_tss_handler);
-    idt.x87_floating_point
-        .set_handler_fn(x87_floating_point_handler);
-    idt.simd_floating_point
-        .set_handler_fn(simd_floating_point_handler);
-    idt.alignment_check.set_handler_fn(alignment_check_handler);
+    // SAFETY: `nmi_gate` is a paranoid gate (`arch::gsgate`) for a vector
+    // without an error code, ending in `iretq`.
+    unsafe {
+        idt.non_maskable_interrupt
+            .set_handler_addr(gate(super::nmi::nmi_gate));
+    }
     // Safety: the naked `*_isr` stubs below match each exception's frame
     // layout (`divide_error_isr`/`invalid_opcode_isr` push no error code,
     // `general_protection_isr` and `page_fault_isr` do) and never return a Rust
@@ -57,13 +53,6 @@ pub fn init() {
         idt.page_fault
             .set_handler_addr(x86_64::VirtAddr::new(page_fault_isr as *const () as u64));
     }
-    // Safety: `DOUBLE_FAULT_IST` names a valid TSS interrupt-stack-table slot
-    // that `gdt::init` already set up with its own dedicated stack.
-    unsafe {
-        idt.double_fault
-            .set_handler_fn(double_fault_handler)
-            .set_stack_index(crate::arch::gdt::DOUBLE_FAULT_IST);
-    }
     // PIC IRQ0 (timer) drives preemption via the naked ISR in `task::switch`.
     idt[32].set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
     // Voluntary reschedules (a task parking) use their own vector so they
@@ -75,17 +64,22 @@ pub fn init() {
     // same scheduler gate; `timer::end_of_tick` acknowledges the right chip.
     idt[super::lapic::TIMER_VECTOR]
         .set_handler_fn(naked_gate(crate::task::switch::timer_isr as *const ()));
-    // The one-shot deadline timer (P2.2), when the PIT is the tick.
-    idt[super::event_timer::VECTOR].set_handler_fn(super::event_timer::handler);
-    // The kernel's IPIs (S8.2, docs/architecture/smp.rs): reschedule,
+    // The one-shot deadline timer (P2.2), when the PIT is the tick, and the
+    // kernel's IPIs (S8.2, docs/architecture/smp.md): reschedule,
     // shootdown and stop — the SMP generalization of the window-safe
     // handlers (no locks, no allocation, no task switch).
-    idt[super::smp::RESCHED_VECTOR].set_handler_fn(super::smp::resched_handler);
-    idt[super::smp::SHOOTDOWN_VECTOR].set_handler_fn(super::smp::shootdown_handler);
-    idt[super::smp::STOP_VECTOR].set_handler_fn(super::smp::stop_handler);
-    idt[super::lapic::SPURIOUS_VECTOR].set_handler_fn(lapic_spurious_handler);
-    idt[33].set_handler_fn(keyboard_handler);
-    idt[44].set_handler_fn(mouse_handler);
+    // SAFETY: every address is an `irq_gate!` stub (`arch::gsgate`) for a
+    // vector without an error code, ending in `iretq`.
+    unsafe {
+        idt[super::event_timer::VECTOR]
+            .set_handler_addr(gate(super::event_timer::event_timer_gate));
+        idt[super::smp::RESCHED_VECTOR].set_handler_addr(gate(super::smp::resched_gate));
+        idt[super::smp::SHOOTDOWN_VECTOR].set_handler_addr(gate(super::smp::shootdown_gate));
+        idt[super::smp::STOP_VECTOR].set_handler_addr(gate(super::smp::stop_gate));
+        idt[super::lapic::SPURIOUS_VECTOR].set_handler_addr(gate(lapic_spurious_gate));
+        idt[33].set_handler_addr(gate(keyboard_gate));
+        idt[44].set_handler_addr(gate(mouse_gate));
+    }
     // Every other PIC line reaches the device core (issue #240), and so do
     // the MSI vectors (issue #616).
     super::irq_stubs::install(&mut idt);
@@ -113,76 +107,17 @@ pub fn init_hardware() {
     init();
 }
 
+/// The IDT address of an `arch::gsgate` stub.
+pub(super) fn gate(stub: unsafe extern "C" fn()) -> x86_64::VirtAddr {
+    x86_64::VirtAddr::new(stub as *const () as u64)
+}
+
+irq_gate!(lapic_spurious_gate => lapic_spurious_handler);
+irq_gate!(keyboard_gate => keyboard_handler);
+irq_gate!(mouse_gate => mouse_handler);
+
 /// The local APIC's spurious vector: no EOI, by definition (SDM 11.9).
-extern "x86-interrupt" fn lapic_spurious_handler(_stack: InterruptStackFrame) {}
-
-/// A fault from ring 3 ends only the faulting process and never returns; a
-/// ring-0 fault falls through to the caller's diagnostic halt (issue #7).
-fn user_fault(stack: &InterruptStackFrame, fault: Fault) {
-    contain(
-        stack.code_segment.0 as u64,
-        fault,
-        format_args!("rip {:#x}", stack.instruction_pointer.as_u64()),
-    );
-}
-
-extern "x86-interrupt" fn breakpoint_handler(stack: InterruptStackFrame) {
-    serial_println!("EXCEPTION: breakpoint\n{:#?}", stack);
-}
-
-extern "x86-interrupt" fn device_not_available_handler(stack: InterruptStackFrame) {
-    user_fault(&stack, Fault::DeviceNotAvailable);
-    serial_println!("EXCEPTION: device not available\n{:#?}", stack);
-    crate::halt();
-}
-
-extern "x86-interrupt" fn stack_segment_fault_handler(stack: InterruptStackFrame, error: u64) {
-    user_fault(&stack, Fault::StackSegment);
-    serial_println!(
-        "EXCEPTION: stack segment fault (error {:#x})\n{:#?}",
-        error,
-        stack
-    );
-    crate::halt();
-}
-
-extern "x86-interrupt" fn segment_not_present_handler(stack: InterruptStackFrame, error: u64) {
-    user_fault(&stack, Fault::SegmentNotPresent);
-    serial_println!(
-        "EXCEPTION: segment not present (error {:#x})\n{:#?}",
-        error,
-        stack
-    );
-    crate::halt();
-}
-
-extern "x86-interrupt" fn invalid_tss_handler(stack: InterruptStackFrame, error: u64) {
-    user_fault(&stack, Fault::InvalidTss);
-    serial_println!("EXCEPTION: invalid TSS (error {:#x})\n{:#?}", error, stack);
-    crate::halt();
-}
-
-extern "x86-interrupt" fn x87_floating_point_handler(stack: InterruptStackFrame) {
-    user_fault(&stack, Fault::FloatingPoint);
-    serial_println!("EXCEPTION: x87 floating point\n{:#?}", stack);
-    crate::halt();
-}
-
-extern "x86-interrupt" fn simd_floating_point_handler(stack: InterruptStackFrame) {
-    user_fault(&stack, Fault::FloatingPoint);
-    serial_println!("EXCEPTION: SIMD floating point\n{:#?}", stack);
-    crate::halt();
-}
-
-extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, error: u64) {
-    user_fault(&stack, Fault::AlignmentCheck);
-    serial_println!(
-        "EXCEPTION: alignment check (error {:#x})\n{:#?}",
-        error,
-        stack
-    );
-    crate::halt();
-}
+extern "C" fn lapic_spurious_handler(_stack: &InterruptStackFrameValue) {}
 
 // The page fault handler needs the interrupted general registers to build a
 // `SIGSEGV` frame, and the `x86-interrupt` ABI does not expose them, so #PF
@@ -194,7 +129,11 @@ extern "x86-interrupt" fn alignment_check_handler(stack: InterruptStackFrame, er
 // The `x86-interrupt` handlers need no such care: LLVM emits `cld` for them.
 // Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
 // "Entry stub contract".
-global_asm!(
+//
+// `%gs` (`arch::gsgate`): an exception can land inside a swap window, so the
+// entry reads `IA32_GS_BASE` (paranoid) after saving rax/rcx/rdx; the exit
+// tests the resumed frame's `CS` (a dispatch may resume another task).
+global_asm!(concat!(
     r#"
     .macro exception_isr name, vector, has_error
     .global \name
@@ -214,7 +153,9 @@ global_asm!(
         push r13
         push r14
         push r15
-
+"#,
+    crate::gs_entry_paranoid!(),
+    r#"
         cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
         mov rsi, \vector
@@ -241,6 +182,9 @@ global_asm!(
         .if \has_error
         add rsp, 8                  /* the CPU's error code */
         .endif
+"#,
+    crate::gs_exit_swap_on_user_cs!(),
+    r#"
         iretq
     .endm
 
@@ -248,11 +192,12 @@ global_asm!(
     exception_isr invalid_opcode_isr, 6, 0
     exception_isr general_protection_isr, 13, 1
     "#
-);
+));
 
 // Frame layout, `cld` and switch-order contract: docs/architecture/tasks.md,
 // "Entry stub contract".
-global_asm!(
+// `%gs`: as `exception_isr` above.
+global_asm!(concat!(
     r#"
     .global page_fault_isr
     page_fault_isr:
@@ -271,7 +216,9 @@ global_asm!(
         push r13
         push r14
         push r15
-
+"#,
+    crate::gs_entry_paranoid!(),
+    r#"
         cld                         /* see task::switch: DF may be set */
         mov rdi, rsp
         call page_fault_dispatch
@@ -293,9 +240,12 @@ global_asm!(
         pop rbx
         pop rax
         add rsp, 8                  /* the CPU's page-fault error code */
+"#,
+    crate::gs_exit_swap_on_user_cs!(),
+    r#"
         iretq
     "#
-);
+));
 
 extern "C" {
     fn page_fault_isr();
@@ -450,11 +400,6 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     crate::halt();
 }
 
-extern "x86-interrupt" fn double_fault_handler(stack: InterruptStackFrame, error: u64) -> ! {
-    serial_println!("EXCEPTION: double fault (error {:#x})\n{:#?}", error, stack);
-    crate::halt();
-}
-
 /// Handler for one of the naked scheduler ISRs in `task::switch` (they save
 /// the frame and switch tasks themselves).
 fn naked_gate(isr: *const ()) -> x86_64::structures::idt::HandlerFunc {
@@ -463,7 +408,7 @@ fn naked_gate(isr: *const ()) -> x86_64::structures::idt::HandlerFunc {
     unsafe { core::mem::transmute::<*const (), x86_64::structures::idt::HandlerFunc>(isr) }
 }
 
-extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
+extern "C" fn keyboard_handler(_stack: &InterruptStackFrameValue) {
     // Drain the i8042 (keyboard and auxiliary bytes alike, in order) and
     // decode what was collected, including bytes gathered while interrupts
     // were off (`input::ps2`).
@@ -482,7 +427,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack: InterruptStackFrame) {
     crate::task::preempt_point();
 }
 
-extern "x86-interrupt" fn mouse_handler(_stack: InterruptStackFrame) {
+extern "C" fn mouse_handler(_stack: &InterruptStackFrameValue) {
     // The same intake as IRQ1: one FIFO keeps both ports' bytes in order.
     crate::perf::irq_entry();
     // Inside an interrupt window only collect: decoding takes locks the

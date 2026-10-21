@@ -30,34 +30,35 @@ invalidating it all at once.
 
 ### Boot, CPU and entry (S8.1) — **done**
 
-**Design note (recorded with the rows below).** The plan first sketched
-`swapgs` at every user→kernel boundary, with a naked CS-test wrapper per
-entry path and paranoid NMI entry. The build went simpler: **the kernel runs
-every privilege level with `%gs`'s base = the CPU's area, and `swapgs` is
-never executed** — user code never touches `%gs` (`ARCH_SET_GS` is a stub,
-no vDSO, nothing writes `IA32_KERNEL_GS_BASE`), and per-CPU state must be
-block-invariant anyway (a task can park inside a syscall and resume
-elsewhere, which is exactly what killed the old per-task-GS idea). The
-consequence: every entry path (syscall, gate, fault, IRQ, NMI) reads
-per-CPU state directly, no wrappers, and a hostile `mov gs:[x]` in ring 3
-faults on the kernel-only page without leaking anything. One more invariant
-keeps that leak answer honest: **`CR4.FSGSBASE` is never enabled** (ring 3's
-`rdgsbase` would otherwise read the kernel base directly); `arch/cpu.rs`
-touches none of it — keep it that way (or pair it with a `swapgs`
-discipline) when a fast-TLS path is ever added.
+**Design note (recorded with the rows below).** Per-CPU state lives in
+`arch/percpu.rs`'s areas, addressed through `%gs`, with the **`swapgs`
+discipline** of `arch/gsgate.rs`: in ring 0 `IA32_GS_BASE` is the CPU's
+area, in ring 3 `IA32_KERNEL_GS_BASE` holds it, and one `swapgs` crosses
+each boundary. The first S8.1 build ran every privilege level on one GS base
+and never swapped ("user code never touches `%gs`"); that was wrong in a way
+that mattered: ring 3 can load any DPL-3 selector into `%gs`, zeroing its
+base, and the next `syscall` then saved the user context through `gs:` into
+low *user* memory and loaded its stack pointer from there (found in the
+2026-10-21 review, regression test `gs_suite`). Two rules keep the
+discipline sound: **`CR4.FSGSBASE` is never enabled** (ring 3's
+`wrgsbase`/`rdgsbase` would forge or read the base — every user GS base is
+then a descriptor's, 0, which is what lets the paranoid gates recognize the
+kernel's by its sign bit), and **every new ring-3-reachable vector goes
+through an `irq_gate!` or `paranoid_gate!`** (or splices the same tests into
+its naked stub), never an `x86-interrupt` handler.
 
 | Site | What | Disposition |
 |---|---|---|
 | `arch/linux.rs` | `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` — the Linux `syscall` stub's stack switch globals | **done** (S8.1): `percpu::Cpu::syscall`, read through `%gs`; the stub's writes are `gs:`-relative (`OFF_USER_CONTEXT`/`OFF_SAVED_USER_RSP`/`OFF_SYSCALL_STACK`, pinned by `percpu_entry_asm_offsets_match_the_layout`) |
-| `arch/linux.rs:8` | Deliberate `swapgs` avoidance (per-task GS desyncs on block) | **done** (S8.1), superseded by the no-`swapgs` design note above |
+| `arch/linux.rs:8` | Deliberate `swapgs` avoidance (per-task GS desyncs on block) | **done** (S8.1): GS state is per-CPU, which survives a block; the stub swaps first and before `sysretq`/`iretq` (design note above) |
 | `arch/gdt.rs` | `GDT`, `TSS`, `KERNEL_STACK`, `DOUBLE_FAULT_STACK`; `set_kernel_stack` rewrites the one TSS on every switch (`schedule.rs:226`) | **done** (S8.1): per-CPU in the area (`gdt::init_cpu`); `set_kernel_stack` writes this CPU's TSS |
 | `arch/idt.rs` | One shared IDT (stays shared); IST/double-fault stacks | **done** (S8.1): the double-fault IST stack is per-CPU in the area; the IDT stays shared and reads the *current* TSS at fault time |
 | `task/mod.rs:187` | `CURRENT` — the one current task | **done** (S8.1): `percpu::Cpu::current` via `task::current()`/`set_current` |
 | `arch/irqoff.rs` | `SPAN_START/SPAN_NR/SPAN_FROM/SPAN_TASK` — one open interrupts-off span | **done** (S8.1): `percpu::Cpu::irqoff`; the per-syscall maxima and the per-task `TASK_NR` stay machine-wide |
 | `arch/irq_window.rs` | `IRQ_WINDOW_OPEN`, `LAST`, `OPENED`, `WINDOW_TICKS`, `UNCHARGED`; the timer asm reads the flag as a `#[no_mangle]` global | **done** (S8.1): `percpu::Cpu::window`; `timer_isr` reads the flag `gs:`-relative (`OFF_WINDOW_OPEN`); `ARMED` stays machine-wide (one boot) |
 | `task/preempt.rs` | `NEED_RESCHED`, `PREEMPTING`, `SELECTED`, `SELECTED_AT`, `SLICE_END`, `DEFERRED`, `HANDOFF_FROM/TO` — global | **done** (S8.1): `percpu::Cpu::preempt` (atomic fields, for the S8.3 wake IPI); `NAPPING` stays per-task |
-| `process/gate.rs`, `arch/irq_stubs.rs`, `arch/msi_stubs.rs`, `arch/idt.rs` faults, `arch/event_timer.rs` | Rust `x86-interrupt` handlers with no stub where a CS test could go | **not needed**: the no-`swapgs` design has no CS test to place (design note above) |
-| `arch/nmi.rs` | Plain `x86-interrupt` NMI handler | **not needed**: with no `swapgs`, an NMI sees a valid `%gs` at every privilege level; the handler needs no IST for GS reasons (its stack behaviour is unchanged from single-core) |
+| `process/gate.rs`, `arch/irq_stubs.rs`, `arch/msi_stubs.rs`, `arch/idt.rs` faults, `arch/event_timer.rs` | Rust `x86-interrupt` handlers with no stub where a CS test could go | **done** (S8 review): `extern "C"` handlers behind `arch/gsgate.rs`'s generated gates — IRQ/MSI/IPI/event-timer/keyboard/mouse/spurious through `irq_gate!` (CS test both ends), the faults through `paranoid_gate!`; the naked stubs (`int 0x80`, timer/yield, `#DE`/`#UD`/`#GP`/`#PF`) splice the same tests |
+| `arch/nmi.rs` | Plain `x86-interrupt` NMI handler | **done** (S8 review): paranoid gate — reads `IA32_GS_BASE`, swaps iff it is not a kernel-half address, swaps back iff it swapped (an NMI may land inside a swap window); no IST needed for GS reasons |
 | `task/fpu.rs:28` | `AREAS` — per-task FPU images, unsynchronized ("interrupts off on the single CPU") | entry lock (S8.3; the switch path runs under the inherited hold) |
 | `task/relax.rs` | `Yield` relax parks 200 µs — sound because the holder was preempted on this CPU | the `TASKS.is_locked()` spin guard stays correct for N CPUs (spinning while a remote holder runs is safe); the strategy itself dies with its premise (sleeplocks, S8.6) |
 | `arch/fault_storm.rs:10` | "handled with interrupts off on a single CPU, so plain atomics" | entry lock (S8.3), audited |

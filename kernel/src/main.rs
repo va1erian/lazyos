@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(abi_x86_interrupt)]
 // Every unsafe block must justify itself in place (issue #124): the kernel
 // has no runtime backstop for a bad unsafe block, and a repo-wide audit is
 // only as durable as the lint that stops the next one from going undocumented.

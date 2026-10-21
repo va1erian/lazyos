@@ -195,19 +195,21 @@ than a hope. They exist before any second CPU runs.
 
 ### S8.1 — Per-CPU foundations (still one active CPU) — **done**
 
-Mechanism: **per-CPU areas addressed via `%gs`, with no `swapgs`**. The
-plan first sketched `swapgs` at every user→kernel boundary (naked CS-test
-wrappers, paranoid NMI entry); the build recorded a simpler decision in the
-audit instead: *user `%gs` is provably unused* (`ARCH_SET_GS` is a stub,
-nothing writes `IA32_KERNEL_GS_BASE`), so the kernel runs every privilege
-level with `%gs` base = the CPU's area and never swaps. That keeps per-CPU
-state block-invariant (the property that matters: a task can park inside a
-syscall), makes every entry path — syscall, gate, fault, IRQ, NMI — read
-per-CPU state directly, and removes the wrapper work entirely. The fallback
-considered and rejected is unchanged: indexing by `lapic::id()` read on
-entry (one MSR read in x2APIC, but an uncached MMIO read in xAPIC mode on
-the hot syscall path, and no help for the IRQ-stack pointer the stub needs
-before any read).
+Mechanism: **per-CPU areas addressed via `%gs`, with `swapgs` at every
+ring 3 boundary** (`arch/gsgate.rs`). The S8.1 build first tried running
+every privilege level on one GS base and never swapping, on the argument
+that user `%gs` is unused; the S8 review (2026-10-21) found that ring 3 can
+still *load* `%gs` (`mov gs, ax` with any DPL-3 selector sets its base to
+the descriptor's, 0), after which the `syscall` stub saved the user context
+through `gs:` at low user addresses and took its stack pointer from there.
+So the plan's original discipline is back: in ring 0 `IA32_GS_BASE` is the
+CPU's area, in ring 3 `IA32_KERNEL_GS_BASE` holds it, and each entry from
+and exit to ring 3 executes one `swapgs`. Per-CPU (not per-task) GS state
+stays block-invariant: a task that parks in a syscall and resumes elsewhere
+re-enters through that CPU's gate. The fallback considered and rejected is
+unchanged: indexing by `lapic::id()` read on entry (one MSR read in x2APIC,
+but an uncached MMIO read in xAPIC mode on the hot syscall path, and no help
+for the IRQ-stack pointer the stub needs before any read).
 
 - New `kernel/src/arch/percpu.rs`: `struct Cpu { index, apic_id, online,
   tss, gdt, kernel + double-fault stacks, current, preempt: PreemptState,
@@ -238,11 +240,16 @@ before any read).
 - `relax.rs`'s `TASKS.is_locked()` diagnostic check: audited — spinning
   while a remote holder runs is safe for N CPUs, so no change is needed
   here; the strategy itself is retired in S8.6.
-- **The naked CS-test wrappers and the paranoid NMI entry are not needed**,
-  recorded for whoever reads the earlier revision: with no `swapgs` there is
-  no GS state to protect, so an entry path has nothing to test and an NMI
-  sees a valid `%gs` at every privilege level. The audit's rows carry the
-  note.
+- **Every entry path got its gate** (`arch/gsgate.rs`): maskable
+  interrupts and `int` gates swap on a ring-3 `CS` at entry and on the
+  *resumed* frame's `CS` at exit (`IF` is clear in every swap window, so
+  `CS` is exact); exceptions, NMI and `#DF` take the paranoid entry (they can
+  land inside a window, so they read `IA32_GS_BASE`: a kernel-half address is
+  the kernel's); `syscall` swaps first and right before `sysretq`/`iretq`.
+  The `x86-interrupt` handlers became `extern "C"` functions behind
+  generated naked gates, since the compiler's `iretq` leaves no room for the
+  exit swap. `gs_suite` runs a real ring-3 task with a zero GS base through
+  `syscall`, `int 0x80` and timer preemption.
 - Acceptance: everything above passes at `-smp 1` **and `-smp 4`** unchanged
   (the per-CPU area of CPU 0 *is* the old globals' replacement, and the APs
   stay parked); `percpu_suite` pins the self-pointer contract, the asm

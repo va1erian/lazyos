@@ -22,7 +22,7 @@ mod ipi;
 mod trampoline;
 
 pub use ipi::shootdown_others;
-pub(crate) use ipi::{resched_handler, shootdown_handler, stop_handler};
+pub(crate) use ipi::{resched_gate, shootdown_gate, stop_gate};
 
 use alloc::vec::Vec;
 use core::arch::x86_64::_rdtsc;

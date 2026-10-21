@@ -34,6 +34,7 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     deadline_suite::CASES,
     signal_suite::CASES,
     child_process_suite::CASES,
+    gs_suite::CASES,
     itimer_suite::CASES,
     fault_suite::CASES,
     fault_resident_suite::CASES,

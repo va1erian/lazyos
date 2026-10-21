@@ -1,13 +1,11 @@
 //! Linux `syscall`/`sysret` entry.
 //!
-//! `syscall` does not switch stacks, so the entry stub switches to the
-//! current CPU's syscall stack — a per-CPU area field (`arch::percpu`), read
-//! through `%gs`, whose base is the same at every privilege level
-//! (`arch::percpu`'s "no `swapgs`" note, which supersedes this file's old
-//! per-task-GS objection: tasks block inside syscalls, so GS state must be
-//! the CPU's, never the task's) — saves the user general registers, calls
-//! [`crate::process::linux_dispatch`], then restores and returns with
-//! `sysretq`.
+//! `syscall` does not switch stacks, so the entry stub `swapgs`es to this
+//! CPU's kernel GS base (`arch::gsgate`: GS state is the CPU's, never the
+//! task's, since tasks block inside syscalls), switches to the CPU's syscall
+//! stack (a per-CPU area field, `arch::percpu`), saves the user general
+//! registers, calls [`crate::process::linux_dispatch`], then restores,
+//! swaps back and returns with `sysretq`.
 
 use super::msr;
 use super::percpu;
@@ -108,8 +106,9 @@ macro_rules! entry_body {
         concat!(
             r#"
         /* Save the user context (Linux preserves it across `syscall`) into
-           this CPU's per-CPU area (`arch::percpu`, addressed through `%gs`;
-           the base is the same at every privilege level, so no `swapgs`). */
+           this CPU's per-CPU area (`arch::percpu`, addressed through `%gs`:
+           the real entry swapped it in first; the test probe is entered
+           from ring 0, where it already is). */
         mov gs:[{off_uc} + 0], rcx
         mov gs:[{off_uc} + 8], r11
         mov gs:[{off_uc} + 16], rsp
@@ -183,6 +182,10 @@ global_asm!(
         r#"
     .global linux_syscall_entry
     linux_syscall_entry:
+        /* `syscall` only comes from ring 3: take this CPU's kernel GS base
+           before the first `gs:` access (`arch::gsgate`). IF is clear
+           (FMASK), so nothing can run between here and the swap. */
+        swapgs
 "#,
         entry_body!(""),
         r#"
@@ -213,6 +216,7 @@ global_asm!(
         pop rcx
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
+        swapgs                          /* back to the user's GS base */
         sysretq
     2:
         /* Full return: every register, including rcx and r11, comes from the
@@ -241,6 +245,7 @@ global_asm!(
         push qword ptr [rsp + 24]
         push {user_cs}
         push qword ptr [rsp + 32]
+        swapgs                          /* back to the user's GS base */
         iretq
     "#
     ),

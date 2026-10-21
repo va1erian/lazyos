@@ -9,16 +9,12 @@
 //! own address, and `self_ptr` sits at offset 0, so `current()` is a single
 //! `gs:[0]` load.
 //!
-//! **No `swapgs`.** The kernel deliberately runs every privilege level with
-//! the same `%gs` base: user code never touches `%gs` (`arch_prctl`'s
-//! `ARCH_SET_GS` is a stub, no vDSO, nothing writes `IA32_KERNEL_GS_BASE`),
-//! and a task can block inside a syscall, which made per-task GS state
-//! unsound (`arch/linux.rs`'s old note). The consequence is that every
-//! entry path — syscall, gate, fault, IRQ, NMI — can read per-CPU state
-//! directly, with no CS test and no paranoid-entry rule, and a task that
-//! resumes on another CPU (S8.3) finds that CPU's area there. If user `%gs`
-//! support is ever added, this decision must be revisited with `swapgs`
-//! discipline at every entry; the audit row records it.
+//! **`swapgs` at every ring 3 boundary** (`arch::gsgate`). In ring 0 the
+//! `%gs` base is this CPU's area; in ring 3 `IA32_KERNEL_GS_BASE` holds it,
+//! because ring 3 can rewrite its own GS base (loading any DPL-3 selector
+//! zeroes it) and nothing may read per-CPU state through a base the user
+//! chose. The state is the CPU's, never the task's: a task that blocks in a
+//! syscall and resumes on another CPU (S8.3) finds that CPU's area there.
 //!
 //! The areas are one static array of [`MAX_CPUS`]; a CPU is brought online by
 //! writing its `self_ptr`, building its GDT/TSS (`gdt::init_cpu`) and
@@ -34,7 +30,6 @@ use x86_64::structures::gdt::GlobalDescriptorTable;
 use x86_64::structures::tss::TaskStateSegment;
 
 use super::linux::UserContext;
-use super::msr;
 
 /// Per-CPU areas that exist (the AP bring-up caps the count here;
 /// `limit.cpu_max` clamps below it).
@@ -256,10 +251,6 @@ pub const OFF_WINDOW_OPEN: usize = offset_of!(Cpu, window) + offset_of!(WindowSt
 
 static mut AREAS: [Cpu; MAX_CPUS] = [const { Cpu::ZERO }; MAX_CPUS];
 
-/// `IA32_GS_BASE` (the `%gs` base memory operands use; `arch/msr.rs` holds
-/// the kernel's other MSRs).
-const IA32_GS_BASE: u32 = 0xC000_0101;
-
 /// The address of area `index` (raw: the callers run before the area is
 /// self-referential, or are the tests probing a not-yet-online area).
 unsafe fn addr_of_area(index: usize) -> *mut Cpu {
@@ -296,7 +287,7 @@ pub fn init() {
         (*area).self_ptr = area as u64;
         (*area).index = 0;
         (*area).online.store(true, Ordering::Release);
-        msr::write(IA32_GS_BASE, area as u64);
+        super::gsgate::install(area as u64);
     }
 }
 
@@ -322,7 +313,7 @@ pub fn prepare_ap(index: usize) -> Option<u64> {
 /// Point this CPU's `IA32_GS_BASE` at `area` again — an AP after
 /// `gdt::init_cpu`, whose `GS` selector load reset the hidden base to 0.
 pub fn set_gs_base(area: u64) {
-    msr::write(IA32_GS_BASE, area);
+    super::gsgate::install(area);
 }
 
 /// The current CPU's area: `gs:[0]` holds the area's own address.
@@ -334,10 +325,10 @@ pub fn set_gs_base(area: u64) {
 /// after the re-entrant point instead.
 #[inline]
 pub fn current() -> &'static mut Cpu {
-    // SAFETY: `%gs`'s base is this CPU's `Cpu` (`init`, and the AP init in
-    // S8.2) at every privilege level (module docs: no `swapgs`), and it is
-    // set before the first per-CPU read. `self_ptr` at offset 0 names the
-    // area, so the reference is within the static's bounds.
+    // SAFETY: in ring 0 `%gs`'s base is this CPU's `Cpu` (`init`, the AP
+    // bring-up, and every ring-3 entry's `swapgs`, `arch::gsgate`), set
+    // before the first per-CPU read. `self_ptr` at offset 0 names the area,
+    // so the reference is within the static's bounds.
     unsafe {
         let area: u64;
         asm!(

@@ -236,6 +236,7 @@ mod fs_suite;
 mod fsops_suite;
 mod fuse_suite;
 mod gpt_suite;
+mod gs_suite;
 mod guard_process_suite;
 mod guard_report_suite;
 mod guard_suite;

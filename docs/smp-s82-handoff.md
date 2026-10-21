@@ -65,6 +65,23 @@ was not one bug but nine, each found from QEMU's `-d int` log in turn:
 The resched case now stages its window through `irq_window_suite::in_syscall`
 (a bare `irq_window::open()` outside a syscall span opens nothing).
 
+## The `%gs` hole — fixed (2026-10-21)
+
+S8.1's "no `swapgs`" design was exploitable: ring 3 can load any DPL-3
+selector into `%gs` (base 0), and the `syscall` stub then wrote the user
+context to `gs:`-relative *user* addresses and loaded RSP from there. The
+pre-fix kernel, given `gs_suite`'s ring-3 task, takes a ring-0 page fault
+writing `0xb0` with its frame on the user's own stack page. Now
+`arch/gsgate.rs` holds the `swapgs` discipline and its invariant: maskable
+interrupts and `int` gates swap on a ring-3 `CS` (entry, and the resumed
+frame at exit), exceptions/NMI/`#DF` take a paranoid entry (`IA32_GS_BASE`'s
+sign bit), and `syscall` swaps first and right before `sysretq`/`iretq`.
+Every `x86-interrupt` handler became an `extern "C"` function behind a
+generated naked gate (the compiler's `iretq` has no room for the exit swap);
+the `abi_x86_interrupt` feature is gone. **A new ring-3-reachable vector must
+use `irq_gate!`/`paranoid_gate!`** (or splice the same tests into a naked
+stub), and **`CR4.FSGSBASE` must stay off.**
+
 ## After the APs come up
 
 - The two failing suite cases should flip green (the resched one was

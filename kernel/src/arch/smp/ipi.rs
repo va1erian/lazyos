@@ -1,19 +1,24 @@
 //! The three kernel IPIs (docs/smp-plan.md S8.2: vectors 0x60..0x62) and
-//! the sender half of a TLB shootdown. All three handlers obey the
+//! the sender half of a TLB shootdown. All three handlers (behind `arch::gsgate`'s IRQ gates) obey the
 //! `irq_window` contract exactly: no lock but this CPU's own area, no
 //! allocation, no task switch — the SMP generalization of the window-safe
 //! handlers.
 
 use core::sync::atomic::Ordering;
-use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::idt::InterruptStackFrameValue;
 use x86_64::VirtAddr;
 
 use super::{rdtsc, spin_loop, SHOOTDOWN_VECTOR};
+use crate::arch::gsgate::irq_gate;
 use crate::arch::{lapic, percpu};
+
+irq_gate!(resched_gate => resched_handler);
+irq_gate!(shootdown_gate => shootdown_handler);
+irq_gate!(stop_gate => stop_handler);
 
 /// "A wake made a task more deserving of the CPU than the current one": the
 /// next preemption point acts on the flag (S8.3 is when an AP has tasks).
-pub(crate) extern "x86-interrupt" fn resched_handler(_frame: InterruptStackFrame) {
+extern "C" fn resched_handler(_frame: &InterruptStackFrameValue) {
     percpu::current()
         .preempt
         .need_resched
@@ -22,7 +27,7 @@ pub(crate) extern "x86-interrupt" fn resched_handler(_frame: InterruptStackFrame
 }
 
 /// The shootdown doorbell: the mailbox names the pages; invalidate and ack.
-pub(crate) extern "x86-interrupt" fn shootdown_handler(_frame: InterruptStackFrame) {
+extern "C" fn shootdown_handler(_frame: &InterruptStackFrameValue) {
     let cpu = percpu::current();
     let addr = cpu.ipi.sd_addr.load(Ordering::Acquire);
     let pages = cpu.ipi.sd_pages.load(Ordering::Acquire).min(1024);
@@ -41,7 +46,7 @@ pub(crate) extern "x86-interrupt" fn shootdown_handler(_frame: InterruptStackFra
 /// Stop the world: someone is panicking (or the PAT changes). This CPU
 /// halts with interrupts off and never returns — the panicking CPU owns the
 /// machine from here.
-pub(crate) extern "x86-interrupt" fn stop_handler(_frame: InterruptStackFrame) {
+extern "C" fn stop_handler(_frame: &InterruptStackFrameValue) {
     lapic::eoi();
     serial_println!("HW:SMP:STOP cpu={}", percpu::current().index);
     loop {
