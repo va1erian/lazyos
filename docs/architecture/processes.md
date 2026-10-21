@@ -19,7 +19,11 @@ syscall shim.
 **Identity model** (`task/process.rs`, issue #59)
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
-  the leader. The tree is derived by scanning for `parent == slot` (cheap at
+  the leader. A group or session outlives its leader, so slot allocation
+  (`kstack::claim_slot`) skips a slot whose number some task still has as its
+  `pgid` or `sid` (as Linux's `alloc_pid` does), and `setpgid`/`setsid` refuse
+  to found a group or session whose number another process already uses
+  (issue #880). The tree is derived by scanning for `parent == slot` (cheap at
   `MAX_TASKS = 1024`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts

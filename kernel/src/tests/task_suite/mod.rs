@@ -75,6 +75,7 @@ mod lifecycle;
 mod process_tree;
 mod reclaim;
 mod slots;
+mod stale_group;
 mod tick_catchup;
 mod wait_queue;
 mod yield_clock;
@@ -86,6 +87,7 @@ pub(super) use lifecycle::*;
 pub(super) use process_tree::*;
 pub(super) use reclaim::*;
 pub(super) use slots::*;
+pub(super) use stale_group::*;
 pub(super) use tick_catchup::*;
 pub(super) use wait_queue::*;
 pub(super) use yield_clock::*;
@@ -194,6 +196,20 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("task_process_tree_fork", process_tree_fork),
     ("task_pgid_sid_inherit", pgid_sid_inherit),
     ("task_setsid_new_session", setsid_new_session),
+    ("task_group_number_not_reused", group_number_is_not_reused),
+    (
+        "task_setpgid_refuses_stale_group",
+        setpgid_refuses_a_stale_group,
+    ),
+    ("task_stale_group_soak", stale_group_soak),
+    (
+        "task_stale_group_pinned_slot_stays_free",
+        pinned_slot_is_never_the_last_resort,
+    ),
+    (
+        "task_setpgid_back_into_own_group",
+        setpgid_back_into_own_group,
+    ),
     ("task_reparent_on_death", reparent_on_death),
     ("task_kill_group_terminates", kill_group_terminates),
     ("task_process_list_snapshot", process_list_snapshot),
