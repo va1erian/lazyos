@@ -1096,11 +1096,10 @@ interfaces, changed topics). Run over all 82 commits that touched
 `idl/*.midl` (3 minutes; commits in an older syntax today's `midlc` refuses are
 skipped and counted), it found **2 commits with a break inside one `.vN`**: the
 `Tick` method moving to a topic in `de4831856` and the `regd` to `confd` rename
-in `d7fa3864a`. Both are early renames, not drift in a live interface. Open
-gap: field ids are positional unless pinned (`--pin-field-ids`), so a reordered
-unpinned struct silently renumbers the wire; the tool sees that as a retype or
-removal, but nothing enforces pinning yet (P0 should make `midlc --check`
-refuse an unpinned field in a released interface).
+in `d7fa3864a`. Both are early renames, not drift in a live interface. Field
+ids are positional unless pinned, but every field in `idl/` is already pinned
+and `test_midlc_fields.py` fails on an unpinned one, so a reorder cannot
+renumber the wire unnoticed.
 
 **S2. Are builds reproducible? Yes for what was measured, with two leaks.**
 
@@ -1142,13 +1141,20 @@ the build switches, which the snapshot build must enumerate per suite, not one
 fixed list.
 
 **Consequences for the phases.** P0's three open questions are answered, so
-P0 shrinks to: land `idl_compat.py` in CI against the previous release tag;
-pin the unpinned field ids; add the owner-tagging sink and a failing check on
-a doubly-owned path; add `repro_check.py` for the cases listed as unmeasured
-and wire the path remap into the official build; add the `kernel-abi` constant
-and frozen-syscall table (`libs/lazyos-sys` already holds the numbers and is
-checked against the kernel's dispatch tables by host tests, which is the base
-to extend). Nothing found argues for changing the package model.
+P0 shrinks to the list below. Nothing found argues for changing the package
+model.
+
+**P0 status (2026-10-21).**
+
+| Item | State |
+|---|---|
+| IDL compatibility check | done: `tools/pkg/idl_compat.py` and tests, run by `midlc.yml` on pull requests against the base branch. It is informational (`continue-on-error`, with a job summary): there is no release tag yet and an early deliberate break inside a `.vN` is still allowed. Making it a gate is removing one line once the first snapshot exists |
+| Pin field ids | already true and already enforced (see S1); nothing to do |
+| Owner-tagging sink | done: `build_support/os_owners.rs`; `OsFiles::produced_by(name, ...)` scopes each producer in `build.rs`; `target/os-owners.tsv` lists `path<TAB>owner` on every build; a path placed by two producers is a warning, and `LAZYOS_OWNER_STRICT=1` (set in `ci.yml` and `image.yml`) makes it a build error. Tests: `build_support/tests/owners_tests.rs`. Measured on the console, services and two desktop images (231 to 317 files): no collisions. Inline `files.add_file(...)` lines in `build.rs` are owned by `build.rs` until P1 gives each service its own package |
+| `repro_check.py` | done: `tools/pkg/repro_check.py` and tests build a revision in two checkouts with different path lengths, with the cargo home, toolchain and checkout paths remapped, and compare. Result: 64/64 `user` programs and the kernel bit-identical. `repro.yml` runs it weekly, on dispatch and when the toolchain or the checker changes. Still unmeasured: musl xui apps, zig C programs, Docker WebKit, Linux versus Windows, core `.lzp` archives |
+| Official-build remap flags | the checker applies them; the official build script that signs a snapshot does not exist yet (P1) |
+| `kernel-abi` and the frozen-syscall table | open: `libs/lazyos-sys` already holds the numbers and is checked against the kernel's dispatch tables by host tests, which is the base to extend |
+| Per-package `package.toml` and `owners.py` against the package list | open: needs the package list of decision 17, which P1 consumes |
 
 **Package track order:** P0 first and alone, because it is where the plan can
 turn out wrong (interface hashes, reproducibility, the number of unowned

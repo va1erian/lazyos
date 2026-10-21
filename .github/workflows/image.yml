@@ -43,6 +43,8 @@ env:
   # Hermetic CI (docs/filesystem-plan.md F2): images are created fresh unless a
   # step deliberately unsets this to test the in-place update.
   LAZYOS_RESET_OS: "1"
+  # A file has one owning producer (build_support/os_owners.rs, update plan P0).
+  LAZYOS_OWNER_STRICT: "1"
 
 jobs:
   library-image:

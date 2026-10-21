@@ -35,6 +35,9 @@ jobs:
       - name: Ring declaration tests
         run: python tools/midlc/test_midlc_rings.py
 
+      - name: Package compatibility checker tests
+        run: python tools/pkg/test_idl_compat.py
+
       - name: Field id, error field and corpus tests
         run: python tools/midlc/test_midlc_fields.py
 
@@ -56,6 +59,18 @@ jobs:
       # (`libs/rhai-lazy/api/README.md`) are all generated from `idl/`.
       - name: Generated stubs, schema and Rhai API are up to date
         run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api --manifest idl/manifest.json --docs docs/idl idl/*.midl
+
+      # The interface id checked at bind time hashes only the `.vN` name, so
+      # this schema diff is the real compatibility test (docs/update-plan.md
+      # decision 18). Informational for now: a deliberate break inside a `.vN`
+      # shows up in the job summary and the log; making it a gate is dropping
+      # `continue-on-error` once the first release snapshot exists.
+      - name: IDL stays append-only against the base branch
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          python tools/pkg/idl_compat.py FETCH_HEAD HEAD
 
       - name: Generated stubs round-trip and match the corpus
         run: cargo test -p messenger-generated

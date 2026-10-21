@@ -28,6 +28,8 @@ concurrency:
 # exists; CI is hermetic, so every image is created fresh.
 env:
   LAZYOS_RESET_OS: "1"
+  # A file has one owning producer (build_support/os_owners.rs, update plan P0).
+  LAZYOS_OWNER_STRICT: "1"
 
 jobs:
   fmt:

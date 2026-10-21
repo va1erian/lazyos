@@ -17,6 +17,7 @@ Exit status is 1 when a breaking change is found.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -168,6 +169,11 @@ def main() -> int:
     for problem in problems:
         print(problem)
     print(f"{len(problems)} non-append-only change(s)")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary and problems:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(f"### IDL: {len(problems)} non-append-only change(s) against {args.old}\n\n")
+            out.writelines(f"- {problem}\n" for problem in problems)
     return 1 if problems else 0
 
 
