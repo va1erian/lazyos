@@ -112,7 +112,7 @@ impl Ext2 {
         Ok(Ext2 {
             volume,
             device: device.name(),
-            gate: volio::Gate::named("ext2", ()),
+            gate: volio::Gate::named_fair("ext2", ()),
             io: shared,
             deferred: defer.then(|| deferred::Deferred::new(device.is_writable())),
         })
