@@ -68,6 +68,13 @@ class WebkitTests(test_run_demo.RunDemoCase):
         # The default desktop keeps its default memory: webd's cost is measured in docs/webd.md.
         self.assertNotEqual(command[command.index("-m") + 1], "4G")
 
+    def test_a_desktop_wants_a_volume_that_holds_webd(self) -> None:
+        from lazygui.test_osvolume import make_image
+        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", make_image(self.dir, 512)),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, _ = self.run_main("--desktop", "--yes")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.builds[-1]["LAZYOS_OS_SIZE"], str(1024 << 20))
+
     def test_a_desktop_builds_webd_when_it_is_missing(self) -> None:
         self.webd_present = False
         with mock.patch.object(run_demo, "build_webd", return_value=True) as built, \

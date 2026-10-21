@@ -155,6 +155,23 @@ def webd_built() -> bool:
     return all(path.is_file() for path in WEBD_ARTIFACTS)
 
 
+def webd_env(args, env: dict, built, build) -> None:
+    """The `LAZYOS_WEBD` and `LAZYOS_WEBDDEMO` switches of a run. Every desktop ships webd (Docs and Mail need it):
+    built when its programs are missing, and left out (the apps then say the web engine is not running)
+    when that fails, as with no Docker; `--no-webd` leaves it out, `--webd` (built by the caller) requires it."""
+    if args.no_webd:
+        env["LAZYOS_WEBD"] = "0"
+    elif getattr(args, "webd_implicit", False):
+        if built() or build():
+            env["LAZYOS_WEBD"] = "1"
+        else:
+            print("warning: webd could not be built (Docker?): this desktop has none, so Docs and Mail "
+                  "cannot show their pages; `--no-webd` silences this", file=sys.stderr)
+            env["LAZYOS_WEBD"] = "0"
+    if args.webd_demo:
+        env["LAZYOS_WEBDDEMO"] = "1"
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""
