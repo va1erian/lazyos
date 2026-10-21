@@ -1,12 +1,17 @@
-//! The register BAR as a *read-only* [`intelgfx::Mmio`].
+//! The register BAR as a *gated* [`intelgfx::Mmio`]: read-only until a grant
+//! is opened, and then writable only inside the grant.
 //!
 //! The kernel maps a BAR writable (`dev::map_bar` has no read-only flag), so
-//! the guarantee that stage G1's `gpud` writes no display register is made
-//! here, in two layers a later stage must take apart on purpose:
+//! the guarantee that `gpud` writes only what a stage needs is made here, in
+//! layers a later stage must take apart on purpose:
 //!
-//! * the type has no write path: [`Mmio::write32`] does nothing but count
-//!   the attempt (`refused_writes`, reported on `GPU:DONE`), so even code
-//!   that was handed an `Mmio` to program cannot reach the hardware;
+//! * a new [`Bar`] has no write path: [`Mmio::write32`] does nothing but
+//!   count the attempt (`refused_writes`, reported on `GPU:DONE`), so even
+//!   code that was handed an `Mmio` to program cannot reach the hardware;
+//! * [`Bar::grant_audio_writes`] (stage G2, started with `audio=1`) opens the
+//!   one grant there is: the audio registers `intelgfx::audio::may_write`
+//!   lists, which are not a mode set. A write anywhere else is still refused
+//!   and counted;
 //! * a read is performed only for a dword that lies inside a range
 //!   `libs/pciprobe` lets `dbgd` read for this exact device (the same
 //!   allowlist that keeps read-sensitive registers, GMBUS data and the ELD
@@ -20,33 +25,37 @@ use alloc::vec::Vec;
 use intelgfx::Mmio;
 
 /// A mapped register BAR and the ranges reads may touch.
-pub(super) struct ReadOnlyBar {
+pub(super) struct Bar {
     base: *const u8,
     len: u64,
     allowed: Vec<(u64, u64)>,
     reads: u32,
+    writes: u32,
+    audio_writes: bool,
     pub(super) refused_reads: u32,
     pub(super) refused_writes: u32,
 }
 
-impl ReadOnlyBar {
+impl Bar {
     /// Wrap a mapped BAR of the device `vendor:device`.
     ///
     /// # Safety
     /// `base` must be the start of a live uncached mapping of the device's
     /// register BAR, `len` bytes long, that outlives this value (the claim
     /// holds it until the task ends).
-    pub(super) unsafe fn new(base: *const u8, len: u64, vendor: u16, device: u16) -> ReadOnlyBar {
+    pub(super) unsafe fn new(base: *const u8, len: u64, vendor: u16, device: u16) -> Bar {
         let allowed = pciprobe::builtin::RANGES
             .iter()
             .filter(|r| r.vendor == vendor && r.device == device && r.bar == 0)
             .map(|r| (r.start, r.end))
             .collect();
-        ReadOnlyBar {
+        Bar {
             base,
             len,
             allowed,
             reads: 0,
+            writes: 0,
+            audio_writes: false,
             refused_reads: 0,
             refused_writes: 0,
         }
@@ -55,6 +64,21 @@ impl ReadOnlyBar {
     /// Dwords read so far.
     pub(super) fn reads(&self) -> u32 {
         self.reads
+    }
+
+    /// Dwords written so far.
+    pub(super) fn writes(&self) -> u32 {
+        self.writes
+    }
+
+    /// Open the audio-register write grant (stage G2). Nothing else becomes
+    /// writable.
+    pub(super) fn grant_audio_writes(&mut self) {
+        self.audio_writes = true;
+    }
+
+    fn may_write(&self, offset: u32) -> bool {
+        self.audio_writes && intelgfx::audio::may_write(offset) && u64::from(offset) + 4 <= self.len
     }
 
     fn may_read(&self, offset: u32) -> bool {
@@ -68,7 +92,7 @@ impl ReadOnlyBar {
     }
 }
 
-impl Mmio for ReadOnlyBar {
+impl Mmio for Bar {
     fn read32(&mut self, offset: u32) -> u32 {
         if !self.may_read(offset) {
             self.refused_reads = self.refused_reads.saturating_add(1);
@@ -81,8 +105,21 @@ impl Mmio for ReadOnlyBar {
         unsafe { self.base.add(offset as usize).cast::<u32>().read_volatile() }
     }
 
-    fn write32(&mut self, _offset: u32, _value: u32) {
-        // G1 is read-only: there is nothing to write with.
-        self.refused_writes = self.refused_writes.saturating_add(1);
+    fn write32(&mut self, offset: u32, value: u32) {
+        if !self.may_write(offset) {
+            self.refused_writes = self.refused_writes.saturating_add(1);
+            return;
+        }
+        self.writes = self.writes.saturating_add(1);
+        // SAFETY: `may_write` checked that the dword is inside the live
+        // mapping, aligned, and one of the audio registers the grant names;
+        // a volatile write of exactly the register's width.
+        unsafe {
+            self.base
+                .cast_mut()
+                .add(offset as usize)
+                .cast::<u32>()
+                .write_volatile(value)
+        }
     }
 }

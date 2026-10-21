@@ -43,7 +43,7 @@ def boot_disk_args(disk: str, image) -> list[str]:
 
 def add_device_options(parser: argparse.ArgumentParser) -> None:
     """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip`,
-    `--no-msi` and `--intelgfx`."""
+    `--no-msi`, `--intelgfx` and `--gpud-audio`."""
     parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
                         help="attach a sound card (--sound-card) and build with LAZYOS_SOUND=1, "
                              "which boots the `sndd` driver and plays its test tones. "
@@ -74,6 +74,26 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
                              "it matters on the Kaby Lake box, e.g. with --usb-image --dbgd "
                              "--desktop --build-only. Without --desktop, --sound or --net it "
                              "builds a services image with the sound stack so devd exists")
+    parser.add_argument("--gpud-audio", action="store_true",
+                        help="implies --intelgfx; gpud also enables the display side of HDMI "
+                             "audio (stage G2): it WRITES the audio registers of the adopted "
+                             "HDMI pipe (ELD, output enable, N). Needs the sink's EDID in the "
+                             "image: --assets DIR with DIR/gpu/edid.bin (see --gpud-edid). "
+                             "Kaby Lake only; off by default")
+    parser.add_argument("--gpud-edid", default=GPUD_EDID, metavar="PATH",
+                        help="with --gpud-audio: the EDID file's path inside the image "
+                             f"(default {GPUD_EDID})")
+
+
+#: Where `--gpud-audio` looks for the sink's EDID inside the image (carried by
+#: `--assets DIR` as `DIR/gpu/edid.bin`) until gpud has a DDC reader.
+GPUD_EDID = "/system/share/gpu/edid.bin"
+
+
+def gpud_args(args: argparse.Namespace) -> str:
+    """`LAZYOS_GPUD_ARGS` for the parsed options: `audio=1 edid=PATH` with
+    `--gpud-audio`, else empty."""
+    return f"audio=1 edid={args.gpud_edid}" if args.gpud_audio else ""
 
 
 def device_env(args: argparse.Namespace, env: dict) -> None:
@@ -83,8 +103,10 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
     env["LAZYOS_IRQCHIP"] = args.irqchip
     env["LAZYOS_MSI"] = "0" if args.no_msi else "1"
     # Either way, so an inherited value never overrides `--intelgfx`.
-    env["LAZYOS_INTELGFX"] = "1" if args.intelgfx else "0"
-    if args.intelgfx and not (args.desktop or args.net or args.sound):
+    intelgfx = args.intelgfx or args.gpud_audio
+    env["LAZYOS_INTELGFX"] = "1" if intelgfx else "0"
+    env["LAZYOS_GPUD_ARGS"] = gpud_args(args)
+    if intelgfx and not (args.desktop or args.net or args.sound):
         # `devd` starts `gpud`, and `devd` is in an image that has a driver
         # stack and `init`: the sound stack, with no card attached.
         env["LAZYOS_SOUND"] = "1"

@@ -327,6 +327,9 @@ fn main() {
     // build script), and makes `devd` name that device at all. Only `devd`
     // starts `gpud`, so the switch needs `devd`. Off by default.
     println!("cargo:rerun-if-env-changed=LAZYOS_INTELGFX");
+    // `LAZYOS_GPUD_ARGS` is appended to `gpud`'s arguments (`audio=1`,
+    // `edid=<path>`: stage G2, docs/kabylake-gpu-plan.md).
+    println!("cargo:rerun-if-env-changed=LAZYOS_GPUD_ARGS");
     println!("cargo:rustc-check-cfg=cfg(lazyos_intelgfx)");
     if env::var_os("LAZYOS_INTELGFX").as_deref() == Some(std::ffi::OsStr::new("1")) {
         assert!(

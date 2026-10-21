@@ -84,6 +84,16 @@ class DriverChoiceTests(unittest.TestCase):
         # devd off cannot start it: the build refuses the pair (build.rs).
         self.assertEqual(catalog.build_env(advanced(intelgfx=True, devd=False)).get("LAZYOS_DEVD"), "0")
 
+    def test_gpud_audio_writes_so_it_is_off_unless_chosen_and_implies_gpud(self) -> None:
+        self.assertNotIn("--gpud-audio", demo_argv(intelgfx=True))
+        env = catalog.build_env(advanced(intelgfx=True))
+        self.assertEqual(env.get("LAZYOS_GPUD_ARGS"), "")
+        argv = demo_argv(gpud_audio=True)
+        self.assertEqual(argv.count("--gpud-audio"), 1)
+        env = catalog.build_env(advanced(gpud_audio=True))
+        self.assertEqual(env.get("LAZYOS_INTELGFX"), "1")
+        self.assertEqual(env.get("LAZYOS_GPUD_ARGS"), f"audio=1 edid={demo_qemu.GPUD_EDID}")
+
     def test_the_choices_are_run_demos(self) -> None:
         self.assertEqual(sorted(drivers.SOUND_CARDS), sorted(demo_qemu.SOUND_CARDS))
         self.assertEqual(sorted(drivers.NICS), sorted(demo_qemu.NICS))

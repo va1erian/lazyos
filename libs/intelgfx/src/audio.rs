@@ -21,6 +21,11 @@
 //!
 //! Disabling is the reverse of 2 and 4: valid off, output enable off.
 
+use alloc::vec::Vec;
+
+use crate::adopt::{Adopted, Display};
+use crate::eld::{ConnType, Eld};
+use crate::hdmi_audio::{self, Rate};
 use crate::regs::{
     self, aud_config, DdiFunc, DdiMode, AUD_CONFIG_A, AUD_DIP_ELD_CTRL_ST_A, AUD_HDMIW_HDMIEDID_A,
     AUD_PIN_ELD_CP_VLD, AUD_PIPE_STRIDE,
@@ -38,6 +43,21 @@ const OUTPUT_ENABLE: u32 = 1 << 2;
 
 /// `AUD_DIP_ELD_CTRL_ST`: the ELD write address (bits 9:5).
 const ELD_ADDRESS_MASK: u32 = 0x1F << 5;
+
+/// Whether `gpud` may write the register at `offset` while its audio grant
+/// is open: the audio block of transcoders A to C and nothing else (no
+/// display, plane, clock or pipe register, which is what keeps G2 from being
+/// a mode set). The ELD data port is write-only here; reads of it stay out of
+/// the probe allowlist.
+pub fn may_write(offset: u32) -> bool {
+    let base = |reg: u32| (0..3).map(move |t| reg + t * AUD_PIPE_STRIDE);
+    offset.is_multiple_of(4)
+        && (base(AUD_CONFIG_A)
+            .chain(base(AUD_DIP_ELD_CTRL_ST_A))
+            .chain(base(AUD_HDMIW_HDMIEDID_A))
+            .any(|reg| reg == offset)
+            || offset == AUD_PIN_ELD_CP_VLD)
+}
 
 /// What a request asks of the display engine.
 #[derive(Clone, Copy, Debug)]
@@ -93,7 +113,7 @@ pub fn check(m: &mut impl Mmio, req: &Request) -> Result<(), Error> {
         return Err(Error::TransOutOfRange(req.transcoder));
     }
     let len = req.eld.len();
-    if len == 0 || len % 4 != 0 || len > ELD_BUFFER_BYTES {
+    if len == 0 || !len.is_multiple_of(4) || len > ELD_BUFFER_BYTES {
         return Err(Error::BadEld(len));
     }
     let raw = m.read32(regs::TRANS_DDI_FUNC_CTL_A + u32::from(req.transcoder) * regs::TRANS_STRIDE);
@@ -143,11 +163,8 @@ pub fn enable(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     let c = m.read32(ctrl);
     m.write32(ctrl, c & !ELD_ADDRESS_MASK);
     let data = pipe_reg(AUD_HDMIW_HDMIEDID_A, t);
-    for chunk in req.eld.chunks_exact(4) {
-        m.write32(
-            data,
-            u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]),
-        );
+    for dword in req.eld.as_chunks::<4>().0 {
+        m.write32(data, u32::from_le_bytes(*dword));
     }
 
     // 4. ELD valid.
@@ -198,4 +215,80 @@ pub fn disable(m: &mut impl Mmio, transcoder: u8) -> Result<(), Error> {
         v & !(OUTPUT_ENABLE << shift(transcoder)),
     );
     Ok(())
+}
+
+/// An owned request: what [`prepare`] derives from the adopted state and the
+/// sink's EDID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Prepared {
+    pub transcoder: u8,
+    pub eld: Vec<u8>,
+    pub tmds_khz: u32,
+    pub n: Option<u32>,
+    /// The `N` is for this sample rate (it follows the stream's rate).
+    pub rate: Rate,
+}
+
+impl Prepared {
+    pub fn request(&self) -> Request<'_> {
+        Request {
+            transcoder: self.transcoder,
+            eld: &self.eld,
+            tmds_khz: self.tmds_khz,
+            n: self.n,
+        }
+    }
+}
+
+/// Why nothing could be prepared.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrepareError {
+    /// Only the Gen9 audio block is known; display 13's is not confirmed.
+    Unsupported(Display),
+    /// No running pipe.
+    NoPipe,
+    /// The running pipe's link is not HDMI.
+    NotHdmi,
+    /// No pixel clock could be decoded from the pipe.
+    NoClock,
+    /// The EDID did not parse.
+    BadEdid(crate::edid::EdidError),
+    /// The EDID has no CEA extension, so the sink says nothing about audio.
+    NoAudio,
+    /// The sink lists no LPCM format (an ELD with none would make the codec
+    /// refuse every stream).
+    NoLpcm,
+}
+
+/// Derive the request for the adopted pipe and the sink's EDID, with `N` for
+/// `rate`. Pure: nothing is read or written.
+pub fn prepare(adopted: &Adopted, edid: &[u8], rate: Rate) -> Result<Prepared, PrepareError> {
+    if adopted.display != Display::Gen9 {
+        return Err(PrepareError::Unsupported(adopted.display));
+    }
+    let pipe = adopted.active.as_ref().ok_or(PrepareError::NoPipe)?;
+    if !pipe.hdmi_link() {
+        return Err(PrepareError::NotHdmi);
+    }
+    let pixel_khz = pipe.pixel_clock_khz.ok_or(PrepareError::NoClock)?;
+    let tmds_khz = hdmi_audio::tmds_clock_khz(
+        pixel_khz,
+        u32::from(pipe.func.bits_per_component.unwrap_or(8)),
+    );
+    let edid = crate::edid::Edid::parse(edid).map_err(PrepareError::BadEdid)?;
+    let eld = Eld::from_edid(&edid, ConnType::Hdmi, [0; 8]).ok_or(PrepareError::NoAudio)?;
+    if eld.lpcm_rates() == 0 {
+        return Err(PrepareError::NoLpcm);
+    }
+    let n = match hdmi_audio::aud_config_clock_index(tmds_khz) {
+        Some(_) => None,
+        None => hdmi_audio::select(tmds_khz, rate).map(|pair| pair.n),
+    };
+    Ok(Prepared {
+        transcoder: pipe.pipe,
+        eld: eld.to_bytes(),
+        tmds_khz,
+        n,
+        rate,
+    })
 }

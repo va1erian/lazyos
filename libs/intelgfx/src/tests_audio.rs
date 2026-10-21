@@ -206,3 +206,138 @@ fn other_transcoders_use_their_own_nibble_and_block() {
     assert!(e.regs.contains_key(&(AUD_CONFIG_A + 0x100)));
     assert!(!e.regs.contains_key(&AUD_CONFIG_A));
 }
+
+#[test]
+fn every_register_the_sequence_writes_is_inside_the_write_grant() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    let bytes = eld();
+    for (t, n) in [(0u8, Some(6144)), (1, None)] {
+        let mut r = request(&bytes, if n.is_some() { 241_500 } else { 148_500 }, n);
+        r.transcoder = t;
+        e.regs
+            .insert(TRANS_DDI_FUNC_CTL_A + u32::from(t) * 0x1000, FUNC_HDMI);
+        audio::enable(&mut e, &r).unwrap();
+        audio::set_clock(&mut e, t, r.tmds_khz, n).unwrap();
+        audio::disable(&mut e, t).unwrap();
+    }
+    assert!(!e.log.is_empty());
+    for (offset, _) in &e.log {
+        assert!(
+            audio::may_write(*offset),
+            "{offset:#x} is written but not granted"
+        );
+    }
+}
+
+#[test]
+fn the_write_grant_is_only_the_audio_block() {
+    for offset in [
+        0x6_0400,        // TRANS_DDI_FUNC_CTL_A: the link
+        0x7_0180,        // PLANE_CTL_1_A
+        0x4_5400,        // power wells
+        0x4_6000,        // CDCLK
+        0x6_5004,        // between AUD_CONFIG and AUD_MISC
+        0x6_5010,        // AUD_MISC_CTRL: not needed, not granted
+        0x6_5300 + 0x50, // a fourth transcoder's ELD port
+        0x6_5001,        // unaligned
+        0x6_50C4,
+        0xC_5100, // GMBUS
+        0,
+        u32::MAX,
+    ] {
+        assert!(!audio::may_write(offset), "{offset:#x}");
+    }
+    for offset in [
+        0x6_5000, 0x6_5100, 0x6_5200, 0x6_50B4, 0x6_5050, 0x6_5250, 0x6_50C0,
+    ] {
+        assert!(audio::may_write(offset), "{offset:#x}");
+    }
+}
+
+// ---- the box's real state: the GOP's registers and the monitor's EDID ------
+
+const GOP_REGS: &str = include_str!("../../../docs/compat/kabylake/gpu/lazyos/02-mmio-gop.txt");
+const GOP_GGTT: &str = include_str!("../../../docs/compat/kabylake/gpu/lazyos/03-ggtt-scanout.txt");
+const EDID: &[u8] =
+    include_bytes!("../../../docs/compat/kabylake/gpu/linux/04-card1-HDMI-A-1-edid.bin");
+
+fn gop() -> (crate::mmio::FakeMmio, crate::adopt::Adopted) {
+    let mut mmio = crate::tests_d13::capture_mmio(&[GOP_REGS, GOP_GGTT]);
+    let adopted = crate::adopt::Display::Gen9.decode(&crate::adopt::Display::Gen9.read(&mut mmio));
+    (mmio, adopted)
+}
+
+#[test]
+fn the_boxs_gop_and_edid_prepare_a_48k_request_with_an_explicit_n() {
+    let (_, adopted) = gop();
+    let p = audio::prepare(&adopted, EDID, Rate::Hz48000).unwrap();
+    assert_eq!((p.transcoder, p.tmds_khz, p.n), (0, 241_500, Some(6144)));
+    // 4-byte header + baseline; the monitor's single LPCM SAD is in it.
+    let eld = crate::eld::Eld::parse(&p.eld).unwrap();
+    assert!(eld.supports_lpcm(48_000, 2));
+    assert!(p.eld.len() <= audio::ELD_BUFFER_BYTES);
+    let p44 = audio::prepare(&adopted, EDID, Rate::Hz44100).unwrap();
+    assert_eq!(p44.n, Some(6384), "the exact N for 241.5 MHz at 44.1 kHz");
+}
+
+#[test]
+fn the_real_state_enables_with_only_granted_writes_and_allowed_reads() {
+    let (mut mmio, adopted) = gop();
+    let p = audio::prepare(&adopted, EDID, Rate::Hz48000).unwrap();
+    let before = mmio.log.len();
+    audio::enable(&mut mmio, &p.request()).unwrap();
+    let ranges: Vec<_> = pciprobe::builtin::RANGES
+        .iter()
+        .filter(|r| (r.vendor, r.device, r.bar) == (0x8086, 0x5916, 0))
+        .collect();
+    let mut wrote = 0;
+    for &(offset, _, write) in &mmio.log[before..] {
+        if write {
+            wrote += 1;
+            assert!(
+                audio::may_write(offset),
+                "{offset:#x} written outside the grant"
+            );
+        } else {
+            let o = u64::from(offset);
+            assert!(
+                ranges.iter().any(|r| r.start <= o && o + 4 <= r.end),
+                "{offset:#x} read outside the HD 620 allowlist"
+            );
+        }
+    }
+    assert!(wrote > 10, "{wrote}");
+}
+
+#[test]
+fn prepare_refuses_what_it_cannot_serve() {
+    let (_, adopted) = gop();
+    let mut dvi = adopted.clone();
+    dvi.active.as_mut().unwrap().func.mode = crate::regs::DdiMode::Dvi;
+    assert_eq!(
+        audio::prepare(&dvi, EDID, Rate::Hz48000),
+        Err(audio::PrepareError::NotHdmi)
+    );
+    let mut idle = adopted.clone();
+    idle.active = None;
+    assert_eq!(
+        audio::prepare(&idle, EDID, Rate::Hz48000),
+        Err(audio::PrepareError::NoPipe)
+    );
+    let mut d13 = adopted.clone();
+    d13.display = crate::adopt::Display::D13;
+    assert!(matches!(
+        audio::prepare(&d13, EDID, Rate::Hz48000),
+        Err(audio::PrepareError::Unsupported(_))
+    ));
+    assert!(matches!(
+        audio::prepare(&adopted, &EDID[..100], Rate::Hz48000),
+        Err(audio::PrepareError::BadEdid(_))
+    ));
+    let mut bad = EDID.to_vec();
+    bad[20] ^= 0xFF; // breaks the checksum
+    assert!(matches!(
+        audio::prepare(&adopted, &bad, Rate::Hz48000),
+        Err(audio::PrepareError::BadEdid(_))
+    ));
+}

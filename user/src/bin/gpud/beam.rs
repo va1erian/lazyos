@@ -11,7 +11,7 @@ use user::messenger::gpu::wire;
 use user::sys;
 use user::trace::{self, Channel};
 
-use crate::bar::ReadOnlyBar;
+use crate::bar::Bar;
 
 /// How long the start-up measurement watches the counter: a second is 60
 /// frames, and the scan lines make it good to a line.
@@ -22,7 +22,7 @@ const TOLERANCE_PPM: u32 = 2000;
 
 /// A live view of one pipe's beam.
 pub(super) struct Watch {
-    regs: ReadOnlyBar,
+    regs: Bar,
     pipe: u32,
     vtotal: u32,
     measured_millihz: u32,
@@ -31,7 +31,7 @@ pub(super) struct Watch {
 impl Watch {
     /// Measure the refresh rate of `pipe` and report it with the underrun
     /// state; the watch then answers `GetBeam`.
-    pub(super) fn start(mut regs: ReadOnlyBar, pipe: &ActivePipe) -> Watch {
+    pub(super) fn start(mut regs: Bar, pipe: &ActivePipe) -> Watch {
         let index = u32::from(pipe.pipe);
         let vtotal = pipe.v.total;
         // The counter moves at the start of the vertical blank, where raw

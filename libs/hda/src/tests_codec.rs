@@ -2,6 +2,7 @@
 //! a board-style codec with mixers, selectors and unwired pins, and seeded
 //! random graphs from a codec that lies.
 
+use std::string::{String, ToString};
 use std::vec::Vec;
 
 use crate::codec::{find_output, read_graph, CodecError, Hop, MAX_CONNS};
@@ -175,6 +176,34 @@ fn board_codec_prefers_an_attached_speaker_and_routes_through_the_selector() {
     let selector_amp = (u32::from(SET_AMP_GAIN_MUTE) << 16)
         | u32::from(amp::OUTPUT | amp::LEFT | amp::RIGHT | 0x1F);
     assert!(direct.0.log.contains(&(0x0D, selector_amp)));
+}
+
+#[test]
+fn every_widget_has_a_log_line_with_its_node_numbering() {
+    let mut direct = Direct(board());
+    let graph = read_graph(&mut direct, 0).unwrap();
+    let lines: Vec<String> = graph.widgets().map(|w| w.to_string()).collect();
+    assert_eq!(lines.len(), graph.count);
+    let dac = lines.iter().find(|l| l.starts_with("nid=2 ")).unwrap();
+    assert!(
+        dac.contains("type=output(0)") && dac.contains("conns=[]"),
+        "{dac}"
+    );
+    let selector = lines.iter().find(|l| l.starts_with("nid=13 ")).unwrap();
+    assert!(
+        selector.contains("type=selector(3)") && selector.contains("conns=[12,3]"),
+        "{selector}"
+    );
+    // A wired speaker pin says so; the unwired line out says it is not.
+    let speaker = lines.iter().find(|l| l.starts_with("nid=20 ")).unwrap();
+    assert!(
+        speaker.contains("type=pin(4)") && speaker.contains("attached=1"),
+        "{speaker}"
+    );
+    let line_out = lines.iter().find(|l| l.starts_with("nid=27 ")).unwrap();
+    assert!(line_out.contains("attached=0"), "{line_out}");
+    // Only pins carry pin fields.
+    assert!(!dac.contains("pin_caps"));
 }
 
 #[test]

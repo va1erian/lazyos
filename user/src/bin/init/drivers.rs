@@ -40,11 +40,16 @@ pub(super) const DRIVER_ROWS: &[ServiceSpec] = &[
 /// crash, and it never exits on purpose while it holds the claim (a release
 /// switches the function's memory decode off under the kernel console).
 /// `dbgctl reload gpud` replaces its binary (`reload.rs`).
+/// `LAZYOS_GPUD_ARGS` (`audio=1 edid=<path>`) switches on the one thing it
+/// writes, the HDMI audio block (stage G2); `devd` adds `dev=<id>`.
 #[cfg(lazyos_intelgfx)]
 pub(super) const GPUD_ROW: ServiceSpec = ServiceSpec {
     name: "gpud",
     path: fhs::bin::GPUD,
-    args: "",
+    args: match option_env!("LAZYOS_GPUD_ARGS") {
+        Some(args) => args,
+        None => "",
+    },
     restart: super::state::Restart::OnFailure,
     deps: &[],
 };

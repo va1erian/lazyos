@@ -17,7 +17,7 @@ HINT = ("intel-hda: QEMU's HDA controller with a line-out codec; e1000: QEMU's I
 
 
 def build_group(parent: ttk.Frame, sound_card_var, nic_var, devd_var, irqchip_var,
-                msi_var, intelgfx_var) -> None:
+                msi_var, intelgfx_var, gpud_audio_var) -> None:
     """Populate the Drivers group."""
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
@@ -40,5 +40,9 @@ def build_group(parent: ttk.Frame, sound_card_var, nic_var, devd_var, irqchip_va
     ttk.Checkbutton(parent, text="Intel GPU service gpud: adopt and report the firmware's display "
                                  "state, read-only (LAZYOS_INTELGFX; run_demo --intelgfx)",
                     variable=intelgfx_var).pack(anchor="w", padx=6)
+    ttk.Checkbutton(parent, text="gpud also enables HDMI audio's display side: WRITES the audio "
+                                 "registers; needs --assets DIR with gpu/edid.bin "
+                                 "(run_demo --gpud-audio)",
+                    variable=gpud_audio_var).pack(anchor="w", padx=6)
     ttk.Label(parent, text=HINT, wraplength=520, foreground="#666"
               ).pack(fill="x", padx=6, pady=(0, 6))

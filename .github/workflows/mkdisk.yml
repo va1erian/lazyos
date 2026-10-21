@@ -43,6 +43,7 @@ jobs:
           python tools/test_run_demo.py
           python tools/test_run_demo_apps.py
           python tools/test_run_demo_net.py
+          python tools/test_run_demo_gpud.py
           python tools/test_run_demo_webkit.py
           python tools/test_irqpath.py
           python tools/test_suites.py

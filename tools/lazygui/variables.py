@@ -64,6 +64,8 @@ def make_vars() -> dict:
         # The Intel GPU service gpud (LAZYOS_INTELGFX, run_demo --intelgfx):
         # read-only adoption of the firmware's display state; off.
         "intelgfx": b(value=False),
+        # gpud also enables HDMI audio's display side (stage G2): writes.
+        "gpud_audio": b(value=False),
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),

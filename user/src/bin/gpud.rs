@@ -26,8 +26,10 @@
 //!    beam (frame counter, scan line) live (`serve.rs`).
 //!
 //! It writes no display register, takes no interrupt, programs no mode and
-//! touches no engine: pipe CRCs, `set_scanout`, flips and G2 onwards are
-//! separate changes. Started with no such device (by hand, or a stale `dev=`) it
+//! touches no engine. The one exception is opt-in: started with `audio=1`
+//! it writes the HDMI audio block (stage G2, `audio.rs`), through a grant
+//! that names those registers and no others. Pipe CRCs, `set_scanout` and
+//! flips are separate changes. Started with no such device (by hand, or a stale `dev=`) it
 //! prints `GPU:NO-DEVICE:FAIL` once and exits 0, which `init`'s `OnFailure`
 //! row does not restart.
 //!
@@ -51,6 +53,8 @@ use intelgfx::adopt::{self, Display};
 use user::sys;
 use user::trace::{self, Channel};
 
+#[path = "gpud/audio.rs"]
+mod audio;
 #[path = "gpud/bar.rs"]
 mod bar;
 #[path = "gpud/beam.rs"]
@@ -155,8 +159,7 @@ fn adopt_and_serve(
     // SAFETY: `device::map` mapped the whole BAR, `len` bytes, uncached; the
     // mapping lives until the claim ends with this task, which never exits
     // on purpose (the module docs).
-    let mut regs =
-        unsafe { bar::ReadOnlyBar::new(base, len, claimed.row.vendor, claimed.row.device) };
+    let mut regs = unsafe { bar::Bar::new(base, len, claimed.row.vendor, claimed.row.device) };
     let file = display.read(&mut regs);
     report::registers(&file);
     if file.looks_dead() {
@@ -176,10 +179,13 @@ fn adopt_and_serve(
         .filter(|pipe| pipe.plane.enabled)
         .map(|pipe| adopt::read_fb_map(&mut regs, pipe.plane.surf, pipe.plane.bytes()));
     report::adopted(&adopted, fb.as_ref());
+    // Stage G2, only when started with `audio=1`: the one place that writes.
+    audio::run(&audio::Args::read(), &mut regs, &adopted);
     trace::line!(
         Channel::Gpu,
-        "DONE reads={} refused_reads={} refused_writes={}",
+        "DONE reads={} writes={} refused_reads={} refused_writes={}",
         regs.reads(),
+        regs.writes(),
         regs.refused_reads,
         regs.refused_writes
     );

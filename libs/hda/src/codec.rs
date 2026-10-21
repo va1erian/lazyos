@@ -49,6 +49,51 @@ impl Widget {
     }
 }
 
+impl Widget {
+    /// The widget type's name, for logs (`other(n)` for an unknown type).
+    pub fn type_name(&self) -> &'static str {
+        match self.kind() {
+            caps::OUTPUT => "output",
+            caps::INPUT => "input",
+            caps::MIXER => "mixer",
+            caps::SELECTOR => "selector",
+            caps::PIN => "pin",
+            _ => "other",
+        }
+    }
+}
+
+/// One line per widget for the log: what `sndd` prints at start so a board's
+/// real node numbering is on record (`SNDD:WIDGET`). Pins add their
+/// capabilities, configuration default and whether the board wired them.
+impl core::fmt::Display for Widget {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "nid={} type={}({}) caps={:#010x} conns=[",
+            self.nid,
+            self.type_name(),
+            self.kind(),
+            self.caps
+        )?;
+        for (i, nid) in self.connections().iter().enumerate() {
+            write!(f, "{}{nid}", if i == 0 { "" } else { "," })?;
+        }
+        write!(f, "]")?;
+        if self.kind() == caps::PIN {
+            write!(
+                f,
+                " pin_caps={:#010x} config={:#010x} attached={} output={}",
+                self.pin_caps,
+                self.config,
+                u8::from(self.attached()),
+                u8::from(self.pin_caps & pin::CAP_OUTPUT != 0)
+            )?;
+        }
+        Ok(())
+    }
+}
+
 /// The audio function group and its widgets.
 pub struct Graph {
     pub afg: u8,
@@ -57,6 +102,11 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// The widgets read, in node order.
+    pub fn widgets(&self) -> impl Iterator<Item = &Widget> {
+        self.widgets[..self.count].iter().flatten()
+    }
+
     pub fn widget(&self, nid: u8) -> Option<&Widget> {
         self.widgets[..self.count]
             .iter()

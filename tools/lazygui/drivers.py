@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 
-from demo_qemu import sound_args
+from demo_qemu import GPUD_EDID, sound_args
 
 from .netplan import wants_net
 
@@ -37,7 +37,8 @@ def driver_env(cfg: dict) -> dict[str, str]:
         "LAZYOS_DEVD": "1" if cfg.get("devd", True) else "0",
         "LAZYOS_IRQCHIP": cfg.get("irqchip", IRQCHIPS[0]),
         "LAZYOS_MSI": "1" if cfg.get("msi", True) else "0",
-        "LAZYOS_INTELGFX": "1" if cfg.get("intelgfx") else "0",
+        "LAZYOS_INTELGFX": "1" if cfg.get("intelgfx") or cfg.get("gpud_audio") else "0",
+        "LAZYOS_GPUD_ARGS": f"audio=1 edid={GPUD_EDID}" if cfg.get("gpud_audio") else "",
     }
 
 
@@ -63,6 +64,8 @@ def device_flags(cfg: dict) -> list[str]:
         flags.append("--no-msi")
     if cfg.get("intelgfx"):
         flags.append("--intelgfx")
+    if cfg.get("gpud_audio"):
+        flags.append("--gpud-audio")
     return flags
 
 

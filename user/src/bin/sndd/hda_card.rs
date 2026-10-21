@@ -115,6 +115,12 @@ impl HdaCard {
             unsafe { Controller::new(regs, rings, sys::nap) }.map_err(hda_error("controller"))?;
         let codec = controller.codec;
         let graph = Box::new(read_graph(&mut controller, codec).map_err(hda_error("codec"))?);
+        // Every widget, before any path is chosen: boot-1 reported pin 3 on
+        // the Kaby Lake HDMI codec, where Linux sees pins 5 to 7 (plan 2.1),
+        // and only the real numbering separates the explanations.
+        for widget in graph.widgets() {
+            trace::line!(trace::Channel::Sndd, "WIDGET codec={codec} {widget}");
+        }
         let path = find_output(&graph).map_err(hda_error("output path"))?;
         let output = Output {
             codec,

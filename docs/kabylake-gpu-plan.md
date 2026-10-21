@@ -635,3 +635,37 @@ if the box can reach a host serving it).
   numbers above until the box answers 11.3; on the box run, also read
   `GPU:VBLANK` and `GPU:UNDERRUN` (`dbgctl.py log --source programs | grep
   GPU:`).
+
+### 11.5 Stage G2 started (2026-10-21): the display side of HDMI audio, opt-in
+
+Built, **not run on the box**:
+
+- `libs/intelgfx::audio`: the enable sequence (output enable, ELD invalid, ELD
+  upload, ELD valid, `AUD_CONFIG` clock index or explicit `N`), `disable`,
+  `set_clock`, `may_write` (the write grant: the audio block of transcoders A
+  to C and no other register) and `prepare` (adopted state plus the sink's
+  EDID to an ELD, the TMDS clock and `N`). It refuses a transcoder that is off
+  or not in HDMI mode, so it is never a mode set (the GOP leaves HDMI mode:
+  `docs/compat/kabylake/gpu/lazyos/`), and Gen9 only. Tests run it over the
+  box's real GOP registers and EDID, check every write is inside the grant and
+  every read inside the HD 620 allowlist, and soak 1000 enable/disable cycles
+  against an ordering fake. The bit layouts are from memory of i915 and
+  **to confirm** on the box.
+- `gpud`: `bar.rs` is a gated BAR (read-only until `grant_audio_writes`, then
+  only `audio::may_write`); `audio.rs` runs the sequence when the service has
+  `audio=1` (`LAZYOS_GPUD_ARGS`, `run_demo.py --gpud-audio`, the launcher's
+  Drivers group) and prints `GPU:AUDIO:PASS|SKIP:<why>|FAIL`. `GPU:DONE` now
+  counts `writes`. No boot-pending flag: G2 writes no pipe, transcoder or
+  clock register.
+- `sndd`: prints one `SNDD:WIDGET` line per codec widget (type, caps,
+  connections, pin config) before choosing a path, to settle boot-1's "pin 3"
+  against Linux's pins 5 to 7.
+
+Open, in order: (1) the **EDID source**: `audio=1` needs `edid=<path>` (an
+`--assets` file) because no DDC reader exists; GMBUS is the real fix and is a
+second write-gated block. (2) **`N` follows the stream's rate**: only 48 kHz is
+programmed, so a 32 or 44.1 kHz stream is wrong until `sndd` tells `gpud` the
+rate (the `system/display/<n>/audio` topic). (3) the box run: read the audio
+registers, `--gpud-audio`, read `SNDD:WIDGET` and `GPU:AUDIO`, record the
+monitor's output.
+
