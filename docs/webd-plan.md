@@ -306,8 +306,8 @@ Shared: one UI process, one NetworkProcess, the HTTP cache and DNS/TLS state, fo
 compiled ad-block store and its updater, one crash handler/heartbeat/shutdown path, the WebProcess pool's spare.
 Not shared: cookies, storage, history, web processes across profiles, JS heaps.
 Arithmetic (*est.*, 107 MiB per process): two browsers today = 2 x (UI + net + web) = 642 MiB; with webd and
-**views of one group (an owner's windows of one profile) on one web process** = UI + net + web = 321 MiB for any
-number of windows of that browser; add Mail's ephemeral group = +107 MiB (its own web process, shared by every
+**views of one group (an owner's windows of one profile) on one web process** = UI + net + web = 321 MiB while
+the group lives on its first process (measured: two views, and a third joining after the first closed, `webkit-views group`); add Mail's ephemeral group = +107 MiB (its own web process, shared by every
 Mail pane). **Without grouping** each view is +107 MiB (measured: `webkit-views share`), so grouping is what makes
 the arithmetic true. A lone browser is not cheaper than today (+ the daemon's own thread and a hop); the gain
 starts at the second consumer and at the second browser window. Three further levers cut the 107 MiB itself:
@@ -351,10 +351,21 @@ browser moves onto webd**.
   of its group uses it.
 * **Related pages share a WebProcess** (`ViewConfig::group`; `WKPageConfigurationSetRelatedPage`, which also
   needs the group's one data store): `webkit-views group` and `groupprof` launch one web process for two views,
-  destroying one leaves the process to the other, four runs of all eight modes in a row. This is the lever that
-  keeps a second window, or a second Mail pane, from costing 107 MiB. Not measured yet: a group's memory after
-  many navigations (one process now holds every page's heap), and process-swap on cross-site navigation, which
-  would give such a page a new process of its own.
+  destroying one leaves the process to the other (the closed page is unloaded to `about:blank`: it must not keep
+  running in the process the others use), and a view that joins after the first member is gone finds a live
+  one. Different profiles under one group number do not share (`groupmix`).
+  **A group's process cannot be recovered in place.** The sharing is made when the page is made, not when its
+  process starts: ending the process (a hang the owner recovers, or a crash) and reloading its pages launches a
+  process per view (measured: two views, 1 launch, recover, 3 launches), and in most runs it aborted the UI
+  process (`WebPageProxy::launchProcess` -> `WebProcessProxy::removeWebPage` -> `updateMediaStreamingActivity`: a
+  run-loop timer with a CheckedPtr to a dead object, the family of patches `0021` and `0027`; reloading one at a
+  time did not help). So `recover` on a process other views use is refused (`WEBPROCESS:RECOVER:SHARED`), and
+  webd recovers a group by **destroying its views and making new ones**: the last destroyed view ends the
+  process, a new view of the group starts exactly one (`group` proves it: 2 launches in all). A real crash of a
+  shared process still reaches every view as `crashed`, and a reload of each starts a process each: webd's
+  answer is the same (recreate), and P5 measures how often it happens. Not measured yet: a group's memory after
+  many navigations (one process holds every page's heap). Process swapping on navigation is off for the whole
+  context (`engine.cpp`), so a cross-site navigation does not split a group.
 * **A WebPageProxy cannot be destroyed on this port.** `webkit-views two` aborted the UI process one run in three
   after the first view was released (a CheckedPtr to a dead run-loop timer inside `didReachLayoutMilestone`; the
   family of patches `0021` and `0027`); `WKPageClose` first made it worse; ending the page's process and parking
@@ -497,6 +508,6 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
 | 6 | Notification identity | webd posts the toast under its own name with the site host as title | the shell grows `on_behalf_of` |
-| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
+| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

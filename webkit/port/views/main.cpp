@@ -7,8 +7,12 @@
 //   webkit-views twoeph  two views at once, neither with a profile directory
 //   webkit-views share   two views of the same profile directory; the first is destroyed, the second goes on
 //   webkit-views group      two views of one group and no profile: ONE web process; the first is destroyed and
-//                           the second, still on that process, goes on
-//   webkit-views groupprof  the same with a profile directory
+//                           the second, still on that process, goes on; a third joins the group after the first
+//                           is gone (still one process); recover on a shared process is refused (nothing
+//                           happens to the views); the owner then destroys the views (the last one ends the
+//                           process) and a new view of the group gets a process of its own again
+//   webkit-views groupprof  the same two views with a profile directory
+//   webkit-views groupmix   the same group number but different profiles: two web processes (not shared)
 //   webkit-views cycle   twelve views made, shown and destroyed one after the other
 //   webkit-views rush    twelve views made and destroyed at once, before their pages are up
 // The first view of the pairs has every feature (the clients of a full browser view), the second none.
@@ -147,6 +151,7 @@ public:
         finished = s.finished;
         error = s.error;
         crashed = s.crashed;
+        crashedEver = crashedEver || s.crashed; // a fast reload must not hide a crash from the 100 ms tick
     }
     int paintPlan(int*, int*, int, int* count) override
     {
@@ -165,6 +170,7 @@ public:
     std::string error;
     int finished { 0 };
     bool crashed { false };
+    bool crashedEver { false };
     int frames { 0 };
     int updates { 0 }; // updates from the page's process that reached this view (paint.cpp, viewOfPage)
     char last { '?' };
@@ -192,8 +198,10 @@ std::string page(const char* title, const char* colour)
 }
 
 Env env;
-Probe first("A"), second("B");
-int firstId = 0, secondId = 0;
+Probe first("A"), second("B"), third("C"), fourth("D");
+int firstId = 0, secondId = 0, thirdId = 0, fourthId = 0;
+bool extended = false; // group: a third view joins, recover is refused, the group is rebuilt
+bool mixed = false; // the same group number, different profiles
 bool bothViews = false;
 int phase = 0;
 long started = 0, phaseStarted = 0;
@@ -253,7 +261,7 @@ void step(void*)
         finish("FAIL", detail);
         return;
     }
-    if (first.crashed || second.crashed) {
+    if (first.crashedEver || second.crashedEver || third.crashedEver || fourth.crashedEver) {
         finish("FAIL", "a page's process crashed");
         return;
     }
@@ -304,6 +312,10 @@ void step(void*)
                 finish("FAIL", "the views of a group did not share one web process");
                 return;
             }
+            if (mixed && launches.web < 2) {
+                finish("FAIL", "views of one group number but two profiles shared a web process");
+                return;
+            }
             if (!grouped && bothViews && launches.web < 2) {
                 finish("FAIL", "two views of no group shared a web process");
                 return;
@@ -334,8 +346,9 @@ void step(void*)
     }
     if (phase == 1 && second.finished >= 2 && second.title == "Gamma" && second.last == 'g') {
         // A's WebProcess ended with its view (its view was the only one that used it).
-        if (grouped && launches.webExits != 0) {
-            // The process stays: the second view is on it.
+        if (grouped && (launches.webExits != 0 || launches.web != 1)) {
+            // The process stays: the second view is on it (a launch counts when it starts, a new one
+            // would have been counted by now).
             finish("FAIL", "destroying one view of a group ended the process the other one uses");
             return;
         }
@@ -345,7 +358,72 @@ void step(void*)
             return;
         }
         printf("VIEWS:PAGE:B:title=Gamma:colour=green:ms=%ld\n", now - phaseStarted);
+        if (!extended) {
+            finish("PASS", "");
+            return;
+        }
+        // A third view joins the group whose first member is gone: it must find the second.
+        ViewConfig joining;
+        joining.width = 320;
+        joining.height = 200;
+        joining.group = 1;
+        View* made = createView(joining, &third);
+        if (!made) {
+            finish("FAIL", "a view could not join the group");
+            return;
+        }
+        thirdId = made->id;
+        made->load(page("Delta", "red"));
+        phase = 3;
+        phaseStarted = now;
+        return;
+    }
+    if (phase == 3 && shows(third, "Delta", 'r')) {
+        if (launches.web != 1) {
+            finish("FAIL", "a view that joined the group started a web process of its own");
+            return;
+        }
+        printf("VIEWS:PAGE:C:title=Delta:colour=red:ms=%ld\n", now - phaseStarted);
+        // The owner asks to recover the second view: refused, the process is shared; it is a no-op.
+        viewById(secondId)->recover(true);
+        // It recovers the group the way the engine allows: destroy the views (the last one ends the
+        // process), then make a new one.
+        destroyView(secondId);
+        destroyView(thirdId);
+        phase = 4;
+        phaseStarted = now;
+        return;
+    }
+    if (phase == 4 && launches.webExits >= 1) {
+        printf("VIEWS:GROUP:EMPTY:ms=%ld\n", now - phaseStarted);
+        ViewConfig again;
+        again.width = 320;
+        again.height = 200;
+        again.group = 1;
+        View* made = createView(again, &fourth);
+        if (!made) {
+            finish("FAIL", "a view could not rebuild the group");
+            return;
+        }
+        fourthId = made->id;
+        made->load(page("Epsilon", "green"));
+        phase = 5;
+        phaseStarted = now;
+        return;
+    }
+    if (phase == 5 && shows(fourth, "Epsilon", 'g')) {
+        printf("VIEWS:GROUP:REBUILT:web launches=%d\n", launches.web.load());
+        if (launches.web != 2) {
+            finish("FAIL", "the rebuilt group did not start exactly one new web process");
+            return;
+        }
         finish("PASS", "");
+        return;
+    }
+    if (phase >= 3 && now - phaseStarted > 30000) {
+        const char* const why[] = { "the joining view never painted", "the group's process did not end with its last view",
+            "the rebuilt group never painted" };
+        finish("FAIL", why[phase - 3]);
     }
 }
 
@@ -363,11 +441,13 @@ void* ticker(void*)
 int main(int argc, char** argv)
 {
     grouped = argc > 1 && (!strcmp(argv[1], "group") || !strcmp(argv[1], "groupprof"));
+    extended = argc > 1 && !strcmp(argv[1], "group");
+    mixed = argc > 1 && !strcmp(argv[1], "groupmix");
     const bool ephemeralPair = argc > 1 && (!strcmp(argv[1], "twoeph") || !strcmp(argv[1], "group"));
     rush = argc > 1 && !strcmp(argv[1], "rush");
     cycling = rush || (argc > 1 && !strcmp(argv[1], "cycle"));
     sameProfile = argc > 1 && (!strcmp(argv[1], "share") || !strcmp(argv[1], "groupprof"));
-    bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair || sameProfile);
+    bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair || sameProfile || mixed);
     setvbuf(stdout, nullptr, _IOLBF, 0);
     signal(SIGPIPE, SIG_IGN);
     stack_t alternate = { };
@@ -391,7 +471,7 @@ int main(int argc, char** argv)
     if (bothViews) {
         ViewConfig full = lightConfig;
         full.profile = profile;
-        full.group = grouped ? 1 : 0;
+        full.group = grouped || mixed ? 1 : 0;
         // Every client a browser view has: the page UI, dialogs, downloads, policy, notifications and blocking.
         full.features = LZW_FEATURE_PAGE_UI | LZW_FEATURE_DIALOGS | LZW_FEATURE_DOWNLOADS | LZW_FEATURE_POLICY
             | LZW_FEATURE_NOTIFICATIONS | LZW_FEATURE_BLOCKING;
@@ -405,7 +485,7 @@ int main(int argc, char** argv)
     ViewConfig second_config = lightConfig;
     if (sameProfile)
         second_config.profile = profile;
-    second_config.group = grouped ? 1 : 0;
+    second_config.group = grouped || mixed ? 1 : 0;
     View* b = cycling ? nullptr : createView(second_config, &second);
     if (!b && !cycling) {
         printf("VIEWS:FAIL:view B\n");

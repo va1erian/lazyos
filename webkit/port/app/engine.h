@@ -292,7 +292,7 @@ bool startHost(HostEnv* env, const std::string& profileHint = std::string());
 // A page with its own state; null when WebKit refuses. Main thread.
 View* createView(const ViewConfig& config, ViewSink* sink);
 // Ends a page: its clients are cleared, its dialogs and downloads answered, its paint state and bitmaps
-// freed, its WebProcess ended unless another view uses it, and the view is gone for the owner (its id
+// freed, its WebProcess ended unless another view uses it (then the page is unloaded: about:blank), and the view is gone for the owner (its id
 // names nothing). The page proxy itself is parked, never released: WebKit's WebPageProxy aborts the UI
 // process when it is destroyed on this port. What stays per view that ever was: the proxy and, for a view
 // with a store of its own, the store and its session. Main thread.

@@ -9,7 +9,7 @@
 // page says back, and the markers, are in clients.cpp.
 //
 // One WKContext serves every view; a view's data store is its profile directory's, shared by the
-// views of that directory, or a non-persistent store of its own.
+// views of that directory, or a non-persistent store of its own (shared by the views of a group).
 
 #include <WebKit/WKBase.h>
 #include <WebKit/WKContext.h>
@@ -253,17 +253,38 @@ bool startHost(HostEnv* env, const std::string& profileHint)
     return H.context != nullptr;
 }
 
-// A live view the new one joins: the same group and profile directory, with a page.
+// The other live views whose page runs in the same WebProcess as `view`'s (a group's). A crashed view
+// keeps the id of the process that died, which the kernel may give to a new one: it is not counted.
+static std::vector<View*> processMates(const View& view)
+{
+    std::vector<View*> mates;
+    const WKProcessID process = view.page ? WKPageGetProcessIdentifier(view.page) : 0;
+    if (process <= 0)
+        return mates;
+    for (auto& entry : H.views) {
+        View& other = *entry.second;
+        if (other.id != view.id && other.page && !other.crashed && WKPageGetProcessIdentifier(other.page) == process)
+            mates.push_back(&other);
+    }
+    return mates;
+}
+
+// A live view the new one joins: the same group and profile directory, with a page. One whose process
+// runs is preferred: a related page of a dead process would start another one for it.
 static View* groupMate(const ViewConfig& config)
 {
     if (config.group == 0)
         return nullptr;
+    View* any = nullptr;
     for (auto& entry : H.views) {
         View& other = *entry.second;
-        if (other.page && other.config.group == config.group && other.config.profile == config.profile)
+        if (!other.page || other.config.group != config.group || other.config.profile != config.profile)
+            continue;
+        if (!other.crashed && !other.recovering && WKPageGetProcessIdentifier(other.page) > 0)
             return &other;
+        any = any ? any : &other;
     }
-    return nullptr;
+    return any;
 }
 
 View* createView(const ViewConfig& config, ViewSink* sink)
@@ -328,15 +349,15 @@ void destroyView(int id)
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
         // Its process goes with it (107 MB), unless a view that is staying uses it too; the page proxy
-        // stays, hollow (see below).
-        const WKProcessID process = WKPageGetProcessIdentifier(view->page);
-        bool shared = false;
-        for (auto& entry : H.views) {
-            View& other = *entry.second;
-            shared = shared || (other.id != id && other.page && WKPageGetProcessIdentifier(other.page) == process);
-        }
-        if (process > 0 && !shared)
+        // stays, hollow (see below). In a process that stays the page is unloaded instead: it must not
+        // go on running (timers, requests, a busy loop) for nobody, and its heap is given back.
+        if (!processMates(*view).empty()) {
+            WKURLRef blank = WKURLCreateWithUTF8CString("about:blank");
+            WKPageLoadURL(view->page, blank);
+            WKRelease(blank);
+        } else if (WKPageGetProcessIdentifier(view->page) > 0) {
             WKPageTerminate(view->page);
+        }
     }
     releasePaint(*view);
     for (auto it = H.notificationViews.begin(); it != H.notificationViews.end();) {
@@ -348,7 +369,8 @@ void destroyView(int id)
     // Parked, never released: WebKit's WebPageProxy aborts the UI process when it is destroyed on this
     // port (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family
     // of patches 0021 and 0027). A proxy per view that ever was, and the store of a view that had one of
-    // its own; no process, no bitmap, no thread.
+    // its own; no bitmap, no thread, and a process only when a group's other views still use it (the
+    // page itself is blank by then).
     H.parked.push_back(std::move(H.views[id]));
     H.views.erase(id);
 }
@@ -363,6 +385,15 @@ void View::recover(bool reload)
         // No process to end (it is gone already): reload starts one.
         if (reload)
             WKPageReload(page);
+        return;
+    }
+    if (!processMates(*this).empty()) {
+        // Not for a process other views use: ending it and reloading its pages aborted the UI process in
+        // most runs of webkit-views group (WebPageProxy::launchProcess -> WebProcessProxy::removeWebPage ->
+        // updateMediaStreamingActivity, a run-loop timer with a CheckedPtr to a dead object; the family
+        // of patches 0021 and 0027), and a reload splits the group in any case. The owner recovers a group
+        // by destroying its views (the last one ends the process) and making new ones.
+        say("WEBPROCESS:RECOVER:SHARED:%d", static_cast<int>(WKPageGetProcessIdentifier(page)));
         return;
     }
     recovering = true;
