@@ -1,11 +1,13 @@
-//! Links: `readlink`/`readlinkat`, and the calls that would create one
-//! (`link`, `linkat`, `symlink`, `symlinkat`).
+//! Links: `readlink`/`readlinkat`, the hard-link calls `link`/`linkat`, and
+//! the symbolic ones `symlink`/`symlinkat`.
 //!
-//! No LazyOS filesystem stores hard or symbolic links, so the creating calls
-//! answer `EPERM`, which is what Linux reports for a filesystem that cannot
-//! hold them (FAT, for instance): `ln` then prints "Operation not permitted"
-//! rather than "Function not implemented". The only links that exist are the
-//! kernel's own `/proc` ones:
+//! Hard links live on ext2 and the ramfs (issue #871; the rules are
+//! `Vfs::link`'s): a filesystem that cannot hold them (FAT, the copy-up
+//! root, a user-space filesystem) answers `EPERM`, as Linux does, and two
+//! mounts `EXDEV`. No filesystem stores *symbolic* links, so `symlink` and
+//! `symlinkat` answer `EPERM` the same way: `ln -s` then prints "Operation
+//! not permitted" rather than "Function not implemented". The only symbolic
+//! links that exist are the kernel's own `/proc` ones:
 //!
 //! * `/proc/self/exe`: the program the caller runs (the file `execve` loaded);
 //! * `/proc/self/cwd`: the working directory;
@@ -22,9 +24,10 @@ use alloc::string::String;
 use crate::task::{self, Fd};
 use crate::user_ptr;
 
-use super::cwd::{user_path, AT_FDCWD};
+use super::cwd::{read_path, resolve_at, user_path, AT_FDCWD};
 use super::errno::{err, fs_err, EFAULT, EINVAL, ENOENT, EPERM};
 use super::path::{resolve, self_exe};
+use crate::fs::vfs::Id;
 
 /// `readlink(path, buf, size)`.
 pub(super) fn sys_readlink(path: u64, buf: u64, size: u64) -> u64 {
@@ -110,26 +113,58 @@ fn fd_tag(entry: &Fd) -> u64 {
     (address >> 4) & 0xff_ffff
 }
 
-/// `link(old, new)` / `linkat(...)` / `symlink(target, path)` /
-/// `symlinkat(...)`: no filesystem here stores links. The paths are still
-/// validated first so a bad pointer is `EFAULT`, as on Linux.
-pub(super) fn sys_make_link(first: u64, second_dirfd: u64, second: u64) -> u64 {
-    if user_ptr::try_cstr(first, 4096).is_err() {
+/// `symlink(target, path)` / `symlinkat(target, dirfd, path)`: no
+/// filesystem here stores symbolic links. The paths are still validated
+/// first so a bad pointer is `EFAULT`, as on Linux.
+pub(super) fn sys_symlink(target: u64, dirfd: u64, path: u64) -> u64 {
+    if user_ptr::try_cstr(target, 4096).is_err() {
         return err(EFAULT);
     }
-    match user_path(second_dirfd, second) {
+    match user_path(dirfd, path) {
         Ok(_) => err(EPERM),
         Err(code) => code,
     }
 }
 
-/// `linkat(olddirfd, old, newdirfd, new, flags)`.
-pub(super) fn sys_linkat(old_dirfd: u64, old: u64, new_dirfd: u64, new: u64) -> u64 {
-    if let Err(code) = user_path(old_dirfd, old) {
-        return code;
+/// `linkat`: follow a symbolic link in the old path. There are none (the
+/// `/proc` ones name no file a link could be made to), so it changes nothing.
+const AT_SYMLINK_FOLLOW: u64 = 0x400;
+/// `linkat`: link the file `olddirfd` refers to. Linux allows it only with
+/// `CAP_DAC_READ_SEARCH` and answers `ENOENT` without it; here it is
+/// answered `ENOENT` always: a descriptor's file is reached by its name, and
+/// an unlinked-while-open file (the use the flag exists for, with
+/// `O_TMPFILE`) must not get a name back.
+const AT_EMPTY_PATH: u64 = 0x1000;
+
+/// `link(old, new)`.
+pub(super) fn sys_link(old: u64, new: u64) -> u64 {
+    sys_linkat(AT_FDCWD, old, AT_FDCWD, new, 0)
+}
+
+/// `linkat(olddirfd, old, newdirfd, new, flags)`: a further name for a
+/// regular file.
+pub(super) fn sys_linkat(old_dirfd: u64, old: u64, new_dirfd: u64, new: u64, flags: u64) -> u64 {
+    if flags & !(AT_SYMLINK_FOLLOW | AT_EMPTY_PATH) != 0 {
+        return err(EINVAL);
     }
-    match user_path(new_dirfd, new) {
-        Ok(_) => err(EPERM),
-        Err(code) => code,
+    let raw = match read_path(old) {
+        Ok(raw) => raw,
+        Err(code) => return code,
+    };
+    let new = match user_path(new_dirfd, new) {
+        Ok(new) => new,
+        Err(code) => return code,
+    };
+    // An empty old path names nothing, with `AT_EMPTY_PATH` or without it.
+    if raw.is_empty() {
+        return err(ENOENT);
+    }
+    let old = match resolve_at(old_dirfd, &raw) {
+        Ok(old) => old,
+        Err(code) => return code,
+    };
+    match crate::fs::abi_link(Id::current(), &old, &new) {
+        Ok(()) => 0,
+        Err(error) => fs_err(error),
     }
 }
