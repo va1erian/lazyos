@@ -23,7 +23,8 @@ pub enum AttachError {
 
 struct Slot<M> {
     memory: M,
-    /// What the attach declared, for the client's memory quota.
+    /// What the slot counts for in the client's memory quota: the size the kernel mapped, not what
+    /// the client declared.
     bytes: u64,
     busy: bool,
 }
@@ -94,12 +95,15 @@ impl<M> Slots<M> {
         self.slots.iter_mut().for_each(|slot| *slot = None);
     }
 
-    /// Bytes the attached slots declared.
+    /// Bytes the attached slots are charged.
     pub fn bytes(&self) -> u64 {
-        self.slots.iter().flatten().map(|slot| slot.bytes).sum()
+        self.slots
+            .iter()
+            .flatten()
+            .fold(0, |sum, slot| sum.saturating_add(slot.bytes))
     }
 
-    /// Bytes the slot `index` declared, 0 when none.
+    /// Bytes the slot `index` is charged, 0 when none.
     pub fn bytes_of(&self, index: usize) -> u64 {
         match self.slots.get(index) {
             Some(Some(slot)) => slot.bytes,

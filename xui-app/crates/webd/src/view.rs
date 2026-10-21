@@ -141,8 +141,7 @@ impl Views {
         self.map
             .values()
             .filter(|view| view.owner == client)
-            .map(|view| view.slots.bytes())
-            .sum()
+            .fold(0, |sum, view| sum.saturating_add(view.slots.bytes()))
     }
 }
 
@@ -199,6 +198,9 @@ mod tests {
     struct Null;
     impl Mapping for Null {
         fn capacity(&self) -> usize {
+            0
+        }
+        fn mapped_bytes(&self) -> u64 {
             0
         }
         fn write(&mut self, _bytes: &[u8]) {}

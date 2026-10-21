@@ -15,8 +15,8 @@ pub const PIXELS_MAX: u64 = 16 << 20;
 /// Slots a view may have attached: the client keeps one on screen, one being painted, one spare.
 pub const SLOTS_PER_VIEW: usize = 3;
 
-/// Bytes of attached slot memory one client may hold across all its views (what each `AttachSlot`
-/// declares). Eight 1080p views with three slots each are 199 MB; a 4K view with three is 100 MB.
+/// Bytes of attached slot memory one client may hold across all its views: the whole size of each
+/// attached buffer as the kernel maps it, whatever range `AttachSlot` declares of it. Eight 1080p views with three slots each are 199 MB; a 4K view with three is 100 MB.
 pub const SLOT_BYTES_PER_CLIENT: u64 = 512 << 20;
 
 /// The `html` of a `LoadHtml`, at most (the range of the buffer).
