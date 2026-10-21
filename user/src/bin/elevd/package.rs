@@ -94,6 +94,15 @@ pub(crate) fn is_developer_tool(info: &PackageInfo) -> bool {
     })
 }
 
+/// Whether the inspection names the package as the user's shell tool: the
+/// second `kind` row (`pkgstore::explain::tool`).
+pub(crate) fn is_shell_tool(info: &PackageInfo) -> bool {
+    info.permissions.iter().any(|permission| {
+        permission.kind == pkgstore::explain::tool::KIND_ROW
+            && permission.value == pkgstore::explain::tool::SHELL_ROW_VALUE
+    })
+}
+
 /// `path` normalised, if the asker could install from it themselves.
 fn source(path: &str, caller: Caller, asker: Option<&User>) -> Result<String, Refusal> {
     let asker_caller = access::Caller {
@@ -134,7 +143,8 @@ fn inspect(path: &str, kind: Install) -> Result<Approved, Refusal> {
     // developer tool with `pkg.install-devtool`, but neither turns a core
     // app into a tool nor a tool into an app (`pkgd` decides again).
     if let Some(row) = core {
-        toolgate::core_class_change(toolgate::is_tool_kind(&row.kind), tool)
+        let shell = is_shell_tool(&info);
+        toolgate::core_class_change(toolgate::is_tool_kind(&row.kind), tool, row.shell, shell)
             .map_err(|why| Refusal::new(errno::EPERM, why))?;
     }
     // `pkg.update-core` names the replacement of a core app; so does

@@ -118,8 +118,9 @@ fn confirm_rows(power: Power) -> [Row; POWER_ROWS] {
 
 impl Menu {
     /// Choose row `index`. `repeat` is the second press of a double click:
-    /// it never confirms, so a double click on "Restart..." does not stop the
-    /// machine through the row that appeared under the pointer.
+    /// it never confirms (or cancels), so a double click on "Restart..." does
+    /// not stop the machine through the row that appeared under the pointer,
+    /// and one on "Shut down..." does not close the menu through "Cancel".
     pub fn choose(&mut self, index: usize, repeat: bool) -> Choice {
         let Some(row) = self.rows.get(index).filter(|row| row.enabled) else {
             return Choice::Nothing;
@@ -130,7 +131,7 @@ impl Menu {
                 self.set_power_rows(confirm_rows(power));
                 Choice::Confirming(power)
             }
-            Action::Confirm(_) if repeat => Choice::Nothing,
+            Action::Confirm(_) | Action::Cancel if repeat => Choice::Nothing,
             Action::Confirm(power) => {
                 // A refused logout leaves the desktop running: the next open
                 // must show the first step again, not a stale confirmation.

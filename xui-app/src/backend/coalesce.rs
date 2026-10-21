@@ -11,8 +11,15 @@
 //! move, release is intact. Wheel rolls are never merged: `xui`'s widgets
 //! scroll one step per `MouseWheel` event whatever its delta (a summed roll
 //! would lose notches), and a step is cheap.
+//!
+//! Only a stock widget holding the capture gets this (a scroll bar's thumb, a
+//! splitter: they work from the last position). A self-painted node
+//! (`NodeKind::Custom`) that captured the pointer sees every move: Paint's
+//! brush and pencil join the points of a stroke, a selection or a terminal
+//! mouse report counts them, and a chord instead of the path would show. With
+//! no capture the pointer is only hovering and every move is delivered.
 
-use xui_core::backend::WindowId;
+use xui_core::backend::{NodeKind, WindowId};
 
 use crate::display::Event as DisplayEvent;
 
@@ -34,10 +41,26 @@ fn merged(held: DisplayEvent, next: DisplayEvent) -> Option<DisplayEvent> {
     }
 }
 
+impl LazyOSBackend {
+    /// Whether a pointer move may be held back for a later one: only while a
+    /// stock (not self-painted) node holds the capture.
+    fn coalesces_moves(&self) -> bool {
+        let Some(captured) = self.captured.get() else {
+            return false;
+        };
+        self.nodes
+            .borrow()
+            .iter()
+            .find(|(id, _)| *id == captured)
+            .is_some_and(|(_, node)| node.kind != NodeKind::Custom)
+    }
+}
+
 impl Coalescer {
-    /// Route `event`, holding it back when it is a move.
+    /// Route `event`, holding it back when it is a move that may be merged.
     pub(super) fn push(&mut self, backend: &LazyOSBackend, window: WindowId, event: DisplayEvent) {
-        let holdable = matches!(event, DisplayEvent::PointerMove { .. });
+        let holdable =
+            matches!(event, DisplayEvent::PointerMove { .. }) && backend.coalesces_moves();
         if let Some(held) = self.held.take() {
             match merged(held, event) {
                 Some(both) => {
@@ -106,7 +129,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use xui_core::backend::{Event, NodeKind, ParentRef, WidgetId};
+    use xui_core::backend::{Backend, Event, NodeKind, ParentRef, WidgetId};
     use xui_core::router::WidgetHost;
     use xui_core::Rect;
 
@@ -123,6 +146,14 @@ mod tests {
             self.0.borrow_mut().push(*event);
             true
         }
+    }
+
+    /// A rig whose one node holds the capture, as a `kind` node.
+    fn captured_rig(kind: NodeKind) -> (LazyOSBackend, Rc<Log>) {
+        let (backend, log) = rig();
+        backend.nodes.borrow_mut()[0].1.kind = kind;
+        backend.set_capture(WidgetId::from_raw(1));
+        (backend, log)
     }
 
     fn rig() -> (LazyOSBackend, Rc<Log>) {
@@ -168,7 +199,8 @@ mod tests {
 
     #[test]
     fn a_batch_keeps_the_order_and_loses_only_the_moves_in_between() {
-        let (backend, log) = rig();
+        // A scroll bar's thumb drag: a stock node holds the capture.
+        let (backend, log) = captured_rig(NodeKind::Container);
         let mut held = Coalescer::default();
         let down = DisplayEvent::PointerDown {
             x: 10,
@@ -192,7 +224,7 @@ mod tests {
 
     #[test]
     fn a_soak_of_moves_and_rolls_delivers_the_last_move_and_every_roll() {
-        let (backend, log) = rig();
+        let (backend, log) = captured_rig(NodeKind::Container);
         let mut held = Coalescer::default();
         for round in 0..10_000 {
             held.push(&backend, W, mv(round % 200, 7));
@@ -208,5 +240,55 @@ mod tests {
         assert!(kinds[1..].iter().all(|k| *k == "wheel"));
         let events = log.0.borrow();
         assert!(matches!(events[0], Event::MouseMove { x: 199, y: 7, .. }));
+    }
+
+    #[test]
+    fn a_self_painted_node_that_holds_the_capture_sees_every_move() {
+        // Paint's brush: a stroke is the path of the moves, not their chord.
+        let (backend, log) = captured_rig(NodeKind::Custom);
+        let mut held = Coalescer::default();
+        for step in 0..50 {
+            held.push(&backend, W, mv(step, step * 2));
+        }
+        held.flush(&backend, W);
+        let events = log.0.borrow();
+        assert_eq!(events.len(), 50);
+        for (step, event) in events.iter().enumerate() {
+            let step = step as i32;
+            assert!(matches!(event, Event::MouseMove { x, y, .. } if *x == step && *y == step * 2));
+        }
+    }
+
+    #[test]
+    fn without_a_capture_every_move_is_delivered() {
+        let (backend, log) = rig();
+        let mut held = Coalescer::default();
+        for step in 0..20 {
+            held.push(&backend, W, mv(step, 3));
+        }
+        held.flush(&backend, W);
+        assert_eq!(kinds(&log).len(), 20);
+    }
+
+    #[test]
+    fn a_capture_ending_while_a_move_is_held_still_delivers_the_last_one() {
+        let (backend, log) = captured_rig(NodeKind::Container);
+        let mut held = Coalescer::default();
+        held.push(&backend, W, mv(1, 1));
+        held.push(&backend, W, mv(2, 2));
+        backend.release_capture();
+        // The held move merges with the next one; nothing is lost or reordered.
+        held.push(&backend, W, mv(3, 3));
+        held.flush(&backend, W);
+        let moves: Vec<(i32, i32)> = log
+            .0
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                Event::MouseMove { x, y, .. } => Some((*x, *y)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(moves, [(3, 3)]);
     }
 }

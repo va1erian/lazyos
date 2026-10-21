@@ -73,23 +73,37 @@ pub fn summary(facts: &Facts) -> String {
 
 /// What a tool's package may take of the characters after the warning:
 /// the app's name, its version and its `system_name`. Together with the
-/// warning, the fixed words of the install line and its full stop they fill
-/// [`crate::MAX_SUMMARY`] exactly, so the install line never needs the
-/// warning trimmed.
-const TOOL_NAME_SHOWN: usize = 22;
+/// warning, the fixed words of the install line (the longest verb, "shell
+/// tool", the quotes and brackets) and its full stop they fill
+/// [`crate::MAX_SUMMARY`] exactly, so the install line is trimmed and the
+/// warning never is (`devtool_tests` pins the room).
+const TOOL_NAME_SHOWN: usize = 20;
 const TOOL_VERSION_SHOWN: usize = 8;
-const TOOL_SYSTEM_SHOWN: usize = 22;
+const TOOL_SYSTEM_SHOWN: usize = 20;
 /// `; author "` and `".` around the author's name.
 const AUTHOR_FRAME: usize = 12;
 /// The shortest author name worth showing (an ellipsis alone says nothing).
 const AUTHOR_MIN: usize = 8;
+/// The `kind` of the inspection row that carries the class, and the one of
+/// its values that says the tool is the user's shell (`pkgstore::explain::tool`).
+const KIND_ROW: &str = "kind";
+
+/// Whether the inspection's rows name the tool as the user's shell: a second
+/// `kind` row, beside the one that names the class.
+fn is_shell(permissions: &[Permission]) -> bool {
+    permissions
+        .iter()
+        .any(|row| row.kind == KIND_ROW && row.value == devtool::SHELL_ROW_VALUE)
+}
 
 /// The prompt's summary of installing a developer tool: the warning first,
 /// then which package (`Update` for a core developer tool it replaces, else
-/// `Install`), and that it is installed for all users (the stored row
-/// is machine-wide, and its autostart opens in every session). The author
-/// (unverified) follows when it still fits; the warning is never trimmed.
-/// At most [`crate::MAX_SUMMARY`] characters.
+/// `Install`; a shell tool is called one, because it is judged as the user
+/// and drops the credential denies), and that it is installed for all users
+/// (the stored row is machine-wide, and its autostart opens in every
+/// session). The author (unverified) follows when it still fits; the warning
+/// is never trimmed, the install line is. At most [`crate::MAX_SUMMARY`]
+/// characters.
 pub fn tool_summary(facts: &Facts) -> String {
     // An update of a core developer tool (`replaces`) says so in one word.
     let verb = if facts.replaces.is_some() {
@@ -97,8 +111,13 @@ pub fn tool_summary(facts: &Facts) -> String {
     } else {
         "Install"
     };
+    let shell = if is_shell(&facts.permissions) {
+        " shell tool"
+    } else {
+        ""
+    };
     let line = format!(
-        "{} {verb} \"{}\" {} ({}) for all users",
+        "{} {verb}{shell} \"{}\" {} ({}) for all users",
         devtool::CONSENT_TEXT,
         elide(&facts.name, TOOL_NAME_SHOWN),
         elide(&facts.version, TOOL_VERSION_SHOWN),

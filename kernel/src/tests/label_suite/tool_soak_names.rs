@@ -16,7 +16,12 @@ const NAME_CYCLES: usize = 2500;
 /// One cycle for pair `k`: tool task `k` and app task `k`, registrations,
 /// resolves and topic authorizations that must be allowed or refused, with a
 /// peer tool and peer app interleaved.
-fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) -> Result<(), String> {
+fn name_cycle(
+    index: usize,
+    tools: &[usize],
+    apps: &[usize],
+    denials: &mut u64,
+) -> Result<(), String> {
     let k = index % PAIRS;
     let (tool, app) = (tools[k], apps[k]);
     let (peer_tool, peer_app) = (tools[(k + 1) % PAIRS], apps[(k + 1) % PAIRS]);
@@ -49,7 +54,10 @@ fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) 
         close_pair(pair);
         Ok(code)
     })?;
-    check!(code == failed(EACCES), "cycle {index}: an app took a free name");
+    check!(
+        code == failed(EACCES),
+        "cycle {index}: an app took a free name"
+    );
     *denials += 1;
     for reserved in [
         format!("os.lazy.soak{k}"),
@@ -74,7 +82,10 @@ fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) 
         close_pair(pair);
         Ok(code)
     })?;
-    check!(code == 0, "cycle {index}: an app lost its namespace -> {code:#x}");
+    check!(
+        code == 0,
+        "cycle {index}: an app lost its namespace -> {code:#x}"
+    );
     check!(
         in_task(app, &|| unregister_current(&own))? == 0,
         "cycle {index}: app unregister"
@@ -82,7 +93,8 @@ fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) 
 
     // Topics.
     let (publish, subscribe) = (topics::MODE_PUBLISH, topics::MODE_SUBSCRIBE);
-    let allowed = |slot, mode, topic: &str| topics::authorize(slot, mode, topic, index as u64).is_ok();
+    let allowed =
+        |slot, mode, topic: &str| topics::authorize(slot, mode, topic, index as u64).is_ok();
     check!(
         allowed(tool, publish, &format!("soak/tool{k}/x"))
             && allowed(tool, subscribe, "system/events/#")
@@ -119,7 +131,10 @@ fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) 
         );
         acl::load_label(peer_id, &[]).map_err(|e| format!("{e:?}"))?;
         let code = in_task(peer_tool, &|| resolve_current(&name))?;
-        check!(code == failed(EACCES), "cycle {index}: a revoked peer resolved");
+        check!(
+            code == failed(EACCES),
+            "cycle {index}: a revoked peer resolved"
+        );
         *denials += 1;
         check!(
             allowed(tool, publish, &format!("app/soak.tool{k}/own")),
@@ -135,7 +150,10 @@ fn name_cycle(index: usize, tools: &[usize], apps: &[usize], denials: &mut u64) 
         in_task(tool, &|| unregister_current(&name))? == 0,
         "cycle {index}: tool unregister"
     );
-    check!(registry::list().is_empty(), "cycle {index}: name left behind");
+    check!(
+        registry::list().is_empty(),
+        "cycle {index}: name left behind"
+    );
     for slot in [tool, app, peer_tool, peer_app] {
         drain(slot)?;
     }
@@ -156,7 +174,10 @@ fn tool_exits_mid_registration(index: usize) -> Result<(), String> {
         registry::list().is_empty(),
         "exit cycle {index}: a dead tool's name survived"
     );
-    check!(task::reap_child().is_some(), "exit cycle {index}: not reapable");
+    check!(
+        task::reap_child().is_some(),
+        "exit cycle {index}: not reapable"
+    );
     check!(
         handles::count_for_task(child) == 0,
         "exit cycle {index}: the dead task kept handles"

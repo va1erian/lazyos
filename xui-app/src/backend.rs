@@ -433,4 +433,6 @@ impl LazyOSBackend {
 const ENOENT: i64 = 2;
 
 #[cfg(test)]
+mod power_click;
+#[cfg(test)]
 mod test_support;

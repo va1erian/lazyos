@@ -28,6 +28,9 @@ use crate::{Class, APPROVAL_TICKS};
 
 /// Most approvals held at once.
 pub const MAX_APPROVALS: usize = 16;
+/// Most label kinds remembered ([`LabelKinds`]): the kernel's label table
+/// holds 256, and an id is never reused within a boot.
+pub const MAX_LABEL_KINDS: usize = 256;
 
 /// The kernel-stamped identity an approval is bound to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +73,44 @@ impl LabelKind {
     }
 }
 
+/// What `elevd` has learned about label ids. `pkgd` is asked to name a label
+/// (a blocking call, `elevd` being single-threaded), and a label id keeps its
+/// name for the whole boot (the kernel never reuses one), so the answer is
+/// asked for once: a labelled app cannot make `elevd` call `pkgd` again and
+/// again, and a wedged `pkgd` stalls at most the first request of each label.
+/// Only a name that was read is remembered ([`LabelKind::Unknown`] is not: it
+/// may be a hiccup).
+#[derive(Clone, Debug, Default)]
+pub struct LabelKinds {
+    known: Vec<(u32, LabelKind)>,
+}
+
+impl LabelKinds {
+    pub fn new() -> LabelKinds {
+        LabelKinds::default()
+    }
+
+    /// The remembered kind of `label_id`.
+    pub fn get(&self, label_id: u32) -> Option<LabelKind> {
+        self.known
+            .iter()
+            .find(|(id, _)| *id == label_id)
+            .map(|(_, kind)| *kind)
+    }
+
+    /// Remember `kind` for `label_id`, unless it is [`LabelKind::Unknown`].
+    /// The table is bounded; the oldest entry goes first.
+    pub fn put(&mut self, label_id: u32, kind: LabelKind) {
+        if kind == LabelKind::Unknown || self.get(label_id).is_some() {
+            return;
+        }
+        if self.known.len() >= MAX_LABEL_KINDS {
+            self.known.remove(0);
+        }
+        self.known.push((label_id, kind));
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Approval {
     caller: Caller,
@@ -85,6 +126,15 @@ pub struct Approvals {
 impl Approvals {
     pub fn new() -> Approvals {
         Approvals::default()
+    }
+
+    /// Whether `caller` has an approval at all at `now`, of whatever class:
+    /// the question to ask before the (blocking) lookup of its label's kind
+    /// that [`Approvals::covers`] needs.
+    pub fn holds(&self, caller: Caller, now: u64) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.caller == caller && now < entry.until)
     }
 
     /// Whether `caller` (whose label is of `kind`) holds a live approval for an

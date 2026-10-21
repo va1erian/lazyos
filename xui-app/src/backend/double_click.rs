@@ -14,7 +14,7 @@
 //! pair consumes the sequence, so a third quick press is a fresh first press.
 //! Modifiers are deliberately not part of the pairing, matching Win32.
 
-use xui_core::backend::{Event, WidgetId, WindowId};
+use xui_core::backend::{Event, NodeKind, WidgetId, WindowId};
 use xui_core::{Modifiers, MouseButton};
 
 /// Default double-click interval in PIT ticks (100 Hz): 500 ms.
@@ -27,39 +27,48 @@ pub(super) const DOUBLE_CLICK_DISTANCE: i32 = 4;
 pub(super) enum PressKind {
     /// A plain press: the caller delivers [`Event::MouseDown`].
     Down,
-    /// The second press of a double-click: the caller delivers the plain
-    /// [`Event::MouseDown`] and then [`Event::MouseDoubleClick`] (GTK's order).
-    ///
-    /// Win32 puts the double-click *in place of* the second press, which only
-    /// works there because a native button or scroll bar treats
-    /// `WM_*BUTTONDBLCLK` as a press. `xui-core`'s `ScrollBar` and `Button`
-    /// look at `MouseDown` alone, so with a replacement the second press of
-    /// a quick pair never grabbed a scroll thumb or clicked a button. The
-    /// widgets that do read the double-click (`Edit`, the list, tree and icon
-    /// views, the editors) tolerate the press before it.
+    /// The second press of a double-click: the caller delivers
+    /// [`Event::MouseDoubleClick`] *in place of* the press (Win32's order),
+    /// except to a node [`reads_down_only`] names.
     DoubleClick,
 }
 
-impl PressKind {
-    /// The plain press a double-click delivers before its
-    /// [`Event::MouseDoubleClick`]; `None` for an ordinary press.
-    pub(super) fn press_event(
-        self,
-        x: i32,
-        y: i32,
-        button: MouseButton,
-        modifiers: Modifiers,
-    ) -> Option<Event> {
-        (self == PressKind::DoubleClick).then_some(Event::MouseDown {
-            x,
-            y,
-            button,
-            modifiers,
-        })
-    }
+/// Whether a stock node of `kind` is driven by [`Event::MouseDown`] alone, so
+/// the second press of a quick pair must reach it as a plain press.
+///
+/// Win32 puts the double-click *in place of* the second press, which only
+/// works there because a native button or scroll bar treats
+/// `WM_*BUTTONDBLCLK` as a press. `xui-core`'s `ScrollBar` (the `Container` a
+/// scroll view, list or split owns), `Button`, check box, radio, slider,
+/// number field, combo box, toolbar and tabs never look at
+/// `MouseDoubleClick`, so with a replacement the second press of a quick pair
+/// never grabbed a scroll thumb or clicked a button. They get a plain press.
+///
+/// Every other kind keeps the replacement, and that is not only history: a
+/// self-painted node (`NodeKind::Custom`: the shell menus and taskbar, the
+/// Terminal, Paint, the editors, the browsers) treats a press and a
+/// double-click alike, or has a guard that only the double-click form can
+/// trip (the power menu ignores a repeat press on the row that replaced the
+/// one just clicked), so a press *and* a double-click for one physical press
+/// would act twice. The editable and list kinds read the double-click.
+pub(super) fn reads_down_only(kind: NodeKind) -> bool {
+    matches!(
+        kind,
+        NodeKind::Container
+            | NodeKind::Button
+            | NodeKind::CheckBox
+            | NodeKind::Radio
+            | NodeKind::Slider
+            | NodeKind::NumberField
+            | NodeKind::ComboBox
+            | NodeKind::Toolbar
+            | NodeKind::Tabs
+    )
+}
 
-    /// The event this press delivers last, at `(x, y)` in the widget's client
-    /// coordinates; a double-click is preceded by [`PressKind::press_event`].
+impl PressKind {
+    /// The one event this press delivers, at `(x, y)` in the widget's client
+    /// coordinates.
     pub(super) fn event(self, x: i32, y: i32, button: MouseButton, modifiers: Modifiers) -> Event {
         match self {
             PressKind::Down => Event::MouseDown {

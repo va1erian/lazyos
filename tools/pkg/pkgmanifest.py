@@ -25,11 +25,12 @@ MAX_PROCESSES = 4
 MAX_PROCESS_NAME = 24
 MAX_PROGRAM = 255
 
-# `lazypkg::Category::ALL`, in menu order; the first is the default.
+# `[app] kind`: `application` (the default) or `developer-tool`.
 KINDS = ("application", "developer-tool")
 #: The kind whose permissions are default-allow (`lazypkg`'s `devtool::KIND`,
 #: docs/devtool-packages-plan.md section 2).
 DEVELOPER_TOOL = "developer-tool"
+# `lazypkg::Category::ALL`, in menu order; the first is the default.
 CATEGORIES = ("accessories", "development", "games", "graphics", "internet", "office", "system", "utilities")
 DEFAULT_CATEGORY = CATEGORIES[0]
 

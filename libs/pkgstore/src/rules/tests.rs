@@ -368,8 +368,31 @@ fn declaring_a_power_removes_exactly_its_deny() {
         "network = [\"outbound\"]\ndevelop = true\nfiles = [\"write:$HOME/Documents/*\"]\n",
     );
     let most = compile(&both).unwrap().len();
-    assert_eq!((plain, outbound, most), (plain, plain - 1, plain - 2));
+    // `network` lifts three denies (socket, stack, mount), `develop` one.
+    assert_eq!((plain, outbound, most), (plain, plain - 3, plain - 4));
     assert!(plain <= devtool::DENY.len() + 1 && plain < MAX_RULES);
+}
+
+#[test]
+fn an_upgrade_leaves_a_label_behind_only_when_the_class_changes() {
+    let app = manifest("");
+    let tool = tool_manifest("");
+    // Same class: the new rules replace the old under one label.
+    assert_eq!(label_left_behind("org.lazy.demo", "", &app), None);
+    assert_eq!(
+        label_left_behind("org.lazy.tool", "developer-tool", &tool),
+        None
+    );
+    // Application to tool, and tool to application: the old label is left
+    // behind, and pkgd ends its processes (a process keeps its label).
+    assert_eq!(
+        label_left_behind("org.lazy.tool", "", &tool).as_deref(),
+        Some("app:org.lazy.tool")
+    );
+    assert_eq!(
+        label_left_behind("org.lazy.demo", "developer-tool", &app).as_deref(),
+        Some("tool:org.lazy.demo")
+    );
 }
 
 #[test]

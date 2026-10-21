@@ -112,8 +112,7 @@ impl ThemeFeed {
         let scale = setting.resolve(width, height);
         theme::set_scale(scale);
         sys::write_str(&alloc::format!(
-            "XUID:SCALE:{scale} setting={} screen={width}x{height}
-",
+            "XUID:SCALE:{scale} setting={} screen={width}x{height}\n",
             setting.as_str()
         ));
         scale

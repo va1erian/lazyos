@@ -63,6 +63,10 @@ impl Playground {
         };
         if self.gate.needs_confirmation() {
             self.pending = Some(pending);
+            // Evidence that the card was shown (a count of runs cannot tell
+            // "asked and confirmed" from "never asked").
+            let origin = format!("{:?}", self.gate.provenance()).to_lowercase();
+            trace::line!(Channel::Playground, "REVIEW:ASK:{origin}");
             match review_dialog(ui, self.gate.provenance(), |a| Some(Msg::Reviewed(a))) {
                 Ok(card) => self.review = Some(card),
                 Err(e) => self.note(&format!("review card: {e}")),

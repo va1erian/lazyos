@@ -53,7 +53,7 @@ def rhai_exit(n: int = 1) -> list[str]:
 def frame(extra: list[str], rhais: int) -> list[str]:
     """What every session prints around its own markers."""
     return [
-        "PKGD:POLICY:PASS tool:os.lazy.playground rules=7",
+        "PKGD:POLICY:PASS tool:os.lazy.playground rules=9",
         "PKGD:PROVISION:INSTALL os.lazy.playground ticks=25",
         "PKGD:PROVISION:DONE installed=1 upgraded=0 kept=0 failed=0 free=1",
         "INIT:LAUNCH:PASS app=os.lazy.playground pid=20 session=1",
@@ -87,7 +87,8 @@ def good(name: str) -> str:
                     f"{P}:TOPICS:QUIT:PASS"], 2),
         "elevd": (["XUID:PROMPT:UP", "ELEVD:REQUEST op=service.restart uid=1000 admin=admin outcome=granted",
                    start(1), end(1, "0")], 1),
-        "review": ([start(1), end(1, "0"), start(2), end(2, "0")], 2),
+        "review": ([f"{P}:REVIEW:ASK:clipboard", f"{P}:REVIEW:ASK:clipboard", start(1), end(1, "0"),
+                    start(2), end(2, "0"), f"{P}:REVIEW:ASK:file", f"{P}:REVIEW:ASK:clipboard"], 2),
         "notice": ([f"UI:WIDGET x=1150 y=34 w=18 h=18 name=devtool:strip_dismiss window={j.TITLE}",
                     f"{P}:NOTICE:HIDDEN"], 0),
         "notice_stored": ([f"{P}:NOTICE:HIDDEN:stored", f"{P}:NOTICE:SHOWN"], 0),
@@ -157,7 +158,7 @@ class Defects(unittest.TestCase):
     def test_the_app_must_run_as_a_developer_tool_under_its_label(self):
         text = good("browse")
         self.fails("browse", text.replace("PKGD:LAUNCH:LABEL tool:os.lazy.playground pid=20\n", ""), "tool: label")
-        self.fails("browse", text.replace("PKGD:POLICY:PASS tool:os.lazy.playground rules=7\n", ""), "rules")
+        self.fails("browse", text.replace("PKGD:POLICY:PASS tool:os.lazy.playground rules=9\n", ""), "rules")
         self.fails("browse", text.replace(f"{P}:DEVTOOL:UP\n", ""), "developer tool")
         self.fails("browse", text.replace("name=devtool:strip", "name=other"), "strip")
         self.fails("browse", text.replace(f"name=window:{j.TITLE}", "name=window:Messenger Playground"), "titled")
@@ -223,6 +224,17 @@ class Defects(unittest.TestCase):
         self.fails("review", text.replace(start(1), start(1) + "\n" + start(3), 1), "exactly runs 1 and 2")
         self.fails("review", text.replace(start(1) + "\n" + end(1, "0") + "\n", ""), "exactly runs 1 and 2")
         self.fails("review", text.replace(end(1, "0"), end(1, "1")), "confirmed run")
+
+    def test_the_review_cards_must_be_shown_not_only_the_runs_counted(self):
+        text = good("review")
+        card = f"{P}:REVIEW:ASK:clipboard\n"
+        self.fails("review", text.replace(card, "", 1), "review cards")
+        self.fails("review", text.replace(card, ""), "review cards")
+        self.fails("review", text.replace(f"{P}:REVIEW:ASK:file\n", ""), "review cards")
+        # The deleted-typing case: the last card is the one that proves the gate held.
+        last = text.rindex(card)
+        self.fails("review", text[:last] + text[last + len(card):], "review cards")
+        self.fails("review", text.replace("ASK:file", "ASK:typed"), "review cards")
 
     def test_the_topic_monitor_must_come_up_and_go_before_the_main_window(self):
         text = good("listen")

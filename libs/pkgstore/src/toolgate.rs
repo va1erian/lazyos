@@ -77,15 +77,31 @@ pub fn install(
 /// administrator updates a core developer tool with `pkg.install-devtool`.)
 pub const CORE_CLASS_CHANGE: &str =
     "a core package cannot change between an application and a developer tool";
+/// The refusal of an approved install that would add or drop `shell = true`
+/// on a core developer tool. The shell role keeps the credential denies off
+/// the label and makes `pkgd` and `init` treat what runs under it as the
+/// session's owner; the administrator's prompt names the tool, not that
+/// change, so a core tool without it (the Playground) cannot gain it by an
+/// update, and the Terminal cannot lose it silently either.
+pub const CORE_SHELL_CHANGE: &str =
+    "a core developer tool cannot gain or lose the shell role by an update";
 
 /// Whether an approved install may replace the installed core package:
 /// `was_tool` is the class the installed copy recorded, `is_tool` the new
-/// package's. Both must be the same.
-pub fn core_class_change(was_tool: bool, is_tool: bool) -> Result<(), &'static str> {
-    if was_tool == is_tool {
-        Ok(())
-    } else {
+/// package's, `was_shell` and `is_shell` the shell role of each. Both must
+/// be the same.
+pub fn core_class_change(
+    was_tool: bool,
+    is_tool: bool,
+    was_shell: bool,
+    is_shell: bool,
+) -> Result<(), &'static str> {
+    if was_tool != is_tool {
         Err(CORE_CLASS_CHANGE)
+    } else if was_shell != is_shell {
+        Err(CORE_SHELL_CHANGE)
+    } else {
+        Ok(())
     }
 }
 
@@ -135,6 +151,23 @@ pub fn loadable(
         return Err("a developer tool is loaded only after an administrator approved it");
     }
     Ok(())
+}
+
+/// The whole boot-time decision for an installed row and its stored
+/// manifest, shared by `pkgd`'s reconciliation (which loads the label's
+/// rules) and `init`'s app list (which starts the app under that label): the
+/// class must agree and a tool must be approved ([`loadable`]), and a
+/// manifest that claims the shell role must belong to a package the image
+/// ships ([`crate::shellrole::shell_install`], which also lifts the label's
+/// credential denies). `Ok` means the app may be loaded and started.
+pub fn stored_loadable(
+    row_kind: &str,
+    manifest: &lazypkg::Manifest,
+    machine_wide: bool,
+    core: bool,
+) -> Result<(), &'static str> {
+    loadable(row_kind, manifest.is_developer_tool(), machine_wide, core)
+        .and(crate::shellrole::shell_install(manifest.is_shell(), core))
 }
 
 #[cfg(test)]
@@ -241,14 +274,45 @@ mod tests {
 
     #[test]
     fn a_core_package_keeps_its_class() {
-        assert_eq!(core_class_change(true, true), Ok(()), "a core tool updated");
         assert_eq!(
-            core_class_change(false, false),
+            core_class_change(true, true, false, false),
+            Ok(()),
+            "a core tool updated"
+        );
+        assert_eq!(
+            core_class_change(false, false, false, false),
             Ok(()),
             "a core app updated"
         );
-        assert_eq!(core_class_change(false, true), Err(CORE_CLASS_CHANGE));
-        assert_eq!(core_class_change(true, false), Err(CORE_CLASS_CHANGE));
+        assert_eq!(
+            core_class_change(false, true, false, false),
+            Err(CORE_CLASS_CHANGE)
+        );
+        assert_eq!(
+            core_class_change(true, false, false, false),
+            Err(CORE_CLASS_CHANGE)
+        );
+    }
+
+    #[test]
+    fn a_core_tool_keeps_its_shell_role() {
+        // The Terminal updated by an administrator stays a shell.
+        assert_eq!(core_class_change(true, true, true, true), Ok(()));
+        // The Playground cannot become a shell by an update, nor the Terminal
+        // stop being one: the prompt would not say either.
+        assert_eq!(
+            core_class_change(true, true, false, true),
+            Err(CORE_SHELL_CHANGE)
+        );
+        assert_eq!(
+            core_class_change(true, true, true, false),
+            Err(CORE_SHELL_CHANGE)
+        );
+        // A class change is reported as one, whatever the flag says.
+        assert_eq!(
+            core_class_change(false, true, false, true),
+            Err(CORE_CLASS_CHANGE)
+        );
     }
 
     #[test]
@@ -274,6 +338,41 @@ mod tests {
             let why = loadable(kind, tool, true, true).unwrap_err();
             assert!(why.contains("disagree"), "{why}");
         }
+    }
+
+    #[test]
+    fn a_stored_manifest_is_loaded_only_when_row_class_approval_and_shell_agree() {
+        let text = |app: &str| {
+            alloc::format!(
+                "[app]\nname = \"T\"\nsystem_name = \"org.lazy.tool\"\nauthor = \"A\"\n\
+                 version = \"1.0.0\"\n{app}\n[entry]\nbinary = \"bin/app.elf\"\n"
+            )
+        };
+        let parse = |app: &str| lazypkg::parse_manifest(&text(app)).expect("valid");
+        let app = parse("");
+        let tool = parse("kind = \"developer-tool\"");
+        let shell = parse("kind = \"developer-tool\"\nshell = true");
+        assert_eq!(stored_loadable("", &app, false, false), Ok(()));
+        assert_eq!(stored_loadable(KIND, &tool, true, false), Ok(()));
+        assert_eq!(stored_loadable(KIND, &shell, false, true), Ok(()));
+        // An administrator's tool whose stored manifest was edited to claim the
+        // shell role: refused, so init does not start it under a label pkgd
+        // revoked.
+        assert!(stored_loadable(KIND, &shell, true, false)
+            .unwrap_err()
+            .contains("shell"));
+        // A tool row whose manifest was edited into an application, and the
+        // reverse.
+        assert!(stored_loadable(KIND, &app, true, true)
+            .unwrap_err()
+            .contains("disagree"));
+        assert!(stored_loadable("", &tool, true, true)
+            .unwrap_err()
+            .contains("disagree"));
+        // An unapproved tool.
+        assert!(stored_loadable(KIND, &tool, false, false)
+            .unwrap_err()
+            .contains("administrator"));
     }
 
     #[test]

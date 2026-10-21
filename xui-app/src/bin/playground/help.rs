@@ -37,7 +37,8 @@ pub fn page() -> HelpPage {
         )
         .does(
             RiskKind::Clipboard,
-            "Clipboard methods say they read what you copied. Scripts are never run unreviewed.",
+            "Clipboard methods say they read what you copied. Pasted or loaded text is not run \
+             until you have confirmed it.",
         )
         .does(
             RiskKind::Launch,
@@ -57,7 +58,9 @@ pub fn page() -> HelpPage {
             RiskKind::Script,
             "The warning strip (the x at its right end hides it and View > Show developer-tool \
              notice brings it back; this page keeps the warning either way), the review step \
-             before the first Run of pasted or loaded text, and no automatic runs.",
+             before the first Run of pasted or loaded text, and no automatic runs. The strip is a \
+             courtesy, not a lock: a script you run can write the file that hides it, so the \
+             title suffix and this page are the standing warning.",
         )
         .extra(
             "Call credential services (keyd, accounts)",

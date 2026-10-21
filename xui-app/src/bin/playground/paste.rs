@@ -59,8 +59,9 @@ impl Clipboard for TappedClipboard {
 }
 
 /// Tell `gate` about the edit from `old` to `new`. An arrival (a paste, or
-/// more than a key inserts) starts the review over with `new` as the
-/// baseline; typing leaves it to the gate; a text the gate had vouched for
+/// more than a key inserts) makes what the edit inserted the span under
+/// review (the user's own text around it stays theirs, but deleting it leaves
+/// the span asking); typing leaves it to the gate; a text the gate had vouched for
 /// (Undo, Redo) is the user's again. Whatever the gate lets run as it stands
 /// is remembered in `known`.
 pub fn apply_edit(
@@ -72,7 +73,7 @@ pub fn apply_edit(
 ) {
     match classify(old, new, read_clipboard, known) {
         Kind::Unchanged => return,
-        Kind::Arrival => gate.arrive(Provenance::Clipboard, new),
+        Kind::Arrival => gate.arrive_edit(Provenance::Clipboard, old, new),
         Kind::Typing => gate.edited(new),
         Kind::Restore => {
             if gate.needs_confirmation() {
@@ -273,6 +274,96 @@ mod tests {
         b.edit(LONG, false);
         assert!(b.asks());
         assert_eq!(b.gate.provenance(), Provenance::Clipboard);
+    }
+
+    /// A long typed script with a short one pasted after it, as the window
+    /// sees it: the typed text is vouched, the paste is not.
+    fn typed_then_pasted() -> Buffer {
+        let mut b = Buffer::typed(LONG);
+        let pasted = format!(
+            "{LONG}{HOSTILE}
+"
+        );
+        b.edit(&pasted, true);
+        assert!(b.asks());
+        b
+    }
+
+    #[test]
+    fn deleting_the_typed_text_around_a_paste_still_asks() {
+        // The bypass: the paste was judged against the whole buffer, so
+        // deleting the longer typed text counted as rewriting it.
+        let mut b = typed_then_pasted();
+        b.edit(
+            &format!(
+                "{HOSTILE}
+"
+            ),
+            false,
+        );
+        assert!(b.asks(), "exactly the pasted script is left");
+        assert_eq!(b.gate.provenance(), Provenance::Clipboard);
+        // Backspacing it a character at a time from the front too.
+        let mut b = typed_then_pasted();
+        while b.text.len() > HOSTILE.len() + 1 {
+            let next = b.text[1..].to_string();
+            b.edit(&next, false);
+            assert!(b.asks(), "{:?}", b.text);
+        }
+        // The text left is not vouched for: nothing makes it run unasked.
+        assert!(!b.known.contains(&b.text));
+    }
+
+    #[test]
+    fn typing_around_a_paste_keeps_asking_and_rewriting_it_clears() {
+        let mut b = typed_then_pasted();
+        // Key by key, as the editor reports it: a comment in front of
+        // everything, a line after it.
+        for (at, c) in "// note
+"
+        .chars()
+        .enumerate()
+        {
+            let mut next = b.text.clone();
+            next.insert(at, c);
+            b.edit(&next, false);
+        }
+        b.type_str(
+            "print(\"after\");
+",
+        );
+        assert!(b.asks());
+        // Backspace through the pasted line: past the half way mark it is
+        // the user's own rewrite.
+        let at = b.text.find(HOSTILE).unwrap();
+        for _ in 0..HOSTILE.len() / 2 + 2 {
+            let mut next = b.text.clone();
+            next.remove(at);
+            b.edit(&next, false);
+        }
+        assert!(!b.asks());
+        assert_eq!(b.gate.provenance(), Provenance::Typed);
+    }
+
+    #[test]
+    fn undo_and_redo_of_a_paste_after_typed_text_stay_as_designed() {
+        let mut b = typed_then_pasted();
+        let pasted = b.text.clone();
+        // Undo: back to the typed text, which the gate vouched for.
+        b.edit(LONG, false);
+        assert!(!b.asks());
+        // Redo: the pasted text again, which asks, and so does deleting the
+        // typed part of it.
+        b.edit(&pasted, false);
+        assert!(b.asks());
+        b.edit(
+            &format!(
+                "{HOSTILE}
+"
+            ),
+            false,
+        );
+        assert!(b.asks());
     }
 
     #[test]

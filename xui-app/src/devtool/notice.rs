@@ -14,6 +14,12 @@
 //! per tool because the folder is, so one tool's choice never hides another's.
 //! It holds no secret and nothing to parse; its existence is the choice.
 //!
+//! The band is a courtesy, not a security boundary: the file is in the user's
+//! `$HOME`, which a script the tool runs shares, so a script can write it and
+//! silence the band for good (nothing confines a tool's file writes by label,
+//! and a `confd` key of the user's would be as reachable). What a script
+//! cannot take away is the title suffix, the Help page and the review gate.
+//!
 //! A [`Notice`] is shared (an `Rc`) by every window of one tool, so they agree.
 //! A tool with two windows asks the other one to re-lay out after a change.
 

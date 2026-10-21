@@ -53,13 +53,16 @@ impl Approval<'_> {
 impl Pkgd {
     /// Whether an approved install of the package `info` (`tool`: a
     /// developer tool) over `previous`, the row now recorded, would change
-    /// the class of a core package. The administrator saw one prompt for one
+    /// the class of a core package, or its shell role (`shell`: the new
+    /// manifest's `shell = true`). The administrator saw one prompt for one
     /// class (`pkg.install-devtool` leads with the tool warning,
-    /// `pkg.update-core` does not), so a core package keeps its class.
+    /// `pkg.update-core` does not), so a core package keeps its class and
+    /// the prompt's "shell tool" (or its absence) stays true.
     pub(crate) fn core_keeps_class(
         &self,
         info: &PackageInfo,
         tool: bool,
+        shell: bool,
         previous: Option<&Installed>,
         approval: Approval<'_>,
     ) -> Result<(), Failure> {
@@ -68,7 +71,9 @@ impl Pkgd {
             return Ok(());
         }
         let was_tool = previous.is_some_and(|row| toolgate::is_tool_kind(&row.kind));
-        toolgate::core_class_change(was_tool, tool).map_err(|why| fail(EPERM, why))
+        let was_shell = previous.is_some_and(|row| row.shell);
+        toolgate::core_class_change(was_tool, tool, was_shell, shell)
+            .map_err(|why| fail(EPERM, why))
     }
 
     /// Whether `approval` covers installing the package `info` describes:
@@ -109,11 +114,26 @@ impl Pkgd {
                 ),
             ));
         }
-        if !core && matches!(approval, Approval::Approved { core: true, .. }) {
+        if let (
+            false,
+            Approval::Approved {
+                core: true,
+                devtool,
+                ..
+            },
+        ) = (core, approval)
+        {
+            // Name the operation an administrator would have to approve: a
+            // developer tool is never installed with `pkg.install`.
+            let operation = if devtool {
+                "pkg.install-devtool"
+            } else {
+                "pkg.install"
+            };
             return Err(fail(
                 EINVAL,
                 format!(
-                    "{} is not a core app: install it with pkg.install",
+                    "{} is not a core app: install it with {operation}",
                     info.name
                 ),
             ));

@@ -6,7 +6,7 @@ use xui_core::{MouseButton, Rect};
 
 use crate::sys;
 
-use super::double_click::PressKind;
+use super::double_click::{self, PressKind};
 use super::geometry::{absolute_bounds, hit, translate};
 use super::LazyOSBackend;
 
@@ -118,20 +118,30 @@ impl LazyOSBackend {
         }
         // A press on nothing never pairs. The tracker borrow ends here,
         // before any widget code runs.
-        let kind = if id == WidgetId::NONE {
+        let mut kind = if id == WidgetId::NONE {
             PressKind::Down
         } else {
             self.clicks
                 .borrow_mut()
                 .press(now, window, x, y, button, id)
         };
-        // A double-click comes after its plain press, so a widget that only
-        // reads `MouseDown` (a scroll bar's thumb, a button) still gets it.
-        let modifiers = self.modifiers.get();
-        if let Some(press) = kind.press_event(x, y, button, modifiers) {
-            self.deliver_pointer(window, target, press);
+        // One event per physical press. The second press of a pair replaces
+        // the plain press with a double-click, except for a stock node that
+        // only reads the plain press (a scroll bar's thumb, a button).
+        if kind == PressKind::DoubleClick && self.reads_down_only(id) {
+            kind = PressKind::Down;
         }
-        self.deliver_pointer(window, target, kind.event(x, y, button, modifiers));
+        let event = kind.event(x, y, button, self.modifiers.get());
+        self.deliver_pointer(window, target, event);
+    }
+
+    /// Whether node `id` is a stock widget that [`reads_down_only`].
+    fn reads_down_only(&self, id: WidgetId) -> bool {
+        self.nodes
+            .borrow()
+            .iter()
+            .find(|(node_id, _)| *node_id == id)
+            .is_some_and(|(_, node)| double_click::reads_down_only(node.kind))
     }
 
     /// Route one pointer release.
@@ -156,7 +166,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use xui_core::backend::{Backend, ParentRef};
+    use xui_core::backend::{Backend, NodeKind, ParentRef};
     use xui_core::router::WidgetHost;
 
     use super::super::test_support::client_backend;
@@ -227,9 +237,29 @@ mod tests {
         assert!(matches!(event, Event::MouseMove { x: 10, y: 13, .. }));
     }
 
+    /// Give node `raw` the kind `kind`.
+    fn set_kind(backend: &LazyOSBackend, raw: u64, kind: NodeKind) {
+        let mut nodes = backend.nodes.borrow_mut();
+        let (_, node) = nodes.iter_mut().find(|(n, _)| *n == id(raw)).unwrap();
+        node.kind = kind;
+    }
+
+    fn downs_and_doubles(log: &Log) -> Vec<&'static str> {
+        log.0
+            .borrow()
+            .iter()
+            .filter_map(|(_, event)| match event {
+                Event::MouseDown { .. } => Some("down"),
+                Event::MouseDoubleClick { .. } => Some("double"),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
-    fn two_quick_presses_on_one_widget_are_a_double_click() {
+    fn a_self_painted_node_gets_the_second_press_only_as_a_double_click() {
         let (backend, log) = rig();
+        set_kind(&backend, 2, NodeKind::Custom);
         backend.pointer_down_at(W, 10, 40, MouseButton::Left, 100);
         assert!(matches!(
             last(&log).1,
@@ -242,16 +272,49 @@ mod tests {
             event,
             Event::MouseDoubleClick { x: 11, y: 14, .. }
         ));
-        // The plain press comes first: a widget that reads `MouseDown` alone
-        // (a scroll bar's thumb) must not lose the second press of a pair.
-        let events = log.0.borrow();
-        let before = &events[events.len() - 2];
-        assert_eq!(before.0, id(2));
-        assert!(matches!(before.1, Event::MouseDown { x: 11, y: 14, .. }));
-        drop(events);
+        // One event for one physical press: a node that treats a press and a
+        // double-click alike (a menu, the taskbar, the Terminal) must not act
+        // on both, and a guard that only sees the double-click form (the
+        // power menu) must not be bypassed by a plain press first.
+        assert_eq!(downs_and_doubles(&log), ["down", "double"]);
         // A third quick press starts over.
         backend.pointer_down_at(W, 11, 41, MouseButton::Left, 125);
         assert!(matches!(last(&log).1, Event::MouseDown { .. }));
+        assert_eq!(downs_and_doubles(&log), ["down", "double", "down"]);
+    }
+
+    #[test]
+    fn a_stock_widget_that_reads_only_the_press_gets_both_presses_plain() {
+        // A scroll bar (a Container) or a button never reads a double-click:
+        // the second press of a quick pair must still grab the thumb.
+        for kind in [NodeKind::Container, NodeKind::Button, NodeKind::Slider] {
+            let (backend, log) = rig();
+            set_kind(&backend, 2, kind);
+            backend.pointer_down_at(W, 10, 40, MouseButton::Left, 100);
+            backend.pointer_down_at(W, 11, 41, MouseButton::Left, 120);
+            assert_eq!(downs_and_doubles(&log), ["down", "down"], "{kind:?}");
+            assert!(matches!(
+                last(&log).1,
+                Event::MouseDown { x: 11, y: 14, .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn the_stock_widgets_that_read_the_double_click_get_it_in_place_of_the_press() {
+        for kind in [
+            NodeKind::ListView,
+            NodeKind::TreeView,
+            NodeKind::Edit,
+            NodeKind::MultilineEdit,
+            NodeKind::Custom,
+        ] {
+            let (backend, log) = rig();
+            set_kind(&backend, 2, kind);
+            backend.pointer_down_at(W, 10, 40, MouseButton::Left, 100);
+            backend.pointer_down_at(W, 11, 41, MouseButton::Left, 120);
+            assert_eq!(downs_and_doubles(&log), ["down", "double"], "{kind:?}");
+        }
     }
 
     #[test]

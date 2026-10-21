@@ -626,7 +626,9 @@ identity, never a uid: a *system* caller is a service holding `CAP_SETUID`
   to replace a core package only when the installed copy is a tool too
   (`toolgate::core_class_change`), and the prompt says `Update`. A core
   package never changes class: a tool package over a core application, or an
-  application over a core tool, is refused, whichever operation names it;
+  application over a core tool, is refused, whichever operation names it, and
+  an update cannot add or drop `shell = true` either (`CORE_SHELL_CHANGE`; the
+  prompt of a shell tool says "shell tool");
 * it reads a package *as root*, so for any other caller it only accepts
   paths that are readable by design:
 
@@ -690,9 +692,13 @@ it acts as the session user and those services stay the authority);
 `os.lazy.messenger.policy.v1` (the label policy
 loader, also a capability-gated syscall: defence in depth) always;
 `os.lazy.process.label.spawn.v1` unless `develop = true`;
-`os.lazy.net.socket.v1` unless `network = ["outbound"]`. A plain tool is
-therefore six denies and the allow-all, seven rules (the Playground's
-`PKGD:POLICY:PASS ... rules=7`); `develop` and `outbound` remove one each. No
+`os.lazy.net.socket.v1`, `os.lazy.net.stack.v1` (name lookups and ping need no
+socket) and `os.lazy.mount.v1` (file-server mounts) unless `network =
+["outbound"]`. A plain tool is therefore eight denies and the allow-all, nine
+rules (the Playground's `PKGD:POLICY:PASS ... rules=9`); `outbound` removes
+three and `develop` one. The kernel's raw `AF_INET` gate follows the same
+rule for the socket service (`confine::may_open_inet`), so a tool's own native
+code gets no socket either unless `network` is declared. No
 baseline is added (the allow-all covers it), and
 `interfaces`, `topics` and `[entry] resident` add nothing. A tool has no child
 labels, and `Develop` refuses one (a `dev:` label is for an app being developed

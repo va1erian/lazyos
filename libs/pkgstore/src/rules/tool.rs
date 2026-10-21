@@ -113,16 +113,38 @@ mod tests {
         assert_eq!(rules.last(), Some(&ALLOW_ALL), "the allow comes last");
     }
 
+    /// The three Messenger doors to the network: the socket service, the
+    /// stack (name lookups, ping) and `mountd` (FTP and SMB daemons). None of
+    /// them needs a declaration beyond `network`, so a tool that did not
+    /// declare it must not reach any (the consent text says "the network").
+    const NETWORK_DENIES: [&str; 3] = [
+        "os.lazy.net.socket.v1",
+        "os.lazy.net.stack.v1",
+        "os.lazy.mount.v1",
+    ];
+
     #[test]
-    fn outbound_lifts_the_socket_deny_only() {
+    fn a_plain_tool_is_denied_every_door_to_the_network() {
+        let rules = compile(&tool("")).unwrap();
+        for name in NETWORK_DENIES {
+            assert!(rules.contains(&deny(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn outbound_lifts_the_three_network_denies_only() {
         let manifest = tool("network = [\"outbound\"]\n");
         let list = names(&manifest);
-        assert!(!list.contains(&"os.lazy.net.socket.v1"));
+        for name in NETWORK_DENIES {
+            assert!(!list.contains(&name), "{name}");
+        }
         assert!(list.contains(&"os.lazy.keyd.v1"));
         assert!(list.contains(&"os.lazy.process.label.spawn.v1"));
         let rules = compile(&manifest).unwrap();
-        assert!(!rules.contains(&deny("os.lazy.net.socket.v1")));
-        assert_eq!(rules.len(), devtool::DENY.len());
+        for name in NETWORK_DENIES {
+            assert!(!rules.contains(&deny(name)), "{name}");
+        }
+        assert_eq!(rules.len(), devtool::DENY.len() - 2);
     }
 
     #[test]
@@ -130,7 +152,9 @@ mod tests {
         let manifest = tool("develop = true\n");
         let list = names(&manifest);
         assert!(!list.contains(&"os.lazy.process.label.spawn.v1"));
-        assert!(list.contains(&"os.lazy.net.socket.v1"));
+        for name in NETWORK_DENIES {
+            assert!(list.contains(&name), "{name}");
+        }
         assert!(!compile(&manifest)
             .unwrap()
             .contains(&deny("os.lazy.process.label.spawn.v1")));
@@ -165,27 +189,20 @@ mod tests {
 
     #[test]
     fn the_rule_counts_are_the_deny_list_plus_one_allow() {
-        // Six denies and the allow-all for a plain tool (the Playground's
-        // `PKGD:POLICY:PASS ... rules=7`); each declared power removes one.
-        assert_eq!(devtool::DENY.len(), 6);
-        assert_eq!(compile(&tool("")).unwrap().len(), 7);
+        // Eight denies and the allow-all for a plain tool (the Playground's
+        // `PKGD:POLICY:PASS ... rules=9`); `network` removes three, `develop`
+        // one.
+        assert_eq!(devtool::DENY.len(), 8);
+        assert_eq!(compile(&tool("")).unwrap().len(), 9);
         assert_eq!(
-            compile(&tool(
-                "network = [\"outbound\"]
-"
-            ))
-            .unwrap()
-            .len(),
+            compile(&tool("network = [\"outbound\"]\n")).unwrap().len(),
             6
         );
+        assert_eq!(compile(&tool("develop = true\n")).unwrap().len(), 8);
         assert_eq!(
-            compile(&tool(
-                "network = [\"outbound\"]
-develop = true
-"
-            ))
-            .unwrap()
-            .len(),
+            compile(&tool("network = [\"outbound\"]\ndevelop = true\n"))
+                .unwrap()
+                .len(),
             5
         );
     }

@@ -95,6 +95,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: python tools/devtool/check_interfaces.py
       - run: python tools/devtool/test_check_interfaces.py
+      - run: python tools/devtool/test_refused_judge.py
 
   xui-pin:
     # One xui revision across every manifest and lockfile (xui-app, doom,

@@ -28,8 +28,13 @@
 //!   app); `user/<uid>/` stays the uid's alone (`topics::private`, checked
 //!   first); every other topic is open to the label's rules, except what a
 //!   tool must not forge or read through a wildcard: the `app/` tree of other
-//!   apps (any mode), and publishing under `system/` (the platform's events).
-//!   An unlabelled user task is limited by nothing here, so this only narrows.
+//!   apps (any mode), and publishing under `system/` (the platform's events)
+//!   and `time/` (`timed`'s retained `time/tick`, which every clock reader
+//!   trusts). What a tool can still publish is its own user's and session's
+//!   topics (`user/<own uid>/...`, `session/<n>/...`, as the unlabelled
+//!   Terminal could) and names nobody reserved; none of them carries the
+//!   platform's word. An unlabelled user task is limited by nothing here, so
+//!   this only narrows.
 //! * **Children.** A spawned or forked child inherits the label like any
 //!   label. A tool never has child labels (`tool:<id>/<name>` is malformed,
 //!   [`super::labels::parent_of`] is `None`), so the `execve` entry of
@@ -47,6 +52,8 @@ use super::labels::{self, Kind};
 const APP_ROOT: &str = "app";
 /// First topic segment of the platform's events (`system/events/...`).
 const SYSTEM_ROOT: &str = "system";
+/// First topic segment of the clock's retained tick (`time/tick`, `timed`).
+const TIME_ROOT: &str = "time";
 
 /// Whether `label_id` is a developer-tool label.
 pub fn is_tool(label_id: u32) -> bool {
@@ -71,13 +78,15 @@ pub fn holds_rules(label_id: u32) -> bool {
 /// publishing has no wildcards. Anything that is not a tool is never reserved
 /// here.
 pub fn topic_reserved(cred: &Cred, publish: bool, name: &str) -> bool {
-    if !is_tool(cred.label_id) {
+    // Most callers are unlabelled: no label-table lookup (and its lock) for
+    // them.
+    if cred.label_id == 0 || !is_tool(cred.label_id) {
         return false;
     }
     match name.split('/').next().unwrap_or("") {
         APP_ROOT => true,
         "+" | "#" => !publish,
-        SYSTEM_ROOT => publish,
+        SYSTEM_ROOT | TIME_ROOT => publish,
         _ => false,
     }
 }

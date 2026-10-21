@@ -18,7 +18,13 @@
 //! * **Network.** `socket(AF_INET)` needs the label's `os.lazy.net.socket.v1`
 //!   rule, which `network = ["outbound"]` compiles to, and what it gets is a
 //!   client (no `listen`, no named local port); named `AF_UNIX` sockets are
-//!   file-like names and need a `write` rule on the path.
+//!   file-like names and need a `write` rule on the path. A *developer tool*
+//!   is not confined (its files, programs and signals are the user's), but
+//!   its `AF_INET` follows its rules too: [`may_open_inet`] refuses when the
+//!   label's rules deny the socket interface, which is what a tool without
+//!   `network` has, and allows when they do not, so a tool's own native code
+//!   cannot reach the network its manifest did not declare. (A tool with the
+//!   declaration keeps a full socket: `may_serve` is not asked of it.)
 //! * **Spawning.** A confined task creates no process and starts no program:
 //!   `fork`, `vfork`, `clone` without `CLONE_THREAD`, a native `spawnv`, the
 //!   native programs `execve` starts as children, and `execve` itself are
@@ -317,16 +323,37 @@ pub fn check_socket_name(name: &[u8]) -> Result<(), Denied> {
 
 /// Whether the current task may open an `AF_INET` socket: an unconfined task
 /// always, a confined one only with the socket interface in its rules (the
-/// `network = ["outbound"]` permission).
+/// `network = ["outbound"]` permission), and a developer tool as its rules
+/// judge the socket interface.
+///
+/// A tool (`tool:<id>`, `super::tool`) is not confined, but its manifest's
+/// `network` entry is the only thing that lifts the explicit deny of the
+/// socket interface from its default-allow rules (`devtool::DENY`), and the
+/// consent text promises "no network unless listed". So the same rule that
+/// refuses its Messenger calls to `os.lazy.net.socket.v1` refuses a raw
+/// `socket(AF_INET)` of its own native code (and of every child, which
+/// inherits the label): the verdict is the label's rules for the socket
+/// interface, evaluated as any Messenger call would be. A revoked tool (an
+/// empty rule list) is default-denied, so it loses sockets with everything
+/// else; the Terminal, a shell tool that declares `network`, keeps them.
 pub fn may_open_inet() -> bool {
     let slot = crate::task::current();
     let label_id = credentials::of(slot).label_id;
     if label_id == 0 {
         return true;
     }
-    let snap = snapshot(label_id);
-    if !snap.confined || snap.holds(SOCKET_INTERFACE) {
-        return true;
+    if super::tool::is_tool(label_id) {
+        if !acl::evaluate_label(label_id, SOCKET_INTERFACE, acl::ANY_METHOD)
+            .0
+            .denied()
+        {
+            return true;
+        }
+    } else {
+        let snap = snapshot(label_id);
+        if !snap.confined || snap.holds(SOCKET_INTERFACE) {
+            return true;
+        }
     }
     refuse(
         slot,

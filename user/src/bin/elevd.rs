@@ -64,7 +64,7 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use accountdb::ratelimit::Limiter;
-use elevpolicy::approvals::{Approvals, Caller, LabelKind};
+use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
@@ -85,6 +85,8 @@ pub(crate) struct State {
     pub(crate) server: Endpoint,
     /// Standing view approvals.
     pub(crate) approvals: Approvals,
+    /// What `pkgd` said each label is (a label id keeps its name all boot).
+    pub(crate) label_kinds: LabelKinds,
     /// The wrong-password brake, per asker and per administrator name.
     pub(crate) limiter: Limiter,
     /// The prompt-flood brake: holds after unanswered prompts.
@@ -135,6 +137,7 @@ fn run() -> messenger::Result<()> {
     let mut state = State {
         server,
         approvals: Approvals::new(),
+        label_kinds: LabelKinds::new(),
         limiter: Limiter::new(),
         backoff: Backoff::new(),
         queue: Queue::new(),
@@ -237,15 +240,25 @@ const LABEL_NAME_TICKS: u64 = 200;
 /// named is [`LabelKind::Unknown`], for which no approval stands: a developer
 /// tool's label is shared by every script the tool runs, so an approval for
 /// one script must not cover the next.
-fn label_kind(caller: Caller, class: Class) -> LabelKind {
+///
+/// The question is a blocking call with a deadline, and `elevd` is one task
+/// serving every prompt, so it is asked once per label (the answer is kept in
+/// `state.label_kinds`: an id keeps its name for the whole boot) and only
+/// when the answer is needed (see `request`).
+fn label_kind(state: &mut State, caller: Caller, class: Class) -> LabelKind {
     if class != Class::View || caller.label == 0 {
         return LabelKind::of(caller.label, None);
+    }
+    if let Some(kind) = state.label_kinds.get(caller.label) {
+        return kind;
     }
     let deadline = sys::clock().saturating_add(LABEL_NAME_TICKS);
     let name = pkgd::Client::connect()
         .ok()
         .and_then(|client| client.label_name_until(caller.label, Some(deadline)).ok());
-    LabelKind::of(caller.label, name.as_deref())
+    let kind = LabelKind::of(caller.label, name.as_deref());
+    state.label_kinds.put(caller.label, kind);
+    kind
 }
 
 /// One `Request`: check, approve, perform, audit.
@@ -303,8 +316,14 @@ fn request(
     };
     follow_sessions(state);
     let now = sys::clock();
-    let kind = label_kind(caller, op.class());
-    if state.approvals.covers(caller, kind, op.class(), now) {
+    // The label's kind is looked up only when a standing approval exists to be
+    // judged against it: a request that must prompt anyway asks `pkgd` nothing
+    // (the kind is needed again only to record a granted approval below).
+    let standing = op.class() == Class::View && state.approvals.holds(caller, now) && {
+        let kind = label_kind(state, caller, op.class());
+        state.approvals.covers(caller, kind, op.class(), now)
+    };
+    if standing {
         record.admin = String::from("(standing approval)");
     } else {
         if let Err(refusal) = may_prompt(state, caller) {
@@ -320,6 +339,9 @@ fn request(
             Verdict::Granted(admin) => {
                 record.admin = admin;
                 state.backoff.approved(caller);
+                // Recording the approval needs the kind (a granted prompt
+                // took a person's password, so the lookup is not a drive-by).
+                let kind = label_kind(state, caller, op.class());
                 state
                     .approvals
                     .grant(caller, kind, op.class(), sys::clock());

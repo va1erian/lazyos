@@ -137,22 +137,30 @@ A `tool:<id>` label is the fifth form, for an app whose calls are chosen by the
 user or by a script the user runs, so no manifest can list them
 ([`devtool-packages-plan.md`](devtool-packages-plan.md)). Its Messenger rules are
 default allow after a short reviewed deny list (credentials, the dev-spawn scope
-unless declared, sockets unless declared); the kernel adds only namespace rules
+unless declared, the network unless declared: the socket service, the stack's
+name lookups and ping, and file-server mounts); the kernel adds only namespace rules
 (`kernel/src/ipc/tool.rs`): the tool owns `app.<id>.*` and `app/<id>/` like an
 app and may also register any name that is not reserved (`os.lazy.*`, another
 app's names, the NIC and Wi-Fi namespaces) and use any topic but another app's
 `app/...`, wildcard filters at the root, other uids' `user/<uid>/` and
-publishing under `system/`; the interface-domain rule does not apply to it.
+publishing under `system/` and `time/` (it can still publish its own user's and
+session's topics); the interface-domain rule does not apply to it.
 Its children keep the label and it has no child labels.
 
-What the label does *not* confine: the deny list binds the tool's Messenger
-calls (and so every script it runs). A tool's own native code is an ordinary
-program with the user's permissions: `AF_INET` and the file gate treat an
-unconfined label like any app (`confine.rs`), so "no sockets unless declared"
-is enforced for `os.lazy.net.socket.v1`, not for a raw `socket(2)`. That is why
-a tool is installed only by the image build or an administrator. A shared label
-also means no standing `elevd` approval is ever granted to it (every script it
-runs would inherit it).
+What the label does and does not confine. The deny list binds the tool's
+Messenger calls (and so every script it runs), and the kernel's `AF_INET` gate
+follows the same rule for the tool's own native code and every child: a tool
+without `network = ["outbound"]` has the explicit deny of the socket service in
+its rules, so `socket(AF_INET)` is refused (`confine::may_open_inet`), and a
+revoked tool, whose rules are empty, is refused too. "No network unless listed"
+is therefore true of a tool's scripts, programs and children alike. What a tool
+is *not* confined in is the user's own authority: the file gate, `fork`/`exec`
+and signals treat an unconfined label like any app (`confine.rs`), so its programs
+read and change the user's files and start programs with the user's
+permissions, which the consent text says ("files included"). That is why a tool
+is installed only by the image build or an administrator. A shared label also
+means no standing `elevd` approval is ever granted to it (every script it runs
+would inherit it).
 
 ### 2.1 Child labels (issue #832)
 

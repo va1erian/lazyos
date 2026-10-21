@@ -110,14 +110,34 @@ impl Pkgd {
         }
     }
 
-    /// After an upgrade took effect: withdraw the old version's label when the
-    /// new one runs under another (an application that became a developer tool
-    /// or the reverse), its file types and child labels the new one no longer
-    /// has, then delete the old directory.
+    /// After an upgrade took effect: end what still runs under the old
+    /// version's label and withdraw it when the new one runs under another (an
+    /// application that became a developer tool or the reverse), its file
+    /// types and child labels the new one no longer has, then delete the old
+    /// directory.
+    ///
+    /// A process keeps its label, so one left running would hold its old
+    /// class (a tool's free names and unconfined native access, an app's
+    /// registrations) beside a new version that runs under another: it is
+    /// stopped first, as `Remove` does, and only then is the label revoked.
     pub(crate) fn retire(&mut self, old: &Installed, new: &Manifest) {
-        let old_label = rules::label_for_kind(&old.system_name, &old.kind);
-        if old_label != rules::label_of(new) && policy::revoke_label(&old_label).is_ok() {
-            trace::line!(trace::Channel::Pkgd, "POLICY:REVOKED {old_label}");
+        if let Some(old_label) = rules::label_left_behind(&old.system_name, &old.kind, new) {
+            match self.registry.stop(&old.system_name) {
+                Ok(count) => trace::line!(
+                    trace::Channel::Pkgd,
+                    "UPGRADE:STOPPED {} {count}",
+                    old.system_name
+                ),
+                Err(error) => trace::line!(
+                    trace::Channel::Pkgd,
+                    "UPGRADE:STOP:FAIL {}: {}",
+                    old.system_name,
+                    error.message()
+                ),
+            }
+            if policy::revoke_label(&old_label).is_ok() {
+                trace::line!(trace::Channel::Pkgd, "POLICY:REVOKED {old_label}");
+            }
         }
         if let Ok(old_manifest) = stored_manifest(&old.install_dir) {
             // A child label the new version no longer declares goes with it.

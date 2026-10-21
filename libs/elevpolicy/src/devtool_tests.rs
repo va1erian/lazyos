@@ -5,7 +5,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::approvals::{Approvals, Caller, LabelKind};
+use crate::approvals::{Approvals, Caller, LabelKind, LabelKinds, MAX_LABEL_KINDS};
 use crate::package::{self, Facts};
 use crate::*;
 
@@ -137,7 +137,7 @@ fn a_hostile_package_cannot_push_the_warning_out_or_overflow_the_prompt() {
             "{} chars",
             text.chars().count()
         );
-        assert!(text.ends_with(" for all users."), "{text}");
+        assert!(text.contains(" for all users"), "{text}");
         assert!(
             text.chars()
                 .all(|c| (' '..='\u{ff}').contains(&c) && c != '\u{7f}'),
@@ -146,9 +146,76 @@ fn a_hostile_package_cannot_push_the_warning_out_or_overflow_the_prompt() {
         // A quote inside a name cannot end the quoted name early.
         assert_eq!(text.matches("Install \"").count(), 1);
     }
-    // The room left after the warning is what the install line is given.
+    // The room left after the warning is what the install line is given:
+    // the widest line (a shell tool's update, every field at its limit) must
+    // fit without trimming the warning.
     let room = MAX_SUMMARY - devtool::CONSENT_TEXT.chars().count();
-    assert!(room >= 82, "the warning left only {room} characters");
+    assert!(room >= 89, "the warning left only {room} characters");
+    let mut widest = facts(&huge, &huge, &huge);
+    widest.replaces = Some(String::from("0.0.1"));
+    widest.permissions = shell_rows();
+    let text = package::tool_summary(&widest);
+    assert!(text.starts_with(devtool::CONSENT_TEXT), "{text}");
+    assert!(
+        text.chars().count() <= MAX_SUMMARY,
+        "{}",
+        text.chars().count()
+    );
+    assert!(text.contains(" for all users"), "{text}");
+}
+
+/// The rows a shell tool's inspection carries for the class.
+fn shell_rows() -> Vec<package::Permission> {
+    ["developer-tool", "shell"]
+        .iter()
+        .map(|value| package::Permission {
+            kind: String::from("kind"),
+            value: String::from(*value),
+            risk: String::from("high"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_shell_tool_is_named_in_the_prompt_and_a_plain_one_is_not() {
+    let mut shell = facts("Terminal", "os.lazy.terminal", "0.1.0");
+    shell.permissions = shell_rows();
+    let text = package::tool_summary(&shell);
+    assert!(text.starts_with(devtool::CONSENT_TEXT), "{text}");
+    assert!(
+        text.contains(" Install shell tool \"Terminal\" 0.1.0 (os.lazy.terminal) for all users"),
+        "{text}"
+    );
+    assert!(text.chars().count() <= MAX_SUMMARY);
+    // The marker is the second `kind` row alone: a package cannot make a
+    // plain tool read as one by naming itself "shell tool".
+    let named = package::tool_summary(&facts("shell tool", "os.lazy.shell", "1.0.0"));
+    assert!(!named.contains("Install shell tool"), "{named}");
+    // And an update of a shell tool says both.
+    shell.replaces = Some(String::from("0.0.9"));
+    let text = package::tool_summary(&shell);
+    assert!(text.contains(" Update shell tool \"Terminal\""), "{text}");
+}
+
+#[test]
+fn the_warning_promises_what_the_system_enforces() {
+    // The consent text names the network and the files: the Messenger deny
+    // list covers the network (and the kernel's socket gate follows it for a
+    // tool's own native code), the files are the user's own authority.
+    let text = devtool::CONSENT_TEXT;
+    assert!(text.contains("the network"), "{text}");
+    assert!(text.contains("files"), "{text}");
+    assert!(!text.contains("open network connections"), "{text}");
+    // Every door the text calls "the network" is on the deny list unless the
+    // package declares it.
+    for door in [
+        "os.lazy.net.socket.v1",
+        "os.lazy.net.stack.v1",
+        "os.lazy.mount.v1",
+    ] {
+        let deny = devtool::DENY.iter().find(|d| d.interface == door).unwrap();
+        assert_eq!(deny.when, devtool::DenyWhen::UnlessNetwork, "{door}");
+    }
 }
 
 #[test]
@@ -275,4 +342,47 @@ fn updating_a_core_tool_says_update_and_keeps_the_warning_first() {
         "{text}"
     );
     assert!(text.chars().count() <= MAX_SUMMARY);
+}
+
+#[test]
+fn an_approval_is_looked_up_before_a_label_is() {
+    // `elevd` asks `pkgd` for the label's kind only when `holds` says there is
+    // an approval to judge: a caller with none costs no call.
+    let mut approvals = Approvals::new();
+    let app = Caller {
+        label: 7,
+        ..TOOL_CALLER
+    };
+    assert!(!approvals.holds(app, 0));
+    approvals.grant(app, LabelKind::Other, Class::View, 0);
+    assert!(approvals.holds(app, 1));
+    assert!(
+        !approvals.holds(TOOL_CALLER, 1),
+        "another caller holds none"
+    );
+    assert!(!approvals.holds(app, crate::APPROVAL_TICKS + 1), "expired");
+    // A tool never gets an entry to look up.
+    approvals.grant(TOOL_CALLER, LabelKind::Tool, Class::View, 0);
+    assert!(!approvals.holds(TOOL_CALLER, 1));
+}
+
+#[test]
+fn a_label_is_named_once_and_the_table_is_bounded() {
+    let mut kinds = LabelKinds::new();
+    assert_eq!(kinds.get(9), None);
+    kinds.put(9, LabelKind::Tool);
+    assert_eq!(kinds.get(9), Some(LabelKind::Tool));
+    // An id keeps its first answer; a later one cannot change it.
+    kinds.put(9, LabelKind::Other);
+    assert_eq!(kinds.get(9), Some(LabelKind::Tool));
+    // A failed lookup is not remembered: the next request asks again.
+    kinds.put(10, LabelKind::Unknown);
+    assert_eq!(kinds.get(10), None);
+    // Flooding it with ids never grows it past the kernel's label table.
+    for id in 100..100 + 4 * MAX_LABEL_KINDS as u32 {
+        kinds.put(id, LabelKind::Other);
+    }
+    assert_eq!(kinds.get(9), None, "the oldest entry went first");
+    let last = 100 + 4 * MAX_LABEL_KINDS as u32 - 1;
+    assert_eq!(kinds.get(last), Some(LabelKind::Other));
 }

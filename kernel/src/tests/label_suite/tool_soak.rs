@@ -146,7 +146,10 @@ pub fn churn_load_replace_revoke() -> Result<(), String> {
             expect(ids[neighbour], modes[neighbour])?;
             if let Some(&slot) = tasks.get(k) {
                 let denied = authorize(slot, fnv1a64(DENIED[0]), 1, index as u64).denied();
-                check!(denied, "iteration {index}: a task reached a denied interface");
+                check!(
+                    denied,
+                    "iteration {index}: a task reached a denied interface"
+                );
             }
             if index % 250 == 249 {
                 let expected: usize = modes.iter().map(|&m| rules_for(m).len()).sum();
@@ -206,7 +209,10 @@ pub fn table_churn_to_capacity() -> Result<(), String> {
             acl::load_label(id, &rules).map_err(|e| format!("pass {pass}: {e:?}"))?;
         }
         for &(id, kind) in &ids {
-            check!(labels::kind_of(id) == Some(kind), "pass {pass}: kind of {id}");
+            check!(
+                labels::kind_of(id) == Some(kind),
+                "pass {pass}: kind of {id}"
+            );
             let open = !acl::evaluate_label(id, OPEN_IFACE, 3).0.denied();
             let other = !acl::evaluate_label(id, 0x7001, 3).0.denied();
             let secret = !acl::evaluate_label(id, fnv1a64(DENIED[0]), 3).0.denied();

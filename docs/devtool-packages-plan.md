@@ -17,7 +17,7 @@ way every time. This is the "devtool role" of
 [`permission-classes-plan.md`](permission-classes-plan.md) (shelved) done the
 small way: it needs no IDL tags and no class tables.
 
-Status: **implemented in this worktree, uncommitted** (T1 to T4 except the Settings group and revoke button; the Installer path and the first member, the Playground, included; T-later, the Terminal, in section 10). See the "As built" notes below and "Review findings" at the end. First member: the Messenger Playground
+Status: **implemented**, committed as `af47caf0d` plus the review fixes of section 9 (T1 to T4 except the Settings group and revoke button; the Installer path and the first member, the Playground, included; T-later, the Terminal, in section 10). See the "As built" notes below and "Review findings" at the end. First member: the Messenger Playground
 ([`messenger-playground-plan.md`](messenger-playground-plan.md), D1 and D7).
 
 ---
@@ -65,8 +65,10 @@ develop = false                 # also honoured: spawning into dev: labels
 
 `lazypkg` validates the kind, rejects non-empty `interfaces`/`topics` for it,
 and keeps `network`, `develop`, `files`, `resident` and `[processes.*]` with
-their current meaning. `network` still means something because the socket
-interface is on the deny list unless declared (section 3).
+their current meaning. `network` still means something because the three
+network doors (the socket service, the stack's name lookups and ping, and
+file-server mounts) are on the deny list unless declared, and the kernel's raw
+`AF_INET` gate follows the same rule (section 3).
 
 ## 3. Label and rules
 
@@ -74,20 +76,43 @@ interface is on the deny list unless declared (section 3).
   `kernel/src/ipc/labels.rs` (`Kind::Tool`, same charset and length rules as
   `app:`). Children keep it. `dev:` already means "an app being run from an IDE";
   docs and code say *tool label* and *development run* and never overload them.
-* **Rules.** `pkgstore::rules::compile_tool` produces, in order: an explicit
-  deny for each interface in `DEVTOOL_DENY`, then `allow ANY_INTERFACE /
-  ANY_METHOD`. About seven rules (six denies and the allow-all), so the 256 limit disappears as a concern. The
+* **Rules.** `pkgstore::rules::tool::compile` produces, in order: an explicit
+  deny for each interface in `devtool::DENY` that applies, then `allow
+  ANY_INTERFACE / ANY_METHOD`. Nine rules for a plain tool (eight denies and
+  the allow-all; the Playground's `rules=9`), so the 256 limit disappears as a concern. The
   kernel's rule engine already has first-match-wins, wildcards and explicit denies
   (`kernel/src/ipc/acl.rs`); **no new rule semantics are needed**.
-* **The deny list** (`pkgstore::devtool::DEVTOOL_DENY`, a draft for review in
+* **The deny list** (`devtool::DENY` in `libs/devtool`, a draft for review in
   T0):
   * credentials: `os.lazy.keyd.v1`, `os.lazy.keyd.appsecret.v1`,
     `os.lazy.accounts.v1`;
   * the dev-spawn scope `os.lazy.process.label.spawn.v1`, unless `develop = true`;
-  * `os.lazy.net.socket.v1`, unless `network = ["outbound"]`;
+  * the three Messenger doors to the network, each unless `network =
+    ["outbound"]`: `os.lazy.net.socket.v1`, `os.lazy.net.stack.v1` (its
+    `Resolve` is a DNS channel out and `Ping` an ICMP one, neither needs a
+    socket) and `os.lazy.mount.v1` (`mountd` starts an FTP or SMB daemon for
+    the caller's uid). Without them "no network unless listed" would be false;
   * the label policy loader, which is never a parcel a service receives anyway.
   `elevd` is *not* denied: its prompt is trusted and names the requester, which
   is what makes a script that asks for an administrator visible and honest.
+* **Raw sockets follow the same rule** (`kernel/src/ipc/confine.rs`,
+  `may_open_inet`). A tool is not confined, but `socket(AF_INET)` of its native
+  code, and of every child (they inherit the label), is judged by the label's
+  rules for `os.lazy.net.socket.v1`: refused for a tool without `network`, whose
+  rules carry the explicit deny, allowed for one with it (the Terminal, which
+  declares it) and, as for any label whose rules are not loaded, refused for a
+  revoked tool. Files, starting programs and signals stay the user's authority
+  for a tool: `confine` does not narrow them, and the consent text says so
+  ("files included"). Tests: `label_tool_inet_*`, `label_tool_soak_inet_gate`.
+* **Topics** (`kernel/src/ipc/tool.rs`). Besides the per-uid rule (`user/<uid>/`
+  is the uid's alone) a tool may not use another app's `app/...`, a filter
+  that starts with a wildcard, and it may not *publish* under `system/` (the
+  platform's events) or `time/` (`timed`'s retained `time/tick`). It can still
+  publish its own user's topics (`user/<own uid>/...`, such as
+  `confd/changed/..`), its own session's (`session/<n>/...`: `apps/resident`,
+  `shell/tray`, `clipboard/changed`, as the unlabelled Terminal always could)
+  and names nobody reserved. "Events other programs trust" means those, not the
+  platform's.
 * **Namespace policy** (`kernel/src/ipc/policy.rs`, about six sites: the
   `app_id_of`/`name_verdict` paths, topic namespace checks, `devspawn`, `handles`,
   `dev/syscall.rs`). A `tool:` task is treated as a user task that happens to
@@ -113,12 +138,15 @@ interface is on the deny list unless declared (section 3).
   `elevd` (a new operation, `pkg.install-devtool`, in the U2 table). A session
   owner who is not an administrator cannot install one.
 * **Consent screen** (`pkgstore::explain`, drawn by the Installer) opens with the
-  kind: "Developer tool. Through the system's services it can do anything you
-  can do, except use passwords, keys and your accounts, and open network
-  connections unless listed. Its programs and scripts run with your
-  permissions." (`devtool::CONSENT_TEXT`; the limits bind the tool's Messenger
-  calls, not a tool's own native code, see `security-model.md` 2.0.) The same
-  text, and the risk table below, is the app's Help page.
+  kind: "Developer tool. Through the system's services it can do what you can do,
+  except use passwords, keys, accounts and, unless listed, the network. Its
+  programs and scripts run with your permissions, files included."
+  (`devtool::CONSENT_TEXT`). It is accurate in both halves: the Messenger deny
+  list and the kernel's `AF_INET` gate bind a tool's own native code for the
+  network (section 3), while files and starting programs are the user's own
+  authority, which the last sentence says. A shell tool also gets a second
+  `kind` row (`shell`) and the administrator's prompt says "shell tool". The
+  same text, and the risk table below, is the app's Help page.
 * **Audit.** `pkg.log` records the kind; each tool's start and exit markers go
   through `xui_app::trace` as usual.
 
@@ -144,6 +172,15 @@ A small module so every tool behaves the same and the warning text exists once:
   notice" (Ctrl+Shift+D in the Playground) brings the strip back and deletes the
   marker. A tool wires it with `strip(notice, Msg::Dismiss)` and
   `Notice::for_tool(SYSTEM_NAME)`, as the Playground does.
+  **The dismissal is a courtesy, not a security boundary.** The marker (and a
+  tool's own state files, such as the Playground's `layout`) sit in the tool's
+  folder under `$HOME`, and a script the tool runs has the user's `$HOME`, so a
+  script can write the marker and silence the band for good. Nothing confines a
+  `tool:` label's file writes today (the kernel has no per-label file
+  confinement), and a confd key written by the app would be the same uid, so no
+  new confinement is built. What stays whatever a script does: the "(developer
+  tool)" title suffix, the Help page's warning and risk table, and the review
+  gate. The Help page says so.
 * `devtool::risks()`: the shared risk table (what a script can do, the
   consequence, what the app does about it), rendered on the Help page and on the
   consent screen, owned by this crate so the two never drift.
@@ -160,7 +197,7 @@ markers, the app-specific risk rows) sits on top of this and stays in its plan.
 | Phase | Delivers | Done when |
 |---|---|---|
 | T0 Spike | Read every site that treats a labelled task specially (`kernel/src/ipc/{labels,policy,devspawn,handles}.rs`, `dev/syscall.rs`, `pkgstore::access`, `elevpolicy`, `init`'s `app:` intern in `installed.rs`, `pkgd`'s `policy.rs`); decide the deny list; check `elevd` standing approvals for a `tool:` caller; decide how a tool's children are labelled when spawned by `init` vs `execve`. | A short "As built" note here; the deny list is a table with a reason per row. |
-| T1 Manifest | `lazypkg` `kind`, validation, `pkgstore::rules::compile_tool`, `explain` text, `docs/packages.md` section. Host tests, including a check that every `DEVTOOL_DENY` name exists in `idl/manifest.json`. | `cargo test -p lazypkg -p pkgstore`; a CI check lists interfaces in `idl/` that no one has classified (below). |
+| T1 Manifest | `lazypkg` `kind`, validation, `pkgstore::rules::compile_tool`, `explain` text, `docs/packages.md` section. Host tests, including a check that every `devtool::DENY` name exists in `idl/manifest.json`. | `cargo test -p lazypkg -p pkgstore`; a CI check lists interfaces in `idl/` that no one has classified (below). |
 | T2 Kernel | `Kind::Tool` and the `tool:` prefix, the namespace verdicts of section 3, `docs/architecture/ipc-security.md`. Kernel tests per AGENTS.md: correctness (every verdict, every reserved name still refused, children inherit, revoke) and stress (many tool-label loads and revokes, many registrations from tool tasks, label table at capacity). | `LAZYOS_TEST_FILTER=label python tools/test/run.py --accel none` and the full suite pass. |
 | T3 Services | `pkgd` loads `tool:` labels and refuses a tool package from a non-admin; `init` interns `tool:` and starts the app under it; `elevd` operation `pkg.install-devtool`; audit lines. | A session installs a test tool as `admin`; a non-admin is refused; `pkg.log` shows both. |
 | T4 UX and wiring | `xui_app::devtool`, Settings group and revoke, `LAZYOS_DEVTOOLS=1`, `run_demo.py --devtools`, GUI control, suite entry, `core_packages.py` knows the kind. | `tools/screenshot` session shows the strip, the title and the Settings group in both themes; `tools/lazygui/test_catalog.py`, `python tools/test_suites.py`. |
@@ -173,14 +210,15 @@ The build and launcher half of the class, in place before the kernel and
 `pkgd` halves:
 
 * **One switch.** `LAZYOS_DEVTOOLS=1` ships every developer-tool core package;
-  `build_support/devtools_embed.rs` lists them (`TOOLS`: short id and program,
-  today only `playground`) and `xui_embed::embed_xui_apps` adds them to the
+  `build_support/devtools_embed.rs` lists them (`TOOLS`: short id and program:
+  the Terminal, which is `always`, section 10, and the `playground`) and `xui_embed::embed_xui_apps` adds them to the
   packages it embeds, exactly as it does for `LAZYOS_LAZYSKY`. The switch is
   refused (a build panic naming `run_demo.py --devtools`) without
   `LAZYOS_DESKTOP=1` or without the `rhai` command (`rhai_embed::find`, built by
   `tools/rhai/build.py`); a tool whose program or package was not built fails
   the build naming the command to run (`build_support/tests/devtools_tests.rs`).
-  A default desktop image ships no tool.
+  A default desktop image ships only the `always` tools (the Terminal); the
+  others are opt-in.
 * **A new tool** is added to `TOOLS`, `build_support/core_packages.rs`
   (`is_core_stem`), `tools/xui/core_packages.py` (`CORE_APPS`, `optional=True`),
   `tools/xui/build.py` (`BINS`), `tools/run_demo.py`'s `DEVTOOLS_APPS`
@@ -229,18 +267,21 @@ The build and launcher half of the class, in place before the kernel and
 A default-allow label is a new idea in a system whose point is that apps hold
 nothing, so it needs two guards that cost little:
 
-1. **The deny list has an owner and a test.** `DEVTOOL_DENY` lives next to
-   `rules.rs`; a host test asserts every name is in `idl/manifest.json`.
+1. **The deny list has an owner and a test.** `DENY` lives in `libs/devtool`;
+   a host test asserts every name is in `idl/manifest.json`, and the kernel
+   tests' stand-in list (`kernel/src/tests/label_suite/tool.rs`, the kernel
+   cannot depend on `devtool`) is compared with it by
+   `tools/devtool/check_interfaces.py`.
 2. **New interfaces are classified.** `tools/devtool/check_interfaces.py` (a CI
    step) compares the interfaces in `idl/manifest.json` with
    `tools/devtool/reviewed_interfaces.txt` and fails when one is missing, with
    the message "decide whether a developer tool may call this: add it to
-   `DEVTOOL_DENY` or to the reviewed list". A new credential-class service cannot
+   `DENY` or to the reviewed list". A new credential-class service cannot
    become callable by tools by accident. (This is the cheap stand-in for the
    shelved IDL access tags.)
 
 Also stated in `AGENTS.md` under "Project conventions": a new interface that
-carries secrets or authority is added to `DEVTOOL_DENY`.
+carries secrets or authority is added to `devtool::DENY`.
 
 ## 8. Open questions
 
@@ -264,10 +305,11 @@ happened (fixes are listed as they landed; anything not fixed says so):
 
 1. **Standing `elevd` approval granted to a shared tool label** would cover
    every script the tool runs. Fixed: a tool label never gets or honours one.
-2. **"No sockets" is not enforced for a raw `AF_INET` socket** (an unconfined
-   label). The consent text and docs now say the limits bind the tool's
-   Messenger calls; a tool's native code is the Terminal's authority. Not
-   fixed: an inet-only gate for tool labels would close it.
+2. **"No sockets" was not enforced for a raw `AF_INET` socket** (an unconfined
+   label), nor for the two Messenger doors that need no socket
+   (`os.lazy.net.stack.v1`: `Resolve`, `Ping`; `os.lazy.mount.v1`). Fixed in the
+   second round below: the kernel's inet gate follows the label's rules, and
+   both interfaces are on the deny list unless `network` is declared.
 3. **A revoked tool could still register unreserved names.** Fixed in the
    kernel: the free-name grant needs rules to be loaded; tests added.
 4. **The review gate could be bypassed** by pasting a script shorter than the
@@ -277,10 +319,17 @@ happened (fixes are listed as they landed; anything not fixed says so):
 6. **The administrator prompt omitted "for all users".** Fixed.
 7. **Doc drift:** the label policy loader is now on `devtool::DENY`; the kernel
    tests' stand-in list says what it is. The Settings group is documented as
-   not built. `RISKS` still lists posting notifications, which a tool's script
-   cannot do today (below).
+   not built. `RISKS` lists posting notifications, which a tool's script can do
+   (second round, item 10).
 8. **A core tool could not be updated by an administrator.** Addressed by the
    services fix (see its As built note) or documented where not possible.
+9. **The review gate judged the whole buffer** (second review): a script pasted
+   after the user's own text, then that text deleted, counted as "mostly
+   rewritten" and ran with no card. Fixed: the gate keeps the arrived span and
+   follows it through edits (`ReviewGate::arrive_edit`), so only that span is
+   judged; a second paste widens it rather than replacing it.
+10. **The strip's dismissal is writable by the tool's scripts.** Accepted and
+    documented in section 5: the band is a courtesy, not a boundary.
 
 Suspected and accepted or open: an orphaned `rhai` child if the Playground is
 killed (a live-run cap and a coalesced wake were added; parent-death handling is
@@ -294,9 +343,69 @@ to `session/<other>/...`, publish its own session's `apps/resident`,
 `shell/tray` and `clipboard/changed`, and `dbgd`'s debug install can place a tool
 without a prompt on a box with remote control enabled.
 
-**Known gap, not a review finding:** a tool's script cannot post a toast: the
-shell does not recognise a `tool:` child as a sender (see the Playground plan's
-"As built").
+### Second round (fixes of the independent review, 2026-10-21)
+
+1. **`cargo fmt --check` failed** (raw newlines in string literals, a shell
+   heredoc artifact). Fixed; `XUID:SCALE:` is still one line.
+2. **The network promise was false** (finding 2 above): fixed as described in
+   section 3 (the three doors, the kernel inet gate, `CONSENT_TEXT` now says
+   "the network" and "files included", `docs/security-model.md` 2.0).
+3. **A core tool could gain `shell` by an approved update**: the Playground to a
+   manifest with `shell = true` would have dropped the credential denies and
+   become the session owner. `toolgate::core_class_change` now compares the
+   shell flag with the previous row (`CORE_SHELL_CHANGE`) in `elevd` and `pkgd`,
+   and the prompt for a shell tool says "shell tool" (second `kind` row).
+4. **`init` started a tool `pkgd` had refused to load.** `init` now applies the
+   same `toolgate::stored_loadable` to a tool row and its stored manifest
+   (cached per digest) before it lists or launches it.
+5. **`UiScale::from_cfg` disagreed with the kernel's `display.scale` parser**
+   (`display.scales=`, a bare `display.scale`, a bad first line): it now mirrors
+   `kernel/src/display/modecfg.rs`, with the cases pinned in both.
+6. **A tool could publish `time/tick`.** `time/` is reserved for publishing;
+   section 3 states exactly what a tool can still publish.
+7. **`elevd` called `pkgd` (2 s) on every View request of a labelled caller**:
+   now only when an approval entry exists to judge, and the label's kind is
+   cached (`LabelKinds`).
+8. **An upgrade that changed a package's class left the old process running**
+   under the old label. `retire` stops it (as `Remove` does) before revoking the
+   label.
+9. **`topic_reserved` took the label-table lock for every unlabelled caller**:
+   label 0 returns first.
+10. **Dead code and stale text**: `devtool::tool_label` and the `alloc`
+    feature are gone, the stranded comment in `pkgmanifest.py`, the checker's
+    advice, the `pkg.install-devtool` advice in `pkgd`'s approval, this
+    document's status line, `os.lazy.` for reserved names, `devtool::DENY` for
+    `DEVTOOL_DENY`, and the toast contradiction: a script run by *any* tool
+    posts toasts, because LazyShell identifies a sender by its label (10.2 row
+    13), not only the Terminal. The guest session
+    `playground_refused_services.json` posts one from a Playground script and
+    `tools/devtool/refused_judge.py` requires `SHELL:NOTIFY:POST`.
+11. **The kernel tests' stand-in `DENIED` could drift from `devtool::DENY`.** It
+    is now exact and `tools/devtool/check_interfaces.py` (a CI step) compares
+    the two.
+12. **Coverage of a non-shell tool.** `tools/accounts/run.py` attacks from the
+    Terminal only (a shell tool). `python tools/devtool/refused_run.py` boots
+    the Playground image with networking and runs `sys::keyd`, `keyd_appsecret`,
+    `accounts`, `pkgd`, `net_stack` (resolve, ping) and `mount` from a
+    Playground script: the kernel's `LABEL:DENY` for each interface, `pkgd`'s own
+    refusal, nothing created (`refused_judge.py`). Verified in a guest: all
+    seven calls refused, and the toast of the second script shown titled
+    "Messenger Playground" (`SHELL:NOTIFY:POST owner=os.lazy.playground`).
+    `sys::accounts` cannot resolve `os.lazy.accountsd` (its generated module
+    connects by the interface name, "no service for os.lazy.accounts.v1"), so
+    the session calls `msg::connect("os.lazy.accounts.v1", "os.lazy.accountsd")`;
+    the generated module is a separate bug, not fixed here.
+
+Verification of this round: `cargo fmt --all -- --check`; `cargo test -p devtool
+-p lazypkg -p pkgstore -p elevpolicy -p messenger-generated -p uitheme -p
+build-support-tests`; `cargo check -p user --target x86_64-unknown-none --bins`;
+`midlc --check`; `tools/devtool/check_interfaces.py` and its tests;
+`tools/pkg/test_build.py`; the kernel suite (`python tools/test/run.py --accel
+none`: 1657 passed, including `label_tool_inet_*`, `label_tool_soak_inet_gate`,
+the `time/` topic cases and the `display.scale` cases); in a guest
+`python tools/playground/run.py` (`rules=9` for the Playground, `rules=3` for
+the Terminal), `python tools/devtool/refused_run.py`, `python tools/accounts/run.py`
+and `python tools/shutdown/run.py`.
 
 ## 10. T-later: the Terminal (done)
 
@@ -334,7 +443,10 @@ category = "system"        # a shell may also be listed under System (see 10.4)
   other package that asks (`shell = true` from a user, or an administrator's
   `pkg.install-devtool`) is **refused at install** with `SHELL_CORE_ONLY`. An
   administrator may update the core Terminal (`pkg.install-devtool` keeps the
-  class, `toolgate::core_class_change`); that is their call, as for any core app.
+  class and the shell flag, `toolgate::core_class_change`); that is their call,
+  as for any core app, but the update can neither give a core tool without the
+  role (the Playground) `shell = true` nor take it from the Terminal
+  (`CORE_SHELL_CHANGE`).
 * **Read from the row, never the package.** `init` and `pkgd` decide with
   `shellrole::row_is_shell(kind, shell, core)` on the row `pkgd` wrote. It
   re-checks that the row is a developer tool and shipped by the image, so a
@@ -389,7 +501,7 @@ changed.
 | 14 | Tray (`tray::policy::app_of`) | By pid | Unchanged | The Terminal has no tray item |
 | 15 | `keyd` app secrets (`app:` label only), named secrets, `accountsd`, `confd` system keys, `timed`, `mimed` register, NIC/Wi-Fi name checks, `wlanmd`, `netd`, `homes` | Identity checks on service uids/caps | Unchanged | A session task, labelled or not, never qualified |
 | 16 | Kernel Messenger policy (`labels`, `policy`, `topics`, `tool.rs`) | Default allow minus the deny list | No change in code | See 10.5 for what the Terminal user loses |
-| 17 | Kernel file, socket, spawn and signal gates (`confine`) | Only confined labels (those with the manifest marker) | A tool is **not confined**: files, `fork`/`exec`, signals and `AF_INET` are the user's | |
+| 17 | Kernel file, socket, spawn and signal gates (`confine`) | Only confined labels (those with the manifest marker) | A tool is **not confined**: files, `fork`/`exec` and signals are the user's. `AF_INET` follows the label's rules for the socket service (`may_open_inet`): the Terminal declares `network`, so it keeps sockets | |
 
 Two rows deserve a note. Row 1 is the only way the Terminal could keep
 `pkgctl`, and it is why `shell` is recorded by `pkgd` and not guessed from a
@@ -470,7 +582,7 @@ These are consequences of the tool class, not of `shell`, and are accepted:
 * A name or topic under `app/` or `system/...` that is not its own, a wildcard
   at the start of a subscription (`messengerctl tail '#'`), and publishing under
   `system/` are refused, as for every tool (`kernel/src/ipc/tool.rs`). Names
-  under `system.` are reserved for system labels. Free service names and the
+  under `os.lazy.` (the other `SYSTEM_NAMES`) are reserved for system labels. Free service names and the
   waived interface-domain rule are as an unlabelled user task's.
 * `pkg.install-devtool` through `elevd` (row 5).
 * A Terminal-run program cannot take the shell role from `xuid` (row 12).
@@ -568,7 +680,8 @@ changed, so the kernel suite was not run.
 
 * The Playground's help says a refused credential call is to be made from the
   Terminal; that is true again (a shell tool is not denied those services).
-  The "known gap" about a tool's toast is closed (10.2 row 13); the Playground
-  plan's text still calls it open.
+  The "known gap" about a tool's toast is closed for every tool (10.2 row 13):
+  the Playground's scripts post toasts too, owned by the Playground
+  (`playground_refused_services.json`, judged by `SHELL:NOTIFY:POST`).
 * `pkg.install-devtool` from the Terminal (row 5) is a small follow-up if wanted.
 * Devices stays unlabelled: `os.kernel.dev` is not a permission.

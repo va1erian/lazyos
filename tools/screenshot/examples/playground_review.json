@@ -228,6 +228,87 @@
   "wait": 1.0
  },
  {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "let typed_by_me = 1; // my own text, longer than the paste\n"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "v"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "home"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key": "delete"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "review_typing_deleted"
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "review_bypass_card"
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait": 1.0
+ },
+ {
   "key_down": "ctrl"
  },
  {

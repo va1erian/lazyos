@@ -19,7 +19,11 @@ fn status(i: u64) -> ServiceStatus {
             format!("svc{}", i - 1)
         },
         health: "ok".into(),
-        label: if i.is_multiple_of(3) { 0 } else { 40 + i as u32 },
+        label: if i.is_multiple_of(3) {
+            0
+        } else {
+            40 + i as u32
+        },
     }
 }
 

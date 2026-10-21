@@ -8,7 +8,7 @@
 //! waiting for a ring that will not come. The broker is called only by an
 //! explicit user action (Stats on Pause or tab change, Listen, Stop).
 
-use xui_app::trace::{self, Channel};
+use xui_app::trace::{self, Budget, Channel};
 use xui_core::app::Ui;
 use xui_core::arrange::{column, Handle};
 use xui_core::widget::HasText;
@@ -28,8 +28,11 @@ const DRAIN_MS: u32 = 20;
 /// receive buffer, so a listen that runs for ever would use its memory up
 /// (docs/messenger-playground-plan.md section 7, risk 2).
 const LISTEN_BUDGET: u64 = 20_000;
-/// Events one drain traces at most (a firehose must not flood the serial line).
-const TRACE_PER_DRAIN: usize = 8;
+/// Event lines one tab may trace per [`TRACE_WINDOW_TICKS`] (a firehose must
+/// not flood the serial line): the tab's own `trace::Budget`.
+pub const TRACE_LINES: u32 = 16;
+/// The trace window, in PIT ticks (10 s).
+pub const TRACE_WINDOW_TICKS: u64 = 1000;
 
 impl TopicsTool {
     /// What the main window asked for.
@@ -80,6 +83,7 @@ impl TopicsTool {
                 list: handle,
                 selected: None,
                 traced: 0,
+                budget: Budget::new(TRACE_LINES, TRACE_WINDOW_TICKS),
             });
         }
         self.probe_soon();
@@ -164,13 +168,11 @@ impl TopicsTool {
         let Some(sub) = self.subs.subs.get(index) else {
             return;
         };
-        let mut printed = 0;
         let mut newest = page.traced;
         for event in sub.listener.visible().filter(|e| e.id > page.traced) {
             newest = newest.max(event.id);
-            if printed < TRACE_PER_DRAIN {
+            if trace::within(&page.budget, Channel::Playground) {
                 trace::line!(Channel::Playground, "EVENT:{}:{}", event.topic, event.sequence);
-                printed += 1;
             }
         }
         page.traced = newest;
@@ -373,13 +375,6 @@ impl TopicsTool {
         self.probe_soon();
         if let Some(error) = refused {
             self.note(&format!("The broker did not drop the subscription ({error}); it is tried again on the next close."));
-        }
-    }
-
-    /// Stop every subscription (the window is closing).
-    pub fn stop_listening(&mut self) {
-        while !self.subs.subs.is_empty() {
-            self.subs.close(0);
         }
     }
 }

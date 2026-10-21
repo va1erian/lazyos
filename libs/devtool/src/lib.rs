@@ -35,7 +35,19 @@ pub const STRIP_TEXT: &str =
 pub const REVIEW_PROMPT: &str = "Run a script you did not write here?";
 
 /// The first thing the consent screen and the Help page say.
-pub const CONSENT_TEXT: &str = "Developer tool. Through the system's services it can do anything you can do, except use passwords, keys and your accounts, and open network connections unless listed. Its programs and scripts run with your permissions.";
+///
+/// What is promised is what the system enforces: the Messenger deny list
+/// ([`DENY`]) and, for a tool without the `network` declaration, the kernel's
+/// `AF_INET` gate (`kernel/src/ipc/confine.rs`), which follows the same
+/// rule, so a tool's own native code cannot open a socket either. Files and
+/// starting programs are the user's authority, which the last sentence says.
+/// The administrator's prompt must fit `elevpolicy`'s `MAX_SUMMARY`, so
+/// this stays near 210 characters (a test in `elevpolicy` pins the room).
+pub const CONSENT_TEXT: &str = "Developer tool. Through the system's services it can do what you can do, except use passwords, keys, accounts and, unless listed, the network. Its programs and scripts run with your permissions, files included.";
+
+/// The value of the second `kind` row a shell tool's inspection carries
+/// (`pkgstore::explain::tool`), so the administrator's prompt can say it.
+pub const SHELL_ROW_VALUE: &str = "shell";
 
 /// One row of the class-wide risk table: what a tool can do and what follows.
 /// What each app does about it is the app's own text.
@@ -65,8 +77,8 @@ pub const RISKS: &[Risk] = &[
         consequence: "Look-alike notifications, surprise windows",
     },
     Risk {
-        what: "Publish events other programs trust",
-        consequence: "Spoofed events on your own session's topics",
+        what: "Publish on your own session's and user's topics",
+        consequence: "Spoofed events your other programs may believe",
     },
     Risk {
         what: "Flood the message fabric",
@@ -105,11 +117,15 @@ pub struct Deny {
 }
 
 /// The deny list (a draft for review, `docs/devtool-packages-plan.md`
-/// section 3): six entries, so a plain tool compiles to six denies and the
-/// allow-all (seven rules); `network = ["outbound"]` and `develop = true`
-/// remove one each, and a shell tool (`shell = true`) drops the three
-/// credential entries (`UnlessShell`). Every name must exist in `idl/manifest.json` or be a kernel
-/// scope listed in [`KERNEL_SCOPES`]; `pkgstore` tests check it.
+/// section 3): eight entries, so a plain tool compiles to eight denies and
+/// the allow-all (nine rules); `network = ["outbound"]` removes three (the
+/// socket service, the stack's name lookups and ping, and the file-server
+/// mounts), `develop = true` one, and a shell tool (`shell = true`) drops the
+/// three credential entries (`UnlessShell`). Every name must exist in
+/// `idl/manifest.json` or be a kernel scope listed in [`KERNEL_SCOPES`];
+/// `pkgstore` tests check it, and `tools/devtool/check_interfaces.py` checks
+/// the kernel tests' stand-in copy (`kernel/src/tests/label_suite/tool.rs`)
+/// against it.
 pub const DENY: &[Deny] = &[
     Deny {
         interface: "os.lazy.keyd.v1",
@@ -144,6 +160,19 @@ pub const DENY: &[Deny] = &[
         when: DenyWhen::UnlessNetwork,
         reason: "network access must be declared",
     },
+    // The other two Messenger doors to the network need no socket: `netd`
+    // resolves names for any caller (a DNS channel out) and pings, and
+    // `mountd` starts an FTP or SMB daemon owned by the caller's uid.
+    Deny {
+        interface: "os.lazy.net.stack.v1",
+        when: DenyWhen::UnlessNetwork,
+        reason: "name lookups, ping and the network settings need the network declared",
+    },
+    Deny {
+        interface: "os.lazy.mount.v1",
+        when: DenyWhen::UnlessNetwork,
+        reason: "file servers on the network need the network declared",
+    },
 ];
 
 /// Interface names in [`DENY`] that are kernel ACL scopes: nothing serves
@@ -163,17 +192,6 @@ pub fn is_tool_label(label: &str) -> bool {
 pub fn tool_system_name(label: &str) -> Option<&str> {
     label.strip_prefix(TOOL_PREFIX).filter(|id| !id.is_empty())
 }
-
-/// The label of the tool `system_name`.
-#[cfg(feature = "alloc")]
-pub fn tool_label(system_name: &str) -> alloc::string::String {
-    let mut label = alloc::string::String::from(TOOL_PREFIX);
-    label.push_str(system_name);
-    label
-}
-
-#[cfg(feature = "alloc")]
-extern crate alloc;
 
 #[cfg(test)]
 mod tests {

@@ -356,10 +356,8 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
     crate::os_image::rerun_if_changed(&lazywebplus_elf);
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
-    let devtools = crate::devtools_embed::enabled(
-        desktop,
-        crate::rhai_embed::find(&manifest_dir).is_some(),
-    );
+    let devtools =
+        crate::devtools_embed::enabled(desktop, crate::rhai_embed::find(&manifest_dir).is_some());
     let mut requested = vec![
         (
             crate::lazyrad_embed::enabled(),

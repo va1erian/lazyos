@@ -43,6 +43,10 @@ fn a_power_row_asks_for_confirmation_in_place() {
         assert_eq!(menu.rows()[0].app, "terminal", "the app rows stay");
         // The second press of a double click never confirms.
         assert_eq!(menu.choose(count - 2, true), Choice::Nothing);
+        // Nor does it cancel through the row under a double-clicked "Shut
+        // down...".
+        assert_eq!(menu.choose(count - 1, true), Choice::Nothing);
+        assert!(menu.confirming());
         assert_eq!(menu.choose(count - 2, false), Choice::Request(power));
         // Back to the first step, so a refused logout leaves a usable menu.
         assert!(!menu.confirming());

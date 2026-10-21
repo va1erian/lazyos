@@ -56,6 +56,37 @@ pub enum MenuMsg {
     Key(NavKey),
 }
 
+/// The message a pointer or wheel event on the menu panel stands for.
+///
+/// The panel is a self-painted node, so the backend delivers the second press
+/// of a quick pair *only* as a [`Event::MouseDoubleClick`] (never a plain press
+/// first): it maps to `Press(.., true)`, which the model never lets confirm a
+/// power row (`Menu::choose`).
+pub(crate) fn event_msg(event: &Event) -> Option<MenuMsg> {
+    match *event {
+        Event::MouseMove { x, y, .. } => Some(MenuMsg::Move(x, y)),
+        Event::MouseLeave => Some(MenuMsg::Leave),
+        Event::MouseDown {
+            x,
+            y,
+            button: MouseButton::Left,
+            ..
+        } => Some(MenuMsg::Press(x, y, false)),
+        Event::MouseDoubleClick {
+            x,
+            y,
+            button: MouseButton::Left,
+            ..
+        } => Some(MenuMsg::Press(x, y, true)),
+        Event::MouseWheel {
+            delta,
+            horizontal: false,
+            ..
+        } => Some(MenuMsg::Wheel(delta)),
+        _ => None,
+    }
+}
+
 /// Open the menu if it is closed, close it if it is open.
 pub fn toggle<M: 'static>(ctx: &Rc<Ctx>, ui: &Ui<M>) {
     if ctx.menu_window.borrow().is_some() {
@@ -132,28 +163,7 @@ impl MenuApp {
             let ctx = Rc::clone(&ctx);
             root.set_painter(Rc::new(move |canvas| paint(canvas, &ctx)));
         }
-        root.on_events(|event| match *event {
-            Event::MouseMove { x, y, .. } => Some(MenuMsg::Move(x, y)),
-            Event::MouseLeave => Some(MenuMsg::Leave),
-            Event::MouseDown {
-                x,
-                y,
-                button: MouseButton::Left,
-                ..
-            } => Some(MenuMsg::Press(x, y, false)),
-            Event::MouseDoubleClick {
-                x,
-                y,
-                button: MouseButton::Left,
-                ..
-            } => Some(MenuMsg::Press(x, y, true)),
-            Event::MouseWheel {
-                delta,
-                horizontal: false,
-                ..
-            } => Some(MenuMsg::Wheel(delta)),
-            _ => None,
-        });
+        root.on_events(event_msg);
         MenuApp { ctx, root }
     }
 

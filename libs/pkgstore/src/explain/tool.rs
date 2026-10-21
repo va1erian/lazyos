@@ -20,6 +20,8 @@ use super::{permission, Explained, HIGH, LOW, MEDIUM};
 
 /// The `kind` of the row that names the class.
 pub const KIND_ROW: &str = "kind";
+/// The value of the second `kind` row of a shell tool.
+pub const SHELL_ROW_VALUE: &str = devtool::SHELL_ROW_VALUE;
 /// The `kind` of a row that names a risk every developer tool shares.
 pub const RISK_ROW: &str = "risk";
 /// The `kind` of a row that names something the tool may not use.
@@ -30,6 +32,9 @@ pub const DENIED_ROW: &str = "denied";
 pub fn is_class_row(row: &Permission) -> bool {
     matches!(row.kind.as_str(), KIND_ROW | RISK_ROW | DENIED_ROW)
 }
+
+/// What a shell tool is, for the second `kind` row of its inspection.
+pub const SHELL_TEXT: &str = "Shell tool: it is the user's shell, so the password, key and account services judge what it asks as they judge you.";
 
 /// The sentence for one refused interface, in plain words.
 pub fn denied_text(deny: &Deny) -> String {
@@ -52,6 +57,16 @@ pub fn rows(manifest: &Manifest) -> Vec<Permission> {
         text: String::from(devtool::CONSENT_TEXT),
     };
     out.push(permission(KIND_ROW, devtool::KIND, kind));
+    if manifest.is_shell() {
+        // The administrator's prompt names a shell tool as one
+        // (`elevpolicy::package::tool_summary`), and a shell is a different
+        // thing to approve: it drops the credential denies below.
+        let shell = Explained {
+            risk: HIGH,
+            text: String::from(SHELL_TEXT),
+        };
+        out.push(permission(KIND_ROW, SHELL_ROW_VALUE, shell));
+    }
     for risk in devtool::RISKS {
         let explained = Explained {
             risk: MEDIUM,
@@ -115,6 +130,26 @@ mod tests {
     }
 
     #[test]
+    fn a_shell_tool_says_so_in_a_second_kind_row_and_a_plain_one_does_not() {
+        let plain = permissions(&tool(""));
+        assert_eq!(
+            plain.iter().filter(|row| row.kind == "kind").count(),
+            1,
+            "a plain tool has one kind row"
+        );
+        let shell = permissions(&manifest("kind = \"developer-tool\"\nshell = true", ""));
+        let kinds_: Vec<&str> = shell
+            .iter()
+            .filter(|row| row.kind == "kind")
+            .map(|row| row.value.as_str())
+            .collect();
+        assert_eq!(kinds_, [devtool::KIND, devtool::SHELL_ROW_VALUE]);
+        assert!(shell.iter().filter(|row| is_class_row(row)).count() > 2);
+        // The credential denies are gone for a shell, as the rules say.
+        assert!(shell.iter().all(|row| row.value != "os.lazy.keyd.v1"));
+    }
+
+    #[test]
     fn declared_network_and_develop_leave_the_denied_list_and_show_as_their_own_rows() {
         let rows = permissions(&tool("network = [\"outbound\"]\ndevelop = true\n"));
         let denied: Vec<&str> = rows
@@ -123,6 +158,8 @@ mod tests {
             .map(|row| row.value.as_str())
             .collect();
         assert!(!denied.contains(&"os.lazy.net.socket.v1"));
+        assert!(!denied.contains(&"os.lazy.net.stack.v1"));
+        assert!(!denied.contains(&"os.lazy.mount.v1"));
         assert!(!denied.contains(&"os.lazy.process.label.spawn.v1"));
         assert!(denied.contains(&"os.lazy.keyd.v1"));
         // The manifest's own rows follow the class rows.

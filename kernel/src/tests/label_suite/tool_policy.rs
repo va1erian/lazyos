@@ -91,7 +91,10 @@ fn children_cases() -> Result<(), String> {
     // Revoking the tool leaves the app's children alone.
     let bound = children::count();
     check!(load_current(TOOL, &[])? == 0, "revoke the tool");
-    check!(children::count() == bound, "revoking a tool unbound children");
+    check!(
+        children::count() == bound,
+        "revoking a tool unbound children"
+    );
 
     // No self-relabelling, with or without the credential capability.
     let other = labels::intern(OTHER_TOOL).map_err(|_| "intern")?;
@@ -207,6 +210,12 @@ pub fn topic_verdicts() -> Result<(), String> {
         (subscribe, "demo/+/lobby"),
         (subscribe, "system/events/#"),
         (subscribe, "system"),
+        // Reading the clock's tick is fine, and only the exact root `time`
+        // is the clock's: `timeline` and `times/x` are free names.
+        (subscribe, "time/tick"),
+        (subscribe, "time/#"),
+        (publish, "timeline/x"),
+        (publish, "times/tick"),
         (publish, "user/1000/confd/changed/x"),
         (publish, "applications/x"),
         (publish, "apple"),
@@ -222,6 +231,10 @@ pub fn topic_verdicts() -> Result<(), String> {
         (publish, "app"),
         (publish, "system/events/power"),
         (publish, "system"),
+        // `timed`'s retained tick: a tool could otherwise set every clock
+        // reader's idea of the time.
+        (publish, "time/tick"),
+        (publish, "time"),
     ];
     for (mode, name) in reserved {
         check!(
@@ -265,7 +278,10 @@ pub fn topic_verdicts() -> Result<(), String> {
         "a topic deny lost to the wildcard"
     );
     last_denial(id, reason::EXPLICIT_DENY)?;
-    check!(ok(tool, subscribe, "secret/x"), "the deny covered subscribing");
+    check!(
+        ok(tool, subscribe, "secret/x"),
+        "the deny covered subscribing"
+    );
 
     // Root passes the per-uid rule, so the tool rule is what holds a root
     // tool's root wildcards back.

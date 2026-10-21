@@ -32,9 +32,7 @@ os.lazy.messenger.topics.publish.v1
 os.lazy.messenger.topics.subscribe.v1
 os.lazy.messenger.topics.v1
 os.lazy.mimed.v1
-os.lazy.mount.v1
 os.lazy.net.nic.v1
-os.lazy.net.stack.v1
 os.lazy.net.wifi.hw.v1
 os.lazy.net.wifi.v1
 os.lazy.notify.events.v1

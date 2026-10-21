@@ -167,7 +167,10 @@ fn a_failed_unsubscribe_keeps_the_record_so_the_caller_can_retry() {
         .transport_fail
         .push_back((topics::METHOD_UNSUBSCRIBE, -110));
     assert_eq!(c.unsubscribe(id), Err(-110));
-    assert!(c.holds(id), "the id is still ours: the broker still has the queue");
+    assert!(
+        c.holds(id),
+        "the id is still ours: the broker still has the queue"
+    );
     assert_eq!(c.doorbell_handles().len(), 1, "and its doorbell");
     assert!(!c.transport.closed.contains(&bell));
     assert!(c.transport.subs.contains_key(&id.0));
@@ -245,4 +248,31 @@ fn dropping_the_subscriber_unsubscribes_without_blocking() {
         fake.log.last(),
         Some(&(topics::METHOD_UNSUBSCRIBE, Wait::Poll))
     );
+}
+
+#[test]
+fn dropping_a_subscriber_never_waits_on_the_broker_even_when_it_fails() {
+    // A window closing with several tabs open, the broker refusing one of
+    // the unsubscribes: every call on the way out is a poll, never the
+    // two-second bounded call an explicit `unsubscribe` makes.
+    let shared = Shared(Rc::new(RefCell::new(Fake::new())));
+    let fake = shared.0.clone();
+    let mut c = Subscriber::with_transport(shared);
+    for filter in ["a/#", "b/#", "c/#"] {
+        let id = c.subscribe(filter, Qos::Latest, 1).unwrap();
+        c.attach_bell(id).unwrap();
+    }
+    let before = fake.borrow().log.len();
+    fake.borrow_mut()
+        .fail
+        .push_back((topics::METHOD_UNSUBSCRIBE, 13));
+    drop(c);
+    let fake = fake.borrow();
+    let unsubscribes: Vec<_> = fake.log[before..]
+        .iter()
+        .filter(|(method, _)| *method == topics::METHOD_UNSUBSCRIBE)
+        .collect();
+    assert_eq!(unsubscribes.len(), 3, "one attempt per subscription");
+    assert!(unsubscribes.iter().all(|(_, wait)| *wait == Wait::Poll));
+    assert_eq!(fake.closed.len(), 3, "every doorbell is closed");
 }

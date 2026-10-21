@@ -298,6 +298,21 @@ def review() -> list[dict]:
     steps += chord("ctrl", "a") + [{"type": "pg-test.rhai"}, {"key": "enter"}, {"wait": 1.5},
                                    click("editor"), {"key": "f5"}, {"wait": 2.0},
                                    {"shot": "review_file_card"}, {"key": "esc"}, {"wait": 1.0}]
+    # Text typed in the editor, the clipboard's script pasted after it, then the typed text
+    # deleted: what is left is exactly the pasted script, which must still ask.
+    steps += [click("editor")] + chord("ctrl", "a") + [
+        {"type": "let typed_by_me = 1; // my own text, longer than the paste\n"},
+    ] + chord("ctrl", "end") + chord("ctrl", "v") + [{"wait": 1.0}]
+    steps += chord("ctrl", "home") + chord("shift", "end") + [
+        {"key": "delete"},
+        {"wait": 1.0},
+        {"shot": "review_typing_deleted"},
+        {"key": "f5"},
+        {"wait": 2.0},
+        {"shot": "review_bypass_card"},
+        {"key": "esc"},
+        {"wait": 1.0},
+    ]
     return steps + quit_steps()
 
 

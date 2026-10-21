@@ -115,7 +115,7 @@ impl Composed {
             line: line
                 .checked_sub(self.offset)
                 .filter(|l| *l >= 1)
-                .map(|l| l + self.first_line - 1),
+                .map(|l| l.saturating_add(self.first_line.saturating_sub(1))),
             column,
             text: output.to_string(),
         })

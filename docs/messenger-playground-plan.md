@@ -164,9 +164,9 @@ toy:
 | Change or delete the user's own settings (`user/<uid>/**` in `confd`) | A broken terminal, theme or layout | `sys/**` and `/conf` are refused by the system, not by the app. The refusal text is shown. |
 | Read the clipboard | Sees what the user last copied, perhaps a password | Clipboard methods are labelled "reads what you copied". Scripts are never run unreviewed (above). |
 | Call credential interfaces (`keyd`, `accounts`) | Nothing: they are on the developer-tool deny list | The kernel refuses the call; the refusal text is shown and says to use the Terminal. |
-| Launch apps (`mimed.Open`), post toasts | Look-alike notifications, surprise windows | **Known gap:** a script run by the tool cannot post a toast at all today (the shell does not recognise a `tool:` child as a sender; see "As built"). The `elevd` prompt does name the `tool:` label, not "Terminal". |
+| Launch apps (`mimed.Open`), post toasts | Look-alike notifications, surprise windows | A script's toast is owned by the Playground (LazyShell identifies a sender by its label, `devtool-packages-plan.md` 10.2 row 13), so a toast says who sent it; it is never "Terminal". The `elevd` prompt names the `tool:` label too. |
 | Publish on user-level topics other apps trust | Spoofed events (`session/<s>/**` for the user's own session) | System topics are refused by the broker's ACL. The Publish form shows the topic's declared owner. |
-| Open a network connection | Nothing: sockets are denied unless the manifest declares `network` | It does not. |
+| Open a network connection | Nothing: the socket service, name lookups, ping, mounts and a raw socket of the tool's own are all denied unless the manifest declares `network` | It does not. |
 | Flood the fabric, exhaust `messengerd` | A slow or stalled desktop | `rhai`'s operation limit, Stop per run, the listener's rate cap (D5), and a visible per-run message counter. |
 | Run a hostile script someone pasted | Everything above, at once | The review step, the strip, and no auto-run. |
 
@@ -486,7 +486,7 @@ for name in subs.keys() {
 
 ### Do things
 
-**8. Hello, toast.** (Blocked today: the shell refuses a toast from a developer tool's script, see "As built"; the example ends with that error until `init` or the kernel names the sender.) One call, one notification; then a progress toast that
+**8. Hello, toast.** (A tool script's toast is accepted since LazyShell identifies a sender by its label; `playground_refused_services.json` posts one.) One call, one notification; then a progress toast that
 replaces itself (the call returns the toast id and `replaces_id` reuses it).
 
 ```rhai
@@ -738,7 +738,7 @@ one `Notice`; `View > Show developer-tool notice` (Ctrl+Shift+D) restores it. Ma
 
 **Verified in a guest** (QEMU, WHPX, `run.py` all green, screenshots read):
 the first boot of a developer tool (`PKGD:POLICY:PASS tool:os.lazy.playground
-rules=7`, `PKGD:LAUNCH:LABEL`, `INIT:LAUNCH`), the strip and title, browsing and
+rules=9`, `PKGD:LAUNCH:LABEL`, `INIT:LAUNCH`), the strip and title, browsing and
 search, a method's doc, Insert call and Serve skeleton, the Live, Topics,
 Gallery tabs and Help, a script run with its stdout, the Call form for
 `confd.Info` (reply tree, `CALL:...:OK`) and for `confd.Get` with a typed path,
@@ -762,19 +762,23 @@ at 1x and 2x are host snapshots only (`cargo test --bin xui-playground`).
   (`confd.Info` asked for a confirmation): now an explicit list (fixed, with a test).
 * `xui_app::fabric::RegistryEntry` dropped the owner's uid, label and session
   the Live table needs (added).
-* **A script run by a developer tool cannot post a toast**: `os.lazy.notify`
-  answers `not a launched app` (`SHELL:NOTIFY:DENY ... why=not-an-app`), because
-  the shell identifies a sender by `init`'s launch table and by an unlabelled
-  session, and a `tool:` (or `app:`) child is neither. Example 8 therefore ends
-  with that error. Not fixed here: the shell cannot read another task's label
-  (`label_name` needs `CAP_SETUID`), so the fix is `init` naming the owning app
-  of a label in its table (a `.midl` change) or the kernel stamping it.
+* **A script run by a developer tool could not post a toast** at first:
+  `os.lazy.notify` answered `not a launched app` (`SHELL:NOTIFY:DENY ...
+  why=not-an-app`), because the shell identified a sender by `init`'s launch
+  table and by an unlabelled session, and a `tool:` child is neither. Fixed
+  with the Terminal's move onto the tool class: `init.Services` carries each
+  running installed task's label (`ServiceStatus.label`) and LazyShell
+  identifies a sender by it, so a script's toast belongs to its tool (a
+  Playground script posts as "Messenger Playground"; the Terminal's keep the
+  `<terminal>` owner). Example 8 works.
 
 **Not verified.** HiDPI and light theme in a guest; Open/Save with the keyboard
 only through the dialogs' typed names; Copy as Rhai's clipboard contents;
 Connect, Insert on_, Listen from the Live tab; drag and drop; that
 `PLAYGROUND:EVENT` sequence numbers match what `messengerd` served beyond
-increasing; a listen over hours; a toast from a tool (above).
+increasing; a listen over hours. (A toast from a tool script is verified: the
+Playground's own, `SHELL:NOTIFY:POST owner=os.lazy.playground`, in
+`playground_refused_services.json`.)
 
 ## As built: layout and scrolling
 

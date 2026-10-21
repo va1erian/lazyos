@@ -80,12 +80,12 @@ impl Pkgd {
             let outcome = stored_manifest(&row.install_dir).and_then(|manifest| {
                 let installer = Installer::of_row(row);
                 let core = row.origin == user::messenger::pkgd::wire::ORIGIN_CORE;
-                let tool = manifest.is_developer_tool();
-                // A stored manifest that claims the shell role (it also lifts the
-                // credential denies of the label) must be a package the image ships.
-                let shell = pkgstore::shellrole::shell_install(manifest.is_shell(), core);
-                if let Err(why) = toolgate::loadable(&row.kind, tool, installer.machine_wide, core)
-                    .and(shell)
+                // The same decision `init` makes before it starts the app: the
+                // class agrees, a tool is approved, and a manifest that claims
+                // the shell role (it lifts the label's credential denies)
+                // belongs to a package the image ships.
+                if let Err(why) =
+                    toolgate::stored_loadable(&row.kind, &manifest, installer.machine_wide, core)
                 {
                     self.deny_load(row, &manifest, why);
                     return Err(String::from(why));

@@ -10,9 +10,14 @@
 //! **must never be driven from a timer**. The only supported loop is:
 //!
 //! 1. [`Subscriber::subscribe`], then [`Subscriber::attach_bell`] for it;
-//! 2. park on [`Subscriber::doorbell_handles`] beside the window's other
-//!    endpoints (`sys::msg_wait_any`, or the event loop's endpoint set);
-//! 3. on a wake, call [`Subscriber::consume_ready`] and
+//! 2. learn when a bell rang: park on [`Subscriber::doorbell_handles`] beside
+//!    the window's other endpoints (`sys::msg_wait_any`, or the event loop's
+//!    endpoint set), or, in a window whose event loop cannot park on them
+//!    (xui's), look at the bells from a short timer. That is allowed only
+//!    because [`Subscriber::consume_ready`] reads the local bell channels and
+//!    never calls the broker: the Playground's topic monitor does it every
+//!    `BELL_MS`;
+//! 3. on a wake (or a bell found rung), call [`Subscriber::consume_ready`] and
 //!    [`Subscriber::drain`] each subscription it names;
 //! 4. if [`Drained::more`] is set (the per-call cap was hit) drain again on
 //!    the next frame **without** waiting for a bell: the broker rings once

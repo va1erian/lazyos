@@ -15,7 +15,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 |---|---|---|---|---|---|
 | `ABI` | `Abi` | `abi` | kernel, kernel suite, other | tools/abi | programs |
 | `ABOUT` | `About` | `about` | xui-app | sessions | programs |
-| `ACCOUNTS` | `Accounts` | `accounts` | user | sessions, tools/services | programs |
+| `ACCOUNTS` | `Accounts` | `accounts` | user | sessions, tools/devtool, tools/services | programs |
 | `APP` | `App` | `app` | user | sessions, tools/crash, tools/shutdown, tools/tray | programs |
 | `ARCHIVER` | `Archiver` | `archiver` | xui-app | sessions | programs |
 | `ASYNC` | `Async` | `async` | user | sessions | programs |
@@ -52,7 +52,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/fuse, tools/input, tools/lazysky, tools/mail, tools/nes, tools/playground, tools/storage, tools/webkit, tools/webplus, tools/wifi | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | sessions, tools/devtool, tools/fuse, tools/input, tools/lazysky, tools/mail, tools/nes, tools/playground, tools/storage, tools/webkit, tools/webplus, tools/wifi | programs |
 | `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/webplus | programs |
 | `LAZYWEB` | `Lazyweb` | `lazyweb` | - | tools/web | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
@@ -65,7 +65,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `MIME` | `Mime` | `mime` | user | tools/services | programs |
 | `MIXER` | `Mixer` | `mixer` | user | tools/sound | programs |
 | `MODPLAY` | `Modplay` | `modplay` | lazyrad-os, user | sessions, tools/lazyrad, tools/sound | programs |
-| `MOUNTD` | `Mountd` | `mountd` | user | sessions, tools/fuse, tools/storage | programs |
+| `MOUNTD` | `Mountd` | `mountd` | user | sessions, tools/devtool, tools/fuse, tools/storage | programs |
 | `MSG` | `Msg` | `msg` | kernel suite, lazyrad-os, user, xui-app | sessions, tools/rhai | programs |
 | `MSGBENCH` | `Msgbench` | `msgbench` | user | tools/perf | programs |
 | `MSGCTL` | `Msgctl` | `msgctl` | user | tools/services | programs |
@@ -88,17 +88,17 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PERF` | `Perf` | `perf` | kernel, kernel suite, user | tools/webplus | programs |
 | `PING` | `Ping` | `ping` | user | sessions, tools/net, tools/wifi | programs |
 | `PKGCTL` | `Pkgctl` | `pkgctl` | user | sessions, tools/emusic | programs |
-| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
-| `PLAYGROUND` | `Playground` | `playground` | xui-app | sessions, tools/playground | programs |
+| `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/devtool, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/web, tools/webkit, tools/webplus, tools/wifi | programs |
+| `PLAYGROUND` | `Playground` | `playground` | xui-app | sessions, tools/devtool, tools/playground | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
 | `PROC` | `Proc` | `proc` | kernel, kernel suite | tools/playground, tools/webplus | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `REMOVABLE` | `Removable` | `removable` | xui-app | tools/storage | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
 | `SCHED` | `Sched` | `sched` | kernel, kernel suite | tools/webplus | programs |
-| `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/install, tools/playground, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py, tools/web, tools/webplus | programs |
+| `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/devtool, tools/install, tools/playground, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py, tools/web, tools/webplus | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
-| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/webplus | programs |
+| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/devtool, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/webplus | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SIGNAL` | `Signal` | `signal` | kernel, kernel suite | - | programs |
 | `SKY` | `Sky` | `sky` | xui-app | sessions, tools/lazysky | programs |

@@ -66,7 +66,8 @@ SESSIONS = {
     "elevd": ("playground_elevd.json", ["elevd_prompt", "elevd_done"]),
     "review": ("playground_review.json", ["review_idle", "review_card", "review_cancelled",
                                           "review_ran", "review_second_run", "review_save_dialog",
-                                          "review_saved", "review_open_dialog", "review_file_card"]),
+                                          "review_saved", "review_open_dialog", "review_file_card",
+                                          "review_typing_deleted", "review_bypass_card"]),
     # These two last and in this order: the first leaves the notice dismissed (the choice is
     # stored on the volume), the second boots with it hidden and restores it.
     "notice": ("playground_notice.json", ["notice_shown", "notice_hidden"]),

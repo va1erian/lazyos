@@ -37,5 +37,8 @@ autostart = false
 [permissions]
 # No `interfaces` and no `topics`: a developer tool is default-allow (the
 # manifest validator refuses a list). The shell runs `curl`, `wget`, `ping`,
-# `nc` and `smb`, which use the socket service, so it declares the network.
+# `nslookup`, `nc`, `smb` and the mount commands, which use the socket
+# service, the stack (names, ping), `mountd` and a raw `AF_INET` socket: the
+# network declaration lifts all of those denies (docs/devtool-packages-plan.md
+# section 3), and without it none of them would work from the shell.
 network = ["outbound"]

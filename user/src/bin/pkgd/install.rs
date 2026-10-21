@@ -314,7 +314,13 @@ impl Pkgd {
                 return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
             }
         }
-        if let Err(failure) = self.core_keeps_class(info, tool, previous.as_ref(), approval) {
+        if let Err(failure) = self.core_keeps_class(
+            info,
+            tool,
+            package.manifest().is_shell(),
+            previous.as_ref(),
+            approval,
+        ) {
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
         let origin = self.origin_of(system_name);

@@ -34,6 +34,13 @@ pub const DENY: &[Deny] = &[
 pub const KERNEL_SCOPES: &[&str] = &["os.lazy.process.label.spawn.v1"];
 """
 
+# The kernel tests' stand-in for DENY (kernel/src/tests/label_suite/tool.rs).
+STAND_IN = """pub(super) const DENIED: [&str; 2] = [
+    "os.lazy.keyd.v1",
+    "os.lazy.process.label.spawn.v1",
+];
+"""
+
 
 class Parsing(unittest.TestCase):
     def test_deny_names_and_scopes_are_read_from_the_source(self):
@@ -43,6 +50,19 @@ class Parsing(unittest.TestCase):
         )
         self.assertEqual(ci.kernel_scopes(LIB), ["os.lazy.process.label.spawn.v1"])
         self.assertEqual(ci.deny_names("nothing here"), [])
+
+    def test_the_stand_in_names_are_read_from_a_pub_super_const(self):
+        self.assertEqual(
+            ci.stand_in_names(STAND_IN),
+            ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1"],
+        )
+        self.assertEqual(ci.stand_in_names("nothing here"), [])
+
+    def test_the_real_stand_in_is_found_and_equals_deny(self):
+        stand_in = ci.stand_in_names(ci.STAND_IN.read_text(encoding="utf-8"))
+        deny = ci.deny_names(ci.LIB.read_text(encoding="utf-8"))
+        self.assertTrue(stand_in)
+        self.assertEqual(sorted(stand_in), sorted(deny))
 
     def test_the_real_constants_are_found(self):
         source = ci.LIB.read_text(encoding="utf-8")
@@ -62,12 +82,13 @@ class Check(unittest.TestCase):
     DENY = ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1"]
     SCOPES = ["os.lazy.process.label.spawn.v1"]
 
-    def run_check(self, interfaces, reviewed, deny=None, scopes=None):
+    def run_check(self, interfaces, reviewed, deny=None, scopes=None, stand_in=None):
         return ci.check(
             interfaces,
             self.DENY if deny is None else deny,
             self.SCOPES if scopes is None else scopes,
             reviewed,
+            stand_in,
         )
 
     def test_a_fully_classified_set_passes(self):
@@ -111,6 +132,34 @@ class Check(unittest.TestCase):
         repeated = self.run_check(interfaces, ["os.lazy.a.v1", "os.lazy.a.v1", "os.lazy.b.v1"])
         self.assertTrue(any("repeats" in p for p in repeated), repeated)
 
+    def test_a_matching_stand_in_passes_in_any_order(self):
+        interfaces = ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1"]
+        stand_in = ["os.lazy.process.label.spawn.v1", "os.lazy.keyd.v1"]
+        self.assertEqual(self.run_check(interfaces, [], stand_in=stand_in), [])
+
+    def test_a_deny_name_missing_from_the_stand_in_fails(self):
+        interfaces = ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1"]
+        problems = self.run_check(interfaces, [], stand_in=["os.lazy.keyd.v1"])
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("os.lazy.process.label.spawn.v1", problems[0])
+        self.assertIn("kernel tests' DENIED", problems[0])
+        self.assertIn("tool.rs", problems[0])
+
+    def test_a_stand_in_name_that_is_not_denied_fails(self):
+        interfaces = ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1", "os.lazy.a.v1"]
+        stand_in = list(self.DENY) + ["os.lazy.a.v1"]
+        problems = self.run_check(interfaces, ["os.lazy.a.v1"], stand_in=stand_in)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("os.lazy.a.v1", problems[0])
+        self.assertIn("not in DENY", problems[0])
+
+    def test_a_repeating_or_empty_stand_in_fails(self):
+        interfaces = ["os.lazy.keyd.v1", "os.lazy.process.label.spawn.v1"]
+        repeated = self.run_check(interfaces, [], stand_in=self.DENY + ["os.lazy.keyd.v1"])
+        self.assertTrue(any("repeats" in p for p in repeated), repeated)
+        empty = self.run_check(interfaces, [], stand_in=[])
+        self.assertTrue(any("no DENIED entries" in p for p in empty), empty)
+
     def test_an_empty_deny_list_fails(self):
         problems = self.run_check([], [], deny=[], scopes=[])
         self.assertEqual(len(problems), 1, problems)
@@ -118,12 +167,13 @@ class Check(unittest.TestCase):
 
 
 class Main(unittest.TestCase):
-    def run_main(self, manifest, lib, reviewed):
+    def run_main(self, manifest, lib, reviewed, stand_in=STAND_IN):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             (root / "lib.rs").write_text(lib, encoding="utf-8")
             (root / "reviewed.txt").write_text(reviewed, encoding="utf-8")
+            (root / "tool.rs").write_text(stand_in, encoding="utf-8")
             out, err = io.StringIO(), io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 code = ci.main(
@@ -131,6 +181,7 @@ class Main(unittest.TestCase):
                         "--manifest", str(root / "manifest.json"),
                         "--lib", str(root / "lib.rs"),
                         "--reviewed", str(root / "reviewed.txt"),
+                        "--stand-in", str(root / "tool.rs"),
                     ]
                 )
         return code, out.getvalue(), err.getvalue()
@@ -149,6 +200,17 @@ class Main(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("os.lazy.new.v1", err)
         self.assertEqual(out, "")
+
+    def test_a_drifting_kernel_stand_in_fails_the_run(self):
+        declared = [
+            {"interface": "os.lazy.keyd.v1"},
+            {"interface": "os.lazy.process.label.spawn.v1"},
+        ]
+        drifted = STAND_IN.replace('    "os.lazy.process.label.spawn.v1",\n', "")
+        code, out, err = self.run_main(declared, LIB, "", stand_in=drifted)
+        self.assertEqual(code, 1)
+        self.assertIn("kernel tests' DENIED", err)
+        self.assertIn("os.lazy.process.label.spawn.v1", err)
 
     def test_the_checked_in_files_pass(self):
         out, err = io.StringIO(), io.StringIO()

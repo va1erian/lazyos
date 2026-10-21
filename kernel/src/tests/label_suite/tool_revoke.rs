@@ -178,9 +178,13 @@ pub fn revoked_tool_syscalls() -> Result<(), String> {
         );
         check!(registry::list().is_empty(), "a refusal touched the table");
         acl::load_label(id, &tool_rules(&default_denied())).map_err(|e| format!("{e:?}"))?;
-        check!(register_as(tool, "demo.pirate.free")? == 0, "loaded: free name");
+        check!(
+            register_as(tool, "demo.pirate.free")? == 0,
+            "loaded: free name"
+        );
         let foreign = as_task(tool, || {
-            let (code, pair) = register_current_with("demo.pirate.echo", &[fnv1a64(ECHO)], &[ECHO])?;
+            let (code, pair) =
+                register_current_with("demo.pirate.echo", &[fnv1a64(ECHO)], &[ECHO])?;
             close_pair(pair);
             Ok(code)
         })?;
@@ -251,7 +255,10 @@ pub fn revoke_registration_churn() -> Result<(), String> {
                 let code = register_as(slot, &name)?;
                 if loaded[j] {
                     check!(code == 0, "cycle {cycle}: loaded tool {j} -> {code:#x}");
-                    check!(as_task(slot, || unregister_current(&name))? == 0, "unregister");
+                    check!(
+                        as_task(slot, || unregister_current(&name))? == 0,
+                        "unregister"
+                    );
                 } else {
                     check!(
                         code == failed(EACCES),
@@ -261,7 +268,10 @@ pub fn revoke_registration_churn() -> Result<(), String> {
                 }
                 let own = format!("app.rv.t{j}.svc");
                 check!(register_as(slot, &own)? == 0, "cycle {cycle}: own name {j}");
-                check!(as_task(slot, || unregister_current(&own))? == 0, "unregister own");
+                check!(
+                    as_task(slot, || unregister_current(&own))? == 0,
+                    "unregister own"
+                );
             }
             // The same credentials in the other two roles never get a free name.
             for slot in [idle[k], app] {
@@ -269,7 +279,10 @@ pub fn revoke_registration_churn() -> Result<(), String> {
                 check!(code == failed(EACCES), "cycle {cycle}: {slot} -> {code:#x}");
                 denials += 1;
             }
-            check!(registry::list().is_empty(), "cycle {cycle}: name left behind");
+            check!(
+                registry::list().is_empty(),
+                "cycle {cycle}: name left behind"
+            );
             if cycle % 100 == 99 {
                 for slot in tools.iter().chain(&idle).chain([&app]) {
                     drain(*slot)?;
@@ -284,6 +297,9 @@ pub fn revoke_registration_churn() -> Result<(), String> {
         audit::denials() - before
     );
     let stats = registry::stats();
-    check!(stats.entries == 0 && stats.leases == 0, "registry stats {stats:?}");
+    check!(
+        stats.entries == 0 && stats.leases == 0,
+        "registry stats {stats:?}"
+    );
     Ok(())
 }

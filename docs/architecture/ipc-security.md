@@ -159,11 +159,16 @@ audit ring, and per-uid quotas. Spec: [security-model.md](../security-model.md).
   a foreign one, and keeps what every `app:` label has implicitly (its own
   `app.<id>.<name>` with the domain rule, its own `app/<id>/` topics). A
   revoke does not unregister a name the process already holds; `pkgd` ends the
-  process. Resolving is judged by its rules. *Topics:* `user/<uid>/` is checked first and is the
+  process (`Remove`, and an upgrade that changes the package's class, `retire`). Resolving is judged by its rules. *Topics:* `user/<uid>/` is checked first and is the
   uid's alone; the tool's own `app/<id>/` is granted; any other `app/...` is
   refused (`RESERVED_NAMESPACE`), a filter starting with a wildcard is refused
   (it reaches `app/`), and publishing under `system/` is refused (a tool must
-  not forge the platform's events); everything else goes to the label's rules.
+  not forge the platform's events), and so is publishing under `time/` (`timed`'s
+  retained tick); everything else goes to the label's rules. What a tool can
+  still publish is its own user's and session's topics and names nobody reserved.
+  *Sockets:* a tool is not confined, but `confine::may_open_inet` judges its
+  `socket(AF_INET)` by the label's rules for `os.lazy.net.socket.v1` (the
+  explicit deny a tool without `network` carries), for its children too.
   *Children:* spawn, fork and `execve` children keep the label; there are no
   child labels of a tool (`tool:<id>/<name>` is malformed, `parent_of` is
   `None`, no `[processes.*]` binding can match its `execve`). *Dev-spawn:* as

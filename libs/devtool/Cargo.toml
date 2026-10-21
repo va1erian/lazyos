@@ -9,7 +9,3 @@ license = "GPL-3.0-or-later"
 [lib]
 name = "devtool"
 path = "src/lib.rs"
-
-[features]
-# `tool_label` allocates; the freestanding users leave it off.
-alloc = []

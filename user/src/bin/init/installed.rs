@@ -22,6 +22,16 @@
 //! (`pkgstore::toolgate::row_approved`): `pkgd` refuses to load it, and `init`
 //! must not open an app whose label has no rules.
 //!
+//! `init` makes the same decision `pkgd`'s boot reconciliation makes before an
+//! app is started under a tool label: for a tool row it reads the stored
+//! manifest and applies `pkgstore::toolgate::stored_loadable` (the row and the
+//! manifest agree on the class, the tool was approved, a manifest that claims
+//! `shell` belongs to a package the image ships), cached by the row's digest.
+//! A tool `pkgd` refused to load (its label was revoked) is therefore not
+//! listed or launched either, instead of running as an unconfined process
+//! whose Messenger rules are empty. (An application row needs no such check: its
+//! `app:` label holds no rules unless `pkgd` loaded them.)
+//!
 //! A *shell* tool (`shell = true`, the Terminal; `pkgstore::shellrole::row_is_shell`,
 //! decided from the row `pkgd` recorded and never from the package) is the
 //! user's own shell: [`InstalledApps::owner_cred`] judges a caller running under
@@ -120,7 +130,16 @@ pub(super) struct InstalledApps {
     /// user heap never frees them anyway, so each distinct string is leaked
     /// once and reused across refreshes.
     interned: Vec<&'static str>,
+    /// The verdict of [`InstalledApps::stored_agrees`] for a tool row, by
+    /// `(system_name, digest)`: a package's files change with its digest, so
+    /// the manifest is read once per version. Only agreements are kept; a
+    /// refusal or an unreadable manifest is looked at again on the next
+    /// refresh.
+    agreed: Vec<(String, String)>,
 }
+
+/// Largest stored manifest `init` reads back (the format's own cap is 1 MiB).
+const MAX_MANIFEST: usize = 1024 * 1024;
 
 impl InstalledApps {
     pub(super) const fn new() -> InstalledApps {
@@ -128,6 +147,42 @@ impl InstalledApps {
             apps: Vec::new(),
             endpoint: None,
             interned: Vec::new(),
+            agreed: Vec::new(),
+        }
+    }
+
+    /// Whether a tool row's stored manifest still says what the row does and
+    /// the tool may be started (`pkgstore::toolgate::stored_loadable`, the
+    /// decision `pkgd` loads the label's rules by). Not a tool row: always.
+    /// An unreadable manifest fails closed, as `pkgd`'s reconciliation does.
+    fn stored_agrees(&mut self, row: &pkgd::Installed) -> bool {
+        if !pkgstore::toolgate::is_tool_kind(&row.kind) {
+            return true;
+        }
+        let known =
+            |(name, digest): &(String, String)| *name == row.system_name && *digest == row.digest;
+        if self.agreed.iter().any(known) {
+            return true;
+        }
+        let Some(manifest) = stored_manifest(&row.install_dir) else {
+            return false;
+        };
+        let core = row.origin == pkgd::ORIGIN_CORE;
+        match pkgstore::toolgate::stored_loadable(&row.kind, &manifest, row.machine_wide, core) {
+            Ok(()) => {
+                self.agreed.retain(|(name, _)| *name != row.system_name);
+                self.agreed
+                    .push((row.system_name.clone(), row.digest.clone()));
+                true
+            }
+            Err(why) => {
+                trace::line!(
+                    trace::Channel::Init,
+                    "APPS:REFUSE {}: {why}",
+                    row.system_name
+                );
+                false
+            }
         }
     }
 
@@ -217,11 +272,12 @@ impl InstalledApps {
                 .then_with(|| not_shell(a).cmp(&not_shell(b)))
                 .then_with(|| a.system_name.cmp(&b.system_name))
         });
-        let apps = rows
-            .into_iter()
-            .filter(approved)
-            .map(|row| self.app_of(row))
-            .collect();
+        let mut apps = Vec::new();
+        for row in rows.into_iter().filter(approved) {
+            if self.stored_agrees(&row) {
+                apps.push(self.app_of(row));
+            }
+        }
         self.apps = apps;
     }
 
@@ -316,6 +372,16 @@ impl InstalledApps {
         self.interned.push(leaked);
         leaked
     }
+}
+
+/// The manifest `pkgd` stored when it installed `install_dir`; `None` when it
+/// cannot be read or parsed.
+fn stored_manifest(install_dir: &str) -> Option<lazypkg::Manifest> {
+    let root = pkgstore::layout::install_path(install_dir).ok()?;
+    let path = alloc::format!("{root}/{}", pkgstore::layout::MANIFEST_FILE);
+    let bytes = user::files::read_up_to(&path, MAX_MANIFEST).ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    lazypkg::parse_manifest(&text).ok()
 }
 
 /// The policy label an installed app is started under.

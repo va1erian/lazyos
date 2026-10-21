@@ -20,6 +20,7 @@ mod nic_names;
 mod session_topics;
 mod soak;
 mod tool;
+mod tool_inet;
 mod tool_names;
 mod tool_policy;
 mod tool_revoke;
@@ -328,7 +329,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("label_tool_table_capacity", tool::table_capacity),
     ("label_tool_loader", tool::load_through_the_loader),
     ("label_tool_default_allow_rules", tool::default_allow_rules),
-    ("label_tool_register_verdicts", tool_names::register_verdicts),
+    (
+        "label_tool_register_verdicts",
+        tool_names::register_verdicts,
+    ),
     (
         "label_tool_register_syscalls",
         tool_names::register_through_the_syscalls,
@@ -347,6 +351,15 @@ pub(super) const CASES: &[(&str, Test)] = &[
         tool_policy::dev_spawn_scope_still_required,
     ),
     ("label_tool_topic_verdicts", tool_policy::topic_verdicts),
+    (
+        "label_tool_inet_follows_rules",
+        tool_inet::inet_follows_the_tool_rules,
+    ),
+    (
+        "label_tool_inet_other_labels_unchanged",
+        tool_inet::inet_gate_unchanged_for_other_labels,
+    ),
+    ("label_tool_soak_inet_gate", tool_inet::inet_gate_soak),
     (
         "label_tool_explain_names_namespace",
         tool_names::explain_names_the_tool_namespace,

@@ -62,6 +62,8 @@ pub struct SubPage {
     pub selected: Option<u64>,
     /// The newest event id already traced.
     pub traced: u64,
+    /// How many `EVENT` lines this tab may trace (it can be a firehose).
+    pub budget: xui_app::trace::Budget,
 }
 
 /// The Publish form's fields.

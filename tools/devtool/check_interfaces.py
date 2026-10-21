@@ -13,7 +13,11 @@ lines and `#` comments are ignored) and fails when
     list);
   * a name is on both lists, or the reviewed list names an interface idl/ no
     longer declares, or it is unsorted or repeats a name;
-  * a `DENY` name is neither in idl/manifest.json nor in `KERNEL_SCOPES`.
+  * a `DENY` name is neither in idl/manifest.json nor in `KERNEL_SCOPES`;
+  * the kernel tests' stand-in for `DENY` (`DENIED` in
+    kernel/src/tests/label_suite/tool.rs; the kernel cannot depend on
+    `devtool`) names other interfaces than `DENY` does, so the kernel tests
+    would judge a tool by a list that is not the shipped one.
 
     python tools/devtool/check_interfaces.py
 """
@@ -30,10 +34,13 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "idl" / "manifest.json"
 LIB = ROOT / "libs" / "devtool" / "src" / "lib.rs"
 REVIEWED = ROOT / "tools" / "devtool" / "reviewed_interfaces.txt"
+STAND_IN = ROOT / "kernel" / "src" / "tests" / "label_suite" / "tool.rs"
 
 ADVICE = (
     "decide whether a developer tool may call it: add it to `DENY` in "
-    "libs/devtool/src/lib.rs (and the explain table) if it carries secrets or "
+    "libs/devtool/src/lib.rs (and the kernel tests' stand-in list in "
+    "kernel/src/tests/label_suite/tool.rs, which this check compares; the "
+    "consent screen's rows are derived from DENY) if it carries secrets or "
     "authority, otherwise add it to tools/devtool/reviewed_interfaces.txt"
 )
 
@@ -46,7 +53,9 @@ def manifest_interfaces(text: str) -> list[str]:
 def _const_body(source: str, name: str) -> str:
     """The text between `pub const NAME: ... = ` and the `];` that ends its
     array (the constants are arrays of literals, so no `];` occurs inside)."""
-    match = re.search(rf"pub const {name}\b[^=]*=\s*(.*?)\];", source, re.S)
+    match = re.search(
+        rf"pub(?:\([a-z]+\))? const {name}\b[^=]*=\s*(.*?)\];", source, re.S
+    )
     return match.group(1) if match else ""
 
 
@@ -58,6 +67,11 @@ def deny_names(source: str) -> list[str]:
 def kernel_scopes(source: str) -> list[str]:
     """The names in `KERNEL_SCOPES`."""
     return re.findall(r'"([^"]+)"', _const_body(source, "KERNEL_SCOPES"))
+
+
+def stand_in_names(source: str) -> list[str]:
+    """The names in the kernel tests' `DENIED` stand-in."""
+    return re.findall(r'"([^"]+)"', _const_body(source, "DENIED"))
 
 
 def reviewed_names(text: str) -> list[str]:
@@ -75,8 +89,10 @@ def check(
     deny: list[str],
     scopes: list[str],
     reviewed: list[str],
+    stand_in: list[str] | None = None,
 ) -> list[str]:
-    """Every problem, one sentence each; empty when all is classified."""
+    """Every problem, one sentence each; empty when all is classified.
+    `stand_in` is the kernel tests' copy of the deny list (None: not checked)."""
     problems: list[str] = []
     if not deny:
         problems.append("found no DENY entries in libs/devtool/src/lib.rs")
@@ -95,6 +111,26 @@ def check(
         problems.append(
             f"{name} is in DENY but is neither declared in idl/ nor in KERNEL_SCOPES"
         )
+    if stand_in is not None:
+        if not stand_in:
+            problems.append(
+                "found no DENIED entries in kernel/src/tests/label_suite/tool.rs"
+            )
+        for name in sorted(denied - set(stand_in)):
+            problems.append(
+                f"{name} is in DENY but not in the kernel tests' DENIED "
+                "(kernel/src/tests/label_suite/tool.rs): add it, so the kernel "
+                "tests judge a tool by the shipped list"
+            )
+        for name in sorted(set(stand_in) - denied):
+            problems.append(
+                f"{name} is in the kernel tests' DENIED "
+                "(kernel/src/tests/label_suite/tool.rs) but not in DENY: remove it "
+                "or add it to DENY"
+            )
+        if len(set(stand_in)) != len(stand_in):
+            repeated = sorted({n for n in stand_in if stand_in.count(n) > 1})
+            problems.append(f"the kernel tests' DENIED repeats: {', '.join(repeated)}")
     if len(listed) != len(reviewed):
         repeated = sorted({n for n in reviewed if reviewed.count(n) > 1})
         problems.append(f"the reviewed list repeats: {', '.join(repeated)}")
@@ -108,12 +144,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, default=MANIFEST)
     parser.add_argument("--lib", type=Path, default=LIB)
     parser.add_argument("--reviewed", type=Path, default=REVIEWED)
+    parser.add_argument("--stand-in", type=Path, default=STAND_IN)
     args = parser.parse_args(argv)
     interfaces = manifest_interfaces(args.manifest.read_text(encoding="utf-8"))
     source = args.lib.read_text(encoding="utf-8")
     reviewed = reviewed_names(args.reviewed.read_text(encoding="utf-8"))
     deny = deny_names(source)
-    problems = check(interfaces, deny, kernel_scopes(source), reviewed)
+    stand_in_source = args.stand_in.read_text(encoding="utf-8")
+    problems = check(
+        interfaces,
+        deny,
+        kernel_scopes(source),
+        reviewed,
+        stand_in_names(stand_in_source),
+    )
     for problem in problems:
         print(f"check_interfaces: {problem}", file=sys.stderr)
     if problems:

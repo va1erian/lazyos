@@ -23,15 +23,17 @@ pub(super) const APP: &str = "app:demo.pirate";
 pub(super) const OTHER_APP: &str = "app:com.other";
 
 /// A stand-in for `devtool::DENY` (`libs/devtool`, the deny list `pkgd` compiles
-/// into a tool's rules; the kernel does not depend on that crate). Keep it a
-/// superset of the interfaces the real list refuses: the tests below only need
-/// "these are denied ahead of the wildcard", not the exact shipped list.
-pub(super) const DENIED: [&str; 6] = [
+/// into a tool's rules; the kernel does not depend on that crate). It names
+/// exactly the interfaces of the real list (a plain tool, no declaration):
+/// `tools/devtool/check_interfaces.py`, a CI step, compares the two.
+pub(super) const DENIED: [&str; 8] = [
     "os.lazy.keyd.v1",
     "os.lazy.keyd.appsecret.v1",
     "os.lazy.accounts.v1",
     "os.lazy.process.label.spawn.v1",
     "os.lazy.net.socket.v1",
+    "os.lazy.net.stack.v1",
+    "os.lazy.mount.v1",
     "os.lazy.messenger.policy.v1",
 ];
 
@@ -259,7 +261,10 @@ fn load_cases() -> Result<(), String> {
             allow: true,
         }))
         .collect();
-    check!(load_current(TOOL, &rules)? == 0, "the tool's rules were refused");
+    check!(
+        load_current(TOOL, &rules)? == 0,
+        "the tool's rules were refused"
+    );
     let id = labels::lookup(TOOL).ok_or("the tool label was not interned")?;
     check!(
         labels::kind_of(id) == Some(Kind::Tool),

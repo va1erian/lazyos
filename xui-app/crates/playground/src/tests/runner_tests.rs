@@ -300,3 +300,25 @@ fn the_table_refuses_a_run_past_the_live_cap_and_takes_it_again_after_a_stop() {
     t.poll(1);
     assert!(t.start("msg::run();", "again", 1, 2).is_ok());
 }
+
+#[test]
+fn a_hostile_line_number_in_error_output_cannot_overflow() {
+    // A script prints whatever it likes to its error output.
+    let max = usize::MAX;
+    for first_line in [1, 2, 40, max] {
+        let c = compose(
+            "let x = 1;
+",
+            false,
+            first_line,
+        );
+        for text in [
+            format!("boom (line {max}, position 1)"),
+            format!("boom (line {}, position 1)", max - 1),
+            format!("boom (line {}, position 18446744073709551615)", max / 2),
+        ] {
+            let mark = c.map_error(&text).expect("a position");
+            assert!(mark.line.is_some_and(|l| l >= 1), "{text}");
+        }
+    }
+}

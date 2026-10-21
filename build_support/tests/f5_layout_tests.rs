@@ -145,10 +145,7 @@ fn an_f4_image_updated_by_the_f5_build_drops_the_app_programs() {
         "the Editor is a package now"
     );
     assert!(volume.lookup(F4_APP_LIST).is_err());
-    assert_eq!(
-        volume.read_file(fhs::bin::DEVICES).unwrap(),
-        b"devices elf"
-    );
+    assert_eq!(volume.read_file(fhs::bin::DEVICES).unwrap(), b"devices elf");
     assert_eq!(
         volume
             .read_file("/system/packages/os.lazy.editor.lzp")

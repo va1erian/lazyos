@@ -143,6 +143,16 @@ pub fn label_for_kind(system_name: &str, kind: &str) -> String {
     }
 }
 
+/// The label an upgrade leaves behind: the one the installed row (`kind` as
+/// `Installed::kind` records it) ran under, when `new` runs under another (an
+/// application that became a developer tool, or the reverse). `pkgd` revokes
+/// that label's rules and ends what still runs under it, because a process
+/// keeps its label and the new rules are loaded under the new name only.
+pub fn label_left_behind(system_name: &str, old_kind: &str, new: &Manifest) -> Option<String> {
+    let old = label_for_kind(system_name, old_kind);
+    (old != label_of(new)).then_some(old)
+}
+
 /// The names `interface` is served under, interface name first.
 pub fn service_names(interface: &str) -> Vec<String> {
     let mut names = Vec::new();

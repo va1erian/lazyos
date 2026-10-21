@@ -265,9 +265,12 @@ pub fn shortcut(key: Key, modifiers: Modifiers) -> Option<TMsg> {
 }
 
 impl Drop for TopicsTool {
-    /// The window closed (or the main window did): end every subscription.
+    /// The window closed (or the main window did). The subscriptions end with
+    /// the subscriber's own drop, which unsubscribes each with a poll call: a
+    /// broker that answers slowly (or not at all) must not hold the UI for
+    /// two seconds per tab. Only an explicit Stop listening waits and keeps a
+    /// failed unsubscribe for a retry (`Subs::close`).
     fn drop(&mut self) {
-        self.stop_listening();
         trace::pass!(Channel::Playground, "TOPICS:QUIT");
         self.tell_main(Msg::TopicsGone);
     }

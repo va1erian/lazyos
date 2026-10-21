@@ -345,14 +345,29 @@ def judge_layout_stored(text: str) -> list[str]:
     return problems
 
 
+#: The origins the review session's cards must name, in order: a paste (declined), the same
+#: paste (confirmed, run 1), a file that was opened, and a paste whose typed neighbour was deleted.
+REVIEW_ASKS = ["clipboard", "clipboard", "file", "clipboard"]
+
+
+def review_asks(text: str) -> list[str]:
+    """The origin of every review card the app showed (`PLAYGROUND:REVIEW:ASK:<origin>`)."""
+    return [m.split(":")[2] for m in markers(text) if re.fullmatch(r"REVIEW:ASK:[a-z]+", m)]
+
+
 def judge_review(text: str) -> list[str]:
-    """Three F5 presses (one cancelled), two runs: the pasted text asked, nothing ran on open."""
+    """Four F5 presses that ask (one confirmed), one that does not, two runs: a run count alone
+    cannot tell "asked and confirmed" from "never asked", so the cards are counted too."""
     seen = {i: r for i, r in runs(text).items() if r.get("start")}
     problems = []
     if sorted(seen) != [1, 2]:
         problems.append(f"expected exactly runs 1 and 2 to start, got {sorted(seen)}")
     if seen.get(1, {}).get("exit") != "0":
         problems.append("the confirmed run did not exit 0")
+    asks = review_asks(text)
+    if asks != REVIEW_ASKS:
+        problems.append(f"expected the review cards {REVIEW_ASKS} (pasted, pasted, file, paste "
+                        f"after deleted typing), got {asks}")
     return problems
 
 

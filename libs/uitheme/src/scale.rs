@@ -62,15 +62,30 @@ impl UiScale {
         }
     }
 
-    /// The `display.scale=` line of a `lazyos.cfg` text: the first one that
-    /// parses (the kernel ignores later duplicates, and so does this), with
-    /// an optional trailing `# comment`. `None` when there is no such line.
+    /// The `display.scale=` line of a `lazyos.cfg` text, read as the
+    /// kernel reads it (`kernel/src/display/modecfg.rs::parse`, which this
+    /// mirrors line for line): a line is `display.<key>=<value>` with the key
+    /// compared exactly (so `display.scales=1` is another key), a value may
+    /// end in a `# comment`, and the FIRST `display.scale=` line decides even
+    /// if its value is bad (the kernel ignores later duplicates, so a later
+    /// valid line must not win here). A bare `display.scale` has no `=`: the
+    /// kernel skips it as malformed without marking the key seen. `None`
+    /// when there is no deciding line or its value is refused.
     pub fn from_cfg(cfg: &str) -> Option<UiScale> {
-        let value = cfg
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("display.scale"))?;
-        let value = value.trim_start().strip_prefix('=')?;
-        UiScale::parse(value.split('#').next().unwrap_or(""))
+        for line in cfg.lines() {
+            let Some(rest) = line.trim().strip_prefix("display.") else {
+                continue;
+            };
+            let Some((key, value)) = rest.split_once('=') else {
+                continue;
+            };
+            if key.trim() != "scale" {
+                continue;
+            }
+            let value = value.trim().split('#').next().unwrap_or("").trim();
+            return cfg_value(value);
+        }
+        None
     }
 
     /// The scale in effect on a `width x height` screen.
@@ -89,6 +104,19 @@ impl UiScale {
             UiScale::Fixed(_) => "2",
         }
     }
+}
+
+/// A `display.scale` value as the kernel's `parse_scale` takes it: `auto`,
+/// or decimal digits only (no sign) that make 1 to [`MAX_SCALE`].
+fn cfg_value(value: &str) -> Option<UiScale> {
+    if value.eq_ignore_ascii_case("auto") {
+        return Some(UiScale::Auto);
+    }
+    let digits = !value.is_empty() && value.len() <= 5 && value.bytes().all(|b| b.is_ascii_digit());
+    let scale: u32 = value.parse().ok().filter(|_| digits)?;
+    (1..=MAX_SCALE)
+        .contains(&scale)
+        .then_some(UiScale::Fixed(scale))
 }
 
 /// The largest integer scale up to [`MAX_SCALE`] that still leaves a logical
@@ -121,33 +149,65 @@ mod tests {
 
     #[test]
     fn reads_the_boot_cfg_default() {
-        let cfg = "root=UUID=x
-display.mode=2560x1440
-display.scale = 1  # roomy
-";
+        let cfg = "root=UUID=x\ndisplay.mode=2560x1440\ndisplay.scale = 1  # roomy\n";
         assert_eq!(UiScale::from_cfg(cfg), Some(UiScale::Fixed(1)));
-        assert_eq!(UiScale::from_cfg("display.scale=2
-"), Some(UiScale::Fixed(2)));
-        assert_eq!(UiScale::from_cfg("  display.scale=AUTO"), Some(UiScale::Auto));
+        assert_eq!(
+            UiScale::from_cfg("display.scale=2\n"),
+            Some(UiScale::Fixed(2))
+        );
+        assert_eq!(
+            UiScale::from_cfg("  display.scale=AUTO"),
+            Some(UiScale::Auto)
+        );
         // No line, other display keys, or a value the kernel refuses: no default.
-        for none in ["", "display.mode=2560x1440
-", "display.scale=3
-", "display.scale
-",
-                     "display.scale=
-", "display.scales=1
-", "# display.scale=1
-"] {
+        for none in [
+            "",
+            "display.mode=2560x1440\n",
+            "display.scale=3\n",
+            "display.scale\n",
+            "display.scale=\n",
+            "display.scales=1\n",
+            "# display.scale=1\n",
+            "display.scale=+2\n",
+            "display.scale=1.5\n",
+        ] {
             assert_eq!(UiScale::from_cfg(none), None, "{none:?}");
         }
-        // The first line wins, as in the kernel's parser.
-        assert_eq!(UiScale::from_cfg("display.scale=1
-display.scale=2
-"), Some(UiScale::Fixed(1)));
-        assert_eq!(UiScale::from_cfg("display.mode=2560x1440
-display.scale=1
-")
-            .map(|scale| scale.resolve(2560, 1440)), Some(1));
+        assert_eq!(
+            UiScale::from_cfg("display.mode=2560x1440\ndisplay.scale=1\n")
+                .map(|scale| scale.resolve(2560, 1440)),
+            Some(1)
+        );
+    }
+
+    /// The kernel's rule, case for case (its twin is
+    /// `kernel/src/display/modecfg.rs`'s tests): the key is compared exactly,
+    /// a bare `display.scale` is skipped, and the first `display.scale=` line
+    /// decides even when its value is bad.
+    #[test]
+    fn cfg_agrees_with_the_kernel_parser() {
+        let cases: [(&str, Option<UiScale>); 8] = [
+            (
+                "display.scale=1\ndisplay.scale=2\n",
+                Some(UiScale::Fixed(1)),
+            ),
+            (
+                "display.scales=1\ndisplay.scale=2\n",
+                Some(UiScale::Fixed(2)),
+            ),
+            ("display.scale\ndisplay.scale=2\n", Some(UiScale::Fixed(2))),
+            ("display.scale=3\ndisplay.scale=2\n", None),
+            ("display.scale=\ndisplay.scale=2\n", None),
+            ("display.scale=auto\ndisplay.scale=2\n", Some(UiScale::Auto)),
+            ("display.scale=2 # x=1\n", Some(UiScale::Fixed(2))),
+            (
+                "display.scale # x=1\ndisplay.scale=1\n",
+                Some(UiScale::Fixed(1)),
+            ),
+        ];
+        for (cfg, want) in cases {
+            assert_eq!(UiScale::from_cfg(cfg), want, "{cfg:?}");
+        }
     }
 
     #[test]
