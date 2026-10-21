@@ -70,7 +70,7 @@ there to keep the space roughly proportional to the substance.
 | V Pixels | 11-12 | 34 | `user/src/bin/xuid/` (37 files), `xui-app/src/backend/` |
 | VI The desktop | 13 | 16 | `xui-app/crates/shell`, `xui-app/src/shell` |
 | VII Scripting | 14 | 14 | `rhai-host/`, `libs/rhai-lazy/` |
-| VIII Two applications | 15-16 | 34 | `lazyrad-os/`, `kernel/src/ipc/devspawn.rs`, `xui-app/web`, `nettls/` |
+| VIII Two applications | 15-16 | 34 | `lazyrad-os/`, `kernel/src/ipc/devspawn.rs`, `xui-app/web` (removed), `nettls/` |
 | Back matter | Epilogue, glossary, path index, colophon | 10 | |
 
 ### Front matter

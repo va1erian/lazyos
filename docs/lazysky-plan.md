@@ -341,7 +341,7 @@ example does the same.
 `tls.rs`, `roots.rs` and `resolve.rs` (now in the shared `lazyhttps` crate,
 `xui-app/crates/https`, which LazyAgent uses too; docs/ai-agent-plan.md) are
 small adaptations of the fetcher of LazyWeb (the Blitz browser, since removed)
-(`xui-app/web/src/fetch/tls.rs` and `roots.rs`: rustls client config with
+(`fetch/tls.rs` and `roots.rs` of the removed `xui-app/web`: rustls client config with
 `nettls_crypto::provider_arc()`, ALPN `http/1.1`, a ureq `Connector`; roots
 from `Platform::ca_roots()`). Do not depend on the `lazyweb` crate (declared
 GPL-2.0-only); copy, name the source in a comment, keep the two in step.
@@ -500,7 +500,7 @@ host tests, and every file under 500 lines (`python tools/check_file_length.py`)
    workspace, and the thin `src/bin/lazysky.rs` that prints `SKY:UP:PASS`.
 2. Core: `Platform`, `Roots`, and `net/{tls,roots,http}.rs`; a host test
    `tests/https.rs` that fetches from a local rustls server with an `rcgen`
-   CA (copy `xui-app/web/tests/support/mod.rs` and `fetch_tls.rs`).
+   CA (copy the removed LazyWeb's `tests/support/mod.rs` and `fetch_tls.rs`, from the repository history).
 3. Core: `examples/sky_cli.rs` stub that does one HTTPS GET through the
    `Core` API (proves the headless path).
 4. UI spike (a throwaway test in `lazysky-ui/tests/`): take
@@ -781,7 +781,7 @@ same lines.)
    `docs/cookbook.md` and `docs/widgets.md` in the cargo checkout of the
    pinned rev (`~/.cargo/git/checkouts/xui-*/93592fd/`);
    `xui-app/crates/pdfview/src/{view.rs,worker.rs,cache.rs}`;
-   `xui-app/web/src/fetch/{tls.rs,roots.rs,pool.rs}`.
+   the removed LazyWeb's `fetch/{tls.rs,roots.rs,pool.rs}` (repository history).
 2. **Use redsky for behaviour, not code.** It is egui and async.
 3. **Respect the seam (§2).** No xui type, `fhs` path or OS call in
    `lazysky-core`. No LazyOS-only call in `lazysky-ui` (route through
