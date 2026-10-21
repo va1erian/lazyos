@@ -237,6 +237,11 @@ impl Filesystem for RamFs {
         Self::write_ino(&mut inner, ino, offset, data)
     }
 
+    /// Inode numbers are never reused (`nodeio.rs`).
+    fn stable_nodes(&self) -> bool {
+        true
+    }
+
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
         self.open_file_node(path).map(Some)
     }

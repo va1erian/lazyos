@@ -46,6 +46,16 @@ pub trait Filesystem: Send + Sync {
         false
     }
 
+    /// Whether a node *is* its file: the same node never names two files
+    /// (inode numbers come from this kernel's own tables, and a reused one
+    /// carries a new generation), so open files may be told apart, and two
+    /// names of one file found to be one, by node (`openfile`'s registry,
+    /// issue #871). A user-space filesystem's daemon makes its numbers up and
+    /// keeps the default: its open files are told apart by path.
+    fn stable_nodes(&self) -> bool {
+        false
+    }
+
     /// [`Filesystem::read`] by node. A node whose file is gone (deleted, or
     /// its inode reused) is [`FsError::NotFound`].
     fn read_node(&self, _node: NodeId, _offset: u64, _buf: &mut [u8]) -> Result<usize, FsError> {

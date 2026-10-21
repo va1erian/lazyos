@@ -76,6 +76,12 @@ impl Filesystem for Ext2 {
         true
     }
 
+    /// An inode number with its generation (`i_generation`, advanced at
+    /// every allocation) is one file for the life of the volume.
+    fn stable_nodes(&self) -> bool {
+        true
+    }
+
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
         let _gate = self.enter();
         let handle = self.volume.open_file(path)?;

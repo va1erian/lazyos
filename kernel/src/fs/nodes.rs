@@ -15,6 +15,13 @@ pub fn vfs_open_node(id: Id, path: &str, mask: u8) -> Result<Option<Node>, FsErr
     super::with(|vfs| vfs.open_node(id, path, mask)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// What `path` names in the Linux ABI table: its filesystem instance and
+/// its metadata ([`Vfs::identity`](super::vfs::Vfs::identity)), no
+/// permission checked.
+pub fn abi_identity(path: &str) -> Result<(usize, Meta), FsError> {
+    super::abi_with(|vfs| vfs.identity(path)).unwrap_or(Err(FsError::NotFound))
+}
+
 /// After a write through a node: `meta` is the current metadata of `path`
 /// in the Linux ABI table's caches.
 pub fn abi_refresh(path: &str, meta: Meta) {

@@ -75,7 +75,7 @@ pub fn under(prefix: &str) -> Vec<Holder> {
             }
             for (_, fd) in task.fds.iter() {
                 let Fd::Vfs { file } = fd else { continue };
-                if found.len() < MAX_HOLDERS && is_under(&file.path(), &prefix) {
+                if found.len() < MAX_HOLDERS && is_under(&file.volume_path(), &prefix) {
                     found.push(Holder {
                         pid,
                         name: program.clone(),

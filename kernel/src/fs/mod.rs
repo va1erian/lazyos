@@ -66,7 +66,8 @@ use alloc::vec::Vec;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
-pub use abi_link::abi_link;
+pub use abi_link::{abi_link, abi_unlink};
+use abi_link::abi_unlink_raw;
 pub use abi_rename::abi_rename;
 pub(crate) use abi_rename::abi_rename_raw;
 use coherence::{abi_changed, native_changed, Change};
@@ -283,11 +284,15 @@ pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
 
 /// Remove a regular file through the VFS.
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
+    let _names = openfile::names_lock();
     // A running program keeps its data under a hidden name (`openfile::image`).
     if openfile::unlink_text(id, path)? {
         return Ok(());
     }
     let unlinked = with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
+    if unlinked.is_ok() {
+        openfile::forget_name(path);
+    }
     native_changed(path, Change::Name, &unlinked);
     unlinked
 }
@@ -295,7 +300,8 @@ pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
 /// Rename within one mount through the VFS.
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
-    let displaced = openfile::displace_text(id, to)?;
+    let _names = openfile::names_lock();
+    let displaced = openfile::displace_text(id, from, to)?;
     let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
     displaced.finish(from, to, &renamed);
     native_changed(from, Change::Name, &renamed);
@@ -410,24 +416,6 @@ pub fn abi_mkdir(id: Id, path: &str, mode: u16) -> Result<Meta, FsError> {
 /// Read up to `buf.len()` bytes at `offset` through the Linux ABI VFS.
 pub fn abi_read_at(id: Id, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
     abi_with(|vfs| vfs.read(id, path, offset, buf)).unwrap_or(Err(FsError::NotFound))
-}
-
-/// Remove a regular file through the Linux ABI VFS. A file that a descriptor
-/// still has open loses its name but keeps its data until the last close
-/// ([`openfile`]).
-pub fn abi_unlink(id: Id, path: &str) -> Result<(), FsError> {
-    if openfile::unlink_open(id, path)? {
-        return Ok(());
-    }
-    abi_unlink_raw(id, path)
-}
-
-/// Delete a name outright, with no regard for open descriptors (the hidden
-/// entry of an unlinked file is deleted this way when its last one closes).
-fn abi_unlink_raw(id: Id, path: &str) -> Result<(), FsError> {
-    let unlinked = abi_with(|vfs| vfs.unlink(id, path)).unwrap_or(Err(FsError::NotFound));
-    abi_changed(path, Change::Name, &unlinked);
-    unlinked
 }
 
 /// Flush the filesystem holding `path` (`fsync`/`fdatasync`/`syncfs`).
