@@ -111,10 +111,8 @@ impl Displaced {
                     self.inode.orphan.store(false, Ordering::Relaxed);
                 }
             }
-            (None, true) => {
-                if self.inode.is_named(&self.original) {
-                    self.inode.forget_key();
-                }
+            (None, true) if self.inode.is_named(&self.original) => {
+                self.inode.forget_key();
             }
             _ => {}
         }

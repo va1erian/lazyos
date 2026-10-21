@@ -107,10 +107,25 @@ struct Names {
     shown: String,
 }
 
+/// A file's [`Names`] behind their lock.
+type NamesLock = Mutex<Names>;
+
+impl Names {
+    /// The lock a new [`Inode`] keeps its names behind (built here so the
+    /// registry does not name the lock type).
+    fn locked(key: String, shown: String) -> NamesLock {
+        Mutex::new(Names {
+            key,
+            current: true,
+            shown,
+        })
+    }
+}
+
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
     /// The file's names, behind one lock.
-    names: Mutex<Names>,
+    names: NamesLock,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
     orphan: AtomicBool,

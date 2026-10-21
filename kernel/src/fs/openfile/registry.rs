@@ -13,7 +13,6 @@
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use spin::Mutex;
 
 use super::image::{self, Role};
 use super::pagecache::PageCache;
@@ -61,11 +60,7 @@ pub(super) fn share_inode(
     }
     open.try_reserve(1).map_err(|_| FsError::NoSpace)?;
     let inode = Arc::new(Inode {
-        names: Mutex::new(Names {
-            key: path,
-            current: true,
-            shown,
-        }),
+        names: Names::locked(path, shown),
         orphan: AtomicBool::new(false),
         node,
         descriptions: AtomicUsize::new(1),
