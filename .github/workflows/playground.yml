@@ -1,0 +1,129 @@
+name: playground
+
+# The Messenger Playground and the developer-tool package class
+# (docs/messenger-playground-plan.md, docs/devtool-packages-plan.md), and the
+# fixes that rode with them (double-click synthesis, the power menu's quiet
+# period, the review gate, the scroll view): the host tests of every crate the
+# branch touched, the Python judges' self-tests and the checks that the
+# checked-in session scripts are current (`host`), and the guest sessions
+# (`guest`: every Playground session, the scroll check, the power-menu
+# multi-click check) judged from the serial logs and screenshots.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "xui-app/**"
+      - "libs/devtool/**"
+      - "tools/playground/**"
+      - "tools/devtool/**"
+      - "tools/screenshot/**"
+      - "idl/**"
+      - ".github/workflows/playground.yml"
+  pull_request:
+    paths:
+      - "xui-app/**"
+      - "libs/devtool/**"
+      - "tools/playground/**"
+      - "tools/devtool/**"
+      - "tools/screenshot/**"
+      - "idl/**"
+      - ".github/workflows/playground.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: playground-${{ github.ref }}
+  cancel-in-progress: true
+
+# F2 (docs/filesystem-plan.md): CI is hermetic, every image is created fresh.
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  host:
+    name: host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: xui-playground-host
+          workspaces: |
+            xui-app -> target
+
+      # The xui-app library (backend double-click synthesis, wheel routing,
+      # the shell's power-click rig, the developer-tool strip, help and review
+      # gate), the three binaries with tests of this branch, the portable
+      # Playground crate and the shell model (the power rows' quiet period).
+      - name: xui-app library
+        run: cargo test --manifest-path xui-app/Cargo.toml --lib
+
+      - name: xui-playground, xui-installer and xui-term binaries
+        run: cargo test --manifest-path xui-app/Cargo.toml --bin xui-playground --bin xui-installer --bin xui-term
+
+      - name: xui-playground crate and lazyshell
+        run: cargo test --manifest-path xui-app/Cargo.toml -p xui-playground -p lazyshell
+
+      # The judges fail when they should, and the checked-in sessions are the
+      # ones the generators write.
+      - name: Playground judges and sessions
+        run: |
+          python tools/playground/test_judge.py
+          python tools/playground/session.py --check
+          python tools/playground/scroll_run.py --check
+
+      - name: Developer-tool checks
+        run: |
+          python tools/devtool/test_check_interfaces.py
+          python tools/devtool/test_refused_judge.py
+
+  guest:
+    name: guest sessions
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/qemu
+        with:
+          packages: qemu-system-x86 musl-tools
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: xui-playground-guest
+          workspaces: |
+            . -> target
+            xui-app -> target
+            rhai-host -> target
+
+      - uses: ./.github/actions/busybox
+
+      # Builds rhai, the apps and the developer-tool desktop image (reset OS
+      # volume), then boots one session per script and judges each.
+      - name: Every Playground session
+        run: python tools/playground/run.py --accel auto
+
+      # Rebuilds with a fresh OS volume (the layout session above stored a
+      # dragged layout, which makes the doc pane taller than the judge expects).
+      - name: Scroll view check
+        run: python tools/playground/scroll_run.py --accel auto
+
+      # Three quick clicks on each session row: no `SHELL:POWER:REQUEST`.
+      - name: Power menu multi-click check
+        run: python tools/playground/power_run.py --accel auto
+
+      - name: Upload the logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playground-shots
+          path: shots/playground/
+          retention-days: 7

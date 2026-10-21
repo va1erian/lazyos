@@ -152,6 +152,10 @@ pub fn dev_spawn_scope_still_required() -> Result<(), String> {
         "the refusal was audited as {event:?}"
     );
 
+    check!(
+        fnv1a64(super::tool::UNLESS_DEVELOP[0]) == devspawn::SPAWN_SCOPE,
+        "the stand-in's `develop` entry is not the dev-spawn scope"
+    );
     // `develop = true`: no deny for the scope, so the wildcard allows it.
     let without_scope: Vec<u64> = default_denied()
         .into_iter()

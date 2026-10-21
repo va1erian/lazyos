@@ -212,7 +212,16 @@ mod tests {
             y: 40,
             button: 0x110,
         };
-        for event in [mv(1, 1), mv(5, 5), mv(10, 10), down, mv(20, 20), mv(30, 30), mv(40, 40), up] {
+        for event in [
+            mv(1, 1),
+            mv(5, 5),
+            mv(10, 10),
+            down,
+            mv(20, 20),
+            mv(30, 30),
+            mv(40, 40),
+            up,
+        ] {
             held.push(&backend, W, event);
         }
         held.flush(&backend, W);

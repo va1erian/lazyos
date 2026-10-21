@@ -619,8 +619,10 @@ identity, never a uid: a *system* caller is a service holding `CAP_SETUID`
   under `tool:<system_name>` on the same condition. The audit record of the
   install says `developer tool`, a refusal is audited as `denied`, and
   `pkgctl list`/`inspect` print the kind. The prompt leads with
-  `devtool::CONSENT_TEXT` and says the tool is installed for all users (its
-  row is machine-wide and its autostart opens in every session). **A core
+  `devtool::CONSENT_TEXT` (a shell tool's `devtool::SHELL_CONSENT_TEXT`), says
+  the tool is installed for all users (its row is machine-wide and its
+  autostart opens in every session) and names `with network` / `with develop`
+  when the package declares them. **A core
   developer tool** (the Playground, in a `LAZYOS_DEVTOOLS=1` image) is updated
   with the same `pkg.install-devtool`: `elevd` and `pkgd` allow a tool package
   to replace a core package only when the installed copy is a tool too
@@ -710,7 +712,7 @@ or authority cannot become callable by tools by accident.
 
 The consent screen of a tool opens with three kinds of row before the
 manifest's own (`pkgstore::explain::tool`): `kind` carries
-`devtool::CONSENT_TEXT`, one `risk` row per `devtool::RISKS` entry, then one
+`devtool::CONSENT_TEXT` (`SHELL_CONSENT_TEXT` for a shell tool), one `risk` row per `devtool::RISKS` entry, then one
 `denied` row per deny-list entry in force. These rows do not count against the
 24 permissions a package may request.
 

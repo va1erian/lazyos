@@ -38,9 +38,14 @@ impl Playground {
         };
         let heading = format!("{}.{}", open.interface, open.method);
         let layout = column().child(
-            callform::view(&heading, &open.form, open.error.as_deref(), &self.form_first)
-                .bind(&self.w.doc_scroll)
-                .fill(1),
+            callform::view(
+                &heading,
+                &open.form,
+                open.error.as_deref(),
+                &self.form_first,
+            )
+            .bind(&self.w.doc_scroll)
+            .fill(1),
         );
         let _ = self.w.doc.get().set_layout(layout);
         if callform::has_text_row(&open.form) {
@@ -78,12 +83,10 @@ impl Playground {
         };
         let options = CallOptions {
             output: Output::Show,
-            service: self.selected_service.as_deref().filter(|s| {
-                self.ex
-                    .join
-                    .service(s)
-                    .is_some_and(|svc| svc.serves(i))
-            }),
+            service: self
+                .selected_service
+                .as_deref()
+                .filter(|s| self.ex.join.service(s).is_some_and(|svc| svc.serves(i))),
             ..CallOptions::default()
         };
         match snippet::call_with(i, m, &options, &texts) {
@@ -143,4 +146,3 @@ impl Playground {
         self.form = None;
     }
 }
-

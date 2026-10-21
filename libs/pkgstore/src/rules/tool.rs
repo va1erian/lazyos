@@ -113,20 +113,38 @@ mod tests {
         assert_eq!(rules.last(), Some(&ALLOW_ALL), "the allow comes last");
     }
 
-    /// The three Messenger doors to the network: the socket service, the
-    /// stack (name lookups, ping) and `mountd` (FTP and SMB daemons). None of
-    /// them needs a declaration beyond `network`, so a tool that did not
-    /// declare it must not reach any (the consent text says "the network").
-    const NETWORK_DENIES: [&str; 3] = [
-        "os.lazy.net.socket.v1",
-        "os.lazy.net.stack.v1",
-        "os.lazy.mount.v1",
-    ];
+    /// The Messenger doors to the network, derived from the deny list so a new
+    /// `UnlessNetwork` entry is covered by the tests below without an edit
+    /// here: the socket service, the stack (name lookups, ping) and `mountd`
+    /// (FTP and SMB daemons). None needs a declaration beyond `network`, so a
+    /// tool that did not declare it must not reach any (the consent text says
+    /// "the network").
+    fn network_denies() -> Vec<&'static str> {
+        devtool::DENY
+            .iter()
+            .filter(|deny| deny.when == DenyWhen::UnlessNetwork)
+            .map(|deny| deny.interface)
+            .collect()
+    }
+
+    #[test]
+    fn the_network_doors_are_the_three_the_consent_text_promises() {
+        // Pinned by name once, so that deriving the list cannot silently
+        // empty it (an empty list would make the tests below vacuous).
+        assert_eq!(
+            network_denies(),
+            [
+                "os.lazy.net.socket.v1",
+                "os.lazy.net.stack.v1",
+                "os.lazy.mount.v1"
+            ]
+        );
+    }
 
     #[test]
     fn a_plain_tool_is_denied_every_door_to_the_network() {
         let rules = compile(&tool("")).unwrap();
-        for name in NETWORK_DENIES {
+        for name in network_denies() {
             assert!(rules.contains(&deny(name)), "{name}");
         }
     }
@@ -135,16 +153,19 @@ mod tests {
     fn outbound_lifts_the_three_network_denies_only() {
         let manifest = tool("network = [\"outbound\"]\n");
         let list = names(&manifest);
-        for name in NETWORK_DENIES {
+        for name in network_denies() {
             assert!(!list.contains(&name), "{name}");
         }
         assert!(list.contains(&"os.lazy.keyd.v1"));
         assert!(list.contains(&"os.lazy.process.label.spawn.v1"));
         let rules = compile(&manifest).unwrap();
-        for name in NETWORK_DENIES {
+        for name in network_denies() {
             assert!(!rules.contains(&deny(name)), "{name}");
         }
-        assert_eq!(rules.len(), devtool::DENY.len() - 2);
+        assert_eq!(
+            rules.len(),
+            devtool::DENY.len() + 1 - network_denies().len()
+        );
     }
 
     #[test]
@@ -152,7 +173,7 @@ mod tests {
         let manifest = tool("develop = true\n");
         let list = names(&manifest);
         assert!(!list.contains(&"os.lazy.process.label.spawn.v1"));
-        for name in NETWORK_DENIES {
+        for name in network_denies() {
             assert!(list.contains(&name), "{name}");
         }
         assert!(!compile(&manifest)

@@ -10,20 +10,17 @@
 //! they had. The gate is asked directly with the task made current, which is
 //! what the Linux `socket` call does (`process/linux/inet.rs`).
 
-use super::tool::{tool_rules, tool_task, DENIED, OTHER_TOOL, TOOL};
+use super::tool::{tool_rules, tool_task, DENIED, OTHER_TOOL, TOOL, UNLESS_NETWORK};
 use super::tool_soak::as_task;
 use super::*;
 use crate::ipc::acl::{reason, Rule, ANY_METHOD};
 use crate::ipc::confine;
 use crate::ipc::topics::fnv1a64;
 
-/// The doors a `network = ["outbound"]` declaration opens (`pkgstore`'s
-/// `NETWORK_DENIES` test names the same three).
-const NETWORK: [&str; 3] = [
-    "os.lazy.net.socket.v1",
-    "os.lazy.net.stack.v1",
-    "os.lazy.mount.v1",
-];
+/// The doors a `network = ["outbound"]` declaration opens: the stand-in's
+/// `UnlessNetwork` list, which `check_interfaces.py` compares with
+/// `devtool::DENY`.
+const NETWORK: [&str; 3] = UNLESS_NETWORK;
 
 /// A plain tool's compiled rules: every deny, then the wildcard allow.
 fn plain_rules() -> Vec<Rule> {
@@ -69,7 +66,8 @@ pub fn inet_follows_the_tool_rules() -> Result<(), String> {
 
         // A tool without the declaration is refused, audited and traced.
         check!(!inet(plain)?, "a tool without `network` opened AF_INET");
-        last_denial(plain_id, reason::LABEL_DEFAULT_DENY)?;
+        // ... as the explicit deny rule it hit, not as a default deny.
+        last_denial(plain_id, reason::EXPLICIT_DENY)?;
         // One with it is not, and the other tool's verdict is its own.
         check!(inet(declared)?, "a tool with `network` was refused AF_INET");
         check!(!inet(plain)?, "the declaration of another tool leaked");

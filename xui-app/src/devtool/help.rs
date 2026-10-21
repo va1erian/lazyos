@@ -128,11 +128,14 @@ impl HelpPage {
     /// The table: every shared risk in order (with the tool's text, or
     /// [`NO_SAFEGUARD`]), then the tool's own.
     pub fn rows(&self) -> Vec<HelpRow> {
-        let shared = devtool::RISKS.iter().zip(&self.does).map(|(risk, does)| HelpRow {
-            what: risk.what.to_owned(),
-            consequence: risk.consequence.to_owned(),
-            app_does: does.clone().unwrap_or_else(|| NO_SAFEGUARD.to_owned()),
-        });
+        let shared = devtool::RISKS
+            .iter()
+            .zip(&self.does)
+            .map(|(risk, does)| HelpRow {
+                what: risk.what.to_owned(),
+                consequence: risk.consequence.to_owned(),
+                app_does: does.clone().unwrap_or_else(|| NO_SAFEGUARD.to_owned()),
+            });
         shared.chain(self.extra.iter().cloned()).collect()
     }
 
@@ -163,7 +166,11 @@ fn paragraph<M: 'static>(text: &str) -> Layout<M> {
 
 /// One wrapped table cell; the first column and the headings are bold.
 fn cell<M: 'static>(text: &str, bold: bool) -> xui_core::arrange::Entry<M> {
-    let run = if bold { Run::normal(text).weight(700) } else { Run::normal(text) };
+    let run = if bold {
+        Run::normal(text).weight(700)
+    } else {
+        Run::normal(text)
+    };
     xui_core::arrange::IntoEntry::into_entry(flow_text().run(run))
 }
 
@@ -187,12 +194,11 @@ pub fn help_layout<M: 'static>(page: &HelpPage) -> Layout<M> {
     for note in page.notes() {
         body = body.child(paragraph(note));
     }
-    body.child(label("Risks").caption())
-        .child(
-            grid([Track::Fill(3), Track::Fill(3), Track::Fill(4)])
-                .gap(Dip(10.0))
-                .children(cells),
-        )
+    body.child(label("Risks").caption()).child(
+        grid([Track::Fill(3), Track::Fill(3), Track::Fill(4)])
+            .gap(Dip(10.0))
+            .children(cells),
+    )
 }
 
 /// [`help_layout`] in a scrolling area that fills its parent.
@@ -206,7 +212,13 @@ mod tests {
 
     /// A word each row of [`devtool::RISKS`] must contain, in `RiskKind` order.
     const KEYWORDS: [&str; 7] = [
-        "services", "settings", "clipboard", "applications", "events", "flood", "script",
+        "services",
+        "settings",
+        "clipboard",
+        "applications",
+        "topics",
+        "flood",
+        "script",
     ];
 
     #[test]
@@ -233,9 +245,15 @@ mod tests {
         let rows = page.rows();
         assert_eq!(rows.len(), devtool::RISKS.len() + 1);
         for (row, risk) in rows.iter().zip(devtool::RISKS) {
-            assert_eq!((row.what.as_str(), row.consequence.as_str()), (risk.what, risk.consequence));
+            assert_eq!(
+                (row.what.as_str(), row.consequence.as_str()),
+                (risk.what, risk.consequence)
+            );
         }
-        assert_eq!(rows[RiskKind::Clipboard.index()].app_does, "Never runs unreviewed text.");
+        assert_eq!(
+            rows[RiskKind::Clipboard.index()].app_does,
+            "Never runs unreviewed text."
+        );
         assert_eq!(
             rows[RiskKind::Script.index()].app_does,
             "The review step and the strip.",

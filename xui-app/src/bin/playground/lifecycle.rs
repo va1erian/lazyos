@@ -39,7 +39,8 @@ impl Playground {
                 }
                 self.refill_live();
                 // The monitor names event publishers from the same read.
-                self.topics.send(crate::tmsg::TMsg::Registry(self.registry_snapshot()));
+                self.topics
+                    .send(crate::tmsg::TMsg::Registry(self.registry_snapshot()));
             }
             Err(code) => self.note(&format!("registry: {}", fabric::errno_text(code))),
         }
@@ -147,7 +148,12 @@ impl Playground {
             let bar = 12 * scale;
             say(
                 "doc_bar_top",
-                Rect::new(r.right - bar, r.top, r.right, (r.top + 90 * scale).min(r.bottom)),
+                Rect::new(
+                    r.right - bar,
+                    r.top,
+                    r.right,
+                    (r.top + 90 * scale).min(r.bottom),
+                ),
             );
         }
         // The Explorer's pages and the Output pages sit under their tab bars.
@@ -175,9 +181,21 @@ impl Playground {
             self.say_rows(&say, name, rect, header, scale);
         };
         rows_in("tree_row", page(explorer, w.tree.get().id()), 0);
-        rows_in("live_row", page(explorer, w.live.get().id()), LIST_HEADER * scale);
-        rows_in("topics_row", page(explorer, w.topics.get().id()), LIST_HEADER * scale);
-        rows_in("gallery_row", page(explorer, w.gallery.get().id()), LIST_HEADER * scale);
+        rows_in(
+            "live_row",
+            page(explorer, w.live.get().id()),
+            LIST_HEADER * scale,
+        );
+        rows_in(
+            "topics_row",
+            page(explorer, w.topics.get().id()),
+            LIST_HEADER * scale,
+        );
+        rows_in(
+            "gallery_row",
+            page(explorer, w.gallery.get().id()),
+            LIST_HEADER * scale,
+        );
     }
 
     /// The first rows of a list as `name:0`, `name:1`, ...

@@ -26,6 +26,7 @@
 //! [`crate::trace`] on the tool's own channel. It adds to the app's `UP` and
 //! `QUIT` markers; it never replaces them.
 
+mod gate;
 mod help;
 mod notice;
 mod review;
@@ -39,10 +40,8 @@ use crate::backend::LazyOSBackend;
 use crate::trace::{self, Channel};
 
 pub use help::{help_layout, help_view, HelpPage, HelpRow, RiskKind, NO_SAFEGUARD};
-pub use review::{
-    answer_of, review_dialog, review_message, Provenance, ReviewAnswer, ReviewGate,
-};
 pub use notice::{marker_path, FileStore, Notice, Store as NoticeStore, MARKER as NOTICE_MARKER};
+pub use review::{answer_of, review_dialog, review_message, Provenance, ReviewAnswer, ReviewGate};
 pub use strip::{
     strip, Strip, DISMISS_LABEL as STRIP_DISMISS_LABEL, DISMISS_PROBE_NAME as STRIP_DISMISS_PROBE,
     PROBE_NAME as STRIP_PROBE,
@@ -100,7 +99,10 @@ mod tests {
 
     #[test]
     fn the_title_gets_the_suffix_once() {
-        assert_eq!(title("Messenger Playground"), "Messenger Playground (developer tool)");
+        assert_eq!(
+            title("Messenger Playground"),
+            "Messenger Playground (developer tool)"
+        );
         assert_eq!(
             title("Messenger Playground (developer tool)"),
             "Messenger Playground (developer tool)"

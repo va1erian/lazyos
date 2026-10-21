@@ -11,7 +11,9 @@ use xui_core::app::{App, Ui};
 use xui_core::arrange::{column, label, Handle, LayoutExt, Mounted};
 use xui_core::{Dip, Image, Theme};
 
-use super::{help_view, review_dialog, strip, HelpPage, Notice, NoticeStore, Provenance, RiskKind, Strip};
+use super::{
+    help_view, review_dialog, strip, HelpPage, Notice, NoticeStore, Provenance, RiskKind, Strip,
+};
 
 #[derive(Clone, Debug)]
 enum Msg {
@@ -47,11 +49,24 @@ fn register_fonts() {
 fn page() -> HelpPage {
     HelpPage::new("Messenger Playground")
         .about("Browse every Messenger interface, write a Rhai script and run it.")
-        .does(RiskKind::Services, "Methods that stop services carry a warning chip.")
+        .does(
+            RiskKind::Services,
+            "Methods that stop services carry a warning chip.",
+        )
         .does(RiskKind::Clipboard, "Scripts are never run unreviewed.")
-        .does(RiskKind::Flood, "Stop ends a run; a message counter shows the rate.")
-        .does(RiskKind::Script, "The review step, the strip, and no auto-run.")
-        .extra("Serve a name", "Other programs call the script", "Listed in the Output tab.")
+        .does(
+            RiskKind::Flood,
+            "Stop ends a run; a message counter shows the rate.",
+        )
+        .does(
+            RiskKind::Script,
+            "The review step, the strip, and no auto-run.",
+        )
+        .extra(
+            "Serve a name",
+            "Other programs call the script",
+            "Listed in the Output tab.",
+        )
 }
 
 fn save(image: &Image, name: &str) {
@@ -83,7 +98,9 @@ fn render(theme: Theme, dpi: u32, review: bool, dismissed: bool) -> (Image, (i32
             let r = ui.bounds(handle.get().id());
             out.set((r.left, r.top, r.width(), r.height()));
             let dialog = if review {
-                Some(review_dialog(ui, Provenance::Clipboard, |_| Some(Msg::Answered))?)
+                Some(review_dialog(ui, Provenance::Clipboard, |_| {
+                    Some(Msg::Answered)
+                })?)
             } else {
                 None
             };
@@ -104,7 +121,11 @@ fn the_strip_and_the_help_page_render_in_both_themes_at_both_scales() {
             let (image, (left, _top, width, height)) = render(theme, dpi, false, false);
             save(&image, &format!("devtool-help-{tag}{suffix}.png"));
             assert_eq!(left, 0);
-            assert_eq!(width, 660 * scale, "{tag}{suffix}: the strip spans the window");
+            assert_eq!(
+                width,
+                660 * scale,
+                "{tag}{suffix}: the strip spans the window"
+            );
             // One line of 12 dip text plus padding at this scale; the window is
             // wide enough for the whole sentence.
             assert!(
@@ -148,7 +169,10 @@ fn the_strip_with_its_button_and_without_it_after_a_dismissal() {
             save(&shown, &format!("devtool-strip-{tag}{suffix}.png"));
             assert!(height > 0, "{tag}{suffix}: the strip has a height");
             let (hidden, (_, _, _, gone)) = render(theme, dpi, false, true);
-            save(&hidden, &format!("devtool-strip-dismissed-{tag}{suffix}.png"));
+            save(
+                &hidden,
+                &format!("devtool-strip-dismissed-{tag}{suffix}.png"),
+            );
             assert_eq!(gone, 0, "{tag}{suffix}: a dismissed strip takes no height");
         }
     }

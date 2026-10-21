@@ -115,4 +115,3 @@ pub fn menus() -> Build<Menu<Msg>, Msg> {
     })
     .on_select_with(menu_msg)
 }
-

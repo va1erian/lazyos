@@ -48,6 +48,7 @@ use user::trace;
 
 use confd::Value;
 use deskmenu::hidden::{self, Hidden};
+use pkgstore::verdicts::{self, Verdict, Verdicts};
 use user::messenger::confd::Client;
 use user::messenger::pkgd::wire as pkgd;
 use user::messenger::{registry, services, Endpoint};
@@ -131,12 +132,18 @@ pub(super) struct InstalledApps {
     /// once and reused across refreshes.
     interned: Vec<&'static str>,
     /// The verdict of [`InstalledApps::stored_agrees`] for a tool row, by
-    /// `(system_name, digest)`: a package's files change with its digest, so
-    /// the manifest is read once per version. Only agreements are kept; a
-    /// refusal or an unreadable manifest is looked at again on the next
-    /// refresh.
-    agreed: Vec<(String, String)>,
+    /// `(system_name, version key)`: a package's files change with its
+    /// digest, so the manifest is read once per version, and a refusal is
+    /// printed once instead of on every `Launch` and `ListApps`. An
+    /// unreadable manifest is not remembered (it may be a hiccup). The entries
+    /// of a package that is no longer installed are dropped on a refresh
+    /// (`pkgstore::verdicts`).
+    verdicts: Verdicts,
 }
+
+/// The `APPS:REFUSE` lines allowed in a window: a handful of refused tools is
+/// the normal worst case, and the remembered verdict makes a repeat free.
+static REFUSALS: tracefmt::Budget = tracefmt::Budget::new(8, 6000);
 
 /// Largest stored manifest `init` reads back (the format's own cap is 1 MiB).
 const MAX_MANIFEST: usize = 1024 * 1024;
@@ -147,7 +154,7 @@ impl InstalledApps {
             apps: Vec::new(),
             endpoint: None,
             interned: Vec::new(),
-            agreed: Vec::new(),
+            verdicts: Verdicts::new(),
         }
     }
 
@@ -159,28 +166,32 @@ impl InstalledApps {
         if !pkgstore::toolgate::is_tool_kind(&row.kind) {
             return true;
         }
-        let known =
-            |(name, digest): &(String, String)| *name == row.system_name && *digest == row.digest;
-        if self.agreed.iter().any(known) {
-            return true;
+        let core = row.origin == pkgd::ORIGIN_CORE;
+        let key = verdicts::version_key(&row.digest, &row.kind, row.machine_wide, core);
+        match self.verdicts.get(&row.system_name, &key) {
+            Some(Verdict::Agreed) => return true,
+            Some(Verdict::Refused) => return false,
+            None => {}
         }
         let Some(manifest) = stored_manifest(&row.install_dir) else {
             return false;
         };
-        let core = row.origin == pkgd::ORIGIN_CORE;
         match pkgstore::toolgate::stored_loadable(&row.kind, &manifest, row.machine_wide, core) {
             Ok(()) => {
-                self.agreed.retain(|(name, _)| *name != row.system_name);
-                self.agreed
-                    .push((row.system_name.clone(), row.digest.clone()));
+                self.verdicts
+                    .remember(&row.system_name, &key, Verdict::Agreed);
                 true
             }
             Err(why) => {
-                trace::line!(
-                    trace::Channel::Init,
-                    "APPS:REFUSE {}: {why}",
-                    row.system_name
-                );
+                self.verdicts
+                    .remember(&row.system_name, &key, Verdict::Refused);
+                if trace::within(&REFUSALS, trace::Channel::Init) {
+                    trace::line!(
+                        trace::Channel::Init,
+                        "APPS:REFUSE {}: {why}",
+                        row.system_name
+                    );
+                }
                 false
             }
         }
@@ -272,6 +283,8 @@ impl InstalledApps {
                 .then_with(|| not_shell(a).cmp(&not_shell(b)))
                 .then_with(|| a.system_name.cmp(&b.system_name))
         });
+        let names: Vec<String> = rows.iter().map(|row| row.system_name.clone()).collect();
+        self.verdicts.forget_removed(&names);
         let mut apps = Vec::new();
         for row in rows.into_iter().filter(approved) {
             if self.stored_agrees(&row) {

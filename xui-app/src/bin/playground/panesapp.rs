@@ -19,10 +19,10 @@ use xui_core::geometry::Rect;
 use xui_core::{Dip, Px};
 
 use crate::app::Playground;
-use crate::msg::Msg;
-use crate::ui::Widgets;
-use crate::panes::{self, Saved};
 use crate::menus::VIEW_BOTTOM;
+use crate::msg::Msg;
+use crate::panes::{self, Saved};
+use crate::ui::Widgets;
 
 /// The folder under `$HOME/.apps` the layout file lives in.
 const SYSTEM_NAME: &str = crate::notice::SYSTEM_NAME;
@@ -55,7 +55,11 @@ impl PaneState {
                 "LAYOUT:LOADED:{}:{:.2}:{}",
                 saved.explorer as i32,
                 saved.doc_share,
-                if saved.bottom_visible { "shown" } else { "hidden" }
+                if saved.bottom_visible {
+                    "shown"
+                } else {
+                    "hidden"
+                }
             );
         }
         PaneState {
@@ -180,11 +184,17 @@ impl Playground {
         let main = self.w.split_main.get();
         let at = main.position().to_px(dpi).value();
         let r = abs(main.id());
-        say("split_main", Rect::new(r.left + at, r.top, r.left + at + thick, r.bottom));
+        say(
+            "split_main",
+            Rect::new(r.left + at, r.top, r.left + at + thick, r.bottom),
+        );
         let doc = self.w.split_doc.get();
         let at = doc.position().to_px(dpi).value();
         let r = abs(doc.id());
-        say("split_doc", Rect::new(r.left, r.top + at, r.right, r.top + at + thick));
+        say(
+            "split_doc",
+            Rect::new(r.left, r.top + at, r.right, r.top + at + thick),
+        );
     }
 
     /// The Explorer divider moved to `width`.

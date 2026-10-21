@@ -355,6 +355,24 @@ def review_asks(text: str) -> list[str]:
     return [m.split(":")[2] for m in markers(text) if re.fullmatch(r"REVIEW:ASK:[a-z]+", m)]
 
 
+#: The review cards and the runs they gate, in the order the session produces them: a paste is
+#: declined (no run), the same paste is confirmed (run 1), run 2 needs no card, then a file and a
+#: paste whose typed neighbour was deleted ask again. An ASK is printed once its card is open, so
+#: it precedes the RUN START it gates; a run that came first was not gated.
+REVIEW_ORDER = ["ASK:clipboard", "ASK:clipboard", "START:1", "START:2", "ASK:file", "ASK:clipboard"]
+
+
+def review_order(text: str) -> list[str]:
+    """The `REVIEW:ASK:<origin>` and `RUN:<n>:START` markers, in the order they were printed."""
+    out = []
+    for m in markers(text):
+        if re.fullmatch(r"REVIEW:ASK:[a-z]+", m):
+            out.append(m[len("REVIEW:"):])
+        elif found := re.match(r"RUN:(\d+):START:", m):
+            out.append(f"START:{found.group(1)}")
+    return out
+
+
 def judge_review(text: str) -> list[str]:
     """Four F5 presses that ask (one confirmed), one that does not, two runs: a run count alone
     cannot tell "asked and confirmed" from "never asked", so the cards are counted too."""
@@ -368,6 +386,9 @@ def judge_review(text: str) -> list[str]:
     if asks != REVIEW_ASKS:
         problems.append(f"expected the review cards {REVIEW_ASKS} (pasted, pasted, file, paste "
                         f"after deleted typing), got {asks}")
+    elif review_order(text) != REVIEW_ORDER:
+        problems.append(f"expected the cards and runs in the order {REVIEW_ORDER} (a card is shown "
+                        f"before the run it gates), got {review_order(text)}")
     return problems
 
 

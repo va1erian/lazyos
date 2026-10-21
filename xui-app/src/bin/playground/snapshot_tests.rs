@@ -86,7 +86,9 @@ pub(crate) fn render_at(
     let seen = std::rc::Rc::new(std::cell::RefCell::new(Bounds::new()));
     let out = std::rc::Rc::clone(&seen);
     let image = try_render(
-        Snapshot::new(Dip(size.0), Dip(size.1)).theme(theme).dpi(dpi),
+        Snapshot::new(Dip(size.0), Dip(size.1))
+            .theme(theme)
+            .dpi(dpi),
         move |ui: &mut Ui<Msg>| {
             let w = Widgets::default();
             let notice = Notice::new(Box::new(Fixed(false)));
@@ -127,8 +129,14 @@ pub(crate) fn render_at(
             ui.relayout();
             let dpi = ui.dpi();
             for (name, px) in [
-                ("split_main_at", w.split_main.get().position().to_px(dpi).value()),
-                ("split_doc_at", w.split_doc.get().position().to_px(dpi).value()),
+                (
+                    "split_main_at",
+                    w.split_main.get().position().to_px(dpi).value(),
+                ),
+                (
+                    "split_doc_at",
+                    w.split_doc.get().position().to_px(dpi).value(),
+                ),
             ] {
                 out.borrow_mut().push((name, px, 0, 0, 0));
             }
@@ -145,7 +153,8 @@ pub(crate) fn render_at(
                 ("run", w.run.get().id()),
             ] {
                 let r = ui.bounds(id);
-                out.borrow_mut().push((name, r.left, r.top, r.width(), r.height()));
+                out.borrow_mut()
+                    .push((name, r.left, r.top, r.width(), r.height()));
             }
             Ok(Shown {
                 _mounted: mounted,
@@ -159,7 +168,10 @@ pub(crate) fn render_at(
 }
 
 fn find(bounds: &Bounds, name: &str) -> (i32, i32, i32, i32) {
-    let b = bounds.iter().find(|b| b.0 == name).unwrap_or_else(|| panic!("{name} was not reported"));
+    let b = bounds
+        .iter()
+        .find(|b| b.0 == name)
+        .unwrap_or_else(|| panic!("{name} was not reported"));
     (b.1, b.2, b.3, b.4)
 }
 
@@ -192,17 +204,26 @@ fn the_main_window_is_two_columns_without_a_hole() {
         let (_, _, ow, oh) = find(&bounds, "editor");
         let (_, _, pw, ph) = find(&bounds, "output");
         let (_, _, sw, _) = find(&bounds, "split_main");
-        assert!(ew > 0 && dw > 0 && ow > 0 && pw > 0, "every pane has a size: {bounds:?}");
+        assert!(
+            ew > 0 && dw > 0 && ow > 0 && pw > 0,
+            "every pane has a size: {bounds:?}"
+        );
         // The doc pane is wider than the old third of the window, and the Explorer is tall.
         assert!(dw > 600 * scale, "doc pane is {dw} wide at {dpi} dpi");
         assert!(eh > 400 * scale, "the explorer is {eh} tall");
         // The Explorer keeps its width and the right column has the rest of the row.
         assert!((ew - 340 * scale).abs() <= 2, "the explorer is {ew} wide");
         let divider = 5 * scale;
-        assert!((ew + divider + dw - sw).abs() <= 2, "no hole between the panes: {bounds:?}");
+        assert!(
+            (ew + divider + dw - sw).abs() <= 2,
+            "no hole between the panes: {bounds:?}"
+        );
         // The editor and the Output share the bottom row and end together.
         assert!(oh > 0 && ph > 0, "the editor and the output both show");
-        assert!(ow + pw + 8 * scale >= dw - 2, "the bottom row spans the right column");
+        assert!(
+            ow + pw + 8 * scale >= dw - 2,
+            "the bottom row spans the right column"
+        );
         // The doc pane is taller than the editor row's share but both have room.
         assert!(dh > 100 * scale && oh > 60 * scale, "doc {dh}, editor {oh}");
     }

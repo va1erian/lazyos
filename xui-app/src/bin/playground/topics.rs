@@ -172,7 +172,12 @@ impl TopicsTool {
         for event in sub.listener.visible().filter(|e| e.id > page.traced) {
             newest = newest.max(event.id);
             if trace::within(&page.budget, Channel::Playground) {
-                trace::line!(Channel::Playground, "EVENT:{}:{}", event.topic, event.sequence);
+                trace::line!(
+                    Channel::Playground,
+                    "EVENT:{}:{}",
+                    event.topic,
+                    event.sequence
+                );
             }
         }
         page.traced = newest;
@@ -274,7 +279,11 @@ impl TopicsTool {
         } else {
             sub.listener.pause();
         }
-        let label = if sub.listener.paused() { "Resume" } else { "Pause" };
+        let label = if sub.listener.paused() {
+            "Resume"
+        } else {
+            "Pause"
+        };
         self.w.pause.get().set_text(label);
         self.subs.read_stats(index);
         self.refresh_sub_list(index);
@@ -298,7 +307,11 @@ impl TopicsTool {
     }
 
     pub fn pin_event(&mut self) {
-        let Some(id) = self.sub_pages.get(self.current_sub).and_then(|p| p.selected) else {
+        let Some(id) = self
+            .sub_pages
+            .get(self.current_sub)
+            .and_then(|p| p.selected)
+        else {
             self.note("Select an event first.");
             return;
         };

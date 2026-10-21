@@ -17,13 +17,15 @@ import refused_judge as rj  # noqa: E402
 IDS = rj.interface_ids(rj.MANIFEST.read_text(encoding="utf-8"))
 
 
-def deny(name: str, label: str = rj.LABEL) -> str:
-    return f"LABEL:DENY label={label} iface={IDS[name]:#018x} method=1"
+def deny(name: str, label: str = rj.LABEL, method: int = 1) -> str:
+    return f"LABEL:DENY label={label} iface={IDS[name]:#018x} method={method}"
 
 
 def good_log() -> str:
     lines = ["PKGD:PROVISION:DONE installed=19 upgraded=0 kept=0 failed=0 free=1"]
     lines += [deny(name) for name in rj.KERNEL_REFUSED]
+    # The script calls `net_stack` twice (Resolve, Ping): two methods of one interface.
+    lines.append(deny("os.lazy.net.stack.v1", method=2))
     lines += [
         "PKGD:INSTALL:FAIL applications may not install or remove other applications",
         "PLAYGROUND:RUN:1:EXIT:0:0123456789abcdef",
@@ -43,9 +45,11 @@ class Judge(unittest.TestCase):
 
     def test_each_missing_kernel_refusal_is_named(self):
         for name in rj.KERNEL_REFUSED:
-            text = "\n".join(l for l in good_log().splitlines() if l != deny(name)) + "\n"
+            # Drop every denial of the interface (the stack has two methods).
+            prefix = deny(name)[: -len("method=1")]
+            text = "\n".join(l for l in good_log().splitlines() if not l.startswith(prefix)) + "\n"
             problems = rj.judge_serial(text, IDS)
-            self.assertEqual(len(problems), 1, (name, problems))
+            self.assertTrue(problems, name)
             self.assertIn(name, problems[0])
 
     def test_a_denial_of_another_label_does_not_count(self):
@@ -53,6 +57,13 @@ class Judge(unittest.TestCase):
         problems = rj.judge_serial(other, IDS)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("os.lazy.mount.v1", problems[0])
+
+    def test_both_net_stack_calls_must_be_refused(self):
+        # One refused method of the stack is not both calls refused.
+        text = good_log().replace(deny("os.lazy.net.stack.v1", method=2) + "\n", "")
+        problems = rj.judge_serial(text, IDS)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("net_stack calls were not both refused", problems[0])
 
     def test_pkgds_own_refusal_is_required(self):
         text = good_log().replace("PKGD:INSTALL:FAIL applications may not install or remove other applications\n", "")
@@ -73,9 +84,25 @@ class Judge(unittest.TestCase):
 
     def test_the_toast_must_be_posted_and_not_denied(self):
         text = good_log().replace("SHELL:NOTIFY:POST", "SHELL:NOTIFY:OTHER")
-        self.assertTrue(any("no SHELL:NOTIFY:POST" in p for p in rj.judge_serial(text, IDS)))
+        self.assertTrue(any("toast was not posted" in p for p in rj.judge_serial(text, IDS)))
         text = good_log() + "SHELL:NOTIFY:DENY why=not-an-app\n"
         self.assertTrue(any("toast was refused" in p for p in rj.judge_serial(text, IDS)))
+
+    def test_a_toast_of_another_app_does_not_count(self):
+        text = good_log().replace("owner=os.lazy.playground", "owner=os.lazy.paint")
+        problems = rj.judge_serial(text, IDS)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("os.lazy.playground", problems[0])
+        # A prefix of the owner's name is not the owner either.
+        text = good_log().replace("owner=os.lazy.playground ", "owner=os.lazy.playground2 ")
+        self.assertTrue(rj.judge_serial(text, IDS))
+
+    def test_a_run_that_did_not_end_normally_does_not_count(self):
+        for status in ("1", "stopped", "failed"):
+            text = good_log().replace("PLAYGROUND:RUN:1:EXIT:0:", f"PLAYGROUND:RUN:1:EXIT:{status}:")
+            problems = rj.judge_serial(text, IDS)
+            self.assertEqual(len(problems), 1, (status, problems))
+            self.assertIn("EXIT:0", problems[0])
 
     def test_both_script_runs_must_finish(self):
         text = good_log().replace("PLAYGROUND:RUN:2:EXIT:0:fedcba9876543210\n", "")

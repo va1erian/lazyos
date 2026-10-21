@@ -174,7 +174,10 @@ mod tests {
         };
         assert_eq!(Saved::parse(&saved.render()), saved);
         assert_eq!(Saved::parse(""), Saved::default());
-        assert_eq!(Saved::parse("garbage\n=\nexplorer=wide\n"), Saved::default());
+        assert_eq!(
+            Saved::parse("garbage\n=\nexplorer=wide\n"),
+            Saved::default()
+        );
     }
 
     #[test]
@@ -186,7 +189,10 @@ mod tests {
         assert_eq!(saved.explorer, EXPLORER_MAX);
         assert_eq!(saved.doc_share, DOC_SHARE_MIN);
         assert!(!saved.bottom_visible);
-        assert_eq!(Saved::parse("explorer=NaN\ndoc=inf\n").explorer, EXPLORER_DEFAULT);
+        assert_eq!(
+            Saved::parse("explorer=NaN\ndoc=inf\n").explorer,
+            EXPLORER_DEFAULT
+        );
         assert_eq!(Saved::parse("doc=NaN\n").doc_share, DOC_SHARE_DEFAULT);
     }
 
@@ -204,7 +210,11 @@ mod tests {
         store(&file, &saved).expect("writes");
         assert_eq!(load(&file), saved);
         std::fs::write(&file, vec![b'x'; 10_000]).expect("writes");
-        assert_eq!(load(&file), Saved::default(), "an oversized file is ignored");
+        assert_eq!(
+            load(&file),
+            Saved::default(),
+            "an oversized file is ignored"
+        );
         // A folder that cannot be made (its parent is a file) is an error the caller ignores.
         assert!(store(&file.join("below").join("layout"), &saved).is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -232,7 +242,10 @@ mod tests {
                 let doc = doc_height(total, share, 1.0);
                 let back = share_of(doc, total, 1.0);
                 let again = doc_height(total, back, 1.0);
-                assert!((again - doc).abs() <= 1, "{total} {share}: {doc} vs {again}");
+                assert!(
+                    (again - doc).abs() <= 1,
+                    "{total} {share}: {doc} vs {again}"
+                );
             }
         }
         assert_eq!(share_of(0, 600, 1.0), DOC_SHARE_MIN);

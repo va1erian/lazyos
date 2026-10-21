@@ -27,6 +27,7 @@ use super::ctx::Ctx;
 use super::submenu;
 use super::theme::{chrome_look, color, fill_bar};
 use crate::client_window::SurfaceRole;
+use crate::sys;
 use xui_core::theme::look;
 
 /// Row text size.
@@ -230,7 +231,7 @@ impl MenuApp {
             let mut menu = self.ctx.menu.borrow_mut();
             let (ox, oy) = menu.origin(self.ctx.screen.1);
             let origin = menu.row_rect(index).map(|rect| rect.offset(ox, oy));
-            (menu.choose(index, repeat), origin)
+            (menu.choose(index, repeat, sys::clock_ticks()), origin)
         };
         match choice {
             Choice::Nothing => false,

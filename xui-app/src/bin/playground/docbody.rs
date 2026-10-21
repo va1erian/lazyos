@@ -17,9 +17,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use xui_core::app::Ui;
-use xui_core::backend::{
-    Canvas, Cursor, Event, NodeKind, NodeSpec, Result, TextStyle, WidgetId,
-};
+use xui_core::backend::{Canvas, Cursor, Event, NodeKind, NodeSpec, Result, TextStyle, WidgetId};
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::message::MouseButton;
@@ -132,7 +130,10 @@ impl State {
         if let Some(&width) = self.measures.borrow().words.get(&key) {
             return width;
         }
-        let width = self.ui.measure_text(text, &face.style(&Theme::light()), dpi).width;
+        let width = self
+            .ui
+            .measure_text(text, &face.style(&Theme::light()), dpi)
+            .width;
         self.measures.borrow_mut().words.insert(key, width);
         width
     }
@@ -141,8 +142,15 @@ impl State {
         if let Some(&height) = self.measures.borrow().heights.get(&(face, dpi)) {
             return height;
         }
-        let height = self.ui.measure_text("Ag", &face.style(&Theme::light()), dpi).height.max(1);
-        self.measures.borrow_mut().heights.insert((face, dpi), height);
+        let height = self
+            .ui
+            .measure_text("Ag", &face.style(&Theme::light()), dpi)
+            .height
+            .max(1);
+        self.measures
+            .borrow_mut()
+            .heights
+            .insert((face, dpi), height);
         height
     }
 
@@ -220,7 +228,9 @@ impl State {
         let px = |dip: i32| (dip as f32 * dpi as f32 / 96.0).round() as i32;
         match block {
             Block::Title(text) => self.text(Face::Title, dpi, text, width, 0, at),
-            Block::Heading(text) => self.text(Face::Caption, dpi, &text.to_uppercase(), width, 0, at),
+            Block::Heading(text) => {
+                self.text(Face::Caption, dpi, &text.to_uppercase(), width, 0, at)
+            }
             Block::Paragraph(text) => self.text(Face::Body, dpi, text, width, 0, at),
             Block::Signature(text) => self.one_line(Face::Mono, dpi, &cut(text), at),
             Block::Code { label, text } => {
@@ -247,7 +257,14 @@ impl State {
                         ChipKind::Warning => "[!] ",
                         ChipKind::Info => "[i] ",
                     };
-                    self.text(Face::BodyBold, dpi, &format!("{tag}{}", chip.text), width, 0, at);
+                    self.text(
+                        Face::BodyBold,
+                        dpi,
+                        &format!("{tag}{}", chip.text),
+                        width,
+                        0,
+                        at,
+                    );
                 }
             }
             Block::Links(links) => {
@@ -301,8 +318,16 @@ impl State {
     fn fields(&self, rows: &[FieldRow], dpi: u32, width: i32, at: &mut Cursor2) {
         let px = |dip: i32| (dip as f32 * dpi as f32 / 96.0).round() as i32;
         let gap = px(COLUMN_GAP);
-        let name_w = rows.iter().map(|r| self.width_of(Face::Mono, dpi, &r.name)).max().unwrap_or(0);
-        let type_w = rows.iter().map(|r| self.width_of(Face::Mono, dpi, &r.ty)).max().unwrap_or(0);
+        let name_w = rows
+            .iter()
+            .map(|r| self.width_of(Face::Mono, dpi, &r.name))
+            .max()
+            .unwrap_or(0);
+        let type_w = rows
+            .iter()
+            .map(|r| self.width_of(Face::Mono, dpi, &r.ty))
+            .max()
+            .unwrap_or(0);
         let note_at = name_w + gap + type_w + gap;
         let height = self.line_height(Face::Mono, dpi);
         for row in rows {
@@ -342,13 +367,11 @@ struct Cursor2 {
 }
 
 fn cut(line: &str) -> String {
-    if line.chars().count() > CODE_COLUMNS {
-        let mut shown: String = line.chars().take(CODE_COLUMNS - 3).collect();
-        shown.push_str("...");
-        shown
-    } else {
-        line.to_string()
+    if line.chars().count() <= CODE_COLUMNS {
+        return line.to_string();
     }
+    let head: String = line.chars().take(CODE_COLUMNS - 3).collect();
+    format!("{head}...")
 }
 
 /// The page as a layout entry: as wide as it is given and as tall as its text.
@@ -380,7 +403,6 @@ impl DocBody {
         }
         Ok(DocBody { control, state })
     }
-
 }
 
 fn paint(state: &State, id: WidgetId, canvas: &mut dyn Canvas) {
@@ -431,7 +453,14 @@ fn on_event(state: &State, ui: &Ui<Msg>, id: WidgetId, event: &Event) -> Option<
             if state.hover.replace(link) != link {
                 ui.invalidate(id);
             }
-            ui.set_cursor(id, if link.is_some() { Cursor::Hand } else { Cursor::Default });
+            ui.set_cursor(
+                id,
+                if link.is_some() {
+                    Cursor::Hand
+                } else {
+                    Cursor::Default
+                },
+            );
             None
         }
         Event::MouseLeave | Event::CaptureChanged => {

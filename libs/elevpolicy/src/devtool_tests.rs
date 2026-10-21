@@ -102,7 +102,7 @@ fn the_prompt_leads_with_the_warning_and_names_the_package() {
     assert_eq!(
         text,
         alloc::format!(
-            "{} Install \"Messenger Playground\" 1.0.0 (os.lazy.playground) for all users.",
+            "{} Install \"Messenger Playground\" 1.0.0 (os.lazy.playground) for all users; author \"Lazy Team\".",
             devtool::CONSENT_TEXT
         )
     );
@@ -147,33 +147,62 @@ fn a_hostile_package_cannot_push_the_warning_out_or_overflow_the_prompt() {
         assert_eq!(text.matches("Install \"").count(), 1);
     }
     // The room left after the warning is what the install line is given:
-    // the widest line (a shell tool's update, every field at its limit) must
-    // fit without trimming the warning.
-    let room = MAX_SUMMARY - devtool::CONSENT_TEXT.chars().count();
-    assert!(room >= 89, "the warning left only {room} characters");
-    let mut widest = facts(&huge, &huge, &huge);
-    widest.replaces = Some(String::from("0.0.1"));
-    widest.permissions = shell_rows();
-    let text = package::tool_summary(&widest);
-    assert!(text.starts_with(devtool::CONSENT_TEXT), "{text}");
-    assert!(
-        text.chars().count() <= MAX_SUMMARY,
-        "{}",
-        text.chars().count()
-    );
-    assert!(text.contains(" for all users"), "{text}");
+    // the widest line (a shell tool's update declaring both powers, every
+    // field at its limit) must fit without trimming the warning or the powers.
+    for (shell, network, develop) in [
+        (false, true, true),
+        (true, true, true),
+        (true, false, false),
+        (false, false, false),
+    ] {
+        let mut widest = facts(&huge, &huge, &huge);
+        widest.replaces = Some(String::from("0.0.1"));
+        widest.permissions = rows(shell, network, develop);
+        let lead = devtool::consent_text(shell);
+        let room = MAX_SUMMARY - lead.chars().count();
+        let text = package::tool_summary(&widest);
+        assert!(text.starts_with(lead), "{text}");
+        assert!(
+            text.chars().count() <= MAX_SUMMARY,
+            "room {room}: {}",
+            text.chars().count()
+        );
+        assert!(text.contains(" for all users"), "{text}");
+        assert_eq!(text.contains(" with network"), network, "{text}");
+        assert_eq!(
+            text.contains(" with develop") || text.contains(" and develop"),
+            develop
+        );
+        // Trimming took the author, never the identity line's tail.
+        assert!(text.ends_with('.'), "{text}");
+    }
+}
+
+/// The rows a tool's inspection carries: the class, the shell marker, and the
+/// manifest's own `network` and `develop` rows.
+fn rows(shell: bool, network: bool, develop: bool) -> Vec<package::Permission> {
+    let mut out: Vec<(&str, &str)> = alloc::vec![("kind", "developer-tool")];
+    if shell {
+        out.push(("kind", "shell"));
+    }
+    if network {
+        out.push(("network", "outbound"));
+    }
+    if develop {
+        out.push(("develop", "true"));
+    }
+    out.into_iter()
+        .map(|(kind, value)| package::Permission {
+            kind: String::from(kind),
+            value: String::from(value),
+            risk: String::from("high"),
+        })
+        .collect()
 }
 
 /// The rows a shell tool's inspection carries for the class.
 fn shell_rows() -> Vec<package::Permission> {
-    ["developer-tool", "shell"]
-        .iter()
-        .map(|value| package::Permission {
-            kind: String::from("kind"),
-            value: String::from(*value),
-            risk: String::from("high"),
-        })
-        .collect()
+    rows(true, false, false)
 }
 
 #[test]
@@ -181,7 +210,11 @@ fn a_shell_tool_is_named_in_the_prompt_and_a_plain_one_is_not() {
     let mut shell = facts("Terminal", "os.lazy.terminal", "0.1.0");
     shell.permissions = shell_rows();
     let text = package::tool_summary(&shell);
-    assert!(text.starts_with(devtool::CONSENT_TEXT), "{text}");
+    // The generic warning says the credential services refuse a tool; a
+    // shell's own lead does not, so the prompt never says both.
+    assert!(text.starts_with(devtool::SHELL_CONSENT_TEXT), "{text}");
+    assert!(!text.contains(devtool::CONSENT_TEXT), "{text}");
+    assert!(!text.contains("except use passwords"), "{text}");
     assert!(
         text.contains(" Install shell tool \"Terminal\" 0.1.0 (os.lazy.terminal) for all users"),
         "{text}"
@@ -385,4 +418,53 @@ fn a_label_is_named_once_and_the_table_is_bounded() {
     assert_eq!(kinds.get(9), None, "the oldest entry went first");
     let last = 100 + 4 * MAX_LABEL_KINDS as u32 - 1;
     assert_eq!(kinds.get(last), Some(LabelKind::Other));
+}
+
+#[test]
+fn the_prompt_names_the_powers_a_package_declares_beyond_the_class() {
+    let name = |network, develop| {
+        let mut f = facts("Playground", "os.lazy.playground", "1.0.0");
+        f.permissions = rows(false, network, develop);
+        package::tool_summary(&f)
+    };
+    let plain = name(false, false);
+    assert!(!plain.contains("for all users with"), "{plain}");
+    assert!(
+        name(true, false).contains(" (os.lazy.playground) for all users with network"),
+        "{}",
+        name(true, false)
+    );
+    assert!(name(false, true).contains(" for all users with develop"));
+    assert!(name(true, true).contains(" for all users with network and develop"));
+    for text in [name(true, false), name(false, true), name(true, true)] {
+        assert!(text.starts_with(devtool::CONSENT_TEXT), "{text}");
+        assert!(text.chars().count() <= MAX_SUMMARY, "{text}");
+    }
+    // Only the manifest's declared `outbound` counts: a package cannot make
+    // a plain tool read as one with the network by what it calls itself, and
+    // an unknown network value lifts nothing.
+    let named = package::tool_summary(&facts("with network", "os.lazy.with.develop", "1.0.0"));
+    assert!(!named.contains("for all users with"), "{named}");
+    let mut odd = facts("Tool", "org.lazy.tool", "1.0.0");
+    odd.permissions = alloc::vec![package::Permission {
+        kind: String::from("network"),
+        value: String::from("inbound"),
+        risk: String::from("high"),
+    }];
+    assert!(!package::tool_summary(&odd).contains("for all users with"));
+}
+
+#[test]
+fn an_update_of_a_core_tool_that_adds_a_power_says_so() {
+    // `core_class_change` guards the class and the shell role only; an
+    // approved update may add `network` or `develop`, and the administrator
+    // is told in the prompt (the choice is theirs, as for any core update).
+    let mut update = facts("Messenger Playground", "os.lazy.playground", "1.1.0");
+    update.replaces = Some(String::from("1.0.0"));
+    update.permissions = rows(false, true, true);
+    let text = package::tool_summary(&update);
+    assert!(
+        text.contains(" Update \"Messenger Playground\" 1.1.0 (os.lazy.playground) for all users with network and develop"),
+        "{text}"
+    );
 }

@@ -98,7 +98,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `SCHED` | `Sched` | `sched` | kernel, kernel suite | tools/webplus | programs |
 | `SERIAL` | `Serial` | `serial` | kernel, kernel suite | tools/boot, tools/devtool, tools/install, tools/playground, tools/screenshot, tools/serial_integrity.py, tools/shutdown, tools/test_qemu_serial.py, tools/web, tools/webplus | programs |
 | `SETTINGS` | `Settings` | `settings` | xui-app | sessions | programs |
-| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/devtool, tools/input, tools/install, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/webplus | programs |
+| `SHELL` | `Shell` | `shell` | kernel suite, other, user, xui-app | sessions, tools/bench, tools/boot, tools/crash, tools/devtool, tools/input, tools/install, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/webplus | programs |
 | `SHELLPROBE` | `Shellprobe` | `shellprobe` | user | - | programs |
 | `SIGNAL` | `Signal` | `signal` | kernel, kernel suite | - | programs |
 | `SKY` | `Sky` | `sky` | xui-app | sessions, tools/lazysky | programs |

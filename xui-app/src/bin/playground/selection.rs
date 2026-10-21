@@ -204,7 +204,12 @@ impl Playground {
         }
         blocks.push(Block::Code {
             label: "Script".to_string(),
-            text: example.source.lines().take(40).collect::<Vec<_>>().join("\n"),
+            text: example
+                .source
+                .lines()
+                .take(40)
+                .collect::<Vec<_>>()
+                .join("\n"),
         });
         blocks.push(Block::Chips(vec![Chip {
             kind: ChipKind::Info,
@@ -243,8 +248,11 @@ impl Playground {
         let _ = ui;
         self.close_form_quiet();
         self.sel = Sel::Help;
-        let layout = column()
-            .child(xui_app::devtool::help_view(&crate::help::page()).bind(&self.w.doc_scroll).fill(1));
+        let layout = column().child(
+            xui_app::devtool::help_view(&crate::help::page())
+                .bind(&self.w.doc_scroll)
+                .fill(1),
+        );
         let _ = self.w.doc.get().set_layout(layout);
         self.enable_buttons();
         self.probe_soon();
@@ -327,7 +335,10 @@ impl Playground {
             }
             Action::Connect => {
                 if let Some(i) = self.sel_interface() {
-                    let name = self.selected_service.clone().unwrap_or_else(|| i.default_service().to_string());
+                    let name = self
+                        .selected_service
+                        .clone()
+                        .unwrap_or_else(|| i.default_service().to_string());
                     let s = snippet::connect(i, &name);
                     self.append_snippet(&s.text, &s.notes);
                 }
@@ -340,7 +351,9 @@ impl Playground {
             Action::Peek => {
                 let text = match (self.sel_topic(), &self.sel) {
                     (Some((i, t)), _) => Some(snippet::topic(i, t, TopicAction::Peek)),
-                    (None, Sel::LiveTopic(name)) => Some(snippet::raw_topic(name, TopicAction::Peek)),
+                    (None, Sel::LiveTopic(name)) => {
+                        Some(snippet::raw_topic(name, TopicAction::Peek))
+                    }
                     _ => None,
                 };
                 if let Some(s) = text {
@@ -420,7 +433,9 @@ impl Playground {
         self.update_file_label();
         self.editor.goto(0, 0);
         self.focus_editor();
-        self.note(&format!("Loaded '{title}'. It runs only when you press Run."));
+        self.note(&format!(
+            "Loaded '{title}'. It runs only when you press Run."
+        ));
     }
 }
 

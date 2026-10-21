@@ -25,11 +25,17 @@ the strips above and below the pane before and after scrolling.
 
     python tools/playground/scroll_run.py --write          # regenerate the session JSON
     python tools/playground/scroll_run.py --check          # fail when the checked-in JSON is stale
-    python tools/playground/scroll_run.py                  # boot target/lazyos.img, judge
+    python tools/playground/scroll_run.py                  # rebuild the image (fresh OS volume), boot, judge
+    python tools/playground/scroll_run.py --no-build       # boot target/lazyos.img as it is, judge
     python tools/playground/scroll_run.py --out-dir DIR    # judge an earlier run's DIR (no boot)
 
 The image is the one `python tools/playground/run.py` builds (probe on, autostart `playground`,
-`LAZYOS_AUTOLOGIN=user`), at 1280x720. Exit status is non-zero on any failure.
+`LAZYOS_AUTOLOGIN=user`, `LAZYOS_RESET_OS=1`), at 1280x720. The judge measures the doc pane at its
+default size, but the Playground stores a dragged layout on the OS volume
+(`$HOME/.apps/os.lazy.playground/layout`; run.py's `layout` session leaves a taller doc pane there).
+So the default is to rebuild with a reset volume (`run.build` forces the reset), which has no stored layout; `--no-build` reuses
+the image and the judge then fails when the serial log shows `PLAYGROUND:LAYOUT:LOADED` (a layout
+was loaded: rebuild). Exit status is non-zero on any failure.
 """
 
 from __future__ import annotations
@@ -45,6 +51,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
 import pngstats  # noqa: E402
+
+sys.path.insert(0, str(HERE))
+import run  # noqa: E402  (its `build` makes the image: reset volume, probe, autostart)
 
 EXAMPLE = ROOT / "tools" / "screenshot" / "examples" / "playground_scroll.json"
 SESSION = ROOT / "tools" / "screenshot" / "qemu_session.py"
@@ -196,8 +205,12 @@ def judge(out: Path) -> list[str]:
     summary = out / "summary.json"
     if not summary.is_file() or not json.loads(summary.read_text()).get("ok"):
         return [f"the session did not finish: see {summary}"]
+    serial = (out / "serial.log").read_text(errors="replace")
+    if "PLAYGROUND:LAYOUT:LOADED" in serial:
+        return ["a stored layout was loaded (an earlier session left one on the volume): "
+                "rebuild with a reset volume (run without --no-build)"]
     try:
-        left, top, width, height = doc_rect((out / "serial.log").read_text(errors="replace"))
+        left, top, width, height = doc_rect(serial)
     except ValueError as error:
         return [str(error)]
     shots = {}
@@ -288,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", action="store_true", help="regenerate the session JSON and exit")
     parser.add_argument("--check", action="store_true", help="fail when the checked-in session JSON is stale")
+    parser.add_argument("--no-build", action="store_true", help="boot the image as it is (it may hold a stored layout)")
     parser.add_argument("--image", default=str(ROOT / "target" / "lazyos.img"))
     parser.add_argument("--out-dir", help="judge this earlier run's directory instead of booting")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
@@ -306,6 +320,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     out = Path(args.out_dir) if args.out_dir else ROOT / "shots" / "playground" / "scroll"
     if not args.out_dir:
+        if not args.no_build and not run.build(args):
+            print("PLAYGROUND:SCROLL:FAIL: the build failed", file=sys.stderr)
+            return 1
         code = boot(Path(args.image), out, args)
         if code != 0:
             print(f"PLAYGROUND:SCROLL:FAIL: the session exited with {code}", file=sys.stderr)

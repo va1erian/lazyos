@@ -16,8 +16,8 @@ use xui_code_editor::{Editor, FontConfig, Options, RhaiHighlighter};
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build as create, button, column, edit, label, list, panel, row, split,
-    status_bar, tabs, tree_view, Build, Handle, Layout, LayoutExt,
+    build as create, button, column, edit, label, list, panel, row, split, status_bar, tabs,
+    tree_view, Build, Handle, Layout, LayoutExt,
 };
 use xui_core::backend::{Result, WidgetId};
 use xui_core::geometry::{Rect, Size};
@@ -64,7 +64,10 @@ fn new_editor(ui: &Ui<Msg>, tap: PasteTap) -> Result<EditorPane> {
     };
     let editor = Editor::with_options(ui, Rect::default(), options)?
         .with_highlighter(RhaiHighlighter)
-        .with_clipboard(TappedClipboard::new(xui_code_editor::platform::clipboard(ui), tap))
+        .with_clipboard(TappedClipboard::new(
+            xui_code_editor::platform::clipboard(ui),
+            tap,
+        ))
         .on_change(|text| Some(Msg::Edited(text.to_string())));
     Ok(EditorPane(Rc::new(editor)))
 }
@@ -134,8 +137,15 @@ pub struct Widgets {
     pub status: Handle<StatusBar<Msg>>,
 }
 
-fn action(text: &str, action: Action, handle: &Handle<Button<Msg>>) -> xui_core::arrange::Entry<Msg> {
-    button(text).on_click(Msg::Do(action)).bind(handle).into_entry_sized()
+fn action(
+    text: &str,
+    action: Action,
+    handle: &Handle<Button<Msg>>,
+) -> xui_core::arrange::Entry<Msg> {
+    button(text)
+        .on_click(Msg::Do(action))
+        .bind(handle)
+        .into_entry_sized()
 }
 
 trait Sized2 {
@@ -157,15 +167,15 @@ impl Widgets {
             // The Explorer the whole height at a width of its own (the window's extra
             // width goes to the right column), and on its right the doc pane over
             // the editor and the Output. The topic tool is its own window.
-            row().padding(6).children((
-                split(self.explorer_column(), self.right_column(saved))
+            row()
+                .padding(6)
+                .children((split(self.explorer_column(), self.right_column(saved))
                     .position(Dip(saved.explorer))
                     .min(Dip(panes::EXPLORER_MIN), Dip(panes::RIGHT_MIN))
                     .on_moved(Msg::ExplorerMoved)
                     .bind(&self.split_main)
-                    .fill(1),
-            ))
-            .fill(1),
+                    .fill(1),))
+                .fill(1),
             status_bar(&["Ready", "", ""]).bind(&self.status),
         ))
     }
@@ -177,10 +187,12 @@ impl Widgets {
             split(
                 self.doc_column(),
                 column().child(
-                    panel(row().gap(8).children((
-                        self.editor_column().fill(56),
-                        self.output_column().fill(44),
-                    )))
+                    panel(
+                        row().gap(8).children((
+                            self.editor_column().fill(56),
+                            self.output_column().fill(44),
+                        )),
+                    )
                     .plain()
                     .bind(&self.bottom)
                     .fill(1),
@@ -286,8 +298,12 @@ impl Widgets {
             row().gap(4).children((
                 label("Call form:").align(xui_core::arrange::Align::Center),
                 button("Call").on_click(Msg::FormCall).bind(&self.form_call),
-                button("Insert").on_click(Msg::FormInsert).bind(&self.form_insert),
-                button("Close").on_click(Msg::FormClose).bind(&self.form_close),
+                button("Insert")
+                    .on_click(Msg::FormInsert)
+                    .bind(&self.form_insert),
+                button("Close")
+                    .on_click(Msg::FormClose)
+                    .bind(&self.form_close),
                 label("").fill(1),
                 button("Hide editor")
                     .on_click(Msg::ToggleBottom)
@@ -298,15 +314,23 @@ impl Widgets {
 
     fn editor_column(&self) -> Layout<Msg> {
         column().gap(4).children((
-            row().gap(6).align(xui_core::arrange::Align::Center).children((
-                label("script.rhai").bind(&self.file).fill(1),
-                button("Run  F5").on_click(Msg::Run).bind(&self.run).primary(),
-                button("Stop").on_click(Msg::Stop).bind(&self.stop),
-                button("Gallery").on_click(Msg::ExplorerTab(3)),
-            )),
+            row()
+                .gap(6)
+                .align(xui_core::arrange::Align::Center)
+                .children((
+                    label("script.rhai").bind(&self.file).fill(1),
+                    button("Run  F5")
+                        .on_click(Msg::Run)
+                        .bind(&self.run)
+                        .primary(),
+                    button("Stop").on_click(Msg::Stop).bind(&self.stop),
+                    button("Gallery").on_click(Msg::ExplorerTab(3)),
+                )),
             {
                 let tap = self.paste.clone();
-                create(move |ui| new_editor(ui, tap)).bind(&self.editor).fill(1)
+                create(move |ui| new_editor(ui, tap))
+                    .bind(&self.editor)
+                    .fill(1)
             },
         ))
     }

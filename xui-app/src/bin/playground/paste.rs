@@ -59,9 +59,9 @@ impl Clipboard for TappedClipboard {
 }
 
 /// Tell `gate` about the edit from `old` to `new`. An arrival (a paste, or
-/// more than a key inserts) makes what the edit inserted the span under
+/// more than a key inserts) makes what the edit inserted an arrival under
 /// review (the user's own text around it stays theirs, but deleting it leaves
-/// the span asking); typing leaves it to the gate; a text the gate had vouched for
+/// the arrival asking); typing leaves it to the gate; a text the gate had vouched for
 /// (Undo, Redo) is the user's again. Whatever the gate lets run as it stands
 /// is remembered in `known`.
 pub fn apply_edit(
@@ -280,10 +280,7 @@ mod tests {
     /// sees it: the typed text is vouched, the paste is not.
     fn typed_then_pasted() -> Buffer {
         let mut b = Buffer::typed(LONG);
-        let pasted = format!(
-            "{LONG}{HOSTILE}
-"
-        );
+        let pasted = format!("{LONG}{HOSTILE}\n");
         b.edit(&pasted, true);
         assert!(b.asks());
         b
@@ -294,13 +291,7 @@ mod tests {
         // The bypass: the paste was judged against the whole buffer, so
         // deleting the longer typed text counted as rewriting it.
         let mut b = typed_then_pasted();
-        b.edit(
-            &format!(
-                "{HOSTILE}
-"
-            ),
-            false,
-        );
+        b.edit(&format!("{HOSTILE}\n"), false);
         assert!(b.asks(), "exactly the pasted script is left");
         assert_eq!(b.gate.provenance(), Provenance::Clipboard);
         // Backspacing it a character at a time from the front too.
@@ -319,22 +310,15 @@ mod tests {
         let mut b = typed_then_pasted();
         // Key by key, as the editor reports it: a comment in front of
         // everything, a line after it.
-        for (at, c) in "// note
-"
-        .chars()
-        .enumerate()
-        {
+        for (at, c) in "// note\n".chars().enumerate() {
             let mut next = b.text.clone();
             next.insert(at, c);
             b.edit(&next, false);
         }
-        b.type_str(
-            "print(\"after\");
-",
-        );
+        b.type_str("print(\"after\");\n");
         assert!(b.asks());
-        // Backspace through the pasted line: past the half way mark it is
-        // the user's own rewrite.
+        // Backspace through the pasted line: once fewer than 12 bytes of
+        // it are left unbroken it is the user's own rewrite.
         let at = b.text.find(HOSTILE).unwrap();
         for _ in 0..HOSTILE.len() / 2 + 2 {
             let mut next = b.text.clone();
@@ -356,13 +340,7 @@ mod tests {
         // typed part of it.
         b.edit(&pasted, false);
         assert!(b.asks());
-        b.edit(
-            &format!(
-                "{HOSTILE}
-"
-            ),
-            false,
-        );
+        b.edit(&format!("{HOSTILE}\n"), false);
         assert!(b.asks());
     }
 

@@ -123,7 +123,13 @@ mod tests {
 
     #[test]
     fn a_saved_name_gets_the_rhai_extension_only_when_it_has_none() {
-        assert_eq!(with_extension(PathBuf::from("/h/a")), PathBuf::from("/h/a.rhai"));
-        assert_eq!(with_extension(PathBuf::from("/h/a.txt")), PathBuf::from("/h/a.txt"));
+        assert_eq!(
+            with_extension(PathBuf::from("/h/a")),
+            PathBuf::from("/h/a.rhai")
+        );
+        assert_eq!(
+            with_extension(PathBuf::from("/h/a.txt")),
+            PathBuf::from("/h/a.txt")
+        );
     }
 }

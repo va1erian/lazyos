@@ -153,7 +153,14 @@ follows the same rule for the tool's own native code and every child: a tool
 without `network = ["outbound"]` has the explicit deny of the socket service in
 its rules, so `socket(AF_INET)` is refused (`confine::may_open_inet`), and a
 revoked tool, whose rules are empty, is refused too. "No network unless listed"
-is therefore true of a tool's scripts, programs and children alike. What a tool
+therefore holds for what the tool itself opens: its scripts' Messenger calls and
+the new sockets of its programs and children. Two limits are worth stating. The
+gate judges the moment a socket is created, so a socket opened while the rules
+allowed it keeps working after an update drops `network` (until its process
+exits). And the deny list does not cover starting other programs: a tool may
+call `os.lazy.init.v1` `Launch` or `mimed.Open` (neither is denied), which
+starts an installed app (a browser, Net Tools) under that app's own label and
+its own `network` permission, as the user could. What a tool
 is *not* confined in is the user's own authority: the file gate, `fork`/`exec`
 and signals treat an unconfined label like any app (`confine.rs`), so its programs
 read and change the user's files and start programs with the user's

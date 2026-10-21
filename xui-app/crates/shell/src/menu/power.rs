@@ -85,6 +85,14 @@ pub enum Choice {
 /// How many rows the session section always takes.
 pub const POWER_ROWS: usize = 3;
 
+/// How long, in 100 Hz ticks, a confirmation just swapped in ignores presses
+/// (the double-click interval, 500 ms). A quick triple click on "Restart..."
+/// is a press, a repeat the backend's double-click tracker consumes, and then
+/// a plain press again (the tracker starts a new sequence after a pair): that
+/// third press lands on the confirmation under the pointer and is not a
+/// repeat to anyone but this clock. A deliberate later click still confirms.
+pub const CONFIRM_QUIET_TICKS: u64 = 50;
+
 fn row(label: &str, action: Action) -> Row {
     Row {
         app: String::new(),
@@ -117,11 +125,14 @@ fn confirm_rows(power: Power) -> [Row; POWER_ROWS] {
 }
 
 impl Menu {
-    /// Choose row `index`. `repeat` is the second press of a double click:
-    /// it never confirms (or cancels), so a double click on "Restart..." does
-    /// not stop the machine through the row that appeared under the pointer,
-    /// and one on "Shut down..." does not close the menu through "Cancel".
-    pub fn choose(&mut self, index: usize, repeat: bool) -> Choice {
+    /// Choose row `index` at tick `now` (the 100 Hz clock; any monotonic
+    /// count works). `repeat` is the second press of a double click: it never
+    /// confirms (or cancels), so a double click on "Restart..." does not stop
+    /// the machine through the row that appeared under the pointer, and one on
+    /// "Shut down..." does not close the menu through "Cancel". A third quick
+    /// press is a plain press to the tracker, so the confirmation also ignores
+    /// every press for [`CONFIRM_QUIET_TICKS`] after it appeared.
+    pub fn choose(&mut self, index: usize, repeat: bool, now: u64) -> Choice {
         let Some(row) = self.rows.get(index).filter(|row| row.enabled) else {
             return Choice::Nothing;
         };
@@ -129,9 +140,12 @@ impl Menu {
             Action::Launch => Choice::Launch(row.app.clone()),
             Action::Ask(power) => {
                 self.set_power_rows(confirm_rows(power));
+                self.quiet_until = now.saturating_add(CONFIRM_QUIET_TICKS);
                 Choice::Confirming(power)
             }
-            Action::Confirm(_) | Action::Cancel if repeat => Choice::Nothing,
+            Action::Confirm(_) | Action::Cancel if repeat || now < self.quiet_until => {
+                Choice::Nothing
+            }
             Action::Confirm(power) => {
                 // A refused logout leaves the desktop running: the next open
                 // must show the first step again, not a stale confirmation.
@@ -156,6 +170,9 @@ impl Menu {
 
     /// Replace the last [`POWER_ROWS`] rows (always the session section).
     fn set_power_rows(&mut self, rows: [Row; POWER_ROWS]) {
+        // Any swap but the one into a confirmation (which sets it again)
+        // leaves no quiet period behind.
+        self.quiet_until = 0;
         let start = self.rows.len().saturating_sub(POWER_ROWS);
         self.rows.truncate(start);
         self.rows.extend(rows);

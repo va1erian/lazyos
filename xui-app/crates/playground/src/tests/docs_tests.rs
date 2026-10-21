@@ -310,7 +310,8 @@ fn risks_flag_the_calls_the_plan_names() {
     // Prose that merely mentions a reboot or a shutdown flags nothing (found in the guest:
     // confd.Info "survives a reboot" asked for a confirmation).
     assert!(docs::risks(confd, confd.method("Info").unwrap()).is_empty());
-    let net = schema::interface("os.lazy.net.socket.v1").or_else(|| schema::interface("os.lazy.net.v1"));
+    let net =
+        schema::interface("os.lazy.net.socket.v1").or_else(|| schema::interface("os.lazy.net.v1"));
     if let Some(net) = net.filter(|n| n.method("Shutdown").is_some()) {
         assert!(!docs::risks(net, net.method("Shutdown").unwrap()).contains(&Risk::StopsServices));
     }

@@ -39,6 +39,9 @@ STAND_IN = """pub(super) const DENIED: [&str; 2] = [
     "os.lazy.keyd.v1",
     "os.lazy.process.label.spawn.v1",
 ];
+pub(super) const UNLESS_NETWORK: [&str; 0] = [];
+pub(super) const UNLESS_DEVELOP: [&str; 1] = ["os.lazy.process.label.spawn.v1"];
+pub(super) const UNLESS_SHELL: [&str; 0] = [];
 """
 
 
@@ -166,6 +169,101 @@ class Check(unittest.TestCase):
         self.assertIn("no DENY entries", problems[0])
 
 
+class Whens(unittest.TestCase):
+    """The `when` column of the deny list against the kernel stand-in's lists
+    (and a fourth `UnlessNetwork` entry: the hand copies must follow it)."""
+
+    LIB4 = LIB.replace(
+        "];\n\npub const KERNEL_SCOPES",
+        """    Deny {
+        interface: "os.lazy.net.extra.v1",
+        // a comment between the fields is fine
+        when: DenyWhen::UnlessNetwork,
+        reason: "a fourth door to the network",
+    },
+];
+
+pub const KERNEL_SCOPES""",
+    )
+
+    def test_the_whens_are_read_from_the_source(self):
+        self.assertEqual(
+            ci.deny_whens(LIB),
+            [
+                ("os.lazy.keyd.v1", "Always"),
+                ("os.lazy.process.label.spawn.v1", "UnlessDevelop"),
+            ],
+        )
+        self.assertEqual(
+            ci.stand_in_whens(STAND_IN),
+            {
+                "UnlessNetwork": [],
+                "UnlessDevelop": ["os.lazy.process.label.spawn.v1"],
+                "UnlessShell": [],
+            },
+        )
+        # A comment between `interface` and `when` is skipped.
+        self.assertIn(("os.lazy.net.extra.v1", "UnlessNetwork"), ci.deny_whens(self.LIB4))
+
+    def test_the_checked_in_columns_agree(self):
+        deny = ci.deny_whens(ci.LIB.read_text(encoding="utf-8"))
+        stand_in = ci.stand_in_whens(ci.STAND_IN.read_text(encoding="utf-8"))
+        self.assertEqual(ci.check_whens(deny, stand_in), [])
+        # Every entry that is lifted by something is in a list.
+        lifted = {name for name, when in deny if when != "Always"}
+        self.assertEqual(lifted, {n for names in stand_in.values() for n in names})
+
+    def test_a_fourth_network_entry_must_reach_the_stand_in_list(self):
+        deny = ci.deny_whens(self.LIB4)
+        problems = ci.check_whens(deny, ci.stand_in_whens(STAND_IN))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("os.lazy.net.extra.v1", problems[0])
+        self.assertIn("UNLESS_NETWORK", problems[0])
+        fixed = STAND_IN.replace(
+            "UNLESS_NETWORK: [&str; 0] = [];",
+            'UNLESS_NETWORK: [&str; 1] = ["os.lazy.net.extra.v1"];',
+        )
+        self.assertEqual(ci.check_whens(deny, ci.stand_in_whens(fixed)), [])
+
+    def test_an_entry_in_the_wrong_list_fails_both_ways(self):
+        deny = ci.deny_whens(LIB)
+        moved = STAND_IN.replace(
+            "UNLESS_SHELL: [&str; 0] = [];",
+            'UNLESS_SHELL: [&str; 1] = ["os.lazy.process.label.spawn.v1"];',
+        )
+        problems = ci.check_whens(deny, ci.stand_in_whens(moved))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("UNLESS_SHELL", problems[0])
+        self.assertIn("not `DenyWhen::UnlessShell`", problems[0])
+        dropped = STAND_IN.replace(
+            'UNLESS_DEVELOP: [&str; 1] = ["os.lazy.process.label.spawn.v1"];',
+            "UNLESS_DEVELOP: [&str; 0] = [];",
+        )
+        problems = ci.check_whens(deny, ci.stand_in_whens(dropped))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("UNLESS_DEVELOP", problems[0])
+
+    def test_an_unknown_when_fails(self):
+        problems = ci.check_whens(
+            [("os.lazy.x.v1", "UnlessMoon")], ci.stand_in_whens(STAND_IN)
+        )
+        self.assertTrue(any("UnlessMoon" in p for p in problems), problems)
+
+    def test_main_fails_on_a_drifting_when_list(self):
+        declared = [
+            {"interface": "os.lazy.keyd.v1"},
+            {"interface": "os.lazy.process.label.spawn.v1"},
+            {"interface": "os.lazy.net.extra.v1"},
+        ]
+        stand_in = STAND_IN.replace("[&str; 2]", "[&str; 3]").replace(
+            '    "os.lazy.process.label.spawn.v1",\n];',
+            '    "os.lazy.process.label.spawn.v1",\n    "os.lazy.net.extra.v1",\n];',
+        )
+        code, _, err = Main().run_main(declared, self.LIB4, "", stand_in=stand_in)
+        self.assertEqual(code, 1)
+        self.assertIn("UNLESS_NETWORK", err)
+
+
 class Main(unittest.TestCase):
     def run_main(self, manifest, lib, reviewed, stand_in=STAND_IN):
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,7 +304,7 @@ class Main(unittest.TestCase):
             {"interface": "os.lazy.keyd.v1"},
             {"interface": "os.lazy.process.label.spawn.v1"},
         ]
-        drifted = STAND_IN.replace('    "os.lazy.process.label.spawn.v1",\n', "")
+        drifted = STAND_IN.replace('    "os.lazy.process.label.spawn.v1",\n];', "];")
         code, out, err = self.run_main(declared, LIB, "", stand_in=drifted)
         self.assertEqual(code, 1)
         self.assertIn("kernel tests' DENIED", err)

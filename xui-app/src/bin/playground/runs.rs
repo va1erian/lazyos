@@ -63,12 +63,16 @@ impl Playground {
         };
         if self.gate.needs_confirmation() {
             self.pending = Some(pending);
-            // Evidence that the card was shown (a count of runs cannot tell
-            // "asked and confirmed" from "never asked").
             let origin = format!("{:?}", self.gate.provenance()).to_lowercase();
-            trace::line!(Channel::Playground, "REVIEW:ASK:{origin}");
             match review_dialog(ui, self.gate.provenance(), |a| Some(Msg::Reviewed(a))) {
-                Ok(card) => self.review = Some(card),
+                Ok(card) => {
+                    self.review = Some(card);
+                    // Evidence that the card was shown (a count of runs cannot
+                    // tell "asked and confirmed" from "never asked"): printed
+                    // once the card is open, so an ASK never stands for a card
+                    // that failed to appear.
+                    trace::line!(Channel::Playground, "REVIEW:ASK:{origin}");
+                }
                 Err(e) => self.note(&format!("review card: {e}")),
             }
             return;
@@ -100,7 +104,12 @@ impl Playground {
         let card = TaskDialog::new(ui, "Call a method that can stop things?", &message)
             .and_then(|d| d.icon(TaskDialogIcon::Warning).command("Call"))
             .map(|d| {
-                d.on_action(|a| Some(Msg::CallConfirmed(matches!(a, TaskDialogAction::Command(0)))))
+                d.on_action(|a| {
+                    Some(Msg::CallConfirmed(matches!(
+                        a,
+                        TaskDialogAction::Command(0)
+                    )))
+                })
             });
         match card {
             Ok(card) => {
@@ -142,7 +151,9 @@ impl Playground {
         self.add_page(id, title);
         self.trace_markers();
         self.refresh_page(id);
-        started.err().map(|e| self.note(&format!("cannot start: {e}")));
+        started
+            .err()
+            .map(|e| self.note(&format!("cannot start: {e}")));
         Some(id)
     }
 
@@ -257,10 +268,15 @@ impl Playground {
         let Some(line) = run.output.get(row) else {
             return;
         };
-        match line.mark.as_ref().and_then(|m| m.line.map(|l| (l, m.column))) {
+        match line
+            .mark
+            .as_ref()
+            .and_then(|m| m.line.map(|l| (l, m.column)))
+        {
             Some((line, column)) => {
                 self.reveal_bottom(true);
-                self.editor.goto(line.saturating_sub(1), column.saturating_sub(1));
+                self.editor
+                    .goto(line.saturating_sub(1), column.saturating_sub(1));
                 self.focus_editor();
             }
             None => self.note("That line has no position in the editor."),
@@ -344,7 +360,10 @@ fn tab_title(id: RunId, title: &str, status: Option<&str>) -> String {
 fn output_rows(run: &Run, now_ms: u64) -> Vec<Vec<String>> {
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(run.output.len() + 2);
     if run.dropped_lines > 0 {
-        rows.push(vec![format!("... {} earlier lines dropped", run.dropped_lines)]);
+        rows.push(vec![format!(
+            "... {} earlier lines dropped",
+            run.dropped_lines
+        )]);
     }
     for line in &run.output {
         let text = match line.stream {
@@ -378,8 +397,19 @@ fn output_rows(run: &Run, now_ms: u64) -> Vec<Vec<String>> {
 /// The errno name in a refusal text, if it has one.
 fn errno_name(text: &str) -> Option<&'static str> {
     const NAMES: &[&str] = &[
-        "EACCES", "EPERM", "ENOENT", "ENOSYS", "EINVAL", "ETIMEDOUT", "EAGAIN", "EPIPE", "ENOMEM",
-        "EBUSY", "EEXIST", "E2BIG", "ECANCELED",
+        "EACCES",
+        "EPERM",
+        "ENOENT",
+        "ENOSYS",
+        "EINVAL",
+        "ETIMEDOUT",
+        "EAGAIN",
+        "EPIPE",
+        "ENOMEM",
+        "EBUSY",
+        "EEXIST",
+        "E2BIG",
+        "ECANCELED",
     ];
     NAMES.iter().copied().find(|n| text.contains(n))
 }
@@ -392,9 +422,15 @@ mod tests {
 
     #[test]
     fn tabs_say_how_a_run_ended() {
-        assert_eq!(tab_title(RunId(2), "confd.Info", Some("0")), "#2 confd.Info ok");
+        assert_eq!(
+            tab_title(RunId(2), "confd.Info", Some("0")),
+            "#2 confd.Info ok"
+        );
         assert_eq!(tab_title(RunId(3), "script", Some("1")), "#3 script 1");
-        assert_eq!(tab_title(RunId(4), "script", Some("stopped")), "#4 script stopped");
+        assert_eq!(
+            tab_title(RunId(4), "script", Some("stopped")),
+            "#4 script stopped"
+        );
         assert_eq!(tab_title(RunId(5), "script", None), "#5 script ...");
     }
 
@@ -425,12 +461,17 @@ mod tests {
     #[test]
     fn a_refusal_gets_the_policy_hint_and_every_run_a_status_line() {
         let refused = run_with(
-            &[(Stream::Stderr, "rhai: os.lazy.keyd.v1.Ping: permission denied (EACCES)")],
+            &[(
+                Stream::Stderr,
+                "rhai: os.lazy.keyd.v1.Ping: permission denied (EACCES)",
+            )],
             RunState::Exited(1),
         );
         let rows = output_rows(&refused, 0);
         assert!(rows[0][0].starts_with("! "));
-        assert!(rows.iter().any(|r| r[0].starts_with("hint: denied by policy")));
+        assert!(rows
+            .iter()
+            .any(|r| r[0].starts_with("hint: denied by policy")));
         assert!(rows.last().unwrap()[0].starts_with("-- exit 1"));
         let fine = run_with(&[(Stream::Stdout, "hello")], RunState::Exited(0));
         let rows = output_rows(&fine, 0);

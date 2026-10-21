@@ -265,12 +265,12 @@ fn choosing_launches_enabled_apps_only() {
     let mut menu = Menu::build(&[], &pinned(), Shipped::Known(&shipped), H);
     let terminal = menu.find("terminal").unwrap();
     assert_eq!(
-        menu.choose(terminal, true),
+        menu.choose(terminal, true, 0),
         Choice::Launch(String::from("terminal"))
     );
     let docs = menu.find("os.lazy.docs").unwrap();
-    assert_eq!(menu.choose(docs, false), Choice::Nothing);
-    assert_eq!(menu.choose(99, false), Choice::Nothing);
+    assert_eq!(menu.choose(docs, false, 0), Choice::Nothing);
+    assert_eq!(menu.choose(99, false, 0), Choice::Nothing);
 }
 
 #[test]
@@ -339,7 +339,7 @@ fn a_tall_section_scrolls_and_the_configured_rows_stay_put() {
 fn scrolling_keeps_a_pending_power_confirmation() {
     let mut menu = Menu::build(&one_per_category(), &pinned(), Shipped::Unknown, 472);
     let off = menu.find_action(Action::Ask(Power::PowerOff)).unwrap();
-    assert_eq!(menu.choose(off, false), Choice::Confirming(Power::PowerOff));
+    assert_eq!(menu.choose(off, false, 0), Choice::Confirming(Power::PowerOff));
     assert!(menu.scroll_by(1));
     assert!(menu.confirming());
 }
@@ -353,7 +353,7 @@ fn a_category_row_opens_its_submenu_beside_it() {
     ];
     let mut menu = Menu::build(&installed, &pinned(), Shipped::Unknown, H);
     let games = menu.find_category("games").unwrap();
-    assert_eq!(menu.choose(games, false), Choice::Submenu(games));
+    assert_eq!(menu.choose(games, false, 0), Choice::Submenu(games));
     let sub = menu.submenu(games, H).unwrap();
     assert_eq!(sub.id, "games");
     let (_, oy) = menu.origin(H);

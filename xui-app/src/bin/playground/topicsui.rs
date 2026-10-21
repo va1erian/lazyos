@@ -109,10 +109,7 @@ impl TopicsWidgets {
                         .fill(4),
                     self.control_row(),
                     label("Selected event").caption(),
-                    list()
-                        .column("details", Fill)
-                        .bind(&self.details)
-                        .fill(4),
+                    list().column("details", Fill).bind(&self.details).fill(4),
                     label("Publish").caption(),
                     self.publish_form(),
                 ))
@@ -129,16 +126,22 @@ impl TopicsWidgets {
                 .bind(&self.sub_filter)
                 .fill(1),
             button("Pause").on_click(TMsg::Pause).bind(&self.pause),
-            button("Clear").on_click(TMsg::ClearEvents).bind(&self.clear),
+            button("Clear")
+                .on_click(TMsg::ClearEvents)
+                .bind(&self.clear),
             button("Pin").on_click(TMsg::PinEvent).bind(&self.pin),
         ))
     }
 
     fn control_row(&self) -> Layout<TMsg> {
         row().gap(4).children((
-            button("Copy as Rhai").on_click(TMsg::CopyEvent).bind(&self.copy),
+            button("Copy as Rhai")
+                .on_click(TMsg::CopyEvent)
+                .bind(&self.copy),
             button("Save").on_click(TMsg::SaveEvents).bind(&self.save),
-            button("Stop listening").on_click(TMsg::CloseSub).bind(&self.close_sub),
+            button("Stop listening")
+                .on_click(TMsg::CloseSub)
+                .bind(&self.close_sub),
             label("").bind(&self.sub_stats).fill(1),
         ))
     }
@@ -146,7 +149,9 @@ impl TopicsWidgets {
     fn publish_form(&self) -> Layout<TMsg> {
         column().gap(4).children((
             edit()
-                .placeholder("topic, e.g. demo/pg/x (Listen takes a filter: + one level, # the rest)")
+                .placeholder(
+                    "topic, e.g. demo/pg/x (Listen takes a filter: + one level, # the rest)",
+                )
                 .on_change(TMsg::PubTopic)
                 .bind(&self.pub_topic),
             row().gap(4).children((
@@ -159,7 +164,9 @@ impl TopicsWidgets {
                     .on_toggle(TMsg::PubRetained)
                     .bind(&self.pub_retained),
                 button("Publish").on_click(TMsg::PubGo).bind(&self.pub_go),
-                button("Listen").on_click(TMsg::PubListen).bind(&self.pub_listen),
+                button("Listen")
+                    .on_click(TMsg::PubListen)
+                    .bind(&self.pub_listen),
             )),
         ))
     }

@@ -1,12 +1,15 @@
-//! A double-click on a power row of the real start menu must not power off.
+//! A double or triple click on a power row of the real start menu must not
+//! power off.
 //!
 //! The menu panel is a self-painted node, so the backend hands the second
 //! press of a quick pair to it as a lone `MouseDoubleClick`, which the model
-//! reads as a repeat and never lets confirm (`Menu::choose`). This drives two
-//! quick presses through the backend, the menu's real event mapping
-//! ([`crate::shell::menu::event_msg`]) and its model, as `MenuApp` does.
+//! reads as a repeat and never lets confirm (`Menu::choose`); a pair consumes
+//! the sequence, so the third press is plain again and only the model's quiet
+//! period after the swap stops it. This drives quick presses through the
+//! backend, the menu's real event mapping ([`crate::shell::menu::event_msg`])
+//! and its model, as `MenuApp` does.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use lazyshell::menu::{Action, Choice, Menu, Power, Shipped};
@@ -26,6 +29,8 @@ const SCREEN_H: i32 = 768;
 struct Panel {
     menu: RefCell<Menu>,
     choices: RefCell<Vec<Choice>>,
+    /// The tick of the press being delivered (`MenuApp` reads the clock).
+    now: Cell<u64>,
 }
 
 impl WidgetHost for Panel {
@@ -33,12 +38,18 @@ impl WidgetHost for Panel {
         if let Some(MenuMsg::Press(x, y, repeat)) = event_msg(event) {
             let mut menu = self.menu.borrow_mut();
             if let Some(row) = menu.row_at(x, y) {
-                let choice = menu.choose(row, repeat);
+                let choice = menu.choose(row, repeat, self.now.get());
                 self.choices.borrow_mut().push(choice);
             }
         }
         true
     }
+}
+
+/// Press the left button at `(x, y)` at tick `now`.
+fn press(backend: &LazyOSBackend, panel: &Panel, (x, y): (i32, i32), now: u64) {
+    panel.now.set(now);
+    backend.pointer_down_at(W, x, y, MouseButton::Left, now);
 }
 
 /// A backend whose window holds the menu panel as one `Custom` node, and the
@@ -51,6 +62,7 @@ fn rig(action: Action) -> (LazyOSBackend, Rc<Panel>, (i32, i32)) {
     let panel = Rc::new(Panel {
         menu: RefCell::new(menu),
         choices: RefCell::new(Vec::new()),
+        now: Cell::new(0),
     });
     let backend = client_backend();
     backend
@@ -80,9 +92,9 @@ fn rig(action: Action) -> (LazyOSBackend, Rc<Panel>, (i32, i32)) {
 #[test]
 fn a_double_click_on_a_power_row_never_requests_the_action() {
     for power in [Power::Logout, Power::Reboot, Power::PowerOff] {
-        let (backend, panel, (x, y)) = rig(Action::Ask(power));
-        backend.pointer_down_at(W, x, y, MouseButton::Left, 100);
-        backend.pointer_down_at(W, x, y, MouseButton::Left, 110);
+        let (backend, panel, at) = rig(Action::Ask(power));
+        press(&backend, &panel, at, 100);
+        press(&backend, &panel, at, 110);
         assert_eq!(
             *panel.choices.borrow(),
             [Choice::Confirming(power), Choice::Nothing],
@@ -93,11 +105,29 @@ fn a_double_click_on_a_power_row_never_requests_the_action() {
 }
 
 #[test]
+fn a_triple_click_on_a_power_row_never_requests_the_action() {
+    for power in [Power::Logout, Power::Reboot, Power::PowerOff] {
+        let (backend, panel, at) = rig(Action::Ask(power));
+        for now in [100, 110, 120] {
+            press(&backend, &panel, at, now);
+        }
+        // The pair (100, 110) is consumed, so the press at 120 is a plain
+        // MouseDown on whatever row is now under the pointer.
+        assert_eq!(
+            *panel.choices.borrow(),
+            [Choice::Confirming(power), Choice::Nothing, Choice::Nothing],
+            "{power:?}"
+        );
+        assert!(panel.menu.borrow().confirming(), "still asking");
+    }
+}
+
+#[test]
 fn a_second_click_after_the_interval_confirms() {
-    let (backend, panel, (x, y)) = rig(Action::Ask(Power::Reboot));
-    backend.pointer_down_at(W, x, y, MouseButton::Left, 100);
+    let (backend, panel, at) = rig(Action::Ask(Power::Reboot));
+    press(&backend, &panel, at, 100);
     // Slower than the double-click interval: a deliberate second click.
-    backend.pointer_down_at(W, x, y, MouseButton::Left, 100 + 500);
+    press(&backend, &panel, at, 100 + 500);
     assert_eq!(
         *panel.choices.borrow(),
         [

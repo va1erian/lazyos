@@ -27,8 +27,17 @@ pub fn event_page(handle: &Handle<xui_core::widget::ListView<TMsg>>) -> Layout<T
 pub fn stats_text(s: &xui_playground::listener::StatsStrip) -> String {
     format!(
         "{}/{} q{} d{} m{} drop{} skip{}+{} | {}/{} pin{}{}",
-        s.qos, s.depth, s.queued, s.delivered, s.matched, s.drops,
-        s.dropped_by_viewer, s.missed_while_paused, s.shown, s.stored, s.pinned,
+        s.qos,
+        s.depth,
+        s.queued,
+        s.delivered,
+        s.matched,
+        s.drops,
+        s.dropped_by_viewer,
+        s.missed_while_paused,
+        s.shown,
+        s.stored,
+        s.pinned,
         if s.paused { " PAUSED" } else { "" }
     )
 }
@@ -93,7 +102,10 @@ mod tests {
     #[test]
     fn a_long_filter_is_cut_for_its_tab() {
         assert_eq!(short_filter("time/tick"), "time/tick");
-        assert_eq!(short_filter("system/stats/memory/and/more"), "system/stats/memor...");
+        assert_eq!(
+            short_filter("system/stats/memory/and/more"),
+            "system/stats/memor..."
+        );
     }
 
     #[test]
@@ -133,6 +145,9 @@ mod tests {
             pinned: 1,
             paused: true,
         };
-        assert_eq!(stats_text(&s), "Buffered/64 q0 d5 m5 drop0 skip0+2 | 3/5 pin1 PAUSED");
+        assert_eq!(
+            stats_text(&s),
+            "Buffered/64 q0 d5 m5 drop0 skip0+2 | 3/5 pin1 PAUSED"
+        );
     }
 }

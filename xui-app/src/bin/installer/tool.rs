@@ -26,7 +26,6 @@ pub fn install(path: &str, expected: &str) -> Result<Installed, String> {
         .map_err(|error| refusal_text(error.code, &error.message))?;
     // The reply's own name wins: it is what `elevd` installed.
     let name = installed_name(&detail).unwrap_or(expected);
-    pkg::installed(name)?.ok_or_else(|| {
-        String::from("The developer tool was installed, but pkgd does not list it.")
-    })
+    pkg::installed(name)?
+        .ok_or_else(|| String::from("The developer tool was installed, but pkgd does not list it."))
 }

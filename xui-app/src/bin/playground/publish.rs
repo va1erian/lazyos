@@ -139,7 +139,10 @@ mod tests {
 
     #[test]
     fn the_starting_value_is_the_second_argument_of_the_snippet() {
-        assert_eq!(payload_of_snippet("msg::publish(\"a/b\", #{ n: 1 });\n"), "#{ n: 1 }");
+        assert_eq!(
+            payload_of_snippet("msg::publish(\"a/b\", #{ n: 1 });\n"),
+            "#{ n: 1 }"
+        );
         assert_eq!(payload_of_snippet("nothing"), "\"\"");
     }
 }

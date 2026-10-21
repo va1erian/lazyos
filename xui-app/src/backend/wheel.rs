@@ -91,7 +91,11 @@ impl LazyOSBackend {
     pub(super) fn pointer_wheel(&self, window: WindowId, x: i32, y: i32, notches: i32) {
         self.pointer.set((x, y));
         let count = notches.unsigned_abs().min(MAX_NOTCHES);
-        let delta = if notches < 0 { -WHEEL_NOTCH } else { WHEEL_NOTCH };
+        let delta = if notches < 0 {
+            -WHEEL_NOTCH
+        } else {
+            WHEEL_NOTCH
+        };
         for _ in 0..count {
             // Looked up for each notch: a step may move the page (or end the capture).
             let target = self.wheel_receiver(window, x, y);
@@ -168,7 +172,12 @@ mod tests {
         let mut nodes = backend.nodes.borrow_mut();
         let mut add =
             |n: u64, parent, rect: Rect, kind| nodes.push((id(n), node(parent, rect, kind)));
-        add(1, ParentRef::Window(W), Rect::new(0, 0, 400, 300), NodeKind::Container);
+        add(
+            1,
+            ParentRef::Window(W),
+            Rect::new(0, 0, 400, 300),
+            NodeKind::Container,
+        );
         add(2, panel, Rect::new(10, 20, 210, 220), NodeKind::ScrollView);
         add(3, view, Rect::new(0, 0, 150, 30), NodeKind::Label);
         add(4, view, Rect::new(0, 40, 80, 70), NodeKind::Button);
@@ -193,14 +202,21 @@ mod tests {
         backend.pointer_wheel(W, 30, 30, -3);
         let events = log.0.borrow();
         assert_eq!(events.len(), 3);
-        assert!(events
-            .iter()
-            .all(|(target, event)| *target == id(2) && matches!(event, Event::MouseWheel { delta: -120, .. })));
+        assert!(events.iter().all(|(target, event)| *target == id(2)
+            && matches!(event, Event::MouseWheel { delta: -120, .. })));
         drop(events);
         backend.pointer_wheel(W, 30, 30, i32::MAX);
-        assert_eq!(log.0.borrow().len(), 3 + MAX_NOTCHES as usize, "a huge roll is cut");
+        assert_eq!(
+            log.0.borrow().len(),
+            3 + MAX_NOTCHES as usize,
+            "a huge roll is cut"
+        );
         backend.pointer_wheel(W, 30, 30, 0);
-        assert_eq!(log.0.borrow().len(), 3 + MAX_NOTCHES as usize, "no event for zero notches");
+        assert_eq!(
+            log.0.borrow().len(),
+            3 + MAX_NOTCHES as usize,
+            "no event for zero notches"
+        );
     }
 
     #[test]
@@ -211,7 +227,12 @@ mod tests {
         assert_eq!(target, id(2), "the label passes the wheel up");
         assert!(matches!(
             event,
-            Event::MouseWheel { delta: 120, x: 20, y: 10, .. }
+            Event::MouseWheel {
+                delta: 120,
+                x: 20,
+                y: 10,
+                ..
+            }
         ));
         // The button is at window (10, 60)..(90, 90).
         assert_eq!(roll(&backend, &log, 20, 70).0, id(2), "so does a button");
@@ -229,14 +250,22 @@ mod tests {
         // The list is at window (10, 100)..(160, 160), its bar at (148, 100)..(160, 160),
         // the custom widget at (10, 170)..(160, 210).
         assert_eq!(roll(&backend, &log, 50, 120).0, id(5));
-        assert_eq!(roll(&backend, &log, 154, 120).0, id(6), "a list's own bar is the list's business");
+        assert_eq!(
+            roll(&backend, &log, 154, 120).0,
+            id(6),
+            "a list's own bar is the list's business"
+        );
         assert_eq!(roll(&backend, &log, 50, 180).0, id(7));
     }
 
     #[test]
     fn outside_any_scroll_view_nothing_is_rerouted() {
         let (backend, log) = rig();
-        assert_eq!(roll(&backend, &log, 260, 30).0, id(8), "a label with no view above it");
+        assert_eq!(
+            roll(&backend, &log, 260, 30).0,
+            id(8),
+            "a label with no view above it"
+        );
         assert_eq!(roll(&backend, &log, 260, 70).0, id(9));
     }
 
@@ -244,7 +273,11 @@ mod tests {
     fn a_capture_keeps_the_roll() {
         let (backend, log) = rig();
         backend.set_capture(id(3));
-        assert_eq!(roll(&backend, &log, 30, 30).0, id(3), "a drag in progress owns the pointer");
+        assert_eq!(
+            roll(&backend, &log, 30, 30).0,
+            id(3),
+            "a drag in progress owns the pointer"
+        );
         backend.release_capture();
         assert_eq!(roll(&backend, &log, 30, 30).0, id(2));
     }
@@ -254,8 +287,18 @@ mod tests {
         let (backend, _log) = rig();
         let mut nodes = backend.nodes.borrow_mut();
         // 3 -> 4 -> 3: a corrupted table must not spin.
-        nodes.iter_mut().find(|(n, _)| *n == id(3)).unwrap().1.parent = ParentRef::Widget(id(4));
-        nodes.iter_mut().find(|(n, _)| *n == id(4)).unwrap().1.parent = ParentRef::Widget(id(3));
+        nodes
+            .iter_mut()
+            .find(|(n, _)| *n == id(3))
+            .unwrap()
+            .1
+            .parent = ParentRef::Widget(id(4));
+        nodes
+            .iter_mut()
+            .find(|(n, _)| *n == id(4))
+            .unwrap()
+            .1
+            .parent = ParentRef::Widget(id(3));
         assert_eq!(wheel_target(&nodes, id(3)), id(3));
     }
 

@@ -203,22 +203,34 @@ mod tests {
 
     #[test]
     fn run_and_stop_are_f5_and_shift_f5_and_nothing_runs_on_other_keys() {
-        assert!(matches!(shortcut(Key::F5, Modifiers::default()), Some(Msg::Run)));
+        assert!(matches!(
+            shortcut(Key::F5, Modifiers::default()),
+            Some(Msg::Run)
+        ));
         let shift = Modifiers {
             shift: true,
             ..Modifiers::default()
         };
         assert!(matches!(shortcut(Key::F5, shift), Some(Msg::Stop)));
         assert!(shortcut(Key::RETURN, Modifiers::default()).is_none());
-        assert!(matches!(shortcut(Key::RETURN, ctrl()), Some(Msg::RunSelection)));
-        assert!(shortcut(Key::Q, Modifiers::default()).is_none(), "typing q is typing");
+        assert!(matches!(
+            shortcut(Key::RETURN, ctrl()),
+            Some(Msg::RunSelection)
+        ));
+        assert!(
+            shortcut(Key::Q, Modifiers::default()).is_none(),
+            "typing q is typing"
+        );
         assert!(matches!(shortcut(Key::Q, ctrl()), Some(Msg::Quit)));
     }
 
     #[test]
     fn the_topic_monitor_and_the_notice_have_shortcuts() {
         assert!(matches!(shortcut(Key::T, ctrl()), Some(Msg::ShowTopics)));
-        assert!(shortcut(Key::T, Modifiers::default()).is_none(), "typing t is typing");
+        assert!(
+            shortcut(Key::T, Modifiers::default()).is_none(),
+            "typing t is typing"
+        );
         let shift = Modifiers {
             shift: true,
             ..ctrl()

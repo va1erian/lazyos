@@ -68,7 +68,9 @@ pub fn plan(open: bool, request: &Request) -> Plan {
     let note = match (open, request) {
         (true, Request::Show) => Some("The topic monitor is already open: find it in the taskbar."),
         (true, Request::Listen(_)) => Some("Listening in the topic monitor window."),
-        (true, Request::FillPublish { .. }) => Some("Publish form filled in the topic monitor window."),
+        (true, Request::FillPublish { .. }) => {
+            Some("Publish form filled in the topic monitor window.")
+        }
         (false, _) => None,
     };
     Plan {
@@ -143,10 +145,19 @@ mod tests {
     #[test]
     fn a_closed_monitor_is_opened_for_every_request_and_an_open_one_is_not() {
         let listen = Request::Listen("time/tick".into());
-        assert_eq!(plan(false, &listen), Plan { open_first: true, note: None });
+        assert_eq!(
+            plan(false, &listen),
+            Plan {
+                open_first: true,
+                note: None
+            }
+        );
         assert!(plan(true, &listen).note.is_some());
         assert!(!plan(true, &listen).open_first);
-        let fill = Request::FillPublish { topic: "a".into(), payload: "b".into() };
+        let fill = Request::FillPublish {
+            topic: "a".into(),
+            payload: "b".into(),
+        };
         assert!(plan(false, &fill).open_first);
         assert!(!plan(true, &fill).open_first);
         assert!(plan(false, &Request::Show).open_first);
@@ -156,7 +167,10 @@ mod tests {
     fn showing_an_open_monitor_says_where_it_is_because_it_cannot_be_raised() {
         let note = plan(true, &Request::Show).note.unwrap();
         assert!(note.contains("taskbar"), "{note}");
-        assert!(plan(false, &Request::Show).note.is_none(), "a new window needs no note");
+        assert!(
+            plan(false, &Request::Show).note.is_none(),
+            "a new window needs no note"
+        );
     }
 
     #[test]

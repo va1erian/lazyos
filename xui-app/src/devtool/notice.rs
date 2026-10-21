@@ -193,7 +193,10 @@ mod tests {
         assert!(notice.dismiss().is_err());
         assert!(!notice.visible(), "hidden now, forgotten next launch");
         assert!(notice.restore().is_err());
-        assert!(notice.visible(), "showing it again never depends on the disk");
+        assert!(
+            notice.visible(),
+            "showing it again never depends on the disk"
+        );
     }
 
     #[test]

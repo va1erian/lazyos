@@ -54,7 +54,9 @@ pub fn rows(manifest: &Manifest) -> Vec<Permission> {
     let mut out = Vec::with_capacity(1 + devtool::RISKS.len() + devtool::DENY.len());
     let kind = Explained {
         risk: HIGH,
-        text: String::from(devtool::CONSENT_TEXT),
+        // A shell tool is not refused the credential services, so the class
+        // text that says it is would be false for it (`devtool::consent_text`).
+        text: String::from(devtool::consent_text(manifest.is_shell())),
     };
     out.push(permission(KIND_ROW, devtool::KIND, kind));
     if manifest.is_shell() {
@@ -145,6 +147,10 @@ mod tests {
             .collect();
         assert_eq!(kinds_, [devtool::KIND, devtool::SHELL_ROW_VALUE]);
         assert!(shell.iter().filter(|row| is_class_row(row)).count() > 2);
+        // The class row the Installer and the prompt lead with does not say the
+        // credential services refuse a shell.
+        assert_eq!(shell[0].explanation, devtool::SHELL_CONSENT_TEXT);
+        assert_eq!(plain[0].explanation, devtool::CONSENT_TEXT);
         // The credential denies are gone for a shell, as the rules say.
         assert!(shell.iter().all(|row| row.value != "os.lazy.keyd.v1"));
     }

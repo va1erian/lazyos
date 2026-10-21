@@ -328,8 +328,14 @@ mod tests {
     #[test]
     fn the_monitor_answers_close_and_the_notice_and_nothing_a_typed_key_means() {
         assert!(matches!(shortcut(Key::W, ctrl()), Some(TMsg::Close)));
-        assert!(shortcut(Key::W, Modifiers::default()).is_none(), "typing w is typing");
-        assert!(matches!(shortcut(Key::Q, ctrl()), Some(TMsg::QuitApp)), "Ctrl+Q quits the tool");
+        assert!(
+            shortcut(Key::W, Modifiers::default()).is_none(),
+            "typing w is typing"
+        );
+        assert!(
+            matches!(shortcut(Key::Q, ctrl()), Some(TMsg::QuitApp)),
+            "Ctrl+Q quits the tool"
+        );
         assert!(shortcut(Key::Q, Modifiers::default()).is_none());
         let shift = Modifiers {
             shift: true,

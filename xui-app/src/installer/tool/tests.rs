@@ -34,12 +34,7 @@ fn tool_rows() -> Vec<Permission> {
             "low",
             "Cannot use: passwords and keys",
         ),
-        row(
-            "network",
-            "outbound",
-            "high",
-            "Connects to the network",
-        ),
+        row("network", "outbound", "high", "Connects to the network"),
     ]
 }
 
@@ -80,8 +75,18 @@ fn a_look_alike_row_does_not_count() {
         "high",
         ""
     )]));
-    assert!(!is_developer_tool(&[row("kind", "application", "high", "")]));
-    assert!(!is_developer_tool(&[row("kind", "Developer-Tool", "high", "")]));
+    assert!(!is_developer_tool(&[row(
+        "kind",
+        "application",
+        "high",
+        ""
+    )]));
+    assert!(!is_developer_tool(&[row(
+        "kind",
+        "Developer-Tool",
+        "high",
+        ""
+    )]));
 }
 
 #[test]
@@ -92,7 +97,11 @@ fn the_warning_is_the_class_row_text_or_the_shared_one() {
     assert_eq!(warning_text(&quiet), devtool::CONSENT_TEXT);
     let mut own = tool();
     own.permissions[0].explanation = "Custom\nwords".into();
-    assert_eq!(warning_text(&own), "Customwords", "control characters are stripped");
+    assert_eq!(
+        warning_text(&own),
+        "Customwords",
+        "control characters are stripped"
+    );
     assert_eq!(warning_text(&plain()), devtool::CONSENT_TEXT);
 }
 
@@ -103,8 +112,14 @@ fn the_tool_list_leads_with_the_packages_own_rows_then_the_class_and_drops_the_k
     assert_eq!(items[1], "  High risk");
     assert_eq!(items[2], "    Connects to the network (outbound)");
     assert_eq!(items[3], "What every developer tool can do");
-    assert_eq!(items[4], "    Read the clipboard: Sees what you last copied");
-    assert_eq!(items[5], "    Flood the message fabric: A slow or stalled desktop");
+    assert_eq!(
+        items[4],
+        "    Read the clipboard: Sees what you last copied"
+    );
+    assert_eq!(
+        items[5],
+        "    Flood the message fabric: A slow or stalled desktop"
+    );
     assert_eq!(items[6], "What a developer tool may not use");
     assert_eq!(items[7], "    Cannot use: passwords and keys");
     assert_eq!(items.len(), 8);
@@ -150,7 +165,6 @@ fn the_approval_note_names_the_tool_briefly() {
     );
     assert!(approval_note(&"n".repeat(200)).chars().count() < 100);
 }
-
 
 #[test]
 fn the_class_counts_are_the_risk_and_denied_rows() {
@@ -210,7 +224,10 @@ fn the_review_and_consent_notes_name_the_class_and_a_replacement() {
 
     let mut model = Model::new();
     model.inspect_ok("/transient/paint.lzp".into(), plain());
-    assert!(model.consent_notes().is_empty(), "an app's notes are unchanged");
+    assert!(
+        model.consent_notes().is_empty(),
+        "an app's notes are unchanged"
+    );
     assert_eq!(model.screen, Screen::Review);
 }
 
@@ -241,10 +258,19 @@ fn each_refusal_has_a_friendly_sentence() {
         -errno::EINVAL,
         "that package is not a developer tool: install it with pkg.install",
     );
-    assert!(not_a_tool.contains("is not a developer tool"), "{not_a_tool}");
-    assert!(!not_a_tool.contains("pkg.install"), "no operation names for a person");
+    assert!(
+        not_a_tool.contains("is not a developer tool"),
+        "{not_a_tool}"
+    );
+    assert!(
+        !not_a_tool.contains("pkg.install"),
+        "no operation names for a person"
+    );
 
-    let app = refusal_text(-errno::EPERM, "applications may not install developer tools");
+    let app = refusal_text(
+        -errno::EPERM,
+        "applications may not install developer tools",
+    );
     assert!(app.contains("can install a developer tool"), "{app}");
 }
 

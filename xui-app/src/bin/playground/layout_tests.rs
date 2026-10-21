@@ -52,7 +52,9 @@ fn staged(
     let log: Log = Rc::default();
     let (build_w, build_log, step_w, step_log) = (w.clone(), log.clone(), w, log);
     render_with(
-        Snapshot::new(Dip(size.0), Dip(size.1)).theme(Theme::light()).dpi(96),
+        Snapshot::new(Dip(size.0), Dip(size.1))
+            .theme(Theme::light())
+            .dpi(96),
         move |ui: &mut Ui<Msg>| {
             let notice = Notice::new(Box::new(Fixed(false)));
             let mounted = ui.mount(build_w.layout(&notice, &saved))?;
@@ -95,12 +97,18 @@ fn a_bigger_window_gives_the_extra_width_to_the_right_column_and_the_extra_heigh
         let (_, _, _, poh) = find(&previous, "editor");
         let grown_w = (w as i32) - find_width(&previous);
         assert_eq!(ew, pew, "the Explorer keeps its width at {w}x{h}");
-        assert!(eh > peh, "the Explorer is as tall as the window ({eh} vs {peh})");
+        assert!(
+            eh > peh,
+            "the Explorer is as tall as the window ({eh} vs {peh})"
+        );
         assert!(
             (dw - pdw - grown_w).abs() <= 2,
             "the doc pane takes all the extra width at {w}x{h}: {pdw} -> {dw}, window grew {grown_w}"
         );
-        assert!(dh > pdh && oh > poh, "doc {pdh} -> {dh} and editor {poh} -> {oh} both grow in height");
+        assert!(
+            dh > pdh && oh > poh,
+            "doc {pdh} -> {dh} and editor {poh} -> {oh} both grow in height"
+        );
         // They keep the saved proportion: the doc pane's divider stays near 55 % of the column.
         let (at, _, _, _) = find(&now, "split_doc_at");
         let (_, _, _, column) = find(&now, "split_doc");
@@ -125,8 +133,14 @@ fn the_smallest_window_leaves_every_pane_its_minimum() {
     let (at, _, _, _) = find(&b, "split_doc_at");
     let (_, _, _, oh) = find(&b, "editor");
     assert!(ew >= panes::EXPLORER_MIN as i32 - 2, "explorer {ew}");
-    assert!(dw >= panes::RIGHT_MIN as i32, "the right column is {dw} wide");
-    assert!(at >= panes::DOC_MIN as i32 - 2, "the doc pane's pane is {at} tall");
+    assert!(
+        dw >= panes::RIGHT_MIN as i32,
+        "the right column is {dw} wide"
+    );
+    assert!(
+        at >= panes::DOC_MIN as i32 - 2,
+        "the doc pane's pane is {at} tall"
+    );
     assert!(dh > 30 && oh > 30, "doc {dh}, editor {oh}");
 }
 
@@ -161,7 +175,10 @@ fn a_hidden_bottom_row_gives_the_doc_pane_the_whole_column() {
     let (_, _, _, dh_hidden) = find(&hidden, "doc");
     let (at, _, _, _) = find(&hidden, "split_doc_at");
     let (_, _, _, column) = find(&hidden, "split_doc");
-    assert!(at >= column - 5 - 2, "the divider is at the bottom edge: {at} of {column}");
+    assert!(
+        at >= column - 5 - 2,
+        "the divider is at the bottom edge: {at} of {column}"
+    );
     assert!(
         dh_hidden > dh_shown + 200,
         "the doc pane grew from {dh_shown} to {dh_hidden} when the row was hidden"
@@ -198,7 +215,11 @@ fn up(x: i32, y: i32, modifiers: Modifiers) -> Event {
 fn drag(stage: &Stage<'_, Msg>, (x, y): (i32, i32), (to_x, to_y): (i32, i32)) {
     stage.inject(mouse(down, x, y));
     for step in 1..=4 {
-        stage.inject(mouse(moved, x + (to_x - x) * step / 4, y + (to_y - y) * step / 4));
+        stage.inject(mouse(
+            moved,
+            x + (to_x - x) * step / 4,
+            y + (to_y - y) * step / 4,
+        ));
     }
     stage.inject(mouse(up, to_x, to_y));
 }
@@ -210,11 +231,21 @@ fn dragging_the_explorer_divider_resizes_the_columns_and_says_the_new_width() {
         let node = stage.ui().bounds(split.id());
         let at = split.position().0 as i32;
         let before = stage.ui().bounds(w.explorer.get().id()).width();
-        drag(stage, (node.left + at + 2, node.top + 200), (node.left + at + 2 - 100, node.top + 200));
+        drag(
+            stage,
+            (node.left + at + 2, node.top + 200),
+            (node.left + at + 2 - 100, node.top + 200),
+        );
         let after = stage.ui().bounds(w.explorer.get().id()).width();
-        assert!((before - after - 100).abs() <= 3, "the Explorer went from {before} to {after}");
+        assert!(
+            (before - after - 100).abs() <= 3,
+            "the Explorer went from {before} to {after}"
+        );
         let log = log.borrow();
-        assert!(log.last().is_some_and(|m| m.starts_with("explorer ")), "{log:?}");
+        assert!(
+            log.last().is_some_and(|m| m.starts_with("explorer ")),
+            "{log:?}"
+        );
     });
 }
 
@@ -229,8 +260,16 @@ fn dragging_the_doc_divider_moves_the_share_and_keeps_the_minimums() {
         let column = stage.ui().bounds(split.id()).height();
         let at = split.position().0 as i32;
         // Up by 200: the doc pane shrinks but the editor row grows.
-        drag(stage, (left + 50, top + at + 2), (left + 50, top + at + 2 - 200));
-        assert!(split.position().0 as i32 <= at - 190, "{} from {at}", split.position().0);
+        drag(
+            stage,
+            (left + 50, top + at + 2),
+            (left + 50, top + at + 2 - 200),
+        );
+        assert!(
+            split.position().0 as i32 <= at - 190,
+            "{} from {at}",
+            split.position().0
+        );
         {
             let log = log.borrow();
             assert!(log.last().is_some_and(|m| m.starts_with("doc ")), "{log:?}");
@@ -238,7 +277,11 @@ fn dragging_the_doc_divider_moves_the_share_and_keeps_the_minimums() {
         // Far up: the doc pane stops at its minimum.
         let now = split.position().0 as i32;
         drag(stage, (left + 50, top + now + 2), (left + 50, top - 300));
-        assert!(split.position().0 >= panes::DOC_MIN - 1.0, "{}", split.position().0);
+        assert!(
+            split.position().0 >= panes::DOC_MIN - 1.0,
+            "{}",
+            split.position().0
+        );
         // Far down: the bottom row stops at its minimum.
         let now = split.position().0 as i32;
         drag(stage, (left + 50, top + now + 2), (left + 50, top + 5000));
@@ -254,15 +297,37 @@ fn dragging_the_doc_divider_moves_the_share_and_keeps_the_minimums() {
 /// `target/snapshots/playground-layout-*.png` for a human to look at.
 #[test]
 fn the_window_renders_at_four_sizes_and_with_the_bottom_row_hidden() {
-    for (w, h) in [(900.0, 600.0), (1280.0, 720.0), (1800.0, 1000.0), (2560.0, 1400.0)] {
-        let (image, _) = render_at(Theme::light(), 96, (w, h), "os.lazy.confd.v1", false, Saved::default());
-        crate::snapshot_tests::save(&image, &format!("playground-layout-{}x{}.png", w as i32, h as i32));
+    for (w, h) in [
+        (900.0, 600.0),
+        (1280.0, 720.0),
+        (1800.0, 1000.0),
+        (2560.0, 1400.0),
+    ] {
+        let (image, _) = render_at(
+            Theme::light(),
+            96,
+            (w, h),
+            "os.lazy.confd.v1",
+            false,
+            Saved::default(),
+        );
+        crate::snapshot_tests::save(
+            &image,
+            &format!("playground-layout-{}x{}.png", w as i32, h as i32),
+        );
     }
     let hidden = Saved {
         bottom_visible: false,
         ..Saved::default()
     };
-    let (image, _) = render_at(Theme::light(), 96, (1280.0, 720.0), "os.lazy.confd.v1", false, hidden);
+    let (image, _) = render_at(
+        Theme::light(),
+        96,
+        (1280.0, 720.0),
+        "os.lazy.confd.v1",
+        false,
+        hidden,
+    );
     crate::snapshot_tests::save(&image, "playground-layout-hidden.png");
 }
 
@@ -270,9 +335,23 @@ fn the_window_renders_at_four_sizes_and_with_the_bottom_row_hidden() {
 #[test]
 fn an_interface_page_renders_in_both_themes() {
     for (theme, tag) in [(Theme::light(), "light"), (Theme::dark(), "dark")] {
-        let (image, _) = render_at(theme, 96, (1280.0, 720.0), "os.lazy.net.nic.v1", false, Saved::default());
+        let (image, _) = render_at(
+            theme,
+            96,
+            (1280.0, 720.0),
+            "os.lazy.net.nic.v1",
+            false,
+            Saved::default(),
+        );
         crate::snapshot_tests::save(&image, &format!("playground-page-{tag}.png"));
     }
-    let (image, _) = render_at(Theme::light(), 192, (1280.0, 720.0), "os.lazy.net.nic.v1", false, Saved::default());
+    let (image, _) = render_at(
+        Theme::light(),
+        192,
+        (1280.0, 720.0),
+        "os.lazy.net.nic.v1",
+        false,
+        Saved::default(),
+    );
     crate::snapshot_tests::save(&image, "playground-page-2x.png");
 }

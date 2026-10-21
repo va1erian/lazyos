@@ -104,6 +104,19 @@ file-server mounts) are on the deny list unless declared, and the kernel's raw
   revoked tool. Files, starting programs and signals stay the user's authority
   for a tool: `confine` does not narrow them, and the consent text says so
   ("files included"). Tests: `label_tool_inet_*`, `label_tool_soak_inet_gate`.
+  **What "no network unless listed" does not say.** It holds for what the tool
+  itself opens (its scripts' Messenger calls, the new sockets of its programs and
+  children). The gate judges the moment `socket()` is called, so a socket opened
+  while the rules allowed it keeps working after an update drops `network` (the
+  process holds it until it exits). And a no-network tool can still call
+  `os.lazy.init.v1` `Launch` or `mimed.Open`: neither is on `DENY`, and either
+  starts an installed app (a browser, Net Tools) under *its own* label and
+  `network` permission, as the user could. No new deny is added for that: starting
+  programs is the user's authority (the consent text says "files included" and
+  "run with your permissions").
+  The audit reason of a refused socket is the verdict's own: `EXPLICIT_DENY`
+  when the deny rule of a plain tool matched, `LABEL_DEFAULT_DENY` for a revoked
+  tool (no rule matched).
 * **Topics** (`kernel/src/ipc/tool.rs`). Besides the per-uid rule (`user/<uid>/`
   is the uid's alone) a tool may not use another app's `app/...`, a filter
   that starts with a wildcard, and it may not *publish* under `system/` (the
@@ -138,15 +151,31 @@ file-server mounts) are on the deny list unless declared, and the kernel's raw
   `elevd` (a new operation, `pkg.install-devtool`, in the U2 table). A session
   owner who is not an administrator cannot install one.
 * **Consent screen** (`pkgstore::explain`, drawn by the Installer) opens with the
-  kind: "Developer tool. Through the system's services it can do what you can do,
-  except use passwords, keys, accounts and, unless listed, the network. Its
-  programs and scripts run with your permissions, files included."
+  kind: "Developer tool. Through system services it can do what you can, except
+  use passwords, keys, accounts and (unless listed) the network. Its programs
+  and scripts run with your permissions, files included."
   (`devtool::CONSENT_TEXT`). It is accurate in both halves: the Messenger deny
   list and the kernel's `AF_INET` gate bind a tool's own native code for the
   network (section 3), while files and starting programs are the user's own
-  authority, which the last sentence says. A shell tool also gets a second
-  `kind` row (`shell`) and the administrator's prompt says "shell tool". The
-  same text, and the risk table below, is the app's Help page.
+  authority, which the last sentence says. A shell tool (`shell = true`, the
+  Terminal) is not refused the credential services, so that sentence would be
+  false for it: it leads with `devtool::SHELL_CONSENT_TEXT` instead ("... the
+  password, key and account services judge it as you"), in the first `kind` row
+  the Installer shows and in the administrator's prompt, which also says "shell
+  tool" and has a second `kind` row (`shell`). The same text, and the risk
+  table below, is the app's Help page (the Terminal's Help page still shows the
+  generic text: `xui_app::devtool::help` reads `CONSENT_TEXT`).
+* **The administrator's prompt** (`elevpolicy::package::tool_summary`, 300
+  characters) is the lead text, then `Install|Update [shell tool] "<name>" <version>
+  (<system_name>) for all users`, then ` with network`, ` with develop` or
+  ` with network and develop` when the inspection carries the package's own
+  `network = ["outbound"]` or `develop` row (those lift the socket, stack and
+  mount denies, and the dev-spawn deny), then the author when it fits. The name
+  shrinks (to 8 characters) before the lead or the powers are trimmed. An
+  approved update of a core tool that *adds* `network` or `develop` is **shown,
+  not refused**: it is an administrator-approved operation and the prompt now
+  says what it grants (`toolgate::core_class_change` still refuses a change of
+  class or of the shell role, which the prompt cannot show as a difference).
 * **Audit.** `pkg.log` records the kind; each tool's start and exit markers go
   through `xui_app::trace` as usual.
 
@@ -271,7 +300,9 @@ nothing, so it needs two guards that cost little:
    a host test asserts every name is in `idl/manifest.json`, and the kernel
    tests' stand-in list (`kernel/src/tests/label_suite/tool.rs`, the kernel
    cannot depend on `devtool`) is compared with it by
-   `tools/devtool/check_interfaces.py`.
+   `tools/devtool/check_interfaces.py`, which also compares the `when` column
+   (the stand-in's `UNLESS_NETWORK`, `UNLESS_DEVELOP` and `UNLESS_SHELL` lists);
+   `pkgstore`'s tests derive their list of network doors from `DENY` itself.
 2. **New interfaces are classified.** `tools/devtool/check_interfaces.py` (a CI
    step) compares the interfaces in `idl/manifest.json` with
    `tools/devtool/reviewed_interfaces.txt` and fails when one is missing, with
@@ -333,7 +364,12 @@ happened (fixes are listed as they landed; anything not fixed says so):
 
 Suspected and accepted or open: an orphaned `rhai` child if the Playground is
 killed (a live-run cap and a coalesced wake were added; parent-death handling is
-reported separately); the subscriber's at-least-once drain and the broker's
+reported separately). The same holds for `retire` (an upgrade that changes the
+class) and `Stop`: they stop the app's own process, but a descendant of it (the
+Playground's `rhai` child) keeps its label and its registered names until it
+exits; after the label is revoked every Messenger call it makes is default
+denied, so it can do nothing through the services, only hold what it already has
+(open files, sockets opened earlier); the subscriber's at-least-once drain and the broker's
 unfreed receive buffers (a long listen is unmeasured); default allow rests on
 every server refusing an unprivileged or labelled caller (spot-checked for
 `xuid`, `inputd`, `logind`, `netdrv`, `keyd`, not for all 43 reviewed
@@ -406,6 +442,27 @@ the `time/` topic cases and the `display.scale` cases); in a guest
 `python tools/playground/run.py` (`rules=9` for the Playground, `rules=3` for
 the Terminal), `python tools/devtool/refused_run.py`, `python tools/accounts/run.py`
 and `python tools/shutdown/run.py`.
+
+### Third round (second independent review, 2026-10-21)
+
+1. The Playground's and the Terminal's `docs/README.md` said what was true
+   before the network fix, and (Terminal) that the credential services refuse a
+   tool label; both rewritten.
+2. The administrator's prompt names `with network` / `with develop` and a shell
+   tool leads with its own text (section 4, "The administrator's prompt");
+   `elevpolicy` pins the room for the widest line.
+3. `refused_judge.py` requires the toast's owner, a normal exit of both runs and
+   both `net_stack` methods refused; its docstring states what serial cannot
+   show.
+4. "No network unless listed" is stated precisely (section 3 and
+   `docs/security-model.md` 2.0): new sockets only, and `Launch`/`mimed.Open`.
+5. `init`'s `APPS:REFUSE` is budgeted, and the stored-manifest verdicts (both
+   kinds) are remembered per version and dropped for a removed package
+   (`pkgstore::verdicts`, host-tested).
+6. A refused tool socket is audited with the verdict's reason
+   (`EXPLICIT_DENY`).
+7. `check_interfaces.py` compares the `when` column; `pkgstore`'s network list
+   is derived from `DENY`.
 
 ## 10. T-later: the Terminal (done)
 

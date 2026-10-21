@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import judge as j  # noqa: E402
+import power_run  # noqa: E402
 import run  # noqa: E402
 import session  # noqa: E402
 
@@ -236,6 +237,21 @@ class Defects(unittest.TestCase):
         self.fails("review", text[:last] + text[last + len(card):], "review cards")
         self.fails("review", text.replace("ASK:file", "ASK:typed"), "review cards")
 
+    def test_a_card_must_be_shown_before_the_run_it_gates(self):
+        text = good("review")
+        ask = f"{P}:REVIEW:ASK:clipboard\n"
+        # The confirming card printed after its run started: the run was not gated.
+        first = text.index(ask)
+        second = text.index(ask, first + 1)
+        late = text[:second] + text[second + len(ask):]
+        late = late.replace(end(1, "0") + "\n", end(1, "0") + "\n" + ask, 1)
+        self.fails("review", late, "order")
+        # Every card after both runs: the sequence of cards is right, the order is not.
+        asks = [f"{P}:REVIEW:ASK:{o}" for o in ("clipboard", "clipboard", "file", "clipboard")]
+        ungated = log(*frame([start(1), end(1, "0"), start(2), end(2, "0"), *asks], 2))
+        none_before = ungated
+        self.fails("review", none_before, "order")
+
     def test_the_topic_monitor_must_come_up_and_go_before_the_main_window(self):
         text = good("listen")
         self.fails("listen", text.replace(f"{P}:TOPICS:UP:PASS\n", ""), "never opened the Topic monitor")
@@ -307,6 +323,32 @@ class Screenshots(unittest.TestCase):
             self.assertTrue(any("width" in p for p in j.judge_shots(d, ["small"])))
             png(d / "shot_black.png", 1280, 720, (0, 0, 0))
             self.assertTrue(any("non-background" in p for p in j.judge_shots(d, ["black"])))
+
+
+class Power(unittest.TestCase):
+    GOOD = log(*(["SHELL:POWER:CONFIRM", "SHELL:MENU:CLOSE"] * power_run.ROWS))
+
+    def test_a_clean_session_passes(self):
+        self.assertEqual(power_run.judge_power(self.GOOD), [])
+
+    def test_a_request_from_a_quick_click_fails(self):
+        for line in ("SHELL:POWER:REQUEST mode=1 phase=2", "SHELL:POWER:REQUEST:FAIL mode=0 errno=1",
+                     "SHELL:LOGOUT:REQUEST session=1", "SHELL:LOGOUT:FAIL errno=1"):
+            found = power_run.judge_power(self.GOOD + line + "\n")
+            self.assertTrue(any("reached the action" in p for p in found), line)
+
+    def test_the_confirmations_and_the_closes_must_be_there(self):
+        confirm = "SHELL:POWER:CONFIRM\n"
+        self.assertTrue(any("CONFIRM" in p for p in power_run.judge_power(self.GOOD.replace(confirm, "", 1))))
+        self.assertTrue(any("closed" in p for p in power_run.judge_power(self.GOOD.replace("SHELL:MENU:CLOSE\n", "", 1))))
+
+    def test_the_session_clicks_three_times_and_fails_on_a_request(self):
+        steps = json.loads(power_run.EXAMPLE.read_text())
+        presses = [s for s in steps if "mouse_click" in s or "click_at" in s and "menu" in s["click_at"]
+                   and s["click_at"]["menu"].endswith("...")]
+        self.assertEqual(len(presses), 3 * power_run.ROWS)
+        taken = [s["shot"] for s in steps if "shot" in s]
+        self.assertEqual(taken, power_run.SHOTS)
 
 
 class Sessions(unittest.TestCase):

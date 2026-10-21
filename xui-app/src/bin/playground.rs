@@ -83,14 +83,14 @@ mod topicswin;
 mod ui;
 
 #[cfg(test)]
-#[path = "playground/snapshot_tests.rs"]
-mod snapshot_tests;
-#[cfg(test)]
 #[path = "playground/layout_tests.rs"]
 mod layout_tests;
 #[cfg(test)]
 #[path = "playground/scroll_tests.rs"]
 mod scroll_tests;
+#[cfg(test)]
+#[path = "playground/snapshot_tests.rs"]
+mod snapshot_tests;
 #[cfg(test)]
 #[path = "playground/topics_snapshot_tests.rs"]
 mod topics_snapshot_tests;
@@ -107,5 +107,10 @@ fn main() {
     xui_app::font::register_mono();
     // A panic is reported on the console (and `init` restarts the app).
     xui_app::trace::install_panic_hook(Channel::Playground);
-    devtool::run(Channel::Playground, "Messenger Playground", WINDOW, startup::build)
+    devtool::run(
+        Channel::Playground,
+        "Messenger Playground",
+        WINDOW,
+        startup::build,
+    )
 }

@@ -41,9 +41,27 @@ pub const REVIEW_PROMPT: &str = "Run a script you did not write here?";
 /// `AF_INET` gate (`kernel/src/ipc/confine.rs`), which follows the same
 /// rule, so a tool's own native code cannot open a socket either. Files and
 /// starting programs are the user's authority, which the last sentence says.
-/// The administrator's prompt must fit `elevpolicy`'s `MAX_SUMMARY`, so
-/// this stays near 210 characters (a test in `elevpolicy` pins the room).
-pub const CONSENT_TEXT: &str = "Developer tool. Through the system's services it can do what you can do, except use passwords, keys, accounts and, unless listed, the network. Its programs and scripts run with your permissions, files included.";
+/// The administrator's prompt must fit `elevpolicy`'s `MAX_SUMMARY` together
+/// with the package's identity and what it declares (`network`, `develop`),
+/// so this stays near 200 characters (a test in `elevpolicy` pins the room).
+/// A shell tool leads with [`SHELL_CONSENT_TEXT`] instead: it is not refused
+/// the credential services.
+pub const CONSENT_TEXT: &str = "Developer tool. Through system services it can do what you can, except use passwords, keys, accounts and (unless listed) the network. Its programs and scripts run with your permissions, files included.";
+
+/// What a shell tool (`[app] shell = true`, the Terminal) leads with where
+/// [`CONSENT_TEXT`] would be false: the credential services (passwords, keys,
+/// accounts) are not refused its label; they judge it as they judge the
+/// session's user.
+pub const SHELL_CONSENT_TEXT: &str = "Developer tool, your shell: it does what you can, the network only if listed, and the password, key and account services judge it as you. Its programs run with your permissions, files included.";
+
+/// The lead text of the consent screen and the administrator's prompt.
+pub const fn consent_text(shell: bool) -> &'static str {
+    if shell {
+        SHELL_CONSENT_TEXT
+    } else {
+        CONSENT_TEXT
+    }
+}
 
 /// The value of the second `kind` row a shell tool's inspection carries
 /// (`pkgstore::explain::tool`), so the administrator's prompt can say it.
@@ -235,6 +253,20 @@ mod tests {
     #[test]
     fn texts_are_not_empty() {
         assert!(!STRIP_TEXT.is_empty() && !CONSENT_TEXT.is_empty() && !REVIEW_PROMPT.is_empty());
+        assert!(!SHELL_CONSENT_TEXT.is_empty());
+        assert_eq!(consent_text(false), CONSENT_TEXT);
+        assert_eq!(consent_text(true), SHELL_CONSENT_TEXT);
+    }
+
+    #[test]
+    fn the_shell_text_does_not_claim_the_credential_services_refuse_it() {
+        // `DenyWhen::UnlessShell` lifts exactly those denies for a shell.
+        assert!(CONSENT_TEXT.contains("except use passwords, keys, accounts"));
+        assert!(!SHELL_CONSENT_TEXT.contains("except use"));
+        assert!(SHELL_CONSENT_TEXT.contains("judge it as you"));
+        assert!(DENY.iter().any(|d| d.when == DenyWhen::UnlessShell));
+        // Both stay short enough for the administrator's prompt.
+        assert!(CONSENT_TEXT.len() <= 205 && SHELL_CONSENT_TEXT.len() <= 205);
         assert!(RISKS
             .iter()
             .all(|r| !r.what.is_empty() && !r.consequence.is_empty()));

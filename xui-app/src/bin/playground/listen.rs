@@ -127,7 +127,11 @@ impl Subs {
     /// Read the doorbells (no broker call) and say which tabs have events.
     pub fn ready(&mut self) -> Vec<usize> {
         let rung = self.subscriber.consume_ready();
-        let mut out: Vec<usize> = rung.ready.iter().filter_map(|id| self.index_of(*id)).collect();
+        let mut out: Vec<usize> = rung
+            .ready
+            .iter()
+            .filter_map(|id| self.index_of(*id))
+            .collect();
         for (id, code) in rung.lost {
             if let Some(i) = self.index_of(id) {
                 self.subs[i].error = Some(format!("doorbell lost: {}", errno_text(code)));

@@ -33,16 +33,28 @@ pub(super) enum PressKind {
     DoubleClick,
 }
 
-/// Whether a stock node of `kind` is driven by [`Event::MouseDown`] alone, so
-/// the second press of a quick pair must reach it as a plain press.
+/// Whether a node of `kind` is driven by [`Event::MouseDown`] alone, so the
+/// second press of a quick pair must reach it as a plain press.
 ///
 /// Win32 puts the double-click *in place of* the second press, which only
 /// works there because a native button or scroll bar treats
 /// `WM_*BUTTONDBLCLK` as a press. `xui-core`'s `ScrollBar` (the `Container` a
 /// scroll view, list or split owns), `Button`, check box, radio, slider,
-/// number field, combo box, toolbar and tabs never look at
+/// number field, combo box, toolbar, tabs and multi-line edit never look at
 /// `MouseDoubleClick`, so with a replacement the second press of a quick pair
-/// never grabbed a scroll thumb or clicked a button. They get a plain press.
+/// never grabbed a scroll thumb, clicked a button or placed a caret. They get
+/// a plain press.
+///
+/// This is decided **by [`NodeKind`] only**, and it is not a guarantee for
+/// every stock widget:
+///
+/// * The `Container` rule applies to every `Container`, whatever it is. None
+///   of the `xui-app` users reads `MouseDoubleClick` on a container.
+/// * A stock widget that is a `Custom` node and reads only `MouseDown`
+///   (`xui-core`'s colour panel and `ColorPicker`, the `Menu` popup, the
+///   combo box's popup list) still loses the second press of a quick pair,
+///   exactly as it does for any self-painted node, because a `Custom` node
+///   cannot be told from the shell's own.
 ///
 /// Every other kind keeps the replacement, and that is not only history: a
 /// self-painted node (`NodeKind::Custom`: the shell menus and taskbar, the
@@ -50,7 +62,8 @@ pub(super) enum PressKind {
 /// double-click alike, or has a guard that only the double-click form can
 /// trip (the power menu ignores a repeat press on the row that replaced the
 /// one just clicked), so a press *and* a double-click for one physical press
-/// would act twice. The editable and list kinds read the double-click.
+/// would act twice. The single-line edit, list, tree, grid and icon views read
+/// the double-click.
 pub(super) fn reads_down_only(kind: NodeKind) -> bool {
     matches!(
         kind,
@@ -63,6 +76,7 @@ pub(super) fn reads_down_only(kind: NodeKind) -> bool {
             | NodeKind::ComboBox
             | NodeKind::Toolbar
             | NodeKind::Tabs
+            | NodeKind::MultilineEdit
     )
 }
 

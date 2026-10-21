@@ -367,8 +367,12 @@ impl<T: Transport> Subscriber<T> {
 
 impl<T: Transport> Drop for Subscriber<T> {
     /// Best effort and never blocking: each doorbell is closed and each
-    /// subscription unsubscribed with a poll call, so a window closing does
-    /// not leave the broker queueing for a dead owner.
+    /// subscription unsubscribed with one poll call, so a window closing does
+    /// not leave the broker queueing for a dead owner. That one call is not
+    /// retried: if it is not delivered (the broker busy or unreachable) while
+    /// the process keeps running, the subscription's queue on the broker lives
+    /// until this process exits, and nothing here ever sends the unsubscribe
+    /// again.
     fn drop(&mut self) {
         for sub in std::mem::take(&mut self.subs) {
             if let Some(bell) = sub.bell {

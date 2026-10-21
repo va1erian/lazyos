@@ -11,8 +11,8 @@ use xui_core::{Dip, Image, Theme};
 
 use crate::snapshot_tests::{register_fonts, save, Fixed};
 use crate::tmsg::TMsg;
-use crate::topicsview::event_page;
 use crate::topicsui::TopicsWidgets;
+use crate::topicsview::event_page;
 use crate::topicswin::WINDOW;
 
 struct Shown {
@@ -28,9 +28,27 @@ impl App for Shown {
 
 fn rows() -> Vec<Vec<String>> {
     [
-        ("pin", "time/tick", "os.lazy.timed", "1R", "#{ unix: 1760000000 }"),
-        ("1.0s", "time/tick", "os.lazy.timed", "2", "#{ unix: 1760000001 }"),
-        ("2.0s", "time/tick", "os.lazy.timed", "3", "#{ unix: 1760000002 }"),
+        (
+            "pin",
+            "time/tick",
+            "os.lazy.timed",
+            "1R",
+            "#{ unix: 1760000000 }",
+        ),
+        (
+            "1.0s",
+            "time/tick",
+            "os.lazy.timed",
+            "2",
+            "#{ unix: 1760000001 }",
+        ),
+        (
+            "2.0s",
+            "time/tick",
+            "os.lazy.timed",
+            "3",
+            "#{ unix: 1760000002 }",
+        ),
         ("2.3s", "time/tick", "?", "4", "#{ unix: 1760000003 }"),
     ]
     .iter()
@@ -60,7 +78,9 @@ fn render(theme: Theme, dpi: u32, populated: bool, dismissed: bool) -> (Image, i
     let height = std::rc::Rc::new(std::cell::Cell::new(-1));
     let out = std::rc::Rc::clone(&height);
     let image = try_render(
-        Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32)).theme(theme).dpi(dpi),
+        Snapshot::new(Dip(WINDOW.0 as f32), Dip(WINDOW.1 as f32))
+            .theme(theme)
+            .dpi(dpi),
         move |ui: &mut Ui<TMsg>| {
             let w = TopicsWidgets::default();
             let notice = Notice::new(Box::new(Fixed(dismissed)));
@@ -71,7 +91,9 @@ fn render(theme: Theme, dpi: u32, populated: bool, dismissed: bool) -> (Image, i
                 tabs.add_layout_page("time/tick", event_page(&list))?;
                 tabs.remove_page(0);
                 list.get().set_model(rows());
-                w.sub_stats.get().set_text("Buffered/64 q0 d4 m4 drop0 skip0+0 | 3/4 pin1");
+                w.sub_stats
+                    .get()
+                    .set_text("Buffered/64 q0 d4 m4 drop0 skip0+0 | 3/4 pin1");
                 w.details.get().set_model(details());
                 w.pub_topic.get().set_text("demo/pg/x");
                 w.pub_payload.get().set_text("\"hello\"");

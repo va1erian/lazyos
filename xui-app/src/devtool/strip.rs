@@ -228,7 +228,9 @@ pub fn strip<M: Clone + 'static>(notice: Rc<Notice>, on_dismiss: M) -> Build<Str
         let geometry = Rc::new(Geometry::default());
         let shown = Rc::clone(&notice);
         let drawn = Rc::clone(&geometry);
-        control.set_painter(Rc::new(move |canvas| paint(canvas, &theme.get(), &shown, &drawn)));
+        control.set_painter(Rc::new(move |canvas| {
+            paint(canvas, &theme.get(), &shown, &drawn)
+        }));
         let visible = Rc::clone(&notice);
         control.on_events(move |event| {
             let Event::MouseUp {
@@ -255,17 +257,29 @@ mod tests {
     #[test]
     fn a_wide_window_takes_one_line_and_a_narrow_one_more() {
         assert_eq!(line_count(500, 800), 1);
-        assert_eq!(line_count(500, 500), 2, "the slack keeps the last word whole");
+        assert_eq!(
+            line_count(500, 500),
+            2,
+            "the slack keeps the last word whole"
+        );
         assert_eq!(line_count(500, 200), 3);
         assert_eq!(line_count(0, 100), 1);
-        assert_eq!(line_count(500, 0), 500, "a zero width is clamped, not divided by");
+        assert_eq!(
+            line_count(500, 0),
+            500,
+            "a zero width is clamped, not divided by"
+        );
     }
 
     #[test]
     fn the_tint_is_visibly_not_the_background_in_both_themes() {
         for theme in [Theme::light(), Theme::dark()] {
             assert_ne!(tint(&theme), theme.background);
-            assert_ne!(tint(&theme), theme.warning, "the bar stands out of the band");
+            assert_ne!(
+                tint(&theme),
+                theme.warning,
+                "the bar stands out of the band"
+            );
             // The text keeps a readable contrast on the tinted band.
             assert!(theme.text.contrast_ratio(tint(&theme)) >= 4.5);
         }
@@ -280,7 +294,10 @@ mod tests {
             assert!(b.right <= w && b.left > w / 2, "at the right end");
             assert!(b.top >= 0 && b.bottom <= h, "inside the band");
             assert!(hits_button(w, h, dpi, b.left + 1, b.top + 1));
-            assert!(!hits_button(w, h, dpi, b.left - 2, b.top + 1), "text is not the button");
+            assert!(
+                !hits_button(w, h, dpi, b.left - 2, b.top + 1),
+                "text is not the button"
+            );
             assert!(!hits_button(w, h, dpi, 5, h / 2));
         }
     }

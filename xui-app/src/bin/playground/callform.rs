@@ -9,8 +9,8 @@
 //! for a new layout; a text edit does not.
 
 use xui_core::arrange::{
-    button, checkbox, column, combo_box, edit, flow_text, label, row, scroll, Align, Entry,
-    Handle, IntoEntry, Layout, LayoutExt, ScrollBuild,
+    button, checkbox, column, combo_box, edit, flow_text, label, row, scroll, Align, Entry, Handle,
+    IntoEntry, Layout, LayoutExt, ScrollBuild,
 };
 use xui_core::widget::{Edit, Run};
 use xui_core::{Dip, Insets};
@@ -30,9 +30,14 @@ pub enum Leaf {
     /// Text typed in a box (strings, numbers, bytes).
     Text(String),
     Check(bool),
-    Pick { variants: Vec<String>, selected: usize },
+    Pick {
+        variants: Vec<String>,
+        selected: usize,
+    },
     /// A struct or array heading; `add` offers a new array row.
-    Header { add: bool },
+    Header {
+        add: bool,
+    },
     /// The row's control is an array element that can be removed.
     Removable(String),
     /// A kernel object or too deep: shown, not editable.
@@ -146,21 +151,22 @@ pub fn apply(form: &mut Form, edit: &FormEdit) -> bool {
             }
             false
         }
-        FormEdit::Check(path, on) => {
-            match at(form, path) {
-                Some(Control::Bool(b)) => {
-                    *b = *on;
-                    false
-                }
-                Some(Control::Option { on: slot, .. }) => {
-                    *slot = *on;
-                    true
-                }
-                _ => false,
+        FormEdit::Check(path, on) => match at(form, path) {
+            Some(Control::Bool(b)) => {
+                *b = *on;
+                false
             }
-        }
+            Some(Control::Option { on: slot, .. }) => {
+                *slot = *on;
+                true
+            }
+            _ => false,
+        },
         FormEdit::Pick(path, index) => {
-            if let Some(Control::Enum { selected, variants, .. }) = at(form, path) {
+            if let Some(Control::Enum {
+                selected, variants, ..
+            }) = at(form, path)
+            {
                 if *index < variants.len() {
                     *selected = *index;
                 }
@@ -245,7 +251,10 @@ fn line(r: &Row, first: &Handle<Edit<Msg>>, bound: &mut bool) -> Layout<Msg> {
         }
         Leaf::Header { add } => {
             let head = format!("{} ({})", r.label, if *add { "rows" } else { "fields" });
-            let mut out = row().gap(8).align(Align::Center).child(name_cell(r, &head, true));
+            let mut out = row()
+                .gap(8)
+                .align(Align::Center)
+                .child(name_cell(r, &head, true));
             if *add {
                 out = out.child(button("Add row").on_click(Msg::Form(FormEdit::AddRow(path))));
             }
@@ -257,9 +266,9 @@ fn line(r: &Row, first: &Handle<Edit<Msg>>, bound: &mut bool) -> Layout<Msg> {
                 .on_click(Msg::Form(FormEdit::RemoveRow(path)))
                 .into_entry(),
         )),
-        Leaf::Note(reason) => column().child(
-            flow_text().run(Run::normal(format!("{}: {reason}", r.label))),
-        ),
+        Leaf::Note(reason) => {
+            column().child(flow_text().run(Run::normal(format!("{}: {reason}", r.label))))
+        }
     }
 }
 
@@ -312,7 +321,10 @@ mod tests {
         let flat = rows(&form);
         assert!(!flat.is_empty());
         let path = flat[0].path.clone();
-        assert!(!apply(&mut form, &FormEdit::Text(path, "sys/ui/theme".into())));
+        assert!(!apply(
+            &mut form,
+            &FormEdit::Text(path, "sys/ui/theme".into())
+        ));
         let texts = form.argument_texts().unwrap();
         assert!(texts[0].contains("sys/ui/theme"));
     }

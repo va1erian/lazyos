@@ -58,7 +58,9 @@ fn with_page(
     let seen: Seen = Rc::default();
     let (build_w, build_seen, step_w, step_seen) = (w.clone(), seen.clone(), w, seen);
     render_with(
-        Snapshot::new(Dip(1180.0), Dip(660.0)).theme(Theme::light()).dpi(96),
+        Snapshot::new(Dip(1180.0), Dip(660.0))
+            .theme(Theme::light())
+            .dpi(96),
         move |ui: &mut Ui<Msg>| {
             let notice = Notice::new(Box::new(Fixed(false)));
             let mounted = ui.mount(build_w.layout(&notice, &Saved::default()))?;
@@ -78,16 +80,28 @@ fn with_page(
 
 fn interface_blocks(name: &str) -> Vec<Block> {
     let catalog = Explorer::new().catalog.clone();
-    let node = catalog.get(&NodeId::interface(name)).expect("the interface");
+    let node = catalog
+        .get(&NodeId::interface(name))
+        .expect("the interface");
     docs::blocks(&catalog, node)
 }
 
 fn mouse(x: i32, y: i32, kind: u8) -> Event {
     let modifiers = Modifiers::NONE;
     match kind {
-        0 => Event::MouseDown { x, y, button: MouseButton::Left, modifiers },
+        0 => Event::MouseDown {
+            x,
+            y,
+            button: MouseButton::Left,
+            modifiers,
+        },
         1 => Event::MouseMove { x, y, modifiers },
-        _ => Event::MouseUp { x, y, button: MouseButton::Left, modifiers },
+        _ => Event::MouseUp {
+            x,
+            y,
+            button: MouseButton::Left,
+            modifiers,
+        },
     }
 }
 
@@ -106,40 +120,60 @@ fn origin_of(stage: &Stage<'_, Msg>, w: &Widgets, view: &ScrollView<Msg>) -> (i3
 
 #[test]
 fn a_scroll_step_moves_the_page_without_laying_it_out_again() {
-    with_page(interface_blocks("os.lazy.display.v1"), |_stage, view, _w, _seen| {
-        assert!(view.content_height().value() > 700, "the page scrolls");
-        let before = LAYOUTS.with(|n| n.get());
-        for step in 1..=60 {
-            view.scroll_to(Px(step * 9));
-        }
-        assert!(view.offset().value() >= 500, "the view went down: {}", view.offset().value());
-        assert_eq!(LAYOUTS.with(|n| n.get()), before, "no step re-wrapped the text");
-    });
+    with_page(
+        interface_blocks("os.lazy.display.v1"),
+        |_stage, view, _w, _seen| {
+            assert!(view.content_height().value() > 700, "the page scrolls");
+            let before = LAYOUTS.with(|n| n.get());
+            for step in 1..=60 {
+                view.scroll_to(Px(step * 9));
+            }
+            assert!(
+                view.offset().value() >= 500,
+                "the view went down: {}",
+                view.offset().value()
+            );
+            assert_eq!(
+                LAYOUTS.with(|n| n.get()),
+                before,
+                "no step re-wrapped the text"
+            );
+        },
+    );
 }
 
 #[test]
 fn dragging_the_thumb_moves_the_page_with_every_step_of_the_pointer() {
-    with_page(interface_blocks("os.lazy.display.v1"), |stage, view, w, _seen| {
-        let (left, top) = origin_of(stage, w, view);
-        let scroll = stage.ui().bounds(view.id());
-        // The bar is the view's right edge; the thumb starts at the top of the track.
-        let (x, y) = (left + scroll.width() - 6, top + 20);
-        stage.inject(mouse(x, y, 0));
-        let mut last = view.offset().value();
-        let mut moved = 0;
-        for step in 1..=8 {
-            stage.inject(mouse(x, y + step * 10, 1));
-            let now = view.offset().value();
-            assert!(now >= last, "the page never goes back while the pointer goes on");
-            if now > last {
-                moved += 1;
+    with_page(
+        interface_blocks("os.lazy.display.v1"),
+        |stage, view, w, _seen| {
+            let (left, top) = origin_of(stage, w, view);
+            let scroll = stage.ui().bounds(view.id());
+            // The bar is the view's right edge; the thumb starts at the top of the track.
+            let (x, y) = (left + scroll.width() - 6, top + 20);
+            stage.inject(mouse(x, y, 0));
+            let mut last = view.offset().value();
+            let mut moved = 0;
+            for step in 1..=8 {
+                stage.inject(mouse(x, y + step * 10, 1));
+                let now = view.offset().value();
+                assert!(
+                    now >= last,
+                    "the page never goes back while the pointer goes on"
+                );
+                if now > last {
+                    moved += 1;
+                }
+                last = now;
             }
-            last = now;
-        }
-        stage.inject(mouse(x, y + 80, 2));
-        assert!(moved >= 6, "the page followed the pointer in {moved} of 8 steps");
-        assert!(last > 100, "and went somewhere: {last}");
-    });
+            stage.inject(mouse(x, y + 80, 2));
+            assert!(
+                moved >= 6,
+                "the page followed the pointer in {moved} of 8 steps"
+            );
+            assert!(last > 100, "and went somewhere: {last}");
+        },
+    );
 }
 
 #[test]
@@ -164,7 +198,10 @@ fn a_link_in_the_page_opens_on_a_click_and_a_click_elsewhere_opens_nothing() {
                 break;
             }
         }
-        assert_eq!(seen.borrow().first().map(String::as_str), Some("/docs/os/ref.md"));
+        assert_eq!(
+            seen.borrow().first().map(String::as_str),
+            Some("/docs/os/ref.md")
+        );
         let before = seen.borrow().len();
         stage.inject(mouse(left + 40, top + 14, 0));
         stage.inject(mouse(left + 40, top + 14, 2));
@@ -192,7 +229,10 @@ fn survey() {
                 n += u128::from(view.offset() != before);
             }
             if n > 0 {
-                *sink.borrow_mut() = Some((started.elapsed().as_micros() / n, view.content_height().value()));
+                *sink.borrow_mut() = Some((
+                    started.elapsed().as_micros() / n,
+                    view.content_height().value(),
+                ));
             }
         });
         let got = *out.borrow();

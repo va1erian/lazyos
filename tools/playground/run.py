@@ -85,7 +85,15 @@ def fail(message: str) -> int:
 
 
 def build(args: argparse.Namespace) -> bool:
-    """rhai, the xui apps, then the image (`run_demo.py --devtools` is the same build)."""
+    """rhai, the xui apps, then the image (`run_demo.py --devtools` is the same build).
+
+    The OS volume is recreated every time: `LAZYOS_RESET_OS=1` alone does nothing when no input of
+    the build changed since the last one (cargo only reruns the image script on a change, and
+    `build_support/os_track.rs` keeps an unchanged image), which would leave the last run's stored
+    layout and dismissed notice on the volume. Bumping `build.rs`'s mtime makes cargo run the script
+    again, and with the reset set it formats a new volume.
+    """
+    os.utime(ROOT / "build.rs")
     steps = [
         [PY, str(ROOT / "tools" / "rhai" / "build.py")],
         [PY, str(ROOT / "tools" / "xui" / "build.py")],

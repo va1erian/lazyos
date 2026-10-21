@@ -119,7 +119,11 @@ mod tests {
     #[test]
     fn a_wide_window_takes_one_line_and_a_narrow_one_more() {
         assert_eq!(line_count(500, 800), 1);
-        assert_eq!(line_count(500, 500), 2, "the slack keeps the last word whole");
+        assert_eq!(
+            line_count(500, 500),
+            2,
+            "the slack keeps the last word whole"
+        );
         assert_eq!(line_count(500, 200), 3);
         assert_eq!(line_count(0, 100), 1);
     }

@@ -149,7 +149,6 @@ impl Playground {
     pub fn now_ms(&self) -> u64 {
         self.started.elapsed().as_millis() as u64
     }
-
 }
 
 impl App for Playground {
@@ -203,9 +202,11 @@ impl App for Playground {
             Msg::OutputTab(i) => self.output_tab(i),
             Msg::OutputRow(id, row) => self.output_row(id, row),
             Msg::ShowTopics => self.show_topics(ui),
-            Msg::PublishRequest { topic, payload, retained } => {
-                self.publish_request(&topic, &payload, retained)
-            }
+            Msg::PublishRequest {
+                topic,
+                payload,
+                retained,
+            } => self.publish_request(&topic, &payload, retained),
             Msg::TopicsStatus(n) => self.topics.listening = n,
             Msg::TopicsGone => self.topics.listening = 0,
             Msg::NoticeDismiss => self.notice_dismiss(),

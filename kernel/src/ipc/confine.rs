@@ -187,6 +187,7 @@ pub fn check_path(label_id: u32, path: &str, access: Access) -> Result<(), Denie
         label_id,
         FILE_SCOPE,
         fnv1a32(path),
+        reason::LABEL_DEFAULT_DENY,
         format_args!("file={} access={mode}", Printable(path)),
     );
     Err(Denied)
@@ -219,12 +220,17 @@ pub fn access_of_mask(mask: u8) -> Access {
     }
 }
 
-/// Audit and trace one refusal of the task in `slot`.
+/// Audit and trace one refusal of the task in `slot`, as `reason_code`: a
+/// confined label is refused by default (nothing allowed it,
+/// `reason::LABEL_DEFAULT_DENY`); a tool's socket is refused by the rule
+/// engine, whose verdict says whether a deny rule matched (`EXPLICIT_DENY`) or
+/// none did (a revoked tool: default deny).
 fn refuse(
     slot: usize,
     label_id: u32,
     interface_id: u64,
     method: u32,
+    reason_code: u32,
     what: core::fmt::Arguments<'_>,
 ) {
     let cred = credentials::of(slot);
@@ -237,7 +243,7 @@ fn refuse(
         interface_id,
         method,
         allow: false,
-        reason_code: reason::LABEL_DEFAULT_DENY,
+        reason_code,
         txn_id: 0,
     });
 }
@@ -255,6 +261,7 @@ pub fn may_spawn() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SPAWN,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("spawn=process"),
     );
     false
@@ -275,6 +282,7 @@ pub fn may_exec() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::EXEC,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("spawn=exec"),
     );
     false
@@ -314,6 +322,7 @@ pub fn check_socket_name(name: &[u8]) -> Result<(), Denied> {
                 label_id,
                 PROCESS_SCOPE,
                 what::UNIX,
+                reason::LABEL_DEFAULT_DENY,
                 format_args!("unix=unnamed-or-abstract"),
             );
             Err(Denied)
@@ -342,13 +351,15 @@ pub fn may_open_inet() -> bool {
     if label_id == 0 {
         return true;
     }
+    let mut why = reason::LABEL_DEFAULT_DENY;
     if super::tool::is_tool(label_id) {
-        if !acl::evaluate_label(label_id, SOCKET_INTERFACE, acl::ANY_METHOD)
-            .0
-            .denied()
-        {
+        // The verdict's own reason: the deny rule a plain tool compiles to
+        // (`EXPLICIT_DENY`), or default deny for a revoked one.
+        let (decision, code) = acl::evaluate_label(label_id, SOCKET_INTERFACE, acl::ANY_METHOD);
+        if !decision.denied() {
             return true;
         }
+        why = code;
     } else {
         let snap = snapshot(label_id);
         if !snap.confined || snap.holds(SOCKET_INTERFACE) {
@@ -360,6 +371,7 @@ pub fn may_open_inet() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::INET,
+        why,
         format_args!("net=inet"),
     );
     false
@@ -379,6 +391,7 @@ pub fn may_serve() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SERVE,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("net=serve"),
     );
     false
@@ -397,6 +410,7 @@ pub fn may_signal(caller: usize, same_process: bool) -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SIGNAL,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("signal=other"),
     );
     false

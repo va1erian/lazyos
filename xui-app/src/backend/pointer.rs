@@ -287,7 +287,12 @@ mod tests {
     fn a_stock_widget_that_reads_only_the_press_gets_both_presses_plain() {
         // A scroll bar (a Container) or a button never reads a double-click:
         // the second press of a quick pair must still grab the thumb.
-        for kind in [NodeKind::Container, NodeKind::Button, NodeKind::Slider] {
+        for kind in [
+            NodeKind::Container,
+            NodeKind::Button,
+            NodeKind::Slider,
+            NodeKind::MultilineEdit,
+        ] {
             let (backend, log) = rig();
             set_kind(&backend, 2, kind);
             backend.pointer_down_at(W, 10, 40, MouseButton::Left, 100);
@@ -306,7 +311,6 @@ mod tests {
             NodeKind::ListView,
             NodeKind::TreeView,
             NodeKind::Edit,
-            NodeKind::MultilineEdit,
             NodeKind::Custom,
         ] {
             let (backend, log) = rig();

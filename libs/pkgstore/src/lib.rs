@@ -67,3 +67,4 @@ pub mod rules;
 pub mod shellrole;
 pub mod toolgate;
 pub mod tree;
+pub mod verdicts;

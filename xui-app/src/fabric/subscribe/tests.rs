@@ -347,7 +347,11 @@ fn reliable_delivery_is_at_least_once_a_failed_ack_delivers_the_event_twice() {
     // The event is in the first drain's result AND still at the broker.
     let first = c.drain(id, 100);
     assert_eq!((first.events.len(), first.error), (1, Some(-110)));
-    assert_eq!(c.transport.subs[&id.0].queue.len(), 1, "not acked: still queued");
+    assert_eq!(
+        c.transport.subs[&id.0].queue.len(),
+        1,
+        "not acked: still queued"
+    );
     let second = c.drain(id, 100);
     assert_eq!((second.events.len(), second.error), (1, None));
     assert_eq!(second.events[0], first.events[0], "the same event, again");

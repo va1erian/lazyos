@@ -837,7 +837,9 @@ Host tests: `cargo test --manifest-path xui-app/Cargo.toml --bin xui-playground`
 window sizes, hidden row, divider drags, scroll cost and live drag, links) and `--lib backend::`
 (wheel routing, coalescing); `cargo test --release ... survey -- --ignored --nocapture` prints the
 per-page step cost. Guest: `python tools/playground/scroll_run.py` (wheel over text and bar, a held
-drag shot mid-drag, release without a jump) and `python tools/playground/run.py --only layout,layout_stored`.
+drag shot mid-drag, release without a jump; it rebuilds with a fresh OS volume by default (`run.py`'s `build` bumps `build.rs`'s mtime so the reset applies even when nothing else changed), because
+the judge measures the default doc pane and a stored layout, left by the `layout` session, makes it
+taller: `--no-build` reuses the image and the judge fails on `PLAYGROUND:LAYOUT:LOADED`) and `python tools/playground/run.py --only layout,layout_stored`.
 
 Also found in the guest: moving a pane left the 1 or 2 pixels its buttons paint past their bounds at the
 old place (`apply_moves` damaged the bounds only; it now adds the paint spill like `set_visible`), and

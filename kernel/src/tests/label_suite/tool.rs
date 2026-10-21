@@ -37,6 +37,24 @@ pub(super) const DENIED: [&str; 8] = [
     "os.lazy.messenger.policy.v1",
 ];
 
+/// The `when` column of the stand-in, one list per condition that lifts an
+/// entry (`devtool::DenyWhen`): `UnlessNetwork`, `UnlessDevelop`, `UnlessShell`.
+/// An entry of `DENIED` in none of them is `Always`. `check_interfaces.py`
+/// compares each list with the entries of `devtool::DENY` of that `when`, so a
+/// change to which declaration lifts which entry cannot leave these tests
+/// judging a different tool than the one `pkgstore` compiles.
+pub(super) const UNLESS_NETWORK: [&str; 3] = [
+    "os.lazy.net.socket.v1",
+    "os.lazy.net.stack.v1",
+    "os.lazy.mount.v1",
+];
+pub(super) const UNLESS_DEVELOP: [&str; 1] = ["os.lazy.process.label.spawn.v1"];
+pub(super) const UNLESS_SHELL: [&str; 3] = [
+    "os.lazy.keyd.v1",
+    "os.lazy.keyd.appsecret.v1",
+    "os.lazy.accounts.v1",
+];
+
 pub(super) fn deny_rule(interface_id: u64) -> Rule {
     Rule {
         actor: 0,
@@ -329,6 +347,19 @@ pub fn default_allow_rules() -> Result<(), String> {
             "{name} was reachable by a tool"
         );
         last_denial(id, reason::EXPLICIT_DENY)?;
+    }
+    // Each `when` list names entries of the deny list, and no entry twice.
+    let columns = [&UNLESS_NETWORK[..], &UNLESS_DEVELOP[..], &UNLESS_SHELL[..]];
+    for (index, column) in columns.iter().enumerate() {
+        for name in *column {
+            check!(DENIED.contains(name), "{name} is in a `when` list only");
+            let others = columns
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .any(|(_, list)| list.contains(name));
+            check!(!others, "{name} is in two `when` lists");
+        }
     }
     for name in ["os.lazy.confd.v1", "os.lazy.echo.v1", "demo.pirate.chat.v1"] {
         check!(
