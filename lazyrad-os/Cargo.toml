@@ -16,9 +16,8 @@ resolver = "2"
 # One xui for the whole graph: the same revision `xui-app` pins (see its
 # Cargo.toml and docs/xui-plan.md "Bumping the pinned rev"). LazyRAD's own
 # workspace (va1erian/lazyrad) pins the same revision: bump them together.
-# While it does not (LazyRAD is held in `LAGGING` of tools/xui/check_pin.py),
-# the `[patch]` table below pins every xui package back to the held revision,
-# so `xui-app` resolves to it too and one `xui_core` links.
+# While it does not, the `[patch]` table below pins every xui package to the
+# common revision, so `xui-app` resolves to it too and one `xui_core` links.
 # `default-features = false` keeps
 # winit/softbuffer/glutin/glow/arboard/xui-gpu out of the image.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
@@ -61,8 +60,8 @@ audioclient = { path = "../libs/audioclient" }
 # PIN: `rev` is a va1erian/lazyrad commit whose own workspace pins the same xui
 # revision as `xui-app`, so one `xui_core` links and no `[patch]` is needed
 # (`python tools/xui/bump_pin.py <xui> --lazyrad <lazyrad>` moves both). While
-# it pins an older xui (the LAGGING state), the table below holds this graph at
-# that revision instead. Earlier
+# it pins an older xui, the `[patch]` table below overrides it with the common
+# revision. Earlier
 # pins carried the designer hover fix (#99), xui layouts (#97), the Midnight
 # theme (#95), xui-rich-text (#92) and `lazyos-msg` (Messenger in form
 # scripts, #88; docs/lazyrad-messenger-plan.md).
@@ -78,8 +77,8 @@ lazyrad-player = { git = "https://github.com/va1erian/lazyrad", rev = "fbd3fc417
 # (`tests/modplayer.rs`). Pinned with the other LazyRAD crates.
 xui-form = { git = "https://github.com/va1erian/lazyrad", rev = "fbd3fc417b2fae0a56c15ae3fe8147961a9fbe3a" }
 
-# LazyRAD's own workspace still pins an older xui (fbd3fc4, and main b24f9ee,
-# pin 93592fd) while `xui-app` is ahead, so every xui package this graph pulls
+# LazyRAD's own workspace (fbd3fc4, and main b24f9ee) still pins xui 93592fd
+# while `xui-app` is ahead, so every xui package this graph pulls
 # is patched to the common revision, so one `xui_core` links and `xui-app`
 # compiles against the `Backend` trait it implements.
 # The `www.` alias keeps the patch's source distinct from this manifest's own

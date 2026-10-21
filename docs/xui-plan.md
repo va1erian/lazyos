@@ -183,8 +183,8 @@ without scanning the system font directories or memory-mapping files — LazyOS'
 Linux ABI has anonymous `mmap` only), per-line horizontal alignment for
 natural-width runs, and `Surface::pixels` for a clone-free present. `xui-icons`
 (explorer's optional `village-icons`) is the git dependency at the same rev.
-There is no vendored copy and no `[patch]` in `xui-app/`; a workspace held in
-`LAGGING` carries one, see below.
+There is no vendored copy and no `[patch]` in `xui-app/`; `lazyrad-os/` and
+`emusic/` carry one, see below.
 
 **Bumping the pinned rev:** `python tools/xui/bump_pin.py <rev|branch>` does all of
 this (add `--lazyrad <ref>` for `lazyrad-os`'s LazyRAD pin, `--skip emusic
@@ -200,10 +200,12 @@ only the three xui packages, and re-run
 are still absent.
 `games/doom/`, `games/srb2kart/` and the `games/quake/` manifest template pin the same commit, and
 so do `lazyrad-os/` and `emusic/` whenever they are not held in `LAGGING` of
-`tools/xui/check_pin.py` (their own repositories pin xui themselves). A held
-workspace still builds: its manifest carries a `[patch]` pinning every xui
-package back to the held revision, so `xui-app`'s path dependency resolves to it
-too. `python tools/xui/check_pin.py` (run by CI) fails when any manifest or
+`tools/xui/check_pin.py` (their own repositories pin xui themselves, an older
+revision at the time of writing). Those two manifests carry a `[patch]` pinning
+every xui package to the common revision, so `xui-app`'s path dependency and the
+fetched repositories resolve to one `xui_core`; a plain bump moves it with the
+rest. A workspace that has to wait is held back with `--skip` and listed in
+`LAGGING` (empty now), and its `[patch]` then names the held revision. `python tools/xui/check_pin.py` (run by CI) fails when any manifest or
 lockfile disagrees, and lists a workspace that has to wait (`LAGGING`) with the
 reason.
 
