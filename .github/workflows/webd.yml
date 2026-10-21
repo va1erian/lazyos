@@ -62,6 +62,10 @@ jobs:
           cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host
           FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p xui-webd --release --test fuzz
 
+      # tkinter: lazygui's package __init__ imports the Tk UI even for the limits table run.py reads.
+      - name: Install tkinter
+        run: sudo apt-get install -y python3-tk
+
       - name: The harness judge and its session
         shell: bash
         run: |
