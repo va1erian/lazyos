@@ -229,7 +229,10 @@ impl Info {
 
 /// `waitid(idtype, id, &info, options)`.
 fn waitid(idtype: u64, id: usize, options: u64, info: &mut Info) -> u64 {
-    sys(WAITID, &[idtype, id as u64, info.0.as_mut_ptr() as u64, options, 0])
+    sys(
+        WAITID,
+        &[idtype, id as u64, info.0.as_mut_ptr() as u64, options, 0],
+    )
 }
 
 fn reap(pid: usize) -> (u64, u32) {
@@ -251,7 +254,10 @@ pub fn waitid_nowait_keeps_child() -> Result<(), String> {
         waitid(P_PID, kid, WEXITED | WNOHANG | WNOWAIT, &mut info) == 0,
         "WNOHANG|WNOWAIT on a running child failed"
     );
-    check!(info.pid() == 0 && info.signo() == 0, "a running child was reported");
+    check!(
+        info.pid() == 0 && info.signo() == 0,
+        "a running child was reported"
+    );
     check!(task::is_child(kid), "a running child stopped being a child");
 
     task::harness::finish(kid, 7);
@@ -268,7 +274,10 @@ pub fn waitid_nowait_keeps_child() -> Result<(), String> {
             info.code(),
             info.status()
         );
-        check!(task::is_child(kid), "WNOWAIT collected the child (round {round})");
+        check!(
+            task::is_child(kid),
+            "WNOWAIT collected the child (round {round})"
+        );
     }
     // P_ALL sees it too, and the plain wait still gets the real status.
     let mut info = Info::new();
@@ -301,7 +310,10 @@ pub fn waitid_nowait_keeps_child() -> Result<(), String> {
         info.status()
     );
     check!(task::is_child(killed), "WNOWAIT collected the killed child");
-    check!(reap(killed).0 == killed as u64, "wait4 did not collect the killed child");
+    check!(
+        reap(killed).0 == killed as u64,
+        "wait4 did not collect the killed child"
+    );
     task::harness::reset();
     Ok(())
 }
