@@ -27,7 +27,7 @@ python tools/run_demo.py --lazywebplus   # the desktop with the browser (network
 a gigabyte; `-j` is chosen by memory), about 10 minutes from a fresh container state (an
 incremental rebuild after one port file takes seconds), and about 7 GiB of disk in the
 `lazyos-jsc-work` volume (sources, the dependency bundle, build trees) plus three programs of
-about 107 MiB each in `target/webkit/bin`. An image with them needs a 1 GiB OS volume (the
+about 75 MiB each in `target/webkit/bin` (107 MiB before "Size of the programs"). An image with them needs a 1 GiB OS volume (the
 build, `run_demo.py` and the launcher size it; `tools/lazygui/osvolume.py`), and the guest 4 GiB
 of RAM (`port_run.py` passes it).
 
@@ -58,6 +58,46 @@ LazyOS has no file-backed `mmap` yet, and the port's Skia compiles W3's
 `lazyos_mmap` shim (`tools/webkit/skiabuild/lazyos_mmap.c`, linked from
 `WebCore/PlatformLazyOS.cmake`): without it Skia's font manager refuses every font and
 all families draw in one face. Remove it with the kernel limitation.
+
+## Size of the programs
+
+LazyOS loads a static ELF whole into RAM and shares nothing between processes (docs/webkit-port-plan.md
+section 6, "Memory for code"), and there is one WebProcess per view, so every byte of `WebProcess` is
+paid per view. What was done, measured on the stripped programs (`WebProcess` / `NetworkProcess`):
+
+| step | `WebProcess` | `NetworkProcess` |
+|---|---|---|
+| as built for W5 | 112,846,192 | 112,899,440 |
+| ICU data cut (`tools/jsc/icudata.py`: 30.8 MB to 9.9 MB, see `tools/jsc/README.md`) | 91,977,072 | 92,030,320 |
+| `-fno-asynchronous-unwind-tables -fno-unwind-tables` (`port_cmake.py`: `.eh_frame`, its index and `.gcc_except_table` 8.3 MB to 1.1 MB, the rest is the bundle's libraries) | 82,363,760 | |
+| `-Os` for the cold targets (`OptionsLazyOS.cmake`, below) | (about 2.4 MB of that step) | |
+| lld `--icf=safe` (`toolenv.icf_wrapper`) | 78,054,768 | 78,447,984 |
+
+`-Os` covers `WebCoreJSBindings` (generated, 9 MB of text), `WebCoreInspector` and the
+`WebKitShared`, `WebKitWebProcess`, `WebKitNetworkProcess` and `WebKitUIProcess` object libraries (IPC and process
+management); a sample of objects came out 19 to 25% smaller than at `-O2`. JavaScriptCore, WTF, WebCore's layout, style
+and painting, and Skia stay at `-O2` (their share of text is another 45 MB: the next 10 MB if speed may be
+traded). ICF is on for the WebKit programs only: zig's `cc` driver rejects `-Wl,--icf`, so the `zc++` wrapper runs the
+link a second time through `zig ld.lld --icf=safe` (`LAZYOS_LINK_ICF=1`, set by `port_cmake.py`); `safe` folds only
+functions whose address is never taken (the `-faddrsig` table), `all` would have saved 0.9 MB more.
+
+Already in effect before (checked, not changed): `-ffunction-sections -fdata-sections`, `--gc-sections`, `strip
+--strip-all` (no `.symtab`, no debug), no LTO (ThinLTO of 80 MB of text does not fit the 15 GiB container; not tried).
+`-fno-pic` saves 1% of text and was not taken; the feature switches (video, WebGL, WebRTC, Web Audio, WebAssembly,
+GPU process, inspector, MathML, XSLT) were already off, and the others WebCore still has (IndexedDB 0.56 MB,
+service workers 0.62 MB, WebCrypto 0.26 MB, streams 0.9 MB) are runtime preferences in this release, not build options.
+
+**Why `NetworkProcess` is as big as `WebProcess`** (they differ by 0.4 MB): both link every object of WebKit and
+`--gc-sections` can only drop what nothing reaches, and from `NetworkProcess` main the references reach all of
+JavaScriptCore (with the JIT) and WebCore's DOM, style and rendering through several unrelated, legitimate
+paths: `InitializeWebKit2` -> `JSC::initialize` -> LLInt -> `operationDefaultCall` -> baseline and DFG compilers;
+content rule lists -> `ContentExtension::compileGlobalDisplayNoneStyleSheet` -> CSS parser -> `CachedResourceLoader` ->
+`Document`, `Page`, rendering; a regex-substitution redirect action -> `JSObjectCallAsFunction` -> `JSC::VM`; a CSP
+violation report -> `Inspector::createScriptCallStack` -> `StackVisitor`; `upgradeInsecureRequestIfNeeded` ->
+`Document::removedLastRef`. Cutting one leaves the others (measured on the link map: with the first four cut the
+reachable code is still 90.0 of 90.2 MB), so a lean `NetworkProcess` (WebCore's loader and curl without the DOM) needs a split of WebCore's
+libraries, not a link flag. The analysis scripts are not kept in the tree; `--Map` is not available through
+`zig cc`, but `ZIG_VERBOSE_LINK=1` prints the `ld.lld` line and `zig ld.lld -Map=...` takes it.
 
 ## The glue
 

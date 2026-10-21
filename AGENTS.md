@@ -619,6 +619,10 @@ python tools/webkit/run.py --accel auto # boot and judge
 python tools/webkit/test_judge.py
 ```
 
+ICU's data is cut before it is compiled in (30.8 MB to 9.9 MB, policy and proof in `tools/jsc/icudata.py` and
+`icudata_check.c`; a locale outside its list formats like English), and the WebKit programs are built without unwind
+tables, with lld `--icf=safe` and `-Os` for cold targets: `webkit/README.md`, "Size of the programs".
+
 ## The WebKit port (`LAZYOS_WEBKIT_PORT=1`: `WebProcess`, `NetworkProcess`, `webkit-smoke`)
 
 `webkit/` holds the LazyOS port of WebKit2 (W4): `port/tree` (the

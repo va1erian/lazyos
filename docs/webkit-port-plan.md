@@ -752,8 +752,8 @@ browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
   `0002`, and the kernel since issue #822).
 * **Binary size.** `jsc` is 44.5 MiB because ICU's data (about 30 MB: every
   locale, converter and break rule) is inside; there is no file-backed `mmap`
-  to load `icudt74l.dat`. An ICU data filter (locales, converters) would cut
-  most of it; not done. Each running `jsc` costs that much RAM for code alone.
+  to load `icudt74l.dat`. The data is cut now to 9.9 MB (`tools/jsc/icudata.py`;
+  the shells above were measured before it). Each running `jsc` costs its whole ELF in RAM.
 * **Toolchain holes met** (all handled by flags, `tools/jsc/webkit.py`): the
   release tarball lacks `Tools/Scripts/hmaptool` (`-DUSE_HEADER_MAPS=OFF`);
   `ENABLE_SAMPLING_PROFILER` conflicts with the C-loop; simdutf's AVX-512
@@ -764,7 +764,9 @@ browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
   tarball holds symlinks Windows cannot extract (hence the container).
 * **Memory for code.** LazyOS loads a static ELF whole into RAM, with no
   demand paging and no sharing of text between processes. Three WebKit
-  processes are 107 MiB each (ICU's data is in each): measured in W5, the
+  processes were 107 MiB each when W5 was measured, 74 MiB since the size work of
+  [webkit/README.md](../webkit/README.md) "Size of the programs" (ICU's data cut to 9.9 MB, no unwind tables, `-Os`
+  for cold code, lld ICF; 112.8 to 78.1 MB for `WebProcess`): measured in W5, the
   desktop with the browser and one page open leaves 3476 of 4019 MiB free, and
   the user's memory *quota* (which charges mapping lengths) is the tighter limit
   (§5 W5). File-backed `mmap` with shared text pages is
