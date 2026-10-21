@@ -8,6 +8,7 @@ from pathlib import Path
 
 import buildkit
 import fhspaths
+import icudata
 import toolenv
 import wkpins
 from buildkit import PREFIX
@@ -116,7 +117,7 @@ def _libpsl(tree: Path, jobs: int) -> None:
     buildkit.configure_build("libpsl", tree, LIBPSL, jobs, env={"LIBS": "-lc++"})
 
 
-register(Lib("icu", [], {"from": "tools/jsc/icu.py"}, _icu, own_tree=True,
+register(Lib("icu", [], {"from": "tools/jsc/icu.py", "data": icudata.signature()}, _icu, own_tree=True,
              extra={"version": ICU.source.version, "source_sha": ICU.source.sha256,
                     "info": {"url": ICU.source.url, "license": ICU.license, "why": ICU.why}}))
 register(Lib("freetype", ["zlib", "libpng", "brotli"], FREETYPE, _cmake("freetype", FREETYPE)))
