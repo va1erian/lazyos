@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use xui_app::platform::webd::WebdTransport;
+use xui_app::probe;
 use xui_app::trace::{self, Channel};
 use xui_core::app::Ui;
 use xui_core::backend::{Event, NodeKind, NodeSpec, WidgetId};
@@ -15,6 +16,7 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Canvas, Color, Dip, MouseButton, Rect, TextStyle};
 use xui_webd_client::demo::Demo;
+use xui_webd_client::page::{FIELD_BOX, LINK_BOX, TITLE};
 use xui_webd_client::MouseKind;
 
 use crate::keys::{char_keysym, keysym, modifier_bits};
@@ -95,10 +97,13 @@ struct State {
     started: Instant,
     /// The area the picture fills, as the last paint saw it.
     size: (u32, u32),
-    /// The picture as an image, and the frame number it was made from.
+    /// The picture as an image, and how many frames had been applied when it was made (a new view
+    /// counts its frames from 1 again, so the frame number alone cannot tell a new picture).
     image: Option<(u64, Image)>,
-    /// The frame number last drawn, to know when to draw again.
+    /// Frames applied as of the last tick, to know when to draw again.
     shown: u64,
+    /// The page's boxes were printed as probe rectangles (once the first picture is up).
+    probed: bool,
     /// The button held since a press, for moves and the capture of the pointer.
     held: Option<MouseButton>,
     mods: u32,
@@ -112,6 +117,7 @@ impl State {
             size: (0, 0),
             image: None,
             shown: 0,
+            probed: false,
             held: None,
             mods: 0,
         }
@@ -123,9 +129,17 @@ impl State {
         for marker in self.demo.tick(self.size, now_ms) {
             trace::line!(Channel::Webddemo, "{}", marker.text());
         }
-        let seq = self.demo.picture().seq();
-        let changed = seq != self.shown;
-        self.shown = seq;
+        let applied = self.demo.view().counters().applied;
+        if applied > 0 && !self.probed {
+            // Where the page put its link and its field, in the window's content: a session clicks
+            // them by name (`{"click_at": {"window": "Web View Demo", "widget": "link"}}`).
+            self.probed = true;
+            for (name, (x, y, w, h)) in [("link", LINK_BOX), ("field", FIELD_BOX)] {
+                probe::widget(TITLE, name, x, y, w, h);
+            }
+        }
+        let changed = applied != self.shown;
+        self.shown = applied;
         changed
     }
 
@@ -133,6 +147,7 @@ impl State {
         let bounds = canvas.bounds();
         self.size = (bounds.width().max(0) as u32, bounds.height().max(0) as u32);
         canvas.clear(Color::hex(0xFF_FF_FF));
+        let applied = self.demo.view().counters().applied;
         let picture = self.demo.picture();
         if picture.is_empty() {
             let style = TextStyle::new(Color::hex(0x55_55_55), Dip(14.0))
@@ -141,11 +156,11 @@ impl State {
             canvas.draw_text("Starting the web view...", bounds, &style);
             return;
         }
-        if self.image.as_ref().map(|(seq, _)| *seq) != Some(picture.seq()) {
+        if self.image.as_ref().map(|(made_at, _)| *made_at) != Some(applied) {
             let (width, height) = (picture.width(), picture.height());
             self.image = Image::from_rgba(width, height, picture.rgba().to_vec())
                 .ok()
-                .map(|image| (picture.seq(), image));
+                .map(|image| (applied, image));
         }
         if let Some((_, image)) = &self.image {
             // At its own size from the corner: while a resize is in flight it is never stretched.
