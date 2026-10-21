@@ -86,9 +86,8 @@ pub extern "C" fn _start() -> ! {
 fn run() -> messenger::Result<()> {
     let (published, server) = messenger::create_pair()?;
     registry::register(mime::NAME, &published, &[mime::INTERFACE], 0)?;
-    sys::write_str("mimed: registered as ");
-    sys::write_str(mime::NAME);
-    sys::write_str("\n");
+    // One write: three would let another task's line land between the parts.
+    sys::write_str(&format!("mimed: registered as {}\n", mime::NAME));
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
 

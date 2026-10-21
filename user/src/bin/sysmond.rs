@@ -72,9 +72,11 @@ fn run() -> messenger::Result<()> {
         &[services::SYSMOND_INTERFACE],
         0,
     )?;
-    sys::write_str("sysmond: registered as ");
-    sys::write_str(services::SYSMOND_NAME);
-    sys::write_str("\n");
+    // One write: three would let another task's line land between the parts.
+    sys::write_str(&format!(
+        "sysmond: registered as {}\n",
+        services::SYSMOND_NAME
+    ));
     trace::line!(trace::Channel::Sysmond, "REGISTER:PASS");
     // Serving: what waits for this service may start (init.Ready, P7.3).
     user::messenger::services::init::notify_ready();
