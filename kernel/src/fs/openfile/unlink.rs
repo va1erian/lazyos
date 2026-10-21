@@ -33,7 +33,11 @@ static NAMES: [YieldMutex<()>; 8] = [const { YieldMutex::named("open-names", ())
 
 /// Hold the lock of the filesystem holding `path` for the length of one name
 /// change; `None` for a filesystem whose files have no stable nodes (no links
-/// there, nothing to decide) or a path no mount holds.
+/// there, nothing to decide) or a path no mount holds. The path is looked up
+/// in the Linux ABI table, native callers' too: like [`canonical`], this
+/// assumes both tables mount the same instances at the same points (the
+/// configured layout), or a native and a Linux unlink of one file could take
+/// different locks.
 pub(in crate::fs) fn names_lock(path: &str) -> Option<YieldGuard<'static, ()>> {
     let (fs, stable) = crate::fs::nodes::abi_fs_of(path)?;
     // The instance's address, past its alignment bits, picks the lock.

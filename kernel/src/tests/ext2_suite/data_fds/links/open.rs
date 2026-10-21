@@ -193,6 +193,7 @@ pub fn locks_shared_by_names() -> Result<(), String> {
 pub fn stale_entry_does_not_hide_the_open_file() -> Result<(), String> {
     use crate::fs::vfs::Filesystem;
     let data = Data::new(0)?;
+    let parked_before = parked_in("/data")?;
     put("/data/st", b"first file")?;
     let stale = open("/data/st", O_RDWR);
     check!(stale < 64, "open returned {stale:#x}");
@@ -208,7 +209,7 @@ pub fn stale_entry_does_not_hide_the_open_file() -> Result<(), String> {
     check!(live < 64, "open returned {live:#x}");
     check!(unlink("/data/st") == 0, "unlink of the new file");
     check!(
-        parked_in("/data")? == 1,
+        parked_in("/data")? == parked_before + 1,
         "the open new file was not parked: the stale entry hid it"
     );
     check!(
@@ -221,6 +222,6 @@ pub fn stale_entry_does_not_hide_the_open_file() -> Result<(), String> {
     );
     close(live);
     close(stale);
-    check!(parked_in("/data")? == 0, "left parked");
+    check!(parked_in("/data")? == parked_before, "left parked");
     data.check_clean()
 }
