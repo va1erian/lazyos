@@ -327,6 +327,27 @@ pub fn reap_child_filtered(filter: ChildFilter) -> Option<(usize, u64, u8)> {
     reap_matching(|slot, task| filter.accepts(slot, task))
 }
 
+/// The finished child [`reap_child_filtered`] would take, left where it is
+/// (`waitid` with `WNOWAIT`): `(pid, exit status, the signal that ended it or
+/// 0)`, `None` while no accepted child is over. A waiter that wants to know a
+/// child ended, but to collect it only later under a lock of its own, so that
+/// nothing names a pid that was already collected.
+pub fn peek_child_filtered(filter: ChildFilter) -> Option<(usize, u64, u8)> {
+    let me = current();
+    let tasks = TASKS.lock();
+    runq::done()
+        .iter()
+        .filter(|&index| index != KERNEL_TASK)
+        .find_map(|index| {
+            let task = tasks[index].as_ref()?;
+            (task.state == TaskState::Done
+                && super::family::is_child_of(&tasks, me, task)
+                && super::family::reapable(&tasks, index, task)
+                && filter.accepts(index, task))
+            .then_some((index, task.exit_status, task.linux.term_signal))
+        })
+}
+
 /// Whether the caller has any child (finished or not) that `filter` accepts:
 /// `wait4` answers `ECHILD` otherwise.
 pub fn has_child_filtered(filter: ChildFilter) -> bool {

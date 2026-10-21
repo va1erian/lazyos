@@ -9,6 +9,9 @@ Markers, in the order the program prints them::
     WEBKIT:W4:FDS:held=<n>:next=<fd>      (descriptor mode, issue #867: the run's IPC is above 1024)
     WEBKIT:W4:MONITOR:PASS:fd=<fd>:messages=<n>:wakeups=<n>:close_ms=<ms>:invalidate_ms=<ms>
     WEBKIT:W4:UP
+    WEBKIT:W4:SPAWN:CONTROL:PASS         (the probe sees a socket pair left inheritable on purpose)
+    WEBKIT:W4:SPAWN:PASS:launches=<n>    (once an engine is launched, issue #889: a program started then inherits no IPC socket;
+                                          printed at the end, before PASS)
     WEBKIT:W4:WEBPROCESS:UP:<pid>        WEBKIT:W4:NETWORKPROCESS:UP:<pid>
     WEBKIT:W4:LOAD:about:blank           WEBKIT:W4:LOAD:<data url>
     WEBKIT:W4:TITLE:hello lazyos
@@ -50,6 +53,8 @@ HELD_DESCRIPTORS = 1100
 FD_SETSIZE = 1024
 #: The monitor test's peer sends this many messages before it closes.
 MONITOR_MESSAGES = 3
+#: The spawn probe runs at every launch of an engine process: the WebProcess and the NetworkProcess.
+MIN_PROBED_LAUNCHES = 2
 
 
 @dataclass(frozen=True)
@@ -119,9 +124,26 @@ def descriptors(serial: str) -> list[Verdict]:
     return verdicts
 
 
+def spawn(serial: str) -> Verdict:
+    """The spawn probe (issue #889): at each engine launch the program started a copy of itself, and
+    that copy held none of the engine's IPC sockets. At least the two launches (WebProcess, NetworkProcess)."""
+    found = re.findall(r"^WEBKIT:W4:SPAWN:PASS:launches=(\d+)\s*$", serial, re.M)
+    leaks = re.findall(r"^WEBKIT:W4:SPAWN:LEAK:fd=\d+\s*$", serial, re.M)
+    control = re.search(r"^WEBKIT:W4:SPAWN:CONTROL:PASS\s*$", serial, re.M) is not None
+    ok = control and bool(found) and int(found[-1]) >= MIN_PROBED_LAUNCHES and not leaks
+    if leaks:
+        detail = f"{len(leaks)} leaked descriptors"
+    elif not control:
+        detail = "no SPAWN:CONTROL:PASS line: the probe cannot see a leak"
+    else:
+        detail = f"launches={found[-1]}" if found else "no SPAWN:PASS line"
+    return Verdict("WEBKIT:W4:SPAWN: a program started during an engine launch inherits no IPC socket", ok, detail)
+
+
 def judge(serial: str, host: str | None = None) -> list[Verdict]:
     """Verdicts for one boot; `host` is the build host's own run of the same program, if any."""
     verdicts = descriptors(serial)
+    verdicts.append(spawn(serial))
     verdicts.append(Verdict("WEBKIT:W4:UP", has_line(serial, "WEBKIT:W4:UP")))
     for name in ("WEBPROCESS", "NETWORKPROCESS"):
         pids = [p for p in lines(serial, f"WEBKIT:W4:{name}:UP:") if p.isdigit() and int(p) > 0]

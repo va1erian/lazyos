@@ -266,7 +266,7 @@ extern "C" {
 
 // The launcher's report (ProcessLauncherLazyOS.cpp declares it weak, so the stand-alone programs that
 // link WebKit without this file print to stderr instead). Any thread: the launching one, or the
-// short-lived reaper of each child; never under the launcher's lock (issue #891), one at a time.
+// blocked reaper of each child; never under the launcher's lock (issue #891), one at a time.
 void lzw_launcher_event(const char* type, int pid, const char* event, int detail, int detail2)
 {
     using namespace webkitapp;

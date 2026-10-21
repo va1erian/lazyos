@@ -80,6 +80,72 @@ pub fn blocking_wait4_on_a_sibling() -> Result<(), String> {
     Ok(())
 }
 
+/// A thread blocked in `waitid(P_PID, child, WEXITED | WNOWAIT)` (the launcher's
+/// reaper, issue #887) is woken by the exit of a child its sibling forked, is
+/// told which one and how it ended, and leaves it for another thread to
+/// collect: the child is still there afterwards, and gone once collected.
+pub fn blocking_waitid_nowait_on_a_sibling() -> Result<(), String> {
+    const WAITID: u64 = 247;
+    const P_PID: u64 = 1;
+    const WEXITED: u64 = 4;
+    const WNOWAIT: u64 = 0x0100_0000;
+    let waitid_as = |slot: usize, child: usize, info: &mut [u8; 128]| {
+        here(slot);
+        let ret = process::linux::dispatch_args5_for_test(
+            WAITID,
+            P_PID,
+            child as u64,
+            info.as_mut_ptr() as u64,
+            WEXITED | WNOWAIT,
+            0,
+        );
+        here(KERNEL_TASK);
+        ret
+    };
+    fresh()?;
+    let (browser, threads) = process_with_threads(2)?;
+    let (forker, waiter) = (threads[0], threads[1]);
+    let child = fork_as(forker)?;
+    CHILD_EXIT.park(waiter, None);
+    check!(blocked(waiter), "the waiter is not parked");
+    task::harness::finish(child, 5);
+    check!(
+        !blocked(waiter),
+        "the child's exit did not wake the sibling thread's waitid"
+    );
+    let mut info = [0u8; 128];
+    check!(
+        waitid_as(waiter, child, &mut info) == 0,
+        "waitid(WNOWAIT) of the sibling's child failed"
+    );
+    let word = |at: usize| i32::from_le_bytes(info[at..at + 4].try_into().unwrap_or([0; 4]));
+    check!(
+        word(16) == child as i32 && word(8) == 1 && word(24) == 5,
+        "waitid said pid {} code {} status {}",
+        word(16),
+        word(8),
+        word(24)
+    );
+    // Still a child of the process, for the leader (or the waiter again) to collect.
+    check!(
+        waitid_as(forker, child, &mut info) == 0,
+        "the peek collected the child"
+    );
+    let (ret, status) = wait4_as(browser);
+    check!(
+        ret == child as u64 && status == 5 << 8,
+        "the leader reaped {ret:#x} status {status:#x}"
+    );
+    check!(
+        waitid_as(waiter, child, &mut info) == ECHILD,
+        "a collected child is still waitable"
+    );
+    CHILD_EXIT.forget(waiter);
+    task::harness::reset();
+    signal::harness::reset();
+    Ok(())
+}
+
 /// The parent dies on the timer sweep (a fatal signal that was pending,
 /// unblocked): the sweep's finish path sends the parent-death signal too.
 pub fn pdeathsig_through_the_timer_sweep() -> Result<(), String> {

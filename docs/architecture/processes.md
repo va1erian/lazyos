@@ -349,7 +349,11 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `wait4`/`waitid` honour the pid argument (one child, any, own group,
   `-pgid`; `ECHILD` when none qualifies) and report a signal death as
   `WIFSIGNALED` with the core bit (the signal is recorded with the task when
-  the signal layer ends it, `LinuxExtras::term_signal`). `vfork` is a fork.
+  the signal layer ends it, `LinuxExtras::term_signal`). `waitid` with `WNOWAIT`
+  reports a finished child and leaves it waitable (a thread can sleep until a
+  child ends and collect it later under a lock of its own, issue #887); a wait
+  that wakes to find its child collected by another thread is `ECHILD`.
+  `vfork` is a fork.
 - Futexes (`futex.rs`, `futex_queue.rs`): one waiter table keyed by (address
   space, address) with a bitset per waiter; `WAIT` (relative timeout),
   `WAIT_BITSET` (absolute, `FUTEX_CLOCK_REALTIME` honoured), `WAKE`,

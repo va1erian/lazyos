@@ -38,6 +38,9 @@
 // descriptors, so the IPC sockets to the engine processes are above 1024 on both sides, and tests the IPC socket monitor's loop
 // on such a socket (WEBKIT:W4:FDS:..., WEBKIT:W4:MONITOR:PASS:...). The harnesses set it.
 //
+// Spawn probe (issue #889, spawn.cpp): at each engine launch the program starts a copy of itself and
+// checks it inherited none of the engine's IPC sockets (WEBKIT:W4:SPAWN:PASS:launches=<n>); always on.
+//
 // Cache mode (issue #892, cache.cpp, tools/webkit/cachecheck.py): with WEBKIT_SMOKE_CACHE=<dir> the page
 // keeps an HTTP cache in <dir>/cache, and the run ends by counting the NetworkProcess's descriptors
 // (WEBKIT:CACHE:FDS:...).
@@ -65,6 +68,7 @@
 
 #include "cache.h"
 #include "monitor.h"
+#include "spawn.h"
 
 #include <fontconfig/fontconfig.h>
 #include <pthread.h>
@@ -346,6 +350,7 @@ void paintAndFinish(void*)
     if (!state.rulesFile.empty())
         say("WEBKIT:BLOCK:BLOCKED:%d:NOTIFY:%d", state.blocked, state.notifications);
     smoke::reportCacheDescriptors(networkProcess());
+    smoke::finishSpawnProbe();
     say("WEBKIT:W4:PASS");
     WKRunLoopStopMain();
 }
@@ -482,6 +487,7 @@ unsigned timeoutFromEnvironment()
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IOLBF, 0);
+    smoke::runChildProbeIfAsked(argc, argv); // the spawn probe's child (issue #889) never gets further
     if (argc > 1)
         state.firstUrl = argv[1];
     if (argc > 2) {
@@ -496,6 +502,7 @@ int main(int argc, char** argv)
 
     elapsedMs();
     smoke::runDescriptorMode();
+    smoke::startSpawnProbe();
     WKRunLoopInitializeMain();
     state.upMs = elapsedMs();
     say("WEBKIT:W4:UP");

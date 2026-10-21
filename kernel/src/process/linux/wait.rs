@@ -55,13 +55,24 @@ fn filter_for(pid: i64) -> ChildFilter {
 
 /// Park until a qualifying child is reapable (or `WNOHANG`). Returns the
 /// reaped `(pid, wstatus)`, `None` for a `WNOHANG` call that found nothing, or
-/// the errno.
-fn wait_for(filter: ChildFilter, nohang: bool) -> Result<Option<(usize, u32)>, u64> {
-    if !task::has_child_filtered(filter) {
-        return Err(err(ECHILD));
-    }
+/// the errno. With `keep` (`WNOWAIT`) the child is reported but not reaped:
+/// it stays waitable, as on Linux.
+///
+/// The children are looked at again after every wake: a child that another
+/// thread reaped while this one slept is `ECHILD`, not a wait for a child that
+/// will never come (a `waitid(WNOWAIT)` parked on a pid a sibling thread
+/// collects must return, not sleep until some other child happens to exit).
+fn wait_for(filter: ChildFilter, nohang: bool, keep: bool) -> Result<Option<(usize, u32)>, u64> {
     loop {
-        if let Some((slot, code, signal)) = task::reap_child_filtered(filter) {
+        if !task::has_child_filtered(filter) {
+            return Err(err(ECHILD));
+        }
+        let found = if keep {
+            task::peek_child_filtered(filter)
+        } else {
+            task::reap_child_filtered(filter)
+        };
+        if let Some((slot, code, signal)) = found {
             return Ok(Some((slot, wait_status(code, signal))));
         }
         if nohang {
@@ -82,7 +93,7 @@ pub(super) fn sys_wait4(pid: u64, status: u64, options: u64, rusage: u64) -> u64
         return err(EINVAL);
     }
     let pid = pid as u32 as i32 as i64;
-    match wait_for(filter_for(pid), options & WNOHANG != 0) {
+    match wait_for(filter_for(pid), options & WNOHANG != 0, false) {
         Ok(Some((slot, wstatus))) => {
             if status != 0 && user_ptr::try_write::<u32>(status, wstatus).is_err() {
                 return err(EFAULT);
@@ -98,8 +109,8 @@ pub(super) fn sys_wait4(pid: u64, status: u64, options: u64, rusage: u64) -> u64
 }
 
 /// `waitid(idtype, id, infop, options, rusage)`: `P_ALL`, `P_PID`, `P_PGID`;
-/// `WEXITED` is required (stops and continues are never reported), `WNOWAIT`
-/// is refused (a reaped child cannot be left waitable).
+/// `WEXITED` is required (stops and continues are never reported). `WNOWAIT`
+/// reports the child without collecting it: a later `wait4`/`waitid` reaps it.
 pub(super) fn sys_waitid(idtype: u64, id: u64, infop: u64, options: u64, rusage: u64) -> u64 {
     const P_ALL: u64 = 0;
     const P_PID: u64 = 1;
@@ -108,7 +119,7 @@ pub(super) fn sys_waitid(idtype: u64, id: u64, infop: u64, options: u64, rusage:
     const CLD_KILLED: i32 = 2;
     const CLD_DUMPED: i32 = 3;
     const SIGCHLD: i32 = 17;
-    if options & WEXITED == 0 || options & WNOWAIT != 0 {
+    if options & WEXITED == 0 {
         return err(EINVAL);
     }
     let filter = match idtype {
@@ -118,7 +129,7 @@ pub(super) fn sys_waitid(idtype: u64, id: u64, infop: u64, options: u64, rusage:
         P_PGID => ChildFilter::Group(id as usize),
         _ => return err(EINVAL),
     };
-    let reaped = match wait_for(filter, options & WNOHANG != 0) {
+    let reaped = match wait_for(filter, options & WNOHANG != 0, options & WNOWAIT != 0) {
         Ok(reaped) => reaped,
         Err(code) => return code,
     };
