@@ -55,6 +55,7 @@ import busybox  # noqa: E402
 import certs  # noqa: E402
 import denies  # noqa: E402
 import blocker  # noqa: E402  (the ad blocker's boots and judge)
+import reaper_judge  # noqa: E402  (the launcher's reaper threads sleep, issue #887)
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 
@@ -220,6 +221,8 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
     ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
+    ok = report("REAPER", "the launcher's reaper threads slept: a wakeup per engine process that ended, no polling",
+                reaper_judge.judge_reaper(first)) and ok
     if ads:
         ok = report("BLOCKLIST", "the list was fetched, converted and compiled, and became ready",
                     blocker.judge_lists_first(first)) and ok

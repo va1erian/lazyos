@@ -37,24 +37,22 @@
 // memory prepared before the fork.
 //
 // A pid must never be signalled after its child was reaped (the number can belong to another
-// process by then). Every child lives in `liveChildren()` from fork until its reaper thread
-// has collected it, and both the collecting (waitpid with WNOHANG, polled: LazyOS has no
-// waitid with WNOWAIT to wait without reaping) and `terminateProcess`'s kill happen under one
-// lock, so a kill only ever reaches a child that is still running or a zombie.
-//
-// A child that the reaper's thread cannot wait for (until issue #859 a child belongs to the thread
-// that forked it, and this is not it: waitpid answers ECHILD) is not dropped for that: it stays
-// until the kernel has no such id, so terminate() still reaches it. Each child is its own process
-// group and asks to be killed with its parent (PR_SET_PDEATHSIG; refused with EINVAL until the
-// kernel supports it), so a kill of the group ends whatever it started. Every launch, exit and
-// terminate is reported to the embedder (`lzw_launcher_event`, webkit/port/app/children.cpp), which
-// prints one line for each (issue #862); without an embedder it goes to stderr. Reports are queued
-// under the lock and delivered, in that order, once it is released (issue #891).
+// process by then). Every child lives in `liveChildren()` from fork until its reaper thread has
+// collected it, and both the collecting (waitpid with WNOHANG) and `terminateProcess`'s kill happen
+// under one lock, so a kill only reaches a child that is still running or a zombie. The reaper
+// blocks in `waitid(P_PID, pid, WEXITED | WNOWAIT)` (no polling, issue #887), which returns when the
+// child has ended and leaves it uncollected, then takes the lock and collects it. A child it cannot
+// wait for (not the case since #859) is polled until the kernel has no such id. Each child is its own
+// process group and asks to be killed with its parent (PR_SET_PDEATHSIG; EINVAL is tolerated), so a
+// kill of the group ends whatever it started. Every launch, exit and terminate is reported to the
+// embedder (`lzw_launcher_event`, webkit/port/app/children.cpp; stderr without one, issue #862),
+// queued under the lock and delivered, in order, once it is released (issue #891).
 
 #include "config.h"
 #include "ProcessLauncher.h"
 
 #include "IPCUtilities.h"
+#include <atomic>
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -200,12 +198,39 @@ static void report(ProcessLauncher::ProcessType type, pid_t pid, const char* eve
     deliverReports();
 }
 
-// How often the reaper looks at its child, in microseconds: a finished child is a zombie for
-// at most this long.
+// How often a reaper that cannot wait for its child looks at it, in microseconds: the fallback only
+// (a kernel without waitid's WNOWAIT, or a child this process cannot wait for).
 static constexpr useconds_t reapPollInterval = 50 * 1000;
 
-// Collects `pid` if it is over, and takes it off the list: the one place a child is waited for
-// (the reaper thread's polls and `lzw_launcher_reap`), always under `s_childrenLock`, so no kill
+#ifndef WNOWAIT
+#define WNOWAIT 0x01000000
+#endif
+
+// Times a reaper thread came back from its wait: one per child that ends (a poll adds twenty a
+// second). The heartbeat prints it as `INFO:REAPER` (issue #887).
+static std::atomic<unsigned long> s_reaperWakeups { 0 };
+
+extern "C" unsigned long lzw_launcher_reaper_wakeups()
+{
+    return s_reaperWakeups.load(std::memory_order_relaxed);
+}
+
+// Blocks until `pid` has ended, without collecting it. Also returns when this thread cannot wait for
+// the child (a kernel that refuses WNOWAIT, or one someone else collected): the caller looks at
+// `liveChildren()` and collects or polls. Called with no lock held.
+static void waitUntilEnded(pid_t pid)
+{
+    // EINTR retries are bounded: a signal that stays pending must not turn the wait into a spin.
+    for (int tries = 0; tries < 100; ++tries) {
+        siginfo_t info;
+        memset(&info, 0, sizeof info);
+        if (!waitid(P_PID, static_cast<id_t>(pid), &info, WEXITED | WNOWAIT) || errno != EINTR)
+            return;
+    }
+}
+
+// Collects `pid` if it is over, and takes it off the list: the one place a child is collected
+// (the reaper thread and `lzw_launcher_reap`), always under `s_childrenLock`, so no kill
 // can name an id that was collected (and may be somebody else's now) and no report names the wrong
 // process. Returns whether the child is gone. A child this thread cannot wait for (until the
 // kernel makes children per process, issue #859, a child belongs to the thread that forked it) is
@@ -239,8 +264,7 @@ static bool collectLocked(pid_t pid, LiveChild child)
     return false;
 }
 
-// Collects every child that is over: for the embedder's thread that forked them, which can wait for
-// them where the reaper's threads cannot (webkit/port/app/children.cpp calls it when WebKit says a
+// Collects every child that is over (webkit/port/app/children.cpp calls it when WebKit says a
 // process ended).
 extern "C" void lzw_launcher_reap()
 {
@@ -280,34 +304,47 @@ extern "C" int lzw_launcher_signal(int signal, int group, int* pids, int* codes,
 }
 
 // Nothing waits for an auxiliary process otherwise: the UI process learns that one is gone from
-// its IPC connection, and an unreaped child stays a zombie. One short-lived thread per child; it
-// ends when its child is collected, by it or by anyone else, or when the id belongs to a newer launch.
+// its IPC connection, and an unreaped child stays a zombie. One thread per child, asleep in the kernel
+// until its child ends (no wakeups meanwhile, issue #887); it ends when its child is collected, by
+// it or by anyone else, or when the id belongs to a newer launch.
 static void reapInBackground(pid_t pid, uint64_t generation)
 {
     Thread::create("ProcessLauncher reaper"_s, [pid, generation] {
+        // Whether the child is still ours to look at: it is in the list, and still the launch this
+        // thread was started for (a collected id is reused at once by the next launch).
+        auto stillOurs = [&] {
+            auto found = liveChildren().find(pid);
+            return found != liveChildren().end() && found->value.generation == generation;
+        };
         for (;;) {
+            {
+                Locker locker { s_childrenLock };
+                if (!stillOurs())
+                    return;
+            }
+            waitUntilEnded(pid); // no lock: this is the long wait
+            s_reaperWakeups.fetch_add(1, std::memory_order_relaxed);
             bool collected = false;
             {
                 Locker locker { s_childrenLock };
-                auto found = liveChildren().find(pid);
-                if (found == liveChildren().end() || found->value.generation != generation)
+                if (!stillOurs())
                     return;
-                collected = collectLocked(pid, LiveChild { found->value });
+                collected = collectLocked(pid, LiveChild { liveChildren().find(pid)->value });
             }
             if (collected) {
                 deliverReports();
                 return;
             }
+            // Still not collectable after the wait returned: the fallback, polled, not spun on.
             usleep(reapPollInterval);
         }
     })->detach();
 }
 
-// The connection's two ends, both close-on-exec from the moment they exist (issue #889). The client end
-// is the engine process's: only the child between fork and exec clears the flag on it. Another thread of
-// this process may start a program at any time (LazyWeb+'s list worker runs `curl`); with the client end
-// left inheritable until the parent closed it, that program held a live end of the engine's connection
-// (and the UI side got no hangup when the engine died). Returns false, errno set, when no pair can be made.
+// The connection's two ends, both close-on-exec from the moment they exist (issue #889): only the child
+// between fork and exec clears the flag on the client end. Another thread may start a program at any
+// time (the ad blocker runs `curl`); an inheritable client end gave it a live end of the engine's
+// connection. Returns false, errno set, when no pair can be made.
 static bool makeConnectionPair(int& clientFd, UnixFileDescriptor& server)
 {
     int ends[2];
@@ -366,9 +403,8 @@ void ProcessLauncher::launchProcess()
         return;
     }
     if (!pid) {
-        // The one place the client end becomes inheritable: this child, about to exec. fcntl is
-        // async-signal-safe. A failure leaves the flag set and the exec closes the end: the engine
-        // process then finds no connection and exits, which the reaper reports, never a leak.
+        // The one place the client end becomes inheritable: this child, about to exec (fcntl is
+        // async-signal-safe). A failure leaves the flag set: the engine then finds no connection and exits.
         fcntl(clientFd, F_SETFD, 0);
         // Its own process group (a kill of the group ends whatever it started), and a SIGKILL when
         // this process dies: the kernel refuses the second with EINVAL until issue #859, which is

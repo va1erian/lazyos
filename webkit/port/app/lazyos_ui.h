@@ -369,6 +369,10 @@ int lzw_launcher_signal(int signal, int group, int* pids, int* codes, int capaci
 // process); `kept` counts them since the start. Prints PROCESS:KEPT:<pid>:<kept>. Weak in WebKit.
 void lzw_proxy_kept(int pid, int kept);
 
+// Implemented by WebKit's launcher: how many times its reaper threads have come back from waiting for a
+// child (one per child that ended, never a poll: issue #887). The heartbeat's INFO:REAPER line.
+unsigned long lzw_launcher_reaper_wakeups(void);
+
 // Whether WebKit's run loop has begun to turn (any thread): a ping posted before it would be late
 // through no fault of the loop.
 int lzw_engine_running(void);

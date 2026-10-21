@@ -1,5 +1,6 @@
 //! `wait4`/`waitid`: the pid argument selects the child, a signal death is
-//! `WIFSIGNALED`, and `ECHILD`/`WNOHANG` behave as on Linux.
+//! `WIFSIGNALED`, `ECHILD`/`WNOHANG` behave as on Linux, and `waitid(WNOWAIT)`
+//! reports a child without collecting it (the launcher's reaper threads, #887).
 
 use super::*;
 
@@ -176,6 +177,204 @@ pub fn wait4_soak() -> Result<(), String> {
             );
         }
         task::harness::switch_current(parent);
+    }
+    check!(
+        task::free_slots() == free_before,
+        "slots leaked: {} -> {}",
+        free_before,
+        task::free_slots()
+    );
+    task::harness::reset();
+    Ok(())
+}
+
+// `waitid(WNOWAIT)` (issue #887): report a finished child and leave it waitable.
+
+const P_ALL: u64 = 0;
+const P_PID: u64 = 1;
+const WEXITED: u64 = 4;
+const WNOWAIT: u64 = 0x0100_0000;
+const CLD_EXITED: i32 = 1;
+const CLD_KILLED: i32 = 2;
+
+/// The words of a `siginfo_t` that `waitid` fills: `si_signo`, `si_code`,
+/// `si_pid` and `si_status`.
+struct Info([u8; 128]);
+
+impl Info {
+    fn new() -> Self {
+        Info([0; 128])
+    }
+
+    fn word(&self, at: usize) -> i32 {
+        i32::from_le_bytes(self.0[at..at + 4].try_into().unwrap_or([0; 4]))
+    }
+
+    fn signo(&self) -> i32 {
+        self.word(0)
+    }
+
+    fn code(&self) -> i32 {
+        self.word(8)
+    }
+
+    fn pid(&self) -> i32 {
+        self.word(16)
+    }
+
+    fn status(&self) -> i32 {
+        self.word(24)
+    }
+}
+
+/// `waitid(idtype, id, &info, options)`.
+fn waitid(idtype: u64, id: usize, options: u64, info: &mut Info) -> u64 {
+    sys(WAITID, &[idtype, id as u64, info.0.as_mut_ptr() as u64, options, 0])
+}
+
+fn reap(pid: usize) -> (u64, u32) {
+    let mut status = 0u32;
+    let got = sys(WAIT4, &[pid as u64, &mut status as *mut u32 as u64, 0, 0]);
+    (got, status)
+}
+
+/// A running child is not reported (`WNOHANG`), a finished one is, as often as
+/// asked, and stays a child until a plain wait collects it; a signal death
+/// reports `CLD_KILLED` with the signal and also stays.
+pub fn waitid_nowait_keeps_child() -> Result<(), String> {
+    fresh()?;
+    let parent = child()?;
+    task::harness::switch_current(parent);
+    let kid = child()?;
+    let mut info = Info::new();
+    check!(
+        waitid(P_PID, kid, WEXITED | WNOHANG | WNOWAIT, &mut info) == 0,
+        "WNOHANG|WNOWAIT on a running child failed"
+    );
+    check!(info.pid() == 0 && info.signo() == 0, "a running child was reported");
+    check!(task::is_child(kid), "a running child stopped being a child");
+
+    task::harness::finish(kid, 7);
+    for round in 0..3 {
+        let mut info = Info::new();
+        check!(
+            waitid(P_PID, kid, WEXITED | WNOWAIT, &mut info) == 0,
+            "WNOWAIT of a finished child failed (round {round})"
+        );
+        check!(
+            info.pid() == kid as i32 && info.code() == CLD_EXITED && info.status() == 7,
+            "round {round}: pid {} code {} status {}",
+            info.pid(),
+            info.code(),
+            info.status()
+        );
+        check!(task::is_child(kid), "WNOWAIT collected the child (round {round})");
+    }
+    // P_ALL sees it too, and the plain wait still gets the real status.
+    let mut info = Info::new();
+    check!(
+        waitid(P_ALL, 0, WEXITED | WNOWAIT, &mut info) == 0 && info.pid() == kid as i32,
+        "P_ALL|WNOWAIT did not report the child"
+    );
+    let (got, status) = reap(kid);
+    check!(got == kid as u64, "wait4 reaped {got}, want {kid}");
+    check!(status == 7 << 8, "wait4 status {status:#x}, want exit 7");
+    check!(
+        waitid(P_PID, kid, WEXITED | WNOWAIT, &mut info) == ECHILD,
+        "a collected child is still waitable"
+    );
+    check!(!task::is_child(kid), "the collected child is still a child");
+
+    // A child killed by a signal: CLD_KILLED, the signal as status, still there.
+    let killed = child()?;
+    let pml4 = task::harness::pml4(killed).ok_or("child has no table")?;
+    task::signal::terminate_process(pml4, 128 + 9);
+    let mut info = Info::new();
+    check!(
+        waitid(P_PID, killed, WEXITED | WNOWAIT, &mut info) == 0,
+        "WNOWAIT of a killed child failed"
+    );
+    check!(
+        info.code() == CLD_KILLED && info.status() == 9,
+        "code {} status {}, want killed by 9",
+        info.code(),
+        info.status()
+    );
+    check!(task::is_child(killed), "WNOWAIT collected the killed child");
+    check!(reap(killed).0 == killed as u64, "wait4 did not collect the killed child");
+    task::harness::reset();
+    Ok(())
+}
+
+/// A pid that is not a child (never was, or was collected) is `ECHILD` with
+/// `WNOWAIT` as without it, so a reaper whose child a sibling thread collected
+/// is told, not parked.
+pub fn waitid_nowait_no_child() -> Result<(), String> {
+    fresh()?;
+    let parent = child()?;
+    task::harness::switch_current(parent);
+    let mut info = Info::new();
+    check!(
+        waitid(P_PID, 9999, WEXITED | WNOWAIT, &mut info) == ECHILD,
+        "an unknown pid did not ECHILD"
+    );
+    let kid = child()?;
+    task::harness::finish(kid, 1);
+    check!(reap(kid).0 == kid as u64, "wait4 did not reap");
+    check!(
+        waitid(P_PID, kid, WEXITED | WNOWAIT, &mut info) == ECHILD,
+        "a reaped pid did not ECHILD"
+    );
+    check!(
+        waitid(P_ALL, 0, WEXITED | WNOWAIT, &mut info) == ECHILD,
+        "no children, but no ECHILD"
+    );
+    check!(
+        waitid(P_PID, kid, WNOWAIT, &mut info) == EINVAL,
+        "WNOWAIT without WEXITED accepted"
+    );
+    task::harness::reset();
+    Ok(())
+}
+
+/// Many rounds of fork, exit, peek in shuffled order, reap: a peek never
+/// consumes a child, every reap still gets its own status, and no slot is left
+/// behind.
+pub fn waitid_nowait_soak() -> Result<(), String> {
+    fresh()?;
+    let parent = child()?;
+    task::harness::switch_current(parent);
+    let free_before = task::free_slots();
+    for round in 0..300usize {
+        let kids: Vec<usize> = (0..4).map(|_| child()).collect::<Result<_, _>>()?;
+        for (i, &kid) in kids.iter().enumerate() {
+            task::harness::finish(kid, ((round + i) & 0x7f) as u64);
+        }
+        for i in [3usize, 1, 0, 2, 1] {
+            let mut info = Info::new();
+            check!(
+                waitid(P_PID, kids[i], WEXITED | WNOWAIT, &mut info) == 0,
+                "round {round}: peek of {} failed",
+                kids[i]
+            );
+            let want = ((round + i) & 0x7f) as i32;
+            check!(
+                info.pid() == kids[i] as i32 && info.status() == want,
+                "round {round}: peek gave pid {} status {}, want {} / {want}",
+                info.pid(),
+                info.status(),
+                kids[i]
+            );
+        }
+        for i in [2usize, 0, 3, 1] {
+            let (got, status) = reap(kids[i]);
+            let want = (((round + i) & 0x7f) as u32) << 8;
+            check!(
+                got == kids[i] as u64 && status == want,
+                "round {round}: reaped {got}/{status:#x}, want {}/{want:#x}",
+                kids[i]
+            );
+        }
     }
     check!(
         task::free_slots() == free_before,
