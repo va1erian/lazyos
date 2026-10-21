@@ -106,6 +106,11 @@ impl Lifecycle {
         }
     }
 
+    /// The channel the events arrive on, for an app that parks on it with other handles.
+    pub fn channel(&self) -> u64 {
+        self.channel
+    }
+
     /// The events queued since the last poll; never parks.
     pub fn poll(&mut self) -> Vec<Wake> {
         let mut found = Vec::new();

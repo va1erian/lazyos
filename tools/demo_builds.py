@@ -134,6 +134,16 @@ def build_lazywebplus() -> bool:
             and build_xui_apps())
 
 
+def build_webd() -> bool:
+    """webd (`--webd`): the bundle and the port's processes, then webd's service library and
+    the program (`tools/webkit/webd.py`), all in Docker, then the xui apps, whose build packages
+    `xui-webd.elf` as the core package `os.lazy.webd` (and the demo client, when the tree has it);
+    a missing Docker or download stops the run."""
+    return (build_webkit_processes()
+            and required("webd", "webkit/webd.py", ("--require",))
+            and build_xui_apps())
+
+
 def build_tls() -> bool:
     """`fetch`, also run as `curl` and `wget` (rustls over pure-Rust RustCrypto,
     built by `tools/nettls/build.py`); a failed build stops the run."""

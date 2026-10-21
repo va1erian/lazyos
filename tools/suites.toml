@@ -50,6 +50,9 @@ description = "Switches for tests, harnesses and development only."
 flags = [
     "jsc", "webkit-deps", "webkit-port",
     "traydemo", "wifi", "wifi-sim", "intelgfx",
+    # webd serves no one but its demo client until Mail and Docs move onto it (docs/webd-plan.md P3); it
+    # joins `full` then.
+    "webd",
     "dbgd", "dbgd-control", "dbgd-mmio",
     "assets",
 ]

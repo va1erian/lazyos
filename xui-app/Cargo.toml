@@ -70,6 +70,9 @@ members = [
     # quotas and the slot state machine; portable and host-tested, with the C ABI of the WebKit
     # half behind the `host` feature.
     "crates/webd",
+    # webd's host (docs/webd.md): the real Messenger binding, the wake-up loop and the markers around
+    # xui-webd; built as a static library by `tools/webkit/webd.py`.
+    "webd",
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",

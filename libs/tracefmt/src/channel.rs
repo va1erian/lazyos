@@ -147,6 +147,7 @@ channels! {
     Video => "VIDEO",
     Volume => "VOLUME",
     Web => "WEB",
+    Webd => "WEBD",
     Webkit => "WEBKIT",
     Webplus => "WEBPLUS",
     Widget => "WIDGET",
