@@ -39,8 +39,9 @@ pub(super) enum Role {
     Image,
 }
 
-/// Image descriptions alive anywhere: the by-name checks skip the registry
-/// when it is zero, which is almost always.
+/// Image descriptions alive anywhere. The by-name checks skip the registry
+/// when it is zero (a boot with nothing on ext2 to run, a test); on a real
+/// boot it is not, and they look the path up.
 static TEXT_FILES: AtomicUsize = AtomicUsize::new(0);
 
 /// Take `role`'s claim on `inode`, or refuse it for the other kind's.
@@ -148,11 +149,26 @@ pub(in crate::fs) fn rmdir_parked(
     }
 }
 
+/// A native `rename` in progress: the running program it replaces, if any.
+pub(in crate::fs) struct NativeRename(Option<Displaced>);
+
 /// Before a native `rename(_, to)` replaces `to`: if `to` is a running
 /// program, move it out of the way as [`super::displace`] does.
-pub(in crate::fs) fn displace_text(id: Id, to: &str) -> Result<Option<Displaced>, FsError> {
+pub(in crate::fs) fn displace_text(id: Id, to: &str) -> Result<NativeRename, FsError> {
     match running(to) {
-        Some(_) => super::displace(id, to),
-        None => Ok(None),
+        Some(_) => super::displace(id, to).map(NativeRename),
+        None => Ok(NativeRename(None)),
+    }
+}
+
+impl NativeRename {
+    /// The rename ended with `result`: open files follow their names (as
+    /// after a Linux ABI rename), or the displaced program is put back.
+    pub(in crate::fs) fn finish(self, from: &str, to: &str, result: &Result<(), FsError>) {
+        match (result, self.0) {
+            (Ok(()), _) => super::retarget(from, to),
+            (Err(_), Some(displaced)) => displaced.restore(),
+            (Err(_), None) => {}
+        }
     }
 }

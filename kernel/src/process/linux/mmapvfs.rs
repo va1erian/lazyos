@@ -210,6 +210,59 @@ pub(super) fn protect_shared(table: PhysAddr, start: u64, end: u64, prot: Prot) 
     Ok(())
 }
 
+/// `mprotect` gives a program's shared text (`Kind::FileImage`, charged to
+/// no one) write access: from now on its pages may become private copies, so
+/// the pieces are charged like a `MAP_PRIVATE` file mapping and
+/// [`convert_image`] turns them into one. Returns the pieces (nothing is
+/// charged when it fails with `ENOMEM`).
+pub(super) fn charge_image_writes(
+    table: PhysAddr,
+    start: u64,
+    end: u64,
+    prot: Prot,
+) -> Result<alloc::vec::Vec<vma::Vma>, u64> {
+    let mut pieces = alloc::vec::Vec::new();
+    if !prot.has_write() {
+        return Ok(pieces);
+    }
+    for piece in vma::find_range(table, start, end) {
+        if piece.kind != Kind::FileImage || piece.prot.has_write() {
+            continue;
+        }
+        if quota::charge_for_slot(task::current(), Resource::UserMemory, piece.len()).is_err() {
+            refund_image_writes(&pieces);
+            return Err(err(ENOMEM));
+        }
+        pieces.push(piece);
+    }
+    Ok(pieces)
+}
+
+/// Give back what [`charge_image_writes`] took (the `mprotect` failed).
+pub(super) fn refund_image_writes(pieces: &[vma::Vma]) {
+    for piece in pieces {
+        quota::release_for_slot(task::current(), Resource::UserMemory, piece.len());
+    }
+}
+
+/// After `mprotect` of the `pieces` [`charge_image_writes`] charged: they are
+/// private file mappings now, which `munmap` gives the charge back for.
+pub(super) fn convert_image(table: PhysAddr, pieces: &[vma::Vma], prot: Prot) {
+    for piece in pieces {
+        if let Some(file) = vma::file_of(table, piece) {
+            vma::insert_file(
+                table,
+                piece.start,
+                piece.end,
+                prot,
+                Kind::FilePrivate,
+                file,
+                piece.file_off,
+            );
+        }
+    }
+}
+
 /// `msync(addr, len, flags)`: write the dirty pages of shared file mappings
 /// in the range to their files (and, for `MS_SYNC`, the files to the disk).
 pub(super) fn sys_msync(addr: u64, len: u64, flags: u64) -> u64 {

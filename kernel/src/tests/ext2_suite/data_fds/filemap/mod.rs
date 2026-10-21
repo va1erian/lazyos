@@ -14,6 +14,7 @@ mod cache_body;
 mod coherence;
 mod frame;
 mod image;
+mod image_native;
 mod killed;
 mod lifecycle;
 mod parents;
@@ -233,7 +234,15 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     (
         "linux_image_native_table_protects_a_running_program",
-        image::native_table_protects_a_running_program,
+        image_native::native_table_protects_a_running_program,
+    ),
+    (
+        "linux_image_native_rename_keeps_protection",
+        image_native::native_rename_keeps_protection,
+    ),
+    (
+        "linux_image_text_quota_follows_write_access",
+        image::text_quota_follows_write_access,
     ),
     ("linux_image_soak", image::image_soak),
     ("linux_filemap_private", basic::private_mapping),

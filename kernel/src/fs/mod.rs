@@ -295,9 +295,7 @@ pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
     let displaced = openfile::displace_text(id, to)?;
     let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
-    if let (Err(_), Some(displaced)) = (&renamed, displaced) {
-        displaced.restore();
-    }
+    displaced.finish(from, to, &renamed);
     native_changed(from, Change::Name, &renamed);
     native_changed(to, Change::Name, &renamed);
     renamed

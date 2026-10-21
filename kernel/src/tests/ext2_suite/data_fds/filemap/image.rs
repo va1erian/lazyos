@@ -9,18 +9,18 @@ use crate::fs::vfs::{FsError, Id};
 use crate::process::image::VfsFile;
 use crate::tests::loader_suite::{build_elf_with, payload_byte, Ph, PF_R, PF_W, PF_X, RESERVED};
 
-const TEXT: u64 = 0x40_0000;
-const TEXT_PAGES: u64 = 16;
-const DATA: u64 = 0x50_0000;
+pub(super) const TEXT: u64 = 0x40_0000;
+pub(super) const TEXT_PAGES: u64 = 16;
+pub(super) const DATA: u64 = 0x50_0000;
 /// Where the loader suite's images keep the first payload byte.
-const PAYLOAD: u64 = 0x1000;
+pub(super) const PAYLOAD: u64 = 0x1000;
 const ETXTBSY: u64 = 26;
-const PATH: &str = "/data/prog";
+pub(super) const PATH: &str = "/data/prog";
 
 /// A program: `TEXT_PAGES` of read-execute text, then 0x100 file bytes of
 /// writable data (0x2000 in memory). Every payload byte is XORed with
 /// `version`, so two versions never share a byte of text.
-fn program(version: u8) -> Vec<u8> {
+pub(super) fn program(version: u8) -> Vec<u8> {
     let text = TEXT_PAGES * PAGE;
     let phdrs = [
         Ph {
@@ -50,7 +50,7 @@ fn text_byte(i: u64, version: u8) -> u8 {
     payload_byte(i as usize) ^ version
 }
 
-fn text_bytes(from: u64, len: u64, version: u8) -> Vec<u8> {
+pub(super) fn text_bytes(from: u64, len: u64, version: u8) -> Vec<u8> {
     (from..from + len).map(|i| text_byte(i, version)).collect()
 }
 
@@ -61,7 +61,7 @@ fn frames_used() -> usize {
 }
 
 /// Load the program at `path` into a new address space, the way `execve` does.
-fn start(path: &str) -> Result<Space, String> {
+pub(super) fn start(path: &str) -> Result<Space, String> {
     let space = Space::new()?;
     let file = VfsFile::abi(Id::ROOT, path).map_err(fs_error)?;
     process::load_segments(space.table, &file, RESERVED, 0).map_err(String::from)?;
@@ -411,98 +411,66 @@ pub fn image_soak() -> Result<(), String> {
     data.check_clean()
 }
 
-/// The native table (what `pkgd` and the services use) keeps the same
-/// promises: no write or truncate of a running program, an unlink or a
-/// rename over it parks the running file, and a directory it was unlinked
-/// from can still be removed.
-pub fn native_table_protects_a_running_program() -> Result<(), String> {
-    use crate::fs::vfs::{MountFlags, Vfs};
+/// Shared text is charged to no one; write access (`mprotect`) turns it into
+/// a private mapping that is, and the quota survives `mremap` and `munmap`
+/// of it.
+pub fn text_quota_follows_write_access() -> Result<(), String> {
     let data = Data::new(0)?;
-    let mut table = Vfs::new();
-    let _ = table.mount(
-        fhs::mount::ROOT,
-        Arc::new(crate::fs::ramfs::RamFs::new()),
-        MountFlags::default(),
+    put(PATH, &program(0))?;
+    let space = start(PATH)?;
+    space.enter();
+    let held = quota::usage(0, Resource::UserMemory);
+
+    // Shrinking and moving shared text frees nothing it was not charged.
+    let dest = BASE;
+    check!(
+        sys6(
+            SYS_MREMAP,
+            [
+                TEXT + 8 * PAGE,
+                8 * PAGE,
+                PAGE,
+                MREMAP_MAYMOVE | MREMAP_FIXED,
+                dest,
+                0
+            ]
+        ) == dest,
+        "mremap of shared text"
     );
-    let _ = table.mount(fhs::mount::DATA, data.fs.clone(), MountFlags::default());
-    let previous = crate::fs::install_native_for_test(table);
-    let outcome = native_cases();
-    crate::fs::restore_native_for_test(previous);
-    outcome?;
+    check!(
+        quota::usage(0, Resource::UserMemory) == held,
+        "mremap of shared text moved the quota"
+    );
+    check!(munmap(dest, PAGE) == 0, "munmap");
+
+    // Writable text is private memory and is charged for it.
+    check!(
+        mprotect(TEXT, 4 * PAGE, RW) == 0,
+        "mprotect(PROT_WRITE) of text"
+    );
+    check!(
+        quota::usage(0, Resource::UserMemory) == held + 4 * PAGE,
+        "writable text was not charged"
+    );
+    check!(
+        kind_at(&space, TEXT)? == Kind::FilePrivate,
+        "writable text is {:?}",
+        kind_at(&space, TEXT)?
+    );
+    space.store(TEXT + 3, b"patched")?;
+    check!(
+        space.load(TEXT + 3, 7)? == b"patched",
+        "the private copy lost the store"
+    );
+    check!(
+        bytes_of(PATH)? == program(0),
+        "a store reached the program file"
+    );
+    check!(munmap(TEXT, 4 * PAGE) == 0, "munmap of writable text");
+    check!(
+        quota::usage(0, Resource::UserMemory) == held,
+        "unmapping writable text kept its charge"
+    );
+    drop(space);
     data.check_clean()
-}
-
-fn native_cases() -> Result<(), String> {
-    let dir = "/data/app";
-    let program_path = "/data/app/prog";
-    check!(path_call(SYS_MKDIR, dir, 0o755) == 0, "mkdir");
-    put(program_path, &program(1))?;
-    let running = start(program_path)?;
-    check!(
-        matches!(
-            crate::fs::vfs_write(Id::ROOT, program_path, 0, b"x"),
-            Err(FsError::TextBusy)
-        ),
-        "a native write to a running program"
-    );
-    check!(
-        matches!(
-            crate::fs::vfs_truncate(Id::ROOT, program_path, 1),
-            Err(FsError::TextBusy)
-        ),
-        "a native truncate of a running program"
-    );
-
-    // Replaced by a native rename.
-    put("/data/app/prog.new", &program(2))?;
-    crate::fs::vfs_rename(Id::ROOT, "/data/app/prog.new", program_path)
-        .map_err(|e| format!("native rename over a running program: {e:?}"))?;
-    check!(
-        running.load(TEXT + 4 * PAGE, 16)? == text_bytes(4 * PAGE, 16, 1),
-        "an untouched page changed after a native rename over the program"
-    );
-    let updated = start(program_path)?;
-    check!(
-        updated.load(TEXT + 4 * PAGE, 16)? == text_bytes(4 * PAGE, 16, 2),
-        "the replacement did not run"
-    );
-
-    // Removed as `pkgd` removes an app: unlink the files, then the directory.
-    crate::fs::vfs_unlink(Id::ROOT, program_path)
-        .map_err(|e| format!("native unlink of a running program: {e:?}"))?;
-    let parked: Vec<String> = crate::fs::vfs_readdir(Id::ROOT, dir)
-        .map_err(fs_error)?
-        .into_iter()
-        .map(|entry| entry.name)
-        .filter(|name| crate::fs::hidden::is_reserved(name))
-        .collect();
-    check!(
-        parked.len() == 2,
-        "both displaced programs should be parked: {parked:?}"
-    );
-    // The native table lists the parked entries; unlinking one by that name
-    // changes nothing.
-    for name in &parked {
-        crate::fs::vfs_unlink(Id::ROOT, &format!("{dir}/{name}"))
-            .map_err(|e| format!("unlinking a parked name: {e:?}"))?;
-    }
-    crate::fs::vfs_rmdir(Id::ROOT, dir)
-        .map_err(|e| format!("rmdir of a directory a running program was unlinked from: {e:?}"))?;
-    check!(
-        updated.load(TEXT + 9 * PAGE, 16)? == text_bytes(9 * PAGE, 16, 2),
-        "an untouched page changed after the native unlink"
-    );
-    check!(
-        running.load(TEXT + 9 * PAGE, 16)? == text_bytes(9 * PAGE, 16, 1),
-        "the displaced program lost a page"
-    );
-    drop((running, updated));
-    let names = data_names()?;
-    check!(
-        names
-            .iter()
-            .all(|name| !crate::fs::hidden::is_reserved(name)),
-        "hidden entries outlived the last instance: {names:?}"
-    );
-    Ok(())
 }
