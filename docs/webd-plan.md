@@ -1,6 +1,6 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: **plan**, P0 spike (a), P1.0 (webkit-app removal) and the engine half of P1 (Host/View, section 7) done 2026-10-21; the engine and the daemon are not built. Builds on W4/W5/W6 of
+Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; the full interface (`os.lazy.webd.view.v1`) and LazyWeb+ on webd (P4) are not built. Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -336,8 +336,8 @@ browser moves onto webd**.
 | **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
 | **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
 | **P2 webd, light first** (slices 1 and 2 done; 3 is the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
-| **P3 Blitz out** | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; LazyWeb waits for P4 | per step in 9.2 | 1 week |
-| **P4 LazyWeb+ thin client, LazyWeb out** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible; then LazyWeb deleted | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
+| **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
+| **P4 LazyWeb+ thin client** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
@@ -475,6 +475,56 @@ The client side of the light interface and its proof; the program, package and `
   demo's recovery (`tools/webd/README.md`). The judge, session and listener are tested on canned logs
   (`test_judge.py`); the end-to-end run needs the program of the other half.
 
+### P3 as built (2026-10-21): Blitz, `webfonts` and LazyWeb out
+
+* **Client side, shared.** `xui-app/crates/webd-client` gained `Pane` (`pane.rs`: waits for webd, creates the view at the
+  first size, loads the newest page into **one view for every page**, follows resizes, turns events into
+  `PaneEvent`s, recreates a lost view and gives up after three losses in a row; host-tested against the service
+  half's fabric, `tests/pane.rs`). `xui_app::lightview::LightView` (`xui-app/src/lightview/`) is the xui widget over it:
+  picture, pointer, wheel, keys (Ctrl+letter reaches the engine's Copy shortcut), clipboard, "The web engine is not
+  running" screen, `html { zoom: dpi/96 }` as the view style for a scaled display (not run in QEMU at 2x). The
+  pointer move and the wheel are **summed per 16 ms tick** and sent as at most 8 notches per `Wheel` message
+  (the engine takes 8 per call): twenty separate wheel messages in a burst left the page 8 notches short of the top.
+* **Docs** (`xui-app/docs`): Markdown to HTML as before, shown in a `LightView`; links classified by
+  `xui_docs::links` (relative `.md` here, other files and `http(s)`/`mailto` through `mimed`, `#anchor` nothing,
+  other schemes refused). A light view has no `Find`, `Zoom` or `Scroll`: Docs had no find bar, so none of the
+  three was added to the interface (nothing renumbered). Its manifest lists `os.lazy.webd.light.v1` and
+  `os.lazy.mimed.v1` (links that leave the page; the plan said "nothing else new": this is the one addition).
+* **Mail** (`xui-app/mail`): `reader.rs` keeps its interface over a `LightView` (one view for every message, scripts off,
+  `cid:` parts arrive as `data:` URLs from esMail, remote pictures show their alt text, links come back as
+  `Msg::Link` to the existing `mimed` hand-off). **Found: esMail's sanitiser panicked on every HTML message** under
+  ammonia 4.2 (the lock had it; esMail's own lock has 4.1.4): Mail died when a message was opened. Pinned
+  `ammonia = "=4.1.4"` in `xui-app/mail/Cargo.toml`. Not a light-view issue, but nothing showed HTML mail before this.
+  `prefers-color-scheme` is compiled out of the engine, so a message with dark-mode media queries shows its light side.
+* **webd on every desktop.** `LAZYOS_WEBD` is `1` (required), `0` (left out) or unset (a desktop ships it when
+  `target/xui/xui-webd.elf` exists, with a warning when it does not); `run_demo.py --desktop` builds the programs when missing and
+  goes on without them if that fails (`--no-webd`, `--webd` stays strict with the big-app profile, `--webd-demo` adds the demo client,
+  now `LAZYOS_WEBDDEMO=1`); the launcher has the same controls; the OS volume is 1 GiB for any desktop that ships it.
+  **No big-app profile is needed for Docs**: it rendered in a guest with the default 1 GiB of RAM (the Mail harness runs at 2 GiB and was not tried at 1).
+* **Measured** (WHPX, 1 GiB guest, `frames_live` of `system/stats/memory`, 4 KiB frames): desktop without webd idle 30,031 frames
+  (117 MiB); with webd idle **38,171 (149 MiB, +32 MiB)**; Docs open and painted on it 57,881 (226 MiB, **+77 MiB** for the web process, the
+  network process and the view); Docs on the desktop without webd (not running screen) 34,317 (134 MiB). Image file: **576 MiB without, 1,088 MiB with**
+  (the OS volume goes from 512 MiB to 1 GiB: after provisioning 380 MiB free without and 635 MiB free with, so webd's three programs and
+  package take about 257 MiB of it).
+* **Deleted:** `xui-app/web` (LazyWeb) and `xui-app/packages/lazyweb`, `LAZYOS_LAZYWEB`, `--lazyweb` and its launcher controls, the LazyWeb
+  harness (`tools/web/run.py` and friends; what LazyWeb+'s harness borrowed moved to `tools/webtest/`), `docs/lazyweb.md`,
+  `xui-app/crates/webfonts`, the `xui-blitz` dependency. `xui-app/Cargo.lock` lost **95 packages (739 to 644)**: `blitz-*`,
+  `stylo*`, `parley`, `rayon` and what only they pulled in (the ammonia pin below also moved a few small crates). LazyWeb+ is the only browser and the default
+  `http`, `https` and HTML handler (`deskmenu::defaults::BROWSERS`). The GPL-2.0-only firewall of LazyWeb (and issue #649)
+  is moot; `nettls`' GPLv2-compatibility check stays for the HTTPS stack.
+* **Harnesses.** `python tools/docs/run.py` (two sessions, markers, pictures, label trace; `test_judge.py`),
+  `python tools/mail/run.py` (hostile message appended to the INBOX over IMAP, the listener on port 18080 with a control request
+  from the guest, pane pictures, `test_judge.py`), `python tools/webd/run.py` (now `--webd-demo`). The CI Docs shard runs
+  an image without webd (`LAZYOS_WEBD=0`, `docs_no_engine.json`) and proves Docs starts, says so and still takes the wheel;
+  the old pixel checks of the litehtml/Blitz era moved to `tools/docs/judge.py`. The Mail harness was already out of date on
+  main: the Connect button had moved under the "Remember" row, and Python 3.13's strict TLS refuses the mock server's CA.
+* **Findings.** A view per message would have leaked a parked proxy each time: one view is reused. The wheel burst above.
+  WebKit paints its own scrollbar into the picture. The engine's `LIGHT:*` and fontconfig denials in the label trace are the documented
+  optional ones (`tools/webd/judge.py`); neither app is denied anything.
+* **Not done / known limits.** No `Find`, text `Zoom` or jump-to-anchor in a light view. No *Start* button when webd is not running
+  (it needs `init`'s interface, which an app is not given): the screen says so and the pane keeps trying. HiDPI zoom is by CSS, unverified at 2x.
+  An existing OS volume keeps `os.lazy.lazyweb` as a demoted user app until it is reset (`pkgd` demotes retired core apps).
+
 ### What P1 found (2026-10-21, `webkit-views`)
 
 * **One NetworkProcess, one WebProcess per view.** Two views with different stores, and two views of one profile
@@ -585,7 +635,7 @@ Inventory (from `git grep`; delete or shrink, nothing else depends on it):
 Done when: no tracked file names `LAZYOS_WEBKIT=` (only `LAZYOS_WEBKIT_PORT`), the listed harnesses and host tests
 pass, and the `--lazywebplus` image behaves as before.
 
-### 9.2 Removing Blitz
+### 9.2 Removing Blitz (done in P3, see "P3 as built"; the text below is the plan as written)
 
 Blitz is `xui-blitz` (a git dependency of `va1erian/xui`, pinned at one revision in four `Cargo.toml` files) plus
 `xui-app/crates/webfonts`. Consumers, each needing a web view with the same behaviour:
