@@ -55,8 +55,11 @@ LAZYWEBPLUS = ROOT / "xui-app" / "webplus" / "Cargo.toml"
 #: links OpenSSL (Apache-2.0) through WebKit's curl, so it is distributed as GPL-3.0-or-later,
 #: which Apache-2.0 code may join; `unicode-linebreak` (Apache-2.0 only, through xui-canvas's
 #: cosmic-text, linked into every xui app) is that case. The window crate must offer GPL-3.0-or-later
-#: for the waiver to hold (`check` verifies its `license` field).
-LAZYWEBPLUS_WAIVERS = {"unicode-linebreak"}
+#: for the waiver to hold (`check` verifies its `license` field). `smartstring` (MPL-2.0+, through
+#: `rhai`, which the Messenger Playground's crate brings into the `xui-app` library every xui window
+#: crate links) is the other: MPL-2.0 names GPL-2.0-or-later and GPL-3.0 as Secondary Licenses
+#: (section 3.3), so the same GPL-3.0-or-later program may carry it.
+LAZYWEBPLUS_WAIVERS = {"unicode-linebreak", "smartstring"}
 #: LazySky links the same TLS stack (docs/lazysky.md); its headless core is the
 #: part that does, so its tree is checked with ``--lazysky``.
 LAZYSKY = ROOT / "xui-app" / "crates" / "lazysky-core" / "Cargo.toml"
