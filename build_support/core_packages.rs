@@ -166,6 +166,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         // webd, the daemon that serves WebKit views, only with `LAZYOS_WEBD=1`
         // (`webd_embed`).
         "webd",
+        // The demo client of webd, only with `LAZYOS_WEBD=1` (`webd_embed::CLIENT_PACKAGES`).
+        "webddemo",
         // Calculator: A basic calculator.
         "calc",
         // PDF Viewer: Read PDF documents.
