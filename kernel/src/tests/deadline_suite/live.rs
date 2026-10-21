@@ -224,6 +224,7 @@ pub fn tick_abi_10ms() -> Result<(), String> {
 }
 
 /// Lateness summary of one sleep length.
+#[derive(Clone, Copy)]
 struct Lateness {
     worst: u64,
     median: u64,
@@ -256,12 +257,50 @@ fn measure(ns: u64, rounds: usize) -> Result<Lateness, String> {
 /// shared CI runner) fails it, so such a length is judged by its worst only.
 const MEDIAN_MIN_ROUNDS: usize = 10;
 
-/// Sleeps from 100 µs to 1 s. Never early anywhere; under hardware
-/// acceleration with the deadline timer, the worst lands within one tick
+/// The median lateness a working deadline timer reaches (the plan's exit: a
+/// 1 ms sleep returns within 1.2 ms).
+const MEDIAN_BOUND_NS: u64 = 200_000;
+
+/// Measurements of one length the strict check takes before it gives up.
+///
+/// The median of 10 to 50 samples sits at a shared runner's noise floor: a
+/// coalesced host timer signal or a vCPU deschedule moves it by 50 us or
+/// more (medians of 200-258 us failed the check on unrelated branches,
+/// issue #876), so one bad measurement says little about the timer. A
+/// deadline timer that is really broken (one that falls back to tick
+/// granularity has medians of milliseconds) is late in *every* attempt, so
+/// requiring one good attempt out of `ATTEMPTS` removes those failures
+/// without letting the regression through. Every attempt is traced and a
+/// failure reports all of them.
+const ATTEMPTS: usize = 3;
+
+/// Why one measurement of `ns`-long sleeps breaks the strict bounds, if it
+/// does.
+fn violation(ns: u64, rounds: usize, lateness: &Lateness) -> Option<String> {
+    if rounds >= MEDIAN_MIN_ROUNDS && lateness.median > MEDIAN_BOUND_NS {
+        return Some(format!(
+            "{} us sleeps: median {} us late",
+            ns / 1000,
+            lateness.median / 1000
+        ));
+    }
+    if lateness.worst > task::NS_PER_TICK {
+        return Some(format!(
+            "{} us sleeps: worst {} us late",
+            ns / 1000,
+            lateness.worst / 1000
+        ));
+    }
+    None
+}
+
+/// Sleeps from 100 µs to 1 s. Never early anywhere (every sample of every
+/// attempt); under hardware acceleration with the deadline timer, each length
+/// has an attempt (of up to [`ATTEMPTS`]) whose worst lands within one tick
 /// (the host may deschedule the vCPU) and, for every length with at least
-/// `MEDIAN_MIN_ROUNDS` rounds, the median within 200 µs of the deadline
-/// (the plan's exit: a 1 ms sleep returns within 1.2 ms). The 1 s length
-/// runs once to bound the suite's time, so only its worst is judged.
+/// `MEDIAN_MIN_ROUNDS` rounds, whose median is within 200 µs of the
+/// deadline. The 1 s length runs once per attempt to bound the suite's time,
+/// so only its worst is judged.
 pub fn sleep_accuracy() -> Result<(), String> {
     kernel_only();
     let strict = accelerated() && event_timer::available();
@@ -275,30 +314,97 @@ pub fn sleep_accuracy() -> Result<(), String> {
             (50_000_000, 10),
             (1_000_000_000, 1),
         ] {
-            let lateness = measure(ns, rounds)?;
+            judge_row(ns, rounds, strict, true, || measure(ns, rounds))?;
+        }
+        Ok(())
+    })
+}
+
+/// Take up to [`ATTEMPTS`] measurements of one sleep length (`measure_once`)
+/// and, when `strict`, require one of them to meet the bounds. A measurement
+/// error (a sleep that returned early) is final: the retry is for noise in
+/// the lateness, never for the "never early" rule.
+fn judge_row(
+    ns: u64,
+    rounds: usize,
+    strict: bool,
+    report: bool,
+    mut measure_once: impl FnMut() -> Result<Lateness, String>,
+) -> Result<(), String> {
+    let mut failures = alloc::vec::Vec::new();
+    for attempt in 1..=ATTEMPTS {
+        let lateness = measure_once()?;
+        if report {
             crate::trace::test!(
-                "deadline_sleep_accuracy:INFO:{} us x{rounds}: late median {} us, worst {} us",
+                "deadline_sleep_accuracy:INFO:{} us x{rounds} (attempt {attempt}): late median {} us, worst {} us",
                 ns / 1000,
                 lateness.median / 1000,
                 lateness.worst / 1000
             );
-            if strict && rounds >= MEDIAN_MIN_ROUNDS {
-                check!(
-                    lateness.median <= 200_000,
-                    "{} us sleeps: median {} us late",
-                    ns / 1000,
-                    lateness.median / 1000
-                );
-            }
-            if strict {
-                check!(
-                    lateness.worst <= task::NS_PER_TICK,
-                    "{} us sleeps: worst {} us late",
-                    ns / 1000,
-                    lateness.worst / 1000
-                );
-            }
         }
-        Ok(())
-    })
+        match violation(ns, rounds, &lateness).filter(|_| strict) {
+            None => return Ok(()),
+            Some(why) => failures.push(why),
+        }
+    }
+    Err(format!(
+        "none of {ATTEMPTS} attempts met the bounds: {}",
+        failures.join("; ")
+    ))
+}
+
+/// The retry rule itself, on synthetic measurements (it runs everywhere, TCG
+/// too, where the real test judges nothing): host noise passes once an
+/// attempt is clean, a timer at tick granularity (medians of milliseconds)
+/// and a persistent miss fail, and an unaccelerated run is never judged.
+pub fn sleep_judge_rules() -> Result<(), String> {
+    const US: u64 = 1000;
+    let lateness = |median: u64, worst: u64| Lateness {
+        worst: worst * US,
+        median: median * US,
+    };
+    let run = |strict: bool, rows: &[Lateness]| {
+        let mut left = rows.iter();
+        judge_row(1_000_000, 50, strict, false, || {
+            left.next()
+                .copied()
+                .ok_or_else(|| String::from("measured more than expected"))
+        })
+    };
+
+    check!(run(true, &[lateness(100, 400)]).is_ok(), "a clean row");
+    check!(
+        run(true, &[lateness(258, 400), lateness(120, 400)]).is_ok(),
+        "one noisy median (258 us) was not forgiven"
+    );
+    check!(
+        run(true, &[lateness(120, 11_000), lateness(120, 500)]).is_ok(),
+        "one deschedule (worst 11 ms) was not forgiven"
+    );
+    let tick_granular = [
+        lateness(5_000, 9_900),
+        lateness(4_800, 9_800),
+        lateness(5_200, 9_900),
+    ];
+    check!(
+        run(true, &tick_granular).is_err(),
+        "a timer at tick granularity passed"
+    );
+    check!(
+        run(true, &[lateness(250, 400); 3]).is_err(),
+        "a median that is always over the bound passed"
+    );
+    let err = run(true, &[lateness(250, 400); 3]).unwrap_err();
+    check!(
+        err.contains("250 us"),
+        "the failure hides the numbers: {err}"
+    );
+    check!(
+        run(false, &tick_granular[..1]).is_ok(),
+        "an unaccelerated run was judged"
+    );
+    // Few rounds judge only the worst.
+    let few = judge_row(1_000_000_000, 1, true, false, || Ok(lateness(900_000, 400)));
+    check!(few.is_ok(), "a one-round row was judged by its median");
+    Ok(())
 }
