@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPT
 #: `simplecfg.plain_config`'s switches, in its argument order.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "hires", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "webkit", "lazywebplus", "games",
+                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazywebplus", "games",
                  "devtools")
 
 _OPTION_TEXT = {
@@ -74,7 +74,7 @@ def build_simple_tab(parent: ttk.Frame, v: dict, on_start) -> None:
     for label in software_choices():
         hint = {"Custom": "only the features ticked below",
                 "Base": "the desktop and its core apps",
-                "Full": "every optional app, WebKit browsers and games included (long build in "
+                "Full": "every optional app, the WebKit browser and games included (long build in "
                         "Docker, 1 GiB OS volume, 4 GiB of RAM)"}.get(label, "")
         ttk.Radiobutton(software, text=f"{label} - {hint}" if hint else label, value=label,
                         variable=v["simple_software"]).pack(anchor="w", padx=8, pady=2)

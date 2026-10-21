@@ -45,18 +45,7 @@ XUI_URL = re.compile(r"^(?:git\+)?https://(?:www\.)?github\.com/va1erian/xui(?:\
 
 # Workspaces held at an older revision: directory (relative to the root, `/`
 # separated) -> (revision, reason).
-LAGGING: dict[str, tuple[str, str]] = {
-    "emusic": (
-        "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6",
-        "va1erian/emusic's portable frontend pins this xui itself (a13c7cd, and "
-        "main 3f464ee still does); bump the emusic pin once it has moved",
-    ),
-    "lazyrad-os": (
-        "93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6",
-        "va1erian/lazyrad's workspace pins this xui itself (fbd3fc4, and main "
-        "b24f9ee still does); bump LazyRAD first",
-    ),
-}
+LAGGING: dict[str, tuple[str, str]] = {}
 
 
 @dataclass(frozen=True)

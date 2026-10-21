@@ -33,7 +33,7 @@ extern "C" {
     fn lzw_engine_blocking_load(id: *const c_char);
     fn lzw_engine_blocking_compile(id: *const c_char, json: *const c_char);
     fn lzw_engine_blocking_forget(id: *const c_char);
-    // Defined by the window's crate (`window_ffi.rs`, `xui-app/webplus`).
+    // Defined by the window's crate (`xui-app/webplus`).
     fn lzw_ui_say(line: *const c_char);
 }
 

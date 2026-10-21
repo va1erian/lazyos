@@ -205,19 +205,20 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "UI process webkit-smoke, built by tools/webkit/port.py in Docker "
                              "(docs/webkit-port-plan.md W4); three static programs of tens of MB "
                              "(big-app profile) over the network stack, so this implies networking")
-    parser.add_argument("--webkit", action="store_true",
-                        help="the WebKit browser, os.lazy.webkit (LAZYOS_WEBKIT=1; docs/webkit-port-plan.md "
-                             "W5): the desktop, the network stack, the big-app profile, a 1 GiB OS "
-                             "volume, WebProcess and NetworkProcess in /system/bin and the app's core "
-                             "package; built in Docker (tools/webkit/deps.py, port.py, app.py) and "
-                             "packaged by tools/xui/build.py")
     parser.add_argument("--lazywebplus", action="store_true",
                         help="LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus "
                              "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
                              "stack, the big-app profile, a 1 GiB OS volume, WebProcess and "
                              "NetworkProcess in /system/bin and the app's core package; built in "
-                             "Docker (tools/webkit/deps.py, port.py, app.py --plus) and packaged by "
+                             "Docker (tools/webkit/deps.py, port.py, app.py) and packaged by "
                              "tools/xui/build.py")
+    parser.add_argument("--webd", action="store_true",
+                        help="webd, the daemon that serves WebKit light views to other apps, os.lazy.webd "
+                             "(LAZYOS_WEBD=1; docs/webd.md): the desktop, the big-app profile, a 1 GiB OS "
+                             "volume, WebProcess and NetworkProcess in /system/bin and the resident "
+                             "app's core package (opened with every session) with its demo client; "
+                             "built in Docker (tools/webkit/deps.py, port.py, webd.py) and packaged by "
+                             "tools/xui/build.py. No network stack: a light view has no network")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -334,10 +335,10 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         parser.error("--devtools needs the `rhai` command its tools run scripts with: drop --no-rhai")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
-    if args.webkit or args.lazywebplus:
+    if args.lazywebplus or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
-    if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port or args.webkit
-            or args.lazywebplus):
+    if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
+            or args.lazywebplus or args.webd):
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -347,12 +348,12 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
-    # as do the desktop-only apps (Doom, LazyWeb, WebKit, Mail, the Picture Viewer, the
+    # as do the desktop-only apps (Doom, LazyWeb, LazyWeb+, Mail, the Picture Viewer, the
     # tray demo, the games) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.webkit or args.lazywebplus or args.lazysky or args.mail
+                    or args.lazyweb or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.devtools or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
@@ -363,7 +364,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
     args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
-                or args.webkit_deps or args.webkit_port or args.webkit or args.lazywebplus)
+                or args.webkit_deps or args.webkit_port or args.lazywebplus)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer

@@ -104,21 +104,6 @@ def webkit_port_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/webkit/port.py", "--require"]}]
 
 
-def webkit_step(cfg: dict) -> list[dict]:
-    """The steps that build the WebKit browser (docs/webkit-port-plan.md W5): the
-    bundle, the port's processes and the app (the window's static library and the UI
-    process, in Docker), then the xui apps, which package it as `os.lazy.webkit`."""
-    if not cfg.get("webkit"):
-        return []
-    return [{"label": "Build the WebKit dependency bundle (Docker)",
-             "argv": [PY, "tools/webkit/deps.py", "--require"]},
-            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
-             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
-            {"label": "Build the WebKit app: the window and the UI process (Docker)",
-             "argv": [PY, "tools/webkit/app.py", "--require"]},
-            {"label": "Build xui apps with WebKit", "argv": [PY, "tools/xui/build.py"]}]
-
-
 def lazywebplus_step(cfg: dict) -> list[dict]:
     """The steps that build LazyWeb+ (docs/lazywebplus.md): the bundle, the port's processes and
     the app (LazyWeb's window as a static library and the UI process, in Docker), then the xui
@@ -130,8 +115,23 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
             {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
              "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
             {"label": "Build the LazyWeb+ app: the window and the UI process (Docker)",
-             "argv": [PY, "tools/webkit/app.py", "--require", "--plus"]},
+             "argv": [PY, "tools/webkit/app.py", "--require"]},
             {"label": "Build xui apps with LazyWeb+", "argv": [PY, "tools/xui/build.py"]}]
+
+
+def webd_step(cfg: dict) -> list[dict]:
+    """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
+    (the service as a static library and the program, in Docker), then the xui apps, which package
+    it as `os.lazy.webd` (with the demo client, when the tree has it)."""
+    if not cfg.get("webd"):
+        return []
+    return [{"label": "Build the WebKit dependency bundle (Docker)",
+             "argv": [PY, "tools/webkit/deps.py", "--require"]},
+            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
+             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
+            {"label": "Build webd: the service and the program (Docker)",
+             "argv": [PY, "tools/webkit/webd.py", "--require"]},
+            {"label": "Build xui apps with webd", "argv": [PY, "tools/xui/build.py"]}]
 
 
 def tls_step(cfg: dict) -> list[dict]:
@@ -228,9 +228,9 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
     `LAZYOS_GAMES`, `LAZYOS_DEVTOOLS`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
     `tools/jsc/build.py`; a console program, so desktop or not) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
-    (the W4 console proof, `tools/webkit/port.py`). The WebKit browser, `LAZYOS_WEBKIT`, is a
+    (the W4 console proof, `tools/webkit/port.py`). LazyWeb+, `LAZYOS_LAZYWEBPLUS`, is a
     desktop app like LazyWeb: it brings the desktop profile (`catalog.build_env`) and the stack,
-    and `run_demo --webkit` builds it and sets the big-app profile and the OS volume size."""
+    and `run_demo --lazywebplus` builds it and sets the big-app profile and the OS volume size."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
             | ({"LAZYOS_GAMES": "1"} if wants_games(cfg) else {})
             | ({"LAZYOS_DEVTOOLS": "1"} if wants_devtools(cfg) else {})
@@ -238,13 +238,13 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
-            | ({"LAZYOS_WEBKIT": "1"} if cfg.get("webkit") else {})
-            | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {}))
+            | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {})
+            | ({"LAZYOS_WEBD": "1"} if cfg.get("webd") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
     """run_demo's `--mail`, `--traydemo`, `--games`, `--devtools`, `--pictures`, `--jsc` and `--webkit-port`,
-    which set those switches themselves, and `--webkit` and `--lazywebplus`."""
+    which set those switches themselves, and `--lazywebplus` and `--webd`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
             + (["--games"] if wants_games(cfg) and building else [])
@@ -253,8 +253,8 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--jsc"] if cfg.get("jsc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
-            + (["--webkit"] if cfg.get("webkit") and building else [])
-            + (["--lazywebplus"] if cfg.get("lazywebplus") and building else []))
+            + (["--lazywebplus"] if cfg.get("lazywebplus") and building else [])
+            + (["--webd"] if cfg.get("webd") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:
@@ -276,7 +276,7 @@ def app_steps(cfg: dict) -> list[dict]:
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
-            + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg) + webkit_step(cfg)
-            + lazywebplus_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
+            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + devtools_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

@@ -1,14 +1,14 @@
 # WebKit on LazyOS (`webkit/`)
 
-Stages W4 and W5 of [`docs/webkit-port-plan.md`](../docs/webkit-port-plan.md): the port
+Stages W4 to W6 of [`docs/webkit-port-plan.md`](../docs/webkit-port-plan.md): the port
 layer of a `PORT=LazyOS` build of WebCore and the WebKit (WebKit2) layer, and the desktop
-browser on top of it. WebKit
+browser on top of it (LazyWeb+). WebKit
 itself is never vendored: `tools/webkit/port.py` takes the pinned WebKitGTK
 2.54.1 tarball (the one the `jsc` build uses), patches it, adds the files below
 and builds `WebProcess`, `NetworkProcess` and a headless UI process,
 `webkit-smoke`, as static-PIE musl programs with zig, in the `jsc` build's Docker
 container, against the W3 dependency bundle (`tools/webkit/README.md`).
-`tools/webkit/app.py` builds the desktop UI process, `webkit-app` (W5, below).
+`tools/webkit/app.py` builds the desktop UI process, `lazywebplus-app` (below).
 
 ```bash
 python tools/webkit/deps.py          # the bundle, libwpe and the EGL stand-in first
@@ -17,18 +17,17 @@ python tools/webkit/port.py --configure   # CMake only
 python tools/webkit/port_run.py      # console image with LAZYOS_WEBKIT_PORT=1, boot, judge (QEMU)
 python tools/webkit/test_port_judge.py
 python tools/run_demo.py --webkit-port   # an interactive console proof image (networking, big-app profile)
-python tools/webkit/app.py           # W5: the window library (host) and webkit-app (Docker)
-python tools/xui/build.py            # ... which packages it as os.lazy.webkit
-python tools/webkit/app_run.py       # W5: desktop image, browse, judge (QEMU, shots/webkit)
-python tools/webkit/test_app_judge.py
-python tools/run_demo.py --webkit    # the desktop with the browser (networking, big-app profile, 1 GiB volume)
+python tools/webkit/app.py           # the window library (host) and lazywebplus-app (Docker)
+python tools/xui/build.py            # ... which packages it as os.lazy.lazywebplus
+python tools/webplus/run.py          # desktop image, browse, judge (QEMU; tools/webplus/README.md)
+python tools/run_demo.py --lazywebplus   # the desktop with the browser (networking, big-app profile, 1 GiB volume)
 ```
 
 **Resources.** The build needs Docker with about 15 GiB of RAM (a WebCore translation unit can take
 a gigabyte; `-j` is chosen by memory), about 10 minutes from a fresh container state (an
 incremental rebuild after one port file takes seconds), and about 7 GiB of disk in the
 `lazyos-jsc-work` volume (sources, the dependency bundle, build trees) plus three programs of
-about 107 MiB each in `target/webkit/bin`. An image with them needs a 1 GiB OS volume (the
+about 75 MiB each in `target/webkit/bin` (107 MiB before "Size of the programs"). An image with them needs a 1 GiB OS volume (the
 build, `run_demo.py` and the launcher size it; `tools/lazygui/osvolume.py`), and the guest 4 GiB
 of RAM (`port_run.py` passes it).
 
@@ -38,7 +37,7 @@ re-extract the tree and rebuild everything): `LAZYOS_JSC_VOLUME=<name>` gives a 
 
 In the image the programs are `/system/bin/webprocess`, `/system/bin/networkprocess` and, with
 `LAZYOS_WEBKIT_PORT=1`, `/system/bin/webkit-smoke` (program names there are lowercase, `libs/fhs`);
-the launcher's default paths are those. `LAZYOS_WEBKIT=1` is the browser: the two processes
+the launcher's default paths are those. `LAZYOS_LAZYWEBPLUS=1` is the browser: the two processes
 beside the app's core package (below).
 
 `port.py` also runs `webkit-smoke` once on the build host (the programs are static
@@ -47,7 +46,7 @@ musl executables), in a scratch directory of the work volume, and keeps its outp
 (checksum and ink) to equal it. A host run that fails or times out fails the build, and a boot
 that painted nothing, or has no host run to compare with, fails the judge. `webkit-smoke` names no
 profile directory, so its NetworkProcess keeps its cookie jar (`cookie.jar.db`) in the working directory
-it inherits (the scratch directory there, the launcher's directory on LazyOS); the browser (`webkit-app`)
+it inherits (the scratch directory there, the launcher's directory on LazyOS); the browser (`lazywebplus-app`)
 gives its children a profile directory under `$HOME/.apps` (below). `webkit-smoke` honours `WEBKIT_SMOKE_TIMEOUT` (seconds, default 90; `port_run.py` raises it under
 `--accel none`). Both runs set `WEBKIT_SMOKE_FDS=1100` (`port/smoke/monitor.cpp`, issue #867): the program
 holds that many descriptors first, so the UI process's IPC sockets are above 1024, and so is each engine
@@ -59,6 +58,48 @@ LazyOS has no file-backed `mmap` yet, and the port's Skia compiles W3's
 `lazyos_mmap` shim (`tools/webkit/skiabuild/lazyos_mmap.c`, linked from
 `WebCore/PlatformLazyOS.cmake`): without it Skia's font manager refuses every font and
 all families draw in one face. Remove it with the kernel limitation.
+
+## Size of the programs
+
+LazyOS loads a static ELF whole into RAM and shares nothing between processes (docs/webkit-port-plan.md
+section 6, "Memory for code"), and there is one WebProcess per view, so every byte of `WebProcess` is
+paid per view. What was done, measured on the stripped programs (`WebProcess` / `NetworkProcess`):
+
+| step | `WebProcess` | `NetworkProcess` |
+|---|---|---|
+| as built for W5 | 112,846,192 | 112,899,440 |
+| ICU data cut (`tools/jsc/icudata.py`: 30.8 MB to 9.9 MB, see `tools/jsc/README.md`) | 91,977,072 | 92,030,320 |
+| `-fno-asynchronous-unwind-tables -fno-unwind-tables` (`port_cmake.py`: `.eh_frame`, its index and `.gcc_except_table` 8.3 MB to 1.1 MB, the rest is the bundle's libraries) | 82,363,760 | |
+| `-Os` for the cold targets (`OptionsLazyOS.cmake`, below) | (about 2.4 MB of that step) | |
+| lld `--icf=safe` (`toolenv.icf_wrapper`) | 78,054,768 | 78,447,984 |
+| `WebKitUIProcess` and `WebKitWebProcess` back at `-O2` (the scroll and paint path; the final state) | 78,534,000 | 78,517,616 |
+
+`-Os` covers `WebCoreJSBindings` (generated, 9 MB of text), `WebCoreInspector` and the
+`WebKitShared` and `WebKitNetworkProcess` object libraries (IPC and process management); `WebKitUIProcess` and
+`WebKitWebProcess` stay at `-O2` because they hold the per-frame scroll and paint path (the first measurement had
+them at `-Os`; the rows above were taken that way, see the note after the table); a sample of objects came out 19 to 25% smaller than at `-O2`. JavaScriptCore, WTF, WebCore's layout, style
+and painting, and Skia stay at `-O2` (their share of text is another 45 MB: the next 10 MB if speed may be
+traded). ICF is on for the WebKit programs only: zig's `cc` driver rejects `-Wl,--icf`, so the `zc++` wrapper runs the
+link a second time through `zig ld.lld --icf=safe` (`LAZYOS_LINK_ICF=1`, set by `port_cmake.py`); `safe` folds only
+functions whose address is never taken (the `-faddrsig` table), `all` would have saved 0.9 MB more.
+
+Already in effect before (checked, not changed): `-ffunction-sections -fdata-sections`, `--gc-sections`, `strip
+--strip-all` (no `.symtab`, no debug), no LTO (ThinLTO of 80 MB of text does not fit the 15 GiB container; not tried).
+`-fno-pic` saves 1% of text and was not taken; the feature switches (video, WebGL, WebRTC, Web Audio, WebAssembly,
+GPU process, inspector, MathML, XSLT) were already off, and the others WebCore still has (IndexedDB 0.56 MB,
+service workers 0.62 MB, WebCrypto 0.26 MB, streams 0.9 MB) are runtime preferences in this release, not build options.
+
+**Why `NetworkProcess` is as big as `WebProcess`** (they differ by 0.4 MB): both link every object of WebKit and
+`--gc-sections` can only drop what nothing reaches, and from `NetworkProcess` main the references reach all of
+JavaScriptCore (with the JIT) and WebCore's DOM, style and rendering through several unrelated, legitimate
+paths: `InitializeWebKit2` -> `JSC::initialize` -> LLInt -> `operationDefaultCall` -> baseline and DFG compilers;
+content rule lists -> `ContentExtension::compileGlobalDisplayNoneStyleSheet` -> CSS parser -> `CachedResourceLoader` ->
+`Document`, `Page`, rendering; a regex-substitution redirect action -> `JSObjectCallAsFunction` -> `JSC::VM`; a CSP
+violation report -> `Inspector::createScriptCallStack` -> `StackVisitor`; `upgradeInsecureRequestIfNeeded` ->
+`Document::removedLastRef`. Cutting one leaves the others (measured on the link map: with the first four cut the
+reachable code is still 90.0 of 90.2 MB), so a lean `NetworkProcess` (WebCore's loader and curl without the DOM) needs a split of WebCore's
+libraries, not a link flag. The analysis scripts are not kept in the tree; `--Map` is not available through
+`zig cc`, but `ZIG_VERBOSE_LINK=1` prints the `ld.lld` line and `zig ld.lld -Map=...` takes it.
 
 ## The glue
 
@@ -79,7 +120,7 @@ stack is libsoup). The glue is therefore:
 | `port/glstub/gen_stub.py` | writes `libEGL.a`/`libGLESv2.a` from the Khronos headers: every entry point does nothing (`tools/webkit/recipes_port.py`, built with the bundle) |
 | `port/tree/Source/WebKit/WebProcess/InjectedBundle/lazyos/InjectedBundleLazyOS.cpp` | injected bundles are shared libraries; the programs are static executables: refused with a message |
 | `port/tree/Source/WebKit/UIProcess/API/C/lazyos/WPELoaderLazyOS.cpp` | the `_wpe_loader_interface` that statically linked libwpe asks its backend for: no backend, so no objects (libwpe then uses its in-process pasteboard) |
-| `port/app/{main,engine}.cpp`, `lazyos_ui.h` | `webkit-app`, the desktop UI process (W5, below) |
+| `port/app/{main,engine}.cpp`, `lazyos_ui.h` | `lazywebplus-app`, the desktop UI process (below) |
 | `port/tree/Source/WebKit/Platform/IPC/unix/SocketMonitorLazyOS.h` | the IPC connection's socket monitor loop (`poll()`, patch `0022`), header-only so `port/smoke/monitor.cpp` tests the same code |
 | `port/smoke/main.cpp` | `webkit-smoke`, the headless UI process: C API only, one `WEBKIT:W4:*` line per step (`tools/webkit/portjudge.py` lists them), plus `INFO` lines for the fonts Fontconfig sees, the glyphs as text and timings |
 | `port/fonts.conf.in` | Fontconfig's configuration in the image (`/system/etc/fonts/fonts.conf`), a template: `port_cmake.py` fills in the font and cache directories from `libs/fhs` and writes `target/webkit/fonts.conf`, which the image build embeds. The program paths and the CA bundle path reach the C++ as `-D` macros from the same source (`tools/webkit/fhspaths.py`) |
@@ -157,75 +198,211 @@ composited classes (`LayerTreeHost`, `ThreadedCompositor`,
 `AcceleratedSurface`) for `USE_COORDINATED_GRAPHICS`; they link against the
 EGL and GLESv2 stand-ins and are never reached.
 
-## The desktop app (W5)
+## The engine: one Host, any number of Views
 
-`os.lazy.webkit` is one static-PIE program, `webkit-app`, in two halves that meet in a C ABI that began as sixteen
-functions (`port/app/lazyos_ui.h`):
+`port/app/` is two things. The **engine** (`engine.cpp`, `clients.cpp`, `policy.cpp`, `uiclient.cpp`,
+`notify.cpp`, `blocking.cpp`, `paint.cpp`, `light.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
+UI process without a window: one `Host` (the `WKContext`, the notification manager, the engine processes)
+and any number of `View`s, a page each with its own state (loading, dialogs, downloads, permission
+requests, paint state, rule-list controller). Whatever a view says goes to its `ViewSink`, whatever the host
+needs of its owner is a `HostEnv`; neither names `lazyos_ui.h`, and the engine files call no `lzw_ui_*`.
+`legacy.cpp` is the C ABI of `lazyos_ui.h` over it: LazyWeb+'s window is the sink and environment of view 1,
+and its `lzw_engine_*` calls are that view's methods, so the window did not change.
+
+A second owner implements the same two interfaces. The first is `port/views/main.cpp`, `webkit-views`, which is
+also the engine's test (docs/webd-plan.md, P1):
+
+```bash
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # Docker; builds, runs in the container
+```
+
+It runs nine modes in the build container (the programs are static musl executables): `light` (one view with
+a non-persistent store and no features), `twoeph`, `two` and `share` (two views, with stores of their own,
+with a profile directory and without, and of one profile directory; the first, which has every client of a
+browser view, is destroyed and the second loads another page), `group` and `groupprof` (two views of one group, without and with a profile directory: one web process, which
+outlives the destruction of the first view; `group` also joins a third view, refuses a recover and rebuilds
+the group), `groupmix`
+(one group number, two profiles: two processes), `cycle` (twelve views made, shown and destroyed
+in turn) and `rush` (twelve made and destroyed at once, before their pages are up); every destroyed view's web
+process must end. Each view loads a `data:` page of its own colour and title and must paint that colour and
+never the other view's, and the page's updates must reach it (they find their view by the page). Findings it
+made:
+
+* **A view gets a WebProcess of its own unless it joins a group**, even two views of one profile directory
+  (`share`: two web processes, one network process): 107 MiB a view. Views with the same non-zero
+  `ViewConfig::group` and profile share the first one's data store and, as related pages
+  (`WKPageConfigurationSetRelatedPage`), its process (`group`, `groupprof`: one web process for two views).
+  A destroyed view's process ends with it (`destroyView` terminates it unless a live view of the group uses it;
+  then the page is unloaded to `about:blank` and parked). The sharing is made when the page is: a process
+  other views use is not recovered in place (`recover` is refused, `WEBPROCESS:RECOVER:SHARED`: ending it and
+  reloading its pages aborted the UI process), the owner destroys the group's views and makes new ones (`group`
+  does: the last destroyed view ends the process, a new view starts one). A group is one owner's (related
+  pages see each other's storage).
+* **A view with nothing to fetch still launches a NetworkProcess** (`VIEWS:LAUNCH:web=1:network=1` for the
+  light view's `data:` page): the answer to L1 of the plan is no, a light view cannot avoid it with this
+  WebKit. Two views of different data stores share the one NetworkProcess and have a WebProcess each.
+* **Three page callbacks are process-wide** (`WKPageSetUpdateCallback`, `...ScrollOffsetCallback`,
+  `...BandCallback`, patches `0024`, `0028`, `0030`: static callback and context, whichever page registered
+  last). With two views the second registration took the first's updates, which never painted again. The engine
+  registers them once and finds the view by the page argument (`paint.cpp`, `viewOfPage`).
+* **Destroying a `WebPageProxy` aborts the UI process** (`crashDueToCheckedPtrToDeadObject` in
+  `WebPageProxy::didReachLayoutMilestone`, a timer of the run loop: one run in three with a persistent
+  profile, the family of patches `0021` and `0027`). `destroyView` therefore ends the page's process
+  (`WKPageTerminate`, 107 MB back), clears its clients, frees its bitmaps and pacer thread and parks the hollow
+  proxy, never released: a proxy per view that ever was, and the data store and session of one that had a store
+  of its own. `WKPageClose` before the release made it worse.
+* **A persistent profile lives as long as the process**, for the same reason, and the children take
+  `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
+  its environment when it starts, and one NetworkProcess serves every profile): a second profile's explicit
+  data directories are right, its curl cookie jar is not yet.
+
+## webd's engine half (`port/webd`): light views behind a C ABI
+
+`port/webd/webd_abi.h` is the contract between the engine and webd's service (Rust, `xui-app/crates/webd`,
+docs/webd-plan.md, P2 slice 1): `webd_engine_*` calls the service makes from any thread, `webd_ui_*` callbacks
+the engine makes on WebKit's main thread. `abi.cpp` implements the first over the engine's `Host` and `View`s
+and the second as a `ViewSink` per view and one `HostEnv`: the service chooses every view id (a `Slot` maps it to
+the engine's), every call copies its arguments and queues a task for the run loop (so nothing waits for WebKit),
+a call about an id the engine does not know does nothing, and a call that arrives before the view exists waits for
+it, in order (the first view waits for the network lock, below). A frame is always a whole one; a view that is
+not visible is painted no more (its page runs), and `set_visible(1)` or `refresh` paints it. A web process that
+ends (`ViewState::crashed`) is `webd_ui_view_lost` (`CRASHED`, or `MEMORY`) and the id is dropped; the engine's
+view is destroyed behind it. Mouse `kind` is the header's (0 move, 1 press, 2 release); the engine's own
+`View::mouse` takes 0 down, 1 up, 2 move, and `abi.cpp` translates.
+
+A **light view** (`ViewConfig::light`, `light.cpp`) is the engine with a lock on it, all of it enforced in the UI
+process and none of it left to the page:
+
+* *No network.* A content rule list (WebKit's content-extension store, compiled once at start into
+  `$LAZYOS_WEBD_RULES_DIR`, required, no fallback: the one thing the engine writes for a light view) blocks
+  every load but `data:`, `blob:` and `about:` URLs, and a navigation policy loads only the owner's own
+  `loadHtml`. The list is what stops subresources: the navigation client sees navigations, not requests.
+  Measured with a listener on 127.0.0.1 (`network` below): a page that asks for an image, a style sheet, an
+  `@import`, a font, a script, a frame, a video poster, audio, an `<object>`, an `<embed>`, an image input, an SVG
+  `<image>`, a `<picture>`, a favicon, `preconnect`, `prefetch`, `dns-prefetch` and a ping link, and (scripts on)
+  `fetch`, `XMLHttpRequest`, `WebSocket`, `new Image`, `sendBeacon`, `EventSource`, `import()`, a script and a
+  link added by script and a `Worker`, makes **no connection**. The same page in a light view *without* the rule
+  list made 26 (the first thirteen distinct, in order: `/img.png /a.css /import.css /s.js /svg.png /poster.png /pic.png
+  /input.png /fetch /xhr /jsimg /ws /mod.js`), so the lock is the rule list, not the scripts being off. Not
+  observable by that test: a DNS lookup for a *name* (`WKPreferencesSetDNSPrefetchingEnabled` is a no-op in this
+  WebKit; the rule list covers the `dns-prefetch` link, but a lookup would not reach a listener either way). A
+  light view still launches the NetworkProcess (the plan's L1), idle.
+* *Navigation locked.* A main-frame navigation the owner did not ask for is refused and told as
+  `ViewSink::linkClicked` (`webd_ui_link_clicked`): a link click, a form submit (GET: with its query), a meta
+  refresh, a script's `location`, a `target=_blank` link. A `#fragment` link is the page's own and scrolls.
+  Any navigation the page starts, even a refused one, cancels the one it had scheduled (WebKit's
+  `NavigationScheduler`): a click before a meta refresh fires loses the refresh. A *relative* URL cannot be made
+  absolute against `about:blank` or a `data:` base (WebKit's URL stays `r3`): it is told as it is. A refresh to
+  the document's own URL is a reload and is refused without a word. Frames of the page load only `data:`,
+  `blob:` and `about:` URLs.
+* *Scripts* as `scripts` says (`WKPreferencesSetJavaScriptEnabled`; event handlers too), and with them on: no
+  local storage, no storage of any kind, no automatic windows, no beacons. `<noscript>` content is not
+  rendered even with scripts off (the parser's scripting flag is not the preference: `script` mode prints the
+  colour the page ended with).
+* *None of a browser's clients*: `createView` forces `features` to 0 for a light view (no UI client, dialogs,
+  downloads, notifications, blocking or policy callbacks to the owner), and a light view groups only with
+  light views.
+* `loadHtml(html, base_url)`: `base_url` must be `about:blank`, empty (the same) or a `data:` URL; anything else
+  (`http:`, `https:`, `file:`, `ftp:`, `blob:`) loads nothing and the next state carries an error. The load is
+  `WKPageLoadData`, UTF-8, `text/html`.
+* Best-effort fields: `default_font_size` sets WebKit's default *and minimum* font size; `user_style` is
+  appended to the document as a `<style>` after the caller's markup (the C API has no user style sheet and a
+  light view has no other kind of load; text that could close the element is refused and said
+  `CONFIG:IGNORED:user_style`); `color_scheme = 1` is **not implemented**: `prefers-color-scheme` is compiled out
+  of this WebKit (`ENABLE_DARK_MODE_CSS` is off in the port, and `WKPageSetUseDarkAppearanceForTesting` changes
+  nothing without it), so the engine says `CONFIG:IGNORED:color_scheme` and an owner that wants a dark page
+  passes a `user_style`. Copy: `Ctrl+C` reads the selection with script (`getSelection()`; the C API has no
+  selected-text call), so `webd_ui_clipboard_write` happens only when scripts are on.
+
+`webd-abi-test` (`port/webd/test`) plays the service: the `webd_ui_*` callbacks record what is told per view id
+and a driver thread calls `webd_engine_*` as the Rust thread will, one mode per process. Every mode ends with
+`WEBD:<mode>:PASS` or `WEBD:<mode>:FAIL:<why>`, and an engine process left behind is a failure:
+
+```bash
+python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd            # Docker; every mode
+python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd lock lost  # some of them
+```
+
+| mode | what it asserts |
+|---|---|
+| `html` | a light view paints a `LoadHtml` page (colour, title, size, a scroll offset, `finished` rises), a second load replaces it, resize gives frames of the new size, a hidden view gets no frame but its page runs and it is painted when shown, `refresh` sends a frame, nothing is told after `view_destroy` and calls about the dead id do nothing |
+| `script` | `scripts=0`: an inline script and an event handler do not run; `scripts=1`: the script does; two views at once |
+| `config` | `default_font_size` and `user_style` apply; `color_scheme` is reported ignored |
+| `lock` | a click on a link, a form submit, a meta refresh and (scripts on) a script's `location` each become `link_clicked` with the absolute URL and the page stays (title, colour, `finished`, no error); a `#fragment` link is not reported |
+| `network` | a listener on 127.0.0.1 is reached by a plain engine view (the control) and by no road of a light view, scripts on or off; five bad base URLs are refused with an error and load nothing, three good ones load |
+| `many` | twelve views of one group (scripts alternating on and off, so the process holds both) share ONE web process and each paints its own colour and title; destroyed in another order than made, the process lives until the last view and ends with it |
+| `lost` | `SIGKILL` of the web process (pid from `webd_engine_children`) is `view_lost(CRASHED)`, the id is dead, a new view works; the same for both views of a group, which is then rebuilt with one new process |
+| `cycle` | twenty views made, painted and destroyed in turn: every web process ends, nothing is told after `view_destroy` |
+
+### The program: `webd-app`
+
+`port/webd/main.cpp` links the engine, `abi.cpp` and the service (`xui-app/webd`, a Rust static library,
+`libxui_webd_host.a`) into `webd-app`; `python tools/webkit/webd.py` builds the library on the host and runs
+`port.py --only webd-app` in the container (`LAZYOS_WEBD_LIBRARY` makes the CMake target exist), and copies
+the result to `target/xui/xui-webd.elf`, the package's program (`xui-app/packages/webd`, docs/webd.md). Unlike
+`lazywebplus-app`, **the process's first thread runs the service and WebKit's run loop runs on a thread
+`main.cpp` makes**: `init` and the shell know an app by its first thread. `host.h` is the C ABI of the Rust half
+(`webd_host_init`, `webd_host_main`, `webd_host_signal_quit`, `webd_host_fail`, `webd_host_report`);
+`SIGTERM` rings the service's doorbell, the service leaves its loop, `webd_engine_quit` stops the run loop, the
+engine processes are ended and waited for, and the program `_exit`s (status 4: the watchdog found WebKit's
+main thread hung, and nothing is waited for).
+
+## The desktop app
+
+`os.lazy.lazywebplus` ([`docs/lazywebplus.md`](../docs/lazywebplus.md)) is one static-PIE program,
+`lazywebplus-app`, in two halves that meet in a C ABI (`port/app/lazyos_ui.h`):
 
 * **the UI process, C++** (`port/app/main.cpp`, `engine.cpp`): WebKit's run loop on the process's main
   thread, as in `webkit-smoke`; a context pointed at `/system/bin/webprocess` and `networkprocess`, a
   `WKView`, navigation and page-state clients. It paints the page with `WKPagePaint` into a bitmap
   (Skia's BGRA, made opaque RGBA) and hands it to the window; mouse, wheel and key events go in through
-  `WKPageHandle*Event`. It prints the page markers (`WEBKIT:W5:LOAD|TITLE|JS|CLICK|INPUT|...`);
-* **the window, Rust** (`xui-app/crates/webkit`, a static library): a toolbar (Back, Forward,
-  Reload/Stop, an address field, Go), the page view (one custom-painted xui node that draws the newest
-  frame at its own size and forwards pointer, wheel and keys), a status line, the window caption
-  ("<title> - WebKit"), over `LazyOSBackend`. It runs on a second thread started by `main`: a Messenger
-  handle belongs to the thread that made it, so the window cannot share the run loop's thread. The two
-  talk through a `Mailbox` (the newest frame and page state, one wake per burst) and
-  `WKRunLoopCallOnMainThread` (every `lzw_engine_*` call only queues work). The window logic is
-  portable and host-tested against a recording engine (`cargo test -p xui-webkit`, snapshots in
-  `xui-app/target/snapshots/webkit-*.png`).
+  `WKPageHandle*Event`;
+* **the window, Rust** (`xui-app/webplus`, a static library on the seam `xui-app/crates/webkit`): LazyWeb's
+  menus, toolbar and status bar, the page view (one custom-painted xui node that draws the newest frame at
+  its own size and forwards pointer, wheel and keys), over `LazyOSBackend`. It runs on a second thread
+  started by `main`: a Messenger handle belongs to the thread that made it, so the window cannot share the
+  run loop's thread. The two talk through a `Mailbox` (the newest frame and page state, one wake per burst)
+  and `WKRunLoopCallOnMainThread` (every `lzw_engine_*` call only queues work). The window logic is
+  portable and host-tested against a recording engine (`cargo test -p xui-webkit -p xui-webplus`,
+  snapshots in `xui-app/target/snapshots/`).
 
-`tools/webkit/app.py` builds the Rust half on the host (`cargo build -p xui-webkit --lib` for
+`tools/webkit/app.py` builds the Rust half on the host (`cargo build -p xui-webplus --lib` for
 `x86_64-unknown-linux-musl`: a static library needs no linker) into `target/webkit/lib`, then links
-the program in the build container (`port.py --only webkit-app`; CMake adds the target when
-`LAZYOS_UI_LIBRARY` names the library, `Source/WebKit/PlatformLazyOS.cmake`) and copies it to
-`target/xui/xui-webkit.elf`, where `tools/xui/core_packages.py` packages it
-(`xui-app/packages/webkit`). The image build needs the desktop and the network stack for it
-(`build_support/webkit_embed.rs`). Keys reach the page as X11 key symbols (libwpe's key codes);
+the program in the build container (`port.py --only lazywebplus-app`; CMake adds the target when
+`LAZYOS_PLUS_LIBRARY` names the library, `Source/WebKit/PlatformLazyOS.cmake`) and copies it to
+`target/xui/xui-lazywebplus.elf`, where `tools/xui/core_packages.py` packages it
+(`xui-app/packages/lazywebplus`). The image build needs the desktop and the network stack for it
+(`build_support/lazywebplus_embed.rs`). Keys reach the page as X11 key symbols (libwpe's key codes);
 printable text goes with the key press (`WKKeyboardEvent.text`, patch `0012`) and patch `0013`'s editing
 hook inserts it and runs the editing commands (arrows, Delete, select all, copy, paste, undo).
 
 **One WebProcess for every page.** With WebKit's defaults a cross-site navigation swaps in a fresh WebProcess,
-and the second 107 MB program's `exec` failed with `ENOMEM`: the kernel charges the *length* of every `mmap`
-to the user's memory quota (`docs/architecture/limits.md`), and the three processes take what the quota lets
-them reserve (2989 of the big-app profile's 3072 MiB after one page; 6957 of 8192 at the `quota_user_memory=8G`
-that `run_demo.py --webkit` and the launcher set). `engine.cpp` turns process swapping, pre-warming and the
-process cache off.
+and the second 107 MB program's `exec` failed with `ENOMEM`: the kernel charged the *length* of every `mmap`
+to the user's memory quota (`docs/architecture/limits.md`; reservations are charged by resident page now, the
+launchers still set 8G). `engine.cpp` turns process swapping, pre-warming and the process cache off.
 
-**The profile directory.** WebKit's data directories default to the PlayStation's `/app0`, which LazyOS has
-not. `engine.cpp` makes `$HOME/.apps/os.lazy.webkit` (the app's own per-user folder; mode `0700`), gives the
-page a website data store whose cache, cookie jar (`cookies/cookie.jar.db`) and storage directories are below
-it, and names it in `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` (curl opens its cookie database
-before the data store's file is applied, so the variable is what keeps `cookie.jar.db` out of the working
-directory). `ProcessLauncherLazyOS.cpp` starts the children in it, and patch `0015` makes the directories
-the C API cannot set (HSTS, alternative services, ...) follow it instead of `/app0`. With no `$HOME` the
-store is ephemeral. The manifest's `write:$HOME/.apps/os.lazy.webkit` is exactly this directory.
+**The profile directory.** WebKit's data directories default to the PlayStation's `/app0`, which LazyOS
+has not. The window names its profile directory (`lzw_ui_profile_dir`: `$HOME/.apps/os.lazy.lazywebplus`,
+the app's own per-user folder, mode `0700`); `engine.cpp` gives the page a website data store whose cache,
+cookie jar (`cookies/cookie.jar.db`) and storage directories are below it, and names it in
+`LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` (curl opens its cookie database before the data store's
+file is applied, so the variable is what keeps `cookie.jar.db` out of the working directory).
+`ProcessLauncherLazyOS.cpp` starts the children in it, and patch `0015` makes the directories the C API
+cannot set (HSTS, alternative services, ...) follow it instead of `/app0`. With no `$HOME` (or a window that
+asks for no profile) the store is ephemeral. The manifest's `write:$HOME/.apps/os.lazy.lazywebplus` is
+exactly this directory.
 
 **The sandbox.** The WebProcess and the NetworkProcess run under confined labels
-(`app:os.lazy.webkit/webprocess`, `.../networkprocess`; the `[processes.*]` tables of
-`xui-app/packages/webkit/manifest.toml`, the kernel's gates in `docs/architecture/process-sandbox.md`): the
-page process reads only fonts and has no network, files beyond them, Messenger interface or way to start a
-program; the network process has sockets, the resolver, the CA bundle and the profile folder. The launcher
-is unchanged (`fork`, `execv`); the label changes at the `execve`. The UI process is an ordinary app label.
-`python tools/webkit/attack_run.py` attacks the sandbox from inside it (below).
+(`app:os.lazy.lazywebplus/webprocess`, `.../networkprocess`; the `[processes.*]` tables of
+`xui-app/packages/lazywebplus/manifest.toml`, the kernel's gates in `docs/architecture/process-sandbox.md`):
+the page process reads only fonts and has no network, files beyond them, Messenger interface or way to start
+a program; the network process has sockets, the resolver, the CA bundle, the profile folder and the Downloads
+folder. The launcher is unchanged (`fork`, `execv`); the label changes at the `execve`. The UI process is an
+ordinary app label.
 
 **Quitting.** When the window closes the UI process ends the WebProcess and the NetworkProcess itself
-(SIGTERM, SIGKILL after a grace period), waits for them and prints `WEBKIT:W5:CHILD:<name>:<pid>:GONE` before
-`WEBKIT:W5:QUIT:PASS`. The markers that name a page (`LOAD`, `TITLE`, `JS`, `CLICK`, `INPUT`, `NAV`, `START`) print
-only in a UI-probe image (`LAZYOS_UI_PROBE=1`).
-
-**The harness.** `python tools/webkit/app_run.py` (docs/webkit-port-plan.md, W5) builds the desktop image
-(`LAZYOS_WEBKIT=1`, `LAZYOS_XUI_AUTOSTART=webkit`, the UI probe, a throwaway test CA and `/etc/hosts` for the
-stand-in sites), serves LazyWeb's stand-ins from the host (`tools/web/sites.py` and a few pages of ours in
-`tools/web/fixtures/theoldnet.com/webkit/`), boots it, drives the window with the session
-`tools/screenshot/examples/webkit.json` and judges the markers, the host's request log and the screenshots
-(`tools/webkit/appjudge.py`, self-test `test_app_judge.py`). `--label-trace` also lists the package's
-`LABEL:DENY` lines; the manifest's permissions were derived that way. Output is in `shots/webkit`
-(`serial.log`, `shot_*.png`, `requests.json`, `net.pcap`). The build uses `LAZYOS_RESET_OS=1`, so **every run
-recreates `target/lazyos.img`'s OS volume** (installed apps, settings, logs and files on it are erased); the
-run also needs the host's ports 80, 443 and 81 free.
+(SIGTERM, SIGKILL after a grace period), waits for them and prints `WEBPLUS:CHILD:<name>:<pid>:GONE` before
+`WEBPLUS:QUIT:PASS`. The markers that name a page print only in a UI-probe image (`LAZYOS_UI_PROBE=1`).
 
 **The attack harness.** `python tools/webkit/attack_run.py` (`tools/abi/fixtures/src/sandboxprobe.rs`,
 judge `tools/webkit/attackjudge.py`, self-test `test_attack_judge.py`) attacks the sandbox from inside the
@@ -245,17 +422,17 @@ it is harness-only on purpose: `attack_run.py` sets it, and there is no
 ## LazyWeb+ (`os.lazy.lazywebplus`)
 
 [`docs/lazywebplus.md`](../docs/lazywebplus.md): LazyWeb's chrome on this engine. The same C++ UI process
-(`port/app/`: `main`, `engine`, `clients`, `policy`, `uiclient`, `paint`, `log`) links a different Rust
-window: `tools/webkit/app.py --plus` builds `xui-app/webplus` (`libxui_webplus.a`) and CMake links it
-into `lazywebplus-app` (`LAZYOS_PLUS_LIBRARY`, `PlatformLazyOS.cmake`); `webkit-app` still links
-`xui-app/crates/webkit`'s own window. What the UI process installs depends on `lzw_ui_features()`
-(`LZW_FEATURE_*`), so the W5 window, which asks for nothing, behaves exactly as before. The ABI grew by
+(`port/app/`: `main`, `engine`, `clients`, `policy`, `uiclient`, `paint`, `log`) links LazyWeb+'s Rust
+window: `tools/webkit/app.py` builds `xui-app/webplus` (`libxui_webplus.a`) and CMake links it
+into `lazywebplus-app` (`LAZYOS_PLUS_LIBRARY`, `PlatformLazyOS.cmake`). What the UI process installs depends
+on `lzw_ui_features()` (`LZW_FEATURE_*`): a window that asks for nothing gets the page, its state and its
+input. The ABI began as sixteen functions (W5) and grew by
 what LazyWeb's chrome needs from an engine that has scripts (all in `port/app/lazyos_ui.h`, each mirrored in
 `xui-app/crates/webkit/src/{abi,ffi,events}.rs` with host tests, and in `engine.rs`'s recording engine):
 
 | Need | ABI | WebKit side |
 |---|---|---|
-| Which features the window uses; the marker prefix; the profile directory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir` | read once, before the window thread exists (the prefix only for the crash handler's lines, which cannot call into Rust) |
+| Which features the window uses; the marker prefix; the profile directory; whether the page's data stays in memory | `lzw_ui_features`, `lzw_ui_marker_prefix`, `lzw_ui_profile_dir`, `lzw_ui_profile_ephemeral` | read once, before the window thread exists (the prefix only for the crash handler's lines, which cannot call into Rust) |
 | Progress, the committed URL, the padlock, how a load ended | `lzw_ui_state` (`+committed_url`, `secure`, `finished`) | the page-state and navigation clients; `finished` counts `didFinishNavigation`, so a stop, a failure and a download are told apart |
 | The link under the pointer | `lzw_ui_hover` | `mouseDidMoveOverElement` |
 | The pointer shape | `lzw_ui_cursor` | the view client's `setCursor` (patch `0016` teaches it the I-beam, wait and resize arrows) |
@@ -267,11 +444,12 @@ what LazyWeb's chrome needs from an engine that has scripts (all in `port/app/la
 | Engine processes: a process came, went, or stopped answering; the window's way out | `lzw_ui_page_responsive(responsive)`, `lzw_engine_recover(reload)`, `lzw_engine_children(&web, &network)`; WebKit's launcher calls `lzw_launcher_event` (weak) for every launch, exit and terminate | `port/app/children.cpp` (the launcher's list, and the shutdown that kills each process group with retries), the context client's `networkProcessDidCrashWithDetails`, the navigation client's `webProcessDidTerminate`, the page state client's `didChangeWebProcessIsResponsive` (patch `0020`), `ProcessLauncherLazyOS.cpp` (`setpgid`, `PR_SET_PDEATHSIG`, the reports); markers in `docs/lazywebplus.md` |
 | Calls on the process's first thread | `lzw_engine_run_on_main(task, context)` | `onMain`: a Messenger service names a caller by its task, and the shell's notification service refuses a thread other than the first |
 | Pointer moves merged while the main thread is busy (issue #890) | `lzw_engine_mouse_now` (main thread only) | the window keeps the latest move in one slot and queues one `lzw_engine_run_on_main` task while it is pending; a press, release or wheel queues the pending move ahead of itself (`xui-app/crates/webkit/src/pointer.rs`, host-tested against the recording engine) |
-| The UI process's markers, one write per line, under the trace mask (issue #891) | `lzw_ui_say(line)` | `port/app/log.cpp` formats the whole line and hands it to the window's `trace` channel (`WEBKIT` with `W5:`, `WEBPLUS`); the launcher reports after releasing its lock |
-| Cookies and site data | `lzw_ui_profile_dir` (only with `LZW_FEATURE_PROFILE`; the W5 window gets `$HOME/.apps/os.lazy.webkit`) | `createDataStore` in `engine.cpp`: every directory of the store below the profile (`$HOME/.apps/os.lazy.lazywebplus` for LazyWeb+), the cookie jar at `cookies/cookie.jar.db`, the children started in it (the sandbox: `docs/architecture/process-sandbox.md`) |
+| The UI process's markers, one write per line, under the trace mask (issue #891) | `lzw_ui_say(line)` | `port/app/log.cpp` formats the whole line and hands it to the window's `trace` channel (`WEBPLUS`); the launcher reports after releasing its lock |
+| Cookies and site data | `lzw_ui_profile_dir` (only with `LZW_FEATURE_PROFILE`; without it the store is ephemeral) | `createDataStore` in `engine.cpp`: every directory of the store below the profile (`$HOME/.apps/os.lazy.lazywebplus` for LazyWeb+), the cookie jar at `cookies/cookie.jar.db`, the children started in it (the sandbox: `docs/architecture/process-sandbox.md`) |
+| The page's data in memory only | `lzw_ui_profile_ephemeral` (LazyWeb+'s File menu, `xui-app/webplus/src/memory.rs`) | `createDataStore` returns WebKit's non-persistent store (cookies, the HTTP cache and site data in memory, gone at quit; issue #940); the profile still holds the content-blocking store |
 | The ad blocker (`LZW_FEATURE_BLOCKING`): rule lists in a store, attached per navigation, a count | `lzw_ui_blocking(url)` (a pure decision, asked before every main-frame load), `lzw_engine_blocking_load`, `_compile`, `_forget`, `lzw_ui_blocking_list(id, status)`, `lzw_ui_blocked(count)` | `port/app/blocking.cpp`: `WKUserContentExtensionStore` below `<profile>/contentextensions`, `WKUserContentController` in the page configuration, `decidePolicyForNavigationAction` (attach or take off before the load starts), the navigation client's `contentRuleListNotification` (patch `0018`); the window half is `xui-app/webplus/src/blocker/` |
 
-Markers: the UI process prints them after the window's prefix (`WEBKIT:W5` or `WEBPLUS`: `UP`,
+Markers: the UI process prints them after the window's prefix (`WEBPLUS`: `UP`,
 `WEBPROCESS:UP:<pid>`, `INFO:TIME:...`, `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`); with
 `LZW_FEATURE_OWN_MARKERS` the window prints the ones that name pages (`LOAD`, `TITLE`, ...).
 `python tools/webplus/run.py` is the harness (`tools/webplus/README.md`).

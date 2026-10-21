@@ -4,8 +4,8 @@
 //! since the last run", always: the build script, the crate it belongs to (and
 //! here the kernel too) were then built again by every `cargo build`, and the
 //! whole image rewritten, for as long as one optional output was missing (the
-//! WebKit browser's `target/xui/xui-webkit.elf` in an image that has LazyWeb+
-//! but not that, a sample package not built yet).
+//! LazyWeb+ browser's `target/xui/xui-lazywebplus.elf` in an image that does not
+//! have it, a sample package not built yet).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -95,7 +95,7 @@ mod tests {
         let root = root();
         let xui = root.join("target/xui");
         assert_eq!(
-            watch_for_missing(&xui.join("xui-webkit.elf"), &root),
+            watch_for_missing(&xui.join("xui-lazywebplus.elf"), &root),
             Some(xui)
         );
         // A path of the repository that is relative.

@@ -1,0 +1,296 @@
+# The system packages of the OS image (docs/update-plan.md decisions 16-17, P0).
+#
+# Every file the image build places belongs to exactly one package.
+# `python tools/pkg/owners.py` checks the owner table the build writes
+# (`target/os-owners.tsv`) against this list: a file no package claims, or two
+# packages claim, fails.
+#
+#   paths      exact paths, or patterns with `*` (any characters, `/` included)
+#   producers  build_support modules whose files belong here when no package
+#              names the file by `paths` (the coarse default; `paths` wins)
+#   activation what must restart for a new version to take effect (decision 17):
+#              none | next-launch | restart-units | restart-session | reboot
+#
+# The granularity is a first cut along the build's producers; P1 splits the
+# coarse packages (core apps per app, assets by kind) when `package.toml`
+# files move next to the code. The kernel and the boot files live outside the
+# OS volume (`/boot`, the ESP); they are listed so the set is complete.
+
+[[package]]
+name = "lazyos-kernel"
+kind = "kernel"
+activation = "reboot"
+volume = "boot"
+
+[[package]]
+name = "lazyos-boot"
+kind = "boot"
+activation = "reboot"
+volume = "esp"
+
+# --- early services: PID 1 and the Once units -------------------------------
+
+[[package]]
+name = "lazyos-init"
+kind = "service"
+activation = "reboot"
+paths = ["/system/bin/init", "/system/bin/powerctl"]
+
+[[package]]
+name = "lazyos-messengerd"
+kind = "service"
+activation = "reboot"
+paths = ["/system/bin/messengerd", "/system/bin/messengerctl"]
+
+[[package]]
+name = "lazyos-confd"
+kind = "service"
+activation = "reboot"
+paths = ["/system/bin/confd", "/system/bin/confctl"]
+
+# --- services ----------------------------------------------------------------
+
+[[package]]
+name = "lazyos-logd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/logd"]
+
+[[package]]
+name = "lazyos-healthd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/healthd"]
+
+[[package]]
+name = "lazyos-keyd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/keyd"]
+
+[[package]]
+name = "lazyos-accountsd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/accountsd", "/system/bin/logind"]
+
+[[package]]
+name = "lazyos-elevd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/elevd"]
+
+[[package]]
+name = "lazyos-clipboardd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/clipboardd"]
+
+[[package]]
+name = "lazyos-inputd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/inputd"]
+
+[[package]]
+name = "lazyos-timed"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/timed", "/system/bin/timectl"]
+
+[[package]]
+name = "lazyos-mimed"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/mimed"]
+
+[[package]]
+name = "lazyos-pkgd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/pkgd", "/system/bin/pkgctl"]
+
+[[package]]
+name = "lazyos-sysmond"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/sysmond", "/system/bin/top"]
+
+[[package]]
+name = "lazyos-devd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/devd", "/system/bin/devctl", "/system/bin/gpud"]
+
+[[package]]
+name = "lazyos-netd"
+kind = "service"
+activation = "restart-units"
+paths = [
+    "/system/bin/netd", "/system/bin/netdrv", "/system/bin/netctl", "/system/bin/nicctl",
+    "/system/bin/ping", "/system/bin/nslookup", "/system/bin/nc", "/system/bin/netbulk",
+    "/system/bin/ftp", "/system/bin/smb",
+]
+
+[[package]]
+name = "lazyos-wifi"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/wifid", "/system/bin/wlanmd", "/system/bin/wifictl"]
+
+[[package]]
+name = "lazyos-audiod"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/audiod", "/system/bin/sndd", "/system/bin/mixer", "/system/bin/beep"]
+
+[[package]]
+name = "lazyos-usbd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/usbd"]
+
+[[package]]
+name = "lazyos-mountd"
+kind = "service"
+activation = "restart-units"
+paths = [
+    "/system/bin/mountd", "/system/bin/eject", "/system/bin/fatfuse", "/system/bin/ftpfuse",
+    "/system/bin/smbfuse", "/system/bin/memfuse",
+]
+
+[[package]]
+name = "lazyos-dbgd"
+kind = "service"
+activation = "restart-units"
+paths = ["/system/bin/dbgd"]
+
+[[package]]
+name = "lazyos-xuid"
+kind = "service"
+activation = "restart-session"
+paths = ["/system/bin/xuid"]
+
+# --- the desktop shell and the core apps --------------------------------------
+
+[[package]]
+name = "lazyos-shell"
+kind = "service"
+activation = "restart-session"
+paths = [
+    "/system/bin/lazyshell", "/system/bin/greeter", "/system/bin/terminal",
+    "/system/bin/installer", "/system/bin/devices", "/system/bin/printd",
+]
+
+[[package]]
+name = "lazyos-core-apps"
+kind = "app"
+activation = "next-launch"
+paths = ["/system/packages/*"]
+
+# --- tools -----------------------------------------------------------------------
+
+[[package]]
+name = "lazyos-busybox"
+kind = "tool"
+activation = "none"
+producers = ["busybox_embed"]
+
+[[package]]
+name = "lazyos-rhai"
+kind = "tool"
+activation = "none"
+producers = ["rhai_embed"]
+
+[[package]]
+name = "lazyos-tls"
+kind = "tool"
+activation = "none"
+producers = ["tls_embed"]
+
+[[package]]
+name = "lazyos-linuxapps"
+kind = "tool"
+activation = "none"
+producers = ["linuxapps_embed"]
+
+[[package]]
+name = "lazyos-modplay"
+kind = "tool"
+activation = "none"
+paths = ["/system/bin/modplay"]
+
+# Programs only the harnesses run; not part of the desktop profile.
+[[package]]
+name = "lazyos-test-programs"
+kind = "tool"
+activation = "none"
+paths = [
+    "/system/bin/hello", "/system/bin/faultprobe", "/system/bin/msgbench",
+    "/system/bin/async-echo", "/system/bin/clipcp", "/system/bin/clippaste",
+    "/system/bin/flaky", "/system/bin/wifiprobe", "/system/bin/wifisim",
+]
+producers = ["evidence_embed", "ui_probe_embed"]
+
+# --- optional apps, one package per producer until P1 splits them ------------
+
+[[package]]
+name = "lazyos-lazyrad"
+kind = "app"
+activation = "next-launch"
+producers = ["lazyrad_embed", "modplayer_embed"]
+
+[[package]]
+name = "lazyos-games"
+kind = "app"
+activation = "next-launch"
+producers = ["doom_embed", "quake_embed", "srb2kart_embed", "emusic_embed"]
+
+# --- data -------------------------------------------------------------------------
+
+[[package]]
+name = "lazyos-base-files"
+kind = "data"
+activation = "none"
+paths = [
+    "/system/etc/hosts", "/system/etc/passwd", "/system/etc/group",
+    "/system/etc/skel/*", "/system/share/mime.types",
+]
+producers = ["hosts_embed"]
+
+[[package]]
+name = "lazyos-ca-certificates"
+kind = "data"
+activation = "none"
+paths = ["/system/etc/ssl/certs/*"]
+producers = ["ca_bundle"]
+
+[[package]]
+name = "lazyos-terminfo"
+kind = "data"
+activation = "none"
+paths = ["/system/share/terminfo/*"]
+
+[[package]]
+name = "lazyos-docs"
+kind = "data"
+activation = "none"
+producers = ["docs_embed"]
+
+[[package]]
+name = "lazyos-samples"
+kind = "data"
+activation = "none"
+paths = ["/system/share/samples/pkgdemo.lzp"]
+producers = ["samples_embed"]
+
+[[package]]
+name = "lazyos-assets"
+kind = "data"
+activation = "none"
+producers = ["assets_embed"]
+
+# State the first image carries and no update ever replaces (the build's
+# "seeds"): they are not package files, so they have no owning package.
+[seeds]
+paths = ["/accounts/db"]

@@ -21,15 +21,14 @@ Two modes:
     package manager's child-label support nor a WebKit build.
 
 ``--browser``
-    The real browser's UI process (``os.lazy.webkit``) starts the two stand-ins as it starts the
+    The real browser's UI process (``os.lazy.lazywebplus``) starts the two stand-ins as it starts the
     engine: the labels are the ones the package manifest's ``[processes.*]`` tables name
-    (``app:os.lazy.webkit/webprocess``, ``.../networkprocess``) and the kernel stamps at
-    ``execve``. It needs ``target/xui/xui-webkit.elf`` (``python tools/webkit/app.py``,
+    (``app:os.lazy.lazywebplus/webprocess``, ``.../networkprocess``) and the kernel stamps at
+    ``execve``. It needs ``target/xui/xui-lazywebplus.elf`` (``python tools/webkit/app.py``,
     ``python tools/xui/build.py``) and the package manager and kernel of the child-label work.
 
     python tools/webkit/attack_run.py                  # kernel mode: build, boot, judge
     python tools/webkit/attack_run.py --browser        # the real UI process starts the stand-ins
-    python tools/webkit/attack_run.py --browser --app lazywebplus   # the same under LazyWeb+'s labels
     python tools/webkit/attack_run.py --no-build       # the image of the last run
     python tools/webkit/attack_run.py --judge-only DIR # judge a saved serial.log
 
@@ -59,21 +58,20 @@ PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
 OUT = ROOT / "shots" / "webkit-attack"
 #: The browsers the harness can attack (``--app``): the package id (the label's prefix), the switch that
-#: ships it, the window program and the app that autostarts. LazyWeb+ starts the same two engine
-#: programs under labels of its own (``app:os.lazy.lazywebplus/<name>``), and its network process alone
-#: may write the Downloads folder (``attackjudge.expected``).
+#: ships it, the window program and the app that autostarts. LazyWeb+ starts the two engine programs
+#: under labels of its own (``app:os.lazy.lazywebplus/<name>``), and its network process alone may
+#: write the Downloads folder (``attackjudge.expected``).
 APPS = {
-    "webkit": ("os.lazy.webkit", "LAZYOS_WEBKIT", "xui-webkit.elf", "webkit"),
     "lazywebplus": ("os.lazy.lazywebplus", "LAZYOS_LAZYWEBPLUS", "xui-lazywebplus.elf", "lazywebplus"),
 }
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI",
          "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
-         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_WEBKIT", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBKIT_ATTACK",
-         "LAZYOS_DESKTOP")
+         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBKIT_ATTACK",
+         "LAZYOS_DESKTOP", "LAZYOS_WEBD")
 
 
-def build_image(mode: str, app: str = "webkit") -> str | None:
+def build_image(mode: str, app: str = "lazywebplus") -> str | None:
     """Build the test image for `mode` (and, in the browser's mode, browser `app`); an error message, or None."""
     _, switch, elf_name, autostart = APPS[app]
     elf = ROOT / "target" / "xui" / elf_name
@@ -84,8 +82,7 @@ def build_image(mode: str, app: str = "webkit") -> str | None:
         env.update(LAZYOS_INIT=str(attack_build.OUT / "WebProcess"), LAZYOS_OS_SIZE="128M")
     else:
         if not elf.is_file():
-            plus = " --plus" if app == "lazywebplus" else ""
-            return f"{elf.relative_to(ROOT)} is not built (python tools/webkit/app.py{plus}, python tools/xui/build.py)"
+            return f"{elf.relative_to(ROOT)} is not built (python tools/webkit/app.py, python tools/xui/build.py)"
         shell = busybox.ensure_busybox()
         if shell is None:
             return "no BusyBox for the shell (see tools/abi/busybox.py)"
@@ -114,7 +111,7 @@ def boot(mode: str, seconds: int, args) -> str:
     return log.read_text(errors="replace") if log.is_file() else ""
 
 
-def verdict(serial: str, mode: str, app: str = "webkit") -> bool:
+def verdict(serial: str, mode: str, app: str = "lazywebplus") -> bool:
     """Print the report; True when nothing got through."""
     problems, rows = attackjudge.judge(serial, mode, APPS[app][0])
     if mode == "kernel":
@@ -134,7 +131,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--browser", action="store_true", help="the real UI process starts the stand-ins")
     parser.add_argument("--kernel", action="store_true", help="the console driver (the default)")
-    parser.add_argument("--app", choices=sorted(APPS), default="webkit",
+    parser.add_argument("--app", choices=sorted(APPS), default="lazywebplus",
                         help="with --browser: which browser's window and package labels to attack")
     parser.add_argument("--no-build", action="store_true", help="use the image of the last run")
     parser.add_argument("--judge-only", metavar="DIR", help="judge DIR/serial.log and stop")

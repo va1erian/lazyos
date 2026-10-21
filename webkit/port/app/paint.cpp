@@ -1,4 +1,4 @@
-// Painting the page into a bitmap for the window (docs/webkit-port-plan.md, W5).
+// Painting the page into a bitmap for the view's owner (docs/webkit-port-plan.md; docs/lazywebplus.md).
 //
 // One CPU runs the page's process, this one, the window and the compositor, so nothing here overlaps
 // with anything else: every pass over the frame is paid for by whoever is scrolling
@@ -9,15 +9,16 @@
 // What changed comes from the page's updates (WKPageSetUpdateCallback, patch 0024): the area that
 // scrolled, by how much, and the rectangles repainted. WebKit moved its backing store itself and the
 // web process painted only the rows the scroll exposed; this file does not copy the rest again. The
-// window's library keeps the updates between two paints in the form a paint needs (damage.rs: one
-// scroll and a few rectangles, or "all of it"), and the paint hands it the same: the window moves
-// the picture it has and lays the rectangles over it (lzw_ui_frame_delta). A load, a resize, a page
+// view's sink keeps the updates between two paints in the form a paint needs (for the window: damage.rs,
+// one scroll and a few rectangles, or "all of it"), and the paint hands it the same: the owner moves
+// the picture it has and lays the rectangles over it (ViewSink::frameDelta). A load, a resize, a page
 // process that came back and anything the rules cannot tell as a scroll and rectangles is a whole
-// frame (lzw_ui_frame), as every paint used to be.
+// frame (ViewSink::frame), as every paint used to be.
 //
-// Two bitmaps: WebKit paints into `paint.target`, BGRA as Skia makes it, and what the window gets
-// (`E.pixels`) is opaque RGBA converted from it, rectangle by rectangle. Only the rectangles of a
-// delta are read from `E.pixels`, so it need not scroll with the picture.
+// Two bitmaps per view: WebKit paints into `paint.target`, BGRA as Skia makes it, and what the owner
+// gets (`View::pixels`) is opaque RGBA converted from it, rectangle by rectangle. Only the rectangles of
+// a delta are read from `View::pixels`, so it need not scroll with the picture. Everything a view
+// paints with lives in its PaintState, so any number of views paint independently.
 //
 // In an image built with the UI probe, `<profile>/paint-mode` (a file; absent means "fast:33") picks
 // the path, for comparing them in one image: "legacy" paints and converts the whole view on every
@@ -37,13 +38,14 @@
 // what a WKPagePaint costs inside the page's process (patches 0025 and 0026). **The `wk` above is wall
 // time around the call and includes whatever else the one CPU ran meanwhile (the window, the compositor):
 // the call itself was measured at about 60 us. Read CPU per frame from PERF:CPU, not from the stages.**
-// (the numbers the plan's P0 asks for; the window's own time is not in it).
+// (the numbers the plan's P0 asks for; the window's own time is not in it). The counters are per view.
 
 #include <WebKit/WKGeometry.h>
 #include <WebKit/WKPage.h>
 #include <WebKit/WKPagePrivate.h>
 #include <WebKit/WKPagePrivatePlayStation.h>
 #include <WebKit/WKRunLoop.h>
+#include <WebKit/WKType.h>
 
 #include <algorithm>
 #include <math.h>
@@ -73,7 +75,7 @@ long long nowUs()
 struct Mode {
     bool legacy { false };
     long long minIntervalUs { 33000 };
-    // Probe images keep the picture the window should have and compare it with a whole paint now
+    // Probe images keep the picture the owner should have and compare it with a whole paint now
     // and then (see "the check" below).
     bool verify { false };
 };
@@ -114,7 +116,7 @@ struct Damage {
     bool empty() const { return x1 <= x0 || y1 <= y0; }
 };
 
-// What changed is kept by the window's library (lzw_paint_*); this is only what a paint needs of its own.
+// What changed is kept by the sink (ViewSink::paint*); this is only what a paint needs of its own.
 struct Painting {
     long long lastStartUs { 0 };
     // When the first report since the last paint arrived (0: none is waiting).
@@ -125,7 +127,6 @@ struct Painting {
     // What WebKit paints into: BGRA, premultiplied, as Skia's N32 is on this target.
     std::vector<uint8_t> target;
 };
-Painting paint;
 
 // ---- counters --------------------------------------------------------------------------
 
@@ -143,17 +144,88 @@ struct Stats {
     long long w2dSumUs { 0 }, w2dMaxUs { 0 };
     long w2dCount { 0 };
 };
-Stats stats;
-// When the wheel was last turned and no report has answered it yet (0: none); a turn that moved
-// nothing is forgotten after half a second, not charged to whatever damage comes next.
-long long wheelTurnedUs { 0 };
+// A turn of the wheel that no report has answered for this long is forgotten, not charged to whatever
+// damage comes next.
 constexpr long long kWheelAnswerUs = 500000;
 
-// WKPagePaint's own time, as the page's process counts it (patch 0025), at the last report.
+// WKPagePaint's own time, as the page's process counts it (patch 0025), at the last report (the
+// counters are the process's, not a view's).
 unsigned long long lastWk[8];
 
-void report(long long now)
+// ---- the check -------------------------------------------------------------------------------
+//
+// A delta is only right if WebKit's updates mean what the owner's rules take them to mean (which way
+// an offset points, that the rows a scroll exposes are among the repainted rectangles). The host tests
+// hold that against a model read from WebKit's source; this holds it against the engine. In a probe
+// image the paint keeps `shadow.picture`, what the owner should show: the whole frame as sent, then
+// each delta applied the way the owner applies it. Every few deltas a whole paint of the view is
+// taken from the backing store and the two are compared; a difference is a FAIL line (a harness
+// fails on it), and the next paint is a whole one, which heals the picture. The cost is a whole
+// paint now and then and is kept out of the INFO:PAINT stage times.
+struct Shadow {
+    std::vector<uint8_t> picture;
+    std::vector<uint8_t> whole;     // a whole paint, BGRA
+    std::vector<uint8_t> converted; // ... and as the owner gets it
+    long deltasSinceCheck { 0 };
+};
+constexpr long kCheckEvery = 30;
+
+// The main frame's scroll offset (patch 0028): the newest the page's process told, and the one in force at
+// the newest update, which is the offset the backing store's pixels were painted at (the page's process
+// sends the offset before the update that repaints for it, on the same connection). `atBottom`: the page
+// could not scroll further down from the painted offset (WebKit's pinned state, which the page's process
+// also sends before the update), so the owner must not show its picture ahead downward.
+struct ScrollOffset {
+    int x { 0 };
+    int y { 0 };
+    bool atBottom { false };
+};
+
+// WKRunLoop has no timer, so a thread sleeps the gap and posts the paint; a view has one, started the
+// first time a paint has to wait, and ended when the view is destroyed (releasePaint).
+struct Pacer {
+    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+    long long delayUs { -1 };
+    bool started { false };
+    bool stopping { false };
+    pthread_t thread { };
+};
+
+} // namespace
+
+// Everything a view paints with.
+struct PaintState {
+    explicit PaintState(int view)
+        : viewId(view)
+    {
+    }
+    ~PaintState();
+
+    const int viewId;
+    Painting paint;
+    Stats stats;
+    // When the wheel was last turned and no report has answered it yet (0: none).
+    long long wheelTurnedUs { 0 };
+    Shadow shadow;
+    ScrollOffset latestScroll, paintedScroll;
+    std::vector<uint8_t> bandPixels;
+    Pacer pacer;
+};
+
+namespace {
+
+PaintState& ps(View& v)
 {
+    if (!v.painting)
+        v.painting = std::make_unique<PaintState>(v.id);
+    return *v.painting;
+}
+
+void report(View& v, long long now)
+{
+    PaintState& state = ps(v);
+    Stats& stats = state.stats;
     if (!stats.windowStartUs)
         stats.windowStartUs = now;
     if (now - stats.windowStartUs < 1000000)
@@ -179,7 +251,7 @@ void report(long long now)
 
 // ---- conversion ------------------------------------------------------------------------
 
-// Skia's BGRA to the window's opaque RGBA, one 32-bit load and store per pixel (a byte at a time
+// Skia's BGRA to the owner's opaque RGBA, one 32-bit load and store per pixel (a byte at a time
 // was most of the cost of a repaint). `source` and `destination` have the same stride.
 void convertRect(const uint8_t* source, uint8_t* destination, int stride, const Damage& r)
 {
@@ -211,34 +283,16 @@ void convertBytes(const uint8_t* source, uint8_t* destination, size_t bytes)
 // Rectangles a plan may hold (damage.rs MAX_RECTS).
 constexpr int kMaxRects = 8;
 
-// ---- the check -------------------------------------------------------------------------------
-//
-// A delta is only right if WebKit's updates mean what damage.rs takes them to mean (which way an
-// offset points, that the rows a scroll exposes are among the repainted rectangles). The host tests
-// hold that against a model read from WebKit's source; this holds it against the engine. In a probe
-// image the paint keeps `shadow.picture`, what the window should show: the whole frame as sent, then
-// each delta applied the way the window applies it. Every few deltas a whole paint of the view is
-// taken from the backing store and the two are compared; a difference is a FAIL line (a harness
-// fails on it), and the next paint is a whole one, which heals the picture. The cost is a whole
-// paint now and then and is kept out of the INFO:PAINT stage times.
-struct Shadow {
-    std::vector<uint8_t> picture;
-    std::vector<uint8_t> whole;     // a whole paint, BGRA
-    std::vector<uint8_t> converted; // ... and as the window gets it
-    long deltasSinceCheck { 0 };
-};
-Shadow shadow;
-constexpr long kCheckEvery = 30;
-
-// The area moved by (dx, dy) as the window moves it: what was inside goes on, what it uncovers keeps
+// The area moved by (dx, dy) as the owner moves it: what was inside goes on, what it uncovers keeps
 // its old pixels.
-void shadowScroll(int sx, int sy, int sw, int sh, int dx, int dy)
+void shadowScroll(View& v, int sx, int sy, int sw, int sh, int dx, int dy)
 {
-    const int x0 = std::max(sx, 0), y0 = std::max(sy, 0), x1 = std::min(sx + sw, E.width), y1 = std::min(sy + sh, E.height);
+    Shadow& shadow = ps(v).shadow;
+    const int x0 = std::max(sx, 0), y0 = std::max(sy, 0), x1 = std::min(sx + sw, v.width), y1 = std::min(sy + sh, v.height);
     const int tx0 = std::max(x0 + dx, x0), ty0 = std::max(y0 + dy, y0), tx1 = std::min(x1 + dx, x1), ty1 = std::min(y1 + dy, y1);
     if (tx1 <= tx0 || ty1 <= ty0)
         return;
-    const size_t stride = static_cast<size_t>(E.width) * 4;
+    const size_t stride = static_cast<size_t>(v.width) * 4;
     const size_t rowBytes = static_cast<size_t>(tx1 - tx0) * 4;
     for (int i = 0; i < ty1 - ty0; ++i) {
         const int row = dy > 0 ? ty1 - ty0 - 1 - i : i;
@@ -247,23 +301,26 @@ void shadowScroll(int sx, int sy, int sw, int sh, int dx, int dy)
     }
 }
 
-void shadowRect(const Damage& r)
+void shadowRect(View& v, const Damage& r)
 {
-    const size_t stride = static_cast<size_t>(E.width) * 4;
+    Shadow& shadow = ps(v).shadow;
+    const size_t stride = static_cast<size_t>(v.width) * 4;
     for (int y = r.y0; y < r.y1; ++y)
-        memcpy(shadow.picture.data() + y * stride + static_cast<size_t>(r.x0) * 4, E.pixels.data() + y * stride + static_cast<size_t>(r.x0) * 4,
+        memcpy(shadow.picture.data() + y * stride + static_cast<size_t>(r.x0) * 4, v.pixels.data() + y * stride + static_cast<size_t>(r.x0) * 4,
             static_cast<size_t>(r.x1 - r.x0) * 4);
 }
 
 // A whole paint against the shadow; true when they agree.
-bool shadowAgrees()
+bool shadowAgrees(View& v)
 {
-    const size_t bytes = static_cast<size_t>(E.width) * E.height * 4;
+    PaintState& state = ps(v);
+    Shadow& shadow = state.shadow;
+    const size_t bytes = static_cast<size_t>(v.width) * v.height * 4;
     shadow.whole.assign(bytes, 0xff);
     shadow.converted.assign(bytes, 0xff);
-    WKPagePaint(E.page, shadow.whole.data(), WKSizeMake(E.width, E.height), WKRectMake(0, 0, E.width, E.height));
-    convertRect(shadow.whole.data(), shadow.converted.data(), E.width * 4, Damage { 0, 0, E.width, E.height });
-    ++stats.checks;
+    WKPagePaint(v.page, shadow.whole.data(), WKSizeMake(v.width, v.height), WKRectMake(0, 0, v.width, v.height));
+    convertRect(shadow.whole.data(), shadow.converted.data(), v.width * 4, Damage { 0, 0, v.width, v.height });
+    ++state.stats.checks;
     if (shadow.converted == shadow.picture)
         return true;
     long differing = 0;
@@ -271,90 +328,86 @@ bool shadowAgrees()
     for (size_t i = 0; i < bytes; i += 4) {
         if (memcmp(shadow.converted.data() + i, shadow.picture.data() + i, 4)) {
             if (!differing) {
-                firstX = static_cast<int>((i / 4) % E.width);
-                firstY = static_cast<int>((i / 4) / E.width);
+                firstX = static_cast<int>((i / 4) % v.width);
+                firstY = static_cast<int>((i / 4) / v.width);
             }
             ++differing;
         }
     }
-    ++stats.bad;
-    say("FAIL:PAINT:MISMATCH:pixels=%ld:first=%d,%d:view=%dx%d", differing, firstX, firstY, E.width, E.height);
+    ++state.stats.bad;
+    say("FAIL:PAINT:MISMATCH:pixels=%ld:first=%d,%d:view=%dx%d", differing, firstX, firstY, v.width, v.height);
     return false;
 }
 
-// The main frame's scroll offset (patch 0028): the newest the page's process told, and the one in force at
-// the newest update, which is the offset the backing store's pixels were painted at (the page's process
-// sends the offset before the update that repaints for it, on the same connection). `atBottom`: the page
-// could not scroll further down from the painted offset (WebKit's pinned state, which the page's process
-// also sends before the update), so the window must not show its picture ahead downward.
-struct ScrollOffset {
-    int x { 0 };
-    int y { 0 };
-    bool atBottom { false };
-};
-ScrollOffset latestScroll, paintedScroll;
+void requestPaint(View& v, long long now);
 
-void requestPaint(long long now);
-
-void paintNow(void*)
+// The run loop's task for a paint: the context is the view's id (the view may be gone by now).
+void paintNow(void* context)
 {
-    E.paintScheduled = false;
-    if (!E.page || E.width <= 0 || E.height <= 0)
+    View* viewPointer = viewById(static_cast<int>(reinterpret_cast<intptr_t>(context)));
+    if (!viewPointer)
+        return;
+    View& v = *viewPointer;
+    PaintState& state = ps(v);
+    Painting& paint = state.paint;
+    Stats& stats = state.stats;
+    v.paintScheduled = false;
+    if (!v.page || v.width <= 0 || v.height <= 0)
         return;
     const bool legacy = mode().legacy;
     const long long t0 = nowUs();
-    const size_t bytes = static_cast<size_t>(E.width) * E.height * 4;
+    const size_t bytes = static_cast<size_t>(v.width) * v.height * 4;
 
     int scroll[6] = { 0 };
     int rects[kMaxRects * 4] = { 0 };
     int count = 0;
-    int plan = lzw_paint_plan(scroll, rects, kMaxRects, &count);
-    if (legacy && plan != LZW_PAINT_NOTHING)
-        plan = LZW_PAINT_FULL;
-    if (paint.width != E.width || paint.height != E.height || paint.target.size() != bytes) {
+    int plan = v.sink->paintPlan(scroll, rects, kMaxRects, &count);
+    if (legacy && plan != ViewSink::kPaintNothing)
+        plan = ViewSink::kPaintFull;
+    if (paint.width != v.width || paint.height != v.height || paint.target.size() != bytes) {
         // A new size: both bitmaps start white (what the page does not cover is white, never
-        // see-through), once and not on every paint, and the window gets the whole of it.
+        // see-through), once and not on every paint, and the owner gets the whole of it.
         paint.target.assign(bytes, 0xff);
-        E.pixels.assign(bytes, 0xff);
-        paint.width = E.width;
-        paint.height = E.height;
-        plan = LZW_PAINT_FULL;
+        v.pixels.assign(bytes, 0xff);
+        paint.width = v.width;
+        paint.height = v.height;
+        plan = ViewSink::kPaintFull;
     }
     const long long pendingSince = paint.pendingSinceUs;
     paint.pendingSinceUs = 0;
-    if (plan == LZW_PAINT_NOTHING)
+    if (plan == ViewSink::kPaintNothing)
         return;
     paint.lastStartUs = t0;
-    // The offset these pixels were painted at goes with them (the window shows the picture ahead of it).
-    lzw_ui_scroll_offset(paintedScroll.x, paintedScroll.y, paintedScroll.atBottom);
+    // The offset these pixels were painted at goes with them (the owner shows the picture ahead of it).
+    v.sink->scrollOffset(state.paintedScroll.x, state.paintedScroll.y, state.paintedScroll.atBottom);
 
     long long painted = 0;
     long long t1 = t0, t2 = t0, t3 = t0;
     long long verifyUs = 0;
     bool refused = false;
     bool verifyDue = false;
-    if (plan == LZW_PAINT_FULL) {
-        const Damage whole { 0, 0, E.width, E.height };
+    if (plan == ViewSink::kPaintFull) {
+        const Damage whole { 0, 0, v.width, v.height };
         if (legacy)
             memset(paint.target.data(), 0xff, bytes);
         t1 = nowUs();
-        WKPagePaint(E.page, paint.target.data(), WKSizeMake(E.width, E.height),
-            WKRectMake(0, 0, E.width, E.height));
+        WKPagePaint(v.page, paint.target.data(), WKSizeMake(v.width, v.height),
+            WKRectMake(0, 0, v.width, v.height));
         t2 = nowUs();
         ++stats.wkCalls;
         stats.wkMaxUs = std::max(stats.wkMaxUs, t2 - t1);
         if (legacy)
-            convertBytes(paint.target.data(), E.pixels.data(), bytes);
+            convertBytes(paint.target.data(), v.pixels.data(), bytes);
         else
-            convertRect(paint.target.data(), E.pixels.data(), E.width * 4, whole);
+            convertRect(paint.target.data(), v.pixels.data(), v.width * 4, whole);
         t3 = nowUs();
-        lzw_ui_frame(E.pixels.data(), E.width, E.height);
-        painted = static_cast<long long>(E.width) * E.height;
+        v.sink->frame(v.pixels.data(), v.width, v.height);
+        painted = static_cast<long long>(v.width) * v.height;
         ++stats.fulls;
         if (mode().verify) {
             const long long a = nowUs();
-            shadow.picture = E.pixels;
-            shadow.deltasSinceCheck = 0;
+            state.shadow.picture = v.pixels;
+            state.shadow.deltasSinceCheck = 0;
             verifyUs += nowUs() - a;
         }
     } else {
@@ -364,10 +417,10 @@ void paintNow(void*)
         for (int i = 0; i < count; ++i) {
             const Damage r { rects[4 * i], rects[4 * i + 1], rects[4 * i] + rects[4 * i + 2], rects[4 * i + 1] + rects[4 * i + 3] };
             const long long a = nowUs();
-            WKPagePaint(E.page, paint.target.data(), WKSizeMake(E.width, E.height),
+            WKPagePaint(v.page, paint.target.data(), WKSizeMake(v.width, v.height),
                 WKRectMake(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0));
             const long long b = nowUs();
-            convertRect(paint.target.data(), E.pixels.data(), E.width * 4, r);
+            convertRect(paint.target.data(), v.pixels.data(), v.width * 4, r);
             const long long c = nowUs();
             paintUs += b - a, convertUs += c - b;
             ++stats.wkCalls;
@@ -377,17 +430,17 @@ void paintNow(void*)
         const bool moved = scroll[2] > 0 && scroll[3] > 0 && (scroll[4] || scroll[5]);
         t2 = t1 + paintUs;
         t3 = t2 + convertUs;
-        refused = lzw_ui_frame_delta(E.pixels.data(), E.width, E.height, moved ? scroll : nullptr, rects, count) != 0;
+        refused = v.sink->frameDelta(v.pixels.data(), v.width, v.height, moved ? scroll : nullptr, rects, count) != 0;
         ++stats.deltas;
         if (moved)
             ++stats.scrolls;
-        if (mode().verify && !refused && shadow.picture.size() == bytes) {
+        if (mode().verify && !refused && state.shadow.picture.size() == bytes) {
             const long long a = nowUs();
             if (moved)
-                shadowScroll(scroll[0], scroll[1], scroll[2], scroll[3], scroll[4], scroll[5]);
+                shadowScroll(v, scroll[0], scroll[1], scroll[2], scroll[3], scroll[4], scroll[5]);
             for (int i = 0; i < count; ++i)
-                shadowRect(Damage { rects[4 * i], rects[4 * i + 1], rects[4 * i] + rects[4 * i + 2], rects[4 * i + 1] + rects[4 * i + 3] });
-            verifyDue = ++shadow.deltasSinceCheck >= kCheckEvery || stats.checks == 0;
+                shadowRect(v, Damage { rects[4 * i], rects[4 * i + 1], rects[4 * i] + rects[4 * i + 2], rects[4 * i + 1] + rects[4 * i + 3] });
+            verifyDue = ++state.shadow.deltasSinceCheck >= kCheckEvery || stats.checks == 0;
             verifyUs += nowUs() - a;
         }
     }
@@ -395,9 +448,9 @@ void paintNow(void*)
     // The stages' clock without the check's work (probe images only), which `verifyUs` counts apart.
     const long long t4 = end - verifyUs;
     if (refused) {
-        // The window has nothing to apply it to or is too far behind: the next paint is a whole one.
-        lzw_paint_full();
-        requestPaint(end);
+        // The owner has nothing to apply it to or is too far behind: the next paint is a whole one.
+        v.sink->paintFull();
+        requestPaint(v, end);
     }
 
     ++stats.paints;
@@ -408,63 +461,58 @@ void paintNow(void*)
     stats.maxUs = std::max(stats.maxUs, t4 - t0);
     if (pendingSince)
         stats.maxLatencyUs = std::max(stats.maxLatencyUs, t0 - pendingSince);
-    report(end);
+    report(v, end);
 
     if (verifyDue) {
-        shadow.deltasSinceCheck = 0;
+        state.shadow.deltasSinceCheck = 0;
         const long long a = nowUs();
-        const bool agrees = shadowAgrees();
+        const bool agrees = shadowAgrees(v);
         stats.verifyUs += nowUs() - a;
         if (!agrees) {
-            lzw_paint_full();
-            requestPaint(nowUs());
+            v.sink->paintFull();
+            requestPaint(v, nowUs());
         }
     }
 
-    if (E.firstPaintMs < 0 && E.committedSincePaint) {
-        E.firstPaintMs = elapsedMs();
-        say("INFO:TIME:firstpaint=%ld:sincecommit=%ld:sincenav=%ld", E.firstPaintMs, E.firstPaintMs - E.commitMs,
-            E.firstPaintMs - E.navStartMs);
+    if (v.firstPaintMs < 0 && v.committedSincePaint) {
+        v.firstPaintMs = elapsedMs();
+        say("INFO:TIME:firstpaint=%ld:sincecommit=%ld:sincenav=%ld", v.firstPaintMs, v.firstPaintMs - v.commitMs,
+            v.firstPaintMs - v.navStartMs);
     }
 }
 
 // ---- pacing ----------------------------------------------------------------------------
 
-// WKRunLoop has no timer, so a thread sleeps the gap and posts the paint; there is one, started
-// the first time a paint has to wait.
-struct Pacer {
-    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-    pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-    long long delayUs { -1 };
-    bool started { false };
-};
-Pacer pacer;
-
-void* pacerMain(void*)
+void* pacerMain(void* argument)
 {
+    auto* state = static_cast<PaintState*>(argument);
+    Pacer& pacer = state->pacer;
     for (;;) {
         pthread_mutex_lock(&pacer.mutex);
-        while (pacer.delayUs < 0)
+        while (pacer.delayUs < 0 && !pacer.stopping)
             pthread_cond_wait(&pacer.cond, &pacer.mutex);
+        if (pacer.stopping) {
+            pthread_mutex_unlock(&pacer.mutex);
+            return nullptr;
+        }
         const long long delay = pacer.delayUs;
         pacer.delayUs = -1;
         pthread_mutex_unlock(&pacer.mutex);
         if (delay > 0)
             usleep(static_cast<useconds_t>(delay));
-        WKRunLoopCallOnMainThread(paintNow, nullptr);
+        WKRunLoopCallOnMainThread(paintNow, reinterpret_cast<void*>(static_cast<intptr_t>(state->viewId)));
     }
-    return nullptr;
 }
 
-void paintAfter(long long delayUs)
+void paintAfter(View& v, long long delayUs)
 {
+    PaintState& state = ps(v);
+    Pacer& pacer = state.pacer;
     if (!pacer.started) {
-        pthread_t thread;
-        if (pthread_create(&thread, nullptr, pacerMain, nullptr) != 0) {
-            WKRunLoopCallOnMainThread(paintNow, nullptr);
+        if (pthread_create(&pacer.thread, nullptr, pacerMain, &state) != 0) {
+            WKRunLoopCallOnMainThread(paintNow, reinterpret_cast<void*>(static_cast<intptr_t>(v.id)));
             return;
         }
-        pthread_detach(thread);
         pacer.started = true;
     }
     pthread_mutex_lock(&pacer.mutex);
@@ -474,46 +522,57 @@ void paintAfter(long long delayUs)
 }
 
 // A paint will run, now or after the gap; one at a time, however many reports arrive meanwhile.
-void requestPaint(long long now)
+void requestPaint(View& v, long long now)
 {
-    if (!paint.pendingSinceUs)
-        paint.pendingSinceUs = now;
-    if (E.paintScheduled)
+    PaintState& state = ps(v);
+    if (!state.paint.pendingSinceUs)
+        state.paint.pendingSinceUs = now;
+    if (v.paintScheduled)
         return;
-    E.paintScheduled = true;
-    const long long wait = paint.lastStartUs + mode().minIntervalUs - now;
+    v.paintScheduled = true;
+    const long long wait = state.paint.lastStartUs + mode().minIntervalUs - now;
     if (wait <= 0)
-        WKRunLoopCallOnMainThread(paintNow, nullptr);
+        WKRunLoopCallOnMainThread(paintNow, reinterpret_cast<void*>(static_cast<intptr_t>(v.id)));
     else
-        paintAfter(wait);
+        paintAfter(v, wait);
 }
 
 // A report arrived (a rectangle needs display, or an update): counted, and a paint is on its way.
-void noteReport(long long now)
+void noteReport(View& v, long long now)
 {
-    report(now); // a window that ended is printed before this event is counted
-    ++stats.needs;
-    if (wheelTurnedUs) {
-        const long long latency = now - wheelTurnedUs;
-        wheelTurnedUs = 0;
+    PaintState& state = ps(v);
+    report(v, now); // a window that ended is printed before this event is counted
+    ++state.stats.needs;
+    if (state.wheelTurnedUs) {
+        const long long latency = now - state.wheelTurnedUs;
+        state.wheelTurnedUs = 0;
         if (latency <= kWheelAnswerUs) {
-            stats.w2dSumUs += latency, ++stats.w2dCount;
-            stats.w2dMaxUs = std::max(stats.w2dMaxUs, latency);
+            state.stats.w2dSumUs += latency, ++state.stats.w2dCount;
+            state.stats.w2dMaxUs = std::max(state.stats.w2dMaxUs, latency);
         }
     }
-    requestPaint(now);
+    requestPaint(v, now);
 }
 
-void pageScrolled(WKPageRef, int x, int y, void*)
+// WebKit keeps the three page callbacks below in process-wide statics (patches 0024, 0028 and 0030: one
+// callback and one context, whichever page registered last), so none of them can name its view through
+// the context: they find it by the page they are called for.
+void pageScrolled(WKPageRef page, int x, int y, void*)
 {
-    latestScroll = { x, y };
+    if (View* v = viewOfPage(page))
+        ps(*v).latestScroll = { x, y };
 }
 
 // An update from the page's process (WKPageSetUpdateCallback): what scrolled and what was repainted.
 void pageUpdated(WKPageRef page, WKRect scrollRect, WKSize scrollOffset, const WKRect* updateRects, size_t count, void*)
 {
-    paintedScroll = latestScroll;
-    paintedScroll.atBottom = WKPageIsPinnedToBottomSide(page);
+    View* viewPointer = viewOfPage(page);
+    if (!viewPointer)
+        return;
+    View& v = *viewPointer;
+    PaintState& state = ps(v);
+    state.paintedScroll = state.latestScroll;
+    state.paintedScroll.atBottom = WKPageIsPinnedToBottomSide(page);
     int ints[64 * 4];
     int n = 0;
     for (size_t i = 0; i < count && n < 64; ++i, ++n) {
@@ -524,98 +583,144 @@ void pageUpdated(WKPageRef page, WKRect scrollRect, WKSize scrollOffset, const W
     }
     if (count > static_cast<size_t>(n)) {
         // More rectangles than a plan can hold: say all of it.
-        lzw_paint_full();
+        v.sink->paintFull();
     } else {
-        lzw_paint_update(static_cast<int>(floor(scrollRect.origin.x)), static_cast<int>(floor(scrollRect.origin.y)),
+        v.sink->paintUpdate(static_cast<int>(floor(scrollRect.origin.x)), static_cast<int>(floor(scrollRect.origin.y)),
             static_cast<int>(ceil(scrollRect.size.width)), static_cast<int>(ceil(scrollRect.size.height)),
             static_cast<int>(scrollOffset.width), static_cast<int>(scrollOffset.height), ints, n);
     }
-    noteReport(nowUs());
+    noteReport(v, nowUs());
 }
 
 // An overscan band (WKPageSetBandCallback, patch 0030): rows of the page outside the view, BGRA as Skia
-// paints, converted and handed to the window as they are. Only bands as wide as the view are kept, and
+// paints, converted and handed to the owner as they are. Only bands as wide as the view are kept, and
 // none taller than the web process paints them (patch 0030 paints at most 1024 rows at a time): the
 // pixels come from another process, whose word alone must not size this one's copies.
-std::vector<uint8_t> bandPixels;
 constexpr int kMaxBandRows = 1024;
 
-void bandPainted(WKPageRef, WKRect documentRect, const unsigned char* pixels, size_t stride, void*)
+void bandPainted(WKPageRef page, WKRect documentRect, const unsigned char* pixels, size_t stride, void*)
 {
+    View* viewPointer = viewOfPage(page);
+    if (!viewPointer)
+        return;
+    View& v = *viewPointer;
+    PaintState& state = ps(v);
     const int x = static_cast<int>(documentRect.origin.x), y = static_cast<int>(documentRect.origin.y);
     const int width = static_cast<int>(documentRect.size.width), height = static_cast<int>(documentRect.size.height);
-    if (!pixels || width != E.width || height <= 0 || height > kMaxBandRows || stride < static_cast<size_t>(width) * 4)
+    if (!pixels || width != v.width || height <= 0 || height > kMaxBandRows || stride < static_cast<size_t>(width) * 4)
         return;
     const size_t rowBytes = static_cast<size_t>(width) * 4;
-    bandPixels.resize(rowBytes * height);
+    state.bandPixels.resize(rowBytes * height);
     for (int row = 0; row < height; ++row) {
         const uint8_t* in = pixels + static_cast<size_t>(row) * stride;
-        uint8_t* out = bandPixels.data() + static_cast<size_t>(row) * rowBytes;
+        uint8_t* out = state.bandPixels.data() + static_cast<size_t>(row) * rowBytes;
         convertRect(in, out, static_cast<int>(rowBytes), Damage { 0, 0, width, 1 });
     }
-    lzw_ui_band(x, y, width, height, bandPixels.data());
-    ++stats.bands;
+    v.sink->band(x, y, width, height, state.bandPixels.data());
+    ++state.stats.bands;
 }
 
 } // namespace
 
-void installPaintObserver()
+PaintState::~PaintState()
 {
-    lzw_paint_resize(E.width, E.height);
-    WKPageSetScrollOffsetCallback(E.page, pageScrolled, nullptr);
-    WKPageSetBandCallback(E.page, bandPainted, nullptr);
-    // The legacy path wants WebKit's own "the whole view needs display" for any update that scrolled.
+    if (pacer.started) {
+        pthread_mutex_lock(&pacer.mutex);
+        pacer.stopping = true;
+        pthread_cond_signal(&pacer.cond);
+        pthread_mutex_unlock(&pacer.mutex);
+        pthread_join(pacer.thread, nullptr);
+    }
+}
+
+// Defined here, where PaintState is complete: the constructor and destructor delete one.
+View::View(int id, const ViewConfig& config, ViewSink* sink)
+    : id(id)
+    , config(config)
+    , sink(sink)
+    , width(config.width)
+    , height(config.height)
+{
+}
+
+void releasePaint(View& v)
+{
+    v.painting.reset(); // ends the pacer thread
+    std::vector<uint8_t>().swap(v.pixels);
+}
+
+View::~View()
+{
+    if (view)
+        WKRelease(view);
+}
+
+void installPaintObserver(View& v)
+{
+    v.sink->paintResize(v.width, v.height);
+    // Registered once for the process (see pageScrolled); the page argument is only where WebKit's
+    // C API wants one. The legacy path wants WebKit's own "the whole view needs display" for any
+    // update that scrolled, so it sets no update callback.
+    static bool registered = false;
+    if (registered)
+        return;
+    registered = true;
+    WKPageSetScrollOffsetCallback(v.page, pageScrolled, nullptr);
+    WKPageSetBandCallback(v.page, bandPainted, nullptr);
     if (!mode().legacy)
-        WKPageSetUpdateCallback(E.page, pageUpdated, nullptr);
+        WKPageSetUpdateCallback(v.page, pageUpdated, nullptr);
 }
 
 // A caller that names no rectangle (a load finished, the window changed size): all of it.
-void schedulePaint()
+void schedulePaint(View& v)
 {
-    lzw_paint_resize(E.width, E.height);
-    lzw_paint_full();
-    requestPaint(nowUs());
+    v.sink->paintResize(v.width, v.height);
+    v.sink->paintFull();
+    requestPaint(v, nowUs());
 }
 
-void viewNeedsDisplay(WKViewRef, WKRect rect, const void*)
+void viewNeedsDisplay(WKViewRef, WKRect rect, const void* clientInfo)
 {
+    View& v = *viewOf(clientInfo);
+    PaintState& state = ps(v);
     // Without the update callback (the legacy path) this is the only notice of an update. With it, a
     // stray call between an offset message and its update must not relabel pixels that are older.
-    if (mode().legacy && E.page) {
-        paintedScroll = latestScroll;
-        paintedScroll.atBottom = WKPageIsPinnedToBottomSide(E.page);
+    if (mode().legacy && v.page) {
+        state.paintedScroll = state.latestScroll;
+        state.paintedScroll.atBottom = WKPageIsPinnedToBottomSide(v.page);
     }
     if (mode().legacy)
-        lzw_paint_full();
-    else
-    {
+        v.sink->paintFull();
+    else {
         const int x0 = static_cast<int>(floor(rect.origin.x)), y0 = static_cast<int>(floor(rect.origin.y));
         const int x1 = static_cast<int>(ceil(rect.origin.x + rect.size.width)), y1 = static_cast<int>(ceil(rect.origin.y + rect.size.height));
-        lzw_paint_rect(x0, y0, x1 - x0, y1 - y0);
+        v.sink->paintRect(x0, y0, x1 - x0, y1 - y0);
     }
-    noteReport(nowUs());
+    noteReport(v, nowUs());
 }
 
-void notePointer(bool wheel)
+void notePointer(View& v, bool wheel)
 {
+    PaintState& state = ps(v);
     const long long now = nowUs();
-    report(now);
+    report(v, now);
     if (!wheel) {
-        ++stats.mice;
+        ++state.stats.mice;
         return;
     }
-    ++stats.wheels;
-    if (!wheelTurnedUs || now - wheelTurnedUs > kWheelAnswerUs)
-        wheelTurnedUs = now;
+    ++state.stats.wheels;
+    if (!state.wheelTurnedUs || now - state.wheelTurnedUs > kWheelAnswerUs)
+        state.wheelTurnedUs = now;
 }
 
 // The page's process is gone: what both bitmaps hold is a page that no longer exists, and the next
 // paint, whenever the new process answers, starts from white.
-void invalidatePaint()
+void invalidatePaint(View& v)
 {
-    paint.width = 0;
-    paint.height = 0;
-    lzw_paint_full();
+    PaintState& state = ps(v);
+    state.paint.width = 0;
+    state.paint.height = 0;
+    v.sink->paintFull();
 }
 
 } // namespace webkitapp

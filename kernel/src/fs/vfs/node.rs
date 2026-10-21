@@ -41,6 +41,12 @@ impl Node {
         self.fs.read_node(self.id, offset, buf)
     }
 
+    /// Whether the processes running this file may share its pages
+    /// ([`Filesystem::image_shareable`]).
+    pub fn image_shareable(&self) -> bool {
+        self.fs.image_shareable()
+    }
+
     pub fn write(&self, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         if !self.writable {
             return Err(FsError::ReadOnly);

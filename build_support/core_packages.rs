@@ -101,9 +101,13 @@ pub const APPLETS: &[&str] = &["volume", "netstatus", "removable"];
 pub fn autostart_shorts() -> Vec<String> {
     println!("cargo:rerun-if-env-changed=LAZYOS_XUI_AUTOSTART");
     let mut shorts = parse_autostart(std::env::var("LAZYOS_XUI_AUTOSTART").ok().as_deref());
-    for applet in APPLETS {
-        if !shorts.iter().any(|short| short == applet) {
-            shorts.push((*applet).to_string());
+    // webd is resident and windowless: an image that ships it opens it with every session (in the
+    // background), whatever `LAZYOS_XUI_AUTOSTART` says, so its clients find the service.
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
+    let webd = std::env::var_os("LAZYOS_WEBD").is_some_and(|value| value == "1");
+    for resident in APPLETS.iter().chain(webd.then_some(&"webd")) {
+        if !shorts.iter().any(|short| short == resident) {
+            shorts.push((*resident).to_string());
         }
     }
     shorts
@@ -159,11 +163,14 @@ pub fn is_core_stem(stem: &str) -> bool {
         "lazyweb",
         // LazySky, only with `LAZYOS_LAZYSKY=1` (`lazysky_embed`).
         "lazysky",
-        // WebKit, the browser, only with `LAZYOS_WEBKIT=1` (`webkit_embed`).
-        "webkit",
         // LazyWeb+, LazyWeb's chrome on WebKit, only with `LAZYOS_LAZYWEBPLUS=1`
         // (`lazywebplus_embed`).
         "lazywebplus",
+        // webd, the daemon that serves WebKit views, only with `LAZYOS_WEBD=1`
+        // (`webd_embed`).
+        "webd",
+        // The demo client of webd, only with `LAZYOS_WEBD=1` (`webd_embed::CLIENT_PACKAGES`).
+        "webddemo",
         // Calculator: A basic calculator.
         "calc",
         // PDF Viewer: Read PDF documents.

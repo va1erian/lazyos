@@ -1,7 +1,13 @@
 # Plan: updating an installed LazyOS
 
-> **Status: draft proposal, revision 2 (2026-10-19).** Nothing here is built
-> beyond what "What exists" says. Revision 2 consolidates revision 1 (#565,
+> **Status: draft proposal, revision 3 (2026-10-21).** Nothing here is built
+> beyond what "What exists" says. **Revision 3 makes the whole OS (kernel,
+> low-level services, data, core apps) a set of versioned system packages,
+> managed with an apt/dnf-style `updatectl`** (decisions 16-27, the Package
+> track in "Phases"), while keeping revision 2's atomic release directories,
+> trial boots and fallback as the activation mechanism: packages for identity
+> and download, generations for switching and rollback (the ostree/Nix model,
+> not in-place apt). Revision 2 consolidated revision 1 (#565,
 > signed A/B partition slots for a whole-disk NVMe install) with the install
 > that actually exists: **LazyOS beside Linux, behind the distro's GRUB**
 > ([`installing-beside-linux.md`](installing-beside-linux.md), design in
@@ -65,7 +71,7 @@ Simple tab have the same *Software: Base / Full* choice. Write
 `target/lazyos-usb.img` to a USB stick ([`usb-stick.md`](usb-stick.md)).
 Before U1b, a full stick is the long list of flags that
 `python tools/run_demo.py --help` shows (`--lazyrad --pictures --lazyweb
---webkit --lazywebplus --mail --lazysky --games --doom --quake ...`).
+--lazywebplus --mail --lazysky --games --doom --quake ...`).
 
 ### 3. Install (today, plus U0 and U2 for the update-ready layout)
 
@@ -228,27 +234,83 @@ A running instance keeps running the old version; the next launch uses the
 new one. Double-clicking an `.lzp` in Files opens the Installer, which says
 "Upgrade 1.2.0 to 1.3.0".
 
+### 7. Everyday package commands (the Linux-like part)
+
+From revision 3 every file under `/system`, and the kernel, belongs to one
+**system package**, and `updatectl` is LazyOS's `apt`/`dnf`. Same habits, with
+one difference you will notice: changes are atomic generations, so an
+`upgrade` that goes wrong falls back by itself instead of leaving a
+half-upgraded system.
+
+| You want to | Debian/Fedora | LazyOS (`updatectl`) |
+|---|---|---|
+| refresh the index | `apt update` | `updatectl check` (fetches the signed snapshot index only) |
+| see what would change | `apt list --upgradable` | `updatectl list --upgradable` (names, versions, size to download, and what must restart) |
+| upgrade everything | `apt upgrade` | `updatectl upgrade`, then `updatectl restart` if it says a restart is needed |
+| add / remove software | `apt install foo` / `apt remove foo` | `updatectl install lazyos-golf` / `updatectl remove lazyos-golf` |
+| search and inspect | `apt search`, `apt show` | `updatectl search nes`, `updatectl show lazyos-netd` (version, dependencies, files, restart class) |
+| who owns this file | `dpkg -S /bin/ls` | `updatectl which /system/bin/netd` |
+| check installed files | `debsums`, `rpm -V` | `updatectl verify [pkg]` |
+| keep a version | `apt-mark hold` | `updatectl hold lazyos-netd` |
+| what needs a restart | `needrestart` | `updatectl needs-restart` (exact: each package declares it) |
+| history / undo | `dnf history`, `dnf history undo` | `updatectl history`, `updatectl rollback` |
+| apps (not system) | `flatpak install` | `pkgctl install foo.lzp` (unchanged; sandboxed) |
+
+```bash
+updatectl check
+```
+
+```bash
+updatectl list --upgradable
+```
+
+```bash
+updatectl upgrade
+```
+
+```bash
+updatectl needs-restart
+```
+
+`upgrade` downloads only the packages whose digest changed, stages them beside
+the running release, and says one of five things per package: **nothing to
+restart**, **applies at next launch**, **services restart now** (`netd`, `audiod`
+... restart with no reboot), **log out and in** (the desktop session), or
+**reboot** (kernel, `init`, `messengerd`, `confd`). A reboot-class update is
+the trial boot of steps 4-5; the others switch live and fall back the same
+way if the units do not come back healthy. You cannot install a random mix of
+base package versions (no "partial upgrade"): `install`, `remove` and `hold`
+produce a new snapshot of the same signed packages and check that it is
+consistent before anything is touched.
+
 ## Goal and scope
 
 Move an installed machine from release N to N+1 (kernel, core services, core
-apps, docs) from inside LazyOS, with one restart, and never leave it
+apps, docs) from inside LazyOS, with at most one restart, and never leave it
 unbootable: a power cut while staging, a bad download, a kernel that panics on
 this hardware or a desktop that never comes up all end with release N running
 again, on its own, with settings, apps and files intact. Update user-installed
-apps without a restart, with a way back.
+apps without a restart, with a way back. Make the software itself legible the
+way a Linux distribution is: every file has an owning package with a version
+and dependencies, an update downloads only what changed, and the cost of
+applying it (nothing, a service restart, a reboot) is known beforehand.
 
-**In:** signed release bundles; staging from a file, a stick, the release feed
-or a dev push; trial boots with automatic fallback; manual rollback;
-`updatectl`, `updated`, a Settings page; core-app reconcile in both
-directions; app rollback; the migration of existing installs; installing and updating
-the optional **full software suite** (every optional app, WebKit and games
-included), and moving between suites, with every script that builds an image
-or a bundle taking the same suite name.
+**In:** signed release snapshots made of system packages; staging from a file,
+a stick, the release feed or a dev push, by package; trial boots with automatic
+fallback; manual rollback; `updatectl`, `updated`, a Settings page; package
+queries (`list`, `show`, `which`, `verify`, `history`, `hold`,
+`needs-restart`); installing and removing optional packages; live activation of
+leaf packages; kernel-only updates under a syscall-ABI window; core-app
+reconcile in both directions; app rollback; the migration of existing installs;
+installing and updating the optional **full software suite** (every optional
+app, WebKit and games included) as a meta-package, and moving between suites,
+with every script that builds an image or a bundle taking the same suite name.
 
 **Out (for now):** updating the loader or the GRUB entry from inside LazyOS
 (a rare `lazyos-install update` from Linux does that, see "The ESP"), Secure
-Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
-`reload` stays a developer tool), Linux-side changes of any kind.
+Boot, firmware capsules, third-party *system* packages (only the project's key
+signs them; third parties ship sandboxed `.lzp` apps), a source/ports tree, a
+dependency solver with alternatives, Linux-side changes of any kind.
 
 ## What exists, what is missing
 
@@ -265,6 +327,13 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
 | Integrity | SHA-256 (`libs/crypto`); `ed25519-dalek` in `nettls-crypto`; netboot's Ed25519 manifest signing (`tools/netboot/`) | the same signature over the bundle manifest |
 | Health | `healthd` summary, `SHELL:DESKTOP:PASS` | a "this boot is good" decision |
 | Panic | `panic_screen` halts | reboot after 10 s on a trial boot |
+| System packages | none: `build.rs` and `build_support/*_embed.rs` place a flat file list from env switches; `/system/.image-manifest` is the only record, with no owner, version or dependency per file | one owner per file, per-package metadata, the image assembled *from* packages (decisions 16-17) |
+| Services | `init`'s `MANIFEST: &[ServiceSpec]` const (`user/src/bin/init/state.rs`) and `service_creds.rs`, compiled in | unit files shipped by each package, read from `/system/units` (decision 19) |
+| Compatibility contracts | MIDL is append-only within `.vN` with an interface hash checked at bind time (`docs/midl.md`, `docs/messenger.md` §11); no syscall ABI version; no state-schema versions | all three declared per package and checked before a snapshot is activated (decision 18) |
+| Libraries | everything is statically linked; drivers are user space; the kernel has no modules | build-closure metadata so "libcrypto changed" names the packages it rebuilds (decision 24) |
+| Reproducibility | core `.lzp` archives are reproducible (`tools/xui/core_packages.py`); binaries unverified | a CI check that two builds are bit-identical, otherwise package-level deltas do not exist (decision 24) |
+| Data shipped separately in a distro | CA bundle, fonts, docs, Wi-Fi firmware, wallpapers all inside the image | independent `none`-class packages (decision 17) |
+| Live service updates | `dbgd`'s `reload` (developer tool); `pkgd` for apps | a re-targetable `/system` mount plus unit restarts (decision 23) |
 
 ## Approaches considered
 
@@ -283,6 +352,17 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
    The weakness against A/B: one filesystem, so a corrupted volume takes all
    releases with it. That is the risk the ESP's rescue kernel and the stick
    (step 4c) cover.
+4. **Packages on top of release directories (revision 3). Chosen, together
+   with 3.** Distributions split three ways: in-place transactional packages
+   (apt, dnf: small downloads, `needrestart`, but partial upgrades, scripts run
+   as root on the live system and no free rollback), whole images (ChromeOS,
+   Flatcar: atomic, but one opaque blob), and functional generations (Nix,
+   ostree: atomic *and* per-component). LazyOS takes the third: packages carry
+   identity, versions, dependencies, signing, download and ownership; release
+   directories carry activation, trial and rollback. Two apt habits are
+   rejected on purpose: **no maintainer scripts** (what they do is data,
+   decision 21) and **no partial upgrades** (the unit of upgrade is a
+   snapshot, decision 20).
 
 ## Key decisions
 
@@ -367,10 +447,13 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
    fourth boot runs the previous good release, so GRUB's credit (decision 6)
    is one more than the tries: 4.
 
-   Every kernel carries its release id, built in, and mounts
-   `/releases/<own id>/system`. It does not trust `booted` for that, so the
-   rescue kernel, loaded when `bootctl` could not be read, still finds its
-   tree. A missing tree is a panic that names it. `booted` and `fell_back`
+   The kernel mounts `/releases/<id>/system`, where `<id>` is the `release=`
+   the loader passes in the boot info (revision 3, decision 22: a kernel file
+   shared by two releases is one hard-linked inode and so cannot embed a
+   release id). Only the **rescue kernel** carries a built-in id, the base
+   release it pins, so it still finds its tree when `bootctl` could not be
+   read. A missing tree is a panic that names it, as is a tree whose
+   `requires.kernel-abi` the kernel does not provide. `booted` and `fell_back`
    are what `init` and `updated` act on and what the kernel logs.
 6. **Coming back to LazyOS after a restart (GRUB).** GRUB's default stays
    the person's choice (usually Linux), so a plain reboot from LazyOS would
@@ -436,13 +519,16 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
    signature over the manifest's exact bytes with a key id. The netboot
    tools sign this way (`tools/netboot/`); U1 writes the byte format down
    once for the Rust verifier and the Python signer. The manifest
-   (`deny_unknown_fields`) names:
-   - the release and the channel;
+   (`deny_unknown_fields`) is the **snapshot** of decision 20 and names:
+   - the release, its sequence number and the channel;
    - the minimum release it may be installed over, and the layout version;
    - the loader it needs (`requires_loader`);
    - a `security_floor`;
    - an `expires` time for feed metadata;
-   - every file, with mode, owner, size and SHA-256.
+   - every package, with version, size and SHA-256 (revision 3). Each
+     package's own manifest lists its files with mode, owner, size and
+     SHA-256, so a bundle that carries the packages is still verified file by
+     file, and a package is trusted only through the signed snapshot.
 
    Trusted keys are `/system/etc/update/keys/*.pub` of the **running**
    release, so a release can rotate them for the next, and only through its
@@ -551,8 +637,12 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
     `lazyos-install` prints the recommendation and refuses less than one
     release plus 1 GiB. On a partition between the two, the install works and
     a later update may be refused with the numbers.
-14. **Software suites: one list, read by every script.** A *suite* is a
-    named set of the image's build switches (`docs/build-switches.md`).
+14. **Software suites: one list, read by every script.** *(Revision 3: the
+    list is also compiled into the meta-packages `lazyos-base`, `lazyos-full`
+    and one per option, so changing suite is `updatectl install`/`remove` of a
+    meta-package and an option's external data is a package whose payload is
+    external entries, decision 15. Everything below still holds.)* A *suite*
+    is a named set of the image's build switches (`docs/build-switches.md`).
     `tools/suites.toml` is the one definition, and `tools/suites.py` (pure,
     host-tested) reads it for `run_demo.py --suite`, the launcher and stick
     maker (`tools/lazygui/catalog.py`), `tools/update/build.py`, `preflight`
@@ -634,19 +724,274 @@ Boot, firmware capsules, hot-swapping a running service for users (`dbgd`'s
     per file before the first release that ships it; failing that, it uses
     external entries too.
 
+### Packages (revision 3)
+
+16. **Two package kinds, one container.**
+    - `.lzp` (exists): an *application*. Sandboxed label, permissions,
+      per-user visibility, installed by `pkgd` into `/apps`. Unchanged.
+    - `.lzs` (new): a *system package*. Lands in a release tree under
+      `/system` (or is the kernel), owns files by path, may carry units that
+      create services with uids and capabilities. Accepted **only** through a
+      snapshot signed by a key in `/system/etc/update/keys` (decision 8).
+
+    Both use `lazypkg`'s container rules (zip, no zip64, path checks, limits,
+    the reproducible writer). `.lzs` has its own manifest, `[package]`,
+    `deny_unknown_fields`, parsed by a new crate `libs/lzsys`. It is **not** a
+    variant of the app manifest: an app manifest compiles into a *restricting*
+    label, a system manifest compiles into *authority*, and the two parsers
+    must never share a path that could confuse them.
+
+    ```toml
+    [package]
+    name = "lazyos-netd"
+    version = "0.4.0-3"            # upstream version + packaging revision
+    kind = "service"               # kernel | boot | service | tool | data | meta | app
+    summary = "Network stack service"
+    activation = "restart-units"   # none | next-launch | restart-units | restart-session | reboot
+
+    [provides]
+    interfaces = ["os.lazy.net.v1"]
+
+    [requires]
+    kernel-abi = ">=3"
+    interfaces = ["os.lazy.confd.v1", "os.lazy.logd.v1", "os.lazy.net.nic.v1"]
+    packages = ["lazyos-confd >= 0.4"]      # only for what interfaces cannot say
+
+    [state]
+    owns = ["/conf/svc/netd", "sys/net/*"]
+    schema = 2                              # decision 25
+
+    [[unit]]
+    file = "units/netd.toml"                # decision 19
+    ```
+
+    The packager appends the `[[file]]` list (path, mode, owner, size,
+    SHA-256).
+17. **Taxonomy and granularity: about sixty packages, cut by who can break
+    whom and by restart cost.** A package is the largest set of files that
+    always change together and share a restart class.
+
+    | Kind | Examples | Activation |
+    |---|---|---|
+    | `kernel` | `lazyos-kernel` (one variant per feature set, e.g. `-trace`, never both installed) | `reboot` |
+    | `boot` | `lazyos-boot`: loader, rescue kernel, config ramdisk (the ESP files) | applied by `lazyos-install` from Linux only; in a snapshot as a *requirement*, not a payload |
+    | early `service` | `lazyos-init`, `-messengerd`, `-confd` (PID 1 and the `Once` units) | `reboot` |
+    | `service` | one per daemon with its client tool: `-logd`, `-keyd`, `-accountsd`, `-elevd`, `-pkgd` (+`pkgctl`), `-netd` (+`netctl`, `ping`...), `-audiod`+`-sndd`, `-usbd`, `-timed`... | `restart-units` |
+    | `tool` | BusyBox, `rhai`, `curl`/`wget`/`fetch`, `smb`, `dash`, `sqlite3`, `jq`, `rg`, the musl loader | `none` |
+    | `data` | `-ca-certificates`, `-fonts`, `-terminfo`, `-wallpapers`, `-samples`, `-docs`, `-firmware-rtw88` (with its licence file) | `none` |
+    | core `app` | `os.lazy.paint`, `os.lazy.writer`...: the payload is the existing reproducible `.lzp`, extracted by `pkgd` as today | `next-launch` |
+    | `meta` | `lazyos-base`, `lazyos-full`, `lazyos-opt-srb2kart` (decision 14): only `requires` | none |
+
+    A service and the command-line client that speaks its interface are one
+    package (they share the IDL version); a driver and the service that
+    supervises it are two. Splitting the early bootstrap set further is
+    pointless (all of it needs a reboot), and merging a leaf service into it
+    would charge a reboot for every network fix. `init` and `messengerd`
+    (`Once`: the kernel's bootstrap channel can be claimed once per boot)
+    cannot be restarted at all. `xuid` restarts the whole desktop, so its
+    class is `restart-session` and the UI says so.
+
+    **Activation classes** say what must happen for the new files to take
+    effect. `updated` takes the maximum over the changed packages and reports
+    it before the person commits (`needrestart`, but exact because the package
+    declares it):
+
+    | Class | Meaning | Mechanism |
+    |---|---|---|
+    | `none` | files are read on demand | stage and switch (decision 23) |
+    | `next-launch` | a program started per use or per login | stage and switch; running instances keep their inodes |
+    | `restart-units` | `init` restarts the listed units in dependency order | live switch, then `init` restarts them |
+    | `restart-session` | the desktop session | log out and in |
+    | `reboot` | kernel, `init`, `messengerd`, `confd`, any `Once` unit | the trial boot of decisions 5-7 |
+
+    A class that is too cheap is a bug the harness catches (phase P5).
+18. **Dependencies are contracts, and there are exactly five kinds.** LazyOS
+    has no shared libraries, so a package never breaks because another's
+    `.so` changed; the coupling is this short list, and it is what the
+    resolver checks:
+    1. **Syscall ABI** (`kernel-abi`). The kernel provides an integer and a
+       compatibility floor (`5, compat-from 3`). Syscalls are append-only,
+       never renumbered or retyped (as in Linux); a removal needs a
+       deprecation window of two snapshots. A user-space package declares the
+       highest ABI it uses and the lowest it runs on. The value lives in
+       `libs/lazyos-sys`, and a kernel test (`abi_freeze`) fails when a
+       syscall's number or argument layout differs from a checked-in table.
+       This is what lets the kernel update without rebuilding the world and
+       the world without a new kernel.
+    2. **Messenger interfaces** (`os.lazy.x.vN`), *derived, not hand-written*:
+       the packager reads which interfaces a binary serves and binds from the
+       generated code (`idl/manifest.json` is the index). A requirement is met
+       by the same `.vN` from a provider at least as new (append-only makes
+       newer providers compatible). **Settled by spike S1:** the interface id
+       checked at bind time is the FNV-1a hash of the `.vN` *name* only, so it
+       never changes on an append but also says nothing about shape; it cannot
+       be the compatibility test. The test is `tools/pkg/idl_compat.py`, a
+       schema diff between two IDL trees, run by CI against the previous
+       snapshot's tree.
+    3. **Boot protocol** (`requires_loader`), checked against the ESP.
+    4. **State schema** (decision 25).
+    5. **Named packages**, `>=` only, no upper bounds, no alternatives, no
+       conflicts beyond "a file has two owners", which is refused when the
+       snapshot is *built*. Used sparingly.
+
+    CI solves; the machine only **validates** a snapshot and the closure of a
+    local add or remove. The on-device resolver never searches, which keeps it
+    a few hundred fuzzable lines.
+19. **Services are units, not code.** `init`'s boot table becomes data. A
+    package's `units/<svc>.toml` carries what `ServiceSpec` and
+    `service_creds.rs` hold today, plus what is now implicit:
+
+    ```toml
+    [unit]
+    name = "netd"
+    exec = "/system/bin/netd"
+    args = ["demo=0"]
+    after = ["confd", "logd", "devd"]       # today's `deps`
+    restart = "on-failure"                  # always | on-failure | once
+    [identity]
+    user = "_net"                           # a system uid from a [[user]] fragment
+    capabilities = ["CAP_NET_ADMIN"]        # a closed list; anything else is refused at build
+    label = "svc:netd"
+    [state]
+    dirs = ["0750 _net /conf/svc/netd"]     # ensured by init before exec
+    ```
+
+    `/system/units` is in the read-only release, so a unit can only come from
+    a signed snapshot: that is the whole answer to "a package may create a
+    root-equivalent daemon". `init` reads the units at start (the rescue
+    kernel uses a compiled-in bootstrap list) and re-reads them on
+    `init.Reload` for live activation. System users and groups are `[[user]]`
+    fragments merged into the release's `passwd` view at assembly; human
+    accounts stay in `/accounts/db`, and a snapshot build refuses a uid that
+    collides with `libs/passwd`'s static numbering.
+20. **Snapshots are the unit of upgrade; the machine has a selection.** A
+    snapshot is decision 8's manifest: a signed, pre-solved, monotonically
+    sequenced set of package digests that CI tested together. Package files
+    are trusted only through it (Debian's `Release` to `Packages` to `.deb`
+    chain), so a mirror cannot substitute one.
+
+    The **selection** is kept in `/conf` (`sys/update/selection`):
+    `lazyos-base` or `lazyos-full`, options, holds, and extra or removed
+    names. The installed set is the closure of the selection in the newest
+    snapshot that satisfies it. `updatectl install lazyos-golf` builds a new
+    *local* snapshot (the same signed digests plus the addition, a local
+    sequence number, unsigned and composed only from digests a signed snapshot
+    already vouched for), validates it, then stages and trial-boots it like any
+    update. Consequences:
+    - **Delta by package.** `updated` fetches the small index, diffs it against
+      `/system/pkgdb`, downloads only packages whose digest changed, and still
+      hard-links unchanged files inside a changed package (decision 9). The
+      "file-level delta bundles" item of "Later" falls out of this.
+    - **An offline `.lzu`** is a snapshot plus the packages a machine might
+      lack; `updated` treats it as a read-only local repository.
+    - **Provenance.** `/system/pkgdb/<name>.toml` in every release records the
+      package's digest, files and originating snapshot, so `which`, `verify`
+      and `history` are plain reads of read-only data.
+    - **Holds** keep one package at its installed version; a snapshot that
+      cannot honour a hold is refused and the package that forces the move is
+      named.
+21. **Hooks are data, applied by the owner; there are no scriptlets.**
+
+    | Distro hook | Here |
+    |---|---|
+    | create system user or group | `[[user]]` fragment merged at release assembly |
+    | `systemd-tmpfiles` | a unit's `state.dirs`, ensured by `init` |
+    | enable and start a service | the unit exists, so it runs; `restart-units` restarts it |
+    | MIME and menu database | `pkgd` already replays app manifests to `mimed` at boot |
+    | font and certificate caches | the consumer rebuilds at start (`webfonts::register()`), or a `oneshot` unit under the package's own uid, idempotent |
+    | data migration | the owning service at start (decision 25) |
+    | kernel label and file policy | compiled from units and `[processes.*]` tables by `libs/pkgstore`'s code, loaded by `init` |
+22. **The kernel is a package that proves its ABI, and learns its release from
+    the loader.** A kernel shared by two snapshots is one file, so it cannot
+    embed a snapshot id: the loader passes `release=<id>`, the kernel mounts
+    that tree and checks its `requires.kernel-abi` against its own `provides`,
+    panicking with the names on a mismatch (decision 5). A kernel-only update
+    is then ordinary: a new `lazyos-kernel` whose `compat-from` still covers
+    every installed service is a one-package snapshot of class `reboot`.
+23. **Live switch: re-point `/system`, never mutate it.** The invariant that
+    `/system` is read-only (decision 2) is kept. For snapshots whose changed
+    packages are all at most `restart-units`, `updated` stages the new tree
+    beside the old one and asks the kernel to **re-target the `/system`
+    subtree mount** to it (`vfs_retarget`, one atomic pointer swap in
+    `SubtreeFs`, allowed to `_update` only). New lookups see the new tree; open
+    files and running programs keep their inodes (the old release stays until
+    pruned, which hard links make cheap). Then `init` restarts the affected
+    units in order. Rules:
+    - Allowed only when `kernel-abi` and `requires_loader` are unchanged.
+    - Until the restarts finish there is a *mixed-generation window* (new
+      `netd` against old `confd`); decision 18's rules are what make it safe,
+      and the harness runs it on purpose.
+    - Failure: `updated` swaps back and restarts the same units. `bootctl`
+      records the live release as `next` in the same trial states, so a reboot
+      at any point lands on a bootable release.
+    - It is the same mechanism as a rebooting update, minus the reboot.
+24. **Reproducible builds are a hard requirement.** If two builds of an
+    unchanged crate differ, every package changes every snapshot and deltas are
+    zero. So: the pinned toolchain (`rust-toolchain.toml`) in the official
+    build container, `--remap-path-prefix`, a fixed `SOURCE_DATE_EPOCH`, locked
+    dependencies, no timestamps or hostnames in binaries, no snapshot id inside
+    any package (decision 22), sorted archives (the writer already does this).
+    `tools/pkg/repro_check.py` builds twice from different directories at
+    different times and compares package digests; CI fails on a difference.
+    Developer builds on Windows are not expected to match; only the Linux
+    container's output is signed.
+
+    Static linking becomes an advantage: each package records its **build
+    closure** (resolved crate versions and the digests of the in-tree libs it
+    links), so "what does this security fix rebuild?" is a query and CI tests
+    only the affected packages.
+25. **A package that owns state promises to be readable one release back.**
+    Trial boots fall back, and the old release must still run on what the new
+    one touched. `/conf` is covered (decision 11). Everything else a service
+    owns outside it is not: `/accounts/db`, `/logs`, `keyd`'s sealed files,
+    `pkgd`'s records, `/home`. So each such package declares `[state] schema =
+    N` and obeys **expand/contract**: release N may write schema N+1 fields
+    only if N ignores them, and the first release that *requires* N+1 ships
+    only after N has been the oldest supported fallback for one snapshot. The
+    owner migrates itself at start, idempotently, before serving. A checked-in
+    golden of each state file, written by the previous snapshot's service, must
+    still load: a build failure otherwise.
+26. **`updated` and `updatectl` grow the package surface.** `idl/update.midl`
+    (decision 10) adds `ListPackages`, `Show`, `Which`, `Verify`, `History`,
+    `Install(packages)`, `Remove(packages)`, `Hold`, `NeedsRestart`;
+    `Install`, `Remove`, `Hold`, `Rollback` and `Restart` are `elevd` actions
+    (`update.install`, `update.remove`, ...) while reads need nothing.
+    `updatectl` is the system package manager of guide step 7; `pkgctl` stays
+    apps-only. Settings > Updates gains a *Software* page (packages, versions,
+    what an update changes and costs). AGENTS.md's launcher rule applies: a
+    build switch (`LAZYOS_PACKAGED=1`, later the default), a `run_demo.py` flag,
+    and the Advanced-tab control through `tools/lazygui/catalog.py` with
+    `test_catalog.py`.
+27. **Third parties and development.** Apps stay `.lzp`: `pkgctl`, sandboxed,
+    per user (U5 adds rollback and optional per-app feeds). A system package
+    from outside the project is refused; a user-controlled signing key for
+    system packages, if ever wanted, is a deliberate, loud, per-machine action
+    in the installer, not a setting. `cargo build` keeps producing the in-place
+    `dev` release (decision 1). On an image that trusts a dev key,
+    `updatectl install --dev ./netd.lzs` makes a local dev snapshot with that
+    package swapped, switches live and restarts the unit, and rolls back the
+    same way; it replaces and generalises `dbgctl reload` and `app-install`.
+
 ## Architecture
 
 ```
- release CI (or a dev host)
-   build ─► tree (kernel + system/) ─► manifest.toml (digests) ─► sign ─► lazyos-<id>.lzu
-           └─► feed.json per channel on GitHub Releases
+ source tree: each package has a package.toml (files, units, state, activation)
+   cargo (pinned toolchain, remapped paths) ─► tools/pkg/sys_build.py ─► lazyos-netd-0.4.0-3.lzs
+        derives provides/requires (idl/manifest.json, ABI table) and the build closure (Cargo.lock)
+
+ release CI: solve (every file owned once, ABI and IDL contracts, state goldens, repro_check)
+   ─► snapshot-0.4.0-17.json (package digests) ─► sign ─► repo/ per channel (HTTPS),
+                                                          or lazyos-<id>.lzu (snapshot + packages)
 
  updated (LazyOS)                      lazyos-install update (Linux)
    file │ feed │ push                    stick
      └──────────────┬─────────────────────┘
-          libs/lzupdate: verify signature ─► stage /releases/<id>.partial (link or extract)
+          libs/lzupdate: verify snapshot signature ─► diff vs /system/pkgdb ─► fetch changed .lzs only
+          ─► stage /releases/<id>.partial (link unchanged files, extract changed)
           ─► read back ─► rename ─► bootctl: next=<id> trial tries=3
-   updatectl restart ─► grubenv lazyos_boots=4 ─► init.Shutdown(reboot)
+   activation = max(class over changed packages)
+     reboot          ─► updatectl restart ─► grubenv lazyos_boots=4 ─► init.Shutdown(reboot)
+     restart-units / next-launch / none ─► vfs_retarget(/system) ─► init restarts units ─► health ─► good | swap back
 
  firmware ─► GRUB: grubenv says LazyOS ─► chainloader \EFI\lazyos\BOOTX64.EFI
  loader   ─► ext2 read of lazyos-system ─► bootctl rules ─► tries-1 written in place
@@ -707,12 +1052,122 @@ under 500 lines. The harness is `tools/update/run.py`, built on
 | **U3** `updated`, `updatectl`, Settings | `idl/update.midl`, the service, `_update` and its file policy, `elevd` actions `update.install`/`rollback`/`restart`, the `/conf` snapshot and restore in `init`, `pkgd` two-way core reconcile, Settings > Updates (file install, status, rollback, restart), the `UPDATE` trace channel, `updatectl` on the native execve list, `run_demo.py --update-dev-key` and its launcher control | harness: install N+1 from `/home`, restart, `UPDATE:GOOD`, `/system` is N+1, core apps upgraded, settings kept; kill QEMU mid-staging, N still boots and `updatectl status` explains; staging after an unclean stop works, pruning waits; rollback returns to N with core apps and `/conf` restored; account attack harness: the session cannot write `/releases` or call `Install` without the prompt; screenshot of the Settings page read |
 | **U4** Feed and push | the feed client (rustls, system CA bundle), channels, a daily check and a notification, `tools/update/push.py` and the `dbgd` path for the dev loop | a local HTTPS server under the test CA (as `tools/net/tls_run.py`): found, downloaded, installed, booted; truncated download, wrong digest, stale feed refused and explained |
 | **U5** Apps | `pkgd` keeps the previous version directory of an upgraded user app, `pkgctl rollback`, the Installer's "Upgrade x to y" text, an optional per-app feed in the manifest | `cargo test -p pkgstore`: upgrade, rollback, a power cut at every step; session: install 1.2, upgrade to 1.3 while it runs, relaunch, roll back |
-| **Later** | file-level delta bundles (only the files the target release lacks, made possible by U1's links), background download, an install-at-a-time setting, a watchdog on the box, a boot-time repair of an unclean volume, a Multiboot2 GRUB entry that loads the kernel from ext2 directly (grub-install-plan "Later") | as each lands |
+| **Later** | background download, an install-at-a-time setting, a watchdog on the box, a boot-time repair of an unclean volume, a Multiboot2 GRUB entry that loads the kernel from ext2 directly (grub-install-plan "Later") | as each lands |
 
 **Order on the box:** U2a first (one evening, it decides decision 6); U0
 and U2 together make the first `lazyos-install update` from Linux the last
 mandatory one; U1 and U3 give updates from a file
 with fallback; U1b gives the full suite and suite changes; U4 gives one click; U5 is independent and can go first.
+
+### Package track (revision 3)
+
+These phases make the units of U1-U4 packages instead of one tree. P0-P2 do not
+touch boot and run beside U0-U2; P3 joins them to U1/U3, so **U1's `lzupdate`
+and the bundle manifest are built package-aware from the start** (decision 8),
+not as a file-only version rewritten later. Standing rules as above: kernel work
+ships correctness and stress tests, libraries ship `cargo test` and seeded fuzz
+shared with `fuzz/`, new interfaces are `.midl`, paths come from `libs/fhs`,
+markers go through `trace` (a `PKG` channel), files stay under 500 lines.
+
+| Phase | Deliverable | Evidence |
+|---|---|---|
+| **P0** Inventory and contracts (no behaviour change) | a `package.toml` for everything in the image; every file of a built image maps to exactly one package (`tools/pkg/owners.py`); `kernel-abi` in `libs/lazyos-sys` and the frozen-syscall table; generated `provides`/`requires` from `idl/manifest.json`; the interface-hash finding settled (decision 18); `repro_check.py` and the list of what is not yet reproducible; build-closure extraction | `owners.py` fails on an unowned or doubly-owned file in the CI image; `abi_freeze` fails when a syscall changes; the repro diff list shrinks to empty for services and data (kernel last) in CI |
+| **P1** Format and assembled image | `libs/lzsys` (manifest, snapshot, validator, container via `lazypkg`), `tools/pkg/sys_build.py`; `os_compose` builds the image **from** `.lzs` files (`cargo build` still works: it runs the packager, and the `dev` release is assembled from the same packages); `/system/pkgdb`; `/system/.image-manifest` retired outright | `cargo test -p lzsys` and seeded fuzz (unknown field, path escape, zip64, setuid, doubly-owned file, bad closure); the assembled tree is byte-identical to today's for the same switches (host test over `osread tree`); `cargo test -p build-support-tests`; a boot and session show the same desktop |
+| **P2** Declarative services | `/system/units/*.toml`, `[[user]]` fragments, `state.dirs`; `init` reads units instead of `MANIFEST` and `service_creds`, with a compiled-in list for the rescue path only; unit validation (closed capability list, uid collisions, dependency cycles) at snapshot build | `cargo test -p svcpolicy` (units against the old table while both exist); `init` selftest; `tools/crash/run.py`, `tools/shutdown/run.py`, `tools/accounts/run.py` unchanged and green; a unit asking for an extra capability is refused by the build |
+| **P3** Packages in the update path (with U1/U3) | `updated` stages from a snapshot and fetches by package; `pkgdb` queries; `updatectl list|show|search|which|verify|history|install|remove|hold|needs-restart`; local snapshots; loader-supplied release id; the Software page | `cargo test -p lzupdate` (diff, hold, closure on add and remove, an unsatisfiable hold names the culprit); harness: an update with one changed package downloads only it; install and remove an optional package; a power cut at every staging write leaves the running release bootable; account attack harness: the session user cannot install or remove without the prompt |
+| **P4** Repository and data packages (with U4) | the feed serves snapshot and packages; CA bundle, fonts, docs, firmware and wallpapers ship as independent `none`-class packages, the first thing updated with no restart; `tools/update/push.py` pushes one package | local HTTPS repo under the test CA: a partial download resumes, a wrong digest and a stale snapshot are refused; a CA update changes `curl`'s result with no restart |
+| **P5** Live activation | `vfs_retarget` (kernel and `SubtreeFs`), `init.Reload` and unit restarts in dependency order, classes enforced, swap-back, `--dev` installs | kernel tests: retarget under open files, concurrent lookups, a 10^5-cycle retarget soak, `EROFS` everywhere else; harness: update `netd` and a driver during a download and audio playback, a mixed-generation window against a deliberately older `confd`, a forced failure swaps back, a too-cheap class is caught; the IDL conformance suite runs previous-snapshot clients against new providers and the reverse |
+| **P6** Kernel and boot packages (with U2) | kernel-only snapshots under the ABI window; `lazyos-boot` requirement check; the rescue-kernel pin; `lazyos-install update` stages loader and rescue kernel from the same snapshot | OVMF/GRUB harness: a new kernel with older services boots, a failing trial falls back; an ABI-incompatible pairing is refused by the build, by `updated` and by the kernel, in that order |
+| **P7** Retire the old paths | delete the in-place `os_update.rs` paths, the `LAZYOS_*_embed.rs` modules that duplicate package contents and the `MANIFEST` const; suites compile to meta-packages; launcher, CLI and GUI wiring finished; `docs/architecture/`, `build-switches.md`, `packages.md` and AGENTS.md rewritten (no aliases, no deprecation stage) | no reference to `.image-manifest` remains; `check_literals.py`, `check_file_length.py`, `check_adhoc.py --ratchet` green |
+
+#### P0 spike results (2026-10-21)
+
+Three questions the plan rested on, measured on the Windows dev host with the
+pinned nightly (`nightly-2026-09-25`). Scratch builds only; nothing in the
+image changed.
+
+**S1. Is the bind-time interface hash a compatibility check? No, and the IDL
+discipline is better than feared.** The id is `fnv1a64(name)`
+(`midlc_model.Interface.id`), so appending a method or field leaves it alone
+and removing one leaves it alone too. `tools/pkg/idl_compat.py` (new, with
+`test_idl_compat.py`) diffs two IDL trees for non-append-only changes
+(removed, retyped, moved or swapped fields, changed method ids, reordered
+enums, removed interfaces, changed topics and rings, an appended argument that
+carries a kernel object, which changes the request's object list). Run over all
+82 commits that touched `idl/*.midl` (3 minutes; 29 of them are in an older
+syntax today's `midlc` refuses and are skipped, so the result covers 53), it
+found **2 commits with a break inside one `.vN`**: the
+`Tick` method moving to a topic in `de4831856` and the `regd` to `confd` rename
+in `d7fa3864a`. Both are early renames, not drift in a live interface (a third
+hit, a topic wildcard renamed in `32d4be647`, is wire-compatible and no longer
+reported). Field
+ids are positional unless pinned, but every field in `idl/` is already pinned
+and `test_midlc_fields.py` fails on an unpinned one, so a reorder cannot
+renumber the wire unnoticed.
+
+**S2. Are builds reproducible? Yes for what was measured, with two leaks.**
+
+| Experiment | Result |
+|---|---|
+| 64 `user` binaries, release, rebuilt into a fresh target dir | all 64 bit-identical |
+| the same, from a second checkout at a different path, a minute later | all 64 bit-identical |
+| kernel, release profile, two checkouts at different paths | bit-identical (5.1 MB) |
+| kernel, default dev profile (`debug = line-tables-only`) | **differs**: debug info carries absolute checkout paths |
+| absolute paths left in the release kernel | 4: three `.cargo\registry\src\...` crate paths and the `.rustup` toolchain path (panic locations) |
+| release kernel with `--remap-path-prefix` for `.cargo` and `.rustup` | no absolute path left |
+
+So local crates already embed relative paths and nothing embeds a timestamp,
+which is the hard part. The leaks are the cargo and rustup homes (identical on
+one machine, different in a CI container, so official builds pin them or
+remap) and the dev kernel's debug info (dev builds are not signed anyway).
+Remapping needs `CARGO_ENCODED_RUSTFLAGS`, because setting `RUSTFLAGS`
+replaces `.cargo/config.toml`'s `--cfg aes_force_soft`. **Not measured, and
+still open for P0:** the static-musl xui apps and their Blitz/WebKit
+dependencies, the zig-built C programs (dash, sqlite3, jq, Doom, Quake),
+Docker-built WebKit, a Windows-versus-Linux comparison, and the core `.lzp`
+archives against their inputs. Builds are fast (all 64 services in 27 s, the
+kernel in 45 s), so a CI `repro_check.py` is cheap.
+
+**S3. Can every file be given one owner? The seam exists.** Every file of the
+image goes through one trait, `Sink::add_placed` (`build_support/os_image.rs`),
+called from about twenty producer modules (`*_embed.rs`, `drivers.rs`,
+`core_packages.rs`, `docs_embed.rs`, `samples_embed.rs`, ...). Today it is a
+`BTreeMap` insert where **a later entry for the same path silently replaces
+the earlier one**, so a double owner cannot be detected, and `/system/.image-manifest` is the
+only record. Wrapping the sink to tag each file with its producer gives the
+ownership table with no change to the producers, and those twenty modules are
+a natural first cut of the package list (a producer is a package or a group
+of them). The default console image has only 16 programs in `/system/bin`
+(`init`, `messengerd`, `keyd`, `logd`, `healthd`, `clipboardd`, test probes),
+217 doc files and a handful of data files; the full service set exists only
+in the services and desktop images. A package set is therefore a function of
+the build switches, which the snapshot build must enumerate per suite, not one
+fixed list.
+
+**Consequences for the phases.** P0's three open questions are answered, so
+P0 shrinks to the list below. Nothing found argues for changing the package
+model.
+
+**P0 status (2026-10-21).**
+
+| Item | State |
+|---|---|
+| IDL compatibility check | done: `tools/pkg/idl_compat.py` and tests, run by `midlc.yml` on pull requests against the base branch. It is informational (`continue-on-error`, with a job summary and a warning annotation): there is no release tag yet and an early deliberate break inside a `.vN` is still allowed. Making it a gate is removing one line once the first snapshot exists. It parses real MIDL text in its tests and covers swaps, moved fields, topics, rings and object-list changes |
+| Pin field ids | already true and already enforced (see S1); nothing to do |
+| Owner-tagging sink | done: `build_support/os_owners.rs`; `OsFiles::produced_by(name, ...)` scopes each producer in `build.rs`; `target/os-owners.tsv` lists `path<TAB>owner` on every build; a path placed by two producers is a warning, and `LAZYOS_OWNER_STRICT=1` makes it a build error. Strict is set in `image.yml` only, which builds the console and the services image; the other workflows and the desktop and optional-app images are not checked there. Tests: `build_support/tests/owners_tests.rs` (they do not read the variable). Measured locally on the console, services and two desktop images (231 to 317 files): no collisions. Inline `files.add_file(...)` lines in `build.rs` are owned by `build.rs` until P1 gives each service its own package |
+| `repro_check.py` | done: `tools/pkg/repro_check.py` and tests build a revision in two checkouts with different path lengths, with the cargo home, toolchain and checkout paths remapped, and compare. Result: 64/64 `user` programs and the kernel bit-identical. `repro.yml` runs it weekly, on dispatch and when the toolchain or the checker changes. Still unmeasured: musl xui apps, zig C programs, Docker WebKit, Linux versus Windows, core `.lzp` archives |
+| Official-build remap flags | the checker applies them; the official build script that signs a snapshot does not exist yet (P1) |
+| `kernel-abi` and the frozen-syscall table | done: `lazyos_sys::abi::{KERNEL_ABI, KERNEL_ABI_COMPAT_FROM}` (both 1) and `libs/lazyos-sys/abi/syscalls.abi`, 79 entries (35 native syscalls, 29 Messenger ops, 15 device ops). `tests/abi_freeze.rs` fails on a renumbered or renamed constant, on a new constant missing from the table, on a vanished entry without a `removed` mark, and when `KERNEL_ABI` is not the newest `since`/`removed` in the table. On pull requests `ci.yml` also compares the table with the base branch's (`LAZYOS_ABI_BASE`), so editing a line and its constant together, or adding a line without an ABI bump, fails too. The frozen scope is `nr`, `msg::op` and `dev::op`; the other ABI constants (`display` and `input` ops, credential ops and capabilities, the wait flags, `REGISTRY_TARGET_SELF`) are not frozen yet and join the table when P6 exports the version. It runs in CI with the rest of `lazyos-sys` and complements `kernel_tables.rs`, which ties the numbers to the kernel's dispatch. The kernel does not export the value at run time yet (P6) |
+| Package list and `owners.py` | done as a first cut: `packaging/packages.toml` lists 40 packages (the kernel and boot files included) by exact path, pattern or producer; `tools/pkg/owners.py` joins it with `target/os-owners.tsv` and fails on an unowned or ambiguous file; `image.yml` runs it on the console and the services image (and on changes to `packaging/` and `tools/pkg/`). Locally, the union of four image variants (326 files) is fully owned; the one unowned file it found (`pkgdemo.lzp`) is fixed. Optional-app producers that need external artifacts (WebKit, Doom, Quake, ...) are covered by producer only (and the desktop image by the listed bin paths and `/system/packages/*`), so files they place elsewhere would show as unowned in an image CI does not build. Per-package `package.toml` files next to the code, and splitting `lazyos-core-apps` and `lazyos-assets`, are P1 |
+
+P0 is done apart from the unmeasured reproducibility cases and the producers
+above, both of which only widen coverage of checks that already exist.
+
+**Package track order:** P0 first and alone, because it is where the plan can
+turn out wrong (interface hashes, reproducibility, the number of unowned
+files). Then P1 and P2 in parallel with U0-U2, P3 as U1/U3 land, P4 with U4
+(the first user-visible win), P5 optional for the first package-based release,
+then P6 and P7.
 
 ## Risks and open questions
 
@@ -749,9 +1204,43 @@ with fallback; U1b gives the full suite and suite changes; U4 gives one click; U
    box, and a boot-time repair, are "Later".
 9. **The size of `full`.** A `full` bundle is large (the WebKit programs
    alone are over 100 MB each) and the CI job that builds it is slow, which
-   is why it reuses the WebKit build volume and why file-level deltas, the
-   first item of "Later", matter most for this suite. A machine on a slow
-   link can stay on `base`.
+   is why it reuses the WebKit build volume and why package-level fetching
+   (decision 20) matters most for this suite. A machine on a slow link can
+   stay on `base`.
 10. **What belongs in `full`.** `tools/test_suites.py` makes every new app
     switch choose `full`, an option or test-only, so the suite cannot drift
     from the app list silently; the choice itself is a review question.
+
+Revision 3 adds:
+
+11. **Reproducibility may be expensive.** Rust embeds paths and sometimes
+    hashes, and the kernel is built through an artifact dependency. A package
+    that cannot be made bit-identical changes every snapshot and only it pays
+    (acceptable), but P0 must measure before deltas are promised.
+12. **Static linking and security fixes.** A fix in `libs/crypto` changes every
+    package linking it. Closure metadata and package fetching limit the
+    download, not the rebuild: a fix to a widely linked library is a large but
+    cheap-to-install snapshot.
+13. **Contract discipline.** Append-only MIDL and syscall rules exist; nothing
+    yet *tests* them across snapshots. P5's conformance run (previous clients
+    against new providers and the reverse, `idl/conformance`) is the test, and
+    a package whose class is cheaper than its changes allow is refused.
+14. **Mixed-generation windows** (P5) are the least-explored part: a wrong
+    restart order, a client that caches a binding across a provider restart.
+    Live activation stays opt-in per package until the conformance run is
+    clean, and `reboot` stays the safe default class. If it never gets there,
+    dropping P5 loses only the no-reboot updates; the package model, deltas,
+    `which`/`verify`, holds and rollback still pay for themselves.
+15. **State outside `/conf`.** Expand/contract (decision 25) is a convention.
+    The accounts database and `keyd`'s sealed files are the dangerous ones;
+    each gets a golden-file test before its package may be anything but
+    `reboot`.
+16. **Bootstrap set size.** If `init`, `messengerd` and `confd` grow, more
+    updates are `reboot`-class. `updatectl needs-restart` over the last N
+    snapshots shows how often each class was needed; the split is revisable.
+17. **Two manifest formats.** `.lzs` and `.lzp` share a container, not a schema
+    (decision 16); the cost is two parsers, the benefit is that no app can
+    ever be read as a system package.
+18. **Granularity is a guess.** About sixty packages is a starting point;
+    merging or splitting is a metadata change as long as P0's ownership check
+    stays green. "No file with two owners" is not negotiable.

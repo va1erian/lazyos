@@ -294,18 +294,18 @@ const DARK: Base = Base {
 };
 
 const LIGHT: Base = Base {
-    background: rgb(214, 220, 232),
-    window_bg: rgb(244, 246, 250),
-    title: rgb(150, 160, 190),
+    background: rgb(224, 219, 209),
+    window_bg: rgb(246, 244, 240),
+    title: rgb(166, 160, 148),
     text: DARK_TEXT,
-    border: rgb(120, 132, 168),
-    empty: rgb(232, 235, 242),
-    taskbar: rgb(196, 203, 220),
-    entry: rgb(170, 180, 205),
-    entry_min: rgb(186, 194, 214),
-    overlay_bg: rgb(238, 241, 248),
-    overlay_border: rgb(110, 124, 170),
-    overlay_text: rgb(24, 28, 40),
+    border: rgb(138, 130, 116),
+    empty: rgb(236, 233, 226),
+    taskbar: rgb(208, 202, 190),
+    entry: rgb(184, 177, 162),
+    entry_min: rgb(198, 192, 179),
+    overlay_bg: rgb(242, 239, 233),
+    overlay_border: rgb(128, 120, 104),
+    overlay_text: rgb(28, 26, 22),
 };
 
 /// Resolve `settings` into the palette `xuid` paints with.
@@ -456,7 +456,17 @@ mod tests {
         assert_eq!(text_on(0xC46E1E), DARK_TEXT);
         // Every preset and some saturated custom colours: the chosen ink is
         // never the lower-contrast one, and the presets meet WCAG AA (4.5:1).
-        for accent in [DEFAULT_ACCENT, 0x336699, 0xC46E1E, 0x6E46A0, 0xAA3232] {
+        // (The Settings accent presets, `xui-settings`' `ACCENTS`.)
+        for accent in [
+            DEFAULT_ACCENT,
+            0x336699,
+            0xC46E1E,
+            0x6E46A0,
+            0xAA3232,
+            0x1A6B70,
+            0xB03A78,
+            0x58607A,
+        ] {
             assert!(ratio(text_on(accent), accent) >= 4.5, "{accent:06x}");
         }
         for color in [

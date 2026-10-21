@@ -1,0 +1,74 @@
+name: webd
+
+# webd, the daemon that serves WebKit light views (docs/webd.md): the host tests of its three Rust crates
+# (the service with its quota, isolation and slot fuzz tests, the client, the real-Messenger host) and the
+# harness judge's self-test. The end-to-end run (`python tools/webd/run.py`) needs the WebKit build volume and
+# is run by hand, as LazyWeb+'s is.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "xui-app/crates/webd/**"
+      - "xui-app/crates/webd-client/**"
+      - "xui-app/webd/**"
+      - "xui-app/src/platform/webd.rs"
+      - "xui-app/src/bin/webddemo.rs"
+      - "xui-app/src/bin/webddemo/**"
+      - "idl/webd_light.midl"
+      - "tools/webd/**"
+      - ".github/workflows/webd.yml"
+  pull_request:
+    paths:
+      - "xui-app/crates/webd/**"
+      - "xui-app/crates/webd-client/**"
+      - "xui-app/webd/**"
+      - "xui-app/src/platform/webd.rs"
+      - "xui-app/src/bin/webddemo.rs"
+      - "xui-app/src/bin/webddemo/**"
+      - "idl/webd_light.midl"
+      - "tools/webd/**"
+      - ".github/workflows/webd.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: webd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: webd
+          workspaces: |
+            . -> target
+            xui-app -> target
+
+      - name: The service, the client and the host (quotas, isolation, slots, fuzz)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host
+          FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p xui-webd --release --test fuzz
+
+      # tkinter: lazygui's package __init__ imports the Tk UI even for the limits table run.py reads.
+      - name: Install tkinter
+        run: sudo apt-get install -y python3-tk
+
+      - name: The harness judge and its session
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/webd/test_judge.py
+          python tools/webd/session.py --check

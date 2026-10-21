@@ -300,6 +300,31 @@ impl Service {
             .map_err(|error| error.code)
     }
 
+    /// A oneway message (`flags::ONE_WAY`): input and slot returns that
+    /// have no answer. Never parks. A dead peer evicts the cached endpoint,
+    /// as for a call.
+    pub fn send_oneway(&self, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
+        let parcel = Parcel {
+            header: Header {
+                version: VERSION,
+                flags: libmessenger::flags::ONE_WAY,
+                interface_id: interface,
+                method,
+                txn_id: 0,
+                reply_to: 0,
+                deadline_ns: 0,
+            },
+            body,
+            objects: Vec::new(),
+        };
+        sys::msg_send(self.endpoint, &parcel).map_err(|code| {
+            if code == -errno::EPIPE || code == -errno::ENOENT {
+                forget(self.name);
+            }
+            code
+        })
+    }
+
     /// One call bounded by `deadline` (an absolute PIT tick; `0` waits
     /// forever).
     fn call_at(

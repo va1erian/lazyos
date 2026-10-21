@@ -1341,7 +1341,7 @@ source = "git+https://github.com/va1erian/lazyrad?rev=fbd3fc417b2fae0a56c15ae3fe
 dependencies = [
  "lazyrad-project",
  "thiserror",
- "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab)",
  "xui-core",
  "xui-form",
 ]
@@ -1363,7 +1363,7 @@ dependencies = [
  "thiserror",
  "toml 0.9.12+spec-1.1.0",
  "xui-canvas",
- "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6)",
+ "xui-code-editor 0.1.0 (git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab)",
  "xui-core",
  "xui-form",
 ]
@@ -3334,7 +3334,7 @@ dependencies = [
 [[package]]
 name = "xui-canvas"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "cosmic-text",
  "tiny-skia",
@@ -3353,7 +3353,7 @@ dependencies = [
 [[package]]
 name = "xui-code-editor"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "regex",
  "ropey",
@@ -3371,7 +3371,7 @@ dependencies = [
 [[package]]
 name = "xui-core"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
@@ -3407,7 +3407,7 @@ dependencies = [
 [[package]]
 name = "xui-icons"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "xui-core",
 ]
@@ -3450,7 +3450,7 @@ dependencies = [
 [[package]]
 name = "xui-rich-text"
 version = "0.1.0"
-source = "git+https://www.github.com/va1erian/xui?rev=93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6#93592fdc7540e3f3ba21cd01f05ed1d949c3b3f6"
+source = "git+https://www.github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d69251beeab#71dc3b5903ac94dba00466a6d6a00d69251beeab"
 dependencies = [
  "serde",
  "serde_json",

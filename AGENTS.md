@@ -638,6 +638,10 @@ python tools/webkit/run.py --accel auto # boot and judge
 python tools/webkit/test_judge.py
 ```
 
+ICU's data is cut before it is compiled in (30.8 MB to 9.9 MB, policy and proof in `tools/jsc/icudata.py` and
+`icudata_check.c`; a locale outside its list formats like English), and the WebKit programs are built without unwind
+tables, with lld `--icf=safe` and `-Os` for cold targets: `webkit/README.md`, "Size of the programs".
+
 ## The WebKit port (`LAZYOS_WEBKIT_PORT=1`: `WebProcess`, `NetworkProcess`, `webkit-smoke`)
 
 `webkit/` holds the LazyOS port of WebKit2 (W4): `port/tree` (the
@@ -670,39 +674,14 @@ python tools/webkit/test_port_judge.py
 rebuilds everything, and the build can fail half way): set `LAZYOS_JSC_VOLUME=<name>` for one of
 them (`webkit/README.md` says how to keep the caches).
 
-## The WebKit browser (`LAZYOS_WEBKIT=1`, `os.lazy.webkit`)
-
-W5 of the plan: WebKit in a desktop window. `webkit-app` is WebKit's UI process in C++ (`webkit/port/app/`:
-the run loop and the C API on the main thread) with the xui window as a Rust static library
-(`xui-app/crates/webkit`: chrome, page view, input forwarding, host-tested against a recording engine)
-on a second thread, joined by a C ABI (`webkit/port/app/lazyos_ui.h`: sixteen functions in W5, more for LazyWeb+ below). `python
-tools/webkit/app.py` builds the library on the host and links the program in the build container;
-`python tools/xui/build.py` packages it as a core package, and only a `LAZYOS_WEBKIT=1` image
-(`run_demo.py --webkit`, the launcher's WebKit group; needs the desktop and the network stack, a 1 GiB OS
-volume, 4 GiB of RAM and an 8G user memory quota, which the launchers set) ships it with `WebProcess` and `NetworkProcess` in `/system/bin`. LazyWeb stays
-the shipped browser. `python tools/webkit/app_run.py` builds the image, serves LazyWeb's stand-in sites
-from the host (plus script, link and form pages), drives the window (addresses, a link, a form, the wheel,
-Back) and judges the markers (`WEBKIT:W5:*`), the host's request log and the page area of each screenshot
-(`tools/webkit/test_app_judge.py` is the judge's self-test; `--label-trace` lists the package's
-`LABEL:DENY` lines; every run recreates the OS volume, `LAZYOS_RESET_OS=1`). The browser's engine processes are sandboxed (#836: `docs/architecture/process-sandbox.md`, `python tools/webkit/attack_run.py --kernel`), and it prints
-the markers that name a page only in a `LAZYOS_UI_PROBE=1` image. `xui-app/crates/webkit` is GPL-3.0-or-later around LGPL-2.1 WebKit and Apache-2.0
-OpenSSL: never link any of it into LazyWeb. See [`webkit/README.md`](webkit/README.md) and
-[`docs/webkit-port-plan.md`](docs/webkit-port-plan.md) §5 W5.
-
-```bash
-python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
-python tools/xui/build.py                                                                  # the package
-python tools/webkit/app_run.py --accel auto                                                # boot and judge
-python tools/webkit/test_app_judge.py && cargo test --manifest-path xui-app/Cargo.toml -p xui-webkit
-```
-
 ## LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, `os.lazy.lazywebplus`)
 
 LazyWeb's browser window on the WebKit engine ([`docs/lazywebplus.md`](docs/lazywebplus.md), issue #835; W6 of
-the plan). The same C++ UI process as `webkit-app` (`webkit/port/app/`) with a different Rust window:
+the plan). WebKit's UI process in C++ (`webkit/port/app/`: the run loop and the C API on the main thread)
+with a Rust window on a second thread, joined by a C ABI (`webkit/port/app/lazyos_ui.h`):
 `xui-app/webplus` (`xui-webplus`: LazyWeb's menu bar, toolbar, status bar, history, downloads, internal
-pages and hand-offs, driving WebKit through the `xui-webkit` seam, `xui-app/crates/webkit`, which both
-windows share) linked by `python tools/webkit/app.py --plus` into `lazywebplus-app`. The seam's C ABI grew
+pages and hand-offs, driving WebKit through the `xui-webkit` seam, `xui-app/crates/webkit`: engine trait, mailbox,
+page view, host-tested against a recording engine) built on the host and linked by `python tools/webkit/app.py` into `lazywebplus-app`. The seam's C ABI grew
 (`webkit/port/app/lazyos_ui.h`, table in [`webkit/README.md`](webkit/README.md)) by a navigation policy
 (`policy.rs`: **a page's script can never start another program or run a browser command: only a user
 gesture can**), downloads to `$HOME/Downloads` through `.part` files, JavaScript dialogs drawn as xui
@@ -711,7 +690,7 @@ cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplu
 tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
 and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
 `mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
-`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed like W5's (`[processes.*]` tables in the manifest, the network
+`deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed (#836: `docs/architecture/process-sandbox.md`; `[processes.*]` tables in the manifest, the network
 process also writing `$HOME/Downloads`; attack them with `python tools/webkit/attack_run.py --browser --app
 lazywebplus`). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
 otherwise). The window crates are declared `GPL-2.0-only
@@ -731,7 +710,8 @@ notification service is made from WebKit's main thread (`lzw_engine_run_on_main`
 thread other than the process's first. `python tools/webplus/notify_run.py` is its harness.
 
 ```bash
-python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py --plus   # Docker
+python tools/webkit/deps.py && python tools/webkit/port.py && python tools/webkit/app.py   # Docker
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # the engine's views, headless, in the container
 python tools/xui/build.py                                                                         # the package
 python tools/webplus/run.py --accel auto                                                          # boot four times, judge
 python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
@@ -757,6 +737,37 @@ python tools/webplus/test_blocker_judge.py                         # the harness
 The web harnesses bind host ports 80/81/443, and Windows lets a second process bind a port that is already
 listening: two harness runs at once (two agents) silently corrupt each other (certificate errors, an empty
 request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a run.
+
+## webd (`LAZYOS_WEBD=1`, `os.lazy.webd`)
+
+`webd` is the per-session daemon that owns WebKit and serves **light views** to other apps over Messenger
+([`docs/webd.md`](docs/webd.md), plan [`docs/webd-plan.md`](docs/webd-plan.md), P2): an app hands it HTML
+(`LoadHtml`) and gets pixels back in shared slots; a light view has no network, no storage, locked navigation
+and scripts off unless asked. The interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
+portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-memory fabric), the engine half
+`webkit/port/webd/abi.cpp` over `webd_abi.h` (`webd-abi-test`), and the program `webd-app` joins them:
+`webkit/port/webd/main.cpp` (WebKit's run loop on a thread of its own; **the first thread runs the service**,
+because `init` and the shell know an app by its first thread) with the Rust static library `xui-app/webd`
+(the real Messenger binding, an `eventfd` doorbell, the lifecycle line, a watchdog on WebKit's main thread, the
+`WEBD:*` markers). The package `xui-app/packages/webd` is resident and opens with every session of a
+`LAZYOS_WEBD=1` image (desktop, big-app profile, 1 GiB OS volume; no network stack: `run_demo.py --webd`, the
+launcher's Advanced tab). `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
+LazyWeb+ (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
+
+```bash
+python tools/webkit/deps.py && python tools/webkit/port.py          # Docker, once
+python tools/webkit/webd.py                                           # libxui_webd_host.a on the host, the link in Docker -> target/xui/xui-webd.elf
+python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views webd-abi-test --run-views --run-webd   # the engine suites
+cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-host    # service and host (pure parts), no Docker
+cargo test -p build-support-tests                                     # webd_tests: the switch's requirements
+python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/webd \
+    --script tools/screenshot/examples/webd_selftest.json            # the built-in client (Reopen "/selftest"); LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+```
+
+Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
+`VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
+`SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
+`webd` is in `tools/suites.toml`'s `test_only` until Mail and Docs use it (docs/webd-plan.md P3).
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 

@@ -72,6 +72,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
 | [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
 | [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
+| [`sys::webd_light`](#syswebd_light) | `os.lazy.webd.light.v1` |
 | [`sys::net_wifi_hw`](#sysnet_wifi_hw) | `os.lazy.net.wifi.hw.v1` |
 | [`sys::net_wifi`](#sysnet_wifi) | `os.lazy.net.wifi.v1` |
 
@@ -944,6 +945,38 @@ What the shell sends an app about its item: oneway methods on the channel
 | `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
 | `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
+
+## `sys::webd_light`
+
+Interface `os.lazy.webd.light.v1`, source [`webd_light.rhai`](webd_light.rhai).
+
+webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app
+
+| Function | IDL | About |
+|---|---|---|
+| `destroy_view(view)` | `DestroyView(view: U64) -> ()` | End the view, its page and its event endpoint. Slots the app still |
+| `release_slot(view, slot)` | `ReleaseSlot(view: U64, slot: U32) -> () oneway` | The app is done reading `slot`; webd may paint into it again. A slot |
+| `resize(view, width, height)` | `Resize(view: U64, width: U32, height: U32) -> ()` | Change the view's size. Every slot is detached (attach new ones of the |
+| `set_visible(view, visible)` | `SetVisible(view: U64, visible: Bool) -> () oneway` | A view that is not visible gets no paints (its page still runs). |
+| `refresh(view)` | `Refresh(view: U64) -> () oneway` | Ask for a whole frame (the app lost or discarded its picture). |
+| `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as the display protocol delivers it, in view pixels. `kind` is a |
+| `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` | A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. |
+| `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` | A key edge: `keysym` is the X11 keysym the display protocol carries, |
+| `focus(view, focused)` | `Focus(view: U64, focused: Bool) -> () oneway` | The view gained or lost keyboard focus. |
+| `frame(view, slot, seq, width, height)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> () oneway` | Event: slot `slot` of `view` holds frame number `seq` (counting from 1) |
+| `state(view, title, loading, finished, error)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String) -> () oneway` | Event: what the page says about itself. `loading` while a load is in |
+| `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled to `(x, y)` in document pixels; `at_bottom` |
+| `link_clicked(view, url)` | `LinkClicked(view: U64, url: String) -> () oneway` | Event: a link was clicked, a form submitted or a meta refresh fired, |
+| `clipboard_write(view, text)` | `ClipboardWrite(view: U64, text: String) -> () oneway` | Event: the user copied `text` out of the page. |
+| `view_lost(view, reason)` | `ViewLost(view: U64, reason: U32) -> () oneway` | Event: the view cannot go on (`reason` is a `LostReason`). The id stays |
+| `ping()` | `Ping() -> () oneway` | Event: liveness probe, about once a second; nothing to answer. `EPIPE` |
+| `new_light_config()` | struct `LightConfig` | a `LightConfig` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `CreateView`, `AttachSlot`, `LoadHtml`.
+
+- `COLOR_SCHEME` = the `ColorScheme` variants; `COLOR_SCHEME_AUTO`, `COLOR_SCHEME_DARK`
+- `MOUSE_KIND` = the `MouseKind` variants; `MOUSE_KIND_MOVE`, `MOUSE_KIND_PRESS`, `MOUSE_KIND_RELEASE`
+- `LOST_REASON` = the `LostReason` variants; `LOST_REASON_UNKNOWN`, `LOST_REASON_REFUSED`, `LOST_REASON_CRASHED`, `LOST_REASON_OUT_OF_MEMORY`, `LOST_REASON_OTHER`
 
 ## `sys::net_wifi_hw`
 

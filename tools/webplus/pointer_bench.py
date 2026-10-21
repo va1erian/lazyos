@@ -44,7 +44,7 @@ IMAGE = ROOT / "target" / "lazyos.img"
 URL = "https://arstechnica.com/"
 PROFILE = "~/.apps/os.lazy.lazywebplus"
 STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS",
-         "LAZYOS_WEBKIT", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS")
+         "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS")
 #: A real mouse reports at 200 Hz: one PS/2 packet every 5 ms.
 PACKET_DELAY = 0.005
 #: Packets per sweep (about 12 s at 200 Hz, a little more with QMP's own time).

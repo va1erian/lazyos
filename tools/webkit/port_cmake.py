@@ -26,11 +26,13 @@ BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
 OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
-           "webkit-app": "webkit-app", "lazywebplus-app": "lazywebplus-app"}
-#: The windows' static libraries (``tools/webkit/app.py`` builds them on the host); with one the
-#: ``webkit-app`` or ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
-UI_LIBRARY = wkpins.OUT / "lib" / "libxui_webkit.a"
+           "lazywebplus-app": "lazywebplus-app", "webkit-views": "webkit-views",
+           "webd-abi-test": "webd-abi-test", "webd-app": "webd-app"}
+#: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
+#: ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
 PLUS_LIBRARY = wkpins.OUT / "lib" / "libxui_webplus.a"
+#: webd's service, the same way (``tools/webkit/webd.py``): with it the ``webd-app`` target exists.
+WEBD_LIBRARY = wkpins.OUT / "lib" / "libxui_webd_host.a"
 #: Static archives of the bundle, in an order a single-pass linker would accept
 #: (every archive after the ones that use it). lld does not need the order.
 STATIC_LIBRARIES = [
@@ -42,6 +44,21 @@ STATIC_LIBRARIES = [
 ]
 
 
+#: WebKit is built -fno-exceptions and the programs never unwind (no backtrace, no catch), so the
+#: unwind tables are dead weight: `.eh_frame`, its index and `.gcc_except_table` were 8.2 MB of
+#: every 107 MiB program. (The bundle's libraries keep theirs: about 1.5 MB.)
+NO_UNWIND = ["-fno-asynchronous-unwind-tables", "-fno-unwind-tables"]
+#: lld folds functions and constants that are byte for byte the same, never one whose address
+#: is taken (`-faddrsig`): 5.3 MB of NetworkProcess. (It warns for the three objects of the
+#: bundle whose address-significance table objcopy damaged, and leaves those unfolded.)
+#: zig's driver cannot pass `--icf`: the `zc++` wrapper links twice when this is set (toolenv.icf_wrapper).
+LINK_ENV = {"LAZYOS_LINK_ICF": "1"}
+
+
+def size_flags() -> str:
+    return " ".join(NO_UNWIND)
+
+
 def simd_flags() -> str:
     """simdutf's AVX paths need `evex512` and LazyOS enables no AVX state (tools/jsc/webkit.py)."""
     return " ".join(f"-DSIMDUTF_IMPLEMENTATION_{n}=0" for n in ("ICELAKE", "HASWELL", "WESTMERE"))
@@ -51,11 +68,10 @@ def options() -> dict[str, str]:
     wrap = toolenv.wrappers()
     flags = " ".join(toolenv.CODEGEN)
     libs = ";".join(str(PREFIX / "lib" / name) for name in STATIC_LIBRARIES)
-    window = {"LAZYOS_UI_LIBRARY": str(UI_LIBRARY)} if UI_LIBRARY.is_file() else {}
-    if PLUS_LIBRARY.is_file():
-        window["LAZYOS_PLUS_LIBRARY"] = str(PLUS_LIBRARY)
+    window = {"LAZYOS_PLUS_LIBRARY": str(PLUS_LIBRARY)} if PLUS_LIBRARY.is_file() else {}
+    service = {"LAZYOS_WEBD_LIBRARY": str(WEBD_LIBRARY)} if WEBD_LIBRARY.is_file() else {}
     return {
-        **window,
+        **window, **service,
         "PORT": "LazyOS", "CMAKE_BUILD_TYPE": "Release", "DEVELOPER_MODE": "OFF",
         "ENABLE_TOOLS": "OFF", "ENABLE_MINIBROWSER": "OFF", "USE_HEADER_MAPS": "OFF",
         # The Notifications API (docs/lazywebplus.md): on, explicitly, so a build tree configured
@@ -66,7 +82,7 @@ def options() -> dict[str, str]:
         "ENABLE_CONTENT_EXTENSIONS": "ON",
         "CMAKE_C_COMPILER": wrap["zcc"], "CMAKE_CXX_COMPILER": wrap["zc++"],
         "CMAKE_AR": wrap["zar"], "CMAKE_RANLIB": wrap["zranlib"],
-        "CMAKE_C_FLAGS": flags, "CMAKE_CXX_FLAGS": f"{flags} {simd_flags()} -std=c++2b",
+        "CMAKE_C_FLAGS": f"{flags} {size_flags()}", "CMAKE_CXX_FLAGS": f"{flags} {size_flags()} {simd_flags()} -std=c++2b",
         "CMAKE_C_FLAGS_RELEASE": "-DNDEBUG", "CMAKE_CXX_FLAGS_RELEASE": "-DNDEBUG",
         "CMAKE_EXE_LINKER_FLAGS": " ".join(toolenv.LINK),
         "ICU_ROOT": str(PREFIX), "CMAKE_PREFIX_PATH": str(PREFIX),
@@ -107,7 +123,7 @@ def build(tree: Path, jobs: int, targets: list[str]) -> dict[str, str]:
         wkpins.log("linking again with the fixed allocator: " + ", ".join(old))
     began = time.monotonic()
     run(["ninja", "-C", str(BUILD), f"-j{jobs}", "-k", "0", *targets], BUILD, "webkit port build",
-        env=buildkit.pkg_env())
+        env={**buildkit.pkg_env(), **LINK_ENV})
     wkpins.log(f"ninja finished in {time.monotonic() - began:.0f} s")
     zigfix.mark(record, targets)
     return collect(targets)
@@ -238,6 +254,74 @@ def host_reference() -> bool:
                          + done.stdout[-1500:] + done.stderr[-500:])
     REFERENCE.write_text(done.stdout)
     wkpins.log("host reference run passed")
+    return True
+
+
+def run_views() -> bool:
+    """Run ``webkit-views`` (``webkit/port/views``, docs/webd-plan.md P1) on the build host: the engine's
+    views without a window, once with one light view, three times with two views (of different profiles, of none, of the same one),
+    and twice making and destroying twelve views in turn (after they painted, and at once).
+    Each run prints ``VIEWS:`` lines (the engine processes it launched among them) and ends with
+    ``VIEWS:PASS``; a run that does not is a ``BuildError``. Only in the build container, like
+    ``host_reference``; False when it did not run."""
+    import subprocess
+    import tempfile
+    if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
+        wkpins.log("not in the build container: webkit-views did not run")
+        return False
+    install_host_layout()
+    if not (HOST_BIN / "webkit-views").is_file():
+        raise BuildError("webkit-views is not built (python tools/webkit/port.py --only webkit-views)")
+    wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
+    for mode in ("light", "twoeph", "two", "share", "group", "groupprof", "groupmix", "cycle", "rush"):
+        with tempfile.TemporaryDirectory(prefix="webkit-views-", dir=wkpins.jsc_pins.WORK,
+                                         ignore_cleanup_errors=True) as scratch:
+            try:
+                done = subprocess.run([str(HOST_BIN / "webkit-views"), mode], capture_output=True, text=True,
+                                      timeout=300, cwd=scratch, env=smoke_environment())
+            except subprocess.TimeoutExpired as error:
+                raise BuildError(f"webkit-views {mode} timed out after 300 s:\n" + _tail(error.stdout)) from error
+        lines = [line for line in done.stdout.splitlines() if line.startswith("VIEWS:")]
+        wkpins.log(f"webkit-views {mode}:\n" + "\n".join(lines))
+        if done.returncode != 0 or "VIEWS:PASS" not in done.stdout:
+            raise BuildError(f"webkit-views {mode} failed (exit {done.returncode}):\n"
+                             + done.stdout[-2500:] + done.stderr[-500:])
+    return True
+
+
+#: The modes of ``webd-abi-test`` (webkit/port/webd/test): each runs in a process of its own.
+WEBD_MODES = ("html", "script", "config", "lock", "network", "many", "lost", "cycle")
+
+
+def run_webd(modes: list[str] | None = None) -> bool:
+    """Run ``webd-abi-test`` (``webkit/port/webd``, docs/webd-plan.md P2 slice 1) on the build host: the
+    engine's half of webd driven through ``webd_abi.h`` by a program that plays the service, one mode per
+    process (all of them, or the `modes` named). Each prints ``WEBD:`` lines and ends with
+    ``WEBD:<mode>:PASS``; a mode that does not is a ``BuildError``. Only in the build container, like ``run_views``; False when it did not run."""
+    import subprocess
+    import tempfile
+    if os.environ.get("LAZYOS_JSC_IN_CONTAINER") != "1":
+        wkpins.log("not in the build container: webd-abi-test did not run")
+        return False
+    install_host_layout()
+    if not (HOST_BIN / "webd-abi-test").is_file():
+        raise BuildError("webd-abi-test is not built (python tools/webkit/port.py --only webd-abi-test)")
+    wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
+    for mode in modes or WEBD_MODES:
+        if mode not in WEBD_MODES:
+            raise BuildError(f"webd-abi-test has no mode {mode} (modes: {', '.join(WEBD_MODES)})")
+        with tempfile.TemporaryDirectory(prefix="webd-abi-", dir=wkpins.jsc_pins.WORK,
+                                         ignore_cleanup_errors=True) as scratch:
+            try:
+                done = subprocess.run([str(HOST_BIN / "webd-abi-test"), mode], capture_output=True, text=True,
+                                      timeout=400, cwd=scratch, env=smoke_environment())
+            except subprocess.TimeoutExpired as error:
+                raise BuildError(f"webd-abi-test {mode} timed out after 400 s:\n" + _tail(error.stdout)) from error
+        lines = [line for line in done.stdout.splitlines() if line.startswith("WEBD:")]
+        wkpins.log(f"webd-abi-test {mode}:\n" + "\n".join(lines))
+        if done.returncode != 0 or f"WEBD:{mode}:PASS" not in done.stdout:
+            raise BuildError(f"webd-abi-test {mode} failed (exit {done.returncode}):\n"
+                             + done.stdout[-3000:] + done.stderr[-500:])
     return True
 
 

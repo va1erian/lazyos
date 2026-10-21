@@ -52,10 +52,6 @@ SIMPLE_GROUPS = (
     ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
                    "(turns Networking on).",
      ("lazyweb", "mail", "lazysky")),
-    ("webkit", "WebKit", "The WebKit browser, a port of the real engine: three programs of about "
-                         "108 MB, 4 GiB of RAM and a 1 GiB OS volume (1.5 GiB with SRB2Kart); builds in Docker (turns "
-                         "Networking on).",
-     ("webkit",)),
     ("devtools", "Developer tools", "The Messenger Playground: browse Messenger APIs and topics and script "
                                     "them in Rhai. A developer tool runs with your own authority, like "
                                     "the Terminal; builds the rhai command it runs scripts with (Desktop only).",
@@ -127,7 +123,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
-                  srb2kart: bool = False, webkit: bool = False,
+                  srb2kart: bool = False,
                   lazywebplus: bool = False, games: bool = False, devtools: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
@@ -156,8 +152,8 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
-    ``net``); ``webkit`` the WebKit browser (Desktop only, docs/webkit-port-plan.md; it implies
-    ``net`` and the big-app profile); ``lazywebplus`` LazyWeb+, LazyWeb's browser on WebKit (the same).
+    ``net``); ``lazywebplus`` LazyWeb+, LazyWeb's browser on WebKit (Desktop only, docs/lazywebplus.md; it
+    implies ``net`` and the big-app profile).
     Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
     decided here so stale Advanced checkboxes cannot leak into a Simple boot.
@@ -172,7 +168,6 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     desktop = interface == "Desktop"
     lazyweb = desktop and lazyweb
     lazysky = desktop and lazysky
-    webkit = desktop and webkit
     lazywebplus = desktop and lazywebplus
     # LazyWeb+'s ad blocker updates its lists with `curl` (issue #845).
     tls = tls or lazyweb or lazywebplus or (desktop and mail)
@@ -210,7 +205,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or wifi or lazysky or webkit or lazywebplus,
+        "net": net or tls or wifi or lazysky or lazywebplus,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
@@ -222,7 +217,6 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "journal": False,
         "lazyweb": lazyweb,
         "lazysky": lazysky,
-        "webkit": webkit,
         "lazywebplus": lazywebplus,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "games": desktop and games,

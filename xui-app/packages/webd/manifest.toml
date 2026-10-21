@@ -1,0 +1,78 @@
+# webd: a core LazyOS app, packaged by `tools/xui/core_packages.py` (docs/webd.md, docs/webd-plan.md).
+#
+# The daemon that owns WebKit for a login session and serves it to other apps: an app that only needs
+# WebKit's HTML/CSS/layout/font engine (a mail reader, a document viewer) asks webd for a LIGHT view,
+# hands it the page's HTML and gets the pixels back in shared memory. One static program (`webd-app`,
+# about 75 MB: ICU's data is inside, and LazyOS loads a program whole into RAM) that starts
+# `/system/bin/webprocess` and `/system/bin/networkprocess`, which a `LAZYOS_WEBD=1` image ships beside
+# it. The build copies the built program (`target/xui/xui-webd.elf`, from `python tools/webkit/webd.py`)
+# into a scratch copy of this tree; `version` is replaced by the workspace version and `autostart` is
+# set from `LAZYOS_XUI_AUTOSTART` (an image with `LAZYOS_WEBD=1` opens it with every session in any
+# case). Only a desktop image ships it (`LAZYOS_WEBD=1`, `python tools/run_demo.py --webd`).
+#
+# It is resident (docs/tray-plan.md section 5): it has no window, runs once per session, has a tray
+# icon the shell draws for it, and ends when `init` says Quit. The program links WebKit (LGPL-2.1) and
+# OpenSSL (Apache-2.0, through WebKit's curl), so it is GPL-3.0-or-later (docs/webd-plan.md section 10).
+
+[app]
+name = "Web Engine"
+system_name = "os.lazy.webd"
+author = "LazyOS"
+version = "0.1.0"
+description = "Draws formatted text and pictures for other apps with WebKit, the engine of Safari. An app gives it a page of HTML and gets the pixels back; the pages it draws have no network, no scripts unless the app asks, and no access to your files. Its page processes are sandboxed: they read only fonts and have no network. It keeps its rule store in its own folder (.apps/os.lazy.webd)"
+category = "system"
+
+[entry]
+binary = "bin/webd.elf"
+# The argument every desktop app gets (unused by a windowless daemon).
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = true
+# Keeps running with no window and always has a tray icon (docs/tray-plan.md section 5). It implies the
+# tray (`os.lazy.shell.tray.v1`), the lifecycle line (`os.lazy.init.app.v1`) and the tray generation topic.
+resident = true
+
+[permissions]
+# Derived from a run under `LAZYOS_LABEL_TRACE=1` (docs/webd.md, "Permissions"): the light interface,
+# for the events the service sends on the clients' channels and, in the built-in self-test only, for the
+# calls its test client makes. The service itself is registered under the app's own namespace
+# (`app.os.lazy.webd.light`), which needs no permission. Nothing else: no display, no input, no
+# network, no file of the person's.
+interfaces = [
+    "os.lazy.webd.light.v1",
+]
+network = []
+# The engine keeps its network-lock rule store under the app's own folder (the one thing a light view
+# makes it write); the page process reads the fonts. The reads are the union of what the two processes
+# below read.
+files = [
+    "write:$HOME/.apps/os.lazy.webd",
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+]
+
+# One process per client app (every view of one app shares it), running whatever the page says with the
+# JIT on (scripts are off in a light view unless the app asks). It is the process a page's exploit lands
+# in, so it holds nothing: its image and the IPC socket it inherits are all it starts with, and only the
+# font files, the font configuration and the font cache directory may be read. No Messenger interface, no
+# network, no `$HOME`, no program to start (docs/architecture/process-sandbox.md).
+[processes.webprocess]
+program = "/system/bin/webprocess"
+interfaces = []
+network = []
+files = [
+    "read:/system/share/fonts",
+    "read:/system/etc/fonts",
+    "read:/tmp/fontconfig",
+]
+
+# WebKit starts its network process whether or not a view uses it (docs/webd-plan.md, spike L1). A light
+# view has no network, so this one holds nothing either: no socket, no file. The full interface will give it
+# what a browser needs.
+[processes.networkprocess]
+program = "/system/bin/networkprocess"
+interfaces = []
+network = []
+files = []

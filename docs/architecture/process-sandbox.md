@@ -10,9 +10,9 @@ it is not for a process whose job is to run what a web page says. A
 the manifest did not list.
 
 ```
-UI process (webkit-app)   app:os.lazy.webkit               ordinary app label
- |- fork + execve /system/bin/webprocess      -> app:os.lazy.webkit/webprocess      confined
- `- fork + execve /system/bin/networkprocess  -> app:os.lazy.webkit/networkprocess  confined
+UI process (lazywebplus-app) app:os.lazy.lazywebplus     ordinary app label
+ |- fork + execve /system/bin/webprocess      -> app:os.lazy.lazywebplus/webprocess      confined
+ `- fork + execve /system/bin/networkprocess  -> app:os.lazy.lazywebplus/networkprocess  confined
 ```
 
 The package side (the `[processes.<name>]` tables, `pkgd` loading them, the

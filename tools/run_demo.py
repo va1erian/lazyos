@@ -32,8 +32,8 @@ Examples
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
-    python tools/run_demo.py --webkit        # desktop + networking + the WebKit browser (big-app profile, 1 GiB OS volume)
     python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, LazyWeb's browser on WebKit (same profile)
+    python tools/run_demo.py --webd          # desktop + webd, the daemon that serves WebKit light views (no network stack; big-app profile)
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
     python tools/run_demo.py --dbgd-control  # ...plus restart and hot reload (dbgctl.py reload usbd)
@@ -101,7 +101,8 @@ from demo_builds import (  # noqa: E402
     build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
-    build_srb2kart, build_tls, build_webkit, build_webkit_deps, build_webkit_port, build_wifi, build_xui_apps,
+    build_srb2kart, build_tls, build_webd, build_webkit_deps, build_webkit_port, build_wifi,
+    build_xui_apps,
 )
 from demo_args import DEVICES_AUTOSTART, make_parser, parse_args  # noqa: E402
 
@@ -120,8 +121,7 @@ DEFAULT_IMAGE = ROOT / "target" / "lazyos.img"
 XUI_SHELL = ROOT / "target" / "xui" / "xui-shell.elf"
 # The apps every desktop image ships (`build_support/xui_embed.rs` `DESKTOP_XUI_APPS`,
 # `DOCUMENT_XUI_APPS` and the `always` developer tool, the Terminal): the image build fails when one
-# is missing, so a `target/xui` built before an app was added (LazyWriter,
-# issue #533) is rebuilt first.
+# is missing, so a `target/xui` built before an app was added (LazyWriter, #533) is rebuilt first.
 DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
@@ -331,8 +331,8 @@ def main(argv: list[str]) -> int:
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
                                       (args.webkit_port, build_webkit_port, "LAZYOS_WEBKIT_PORT"),
-                                      (args.webkit, build_webkit, "LAZYOS_WEBKIT"),
                                       (args.lazywebplus, build_lazywebplus, "LAZYOS_LAZYWEBPLUS"),
+                                      (args.webd, build_webd, "LAZYOS_WEBD"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),

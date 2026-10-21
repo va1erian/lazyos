@@ -432,7 +432,7 @@ class DenyTests(unittest.TestCase):
                      f"{self.PAGE} net=inet",
                      f"{self.NET} file=/etc/localtime access=stat",   # the other child's optional lookup
                      f"LABEL:DENY label=app:{denies.APP} iface=0x1 method=2",
-                     "LABEL:DENY label=app:os.lazy.webkit/webprocess file=/etc access=stat"):
+                     "LABEL:DENY label=app:os.lazy.other/webprocess file=/etc access=stat"):
             self.assertEqual(denies.unexpected([line]), [line], line)
 
 

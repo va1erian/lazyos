@@ -67,15 +67,15 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
 | `LAZYOS_WIFI` | `wifid`, the RTL8822CE driver, and its fetched firmware. | `LAZYOS_NETD` | `--wifi` |
 | `LAZYOS_WIFI_SIM` | The simulated Wi-Fi radio `wlan0` (`wifisim`) and its fake access points. | `LAZYOS_NETD` | `--wifi-sim` |
-| `LAZYOS_INTELGFX` | `gpud`, the read-only Intel GPU service (Kaby Lake Gen9, Alder Lake display 13). | - | `--intelgfx` |
+| `LAZYOS_INTELGFX` | `gpud`, the read-only Intel GPU service (Kaby Lake HD 620 and Alder Lake UHD). | - | `--intelgfx` |
 | `LAZYOS_DEVTOOLS` | Every optional developer-tool core package (the Messenger Playground; [`docs/devtool-packages-plan.md`](devtool-packages-plan.md)): they run under the label `tool:<name>`. One switch for the class. The Terminal is a developer tool too (the user's shell, `shell = true`) and ships in every desktop image with no switch (`always`). | desktop, the `rhai` command (`tools/rhai/build.py`, which `--devtools` runs) | `--devtools` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
 | `LAZYOS_JSC` | JavaScriptCore's `jsc` shell and the C++/ICU check `cxxproof` in `/system/bin` (built in Docker; wants `--big-app`). | `tools/jsc/build.py` | `--jsc` |
 | `LAZYOS_WEBKIT_DEPS` | `depsproof`, one C++ program linking the WebKit dependency bundle (zlib to curl, Skia), in `/system/bin` (built in Docker; implies networking and `--big-app`). | `tools/webkit/deps.py` | `--webkit-deps` |
 | `LAZYOS_WEBKIT_PORT` | The WebKit port's console proof (W4): `WebProcess`, `NetworkProcess` and the headless UI process `webkit-smoke` in `/system/bin`, `fonts.conf` in `/system/etc/fonts` (built in Docker after the bundle; implies networking and `--big-app`). | `tools/webkit/port.py` | `--webkit-port` |
-| `LAZYOS_WEBKIT` | The WebKit browser, `os.lazy.webkit` (W5): the app's core package (the window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py` | `--webkit` |
-| `LAZYOS_LAZYWEBPLUS` | LazyWeb+, LazyWeb's browser window on WebKit, `os.lazy.lazywebplus` ([lazywebplus.md](lazywebplus.md)): the app's core package (LazyWeb's window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py --plus` | `--lazywebplus` |
+| `LAZYOS_LAZYWEBPLUS` | LazyWeb+, LazyWeb's browser window on WebKit, `os.lazy.lazywebplus` ([lazywebplus.md](lazywebplus.md)): the app's core package (LazyWeb's window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py` | `--lazywebplus` |
+| `LAZYOS_WEBD` | webd, the daemon that owns WebKit for a session and serves light views to other apps, `os.lazy.webd` ([webd.md](webd.md)): a resident, windowless core package (one 75 MB static program, opened with every session) and, when its tree is present, the demo client `os.lazy.webddemo`; `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop and `--big-app`. No network stack: a light view has no network. | desktop; `tools/webkit/deps.py`, `port.py`, `webd.py` | `--webd` |
 | `LAZYOS_TLS` | `curl`, `wget`, `fetch` and the Mozilla CA bundle. | - | `--tls` |
 | `LAZYOS_FETCH` | Path to the `nettls` binary to embed (default: `target/nettls/fetch.elf`). | `LAZYOS_TLS` | - |
 | `LAZYOS_SMB` | The `smb` client and `smbfuse`. | `LAZYOS_NETD` | `--smb` |
@@ -115,7 +115,7 @@ or an option must be in the suite file's `test_only` list
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
-| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1` or `LAZYOS_WEBKIT_PORT=1`, so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
+| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBD=1` or `LAZYOS_WEBKIT_PORT=1`, so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
 | `LAZYOS_RESET_OS` | Recreate the OS volume with a new UUID instead of updating in place. CI sets it everywhere. | `--reset-os` |
 | `LAZYOS_UPDATE_DAMAGED_OS` | Update a volume anyway when the checker finds damage a crash does not leave. | - |
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |
@@ -156,7 +156,7 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_X2APIC` | Switch the APIC to x2APIC mode itself. | - |
 | `LAZYOS_TLS_TEST_CA` | Extra CA appended to the bundle. Harness only, never a normal image. | - |
 | `LAZYOS_TLS_TEST_HOSTS` | Host-name mappings appended to `/etc/hosts`. Harness only. | - |
-| `LAZYOS_WEBKIT_ATTACK` | With `LAZYOS_WEBKIT=1`, ship the sandbox attack stand-in as `WebProcess` and `NetworkProcess` (`tools/webkit/attack_run.py`). Harness only, never a normal image: no `run_demo.py` flag, no GUI control. | - |
+| `LAZYOS_WEBKIT_ATTACK` | With `LAZYOS_LAZYWEBPLUS=1`, ship the sandbox attack stand-in as `WebProcess` and `NetworkProcess` (`tools/webkit/attack_run.py`). Harness only, never a normal image: no `run_demo.py` flag, no GUI control. | - |
 
 ## Dependencies the build enforces
 
@@ -165,10 +165,10 @@ The build refuses combinations that cannot work and says why:
 - `LAZYOS_DBGD=1` and `LAZYOS_SMB=1` need `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYSKY=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
-- `LAZYOS_WEBKIT=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` (`LAZYOS_WEBKIT_PORT=1` is the console proof,
-  no desktop needed), and `target/xui/xui-webkit.elf` (`tools/webkit/app.py`).
 - `LAZYOS_LAZYWEBPLUS=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`, and `target/xui/xui-lazywebplus.elf`
-  (`tools/webkit/app.py --plus`).
+  (`tools/webkit/app.py`).
+- `LAZYOS_WEBD=1` needs `LAZYOS_DESKTOP=1` (not the network stack) and `target/xui/xui-webd.elf`
+  (`tools/webkit/webd.py`).
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
 - `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
   `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;

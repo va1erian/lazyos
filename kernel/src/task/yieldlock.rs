@@ -7,9 +7,24 @@
 //! 12" instead of summing parks it cannot tell apart. The record is made when
 //! the first try fails and cleared when the lock is taken, so any number of
 //! short waits never add up.
+//!
+//! # Fair locks (hand-off)
+//!
+//! A plain lock lets the releaser take it again at once: a task doing
+//! back-to-back long critical sections (a SQLite thread's fsyncs on the ext2
+//! gate) wins every race against waiters that are parked for [`PARK_NS`]
+//! between looks, so a waiter sat out several holds (`LOCK:WAIT ms=740`
+//! against holds of 200 ms at most, issue #940). A lock made with
+//! [`YieldMutex::named_fair`] hands off instead: a release that leaves
+//! waiters sets `handoff`, and a task arriving while it is set is a newcomer
+//! that must queue behind the waiters (it parks once before it tries). The
+//! waiters, parked earlier, look first. Nothing waits on the flag: when no
+//! waiter is left to clear it, the next newcomer takes the lock after its one
+//! park and clears it, so a waiter that was ended costs one park, never a
+//! hang. The waiter count is kept exact by [`forget_wait`].
 
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicPtr, AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 
 use super::relax::Yield;
 use super::MAX_TASKS;
@@ -19,6 +34,11 @@ pub struct LockInfo {
     name: &'static str,
     /// Slot of the holder plus one; 0 when free.
     holder: AtomicUsize,
+    /// Tasks parked in `lock` for it (only counted for a fair lock).
+    waiting: AtomicUsize,
+    /// A fair lock was released with waiters: newcomers queue behind them.
+    handoff: AtomicBool,
+    fair: bool,
 }
 
 impl LockInfo {
@@ -26,13 +46,32 @@ impl LockInfo {
     pub fn holder(&self) -> Option<usize> {
         self.holder.load(Ordering::Relaxed).checked_sub(1)
     }
+
+    /// Test builds: tasks counted as waiting.
+    #[cfg(lazyos_tests)]
+    pub fn waiting_for_test(&self) -> usize {
+        self.waiting.load(Ordering::Relaxed)
+    }
+
+    /// A waiter is gone (it took the lock or was ended).
+    fn left_queue(&self) {
+        if self.fair {
+            self.waiting.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
 }
 
 /// Forget that task `slot` waits for a lock: the task is ended (or the slot
 /// is born anew) and will never leave `lock` by itself.
 pub fn forget_wait(slot: usize) {
     if let Some(record) = WAITING_FOR.get(slot) {
-        record.store(core::ptr::null_mut(), Ordering::Release);
+        let lock = record.swap(core::ptr::null_mut(), Ordering::AcqRel);
+        if !lock.is_null() {
+            // SAFETY: a record is set only while its task is parked in
+            // `YieldMutex::lock` borrowing the lock (see `waiting`), so the
+            // lock is alive; only an atomic is touched.
+            unsafe { &*lock }.left_queue();
+        }
     }
 }
 
@@ -66,38 +105,76 @@ impl<T> YieldMutex<T> {
 
     /// A lock that `LOCK:WAIT` can name.
     pub const fn named(name: &'static str, value: T) -> Self {
+        Self::build(name, value, false)
+    }
+
+    /// A named lock that hands off to its waiters (see the module header).
+    pub const fn named_fair(name: &'static str, value: T) -> Self {
+        Self::build(name, value, true)
+    }
+
+    const fn build(name: &'static str, value: T, fair: bool) -> Self {
         YieldMutex {
             inner: spin::mutex::Mutex::new(value),
             info: LockInfo {
                 name,
                 holder: AtomicUsize::new(0),
+                waiting: AtomicUsize::new(0),
+                handoff: AtomicBool::new(false),
+                fair,
             },
         }
     }
 
     /// Take the lock, parking while another task holds it.
     pub fn lock(&self) -> YieldGuard<'_, T> {
-        if let Some(guard) = self.try_lock() {
-            return guard;
+        let queue_behind = self.info.fair && self.info.handoff.load(Ordering::Acquire);
+        if !queue_behind {
+            if let Some(guard) = self.try_lock() {
+                return guard;
+            }
         }
         let me = super::current();
         let slot = WAITING_FOR.get(me);
         if let Some(slot) = slot {
             WAIT_SINCE_NS[me].store(crate::arch::clock::monotonic_ns(), Ordering::Relaxed);
+            if self.info.fair {
+                self.info.waiting.fetch_add(1, Ordering::AcqRel);
+            }
             slot.store(
                 &self.info as *const LockInfo as *mut LockInfo,
                 Ordering::Release,
             );
         }
+        if queue_behind {
+            // The lock is free but owed to the tasks already parked: let
+            // them (parked earlier, so they wake earlier) look first.
+            <super::relax::Yield as spin::RelaxStrategy>::relax();
+        }
         let guard = self.inner.lock();
         if let Some(slot) = slot {
-            slot.store(core::ptr::null_mut(), Ordering::Release);
+            if !slot.swap(core::ptr::null_mut(), Ordering::AcqRel).is_null() {
+                self.info.left_queue();
+            }
+        }
+        if self.info.fair {
+            // Taken by a waiter (or the newcomer that outwaited them): the
+            // hand-off is done; the next release sets it again if needed.
+            self.info.handoff.store(false, Ordering::Release);
         }
         self.held(guard)
     }
 
     /// Take the lock if it is free.
     pub fn try_lock(&self) -> Option<YieldGuard<'_, T>> {
+        // A fair lock released to its waiters is not free for a task that
+        // only tries (the deferred commit's next piece): the caller retries.
+        if self.info.fair
+            && self.info.handoff.load(Ordering::Acquire)
+            && self.info.waiting.load(Ordering::Acquire) > 0
+        {
+            return None;
+        }
         self.inner.try_lock().map(|guard| self.held(guard))
     }
 
@@ -141,6 +218,9 @@ impl<T> YieldMutex<T> {
 impl<T> Drop for YieldGuard<'_, T> {
     fn drop(&mut self) {
         self.info.holder.store(0, Ordering::Relaxed);
+        if self.info.fair && self.info.waiting.load(Ordering::Acquire) > 0 {
+            self.info.handoff.store(true, Ordering::Release);
+        }
     }
 }
 

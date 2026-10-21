@@ -57,13 +57,15 @@ pub enum Command {
     Blocker,
     /// Reload the page once with the ad blocker off for it.
     ReloadUnblocked,
+    /// Keep the page's data in memory from the next start, or stop (`memory.rs`).
+    PageDataInMemory,
     /// The context menu's: act on what was right-clicked.
     OpenLink,
     CopyLink,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 16] = [
+const COMMANDS: [Command; 17] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -78,6 +80,7 @@ const COMMANDS: [Command; 16] = [
     Command::About,
     Command::Blocker,
     Command::ReloadUnblocked,
+    Command::PageDataInMemory,
     Command::OpenLink,
     Command::CopyLink,
 ];
@@ -163,6 +166,13 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
         bar.submenu(FILE_MENU, "&File", |m| {
             item(m, Command::OpenLocation, "Open &Location...", Lucide::Link);
             item(m, Command::SavePage, "&Save Page As Download", Lucide::Save);
+            m.separator();
+            item(
+                m,
+                Command::PageDataInMemory,
+                "Keep Page Data in &Memory (on/off)",
+                Lucide::Lock,
+            );
             m.separator();
             item(m, Command::Close, "&Close Window", Lucide::X);
         });

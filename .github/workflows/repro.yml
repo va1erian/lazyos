@@ -1,0 +1,42 @@
+name: repro
+
+# Reproducible builds (docs/update-plan.md decision 24): the kernel and the
+# `user` programs built twice, from two checkouts at different paths, must be
+# bit-identical, or package-level updates have nothing to skip. The release
+# signing job will depend on this staying green.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  pull_request:
+    paths:
+      - "tools/pkg/repro_check.py"
+      - "tools/pkg/test_repro_check.py"
+      - ".cargo/config.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/repro.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repro-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Checker tests
+        run: python tools/pkg/test_repro_check.py
+
+      # rust-toolchain.toml pins the nightly; each checkout builds from a cold
+      # target directory on purpose, so there is no cache step.
+      - name: Two builds are bit-identical
+        run: python tools/pkg/repro_check.py --sets user,kernel

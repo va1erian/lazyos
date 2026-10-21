@@ -125,23 +125,23 @@ def build_webkit_processes() -> bool:
                          ("--require", "--only", "WebProcess", "NetworkProcess")))
 
 
-def build_webkit() -> bool:
-    """The WebKit browser (`--webkit`): the bundle and the port's processes, then
-    the app (the window's static library and the UI process, `tools/webkit/app.py`),
-    all in Docker, then the xui apps, whose build packages `xui-webkit.elf` as the
-    core package `os.lazy.webkit`; a missing Docker or download stops the run."""
-    return (build_webkit_processes()
-            and required("the WebKit app", "webkit/app.py", ("--require",))
-            and build_xui_apps())
-
-
 def build_lazywebplus() -> bool:
-    """LazyWeb+ (`--lazywebplus`): the same bundle and port processes as `--webkit`, then
-    LazyWeb's window and the UI process (`tools/webkit/app.py --plus`), all in Docker, then the
+    """LazyWeb+ (`--lazywebplus`): the bundle and the port's processes, then
+    LazyWeb's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
     xui apps, whose build packages `xui-lazywebplus.elf` as the core package
     `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
     return (build_webkit_processes()
-            and required("the LazyWeb+ app", "webkit/app.py", ("--require", "--plus"))
+            and required("the LazyWeb+ app", "webkit/app.py", ("--require",))
+            and build_xui_apps())
+
+
+def build_webd() -> bool:
+    """webd (`--webd`): the bundle and the port's processes, then webd's service library and
+    the program (`tools/webkit/webd.py`), all in Docker, then the xui apps, whose build packages
+    `xui-webd.elf` as the core package `os.lazy.webd` (and the demo client, when the tree has it);
+    a missing Docker or download stops the run."""
+    return (build_webkit_processes()
+            and required("webd", "webkit/webd.py", ("--require",))
             and build_xui_apps())
 
 

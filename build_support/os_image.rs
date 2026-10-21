@@ -27,6 +27,8 @@ pub mod display_cfg;
 pub mod limits_cfg;
 #[path = "os_compose.rs"]
 mod os_compose;
+#[path = "os_owners.rs"]
+pub mod os_owners;
 #[path = "os_source.rs"]
 mod os_source;
 #[path = "os_state.rs"]
@@ -121,6 +123,7 @@ pub trait Sink {
 #[derive(Default)]
 pub struct OsFiles {
     files: BTreeMap<String, OsFile>,
+    owners: os_owners::Owners,
 }
 
 impl OsFiles {
@@ -143,6 +146,7 @@ impl Sink for OsFiles {
                     mode,
                     placement,
                 };
+                self.owners.note(&path);
                 self.files.insert(path, file);
             }
             None => println!("cargo:warning=skipping {path:?}: not a usable image path"),

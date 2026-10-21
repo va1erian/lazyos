@@ -82,7 +82,7 @@ class DefinitionTests(unittest.TestCase):
         self.assertEqual(full[:len(base)], base)
         self.assertIn("srb2kart", suites.option_names(self.data))
         self.assertNotIn("srb2kart", full)
-        for flag in ("webkit", "lazywebplus", "lazyweb", "mail", "lazysky", "games", "doom",
+        for flag in ("lazywebplus", "lazyweb", "mail", "lazysky", "games", "doom",
                      "quake", "emusic", "linuxapps", "lazyrad", "modplayer", "pictures", "tls",
                      "net", "big-app", "devtools"):
             self.assertIn(flag, full)
@@ -127,7 +127,7 @@ class RunDemoTests(unittest.TestCase):
 
     def test_suite_turns_on_its_flags_and_their_implications(self) -> None:
         args = self.parse("--suite", "full")
-        for name in ("desktop", "net", "tls", "webkit", "lazywebplus", "games", "doom", "quake",
+        for name in ("desktop", "net", "tls", "lazywebplus", "games", "doom", "quake",
                      "emusic", "linuxapps", "mail", "lazysky", "lazyweb", "lazyrad", "modplayer", "pictures",
                      "devtools"):
             self.assertTrue(getattr(args, name), name)
@@ -144,7 +144,7 @@ class RunDemoTests(unittest.TestCase):
     def test_base_is_the_desktop_alone_and_explicit_flags_add(self) -> None:
         args = self.parse("--suite", "base", "--traydemo")
         self.assertTrue(args.desktop and args.traydemo)
-        self.assertFalse(args.net or args.webkit or args.doom)
+        self.assertFalse(args.net or args.lazywebplus or args.doom)
 
     def test_dry_run_prints_the_plan_and_builds_nothing(self) -> None:
         out = io.StringIO()
@@ -155,9 +155,9 @@ class RunDemoTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("suite full +srb2kart", text)
         self.assertIn("OS volume 1536 MiB", text)
-        for step in ("  webkit\n", "  lazywebplus\n", "  srb2kart\n", "  doom\n", "  cargo build"):
+        for step in ("  lazywebplus\n", "  srb2kart\n", "  doom\n", "  cargo build"):
             self.assertIn(step.strip(), text)
-        for switch in ("LAZYOS_DESKTOP=1", "LAZYOS_WEBKIT=1", "LAZYOS_SRB2KART=1", "LAZYOS_TLS=1",
+        for switch in ("LAZYOS_DESKTOP=1", "LAZYOS_LAZYWEBPLUS=1", "LAZYOS_SRB2KART=1", "LAZYOS_TLS=1",
                        "LAZYOS_LIMIT_QUOTA_USER_MEMORY=8G"):
             self.assertIn(switch, text)
         self.assertNotIn("LAZYOS_JSC", text)

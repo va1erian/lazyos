@@ -229,7 +229,7 @@ pub fn rerun_if_changed() {
         "devtools_embed",
         "lazyweb_embed",
         "lazywebplus_embed",
-        "webkit_embed",
+        "webd_embed",
         "lazysky_embed",
         "pictures_embed",
     ] {
@@ -344,17 +344,18 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     }
     // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
     // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
-    // `LAZYOS_LAZYSKY=1`, `LAZYOS_WEBKIT=1`, `LAZYOS_LAZYWEBPLUS=1`,
-    // `LAZYOS_PICTURES=1`, and the developer tools as a class, `LAZYOS_DEVTOOLS=1`);
-    // asking for one without having built it is an error.
+    // `LAZYOS_LAZYSKY=1`, `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_PICTURES=1`, and the
+    // developer tools as a class, `LAZYOS_DEVTOOLS=1`); asking for one without having
+    // built it is an error.
     let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
     crate::os_image::rerun_if_changed(&lazyweb_elf);
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     crate::os_image::rerun_if_changed(&lazysky_elf);
-    let webkit_elf = dir.join(crate::webkit_embed::ELF);
-    crate::os_image::rerun_if_changed(&webkit_elf);
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
     crate::os_image::rerun_if_changed(&lazywebplus_elf);
+    let webd_elf = dir.join(crate::webd_embed::ELF);
+    crate::os_image::rerun_if_changed(&webd_elf);
+    let webd_wanted = crate::webd_embed::enabled(desktop);
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let devtools =
         crate::devtools_embed::enabled(desktop, crate::rhai_embed::find(&manifest_dir).is_some());
@@ -379,14 +380,14 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazysky_embed::not_built(lazysky_elf.is_file()),
         ),
         (
-            crate::webkit_embed::enabled(desktop),
-            crate::webkit_embed::PACKAGE_SHORT,
-            crate::webkit_embed::not_built(webkit_elf.is_file()),
-        ),
-        (
             crate::lazywebplus_embed::enabled(desktop),
             crate::lazywebplus_embed::PACKAGE_SHORT,
             crate::lazywebplus_embed::not_built(lazywebplus_elf.is_file()),
+        ),
+        (
+            webd_wanted,
+            crate::webd_embed::PACKAGE_SHORT,
+            crate::webd_embed::not_built(webd_elf.is_file()),
         ),
         (
             crate::pictures_embed::enabled(desktop),
@@ -412,9 +413,36 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             None => panic!("{missing}"),
         }
     }
+    if webd_wanted {
+        embed_webd_clients(&built, &mut packages);
+    }
     core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
     if desktop && network_stack() {
         embed_printd(sink, &dir);
+    }
+}
+
+/// The packages that are clients of webd (`webd_embed::CLIENT_PACKAGES`), added to an image that ships
+/// it. A client whose tree is not in this checkout is skipped; one that has a tree but was not built
+/// is an error, like the daemon.
+fn embed_webd_clients<'a>(
+    built: &'a [core_packages::CorePackage],
+    packages: &mut Vec<&'a core_packages::CorePackage>,
+) {
+    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
+    for (short, elf) in crate::webd_embed::CLIENT_PACKAGES {
+        if !crate::webd_embed::client_tree_present(&root, short)
+            || packages.iter().any(|p| p.short == *short)
+        {
+            continue;
+        }
+        match built.iter().find(|p| p.short == *short) {
+            Some(package) => packages.push(package),
+            None => panic!(
+                "LAZYOS_WEBD=1 but core package {short} is not built (target/xui/{elf}); run \
+                 `python tools/xui/build.py`"
+            ),
+        }
     }
 }
 

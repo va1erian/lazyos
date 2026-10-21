@@ -437,6 +437,18 @@ pub fn serves_disk(slot: usize) -> bool {
     })
 }
 
+/// The task slot serving each live disk (one per disk): what the shutdown
+/// watchdog spares until the volumes on those disks are synced.
+pub fn owners() -> Vec<usize> {
+    DISKS
+        .iter()
+        .filter_map(|disk| {
+            let state = disk.state.lock();
+            (state.registered && state.alive).then_some(state.owner)
+        })
+        .collect()
+}
+
 /// Whether `owner` is working, within its deadline, on a request of a disk
 /// other than `index`. A request queued behind it then waits its turn
 /// without counting as neglected; a request past its own deadline is not

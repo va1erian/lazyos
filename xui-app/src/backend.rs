@@ -34,6 +34,9 @@ mod background;
 mod coalesce;
 #[cfg(target_os = "linux")]
 pub(crate) mod calls;
+#[cfg(not(target_os = "linux"))]
+#[path = "backend/calls_host.rs"]
+pub(crate) mod calls;
 mod compositor;
 mod cursor;
 pub mod direct;

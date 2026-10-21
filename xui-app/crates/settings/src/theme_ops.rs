@@ -4,17 +4,21 @@
 //! individual colours are then optional overrides on top of it.
 
 use uitheme::{Mode, Settings};
+use xui_core::backend::Rgba;
 use xui_core::{Color, Theme};
 
 use crate::store::{ConfigStore, StoreError, Value};
 
 /// `(name, 0xRRGGBB)` accent presets; the first is the compiled-in default.
-pub const ACCENTS: [(&str, u32); 5] = [
+pub const ACCENTS: [(&str, u32); 8] = [
     ("Green", uitheme::DEFAULT_ACCENT),
     ("Blue", 0x336699),
     ("Orange", 0xC46E1E),
     ("Purple", 0x6E46A0),
     ("Red", 0xAA3232),
+    ("Teal", 0x1A6B70),
+    ("Pink", 0xB03A78),
+    ("Graphite", 0x58607A),
 ];
 
 /// Desktop background swatches. Choosing one sets an override; "Reset to
@@ -106,14 +110,61 @@ pub fn set_animations(store: &dyn ConfigStore, on: bool) -> Result<(), StoreErro
     store.set(uitheme::KEY_ANIM, Value::Bool(on))
 }
 
-/// The xui widget theme matching the desktop: xui's light palette, or
+/// Daylight: Midnight's design in a light palette. Warm off-white surfaces
+/// that darken toward the bottom, rounded cards with a 1px white highlight,
+/// glossy control faces and a soft accent glow, so the light mode has the same
+/// glossy buttons, caps section titles over rounded groups and glowing
+/// indicators as the dark one (xui's own `Theme::light` stays flat).
+///
+/// The inks and the field wells follow `libs/uitheme`'s light preset
+/// (the warm `#F6F4F0` window).
+pub const fn daylight() -> Theme {
+    Theme {
+        is_dark: false,
+        background: Color::hex(0xF6_F4_F0),
+        background_end: Color::hex(0xE8_E4_DC),
+        surface: Color::hex(0xFD_FC_FA),
+        surface_end: Color::hex(0xF0_ED_E7),
+        raised: Color::hex(0xFF_FF_FF),
+        text: Color::hex(0x1C_1A_17),
+        text_secondary: Color::hex(0x5A_54_48),
+        text_disabled: Color::hex(0xA6_A0_93),
+        text_on_accent: Color::hex(0xFF_FF_FF),
+        accent: Color::hex(uitheme::DEFAULT_ACCENT),
+        warning: Color::hex(0x9D_5D_00),
+        danger: Color::hex(0xC4_2B_1C),
+        selection: Color::hex(0xD5_DB_E8),
+        selection_unfocused: Color::hex(0xE2_DE_D6),
+        hover: Color::hex(0xEA_E6_DE),
+        pressed: Color::hex(0xD9_D4_CA),
+        border: Color::hex(0xCF_C9_BC),
+        border_focused: Color::hex(uitheme::DEFAULT_ACCENT),
+        shadow: Color::hex(0x00_00_00),
+        input_background: Color::hex(0xFF_FF_FF),
+        input_border: Color::hex(0xA0_99_8A),
+        scrollbar: Color::hex(0xB0_A8_99),
+        scrollbar_track: Color::hex(0xF6_F4_F0),
+        track: Color::hex(0xCD_C7_BA),
+        scrim: Rgba::with_alpha(0x14, 0x10, 0x0A, 0x66),
+        // Faint, like Midnight's: a stronger white line shows on the
+        // coloured faces (radio dots, check boxes, swatches).
+        bevel: Rgba::with_alpha(0xFF, 0xFF, 0xFF, 0x28),
+        shade: 30,
+        // Gentle: the light ink on a glossed accent face keeps its contrast.
+        gloss: 24,
+        corner_radius: 8,
+        glow: 0x58,
+    }
+}
+
+/// The xui widget theme matching the desktop: Daylight in light mode, or
 /// Midnight in dark mode (the navy the window chrome uses,
 /// docs/xui-theme-proposals.md), with the desktop accent, so apps look like
 /// part of the same desktop. Text on the accent is picked from the accent
 /// itself, which may be any colour.
 pub fn xui_theme(mode: Mode, accent: u32) -> Theme {
     let mut theme = match mode {
-        Mode::Light => Theme::light(),
+        Mode::Light => daylight(),
         Mode::Dark => Theme::midnight(),
     };
     let mut accent = accent & 0x00FF_FFFF;
@@ -224,6 +275,7 @@ mod tests {
         assert_eq!(dark.text_on_accent, Color::hex(uitheme::text_on(lighter)));
         let light = xui_theme(Mode::Light, 0xDCCEAA);
         assert!(!light.is_dark);
+        assert_eq!(light.background, daylight().background);
         assert_eq!(light.text_on_accent, Color::hex(uitheme::DARK_TEXT));
         // The default settings give dark with the default accent.
         let theme = xui_theme_for(&Settings::default());
@@ -232,6 +284,43 @@ mod tests {
             theme.accent,
             Color::hex(uitheme::mix(uitheme::DEFAULT_ACCENT, 0xFF_FF_FF, 1, 4))
         );
+    }
+
+    /// Daylight carries every decoration Midnight does, so the two modes
+    /// draw the same glossy, rounded controls.
+    #[test]
+    fn daylight_is_decorated_like_midnight() {
+        let (day, night) = (daylight(), Theme::midnight());
+        assert!(!day.is_dark);
+        assert!(xui_core::theme::look::decorated(&day));
+        assert_ne!(day.background_end, day.background);
+        assert_ne!(day.surface_end, day.surface);
+        assert!(day.bevel.a > 0 && day.shade > 0 && day.gloss > 0 && day.glow > 0);
+        assert_eq!(day.corner_radius, night.corner_radius);
+    }
+
+    /// Text stays readable on every surface it is drawn on, top and bottom of
+    /// each gradient, and fields stand out from the cards they sit on.
+    #[test]
+    fn daylight_text_and_fields_read() {
+        let t = daylight();
+        for surface in [
+            t.background,
+            t.background_end,
+            t.surface,
+            t.surface_end,
+            t.raised,
+        ] {
+            assert!(t.text.contrast_ratio(surface) > 7.0, "body text");
+            assert!(
+                t.text_secondary.contrast_ratio(surface) > 4.5,
+                "secondary text"
+            );
+        }
+        assert!(t.input_border.contrast_ratio(t.surface) > 1.9);
+        assert!(t.input_border.contrast_ratio(t.input_background) > 2.5);
+        assert_ne!(t.track, t.background);
+        assert_eq!(t.border_focused, t.accent);
     }
 
     #[test]

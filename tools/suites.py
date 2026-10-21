@@ -17,7 +17,7 @@ from lazygui import osvolume  # noqa: E402
 
 DEFAULT_PATH = Path(__file__).resolve().with_name("suites.toml")
 #: Flags that bring the WebKit programs, which `osvolume` sizes the volume for.
-WEBKIT_FLAGS = ("webkit", "webkit-port", "lazywebplus")
+WEBKIT_FLAGS = ("webkit-port", "lazywebplus", "webd")
 
 
 def load(path: Path = DEFAULT_PATH) -> dict:

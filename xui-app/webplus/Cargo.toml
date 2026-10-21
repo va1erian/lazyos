@@ -3,9 +3,9 @@
 # LazyWeb (`../web`) lays pages out with Blitz and fetches them itself. This crate is its
 # fork for the WebKit port: the same menu bar, toolbar, status bar, history, downloads and
 # internal pages, but the page is whatever WebKit's UI process paints and the fetching is
-# WebKit's NetworkProcess. It is built as a static library (`tools/webkit/app.py --plus`)
+# WebKit's NetworkProcess. It is built as a static library (`tools/webkit/app.py`)
 # that the C++ UI process `lazywebplus-app` (`webkit/port/app/`) links in the WebKit build
-# container; `xui-webkit` (`../crates/webkit`) is the seam both windows share (the
+# container; `xui-webkit` (`../crates/webkit`) is the seam (the
 # engine trait, the mailbox, the page view, the pure parts of the C ABI).
 #
 # Licence: LazyWeb is declared GPL-2.0-only, and every crate linked into this window keeps that
@@ -30,9 +30,8 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 # One xui revision for every crate, so a single `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
-# The seam: the engine trait, the mailbox, the page view and the C ABI shared with the W5
-# window, without that window.
-xui-webkit = { path = "../crates/webkit", default-features = false }
+# The seam: the engine trait, the mailbox, the page view and the C ABI.
+xui-webkit = { path = "../crates/webkit" }
 # The ad blocker's converter (Adblock Plus lists to WebKit rule lists; MIT, no dependencies).
 lazyadblock = { path = "../crates/adblock" }
 

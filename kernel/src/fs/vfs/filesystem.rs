@@ -36,6 +36,16 @@ pub trait Filesystem: Send + Sync {
         Ok(None)
     }
 
+    /// Whether the pages of a program image read from this filesystem may be
+    /// shared between the processes running it (`process::loader`): the
+    /// kernel is the only writer of the files and sees every change to them,
+    /// so it can refuse a write to a running program (`ETXTBSY`) and a
+    /// demand-faulted page is always the page that was loaded. A filesystem
+    /// served by another party (FUSE) keeps the copy.
+    fn image_shareable(&self) -> bool {
+        false
+    }
+
     /// [`Filesystem::read`] by node. A node whose file is gone (deleted, or
     /// its inode reused) is [`FsError::NotFound`].
     fn read_node(&self, _node: NodeId, _offset: u64, _buf: &mut [u8]) -> Result<usize, FsError> {
@@ -145,6 +155,11 @@ pub trait Filesystem: Send + Sync {
         let _ = pressure;
         Ok(())
     }
+
+    /// The writeback the kernel task leaves to user tasks (a volume on a
+    /// provider disk, `fs/ext2/deferred.rs`), run at a syscall's end if due.
+    /// The default has none.
+    fn writeback_deferred(&self) {}
 
     /// Capacity and free space (`statfs(2)`). Backends with nothing sensible to
     /// report keep the default [`FsError::NotSupported`].

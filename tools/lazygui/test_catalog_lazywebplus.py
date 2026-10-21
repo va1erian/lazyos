@@ -28,7 +28,6 @@ class LazyWebPlusTests(unittest.TestCase):
         env = catalog.build_env({**self.base(), "lazywebplus": True})
         for name in ("LAZYOS_LAZYWEBPLUS", "LAZYOS_DESKTOP", "LAZYOS_NETD"):
             self.assertEqual(env.get(name), "1", name)
-        self.assertNotIn("LAZYOS_WEBKIT", env)
         self.assertNotIn("LAZYOS_LAZYWEBPLUS", catalog.build_env({**self.base(), "desktop": True}))
 
     def test_simple_desktop_offers_it_and_cli_does_not(self) -> None:
@@ -58,7 +57,6 @@ class LazyWebPlusTests(unittest.TestCase):
         steps = catalog.app_steps({"lazywebplus": True})
         self.assertEqual([s["argv"][1] for s in steps],
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py"])
-        self.assertIn("--plus", steps[2]["argv"])
         self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
 
     def test_the_quota_and_the_volume_are_the_big_app_ones(self) -> None:

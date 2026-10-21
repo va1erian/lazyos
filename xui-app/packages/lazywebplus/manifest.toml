@@ -6,7 +6,7 @@
 # about 108 MB: ICU's data is inside, and LazyOS loads a program whole into RAM) that starts
 # `/system/bin/webprocess` and `/system/bin/networkprocess`, which a `LAZYOS_LAZYWEBPLUS=1` image
 # ships beside it. The build copies the built program (`target/xui/xui-lazywebplus.elf`, from
-# `python tools/webkit/app.py --plus`) into a scratch copy of this tree; `version` is replaced by
+# `python tools/webkit/app.py`) into a scratch copy of this tree; `version` is replaced by
 # the workspace version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`. Only a desktop image
 # with the network stack ships it (`LAZYOS_LAZYWEBPLUS=1`, `python tools/run_demo.py --lazywebplus`).
 # LazyWeb stays the browser every image ships. The window is declared GPL-2.0-only OR

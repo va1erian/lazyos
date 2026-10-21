@@ -255,10 +255,16 @@ pub(super) fn sys_mprotect(addr: u64, len: u64, prot: u64) -> u64 {
     if let Err(code) = super::mmapvfs::protect_shared(table, start, end, prot) {
         return code;
     }
+    let image = match super::mmapvfs::charge_image_writes(table, start, end, prot) {
+        Ok(pieces) => pieces,
+        Err(code) => return code,
+    };
     if !crate::mem::protect_range(table, start, end, prot) {
+        super::mmapvfs::refund_image_writes(&image);
         return err(ENOMEM);
     }
     crate::mem::vma::protect(table, start, end, prot);
+    super::mmapvfs::convert_image(table, &image, prot);
     0
 }
 

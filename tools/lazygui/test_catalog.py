@@ -24,8 +24,9 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
 )
 from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
 from lazygui.test_catalog_jsc import JscTests  # noqa: E402,F401
-from lazygui.test_catalog_webkit import WebkitBrowserTests, WebkitDepsTests, WebkitPortTests  # noqa: E402,F401
+from lazygui.test_catalog_webkit import WebkitDepsTests, WebkitPortTests  # noqa: E402,F401
 from lazygui.test_catalog_lazywebplus import LazyWebPlusTests  # noqa: E402,F401
+from lazygui.test_catalog_webd import WebdTests  # noqa: E402,F401
 from lazygui.test_catalog_wifisim import WifiSimTests  # noqa: E402,F401
 from lazygui.test_catalog_net import NetworkCardTests  # noqa: E402,F401
 from lazygui.test_catalog_wifi import WifiTests  # noqa: E402,F401

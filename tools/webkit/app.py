@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
-"""Build a WebKit desktop app: ``os.lazy.webkit`` (stage W5) or LazyWebPlus (``--plus``).
+"""Build LazyWeb+ (``lazywebplus-app``), WebKit's desktop UI process with LazyWeb's window.
 
-``docs/webkit-port-plan.md`` section 5, W5, and ``docs/lazywebplus.md``. An app is one static-PIE
-musl program in two halves that meet through a small C ABI (``webkit/port/app/lazyos_ui.h``):
+``docs/lazywebplus.md`` and ``docs/webkit-port-plan.md``. The app is one static-PIE musl program in
+two halves that meet through a small C ABI (``webkit/port/app/lazyos_ui.h``):
 
 1. the window, a Rust static library, built **on the host** with cargo for
-   ``x86_64-unknown-linux-musl`` into ``target/webkit/lib``: ``xui-app/crates/webkit`` (the
-   toolbar, the address field and the page view of W5: ``libxui_webkit.a``) or
-   ``xui-app/webplus`` (LazyWeb's chrome on the same seam: ``libxui_webplus.a``). A static library
-   needs no linker, so any host that has the target can build it;
-2. the UI process, C++ (``webkit/port/app/``, one set of sources for both): WebKit's run loop and
-   C API on the main thread, the window on a second one, linked by zig with WebKit's own static
-   libraries and the window's library, **in the build container** (``port.py --only <program>``),
-   because WebKit's archives live in its work volume.
+   ``x86_64-unknown-linux-musl`` into ``target/webkit/lib``: ``xui-app/webplus`` (LazyWeb's chrome
+   on the seam of ``xui-app/crates/webkit``: ``libxui_webplus.a``). A static library needs no
+   linker, so any host that has the target can build it;
+2. the UI process, C++ (``webkit/port/app/``): WebKit's run loop and C API on the main thread, the
+   window on a second one, linked by zig with WebKit's own static libraries and the window's
+   library, **in the build container** (``port.py --only lazywebplus-app``), because WebKit's
+   archives live in its work volume.
 
-The result is ``target/webkit/bin/webkit-app`` or ``lazywebplus-app``, copied to
-``target/xui/xui-webkit.elf`` or ``xui-lazywebplus.elf``, where ``tools/xui/core_packages.py``
-finds it for the package (``xui-app/packages/webkit``, ``xui-app/packages/lazywebplus``). Needs
-the port's other programs built first (``python tools/webkit/port.py``): the app starts
+The result is ``target/webkit/bin/lazywebplus-app``, copied to ``target/xui/xui-lazywebplus.elf``,
+where ``tools/xui/core_packages.py`` finds it for the package (``xui-app/packages/lazywebplus``).
+Needs the port's other programs built first (``python tools/webkit/port.py``): the app starts
 ``WebProcess`` and ``NetworkProcess``, installed as ``/system/bin/webprocess`` and
-``networkprocess`` by ``LAZYOS_WEBKIT=1`` and ``LAZYOS_LAZYWEBPLUS=1`` images.
+``networkprocess`` by ``LAZYOS_LAZYWEBPLUS=1`` images.
 
 Usage::
 
-    python tools/webkit/app.py                # os.lazy.webkit: window library, then the link in Docker
-    python tools/webkit/app.py --plus         # LazyWebPlus: the same for xui-webplus
+    python tools/webkit/app.py                # window library, then the link in Docker
     python tools/webkit/app.py --lib-only     # just the Rust half (no Docker)
     python tools/webkit/app.py --require      # a missing Docker or target is an error
     python tools/webkit/app.py --no-docker    # link on this Linux host
@@ -69,14 +66,12 @@ class App:
         return ROOT / "target" / "xui" / self.elf
 
 
-WEBKIT = App("xui-webkit", "libxui_webkit.a", "webkit-app", "xui-webkit.elf")
-PLUS = App("xui-webplus", "libxui_webplus.a", "lazywebplus-app", "xui-lazywebplus.elf")
-APPS = {"webkit": WEBKIT, "plus": PLUS}
+APP = App("xui-webplus", "libxui_webplus.a", "lazywebplus-app", "xui-lazywebplus.elf")
 
 # Kept for the code that names them.
-LIB = WEBKIT.lib
-PROGRAM = WEBKIT.program
-ELF = WEBKIT.packaged
+LIB = APP.lib
+PROGRAM = APP.program
+ELF = APP.packaged
 
 
 def ensure_target() -> bool:
@@ -91,13 +86,11 @@ def ensure_target() -> bool:
     return True
 
 
-def build_window_library(app: App = WEBKIT) -> Path | None:
+def build_window_library(app: App = APP) -> Path | None:
     """The window as a static library in ``target/webkit/lib``; None when cargo cannot build for musl."""
     if not ensure_target():
         return None
     wkpins.log(f"building the window ({app.package}, static library, release)")
-    # Features are decided per package: the plus window needs the seam without the W5 window, which
-    # a workspace-wide build would switch on for both.
     built = subprocess.run(
         ["cargo", "build", "--manifest-path", str(XUI_APP / "Cargo.toml"), "-p", app.package,
          "--lib", "--target", TARGET, "--release"], cwd=ROOT)
@@ -137,13 +130,12 @@ def link_program(app: App, no_docker: bool, require: bool) -> Path | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--plus", action="store_true", help="LazyWebPlus (xui-webplus) instead of os.lazy.webkit")
     parser.add_argument("--lib-only", action="store_true", help="only the Rust half (no Docker needed)")
     parser.add_argument("--require", action="store_true", help="fail (exit 1) when Docker or the target is missing")
     parser.add_argument("--no-docker", action="store_true", help="link on this Linux host")
     args = parser.parse_args()
 
-    app = PLUS if args.plus else WEBKIT
+    app = APP
     library = build_window_library(app)
     built: dict[str, str | None] = {"window": str(library) if library else None}
     if not args.lib_only and library:

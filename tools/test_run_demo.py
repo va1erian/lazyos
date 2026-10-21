@@ -268,7 +268,6 @@ class MainTests(RunDemoCase):
         self.assertEqual(code, 0)
         built.assert_called_once_with()
         self.assertEqual(self.builds[-1].get("LAZYOS_LAZYWEBPLUS"), "1")
-        self.assertNotIn("LAZYOS_WEBKIT", self.builds[-1])
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
         # The ad blocker updates its lists with `curl` (issue #845).

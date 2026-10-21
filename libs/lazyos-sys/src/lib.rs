@@ -32,6 +32,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub mod abi;
 pub mod cred;
 pub mod detect;
 pub mod dev;

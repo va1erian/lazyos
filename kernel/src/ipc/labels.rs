@@ -12,7 +12,7 @@
 //!   installed app; a labelled IDE may spawn into it only when its own rules
 //!   allow that exact label ([`super::devspawn`]),
 //! * `app:<reverse.dns.name>/<name>` -- a *child* of an installed app
-//!   (`app:org.lazy.webkit/webprocess`, issue #832, [`super::children`]): a
+//!   (`app:os.lazy.lazywebplus/webprocess`, issue #832, [`super::children`]): a
 //!   helper program that runs with no more than the app holds. It owns no
 //!   names or topics, and its parent label must already be interned (the
 //!   link is part of the label, read back by [`parent_of`]),

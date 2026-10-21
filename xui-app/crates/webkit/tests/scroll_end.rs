@@ -8,7 +8,8 @@ use std::sync::Arc;
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::backend::Event;
 use xui_core::{Dip, Image, Modifiers, Theme};
-use xui_webkit::app::{Browser, Host, Msg};
+mod support;
+use support::{Browser, Host, Msg};
 use xui_webkit::damage::{IRect, Scroll};
 use xui_webkit::engine::{Call, Recorder};
 use xui_webkit::mailbox::{Delta, Mailbox, Patch};
@@ -75,6 +76,8 @@ fn run_with(
     script: impl FnOnce(&Stage<'_, Msg>, (i32, i32), &Mailbox, (i32, i32)) + 'static,
 ) -> Shown {
     xui_webkit::glide::set_smooth(smooth);
+    // These tests are of the picture shown ahead, off by default since #940.
+    xui_webkit::speculate::set_ahead(true);
     register_fonts();
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());

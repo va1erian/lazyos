@@ -139,7 +139,9 @@ syscall gets its number and wrapper there, never a private `asm!` block.
   unlabelled (or already in that label); op `0` and an `As` spawn must keep the
   label they land on, so a task cannot relabel or unlabel itself or hand a peer
   another label (`-EPERM`). `load_image`
-  maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA) and the stack
+  maps `PT_LOAD` segments (prot from `PF_W`/`PF_X`, `File` VMA; a read-only
+  segment of an ext2 program is a demand-faulted, shared `FileImage` instead,
+  see virtual-memory.md) and the stack
   eagerly at `USER_HEAP_BASE = 0x60_0000` / `USER_STACK_TOP = 0x7f00_0000_0000`
   (`USER_STACK_SIZE = 0x2_0000`).
 

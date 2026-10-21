@@ -15,7 +15,7 @@ members = [
     # LazyWeb, the web browser (Blitz, pure Rust).
     "web",
     # LazyWebPlus: LazyWeb's chrome on the WebKit engine (docs/lazywebplus.md); built as a
-    # static library by `tools/webkit/app.py --plus`.
+    # static library by `tools/webkit/app.py`.
     "webplus",
     "crates/code-editor",
     "crates/paint",
@@ -65,10 +65,20 @@ members = [
     "crates/named-icons",
     # Registers the Liberation fonts with xui-blitz for LazyWeb, Mail and Docs.
     "crates/webfonts",
-    # WebKit's window (docs/webkit-port-plan.md W5): chrome, page view and the
-    # C ABI of the C++ UI process; built as a static library by
-    # `tools/webkit/app.py`.
+    # The seam between WebKit's UI process and a window (docs/lazywebplus.md): engine trait,
+    # mailbox, page view and the C ABI of the C++ UI process. An rlib: LazyWeb+'s window
+    # (`webplus`) is the static library `tools/webkit/app.py` builds.
     "crates/webkit",
+    # webd's service half (docs/webd-plan.md P2): light views over Messenger, the view table, the
+    # quotas and the slot state machine; portable and host-tested, with the C ABI of the WebKit
+    # half behind the `host` feature.
+    "crates/webd",
+    # webd's host (docs/webd.md): the real Messenger binding, the wake-up loop and the markers around
+    # xui-webd; built as a static library by `tools/webkit/webd.py`.
+    "webd",
+    # The client of webd's light views (docs/webd-plan.md P2 slice 2): `LightWebView` over a
+    # `Transport`; `xui_app::platform::webd` binds it to Messenger and `webddemo` uses it.
+    "crates/webd-client",
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
@@ -192,6 +202,8 @@ lazymotion = { path = "crates/motion" }
 lazyicons = { path = "crates/named-icons" }
 # One app's tray item over os.lazy.shell.tray.v1 (`xui_app::tray`).
 trayclient = { path = "../libs/trayclient" }
+# webd's light views (docs/webd-plan.md P2 slice 2): the client; `platform::webd` binds it to Messenger.
+xui-webd-client = { path = "crates/webd-client" }
 # The shell themes its surfaces from the same `sys/ui/*` palette as xuid
 # (through the `uitheme` dependency above).
 confd = { path = "../libs/confd" }
@@ -431,3 +443,7 @@ path = "src/bin/nes.rs"
 [[bin]]
 name = "xui-playground"
 path = "src/bin/playground.rs"
+
+[[bin]]
+name = "xui-webddemo"
+path = "src/bin/webddemo.rs"

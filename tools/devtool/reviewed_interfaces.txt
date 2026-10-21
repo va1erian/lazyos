@@ -44,3 +44,4 @@ os.lazy.shell.tray.v1
 os.lazy.shell.v1
 os.lazy.sysmond.v1
 os.lazy.timed.v1
+os.lazy.webd.light.v1

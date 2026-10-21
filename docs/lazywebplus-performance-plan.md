@@ -161,7 +161,8 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
    order is: hard links on ext2 (issue #871: an `ext2fs` link operation, VFS `link`, open-file and page-cache
    identity by inode rather than path, `unlink_open` parking when `nlink > 1`, a real `st_nlink`; unlink's
    decrement is in `ext2fs` already), then `fallocate` (`EOPNOTSUPP`).
-2. **Demand-paged, shared executables.** Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
+2. **Demand-paged, shared executables** (done in #942: read-only segments of an ext2 program are `Kind::FileImage`,
+   see `architecture/virtual-memory.md`). Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged
    in only where used, and a second WebProcess shares the first's text. Expected: exec in well under a second.
 3. **Cheap clocks.** `clock_gettime` is a syscall with interrupts off; JSC and WebCore call it thousands of
@@ -187,6 +188,8 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
    baseline of `x86-64-v2` (SSE4.2, POPCNT) only once the launchers guarantee a CPU model (#810), with runtime
    dispatch kept for the AVX2 kernels Skia and simdutf carry. PGO is a later, separate decision.
 3. **ICU data filter** (locales and converters a browser UI needs): 30 MB to about 8 MB in each of three programs.
+   **Done** (`tools/jsc/icudata.py`): 9.9 MB, and with no unwind tables, `-Os` for cold code and lld ICF the
+   WebProcess went from 112.8 to 78.1 MB (`webkit/README.md`, "Size of the programs").
 4. **OpenSSL with assembly** now that AVX state is on (#822) and AES-NI/PCLMUL are used when CPUID reports them
    (verify the dispatch under `qemu64`); libjpeg-turbo with SIMD; zlib's SIMD paths. TLS handshakes are about
    half the CPU of a cold ad-heavy page.
@@ -451,6 +454,12 @@ and `tools/webplus/cpu_profile.py` (the 30 Hz sampler's recording by function). 
   whether a line was masked; 20% of wall-clock samples. `arch/ioapic.rs` keeps a table of what it wrote.
 
 ## Scrolling ahead of the page (checkerboard)
+
+**Off by default since issue #940 (2026-10-21).** On the Alder Lake box with `/home` on the USB stick the
+page answered late often enough that the picture shown ahead had to jump back two to thirteen times a
+minute, which the user found worse than a view that waits; `xui_webkit::speculate::set_ahead(true)` turns
+it back on (its tests do). Off, a notch moves the view only once the page has scrolled, gliding there when
+the page's move comes within `ANSWER_MS` of the notch.
 
 The page answers a wheel notch 70 ms later on average on Ars Technica, 480 ms at worst, so a notch used to
 be seen that late. The window now moves the picture it has at once, as the first smartphone browsers did, and

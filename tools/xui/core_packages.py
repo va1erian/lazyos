@@ -116,16 +116,16 @@ CORE_APPS: dict[str, CoreApp] = {
     # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
     # which fails that build when it is missing).
     "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
-    # WebKit, the browser (docs/webkit-port-plan.md W5): one static program linked in the WebKit
-    # build container by `tools/webkit/app.py`. Only a `LAZYOS_WEBKIT=1` image ships it
-    # (`build_support/webkit_embed.rs`, which fails that build when it is missing).
-    "webkit": CoreApp({"xui-webkit.elf": "bin/webkit.elf"}, optional=True,
-                      built_by="python tools/webkit/app.py"),
     # LazyWeb+ (docs/lazywebplus.md): LazyWeb's chrome on the same WebKit build, one static program
-    # linked by `tools/webkit/app.py --plus`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
+    # linked by `tools/webkit/app.py`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
     # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
     "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,
-                           built_by="python tools/webkit/app.py --plus"),
+                           built_by="python tools/webkit/app.py"),
+    # webd (docs/webd.md): the resident daemon that serves WebKit views to other apps, one static program
+    # linked by `tools/webkit/webd.py`. Only a `LAZYOS_WEBD=1` image ships it
+    # (`build_support/webd_embed.rs`, which fails that build when it is missing).
+    "webd": CoreApp({"xui-webd.elf": "bin/webd.elf"}, optional=True,
+                    built_by="python tools/webkit/webd.py"),
     # The Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1` image
     # ships it (`build_support/lazysky_embed.rs`, which fails that build when
     # it is missing).
@@ -184,6 +184,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # build when it is missing).
     "playground": CoreApp({"xui-playground.elf": "bin/playground.elf"}, optional=True,
                           relocate=(("examples", "resources/examples"),)),
+    # Web View Demo (docs/webd-plan.md P2 slice 2): the client of webd's light views, driven by
+    # `python tools/webd/run.py`. Only a `LAZYOS_WEBD=1` image ships it.
+    "webddemo": xui_app("xui-webddemo.elf", "webddemo", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

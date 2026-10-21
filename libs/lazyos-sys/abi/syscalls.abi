@@ -1,0 +1,89 @@
+# The frozen syscall ABI (libs/lazyos-sys, docs/update-plan.md decision 18).
+#
+#   <namespace> <number> <NAME> since <abi> [removed <abi>]
+#
+# Append-only: a constant in `nr`, `msg::op` or `dev::op` is never renumbered
+# or renamed. A new one is added here with `since <KERNEL_ABI + 1>` and
+# `abi::KERNEL_ABI` is bumped in the same change. A removal gets
+# `removed <abi>` (not a deleted line), raises KERNEL_ABI_COMPAT_FROM to that
+# ABI, and waits two snapshots after the deprecation. The test is
+# tests/abi_freeze.rs.
+device 0 LIST since 1
+device 1 CLAIM since 1
+device 2 MAP_BAR since 1
+device 3 PIO since 1
+device 4 CFG_READ since 1
+device 5 CFG_WRITE since 1
+device 6 IRQ_ENABLE since 1
+device 7 IRQ_ACK since 1
+device 8 RELEASE since 1
+device 9 DMA_ALLOC since 1
+device 10 INVENTORY since 1
+device 11 POLICY since 1
+device 12 DENIALS since 1
+device 13 DBG_CONFIG_READ since 1
+device 14 DBG_MMIO_READ since 1
+messenger 1 CALL since 1
+messenger 1 CLOSE_RELEASE since 1
+messenger 1 ENDPOINT_FD_CLOEXEC since 1
+messenger 1 RECV_SENDER_ID since 1
+messenger 2 REPLY since 1
+messenger 3 SEND since 1
+messenger 4 RECV since 1
+messenger 5 CANCEL since 1
+messenger 6 CLOSE_ENDPOINT since 1
+messenger 7 CREATE_PAIR since 1
+messenger 8 STATS since 1
+messenger 9 BOOTSTRAP since 1
+messenger 10 CALL_BEGIN since 1
+messenger 11 CALL_AWAIT since 1
+messenger 12 TOTALS since 1
+messenger 13 REGISTER since 1
+messenger 14 RESOLVE since 1
+messenger 15 UNREGISTER since 1
+messenger 16 LIST since 1
+messenger 17 AUTHORIZE_TOPIC since 1
+messenger 18 ACL_LOAD since 1
+messenger 19 WAIT since 1
+messenger 20 CONNECT since 1
+messenger 21 ENDPOINT_FD since 1
+messenger 22 BUFFER_CREATE since 1
+messenger 23 BUFFER_MAP since 1
+messenger 24 BUFFER_CLOSE since 1
+messenger 25 CALL_CHECK since 1
+messenger 26 CALL_DRAIN since 1
+native 0 EXIT since 1
+native 1 WRITE since 1
+native 2 READ_CHAR since 1
+native 3 READ_FILE since 1
+native 4 SBRK since 1
+native 5 MESSENGER since 1
+native 7 WAIT since 1
+native 8 CLOCK since 1
+native 9 ARGS since 1
+native 10 CREDS since 1
+native 11 QUOTA since 1
+native 12 DISPLAY since 1
+native 13 TASKS since 1
+native 14 SYSTEM_STATS since 1
+native 15 STAT since 1
+native 16 READDIR since 1
+native 17 WRITE_FILE since 1
+native 18 MKDIR since 1
+native 19 UNLINK since 1
+native 20 RENAME since 1
+native 21 POWER since 1
+native 22 FSYNC since 1
+native 23 DEV since 1
+native 24 WALL_TIME since 1
+native 25 INPUT_RAW since 1
+native 26 RANDOM since 1
+native 27 INET since 1
+native 28 APPEND_FILE since 1
+native 29 KILL since 1
+native 30 READ_AT since 1
+native 31 SPAWNV since 1
+native 32 CHMOD since 1
+native 33 STORAGE since 1
+native 34 MONO_TIME since 1
+native 35 FUSE since 1

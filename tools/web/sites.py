@@ -48,7 +48,7 @@ DOWNLOAD_PATH = "/files/oldnet-kit.zip"
 DOWNLOAD_NAME = "oldnet-kit.zip"
 
 
-#: The WebKit browser harness's form target (its runner, app_run.py): answers a GET with a page whose
+#: The WebKit browser harness's form target (its runner, tools/webplus/run.py): answers a GET with a page whose
 #: title is `echo:<q>`, so what a browser typed into the field comes back as evidence.
 ECHO_PATH = "/webkit/echo"
 #: A page that answers after `SLOW_SECONDS`: the browser has time to stop the load (the harness

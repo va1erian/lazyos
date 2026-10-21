@@ -8,7 +8,7 @@
 // the window renames it when every byte arrived.
 //
 // Markers (the window prefix first; the ones that name a page only in a UI-probe image):
-//   CLICK:<url>        a link was clicked: the navigation it started (W5's window only)
+//   CLICK:<url>        a link was clicked: the navigation it started (a window that prints no markers of its own)
 //   DOWNLOAD:REFUSED   the window refused a download
 
 #include <WebKit/WKDownloadClient.h>
@@ -37,6 +37,7 @@ namespace {
 
 // One download's bookkeeping, the client info of its callbacks; freed when it ends.
 struct DownloadInfo {
+    int view { 0 };
     uint64_t id { 0 };
     bool refused { false };
 };
@@ -61,9 +62,8 @@ WKStringRef decideDestination(WKDownloadRef, WKURLResponseRef response, WKString
     if (url)
         WKRelease(url);
     char path[4096] = { 0 };
-    if (lzw_ui_download_start(info->id, address.c_str(), utf8(suggestedFilename).c_str(), announcedLength(response), path,
-            sizeof path)
-        != 0) {
+    View* v = viewById(info->view);
+    if (!v || v->sink->downloadStart(info->id, address.c_str(), utf8(suggestedFilename).c_str(), announcedLength(response), path, sizeof path) != 0) {
         info->refused = true;
         say("DOWNLOAD:REFUSED");
         return nullptr;
@@ -74,16 +74,20 @@ WKStringRef decideDestination(WKDownloadRef, WKURLResponseRef response, WKString
 void didWriteData(WKDownloadRef, long long, long long totalBytesWritten, long long totalBytesExpectedToWrite, const void* clientInfo)
 {
     DownloadInfo* info = infoOf(clientInfo);
-    if (!info->refused)
-        lzw_ui_download_progress(info->id, totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : -1);
+    View* v = viewById(info->view);
+    if (v && !info->refused)
+        v->sink->downloadProgress(info->id, totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : -1);
 }
 
+// The download ended: its view lets go of it (a view that is gone has let go already).
 void forget(DownloadInfo* info)
 {
-    auto it = E.downloads.find(info->id);
-    if (it != E.downloads.end()) {
-        WKRelease(it->second);
-        E.downloads.erase(it);
+    if (View* v = viewById(info->view)) {
+        auto it = v->downloads.find(info->id);
+        if (it != v->downloads.end()) {
+            WKRelease(it->second);
+            v->downloads.erase(it);
+        }
     }
     delete info;
 }
@@ -91,8 +95,9 @@ void forget(DownloadInfo* info)
 void didFinish(WKDownloadRef, const void* clientInfo)
 {
     DownloadInfo* info = infoOf(clientInfo);
-    if (!info->refused)
-        lzw_ui_download_done(info->id);
+    View* v = viewById(info->view);
+    if (v && !info->refused)
+        v->sink->downloadDone(info->id);
     forget(info);
 }
 
@@ -112,21 +117,23 @@ void didFailWithError(WKDownloadRef, WKErrorRef error, WKDataRef, const void* cl
                 reason = oneLine(description);
         }
     }
-    if (!info->refused)
-        lzw_ui_download_fail(info->id, reason.c_str());
+    View* v = viewById(info->view);
+    if (v && !info->refused)
+        v->sink->downloadFail(info->id, reason.c_str());
     forget(info);
 }
 
-// Wires a new download to the window: its id, its client.
-void adopt(WKDownloadRef download)
+// Wires a new download to the owner: its id, its client.
+void adopt(View& v, WKDownloadRef download)
 {
     // The navigation became a file: the page on show stays, and so does what blocks it.
-    blockingSettle();
+    blockingSettle(v);
     auto* info = new DownloadInfo();
-    info->id = E.nextDownload++;
+    info->view = v.id;
+    info->id = v.nextDownload++;
     WKRetain(download);
-    E.downloads[info->id] = download;
-    static WKDownloadClientV0 client = { };
+    v.downloads[info->id] = download;
+    WKDownloadClientV0 client = { };
     client.base.version = 0;
     client.base.clientInfo = info;
     client.decideDestinationWithResponse = decideDestination;
@@ -141,12 +148,24 @@ void adopt(WKDownloadRef download)
 
 // ---- the navigation client's policy --------------------------------------------------------
 
-void navigationActionDidBecomeDownload(WKPageRef, WKNavigationActionRef, WKDownloadRef download, const void*) { adopt(download); }
-
-void navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKDownloadRef download, const void*) { adopt(download); }
-
-void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WKFramePolicyListenerRef listener, WKTypeRef, const void*)
+void navigationActionDidBecomeDownload(WKPageRef, WKNavigationActionRef, WKDownloadRef download, const void* clientInfo)
 {
+    adopt(*viewOf(clientInfo), download);
+}
+
+void navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKDownloadRef download, const void* clientInfo)
+{
+    adopt(*viewOf(clientInfo), download);
+}
+
+void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WKFramePolicyListenerRef listener, WKTypeRef, const void* clientInfo)
+{
+    View& v = *viewOf(clientInfo);
+    // A light view loads what its owner gave it and nothing else (light.cpp).
+    if (v.config.light) {
+        lightNavigationAction(v, action, listener);
+        return;
+    }
     const WKFrameNavigationType type = WKNavigationActionGetNavigationType(action);
     WKURLRequestRef request = WKNavigationActionCopyRequest(action);
     WKURLRef url = request ? WKURLRequestCopyURL(request) : nullptr;
@@ -154,7 +173,7 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
     if (type == kWKFrameNavigationTypeLinkClicked)
         sayHarness("CLICK:%s", oneLine(address).c_str());
     else if (type == kWKFrameNavigationTypeFormSubmitted)
-        E.formNavigation = true;
+        v.formNavigation = true;
     if (url)
         WKRelease(url);
     if (request)
@@ -169,33 +188,38 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
     // must not switch the blocker off for the page that made it.
     bool mainFrame = false;
     if (!target) {
-        E.popupGesture = gesture;
-        E.popupUrl = address;
+        v.popupGesture = gesture;
+        v.popupUrl = address;
     } else {
         mainFrame = WKFrameInfoGetIsMainFrame(target);
         WKRelease(target);
     }
 
-    if (has(LZW_FEATURE_POLICY)) {
-        const std::string committed = committedUrl();
-        if (lzw_ui_navigate(address.c_str(), type, gesture ? 1 : 0, committed.c_str()) != LZW_VERDICT_ALLOW) {
+    if (v.has(LZW_FEATURE_POLICY)) {
+        const std::string committed = committedUrl(v);
+        if (v.sink->navigate(address.c_str(), type, gesture, committed.c_str()) != LZW_VERDICT_ALLOW) {
             WKFramePolicyListenerIgnore(listener);
             return;
         }
     }
     // The rule lists apply or not to the page this begins (issue #845), before its first request.
-    blockingNavigation(address, mainFrame);
+    blockingNavigation(v, address, mainFrame);
     // <a download>: the page asked for a file, not a page.
-    if (has(LZW_FEATURE_DOWNLOADS) && WKNavigationActionShouldPerformDownload(action))
+    if (v.has(LZW_FEATURE_DOWNLOADS) && WKNavigationActionShouldPerformDownload(action))
         WKFramePolicyListenerDownload(listener);
     else
         WKFramePolicyListenerUse(listener);
 }
 
-void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef response, WKFramePolicyListenerRef listener, WKTypeRef, const void*)
+void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef response, WKFramePolicyListenerRef listener, WKTypeRef, const void* clientInfo)
 {
+    View& v = *viewOf(clientInfo);
+    if (v.config.light) {
+        lightNavigationResponse(v, response, listener);
+        return;
+    }
     bool download = false;
-    if (has(LZW_FEATURE_DOWNLOADS)) {
+    if (v.has(LZW_FEATURE_DOWNLOADS)) {
         WKFrameInfoRef frame = WKNavigationResponseCopyFrameInfo(response);
         const bool mainFrame = !frame || WKFrameInfoGetIsMainFrame(frame);
         if (frame)
@@ -205,8 +229,8 @@ void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef respon
             const bool attachment = reply && WKURLResponseIsAttachment(reply);
             if (reply)
                 WKRelease(reply);
-            download = E.saveNext || attachment || !WKNavigationResponseCanShowMIMEType(response);
-            E.saveNext = false;
+            download = v.saveNext || attachment || !WKNavigationResponseCanShowMIMEType(response);
+            v.saveNext = false;
         }
     }
     if (download)
@@ -215,32 +239,33 @@ void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef respon
         WKFramePolicyListenerUse(listener);
 }
 
+// The page's downloads end with the page: each is cancelled and let go of (its callbacks find the view
+// gone and only free their bookkeeping).
+void dropDownloads(View& view)
+{
+    auto pending = std::move(view.downloads);
+    view.downloads.clear();
+    for (auto& entry : pending) {
+        WKDownloadCancel(entry.second, nullptr, [](WKDataRef, const void*) { });
+        WKRelease(entry.second);
+    }
+}
+
+void View::download(const std::string& address)
+{
+    // The next main-frame response is saved, not shown (the response policy above): the page on
+    // show stays, as it does when a link to a file is clicked.
+    saveNext = true;
+    WKURLRef target = WKURLCreateWithUTF8CString(address.c_str());
+    WKPageLoadURL(page, target);
+    WKRelease(target);
+}
+
+void View::downloadCancel(uint64_t id)
+{
+    auto it = downloads.find(id);
+    if (it != downloads.end())
+        WKDownloadCancel(it->second, nullptr, [](WKDataRef, const void*) { });
+}
+
 } // namespace webkitapp
-
-using namespace webkitapp;
-
-extern "C" {
-
-void lzw_engine_download(const char* url)
-{
-    std::string address = url ? url : "";
-    onMain([address] {
-        // The next main-frame response is saved, not shown (the response policy above): the page on
-        // show stays, as it does when a link to a file is clicked.
-        E.saveNext = true;
-        WKURLRef target = WKURLCreateWithUTF8CString(address.c_str());
-        WKPageLoadURL(E.page, target);
-        WKRelease(target);
-    });
-}
-
-void lzw_engine_download_cancel(uint64_t id)
-{
-    onMain([id] {
-        auto it = E.downloads.find(id);
-        if (it != E.downloads.end())
-            WKDownloadCancel(it->second, nullptr, [](WKDataRef, const void*) { });
-    });
-}
-
-} // extern "C"

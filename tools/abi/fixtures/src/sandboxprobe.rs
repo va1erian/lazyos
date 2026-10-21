@@ -209,13 +209,12 @@ fn main() {
         "read_ca_bundle",
         io_attempt(File::open("/etc/ssl/certs/ca-certificates.crt")),
     );
-    // The profile folder the browser's UI process named for its children (`LAZYOS_WEBKIT_PROFILE`:
-    // `.apps/os.lazy.webkit` for WebKit, `.apps/os.lazy.lazywebplus` for LazyWeb+); the kernel-only
-    // harness has none and uses WebKit's.
+    // The profile folder the browser's UI process named for its children (`LAZYOS_WEBKIT_PROFILE`,
+    // `.apps/os.lazy.lazywebplus`); the kernel-only harness has none and uses the same folder.
     let profile = std::env::var("LAZYOS_WEBKIT_PROFILE")
-        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webkit"));
+        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.lazywebplus"));
     say(role, "write_profile", write_probe(&profile, "attack-probe"));
-    // LazyWeb+'s network process may save downloads here; nothing else may.
+    // The network process may save downloads here; nothing else may.
     say(
         role,
         "write_downloads",
@@ -332,7 +331,7 @@ fn main() {
     }
 }
 
-/// The rules of the two process tables of `xui-app/packages/webkit/manifest.toml`, as the
+/// The rules of the two process tables of `xui-app/packages/lazywebplus/manifest.toml`, as the
 /// kernel's file gate wants them (`pkgstore::filerules`). `test_attack_judge.py` checks that
 /// these lists are the manifest's.
 const WEB_FILES: &[&str] = &[
@@ -344,7 +343,8 @@ const NETWORK_FILES: &[&str] = &[
     "read:/etc/resolv.conf",
     "read:/etc/hosts",
     "read:/etc/ssl/certs/ca-certificates.crt",
-    "write:$HOME/.apps/os.lazy.webkit",
+    "write:$HOME/.apps/os.lazy.lazywebplus",
+    "write:$HOME/Downloads",
 ];
 
 /// A role of the kernel-only harness: its program name, the label it is run under, its
@@ -385,12 +385,17 @@ fn driver() -> i32 {
     let home = "/home/user";
     // The user's profile directory, which the browser's UI process makes and the
     // NetworkProcess may write in; the user owns it.
-    let profile = format!("{home}/.apps/os.lazy.webkit");
+    let profile = format!("{home}/.apps/os.lazy.lazywebplus");
+    let downloads = format!("{home}/Downloads");
     println!(
         "ATTACK:driver:NOTE:mkdir {profile}: {:?}",
         fs::create_dir_all(&profile)
     );
-    for path in [format!("{home}/.apps"), profile.clone()] {
+    println!(
+        "ATTACK:driver:NOTE:mkdir {downloads}: {:?}",
+        fs::create_dir_all(&downloads)
+    );
+    for path in [format!("{home}/.apps"), profile.clone(), downloads] {
         println!(
             "ATTACK:driver:NOTE:chown {path}: {:?}",
             std::os::unix::fs::chown(&path, Some(1000), Some(1000))
