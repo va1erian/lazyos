@@ -54,39 +54,57 @@ impl Ext2 {
         if self.read_only {
             return Ok(Progress::Done);
         }
-        let mut state = self.piecewise.lock();
+        // Taken out of the cache for this call and put back at its end; the
+        // volume lock held here is what keeps anyone else from looking.
+        let mut state = self.take_piecewise();
         if state.is_none() {
             if self.dirty_blocks_locked() == 0 && !self.has_pending() {
                 return Ok(Progress::Done);
             }
             match self.begin_piecewise() {
-                Some(started) => *state = Some(started),
+                Some(started) => state = Some(started),
                 None => {
-                    drop(state);
                     self.commit_locked()?;
                     return Ok(Progress::Done);
                 }
             }
         }
         let Some(cache) = &self.cache else {
-            *state = None;
             return Ok(Progress::Done);
         };
         let written = self.with_cache(cache, |cache, io| cache.flush_piece(io, stop));
-        match written {
+        let progress = match written {
             Err(error) => {
+                // The commit ends; its state is dropped, not put back.
                 cache.lock().abort_snapshot();
-                *state = None;
-                Err(error)
+                return Err(error);
             }
             Ok(false) => Ok(Progress::More),
             Ok(true) => self.next_stage(&mut state),
-        }
+        };
+        self.put_piecewise(state);
+        progress
     }
 
     /// Whether a piecewise commit is between pieces.
     pub fn commit_in_progress(&self) -> bool {
-        self.piecewise.lock().is_some()
+        self.cache
+            .as_ref()
+            .is_some_and(|cache| cache.lock().commit.is_some())
+    }
+
+    /// The piecewise commit's state, taken out of the cache.
+    fn take_piecewise(&self) -> Option<Piecewise> {
+        self.cache
+            .as_ref()
+            .and_then(|cache| cache.lock().commit.take())
+    }
+
+    /// Put the piecewise commit's state back (`None`: it ended).
+    fn put_piecewise(&self, state: Option<Piecewise>) {
+        if let Some(cache) = &self.cache {
+            cache.lock().commit = state;
+        }
     }
 
     /// The device's cache flush, for the host to make after the last piece
@@ -152,9 +170,10 @@ impl Ext2 {
 
     /// End a piecewise commit that a full one replaces (the lock is held).
     pub(super) fn cancel_piecewise(&self) {
-        if self.piecewise.lock().take().is_some() {
-            if let Some(cache) = &self.cache {
-                cache.lock().abort_snapshot();
+        if let Some(cache) = &self.cache {
+            let mut cache = cache.lock();
+            if cache.commit.take().is_some() {
+                cache.abort_snapshot();
             }
         }
     }

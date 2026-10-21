@@ -122,6 +122,10 @@ pub(crate) struct BlockCache {
     touched_inodes: BTreeSet<u32>,
     /// The piecewise writeback in progress, if any.
     snapshot: Option<piecewise::Snapshot>,
+    /// How far the piecewise commit that `snapshot` belongs to has come
+    /// (`commit_piece.rs`). Kept here, under the cache's lock, rather than
+    /// behind a lock of its own: it is only touched under the volume lock.
+    pub(crate) commit: Option<crate::commit_piece::Piecewise>,
     stats: CacheStats,
 }
 
@@ -153,6 +157,7 @@ impl BlockCache {
             touched: BTreeSet::new(),
             touched_inodes: BTreeSet::new(),
             snapshot: None,
+            commit: None,
             stats: CacheStats::default(),
         }
     }

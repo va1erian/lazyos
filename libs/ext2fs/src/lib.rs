@@ -207,8 +207,6 @@ pub struct Ext2 {
     /// Whether frees wait for the next commit (`commit.rs`); on with a cache.
     defer_frees: bool,
     pending: Mutex<commit::Pending>,
-    /// A commit written in pieces, between two of them (`commit_piece.rs`).
-    piecewise: Mutex<Option<commit_piece::Piecewise>>,
     /// The volume has a journal (`FEATURE_COMPAT_HAS_JOURNAL`); a cached
     /// mount logs its metadata commits there (`journal/`).
     journaled: bool,

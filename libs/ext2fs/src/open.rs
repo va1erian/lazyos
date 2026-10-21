@@ -141,7 +141,6 @@ impl Ext2 {
             cache: None,
             defer_frees: false,
             pending: Mutex::new(Default::default()),
-            piecewise: Mutex::new(None),
             journaled,
             recovered: false,
             errored: AtomicBool::new(false),
