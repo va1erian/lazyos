@@ -272,6 +272,7 @@ impl Listener {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl Listener {
     /// A descriptor that becomes readable when an event is queued on this channel (or it hangs up),
     /// for another thread to wait on: a handle is its thread's own, a descriptor is the process's
@@ -294,7 +295,9 @@ impl Drop for Listener {
 }
 
 /// A [`Listener`]'s readiness, which any thread may wait on. Once the shell's end is closed (it
-/// restarted) or the listener is dropped, it reads [`Readiness::Hangup`].
+/// restarted) or the listener is dropped, it reads [`Readiness::Hangup`]. Linux only: a host
+/// build (`lzpack`) has no descriptors to wait on.
+#[cfg(target_os = "linux")]
 pub struct Watch {
     fd: std::os::fd::OwnedFd,
 }
@@ -312,6 +315,7 @@ pub enum Readiness {
     Idle,
 }
 
+#[cfg(target_os = "linux")]
 impl Watch {
     /// Parks the calling thread until an event is waiting, the channel hangs up, or `timeout`
     /// passes. Level-triggered: a queued event stays [`Readiness::Ready`] until it is received.
