@@ -6,8 +6,7 @@
 //! "Limits") and calls [`Pane::tick`] from a timer with the area the picture fills. The pane
 //!
 //! * waits for `webd` to be there (the app may start first) and says so after a while
-//!   ([`Status::NotRunning`], for the "the web engine is not running" screen and its *Start*
-//!   button), retrying quietly;
+//!   ([`Status::NotRunning`], for the "the web engine is not running" screen), retrying quietly;
 //! * creates the view at the first size it is given, loads the newest page, and follows size changes;
 //! * turns the view's events into [`PaneEvent`]s: links (never followed: a light view loads nothing),
 //!   copied text, and the first picture of each page ([`PaneEvent::Painted`]);
@@ -25,6 +24,8 @@ pub const RETRY_MS: u64 = 250;
 /// Milliseconds the pane waits before it says `webd` is not running: an app that starts with the
 /// session is up a moment before the service registers its name.
 pub const NOT_RUNNING_AFTER_MS: u64 = 1500;
+/// Milliseconds a new size must stay unchanged before the view is resized to it.
+pub const RESIZE_AFTER_MS: u64 = 48;
 /// Milliseconds after a loss before the new view is made.
 pub const RECREATE_AFTER_MS: u64 = 500;
 /// Losses in a row (no picture between them) after which the pane stops trying by itself.
@@ -87,6 +88,8 @@ pub struct Pane<T: Transport> {
     losses: u32,
     /// When the first failed attempt of the current run of `NotRunning` was.
     waiting_since: Option<u64>,
+    /// A size the area changed to, and since when (see [`Pane::size_settled`]).
+    resizing: Option<((u32, u32), u64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -106,6 +109,7 @@ impl<T: Transport> Pane<T> {
             awaiting: None,
             losses: 0,
             waiting_since: None,
+            resizing: None,
         }
     }
 
@@ -146,7 +150,7 @@ impl<T: Transport> Pane<T> {
         self.view.scroll()
     }
 
-    /// Try again now: the *Start* button once webd was started, a key after a failure. Forgets the
+    /// Try again now (a key after a failure, the next message selected). Forgets the
     /// losses and the time spent waiting.
     pub fn retry(&mut self) {
         self.losses = 0;
@@ -178,7 +182,8 @@ impl<T: Transport> Pane<T> {
                 self.loaded = false;
                 self.awaiting = None;
             }
-            Err(Error::NotRunning) => {
+            Err(Error::NotRunning | Error::Lost(_)) => {
+                // webd is not there, or went away while the slots were attached: keep trying.
                 self.phase = Phase::Creating {
                     at: now_ms + RETRY_MS,
                 };
@@ -206,8 +211,23 @@ impl<T: Transport> Pane<T> {
         }
     }
 
+    /// Whether a size that differs from the view's has held still for [`RESIZE_AFTER_MS`]: a drag of the
+    /// window changes it every frame, and each resize attaches three new slots.
+    fn size_settled(&mut self, size: (u32, u32), now_ms: u64) -> bool {
+        match self.resizing {
+            Some((seen, since)) if seen == size => now_ms.saturating_sub(since) >= RESIZE_AFTER_MS,
+            _ => {
+                self.resizing = Some((size, now_ms));
+                false
+            }
+        }
+    }
+
     fn running(&mut self, size: (u32, u32), now_ms: u64, out: &mut Vec<PaneEvent>) {
-        if size != self.view.size() && self.view.is_live() {
+        if size == self.view.size() {
+            self.resizing = None;
+        } else if self.view.is_live() && self.size_settled(size, now_ms) {
+            self.resizing = None;
             if let Err(error) = self.view.resize(size.0, size.1) {
                 if !matches!(error, Error::Lost(_)) {
                     self.set_status(Status::Failed(error.to_string()), out);
@@ -243,7 +263,9 @@ impl<T: Transport> Pane<T> {
         let Some(html) = self.page.clone() else {
             return;
         };
-        let baseline = self.view.page().finished;
+        // A load still running when this one starts finishes first: it must not count as this page's.
+        let page = self.view.page();
+        let baseline = page.finished + u32::from(page.loading);
         match self.view.set_html(&html, "about:blank") {
             Ok(()) => {
                 self.loaded = true;

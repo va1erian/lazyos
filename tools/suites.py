@@ -96,10 +96,17 @@ def apply(args, flags) -> None:
         setattr(args, dest(flag), True)
 
 
+def wants_webkit(flags) -> bool:
+    """Whether a flag set brings webd's or the browser's programs: the flags above, or any desktop (it ships
+    webd for Docs and Mail) that does not leave it out."""
+    flags = set(flags)
+    return bool(flags & set(WEBKIT_FLAGS)) or ("desktop" in flags and "no-webd" not in flags)
+
+
 def os_size_bytes(flags) -> int:
     """The OS volume a flag set needs, by `osvolume`'s rules (one source of truth)."""
     flags = set(flags)
-    return osvolume.required_bytes("srb2kart" in flags, bool(flags & set(WEBKIT_FLAGS)))
+    return osvolume.required_bytes("srb2kart" in flags, wants_webkit(flags))
 
 
 def describe(name: str, options=(), data: dict | None = None) -> str:

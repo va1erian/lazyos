@@ -291,6 +291,7 @@ def main(argv: list[str]) -> int:
             env["LAZYOS_RESET_OS"] = "1"
             print("--reset-os: the OS volume will be recreated "
                   "(apps, settings, logs and /data are erased)", flush=True)
+        webd_env(args, env, webd_built, build_webd)  # before the volume is planned; passed in: tests patch them
         if not args.reset_os and not osvolume.configured():
             # The build cannot resize an OS volume: fit it to the selection, or
             # say now (not after the build) that it has to be recreated.
@@ -384,7 +385,6 @@ def main(argv: list[str]) -> int:
                       + (GAMES_APPS if args.games else []) + (USB_APPS if usb_desktop(args) else []))
             if not all(app.is_file() for app in needed) and not build_xui_apps():
                 return 1
-        webd_env(args, env, webd_built, build_webd)  # passed in: the tests patch them here
         if args.mail:
             # After the other apps: one incremental build that adds Mail.
             if not build_mail():

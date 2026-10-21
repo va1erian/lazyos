@@ -52,6 +52,7 @@ impl Reader {
                 LightEvent::Link(href) => Some(Msg::Link(href)),
                 LightEvent::Painted => Some(Msg::Painted),
                 LightEvent::Status(status) => Some(Msg::Engine(status)),
+                LightEvent::LoadRefused(_) => Some(Msg::Refused),
             },
         )?;
         view.set_html(reading::notice(
@@ -72,6 +73,7 @@ impl Reader {
     /// pictures appear. A remote-content toggle would need a full web view
     /// (`os.lazy.webd.view.v1`) with a policy of its own.
     pub fn show_message(&self, header: &MailHeader, body: &str, attachments: &[Attachment]) {
+        self.retry_if_failed();
         // As esMail on Windows: the palette's colours unless the message
         // brings its own backgrounds, which then sit on white.
         let themed = self.appearance.themes_body(body);
@@ -87,6 +89,18 @@ impl Reader {
         let palette = self.appearance.palette;
         self.load(palette.background, reading::notice(text, None, &palette));
         self.awaiting_paint.set(false);
+    }
+
+    /// Try the web engine again if it gave up (a message selected is the cue; there is no key to press).
+    pub fn retry_if_failed(&self) {
+        if matches!(self.view.status(), xui_webd_client::Status::Failed(_)) {
+            self.view.retry();
+        }
+    }
+
+    /// Shows `notice` in place of a page webd refused.
+    pub fn show_refused(&self) {
+        self.show_notice("This message is too large to show here.");
     }
 
     fn load(&self, background: u32, html: String) {

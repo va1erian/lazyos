@@ -121,8 +121,10 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
 def webd_step(cfg: dict) -> list[dict]:
     """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
     (the service as a static library and the program, in Docker), then the xui apps, which package
-    it as `os.lazy.webd`. Every desktop ships it (Docs and Mail need it) unless the launcher left it out."""
-    if not osvolume.wants_webd(cfg):
+    it as `os.lazy.webd`. Only when asked for: every desktop ships webd once it has been built (Docs and Mail
+    need it), but a launch does not start a Docker build of WebKit by itself (`run_demo --desktop` does, and
+    goes on without it when that fails)."""
+    if not osvolume.requires_webd(cfg):
         return []
     # LazyWeb+'s steps already built the bundle and the engine processes webd starts.
     shared = [] if cfg.get("lazywebplus") else [
@@ -219,7 +221,7 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
             | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {})
-            | ({"LAZYOS_WEBD": "1"} if osvolume.wants_webd(cfg) else {})
+            | ({"LAZYOS_WEBD": "1"} if osvolume.requires_webd(cfg) else {})
             | ({"LAZYOS_WEBD": "0"} if cfg.get("no_webd") else {})
             | ({"LAZYOS_WEBDDEMO": "1"} if cfg.get("webd_demo") else {}))
 

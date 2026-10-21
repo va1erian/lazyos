@@ -80,6 +80,22 @@ fn built_elf() -> PathBuf {
         .join(ELF)
 }
 
+/// The engine processes the daemon starts, `target/webkit/bin/` (`linuxapps_embed` puts them in `/system/bin`).
+const ENGINE_PROCESSES: [&str; 2] = ["WebProcess", "NetworkProcess"];
+
+/// Whether the daemon and the two processes it starts are all built: a daemon without them could not start a
+/// view, so an unset switch does not ship it.
+fn built() -> bool {
+    // A missing file is watched through its directory, never by name (cargo takes that for "always changed").
+    println!("cargo:rerun-if-changed=target/webkit/bin");
+    let dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir")).join("target");
+    built_elf().is_file()
+        && ENGINE_PROCESSES
+            .iter()
+            .all(|name| dir.join("webkit").join("bin").join(name).is_file())
+}
+
 /// Whether the image ships webd ([`Switch`]), from the environment: what the build modules that size
 /// the volume, pick the engine processes and the autostart list ask. No panic.
 pub fn shipped_env() -> bool {
@@ -87,7 +103,7 @@ pub fn shipped_env() -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_DESKTOP");
     let desktop = on("LAZYOS_DESKTOP");
     let switch = parse_switch(std::env::var_os("LAZYOS_WEBD").as_deref());
-    shipped(switch, desktop, built_elf().is_file())
+    shipped(switch, desktop, built())
 }
 
 /// Whether the image ships webd (see [`Switch`]). Panics when `LAZYOS_WEBD=1` is set without the
@@ -98,10 +114,10 @@ pub fn enabled(desktop: bool) -> bool {
     if let Err(reason) = requirements(switch == Switch::On, desktop) {
         panic!("{reason}");
     }
-    let built = built_elf().is_file();
+    let built = built();
     if desktop && !built && switch == Switch::Auto {
         println!(
-            "cargo:warning=this desktop ships without webd (target/xui/{ELF} is not built): Docs and Mail will \
+            "cargo:warning=this desktop ships without webd (target/xui/{ELF} or the engine processes in target/webkit/bin are not built): Docs and Mail will \
              say the web engine is not running; build it with `python tools/run_demo.py --webd` or \
              `python tools/webkit/webd.py` (Docker), or silence this with LAZYOS_WEBD=0"
         );

@@ -55,10 +55,7 @@ class LazyWebPlusTests(unittest.TestCase):
     def test_it_builds_the_bundle_the_port_the_plus_app_then_packages_it(self) -> None:
         steps = catalog.app_steps({"lazywebplus": True})
         self.assertEqual([s["argv"][1] for s in steps],
-                         ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py",
-                          # LazyWeb+ is a desktop app, and every desktop ships webd: its program, then the
-                          # packaging again (the bundle and the engine processes are shared).
-                          "tools/webkit/webd.py", "tools/xui/build.py"])
+                         ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py"])
         self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
 
     def test_the_quota_and_the_volume_are_the_big_app_ones(self) -> None:

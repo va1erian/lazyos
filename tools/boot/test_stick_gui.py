@@ -45,7 +45,7 @@ class StickGuiTest(unittest.TestCase):
             mbr[0x1BE + 12:0x1BE + 16] = (512 * 2048).to_bytes(4, "little")  # 512 MiB
             image.write_bytes(mbr)
             self.assertEqual(stick_gui.too_small("full", False, image), (512, 1024))
-            self.assertIsNone(stick_gui.too_small("base", False, image))
+            self.assertEqual(stick_gui.too_small("base", False, image), (512, 1024))  # the desktop ships webd
         argv = stick_gui.build_step(release=False, suite="full", reset_os=True)["argv"]
         self.assertIn("--reset-os", argv)
         self.assertIn("--yes", argv)

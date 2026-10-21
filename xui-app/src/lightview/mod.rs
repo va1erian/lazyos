@@ -13,6 +13,7 @@
 //! is up. A view the service loses is made again and the newest page loaded into it.
 
 pub mod keys;
+mod wheel;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -29,11 +30,10 @@ use xui_webd_client::{LightConfig, MouseKind, Pane, PaneEvent, Status};
 
 use crate::platform::webd::WebdTransport;
 use keys::{char_keysym, ctrl_letter, keysym, modifier_bits};
+use wheel::{notches, wheel_steps};
 
 /// How often the view is polled for events (ms): a frame at 60 Hz.
 const TICK_MS: u32 = 16;
-/// xui's wheel unit: 120 for one notch.
-const NOTCH: i32 = 120;
 /// Height of the strip that says the engine is gone over a stale picture, in pixels.
 const BANNER_H: i32 = 28;
 
@@ -47,6 +47,9 @@ pub enum LightEvent {
     Painted,
     /// The view's status changed (the engine started, stopped, or gave up).
     Status(Status),
+    /// webd refused the page last given to [`LightView::set_html`] (too large, say): the page on show is
+    /// still the one before it, which the app must not leave as if it were the new one.
+    LoadRefused(String),
 }
 
 /// The view.
@@ -83,9 +86,6 @@ struct Pending {
     /// `(x, y, horizontal notches, vertical notches, modifiers)` summed since the last send.
     wheel: Option<(i32, i32, i32, i32, u32)>,
 }
-
-/// Most notches one `Wheel` message carries: the engine takes at most this many per call.
-const WHEEL_NOTCHES_MAX: i32 = 8;
 
 impl<M: 'static> LightView<M> {
     /// A view at `bounds` (device pixels; a layout may move it). `background` shows before the first
@@ -230,7 +230,10 @@ impl Shared {
                     dirty = true;
                     told.push(LightEvent::Status(status));
                 }
-                PaneEvent::LoadRefused(_) => dirty = true,
+                PaneEvent::LoadRefused(why) => {
+                    dirty = true;
+                    told.push(LightEvent::LoadRefused(why));
+                }
             }
         }
         let applied = self.pane.applied();
@@ -244,13 +247,9 @@ impl Shared {
         if let Some((x, y, button, mods)) = self.pending.motion.take() {
             self.pane.view().mouse(MouseKind::Move, button, x, y, mods);
         }
-        if let Some((x, y, mut across, mut down, mods)) = self.pending.wheel.take() {
-            while across != 0 || down != 0 {
-                let step_x = across.clamp(-WHEEL_NOTCHES_MAX, WHEEL_NOTCHES_MAX);
-                let step_y = down.clamp(-WHEEL_NOTCHES_MAX, WHEEL_NOTCHES_MAX);
+        if let Some((x, y, across, down, mods)) = self.pending.wheel.take() {
+            for (step_x, step_y) in wheel_steps(across, down) {
                 self.pane.view().wheel(x, y, step_x, step_y, mods);
-                across -= step_x;
-                down -= step_y;
             }
         }
     }
@@ -450,15 +449,6 @@ fn button_number(button: MouseButton) -> i32 {
     }
 }
 
-/// Whole notches of a wheel `delta`; a small (smooth) delta still moves once.
-fn notches(delta: i16) -> i32 {
-    let delta = i32::from(delta);
-    match delta / NOTCH {
-        0 => delta.signum(),
-        whole => whole,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,15 +458,6 @@ mod tests {
         assert_eq!(zoom_css(96), "");
         assert_eq!(zoom_css(192), "html { zoom: 2.00; }");
         assert_eq!(zoom_css(144), "html { zoom: 1.50; }");
-    }
-
-    #[test]
-    fn the_wheel_moves_at_least_one_notch_and_the_right_way() {
-        assert_eq!(notches(120), 1);
-        assert_eq!(notches(-240), -2);
-        assert_eq!(notches(30), 1);
-        assert_eq!(notches(-30), -1);
-        assert_eq!(notches(0), 0);
     }
 
     #[test]

@@ -88,7 +88,8 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     if shell is None:
         return "no BusyBox for the shell (see tools/abi/busybox.py)"
     env = {k: v for k, v in os.environ.items() if k not in STALE}
-    env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
+    # No webd beside the browser under test (a desktop would ship it whenever it is built).
+    env.update(LAZYOS_WEBD="0", LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_TLS="1",
                LAZYOS_XUI_AUTOSTART="lazywebplus", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_BUSYBOX=str(shell), **extra,

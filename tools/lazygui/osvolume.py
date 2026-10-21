@@ -106,6 +106,12 @@ def wants_webd(cfg: dict) -> bool:
     return bool(cfg.get("webd") or cfg.get("webd_demo") or any(cfg.get(key) for key in DESKTOP_KEYS))
 
 
+def requires_webd(cfg: dict) -> bool:
+    """Whether the launcher asks for webd outright (`webd`, `webd_demo`): built, and a failure stops the
+    build. A plain desktop only ships it when it has been built (`LAZYOS_WEBD` unset, no Docker step)."""
+    return bool(not cfg.get("no_webd") and (cfg.get("webd") or cfg.get("webd_demo")))
+
+
 def wants_webkit(cfg: dict) -> bool:
     """Whether a launcher configuration selects the browser, webd or the console proof: the same three
     programs of about 107 MiB each."""

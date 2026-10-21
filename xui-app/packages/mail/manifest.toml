@@ -42,5 +42,7 @@ interfaces = [
     "os.lazy.mimed.v1",
     "os.lazy.keyd.appsecret.v1",
     "os.lazy.webd.light.v1",
+    # Ctrl+C in the reading pane puts the selection on the clipboard.
+    "os.lazy.clipboard.v1",
 ]
 network = ["outbound"]

@@ -32,7 +32,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `DEVD` | `Devd` | `devd` | user | sessions, tools/net, tools/sound | programs |
 | `DEVICES` | `Devices` | `devices` | xui-app | sessions | programs |
 | `DND` | `Dnd` | `dnd` | user | - | programs |
-| `DOCS` | `Docs` | `docs` | user, xui-app | sessions | programs |
+| `DOCS` | `Docs` | `docs` | user, xui-app | sessions, tools/docs | programs |
 | `DOOM` | `Doom` | `doom` | doom | sessions, tools/input | programs |
 | `EDITOR` | `Editor` | `editor` | xui-app | sessions, tools/screenshot | programs |
 | `ELEVD` | `Elevd` | `elevd` | other, user | sessions, tools/accounts, tools/screenshot | programs |
@@ -48,11 +48,11 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `GPU` | `Gpu` | `gpu` | user | - | programs |
 | `GREETER` | `Greeter` | `greeter` | user, xui-app | sessions, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
-| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/install, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/webplus, tools/xui | programs |
+| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/docs, tools/install, tools/lazysky, tools/net, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/webplus, tools/xui | programs |
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |
-| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/fuse, tools/input, tools/lazysky, tools/mail, tools/nes, tools/storage, tools/webd, tools/webkit, tools/webplus, tools/wifi | programs |
+| `LABEL` | `Label` | `label` | kernel, kernel suite, other | tools/docs, tools/fuse, tools/input, tools/lazysky, tools/mail, tools/nes, tools/storage, tools/webd, tools/webkit, tools/webplus, tools/wifi | programs |
 | `LOCK` | `Lock` | `lock` | kernel, kernel suite | tools/webplus | programs |
 | `LOGD` | `Logd` | `logd` | user | tools/services, tools/shutdown | programs |
 | `LOGIN` | `Login` | `login` | user | sessions, tools/accounts, tools/boot, tools/lazysky, tools/ntp, tools/storage, tools/tray, tools/wifi | programs |
@@ -120,7 +120,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
-| `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/webd | programs |
+| `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/docs, tools/mail, tools/webd | programs |
 | `WEBDDEMO` | `Webddemo` | `webddemo` | xui-app | sessions, tools/webd | programs |
 | `WEBKIT` | `Webkit` | `webkit` | - | tools/webkit | programs |
 | `WEBPLUS` | `Webplus` | `webplus` | xui-app | sessions, tools/webplus | programs |

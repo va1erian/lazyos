@@ -45,6 +45,8 @@ pub enum Msg {
     Painted,
     /// The web engine came up, or went away.
     Engine(Status),
+    /// webd refused the page (too large): the window says so instead of keeping the old page.
+    Refused(String),
     /// The Open button or `Ctrl+O`.
     Open,
     /// The dialog accepted `path`.
@@ -92,6 +94,7 @@ impl Docs {
                         LightEvent::Link(href) => Some(Msg::Link(href)),
                         LightEvent::Painted => Some(Msg::Painted),
                         LightEvent::Status(status) => Some(Msg::Engine(status)),
+                        LightEvent::LoadRefused(why) => Some(Msg::Refused(why)),
                     })
                 })
                 .bind(&view)
@@ -222,6 +225,13 @@ impl App for Docs {
                 None => {}
             },
             Msg::Link(href) => self.follow(ui, &href),
+            Msg::Refused(why) => {
+                let shown = self.current.as_ref().map(|p| p.display().to_string());
+                let shown = shown.unwrap_or_default();
+                trace::fail!(Channel::Docs, "OPEN", "{shown}: {why}");
+                let page = error_page(&format!("{shown}: too large to show ({why})"));
+                self.view.set_html(themed(page, self.dark));
+            }
             Msg::Engine(Status::Live) => trace::line!(Channel::Docs, "ENGINE:UP"),
             Msg::Engine(Status::NotRunning) => {
                 trace::fail!(Channel::Docs, "ENGINE", "not running");

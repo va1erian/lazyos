@@ -29,17 +29,18 @@ class WebdTests(unittest.TestCase):
         env = catalog.build_env({**self.base(), "webd": True})
         self.assertEqual(env.get("LAZYOS_WEBD"), "1")
         self.assertEqual(env.get("LAZYOS_DESKTOP"), "1")
-        # Every desktop ships webd (Docs and Mail draw their pages with it), unless left out.
-        self.assertEqual(catalog.build_env({**self.base(), "desktop": True}).get("LAZYOS_WEBD"), "1")
+        # A desktop ships webd once it is built (the switch stays unset: auto), unless left out.
+        self.assertNotIn("LAZYOS_WEBD", catalog.build_env({**self.base(), "desktop": True}))
         self.assertEqual(catalog.build_env({**self.base(), "desktop": True, "no_webd": True}).get("LAZYOS_WEBD"), "0")
         self.assertNotIn("LAZYOS_WEBD", catalog.build_env(self.base()))
         self.assertEqual(catalog.build_env({**self.base(), "webd_demo": True}).get("LAZYOS_WEBDDEMO"), "1")
         self.assertNotIn("LAZYOS_WEBDDEMO", catalog.build_env({**self.base(), "desktop": True}))
 
-    def test_a_desktop_builds_webd_unless_left_out(self) -> None:
-        self.assertEqual([s["argv"][1] for s in catalog.app_steps({"desktop": True})],
+    def test_a_desktop_starts_no_docker_build_by_itself(self) -> None:
+        self.assertEqual(catalog.app_steps({"desktop": True}), [])
+        self.assertEqual(catalog.app_steps({"desktop": True, "no_webd": True, "webd": True}), [])
+        self.assertEqual([s["argv"][1] for s in catalog.app_steps({"desktop": True, "webd_demo": True})],
                          ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/webd.py", "tools/xui/build.py"])
-        self.assertEqual(catalog.app_steps({"desktop": True, "no_webd": True}), [])
         self.assertTrue(osvolume.wants_webd({"desktop": True}))
         self.assertFalse(osvolume.wants_webd({"desktop": True, "no_webd": True}))
         self.assertFalse(osvolume.wants_webd({}))

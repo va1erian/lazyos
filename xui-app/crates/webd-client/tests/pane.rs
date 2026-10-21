@@ -9,6 +9,7 @@ use xui_webd::engine::EngineEvents;
 use xui_webd::recording::Call;
 use xui_webd_client::pane::{
     Pane, PaneEvent, Status, GIVE_UP_AFTER, NOT_RUNNING_AFTER_MS, RECREATE_AFTER_MS,
+    RESIZE_AFTER_MS,
 };
 use xui_webd_client::LightConfig;
 
@@ -242,11 +243,56 @@ fn the_window_growing_resizes_the_view() {
     pane.tick(SIZE, 0);
     let view = pane.view().view_id().unwrap();
     pane.tick((128, 96), 16);
-    assert!(world
-        .borrow()
-        .engine
-        .calls()
-        .contains(&Call::Resize(view, 128, 96)));
+    let resized = |world: &SharedWorld| {
+        world
+            .borrow()
+            .engine
+            .calls()
+            .contains(&Call::Resize(view, 128, 96))
+    };
+    assert!(!resized(&world), "a new size must hold still first");
+    pane.tick((128, 96), 16 + RESIZE_AFTER_MS);
+    assert!(resized(&world));
+}
+
+#[test]
+fn a_size_that_keeps_changing_is_not_followed_until_it_stops() {
+    let world = world();
+    let mut pane = pane(&world);
+    pane.tick(SIZE, 0);
+    let view = pane.view().view_id().unwrap();
+    for (step, width) in (100..140).step_by(4).enumerate() {
+        pane.tick((width, 96), 16 * (step as u64 + 1));
+    }
+    let resizes = |world: &SharedWorld| {
+        world
+            .borrow()
+            .engine
+            .calls()
+            .iter()
+            .filter(|call| matches!(call, Call::Resize(id, ..) if *id == view))
+            .count()
+    };
+    assert_eq!(resizes(&world), 0, "a drag in progress resizes nothing");
+    pane.tick((136, 96), 16 * 20 + RESIZE_AFTER_MS);
+    assert_eq!(resizes(&world), 1);
+}
+
+#[test]
+fn a_service_lost_while_the_view_is_made_is_tried_again_not_given_up() {
+    let world = world();
+    let mut pane = pane(&world);
+    {
+        let mut world = world.borrow_mut();
+        world.down = true;
+    }
+    pane.tick(SIZE, 0);
+    world.borrow_mut().down = false;
+    let events = pane.tick(SIZE, 300);
+    assert!(
+        events.contains(&PaneEvent::Status(Status::Live)),
+        "{events:?}"
+    );
 }
 
 #[test]
@@ -262,4 +308,25 @@ fn a_page_the_service_refuses_leaves_the_old_one_and_is_reported() {
         "{events:?}"
     );
     assert_eq!(*pane.status(), Status::Live);
+}
+
+#[test]
+fn a_page_still_loading_when_the_next_is_set_does_not_stand_for_it() {
+    let world = world();
+    let mut pane = pane(&world);
+    pane.set_html("<p>one</p>".to_owned());
+    pane.tick(SIZE, 0);
+    pane.tick(SIZE, 16);
+    let view = pane.view().view_id().unwrap();
+    // Page one is still loading when the user moves on to page two.
+    world.borrow().queue.state(view, "one", true, 0, "");
+    pane.tick(SIZE, 32);
+    pane.set_html("<p>two</p>".to_owned());
+    pane.tick(SIZE, 48);
+    // Page one finishes: that is not page two.
+    finish(&world, view, 1);
+    assert!(pane.tick(SIZE, 64).is_empty());
+    // Page two finishes and paints.
+    finish(&world, view, 2);
+    assert_eq!(pane.tick(SIZE, 80), vec![PaneEvent::Painted]);
 }

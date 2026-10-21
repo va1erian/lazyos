@@ -55,6 +55,10 @@ class MarkerTests(unittest.TestCase):
         # The page that never paints is the symptom of an image without webd.
         self.assertTrue(j.judge_markers("DOCS:UP:PASS\nDOCS:ENGINE:FAIL:not running", j.WHEEL_MARKERS))
 
+    def test_the_welcome_render_marker_is_not_proved_by_a_documents_longer_one(self) -> None:
+        only_document = chr(10).join(line for line in GOOD_LOG.splitlines() if line != "DOCS:RENDER:PASS")
+        self.assertEqual(j.judge_markers(only_document, ["DOCS:RENDER:PASS"]), ["DOCS:RENDER:PASS never appeared"])
+
     def test_a_failure_marker_fails_but_a_webd_note_does_not(self) -> None:
         self.assertTrue(j.judge_markers(GOOD_LOG + "\nDOCS:OPEN:FAIL:/x", j.WHEEL_MARKERS))
         self.assertTrue(j.judge_markers(GOOD_LOG + "\nWEBD:HANG:FAIL:stuck", j.WHEEL_MARKERS))

@@ -33,5 +33,7 @@ interfaces = [
     "os.lazy.display.cursor.v1",
     "os.lazy.input.v1",
     "os.lazy.webd.light.v1",
+    # Ctrl+C in the page puts the selection on the clipboard.
+    "os.lazy.clipboard.v1",
     "os.lazy.mimed.v1",
 ]

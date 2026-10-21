@@ -49,7 +49,13 @@ DOCS_DENY = re.compile(r"^LABEL:DENY label=app:os\.lazy\.docs(?:/\S+)?\s.*$", re
 
 def judge_markers(text: str, wanted: list[str]) -> list[str]:
     """Every wanted marker is in the log, and nothing failed."""
-    problems = [f"{marker} never appeared" for marker in wanted if marker not in text]
+    problems = []
+    for marker in wanted:
+        # `DOCS:RENDER:PASS` is the start of `DOCS:RENDER:PASS:<path>`: the welcome page's own line is the whole line.
+        exact = marker == "DOCS:RENDER:PASS"
+        found = re.search(r"^DOCS:RENDER:PASS\s*$", text, re.M) if exact else marker in text
+        if not found:
+            problems.append(f"{marker} never appeared")
     problems += [f"failure marker: {line}" for line in FAILURE.findall(text)[:8]]
     if "DOCS:ENGINE:FAIL" in text:
         problems.append("Docs reported the web engine missing or failing")

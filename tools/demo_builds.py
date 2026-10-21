@@ -168,6 +168,7 @@ def webd_env(args, env: dict, built, build) -> None:
             print("warning: webd could not be built (Docker?): this desktop has none, so Docs and Mail "
                   "cannot show their pages; `--no-webd` silences this", file=sys.stderr)
             env["LAZYOS_WEBD"] = "0"
+            args.webd_implicit = False  # the volume need not hold its programs
     if args.webd_demo:
         env["LAZYOS_WEBDDEMO"] = "1"
 

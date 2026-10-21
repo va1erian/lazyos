@@ -47,6 +47,10 @@ pub fn classify(href: &str, current: Option<&Path>) -> Link {
     let Some(path) = percent_decode(path) else {
         return Link::Refused;
     };
+    // Decoded text can carry what the raw link could not (`%0a`), and a launch line is split at spaces.
+    if path.chars().any(char::is_control) {
+        return Link::Refused;
+    }
     if path.is_empty() {
         return Link::Anchor;
     }
@@ -56,6 +60,10 @@ pub fn classify(href: &str, current: Option<&Path>) -> Link {
     let target = normalize(&base.join(&path));
     if is_markdown(&target) {
         Link::Document(target)
+    } else if target.to_string_lossy().contains(' ') {
+        // `mimed.Open` carries the path in a launch line that is split at spaces: the app would get a
+        // part of the name and open the wrong file.
+        Link::Refused
     } else {
         Link::File(target)
     }
@@ -212,6 +220,18 @@ mod tests {
         ] {
             assert_eq!(classify_in(refused), Link::Refused, "{refused}");
         }
+    }
+
+    #[test]
+    fn a_file_with_a_space_or_a_decoded_control_character_is_refused() {
+        assert_eq!(classify_in("my%20report.pdf"), Link::Refused);
+        assert_eq!(classify_in("a%0ab.md"), Link::Refused);
+        assert_eq!(classify_in("a%09b.png"), Link::Refused);
+        // A Markdown file is opened here, not launched: a space is fine.
+        assert_eq!(
+            classify_in("my%20doc.md"),
+            Link::Document("/docs/os/guide/my doc.md".into())
+        );
     }
 
     #[test]
