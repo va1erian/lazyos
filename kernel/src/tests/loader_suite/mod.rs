@@ -12,27 +12,27 @@ mod quota;
 mod stream;
 
 /// Bytes of program headers/padding before the payload in a test image.
-const PAYLOAD_OFF: u64 = 0x1000;
+pub(in crate::tests) const PAYLOAD_OFF: u64 = 0x1000;
 /// Payload length appended to every test image.
 const PAYLOAD_LEN: usize = 0x3000;
 
-const PF_X: u32 = 1;
-const PF_W: u32 = 2;
-const PF_R: u32 = 4;
+pub(in crate::tests) const PF_X: u32 = 1;
+pub(in crate::tests) const PF_W: u32 = 2;
+pub(in crate::tests) const PF_R: u32 = 4;
 
 /// One program header of a synthetic image.
 #[derive(Clone, Copy)]
-struct Ph {
-    vaddr: u64,
-    memsz: u64,
-    filesz: u64,
-    offset: u64,
-    flags: u32,
+pub(in crate::tests) struct Ph {
+    pub(in crate::tests) vaddr: u64,
+    pub(in crate::tests) memsz: u64,
+    pub(in crate::tests) filesz: u64,
+    pub(in crate::tests) offset: u64,
+    pub(in crate::tests) flags: u32,
 }
 
 impl Ph {
     /// A segment whose file bytes come from the start of the payload.
-    fn new(vaddr: u64, filesz: u64, memsz: u64, flags: u32) -> Ph {
+    pub(in crate::tests) fn new(vaddr: u64, filesz: u64, memsz: u64, flags: u32) -> Ph {
         Ph {
             vaddr,
             memsz,
@@ -44,13 +44,13 @@ impl Ph {
 }
 
 /// Byte `i` of the payload: never zero, so a missed copy cannot pass.
-fn payload_byte(i: usize) -> u8 {
+pub(in crate::tests) fn payload_byte(i: usize) -> u8 {
     (i as u8).wrapping_mul(7) | 1
 }
 
 /// Assemble a minimal ELF64 executable with `phdrs` and a payload of
 /// `payload` bytes at [`PAYLOAD_OFF`] (the headers must fit before it).
-fn build_elf_with(entry: u64, phdrs: &[Ph], payload: usize) -> Vec<u8> {
+pub(in crate::tests) fn build_elf_with(entry: u64, phdrs: &[Ph], payload: usize) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&[0x7f, b'E', b'L', b'F', 2, 1, 1, 0]);
     out.extend_from_slice(&[0; 8]);
@@ -119,7 +119,7 @@ fn expect_rejected(name: &str, elf: &[u8]) -> Result<(), String> {
 
 /// A window standing in for a heap area, plus the layout's own reservation
 /// (everything from the mmap area up).
-const RESERVED: &[(u64, u64)] = &[
+pub(in crate::tests) const RESERVED: &[(u64, u64)] = &[
     (0x0100_0000, 0x0200_0000),
     process::layout::IMAGE_RESERVED[0],
 ];

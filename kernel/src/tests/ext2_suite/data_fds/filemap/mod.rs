@@ -13,6 +13,8 @@ mod basic;
 mod cache_body;
 mod coherence;
 mod frame;
+mod image;
+mod image_native;
 mod killed;
 mod lifecycle;
 mod parents;
@@ -214,6 +216,35 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         "linux_filemap_handler_frame_not_read_in_the_sweep",
         frame::handler_frame_never_reads_a_file_in_the_sweep,
     ),
+    (
+        "linux_image_instances_share_text",
+        image::instances_share_text,
+    ),
+    (
+        "linux_image_running_program_is_protected",
+        image::running_program_is_protected,
+    ),
+    (
+        "linux_image_open_for_writing_is_copied",
+        image::file_open_for_writing_is_copied,
+    ),
+    (
+        "linux_image_unshareable_segments_are_copied",
+        image::unshareable_segments_are_copied,
+    ),
+    (
+        "linux_image_native_table_protects_a_running_program",
+        image_native::native_table_protects_a_running_program,
+    ),
+    (
+        "linux_image_native_rename_keeps_protection",
+        image_native::native_rename_keeps_protection,
+    ),
+    (
+        "linux_image_text_quota_follows_write_access",
+        image::text_quota_follows_write_access,
+    ),
+    ("linux_image_soak", image::image_soak),
     ("linux_filemap_private", basic::private_mapping),
     ("linux_filemap_shared", basic::shared_mapping),
     (

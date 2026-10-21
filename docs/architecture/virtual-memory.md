@@ -21,7 +21,7 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 | Item | Values |
 |---|---|
 | `Prot` | `READ=1`, `WRITE=2`, `EXEC=4` (numeric values match Linux `PROT_*`) |
-| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon`, `FilePrivate`, `FileShared` |
+| `Kind` | `Anon`, `File`, `Stack`, `Heap`, `Shared` (memfd pages), `SharedAnon`, `FilePrivate`, `FileShared`, `FileImage` |
 | `Vma` | page-aligned `start < end`, `prot`, `kind` |
 
 - VMAs are keyed by PML4 **physical** address in `SPACES: Mutex<Vec<Space>>`, so
@@ -44,9 +44,12 @@ present, plus the Linux `mmap`/`brk`/`mprotect`/`munmap` paths built on it.
 - Page tables are the source of truth for what is present; the VMA list for what
   may become present. `demand_fault` consults it and only materializes
   `Anon`/`Heap`/`Stack` ranges the fault's access permits. `File` ranges (the
-  pages of a `PT_LOAD` segment that hold file bytes) are mapped eagerly; a
-  segment's `.bss` tail past its last file page is an `Anon` range; a stack
-  is mapped eagerly only where the loader wrote the start frame.
+  pages of a writable `PT_LOAD` segment that hold file bytes) are mapped
+  eagerly; a segment's `.bss` tail past its last file page is an `Anon` range;
+  a stack is mapped eagerly only where the loader wrote the start frame. The
+  read-only segments of a program on a filesystem the kernel owns (ext2) are
+  `FileImage` ranges instead: demand-faulted from the program file's page cache
+  and shared by every process running it (below).
 - A write fault on a present `COW_BIT` page takes `cow_fault` first; a protection
   violation is never a missing page, so it falls through to `SIGSEGV`.
 - **The leaf decides, the parents never restrict** (issue #853). A CPU takes the lowest R/W bit of
@@ -121,7 +124,25 @@ fault_epoch`). Quota is charged at `mmap`;
 mappings of the dropped pages down in every address space, so the next touch
 faults. A file whose last reference is dropped in the reaper (where a wait is
 not allowed) parks its dirty pages for the flusher or `sync`; an unlinked
-file parks nothing. **SMP:** the design assumes one CPU. The fault epoch (a
+file parks nothing. **Shared program images** (issue #942, `process/loader.rs`): the loader maps a
+program's read-only, page-aligned `PT_LOAD` segments (text and read-only data,
+nearly all of a big static binary: `filesz == memsz`, file offset congruent to
+the address modulo the page, no page shared with a neighbouring segment) as
+`Kind::FileImage` over the file's page cache, exactly the read-only
+copy-on-write mapping of a `MAP_PRIVATE` file, so every process running the
+program holds one set of text frames and an `execve` reads nothing for them.
+Writable segments, segments with a `.bss` tail and the odd ones above are
+copied as before, as is any image that is not an ext2 file or is open for
+writing. Shared segments are charged to no quota (they own no private page);
+the data segments are. The file is held busy while any process runs it
+(`fs/openfile/image.rs`): opening it for writing, `write`/`truncate` by name or
+through a descriptor and a native write fail with `ETXTBSY`, while `unlink` and
+`rename` over it (Linux ABI or native) park the running inode under a hidden
+`.unlinked-N` name until the last instance exits, which is how a running
+program is replaced. Hard links, once ext2 has them (#871), must key this
+protection by inode like the rest of the registry. Tests:
+`linux_image_*` (`tests/ext2_suite/data_fds/filemap/image.rs`).
+**SMP:** the design assumes one CPU. The fault epoch (a
 validation is correct only while no other task ran), the write-protection of
 other spaces' page tables without a shootdown (`filemap::write_protect`,
 `unmap_from`: another CPU's TLB would keep a writable or stale entry) and the

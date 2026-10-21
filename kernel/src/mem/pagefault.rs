@@ -115,12 +115,9 @@ pub fn demand_resolve(table: PhysAddr, va: u64, error: PageFaultErrorCode) -> Re
     };
     if vma.kind.is_file_mapping() {
         // A file page is read from the page cache (it may park the task); a
-        // file that cannot be read is the program's `SIGSEGV`.
-        return if super::filemap::fault(table, va, error, vma) {
-            Resolve::Handled
-        } else {
-            Resolve::Refused
-        };
+        // file that cannot be read is the program's `SIGSEGV`, a machine with
+        // no frame for the page is not.
+        return super::filemap::fault(table, va, error, vma);
     }
     if !matches!(
         vma.kind,
