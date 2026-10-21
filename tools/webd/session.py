@@ -77,6 +77,11 @@ def light(timeout: float = 300.0, skip_loss: bool = False) -> list[dict]:
             wait(r"PROCESS:LAUNCH:web:(\d+)", 60, regex=True, capture="webpid"),
             *ALT_TAB,
             {"wait": 1.0},
+            # The control for the zero-network verdict: the guest reaches the listener from here.
+            {"type": f"wget -q -O /dev/null http://10.0.2.2:{j.BLOCKED_PORT}{j.CONTROL_PATH}"},
+            {"wait": 0.6},
+            {"key": "enter", "until": "TERM:CMD:wget ", "timeout": 30, "retries": 2},
+            {"wait": 2.0},
             {"type": "kill -9 ${webpid}"},
             {"wait": 0.6},
             {"key": "enter", "until": "TERM:CMD:kill -9 ", "timeout": 30, "retries": 2},

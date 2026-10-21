@@ -7,7 +7,10 @@
 // interface (navigation, dialogs, downloads, notifications, blocking, profiles) appends to this file in a
 // later slice, so every struct starts with its size and every enum value is append-only.
 //
-// Threads. WebKit's run loop owns the process's main thread. The service runs on its own thread.
+// Threads. WebKit's run loop owns ONE thread of the process, and the service another: webd runs the service on
+// the process's first thread (init's lifecycle Watch and the shell's services want that) and the run loop on a
+// thread it makes; webd-abi-test runs the loop on the main thread and the test on a second. Below, "main
+// thread" means the thread that runs the loop.
 //  * webd_engine_*  (implemented in C++): callable from ANY thread at any rate; each only queues work for the
 //    run loop and returns. Nothing in it waits for WebKit.
 //  * webd_ui_*      (implemented in Rust): called on WebKit's main thread, except webd_ui_say (any thread);

@@ -197,6 +197,8 @@ int main(int, char**)
     // The service is done; end the run loop (a hung one cannot be asked, and is not waited for).
     if (status == 4) {
         webd_host_report(status, -1);
+        // init restarts webd: the engine's processes of this one must not stay behind (107 MB each).
+        webkitapp::killChildrenNow();
         _exit(status);
     }
     webd_engine_quit();

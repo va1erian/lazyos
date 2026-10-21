@@ -274,7 +274,7 @@ A **light view** (`ViewConfig::light`, `light.cpp`) is the engine with a lock on
 process and none of it left to the page:
 
 * *No network.* A content rule list (WebKit's content-extension store, compiled once at start into
-  `$LAZYOS_WEBD_RULES_DIR` or `/tmp/webd-rules-<pid>`: the one thing the engine writes for a light view) blocks
+  `$LAZYOS_WEBD_RULES_DIR`, required, no fallback: the one thing the engine writes for a light view) blocks
   every load but `data:`, `blob:` and `about:` URLs, and a navigation policy loads only the owner's own
   `loadHtml`. The list is what stops subresources: the navigation client sees navigations, not requests.
   Measured with a listener on 127.0.0.1 (`network` below): a page that asks for an image, a style sheet, an

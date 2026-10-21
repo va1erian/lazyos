@@ -25,9 +25,8 @@ autostart = false
 # The display, pointer shapes and input every window needs, and the light web view service
 # (`os.lazy.webd.light.v1`, LOW: "show formatted text and pictures that you give it"). Never the
 # network: a light view has none, and the demo proves it (its page's picture must not load).
-# Listed from reading the code; the integration step derives the final set from a run under
-# `LAZYOS_LABEL_TRACE=1` (`python tools/webd/run.py --label-trace`, docs/packages.md), which must
-# show no `LABEL:DENY` for `app:os.lazy.webddemo`.
+# Derived from a traced run (`python tools/webd/run.py`, which builds with `LAZYOS_LABEL_TRACE=1`,
+# docs/packages.md): no `LABEL:DENY` for `app:os.lazy.webddemo`.
 interfaces = [
     "os.lazy.display.v1",
     "os.lazy.display.cursor.v1",

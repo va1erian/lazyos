@@ -99,6 +99,21 @@
   "wait": 1.0
  },
  {
+  "type": "wget -q -O /dev/null http://10.0.2.2:18080/control"
+ },
+ {
+  "wait": 0.6
+ },
+ {
+  "key": "enter",
+  "until": "TERM:CMD:wget ",
+  "timeout": 30,
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
   "type": "kill -9 ${webpid}"
  },
  {

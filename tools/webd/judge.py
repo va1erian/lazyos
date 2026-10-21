@@ -121,24 +121,39 @@ def judge_page(text: str, latency_max_ms: int = LATENCY_MAX_MS) -> list[str]:
     return problems
 
 
+#: The form's GET: the typed text reached the page's field and the submit came back as a link.
+FORM_LINK = re.compile(rf"^{D}:LINK:{re.escape(LINK_URL)}\?q=.*ok", re.M)
+#: The guest fetches this from the listener once, so that "nothing was loaded" cannot be vacuous.
+CONTROL_PATH = "/control"
+
+
 def judge_link(text: str, expected: bool = True) -> list[str]:
     """A click on the link raised LinkClicked with its address, and nothing else navigated."""
     links = LINK.findall(text)
     problems = []
     if expected and LINK_URL not in links:
         problems.append(f"no WEBDDEMO:LINK:{LINK_URL} after the click")
+    if expected and not FORM_LINK.search(text):
+        problems.append(f"no WEBDDEMO:LINK:{LINK_URL}?q=..ok after typing in the form (do the keys reach the page?)")
     # The form's GET adds a query; anything else is a link the page should not have raised.
     problems += [f"unexpected link {link}" for link in links if not link.startswith(LINK_URL)]
     return problems
 
 
-def judge_requests(record: dict) -> list[str]:
+def judge_requests(record: dict, control: bool = False) -> list[str]:
     """A light view has no network: the picture of the page, or anything else, never reached the host.
-    `record`: the listener's `{"requests": [...], "connections": n}`."""
+    `record`: the listener's `{"requests": [...], "connections": n}`. With `control`, the guest also fetched
+    `CONTROL_PATH` itself, which must have arrived (else the listener cannot be reached from the guest and an
+    empty record proves nothing); that request is not the page's."""
     requests = record.get("requests", [])
+    controls = [r for r in requests if r.get("path") == CONTROL_PATH]
+    requests = [r for r in requests if r.get("path") != CONTROL_PATH]
     problems = [f"the listener on port {BLOCKED_PORT} saw {r.get('method', '?')} {r.get('path', '?')} "
                 f"from {r.get('client', '?')}: a light view loaded something" for r in requests[:8]]
-    if record.get("connections", 0) > len(requests):
+    if control and not controls:
+        problems.append(f"the control request GET {CONTROL_PATH} from the guest never arrived: the listener "
+                        "is not reachable from the guest, so zero requests from the page proves nothing")
+    if record.get("connections", 0) > len(requests) + len(controls):
         problems.append(f"{record['connections']} connection(s) reached port {BLOCKED_PORT} but only "
                         f"{len(requests)} request(s): something connected and sent nothing")
     return problems

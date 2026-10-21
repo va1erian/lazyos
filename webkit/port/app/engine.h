@@ -386,6 +386,10 @@ void processCrashed(const char* type, int pid);
 // reaps them, and prints CHILD:<name>:<pid>:GONE|ALIVE:term=..:kill=..:wait=.. for each. Returns the
 // number that are left. Main thread, after the run loop.
 int shutdownChildren();
+// SIGKILL of every engine process the launcher has not seen end (their process groups too), from any
+// thread and without waiting: for a host whose WebKit thread hung and which is about to exit, so that it
+// does not leave them behind (children.cpp).
+void killChildrenNow();
 // Called by the clients when a main-frame navigation starts: the pending dialogs of the page that
 // is going away are answered "no" and forgotten (their listeners die with the page).
 void dropDialogs(View& view);

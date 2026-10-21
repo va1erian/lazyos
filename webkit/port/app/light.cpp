@@ -136,11 +136,16 @@ void prepareLightLock()
     if (lockStarted)
         return;
     lockStarted = true;
-    std::string directory;
-    if (const char* chosen = getenv("LAZYOS_WEBD_RULES_DIR"); chosen && *chosen == '/')
-        directory = chosen;
-    else
-        directory = "/tmp/webd-rules-" + std::to_string(static_cast<long>(getpid()));
+    // The folder is the owner's to name (webd: a folder of its own profile root, writable by its label). No
+    // fallback: a predictable folder in a shared place is not one a lock may rest on, so without it the
+    // light views are refused (fail closed).
+    const char* chosen = getenv("LAZYOS_WEBD_RULES_DIR");
+    if (!chosen || *chosen != '/') {
+        say("FAIL:light:LAZYOS_WEBD_RULES_DIR names no folder for the rule store");
+        settleLock(LightLock::Failed);
+        return;
+    }
+    const std::string directory = chosen;
     if (!makeDirectories(directory)) {
         say("FAIL:light:cannot make the rule store folder");
         settleLock(LightLock::Failed);
@@ -229,9 +234,12 @@ void lightNavigationAction(View& v, WKNavigationActionRef action, WKFramePolicyL
     }
 
     const std::string page = withoutFragment(address);
-    if (mainFrame && type == kWKFrameNavigationTypeOther && v.lightLoads > 0 && page == v.lightBase && page == address) {
-        // The owner's loadHtml: the one navigation of a light view.
+    if (mainFrame && type == kWKFrameNavigationTypeOther && v.lightLoads > 0 && inertScheme(address)) {
+        // The owner's loadHtml: the one navigation of a light view. WebKit names the base URL in its canonical
+        // form (the scheme in lower case, spaces and non-ASCII escaped), which is not the owner's spelling, so
+        // the load is recognised by being owed and inert; the fragments are compared against what it became.
         --v.lightLoads;
+        v.lightBase = page;
         WKFramePolicyListenerUse(listener);
         return;
     }

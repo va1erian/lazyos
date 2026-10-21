@@ -115,7 +115,7 @@ def verdict(text: str, record: dict, out: Path, ran: bool, loss: bool) -> int:
                 j.judge_link(text)) and ok
     ok = report("NETWORK", f"nothing reached the listener on port {j.BLOCKED_PORT}: "
                 f"{record.get('connections', 0)} connection(s), {len(record.get('requests', []))} request(s)",
-                j.judge_requests(record)) and ok
+                j.judge_requests(record, control=loss)) and ok
     ok = report("SHOT", f"the demo window {region} shows the page's blue",
                 j.judge_shot(shots["w01_page"], region, "page")) and ok
     if loss:

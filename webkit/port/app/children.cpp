@@ -200,6 +200,16 @@ void processCrashed(const char* type, int pid)
     }
 }
 
+void killChildrenNow()
+{
+    // Only the registry (its own lock): a hung WebKit thread may hold anything else.
+    std::lock_guard<std::mutex> guard(registryLock);
+    for (const Child& child : registry) {
+        kill(-child.pid, SIGKILL);
+        kill(child.pid, SIGKILL);
+    }
+}
+
 int shutdownChildren()
 {
     if (H.context) {

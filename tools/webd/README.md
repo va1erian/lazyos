@@ -61,10 +61,15 @@ or webd.
 
 ## Notes for whoever runs it first
 
-* Not run end to end where it was written: the program, package and `--webd` flag came from a parallel
-  branch. The judge and the session are tested on canned logs (`test_judge.py`, and `run.py --judge-only` on a
-  canned directory); the first real run may need the markers' exact spelling checked (`WEBD:VIEW:CREATE`,
-  `WEBD:VIEW:DESTROY`, `WEBD:LOST`, `PROCESS:LAUNCH:web:<pid>`).
+* First run end to end 2026-10-21 (QEMU under WHPX, 4 GiB): every verdict passes. What it needed beyond the
+  canned logs: `--autologin user` for the image (`run_demo.py --desktop` defaults to the login screen, where
+  nothing autostarts), the demo opened first so the Terminal does not cover it and a click on the demo's title
+  bar before the first shot, `WEBD:NOTE:` lines (webd relays the engine's markers, among them the
+  `FAIL:webprocess:crashed` that the kill provokes) kept out of the failure check, and a client shown as
+  `label#<id>` (webd cannot name another app's label).
+* The verdict "zero requests" has a positive control: in the Terminal the session runs
+  `wget http://10.0.2.2:18080/control` once, the request must arrive (it is not the page's), else the listener is
+  not reachable from the guest and an empty record proves nothing. With `--skip-loss` the control is skipped too.
 * The loss test needs `kill` from the Terminal to reach webd's web process and Alt+Tab to switch windows.
   If either does not work in the guest, the run stops at the `TERM:CMD:kill -9` or `WEBDDEMO:LOST:` gate; use
   `--skip-loss` and say so.

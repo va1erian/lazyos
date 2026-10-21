@@ -218,7 +218,8 @@ std::string modeNetwork()
         note("BASE:%s:refused:%s", base, after.error.c_str());
     }
     // The inert ones work.
-    const char* const good[] = { "about:blank", "data:text/html,x", "" };
+    // A data: base that WebKit spells differently (upper-case scheme, a space) is still the owner's own load.
+    const char* const good[] = { "about:blank", "data:text/html,x", "", "DATA:text/html,a b" };
     for (const char* base : good) {
         const int finished = facts(withScript).finished;
         loadHtml(withScript, page("Good", "#0a0"), base);

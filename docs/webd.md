@@ -89,7 +89,8 @@ arrive as `WEBD:NOTE:<line>`.
 | `WEBD:UP:PASS` | the host is up (doorbell made, engine started) |
 | `WEBD:SERVE:app.os.lazy.webd.light` | the name is registered |
 | `WEBD:WATCH:WARN:...` | no lifecycle line (started by hand, not by `init`): only `SIGTERM` ends it |
-| `WEBD:VIEW:CREATE client=<label> view=<id>` | `CreateView` (`<label>` is `app:<system_name>`, `none` for an unlabelled caller) |
+| `WEBD:VIEW:CREATE client=<label> view=<id>` | `CreateView` (`<label>` is `app:<system_name>` for webd's own label, `label#<id>` for another app (the credential gate names
+a label only to its holder or to `CAP_SETUID`), `none` for an unlabelled caller) |
 | `WEBD:VIEW:DESTROY view=<id>` | the view ended: `DestroyView`, the client died, or the service stopped (a `NOTE` says which) |
 | `WEBD:LOST view=<id> reason=<refused\|crashed\|memory\|other\|unknown>` | the engine gave the view up |
 | `WEBD:NOTE:<text>` | a refusal, a dropped frame (rate limited), or an engine marker |
@@ -151,8 +152,9 @@ cost, `webd_selftest.json` for the times). Memory is the kernel's `frames_live` 
 ## Files
 
 `$HOME/.apps/os.lazy.webd/rules/`: the engine's network-lock rule store, compiled at every start
-(`LAZYOS_WEBD_RULES_DIR`, set by `webd_host_init`; the engine falls back to `/tmp/webd-rules-<pid>` without
-`$HOME`). Nothing else is written: no cache, history or cookies.
+(`LAZYOS_WEBD_RULES_DIR`, set by `webd_host_init`; the engine has no fallback: without the variable it prints
+`FAIL:light:...` and refuses every light view, because a predictable folder in a shared place is not one a lock
+may rest on). Nothing else is written: no cache, history or cookies.
 
 ## Permissions
 

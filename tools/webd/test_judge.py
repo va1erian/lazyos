@@ -26,6 +26,8 @@ import listener  # noqa: E402
 import session  # noqa: E402
 
 CLEAN = {"requests": [], "connections": 0}
+#: A good run's record: the guest's own control request, and nothing from the page.
+CONTROLLED = {"requests": [{"method": "GET", "path": "/control", "client": "10.0.2.15"}], "connections": 1}
 
 
 def good(loss: bool = True) -> str:
@@ -127,6 +129,8 @@ class Judge(unittest.TestCase):
         self.assert_fails(j.judge_link(form_only), "after the click")  # the form's submit is not the click
         none = re.sub(r"WEBDDEMO:LINK:[^\r]*\r\n", "", good())
         self.assert_fails(j.judge_link(none), "after the click")
+        no_form = good().replace("?q=okhere", "?q=nothing")
+        self.assert_fails(j.judge_link(no_form), "after typing")  # the keys did not reach the page
         other = good() + "WEBDDEMO:LINK:http://evil.example/\r\n"
         self.assert_fails(j.judge_link(other), "unexpected link")
 
@@ -135,6 +139,11 @@ class Judge(unittest.TestCase):
         self.assert_fails(j.judge_requests(saw), "GET /blocked.png")
         silent = {"requests": [], "connections": 2}
         self.assert_fails(j.judge_requests(silent), "connected and sent nothing")
+        # the positive control: required when asked, and not the page's
+        control = {"requests": [{"method": "GET", "path": "/control", "client": "10.0.2.15"}], "connections": 1}
+        self.assertEqual(j.judge_requests(control, control=True), [])
+        self.assertEqual(j.judge_requests(control), [])
+        self.assert_fails(j.judge_requests(CLEAN, control=True), "control request")
 
     def test_the_loss_must_be_reported_and_healed(self):
         text = good()
@@ -284,11 +293,12 @@ class JudgeOnly(unittest.TestCase):
 
     def test_a_good_run_passes_and_a_leak_or_a_blank_window_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
-            done = self.run_only(self.canned(tmp, good(), CLEAN))
+            done = self.run_only(self.canned(tmp, good(), CONTROLLED))
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
             self.assertIn("WEBD:HARNESS:PASS", done.stdout)
         with tempfile.TemporaryDirectory() as tmp:
-            leak = {"requests": [{"method": "GET", "path": "/blocked.png", "client": "10.0.2.15"}], "connections": 1}
+            leak = {"requests": [{"method": "GET", "path": "/blocked.png", "client": "10.0.2.15"},
+                                 CONTROLLED["requests"][0]], "connections": 2}
             done = self.run_only(self.canned(tmp, good(), leak))
             self.assertEqual(done.returncode, 1)
             self.assertIn("WEBD:NETWORK:FAIL", done.stdout)

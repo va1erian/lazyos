@@ -164,6 +164,11 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         if !switch_on(switch) {
             continue;
         }
+        // The attack image's stand-ins (below) are the browser's two processes: webd, which starts the same
+        // programs, must not replace them with the real ones.
+        if switch == "LAZYOS_WEBD" && switch_on("LAZYOS_LAZYWEBPLUS") && switch_on("LAZYOS_WEBKIT_ATTACK") {
+            continue;
+        }
         // The sandbox attack harness (`tools/webkit/attack_run.py`): the browser's two engine
         // processes are replaced by a stand-in that attacks from inside their labels. Never
         // for an image anyone uses: it is a test fixture, and says so.

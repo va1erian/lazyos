@@ -10,6 +10,7 @@
 
 #include <WebKit/WKRunLoop.h>
 
+#include <filesystem>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -123,6 +124,15 @@ int main(int argc, char** argv)
     action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
     for (int number : { SIGABRT, SIGSEGV, SIGILL, SIGTRAP, SIGBUS })
         sigaction(number, &action, nullptr);
+
+    // The engine's network lock keeps its rule store in a folder the owner names (webd: its profile root).
+    char rules[512];
+    snprintf(rules, sizeof rules, "%s/webd-abi-test-XXXXXX", std::filesystem::temp_directory_path().c_str());
+    if (!mkdtemp(rules)) {
+        webdtest::note("%s:FAIL:no folder for the rule store", mode);
+        _exit(1);
+    }
+    setenv("LAZYOS_WEBD_RULES_DIR", rules, 1);
 
     mainThread = pthread_self();
     WKRunLoopInitializeMain();
