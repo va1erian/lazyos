@@ -7183,6 +7183,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-webd-host"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "lazyos-sys",
+ "libc",
+ "libmessenger",
+ "messenger-generated",
+ "xui-app",
+ "xui-webd",
+]
+
+[[package]]
 name = "xui-webkit"
 version = "0.1.0"
 dependencies = [

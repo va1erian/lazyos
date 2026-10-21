@@ -11,7 +11,10 @@ dependency bundle, as static-PIE ``x86_64-linux-musl`` programs by zig:
   (``webkit/port/smoke/``);
 * ``lazywebplus-app`` (``--only lazywebplus-app``): the desktop UI process, WebKit's run loop in
   C++ (``webkit/port/app/``) and LazyWebPlus's window in a Rust static library
-  (``xui-app/webplus``); ``tools/webkit/app.py`` does both halves (docs/lazywebplus.md).
+  (``xui-app/webplus``); ``tools/webkit/app.py`` does both halves (docs/lazywebplus.md);
+* ``webd-app`` (``--only webd-app``): webd, the daemon that serves light views: the engine's second owner
+  (``webkit/port/webd/``) with its service in a Rust static library (``xui-app/webd``);
+  ``tools/webkit/webd.py`` does both halves (docs/webd.md).
 
 Runs inside the ``jsc`` build's Docker container (``tools/jsc/Dockerfile``, the
 volume ``lazyos-jsc-work``) like ``deps.py``; ``--no-docker`` runs the same
@@ -54,6 +57,9 @@ PLUS = "lazywebplus-app"
 VIEWS = "webkit-views"
 #: webd's engine half and the program that tests it, built on request and run by ``--run-webd``.
 WEBD = "webd-abi-test"
+#: webd itself, once the service's static library exists (``tools/webkit/webd.py`` builds that first and
+#: then runs ``--only webd-app``).
+WEBD_APP = "webd-app"
 
 
 def in_container() -> bool:
@@ -114,8 +120,8 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS, WEBD], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS, WEBD])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS, WEBD, WEBD_APP], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS, WEBD, WEBD_APP])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
     parser.add_argument("--run-views", action="store_true",
                         help="after the build, run webkit-views in the container (build it with --only webkit-views)")

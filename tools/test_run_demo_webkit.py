@@ -38,5 +38,24 @@ class WebkitTests(test_run_demo.RunDemoCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(command, [])
 
+    def test_webd_builds_it_sets_the_switch_and_wants_no_network(self) -> None:
+        with mock.patch.object(run_demo, "build_webd", return_value=True) as built,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--webd", "--yes")
+        self.assertEqual(code, 0)
+        built.assert_called_once_with()
+        self.assertEqual(self.builds[-1].get("LAZYOS_WEBD"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
+        # A light view has no network: the stack is not asked for.
+        self.assertNotIn("LAZYOS_NETD", self.builds[-1])
+        self.assertEqual(command[command.index("-m") + 1], "4G")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_QUOTA_USER_MEMORY"), "8G")
+
+    def test_a_failed_webd_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_webd", return_value=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--webd", "--yes")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(command, [])
+
 if __name__ == "__main__":
     unittest.main()

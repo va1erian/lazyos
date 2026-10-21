@@ -212,6 +212,13 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "NetworkProcess in /system/bin and the app's core package; built in "
                              "Docker (tools/webkit/deps.py, port.py, app.py) and packaged by "
                              "tools/xui/build.py")
+    parser.add_argument("--webd", action="store_true",
+                        help="webd, the daemon that serves WebKit light views to other apps, os.lazy.webd "
+                             "(LAZYOS_WEBD=1; docs/webd.md): the desktop, the big-app profile, a 1 GiB OS "
+                             "volume, WebProcess and NetworkProcess in /system/bin and the resident "
+                             "app's core package (opened with every session) with its demo client; "
+                             "built in Docker (tools/webkit/deps.py, port.py, webd.py) and packaged by "
+                             "tools/xui/build.py. No network stack: a light view has no network")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -321,10 +328,10 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         parser.error("--with needs --suite")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
-    if args.lazywebplus:
+    if args.lazywebplus or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
-            or args.lazywebplus):
+            or args.lazywebplus or args.webd):
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -339,7 +346,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.lazywebplus or args.lazysky or args.mail
+                    or args.lazyweb or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.setup)
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings

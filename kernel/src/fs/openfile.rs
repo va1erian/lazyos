@@ -48,6 +48,7 @@ use spin::Mutex;
 
 use super::vfs::{FsError, Id, Meta, Node, NodeId, StatFs};
 
+mod image;
 mod mapping;
 mod names;
 #[cfg(lazyos_tests)]
@@ -57,11 +58,13 @@ pub use names::open_files;
 pub use names::paths_under;
 pub(in crate::fs) use names::retarget;
 mod rmdir;
+use image::Role;
+pub(in crate::fs) use image::{displace_text, refuse_text_write, rmdir_parked, unlink_text};
 pub(super) use rmdir::rmdir;
 pub mod pagecache;
-pub use mapping::writeback_all;
 #[cfg(lazyos_tests)]
 pub use mapping::{deferred_pages, BEFORE_FLUSH};
+pub use mapping::{writeback_all, MapError};
 use pagecache::PageCache;
 
 /// `path` in the one form the registry keys files by: through the first mount
@@ -99,6 +102,11 @@ struct Inode {
     /// close racing with them must still see itself as the last description.
     /// Changed only under the [`OPEN`] lock.
     descriptions: AtomicUsize,
+    /// Descriptions that run the file as a program's image, and descriptions
+    /// open for writing (`image`): a file never has both. Changed only under
+    /// the [`OPEN`] lock.
+    text: AtomicUsize,
+    writers: AtomicUsize,
     /// The frames a file-backed `mmap` maps (`mapping`).
     cache: PageCache,
     /// A write-back failure was reported (once per file).
@@ -149,6 +157,8 @@ pub struct OpenFile {
     readable: bool,
     writable: bool,
     append: bool,
+    /// What this description does to the file's `text`/`writers` counts.
+    role: Role,
 }
 
 impl OpenFile {
@@ -164,13 +174,15 @@ impl OpenFile {
         let path = canonical(path);
         // Access was checked by the caller; the node is opened as root.
         let node = super::nodes::abi_open_node(Id::ROOT, &path, 0)?;
-        let inode = share_inode(path, shown, node)?;
+        let role = if writable { Role::Writer } else { Role::Reader };
+        let inode = share_inode(path, shown, node, role)?;
         Ok(Arc::new(OpenFile {
             inode,
             offset: AtomicU64::new(0),
             readable,
             writable,
             append,
+            role,
         }))
     }
 
@@ -325,7 +337,7 @@ impl OpenFile {
 impl Drop for OpenFile {
     /// The last description of an unlinked file frees it.
     fn drop(&mut self) {
-        if release(&self.inode) && self.inode.orphan.load(Ordering::Relaxed) {
+        if release(&self.inode, self.role) && self.inode.orphan.load(Ordering::Relaxed) {
             let path = self.inode.path();
             if !path.is_empty() {
                 let _ = super::abi_unlink_raw(Id::ROOT, &path);
@@ -341,11 +353,17 @@ impl Drop for OpenFile {
 /// registry's back (the native VFS deletes and renames without it). A stale
 /// entry then loses the name, so lookups by path (`unlink`, `rename`) find
 /// the file that has it now; its descriptors keep their node.
-fn share_inode(path: String, shown: String, node: Option<Node>) -> Result<Arc<Inode>, FsError> {
+fn share_inode(
+    path: String,
+    shown: String,
+    node: Option<Node>,
+    role: Role,
+) -> Result<Arc<Inode>, FsError> {
     let id = node.as_ref().map(Node::id);
     let mut open = OPEN.lock();
     if let Some(found) = open.iter().find(|inode| inode.is_named(&path)) {
         if node_id(found) == id {
+            image::claim(found, role)?;
             found.descriptions.fetch_add(1, Ordering::Relaxed);
             return Ok(Arc::clone(found));
         }
@@ -357,9 +375,12 @@ fn share_inode(path: String, shown: String, node: Option<Node>) -> Result<Arc<In
         orphan: AtomicBool::new(false),
         node,
         descriptions: AtomicUsize::new(1),
+        text: AtomicUsize::new(0),
+        writers: AtomicUsize::new(0),
         cache: PageCache::new(),
         failure_logged: AtomicBool::new(false),
     });
+    image::claim(&inode, role)?;
     open.push(Arc::clone(&inode));
     Ok(inode)
 }
@@ -370,8 +391,9 @@ fn node_id(inode: &Inode) -> Option<NodeId> {
 
 /// Drop one description's claim on `inode`; true when it was the last, in which
 /// case the inode leaves the registry.
-fn release(inode: &Arc<Inode>) -> bool {
+fn release(inode: &Arc<Inode>, role: Role) -> bool {
     let mut open = OPEN.lock();
+    image::unclaim(inode, role);
     // Descriptions are counted, not inferred from the `Arc`: a transient
     // holder (`rmdir`'s parked list, a `Displaced`) must not hide the last
     // close from this check.

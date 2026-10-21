@@ -152,6 +152,10 @@ pub enum FsError {
     /// The backing store failed or stopped answering (a user-space
     /// filesystem whose daemon died or timed out): `EIO`.
     Io,
+    /// The file is a running program's image and cannot be written,
+    /// truncated or opened for writing (`ETXTBSY`), or a file open for
+    /// writing cannot become a program's image.
+    TextBusy,
 }
 
 impl FsError {
@@ -171,6 +175,7 @@ impl FsError {
             FsError::NameTooLong => "file name too long",
             FsError::NotSupported => "operation not supported",
             FsError::Io => "input/output error",
+            FsError::TextBusy => "text file busy",
         }
     }
 }

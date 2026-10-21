@@ -14,13 +14,25 @@
 //! first touch like any anonymous memory. So the eager cost of a load is
 //! bounded by the file's size, not by what its headers claim, and there is no
 //! cap on image size or segment count beyond the layout itself.
+//!
+//! The exception is the read-only part of a program that lives in a file the
+//! kernel owns the writes of ([`Image::shared_pages`]): its read-only,
+//! page-aligned segments (the text and read-only data, the bulk of a big
+//! program) are not copied at all. They become [`Kind::FileImage`] VMAs over
+//! the file's page cache, demand-faulted and shared, so every process
+//! running the program holds one copy of them and a load reads nothing for
+//! them. The file is held busy while any process runs it
+//! (`fs::openfile::image`), which is what keeps those shared pages the
+//! program's own.
 
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use x86_64::{PhysAddr, VirtAddr};
 
 use super::elfhdr::{self, Headers, PF_W, PF_X, PT_LOAD};
 use super::image::Image;
+use crate::fs::openfile::OpenFile;
 use crate::mem;
 use crate::mem::vma::{Kind, Prot};
 
@@ -84,6 +96,9 @@ struct Segment {
     /// equal); every other page of `[start, end)` is mapped eagerly.
     lazy_start: u64,
     lazy_end: u64,
+    /// Whether the segment can be mapped from the file's page cache instead
+    /// of copied: see [`shareable`].
+    shareable: bool,
 }
 
 /// Validate `headers` against the file length and the layout.
@@ -145,6 +160,7 @@ fn plan(
             // In range: `vaddr + filesz <= vend`, already checked.
             lazy_start: (vaddr + file_size + PAGE - 1) & !(PAGE - 1),
             lazy_end: end,
+            shareable: false,
         });
     }
     // Sorted, distinct segments may share a boundary page but never a byte:
@@ -163,6 +179,7 @@ fn plan(
             previous.lazy_end = previous.lazy_end.min(shared);
         }
     }
+    mark_shareable(&mut segments);
     let entry = headers.entry.wrapping_add(bias);
     if !segments
         .iter()
@@ -171,6 +188,33 @@ fn plan(
         return Err("entry point outside loaded segments");
     }
     Ok(segments)
+}
+
+/// Decide which of the sorted, validated `segments` the page cache can back.
+///
+/// A segment qualifies when its bytes are all file bytes (`filesz == memsz`:
+/// no `.bss` tail to zero), they sit in the file at the same offset within a
+/// page as in memory (so a file page is a memory page), nothing may write
+/// them, and no neighbour shares one of its pages (such a page is built from
+/// two segments' bytes and is mapped by [`map_eager_page`]).
+fn mark_shareable(segments: &mut [Segment]) {
+    // Highest end of the segments before; they are sorted by address.
+    let mut covered = 0u64;
+    for index in 0..segments.len() {
+        let next_start = segments.get(index + 1).map(|next| next.start);
+        let segment = &mut segments[index];
+        segment.shareable = shareable(segment)
+            && segment.start >= covered
+            && next_start.is_none_or(|start| start >= segment.end);
+        covered = covered.max(segment.end);
+    }
+}
+
+fn shareable(segment: &Segment) -> bool {
+    !segment.prot.has_write()
+        && segment.filesz > 0
+        && segment.filesz == segment.vend - segment.vaddr
+        && segment.vaddr % PAGE == segment.offset % PAGE
 }
 
 /// Map a program's `PT_LOAD` segments into `table` and describe the result.
@@ -210,10 +254,18 @@ pub fn load_planned<I: Image + ?Sized>(
     uid: u32,
     bias: u64,
 ) -> Result<Loaded, &'static str> {
-    let segments = plan(headers, image.len(), reserved, bias)?;
+    let mut segments = plan(headers, image.len(), reserved, bias)?;
+    // Without a file to share pages of, every segment is copied as before.
+    let backing = image.shared_pages();
+    if backing.is_none() {
+        segments
+            .iter_mut()
+            .for_each(|segment| segment.shareable = false);
+    }
+    // The shared segments hold no private page: they are not charged.
     crate::quota::charge_space(uid, table.as_u64(), span_bytes(&segments))
         .map_err(|_| QUOTA_EXCEEDED)?;
-    map_plan(table, image, &segments)?;
+    map_plan(table, image, &segments, backing)?;
     let phdr = elfhdr::phdr_address(headers);
     Ok(Loaded {
         entry: headers.entry.wrapping_add(bias),
@@ -242,7 +294,11 @@ pub fn span_bytes_of(spans: &[(u64, u64)]) -> u64 {
 }
 
 fn span_bytes(segments: &[Segment]) -> u64 {
-    let spans: Vec<(u64, u64)> = segments.iter().map(|seg| (seg.start, seg.end)).collect();
+    let spans: Vec<(u64, u64)> = segments
+        .iter()
+        .filter(|seg| !seg.shareable)
+        .map(|seg| (seg.start, seg.end))
+        .collect();
     span_bytes_of(&spans)
 }
 
@@ -251,6 +307,7 @@ fn map_plan<I: Image + ?Sized>(
     table: PhysAddr,
     image: &I,
     segments: &[Segment],
+    backing: Option<Arc<OpenFile>>,
 ) -> Result<(), &'static str> {
     // Page base -> backing frame; a map so per-page lookups stay logarithmic.
     let mut pages: BTreeMap<u64, u64> = BTreeMap::new();
@@ -262,6 +319,10 @@ fn map_plan<I: Image + ?Sized>(
     chunk.resize(CHUNK, 0u8);
 
     for segment in segments {
+        if let (true, Some(file)) = (segment.shareable, &backing) {
+            map_shared(table, segment, file);
+            continue;
+        }
         // The file pages, then a last page shared with the next segment.
         let tail = segment.lazy_end.max(segment.lazy_start);
         for range in [segment.start..segment.lazy_start, tail..segment.end] {
@@ -290,6 +351,23 @@ fn map_plan<I: Image + ?Sized>(
         mem::vma::insert(table, va, va + PAGE, prots[&va], Kind::File);
     }
     Ok(())
+}
+
+/// Map a shareable segment over the page cache of its program file: nothing
+/// is read or allocated now, a fault maps (and on first use reads) the page.
+/// Its first byte's file offset is its page's, which [`mark_shareable`]
+/// showed to be at the same place in the page as the address.
+fn map_shared(table: PhysAddr, segment: &Segment, file: &Arc<OpenFile>) {
+    let in_page = segment.vaddr - segment.start;
+    mem::vma::insert_file(
+        table,
+        segment.start,
+        segment.end,
+        segment.prot,
+        Kind::FileImage,
+        Arc::clone(file),
+        segment.offset - in_page,
+    );
 }
 
 /// Back `va` with a zeroed frame, or widen the protection of a page an
