@@ -10,15 +10,17 @@ use super::{abi_with, hidden, openfile};
 /// ([`openfile`]).
 pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
-    let _names = openfile::names_lock();
+    let _names = openfile::names_lock(to);
     // Two spellings of one name (`/tmp/a` and `/transient/a`), or two hard
-    // links of one file, are no replacement: `displace` tells, by the file.
+    // links of one file, are no replacement: `displace` tells, by the file,
+    // and no open file follows a rename that moved nothing.
     let displaced = openfile::displace(id, from, to)?;
+    let moved = !displaced.as_ref().is_some_and(|d| d.same_file());
     let renamed = abi_rename_raw(id, from, to);
     if let Some(displaced) = displaced {
         displaced.settle(renamed.is_ok());
     }
-    if renamed.is_ok() {
+    if renamed.is_ok() && moved {
         openfile::retarget(from, to);
     }
     renamed

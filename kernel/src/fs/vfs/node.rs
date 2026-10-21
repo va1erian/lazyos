@@ -147,6 +147,14 @@ impl Vfs {
         Ok((fs_key(&self.mounts[mount].fs), meta))
     }
 
+    /// The filesystem instance holding `path` ([`Node::fs_key`]) and whether
+    /// its nodes are its files ([`Filesystem::stable_nodes`]).
+    pub fn fs_of(&self, path: &str) -> Option<(usize, bool)> {
+        let (mount, _) = self.resolve_mount(&Path::parse(path)).ok()?;
+        let fs = &self.mounts[mount].fs;
+        Some((fs_key(fs), fs.stable_nodes()))
+    }
+
     /// Record `meta` as the current metadata of `path` (after a write through
     /// a node), so a later `stat` by path does not answer the old size.
     pub fn refresh(&mut self, path: &str, meta: Meta) {

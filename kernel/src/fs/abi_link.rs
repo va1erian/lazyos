@@ -17,7 +17,7 @@ pub fn abi_link(id: Id, existing: &str, new: &str) -> Result<(), FsError> {
         return Err(FsError::NotFound);
     }
     // A name is added while no open file's names are being decided on.
-    let _names = openfile::names_lock();
+    let _names = openfile::names_lock(existing);
     let linked = abi_with(|vfs| vfs.link(id, existing, new)).unwrap_or(Err(FsError::NotFound));
     // The new name now names the file; the old one's inode changed (its link
     // count and change time), which the native table must not answer stale.
@@ -30,7 +30,7 @@ pub fn abi_link(id: Id, existing: &str, new: &str) -> Result<(), FsError> {
 /// still has open loses its name but keeps its data until the last close
 /// ([`openfile`]).
 pub fn abi_unlink(id: Id, path: &str) -> Result<(), FsError> {
-    let _names = openfile::names_lock();
+    let _names = openfile::names_lock(path);
     if openfile::unlink_open(id, path)? {
         return Ok(());
     }

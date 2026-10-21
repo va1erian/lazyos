@@ -296,15 +296,22 @@ while open reports `0`.
   under its other names and its count says so (what WebKit's blob cache reads
   to delete unreferenced blobs). Only the last name is parked. A `rename` over
   such a name drops that link the same way, and a `rename` between two names
-  of one file is a no-op that keeps both (POSIX). Each decision and its change
-  run under one lock (`openfile::names_lock`), so two unlinks of a file's two
-  names cannot both see the other and free an open file.
+  of one file is a no-op that keeps both (POSIX) and moves no open file's
+  name. Each decision and its change run under a lock of the filesystem
+  holding the name (`openfile::names_lock`; filesystems without links take
+  none, so a user-space filesystem's round trip holds up no other mount), so
+  two unlinks of a file's two names cannot both see the other and free an
+  open file. An entry left by a file deleted behind the registry (a native
+  unlink) never hides the file that reused its inode number: every open file
+  is compared by generation.
 
 Not done: `fchmod`/`fchown`/`futimens` on a descriptor whose name went while
 another remains answer `ENOENT` (attribute changes are made by name; the
 registry knows no current name of it); the native mount table's cached count
-of a file's *other* names can lag after an unlink through the Linux table.
-Tests: `linux_link_*` and `fs_ramfs_link_*`/`fs_ramfs_dir_link_counts`
+of a file's *other* names can lag after an unlink through the Linux table;
+the kernel suite runs its cases on one task with the scheduler stopped, so
+the race the lock closes (two tasks unlinking two names at once) has no
+test of its own. Tests: `linux_link_*` and `fs_ramfs_link_*`/`fs_ramfs_dir_link_counts`
 (`tests/ext2_suite/data_fds/links/`), `confine_every_vfs_entry_point`, the
 `hardlink` ABI fixture, and `cargo test -p ext2fs link`.
 

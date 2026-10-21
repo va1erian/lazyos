@@ -185,3 +185,42 @@ pub fn locks_shared_by_names() -> Result<(), String> {
     }
     data.check_clean()
 }
+
+/// An entry left by a file deleted behind the registry's back (a native
+/// unlink) shares its inode number with the file that reused it: the
+/// registry must still find the new file open, so an unlink parks it rather
+/// than freeing data a descriptor reads.
+pub fn stale_entry_does_not_hide_the_open_file() -> Result<(), String> {
+    use crate::fs::vfs::Filesystem;
+    let data = Data::new(0)?;
+    put("/data/st", b"first file")?;
+    let stale = open("/data/st", O_RDWR);
+    check!(stale < 64, "open returned {stale:#x}");
+    let ino = ino_links("/data/st")?.0;
+    data.fs.unlink("st").map_err(fs_error)?;
+    data.fs.create("st", 0o644, Id::ROOT).map_err(fs_error)?;
+    data.fs.write("st", 0, b"second").map_err(fs_error)?;
+    check!(
+        ino_links("/data/st")?.0 == ino,
+        "the new file did not reuse the inode number, the case is not set up"
+    );
+    let live = open("/data/st", O_RDONLY);
+    check!(live < 64, "open returned {live:#x}");
+    check!(unlink("/data/st") == 0, "unlink of the new file");
+    check!(
+        parked_in("/data")? == 1,
+        "the open new file was not parked: the stale entry hid it"
+    );
+    check!(
+        pread(live, 6, 0) == Ok(b"second".to_vec()),
+        "the new file's descriptor lost its data"
+    );
+    check!(
+        pread(stale, 6, 0) == Err(errno(ENOENT)),
+        "the deleted file's descriptor reads"
+    );
+    close(live);
+    close(stale);
+    check!(parked_in("/data")? == 0, "left parked");
+    data.check_clean()
+}

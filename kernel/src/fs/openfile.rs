@@ -15,11 +15,11 @@
 //! cache, so a rename or unlink updates every one of them in one place, a
 //! store through one shared mapping is seen through every other, and the last
 //! one out knows it is the last. *One file* is decided by the file, not by
-//! the name it was opened by (`registry.rs`): where the filesystem has nodes
-//! (ext2, ramfs, a user-space filesystem), by the filesystem instance and the
-//! node, so the two names of a hard-linked file, or `/tmp/x` and
-//! `/transient/x`, open one [`Inode`]; on a filesystem without nodes (the
-//! copy-up root, FAT), which cannot hold links, by the path.
+//! the name it was opened by (`registry.rs`): where the filesystem's nodes are
+//! its files (ext2, ramfs), by the filesystem instance and the node, so the
+//! two names of a hard-linked file, or `/tmp/x` and `/transient/x`, open one
+//! [`Inode`]; elsewhere (the copy-up root, FAT, a user-space filesystem whose
+//! daemon numbers its nodes), where there are no links, by the path.
 //!
 //! # POSIX behaviour the path alone cannot give
 //!
@@ -279,11 +279,11 @@ impl OpenFile {
     }
 
     /// What advisory locks (`flock`, `fcntl`) are keyed by: the file itself
-    /// where it has a node, so every name of one file shares its locks, and
-    /// its path otherwise. The node form starts with a NUL, which no path
+    /// where its node is the file ([`Node::stable`]), so every name of one
+    /// file shares its locks, and its path otherwise. The node form starts with a NUL, which no path
     /// holds.
     pub fn lock_key(&self) -> String {
-        match &self.inode.node {
+        match self.inode.node.as_ref().filter(|node| node.stable()) {
             Some(node) => {
                 let id = node.id();
                 alloc::format!("\0{:x}:{}:{}", node.fs_key(), id.ino, id.generation)

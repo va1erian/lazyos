@@ -26,6 +26,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ("linux_link_one_registry_entry", open::one_registry_entry),
     ("linux_link_locks_shared", open::locks_shared_by_names),
     (
+        "linux_link_stale_entry_does_not_hide_open_file",
+        open::stale_entry_does_not_hide_the_open_file,
+    ),
+    (
         "linux_link_shared_mapping",
         mapping::shared_mapping_through_two_names,
     ),

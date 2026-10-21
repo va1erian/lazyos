@@ -107,9 +107,11 @@ pub(super) fn release(inode: &Arc<Inode>, role: Role) -> bool {
 /// `path` is.
 ///
 /// The cheap question first: the name's filesystem and inode number, from the
-/// mount table's caches, against the open files. Only a match is confirmed by
-/// opening the node, whose generation tells a file from a later one that
-/// reused its inode number. A file without a stable node is matched by name.
+/// mount table's caches, against the open files. Only when some open file has
+/// that number is the node opened, and then every open file is compared with
+/// it by generation: an entry left by a file deleted behind the registry's
+/// back (a native unlink) may share the number with the file that reused it.
+/// A file without a stable node is matched by name.
 pub(super) fn find(path: &str) -> Option<Arc<Inode>> {
     let path = canonical(path);
     if OPEN.lock().is_empty() {
@@ -119,23 +121,25 @@ pub(super) fn find(path: &str) -> Option<Arc<Inode>> {
     if meta.kind != FileKind::File {
         return None;
     }
-    let candidate = OPEN
-        .lock()
-        .iter()
-        .find(
-            |inode| match inode.node.as_ref().filter(|node| node.stable()) {
-                Some(node) => node.fs_key() == fs && node.id().ino == meta.ino,
-                None => inode.is_named(&path),
-            },
-        )
-        .cloned()?;
-    let Some(held) = candidate.node.as_ref().filter(|node| node.stable()) else {
-        return Some(candidate);
-    };
-    match crate::fs::nodes::abi_open_node(Id::ROOT, &path, 0) {
-        Ok(Some(now)) if now.same_file(held) => Some(candidate),
-        _ => None,
+    let stable = |inode: &Inode| inode.node.clone().filter(Node::stable);
+    let numbered = OPEN.lock().iter().any(|inode| {
+        stable(inode).is_some_and(|node| node.fs_key() == fs && node.id().ino == meta.ino)
+    });
+    if !numbered {
+        return OPEN
+            .lock()
+            .iter()
+            .find(|inode| stable(inode).is_none() && inode.is_named(&path))
+            .cloned();
     }
+    let now = match crate::fs::nodes::abi_open_node(Id::ROOT, &path, 0) {
+        Ok(Some(now)) => now,
+        _ => return None,
+    };
+    OPEN.lock()
+        .iter()
+        .find(|inode| stable(inode).is_some_and(|held| held.same_file(&now)))
+        .cloned()
 }
 
 /// The contents of the file at `path` changed by name (`truncate(2)`,

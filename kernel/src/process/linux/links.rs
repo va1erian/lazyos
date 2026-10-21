@@ -155,8 +155,9 @@ pub(super) fn sys_linkat(old_dirfd: u64, old: u64, new_dirfd: u64, new: u64, fla
         Ok(new) => new,
         Err(code) => return code,
     };
-    // An empty old path names nothing, with `AT_EMPTY_PATH` or without it.
-    if raw.is_empty() {
+    // An empty old path names nothing, and `AT_EMPTY_PATH` (see above) is
+    // refused whatever the path.
+    if raw.is_empty() || flags & AT_EMPTY_PATH != 0 {
         return err(ENOENT);
     }
     let old = match resolve_at(old_dirfd, &raw) {

@@ -22,6 +22,13 @@ pub fn abi_identity(path: &str) -> Result<(usize, Meta), FsError> {
     super::abi_with(|vfs| vfs.identity(path)).unwrap_or(Err(FsError::NotFound))
 }
 
+/// The filesystem instance holding `path` in the Linux ABI table (as
+/// [`Node::fs_key`](super::vfs::Node::fs_key) numbers it) and whether its
+/// nodes are its files; `None` when no mount holds it.
+pub fn abi_fs_of(path: &str) -> Option<(usize, bool)> {
+    super::abi_with(|vfs| vfs.fs_of(path)).flatten()
+}
+
 /// After a write through a node: `meta` is the current metadata of `path`
 /// in the Linux ABI table's caches.
 pub fn abi_refresh(path: &str, meta: Meta) {

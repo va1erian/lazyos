@@ -102,6 +102,10 @@ pub fn refusals() -> Result<(), String> {
             "{base}: linkat AT_EMPTY_PATH"
         );
         check!(
+            linkat(AT_FDCWD, &f, AT_FDCWD, &format!("{base}/x"), AT_EMPTY_PATH) == errno(ENOENT),
+            "{base}: linkat AT_EMPTY_PATH with a path"
+        );
+        check!(
             linkat(AT_FDCWD, "", AT_FDCWD, &format!("{base}/x"), 0) == errno(ENOENT),
             "{base}: linkat of an empty path"
         );

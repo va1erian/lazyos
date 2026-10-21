@@ -7,10 +7,13 @@
 //! says so (`st_nlink` 1 afterwards, which is what WebKit's blob cache reads
 //! to tell an unreferenced blob).
 //!
-//! Whether a file has another name is decided and acted on under one lock,
-//! [`names_lock`], which every Linux `unlink`, `rename` and `link` holds: two
-//! unlinks of a file's two names racing would otherwise each see the other
-//! name and both remove theirs, freeing a file that is still open.
+//! Whether a file has another name is decided and acted on under a lock of
+//! the filesystem holding it, [`names_lock`], which every `unlink`, `rename`
+//! and `link` holds: two unlinks of a file's two names racing would otherwise
+//! each see the other name and both remove theirs, freeing a file that is
+//! still open. Only filesystems that can hold links take one (a user-space
+//! filesystem's round trip never holds up another mount), and filesystems
+//! share a few locks by their address.
 
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -24,12 +27,17 @@ use crate::task::relax::{YieldGuard, YieldMutex};
 static NEXT_ORPHAN: AtomicU64 = AtomicU64::new(1);
 
 /// Held while a name is taken from a file that may be open (see the module
-/// docs). Taken before either mount table's lock, never inside one.
-static NAMES: YieldMutex<()> = YieldMutex::named("open-names", ());
+/// docs), one per filesystem modulo their number. Taken before either mount
+/// table's lock, never inside one, and never two at once.
+static NAMES: [YieldMutex<()>; 8] = [const { YieldMutex::named("open-names", ()) }; 8];
 
-/// Hold [`NAMES`] for the length of one name change.
-pub(in crate::fs) fn names_lock() -> YieldGuard<'static, ()> {
-    NAMES.lock()
+/// Hold the lock of the filesystem holding `path` for the length of one name
+/// change; `None` for a filesystem whose files have no stable nodes (no links
+/// there, nothing to decide) or a path no mount holds.
+pub(in crate::fs) fn names_lock(path: &str) -> Option<YieldGuard<'static, ()>> {
+    let (fs, stable) = crate::fs::nodes::abi_fs_of(path)?;
+    // The instance's address, past its alignment bits, picks the lock.
+    stable.then(|| NAMES[(fs >> 4) % NAMES.len()].lock())
 }
 
 /// `dir/.unlinked-<n>` beside `path`, so the caller's rights to unlink `path`
@@ -74,13 +82,24 @@ pub(in crate::fs) struct Displaced {
     parked: Option<String>,
     /// The name the rename takes, in canonical form.
     original: String,
+    /// `from` and `to` are two names of this one file: the rename is a no-op.
+    same_file: bool,
 }
 
 impl Displaced {
+    /// The rename was between two names of one file, a no-op: nothing to
+    /// settle and no name to follow.
+    pub(in crate::fs) fn same_file(&self) -> bool {
+        self.same_file
+    }
+
     /// The rename ended (`renamed` says how). A parked file goes back under
     /// its name when the rename failed; a file that kept another name loses
     /// this one when it succeeded.
     pub(in crate::fs) fn settle(self, renamed: bool) {
+        if self.same_file {
+            return;
+        }
         match (self.parked, renamed) {
             (Some(hidden), false) => {
                 if crate::fs::abi_rename_raw(Id::ROOT, &hidden, &self.original).is_ok() {
@@ -101,21 +120,27 @@ impl Displaced {
 /// Before `rename(from, to)` replaces `to` (the caller holds [`names_lock`]):
 /// if `to` is an open file it is being unlinked, so its last name is parked
 /// and its descriptors keep their data. Two names of one file are no
-/// replacement at all (the rename is a no-op), and a file with another name
-/// left only loses this one.
+/// replacement at all (the rename is a no-op, [`Displaced::same_file`]), and a
+/// file with another name left only loses this one.
 pub(in crate::fs) fn displace(id: Id, from: &str, to: &str) -> Result<Option<Displaced>, FsError> {
     let Some(inode) = find(to) else {
         return Ok(None);
     };
-    if find(from).is_some_and(|source| Arc::ptr_eq(&source, &inode)) {
-        return Ok(None);
-    }
     let original = canonical(to);
+    if find(from).is_some_and(|source| Arc::ptr_eq(&source, &inode)) {
+        return Ok(Some(Displaced {
+            inode,
+            parked: None,
+            original,
+            same_file: true,
+        }));
+    }
     if inode.links() > 1 {
         return Ok(Some(Displaced {
             inode,
             parked: None,
             original,
+            same_file: false,
         }));
     }
     let hidden = orphan(id, &inode, to)?;
@@ -123,5 +148,6 @@ pub(in crate::fs) fn displace(id: Id, from: &str, to: &str) -> Result<Option<Dis
         inode,
         parked: Some(hidden),
         original,
+        same_file: false,
     }))
 }

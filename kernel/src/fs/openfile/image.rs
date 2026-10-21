@@ -24,7 +24,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use super::{canonical, find, forget_name, orphan, share_inode, Displaced, Inode, OpenFile};
+use super::{canonical, find, orphan, share_inode, Displaced, Inode, OpenFile};
 use crate::fs::vfs::{FsError, Id, Node};
 
 /// What an open description does to its file's counts.
@@ -125,16 +125,15 @@ pub(in crate::fs) fn refuse_text_write(path: &str) -> Result<(), FsError> {
 /// A native `unlink` of `path`: if it is a running program's last name, take
 /// it away without freeing the file and report `true` (the caller deletes
 /// nothing). A program file with another name (a hard link) is not parked:
-/// the caller removes this name, and the registry forgets it.
+/// the caller removes this name.
 pub(in crate::fs) fn unlink_text(id: Id, path: &str) -> Result<bool, FsError> {
     match running(path) {
         // Already parked: its name is gone, and what remains is not for
         // anyone to delete while the program runs.
         Some(inode) if inode.orphan.load(Ordering::Relaxed) => Ok(true),
-        Some(inode) if inode.links() > 1 => {
-            forget_name(path);
-            Ok(false)
-        }
+        // Another name keeps it: the caller removes this one (and the
+        // registry forgets it once that succeeded).
+        Some(inode) if inode.links() > 1 => Ok(false),
         Some(inode) => orphan(id, &inode, path).map(|_| true),
         None => Ok(false),
     }
@@ -169,12 +168,14 @@ pub(in crate::fs) fn displace_text(id: Id, from: &str, to: &str) -> Result<Nativ
 
 impl NativeRename {
     /// The rename ended with `result`: open files follow their names (as
-    /// after a Linux ABI rename), and the displaced program settles.
+    /// after a Linux ABI rename, and not after one between two names of one
+    /// file, which moved nothing), and the displaced program settles.
     pub(in crate::fs) fn finish(self, from: &str, to: &str, result: &Result<(), FsError>) {
+        let moved = !self.0.as_ref().is_some_and(Displaced::same_file);
         if let Some(displaced) = self.0 {
             displaced.settle(result.is_ok());
         }
-        if result.is_ok() {
+        if result.is_ok() && moved {
             super::retarget(from, to);
         }
     }

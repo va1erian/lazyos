@@ -66,8 +66,8 @@ use alloc::vec::Vec;
 
 use crate::block;
 pub use abi_attr::{abi_setattr, abi_setattr_open, vfs_setattr};
-pub use abi_link::{abi_link, abi_unlink};
 use abi_link::abi_unlink_raw;
+pub use abi_link::{abi_link, abi_unlink};
 pub use abi_rename::abi_rename;
 pub(crate) use abi_rename::abi_rename_raw;
 use coherence::{abi_changed, native_changed, Change};
@@ -284,7 +284,7 @@ pub fn vfs_rmdir(id: Id, path: &str) -> Result<(), FsError> {
 
 /// Remove a regular file through the VFS.
 pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
-    let _names = openfile::names_lock();
+    let _names = openfile::names_lock(path);
     // A running program keeps its data under a hidden name (`openfile::image`).
     if openfile::unlink_text(id, path)? {
         return Ok(());
@@ -300,7 +300,7 @@ pub fn vfs_unlink(id: Id, path: &str) -> Result<(), FsError> {
 /// Rename within one mount through the VFS.
 pub fn vfs_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
-    let _names = openfile::names_lock();
+    let _names = openfile::names_lock(to);
     let displaced = openfile::displace_text(id, from, to)?;
     let renamed = with(|vfs| vfs.rename(id, from, to)).unwrap_or(Err(FsError::NotFound));
     displaced.finish(from, to, &renamed);
