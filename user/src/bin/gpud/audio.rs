@@ -45,10 +45,15 @@ pub(super) fn run(args: &Args, regs: &mut Bar, adopted: &Adopted) {
         Ok(bytes) => bytes,
         Err(errno) => return skip("edid-read", &format!("{path} errno={errno}")),
     };
-    let prepared = match audio::prepare(adopted, &edid, Rate::Hz48000) {
+    let mut prepared = match audio::prepare(adopted, &edid, Rate::Hz48000) {
         Ok(prepared) => prepared,
         Err(why) => return skip(why_name(why), &format!("{why:?}")),
     };
+    // Bring-up aid, off in every normal build: `LAZYOS_GPUD_FORCE_N=<n>` forces
+    // `N` instead of the hardware's automatic one, to compare on the box.
+    if let Some(n) = option_env!("LAZYOS_GPUD_FORCE_N").and_then(|n| n.parse().ok()) {
+        prepared.n = Some(n);
+    }
     let outcome = regs.with_audio_writes(|regs| audio::enable(regs, &prepared.request()));
     match outcome {
         Ok(done) => trace::pass!(

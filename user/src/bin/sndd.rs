@@ -82,6 +82,15 @@ const PERIOD_BYTES: u32 = 8192;
 /// from clipping.
 const AMPLITUDE_Q15: i32 = 16000;
 
+/// Bring-up aid, off in every normal build: with `LAZYOS_SNDD_TONE=1` in the
+/// build environment the driver plays three test tones straight through the
+/// card each time it starts, so a `dbgctl reload sndd` is audible without
+/// anyone typing `beep` (docs/kabylake-gpu-plan.md, G2 on the box).
+const TONE_ON_START: bool = option_env!("LAZYOS_SNDD_TONE").is_some();
+/// Tones played, and the pause between them (PIT ticks).
+const START_TONES: u32 = 3;
+const START_TONE_GAP_TICKS: u64 = 100;
+
 /// Longest park in the serve loop while no stream is running (PIT ticks).
 const IDLE_TICKS: u64 = 100;
 
@@ -178,6 +187,15 @@ fn run(args: &Args) -> Result<(), Error> {
             info.channels_min,
             info.channels_max
         );
+    }
+    if TONE_ON_START {
+        for round in 1..=START_TONES {
+            trace::line!(trace::Channel::Sndd, "TONE:START round={round}");
+            if let Err(error) = self_test(&mut card, &infos, args) {
+                trace::line!(trace::Channel::Sndd, "TONE:FAIL {}", error.describe());
+            }
+            let _ = sys::wait(sys::clock() + START_TONE_GAP_TICKS);
+        }
     }
     if args.demo {
         // Boot evidence (issue #481): `_snd` cannot claim another class.

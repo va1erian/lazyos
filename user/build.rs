@@ -330,6 +330,9 @@ fn main() {
     // `LAZYOS_GPUD_ARGS` is appended to `gpud`'s arguments (`audio=1`,
     // `edid=<path>`: stage G2, docs/kabylake-gpu-plan.md).
     println!("cargo:rerun-if-env-changed=LAZYOS_GPUD_ARGS");
+    // Bring-up aids for the HDMI audio work (off in a normal build).
+    println!("cargo:rerun-if-env-changed=LAZYOS_GPUD_FORCE_N");
+    println!("cargo:rerun-if-env-changed=LAZYOS_SNDD_TONE");
     println!("cargo:rustc-check-cfg=cfg(lazyos_intelgfx)");
     if env::var_os("LAZYOS_INTELGFX").as_deref() == Some(std::ffi::OsStr::new("1")) {
         assert!(

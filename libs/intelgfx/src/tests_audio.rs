@@ -162,7 +162,6 @@ fn bad_requests_write_nothing() {
         (&long[..], 148_500, None, Error::BadEld(88)),
         (&long[..0], 148_500, None, Error::BadEld(0)),
         (&long[..6], 148_500, None, Error::BadEld(6)),
-        (&long[..40], 241_500, None, Error::NoClockIndex(241_500)),
     ] {
         assert_eq!(audio::enable(&mut e, &request(eld, tmds, n)), Err(want));
     }
@@ -274,16 +273,29 @@ fn gop() -> (crate::mmio::FakeMmio, crate::adopt::Adopted) {
 }
 
 #[test]
-fn the_boxs_gop_and_edid_prepare_a_48k_request_with_an_explicit_n() {
+fn the_boxs_gop_and_edid_prepare_a_request_with_automatic_n() {
     let (_, adopted) = gop();
     let p = audio::prepare(&adopted, EDID, Rate::Hz48000).unwrap();
-    assert_eq!((p.transcoder, p.tmds_khz, p.n), (0, 241_500, Some(6144)));
+    assert_eq!((p.transcoder, p.tmds_khz, p.n), (0, 241_500, None));
     // 4-byte header + baseline; the monitor's single LPCM SAD is in it.
     let eld = crate::eld::Eld::parse(&p.eld).unwrap();
     assert!(eld.supports_lpcm(48_000, 2));
     assert!(p.eld.len() <= audio::ELD_BUFFER_BYTES);
-    let p44 = audio::prepare(&adopted, EDID, Rate::Hz44100).unwrap();
-    assert_eq!(p44.n, Some(6384), "the exact N for 241.5 MHz at 44.1 kHz");
+    // The N a forced pair would use is still computed by hdmi_audio.
+    let tmds = p.tmds_khz;
+    assert_eq!(
+        crate::hdmi_audio::select(tmds, Rate::Hz48000).unwrap().n,
+        6144
+    );
+    assert_eq!(
+        crate::hdmi_audio::select(tmds, Rate::Hz44100).unwrap().n,
+        6384
+    );
+    // The default index, not the 25.175 MHz row 0, is what a clock outside
+    // the table gets (i915: "falling back to defaults").
+    let cfg = audio::config_value(0, tmds, None);
+    assert_eq!((cfg & aud_config::CLOCK_MASK) >> aud_config::CLOCK_SHIFT, 1);
+    assert_eq!(cfg & aud_config::N_PROG_ENABLE, 0);
 }
 
 #[test]
@@ -418,4 +430,33 @@ fn a_failed_enable_does_not_leave_the_codec_awake() {
         e.regs[&crate::audio::AUD_CHICKENBIT] & crate::audio::CODEC_WAKE,
         0
     );
+}
+
+#[test]
+fn automatic_n_reads_back_the_hardwares_n_and_that_is_not_a_failure() {
+    // The box, 2026-10-21: after writing index 1 with no forced N, AUD_CONFIG
+    // reads 0x0071fa60 - the index stuck, N shows the hardware's own value.
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.config_forced = Some((
+        aud_config::UPPER_N_MASK | aud_config::LOWER_N_MASK,
+        0x0070_fa60,
+    ));
+    let bytes = eld();
+    let done = audio::enable(&mut e, &request(&bytes, 241_500, None)).unwrap();
+    assert_eq!(
+        done.config & aud_config::CLOCK_MASK,
+        1 << aud_config::CLOCK_SHIFT
+    );
+    assert_eq!(e.regs[&AUD_CONFIG_A], 0x0071_fa60);
+    assert_eq!(e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101, 0b101);
+}
+
+#[test]
+fn a_clock_index_that_does_not_stick_still_fails() {
+    let mut e = Engine::with_link(FUNC_HDMI);
+    e.config_forced = Some((aud_config::CLOCK_MASK, 0));
+    let bytes = eld();
+    let err = audio::enable(&mut e, &request(&bytes, 241_500, None)).unwrap_err();
+    assert!(matches!(err, Error::Readback(AUD_CONFIG_A, _, _)));
+    assert_eq!(e.regs[&AUD_PIN_ELD_CP_VLD] & 0b101, 0);
 }

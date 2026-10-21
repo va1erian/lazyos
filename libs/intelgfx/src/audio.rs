@@ -16,7 +16,8 @@
 //!    a partial mode set, and it is out of this module's reach on purpose);
 //! 2. output enable on, ELD valid off;
 //! 3. reset the ELD write address, write the ELD one dword at a time;
-//! 4. `AUD_CONFIG`: the pixel-clock index (or an explicit `N`), read back;
+//! 4. `AUD_CONFIG`: the pixel-clock index and automatic `N` (or a forced
+//!    `N`), read back;
 //! 5. ELD valid on, last, so a sink never looks ready with the clock unset.
 //!
 //! (i915 sets valid before the clock; the order here is deliberate.) Any
@@ -79,7 +80,8 @@ pub struct Request<'a> {
     pub eld: &'a [u8],
     /// The TMDS character clock (`hdmi_audio::tmds_clock_khz`).
     pub tmds_khz: u32,
-    /// The `N` to program when the clock has no index in the engine's table.
+    /// Force this `N` (`None`: the hardware's automatic `N`, as i915 uses for
+    /// a clock outside the engine's table).
     pub n: Option<u32>,
 }
 
@@ -95,8 +97,6 @@ pub enum Error {
     TranscoderOff(u32),
     /// The link is not in HDMI mode: audio would need a mode set.
     NotHdmi(DdiMode),
-    /// The clock has no table index and no explicit `N` was given.
-    NoClockIndex(u32),
     /// A register did not read back what was written (offset, wrote, read).
     Readback(u32, u32, u32),
 }
@@ -134,35 +134,45 @@ pub fn check(m: &mut impl Mmio, req: &Request) -> Result<(), Error> {
     if func.mode != DdiMode::Hdmi {
         return Err(Error::NotHdmi(func.mode));
     }
-    if crate::hdmi_audio::aud_config_clock_index(req.tmds_khz).is_none() && req.n.is_none() {
-        return Err(Error::NoClockIndex(req.tmds_khz));
-    }
     Ok(())
 }
 
-/// The `AUD_CONFIG` value for a clock: the table index, or the explicit `N`.
-pub fn config_value(old: u32, tmds_khz: u32, n: Option<u32>) -> Option<u32> {
+/// The pixel-clock index i915 falls back to for a clock the engine's table
+/// lacks (`AUD_CONFIG_PIXEL_CLOCK_HDMI_25200`, "falling back to defaults"),
+/// the one a 241.5 MHz link gets.
+pub const DEFAULT_CLOCK_INDEX: u32 = 1;
+
+/// The `AUD_CONFIG` value for a clock, as i915's `hsw_audio_config_update`
+/// writes it: the table index of the clock (the default index when the clock
+/// has none) and the hardware's automatic `N`, unless `n` forces one.
+pub fn config_value(old: u32, tmds_khz: u32, n: Option<u32>) -> u32 {
     let mut v = old
         & !(aud_config::CLOCK_MASK
             | aud_config::N_VALUE_INDEX
             | aud_config::N_PROG_ENABLE
             | aud_config::UPPER_N_MASK
             | aud_config::LOWER_N_MASK);
-    match crate::hdmi_audio::aud_config_clock_index(tmds_khz) {
-        Some(index) => v |= index << aud_config::CLOCK_SHIFT,
-        None => v |= aud_config::n_fields(n?),
+    let index = crate::hdmi_audio::aud_config_clock_index(tmds_khz).unwrap_or(DEFAULT_CLOCK_INDEX);
+    v |= index << aud_config::CLOCK_SHIFT;
+    if let Some(n) = n {
+        v |= aud_config::n_fields(n);
     }
-    Some(v)
+    v
 }
 
-/// The `AUD_CONFIG` bits this module programs: a readback is judged on these
-/// alone, since the register's other bits (reserved, read-only) may read back
-/// differently from what the read-modify-write carried over.
-const CONFIG_PROGRAMMED: u32 = aud_config::CLOCK_MASK
-    | aud_config::N_VALUE_INDEX
-    | aud_config::N_PROG_ENABLE
-    | aud_config::UPPER_N_MASK
-    | aud_config::LOWER_N_MASK;
+/// The `AUD_CONFIG` bits a readback is judged on: the clock index and the
+/// `N` enable always, the `N` fields only when `N` was forced. With automatic
+/// `N` the hardware shows its own value there (the box reads `0x7fa6` back
+/// after a write of 0), and the register's other bits (reserved, read-only)
+/// may read back differently from what the read-modify-write carried over.
+fn programmed_bits(value: u32) -> u32 {
+    let always = aud_config::CLOCK_MASK | aud_config::N_PROG_ENABLE;
+    if value & aud_config::N_PROG_ENABLE != 0 {
+        always | aud_config::N_VALUE_INDEX | aud_config::UPPER_N_MASK | aud_config::LOWER_N_MASK
+    } else {
+        always
+    }
+}
 
 /// Run the enable sequence. Nothing is written when [`check`] refuses; a
 /// failure after the first write undoes it ([`disable`]), so an error never
@@ -199,11 +209,11 @@ fn program(m: &mut impl Mmio, req: &Request) -> Result<Enabled, Error> {
     // codec starts streaming once it sees a valid ELD, and must not find an
     // unprogrammed clock behind it.
     let cfg = pipe_reg(AUD_CONFIG_A, t);
-    let value = config_value(m.read32(cfg), req.tmds_khz, req.n)
-        .ok_or(Error::NoClockIndex(req.tmds_khz))?;
+    let value = config_value(m.read32(cfg), req.tmds_khz, req.n);
     m.write32(cfg, value);
     let back = m.read32(cfg);
-    if back & CONFIG_PROGRAMMED != value & CONFIG_PROGRAMMED {
+    let mask = programmed_bits(value);
+    if back & mask != value & mask {
         return Err(Error::Readback(cfg, value, back));
     }
 
@@ -227,7 +237,7 @@ pub fn set_clock(
         return Err(Error::TransOutOfRange(transcoder));
     }
     let cfg = pipe_reg(AUD_CONFIG_A, transcoder);
-    let value = config_value(m.read32(cfg), tmds_khz, n).ok_or(Error::NoClockIndex(tmds_khz))?;
+    let value = config_value(m.read32(cfg), tmds_khz, n);
     m.write32(cfg, value);
     Ok(value)
 }
@@ -311,10 +321,10 @@ pub fn prepare(adopted: &Adopted, edid: &[u8], rate: Rate) -> Result<Prepared, P
     if eld.lpcm_rates() == 0 {
         return Err(PrepareError::NoLpcm);
     }
-    let n = match hdmi_audio::aud_config_clock_index(tmds_khz) {
-        Some(_) => None,
-        None => hdmi_audio::select(tmds_khz, rate).map(|pair| pair.n),
-    };
+    // Automatic N, as i915 does for a clock outside its table: the hardware
+    // picks N for the stream's rate. (`hdmi_audio::select` computes the pair
+    // to force instead, if the box ever needs it: set `n`.)
+    let n = None;
     Ok(Prepared {
         transcoder: pipe.pipe,
         eld: eld.to_bytes(),

@@ -10,6 +10,7 @@
 use user::dev::{self, Row};
 use user::messenger::Endpoint;
 use user::sys;
+use user::trace;
 use virtio::regs::{pci_device_id, PCI_VENDOR};
 use virtio_snd::DEVICE_TYPE;
 
@@ -20,6 +21,14 @@ const COMMAND: u64 = 4;
 const COMMAND_MEMORY: u64 = 1 << 1;
 const COMMAND_BUS_MASTER: u64 = 1 << 2;
 const COMMAND_INTX_DISABLE: u64 = 1 << 10;
+
+/// Intel's PCI vendor id, and the HDA controller's snoop and traffic-class
+/// registers (`enable_snoop`).
+const INTEL: u16 = 0x8086;
+const INTEL_HDA_DEVC: u64 = 0x78;
+const DEVC_NOSNOOP: u64 = 1 << 11;
+const INTEL_HDA_TCSEL: u64 = 0x44;
+const TCSEL_MASK: u32 = 0x7;
 
 /// Which card a row is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,6 +94,7 @@ pub(super) fn claim(row: Row, shared: bool) -> Result<Claimed, Error> {
         u64::from(command) | COMMAND_MEMORY | COMMAND_BUS_MASTER,
     )
     .map_err(Error::Dev)?;
+    enable_snoop(handle, &row);
     Ok(Claimed {
         handle,
         row,
@@ -92,6 +102,40 @@ pub(super) fn claim(row: Row, shared: bool) -> Result<Claimed, Error> {
         irq: None,
         mode: None,
     })
+}
+
+/// Intel PCH HDA: the controller's DMA must snoop the CPU caches. Config word
+/// `0x78` (`DEVC`) bit 11 is "no snoop enable", and on the Kaby Lake box the
+/// firmware leaves it set (`0x2800`; Linux's driver clears it: `0x2000`), so
+/// the controller read the stream buffer from RAM while the tone still sat in
+/// the CPU's caches: the codec was fed silence. `TCSEL` (config `0x44`, low
+/// three bits) is cleared the same way, as Linux does. Best effort: a
+/// refusal is logged and the driver carries on (a virtio card has neither).
+fn enable_snoop(handle: u64, row: &Row) {
+    if row.vendor != INTEL || !hda::is_controller(row.class, row.subclass) {
+        return;
+    }
+    let line = |what: &str, before: u32, after: u32| {
+        trace::line!(
+            trace::Channel::Sndd,
+            "HDA:{what} before={before:#06x} after={after:#06x}"
+        );
+    };
+    if let Ok(devc) = dev::cfg_read(handle, INTEL_HDA_DEVC, 2) {
+        if u64::from(devc) & DEVC_NOSNOOP != 0 {
+            let _ = dev::cfg_write(handle, INTEL_HDA_DEVC, 2, u64::from(devc) & !DEVC_NOSNOOP);
+        }
+        line(
+            "SNOOP",
+            devc,
+            dev::cfg_read(handle, INTEL_HDA_DEVC, 2).unwrap_or(0),
+        );
+    }
+    if let Ok(tcsel) = dev::cfg_read(handle, INTEL_HDA_TCSEL, 1) {
+        if tcsel & TCSEL_MASK != 0 {
+            let _ = dev::cfg_write(handle, INTEL_HDA_TCSEL, 1, u64::from(tcsel & !TCSEL_MASK));
+        }
+    }
 }
 
 /// Map memory BAR `bar` of the claimed card; it must be at least `min` bytes.
