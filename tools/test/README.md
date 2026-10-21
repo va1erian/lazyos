@@ -54,9 +54,10 @@ after memory setup and halts; the normal boot path is compiled out. Without the
 switch nothing in the suite is compiled, so normal boots are byte-for-byte
 unchanged.
 
-Each test prints one line over COM1:
+Each test prints a `START` line before it runs and a result line after, over COM1:
 
 ```
+TEST:<name>:START                names the test in flight (not shown on the console)
 TEST:<name>:PASS
 TEST:<name>:FAIL:<detail>
 TEST:<name>:INFO:<detail>        informational (e.g. soak cycles)
@@ -65,6 +66,14 @@ TEST:SUMMARY:PASS=<n> FAIL=<n>
 ```
 
 `<detail>` never contains newlines (failure details are flattened).
+
+**Stalls (issue #787).** When the serial log is silent for `--stall-seconds`
+(default 180) the runner prints, once per stall and to `<out>/stall.txt`, the
+test with a `START` and no result, the last serial lines and three samples of
+the guest's RIP (`STALL:` lines; symbolize one with `addr2line -e <kernel>
+<rip - 0xffff800000000000>`). It is evidence only: the run still waits for
+`--timeout`, and the final error names the test in flight.
+`python tools/test/test_serialwatch.py` is its self-test.
 
 ## What the suite covers
 

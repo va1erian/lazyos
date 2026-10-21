@@ -49,7 +49,7 @@ pub fn virtio_modern_roundtrip_unaligned() -> Result<(), String> {
     let Some(disk) = modern("virtio_modern_roundtrip_unaligned") else {
         return Ok(());
     };
-    roundtrip(disk, MODERN_SECTORS)
+    roundtrip("virtio_modern_roundtrip_unaligned", disk, MODERN_SECTORS)
 }
 
 /// Reset the modern device hundreds of times (what a timed-out request does),
