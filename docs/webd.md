@@ -177,3 +177,23 @@ line, AGENTS.md):
   has no network. Its only refusals are the optional one LazyWeb+ documents (#836, `tools/webplus/denies.py`):
   a stat of `/etc/ssl/openssl.cnf`; the page process's are its stats of `/etc`, `/etc/localtime` and
   `/usr/share/zoneinfo` (the time zone probe). None of the fontconfig ones appeared.
+
+## Limits, back-pressure and what grows (from the review of 2026-10-21)
+
+* **Memory a client can cost.** Slots are charged the size the kernel reports for the mapped buffer, not the range
+  the client declared, and the sums cannot wrap. Page-controlled text (a link, a copy, a title, an error, an engine
+  marker) is clipped at 48 KiB when it is queued, so a script cannot grow webd by refusing navigations.
+* **A client that stops reading** is put in a 250 ms back-off after a refused send: webd copies no frames for it and
+  asks the engine for no whole frame until a send gets through. `ViewLost` is resent until delivered or the
+  client's channel is gone. The client keeps slot releases and input release edges it could not send and resends
+  them at each `poll`.
+* **The console.** The engine's per-page markers (`LIGHT:LINK`, `LIGHT:REFUSED:*`, `CONFIG:IGNORED:*`, `INFO:*`) are
+  flood-limited; the lifecycle markers (`PROCESS:*`, `FAIL:*`, `LIGHT:LOCK:READY`) never are.
+* **The self-test** kills only a web process it can show is its own (two samples agree, it differs from the one
+  before the view existed, its view is alone in webd's own group) and refuses with "cannot tell" otherwise: the
+  ABI offers only the newest process id. A `webd_engine_view_pid(view)` would make it exact.
+* **What still grows without bound.** Every view that ever was leaves its parked `WebPageProxy` (engine.cpp
+  `destroyView`: a page proxy cannot be released on this port), and a client's first view of a group makes a data
+  store and network session that stay too. An app that loops `CreateView`/`DestroyView` grows webd and the
+  network process for the rest of the session. The fix is a pool of parked views reused per owner (P5); until
+  then, the per-client view count limits only views alive at once.

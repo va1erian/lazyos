@@ -364,8 +364,11 @@ halves written against one contract, `webkit/port/webd/webd_abi.h` (C ABI, light
   the shared structs of the full interface will be declared again in `webd.midl` (same ids and field numbers;
   `CreateView` leaves field 4, `scale`, unused in the light one).
 * Numbers (`limits.rs`, each with its reason): 8 views per client, 1..=8192 per side and 16 Mpixel, 3 slots per
-  view, 512 MiB of declared slot memory per client, `html` at most 8 MiB, `user_style` at most 64 KiB; events cut
-  text at 48 KiB and the host must offer a 128 KiB receive buffer. Refusals: `EINVAL` (size, config, base URL,
+  view, 512 MiB of mapped slot memory per client (charged the size the kernel reports, so one buffer shared by
+  three slots counts three times), `html` at most 8 MiB, `user_style` at most 64 KiB; events cut
+  text at 48 KiB (webd's request buffer is 128 KiB, a client's event buffer about 100 KiB: a `State` carries two
+  texts). A full client queue puts its view in a 250 ms back-off (no frame copies, no refresh requests until a send
+  gets through) and `ViewLost` is resent until it is delivered. Refusals: `EINVAL` (size, config, base URL,
   slot too small), `ENOSPC` (views), `EDQUOT` (slot memory), `E2BIG` (page), `EBUSY` (slot in use), `ENOENT`
   (not your view, same as no view), `ENODEV` (the engine lost the view), `EACCES` (another login session).
 * Identity: the caller is `(uid, label)` from the kernel stamp (an unlabelled caller is told apart by task and
@@ -392,7 +395,7 @@ What it found:
 * **The network lock is a content rule list, not the navigation policy.** The policy sees navigations only; a light
   view with scripts on and no rule list made 26 connections to a listener (images, style sheets, `@import`, scripts,
   fetch, XHR, WebSocket, `import()`, ...); with it, none, scripts on or off. The list is compiled once at start into a
-  folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, else `/tmp/webd-rules-<pid>`), so webd's label needs one
+  folder the engine writes (`$LAZYOS_WEBD_RULES_DIR`, required, no fallback), so webd's label needs one
   writable folder, and the first view waits for the compile.
 * **`color_scheme` is not implementable here**: `prefers-color-scheme` is compiled out (`ENABLE_DARK_MODE_CSS` is off
   and turning it on rebuilds WebCore). The engine says `CONFIG:IGNORED:color_scheme`; a caller that wants a dark page
