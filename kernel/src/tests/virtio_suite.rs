@@ -53,16 +53,54 @@ pub fn virtio_roundtrip_unaligned() -> Result<(), String> {
     let Some(disk) = scratch("virtio_roundtrip_unaligned") else {
         return Ok(());
     };
-    roundtrip(disk, SCRATCH_SECTORS)
+    roundtrip("virtio_roundtrip_unaligned", disk, SCRATCH_SECTORS)
 }
 
-/// The round trip on `disk`, a blank scratch disk of `capacity` sectors.
-pub(super) fn roundtrip(disk: &dyn BlockDevice, capacity: u64) -> Result<(), String> {
+/// Sectors between two `PROGRESS` lines (2 MiB). A round trip that hangs
+/// leaves the last one in the log, which says how far it got (issue #787).
+const PROGRESS_SECTORS: u64 = 4096;
+
+/// Prints a `PROGRESS` line each time a phase of test `name` has gone another
+/// [`PROGRESS_SECTORS`] into the window.
+struct Progress<'a> {
+    name: &'a str,
+    phase: &'a str,
+    next: u64,
+}
+
+impl<'a> Progress<'a> {
+    fn new(name: &'a str, phase: &'a str) -> Self {
+        Progress {
+            name,
+            phase,
+            next: 0,
+        }
+    }
+
+    /// Called before the request at `lba`.
+    fn at(&mut self, lba: u64) {
+        let done = lba - WINDOW_START;
+        if done >= self.next {
+            crate::trace::test!(
+                "{}:PROGRESS:{} {done}/{WINDOW_SECTORS} sectors",
+                self.name,
+                self.phase
+            );
+            self.next = done - done % PROGRESS_SECTORS + PROGRESS_SECTORS;
+        }
+    }
+}
+
+/// The round trip of test `name` on `disk`, a blank scratch disk of
+/// `capacity` sectors.
+pub(super) fn roundtrip(name: &str, disk: &dyn BlockDevice, capacity: u64) -> Result<(), String> {
     let end = WINDOW_START + WINDOW_SECTORS;
     let mut buf = vec![0u8; 129 * SECTOR_SIZE];
 
     let (mut lba, mut turn) = (WINDOW_START, 0usize);
+    let mut writing = Progress::new(name, "write");
     while lba < end {
+        writing.at(lba);
         let sectors = SIZES[turn % SIZES.len()].min((end - lba) as usize);
         let bytes = sectors * SECTOR_SIZE;
         fill(&mut buf[..bytes], lba);
@@ -74,7 +112,9 @@ pub(super) fn roundtrip(disk: &dyn BlockDevice, capacity: u64) -> Result<(), Str
 
     // Read back in a different rhythm so no request lines up with a write.
     let (mut lba, mut turn) = (WINDOW_START, 5usize);
+    let mut reading = Progress::new(name, "read");
     while lba < end {
+        reading.at(lba);
         let sectors = SIZES[turn % SIZES.len()].min((end - lba) as usize);
         let bytes = sectors * SECTOR_SIZE;
         buf[..bytes].fill(0xEE);

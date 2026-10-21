@@ -78,6 +78,9 @@ jobs:
 
       # rust-toolchain.toml pins the nightly toolchain and target; rustup
       # installs it on first use.
+      - name: Self-test the harness's stall report
+        run: python tools/test/test_serialwatch.py
+
       - name: Run the kernel test harness
         run: python tools/test/run.py --out shots/kernel-tests ${{ matrix.args }}
         env:
