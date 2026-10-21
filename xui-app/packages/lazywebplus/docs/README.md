@@ -1,9 +1,8 @@
 # LazyWeb+
 
-LazyWeb+ is LazyWeb's browser window on the WebKit engine, the engine of Safari, ported to LazyOS:
+LazyWeb+ is the web browser of LazyOS, on the WebKit engine, the engine of Safari, ported to LazyOS:
 JavaScript, forms, modern HTML and CSS, pictures, and HTTPS with the system's certificate bundle.
-LazyWeb (without scripts, on the Blitz engine) stays the browser LazyOS ships; this one is for the
-pages that need a real engine. It is large: three programs of about 108 MB each (the window and
+It is large: three programs of about 108 MB each (the window and
 WebKit's UI process, a WebProcess that runs the pages, a NetworkProcess), each read whole into RAM
 when it starts, so the first page takes a few seconds and the machine wants 4 GiB (`python
 tools/run_demo.py --lazywebplus` sets the big-app profile, a larger user memory quota and a 1 GiB
@@ -35,8 +34,8 @@ a prompt to `$HOME/Downloads` (first as `<name>.part`); `about:downloads` lists 
 
 A link the browser cannot follow itself (`mailto:`, other schemes) goes to the app registered for
 it through `mimed`. A page's script can never start another program: only your click or key can.
-LazyWeb and LazyWeb+ both register `http`, `https` and HTML files; `user/<uid>/mimed/default/<type>`
-(Settings, Default apps) says which one opens them.
+LazyWeb+ registers `http`, `https` and HTML files with `mimed`; `user/<uid>/mimed/default/<type>`
+(Settings, Default apps) says which browser opens them when there is more than one.
 
 ## Notifications
 
@@ -63,8 +62,7 @@ The two processes that do the work run in sandboxes of their own, and LazyOS enf
   starts the two.
 
 The sandbox is not a reason to open anything: a bug in this window or in the messages the page process
-sends it is still a way out, and the page process runs as you. LazyWeb, which has no script engine, stays
-the browser LazyOS ships.
+sends it is still a way out, and the page process runs as you.
 
 ## Licence
 

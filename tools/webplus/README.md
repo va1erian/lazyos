@@ -1,7 +1,7 @@
 # LazyWeb+ harness (`tools/webplus`)
 
-[`docs/lazywebplus.md`](../../docs/lazywebplus.md): LazyWeb's chrome on WebKit, verified like the rest of
-the browsers: serial markers say when the guest is done, the verdict is what crossed the wire, what is on
+[`docs/lazywebplus.md`](../../docs/lazywebplus.md): the browser on WebKit, verified like the rest of
+the apps: serial markers say when the guest is done, the verdict is what crossed the wire, what is on
 the OS volume and what is on the screen.
 
 ```bash
@@ -37,7 +37,7 @@ python tools/webplus/test_sample.py                        # its parser and summ
 
 | File | What |
 |---|---|
-| `run.py` | builds the image (`LAZYOS_LAZYWEBPLUS=1`, the UI probe, the big-app limits, a throwaway test CA), serves the host's stand-in sites (`tools/web/sites.py`), runs both boots, reads the OS volume with `osread`, judges |
+| `run.py` | builds the image (`LAZYOS_LAZYWEBPLUS=1`, the UI probe, the big-app limits, a throwaway test CA), serves the host's stand-in sites (`tools/webtest/sites.py`), runs both boots, reads the OS volume with `osread`, judges |
 | `session.py` | the two session scripts: the first boot browses, answers dialogs, clicks, downloads, closes; the second finds the history and the cookie and clears the history |
 | `judge.py`, `pixels.py` | the verdict as pure functions: serial markers, the host's request log, the profile, the page area of the screenshots |
 | `test_judge.py` | the judge's own tests |
@@ -45,7 +45,7 @@ python tools/webplus/test_sample.py                        # its parser and summ
 | `hang_run.py`, `hang_session.py`, `hang_judge.py`, `test_hang_judge.py` | the hung-page harness (issue #862): `fixtures/theoldnet.com/webplus/hang.html` runs a loop that never ends; one boot checks that WebKit's unanswered ping becomes `WEBPROCESS:UNRESPONSIVE` and the window's bar (`HANG:SHOW`), that Wait puts it away and ends nothing, that the toolbar's Reload ends the stuck process and loads the page in a new one, that the bar's Stop ends a second one and leaves the page stopped, and that every process the launcher started is accounted for |
 | `notify_run.py`, `notify_session.py`, `notify_judge.py`, `test_notify_judge.py` | the web notifications harness: the page `fixtures/theoldnet.com/webplus/notify.html` over two origins in two boots (no bar without a gesture, Allow kept, the toast titled with the site and updated in place, a burst cut, a click on a live and on a gone page, Block, Forget), judged from the markers, the shell's `SHELL:NOTIFY:POST` lines, the page's titles and `notify.tsv` on the OS volume |
 
-The sites are LazyWeb's (`example.com`, `theoldnet.com` with its pictures and a download), WebKit's test pages
+The sites are the shared stand-ins of `tools/webtest` (`example.com`, `theoldnet.com` with its pictures and a download), WebKit's test pages
 (`fixtures/theoldnet.com/webkit/`: script, form, a tall page for the wheel) and LazyWeb+'s
 (`fixtures/theoldnet.com/webplus/`: a page whose script opens three dialogs and then tries to start another
 program, run a command and open a window with no click; a page of links; two attachments, one slow). The

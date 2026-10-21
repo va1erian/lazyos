@@ -168,7 +168,7 @@ def build() -> str | None:
         if found is None:
             return "no BusyBox: run `python tools/abi/busybox.py`, or set LAZYOS_BUSYBOX"
         shell = str(found)
-    if subprocess.call([PY, "tools/xui/build.py", "--no-lazyweb"], cwd=ROOT) != 0:
+    if subprocess.call([PY, "tools/xui/build.py"], cwd=ROOT) != 0:
         return "tools/xui/build.py failed"
     # The session starts the app with a `rhai` script (`init.Launch`).
     if subprocess.call([PY, "tools/rhai/build.py"], cwd=ROOT) != 0:

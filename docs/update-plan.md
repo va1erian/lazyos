@@ -70,7 +70,7 @@ yourself. The stick maker (`tools/boot/stick_gui.py`) and the launcher's
 Simple tab have the same *Software: Base / Full* choice. Write
 `target/lazyos-usb.img` to a USB stick ([`usb-stick.md`](usb-stick.md)).
 Before U1b, a full stick is the long list of flags that
-`python tools/run_demo.py --help` shows (`--lazyrad --pictures --lazyweb
+`python tools/run_demo.py --help` shows (`--lazyrad --pictures
 --lazywebplus --mail --lazysky --games --doom --quake ...`).
 
 ### 3. Install (today, plus U0 and U2 for the update-ready layout)
@@ -653,7 +653,7 @@ dependency solver with alternatives, Linux-side changes of any kind.
       needs:
       - networking and HTTPS (`NETD`, `TLS`);
       - LazyRAD, the MOD player and the Picture Viewer;
-      - LazyWeb, the WebKit browser and LazyWeb+;
+      - LazyWeb+, the WebKit browser;
       - Mail and LazySky;
       - the games (`GAMES`: LazyGolf, NES) and the Doom, Quake and emusic
         packages;

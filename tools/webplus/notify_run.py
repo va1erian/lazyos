@@ -5,7 +5,7 @@ shell, the OS volume and the host's servers saw.
 
 The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
 ``app.py``, then ``python tools/xui/build.py``). The test page is
-``tools/web/fixtures/theoldnet.com/webplus/notify.html``, served over HTTPS from the host with the
+``tools/webtest/fixtures/theoldnet.com/webplus/notify.html``, served over HTTPS from the host with the
 run's throwaway CA like the rest of LazyWeb+'s pages.
 
 1. the first boot (``notify_session.allow``): a request with no gesture is refused and opens
@@ -36,7 +36,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import run as base  # noqa: E402  (also puts tools/web, tools/abi and this directory on the path)
+import run as base  # noqa: E402  (also puts tools/webtest, tools/abi and this directory on the path)
 import certs  # noqa: E402
 import notify_judge as n  # noqa: E402
 import notify_session  # noqa: E402

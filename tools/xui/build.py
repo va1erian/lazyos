@@ -26,9 +26,9 @@ JSON map
 on stdout. If the musl target or toolchain is unavailable the script reports
 what it could build and exits 0, so a CI job can skip the visual run.
 
-The Docs app (``xui-docs.elf``) and LazyWeb (``xui-lazyweb.elf``, the web
-browser) render with Blitz (``xui-blitz``), which is pure Rust, so they build
-in the same invocation as the other apps with no zig (issue #649).
+The Docs app (``xui-docs.elf``) renders with Blitz (``xui-blitz``), which is
+pure Rust, so it builds in the same invocation as the other apps with no zig
+(issue #649).
 Mail (``xui-mail.elf``, esMail's IMAP/SMTP core, which links SQLite's C) is
 built last, in its own cargo invocation and target directory, with the zig
 toolchain (``tools/xui/zig.py``), only with ``--mail`` or ``LAZYOS_MAIL=1``;
@@ -64,12 +64,9 @@ OUT_DIR = ROOT / "target" / "xui"
 # different RUSTFLAGS environment, which would otherwise invalidate (and
 # alternately rebuild) every dependency the other apps share.
 ZIG_TARGET_DIR = ROOT / "target" / "xui-zig"
-# The Docs app and LazyWeb (`xui-app/docs`, `xui-app/web`) are workspace
-# members built with the other apps; their cargo bins are `xui-docs` and
-# `lazyweb`. `--no-lazyweb` leaves LazyWeb (the larger of the two) out.
+# The Docs app (`xui-app/docs`) is a workspace member built with the other
+# apps; its cargo bin is `xui-docs`.
 DOCS_PACKAGE = "xui-docs"
-WEB_PACKAGE = "lazyweb"
-WEB_ELF = "xui-lazyweb.elf"
 # Mail (esMail, docs/mail.md) links SQLite's C, so it is built with zig;
 # only on request (`--mail`, or `LAZYOS_MAIL=1` in the environment), since its
 # mail core is a long build no other image needs.
@@ -127,10 +124,9 @@ BINS = {
     "xui-netstatus": "xui-netstatus.elf",
     # Network Drives: Mount FTP servers as folders under /mnt.
     "xui-netdrives": "xui-netdrives.elf",
-    # Docs (Markdown) and LazyWeb (the browser) on Blitz: members of the same
-    # workspace, built in the same invocation (`web_packages`).
+    # Docs (Markdown) on Blitz: a member of the same workspace, built in the
+    # same invocation.
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",
-    WEB_PACKAGE: WEB_ELF,
     # LazyGolf: Fly over a procedurally generated golf course.
     "xui-golf": "xui-golf.elf",
     # LazySky: a Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1`
@@ -302,8 +298,6 @@ def main() -> int:
     parser.add_argument("--debug", action="store_true", help="build the debug profile")
     parser.add_argument("--no-core-packages", action="store_true",
                         help="skip packaging the desktop apps (run tools/xui/core_packages.py later)")
-    parser.add_argument("--no-lazyweb", action="store_true",
-                        help="skip LazyWeb (the Blitz browser, the largest dependency tree)")
     parser.add_argument("--mail", action="store_true",
                         help="also build Mail (xui-mail.elf, with zig for SQLite); LAZYOS_MAIL=1 does the same")
     args = parser.parse_args()
@@ -324,11 +318,9 @@ def main() -> int:
         "--target",
         TARGET,
     ]
-    # The root package (the apps in `src/bin`) plus Docs and LazyWeb, which are
-    # workspace members: `-p` replaces cargo's default of the root alone.
+    # The root package (the apps in `src/bin`) plus Docs, a workspace member:
+    # `-p` replaces cargo's default of the root alone.
     command += ["-p", "xui-app", "-p", DOCS_PACKAGE]
-    if not args.no_lazyweb:
-        command += ["-p", WEB_PACKAGE]
     if not args.debug:
         command.append("--release")
     build = run(command, env=build_env(), stream=True)
@@ -341,10 +333,6 @@ def main() -> int:
 
     release = APP / "target" / TARGET / profile
     for name, disk_name in BINS.items():
-        if args.no_lazyweb and name == WEB_PACKAGE:
-            # Not built this time: a copy from an earlier run must not ship.
-            (OUT_DIR / disk_name).unlink(missing_ok=True)
-            continue
         source = release / name
         if not source.is_file():
             continue

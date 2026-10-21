@@ -32,7 +32,7 @@ Examples
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
-    python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, LazyWeb's browser on WebKit (same profile)
+    python tools/run_demo.py --lazywebplus   # desktop + networking + LazyWeb+, the web browser on WebKit (same profile)
     python tools/run_demo.py --webd          # desktop + webd, the daemon that serves WebKit light views (no network stack; big-app profile)
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
     python tools/run_demo.py --dbgd          # networking + remote inspection (tools/dbg/dbgctl.py)
@@ -47,7 +47,6 @@ Examples
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --intelgfx       # gpud: adopt and report the Intel GPU's display state (docs/kabylake-gpu-plan.md)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
-    python tools/run_demo.py --lazyweb       # desktop + networking + HTTPS + the LazyWeb browser
     python tools/run_demo.py --lazysky       # desktop + networking + the LazySky Bluesky client
     python tools/run_demo.py --mail          # desktop + HTTPS + the Mail app (esMail; docs/mail.md)
     python tools/run_demo.py --traydemo      # desktop + the tray sample app (docs/tray-plan.md)
@@ -97,7 +96,7 @@ from demo_qemu import (  # noqa: E402
 )
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky, build_lazyweb,
+    build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
     build_lazywebplus,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, build_webkit_deps, build_webkit_port, build_wifi,
@@ -335,7 +334,6 @@ def main(argv: list[str]) -> int:
                                       (args.lazywebplus, build_lazywebplus, "LAZYOS_LAZYWEBPLUS"),
                                       (args.webd, build_webd, "LAZYOS_WEBD"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
-                                      (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),
                                       (args.wifi, build_wifi, "LAZYOS_WIFI"),
                                       (args.installer, build_installer, "LAZYOS_INSTALLER")):

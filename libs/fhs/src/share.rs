@@ -25,8 +25,8 @@ pub const USER_FONTS_SUBDIR: &str = ".local/share/fonts";
 
 /// The Liberation fonts a desktop image ships (`Liberation{Sans,Serif,Mono}-
 /// {Regular,Bold,Italic,BoldItalic}.ttf`, SIL OFL 1.1; `assets/fonts/liberation`),
-/// metric-compatible with Arial, Times New Roman and Courier New: LazyWeb
-/// reads them at start for web pages. Written by the image build.
+/// metric-compatible with Arial, Times New Roman and Courier New: WebKit's
+/// Fontconfig file prefers them for web pages. Written by the image build.
 pub const FONTS_LIBERATION: &str = "/system/share/fonts/liberation";
 
 /// The sample files the image ships (`hello.txt`, `notes.txt`, `testdoc.md`,

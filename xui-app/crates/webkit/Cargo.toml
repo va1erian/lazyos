@@ -6,7 +6,7 @@
 #
 # The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is GPL-3.0-or-later like the
 # rest of the tree, and also GPL-2.0-only: LazyWeb+'s window (`xui-app/webplus`, which links this
-# crate) keeps LazyWeb's GPLv2-compatible rule (docs/lazywebplus.md).
+# crate) keeps the GPLv2-compatible rule (docs/lazywebplus.md).
 [package]
 name = "xui-webkit"
 version = "0.1.0"

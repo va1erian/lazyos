@@ -108,7 +108,7 @@ def make_vars() -> dict:
         # The WebKit port's console proof: WebProcess, NetworkProcess, webkit-smoke
         # (LAZYOS_WEBKIT_PORT, run_demo --webkit-port).
         "webkit_port": b(value=False),
-        # LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
+        # LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
         # run_demo --lazywebplus; implies the desktop, the stack and the big-app profile).
         "lazywebplus": b(value=False),
         # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
@@ -139,9 +139,6 @@ def make_vars() -> dict:
         "wifi": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
-        # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
-        # desktop, networking and HTTPS).
-        "lazyweb": b(value=False),
         # The LazySky Bluesky client (LAZYOS_LAZYSKY, run_demo --lazysky;
         # implies the desktop and networking).
         "lazysky": b(value=False),

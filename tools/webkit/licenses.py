@@ -8,10 +8,9 @@ The libraries end up in ``depsproof`` and, statically, in the WebKit port's prog
 1. every library of ``wkpins.DEPS`` and ``BUNDLED`` has an SPDX expression
    with a choice an LGPL-2.1 binary can absorb (``LGPL21_OK``);
 2. the one exception, **Apache-2.0** (OpenSSL), is GPLv2-incompatible: it is
-   accepted only for a library named in ``wkpins.NEVER_IN_LAZYWEB``, that
-   library's entry says why, the README and ``THIRD_PARTY.md`` say it must never
-   be linked into LazyWeb (GPL-2.0-only) or the ``nettls`` stack, and LazyWeb's
-   sources do not reference this bundle or depend on OpenSSL;
+   accepted only for a library named in ``wkpins.NEVER_IN_GPL2``, that
+   library's entry says why, and the README and ``THIRD_PARTY.md`` say it must
+   never be linked into the ``nettls`` stack (or any GPL-2.0-only program);
 3. ``THIRD_PARTY.md`` has a row for every library (name, version, full
    SHA-256, licence expression), for WebKit itself and for the embedded font; ``--rows`` prints
    the rows to paste;
@@ -54,14 +53,11 @@ LGPL21_OK = {
     # MPL-2.0 section 3.3 lets it combine with (L)GPL code as a Secondary License.
     "MPL-2.0",
 }
-#: GPLv2-incompatible, allowed only for `wkpins.NEVER_IN_LAZYWEB`.
+#: GPLv2-incompatible, allowed only for `wkpins.NEVER_IN_GPL2`.
 APACHE = "Apache-2.0"
-#: What LazyWeb (GPL-2.0-only) and the TLS stack may include: nettls's list plus
+#: What the TLS stack (and any GPL-2.0-only program) may include: nettls's list plus
 #: the licences below, which are GPLv2-compatible permissive terms.
 EXTRA_GPL2_OK = {"libpng-2.0", "IJG", "HPND-sell-variant", "blessing", "curl"}
-#: Where LazyWeb lives; none of it may use this bundle.
-LAZYWEB_TREES = ["xui-app/web", "xui-app/packages/lazyweb", "tools/web"]
-BUNDLE_WORDS = ("tools/webkit", "target/webkit", "LAZYOS_WEBKIT_DEPS", "webkit-deps", "depsproof")
 
 
 def nettls_licenses():
@@ -80,7 +76,7 @@ def libraries() -> list[wkpins.Dep]:
 
 def verdict(dep: wkpins.Dep, nettls) -> tuple[bool, bool, str]:
     """(ok for the LGPL-2.1 binary, ok for GPL-2.0-only code, problem)."""
-    exempt = dep.name in wkpins.NEVER_IN_LAZYWEB
+    exempt = dep.name in wkpins.NEVER_IN_GPL2
     allowed = LGPL21_OK | ({APACHE} if exempt else set())
     try:
         lgpl = nettls.acceptable(dep.license, allowed)
@@ -92,11 +88,11 @@ def verdict(dep: wkpins.Dep, nettls) -> tuple[bool, bool, str]:
         problem = f"{dep.name}: licence {dep.license!r} is not on the LGPL-2.1 allowlist"
     elif not gpl2 and not exempt:
         problem = (f"{dep.name}: licence {dep.license!r} is GPLv2-incompatible but the library is "
-                   "not in wkpins.NEVER_IN_LAZYWEB")
+                   "not in wkpins.NEVER_IN_GPL2")
     elif exempt and gpl2:
-        problem = f"{dep.name} is in NEVER_IN_LAZYWEB but its licence {dep.license!r} is GPLv2-compatible"
-    elif exempt and "LazyWeb" not in dep.notes:
-        problem = f"{dep.name}: a GPLv2-incompatible library must say in its notes that LazyWeb never links it"
+        problem = f"{dep.name} is in NEVER_IN_GPL2 but its licence {dep.license!r} is GPLv2-compatible"
+    elif exempt and "nettls" not in dep.notes:
+        problem = f"{dep.name}: a GPLv2-incompatible library must say in its notes that nettls never links it"
     return lgpl, gpl2, problem
 
 
@@ -143,41 +139,18 @@ def check_register(text: str) -> list[str]:
 
 
 def check_notices(third_party: str, readme: str) -> list[str]:
-    """OpenSSL's must-not-link-into-LazyWeb rule is written down where readers look."""
+    """OpenSSL's must-not-link-into-nettls rule is written down where readers look."""
     problems = []
-    for name in wkpins.NEVER_IN_LAZYWEB:
+    for name in wkpins.NEVER_IN_GPL2:
         label = wkpins.BY_NAME[name].name if name in wkpins.BY_NAME else name
-        pattern = rf"{label}[^\n]*\n?[^\n]*never[^\n]*LazyWeb|never[^\n]*LazyWeb[^\n]*{label}"
+        pattern = rf"{label}[^\n]*\n?[^\n]*never[^\n]*nettls|never[^\n]*nettls[^\n]*{label}"
         for what, text in (("README.md", readme), ("THIRD_PARTY.md", third_party)):
             if not re.search(pattern, text, re.I | re.S):
-                problems.append(f"{what} must say that {label} is never linked into LazyWeb")
+                problems.append(f"{what} must say that {label} is never linked into nettls")
     return problems
 
 
-def check_lazyweb_apart() -> list[str]:
-    """LazyWeb's sources must not use the bundle or depend on OpenSSL."""
-    problems = []
-    for tree in LAZYWEB_TREES:
-        base = ROOT / tree
-        if not base.is_dir():
-            continue
-        for path in sorted(base.rglob("*")):
-            if not path.is_file() or path.suffix not in {".rs", ".toml", ".py", ".json", ".md", ".txt", ".lock"}:
-                continue
-            if "target" in path.relative_to(base).parts:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace")
-            for word in BUNDLE_WORDS:
-                if word in text:
-                    problems.append(f"{path.relative_to(ROOT).as_posix()} mentions {word!r}: "
-                                    "LazyWeb (GPL-2.0-only) must not use the WebKit bundle")
-            if path.name == "Cargo.toml" and re.search(r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
-                problems.append(f"{path.relative_to(ROOT).as_posix()} depends on OpenSSL: "
-                                "Apache-2.0 is GPLv2-incompatible")
-    return problems
-
-
-#: LazyWeb+'s window crates: LazyWeb's chrome (GPL-2.0-only) and the seam it links, in a program that
+#: LazyWeb+'s window crates: the chrome and the seam it links, in a program that
 #: also links OpenSSL (docs/lazywebplus.md, THIRD_PARTY.md).
 WEBPLUS_CRATES = ["xui-app/webplus/Cargo.toml", "xui-app/crates/webkit/Cargo.toml"]
 
@@ -185,7 +158,7 @@ WEBPLUS_CRATES = ["xui-app/webplus/Cargo.toml", "xui-app/crates/webkit/Cargo.tom
 def check_webplus_licence() -> list[str]:
     """The program LazyWeb+ ends up in links OpenSSL (Apache-2.0), which a GPL-2.0-only program cannot
     carry, so its window crates must be offered under GPL-3.0-or-later as well as GPL-2.0-only (the
-    rule LazyWeb keeps for what is linked into the window), and never reference the bundle's
+    rule kept for what is linked into the window), and never reference the bundle's
     OpenSSL themselves."""
     problems = []
     for name in WEBPLUS_CRATES:
@@ -253,12 +226,11 @@ def main() -> int:
     nettls = nettls_licenses()
     problems = [p for dep in libraries() if (p := verdict(dep, nettls)[2])]
     names = {dep.name for dep in wkpins.DEPS}
-    problems += [f"NEVER_IN_LAZYWEB names {n!r}, which is not a pinned library"
-                 for n in wkpins.NEVER_IN_LAZYWEB if n not in names]
+    problems += [f"NEVER_IN_GPL2 names {n!r}, which is not a pinned library"
+                 for n in wkpins.NEVER_IN_GPL2 if n not in names]
     third_party = THIRD_PARTY.read_text(encoding="utf-8") if THIRD_PARTY.is_file() else ""
     problems += check_register(third_party)
     problems += check_notices(third_party, README.read_text(encoding="utf-8"))
-    problems += check_lazyweb_apart()
     problems += check_webplus_licence()
     problems += check_webd_licence()
     print("\n".join(table(nettls)))
@@ -273,7 +245,7 @@ def main() -> int:
         return 1
     print(f"{len(libraries())} libraries and {len(wkpins.DATA_FILES)} embedded data file(s): "
           "every licence is acceptable for an LGPL-2.1 binary; "
-          f"GPLv2-incompatible, never in LazyWeb: {', '.join(wkpins.NEVER_IN_LAZYWEB)}")
+          f"GPLv2-incompatible, never in nettls: {', '.join(wkpins.NEVER_IN_GPL2)}")
     return 0
 
 

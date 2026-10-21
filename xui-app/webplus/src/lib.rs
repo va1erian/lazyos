@@ -1,6 +1,6 @@
-//! LazyWebPlus: LazyWeb's chrome on WebKit's engine (docs/lazywebplus.md).
+//! LazyWeb+: the browser window on WebKit's engine (docs/lazywebplus.md).
 //!
-//! The window is LazyWeb's: a menu bar, a toolbar with a throbber, a status bar with a padlock
+//! The window has a menu bar, a toolbar with a throbber, a status bar with a padlock
 //! and the running downloads, Ctrl+L and the other keys, a browsing history and downloads folder
 //! in the user's home, pages of its own (`about:history`, `about:downloads`, `about:lazyweb`,
 //! the start page) and `mailto:` and other schemes handed to the app registered for them. The

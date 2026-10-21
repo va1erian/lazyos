@@ -57,11 +57,11 @@ section 5.)
 
 Scope: what it would take to run a mainstream browser engine on LazyOS, and
 the shortest credible path to a page rendered by WebKit in a desktop window.
-LazyWeb ([lazyweb.md](lazyweb.md)), the Blitz browser with QuickJS, stays the
-shipped browser throughout; this is the long road beside it, not a
-replacement. Gecko and Blink are out of scope for the reasons in §2.
+LazyWeb, the Blitz browser with QuickJS, stayed the shipped browser while this
+was built; it was removed once LazyWeb+ ([lazywebplus.md](lazywebplus.md)) was
+complete, and LazyWeb+ is the browser now. Gecko and Blink are out of scope for the reasons in §2.
 
-Related: [lazyweb.md](lazyweb.md), [linux-abi-plan.md](linux-abi-plan.md),
+Related: [lazywebplus.md](lazywebplus.md), [linux-abi-plan.md](linux-abi-plan.md),
 [architecture/limits.md](architecture/limits.md),
 [doom-port-plan.md](doom-port-plan.md), [quake-port-plan.md](quake-port-plan.md),
 [tls-plan.md](tls-plan.md).
@@ -332,10 +332,9 @@ pixman would be a revival of code the ports dropped. Built from the tarball in
 under a minute on 20 cores (53 s in the table below). *TLS:* OpenSSL 3.5 LTS, because WebKit's curl port and
 SubtleCrypto are written against the OpenSSL API (`CurlSSLVerifier`,
 `OpenSSLHelper`, `crypto/openssl`), so Mbed TLS or rustls would mean
-rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (LazyWeb's
-GPLv2-only crate rule does not apply to it), but it is GPLv2-incompatible, so it
-**must never be linked into LazyWeb or the `nettls` stack**:
-`tools/webkit/licenses.py` enforces it (`wkpins.NEVER_IN_LAZYWEB`). It is built `no-asm`: the portable code
+rewriting those files. Apache-2.0 may be linked into LGPL-2.1 WebKit (the GPLv2-only crate rule does not apply to it), but it is GPLv2-incompatible, so it
+**must never be linked into the `nettls` stack**:
+`tools/webkit/licenses.py` enforces it (`wkpins.NEVER_IN_GPL2`). It is built `no-asm`: the portable code
 cannot execute an instruction LazyOS leaves disabled (AVX state), at the cost of
 slower handshakes.
 
@@ -543,13 +542,13 @@ queues work).
 
 **What runs.** `os.lazy.webkit`, "WebKit" in the menu, a core package shipped only by `LAZYOS_WEBKIT=1` images
 (`run_demo.py --webkit`, the launcher's WebKit group; the build refuses it without `LAZYOS_DESKTOP=1` and
-`LAZYOS_NETD=1`, as LazyWeb's does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
+`LAZYOS_NETD=1`, as LazyWeb+'s does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
 Enter, Esc), the page, a status line with the load progress, and the page title in the caption. The page's
 bitmap is blitted at the page view's size; a resize (maximize) lays the page out again; the mouse (move, press,
 release, drag, double click), the wheel and the keyboard (text, arrows, Home, End, Delete, Backspace, select
 all, copy, cut, paste, undo) go to the page. `python tools/webkit/app_run.py` builds the desktop image
 (`LAZYOS_WEBKIT=1`, the UI probe, `LAZYOS_LABEL_TRACE=1`, `LAZYOS_XUI_AUTOSTART=webkit`, the big-app limits),
-serves LazyWeb's stand-in sites from the host (`tools/web/sites.py`: `http://example.com/`,
+serves the stand-in sites from the host (`tools/webtest/sites.py`: `http://example.com/`,
 `https://theoldnet.com/` with its PNG, JPEG, GIF, animated GIF, tiled background and style sheet, a test
 CA, plus three pages of ours: a script, a link, a form with an echo), boots it in QEMU (WHPX, 4 GiB) and
 drives the window with QMP: it types addresses, clicks the link and the text field by page coordinates (the
@@ -680,8 +679,7 @@ way only that process dies.
 the window crate is the way from a compromised page to the user's session); an ordinary app label's `files`
 and `network` stay consent text (`docs/architecture/process-sandbox.md`, *Residual gaps*); a confined process
 is still the user's uid, so a kernel bug in a syscall it can make is a way out (there is no syscall filter beyond
-"not implemented"); the processes are 107 MB each and share nothing with each other but the IPC. LazyWeb (Blitz,
-no script engine) stays the browser LazyOS ships.
+"not implemented"); the processes are 107 MB each and share nothing with each other but the IPC.
 
 *Verified.* The kernel suite `confine_*` (every gate through the Linux ABI and the native calls, a soak),
 `cargo test -p filepolicy -p pkgstore` and `python tools/webkit/attack_run.py --kernel`, which runs a probe
@@ -713,11 +711,11 @@ sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* abo
 
 ### W6. LazyWeb+ (built)
 
-`os.lazy.lazywebplus` is LazyWeb's menu bar, toolbar, status bar, history and downloads on this engine
+`os.lazy.lazywebplus` is a menu bar, toolbar, status bar, history and downloads on this engine
 ([`docs/lazywebplus.md`](lazywebplus.md), issue #835; `LAZYOS_LAZYWEBPLUS=1`, `run_demo.py --lazywebplus`).
 Same route as W5 (a C++ UI process and a Rust static library) with one C++ source for both windows: the seam
 moved into `xui-webkit` (`Engine`, the mailbox, the page view, the pure ABI helpers) and `xui-app/webplus` is
-LazyWeb's window forked onto it. The ABI grew by features, progress and the committed URL, hover and cursor,
+the window (forked from LazyWeb's) on it. The ABI grew by features, progress and the committed URL, hover and cursor,
 a navigation policy that carries a user-gesture flag, downloads, JavaScript dialogs, new windows and a profile
 directory; `lzw_ui_features()` keeps W5's window as it was. The rule a script engine adds: **a page's script
 must never start another program or run a browser command**, which is `policy::decide` in front of every
@@ -808,8 +806,8 @@ revision at build time and never vendored.
 
 ## 8. Alternatives considered
 
-* **Keep extending Blitz plus QuickJS** (LazyWeb): the shipped browser, and
-  the right default for anything that does not need a full engine.
+* **Keep extending Blitz plus QuickJS** (LazyWeb, since removed): the shipped browser
+  while this was built, and the right default for anything that did not need a full engine.
 * **Ladybird's LibWeb**: a few hundred thousand lines, multi-process over
   the same Unix primitives as WebKit, written for a hobby OS. Worth a look
   before W4 if the WebKit dependency bundle (W3) turns out heavier than

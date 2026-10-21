@@ -2,9 +2,8 @@
 //! connector, a resolver that stays on the calling thread, a capped blocking
 //! request path and a streaming one (docs/ai-agent-plan.md §2 and §5.2).
 //!
-//! `tls.rs`, `roots.rs` and `resolve.rs` are adaptations of LazyWeb's
-//! `xui-app/web/src/fetch/{tls,roots,resolve}.rs`; LazyWeb is declared
-//! GPL-2.0-only, so they are copied, not depended on. Keep them in step.
+//! `tls.rs`, `roots.rs` and `resolve.rs` were adapted from the fetcher of
+//! LazyWeb, the Blitz browser (removed), which was declared GPL-2.0-only.
 //! This crate is GPL-3.0-or-later and shared by the two apps that may link
 //! it; it names no xui type and no LazyOS crate.
 

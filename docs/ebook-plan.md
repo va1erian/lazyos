@@ -70,7 +70,7 @@ there to keep the space roughly proportional to the substance.
 | V Pixels | 11-12 | 34 | `user/src/bin/xuid/` (37 files), `xui-app/src/backend/` |
 | VI The desktop | 13 | 16 | `xui-app/crates/shell`, `xui-app/src/shell` |
 | VII Scripting | 14 | 14 | `rhai-host/`, `libs/rhai-lazy/` |
-| VIII Two applications | 15-16 | 34 | `lazyrad-os/`, `kernel/src/ipc/devspawn.rs`, `xui-app/web`, `nettls/` |
+| VIII Two applications | 15-16 | 34 | `lazyrad-os/`, `kernel/src/ipc/devspawn.rs`, `xui-app/web` (removed), `nettls/` |
 | Back matter | Epilogue, glossary, path index, colophon | 10 | |
 
 ### Front matter
@@ -305,7 +305,7 @@ in-tree stack (`nettls/`: rustls, a pure-Rust provider, the GPLv2
 constraint), sockets through `netd` and smoltcp, the virtio-net driver at
 the bottom. `mimed` starting the browser from a URL and handing `mailto:`
 back to the OS. The harness that serves stand-in sites and judges the
-requests and the screenshots (`tools/web/run.py`). The chapter that crosses
+requests and the screenshots (`tools/webplus/run.py` today; the book's harness was `tools/web/run.py`, removed with LazyWeb). The chapter that crosses
 the whole stack, from a click to a packet capture and back to pixels.
 
 Other apps (LazyWriter and printing, the PDF Viewer, the Archiver) appear as
