@@ -866,10 +866,25 @@ each with real evidence; the rest is recorded below as still open.
   reserve (160 MiB) refuses every new full view.
 
 * **The attack harness (the headline), two halves, run in QEMU.**
-  * *Malicious page process* (a compromised WebProcess/NetworkProcess, under webd's real child labels):
-    `tools/webkit/attack_run.py` (adapted to webd's labels in P4 but never run in QEMU) was run.
-    `--kernel` boots the probe under `app:os.lazy.sandbox-web`/`-net` and judges the kernel's file,
-    socket, resolve, fork, signal and ptrace gates.
+  * *Malicious page process* (a compromised WebProcess/NetworkProcess): `tools/webkit/attack_run.py`,
+    adapted to webd's labels in P4 but never run in QEMU there, was run in both modes. `--kernel` loads
+    the manifest's process rules as stand-in labels (`app:os.lazy.sandbox-web`/`-net`); `--browser`
+    lets the real webd start the probe as its engine programs, so the kernel stamps webd's real child
+    labels (`app:os.lazy.webd/webprocess|networkprocess`, with a child label's own rules: no names, no
+    program start). P5 added three probes: writing the light views' network-lock rule store
+    (`write_rules`: refused for both roles) and resolving webd's own services from inside a child label
+    (`resolve_webd_view`, `resolve_webd_light`: refused). **Results (final build, WHPX):
+    `ATTACK:HARNESS:PASS 66 probes, every one as expected` in both modes.** The judge now pairs each
+    denial with its own probe (a denial printed between the role's previous probe line and its own), so
+    one refusal cannot stand in for `fork`, `exec_busybox` and `exec_native` at once. In the `--browser`
+    boot the only other denial is LazyWeb+'s `listupdate` helper's optional stat of `/etc/busybox.conf`.
+  * **Found by the page-process harness's first `--browser` run (a harness bug):** the network process's
+    `write_downloads` was refused. The probe made `~/Downloads` itself, which needs a write grant on the
+    home that no engine process has (`mkdir` is judged on the parent). In real use the folder is made by
+    webd's own process, whose label is not file-confined, at the first download (`lazydownloads::Saver`),
+    and the network process then writes into it. The probe now writes into the folder without making it;
+    in the real webd's image, which has had no download yet, the folder's absence (`ENOENT`) is accepted
+    and a refusal still fails.
   * *Malicious client* (new, `tools/webd/attack_run.py`): a real client `os.lazy.webdattack` ("Web
     Attack Probe", `xui-app/src/bin/webdattack.rs`, logic in `xui_webd_client::attack`) whose manifest
     lists **only** `os.lazy.webd.view.v1`. It tries a `CreateView` through the `net` and `browser`
