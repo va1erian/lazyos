@@ -8,9 +8,9 @@ use crate::address::{self, START};
 use crate::blocker::site_of;
 use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
-use crate::{context, handoff};
 use crate::hang::Answer as HangAnswer;
 use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
+use crate::{context, handoff};
 
 impl Browser {
     pub(super) fn page_command(&mut self, command: PageCommand) {
@@ -174,6 +174,9 @@ impl Browser {
             Command::Blocker => self.open(BLOCKER),
             Command::ReloadUnblocked => self.reload_unblocked(),
             Command::PageDataInMemory => self.toggle_page_data_in_memory(),
+            Command::BookmarkPage | Command::EditBookmark | Command::ShowBookmarks => {
+                self.bookmark_command(ui, command)
+            }
             Command::OpenLinkInApp => {
                 // The person's own click, so the hand-off is allowed; the web's links stay the
                 // engine's (the menu only enables this for a scheme it does not load).

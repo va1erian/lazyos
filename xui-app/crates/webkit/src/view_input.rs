@@ -105,6 +105,7 @@ pub(crate) fn arm_glide<M: Clone + 'static>(
 }
 
 /// What a mouse event does to the engine, and to the capture of the pointer.
+#[allow(clippy::too_many_arguments)] // the view's hooks and state, one call from `PageView::new`
 pub(crate) fn handle<M: 'static>(
     ui: &Ui<M>,
     id: WidgetId,

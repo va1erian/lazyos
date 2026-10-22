@@ -159,6 +159,10 @@ impl Rig {
         self.home.join("history.tsv")
     }
 
+    pub fn bookmarks_file(&self) -> PathBuf {
+        self.home.join("bookmarks.log")
+    }
+
     pub fn notify_file(&self) -> PathBuf {
         self.home.join("notify.tsv")
     }
@@ -217,6 +221,7 @@ pub fn drive_full(
         home: home.clone(),
     };
     let first = first.map(str::to_owned);
+    let profile = home.clone();
     let (build_engine, build_mailbox) = (Rc::clone(&engine), Arc::clone(&mailbox));
     let image = render_with(
         Snapshot::new(Dip(SIZE.0 as f32), Dip(SIZE.1 as f32)).theme(Theme::light()),
@@ -235,6 +240,7 @@ pub fn drive_full(
                     blocker,
                     host: Host {
                         launcher: Rc::new(RecordingLauncher(opened)),
+                        profile: Some(profile),
                         ..Host::none()
                     },
                 },

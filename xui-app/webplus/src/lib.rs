@@ -14,6 +14,8 @@
 //! - [`policy`]: which navigations the engine may make, which go to another app, which are
 //!   the browser's own commands, and what a page may do without a user gesture.
 //! - [`visits`]: the browsing history kept per user.
+//! - [`places`]: the bookmarks, a checksummed record log (`bookmarks.log`).
+//! - [`sanitize`]: outside text made fit to keep, show or report.
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
 //! - [`notify`]: web notifications: per-site permission, the limits, the shell's toasts.
@@ -27,6 +29,7 @@
 pub mod address;
 pub mod app;
 pub mod blocker;
+pub mod bookmarks;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
@@ -41,7 +44,9 @@ pub mod keys;
 pub mod memory;
 pub mod notify;
 pub mod pages;
+pub mod places;
 pub mod policy;
+pub mod sanitize;
 pub mod transfers;
 pub mod visits;
 
@@ -89,5 +94,7 @@ pub const SYSTEM_NAME: &str = "os.lazy.lazywebplus";
 pub const HISTORY_FILE: &str = "history.tsv";
 /// The downloads folder in the home.
 pub const DOWNLOADS_DIR: &str = lazydownloads::FOLDER;
+/// The bookmarks log, in the same folder (`places`).
+pub const BOOKMARKS_FILE: &str = "bookmarks.log";
 /// The sites allowed or blocked to notify, in the same folder (`origin<TAB>allow|block<TAB>time`).
 pub const NOTIFY_FILE: &str = "notify.tsv";

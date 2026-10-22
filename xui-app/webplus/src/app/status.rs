@@ -21,6 +21,7 @@ impl Browser {
             ("forward", ui.bounds(self.forward.id())),
             ("reload", ui.bounds(self.reload.id())),
             ("shield", ui.bounds(self.shield.id())),
+            ("star", ui.bounds(self.bookmarks.star.id())),
             ("page", page),
             (
                 "page_origin",
@@ -30,6 +31,9 @@ impl Browser {
         // The bar's own controls, while it is up: a session answers it by name.
         if self.bar.shown().is_some() {
             named.extend(self.bar.controls(ui));
+        }
+        if self.bookmarks.editor.editing().is_some() {
+            named.extend(self.bookmarks.editor.controls(ui));
         }
         if self.hang.visible() {
             named.extend(self.hang.controls(ui));

@@ -111,6 +111,37 @@ shown as `data:` URLs (so there is one rendering path), reached by the menu, Ctr
 `$HOME/.apps/os.lazy.lazywebplus/history.tsv` (the newest 1000 pages that finished loading over `http:`,
 `https:` or `file:`), cleared from `about:history`.
 
+## Links and bookmarks
+
+**Right click on a link.** webd's `Hover` event names the link under the pointer. A right click while one is
+hovered opens the window's own menu (`src/context.rs`) instead of reaching the page (`Hooks::swallow_right` in
+`xui-webkit`): **Copy Link Address** (the clipboard) and **Open Link in Another App** (enabled only for a scheme the
+engine does not load, such as `mailto:`, and handed to `mimed` as the person's own click, `handoff.rs`). A
+`javascript:` link and the browser's own `x-lazyweb:` commands get no link menu; a right click on bare page (or on
+one of those) opens the Back/Forward/Reload popup and goes on to the page as before. The spot for "Open in new tab"
+is marked in `link_items` and `chrome::link_menu` for when tabs exist.
+
+**Bookmarks** (`src/places/`, the window in `src/bookmarks/` and `src/app/bookmarks.rs`). The store is an
+append-only record log, `$HOME/.apps/os.lazy.lazywebplus/bookmarks.log`: a header, then records of `length`,
+`CRC-32` and payload, each a put or a delete of one entry `(id, parent, kind, title, url, position, created,
+modified)`. Three roots are fixed (Bookmarks bar, Other bookmarks, Unsorted); entries are links, folders and
+separators. A corrupt or cut-off tail ends the log there and is rewritten away at the next start; a record whose
+frame is whole but whose content is not is skipped; a file that is not ours is renamed `bookmarks.log.bad`. Titles
+are cut at 512 characters and stripped of control and bidirectional characters, addresses refused over 2048
+bytes or when they are `javascript:` (even with control characters inside the scheme), there are at most 100,000
+entries and folders nest at most 16 deep; whatever a hand-edited file holds is re-checked on load and an entry
+whose parent is gone goes to Unsorted. Each change is one synced append; the file is rewritten into a new file
+and renamed over the old one when more than half its records are dead (and it holds at least 32).
+
+The toolbar's star bookmarks the page into Unsorted with one click and opens a small editor (name, folder, Done,
+Remove, Cancel) with the second; Ctrl+D does the same. Only `http:` and `https:` pages are bookmarked, never the
+browser's own `data:` pages. The **Bookmarks** menu holds *Bookmark This Page*, *Edit This Bookmark* and *Show
+Bookmarks*, which opens the list (the bar's entries, then Other bookmarks and Unsorted as submenus, at most 40
+rows and three levels, the rest counted in one row) as a popup built from the store at that moment: xui's menu bar
+cannot change its entries after it is built. Markers: `WEBPLUS:BOOKMARK:ADD|EDIT|REMOVE` (no address). Not built
+yet: the bookmarks bar under the toolbar, `about:bookmarks` (search, reorder, undo), Netscape HTML import and
+export, favicons, and creating folders from the window (the store supports them).
+
 ## Downloads
 
 A response the view cannot show, or one sent as an attachment, is downloaded by webd: it names the file (the

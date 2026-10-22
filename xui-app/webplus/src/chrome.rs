@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build, button, column, edit, group, label, menu_bar, progress, row, Align, Handle, Layout,
-    LayoutExt,
+    build, button, column, edit, group, label, menu_bar, progress, row, stack, toggle_button,
+    Align, Handle, Layout, LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::layout::Insets;
@@ -19,6 +19,7 @@ use xui_webkit::engine::Engine;
 use xui_webkit::view::{Hooks, PageView};
 
 use crate::app::Msg;
+use crate::bookmarks::{self, BookmarkMsg};
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::keys;
@@ -62,10 +63,14 @@ pub enum Command {
     /// The link menu's: act on the link that was right-clicked.
     OpenLinkInApp,
     CopyLink,
+    /// The Bookmarks menu's.
+    BookmarkPage,
+    EditBookmark,
+    ShowBookmarks,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 17] = [
+const COMMANDS: [Command; 20] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -83,6 +88,9 @@ const COMMANDS: [Command; 17] = [
     Command::PageDataInMemory,
     Command::OpenLinkInApp,
     Command::CopyLink,
+    Command::BookmarkPage,
+    Command::EditBookmark,
+    Command::ShowBookmarks,
 ];
 
 impl Command {
@@ -102,10 +110,12 @@ const VIEW_MENU: MenuId = MenuId::new(101);
 const HISTORY_MENU: MenuId = MenuId::new(102);
 const DOWNLOADS_MENU: MenuId = MenuId::new(103);
 const HELP_MENU: MenuId = MenuId::new(104);
+const BOOKMARKS_MENU: MenuId = MenuId::new(105);
 
 /// The widgets the window changes after building.
 #[derive(Default)]
 pub struct Widgets {
+    pub bookmarks: crate::bookmarks::Widgets,
     /// Whether a link with a menu of its own is under the pointer: a right click then belongs to
     /// the window's link menu, not the page (`context::link_items`).
     pub link_hover: Rc<Cell<bool>>,
@@ -146,20 +156,24 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         hang_bar(widgets).fixed(HANG_HEIGHT),
-        build(move |ui| {
-            let link_hover = Rc::clone(&link_hover);
-            let hooks = Hooks {
-                is_shortcut: Rc::new(move |key, mods| {
-                    keys::is_window_key(key, mods, loading.get())
-                }),
-                clicked: Msg::PageClicked,
-                right_click: Some(Rc::new(Msg::PageMenu)),
-                swallow_right: Some(Rc::new(move || link_hover.get())),
-            };
-            PageView::new(ui, engine, hooks)
-        })
-        .bind(&widgets.page)
-        .fill(1),
+        stack()
+            .children((
+                build(move |ui| {
+                    let link_hover = Rc::clone(&link_hover);
+                    let hooks = Hooks {
+                        is_shortcut: Rc::new(move |key, mods| {
+                            keys::is_window_key(key, mods, loading.get())
+                        }),
+                        clicked: Msg::PageClicked,
+                        right_click: Some(Rc::new(Msg::PageMenu)),
+                        swallow_right: Some(Rc::new(move || link_hover.get())),
+                    };
+                    PageView::new(ui, engine, hooks)
+                })
+                .bind(&widgets.page),
+                bookmarks::editor::layout(&widgets.bookmarks.editor),
+            ))
+            .fill(1),
         status_bar(widgets).fixed(STATUS_HEIGHT),
     ))
 }
@@ -206,6 +220,27 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
                 Lucide::History,
             );
             item(m, Command::ClearHistory, "&Clear History", Lucide::Trash2);
+        });
+        bar.submenu(BOOKMARKS_MENU, "&Bookmarks", |m| {
+            item(
+                m,
+                Command::BookmarkPage,
+                "Bookmark This &Page",
+                Lucide::Star,
+            );
+            item(
+                m,
+                Command::EditBookmark,
+                "&Edit This Bookmark...",
+                Lucide::Pencil,
+            );
+            m.separator();
+            item(
+                m,
+                Command::ShowBookmarks,
+                "&Show Bookmarks...",
+                Lucide::Folder,
+            );
         });
         bar.submenu(DOWNLOADS_MENU, "&Downloads", |m| {
             item(
@@ -288,6 +323,12 @@ fn toolbar(widgets: &Widgets) -> Layout<Msg> {
                 .placeholder("Type an address and press Enter")
                 .on_change(|_| Msg::AddressEdited)
                 .fill(1),
+            toggle_button("")
+                .icon(Lucide::Star)
+                .tooltip("Bookmark this page (Ctrl+D)")
+                .on_toggle(|_| Msg::Bookmarks(BookmarkMsg::Star))
+                .bind(&widgets.bookmarks.star)
+                .width(TOOL_SIDE),
             tool(Lucide::ExternalLink, "Go (Enter)", Msg::Go).width(TOOL_SIDE),
             tool(Lucide::EyeOff, "Ad blocker", Msg::Menu(Command::Blocker))
                 .bind(&widgets.shield)

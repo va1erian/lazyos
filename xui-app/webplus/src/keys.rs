@@ -3,6 +3,7 @@
 use xui_core::{Key, Modifiers};
 
 use crate::app::Msg;
+use crate::bookmarks::BookmarkMsg;
 use crate::chrome::Command;
 
 /// The window's keyboard shortcuts. Enter and Escape mean the address field only while it has
@@ -22,6 +23,7 @@ pub fn shortcut(key: Key, mods: Modifiers, in_address: bool, loading: bool) -> O
         Key::L if mods.ctrl => Some(Msg::FocusAddress),
         Key::H if mods.ctrl => menu(Command::ShowHistory),
         Key::J if mods.ctrl => menu(Command::ShowDownloads),
+        Key::D if mods.ctrl => Some(Msg::Bookmarks(BookmarkMsg::Star)),
         Key::S if mods.ctrl => menu(Command::SavePage),
         Key::W if mods.ctrl => menu(Command::Close),
         _ => None,

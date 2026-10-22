@@ -22,6 +22,7 @@ use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
 use xui_webkit::view::PageView;
 
+mod bookmarks;
 mod commands;
 mod events;
 mod hang;
@@ -78,6 +79,8 @@ pub enum Msg {
     PageClicked,
     /// A right click on the page, at a point of the view.
     PageMenu(i32, i32),
+    /// The star, the editor or the list of bookmarks.
+    Bookmarks(crate::bookmarks::BookmarkMsg),
     /// The answer to a JavaScript dialog.
     Dialog(DialogAction),
     /// The person answered the bar a site's request to notify them shows.
@@ -110,6 +113,8 @@ pub struct Browser {
     download_label: Rc<Label<Msg>>,
     download_bar: Rc<ProgressBar<Msg>>,
     dialogs: Dialogs,
+    /// The bookmarks and the widgets that show them.
+    bookmarks: crate::bookmarks::State,
     /// The permission bar and what it is asking about.
     bar: notifications::Bar,
     /// The "not responding" bar and its question.
@@ -225,6 +230,7 @@ impl Browser {
             download_label: widgets.download_label.get(),
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
+            bookmarks: crate::bookmarks::State::open(host.profile.as_deref(), &widgets.bookmarks),
             bar: notifications::Bar::new(&widgets),
             hang: hang::Bar::new(&widgets),
             notifications: Notifications::new(permissions, toasts),
@@ -262,6 +268,8 @@ impl Browser {
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
         browser.hang.start_hidden(ui);
+        browser.bookmarks.editor.hide(ui);
+        browser.update_star();
         browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
@@ -471,6 +479,7 @@ impl App for Browser {
             }
             Msg::PageMenu(x, y) => self.show_context(ui, (x, y)),
             Msg::BlockerChanged => self.blocker_changed(),
+            Msg::Bookmarks(msg) => self.bookmark_msg(ui, msg),
             Msg::Dialog(action) => {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine
@@ -484,5 +493,6 @@ impl App for Browser {
             Msg::Jobs => (self.host.jobs)(),
         }
         self.update_buttons();
+        self.update_star();
     }
 }
