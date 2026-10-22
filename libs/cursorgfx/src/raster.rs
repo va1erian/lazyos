@@ -27,64 +27,198 @@ pub(crate) fn outline_radius(px: u32) -> u32 {
 
 type Pt = (i64, i64);
 
-fn to_units(polys: &[Vec<(i32, i32)>], px: u32) -> Vec<Vec<Pt>> {
-    polys
+struct Edge {
+    a: Pt,
+    b: Pt,
+    dx: i64,
+    dy: i64,
+    len2: i64,
+    min_x: i64,
+    max_x: i64,
+    min_y: i64,
+    max_y: i64,
+}
+
+struct PreparedPoly {
+    edges: Vec<Edge>,
+    max_x: i64,
+    min_y: i64,
+    max_y: i64,
+}
+
+struct PreparedLayer {
+    polys: Vec<PreparedPoly>,
+    all_edges: Vec<Edge>,
+    bbox_min_x: i64,
+    bbox_max_x: i64,
+    bbox_min_y: i64,
+    bbox_max_y: i64,
+}
+
+fn prepare_layer(polys: &[Vec<(i32, i32)>], px: u32) -> PreparedLayer {
+    let mut all_edges = Vec::new();
+    let mut bbox_min_x = i64::MAX;
+    let mut bbox_max_x = i64::MIN;
+    let mut bbox_min_y = i64::MAX;
+    let mut bbox_max_y = i64::MIN;
+
+    let prepared_polys = polys
         .iter()
         .map(|poly| {
-            poly.iter()
+            let pts: Vec<Pt> = poly
+                .iter()
                 .map(|&(x, y)| (x as i64 * px as i64 / 8, y as i64 * px as i64 / 8))
-                .collect()
+                .collect();
+            let mut p_min_x = i64::MAX;
+            let mut p_max_x = i64::MIN;
+            let mut p_min_y = i64::MAX;
+            let mut p_max_y = i64::MIN;
+
+            let edges: Vec<Edge> = (0..pts.len())
+                .map(|i| {
+                    let a = pts[i];
+                    let b = pts[(i + 1) % pts.len()];
+                    let dx = b.0 - a.0;
+                    let dy = b.1 - a.1;
+                    let len2 = dx * dx + dy * dy;
+                    let min_x = a.0.min(b.0);
+                    let max_x = a.0.max(b.0);
+                    let min_y = a.1.min(b.1);
+                    let max_y = a.1.max(b.1);
+
+                    Edge {
+                        a,
+                        b,
+                        dx,
+                        dy,
+                        len2,
+                        min_x,
+                        max_x,
+                        min_y,
+                        max_y,
+                    }
+                })
+                .collect();
+
+            for e in &edges {
+                p_min_x = p_min_x.min(e.min_x);
+                p_max_x = p_max_x.max(e.max_x);
+                p_min_y = p_min_y.min(e.min_y);
+                p_max_y = p_max_y.max(e.max_y);
+
+                bbox_min_x = bbox_min_x.min(e.min_x);
+                bbox_max_x = bbox_max_x.max(e.max_x);
+                bbox_min_y = bbox_min_y.min(e.min_y);
+                bbox_max_y = bbox_max_y.max(e.max_y);
+
+                all_edges.push(Edge {
+                    a: e.a,
+                    b: e.b,
+                    dx: e.dx,
+                    dy: e.dy,
+                    len2: e.len2,
+                    min_x: e.min_x,
+                    max_x: e.max_x,
+                    min_y: e.min_y,
+                    max_y: e.max_y,
+                });
+            }
+
+            PreparedPoly {
+                edges,
+                max_x: p_max_x,
+                min_y: p_min_y,
+                max_y: p_max_y,
+            }
         })
-        .collect()
+        .collect();
+    PreparedLayer {
+        polys: prepared_polys,
+        all_edges,
+        bbox_min_x,
+        bbox_max_x,
+        bbox_min_y,
+        bbox_max_y,
+    }
 }
 
 /// Non-zero winding of `p` against every polygon (edges implicitly closed).
-fn inside(polys: &[Vec<Pt>], p: Pt) -> bool {
-    polys.iter().any(|poly| {
+fn inside(prep: &PreparedLayer, p: Pt) -> bool {
+    prep.polys.iter().any(|poly| {
+        if p.1 < poly.min_y || p.1 > poly.max_y || p.0 > poly.max_x {
+            return false;
+        }
         let mut winding = 0i32;
-        for i in 0..poly.len() {
-            let a = poly[i];
-            let b = poly[(i + 1) % poly.len()];
-            let side = (b.0 - a.0) * (p.1 - a.1) - (p.0 - a.0) * (b.1 - a.1);
-            if a.1 <= p.1 {
-                if b.1 > p.1 && side > 0 {
-                    winding += 1;
+        for e in &poly.edges {
+            if e.min_y <= p.1 && e.max_y >= p.1 {
+                let side = e.dx * (p.1 - e.a.1) - (p.0 - e.a.0) * e.dy;
+                if e.a.1 <= p.1 {
+                    if e.b.1 > p.1 && side > 0 {
+                        winding += 1;
+                    }
+                } else if e.b.1 <= p.1 && side < 0 {
+                    winding -= 1;
                 }
-            } else if b.1 <= p.1 && side < 0 {
-                winding -= 1;
             }
         }
         winding != 0
     })
 }
 
-/// Squared distance from `p` to the segment `a..b`.
-fn seg_dist2(p: Pt, a: Pt, b: Pt) -> i64 {
-    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-    let len2 = dx * dx + dy * dy;
-    let (mut qx, mut qy) = (a.0, a.1);
-    if len2 > 0 {
-        let t = ((p.0 - a.0) * dx + (p.1 - a.1) * dy).clamp(0, len2);
-        qx = a.0 + (dx * t + len2 / 2) / len2;
-        qy = a.1 + (dy * t + len2 / 2) / len2;
+/// Squared distance from `p` to segment in `Edge`.
+fn seg_dist2(p: Pt, e: &Edge) -> i64 {
+    let (mut qx, mut qy) = (e.a.0, e.a.1);
+    if e.len2 > 0 {
+        let t = ((p.0 - e.a.0) * e.dx + (p.1 - e.a.1) * e.dy).clamp(0, e.len2);
+        qx = e.a.0 + (e.dx * t + e.len2 / 2) / e.len2;
+        qy = e.a.1 + (e.dy * t + e.len2 / 2) / e.len2;
     }
     (p.0 - qx).pow(2) + (p.1 - qy).pow(2)
 }
 
-fn edge_dist2(polys: &[Vec<Pt>], p: Pt) -> i64 {
-    let mut best = i64::MAX;
-    for poly in polys {
-        for i in 0..poly.len() {
-            best = best.min(seg_dist2(p, poly[i], poly[(i + 1) % poly.len()]));
+fn edge_dist2_bounded(prep: &PreparedLayer, p: Pt, limit: i64) -> i64 {
+    let mut best = limit;
+    for e in &prep.all_edges {
+        let dx = if p.0 < e.min_x {
+            e.min_x - p.0
+        } else if p.0 > e.max_x {
+            p.0 - e.max_x
+        } else {
+            0
+        };
+        let dy = if p.1 < e.min_y {
+            e.min_y - p.1
+        } else if p.1 > e.max_y {
+            p.1 - e.max_y
+        } else {
+            0
+        };
+        if dx * dx + dy * dy >= best {
+            continue;
+        }
+
+        let d = seg_dist2(p, e);
+        if d < best {
+            best = d;
+            if best == 0 {
+                return 0;
+            }
         }
     }
     best
 }
 
+fn edge_dist2(prep: &PreparedLayer, p: Pt) -> i64 {
+    edge_dist2_bounded(prep, p, i64::MAX)
+}
+
 /// Composite `layer` over `pixels` (a `side x side` premultiplied ARGB sprite
 /// whose design square starts `margin` pixels in).
 pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, layer: &Layer) {
-    let polys = to_units(&layer.polys, px);
+    let prep = prepare_layer(&layer.polys, px);
+    if prep.all_edges.is_empty() {
+        return;
+    }
     let radius = if layer.thin {
         SUB as i64 * 3 / 4
     } else {
@@ -94,18 +228,27 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
     let near = (radius + SUB as i64).pow(2);
     let full = (SUB as i64).pow(2);
     let sub = SUB as i64;
-    for j in 0..side as i64 {
-        for i in 0..side as i64 {
-            let origin = ((i - margin as i64) * sub, (j - margin as i64) * sub);
+
+    let margin_sub = margin as i64 * sub;
+    let near_dist = radius + sub;
+    // Bounding box in units to bound pixel grid iteration.
+    let min_i = ((((prep.bbox_min_x - near_dist) / sub) + margin as i64) - 1).clamp(0, side as i64);
+    let max_i = ((((prep.bbox_max_x + near_dist) / sub) + margin as i64) + 2).clamp(0, side as i64);
+    let min_j = ((((prep.bbox_min_y - near_dist) / sub) + margin as i64) - 1).clamp(0, side as i64);
+    let max_j = ((((prep.bbox_max_y + near_dist) / sub) + margin as i64) + 2).clamp(0, side as i64);
+
+    for j in min_j..max_j {
+        for i in min_i..max_i {
+            let origin = (i * sub - margin_sub, j * sub - margin_sub);
             let centre = (origin.0 + sub / 2, origin.1 + sub / 2);
-            let d2 = edge_dist2(&polys, centre);
-            let is_in = inside(&polys, centre);
+            let d2 = edge_dist2(&prep, centre);
+            let is_in = inside(&prep, centre);
             let (fill, dil) = if is_in && d2 > full {
                 (16, 16)
             } else if !is_in && d2 > near {
                 continue;
             } else {
-                subsample(&polys, origin, r2)
+                subsample(&prep, origin, r2)
             };
             if dil == 0 {
                 continue;
@@ -120,7 +263,7 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
 }
 
 /// `(fill, dilated)` sample counts out of 16 for the pixel at `origin`.
-fn subsample(polys: &[Vec<Pt>], origin: Pt, r2: i64) -> (i64, i64) {
+fn subsample(prep: &PreparedLayer, origin: Pt, r2: i64) -> (i64, i64) {
     let (mut fill, mut dil) = (0, 0);
     for b in 0..SS {
         for a in 0..SS {
@@ -128,10 +271,10 @@ fn subsample(polys: &[Vec<Pt>], origin: Pt, r2: i64) -> (i64, i64) {
                 origin.0 + (2 * a + 1) * SUB as i64 / (2 * SS),
                 origin.1 + (2 * b + 1) * SUB as i64 / (2 * SS),
             );
-            if inside(polys, p) {
+            if inside(prep, p) {
                 fill += 1;
                 dil += 1;
-            } else if edge_dist2(polys, p) <= r2 {
+            } else if edge_dist2_bounded(prep, p, r2 + 1) <= r2 {
                 dil += 1;
             }
         }
