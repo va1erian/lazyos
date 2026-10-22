@@ -1,6 +1,6 @@
 # Kernel, filesystem and conformance
 
-Companion to [`AGENTS.md`](../../AGENTS.md); Resource limits, the kernel test harness, ext2 and its journal, the Linux ABI bench and real Linux programs.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: Resource limits, the kernel test harness, ext2 and its journal, the Linux ABI bench and real Linux programs.
 
 ## Resource limits and guest memory
 

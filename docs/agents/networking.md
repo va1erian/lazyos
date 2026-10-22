@@ -1,6 +1,6 @@
 # Networking, TLS, SMB and Wi-Fi
 
-Companion to [`AGENTS.md`](../../AGENTS.md); Https clients, networking in a boot, network drives, smb, network time, wi-fi and the network tooling.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: HTTPS clients, networking in a boot, network drives, SMB, network time, Wi-Fi and the network tooling.
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 

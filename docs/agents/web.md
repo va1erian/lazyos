@@ -1,6 +1,6 @@
 # WebKit, webd and the browser
 
-Companion to [`AGENTS.md`](../../AGENTS.md); Javascriptcore, the webkit dependency bundle and port, lazyweb+ and webd.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: JavaScriptCore, the WebKit dependency bundle and port, LazyWeb+ and webd.
 
 ## JavaScriptCore (`LAZYOS_JSC=1`: `jsc`, `cxxproof`)
 

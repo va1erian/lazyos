@@ -1,6 +1,6 @@
 # Tracing in full
 
-Companion to [`AGENTS.md`](../../AGENTS.md); The `trace` api, channels, masks and the ad hoc print lint.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: The `trace` API, channels, masks and the ad hoc print lint.
 
 ## Tracing (`LAZYOS_TRACE`)
 

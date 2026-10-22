@@ -1,6 +1,6 @@
 # Desktop apps
 
-Companion to [`AGENTS.md`](../../AGENTS.md); Terminal, docs, writer, archiver, pdf, video, paint, about, picture viewer, the mod player, mail and lazysky.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: Terminal, Docs, Writer, Archiver, PDF Viewer, Video Player, Paint, About, Picture Viewer, the MOD player, Mail and LazySky.
 
 ## Terminal (`xui-term`)
 
