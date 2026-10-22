@@ -63,13 +63,14 @@ def render_all(root: Path, cfg: Config, pages: list[Page]) -> LinkResolver:
         ref=cfg.ref,
         pages={p.src: p.out for p in pages},
         generated=cfg.generated,
+        aliases=cfg.aliases,
     )
     renderer = Renderer(resolver)
     for page in pages:
         done = renderer.render((root / page.src).read_text(encoding="utf-8"), page.src, page.out)
         page.body, page.summary, page.text = done.body, done.summary, done.text
         page.toc, page.ids = done.toc, done.ids
-        page.title = done.title or Path(page.src).stem.replace("-", " ").title()
+        page.title = cfg.titles.get(page.src) or done.title or Path(page.src).stem.replace("-", " ").title()
     return resolver
 
 

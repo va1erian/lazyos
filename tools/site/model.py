@@ -38,6 +38,9 @@ class Config:
     extras: dict[str, str]
     extra_sections: dict[str, str]
     generated: set[str]
+    home: list[str]
+    titles: dict[str, str]
+    aliases: dict[str, str]
 
     @property
     def repo_url(self) -> str:
@@ -59,4 +62,7 @@ def load_config(path: Path = HERE / "site.toml") -> Config:
         extras={k: v for k, v in raw["extras"].items() if k != "sections"},
         extra_sections=dict(raw["extras"].get("sections", {})),
         generated=set(raw["generated"]["paths"]),
+        home=list(site.get("home", ["README.md"])),
+        titles=dict(raw.get("titles", {})),
+        aliases=dict(raw.get("aliases", {})),
     )

@@ -19,7 +19,8 @@ def config(**over) -> Config:
     base = dict(
         title="Test", tagline="t", repo="o/r", ref="main", section_order=["Overview", "Plans"],
         overview=[], directories={"docs/sub": "Sub pages"}, plan_suffixes=["-plan"],
-        extras={"README.md": "index.html"}, extra_sections={}, generated={"docs/compat/matrix.md"},
+        extras={"README.md": "readme.html"}, extra_sections={}, generated={"docs/compat/matrix.md"},
+        home=["docs/index.md", "README.md"], titles={}, aliases={"docs/README.md": "README.md"},
     )
     base.update(over)
     return Config(**base)
@@ -118,6 +119,22 @@ class LinkTests(TreeCase):
         r = self.resolver()
         self.assertEqual(r.rewrite("compat/matrix.md", "docs/a.md", "a.html"), "compat/matrix.html")
 
+    def test_docs_paths_the_os_embeds_mean_the_root_files(self) -> None:
+        self.put("README.md", "# Readme\n")
+        r = self.resolver()
+        r.pages["README.md"] = "readme.html"
+        r.aliases = {"docs/README.md": "README.md", "docs/THIRD_PARTY.md": "THIRD_PARTY.md"}
+        self.put("THIRD_PARTY.md", "x")
+        self.assertEqual(r.rewrite("README.md#x", "docs/a.md", "a.html"), "readme.html#x")
+        self.assertEqual(
+            r.rewrite("THIRD_PARTY.md", "docs/a.md", "a.html"),
+            "https://github.com/o/r/blob/main/THIRD_PARTY.md",
+        )
+        # A real docs/README.md page wins over the alias.
+        self.put("docs/README.md", "x")
+        r.pages["docs/README.md"] = "README.html"
+        self.assertEqual(r.rewrite("README.md", "docs/a.md", "a.html"), "README.html")
+
     def test_odd_file_names_are_percent_encoded(self) -> None:
         self.put("docs/odd name#1.txt")
         r = self.resolver()
@@ -190,16 +207,42 @@ class NavTests(TreeCase):
 
     def test_missing_overview_page_is_an_error(self) -> None:
         self.put("docs/a.md")
-        cfg = config(overview=["docs/gone.md"], extras={})
+        cfg = config(overview=["docs/gone.md"], extras={}, home=["docs/a.md"])
         pages = discover(self.root, cfg)
         with self.assertRaises(SystemExit):
             assign_sections(pages, cfg)
 
+    def test_docs_index_is_the_home_page_and_readme_a_page(self) -> None:
+        self.put("docs/index.md", "# Docs home\n")
+        self.put("README.md", "# Readme\n")
+        outs = {p.src: p.out for p in discover(self.root, config())}
+        self.assertEqual(outs, {"docs/index.md": "index.html", "README.md": "readme.html"})
+
+    def test_readme_is_the_home_page_without_a_docs_index(self) -> None:
+        self.put("README.md", "# Readme\n")
+        self.assertEqual([(p.src, p.out) for p in discover(self.root, config())], [("README.md", "index.html")])
+
+    def test_no_home_page_is_an_error(self) -> None:
+        self.put("docs/a.md")
+        with self.assertRaises(SystemExit):
+            discover(self.root, config(extras={}, home=["docs/index.md"]))
+
     def test_colliding_output_paths_are_an_error(self) -> None:
-        self.put("docs/index.md")
         self.put("README.md")
+        self.put("docs/readme.md")  # README.md is built to readme.html when docs/index.md is the home
+        self.put("docs/index.md")
         with self.assertRaises(SystemExit):
             discover(self.root, config())
+
+    def test_nested_directory_sections_use_the_longest_match(self) -> None:
+        for name in ("docs/rhai/a.md", "docs/rhai/api/b.md", "docs/rhai/deep/c.md"):
+            self.put(name, "# x\n")
+        cfg = config(directories={"docs/rhai": "Rhai", "docs/rhai/api": "Rhai API"}, extras={}, home=["docs/rhai/a.md"])
+        pages = discover(self.root, cfg)
+        assign_sections(pages, cfg)
+        got = {p.src: p.section for p in pages}
+        self.assertEqual(got["docs/rhai/api/b.md"], "Rhai API")
+        self.assertEqual(got["docs/rhai/deep/c.md"], "Rhai")
 
 
 class BuildTests(TreeCase):
@@ -277,6 +320,14 @@ class BuildTests(TreeCase):
         self.build(cfg)
         self.assertNotIn("Edit this page", (self.out / "compat" / "matrix.html").read_text(encoding="utf-8"))
         self.assertIn("Edit this page", (self.out / "index.html").read_text(encoding="utf-8"))
+
+    def test_title_override_and_home_choice_in_a_built_site(self) -> None:
+        self.put("README.md", "# Readme\n")
+        self.put("docs/index.md", "# Start\n\nSee [the readme](README.md).\n")
+        self.build(config(titles={"README.md": "Build and boot"}))
+        self.assertIn("<title>Start", (self.out / "index.html").read_text(encoding="utf-8"))
+        self.assertIn('href="readme.html"', (self.out / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Build and boot", (self.out / "readme.html").read_text(encoding="utf-8"))
 
     def test_default_base_url(self) -> None:
         self.assertEqual(site_build.default_base_url(config(repo="o/lazyos")), "/lazyos/")

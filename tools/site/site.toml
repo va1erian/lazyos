@@ -8,6 +8,10 @@ tagline = "A friendly, transparent and secure hobby operating system in Rust"
 repo = "va1erian/lazyos"   # overridden by GITHUB_REPOSITORY in CI
 ref = "main"              # branch the "Edit on GitHub" and source links point at
 
+# The first of these that exists is the home page (index.html). docs/index.md is
+# the curated "start here" index the Docs app opens; README.md is the fallback.
+home = ["docs/index.md", "README.md"]
+
 [nav]
 # Section headings, in the order the sidebar shows them; a section that is not
 # listed follows alphabetically.
@@ -19,7 +23,9 @@ order = [
   "Interface reference (IDL)",
   "Hardware & ABI compatibility",
   "Performance reports",
+  "LazyRAD",
   "Rhai scripting",
+  "Rhai API reference",
   "Tracing",
   "Project",
 ]
@@ -41,20 +47,35 @@ overview = [
 "docs/idl" = "Interface reference (IDL)"
 "docs/compat" = "Hardware & ABI compatibility"
 "docs/perf" = "Performance reports"
+"docs/lazyrad" = "LazyRAD"
 "docs/rhai" = "Rhai scripting"
+"docs/rhai/api" = "Rhai API reference"   # the longest matching directory wins
 "docs/trace" = "Tracing"
 
 # Top-level docs whose file name ends with one of these are "Plans".
 [nav.plans]
 suffixes = ["-plan", "-plan-"]
 
-# Pages from outside docs/: repository path -> output path.
+# Pages from outside docs/: repository path -> output path. A page that is the
+# home page (above) is written to index.html instead.
 [extras]
-"README.md" = "index.html"
+"README.md" = "readme.html"
 "CONTRIBUTING.md" = "contributing.html"
 
 [extras.sections]
+"README.md" = "Project"
 "CONTRIBUTING.md" = "Project"
+
+# Sidebar and page titles where the first heading is not the right label.
+[titles]
+"README.md" = "README: building and booting"
+
+# The OS image embeds the root README.md and THIRD_PARTY.md as docs/README.md and
+# docs/THIRD_PARTY.md (build_support/docs_embed.rs), so docs link to them by those
+# names. On the site they mean the root files.
+[aliases]
+"docs/README.md" = "README.md"
+"docs/THIRD_PARTY.md" = "THIRD_PARTY.md"
 
 # Markdown files CI produces (git-ignored): a link to one of these is not an
 # error when the file is absent from the checkout.
