@@ -55,6 +55,9 @@ TRACE = {
     "resolve_display": "resolve=os.lazy.display.v1 op=2",
     "resolve_input": "resolve=os.lazy.input.v1 op=2",
     "resolve_clipboard": "resolve=os.lazy.clipboard.v1 op=2",
+    "resolve_webd_view": "resolve=app.os.lazy.webd.view op=2",
+    "resolve_webd_light": "resolve=app.os.lazy.webd.light op=2",
+    "write_rules": "file=/home/user/.apps/os.lazy.webd/rules access=stat",
     "read_fonts": "file=/system/share/fonts access=stat",
 }
 #: The network role's own trace for the one probe that differs.
@@ -122,8 +125,33 @@ class JudgeTests(unittest.TestCase):
                      "file=/home/user/.apps/os.lazy.webd/profiles access=stat",
                      "file=/home/user/.apps/os.lazy.webd/profiles/browser/attack-probe access=write"):
             self.assertRegex(what, pattern)
-        # Not some other app's folder.
+        # Not some other app's folder, nor a `.apps` outside a home.
         self.assertNotRegex("file=/home/user/.apps/os.lazy.mail access=stat", pattern)
+        self.assertNotRegex("file=/home/user/other/.apps access=stat", pattern)
+        self.assertNotRegex("file=/tmp/.apps/os.lazy.webd access=write", pattern)
+
+    def test_one_refusal_does_not_stand_in_for_several_probes(self) -> None:
+        # fork, exec_busybox and exec_native share a pattern: each needs a refusal of its own, between the
+        # line of the probe before it and its own line.
+        log = perfect()
+        lines = log.splitlines()
+        at = next(i for i, line in enumerate(lines) if line.startswith("ATTACK:webprocess:exec_native:"))
+        self.assertIn("LABEL:DENY", lines[at - 1])
+        del lines[at - 1]
+        found = self.problems("\n".join(lines) + "\n")
+        self.assertTrue(any("webprocess.exec_native" in f and "no LABEL:DENY" in f for f in found), found)
+
+    def test_the_downloads_folder_may_be_missing_in_the_real_webds_image_only(self) -> None:
+        # The folder is made by webd's own process at the first download; the probe runs before any.
+        missing = lambda r, p, line: (  # noqa: E731
+            line.replace("ALLOWED:ok", "ALLOWED:2") if (r, p) == ("networkprocess", "write_downloads") else line)
+        self.assertEqual(self.problems(perfect("browser", tweak=missing), "browser"), [])
+        found = self.problems(perfect("kernel", tweak=missing))
+        self.assertTrue(any("networkprocess.write_downloads" in f for f in found), found)
+        # A refusal is never accepted.
+        refused = lambda r, p, line: (  # noqa: E731
+            line.replace("ALLOWED:ok", "BLOCKED:1") if (r, p) == ("networkprocess", "write_downloads") else line)
+        self.assertTrue(self.problems(perfect("browser", tweak=refused), "browser"))
 
     def test_every_probe_has_a_trace_the_patterns_match(self) -> None:
         blocked = {p for table in judge.EXPECTED.values() for p, e in table.items() if e.kind == "blocked"}

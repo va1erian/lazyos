@@ -75,3 +75,30 @@ or webd.
   `--skip-loss` and say so.
 * The listener port is fixed by the demo page (`xui_webd_client::page::BLOCKED_IMAGE_URL`) and checked
   against it by `test_judge.py`. It takes none of the web harnesses' ports (80, 81, 443).
+
+## The malicious-client attack harness (`attack_run.py`, docs/webd-plan.md "P5 as built")
+
+```bash
+python tools/webd/attack_run.py                   # build, boot (60 s), judge
+python tools/webd/attack_run.py --judge-only shots/webd-attack
+python tools/webd/test_attack_judge.py            # the judge fails when it should
+```
+
+An image of `run_demo.py --webd-demo --desktop --big-app` with the label trace and the client
+`os.lazy.webdattack` (Web Attack Probe) autostarted. Its manifest lists only `os.lazy.webd.view.v1`.
+Once webd makes it a valid view it runs `xui_webd_client::attack` and prints
+`WEBDATTACK:PROBE:<name>:<outcome>`; `attackjudge.py` holds what each must come to:
+
+| probe | must be |
+|---|---|
+| `scope_net`, `scope_browser` | `REFUSED:1` or `REFUSED:13`, each with a `LABEL:DENY` of `app:os.lazy.webdattack` naming that scope's interface id (`idl/manifest.json`) — the kernel's gate, which the host fabric cannot reproduce |
+| `view_ok` | `OK` (the granted scope) |
+| `flood_alive` | `OK`: after 1000 oneway mouse moves webd still answers a call (with the clients' `EAGAIN` retry) |
+| `view_cap` | `REFUSED:28:8`: eight live views, the ninth `ENOSPC` |
+| `alive_after` | `OK` |
+
+and no other denial of the client's label, webd up once (no restart), no line dropped by the trace's
+rate limit. The data-level attacks of a hostile client (buffer-size lies, garbage configurations,
+another client's ids, a client that never reads) are host-tested and seeded-fuzzed in
+`xui-app/crates/webd/tests`. The other half, a compromised page process under webd's real child
+labels, is `python tools/webkit/attack_run.py --browser`.

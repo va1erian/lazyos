@@ -74,8 +74,8 @@ ABSENT = Expect("absent")
 
 #: Common to both roles: what an exploit reaches for.
 _FILES = {
-    "read_home_file": blocked(r"file=/\S+/\.profile access=stat"),
-    "read_ssh_key": blocked(r"file=/\S+/\.ssh/id_rsa access=stat"),
+    "read_home_file": blocked(r"file=/home/[^/ ]+/\.profile access=stat"),
+    "read_ssh_key": blocked(r"file=/home/[^/ ]+/\.ssh/id_rsa access=stat"),
     "read_system_binary": blocked(r"file=/system/bin/busybox access=stat"),
     "read_confd": blocked(r"file=/conf/confd\.db access=stat"),
     "read_passwd": blocked(r"file=/etc/passwd access=stat"),
@@ -95,10 +95,15 @@ _PROCESS = {
     "resolve_display": blocked(r"resolve=os\.lazy\.display\.v1"),
     "resolve_input": blocked(r"resolve=os\.lazy\.input\.v1"),
     "resolve_clipboard": blocked(r"resolve=os\.lazy\.clipboard\.v1"),
+    # webd's own services: a child label owns no names and has only the app's interfaces.
+    "resolve_webd_view": blocked(r"resolve=app\.os\.lazy\.webd\.view\b"),
+    "resolve_webd_light": blocked(r"resolve=app\.os\.lazy\.webd\.light\b"),
+    # The light views' network-lock rule store: webd's own process alone writes it.
+    "write_rules": blocked(r"file=/home/[^/ ]+/\.apps/os\.lazy\.webd/rules(/attack-probe)? access=(write|stat)"),
 }
 _ABSENT = {"ptrace": ABSENT, "process_vm_readv": ABSENT}
 
-DOWNLOADS_DENY = r"file=/\S+/Downloads(/attack-probe)? access=(write|stat)"
+DOWNLOADS_DENY = r"file=/home/[^/ ]+/Downloads(/attack-probe)? access=(write|stat)"
 
 EXPECTED: dict[str, dict[str, Expect]] = {
     # Fonts, the machine's /proc and the random devices; nothing else, no network.
@@ -109,8 +114,8 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_resolv_conf": blocked(r"file=/etc/resolv\.conf access=stat"),
         "read_ca_bundle": blocked(r"file=/etc/ssl/certs/ca-certificates\.crt access=stat"),
         # The children's folder is `.apps/os.lazy.webd/profiles` (P4) and the probe may be refused at
-        # any level of it, so the pattern takes the folder and anything below it.
-        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.webd(/\S*)?)? access=(write|stat)"),
+        # any level of it, so the pattern takes the folder and anything below it, in a home.
+        "write_profile": blocked(r"file=/home/[^/ ]+/\.apps(/os\.lazy\.webd(/\S*)?)? access=(write|stat)"),
         "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": blocked(r"net=inet"),
         "inet_serve": blocked(r"net=inet"),
@@ -126,8 +131,10 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_resolv_conf": allowed(browser_loose=True),
         "read_ca_bundle": allowed(browser_loose=True),
         "write_profile": allowed(),
-        # A download's `.part` file is written by the process that fetches it.
-        "write_downloads": allowed(),
+        # A download's `.part` file is written by the process that fetches it. The folder is made by
+        # webd's own (unconfined) process at the first download; in the real webd's image the probe
+        # runs before any, so a folder that is not there yet (ENOENT) is not a refusal.
+        "write_downloads": allowed(browser_loose=True),
         "inet_socket": allowed(),
         "inet_serve": blocked(r"net=serve"),
         "tcp_connect": allowed(loose=True),
@@ -159,7 +166,6 @@ def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[li
     probes: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for found in PROBE.finditer(serial):
         probes.setdefault((found["role"], found["probe"]), []).append((found["verdict"], found["detail"]))
-    denies = [(m["label"], m["what"]) for m in DENY.finditer(serial)]
     for role in ROLES:
         reported = [m["label"] for m in LABEL_LINE.finditer(serial) if m["role"] == role]
         want_label = role_labels[role]
@@ -170,7 +176,7 @@ def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[li
             problems.append(f"{role}: ran under {reported[0]!r}, not {want_label!r}")
         if not any(m["role"] == role for m in DONE_LINE.finditer(serial)):
             problems.append(f"{role}: did not finish its probes (no DONE line)")
-        mine = [what for label, what in denies if label == want_label]
+        windows = deny_windows(serial, role, want_label)
         for probe, expect in table[role].items():
             seen = probes.get((role, probe), [])
             if len(seen) != 1:
@@ -178,7 +184,7 @@ def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[li
                 rows.append(f"{role:15} {probe:20} MISSING")
                 continue
             verdict, detail = seen[0]
-            ok, why = _check(expect, verdict, detail, mine, mode)
+            ok, why = _check(expect, verdict, detail, windows.get(probe, []), mode)
             rows.append(f"{role:15} {probe:20} {verdict:8} {detail:6} {'ok' if ok else 'FAIL: ' + why}")
             if not ok:
                 breach = "BREACH " if expect.kind != "allowed" and verdict == "ALLOWED" else ""
@@ -187,6 +193,32 @@ def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[li
         for probe in extra:
             problems.append(f"{role}.{probe}: not in the judge's table")
     return problems, rows
+
+
+def deny_windows(serial: str, role: str, label: str) -> dict[str, list[str]]:
+    """The `LABEL:DENY` lines of `label` that belong to each probe of `role`: those printed after the
+    role's previous `ATTACK:<role>:` line and before the probe's own. The kernel prints a refusal at the
+    system call and the probe prints its line after its pause, so each probe's refusals sit just before
+    it. Pairing them (rather than pooling every denial of the label) keeps one refusal from standing in
+    for several probes that share a pattern (`fork`, `exec_busybox` and `exec_native`; the `net=inet`
+    ones)."""
+    probe_line = re.compile(rf"ATTACK:{role}:(?P<probe>[a-z_0-9]+):(BLOCKED|ALLOWED):")
+    reset = re.compile(rf"ATTACK:{role}:LABEL:")
+    windows: dict[str, list[str]] = {}
+    window: list[str] = []
+    for line in serial.splitlines():
+        deny = DENY.search(line)
+        if deny and deny["label"] == label:
+            window.append(deny["what"])
+            continue
+        if reset.search(line):
+            window = []
+            continue
+        found = probe_line.search(line)
+        if found:
+            windows[found["probe"]] = window
+            window = []
+    return windows
 
 
 def _check(expect: Expect, verdict: str, detail: str, denies: list[str], mode: str) -> tuple[bool, str]:

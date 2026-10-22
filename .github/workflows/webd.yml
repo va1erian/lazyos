@@ -98,6 +98,7 @@ jobs:
           python tools/webd/test_full_judge.py
           python tools/webd/test_idl.py
           python tools/webd/test_manifest.py
+          python tools/webd/test_attack_judge.py
           python tools/webd/session.py --check
           python tools/docs/test_judge.py
           python tools/mail/test_judge.py

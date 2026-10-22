@@ -12,7 +12,6 @@ use xui_core::geometry::Size;
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Canvas, Color, Dip, Rect, TextStyle};
-use xui_webd_client::event::Error;
 use xui_webd_client::full::{FullWebView, Scope};
 use xui_webd_client::{attack, ViewConfig};
 
@@ -82,13 +81,18 @@ impl Screen {
     }
 }
 
-/// Whether webd answers a view-scope `CreateView` with anything but "not running" (it is up). The
-/// trial view is destroyed at once; the real probes make their own.
+/// Whether webd makes a valid view through the view scope (a `DataOnly` page, which that scope
+/// allows): then its service is registered and its engine ready (a full view without the network
+/// waits for the light views' lock, which webd compiles at start). Only a made view counts: a refusal
+/// would show the name resolves, not that the engine is up. The trial view is destroyed at once; the
+/// real probes make their own.
 fn webd_up() -> bool {
-    let mut trial = FullWebView::new(WebdTransport::full(), Scope::View, ViewConfig::default());
-    // Up means the create answered with anything but "not running" (made, or refused by the service):
-    // a config the view scope does not accept is still an answer from a running webd.
-    let up = !matches!(trial.create(8, 8), Err(Error::NotRunning));
+    let config = ViewConfig {
+        scheme_policy: messenger_generated::os_lazy_webd_view_v1::SCHEME_POLICY_DATA_ONLY,
+        ..ViewConfig::default()
+    };
+    let mut trial = FullWebView::new(WebdTransport::full(), Scope::View, config);
+    let up = trial.create(8, 8).is_ok();
     trial.destroy();
     up
 }
