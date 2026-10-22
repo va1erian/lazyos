@@ -37,14 +37,14 @@ scope: sync across devices, extensions, and engine work beyond what these featur
 | Touch points `xui-app/web/src/chrome.rs`, `webkit/port/app/engine.cpp` (one `WKPageRef` per tab in the browser's UI process) | The window is `xui-app/webplus` and has no WebKit. A page is a **full view** of webd through `xui_webd_client::FullWebView`, wrapped as `RemoteEngine` (`xui-app/crates/webkit-remote`). The C++ host is webd's (`webkit/port/app`, `webkit/port/webd`) | A tab is a view. The window manages views. Engine work goes into webd (`xui-app/crates/webd`, `webkit/port/app/*`) and `idl/webd.midl` |
 | "Each tab gets its own WebProcess" | webd puts every view of one (client label, profile) **group** on one web process, at most 4 web processes per user (`WEB_PROCESSES_PER_USER`) and 8 views per client (`VIEWS_PER_CLIENT`). `Recover` refuses a process that other views share | Per-tab or per-site processes need a webd change (section 2.3). Ten tabs need the view cap raised |
 | A WebProcess is a 108 MB program read whole into RAM, so 20 tabs cost about 2 GB | Program text is shared through the page cache (#942). A held view with its web and network processes measured **+28.7 MiB** on a small page (`webd.md` "Measured"). Real pages add their own heap | The memory guard is about page heaps, not program images. Measure real pages before picking discard numbers (section 2.5) |
-| `history.tsv` is in a folder the sandboxed network process can write, so a compromised network process can forge history; move user data to `os.lazy.lazywebplus.user/` | The network process is webd's (`app:os.lazy.webd/networkprocess`). It writes webd's folder and `$HOME/Downloads` only, never the browser's folder | The folder move is not needed. B2's gate becomes an attack-harness row instead (section 6) |
+| `history.tsv` is in a folder the sandboxed network process can write, so a compromised network process can forge history; move user data to `os.lazy.lazywebplus.user/` | The network process is webd's (`app:os.lazy.webd/networkprocess`). It writes webd's folder and `$HOME/Downloads` only, never the browser's folder | The folder move is not needed. B2's gate becomes an attack-harness row instead (section 9, B2) |
 | The ad-blocker store needs the same move | The compiled store is webd's (`<profile>/contentextensions`). The lists are the client's, in `lists/`, written only by the `listupdate` child | Nothing to do |
 | `target=_blank` and `window.open` reuse the one view | They still do. webd reports `NewWindowRequested(url, gesture)` and nothing opens on its own | B1 opens a tab for a request that has a gesture. The opener link (`window.opener`) is lost (section 2.2) |
 | Startup crash at first resize (#853) is a B1 risk | #853 is closed (a kernel COW/mremap bug) | Removed from the risks |
 | Crash and hang handling (#861, #862) | #862 is closed: webd's watchdog, `Responsive`, `Recover`, `ViewLost`. #861 (freeze forensics) is open | The crashed-tab page is built on `ViewLost` |
 | The vault key comes from `keyd.appsecret` | `os.lazy.keyd.appsecret.v1` is on main (P2b): 16 secrets per app and user, 1 KiB each, scoped to the uid and `app:os.lazy.lazywebplus` | As in the draft: one secret for the vault key, one for a wrapped key. Two of sixteen is enough |
 | LazyAgent's review screen exists | LazyAgent (`docs/ai-agent-plan.md`) is at P1. Its P2 (window and package) and P6 (diagnosis and GitHub) are not built | B4's browser half can be built against a stub. The full gate waits for agent P6, not P2 |
-| Evidence lines | LazyWeb+'s `WEBPLUS:*` lines are still `println!`s (`lazywebplus.md` "Known limits") | B0 moves them to `xui_app::trace` first. AGENTS.md requires it, and B4 reads the window's own trace ring |
+| Evidence lines | Most `WEBPLUS:*` lines already go through `xui_app::trace` (`marker()` in `lib.rs`, `Channel::Webplus`). Four `println!`s remain in `app/events.rs` (`STOPPED`, `FAIL`, `DIALOG`), plus the host-only fallback in `lib.rs` | B0 moves the four and keeps the host fallback out of the LazyOS build. B4 reads the window's own trace ring |
 
 ## 2. B1: tabs and windows
 
@@ -79,7 +79,7 @@ reloads.
   separate `Load`, so the opener's `window.opener` is `null` and `postMessage` between the two cannot work
   (sign-in pop-ups that report back to their opener break). Keeping the opener link needs WebKit's
   `createNewPage` to return a page webd then hands to the client (`NewWindowRequested` held like a navigation,
-  answered with a new view). That is a later webd item (W-later in section 7), not B1.
+  answered with a new view). That is a later webd item (the last row of section 8), not B1.
 * Middle-click or `Ctrl+click` on a link opens it in a background tab. webd does not need to change: the window
   knows the link under the pointer from `Hover(url)`, and the click is the person's own input in the window, so
   the window opens the tab itself and does not forward that click to the page. A link whose `href` is
@@ -95,24 +95,39 @@ process that other views share (`WEBPROCESS:RECOVER:SHARED`). And the draft's ga
 the other nine keep working" cannot pass.
 
 **Decision: one web process per site, chosen by the client inside its own group.** `ViewConfig` gains
-`process_key: String = 15` (at most 64 bytes, opaque to webd). webd's group key becomes (kernel-stamped client
-label, profile, ephemeral, `process_key`). LazyWeb+ sets it to the registrable domain of the tab's first
-address (`example.com` for `www.example.com`), so tabs of one site share a process and other sites are
-isolated. This is the draft's "reuse one process for tabs of the same site". It does not weaken open question 7
-of the webd plan. The label still comes from the kernel, and a client can only split its **own** group
-further, at the cost of its own user's memory. A page that navigates to another site stays in its process
-(WebKit's process swapping is off, `webd-plan.md` 3.3). The key is a placement hint, not a security boundary.
-Light views ignore the field.
+`process_key: String = 15` (at most 64 bytes of printable ASCII, opaque to webd). LazyWeb+ sets it to the
+**host** of the tab's first address. The registrable domain (`example.com` for `www.example.com`) would group
+better, but it needs a public-suffix list the window does not have; that is a later refinement. Tabs of one host
+share a process and other hosts are isolated, which is the draft's "reuse one process for tabs of the same
+site". A page that navigates to another site stays in its process (WebKit's process swapping is off,
+`webd-plan.md` 3.3). The key is a placement hint, not a security boundary. Light views ignore the field.
+
+**This amends open question 7 of the webd plan**, which says the group is "never from a wire field". The
+amendment is narrow. The label still comes from the kernel, and the key can only split the caller's **own**
+group further, never join another client's, at the cost of its own user's memory. Today a group is one number
+per client (`Groups` in `xui-app/crates/webd/src/ident.rs`: `ClientKey` to `i32`, numbers never reused), the
+engine keeps profiles and store kinds apart when it matches group-mates (`webkit/port/app/engine.cpp`), and
+`service/create.rs` counts processes as (client, profile, no network). With the key:
+
+* `Groups` maps `(ClientKey, process_key)` to a number. A number is still never given to another client, and is
+  **released** when the last view of its group ends, so the table does not grow with every host a client ever
+  visited. A client holds at most 32 keys at once (`EDQUOT` past that); the window then puts the tab in the
+  largest existing group.
+* The process count in `create.rs` becomes (client, profile, no network, key).
 
 That needs, in webd:
 
 * **Limits by memory, not by count.** `WEB_PROCESSES_PER_USER` goes from 4 to a ceiling of 16. Below the ceiling
   the gate is the user's memory charge (`lzw_ui_user_memory`, already read before a process is made). A refusal
-  is `EDQUOT` on `CreateView`. The window then puts the tab in the largest existing group, or discards the
-  oldest background tab and tries again. `VIEWS_PER_CLIENT` (8) becomes 64 for a client holding the browser
-  scope. The per-client slot budget (`SLOT_BYTES_PER_CLIENT`, 512 MiB) is unchanged. It is why the window
-  attaches slots **only to the visible tab's view** and detaches them on a tab switch (this needs a
-  `DetachSlot`, or `Resize` to the same size, which already detaches every slot).
+  is `EDQUOT` on `CreateView`, as the code does today (webd-plan §8 and open question 7 still say
+  `ViewLost(no_memory)`; that text is updated with the amendment). The window then puts the tab in the largest
+  existing group, or discards the oldest background tab and tries again. `VIEWS_PER_CLIENT` (8) becomes 64 for
+  a client holding the browser scope. The "8 views" in webd-plan §5's security table and in `limits.rs`'s
+  comments change with it. The per-client slot budget (`SLOT_BYTES_PER_CLIENT`, 512 MiB) is unchanged. It is
+  why the window attaches slots **only to the visible tab's view** and lets go of them on a tab switch.
+  `ReleaseSlot` only says the app has read a slot. Today only `Resize` detaches every slot, and a same-size
+  `Resize` may cost the page a layout, so B1 adds `DetachSlots(view)` (method 45). A tab coming to the front
+  attaches its slots again and asks for a whole frame (`Refresh`).
 * **The parked-view pool** (webd-plan "What P5 still needs"). Every closed view leaves a parked proxy today, so
   opening and closing tabs grows webd. The pool is reused by the same group. B1's gate depends on it, so it
   moves from P5 into B1.
@@ -142,8 +157,9 @@ not crash this one before it is asked for.
   limit. The oldest-used goes first, never the active tab of any window, never a tab with a dialog open or a
   download running. The window reads free memory from `sysmond`'s `system/stats/memory` topic (the browser
   lists the interface in its manifest). The numbers are **not picked here**. B1 measures per-tab cost on real
-  pages first (Ars Technica, a news site, a web mail, a video page) on both boxes, with
-  `tools/webplus/frame_run.py --perf`'s `INFO:MEM`, and the thresholds follow from that table.
+  pages first (Ars Technica, a news site, a web mail, a video page) on both boxes, from the engine's
+  `INFO:MEM` lines (`webkit/port/app/clients.cpp`, through `WEBD:NOTE`) and `sysmond`'s memory topic, and the
+  thresholds follow from that table.
 * What sharing program text (#942) does not save: each web process's own heap, JIT and decoded images, which
   is the unknown the measurement answers.
 
@@ -168,9 +184,12 @@ Classification grows from `xui-app/webplus/src/address.rs` (`normalize`), pure a
 
 1. It has a scheme (`https:`, `about:`, `data:`): navigate. `file:` still does not open (the `LoadHtml` route of
    webd-plan open question 5 is a separate item).
-2. It looks like a host (`example.com`, `localhost:8080`, an IP literal, a single word followed by `/`): load
-   `https://` first. A connection failure (`State.error` before anything committed) loads `http://` once, and
-   the open padlock shows. Typed text that has neither a dot nor a port is a search, never a host.
+2. It looks like a host (`example.com`, `localhost`, `localhost:8080`, an IP literal, a single word followed
+   by `/`): load `https://` first. Only a **connection** failure (refused, reset, timed out, before anything
+   committed) offers `http://`, and never a certificate error: a network attacker can block port 443 to force
+   the downgrade. The offer is a page of the browser's own ("This site did not answer over HTTPS. Load it
+   without encryption?"), not a silent retry. A site the person said yes to is remembered for the session, and
+   its padlock shows open. Typed text with no dot and no port (other than `localhost`) is a search.
 3. Anything else, or text that starts with `?`: search. The default template is DuckDuckGo
    (`https://duckduckgo.com/?q=%s`), a setting in `confd` (`user/<uid>/lazywebplus/search/template`). It is the
    user's, and the engine processes cannot reach it.
@@ -232,12 +251,13 @@ with three fixed roots: Bookmarks bar, Other bookmarks, Unsorted.
 ### 4.3 Favicons (a webd addition)
 
 webd has no favicon today. `ViewConfig.icons: Bool = 17` (browser scope only) makes webd send
-`Favicon(view, page_url, icon_url, data: Bytes)` (event 126) once a page's icon has loaded. The bytes come
-through the profile's network process like any subresource and are capped at 64 KiB (a larger icon is not
-sent). The **window** decodes them, with the decoders it already links for xui (PNG, ICO, a bounded SVG
-subset or none), at most 64x64 after decoding, and keeps them in `favicons.log`, one per host. Nothing decoded
-is handed back to a page. Engine half: a **spike (S2)** to find which WebKit C API gives the icon's address and
-data in this port (the GTK and WPE ports use a favicon database that `OptionsLazyOS.cmake` may not enable).
+`Favicon(view, page_url, width, height, rgba: Bytes)` (event 126) once a page's icon has loaded and been
+**decoded on the engine's side**: the web process already decodes images and is sandboxed, so untrusted icon
+bytes are never parsed in the window, which holds the vault key (section 6). The picture is scaled to at most
+32x32 (4 KiB of RGBA) and `page_url` is cut at 2 KiB, so the event stays well inside `EVENT_BYTES_MAX`
+(`xui-app/crates/webd/src/limits.rs`). The window checks `rgba.len() == width * height * 4` and keeps the
+pixels in `favicons.log`, one per host. Nothing is handed back to a page. Engine half: a **spike (S2)** to find which WebKit C API gives the icon's decoded image
+in this port (the GTK and WPE ports use a favicon database that `OptionsLazyOS.cmake` may not enable).
 The fallback is the first letter of the host on a coloured tile.
 
 ## 5. B2/B3: control over stored data
@@ -250,7 +270,7 @@ One page lists every kind of data the browser keeps, its size on disk, and a cle
 |---|---|---|---|---|
 | History | `history.log` | window | range (hour, day, week, all), site | 90 days |
 | Bookmarks | `bookmarks.log` | window | entry, folder | kept |
-| Favicons | `favicons.log` | window | all (with history) | follows history |
+| Favicons | `favicons.log` | window | all; a range or site clear of history removes the hosts no history or bookmark still names | follows history |
 | Session | `session.json` | window | all | last session |
 | Passwords | `vault.db` (B3) | window | entry, site, all | kept |
 | Notification choices | `notify.tsv` | window (told to webd) | site, all | kept |
@@ -263,8 +283,11 @@ One page lists every kind of data the browser keeps, its size on disk, and a cle
 The window's half runs on the window's own files. The engine's half needs new webd calls, all behind the browser
 scope and only on the `browser` profile:
 
-* `DataUsage(view) -> (sites: Array<SiteData>)` (method 41): one row per site with cookie count and storage
-  bytes, and the cache total. It is built from `WKWebsiteDataStore`'s fetch-records call.
+* `DataUsage(view, request: U64, offset: U32)` (method 41): WebKit fetches data records asynchronously, so the
+  call returns at once and the answer is the event `DataUsageResult(view, request, sites: Array<SiteData>,
+  total: U32, cache_bytes: I64)` (event 129), at most 256 rows per event; the window asks again with the next
+  `offset`. `struct SiteData { site: String = 1 (at most 255 bytes), cookies: U32 = 2, storage_bytes: I64 = 3 }`.
+  It is built from `WKWebsiteDataStore`'s fetch-records call.
 * `ClearData(view, request: U64, kinds: U32, sites: Array<String>, since: I64)` (method 42): a bit mask of
   cookies, storage, cache and the compiled rules. Empty `sites` means all of them. `since` is a time or 0. The
   answer is the event `DataCleared(view, request, ok)` (event 128), because WebKit clears asynchronously, and
@@ -283,7 +306,11 @@ surface.
 - [ ] **Third-party cookies blocked by default**, with per-site exceptions. A new call,
   `SetCookiePolicy(view, policy: U32, exceptions: Array<String>)` (method 43), sets
   `WKHTTPCookieStore`'s accept policy on the profile (Always, NoThirdParty, Never), kept per profile like
-  `SetBlocking`. The window keeps the choice in `confd` and tells webd at each `CreateView`.
+  `SetBlocking`. The window keeps the choice in `confd` and tells webd at each `CreateView`. WebKit's accept
+  policy has no per-site exceptions, so the exceptions are a **spike (S4)** in the network process (WebKit's
+  third-party cookie blocking has per-domain hooks, but the C API may not expose them). Without S4, B2 ships
+  the policy with no exceptions. Blocking third-party cookies breaks some single sign-on flows, which is why
+  the exceptions matter (section 10).
 - [ ] **Export everything except passwords** as one archive (bookmarks HTML, history CSV, settings) through
   the Save dialog, with `lazyarc`'s zip writer (`xui-app/crates/archive`).
 
@@ -291,16 +318,18 @@ surface.
 
 `Ctrl+Shift+N` opens a window whose views are made with `ephemeral`: webd's `browser` profile in memory, the
 mode File > Keep Page Data in Memory already uses (#940). The window writes no history, no session, no
-favicon and no password, and its frame is drawn in a distinct colour. Two changes are needed in webd:
+favicon and no password, and its frame is drawn in a distinct colour.
 
-* **An ephemeral view beside a persistent one.** One window keeps the `browser` profile on disk while another
-  holds it in memory, so the profile map must key the two apart (`fullconfig.rs` already distinguishes
-  `Profile::Browser { ephemeral }`, and `private_store` follows it). The P2 harness checks it: a cookie set in
-  the private window is not seen in the normal one, and is gone when the private window closes.
-* **Blocking in memory.** webd refuses content blocking for a profile in memory, so a private window would load
-  ads. The compiled store is read-only after compile, so webd attaches the `browser` profile's compiled lists
-  to the ephemeral store as well (`BlockingLoad` reads, never writes). Notifications stay refused in a private
-  window.
+* **An ephemeral view beside a persistent one already works in webd.** `fullconfig.rs` keys
+  `Profile::Browser { ephemeral }` apart, the engine keeps the memory store and the disk store apart when it
+  matches group-mates, and `webkit/port/webd/test/modes_store.cpp` tests it. B3's harness still checks it end
+  to end: a cookie set in the private window is not seen in the normal one, and is gone when the private
+  windows close. All of a client's private windows share **one** memory store for the session (as in other
+  browsers); that is intended, and the store is dropped when the last private view ends.
+* **Blocking in memory is the change.** `fullconfig.rs` refuses `blocking` for a profile that is not on disk,
+  because the rule lists live in the profile's folder. The compiled store is only read after compile, so webd
+  attaches the `browser` profile's compiled lists to the memory store too (`BlockingLoad` reads, never
+  writes) and the check is relaxed for the browser scope. Notifications stay refused in a private window.
 
 ## 6. B3: passwords
 
@@ -314,12 +343,15 @@ per app and user, too few to keep one per site, and enough for two keys.
    `app:os.lazy.lazywebplus`. A helper child (`app:os.lazy.lazywebplus/listupdate`) is refused by keyd,
    and webd's labels are other apps.
 2. `vault.db` in the browser's folder holds rows of `(origin, username, nonce, ciphertext, created,
-   last_used)`. The password is sealed with XChaCha20-Poly1305 (or AES-256-GCM) from `nettls-crypto`, the
-   in-tree provider Mail already links. The associated data is the origin and the username, so a row cannot be
-   moved to another site. The file is a record log like the history (section 4.1), with no SQLite.
+   last_used)`. The password is sealed with XChaCha20-Poly1305 from RustCrypto's `chacha20poly1305` crate
+   (random 192-bit nonces need no counter). `nettls-crypto` has the crate only as a private dependency behind
+   TLS cipher suites, so the window adds it directly, and `licenses.py --lazywebplus` checks it (MIT OR
+   Apache-2.0). The associated data is the origin and the username, so a row cannot be moved to another site.
+   The file is a record log like the history (section 4.1), with no SQLite.
 3. **Optional primary password.** When one is set, the vault key is stored wrapped by an Argon2id key derived
    from it (`appsecret.Put("vault-key-wrapped")`, the bare key deleted), and the vault locks after 15 idle
-   minutes. The Argon2id code is the one `accountsd` uses. The parameters are the accounts database's.
+   minutes. The Argon2id code is `libs/crypto/src/kdf.rs`, which the account database uses, with its
+   parameters.
 
 ### 6.2 Capture and fill (webd additions)
 
@@ -327,23 +359,30 @@ The engine sees the form. The window holds the vault. webd carries what crosses 
 made with `ViewConfig.credentials: Bool = 16`, which only the browser scope may set (`EACCES` otherwise,
 like `downloads`).
 
-- [ ] **Capture.** When a form with a password field is submitted in a frame whose origin is the page's own, or
-  a same-site frame, webd sends `FormSubmitted(view, origin, page_url, username, password, new_password)`
-  (event 127). The window then shows a bar: Save, Never for this site, Not now. Nothing is written before the
-  click. This event carries a secret: webd never prints it, never queues it past the view's life, and the
-  `Webd` trace lint learns to refuse its fields. The draft's "plaintext never crosses to the network process"
-  holds: the password goes page process, then webd's UI process, then the window, the path it already took to
-  be typed.
+- [ ] **Capture.** When a form with a password field is submitted in the main frame, webd sends
+  `FormSubmitted(view, origin, page_url, username, password, new_password)` (event 127). **`origin` and
+  `page_url` are webd's own**: the view's committed URL in the UI process, never a value the page process
+  reports. Otherwise a compromised page process of `evil.example` could label a submission `bank.example`,
+  and the person, trusting the bar, would save the attacker's password for the bank. A submission from a
+  subframe is not offered in v1. The window then shows a bar naming that origin: Save, Never for this site,
+  Not now. Nothing is written before the click. The event carries a secret, so webd sends it at once,
+  outside the shared event queue (`QUEUE_KEPT`), wipes its copy after the send, never prints it, and the
+  trace lint learns to refuse its fields. The draft's "plaintext never crosses to the network process" holds:
+  the password goes page process, then webd's UI process, then the window, the path it already took to be
+  typed.
 - [ ] **Fill only on the exact origin**, scheme and port included: an `http://` page never gets an `https://`
   password. Fill only on the person's action (the key icon in the field or the omnibar), never at page load, so
   a hidden form cannot harvest it. The window calls `FillCredentials(view, origin, username, password)`
-  (method 40). webd checks the view's **committed** origin against `origin` at the moment it acts and refuses
-  with `EACCES` on any difference (a navigation between the click and the call). It then fills the focused
-  form's username and password fields and nothing else.
+  (method 40). It is checked twice. webd compares the view's **committed** origin with `origin` and refuses
+  with `EACCES` on any difference. Then the fill code in the page process (S3 below) receives `origin` too and
+  compares it with the main frame document's own origin at the moment it fills, because a navigation can
+  commit between webd's check and the fill. It refuses a field in a cross-origin subframe or outside the
+  focused form, and fills that form's username and password fields and nothing else.
 - [ ] The window decrypts into a buffer it zeroes after the call (`zeroize` on the plaintext and the key). The
   Messenger message is sent and dropped, and the window's request buffer is cleared.
-- [ ] `about:passwords`: search, view (after the person's password through `keyd.Verify`, or the primary
-  password when one is set), edit, delete, export to CSV through the Save dialog behind a warning. A page of the
+- [ ] `about:passwords`: search, view (after the person's account password through
+  `os.lazy.accounts.v1.Authenticate`, which is slowed per caller; `keyd.Verify` takes calls from `accountsd`
+  only. With a primary password set, that password instead), edit, delete, export to CSV through the Save dialog behind a warning. A page of the
   browser's own whose rows are built from the vault in the window and given with `LoadHtml`. A password is
   never put in the page's HTML: View reveals one row through a window dialog.
 - [ ] A password generator for new-account forms (20 characters, adjustable), filled by the same method.
@@ -372,9 +411,14 @@ The `app_id` field of the draft is dropped, because it would be a claim made ove
 * `Submit(report: Report) -> (draft: U64)`: opens LazyAgent on a new Diagnose conversation seeded with the
   report, or brings it to the front. Rated LOW: it only makes a draft that the person reviews.
 * `Report { app_version, summary, steps, expected, actual, attachments: Array<Attachment> }`, at most 256 KiB
-  in all, each text field cut and stripped of control characters. `Attachment { kind, name, text }`. A
-  screenshot travels as a PNG in a `Buffer` parameter of `Submit` (an object of the call, at most one,
-  `messenger.md` §1), not in the struct.
+  in all, each text field cut and stripped of control characters. `Attachment { kind, name, text }`. LazyAgent
+  sizes its receive buffer for the largest report.
+* `SubmitWithPicture(report: Report, picture: Buffer)`: the same with a screenshot as a PNG. An object is a
+  declared parameter that is always present (`messenger.md` §1: never in an `Option`), so a report without a
+  picture uses `Submit`. A screenshot is page pixels that `libs/redact` cannot redact. The form says so in its
+  preview, and the box is never ticked by default.
+* LazyAgent accepts at most 3 reports a minute per app and one open draft per app at a time; more are
+  `EBUSY`. Any app may call it, so this keeps a misbehaving app from flooding the person with drafts.
 * Classified for developer tools in `tools/devtool/reviewed_interfaces.txt` (a script may file a draft), with an
   `explain` row and `midlc --rhai-api` regenerated.
 
@@ -415,23 +459,34 @@ keeps the shared ids, and the `explain` rows and `midlc --rhai-api` output are r
 | `ViewConfig.credentials: Bool` | 16 | browser scope | B3 |
 | `ViewConfig.icons: Bool` | 17 | browser scope | B2 |
 | `FillCredentials(view, origin, username, password)` | method 40 | a `credentials` view | B3 |
-| `DataUsage(view) -> (sites)` | method 41 | browser scope, `browser` profile | B2 |
+| `DataUsage(view, request, offset)` | method 41 | browser scope, `browser` profile | B2 |
 | `ClearData(view, request, kinds, sites, since)` | method 42 | browser scope, `browser` profile | B2 |
 | `SetCookiePolicy(view, policy, exceptions)` | method 43 | browser scope | B2 |
 | `Recover` with a group flag (a new method, `RecoverGroup(view)`, so method 17 keeps its shape) | method 44 | full view | B1 |
-| `Favicon(view, page_url, icon_url, data)` | event 126 | an `icons` view | B2 |
+| `DetachSlots(view)` | method 45 | full view | B1 |
+| `Favicon(view, page_url, width, height, rgba)` | event 126 | an `icons` view | B2 |
 | `FormSubmitted(view, origin, page_url, username, password, new_password)` | event 127 | a `credentials` view | B3 |
 | `DataCleared(view, request, ok)` | event 128 | browser scope | B2 |
+| `DataUsageResult(view, request, sites, total, cache_bytes)` and `struct SiteData` | event 129 | browser scope | B2 |
 | Limits: web processes per user 4 to 16 below the memory gate; views per client 8 to 64 with the browser scope | `limits.rs` | | B1 |
 | Parked-view pool, `webd_engine_view_pid` | engine | | B1 |
 | An ephemeral `browser` store beside the persistent one, blocking lists attached to it | engine | | B3 |
 | A held `NewWindowRequested` answered with a new view, keeping `window.opener` | later | | after B4 |
 
-webd's security table (webd-plan §5) gains three rows. A client asks for a password fill on a page that
-navigated meanwhile: webd checks the committed origin at the moment it acts. A compromised page process forges
-`FormSubmitted` events: it could already read what is typed, so an event forged that way adds nothing it
-could not have, and the window saves nothing without a click. A client splits its group to exhaust memory: the
-memory gate and the 16-process ceiling bound it, and only its own user pays.
+webd's security table (webd-plan §5) gains three rows:
+
+* **A fill on a page that navigated meanwhile.** webd checks the committed origin, and the page process
+  checks its document's origin again at the moment it fills.
+* **A compromised page process forges `FormSubmitted`.** The origin in the event is webd's committed URL, not
+  the page's word, so a forged event can only offer to save a password for the site the process already
+  serves. The window saves nothing without a click.
+* **A client splits its group to exhaust memory.** At most 32 keys per client, the memory gate and the
+  16-process ceiling bound it, and only its own user pays.
+
+`os.lazy.webd.view.v1` is in `tools/devtool/reviewed_interfaces.txt` as script-callable. The new secret-carrying
+calls are usable only on a `credentials` view, which needs the browser scope, and `os.lazy.webd.browser.v1` is in
+`devtool::DENY` (`libs/devtool`), so a developer tool cannot make one. The classification stays, with that reason
+written beside it.
 
 ## 9. Phasing
 
@@ -440,7 +495,7 @@ Each phase ships on its own and passes `tools/webplus/run.py`, `notify_run.py`, 
 
 | Phase | Deliverable | Gate |
 |---|---|---|
-| **B0: groundwork** (days) | LazyWeb+'s `WEBPLUS:*` lines through `xui_app::trace` (`Channel::Webplus`, the `check_adhoc` baseline lowered); spikes S1 (several xui windows in one process), S2 (favicons), S3 (form bundle) recorded in this file | `check_adhoc.py --ratchet` with the browser's entries at 0; three spike answers |
+| **B0: groundwork** (days) | The four remaining `println!`s of `app/events.rs` through `marker()`, the host fallback in `lib.rs` kept out of the LazyOS build, `docs/lazywebplus.md`'s "Evidence lines" limit corrected; spikes S1 (several xui windows in one process), S2 (decoded favicons), S3 (form bundle), S4 (per-site cookie exceptions) recorded in this file | `check_adhoc.py --ratchet` with `app/events.rs` at 0 and its baseline lowered; four spike answers |
 | **B1: shell** | Tabs, the tab strip, keys, `target=_blank` as a tab, middle-click and link menu, the crashed-tab page, session restore (lazy), discard; in webd `process_key`, the memory-gated limits, the parked-view pool, group recovery, `view_pid`; windows if S1 allows | The tab boot of 2.6: 10 tabs over 3 sites, one site's process killed and the others painting; `target=_blank` opens a tab; a script's `window.open` refused; the restored session loads only the active tab; webd's view count back to its start after 200 tab open/close cycles; per-tab memory measured on real pages on both boxes and the discard numbers written here |
 | **B2: profile store** | The places store with `history.tsv` migrated, the omnibar and its suggestions, bookmarks (star, bar, manager, HTML import/export), favicons, `about:data` with `DataUsage`/`ClearData`, the site panel, the third-party cookie policy, clear on exit, export | The omnibar under 16 ms per key with 50,000 history rows (a host bench like LazySky's `--test bench`); a cookie of a site cleared from the site panel is gone in the next boot's request log; the import fuzz target runs clean for its seeded cases; the attack harness shows that webd's network and page processes cannot write `$HOME/.apps/os.lazy.lazywebplus` (a new row in `attackjudge.py`) |
 | **B3: vault and private windows** | The `keyd` vault key, `vault.db`, the save bar, fill on action, `about:passwords`, the generator, the primary password; private windows with an ephemeral store and blocking | The attack harness: webd's page and network processes cannot read `vault.db` or the key (`keyd` refuses their labels), a `listupdate` child is refused by `keyd`; a cross-origin fill, an `http:` downgrade fill and a fill after a navigation are all refused (host tests and a harness page); a private window's cookie is not seen by the normal window and is gone after it closes; no password in the serial log, the session record or the volume outside `vault.db` |
@@ -458,7 +513,8 @@ stub service as soon as the IDL exists.
 | The parked-view pool is harder than it looks (WebKit keeps a proxy per ended page, patch `0021`) | webd grows as tabs come and go | B1's gate counts webd's views and memory after 200 cycles; the pool lands before tabs ship |
 | No injected bundle in the port (S3) | B3's capture and fill need engine code | a minimal bundle in `WebProcess`; if that is refused, fill through a script in an isolated world and capture through a submit listener there |
 | Losing `window.opener` | sign-in pop-ups that report back fail | documented; the held-`NewWindowRequested` item after B4 |
-| The window is not sandboxed | vault plaintext lives in it briefly | zeroed buffers; the fill code small and fuzzed; the key never leaves the window |
+| The window is not sandboxed | vault plaintext lives in it briefly | zeroed buffers; the fill code small and fuzzed; the key never leaves the window; no untrusted image or HTML decoded in it except the fuzzed bookmark import |
+| Third-party cookies blocked by default | some single sign-on flows break | per-site exceptions (spike S4); until then the setting can be turned off |
 | A report leaks page data | private URLs end up in a public repository | host only by default, every attachment previewed, LazyAgent's redaction and renderer filter |
 | A crashed webd blanks every tab | all windows lose their pages | the reconnect path exists (`lazywebplus.md`); tabs keep their URLs and reload on reconnect |
 
@@ -472,7 +528,7 @@ stub service as soon as the IDL exists.
 | 4 | The search template in `confd` or the profile | `confd`, `user/<uid>/lazywebplus/search/template`, beside the blocker's keys: the user's, out of the engine's reach |
 | 5 | Does LazyAgent accept reports from any app | yes, a generic `os.lazy.agent.report.v1`; the reporting app is the kernel-stamped label, never a field |
 | 6 | The discard threshold on the 8 GB box | measured in B1 (2.5) |
-| 7 | One web process per tab, or per site | per site, chosen by the client inside its own group (`process_key`, 2.3) |
+| 7 | One web process per tab, or per site | per host for now, chosen by the client inside its own group (`process_key`, 2.3); per registrable domain once a public-suffix list ships |
 | 8 | Several windows: one process or one each | one process (one session writer, one webd connection), if spike S1 shows xui can; otherwise one window with tabs first |
 
 ## 12. Conventions (AGENTS.md)
@@ -482,8 +538,8 @@ devtool classification and the Rhai docs regenerated. Evidence through `xui_app:
 webd's channel, with no secret in any trace (the lint's channel list gains `Webplus` for the vault's lines).
 Paths from `libs/fhs` (`fhs::app_data_dir`). Files under 500 lines (`app.rs` and `chrome.rs` will be split by the
 tab strip). No new build switch: everything ships in `LAZYOS_LAZYWEBPLUS=1`, and the permissions it adds
-(`sysmond`'s memory topic, `os.lazy.keyd.appsecret.v1`, `init.Launch` for B4) are derived from a
-`LAZYOS_LABEL_TRACE=1` run of the harness. The GPLv2-compatible check on the window's crates
-(`python tools/nettls/licenses.py --lazywebplus`) covers every new dependency (`zeroize`, the HTML import
-parser). webd changes keep their host tests against the recording engine and the in-memory fabric, and a seeded
+(`sysmond`'s memory topic, `os.lazy.keyd.appsecret.v1` and `os.lazy.accounts.v1` for B3, `os.lazy.init.v1` and
+`os.lazy.agent.report.v1` for B4) are derived from a `LAZYOS_LABEL_TRACE=1` run of the harness. The
+GPLv2-compatible check on the window's crates (`python tools/nettls/licenses.py --lazywebplus`) covers every new
+dependency (`chacha20poly1305`, `zeroize`, the HTML import parser). webd changes keep their host tests against the recording engine and the in-memory fabric, and a seeded
 soak for the group and pool state. The pre-PR review applies to each phase.

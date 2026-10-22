@@ -382,8 +382,9 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   another app" (safe, but useless) until the page is opened again. A page longer than 8 KiB that WebKit loads
   again shows empty (above).
 * **Dialogs** are titled with the top-level site, not the frame that asked.
-* **Evidence lines** are `println!`s (the `Webplus` trace channel exists and is not used yet; the ones that name a
-  page, an address or a file print only in a `LAZYOS_UI_PROBE=1` image).
+* **Evidence lines** go through `xui_app::trace` (`Channel::Webplus`, `marker()` in `lib.rs`) except four
+  `println!`s left in `app/events.rs` (`STOPPED`, `FAIL`, `DIALOG`); the ones that name a page, an address or a
+  file print only in a `LAZYOS_UI_PROBE=1` image.
 * **`history.tsv` is in the browser's folder** (a plain file the window reads: the last 2 MiB of it, titles cut at
   512 characters, addresses over 2048 dropped). webd's processes cannot write it.
 * **`Notification.close()` during a navigation leaves the toast up.** A page that enters the back/forward cache is
