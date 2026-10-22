@@ -24,12 +24,14 @@ use xui_webkit::view::PageView;
 
 mod commands;
 mod events;
+mod frame;
 mod hang;
 mod host;
 mod notifications;
 mod search;
 mod shield;
 mod status;
+mod suggest;
 mod webd;
 
 pub use host::{Host, Probe, Setup};
@@ -76,6 +78,8 @@ pub enum Msg {
     RestoreAddress,
     /// The user changed the address field's text.
     AddressEdited,
+    /// The person acted on the suggestions under the address field.
+    Suggest(crate::suggest::dropdown::Act),
     /// The user clicked in the page: whatever was half-typed in the address field is abandoned.
     PageClicked,
     /// A right click on the page, at a point of the view.
@@ -145,6 +149,8 @@ pub struct Browser {
     /// The user is typing an address: the page's own news (its URL as it loads, redirects) must
     /// not replace what they typed.
     editing: bool,
+    /// The history suggestions under the address field.
+    suggest: suggest::Panel,
     /// The title the visit was last recorded with (a title can arrive after the load).
     recorded: Option<(String, String)>,
     /// A host typed in the address bar and opened over HTTPS, not yet known to have worked.
@@ -211,8 +217,18 @@ impl Browser {
         let field = address.id();
         let key_loading = Rc::clone(&loading);
         let focused = Rc::clone(&host.focused);
+        let suggestions_open = Rc::new(Cell::new(false));
+        let key_suggestions = Rc::clone(&suggestions_open);
         ui.on_key(move |key, mods| {
-            shortcut(key, mods, focused() == Some(field), key_loading.get())
+            let in_address = focused() == Some(field);
+            // While the dropdown has rows, its keys come before the window's (Escape puts it away
+            // before it restores the address).
+            if in_address && key_suggestions.get() {
+                if let Some(msg) = suggest::key(key, mods) {
+                    return Some(msg);
+                }
+            }
+            shortcut(key, mods, in_address, key_loading.get())
         });
 
         let context = Context::new(ui);
@@ -251,6 +267,7 @@ impl Browser {
             loading,
             stopping: false,
             editing: false,
+            suggest: suggest::Panel::new(&widgets, suggestions_open),
             recorded: None,
             pending_https: None,
             offered: None,
@@ -370,57 +387,6 @@ impl Browser {
         };
         self.internal.name_for(url) == Some(name)
     }
-
-    fn show_frame(&mut self, ui: &Ui<Msg>) {
-        self.page.add_bands(xui_webkit::bands::take());
-        if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
-            if self.state.crashed {
-                // A picture painted just before the page's process went away.
-                self.spare = update.full.map(|frame| frame.rgba).unwrap_or_default();
-                return;
-            }
-            let full = update.full.is_some();
-            let before = self.page.picture_size();
-            let started = Instant::now();
-            let applied = self.page.apply(update);
-            // A whole picture of a new size: the page was laid out at the view's size (what a
-            // session waits for after it resized the window).
-            match self.page.picture_size() {
-                Some((w, h)) if full && Some((w, h)) != before => {
-                    self.trace(&format!("INFO:RESIZE:{w}x{h}"));
-                }
-                _ => {}
-            }
-            let took = started.elapsed();
-            if let Some(line) = self.clock.record(
-                started + took,
-                took,
-                full,
-                self.page.picture_parts(),
-                self.page.take_draw_time(),
-            ) {
-                crate::marker(&line);
-            }
-            if let Some(line) = self.page.spec_line() {
-                crate::marker(&line);
-            }
-            if let Some(line) = self.page.smooth_line() {
-                crate::marker(&line);
-            }
-            if applied.resync {
-                self.mailbox.request_full();
-            }
-            if !applied.spare.is_empty() {
-                self.spare = applied.spare;
-            }
-            self.frames += 1;
-            // The first frame, and the first after the window changed size: where the controls are.
-            let page = ui.bounds(self.page.id());
-            if self.announced.get() != (page.width(), page.height()) {
-                self.announce(ui);
-            }
-        }
-    }
 }
 
 /// The window's caption for a page title.
@@ -444,6 +410,12 @@ impl App for Browser {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        // Enter opens the highlighted suggestion, if the person moved onto one, before the
+        // dropdown goes.
+        let chosen = self.suggest.chosen().filter(|_| matches!(msg, Msg::Go));
+        if suggest::closes(&msg) {
+            self.hide_suggest(ui);
+        }
         match msg {
             Msg::Frame => self.show_frame(ui),
             Msg::State => self.show_state(ui),
@@ -457,7 +429,10 @@ impl App for Browser {
                 };
                 self.command(command, ui);
             }
-            Msg::Go => self.go(),
+            Msg::Go => match chosen {
+                Some(row) => self.open_row(row),
+                None => self.go(),
+            },
             Msg::FocusAddress => self.focus_address(),
             Msg::RestoreAddress => {
                 self.editing = false;
@@ -465,7 +440,11 @@ impl App for Browser {
                 self.address.set_text(&shown);
                 self.page.focus();
             }
-            Msg::AddressEdited => self.editing = true,
+            Msg::AddressEdited => {
+                self.editing = true;
+                self.address_edited(ui);
+            }
+            Msg::Suggest(act) => self.suggest_act(ui, act),
             Msg::PageClicked => {
                 if self.editing {
                     // The page has the keyboard again: its address is the field's again.

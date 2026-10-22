@@ -44,6 +44,7 @@ pub mod notify;
 pub mod pages;
 pub mod policy;
 pub mod prefs;
+pub mod suggest;
 pub mod transfers;
 pub mod visits;
 

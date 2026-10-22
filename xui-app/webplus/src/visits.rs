@@ -137,6 +137,19 @@ impl Visits {
         self.rewrite()
     }
 
+    /// Forgets every visit to `url` (a suggestion the person removed), on disk too: the file is
+    /// rewritten through a temporary one, so a crash leaves the old history whole. Returns how many
+    /// visits went.
+    pub fn remove_url(&mut self, url: &str) -> io::Result<usize> {
+        let before = self.entries.len();
+        self.entries.retain(|visit| visit.url != url);
+        let removed = before - self.entries.len();
+        if removed > 0 {
+            self.rewrite()?;
+        }
+        Ok(removed)
+    }
+
     /// Forgets every visit, on disk too.
     pub fn clear(&mut self) -> io::Result<()> {
         self.entries.clear();
@@ -252,6 +265,27 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_removed_page_is_gone_from_memory_and_from_the_file_with_all_its_visits() {
+        let file = temp("remove");
+        let mut visits = Visits::open(file.clone());
+        visits.record("http://a.test/", "A", 10).unwrap();
+        visits.record("http://b.test/", "B", 20).unwrap();
+        visits.record("http://a.test/", "A", 30).unwrap();
+        assert_eq!(visits.remove_url("http://a.test/").unwrap(), 2);
+        assert_eq!(visits.remove_url("http://a.test/").unwrap(), 0);
+        let again = Visits::open(file.clone());
+        let urls: Vec<_> = again.entries().iter().map(|v| v.url.as_str()).collect();
+        assert_eq!(urls, ["http://b.test/"]);
+        assert!(
+            !file.with_extension("tmp").exists(),
+            "the temporary file is renamed away"
+        );
+        // The file keeps taking visits afterwards.
+        visits.record("http://c.test/", "C", 40).unwrap();
+        assert_eq!(Visits::open(file).entries().len(), 2);
     }
 
     #[test]

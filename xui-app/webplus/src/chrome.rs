@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build, button, column, edit, group, label, menu_bar, progress, row, Align, Handle, Layout,
-    LayoutExt,
+    build, button, column, edit, group, label, menu_bar, progress, row, stack, Align, Handle,
+    Layout, LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::layout::Insets;
@@ -23,6 +23,7 @@ use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::keys;
 use crate::notify::BarAnswer;
+use crate::suggest::widget::SuggestBox;
 
 /// Heights of the menu bar, the toolbar and the status bar.
 const MENU_HEIGHT: Dip = Dip(28.0);
@@ -33,6 +34,8 @@ const NOTIFY_HEIGHT: Dip = Dip(64.0);
 const NOTIFY_BUTTON: Dip = Dip(84.0);
 /// The bar a page that stopped answering shows, in the same place.
 const HANG_HEIGHT: Dip = Dip(64.0);
+/// Where the suggestions start: under the address field, past the four buttons.
+const SUGGEST_LEFT: Dip = Dip(138.0);
 /// The square icon buttons of the toolbar, and the download progress bar.
 const TOOL_SIDE: Dip = Dip(30.0);
 const PROGRESS_WIDTH: Dip = Dip(120.0);
@@ -109,6 +112,8 @@ pub struct Widgets {
     pub menu: Handle<xui_core::widget::Menu<Msg>>,
     pub page: Handle<PageView<Msg>>,
     pub address: Handle<Edit<Msg>>,
+    /// The history suggestions under the address field, drawn over the page.
+    pub suggest: Handle<SuggestBox>,
     pub back: Handle<Button<Msg>>,
     pub forward: Handle<Button<Msg>>,
     /// Reload while idle, Stop while loading.
@@ -142,18 +147,26 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         hang_bar(widgets).fixed(HANG_HEIGHT),
-        build(move |ui| {
-            let hooks = Hooks {
-                is_shortcut: Rc::new(move |key, mods| {
-                    keys::is_window_key(key, mods, loading.get())
-                }),
-                clicked: Msg::PageClicked,
-                right_click: Some(Rc::new(Msg::PageMenu)),
-            };
-            PageView::new(ui, engine, hooks)
-        })
-        .bind(&widgets.page)
-        .fill(1),
+        // The suggestions float over the top of the page, under the address field.
+        stack()
+            .children((
+                build(move |ui| {
+                    let hooks = Hooks {
+                        is_shortcut: Rc::new(move |key, mods| {
+                            keys::is_window_key(key, mods, loading.get())
+                        }),
+                        clicked: Msg::PageClicked,
+                        right_click: Some(Rc::new(Msg::PageMenu)),
+                    };
+                    PageView::new(ui, engine, hooks)
+                })
+                .bind(&widgets.page),
+                row()
+                    .padding(Insets::new(SUGGEST_LEFT, Dip(0.0), Dip(0.0), Dip(0.0)))
+                    .child(build(SuggestBox::new).bind(&widgets.suggest))
+                    .align(Align::Start),
+            ))
+            .fill(1),
         status_bar(widgets).fixed(STATUS_HEIGHT),
     ))
 }
