@@ -187,6 +187,22 @@ impl Fx {
         self.call(from, wire::METHOD_NOTIFYFORGET, body)
     }
 
+    pub fn notify_state(
+        &mut self,
+        from: Origin,
+        view: u64,
+        notification: u64,
+        state: u32,
+    ) -> Outcome {
+        let args = wire::NotifyStateArgs {
+            view,
+            notification,
+            state,
+        };
+        let body = wire::encode_notify_state_args(&args).unwrap();
+        self.call(from, wire::METHOD_NOTIFYSTATE, body)
+    }
+
     pub fn recover(&mut self, from: Origin, view: u64, reload: bool) -> Outcome {
         let body = wire::encode_recover_args(&wire::RecoverArgs { view, reload }).unwrap();
         self.call(from, wire::METHOD_RECOVER, body)

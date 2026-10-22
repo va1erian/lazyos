@@ -113,3 +113,12 @@ pub const INPUT_LOCK_MS: u64 = 3000;
 /// Navigations held at once per view, and notifications on screen at once per view.
 pub const HELD_PER_VIEW: usize = 8;
 pub const TOASTS_PER_VIEW: usize = 4;
+
+/// Notifications a view made with `notify_in_client` may have open in its app at once (given with
+/// `NotifyShow`, not yet `Closed` or cancelled). Past this the page's notification is closed by webd
+/// and nothing is sent: a page cannot grow webd's table, nor the app's.
+pub const CLIENT_NOTIFICATIONS_PER_VIEW: usize = 64;
+
+/// Each of a `NotifyShow`'s five texts (origin, page address, title, body, tag) is cut at this:
+/// five of them and the framing stay well inside [`EVENT_BYTES_MAX`].
+pub const NOTIFY_TEXT_BYTES: usize = 16 << 10;

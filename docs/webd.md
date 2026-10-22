@@ -222,6 +222,16 @@ the process. `NotifyForget(view, origin)` forgets the profile's decision about `
 site's next request is asked again (`NotifyPermissionRequest`); WebKit's record is the context's, so it goes for
 every profile.
 
+**Notifications shown by the app** (`ViewConfig.notify_in_client`, with `notifications`; P4). The shell raises the
+app that posted a toast when it is clicked, and an app cannot raise its own window, so a browser posts the page's
+notifications itself. webd still keeps the profile's decisions and hands the app only what the profile allowed:
+`NotifyShow(notification, origin, page_url, title, body, tag)` (each text cut at 16 KiB; an origin nobody allowed,
+or more than 64 open at once in the view, is answered "closed" to the page and never reaches the app), then
+`NotifyCancel` (the page closed it) and `NotifyGone` (its object is gone: the toast stays, a click reaches no
+script). The app answers with `NotifyState(notification, Shown | Clicked | Closed)`, which runs the page's `show`,
+`click` and `close`; `ESRCH` for an id that is over or not the view's, `EACCES` for a view without the flag. webd
+posts no toast for such a view.
+
 **Frames with damage** (`ViewConfig.deltas`). The paint plan is the window's (`xui-app/crates/damage`,
 `lazydamage`, moved out of `xui-webkit` so both keep one set of rules), kept per view by the service
 (`webd_paint_*`). A `Frame` with `whole = false` carries `shift` (move that area of the picture by `dx, dy`) and

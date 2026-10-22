@@ -159,6 +159,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             }
             wire::METHOD_NOTIFYPERMISSION => self.notify_permission_call(client, body)?,
             wire::METHOD_NOTIFYFORGET => self.notify_forget_call(client, body)?,
+            wire::METHOD_NOTIFYSTATE => self.notify_state_call(client, body)?,
             wire::METHOD_SETBLOCKING => {
                 let args = wire::decode_set_blocking_args(body).map_err(bad)?;
                 if args.exceptions.len() > EXCEPTIONS_MAX {

@@ -37,7 +37,7 @@ fn check_origin(origin: &str) -> Result<(), Refusal> {
 
 impl<E: Engine, F: Fabric> Service<E, F> {
     /// What the profile decided about `origin`, if anything.
-    fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
+    pub(super) fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
         self.permissions
             .get(profile)?
             .get(&site_key(origin))
@@ -51,9 +51,24 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 view,
                 id,
                 origin,
+                page_url,
                 title,
                 body,
-            } => self.show(view, id, &origin, &title, &body),
+                tag,
+            } => {
+                if self.in_client(view) {
+                    let texts = [origin, page_url, title, body, tag];
+                    self.forward_show(view, id, texts);
+                } else {
+                    self.show(view, id, &origin, &title, &body);
+                }
+            }
+            Once::NotifyCancel { view, id } if self.in_client(view) => {
+                self.forward_end(view, id, wire::METHOD_NOTIFYCANCEL);
+            }
+            Once::NotifyGone { view, id } if self.in_client(view) => {
+                self.forward_end(view, id, wire::METHOD_NOTIFYGONE);
+            }
             Once::NotifyCancel { view, id } => {
                 let toast = self.full_of(view).and_then(|full| {
                     let toast = full

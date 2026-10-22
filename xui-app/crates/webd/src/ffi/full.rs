@@ -375,15 +375,23 @@ pub unsafe extern "C" fn webd_ui_notify_show(
     view: u64,
     id: u64,
     origin: *const c_char,
-    _page_url: *const c_char,
+    page_url: *const c_char,
     title: *const c_char,
     body: *const c_char,
-    _tag: *const c_char,
+    tag: *const c_char,
 ) {
     if let Some(sink) = sink() {
         // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
-        let (origin, title, body) = unsafe { (text(origin), text(title), text(body)) };
-        sink.notify_show(view, id, &origin, &title, &body);
+        let (origin, page_url, title, body, tag) = unsafe {
+            (
+                text(origin),
+                text(page_url),
+                text(title),
+                text(body),
+                text(tag),
+            )
+        };
+        sink.notify_show_from(view, id, &origin, &page_url, &title, &body, &tag);
     }
 }
 

@@ -94,6 +94,7 @@ reply with the standard error field (id 15).
 | BlockingLoad | 36 | sync | `(view: U64, list: String) -> ()` |
 | BlockingForget | 37 | sync | `(view: U64, list: String) -> ()` |
 | NotifyForget | 38 | sync | `(view: U64, origin: String) -> ()` |
+| NotifyState | 39 | sync | `(view: U64, notification: U64, state: U32) -> ()` |
 | Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
 | State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> ()` |
 | Scroll | 102 | oneway | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
@@ -117,6 +118,9 @@ reply with the standard error field (id 15).
 | Blocked | 120 | oneway | `(view: U64, count: U32) -> ()` |
 | Responsive | 121 | oneway | `(view: U64, responsive: Bool) -> ()` |
 | HandedOff | 122 | oneway | `(view: U64, url: String) -> ()` |
+| NotifyShow | 123 | oneway | `(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> ()` |
+| NotifyCancel | 124 | oneway | `(view: U64, notification: U64) -> ()` |
+| NotifyGone | 125 | oneway | `(view: U64, notification: U64) -> ()` |
 
 ## Objects
 
@@ -145,6 +149,7 @@ object list (the index each field must hold).
 - `user_agent_suffix: String`
 - `deltas: Bool`
 - `dialogs: Bool`
+- `notify_in_client: Bool`
 
 ## struct `Rect`
 
@@ -197,3 +202,7 @@ object list (the index each field must hold).
 ## enum `PermissionAnswer`
 
 - Block, Allow, Dismiss
+
+## enum `NotifyStateKind`
+
+- Shown, Clicked, Closed

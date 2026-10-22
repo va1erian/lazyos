@@ -142,6 +142,21 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.call(wire::METHOD_NOTIFYFORGET, body)
     }
 
+    /// What became of the app's toast for notification `notification` that
+    /// [`crate::full::FullEvent::NotifyShow`] gave a view made with `notify_in_client`: a
+    /// `NotifyStateKind` (shown, clicked: the page's click handler runs, closed). A notification
+    /// that is over or not this view's is [`Error::Refused`] with `ESRCH`, and the view goes on.
+    pub fn notify_state(&mut self, notification: u64, state: u32) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let args = wire::NotifyStateArgs {
+            view,
+            notification,
+            state,
+        };
+        let body = wire::encode_notify_state_args(&args).map_err(|_| BAD)?;
+        self.call_about_request(wire::METHOD_NOTIFYSTATE, body)
+    }
+
     /// The page's process does not answer ([`crate::full::FullEvent::Responsive`] `false`) and the
     /// person chose a way out: it is ended. With `reload` the page loads again in a fresh process.
     /// Without it the page stays stopped and the view ends (`ViewLost`, reason `Other`): make a
