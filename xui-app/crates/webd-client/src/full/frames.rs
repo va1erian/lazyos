@@ -5,15 +5,16 @@
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 
 use super::event::{self, Band, FrameInfo, FullEvent, Wire};
+use super::sink::PixelSink;
 use super::{FullWebView, BAND_ROWS, FRAME_SLOTS};
 use crate::event::Lost;
 use crate::transport::{ScopedTransport, SharedMem};
 use crate::view::EVENTS_PER_POLL;
 
 /// Whether every rectangle of a delta lies inside a view of `size`.
-fn delta_fits(frame: &wire::FrameArgs, size: (u32, u32)) -> bool {
+fn delta_fits(rects: &[super::Rect], size: (u32, u32)) -> bool {
     let (w, h) = (i64::from(size.0), i64::from(size.1));
-    frame.rects.iter().all(|r| {
+    rects.iter().all(|r| {
         let (x, y, rw, rh) = (
             i64::from(r.x),
             i64::from(r.y),
@@ -28,6 +29,10 @@ impl<T: ScopedTransport> FullWebView<T> {
     /// Read what has arrived, without parking: apply each frame to the picture in order, copy the
     /// bands, release their slots, and report everything.
     pub fn poll(&mut self) -> Vec<FullEvent> {
+        self.poll_with(None)
+    }
+
+    pub(super) fn poll_with(&mut self, mut sink: Option<&mut dyn PixelSink>) -> Vec<FullEvent> {
         let mut out = Vec::new();
         self.flush_owed();
         let Some(events) = self.live.as_ref().map(|live| live.events) else {
@@ -35,7 +40,13 @@ impl<T: ScopedTransport> FullWebView<T> {
         };
         for _ in 0..EVENTS_PER_POLL {
             match self.transport.recv(events) {
-                Ok(Some((method, body))) => self.event(method, &body, &mut out),
+                Ok(Some((method, body))) => {
+                    let sink: Option<&mut dyn PixelSink> = match &mut sink {
+                        Some(sink) => Some(&mut **sink),
+                        None => None,
+                    };
+                    self.event(method, &body, &mut out, sink)
+                }
                 Ok(None) => break,
                 Err(_) => {
                     self.lose(Lost::ServiceGone, &mut out);
@@ -49,7 +60,13 @@ impl<T: ScopedTransport> FullWebView<T> {
         out
     }
 
-    fn event(&mut self, method: u32, body: &[u8], out: &mut Vec<FullEvent>) {
+    fn event(
+        &mut self,
+        method: u32,
+        body: &[u8],
+        out: &mut Vec<FullEvent>,
+        sink: Option<&mut dyn PixelSink>,
+    ) {
         let Some(mine) = self.view_id() else {
             return;
         };
@@ -58,7 +75,7 @@ impl<T: ScopedTransport> FullWebView<T> {
             return;
         };
         match decoded {
-            Wire::Frame(frame) if frame.view == mine => self.frame(frame, out),
+            Wire::Frame(frame) if frame.view == mine => self.frame(frame, out, sink),
             Wire::Band(band) if band.view == mine => self.band(band, out),
             Wire::State(state) if state.view == mine => {
                 self.page = event::state(state);
@@ -79,7 +96,12 @@ impl<T: ScopedTransport> FullWebView<T> {
     /// Apply a frame to the picture and give its slot back. A frame that does not fit the slot we
     /// hold under that number (the size changed since) is not copied and not released: webd does
     /// not have that slot out any more (`Resize` detaches them all).
-    fn frame(&mut self, frame: wire::FrameArgs, out: &mut Vec<FullEvent>) {
+    fn frame(
+        &mut self,
+        frame: wire::FrameArgs,
+        out: &mut Vec<FullEvent>,
+        sink: Option<&mut dyn PixelSink>,
+    ) {
         let size = self.size;
         let bytes = u128::from(frame.width) * u128::from(frame.height) * 4;
         let index = frame.slot as usize;
@@ -94,12 +116,25 @@ impl<T: ScopedTransport> FullWebView<T> {
             self.counters.ignored += 1;
             return;
         }
-        let applied = if frame.whole {
-            self.copy_whole(&frame);
-            true
-        } else {
-            self.apply_delta(&frame)
+        let mut info = FrameInfo {
+            seq: frame.seq,
+            width: frame.width,
+            height: frame.height,
+            whole: frame.whole,
+            shift: frame.shift.clone(),
+            rects: frame.rects.clone(),
+            offset: (frame.offset_x, frame.offset_y, frame.at_bottom),
+            applied: false,
         };
+        let applied = match sink {
+            Some(sink) => self.to_sink(&info, frame.slot, sink),
+            None if frame.whole => {
+                self.copy_whole(&frame);
+                true
+            }
+            None => self.apply_delta(&frame),
+        };
+        info.applied = applied;
         if applied {
             self.last_seq = frame.seq;
             self.scroll = (frame.offset_x, frame.offset_y, frame.at_bottom);
@@ -111,16 +146,7 @@ impl<T: ScopedTransport> FullWebView<T> {
             self.refresh();
         }
         self.owe_release(frame.slot);
-        out.push(FullEvent::Frame(FrameInfo {
-            seq: frame.seq,
-            width: frame.width,
-            height: frame.height,
-            whole: frame.whole,
-            shift: frame.shift,
-            rects: frame.rects,
-            offset: (frame.offset_x, frame.offset_y, frame.at_bottom),
-            applied,
-        }));
+        out.push(FullEvent::Frame(info));
     }
 
     fn copy_whole(&mut self, frame: &wire::FrameArgs) {
@@ -130,16 +156,41 @@ impl<T: ScopedTransport> FullWebView<T> {
             mem.read(&mut into[..bytes]);
         }
         self.base = true;
+        self.drawn = (frame.width, frame.height);
         self.counters.whole += 1;
+    }
+
+    /// Whether a delta of `seq` at `size` follows the frame the picture (or the sink) shows.
+    fn has_base(&self, seq: u64, size: (u32, u32)) -> bool {
+        self.base && seq == self.last_seq + 1 && self.drawn == size
+    }
+
+    /// Hand a checked frame to the app's sink; `false` for a delta it cannot apply.
+    fn to_sink(&mut self, info: &FrameInfo, slot: u32, sink: &mut dyn PixelSink) -> bool {
+        let Some(Some(mem)) = self.slots.get(slot as usize) else {
+            return false;
+        };
+        if info.whole {
+            sink.whole(info, mem);
+            self.base = true;
+            self.drawn = (info.width, info.height);
+            self.counters.whole += 1;
+            return true;
+        }
+        let fits = delta_fits(&info.rects, self.size);
+        if !fits || !self.has_base(info.seq, (info.width, info.height)) || !sink.delta(info, mem) {
+            return false;
+        }
+        self.counters.deltas += 1;
+        true
     }
 
     /// Move the picture by the frame's shift and copy its rectangles out of the slot; `false` when
     /// it cannot be (no base, a frame missed in between, a rectangle outside the view).
     fn apply_delta(&mut self, frame: &wire::FrameArgs) -> bool {
-        let base = self.base
-            && frame.seq == self.last_seq + 1
+        let base = self.has_base(frame.seq, (frame.width, frame.height))
             && (self.picture.width(), self.picture.height()) == (frame.width, frame.height);
-        if !base || !delta_fits(frame, self.size) {
+        if !base || !delta_fits(&frame.rects, self.size) {
             return false;
         }
         if let Some(shift) = &frame.shift {

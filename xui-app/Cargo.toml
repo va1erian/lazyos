@@ -12,8 +12,8 @@ resolver = "2"
 members = [
     "docs",
     "mail",
-    # LazyWeb+, the web browser: the chrome on the WebKit engine (docs/lazywebplus.md); built as a
-    # static library by `tools/webkit/app.py`.
+    # LazyWeb+, the web browser: its chrome is a client of webd (docs/lazywebplus.md), the bin
+    # `xui-lazywebplus` built by `tools/xui/build.py`.
     "webplus",
     "crates/code-editor",
     "crates/paint",
@@ -61,10 +61,10 @@ members = [
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
     "crates/named-icons",
-    # The seam between WebKit's UI process and a window (docs/lazywebplus.md): engine trait,
-    # mailbox, page view and the C ABI of the C++ UI process. An rlib: LazyWeb+'s window
-    # (`webplus`) is the static library `tools/webkit/app.py` builds.
+    # The seam between WebKit and a window (docs/lazywebplus.md): engine trait, mailbox, page view.
     "crates/webkit",
+    # `RemoteEngine`: the seam's engine over webd's full views (docs/webd-plan.md P4).
+    "crates/webkit-remote",
     # `lazydamage`: what WebKit's updates changed between two paints, kept as one scroll and a few
     # rectangles (the window's, and webd's per view); pure, host-tested against a model.
     "crates/damage",

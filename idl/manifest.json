@@ -2366,6 +2366,11 @@
         "oneway": false
       },
       {
+        "name": "Recover",
+        "id": 17,
+        "oneway": false
+      },
+      {
         "name": "Mouse",
         "id": 20,
         "oneway": true
@@ -2430,6 +2435,16 @@
       {
         "name": "BlockingForget",
         "id": 37,
+        "oneway": false
+      },
+      {
+        "name": "NotifyForget",
+        "id": 38,
+        "oneway": false
+      },
+      {
+        "name": "NotifyState",
+        "id": 39,
         "oneway": false
       },
       {
@@ -2545,6 +2560,21 @@
       {
         "name": "HandedOff",
         "id": 122,
+        "oneway": true
+      },
+      {
+        "name": "NotifyShow",
+        "id": 123,
+        "oneway": true
+      },
+      {
+        "name": "NotifyCancel",
+        "id": 124,
+        "oneway": true
+      },
+      {
+        "name": "NotifyGone",
+        "id": 125,
         "oneway": true
       }
     ],

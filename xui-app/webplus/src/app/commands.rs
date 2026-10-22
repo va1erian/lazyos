@@ -79,6 +79,7 @@ impl Browser {
     /// A setting of the ad blocker changed: the shield follows, and the page that shows it is built
     /// again.
     fn blocker_page_changed(&mut self) {
+        self.sync_blocking();
         self.update_shield();
         if self.showing(BLOCKER) {
             self.open(BLOCKER);
@@ -87,6 +88,8 @@ impl Browser {
 
     /// A list changed state on the worker's thread.
     pub(super) fn blocker_changed(&mut self) {
+        // The stored settings may have arrived (`Blocker::attach`): webd follows them.
+        self.sync_blocking();
         self.update_shield();
         if self.showing(BLOCKER) && !self.state.loading {
             self.open(BLOCKER);
@@ -102,6 +105,7 @@ impl Browser {
         };
         if let Some(site) = site_of(&url) {
             self.blocker.skip_once(&site);
+            self.sync_blocking();
             crate::named_marker(&format!("BLOCK:RELOAD:UNBLOCKED:{site}"));
         }
         self.set_status("Reloading without ad blocking");

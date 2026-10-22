@@ -126,12 +126,13 @@ def build_webkit_processes() -> bool:
 
 
 def build_lazywebplus() -> bool:
-    """LazyWeb+ (`--lazywebplus`): the bundle and the port's processes, then
-    the browser's window and the UI process (`tools/webkit/app.py`), all in Docker, then the
-    xui apps, whose build packages `xui-lazywebplus.elf` as the core package
-    `os.lazy.lazywebplus`; a missing Docker or download stops the run."""
+    """LazyWeb+ (`--lazywebplus`): a plain xui app, a client of webd (docs/webd-plan.md P4), so what it
+    builds is webd's: the bundle and the port's processes, then webd's service library and program
+    (`tools/webkit/webd.py`), all in Docker, then the xui apps, whose build packages `xui-lazywebplus.elf`
+    as the core package `os.lazy.lazywebplus` (and `xui-webd.elf`); a missing Docker or download stops the
+    run."""
     return (build_webkit_processes()
-            and required("the LazyWeb+ app", "webkit/app.py", ("--require",))
+            and required("webd", "webkit/webd.py", ("--require",))
             and build_xui_apps())
 
 
@@ -159,9 +160,12 @@ def webd_built() -> bool:
 def webd_env(args, env: dict, built, build) -> None:
     """The `LAZYOS_WEBD` and `LAZYOS_WEBDDEMO` switches of a run. Every desktop ships webd (Docs and Mail need it):
     built when its programs are missing, and left out (the apps then say the web engine is not running)
-    when that fails, as with no Docker; `--no-webd` leaves it out, `--webd` (built by the caller) requires it."""
+    when that fails, as with no Docker; `--no-webd` leaves it out, `--webd` (built by the caller) requires it, and
+    so does `--lazywebplus` (which builds it itself and refuses `--no-webd`)."""
     if args.no_webd:
         env["LAZYOS_WEBD"] = "0"
+    elif getattr(args, "lazywebplus", False):
+        env["LAZYOS_WEBD"] = "1"
     elif getattr(args, "webd_implicit", False):
         if built() or build():
             env["LAZYOS_WEBD"] = "1"

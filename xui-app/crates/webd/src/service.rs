@@ -15,6 +15,7 @@ mod deliver;
 mod events;
 mod full;
 mod notify;
+mod notify_client;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;

@@ -18,6 +18,8 @@ import judge as j  # noqa: E402
 
 sites = j.sites
 P = j.P
+#: The engine's markers, as webd relays them.
+N = j.NOTE
 
 
 def log(*lines: str) -> str:
@@ -38,7 +40,7 @@ BLOCKER = log(
     f"{P}:BLOCK:READY:easylist:rules=3",
     f"{P}:LOAD:{b.PAGE_URL}",
     f"{P}:TITLE:{b.BLOCKED_TITLE}",
-    f"{P}:BLOCK:COUNT:3",
+    f"{N}BLOCK:COUNT:3",
     f"{P}:LOAD:{b.BLOCKER_PAGE}",
     f"{P}:BLOCK:SITE:{b.SITE_NAME}:OFF",
     f"{P}:LOAD:{b.PAGE_URL}",
@@ -124,10 +126,13 @@ class BlockerJudgeTests(unittest.TestCase):
         self.assertTrue(any("whole before it was blocked" in p for p in b.judge_blocker_boot(swapped)))
         no_update = BLOCKER.replace(f"{P}:BLOCK:UPDATE:easylist:NOTMODIFIED\n", "")
         self.assertTrue(any("304" in p for p in b.judge_blocker_boot(no_update)))
-        few = BLOCKER.replace(f"{P}:BLOCK:COUNT:3", f"{P}:BLOCK:COUNT:1")
+        few = BLOCKER.replace(f"{N}BLOCK:COUNT:3", f"{N}BLOCK:COUNT:1")
         self.assertTrue(any("counted" in p for p in b.judge_blocker_boot(few)))
-        many = BLOCKER.replace(f"{P}:BLOCK:COUNT:3", f"{P}:BLOCK:COUNT:5")
+        many = BLOCKER.replace(f"{N}BLOCK:COUNT:3", f"{N}BLOCK:COUNT:5")
         self.assertTrue(any("counted" in p for p in b.judge_blocker_boot(many)), "an inflated count is a bug too")
+        # The count is the engine's: webd relays it, the client never prints one.
+        client = BLOCKER.replace(f"{N}BLOCK:COUNT:3", f"{P}:BLOCK:COUNT:3")
+        self.assertTrue(any("counted" in p for p in b.judge_blocker_boot(client)))
 
     def test_a_script_that_started_a_program_fails_the_boot(self) -> None:
         text = BLOCKER + f"{P}:LAUNCH:mailto:x@y:BLOCKED\n"

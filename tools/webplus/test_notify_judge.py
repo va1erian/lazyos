@@ -14,11 +14,15 @@ import notify_judge as n  # noqa: E402
 import notify_session  # noqa: E402
 
 P = n.P
+N = n.j.NOTE
+WEBD_UP = n.j.WEBD_UP
 
 
 def boot(*extra: str) -> list[str]:
-    """What every boot's log has: the browser and both children up."""
-    return [f"{P}:UP", f"{P}:UP:PASS", f"{P}:WEBPROCESS:UP:101", f"{P}:NETWORKPROCESS:UP:102", *extra]
+    """What every boot's log has: webd up and its view made, the browser's first frame, and both engine
+    processes up (the engine's markers are webd's relay)."""
+    return [WEBD_UP, f"WEBD:VIEW:CREATE client={n.j.CLIENT_LABEL} view=3", f"{P}:UP:PASS",
+            f"{N}WEBPROCESS:UP:101", f"{N}NETWORKPROCESS:UP:102", *extra]
 
 
 def allow_log(**changes) -> str:
@@ -126,8 +130,24 @@ class AllowBoot(unittest.TestCase):
         self.assertEqual(posts, [])
 
     def test_the_child_processes_must_have_come_up(self):
-        text = allow_log().replace(f"{P}:WEBPROCESS:UP:101\n", "")
+        text = allow_log().replace(f"{N}WEBPROCESS:UP:101\n", "")
         self.assertFails(text, "WEBPROCESS")
+        # The engine's lines under the client's prefix are not the engine's.
+        self.assertFails(allow_log().replace(f"{N}WEBPROCESS", f"{P}:WEBPROCESS"), "WEBPROCESS")
+
+    def test_webd_must_have_come_up_and_made_the_view(self):
+        self.assertFails(allow_log().replace(f"{WEBD_UP}\n", ""), WEBD_UP)
+        self.assertFails(allow_log().replace(f"WEBD:VIEW:CREATE client={n.j.CLIENT_LABEL} view=3\n", ""), "WEBD:VIEW:CREATE")
+
+    def test_a_toast_posted_by_webd_is_not_the_browsers(self):
+        text = allow_log(toast=[
+            f"{P}:NOTIFY:SHOW:{n.ORIGIN}:7",
+            "SHELL:NOTIFY:POST owner=os.lazy.webd id=1 level=info title=theoldnet.com",
+            "SHELL:NOTIFY:SHOW id=1",
+            f"{P}:NOTIFY:SHOW:{n.ORIGIN}:8",
+            "SHELL:NOTIFY:POST owner=os.lazy.webd id=1 level=info title=theoldnet.com",
+        ])
+        self.assertFails(text, "web engine daemon")
 
     def test_another_program_started_on_a_pages_say_fails(self):
         self.assertFails(allow_log() + f"{P}:LAUNCH:mailto:x@y:OK\n", "started another program")

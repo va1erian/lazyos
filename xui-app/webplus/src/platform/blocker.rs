@@ -1,5 +1,5 @@
-//! The ad blocker's side of the UI process: its settings in `confd`, the `curl` child, and the
-//! engine's per-navigation question.
+//! The ad blocker's platform side: its settings in `confd` and the `curl` child that fetches the
+//! lists (webd decides each navigation from the switches the window gives it).
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -162,16 +162,4 @@ pub(super) fn stop_children() -> bool {
         std::thread::sleep(CURL_POLL);
     }
     CURL_RUNNING.load(Ordering::Acquire) == 0
-}
-
-/// Whether the rule lists apply to a page whose main-frame address is `url`: the user's switch,
-/// their exceptions, a one-shot "reload without blocking" (`blocker::Blocker::decide`).
-///
-/// # Safety
-/// `url` must be null or a NUL-terminated string.
-#[no_mangle]
-pub unsafe extern "C" fn lzw_ui_blocking(url: *const c_char) -> c_int {
-    // SAFETY: by this function's contract.
-    let url = unsafe { text(url) };
-    c_int::from(shared().blocker.decide(&url))
 }

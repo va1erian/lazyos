@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Attack the browser's sandbox from inside it, and judge what the kernel let through
+"""Attack webd's engine sandbox from inside it, and judge what the kernel let through
 (issue #832, docs/architecture/process-sandbox.md; in the style of ``tools/accounts/run.py``).
 
 ``tools/abi/fixtures/src/sandboxprobe.rs`` plays an exploited WebProcess and an exploited
@@ -15,20 +15,22 @@ Two modes:
 
 ``--kernel`` (default)
     A console image whose first program is the probe's *driver*: it loads the rules of the
-    browser's two process tables as the labels ``app:os.lazy.sandbox-web`` and
+    webd's two process tables as the labels ``app:os.lazy.sandbox-web`` and
     ``app:os.lazy.sandbox-net`` (what ``pkgd`` does), starts the probe as each under the
     user's uid and waits. It tests the kernel's gates with real programs; it needs neither the
     package manager's child-label support nor a WebKit build.
 
 ``--browser``
-    The real browser's UI process (``os.lazy.lazywebplus``) starts the two stand-ins as it starts the
-    engine: the labels are the ones the package manifest's ``[processes.*]`` tables name
-    (``app:os.lazy.lazywebplus/webprocess``, ``.../networkprocess``) and the kernel stamps at
-    ``execve``. It needs ``target/xui/xui-lazywebplus.elf`` (``python tools/webkit/app.py``,
-    ``python tools/xui/build.py``) and the package manager and kernel of the child-label work.
+    The real webd (``os.lazy.webd``) starts the two stand-ins as it starts the engine, for the page
+    that LazyWeb+ (``os.lazy.lazywebplus``, a client of webd, autostarted) opens: the labels are the ones
+    webd's package manifest ``[processes.*]`` tables name (``app:os.lazy.webd/webprocess``,
+    ``.../networkprocess``) and the kernel stamps at ``execve``. It needs ``target/xui/xui-webd.elf``
+    (``python tools/webkit/webd.py``) and ``target/xui/xui-lazywebplus.elf`` (``python tools/xui/build.py``)
+    and the package manager and kernel of the child-label work. The image is built with
+    ``LAZYOS_LAZYWEBPLUS=1`` (which requires webd).
 
     python tools/webkit/attack_run.py                  # kernel mode: build, boot, judge
-    python tools/webkit/attack_run.py --browser        # the real UI process starts the stand-ins
+    python tools/webkit/attack_run.py --browser        # the real webd starts the stand-ins
     python tools/webkit/attack_run.py --no-build       # the image of the last run
     python tools/webkit/attack_run.py --judge-only DIR # judge a saved serial.log
 
@@ -57,13 +59,15 @@ from lazygui import limits  # noqa: E402
 PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
 OUT = ROOT / "shots" / "webkit-attack"
-#: The browsers the harness can attack (``--app``): the package id (the label's prefix), the switch that
-#: ships it, the window program and the app that autostarts. LazyWeb+ starts the two engine programs
-#: under labels of its own (``app:os.lazy.lazywebplus/<name>``), and its network process alone may
-#: write the Downloads folder (``attackjudge.expected``).
+#: The engine owners the harness can attack (``--app``): the package id (the label's prefix), the switch
+#: that ships the browser that drives pages, that browser's program and the app that autostarts. webd
+#: starts the two engine programs under labels of its own (``app:os.lazy.webd/<name>``), and its network
+#: process alone may write the Downloads folder (``attackjudge.expected``).
 APPS = {
-    "lazywebplus": ("os.lazy.lazywebplus", "LAZYOS_LAZYWEBPLUS", "xui-lazywebplus.elf", "lazywebplus"),
+    "webd": ("os.lazy.webd", "LAZYOS_LAZYWEBPLUS", "xui-lazywebplus.elf", "lazywebplus"),
 }
+#: webd's own program, which the browser image needs beside the browser's.
+WEBD_ELF = "xui-webd.elf"
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI",
          "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
@@ -71,18 +75,19 @@ STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS
          "LAZYOS_DESKTOP", "LAZYOS_WEBD")
 
 
-def build_image(mode: str, app: str = "lazywebplus") -> str | None:
-    """Build the test image for `mode` (and, in the browser's mode, browser `app`); an error message, or None."""
+def build_image(mode: str, app: str = "webd") -> str | None:
+    """Build the test image for `mode` (and, in the browser's mode, the engine owner `app`); an error message, or None."""
     _, switch, elf_name, autostart = APPS[app]
     elf = ROOT / "target" / "xui" / elf_name
     env = {k: v for k, v in os.environ.items() if k not in STALE}
-    env.update(LAZYOS_LABEL_TRACE="1", LAZYOS_RESET_OS="1", LAZYOS_WEBD="0")  # no webd beside the browser under attack
+    env.update(LAZYOS_LABEL_TRACE="1", LAZYOS_RESET_OS="1")
     if mode == "kernel":
         # The driver is the first program (`/system/bin/abi-init`), as for the ABI fixtures.
         env.update(LAZYOS_INIT=str(attack_build.OUT / "WebProcess"), LAZYOS_OS_SIZE="128M")
     else:
-        if not elf.is_file():
-            return f"{elf.relative_to(ROOT)} is not built (python tools/webkit/app.py, python tools/xui/build.py)"
+        for needed, how in ((elf, "python tools/xui/build.py"), (ROOT / "target" / "xui" / WEBD_ELF, "python tools/webkit/webd.py")):
+            if not needed.is_file():
+                return f"{needed.relative_to(ROOT)} is not built ({how})"
         shell = busybox.ensure_busybox()
         if shell is None:
             return "no BusyBox for the shell (see tools/abi/busybox.py)"
@@ -111,7 +116,7 @@ def boot(mode: str, seconds: int, args) -> str:
     return log.read_text(errors="replace") if log.is_file() else ""
 
 
-def verdict(serial: str, mode: str, app: str = "lazywebplus") -> bool:
+def verdict(serial: str, mode: str, app: str = "webd") -> bool:
     """Print the report; True when nothing got through."""
     problems, rows = attackjudge.judge(serial, mode, APPS[app][0])
     if mode == "kernel":
@@ -129,10 +134,10 @@ def verdict(serial: str, mode: str, app: str = "lazywebplus") -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--browser", action="store_true", help="the real UI process starts the stand-ins")
+    parser.add_argument("--browser", action="store_true", help="the real webd starts the stand-ins")
     parser.add_argument("--kernel", action="store_true", help="the console driver (the default)")
-    parser.add_argument("--app", choices=sorted(APPS), default="lazywebplus",
-                        help="with --browser: which browser's window and package labels to attack")
+    parser.add_argument("--app", choices=sorted(APPS), default="webd",
+                        help="with --browser: whose package labels to attack")
     parser.add_argument("--no-build", action="store_true", help="use the image of the last run")
     parser.add_argument("--judge-only", metavar="DIR", help="judge DIR/serial.log and stop")
     parser.add_argument("--seconds", type=int, help="how long to run the guest (default 60, 120 for the browser)")

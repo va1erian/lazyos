@@ -116,6 +116,16 @@ pub trait Engine {
     fn blocking_load(&self, _view: u64, _list: &str) {}
     fn blocking_compile(&self, _view: u64, _list: &str, _json: &[u8]) {}
     fn blocking_forget(&self, _view: u64, _list: &str) {}
+
+    // ---- P4 (LazyWeb+). ----
+
+    /// `webd_engine_recover`: end the view's web process; with `reload` the page loads again in a
+    /// fresh one, without it the engine reports the page as ended (`LOST_OTHER`). The engine refuses
+    /// while other views share the process.
+    fn recover(&self, _view: u64, _reload: bool) {}
+    /// `webd_engine_notify_forget`: `origin` is `default` again for the page (WebKit's record is the
+    /// context's, host-wide). `view` is the one the request came through.
+    fn notify_forget(&self, _view: u64, _origin: &str) {}
 }
 
 /// What the engine tells the service, one method per `webd_ui_*` callback. Called on WebKit's main

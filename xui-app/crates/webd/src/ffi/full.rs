@@ -375,15 +375,23 @@ pub unsafe extern "C" fn webd_ui_notify_show(
     view: u64,
     id: u64,
     origin: *const c_char,
-    _page_url: *const c_char,
+    page_url: *const c_char,
     title: *const c_char,
     body: *const c_char,
-    _tag: *const c_char,
+    tag: *const c_char,
 ) {
     if let Some(sink) = sink() {
         // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
-        let (origin, title, body) = unsafe { (text(origin), text(title), text(body)) };
-        sink.notify_show(view, id, &origin, &title, &body);
+        let (origin, page_url, title, body, tag) = unsafe {
+            (
+                text(origin),
+                text(page_url),
+                text(title),
+                text(body),
+                text(tag),
+            )
+        };
+        sink.notify_show_from(view, id, &origin, &page_url, &title, &body, &tag);
     }
 }
 
@@ -432,6 +440,36 @@ pub unsafe extern "C" fn webd_ui_blocking(view: u64, url: *const c_char) -> c_in
     };
     // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
     c_int::from(sink.blocking(view, &unsafe { text(url) }))
+}
+
+/// Decision `index` of the notification decisions a page process starts with: the origin (with its NUL)
+/// into `origin` (`origin_size` bytes), 1 allowed, 0 blocked, -1 past the end, -2 one that does not fit.
+/// WebKit reads them index by index; a decision the service changes between two reads can be skipped or
+/// read twice by that one process start, and the service tells running processes every change anyway
+/// (`notify_permission`, `notify_forget`), so a start only ever lags one change behind.
+///
+/// # Safety
+/// `origin` valid for `origin_size` bytes, or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn webd_ui_notify_permission_at(
+    index: usize,
+    origin: *mut c_char,
+    origin_size: usize,
+) -> c_int {
+    let Some((site, allowed)) = sink().and_then(|sink| sink.notify_decision_at(index)) else {
+        return -1;
+    };
+    let bytes = site.as_bytes();
+    if origin.is_null() || bytes.len() >= origin_size || bytes.contains(&0) {
+        return -2;
+    }
+    // SAFETY: `origin` is valid for `origin_size` bytes (the caller's contract) and `bytes.len() + 1 <=
+    // origin_size`, so the copy and the NUL stay inside it.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), origin.cast::<u8>(), bytes.len());
+        *origin.add(bytes.len()) = 0;
+    }
+    c_int::from(allowed)
 }
 
 /// # Safety

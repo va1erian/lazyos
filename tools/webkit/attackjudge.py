@@ -1,4 +1,5 @@
-"""The verdict of the browser's sandbox attack harness (issue #832).
+"""The verdict of webd's sandbox attack harness (issue #832; the engine processes belong to webd, which
+LazyWeb+ and the other web clients draw their pages with: docs/webd-plan.md).
 
 ``tools/abi/fixtures/src/sandboxprobe.rs`` runs as the WebProcess and as the NetworkProcess and
 prints one line per attempt (``ATTACK:<role>:<probe>:BLOCKED|ALLOWED:<detail>``). This module
@@ -6,8 +7,8 @@ holds the table of what each role must be refused and what it must still be allo
 judges a serial log against it:
 
 * every probe of the table is present exactly once per role, with the expected verdict;
-* the process runs under the label the harness expects (``app:os.lazy.lazywebplus/webprocess`` for
-  the browser, ``app:os.lazy.sandbox-web`` for the kernel-only mode);
+* the process runs under the label the harness expects (``app:os.lazy.webd/webprocess`` for
+  webd, ``app:os.lazy.sandbox-web`` for the kernel-only mode);
 * each refusal a kernel gate makes is also a ``LABEL:DENY`` line of that label for that
   operation (the trace of ``LAZYOS_LABEL_TRACE=1``): the attempt was *refused by the policy*,
   not merely a failure that looked like one;
@@ -33,9 +34,9 @@ DRIVER = re.compile(r"^ATTACK:driver:(?P<what>\S+?)(?::(?P<rest>.*?))?\s*$", re.
 
 ROLES = ("webprocess", "networkprocess")
 
-#: The browsers the harness attacks: LazyWeb+'s package id (it starts the two programs under labels of
-#: its own, `app:<id>/<name>`).
-APPS = ("os.lazy.lazywebplus",)
+#: The apps whose engine processes the harness attacks: webd's package id (it starts the two programs under
+#: labels of its own, `app:<id>/<name>`).
+APPS = ("os.lazy.webd",)
 DEFAULT_APP = APPS[0]
 
 
@@ -107,7 +108,7 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_dev_urandom": allowed(),
         "read_resolv_conf": blocked(r"file=/etc/resolv\.conf access=stat"),
         "read_ca_bundle": blocked(r"file=/etc/ssl/certs/ca-certificates\.crt access=stat"),
-        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.lazywebplus)? access=(write|stat)"),
+        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.webd)? access=(write|stat)"),
         "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": blocked(r"net=inet"),
         "inet_serve": blocked(r"net=inet"),

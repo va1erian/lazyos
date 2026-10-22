@@ -83,6 +83,8 @@ pub struct Rules {
     pub popups: bool,
     pub dialogs: bool,
     pub notifications: bool,
+    /// With `notifications`: the app shows the page's notifications (`NotifyShow`), not webd.
+    pub notify_in_client: bool,
     pub blocking: bool,
     /// Where downloads go (`downloads` and the browser profile), else none.
     pub downloads: Option<PathBuf>,
@@ -265,6 +267,7 @@ pub fn setup(
         popups: config.popups,
         dialogs: config.dialogs,
         notifications: config.notifications,
+        notify_in_client: config.notifications && config.notify_in_client,
         blocking: config.blocking,
         downloads,
     };

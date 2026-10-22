@@ -3,8 +3,10 @@
 image, browse a page that uses the Notifications API in two boots, and judge what the window, the
 shell, the OS volume and the host's servers saw.
 
-The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
-``app.py``, then ``python tools/xui/build.py``). The test page is
+The image is `run.py`'s (the apps built first: ``python tools/webkit/deps.py``, ``python
+tools/webkit/port.py --only WebProcess NetworkProcess webd-app``, ``python tools/webkit/webd.py``, then
+``python tools/xui/build.py``). LazyWeb+ is a client of webd, which hands it a page's notifications; the
+browser posts the toasts itself (``SHELL:NOTIFY:POST owner=LazyWeb+``). The test page is
 ``tools/webtest/fixtures/theoldnet.com/webplus/notify.html``, served over HTTPS from the host with the
 run's throwaway CA like the rest of LazyWeb+'s pages.
 
@@ -70,7 +72,7 @@ def verdict(out: Path, boots: dict, records: tuple, decisions: tuple) -> int:
         ok = problems_of("PROFILE", "notify.tsv holds the decisions in the documented form",
                          n.judge_profile(*decisions)) and ok
         ok = problems_of("SERVERS", "both origins served the page over HTTPS", n.judge_servers(*records)) and ok
-    ok = problems_of("QUIT", "the boots closed the window and reaped both children",
+    ok = problems_of("QUIT", "the boots closed the window, webd destroyed the view and the page's process ended",
                      [p for boot in boots.values() for p in base.judge.judge_quit(boot["text"])]) and ok
     print(f"{base.judge.P}:NOTIFY:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1

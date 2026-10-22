@@ -21324,6 +21324,13 @@ pub mod os_lazy_webd_view_v1 {
     /// `PermissionAnswer::Dismiss` wire value.
     pub const PERMISSION_ANSWER_DISMISS: u32 = 2;
 
+    /// `NotifyStateKind::Shown` wire value.
+    pub const NOTIFY_STATE_KIND_SHOWN: u32 = 0;
+    /// `NotifyStateKind::Clicked` wire value.
+    pub const NOTIFY_STATE_KIND_CLICKED: u32 = 1;
+    /// `NotifyStateKind::Closed` wire value.
+    pub const NOTIFY_STATE_KIND_CLOSED: u32 = 2;
+
     /// How a full view is made; fixed for its life.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ViewConfig {
@@ -21340,6 +21347,7 @@ pub mod os_lazy_webd_view_v1 {
         pub user_agent_suffix: alloc::string::String,
         pub deltas: bool,
         pub dialogs: bool,
+        pub notify_in_client: bool,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -21361,6 +21369,7 @@ pub mod os_lazy_webd_view_v1 {
         target.string(11, &value.user_agent_suffix)?;
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
+        target.bool(14, value.notify_in_client)?;
         Ok(target.finish())
     }
 
@@ -21411,6 +21420,9 @@ pub mod os_lazy_webd_view_v1 {
                 13 => {
                     out.dialogs = field.as_bool()?;
                 }
+                14 => {
+                    out.notify_in_client = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -21431,6 +21443,9 @@ pub mod os_lazy_webd_view_v1 {
     /// Appended to the engine's user agent; at most 64 bytes.
     /// Frames carry damage, scroll shifts and bands.
     /// JavaScript dialogs reach the app (else they are dismissed).
+    /// With `notifications`: the app shows the page's notifications
+    /// (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
+    /// click on one brings the app's window forward.
     /// A rectangle of the view, in pixels.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Rect {
@@ -21551,6 +21566,8 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_FORWARD: u32 = 15;
     /// `Download` method id.
     pub const METHOD_DOWNLOAD: u32 = 16;
+    /// `Recover` method id.
+    pub const METHOD_RECOVER: u32 = 17;
     /// `Mouse` method id.
     pub const METHOD_MOUSE: u32 = 20;
     /// `Wheel` method id.
@@ -21575,6 +21592,10 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_BLOCKINGLOAD: u32 = 36;
     /// `BlockingForget` method id.
     pub const METHOD_BLOCKINGFORGET: u32 = 37;
+    /// `NotifyForget` method id.
+    pub const METHOD_NOTIFYFORGET: u32 = 38;
+    /// `NotifyState` method id.
+    pub const METHOD_NOTIFYSTATE: u32 = 39;
     /// `Frame` method id.
     pub const METHOD_FRAME: u32 = 100;
     /// `State` method id.
@@ -21621,6 +21642,12 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_RESPONSIVE: u32 = 121;
     /// `HandedOff` method id.
     pub const METHOD_HANDEDOFF: u32 = 122;
+    /// `NotifyShow` method id.
+    pub const METHOD_NOTIFYSHOW: u32 = 123;
+    /// `NotifyCancel` method id.
+    pub const METHOD_NOTIFYCANCEL: u32 = 124;
+    /// `NotifyGone` method id.
+    pub const METHOD_NOTIFYGONE: u32 = 125;
 
     /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
     /// interface the view has no network: `config.scheme_policy` must be
@@ -22115,6 +22142,43 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
+    /// The page's process does not answer (the app got `Responsive(false)`) and
+    /// the person chose a way out (LazyWeb+, P4): the view's web process is
+    /// ended. With `reload` the page loads again in a fresh process. Without it
+    /// the page stays stopped: the engine reports the page as ended by request,
+    /// which is `ViewLost` with reason `Other`, and the app makes a new view.
+    /// The engine refuses (and does nothing) while other views share the
+    /// process; the service does not know.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecoverArgs {
+        pub view: u64,
+        pub reload: bool,
+    }
+
+    pub fn encode_recover_args(value: &RecoverArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.reload)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recover_args(body: &[u8]) -> Result<RecoverArgs, Error> {
+        let mut out = RecoverArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.reload = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Input, as on the light interface.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MouseArgs {
@@ -22588,6 +22652,80 @@ pub mod os_lazy_webd_view_v1 {
                 }
                 2 => {
                     out.list = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+    /// `Notification.permission` is `default` again and its next request is
+    /// asked again (`NotifyPermissionRequest`). A view made with
+    /// `notifications` only; `origin` is checked as in `NotifyPermission`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyForgetArgs {
+        pub view: u64,
+        pub origin: alloc::string::String,
+    }
+
+    pub fn encode_notify_forget_args(value: &NotifyForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.origin)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_forget_args(body: &[u8]) -> Result<NotifyForgetArgs, Error> {
+        let mut out = NotifyForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.origin = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// What became of notification `notification` that `NotifyShow` gave a
+    /// view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
+    /// is on screen, was clicked (the page's click handler runs) or went away.
+    /// `ESRCH` for a notification webd did not give this view or that is over;
+    /// `EACCES` for a view without `notify_in_client`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyStateArgs {
+        pub view: u64,
+        pub notification: u64,
+        pub state: u32,
+    }
+
+    pub fn encode_notify_state_args(value: &NotifyStateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.notification)?;
+        target.u32(3, value.state)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_state_args(body: &[u8]) -> Result<NotifyStateArgs, Error> {
+        let mut out = NotifyStateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.notification = field.as_u64()?;
+                }
+                3 => {
+                    out.state = field.as_u32()?;
                 }
                 _ => {}
             }
@@ -23506,6 +23644,129 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
+    /// Event (a view made with `notify_in_client`): the page asked to show
+    /// notification `notification` and its profile allowed `origin`; the app
+    /// shows it (as its own toast, titled by the app, not by the page) and
+    /// answers with `NotifyState`. `page_url` is the page that asked, `tag` the
+    /// page's tag; the texts are the page's own and are cut at 16 KiB each.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyShowArgs {
+        pub view: u64,
+        pub notification: u64,
+        pub origin: alloc::string::String,
+        pub page_url: alloc::string::String,
+        pub title: alloc::string::String,
+        pub body: alloc::string::String,
+        pub tag: alloc::string::String,
+    }
+
+    pub fn encode_notify_show_args(value: &NotifyShowArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.notification)?;
+        target.string(3, &value.origin)?;
+        target.string(4, &value.page_url)?;
+        target.string(5, &value.title)?;
+        target.string(6, &value.body)?;
+        target.string(7, &value.tag)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_show_args(body: &[u8]) -> Result<NotifyShowArgs, Error> {
+        let mut out = NotifyShowArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.notification = field.as_u64()?;
+                }
+                3 => {
+                    out.origin = field.as_str()?.into();
+                }
+                4 => {
+                    out.page_url = field.as_str()?.into();
+                }
+                5 => {
+                    out.title = field.as_str()?.into();
+                }
+                6 => {
+                    out.body = field.as_str()?.into();
+                }
+                7 => {
+                    out.tag = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page closed notification `notification` itself.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyCancelArgs {
+        pub view: u64,
+        pub notification: u64,
+    }
+
+    pub fn encode_notify_cancel_args(value: &NotifyCancelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.notification)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_cancel_args(body: &[u8]) -> Result<NotifyCancelArgs, Error> {
+        let mut out = NotifyCancelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.notification = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page's object for `notification` is gone (its document went
+    /// away); the toast is the person's now and a click reaches no script.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyGoneArgs {
+        pub view: u64,
+        pub notification: u64,
+    }
+
+    pub fn encode_notify_gone_args(value: &NotifyGoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.notification)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_gone_args(body: &[u8]) -> Result<NotifyGoneArgs, Error> {
+        let mut out = NotifyGoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.notification = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Every request of this interface that carries objects: its method id
     /// and the declared kinds, in object-list order.
     pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
@@ -23557,6 +23818,7 @@ pub mod os_lazy_webd_net_v1 {
         pub user_agent_suffix: alloc::string::String,
         pub deltas: bool,
         pub dialogs: bool,
+        pub notify_in_client: bool,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -23578,6 +23840,7 @@ pub mod os_lazy_webd_net_v1 {
         target.string(11, &value.user_agent_suffix)?;
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
+        target.bool(14, value.notify_in_client)?;
         Ok(target.finish())
     }
 
@@ -23627,6 +23890,9 @@ pub mod os_lazy_webd_net_v1 {
                 }
                 13 => {
                     out.dialogs = field.as_bool()?;
+                }
+                14 => {
+                    out.notify_in_client = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -23762,6 +24028,7 @@ pub mod os_lazy_webd_browser_v1 {
         pub user_agent_suffix: alloc::string::String,
         pub deltas: bool,
         pub dialogs: bool,
+        pub notify_in_client: bool,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -23783,6 +24050,7 @@ pub mod os_lazy_webd_browser_v1 {
         target.string(11, &value.user_agent_suffix)?;
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
+        target.bool(14, value.notify_in_client)?;
         Ok(target.finish())
     }
 
@@ -23832,6 +24100,9 @@ pub mod os_lazy_webd_browser_v1 {
                 }
                 13 => {
                     out.dialogs = field.as_bool()?;
+                }
+                14 => {
+                    out.notify_in_client = field.as_bool()?;
                 }
                 _ => {}
             }
@@ -24395,8 +24666,8 @@ pub mod os_lazy_webd_light_v1 {
     pub const LOAD_HTML_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Input, as the display protocol delivers it, in view pixels. `kind` is a
-    /// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
-    /// control, 2 alt, 3 meta.
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+    /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MouseArgs {
         pub view: u64,

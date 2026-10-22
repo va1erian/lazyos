@@ -16,8 +16,8 @@ from lazygui.testplan import demo_argv, demo_config  # noqa: E402
 
 
 class LazyWebPlusTests(unittest.TestCase):
-    """A desktop app that brings the desktop profile and the network stack, built in Docker (the
-    bundle, the port's processes, the app) and packaged by the xui build."""
+    """A desktop app that brings the desktop profile and the network stack and is a client of webd:
+    webd is built in Docker (the bundle, the port's processes, the program), the browser by the xui build."""
 
     def base(self) -> dict:
         return {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
@@ -52,11 +52,25 @@ class LazyWebPlusTests(unittest.TestCase):
         steps = catalog.app_steps({"lazywebplus": True, "tls": True})
         self.assertIn("tools/nettls/build.py", [s["argv"][1] for s in steps])
 
-    def test_it_builds_the_bundle_the_port_the_plus_app_then_packages_it(self) -> None:
+    def test_it_builds_the_bundle_the_port_and_webd_then_packages_the_apps(self) -> None:
         steps = catalog.app_steps({"lazywebplus": True})
         self.assertEqual([s["argv"][1] for s in steps],
-                         ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/app.py", "tools/xui/build.py"])
+                         ["tools/webkit/deps.py", "tools/webkit/port.py", "tools/webkit/webd.py", "tools/xui/build.py"])
+        self.assertNotIn("tools/webkit/app.py", [s["argv"][1] for s in steps])
+        # Asking for webd as well builds it once.
+        both = catalog.app_steps({"lazywebplus": True, "webd": True})
+        self.assertEqual([s["argv"][1] for s in both], [s["argv"][1] for s in steps])
         self.assertEqual(steps[1]["argv"][2:], ["--require", "--only", "WebProcess", "NetworkProcess"])
+
+    def test_webd_is_not_left_out_of_a_browser_image(self) -> None:
+        """`no_webd` is ignored with the browser: `run_demo` refuses `--no-webd --lazywebplus`."""
+        from lazygui import osvolume
+        cfg = {"lazywebplus": True, "no_webd": True}
+        self.assertTrue(osvolume.wants_webd(cfg))
+        self.assertNotIn("LAZYOS_WEBD", catalog.desktop_app_env(cfg))
+        self.assertNotIn("--no-webd", catalog.desktop_app_argv(cfg))
+        self.assertIn("--lazywebplus", catalog.desktop_app_argv(cfg))
+        self.assertIn("--no-webd", catalog.desktop_app_argv({"desktop": True, "no_webd": True}))
 
     def test_the_quota_and_the_volume_are_the_big_app_ones(self) -> None:
         from lazygui import osvolume

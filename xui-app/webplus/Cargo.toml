@@ -1,29 +1,30 @@
-# LazyWeb+ (docs/lazywebplus.md): the browser's window on WebKit's engine.
+# LazyWeb+ (docs/lazywebplus.md): the browser window, a client of webd (docs/webd-plan.md P4).
 #
-# A menu bar, toolbar, status bar, history, downloads and internal pages; the page is whatever
-# WebKit's UI process paints and the fetching is WebKit's NetworkProcess. It is built as a static library (`tools/webkit/app.py`)
-# that the C++ UI process `lazywebplus-app` (`webkit/port/app/`) links in the WebKit build
-# container; `xui-webkit` (`../crates/webkit`) is the seam (the
-# engine trait, the mailbox, the page view, the pure parts of the C ABI).
+# A menu bar, toolbar, status bar, history, downloads and internal pages; the page is one full view
+# of `webd`, the session's WebKit (its `browser` profile), driven through `xui-webkit-remote`'s
+# `RemoteEngine` and shown by `xui-webkit`'s page view. The bin `xui-lazywebplus` is an ordinary
+# xui app built by `tools/xui/build.py` (`target/xui/xui-lazywebplus.elf`); it links no WebKit, no
+# curl and no OpenSSL.
 #
-# Licence: every crate linked into this window keeps the GPL-2.0-only rule
-# (GPLv2-compatible licences only: no GPL-3.0-only, no Apache-2.0 alone;
-# `python tools/nettls/licenses.py --lazywebplus` checks the tree). But the program this crate
-# ends up in also links OpenSSL (Apache-2.0, through WebKit's curl), which a GPL-2.0-only program
-# cannot carry, so the window is offered under GPL-3.0-or-later as well and the program is
-# distributed as GPL-3.0-or-later (docs/lazywebplus.md, "Licence").
+# Licence: the crate keeps its GPLv2-compatible declaration (the window's own code and the crates
+# it pulls from the registry: `python tools/nettls/licenses.py --lazywebplus`) until a maintainer
+# relicenses it (docs/webd-plan.md, open question 8). The program links LazyOS's own
+# GPL-3.0-or-later crates (`xui-app`, `xui-webd-client`), so it is distributed as GPL-3.0-or-later.
 [package]
 name = "xui-webplus"
 version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-2.0-only OR GPL-3.0-or-later"
-description = "LazyWeb+: the browser window on the WebKit engine"
+description = "LazyWeb+: the browser window, a client of webd"
 
 [lib]
 name = "xui_webplus"
 path = "src/lib.rs"
-crate-type = ["rlib", "staticlib"]
+
+[[bin]]
+name = "xui-lazywebplus"
+path = "src/main.rs"
 
 [dependencies]
 lazydownloads = { path = "../crates/downloads" }
@@ -31,19 +32,23 @@ lazydownloads = { path = "../crates/downloads" }
 lazywebnotify = { path = "../crates/webnotify" }
 # One xui revision for every crate, so a single `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
-# The seam: the engine trait, the mailbox, the page view and the C ABI.
+# The seam: the engine trait, the mailbox, the page view.
 xui-webkit = { path = "../crates/webkit" }
 # The ad blocker's converter (Adblock Plus lists to WebKit rule lists; MIT, no dependencies).
 lazyadblock = { path = "../crates/adblock" }
 
-# The compositor client, `mimed` and the notification service are LazyOS's: the platform glue
-# (`src/ffi.rs`) is built for LazyOS only, everything else runs on any host.
+# The compositor client, `mimed`, the notification service and webd's view are LazyOS's: the platform
+# glue (`src/platform/`) is built for LazyOS only, everything else runs on any host.
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 xui-app = { path = ".." }
 # The settings store seam (`ConfigStore`), over which the blocker's switches live in `confd`.
 xui-settings = { path = "../crates/settings" }
 # The app's data folder (`app_data_dir`), the Downloads and scratch folders.
 fhs = { path = "../../libs/fhs", features = ["alloc"] }
+# The engine: webd's full view (`RemoteEngine` over `xui_app::platform::webd::WebdTransport`).
+xui-webkit-remote = { path = "../crates/webkit-remote" }
+# The view's event channel as a descriptor the window's loop parks on (`endpoint_fd`).
+lazyos-sys = { path = "../../libs/lazyos-sys", features = ["std"] }
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }

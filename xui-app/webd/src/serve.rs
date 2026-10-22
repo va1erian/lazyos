@@ -62,6 +62,10 @@ static ANSWERED: AtomicBool = AtomicBool::new(true);
 /// Marker lines that can repeat in a loop (a client that never reads, one that sends bad requests):
 /// at most 20 per ten seconds.
 static FLOOD: Budget = Budget::new(20, 1000);
+/// The engine's lines that can repeat (`lines::FLOODING_ENGINE_LINES`): at most 120 per ten
+/// seconds, room for the paint meter of a few painting views (two lines a second each) and a page's
+/// timings.
+static ENGINE_FLOOD: Budget = Budget::new(120, 1000);
 
 /// Ask the loop to end (any thread, and a signal handler: an atomic store and a `write`).
 pub fn request_quit() {
@@ -107,6 +111,11 @@ fn flush_notes(service: &mut Svc) {
                 Line::Note(text) => trace::line!(Channel::Webd, "NOTE:{text}"),
                 Line::Flood(text) => {
                     if trace::within(&FLOOD, Channel::Webd) {
+                        trace::line!(Channel::Webd, "NOTE:{text}");
+                    }
+                }
+                Line::EngineFlood(text) => {
+                    if trace::within(&ENGINE_FLOOD, Channel::Webd) {
                         trace::line!(Channel::Webd, "NOTE:{text}");
                     }
                 }

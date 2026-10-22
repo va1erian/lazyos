@@ -244,12 +244,29 @@ impl EventQueue {
     }
 
     pub fn notify_show(&self, view: u64, id: u64, origin: &str, title: &str, body: &str) {
+        self.notify_show_from(view, id, origin, "", title, body, "");
+    }
+
+    /// `webd_ui_notify_show` with every text the engine gives: the page that asked and its tag too.
+    #[allow(clippy::too_many_arguments)]
+    pub fn notify_show_from(
+        &self,
+        view: u64,
+        id: u64,
+        origin: &str,
+        page_url: &str,
+        title: &str,
+        body: &str,
+        tag: &str,
+    ) {
         self.push_once(Once::NotifyShow {
             view,
             id,
             origin: kept(origin),
+            page_url: kept(page_url),
             title: kept(title),
             body: kept(body),
+            tag: kept(tag),
         });
     }
 
@@ -273,6 +290,11 @@ impl EventQueue {
             view,
             origin: kept(origin),
         });
+    }
+
+    /// `webd_ui_notify_permission_at`: decision `index` a page process starts with.
+    pub fn notify_decision_at(&self, index: usize) -> Option<(String, bool)> {
+        self.rules().notify_decision_at(index)
     }
 
     /// `webd_ui_blocking`: a pure decision.

@@ -5,9 +5,9 @@
 //
 // One Host per process (one WKContext, the engine processes, the notification manager) and any number
 // of Views (a page each, with its own state). Everything a view says goes to its ViewSink, everything
-// the host needs of its owner is a HostEnv: neither names the C ABI of lazyos_ui.h. That ABI, for a
-// window that has one page, is legacy.cpp's ViewSink and HostEnv over view 1; a second owner (the
-// webd daemon of docs/webd-plan.md, the two-view test) implements the same two interfaces.
+// the host needs of its owner is a HostEnv: neither names a C ABI. The owners are the webd daemon
+// of docs/webd-plan.md (webkit/port/webd/abi*.cpp, sink_full.cpp) and the two-view test (views/main.cpp), which
+// implement the same two interfaces.
 
 #pragma once
 
@@ -103,7 +103,7 @@ public:
     // The same question with the view's id for it (`request`, per view, never reused) and whether it replaces the
     // page (`mainFrame`: the main frame's navigation or a new window's). It may also answer kVerdictAsk: the
     // navigation is then held (View::held) until View::answerNavigation, a newer main-frame navigation or the
-    // view's end. The default asks `navigate`, so an owner of that question (legacy.cpp) holds nothing.
+    // view's end. The default asks `navigate`, so an owner of that question holds nothing.
     // (kVerdictDeny is LZW_VERDICT_DENY; policy.cpp asserts it.)
     static constexpr int kVerdictDeny = 1;
     static constexpr int kVerdictAsk = 3;
@@ -166,7 +166,7 @@ struct ViewConfig {
     int width { kInitialWidth };
     int height { kInitialHeight };
     // A LIGHT view (docs/webd-plan.md 3.6; light.cpp): content comes from View::loadHtml only. Everything
-    // below is read only when `light` is set, so a browser view (legacy.cpp) is as it always was. A light view
+    // below is read only when `light` is set, so a full view is as it always was. A light view
     // has a data store of its own that keeps nothing (give it no profile), scripts as `scripts` says, no
     // network of any kind (a content rule list that blocks every load but data:, blob: and about: URLs, and a
     // navigation policy that loads nothing the owner did not ask for), and the owner's features should be 0.

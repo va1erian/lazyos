@@ -150,16 +150,16 @@ def check_notices(third_party: str, readme: str) -> list[str]:
     return problems
 
 
-#: LazyWeb+'s window crates: the chrome and the seam it links, in a program that
-#: also links OpenSSL (docs/lazywebplus.md, THIRD_PARTY.md).
+#: LazyWeb+'s crates: the chrome and the seam it links. The program no longer links WebKit or OpenSSL (it
+#: is a client of webd), but the dual declaration is kept until a maintainer relicenses them
+#: (docs/webd-plan.md, open question 8; docs/lazywebplus.md, THIRD_PARTY.md).
 WEBPLUS_CRATES = ["xui-app/webplus/Cargo.toml", "xui-app/crates/webkit/Cargo.toml"]
 
 
 def check_webplus_licence() -> list[str]:
-    """The program LazyWeb+ ends up in links OpenSSL (Apache-2.0), which a GPL-2.0-only program cannot
-    carry, so its window crates must be offered under GPL-3.0-or-later as well as GPL-2.0-only (the
-    rule kept for what is linked into the window), and never reference the bundle's
-    OpenSSL themselves."""
+    """LazyWeb+'s crates stay offered under GPL-3.0-or-later as well as GPL-2.0-only (the declaration
+    they had when the program linked WebKit and OpenSSL, which a GPL-2.0-only program cannot carry; kept
+    until a maintainer relicenses them), and never reference the bundle's OpenSSL themselves."""
     problems = []
     for name in WEBPLUS_CRATES:
         path = ROOT / name
@@ -172,7 +172,7 @@ def check_webplus_licence() -> list[str]:
         choices = sorted(part.strip().strip("()") for part in re.split(r"\s+OR\s+", expression))
         if choices != ["GPL-2.0-only", "GPL-3.0-or-later"]:
             problems.append(f"{name}: license {expression!r} must be exactly 'GPL-2.0-only OR GPL-3.0-or-later' "
-                            "(the program links OpenSSL, Apache-2.0: docs/lazywebplus.md)")
+                            "(the declaration kept until a maintainer relicenses: docs/webd-plan.md, open question 8)")
         if re.search(r"^\s*\[(?:\w+-)?dependencies\.(openssl|openssl-sys|native-tls)\]", text, re.M) or re.search(
                 r"^\s*(openssl|openssl-sys|native-tls)\b", text, re.M):
             problems.append(f"{name} depends on OpenSSL: Apache-2.0 is GPLv2-incompatible")

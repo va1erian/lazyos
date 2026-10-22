@@ -3,7 +3,8 @@
 
 Boots the image of the last `run.py` or `frame_run.py` (QEMU's user network reaches the real internet),
 opens each address in turn, waits, and reads the serial log for the signs of the hang a first visit to a
-heavy page showed: the page's process unresponsive (`WEBPROCESS:UNRESPONSIVE`), a process busy in the
+heavy page showed: the page's process unresponsive (webd's `WEBD:NOTE:WEBPROCESS:UNRESPONSIVE`), a view webd
+lost (`WEBD:LOST`), a process busy in the
 kernel for whole `PERF:CPU` periods (the NetworkProcess in ext2: `kernel=` over 40), a lock held for
 seconds (`LOCK:WAIT`), a stuck call (`SCHED:STUCK`) and the cache's `ENOSYS 285 fallocate`.
 
@@ -63,7 +64,8 @@ def live_session(urls: list[str], wait: float, timeout: float, scroll: float = 0
 
 #: SIGILL, SIGABRT, SIGBUS, SIGFPE, SIGSEGV: a program that ended by one of these crashed.
 CRASH_SIGNALS = (4, 6, 7, 8, 11)
-BROWSER_PROGRAMS = ("lazywebplus.elf", "webprocess", "networkprocess", "WebProcess", "NetworkProcess")
+#: The client, webd (the daemon that owns the engine) and its two processes.
+BROWSER_PROGRAMS = ("lazywebplus.elf", "webd.elf", "webprocess", "networkprocess", "WebProcess", "NetworkProcess")
 #: An execve of a 100 MB browser program can hold the ext2 lock (or run in the kernel) for seconds: the known
 #: start-up cost, not a hang, below this many milliseconds (the slowest seen took about 9 s).
 EXECVE_MS = 15000
@@ -72,8 +74,10 @@ EXECVE_MS = 15000
 def verdict(text: str) -> tuple[list[str], list[str]]:
     """(findings that mean a hang, other facts) from a serial log."""
     hang, facts = [], []
-    if "WEBPLUS:WEBPROCESS:UNRESPONSIVE" in text:
+    if any(line.startswith("WEBPROCESS:UNRESPONSIVE") for line in judge.engine_lines(text)):
         hang.append("the page's process was reported unresponsive (WEBPROCESS:UNRESPONSIVE)")
+    for lost in judge.VIEW_LOST.finditer(text):
+        hang.append(f"webd lost the window's view ({lost.group(0)})")
     for tgid, pct, user, kernel, comm in re.findall(
             r"PERF:CPU tgid=(\d+) pct=(\d+) user=(\d+) kernel=(\d+) class=\S+ demotions=\d+ comm=(\S*)", text):
         if int(kernel) >= 40:

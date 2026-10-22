@@ -1,6 +1,6 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); LazyWeb+ on webd (P4) is not built. Builds on W4/W5/W6 of
+Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22** (see "P4 as built"). Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -27,10 +27,10 @@ Recommendations, each argued below:
 
 ## 1. Why now: what the code says
 
-* **Every browser carries its own engine host.** `lazywebplus-app` and `webkit-app` are each a 108 MiB static
+* **Every browser carried its own engine host** (the situation the plan started from; P1.0 and P4 removed both). `lazywebplus-app` and `webkit-app` were each a 108 MiB static
   program (`webkit/README.md`); LazyOS loads a static ELF whole into RAM with no text sharing
   (`webkit-port-plan.md` section 6, "Memory for code"), so every UI process, WebProcess and NetworkProcess costs
-  about 107 MiB before the first page. Today: one browser = 3 x 107 MiB, a second browser = 3 more.
+  about 107 MiB before the first page. Then: one browser = 3 x 107 MiB, a second browser = 3 more.
 * **The engine host is single-page.** `Engine E` in `webkit/port/app/engine.h` is a process global holding one
   context, one data store, one `WKView`, one `WKPageRef`; `lzw_ui_*` / `lzw_engine_*` in `lazyos_ui.h` carry no
   view id. No tabs, no second window (`lazywebplus.md` "Known limits").
@@ -274,9 +274,11 @@ interface os.lazy.webd.view.v1 {
 
 Client surface, in the order of effort:
 
-* **`xui-app/crates/webview`**: `WebView` xui widget plus `RemoteEngine: xui_webkit::Engine`. `WebView::new(opts)`;
+* **`xui-app/crates/webview`** as planned: `WebView` xui widget plus `RemoteEngine: xui_webkit::Engine`. `WebView::new(opts)`;
   `.load(url)`, `.load_html(html, base)`, events as xui messages. LazyWeb+'s window changes the engine it is
-  constructed with and nothing else.
+  constructed with and nothing else. **As built (P3, P4):** the light widget is `xui_app::lightview::LightView`
+  over `xui_webd_client::Pane`, and the remote engine is `RemoteEngine` in `xui-app/crates/webkit-remote`
+  (`xui-webkit-remote`) over `xui_webd_client::FullWebView`; no `webview` crate exists.
 * **Rhai**: `midlc --rhai-api` generates `sys::webd::*` for scripts for free; frames are not meaningful there,
   so the LazyRAD **`WebView` control** wraps the widget (`web1.load("https://...")`, `web1_on_title`).
 * **`os.lazy.webd.browser.v1`** and **`os.lazy.webd.net.v1`** scopes (not interfaces): consent text for "keeps
@@ -337,7 +339,7 @@ browser moves onto webd**.
 | **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
 | **P2 webd, light first** (done: slices 1 and 2 light, 3 the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
-| **P4 LazyWeb+ thin client** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
+| **P4 LazyWeb+ thin client** (done) | `xui-webplus` on `RemoteEngine` (`xui-webkit-remote`); downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py`, `hang_run.py` pass against webd; the 108 MiB engine host leaves the package; see "P4 as built" | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
@@ -653,7 +655,158 @@ The client side of the light interface and its proof; the program, package and `
   `notify` mode); bands never appeared (patch 0030 painted none for short scrolls); `Origins` limits navigations,
   not sub-resources.
 
-Kernel testing requirement: nothing above adds kernel code. webd's correctness tests are host tests (model
+### P4 as built (2026-10-22): LazyWeb+ on webd
+
+LazyWeb+ ([`lazywebplus.md`](lazywebplus.md)) is a plain xui app, the binary `xui-lazywebplus` (crate
+`xui-app/webplus`, built by `python tools/xui/build.py` into `target/xui/xui-lazywebplus.elf`). It links no
+WebKit, no curl and no OpenSSL. Its page is **one full view** of webd (`os.lazy.webd.view.v1`) made through the
+browser scope (`os.lazy.webd.browser.v1`) in webd's `browser` profile
+(`$HOME/.apps/os.lazy.webd/profiles/browser`: cookies, cache, site storage, the content-blocking store).
+`xui-app/crates/webkit-remote` (`xui-webkit-remote`, `RemoteEngine`) implements the seam's `Engine`
+(`xui-webkit`) over `xui_webd_client::FullWebView`; the window crate (chrome, history, downloads list, dialogs,
+notification bar, blocker UI, internal pages) is unchanged in shape.
+
+**Frames and input.** The page view gets frames straight from webd's shared slots into its mailbox (one copy:
+`FullWebView::poll_into` with a `PixelSink`), and the window's loop parks on the view's event channel through an
+endpoint descriptor (`watch_fd`), so it reads the view the moment webd writes. Pointer moves are merged in the
+client: at most one every 8 ms (issue #890's merging, in the client's own process, as section 3.4 planned).
+
+**Deleted:** the C++ engine host for LazyWeb+ (`webkit/port/app/main.cpp`, `legacy.cpp`, `legacy.h`;
+`lazyos_ui.h` now holds only the engine's shared constants), `tools/webkit/app.py` (its helpers moved to
+`tools/webkit/uilink.py`, used by `webd.py`), the `lazywebplus-app` cmake target,
+`build_support/lazywebplus_embed.rs`, `xui-webkit`'s C ABI (`ffi.rs`, `ffi_paint.rs`, `taskstat.rs`) and the
+window's heartbeat (webd's watchdog covers WebKit's thread). The `WebProcess` and `NetworkProcess` are webd's
+(`app:os.lazy.webd/webprocess|networkprocess`). LazyWeb+'s package keeps only `[processes.listupdate]`: the
+ad-block list download with `curl` (the lists are the client's; webd compiles what it is given,
+`BlockingCompile`).
+
+**Build switch.** `LAZYOS_LAZYWEBPLUS=1` needs `LAZYOS_DESKTOP=1`, `LAZYOS_NETD=1` and webd (an unset
+`LAZYOS_WEBD` is required, `LAZYOS_WEBD=0` is an error). `run_demo.py --lazywebplus` implies the desktop, `--net`,
+`--tls` (curl for the lists), the WebKit limits (`quota_user_memory=8G`), the big-app profile and webd (an error
+with `--no-webd`); it builds the WebKit processes, webd and the xui apps.
+
+**What moved where:**
+
+| Concern | Before (in the window or the UI process) | In webd, and what the client keeps |
+|---|---|---|
+| Navigation policy (other schemes, `x-lazyweb:` commands) | `policy::decide` on WebKit's thread | webd holds the navigation (`Handoff.Ask`, `NavigationRequested`); the client refuses it at once (`NavigationAnswer(false)`) and decides with its own `policy.rs` and its real-input lock |
+| Downloads | the window picked the path in `$HOME/Downloads` | webd names and writes the file (`lazydownloads`); the client lists them and toasts |
+| Notifications | provider, bar and toasts in the browser | webd keeps the profile's decisions and hands the page's notifications to the client (`ViewConfig.notify_in_client`: `NotifyShow`/`NotifyCancel`/`NotifyGone`); the permission bar and the toasts stay the client's, so a toast click raises the browser's window; it answers with `NotifyState` |
+| The person's notification decisions | `notify.tsv` | still `notify.tsv`, the client's, told to webd each time a view is made (webd keeps them only while it runs); forgetting one is `NotifyForget` |
+| Content blocking | the engine's store in the window's profile; switch, exceptions and the one-shot "Reload without blocking" in the window | the client's lists compile into webd's `browser` profile; the switch and the exceptions are webd's per-profile `SetBlocking(enabled, exceptions)` (at most 64 sites); the one-shot is an exception until the browser leaves the site |
+| The hang bar (Wait, Reload, Stop) | `lzw_engine_recover` | `Recover(view, reload)`; Stop ends the page's process, webd reports the view lost and the page is blank until the next load, which makes a new view |
+| A page whose process crashes | reported by the host | the page is blank until the next load (a new view) |
+| webd going away | not possible | "The web engine (webd) is not running" / "stopped; reconnecting", a retry every second, the page loaded again |
+
+**Internal pages** (`about:history` and the others) stay `data:` URLs; one longer than 8 KiB (webd's address
+limit) is given with `LoadHtml` at a short base address carrying a random number, and its address is told back to
+the window as the original `data:` URL (`webkit-remote/src/alias.rs`). Back or Forward to such a page that
+WebKit must load again shows an empty page; Reload rebuilds it.
+
+**Memory-only mode** (#940, File menu "Keep Page Data in Memory (on/off)"): the view is the `browser` profile with
+`ephemeral` (in memory): cookies and site data are not kept. webd refuses content blocking and notifications for
+a profile in memory, so in that mode the ad blocker is off and pages cannot notify (before, the blocker kept
+working).
+
+**Decisions the plan left open, as taken:**
+
+* *Scopes used.* The browser scope only: the one profile on disk, downloads, blocking, notifications.
+* *Hand-off.* `Handoff.Ask`, not `Handoff.Browser`: the real-input lock (section 3.4) and the browser's own
+  commands live in the client, where the input is; `Browser` would have let webd call `mimed` for the page.
+* *Notification identity* (open question 6): the browser posts the toast (`notify_in_client`), not webd. The shell
+  raises the app that posted a toast on a click, and an app cannot raise another's window. webd's own toasts stay
+  for views without the flag.
+* *Profile.* The old in-process engine's cookies, cache and site storage (`$HOME/.apps/os.lazy.lazywebplus/`)
+  are **not migrated**: webd's label cannot read that folder and the client cannot write webd's. Sites need a new
+  sign-in. History (`history.tsv`), the notification choices (`notify.tsv`), the ad-block lists and the settings
+  are the client's and are kept; the old engine's files stay in the folder, unused.
+* *Slots and the kernel limit.* `FullWebView` attaches three frame slots and two band slots (`SlotPlan`), most
+  needed first, and runs with fewer when the process cannot have more. The P2 slice 3 note (a maximized window at
+  2560x1440 has a 44 MiB cap and a frame is 14.7 MB) was settled by raising a default: the kernel's per-process
+  `limit.shared_buffer_max` is now eight screens (it was three; still at most a quarter of RAM), a maximized
+  window's buffers plus webd's slots (`kernel/src/limits/derive.rs`, `docs/architecture/limits.md`, a case in
+  `limits_suite`).
+* *Recovery.* `Recover(view, reload)` (method 17) ends the page's process; the engine refuses a process other
+  views share (`WEBPROCESS:RECOVER:SHARED`), which cannot happen with one view.
+* *Mouse moves.* A move with no button held is now button -1 in webd (it refused it before, so clients sent the
+  left button).
+* *Flood budget.* webd prints the engine's repeating lines (`INFO:*`, hang pings) under a budget of their own,
+  120 per ten seconds, separate from the 20 per ten seconds for lines a client can cause.
+* *Licence.* The window crates keep `GPL-2.0-only OR GPL-3.0-or-later` until a maintainer relicenses (open
+  question 8; `python tools/nettls/licenses.py --lazywebplus` still checks the registry tree). The program no
+  longer links WebKit or OpenSSL, but links two crates of its own declared `GPL-3.0-or-later`
+  (`xui-webkit-remote`, `xui-webd-client`), so it is distributed as GPL-3.0-or-later.
+
+**Interface additions** (`idl/webd.midl`, append-only): `Recover(view, reload)` = 17, `NotifyForget(view, origin)` =
+38, `NotifyState(view, notification, state)` = 39 with `enum NotifyStateKind`, events `NotifyShow` = 123,
+`NotifyCancel` = 124, `NotifyGone` = 125, and `ViewConfig.notify_in_client` = 14. The C ABI
+(`webkit/port/webd/webd_abi.h`) gained `webd_engine_recover` and `webd_engine_notify_forget`.
+
+**Harnesses.** `tools/webplus/run.py`, `notify_run.py`, `hang_run.py` and the blocker boots judge LazyWeb+ as a
+client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `WEBPLUS:`.
+
+**Known limits.**
+
+* `file:` URLs do not open: webd never loads `file:`, so a local HTML file opened from Files fails with an error
+  (open question 5's `LoadHtml` route is not built).
+* WebKit keeps one notification-permission record for the whole context, so a site allowed in the browser profile
+  reads as `Notification.permission == "granted"` in another app's profile, where webd then refuses the
+  notification (it posts nothing for a profile that did not allow it). Documented, not fixed.
+* **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
+  `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs do not reach the cap of 4.
+  Missing: the window chrome for tabs, a parked-view pool in webd (every closed view leaves a parked proxy,
+  below), and a recovery for a hung tab, since `recover` refuses a process other views share (a hung tab would
+  need its group's views made again).
+
+#### Measured
+
+`python tools/webplus/frame_run.py --perf` (2560x1440, LazyWeb+ maximized at the 1280x720 layout times two, the
+stand-in server's tall page, the wheel turned for 20 s at 3 notches every 50 ms; QEMU with WHPX, 4 GiB) on this
+branch and on its parent (02f0b8317: the in-process LazyWeb+, the same WebKit build, an image with no webd), same
+machine, one after the other; another session's kernel tests were running on the host during the runs. One run per
+side of the final build, plus one of this branch before the band fix below.
+
+| | in-process (before) | client of webd (after) |
+|---|---|---|
+| paints during the 20 s | 486 (24.3/s), 481 deltas | 491 (24.6/s), 485 deltas |
+| wheel to the engine's first damage (`w2d`) | 3.6 ms average, 33.9 ms worst | 3.9 ms average (+8%), 26.4 ms worst |
+| frames drawn while scrolling (`INFO:SMOOTH`) | 60-62 a second, longest gap 20-43 ms | 60-62 a second, longest gap 23-45 ms |
+| checkerboard rows while scrolling | 0 (32-41 bands painted a second) | 40 rows in one second, then 0 (38-40 bands a second) |
+| window updates (`INFO:WINDOW`) | 491; apply 58 us, draw 634 us a draw | 491; apply 51 us, draw 813 us a draw |
+| the engine's paint (`INFO:PAINT` total, post) | 2,338 us a paint (900 of them the probe image's check), post 762 us | 1,393 us a paint (no check), post 479 us (into a slot) |
+| CPU (`PERF:CPU`, looks above 20%) | `lazywebplus.elf` 22% (the UI process and the window) | no process above 20% (the work is split between webd's UI process and the client) |
+| free memory when the page loaded (`INFO:MEM`) | 3,614 MiB | 3,607 MiB (7 MiB less; the image before ships no webd at all) |
+| the program | `lazywebplus-app` 80.6 MB, package 32.4 MB | `xui-lazywebplus` 3.6 MB, package 1.75 MB (webd's 73.8 MB program is on every desktop anyway) |
+
+What it says: the scroll's latency to the engine is within the plan's 10% (3.9 against 3.6 ms on average, one run
+each, on a loaded host) and the frame rate is the same; the hop through webd does not show at this resolution.
+The client's draw is slower (813 against 634 us a draw; the code is the same, so the host's load is the likely
+cause; not confirmed). **Found on the way: overscan bands.** The first run of the client showed about 6,000
+checkerboard rows a second (11% of the rows shown) because the page's process painted no band: patch 0030's
+drawing area works out how many rows to paint ahead only in `updateGeometry`, and a webd view is made at its final
+size and never resized, so the process never got one. The engine now gives a new page process one geometry update
+(`clients.cpp`, `nudgeGeometry`); this is also why slice 3's tests saw no band. Not measured: typing latency (no
+harness measures key to paint), the Ars Technica repro of the performance plan (it needs the live site;
+`scroll_bench.py` and `pointer_bench.py` were adapted but not run), and more than one run per side.
+
+#### What P5 still needs
+
+* **Overscan without the geometry nudge**: patch 0030 should work out its overscan when the drawing area starts;
+  until then every new page process gets two extra layouts and `resize` events (`clients.cpp`, `nudgeGeometry`),
+  light views and views without deltas included, which paint bands nobody shows.
+* **The latency criterion on the Ars Technica repro** (`scroll_bench.py`, `pointer_bench.py`, live) and a key-to-paint
+  measurement, several runs a side.
+* **A pool of parked views**, reused by the same owner and profile: every closed view leaves a parked proxy
+  (section "What P1 found"), and tabs or a navigation that remakes the view would grow webd.
+* **A per-view process id and its children** (`webd_engine_view_pid`), so a client or the self-test can tell
+  whose process a view runs in.
+* **Hang recovery of a shared group**: ending a process that several views use, and making their views again.
+* **The notification permission context leak** (above): a per-profile permission record, or a patch that makes
+  WebKit's record per data store.
+* **`file:` browsing** through a client-side read and `LoadHtml`.
+* **Tabs** (above).
+
+Kernel testing requirement: nothing above adds kernel code, except P4's one default (`shared_buffer_max`). webd's correctness tests are host tests (model
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view
 create/destroy cycles judging descriptors, frames and the user-memory charge (`hang_run.py` already judges that
 charge for ended processes).
@@ -780,7 +933,7 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 3 | Does a light view need the network process | assume it does until L1 (3.6) in P1 | P1 measures it |
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
-| 6 | Notification identity | webd posts the toast under its own name with the site host as title | the shell grows `on_behalf_of` |
+| 6 | Notification identity | webd posts the toast under its own name with the site host as title; a view made with `notify_in_client` (a browser, P4) gets the notifications instead and the app posts them under its own name, so a click raises its window | the shell grows `on_behalf_of` |
 | 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

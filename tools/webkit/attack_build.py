@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build the stand-ins of the browser's sandbox attack harness (issue #832).
+"""Build the stand-ins of webd's sandbox attack harness (issue #832).
 
 ``tools/abi/fixtures/src/sandboxprobe.rs`` is a small static musl program that, from inside
 the label of the real WebProcess or NetworkProcess, tries what an exploited engine process
 would try. An image built with ``LAZYOS_LAZYWEBPLUS=1 LAZYOS_WEBKIT_ATTACK=1`` ships it as both
 ``/system/bin/webprocess`` and ``/system/bin/networkprocess`` (``build_support/
-linuxapps_embed.rs``), under the real browser window, so the kernel stamps it with the label
-of the real programs; ``python tools/webkit/attack_run.py`` boots such an image and judges
+linuxapps_embed.rs``), under the real webd and the browser that drives it, so the kernel stamps
+it with the label of the real programs (``app:os.lazy.webd/<name>``); ``python tools/webkit/attack_run.py`` boots such an image and judges
 what it printed.
 
 It needs no WebKit build and no Docker: Rust's musl target (the ABI fixtures' recipe,

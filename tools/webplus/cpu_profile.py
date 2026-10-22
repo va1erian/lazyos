@@ -2,12 +2,15 @@
 """Where a guest program's CPU goes, by function: `sample.py`'s recording against an unstripped program.
 
 The host has no `addr2line`, so the build container (the `jsc` Docker image and its volume, which keeps the
-unstripped programs in `/build/webkit-port-build/bin/`) names the functions.
+unstripped programs in `/build/webkit-port-build/bin/`) names the functions. The programs it keeps are the
+engine's: `WebProcess`, `NetworkProcess` and `webd-app` (webd's UI process, the program that runs as `webd.elf`;
+the app's own paint and mailbox are in it). LazyWeb+'s window (`lazywebplus.elf`) is a Rust program built by
+`tools/xui/build.py`, not in that volume, so its functions are not named here.
 
     python tools/webplus/cpu_profile.py shots/webplus-live/samples.tsv                    # which process, then its functions
     python tools/webplus/cpu_profile.py shots/webplus-live/samples.tsv --program WebProcess
-    python tools/webplus/cpu_profile.py samples.tsv --program lazywebplus-app --cr3 3a4b000 --volume lazyos-jsc-scroll
-    python tools/webplus/cpu_profile.py samples.tsv --program lazywebplus-app --callers memcpy   # who calls the hot leaf
+    python tools/webplus/cpu_profile.py samples.tsv --program webd-app --cr3 3a4b000 --volume lazyos-jsc-scroll
+    python tools/webplus/cpu_profile.py samples.tsv --program webd-app --callers memcpy   # who calls the hot leaf
 
 `--callers` reads the stack quadwords `sample.py` keeps with a user-mode sample and names, for each sample
 in a function matching the text, the first quadword that symbolizes to another function: a return address

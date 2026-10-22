@@ -112,11 +112,11 @@ CORE_APPS: dict[str, CoreApp] = {
     "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
     # Pure Rust, built with the other apps; its pages are drawn by webd.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
-    # LazyWeb+ (docs/lazywebplus.md), the web browser on WebKit, one static program
-    # linked by `tools/webkit/app.py`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
-    # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
+    # LazyWeb+ (docs/lazywebplus.md), the web browser, a plain xui app and a client of webd, built with
+    # the other apps by `tools/xui/build.py`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
+    # (`build_support/webd_embed.rs`, which fails that build when it is missing).
     "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,
-                           built_by="python tools/webkit/app.py"),
+                           built_by="python tools/xui/build.py"),
     # webd (docs/webd.md): the resident daemon that serves WebKit views to other apps, one static program
     # linked by `tools/webkit/webd.py`. Only a `LAZYOS_WEBD=1` image ships it
     # (`build_support/webd_embed.rs`, which fails that build when it is missing).

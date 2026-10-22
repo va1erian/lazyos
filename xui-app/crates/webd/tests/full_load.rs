@@ -10,6 +10,7 @@ use libmessenger::Buffer;
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 use support::full::{data_only, listed, web, Fx, Via};
 use support::origin;
+use xui_webd::engine::{EngineEvents, LOST_OTHER};
 use xui_webd::fabric::errno::*;
 use xui_webd::limits::{HTML_BYTES_MAX, URL_BYTES_MAX};
 use xui_webd::recording::Call as EngineCall;
@@ -341,6 +342,38 @@ fn navigation_and_input_calls_reach_the_engine_for_the_callers_full_view() {
     fx.destroy_view(app, view).unwrap();
     assert_eq!(fx.reload(app, view, false), Err(ENOENT));
     assert_eq!(fx.load_url(app, view, "about:blank"), Err(ENOENT));
+}
+
+#[test]
+fn recover_reaches_the_engine_with_its_flag_for_the_callers_live_view_only() {
+    // Why: Recover ends a web process; only the view's owner may ask, the flag decides between a
+    // reload and a stopped page, and a view the engine gave up has nothing to recover.
+    let mut fx = Fx::new("recover");
+    let (app, other) = (origin(7), origin(8));
+    let (view, _) = fx.view(app, Via::Net, web(), 4, 4);
+    fx.engine.take();
+    fx.recover(app, view, true).unwrap();
+    fx.recover(app, view, false).unwrap();
+    assert_eq!(
+        fx.engine.take(),
+        vec![
+            EngineCall::Recover(view, true),
+            EngineCall::Recover(view, false)
+        ]
+    );
+    assert_eq!(fx.recover(other, view, true), Err(ENOENT));
+    assert_eq!(fx.recover(app, view + 1000, true), Err(ENOENT));
+    let garbage = fx.call(app, wire::METHOD_RECOVER, vec![1, 2, 3]);
+    assert!(garbage.is_err());
+    assert!(
+        fx.engine.take().is_empty(),
+        "a refused call reached the engine"
+    );
+    // The engine gave the view up (a recover without a reload ends the page this way).
+    fx.queue.view_lost(view, LOST_OTHER);
+    fx.pump(0);
+    assert_eq!(fx.recover(app, view, true), Err(ENODEV));
+    assert!(fx.engine.take().is_empty());
 }
 
 #[test]

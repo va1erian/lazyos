@@ -30,6 +30,10 @@ pub struct FullView {
     pub dialogs: VecDeque<u64>,
     /// Notifications of this view on screen: toast id to the engine's notification id.
     pub toasts: BTreeMap<u64, u64>,
+    /// With `notify_in_client`: the engine's ids of the notifications given to the app
+    /// (`NotifyShow`) that are not over yet, and whether the page's object for each still lives
+    /// (`NotifyGone` ends it: the toast stays, a click reaches no script).
+    pub forwarded: BTreeMap<u64, bool>,
     /// The page on screen as the engine last said (what `Reload(bypass_blocking)` reloads).
     pub committed: String,
 }
@@ -41,6 +45,7 @@ impl FullView {
             held: BTreeMap::new(),
             dialogs: VecDeque::new(),
             toasts: BTreeMap::new(),
+            forwarded: BTreeMap::new(),
             committed: String::new(),
         }
     }

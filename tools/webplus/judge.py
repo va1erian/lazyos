@@ -2,12 +2,14 @@
 
 Four kinds of evidence, each judged on its own:
 
-* **serial** - the window's markers (`WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`, `NAV`,
-  `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,
-  `FAIL`, `STOPPED`) and the UI process's (`UP`, `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`,
-  `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`; the launcher's `PROCESS:LAUNCH|EXIT|TERMINATE`): every page loaded with its title, the script's three
-  dialogs were answered (the title carries the answers), what the script tried on its own was
-  `BLOCKED` and nothing but the user's click started another program, the downloads finished whole;
+* **serial** - the window's markers (the client's, `WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`,
+  `NAV`, `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,
+  `FAIL`, `STOPPED`, `QUIT:PASS`) and the engine's, which `webd` relays as `WEBD:NOTE:<line>`
+  (`engine_lines`: `WEBPROCESS:UP:<pid>`, `NETWORKPROCESS:UP:<pid>`, `PROCESS:LAUNCH|EXIT|TERMINATE`,
+  `INFO:*`) beside its own `WEBD:VIEW:CREATE|DESTROY` and `WEBD:LOST`: every page loaded with its
+  title, the script's three dialogs were answered (the title carries the answers), what the script
+  tried on its own was `BLOCKED` and nothing but the user's click started another program, the
+  downloads finished whole;
 * **servers** - what the host's stand-in sites recorded (`tools/webtest/sites.py`): the pages, every
   picture, the form's query, no cookie on the first boot's request and the first boot's cookie on
   the second's (the profile is persistent);
@@ -38,8 +40,10 @@ import sites  # noqa: E402
 
 from pixels import SCROLL_PX, judge_maximized, judge_scroll, region_stats  # noqa: E402,F401  (the runner's)
 
-#: The window's marker prefix, and the UI process's (the same).
-P = "WEBPLUS"
+from webd_log import (CLIENT_LABEL, is_client, NOTE, P, VIEW_CREATE, VIEW_DESTROY, VIEW_EVENT, VIEW_LOST, WEBD_UP,  # noqa: E402,F401
+                      client_views, engine_line, engine_lines, engine_markers, engine_pids, engine_text, lines,
+                      process_history)  # the log reader: webd_log.py
+
 APP = "LazyWeb+"
 START = "about:start"
 EXAMPLE_URL = pages.EXAMPLE_URL
@@ -87,24 +91,18 @@ CLOSER_PORT = 81
 FAIL_URL = f"http://example.com:{CLOSER_PORT}/"
 page_assets = pages.page_assets
 HISTORY_FILE = "history.tsv"
-#: What the profile's folder holds that a persistent engine writes.
-#: Where the engine keeps the cookie jar below the profile folder (`createDataStore` in webkit/port/app/engine.cpp).
+#: webd's `browser` profile, below the home: the engine's cookie jar, HTTP cache and rule lists live
+#: there, not in LazyWeb+'s own folder (which keeps `history.tsv`, `notify.tsv` and the list sources).
+WEBD_PROFILE = ".apps/os.lazy.webd/profiles/browser"
+#: Where the engine keeps the cookie jar below that folder.
 COOKIE_DB = "cookies/cookie.jar.db"
+#: The cookie jar's name in `run.read_profile`'s listing (a name under the home).
+COOKIE_KEY = f"{WEBD_PROFILE}/{COOKIE_DB}"
 
 
 def caption(title: str) -> str:
     """The window's caption while a page with `title` is on show (`app.rs` `caption`)."""
     return f"{title} - {APP}"
-
-
-def lines(text: str, prefix: str) -> list[str]:
-    """What follows `prefix` on every line that has it (anywhere: the console may interleave)."""
-    found = []
-    for line in text.splitlines():
-        at = line.find(prefix)
-        if at >= 0:
-            found.append(line[at + len(prefix):].strip())
-    return found
 
 
 def markers(text: str, kind: str) -> list[str]:
@@ -121,18 +119,28 @@ def titles(text: str) -> list[str]:
 
 
 def judge_start(text: str) -> list[str]:
-    """The UI process and the window came up, with both children of the page."""
+    """The window came up (its first frame), webd made its view, and the engine started both processes
+    of the page."""
     problems = []
-    for marker in (f"{P}:UP", f"{P}:UP:PASS"):
-        if not re.search(re.escape(marker) + r"(?![:\w])" if marker == f"{P}:UP" else re.escape(marker), text):
-            problems.append(f"no {marker}")
+    if f"{P}:UP:PASS" not in text:
+        problems.append(f"no {P}:UP:PASS")
+    if WEBD_UP not in text:
+        problems.append(f"no {WEBD_UP}: the web engine daemon never came up")
+    if not any(is_client(m["client"]) for m in VIEW_CREATE.finditer(text)):
+        problems.append(f"webd never made the window's view: no WEBD:VIEW:CREATE client={CLIENT_LABEL}")
     for kind in ("WEBPROCESS", "NETWORKPROCESS"):
-        if not re.search(rf"{P}:{kind}:UP:(\d+)", text):
-            problems.append(f"no {P}:{kind}:UP:<pid>")
+        if not engine_pids(text, kind, "UP"):
+            problems.append(f"no {NOTE}{kind}:UP:<pid>")
     for failure in re.findall(rf"{P}:(?:BIND|RUN):FAIL[^\r\n]*", text):
         problems.append(f"the window failed: {failure}")
-    problems += judge_no_fault(text)
+    problems += judge_no_fault(text) + judge_no_lost(text)
     return problems
+
+
+def judge_no_lost(text: str) -> list[str]:
+    """webd never reported a view lost: outside the hung-page harness, nothing takes a page's process
+    away (a crash, memory, or a Stop), and a lost view blanks the page."""
+    return [f"webd lost a view: {m.group(0)}" for m in VIEW_LOST.finditer(text)][:8]
 
 
 def judge_no_fault(text: str) -> list[str]:
@@ -145,6 +153,14 @@ def judge_no_fault(text: str) -> list[str]:
 def expected_failure(failure: str) -> bool:
     """The one load the session makes fail on purpose (`FAIL_URL`): its marker names it in a probe image."""
     return failure.startswith(f"Could not load {FAIL_URL}") or failure.startswith(f"provisional:{FAIL_URL}:")
+
+
+def load_failures(text: str) -> list[str]:
+    """What follows `FAIL` in the client's `WEBPLUS:FAIL[:<error>]` and in the engine's own
+    `FAIL:<what>` markers (`FAIL:provisional:<url>:...`): the text starts with `:` when there is one."""
+    # webd's `FAIL:provisional::` names no address: the client's own `FAIL` reports that load.
+    return lines(text, f"{P}:FAIL") + [line[len("FAIL"):] for line in engine_lines(text)
+                                       if line.startswith("FAIL") and not line.startswith("FAIL:provisional:")]
 
 
 def judge_pages(text: str) -> list[str]:
@@ -162,10 +178,11 @@ def judge_pages(text: str) -> list[str]:
             problems.append(f"no {P}:TITLE:{title} (titles seen: {seen})")
     if ECHO_TITLE not in seen:
         problems.append(f"the typed text did not come back: no {P}:TITLE:{ECHO_TITLE} (seen: {seen})")
-    for failure in lines(text, f"{P}:FAIL"):
+    failures = load_failures(text)
+    for failure in failures:
         if failure and not expected_failure(failure.lstrip(":")):
             problems.append(f"a load failed: {failure}")
-    if not any(expected_failure(f.lstrip(":")) for f in lines(text, f"{P}:FAIL")):
+    if not any(expected_failure(f.lstrip(":")) for f in failures):
         problems.append(f"the address that hangs up never failed: no {P}:FAIL for {FAIL_URL}")
     if loaded(text, SLOW_URL):
         problems.append("the stopped page loaded anyway")
@@ -248,80 +265,27 @@ def resizes(text: str) -> list[tuple[int, int]]:
 def judge_resize(text: str) -> list[str]:
     sizes = resizes(text)
     if len(sizes) < 2:
-        return [f"the engine was told of {len(sizes)} size(s), expected the window's and the maximized one"]
+        return [f"{len(sizes)} whole picture(s) of a new size arrived ({P}:INFO:RESIZE), expected the window's "
+                "and the maximized one"]
     (w0, h0), (w1, h1) = sizes[0], sizes[-1]
     if w1 <= w0 or h1 <= h0:
         return [f"the page was not laid out larger after the window grew: {sizes}"]
     return []
 
 
-PROCESS_EVENT = re.compile(
-    rf"{P}:(?:PROCESS:(?P<kind>LAUNCH|EXIT):(?P<ptype>\w+):(?P<ppid>\d+)(?::(?P<rest>[^\r\n]*))?"
-    rf"|PROCESS:TERMINATE:(?P<ttype>\w+):(?P<tpid>\d+):group=(?P<group>-?\d+):pid=(?P<single>-?\d+)"
-    rf"|CHILD:(?P<ctype>\w+):(?P<cpid>\d+):(?P<cstate>GONE|ALIVE))")
-
-
-def process_history(text: str) -> tuple[list[str], set[tuple[str, str]]]:
-    """Follows every engine process through the log in order (issue #862): a launch makes it live, an
-    exit (or the shutdown's `CHILD:...:GONE`) ends it. LazyOS ids are task slots and are reused at once, so
-    an id means a process only between its launch and its end: an exit of an id that is not live, or
-    of another type than the launch, a launch of an id still live, a `terminate` that sent nothing to a live
-    process (neither the group's kill nor the process's), a `CHILD` line naming a process that had ended, and
-    a process still live at the end are all problems. Returns the problems and the (type, id) pairs seen to end."""
-    problems: list[str] = []
-    live: dict[str, str] = {}
-    ended: set[tuple[str, str]] = set()
-    for match in PROCESS_EVENT.finditer(text):
-        if match["kind"] == "LAUNCH":
-            kind, pid = match["ptype"], match["ppid"]
-            if pid in live:
-                problems.append(f"the {kind} process {pid} was launched while the {live[pid]} process {pid} was still live")
-            live[pid] = kind
-            ended.discard((kind, pid))
-        elif match["kind"] == "EXIT":
-            kind, pid = match["ptype"], match["ppid"]
-            if pid not in live:
-                problems.append(f"an exit of the {kind} process {pid}, which was not live")
-            elif live[pid] != kind:
-                problems.append(f"an exit of the {kind} process {pid}, which was launched as {live.pop(pid)}")
-            else:
-                del live[pid]
-                ended.add((kind, pid))
-        elif match["ttype"]:
-            kind, pid = match["ttype"], match["tpid"]
-            if pid in live and match["group"] != "0" and match["single"] != "0":
-                problems.append(f"WebKit's terminate of the {kind} process {pid} sent no signal "
-                                f"(group errno {match['group']}, pid errno {match['single']})")
-        elif match["cstate"] == "GONE":
-            kind, pid = match["ctype"], match["cpid"]
-            if pid in live:
-                if live[pid] != kind:
-                    problems.append(f"the shutdown ended the {kind} process {pid}, which was launched as {live[pid]}")
-                del live[pid]
-                ended.add((kind, pid))
-            elif (kind, pid) in ended:
-                problems.append(f"the shutdown named the {kind} process {pid}, which had ended already")
-            else:
-                ended.add((kind, pid))
-    for pid, kind in live.items():
-        problems.append(f"the {kind} process {pid} was launched and never seen to end")
-    return problems, ended
-
-
 def judge_quit(text: str) -> list[str]:
-    """Closing the window ends the run loop and both child processes: `QUIT:PASS`, and every process the
-    UI process named is accounted for (`process_history`): ended by the shutdown (`CHILD:<name>:<pid>:GONE`,
-    what its own waitpid/kill saw) or earlier and collected (`PROCESS:EXIT`)."""
+    """Closing the window ends its view: `QUIT:PASS` (the client printed it after its window closed, its exit
+    status was 0 and its `curl` child was gone: a `CHILD:<name>:ALIVE` line otherwise), every view webd made
+    for the client was destroyed, and every web process the engine launched was seen to end
+    (`process_history`; the network process is webd's and stays)."""
     problems = []
     if f"{P}:QUIT:PASS" not in text:
         problems.append(f"the window did not close cleanly: no {P}:QUIT:PASS (saw {re.findall(rf'{P}:QUIT:\\w+', text)})")
-    history, ended = process_history(text)
-    for name, kind in (("web", "WEBPROCESS"), ("network", "NETWORKPROCESS")):
-        for pid in sorted(set(re.findall(rf"{P}:{kind}:UP:(\d+)", text))):
-            if (name, pid) not in ended:
-                problems.append(f"the {name} process {pid} was not seen to end: no {P}:CHILD:{name}:{pid}:GONE")
-    for alive in re.findall(rf"{P}:CHILD:\w+:\d+:ALIVE[^\r\n]*", text):
+    for alive in re.findall(rf"{P}:CHILD:[^\r\n]*ALIVE[^\r\n]*", text):
         problems.append(f"a child outlived the window: {alive}")
+    for view in client_views(text)[1]:
+        problems.append(f"webd's view {view} of the window was never destroyed (no WEBD:VIEW:DESTROY view={view})")
+    history, _ = process_history(text)
     return problems + history
 
 
@@ -410,7 +374,7 @@ def history_urls(history: str) -> list[str]:
 def judge_profile(listing: dict[str, bytes | None], first_history: str, second_history: str) -> list[str]:
     """The OS volume's evidence (`listing` maps a name under the home to its bytes, or None when absent):
     the first boot's history holds its pages, both downloads are whole with no `.part`, the cookie
-    database exists, and the second boot's Clear history left the file empty."""
+    database exists (in webd's browser profile, `COOKIE_KEY`), and the second boot's Clear history left the file empty."""
     problems = []
     urls = history_urls(first_history)
     for url in (EXAMPLE_URL, OLDNET_URL, COOKIE_URL, LINKS_URL, SCRIPT_URL):
@@ -430,8 +394,8 @@ def judge_profile(listing: dict[str, bytes | None], first_history: str, second_h
             problems.append(f"~/Downloads/{name} is {len(data)} bytes, expected {size}")
         if listing.get(f"Downloads/{name}.part") is not None:
             problems.append(f"~/Downloads/{name}.part was left behind")
-    if listing.get(f".apps/os.lazy.lazywebplus/{COOKIE_DB}") is None:
-        problems.append(f"the profile has no {COOKIE_DB}: cookies were not persisted")
+    if listing.get(COOKIE_KEY) is None:
+        problems.append(f"webd's browser profile has no {COOKIE_DB} (~/{WEBD_PROFILE}): cookies were not persisted")
     if history_urls(second_history):
         problems.append(f"Clear history left {len(history_urls(second_history))} entries in {HISTORY_FILE}")
     return problems
@@ -479,8 +443,8 @@ def judge_shots(paths: list[Path], region: tuple[int, int, int, int] | None, min
 
 
 def first_paint_ms(text: str) -> list[int]:
-    return [int(n) for n in re.findall(rf"{P}:INFO:TIME:firstpaint=\d+:sincecommit=\d+:sincenav=(\d+)", text)]
+    return [int(n) for n in re.findall(r"^INFO:TIME:firstpaint=\d+:sincecommit=\d+:sincenav=(\d+)", engine_text(text), re.M)]
 
 
 def load_ms(text: str) -> list[int]:
-    return [int(n) for n in re.findall(rf"{P}:INFO:TIME:nav=\d+:start=\d+:commit=\d+:finish=\d+:load=(\d+)", text)]
+    return [int(n) for n in re.findall(r"^INFO:TIME:nav=\d+:start=\d+:commit=\d+:finish=\d+:load=(\d+)", engine_text(text), re.M)]

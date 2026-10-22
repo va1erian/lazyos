@@ -1,8 +1,8 @@
 // WebKit's UI-process half (docs/webkit-port-plan.md; docs/lazywebplus.md; docs/webd-plan.md).
 //
 // Everything here runs on WebKit's main thread (the run loop main() starts). The owner's thread
-// calls the View methods through onView(), which only queues a task for this thread (the C ABI of
-// lazyos_ui.h does it in legacy.cpp). WebKit is used through its C API alone, as webkit-smoke does:
+// calls the View methods through onView(), which only queues a task for this thread (webd's abi.cpp
+// does it). WebKit is used through its C API alone, as webkit-smoke does:
 // a context pointed at the WebProcess and NetworkProcess binaries, a page configuration per view,
 // the PlayStation port's WKView; the page is painted into a bitmap with WKPagePaint (paint.cpp) and
 // handed to the view's sink; mouse, wheel and key events go in through WKPageHandle*Event. What the

@@ -9,9 +9,6 @@ dependency bundle, as static-PIE ``x86_64-linux-musl`` programs by zig:
 * ``WebProcess`` and ``NetworkProcess``: what the UI process launches;
 * ``webkit-smoke``: a headless UI process driven through WebKit's C API
   (``webkit/port/smoke/``);
-* ``lazywebplus-app`` (``--only lazywebplus-app``): the desktop UI process, WebKit's run loop in
-  C++ (``webkit/port/app/``) and LazyWebPlus's window in a Rust static library
-  (``xui-app/webplus``); ``tools/webkit/app.py`` does both halves (docs/lazywebplus.md);
 * ``webd-app`` (``--only webd-app``): webd, the daemon that serves light views: the engine's second owner
   (``webkit/port/webd/``) with its service in a Rust static library (``xui-app/webd``);
   ``tools/webkit/webd.py`` does both halves (docs/webd.md).
@@ -50,9 +47,6 @@ import wkpins  # noqa: E402  (also puts tools/jsc first on sys.path)
 from toolenv import BuildError  # noqa: E402
 
 NAMES = ["WebProcess", "NetworkProcess", "webkit-smoke"]
-#: The desktop UI process: built only on request, once the window's static library exists
-#: (``tools/webkit/app.py`` builds that first and then runs ``--only lazywebplus-app``).
-PLUS = "lazywebplus-app"
 #: The engine's views without a window, built on request and run by ``--run-views``.
 VIEWS = "webkit-views"
 #: webd's engine half and the program that tests it, built on request and run by ``--run-webd``.
@@ -120,8 +114,8 @@ def run_in_docker(argv: list[str]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--only", nargs="+", choices=[*NAMES, PLUS, VIEWS, WEBD, WEBD_APP], metavar="NAME",
-                        help=f"build only these ({', '.join([*NAMES, PLUS, VIEWS, WEBD, WEBD_APP])})")
+    parser.add_argument("--only", nargs="+", choices=[*NAMES, VIEWS, WEBD, WEBD_APP], metavar="NAME",
+                        help=f"build only these ({', '.join([*NAMES, VIEWS, WEBD, WEBD_APP])})")
     parser.add_argument("--configure", action="store_true", help="only configure the CMake tree")
     parser.add_argument("--run-views", action="store_true",
                         help="after the build, run webkit-views in the container (build it with --only webkit-views)")

@@ -65,6 +65,11 @@ struct State {
     /// `(view, dialog, accepted)`.
     replies: Vec<(u64, u64, bool)>,
     destroyed: Vec<u64>,
+    /// `(view, reload)` of `recover`, `(view, origin)` of `notify_forget`, `(view, origin, answer)`
+    /// of `notify_permission`.
+    recovers: Vec<(u64, bool)>,
+    forgets: Vec<(u64, String)>,
+    permissions: Vec<(u64, String, i32)>,
 }
 
 /// The fake. Clones share one state.
@@ -104,6 +109,18 @@ impl FakeWeb {
 
     pub fn destroyed(&self) -> Vec<u64> {
         self.lock().destroyed.clone()
+    }
+
+    pub fn recovers(&self) -> Vec<(u64, bool)> {
+        self.lock().recovers.clone()
+    }
+
+    pub fn forgets(&self) -> Vec<(u64, String)> {
+        self.lock().forgets.clone()
+    }
+
+    pub fn permissions(&self) -> Vec<(u64, String, i32)> {
+        self.lock().permissions.clone()
     }
 
     /// The `/long` page's scroll offset in `view`.
@@ -420,6 +437,19 @@ impl Engine for FakeWeb {
 
     fn navigation_answer(&self, view: u64, request: u64, allow: bool) {
         self.lock().answers.push((view, request, allow));
+    }
+
+    fn recover(&self, view: u64, reload: bool) {
+        self.lock().recovers.push((view, reload));
+    }
+
+    fn notify_forget(&self, view: u64, origin: &str) {
+        self.lock().forgets.push((view, origin.to_owned()));
+    }
+
+    fn notify_permission(&self, view: u64, origin: &str, answer: i32) {
+        let mut state = self.lock();
+        state.permissions.push((view, origin.to_owned(), answer));
     }
 
     fn blocking_compile(&self, view: u64, list: &str, json: &[u8]) {

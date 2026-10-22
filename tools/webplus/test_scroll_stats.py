@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scroll_stats  # noqa: E402
 
-PAINT = ("WEBPLUS:INFO:PAINT:mode=fast:n={n}:needs={n}:px=1:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel={w}:mouse=0:"
+PAINT = ("WEBD:NOTE:INFO:PAINT:mode=fast:n={n}:needs={n}:px=1:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel={w}:mouse=0:"
          "w2d={a}/{m}:full={f}:delta=1:scroll=1:checks=0:bad=0:wkcalls=1:wkmax=1")
 
 
@@ -21,6 +21,7 @@ def log() -> list[str]:
         PAINT.format(n=10, w=18, a=60000, m=400000, f=2),
         "PERF:CPU tgid=36 pct=50 user=49 kernel=1 class=normal demotions=3 comm=webprocess",
         "PERF:CPU tgid=25 pct=20 user=20 kernel=0 class=normal demotions=0 comm=lazywebplus.elf",
+        "PERF:CPU tgid=26 pct=35 user=30 kernel=5 class=normal demotions=0 comm=webd.elf",
         "SCHED:GUARD:SUMMARY tgid=36 comm=webprocess demotions=12 threads=7 window_s=10",
         "WEBPLUS:INFO:SPEC:shifts=18:snaps=0:snap_px=0:blocked=0:w2s=8000/20000:ahead=120",
         PAINT.format(n=12, w=20, a=80000, m=250000, f=3),
@@ -41,6 +42,22 @@ class Stats(unittest.TestCase):
         self.assertAlmostEqual(r["w2s_avg_ms"], 8.0)
         self.assertEqual(r["web_cpu_pct"], 50)
         self.assertEqual(r["web_demotions_total"], 12)
+        # The browser's other processes are reported apart, not folded into the page's.
+        self.assertEqual(r["webd_cpu_pct"], 35)
+        self.assertEqual(r["client_cpu_pct"], 20)
+        self.assertIn("webd UI process 35%", scroll_stats.render("x", r))
+
+    def test_the_engines_processes_are_named_by_its_own_lines_when_the_comm_is_fork(self):
+        lines = ["WEBD:NOTE:WEBPROCESS:UP:36"] + [line.replace("comm=webprocess", "comm=fork") for line in log()]
+        self.assertEqual(scroll_stats.stats(lines)["web_cpu_pct"], 50)
+        # ...and from the whole log when the part being read lacks them.
+        part = [line.replace("comm=webprocess", "comm=fork") for line in log()]
+        self.assertNotIn("web_cpu_pct", scroll_stats.stats(part))
+        self.assertEqual(scroll_stats.stats(part, {36: "WebProcess"})["web_cpu_pct"], 50)
+
+    def test_the_paint_meter_is_webds_relay_only(self):
+        old = [line.replace("WEBD:NOTE:", "WEBPLUS:") for line in log()]
+        self.assertIn("error", scroll_stats.stats(old))
 
     def test_the_main_threads_wait_is_the_difference_of_two_runwait_lines_over_their_span(self):
         r = scroll_stats.stats(log())

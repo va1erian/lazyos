@@ -9,9 +9,10 @@ pub const MAX_BUFFERS: usize = 256;
 
 /// Per-process byte quota (section 9's metering, applied to buffer memory),
 /// and so also the largest single buffer: `limit.shared_buffer_max`
-/// (`crate::limits`). Derived from the screen so a double-buffered
-/// full-screen window (`Present`, issue #372) plus the compositor's screen
-/// buffer fit at any resolution, 4K included. The per-uid `KernelMemory`
+/// (`crate::limits`). Derived from the screen (eight screens) so a
+/// full-screen window's buffers (`Present`, issue #372) plus the slots a
+/// client of webd attaches for its web view (the browser) fit at any
+/// resolution, 4K included. The per-uid `KernelMemory`
 /// quota still bounds what all of a user's tasks hold.
 pub fn max_bytes_per_process() -> u64 {
     crate::limits::shared_buffer_max()

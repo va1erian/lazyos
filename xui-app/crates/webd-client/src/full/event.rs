@@ -132,6 +132,24 @@ pub enum FullEvent {
     Responsive(bool),
     /// webd gave the address to the program the person chose for it.
     HandedOff(String),
+    /// (`notify_in_client`) the page asked to show a notification its profile allowed: the app shows
+    /// it and answers with [`crate::full::FullWebView::notify_state`]. The texts are the page's own.
+    NotifyShow {
+        notification: u64,
+        origin: String,
+        page_url: String,
+        title: String,
+        body: String,
+        tag: String,
+    },
+    /// The page closed notification `notification` itself: it is over.
+    NotifyCancel {
+        notification: u64,
+    },
+    /// The page's object for `notification` is gone: the toast stays, a click reaches no script.
+    NotifyGone {
+        notification: u64,
+    },
     /// The view is gone; [`crate::full::FullWebView::create`] makes a new one.
     Lost(Lost),
 }
@@ -282,6 +300,28 @@ fn decode_news(method: u32, body: &[u8]) -> Option<Wire> {
         wire::METHOD_HANDEDOFF => {
             let a = wire::decode_handed_off_args(body).ok()?;
             (a.view, FullEvent::HandedOff(a.url))
+        }
+        wire::METHOD_NOTIFYSHOW => {
+            let a = wire::decode_notify_show_args(body).ok()?;
+            let event = FullEvent::NotifyShow {
+                notification: a.notification,
+                origin: a.origin,
+                page_url: a.page_url,
+                title: a.title,
+                body: a.body,
+                tag: a.tag,
+            };
+            (a.view, event)
+        }
+        wire::METHOD_NOTIFYCANCEL => {
+            let a = wire::decode_notify_cancel_args(body).ok()?;
+            let notification = a.notification;
+            (a.view, FullEvent::NotifyCancel { notification })
+        }
+        wire::METHOD_NOTIFYGONE => {
+            let a = wire::decode_notify_gone_args(body).ok()?;
+            let notification = a.notification;
+            (a.view, FullEvent::NotifyGone { notification })
         }
         _ => return None,
     };

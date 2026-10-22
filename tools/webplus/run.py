@@ -2,11 +2,16 @@
 """Build LazyWeb+ into a desktop image, browse in it twice, and judge what the guest, the host's
 servers, the OS volume and the screen saw (docs/lazywebplus.md).
 
-Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py``;
-then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
+LazyWeb+ is a plain xui app and a client of the resident daemon ``webd`` (os.lazy.webd), which owns
+WebKit and its two processes: the window's markers are ``WEBPLUS:*``, the engine's are ``WEBD:NOTE:*``
+(``judge.engine_lines``), and webd's own views are ``WEBD:VIEW:*``.
+
+Needs the apps built first (Docker: ``python tools/webkit/deps.py``, ``python tools/webkit/port.py
+--only WebProcess NetworkProcess webd-app`` and ``python tools/webkit/webd.py``; then ``python
+tools/xui/build.py`` builds ``xui-lazywebplus.elf`` and packages both). Then:
 
 1. a throwaway test CA and a leaf for theoldnet.com (``tools/webtest/certs.py``); the image is built
-   with ``LAZYOS_LAZYWEBPLUS=1`` (desktop, ``netd``, the big-app limits), the CA appended to the
+   with ``LAZYOS_LAZYWEBPLUS=1`` (desktop, ``netd``, webd, the big-app limits), the CA appended to the
    system bundle (``LAZYOS_TLS_TEST_CA``) and the sites' names mapped to the host in /etc/hosts
    (``LAZYOS_TLS_TEST_HOSTS``): WebKit's curl verifies certificates exactly as in production;
 2. the host serves stand-ins for the sites on their real ports (``tools/webtest/sites.py``):
@@ -55,7 +60,6 @@ import busybox  # noqa: E402
 import certs  # noqa: E402
 import denies  # noqa: E402
 import blocker  # noqa: E402  (the ad blocker's boots and judge)
-import reaper_judge  # noqa: E402  (the launcher's reaper threads sleep, issue #887)
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 
@@ -63,10 +67,14 @@ PY = sys.executable
 IMAGE = ROOT / "target" / "lazyos.img"
 BIN = ROOT / "target" / "webkit" / "bin"
 ELF = ROOT / "target" / "xui" / "xui-lazywebplus.elf"
+#: webd, the daemon that owns the engine (``python tools/webkit/webd.py``).
+WEBD_ELF = ROOT / "target" / "xui" / "xui-webd.elf"
 #: `curl`, which the ad blocker's list updates run (LAZYOS_TLS=1; tools/nettls/build.py).
 CURL_ELF = ROOT / "target" / "nettls" / "fetch.elf"
 HOME = "/home/user"
 APP_DIR = f"{HOME}/.apps/os.lazy.lazywebplus"
+#: webd's ``browser`` profile: the cookie jar (and the HTTP cache) live here, not in the app's folder.
+WEBD_PROFILE_DIR = f"{HOME}/{judge.WEBD_PROFILE}"
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_XUI_APPS",
          "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS",
@@ -75,10 +83,11 @@ STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_XU
 
 def built() -> str | None:
     """An error message when what the image needs is not built, else None."""
-    missing = [str(p.relative_to(ROOT)) for p in (BIN / "WebProcess", BIN / "NetworkProcess", ELF, CURL_ELF)
+    missing = [str(p.relative_to(ROOT)) for p in (ELF, WEBD_ELF, BIN / "WebProcess", BIN / "NetworkProcess", CURL_ELF)
                if not p.is_file()]
     if missing:
-        return (f"not built: {', '.join(missing)} (python tools/webkit/deps.py, port.py, app.py; "
+        return (f"not built: {', '.join(missing)} (python tools/webkit/deps.py; python tools/webkit/port.py "
+                "--only WebProcess NetworkProcess webd-app; python tools/webkit/webd.py; "
                 "then python tools/xui/build.py; python tools/nettls/build.py for curl)")
     return None
 
@@ -89,8 +98,8 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     if shell is None:
         return "no BusyBox for the shell (see tools/abi/busybox.py)"
     env = {k: v for k, v in os.environ.items() if k not in STALE}
-    # No webd beside the browser under test (a desktop would ship it whenever it is built).
-    env.update(LAZYOS_WEBD="0", LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
+    # webd comes with the browser (LAZYOS_LAZYWEBPLUS=1 requires it; LAZYOS_WEBD=0 is a build error).
+    env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_TLS="1",
                LAZYOS_XUI_AUTOSTART="lazywebplus", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_BUSYBOX=str(shell), **extra,
@@ -123,6 +132,10 @@ def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str
                "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
                # Every failure but the one load the session breaks on purpose.
                "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)}{allowed})",
+               # ...and the engine's own (webd relays them as WEBD:NOTE:FAIL:...). A load that fails is
+               # the client's `FAIL` above: webd's `FAIL:provisional::` names no address (it prints
+               # none outside a probe engine), so it is left to that one.
+               "--fail-on", rf"{re.escape(judge.NOTE)}FAIL:(?!provisional:{allowed})",
                "--fail-on", rf"{judge.P}:(BIND|RUN):FAIL", "--fail-on", rf"{judge.P}:QUIT:FAIL",
                "--fail-on", rf"{judge.P}:DOWNLOAD:FAIL"]
     if args.qemu:
@@ -150,10 +163,9 @@ def read_profile() -> dict[str, bytes | None]:
     for name in (judge.DOWNLOAD_NAME, judge.SLOW_NAME, f"{judge.DOWNLOAD_NAME}.part", f"{judge.SLOW_NAME}.part"):
         listing[f"Downloads/{name}"] = osread("cat", f"{HOME}/Downloads/{name}")
     folder, _, leaf = judge.COOKIE_DB.rpartition("/")
-    ls = osread("ls", f"{APP_DIR}/{folder}" if folder else APP_DIR)
+    ls = osread("ls", f"{WEBD_PROFILE_DIR}/{folder}" if folder else WEBD_PROFILE_DIR)
     names = ls.decode(errors="replace").split() if ls is not None else []
-    listing[f".apps/os.lazy.lazywebplus/{judge.COOKIE_DB}"] = (
-        osread("cat", f"{APP_DIR}/{judge.COOKIE_DB}") if leaf in names else None)
+    listing[judge.COOKIE_KEY] = osread("cat", f"{WEBD_PROFILE_DIR}/{judge.COOKIE_DB}") if leaf in names else None
     return listing
 
 
@@ -189,11 +201,8 @@ def shots(out: Path) -> list[Path]:
 
 
 def sizes() -> str:
-    parts = [f"{p.name} {p.stat().st_size / 1048576:.1f} MiB" for p in (BIN / "lazywebplus-app", BIN / "WebProcess",
-                                                                         BIN / "NetworkProcess") if p.is_file()]
-    elf = ROOT / "target" / "xui" / "xui-lazywebplus.elf"
-    parts.append(f"{elf.name} {elf.stat().st_size / 1048576:.1f} MiB") if elf.is_file() else None
-    return ", ".join(parts)
+    return ", ".join(f"{p.name} {p.stat().st_size / 1048576:.1f} MiB"
+                     for p in (ELF, WEBD_ELF, BIN / "WebProcess", BIN / "NetworkProcess") if p.is_file())
 
 
 def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dict,
@@ -222,8 +231,6 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
     ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
-    ok = report("REAPER", "the launcher's reaper threads slept: a wakeup per engine process that ended, no polling",
-                reaper_judge.judge_reaper(first)) and ok
     if ads:
         ok = report("BLOCKLIST", "the list was fetched, converted and compiled, and became ready",
                     blocker.judge_lists_first(first)) and ok
@@ -248,7 +255,7 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("MAXIMIZED", f"the page is painted to the right edge of the maximized window {grown}",
                 judge.judge_maximized(by_name.get("shot_22_maximized.png"), grown)) and ok
     quits = [first, second] + ([ads["blocker"]["text"], ads["persisted"]["text"]] if ads else [])
-    ok = report("QUIT", f"all {len(quits)} boots closed the window, both children were ended and reaped",
+    ok = report("QUIT", f"all {len(quits)} boots closed the window; webd destroyed its view and the page's process ended",
                 [p for text in quits for p in judge.judge_quit(text)]) and ok
     denied = sorted(set(re.findall(r"LABEL:DENY[^\r\n]*", "".join(quits))))
     if denied:

@@ -93,6 +93,14 @@ interface os.lazy.webd.view.v1 {
     method Forward(view: U64 = 1) -> () = 15;
     /// Save `url` as a download (Save Page As): a view with `downloads` only.
     method Download(view: U64 = 1, url: String = 2) -> () = 16;
+    /// The page's process does not answer (the app got `Responsive(false)`) and
+    /// the person chose a way out (LazyWeb+, P4): the view's web process is
+    /// ended. With `reload` the page loads again in a fresh process. Without it
+    /// the page stays stopped: the engine reports the page as ended by request,
+    /// which is `ViewLost` with reason `Other`, and the app makes a new view.
+    /// The engine refuses (and does nothing) while other views share the
+    /// process; the service does not know.
+    method Recover(view: U64 = 1, reload: Bool = 2) -> () = 17;
     /// Input, as on the light interface.
     method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
     method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
@@ -118,6 +126,17 @@ interface os.lazy.webd.view.v1 {
     method BlockingLoad(view: U64 = 1, list: String = 2) -> () = 36;
     /// Detach list `list` and remove it from the store.
     method BlockingForget(view: U64 = 1, list: String = 2) -> () = 37;
+    /// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+    /// `Notification.permission` is `default` again and its next request is
+    /// asked again (`NotifyPermissionRequest`). A view made with
+    /// `notifications` only; `origin` is checked as in `NotifyPermission`.
+    method NotifyForget(view: U64 = 1, origin: String = 2) -> () = 38;
+    /// What became of notification `notification` that `NotifyShow` gave a
+    /// view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
+    /// is on screen, was clicked (the page's click handler runs) or went away.
+    /// `ESRCH` for a notification webd did not give this view or that is over;
+    /// `EACCES` for a view without `notify_in_client`.
+    method NotifyState(view: U64 = 1, notification: U64 = 2, state: U32 = 3) -> () = 39;
 
     /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
     /// Otherwise the app moves its picture by `shift` (when present) and then
@@ -176,6 +195,17 @@ interface os.lazy.webd.view.v1 {
     /// Event: webd gave `url` to the program the person chose for it
     /// (`Handoff.Browser`).
     method HandedOff(view: U64 = 1, url: String = 2) -> () = 122 oneway;
+    /// Event (a view made with `notify_in_client`): the page asked to show
+    /// notification `notification` and its profile allowed `origin`; the app
+    /// shows it (as its own toast, titled by the app, not by the page) and
+    /// answers with `NotifyState`. `page_url` is the page that asked, `tag` the
+    /// page's tag; the texts are the page's own and are cut at 16 KiB each.
+    method NotifyShow(view: U64 = 1, notification: U64 = 2, origin: String = 3, page_url: String = 4, title: String = 5, body: String = 6, tag: String = 7) -> () = 123 oneway;
+    /// Event: the page closed notification `notification` itself.
+    method NotifyCancel(view: U64 = 1, notification: U64 = 2) -> () = 124 oneway;
+    /// Event: the page's object for `notification` is gone (its document went
+    /// away); the toast is the person's now and a click reaches no script.
+    method NotifyGone(view: U64 = 1, notification: U64 = 2) -> () = 125 oneway;
 
     /// How a full view is made; fixed for its life.
     struct ViewConfig {
@@ -205,7 +235,11 @@ interface os.lazy.webd.view.v1 {
         /// Frames carry damage, scroll shifts and bands.
         deltas: Bool = 12,
         /// JavaScript dialogs reach the app (else they are dismissed).
-        dialogs: Bool = 13
+        dialogs: Bool = 13,
+        /// With `notifications`: the app shows the page's notifications
+        /// (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
+        /// click on one brings the app's window forward.
+        notify_in_client: Bool = 14
     }
     /// A rectangle of the view, in pixels.
     struct Rect { x: I32 = 1, y: I32 = 2, width: I32 = 3, height: I32 = 4 }
@@ -226,6 +260,7 @@ interface os.lazy.webd.view.v1 {
     enum NavigationKind { LinkClicked, FormSubmitted, BackForward, Reload, FormResubmitted, Other }
     enum BlockingStatus { Ready, NotStored, Stale, CompileFailed, Unavailable }
     enum PermissionAnswer { Block, Allow, Dismiss }
+    enum NotifyStateKind { Shown, Clicked, Closed }
 }
 
 /// The scope that lets a web view load `http:` and `https:` content: a
@@ -249,7 +284,8 @@ interface os.lazy.webd.net.v1 {
         notifications: Bool = 10,
         user_agent_suffix: String = 11,
         deltas: Bool = 12,
-        dialogs: Bool = 13
+        dialogs: Bool = 13,
+        notify_in_client: Bool = 14
     }
 }
 
@@ -273,6 +309,7 @@ interface os.lazy.webd.browser.v1 {
         notifications: Bool = 10,
         user_agent_suffix: String = 11,
         deltas: Bool = 12,
-        dialogs: Bool = 13
+        dialogs: Bool = 13,
+        notify_in_client: Bool = 14
     }
 }

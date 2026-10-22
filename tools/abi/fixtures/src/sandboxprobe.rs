@@ -1,8 +1,8 @@
-//! `sandboxprobe` — the stand-in WebProcess and NetworkProcess of the browser's
-//! sandbox attack harness (`python tools/webkit/attack_run.py`, issue #832,
+//! `sandboxprobe` — the stand-in WebProcess and NetworkProcess of webd's (the
+//! web engine daemon the browser draws its pages with) sandbox attack harness (`python tools/webkit/attack_run.py`, issue #832,
 //! `docs/architecture/process-sandbox.md`). **Test only**: an image ships it
 //! only when built with `LAZYOS_WEBKIT_ATTACK=1`, as `/system/bin/webprocess`
-//! and `/system/bin/networkprocess`, started by the real browser's UI process
+//! and `/system/bin/networkprocess`, started by the real webd (`os.lazy.webd`)
 //! exactly as it starts the real ones, so the label the kernel stamps on it is
 //! the label of the real process.
 //!
@@ -27,7 +27,7 @@
 //! Started as `/system/bin/abi-init` (`LAZYOS_INIT`, the ABI bench's way of
 //! running a fixture as the first program) it is the **driver** of
 //! `python tools/webkit/attack_run.py --kernel`: it loads the rules the
-//! browser's two process tables compile to as the labels `app:os.lazy.sandbox-web`
+//! webd's two process tables compile to as the labels `app:os.lazy.sandbox-web`
 //! and `app:os.lazy.sandbox-net` (what `pkgd` does for an installed package),
 //! starts itself as the two roles under those labels as the user, and waits.
 //! That exercises the kernel's gates with real programs without the package
@@ -209,10 +209,10 @@ fn main() {
         "read_ca_bundle",
         io_attempt(File::open("/etc/ssl/certs/ca-certificates.crt")),
     );
-    // The profile folder the browser's UI process named for its children (`LAZYOS_WEBKIT_PROFILE`,
-    // `.apps/os.lazy.lazywebplus`); the kernel-only harness has none and uses the same folder.
+    // The profile folder webd named for its children (`LAZYOS_WEBKIT_PROFILE`, below
+    // `.apps/os.lazy.webd/profiles`); the kernel-only harness has none and uses that folder.
     let profile = std::env::var("LAZYOS_WEBKIT_PROFILE")
-        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.lazywebplus"));
+        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webd/profiles"));
     say(role, "write_profile", write_probe(&profile, "attack-probe"));
     // The network process may save downloads here; nothing else may.
     say(
@@ -325,13 +325,13 @@ fn main() {
     if std::env::var_os("SANDBOXPROBE_EXIT").is_some() {
         return;
     }
-    // Under the real browser the UI process ends its children itself: the real ones answer IPC.
+    // Under the real webd it ends its children itself: the real ones answer IPC.
     loop {
         std::thread::sleep(std::time::Duration::from_secs(60));
     }
 }
 
-/// The rules of the two process tables of `xui-app/packages/lazywebplus/manifest.toml`, as the
+/// The rules of the two process tables of `xui-app/packages/webd/manifest.toml`, as the
 /// kernel's file gate wants them (`pkgstore::filerules`). `test_attack_judge.py` checks that
 /// these lists are the manifest's.
 const WEB_FILES: &[&str] = &[
@@ -343,7 +343,7 @@ const NETWORK_FILES: &[&str] = &[
     "read:/etc/resolv.conf",
     "read:/etc/hosts",
     "read:/etc/ssl/certs/ca-certificates.crt",
-    "write:$HOME/.apps/os.lazy.lazywebplus",
+    "write:$HOME/.apps/os.lazy.webd/profiles",
     "write:$HOME/Downloads",
 ];
 
@@ -383,9 +383,9 @@ fn load_label(label: &str, ids: &[u64]) -> Result<(), i64> {
 /// Run as the first program: give each role its label and rules, start it as the user, wait.
 fn driver() -> i32 {
     let home = "/home/user";
-    // The user's profile directory, which the browser's UI process makes and the
+    // The user's profile directory, which webd makes and the
     // NetworkProcess may write in; the user owns it.
-    let profile = format!("{home}/.apps/os.lazy.lazywebplus");
+    let profile = format!("{home}/.apps/os.lazy.webd/profiles");
     let downloads = format!("{home}/Downloads");
     println!(
         "ATTACK:driver:NOTE:mkdir {profile}: {:?}",

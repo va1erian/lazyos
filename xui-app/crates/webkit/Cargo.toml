@@ -1,19 +1,18 @@
-# The seam between WebKit's UI process and a window (docs/webkit-port-plan.md, docs/lazywebplus.md):
-# the engine trait, the mailbox, the page view that shows the bitmap WebKit paints and forwards
-# the mouse and keyboard to it, and the C ABI the WebKit UI process (`webkit/port/app`, C++) calls.
-# An rlib: LazyWeb+'s window (`xui-app/webplus`) is the static library the C++ program links
-# (`tools/webkit/app.py`); the logic stays portable and host-tested against a recording engine.
+# The seam between WebKit and a LazyOS window (docs/lazywebplus.md, docs/webd.md): the engine trait,
+# the mailbox, the page view that shows the picture WebKit paints and forwards the mouse and keyboard
+# to it. WebKit runs in `webd`, another process (`xui-webkit-remote` drives it); this crate links none
+# of it and stays portable, host-tested against a recording engine.
 #
-# The C++ side is LGPL-2.1 WebKit and Apache-2.0 OpenSSL; this crate is GPL-3.0-or-later like the
-# rest of the tree, and also GPL-2.0-only: LazyWeb+'s window (`xui-app/webplus`, which links this
-# crate) keeps the GPLv2-compatible rule (docs/lazywebplus.md).
+# Licence: GPL-3.0-or-later like the rest of the tree, and also GPL-2.0-only: LazyWeb+'s window
+# (`xui-app/webplus`) keeps its GPLv2-compatible declaration until a maintainer relicenses it
+# (docs/webd-plan.md, open question 8).
 [package]
 name = "xui-webkit"
 version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-2.0-only OR GPL-3.0-or-later"
-description = "The seam between WebKit's UI process and a LazyOS window: page view, mailbox and the C ABI"
+description = "The seam between WebKit and a LazyOS window: page view, mailbox, engine trait"
 
 [lib]
 name = "xui_webkit"
@@ -24,12 +23,9 @@ crate-type = ["rlib"]
 lazydamage = { path = "../damage" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 
-# The compositor-client backend (`LazyOSBackend`) is only used by the C ABI,
-# which is built for LazyOS only.
+# The direct painter of the page view (`xui_app::backend::direct`) is LazyOS's.
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
 xui-app = { path = "../.." }
-# The native syscall gate, for the quota read (`lzw_ui_user_memory`).
-lazyos-sys = { path = "../../../libs/lazyos-sys", features = ["std"] }
 
 [dev-dependencies]
 xui-canvas = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }

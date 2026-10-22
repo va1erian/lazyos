@@ -78,9 +78,22 @@ pub fn download_key(view: u64, download: u64) -> u64 {
 pub struct Table {
     views: BTreeMap<u64, Entry>,
     blockers: BTreeMap<Profile, BlockSettings>,
+    /// The notification decisions WebKit starts a page process with (`webd_ui_notify_permission_at`):
+    /// origin and allowed, sorted by origin.
+    notify: Vec<(String, bool)>,
 }
 
 impl Table {
+    /// The decisions a page process learns at its start (WebKit keeps one record for the context).
+    pub fn set_notify_decisions(&mut self, decisions: Vec<(String, bool)>) {
+        self.notify = decisions;
+    }
+
+    /// Decision `index` of [`Table::set_notify_decisions`], if there is one.
+    pub fn notify_decision_at(&self, index: usize) -> Option<(String, bool)> {
+        self.notify.get(index).cloned()
+    }
+
     pub fn register(&mut self, view: u64, rules: ViewRules) {
         self.views.insert(
             view,

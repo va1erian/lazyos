@@ -40,7 +40,7 @@ pub mod transport;
 pub mod view;
 
 pub use event::{Error, Lost, PageState, ViewEvent};
-pub use full::{FullCounters, FullEvent, FullState, FullWebView, Scope, ViewConfig};
+pub use full::{FullCounters, FullEvent, FullState, FullWebView, Scope, SlotPlan, ViewConfig};
 pub use input::{mods, MouseKind};
 pub use pane::{Pane, PaneEvent, Status};
 pub use picture::{Colour, Picture};

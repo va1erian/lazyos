@@ -4,10 +4,6 @@
   "timeout": 600
  },
  {
-  "wait_for": "WEBPLUS:UP",
-  "timeout": 300.0
- },
- {
   "wait_for": "WEBPLUS:UP:PASS",
   "timeout": 300.0
  },

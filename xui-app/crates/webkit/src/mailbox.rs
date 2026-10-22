@@ -186,13 +186,32 @@ impl Mailbox {
         self.announce_frame();
     }
 
+    /// The engine painted a frame of `width` x `height`, which `fill` writes into the mailbox's own
+    /// buffer (`width * height * 4` bytes): one copy from where the pixels are (a slot of shared
+    /// pages) to where the window takes them.
+    pub fn post_frame_with(&self, width: u32, height: u32, fill: impl FnOnce(&mut [u8])) {
+        let bytes = width as usize * height as usize * 4;
+        {
+            let mut slot = lock(&self.frame);
+            slot.frame.rgba.resize(bytes, 0);
+            fill(&mut slot.frame.rgba[..bytes]);
+            Self::mark_stored(&mut slot, width, height);
+        }
+        self.announce_frame();
+    }
+
     /// The first half of [`post_frame`](Self::post_frame): the picture, marked fresh.
     fn store_frame(&self, width: u32, height: u32, rgba: &[u8]) {
         let mut slot = lock(&self.frame);
-        slot.frame.width = width;
-        slot.frame.height = height;
         slot.frame.rgba.clear();
         slot.frame.rgba.extend_from_slice(rgba);
+        Self::mark_stored(&mut slot, width, height);
+    }
+
+    /// A whole picture of `width` x `height` is in `slot.frame.rgba`.
+    fn mark_stored(slot: &mut Slot, width: u32, height: u32) {
+        slot.frame.width = width;
+        slot.frame.height = height;
         slot.fresh = true;
         // A whole picture supersedes every delta before it, and gives later ones a base.
         slot.deltas.clear();

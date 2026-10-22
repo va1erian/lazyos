@@ -32,6 +32,9 @@ pub enum FEv {
     Blocked(wire::BlockedArgs),
     Responsive(wire::ResponsiveArgs),
     HandedOff(wire::HandedOffArgs),
+    NotifyShow(wire::NotifyShowArgs),
+    NotifyCancel(wire::NotifyCancelArgs),
+    NotifyGone(wire::NotifyGoneArgs),
 }
 
 impl FEv {
@@ -61,6 +64,9 @@ impl FEv {
             FEv::Blocked(e) => e.view,
             FEv::Responsive(e) => e.view,
             FEv::HandedOff(e) => e.view,
+            FEv::NotifyShow(e) => e.view,
+            FEv::NotifyCancel(e) => e.view,
+            FEv::NotifyGone(e) => e.view,
         })
     }
 }
@@ -110,6 +116,11 @@ pub fn decode_full_event(method: u32, body: &[u8]) -> FEv {
         wire::METHOD_BLOCKED => FEv::Blocked(wire::decode_blocked_args(body).unwrap()),
         wire::METHOD_RESPONSIVE => FEv::Responsive(wire::decode_responsive_args(body).unwrap()),
         wire::METHOD_HANDEDOFF => FEv::HandedOff(wire::decode_handed_off_args(body).unwrap()),
+        wire::METHOD_NOTIFYSHOW => FEv::NotifyShow(wire::decode_notify_show_args(body).unwrap()),
+        wire::METHOD_NOTIFYCANCEL => {
+            FEv::NotifyCancel(wire::decode_notify_cancel_args(body).unwrap())
+        }
+        wire::METHOD_NOTIFYGONE => FEv::NotifyGone(wire::decode_notify_gone_args(body).unwrap()),
         other => panic!("not an event of the full interface: {other}"),
     }
 }

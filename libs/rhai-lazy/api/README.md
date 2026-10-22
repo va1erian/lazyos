@@ -995,6 +995,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `back(view)` | `Back(view: U64) -> ()` |  |
 | `forward(view)` | `Forward(view: U64) -> ()` |  |
 | `download(view, url)` | `Download(view: U64, url: String) -> ()` | Save `url` as a download (Save Page As): a view with `downloads` only. |
+| `recover(view, reload)` | `Recover(view: U64, reload: Bool) -> ()` | The page's process does not answer (the app got `Responsive(false)`) and |
 | `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as on the light interface. |
 | `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` |  |
 | `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` |  |
@@ -1006,6 +1007,8 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `set_blocking(view, enabled, exceptions)` | `SetBlocking(view: U64, enabled: Bool, exceptions: Array<String>) -> ()` | Content blocking on or off for the view's profile, and the hosts it is |
 | `blocking_load(view, list)` | `BlockingLoad(view: U64, list: String) -> ()` | Attach list `list` from the profile's store (compiled earlier). |
 | `blocking_forget(view, list)` | `BlockingForget(view: U64, list: String) -> ()` | Detach list `list` and remove it from the store. |
+| `notify_forget(view, origin)` | `NotifyForget(view: U64, origin: String) -> ()` | Forget the profile's decision about `origin` (LazyWeb+, P4): the page's |
+| `notify_state(view, notification, state)` | `NotifyState(view: U64, notification: U64, state: U32) -> ()` | What became of notification `notification` that `NotifyShow` gave a |
 | `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
 | `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
 | `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled (as on the light interface). |
@@ -1029,6 +1032,9 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `blocked(view, count)` | `Blocked(view: U64, count: U32) -> () oneway` | Event: the number of loads the lists blocked on the page on show. |
 | `responsive(view, responsive)` | `Responsive(view: U64, responsive: Bool) -> () oneway` | Event: the page's process stopped answering, or answers again. |
 | `handed_off(view, url)` | `HandedOff(view: U64, url: String) -> () oneway` | Event: webd gave `url` to the program the person chose for it |
+| `notify_show(view, notification, origin, page_url, title, body, tag)` | `NotifyShow(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> () oneway` | Event (a view made with `notify_in_client`): the page asked to show |
+| `notify_cancel(view, notification)` | `NotifyCancel(view: U64, notification: U64) -> () oneway` | Event: the page closed notification `notification` itself. |
+| `notify_gone(view, notification)` | `NotifyGone(view: U64, notification: U64) -> () oneway` | Event: the page's object for `notification` is gone (its document went |
 | `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_shift()` | struct `Shift` | a `Shift` at its zero value |
@@ -1044,6 +1050,7 @@ Not callable from a script (the request carries a kernel object): `CreateView`, 
 - `NAVIGATION_KIND` = the `NavigationKind` variants; `NAVIGATION_KIND_LINK_CLICKED`, `NAVIGATION_KIND_FORM_SUBMITTED`, `NAVIGATION_KIND_BACK_FORWARD`, `NAVIGATION_KIND_RELOAD`, `NAVIGATION_KIND_FORM_RESUBMITTED`, `NAVIGATION_KIND_OTHER`
 - `BLOCKING_STATUS` = the `BlockingStatus` variants; `BLOCKING_STATUS_READY`, `BLOCKING_STATUS_NOT_STORED`, `BLOCKING_STATUS_STALE`, `BLOCKING_STATUS_COMPILE_FAILED`, `BLOCKING_STATUS_UNAVAILABLE`
 - `PERMISSION_ANSWER` = the `PermissionAnswer` variants; `PERMISSION_ANSWER_BLOCK`, `PERMISSION_ANSWER_ALLOW`, `PERMISSION_ANSWER_DISMISS`
+- `NOTIFY_STATE_KIND` = the `NotifyStateKind` variants; `NOTIFY_STATE_KIND_SHOWN`, `NOTIFY_STATE_KIND_CLICKED`, `NOTIFY_STATE_KIND_CLOSED`
 
 ## `sys::webd_net`
 

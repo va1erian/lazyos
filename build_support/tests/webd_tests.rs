@@ -1,10 +1,12 @@
 //! `LAZYOS_WEBD=1` (docs/webd.md): refused without the desktop, a clear message when the daemon is not
-//! built, and the client packages that only an image with webd carries.
+//! built, and the client packages that only an image with webd carries. Also `LAZYOS_LAZYWEBPLUS=1`
+//! (docs/lazywebplus.md), a client of webd: refused without the desktop, the network stack and webd.
 
 use crate::core_packages::{is_core_stem, parse_autostart};
 use crate::webd_embed::{
-    client_tree_present, not_built, parse_switch, requirements, shipped, Switch, CLIENT_PACKAGES,
-    ELF, PACKAGE_SHORT,
+    client_tree_present, effective_switch, engine_source, lazywebplus_not_built,
+    lazywebplus_requirements, not_built, parse_switch, requirements, shipped, Switch,
+    CLIENT_PACKAGES, ELF, LAZYWEBPLUS_ELF, LAZYWEBPLUS_PACKAGE_SHORT, PACKAGE_SHORT,
 };
 use std::ffi::OsStr;
 
@@ -82,4 +84,89 @@ fn the_clients_are_named_by_short_id_and_program() {
     for (short, elf) in CLIENT_PACKAGES {
         assert_eq!(*elf, format!("xui-{short}.elf"));
     }
+}
+
+#[test]
+fn lazywebplus_unset_needs_nothing() {
+    for webd in [Switch::Off, Switch::Auto, Switch::On] {
+        assert_eq!(lazywebplus_requirements(false, false, false, webd), Ok(()));
+    }
+}
+
+#[test]
+fn lazywebplus_on_the_desktop_with_the_stack_ships_with_webd_left_to_it_or_forced() {
+    assert_eq!(
+        lazywebplus_requirements(true, true, true, Switch::Auto),
+        Ok(())
+    );
+    assert_eq!(
+        lazywebplus_requirements(true, true, true, Switch::On),
+        Ok(())
+    );
+}
+
+#[test]
+fn lazywebplus_without_webd_is_refused_and_says_so() {
+    let reason = lazywebplus_requirements(true, true, true, Switch::Off).unwrap_err();
+    assert!(
+        reason.contains("LAZYOS_LAZYWEBPLUS=1") && reason.contains("LAZYOS_WEBD=0"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn lazywebplus_a_missing_profile_is_named() {
+    let both = lazywebplus_requirements(true, false, false, Switch::Auto).unwrap_err();
+    assert!(
+        both.contains("LAZYOS_DESKTOP=1 and LAZYOS_NETD=1"),
+        "{both}"
+    );
+    let netd = lazywebplus_requirements(true, true, false, Switch::Auto).unwrap_err();
+    assert!(
+        netd.contains("LAZYOS_NETD=1") && !netd.contains("DESKTOP=1 and"),
+        "{netd}"
+    );
+    let desktop = lazywebplus_requirements(true, false, true, Switch::Auto).unwrap_err();
+    assert!(
+        desktop.contains("LAZYOS_DESKTOP=1") && !desktop.contains("NETD=1 ("),
+        "{desktop}"
+    );
+    assert!(both.contains("run_demo.py --lazywebplus"));
+}
+
+#[test]
+fn the_browser_makes_an_unset_webd_switch_required_and_leaves_the_others() {
+    assert_eq!(effective_switch(Switch::Auto, true), Switch::On);
+    assert_eq!(effective_switch(Switch::Auto, false), Switch::Auto);
+    assert_eq!(effective_switch(Switch::On, true), Switch::On);
+    // `0` stays `0`: lazywebplus_requirements refuses that combination by name.
+    assert_eq!(effective_switch(Switch::Off, true), Switch::Off);
+    // A forced switch ships webd even where the program has not been looked for.
+    assert!(shipped(effective_switch(Switch::Auto, true), true, false));
+}
+
+#[test]
+fn lazywebplus_not_built_says_what_to_run() {
+    assert!(lazywebplus_not_built(false).contains("tools/xui/build.py"));
+    assert!(!lazywebplus_not_built(false).contains("tools/webkit/app.py"));
+    assert!(lazywebplus_not_built(false).contains(LAZYWEBPLUS_ELF));
+    assert!(lazywebplus_not_built(true).contains("tools/xui/core_packages.py"));
+}
+
+#[test]
+fn the_browser_package_is_os_lazy_lazywebplus() {
+    assert_eq!(LAZYWEBPLUS_PACKAGE_SHORT, "lazywebplus");
+    assert_eq!(LAZYWEBPLUS_ELF, "xui-lazywebplus.elf");
+    assert!(is_core_stem("lazywebplus"));
+}
+
+#[test]
+fn webds_engine_processes_come_from_the_port_unless_the_attack_harness_asks() {
+    assert_eq!(
+        engine_source(false),
+        ("target/webkit/bin", "tools/webkit/port.py")
+    );
+    let (dir, builder) = engine_source(true);
+    assert_eq!(dir, "target/webkit/attack");
+    assert!(builder.contains("attack_build.py"));
 }

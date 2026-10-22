@@ -1,5 +1,10 @@
 """The launcher's reaper threads sleep (issue #887), judged from a boot's serial log.
 
+NOT PART OF THE HARNESS ANY MORE: LazyWeb+ no longer links WebKit's UI process or prints the heartbeat's
+`INFO:REAPER` line. The engine's processes are webd's (os.lazy.webd), and `run.py` does not call this
+judge. The module and its test stay only until CI (`.github/workflows/mkdisk.yml`) stops running
+`test_reaper_judge.py`; delete both together then.
+
 Each engine process the launcher starts has a reaper thread. It used to poll `waitpid(WNOHANG)` every
 50 ms for as long as its child lived: twenty wakeups a second per process, on an idle desktop too. It now
 blocks in `waitid(P_PID, pid, WEXITED | WNOWAIT)`, so it wakes once, when its child ends. The UI process's

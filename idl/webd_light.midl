@@ -76,8 +76,8 @@ interface os.lazy.webd.light.v1 {
     /// replies, so the app may reuse the buffer.
     method LoadHtml(view: U64 = 1, html: Buffer = 2, base_url: String = 3) -> () = 11;
     /// Input, as the display protocol delivers it, in view pixels. `kind` is a
-    /// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
-    /// control, 2 alt, 3 meta.
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+    /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
     method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
     /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
     method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;

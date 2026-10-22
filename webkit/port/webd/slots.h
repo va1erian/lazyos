@@ -21,8 +21,12 @@ public:
     void say(const char* line) override { webd_ui_say(line); }
     bool probe() override { return false; }
     int userMemory(uint64_t* used, uint64_t* limit) override { return webd_ui_user_memory(used, limit); }
-    // notifyPermissionAt stays HostEnv's -1: nothing is remembered context-wide at start (the service keeps
-    // its decisions per profile and answers each request).
+    // The decisions every profile kept, as WebKit wants them when a page process starts (P4: a client tells webd
+    // its kept decisions when it makes a view, before a page process may have started).
+    int notifyPermissionAt(size_t index, char* origin, size_t size) override
+    {
+        return webd_ui_notify_permission_at(index, origin, size);
+    }
 };
 
 extern Env env;

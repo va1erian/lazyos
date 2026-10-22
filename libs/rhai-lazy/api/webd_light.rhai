@@ -106,8 +106,8 @@ fn refresh(view) {
 /// `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway`
 ///
 /// Input, as the display protocol delivers it, in view pixels. `kind` is a
-/// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
-/// control, 2 alt, 3 meta.
+/// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+/// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
 ///
 /// One-way: returns `()` once the message is queued.
 fn mouse(view, kind, button, x, y, mods) {

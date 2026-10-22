@@ -233,20 +233,24 @@ impl Notifications {
     /// A page asked to show a notification. It is shown when its site is allowed and it is the
     /// site's page that is on screen (the page's process says whose it is; the UI process says
     /// which page it is, and a notification of another site, or of a frame of one, is refused),
-    /// within the limits. One over the limits is answered as closed, so the page's object does
-    /// not stay "showing" for as long as its document lives; any other refusal is only a marker.
+    /// within the limits. Every refusal is answered as closed, so the page's object does not stay
+    /// "showing" for as long as its document lives, and webd, which keeps the notifications it handed
+    /// over until they end, is not left holding it.
     pub fn show(&mut self, engine: &dyn Engine, now_ms: u64, incoming: &Incoming<'_>) {
         let Some(site) = Origin::from_url(incoming.origin) else {
             deny(incoming.origin, "origin");
+            engine.notify_closed(incoming.id);
             return;
         };
         let key = site.key();
         if self.permissions.decision(&key) != Some(Decision::Allow) {
             deny(&key, "not-allowed");
+            engine.notify_closed(incoming.id);
             return;
         }
         let Some(toasts) = self.toasts.clone() else {
             deny(&key, "no-shell");
+            engine.notify_closed(incoming.id);
             return;
         };
         for old in self.registry.expire(now_ms) {
@@ -259,6 +263,7 @@ impl Notifications {
         // toast of a page that is gone opens that page and no other.
         if !site.owns(incoming.page_url) {
             deny(&key, "page");
+            engine.notify_closed(incoming.id);
             return;
         }
         match self

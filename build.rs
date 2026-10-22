@@ -36,8 +36,6 @@ mod hosts_embed;
 mod lazyrad_embed;
 #[path = "build_support/lazysky_embed.rs"]
 mod lazysky_embed;
-#[path = "build_support/lazywebplus_embed.rs"]
-mod lazywebplus_embed;
 #[path = "build_support/linuxapps_embed.rs"]
 mod linuxapps_embed;
 #[path = "build_support/modplayer_embed.rs"]

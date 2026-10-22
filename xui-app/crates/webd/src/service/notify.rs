@@ -7,6 +7,8 @@
 //! reads as `Notification.permission` in another; webd therefore posts only what the view's own profile
 //! allowed (a page of another profile that calls `new Notification` gets its `close` at once).
 
+use std::collections::BTreeMap;
+
 use lazywebnotify::{toast_body, toast_title, Admit, Bucket, Dropped, Origin, Registry};
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 
@@ -58,9 +60,17 @@ fn site_key(text: &str) -> String {
     origin(text).unwrap_or_else(|| text.to_owned())
 }
 
+/// An origin a client names: not empty, bounded and safe as a C string.
+fn check_origin(origin: &str) -> Result<(), Refusal> {
+    if origin.is_empty() || origin.len() > ORIGIN_BYTES_MAX || !c_string_safe(origin) {
+        return Err(MALFORMED);
+    }
+    Ok(())
+}
+
 impl<E: Engine, F: Fabric> Service<E, F> {
     /// What the profile decided about `origin`, if anything.
-    fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
+    pub(super) fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
         self.permissions
             .get(profile)?
             .get(&site_key(origin))
@@ -74,9 +84,24 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 view,
                 id,
                 origin,
+                page_url,
                 title,
                 body,
-            } => self.show(view, id, &origin, &title, &body),
+                tag,
+            } => {
+                if self.in_client(view) {
+                    let texts = [origin, page_url, title, body, tag];
+                    self.forward_show(view, id, texts);
+                } else {
+                    self.show(view, id, &origin, &title, &body);
+                }
+            }
+            Once::NotifyCancel { view, id } if self.in_client(view) => {
+                self.forward_end(view, id, wire::METHOD_NOTIFYCANCEL);
+            }
+            Once::NotifyGone { view, id } if self.in_client(view) => {
+                self.forward_end(view, id, wire::METHOD_NOTIFYGONE);
+            }
             Once::NotifyCancel { view, id } => {
                 if let Some(registry) = self.registry_of(view) {
                     registry.cancel(id);
@@ -213,12 +238,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         body: &[u8],
     ) -> Result<(), Refusal> {
         let args = wire::decode_notify_permission_args(body).map_err(|_| MALFORMED)?;
-        if args.origin.is_empty()
-            || args.origin.len() > ORIGIN_BYTES_MAX
-            || !c_string_safe(&args.origin)
-        {
-            return Err(MALFORMED);
-        }
+        check_origin(&args.origin)?;
         let answer = match args.answer {
             wire::PERMISSION_ANSWER_ALLOW => 1,
             wire::PERMISSION_ANSWER_BLOCK => 0,
@@ -239,10 +259,52 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 .entry(profile)
                 .or_default()
                 .insert(site_key(&args.origin), answer > 0);
+            self.publish_decisions();
         }
         self.engine
             .notify_permission(args.view, &args.origin, answer);
         Ok(())
+    }
+
+    /// `NotifyForget` (P4): the profile has no decision about `origin` any more, here and in the
+    /// engine (whose record is the context's), so the page's next request is asked again.
+    pub(super) fn notify_forget_call(
+        &mut self,
+        client: ClientKey,
+        body: &[u8],
+    ) -> Result<(), Refusal> {
+        let args = wire::decode_notify_forget_args(body).map_err(|_| MALFORMED)?;
+        check_origin(&args.origin)?;
+        let view = live(&mut self.views, client, true, args.view)?;
+        let rules = &view.full.as_ref().ok_or(MALFORMED)?.rules;
+        if !rules.notifications {
+            return Err(Refusal::new(
+                errno::EACCES,
+                "the view was not made with that",
+            ));
+        }
+        if let Some(decisions) = self.permissions.get_mut(&rules.profile) {
+            decisions.remove(&site_key(&args.origin));
+        }
+        self.publish_decisions();
+        self.engine.notify_forget(args.view, &args.origin);
+        Ok(())
+    }
+
+    /// Hands the engine the decisions a page process starts with. WebKit keeps one record for the
+    /// whole context, so a site any profile allowed is allowed in it (webd still posts only what the
+    /// view's own profile allowed, `show`); one only blocked is blocked.
+    fn publish_decisions(&mut self) {
+        let mut merged: BTreeMap<String, bool> = BTreeMap::new();
+        for decisions in self.permissions.values() {
+            for (site, allowed) in decisions {
+                let entry = merged.entry(site.clone()).or_insert(false);
+                *entry |= *allowed;
+            }
+        }
+        self.queue
+            .rules()
+            .set_notify_decisions(merged.into_iter().collect());
     }
 
     /// What the shell said about webd's toasts: a click runs the page's handler and tells the client;

@@ -66,9 +66,12 @@ impl Limits {
             quota_kernel_memory: up(down(ram / 8).max(screen.saturating_mul(8)))
                 .max(base.quota_kernel_memory)
                 .min(down(ram / 2).max(base.quota_kernel_memory)),
-            // A double-buffered full-screen window plus the compositor's
-            // screen buffer, never more than a quarter of RAM.
-            shared_buffer_max: up(screen.saturating_mul(3))
+            // Eight screens, never more than a quarter of RAM: a maximized
+            // window's buffers (up to three) and, for a client of webd (the
+            // browser), the frame and band slots its web view is painted into
+            // (up to five, docs/webd-plan.md P4); the compositor's screen
+            // buffer fits in three.
+            shared_buffer_max: up(screen.saturating_mul(8))
                 .max(base.shared_buffer_max)
                 .min(down(ram / 4).max(base.shared_buffer_max)),
             // A package staged in `/transient` is the largest thing the

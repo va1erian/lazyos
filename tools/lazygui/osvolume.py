@@ -98,10 +98,16 @@ def configured() -> bool:
 DESKTOP_KEYS = ("desktop", "lazysky", "lazywebplus", "webd", "webd_demo", "setup")
 
 
+def leaves_webd_out(cfg: dict) -> bool:
+    """Whether the launcher leaves webd out of the image (`no_webd`): never with LazyWeb+, which is a client
+    of webd and refuses `--no-webd` (the option is ignored there)."""
+    return bool(cfg.get("no_webd") and not cfg.get("lazywebplus"))
+
+
 def wants_webd(cfg: dict) -> bool:
     """Whether the image ships webd: every desktop does (Docs and Mail draw their pages with it) unless the
     launcher left it out, and `webd` / `webd_demo` ask for it outright."""
-    if cfg.get("no_webd"):
+    if leaves_webd_out(cfg):
         return False
     return bool(cfg.get("webd") or cfg.get("webd_demo") or any(cfg.get(key) for key in DESKTOP_KEYS))
 
@@ -109,7 +115,7 @@ def wants_webd(cfg: dict) -> bool:
 def requires_webd(cfg: dict) -> bool:
     """Whether the launcher asks for webd outright (`webd`, `webd_demo`): built, and a failure stops the
     build. A plain desktop only ships it when it has been built (`LAZYOS_WEBD` unset, no Docker step)."""
-    return bool(not cfg.get("no_webd") and (cfg.get("webd") or cfg.get("webd_demo")))
+    return bool(not leaves_webd_out(cfg) and (cfg.get("webd") or cfg.get("webd_demo")))
 
 
 def wants_webkit(cfg: dict) -> bool:

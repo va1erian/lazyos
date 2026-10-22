@@ -3,11 +3,13 @@
 
 Builds the LazyWeb+ desktop image at 2560x1440 (the Kaby Lake box's native size: a 1280x720
 layout at scale 2), loads WebKit's tall test page from the host's stand-in server, then turns the
-wheel without a pause for ``--seconds`` and reads what the guest printed: the UI process's
-``INFO:PAINT`` lines (its own paint stages) and the kernel's ``PERF:CPU`` lines (every busy
-process, split into user and kernel time). The kernel half of a process with the display grant
-is the present copy into the framebuffer; the UI process's user half is WebKit's paint, the
-window thread's frame and the mailbox copies. It is a baseline for deciding which stage a GPU
+wheel without a pause for ``--seconds`` and reads what the guest printed: webd's ``INFO:PAINT`` lines
+(the paint stages of WebKit's UI process, relayed as ``WEBD:NOTE:INFO:PAINT``) and the kernel's
+``PERF:CPU`` lines (every busy process, split into user and kernel time). LazyWeb+ is a client of webd,
+so the browser is four processes, reported apart (``procs.py``): the client (``lazywebplus.elf``: the
+window, the frame copies, the draw), webd's UI process (``webd.elf``: WebKit's paint and the mailbox),
+the web process and the network process. The kernel half of a process with the display grant is the
+present copy into the framebuffer. It is a baseline for deciding which stage a GPU
 could remove, not a benchmark: QEMU's framebuffer is ordinary RAM, so the write-combining cost
 of the box's aperture is not in it (``DISPLAY:PRESENT`` lines carry that on the box).
 
@@ -45,6 +47,7 @@ import judge  # noqa: E402
 import session  # noqa: E402
 import sites  # noqa: E402
 
+import procs  # noqa: E402
 import scroll_page  # noqa: E402
 
 TALL_URL = "https://theoldnet.com/webplus/scroll.html"
@@ -90,19 +93,11 @@ def frame_session(seconds: float, timeout: float, notches: int = NOTCHES, pause:
     ]
 
 
-def summarise(text: str) -> tuple[str, bool]:
-    """The table for a serial log, and whether it holds a scroll's worth of lines."""
-    start = text.find(f"{judge.P}:TITLE:{TALL_TITLE}")
-    text = text[start:] if start >= 0 else text
-    roles = {int(pid): "WebProcess" for pid in re.findall(r"WEBPROCESS:UP:(\d+)", text)}
-    roles.update({int(pid): "NetworkProcess" for pid in re.findall(r"NETWORKPROCESS:UP:(\d+)", text)})
-    cpu: dict[str, list[tuple[int, int, int]]] = defaultdict(list)
-    for tgid, pct, user, kernel, comm in re.findall(
-            r"PERF:CPU tgid=(\d+) pct=(\d+) user=(\d+) kernel=(\d+) class=\S+ demotions=\d+ comm=(\S*)", text):
-        cpu[roles.get(int(tgid), comm)].append((int(pct), int(user), int(kernel)))
+def paint_fields(text: str) -> dict[str, list[float]]:
+    """The engine's `INFO:PAINT` seconds (webd relays them as `WEBD:NOTE:INFO:PAINT:...`), field by field."""
     paint: dict[str, list[float]] = defaultdict(list)
-    for line in re.findall(r"INFO:PAINT:(\S+)", text):
-        for field in line.split(":"):
+    for line in judge.engine_markers(text, "INFO:PAINT"):
+        for field in (line.split() or [""])[0].split(":"):
             key, _, value = field.partition("=")
             if key == "w2d":
                 average, _, worst = value.partition("/")
@@ -111,6 +106,35 @@ def summarise(text: str) -> tuple[str, bool]:
             elif key in ("n", "needs", "px", "clear", "wk", "swz", "post", "avg", "max", "wheel", "mouse", "full", "delta", "scroll", "checks", "bad", "ver"):
                 if value.lstrip("-").isdigit():
                     paint[key].append(float(value))
+    return paint
+
+
+def frame_cost(cpu: dict[str, list[tuple[int, int, int]]], rate: float) -> list[str]:
+    """CPU per painted frame, in total and by process. The four programs of the browser (the client, webd's UI
+    process, the web process, the network process) are reported apart; every other busy process (the
+    compositor, say) is the rest. A process prints a look only above 20% of the core, so one that never did
+    counts nothing here."""
+    pct = {name: procs.average_pct(rows) for name, rows in cpu.items()}
+    busy = sum(pct.values())
+    ms = lambda p: p * 10 / rate  # noqa: E731  (percent of the core over one second, per paint)
+    lines = [f"CPU per painted frame: {ms(busy):.1f} ms ({busy:.0f}% of the core over {rate:.1f} paints a second); "
+             f"sustainable ceiling about {1000 / ms(busy):.0f} frames a second"]
+    browser = {role: pct.get(role, 0.0) for role in procs.BROWSER_ROLES}
+    other = busy - sum(browser.values())
+    parts = ", ".join(f"{role} {ms(p):.1f}" for role, p in browser.items())
+    lines.append(f"  by process, ms a painted frame: {parts}; everything else {ms(other):.1f}")
+    return lines
+
+
+def summarise(text: str, pids: dict[int, str] | None = None) -> tuple[str, bool]:
+    """The table for a serial log, and whether it holds a scroll's worth of lines. `pids` names the engine's
+    processes when `text` is only a part of the log (`procs.engine_pids` of all of it)."""
+    # The processes' UP lines come before the page's title.
+    pids = procs.engine_pids(text) if pids is None else pids
+    start = text.find(f"{judge.P}:TITLE:{TALL_TITLE}")
+    text = text[start:] if start >= 0 else text
+    cpu = procs.cpu_rows(text, pids)
+    paint = paint_fields(text)
     lines = []
     lines.append("CPU per 5 s look, processes busy at the time (percent of the one CPU)")
     lines.append(f"  {'process':<22}{'looks':>6}{'pct avg':>9}{'user':>7}{'kernel':>8}")
@@ -135,8 +159,8 @@ def summarise(text: str) -> tuple[str, bool]:
                          f"present {sum(row[3] for row in compose) / kpx * 1000:.0f} us per Mpx, "
                          f"worst repaint {max(row[4] for row in compose)} us")
     window = defaultdict(list)
-    for line in re.findall(r"INFO:WINDOW:(\S+)", text):
-        for field in line.split(":"):
+    for line in judge.markers(text, "INFO:WINDOW"):
+        for field in (line.split() or [""])[0].split(":"):
             key, _, value = field.partition("=")
             if value.isdigit():
                 window[key].append(int(value))
@@ -150,11 +174,9 @@ def summarise(text: str) -> tuple[str, bool]:
     seconds_painting = len(paint.get("n", []))
     paints_total = sum(paint.get("n", []))
     if cpu and paints_total and seconds_painting:
-        busy = sum(sum(r[0] for r in rows) / len(rows) for rows in cpu.values())
-        rate = paints_total / seconds_painting
-        lines.append(f"CPU per painted frame: {busy * 10 / rate:.1f} ms ({busy:.0f}% of the core over {rate:.1f} paints a second); "
-                     f"sustainable ceiling about {1000 / (busy * 10 / rate):.0f} frames a second")
-    lines.append("UI process paint stages, per second while painting (INFO:PAINT; wall time, see paint.cpp: other tasks run inside it)")
+        lines += frame_cost(cpu, paints_total / seconds_painting)
+    lines.append("webd's UI process paint stages, per second while painting (INFO:PAINT, relayed as WEBD:NOTE:INFO:PAINT; "
+                 "wall time, see paint.cpp: other tasks run inside it)")
     seconds = len(paint.get("n", []))
     paints = sum(paint.get("n", []))
     if paints:
@@ -179,7 +201,7 @@ def summarise(text: str) -> tuple[str, bool]:
                          f"average, {max(paint['w2d_max_us']) / 1000:.1f} ms worst")
     else:
         lines.append("  (no INFO:PAINT line)")
-    mismatches = len(re.findall(r"FAIL:PAINT:MISMATCH", text))
+    mismatches = sum(1 for line in judge.engine_lines(text) if line.startswith("FAIL:PAINT:MISMATCH"))
     if mismatches:
         lines.append(f"  FAIL: {mismatches} delta picture(s) differed from a whole paint (FAIL:PAINT:MISMATCH)")
     return "\n".join(lines), bool(paints) and not mismatches

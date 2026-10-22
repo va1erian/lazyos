@@ -87,21 +87,23 @@ pub enum Event {
     Popup {
         url: String,
     },
-    /// A download began: `path` is where the engine writes it (the window chose it).
+    /// A download began, into the Downloads folder under the name `name` (webd chose it and
+    /// writes a `.part` file until every byte arrived).
     DownloadStarted {
         id: u64,
         url: String,
         name: String,
         total: Option<u64>,
-        path: String,
     },
     DownloadProgress {
         id: u64,
         received: u64,
         total: Option<u64>,
     },
+    /// Every byte is in `name`, a file of the Downloads folder.
     DownloadDone {
         id: u64,
+        name: String,
     },
     DownloadFailed {
         id: u64,
@@ -161,6 +163,8 @@ pub enum Event {
     /// six seconds (`false`): the window offers a way out (`Engine::recover`). `true` is also what
     /// a process that went away reports, there being nothing to wait for.
     PageResponsive(bool),
+    /// The page copied `text` (Ctrl+C, a script's copy): it goes on the clipboard.
+    Clipboard(String),
 }
 
 impl Event {
@@ -170,7 +174,8 @@ impl Event {
             (Event::Hover(_), Event::Hover(_))
             | (Event::Cursor(_), Event::Cursor(_))
             | (Event::Blocked(_), Event::Blocked(_))
-            | (Event::PageResponsive(_), Event::PageResponsive(_)) => true,
+            | (Event::PageResponsive(_), Event::PageResponsive(_))
+            | (Event::Clipboard(_), Event::Clipboard(_)) => true,
             (Event::DownloadProgress { id: a, .. }, Event::DownloadProgress { id: b, .. }) => {
                 a == b
             }
@@ -194,6 +199,7 @@ impl Event {
                 | Event::NotifyCancel { .. }
                 | Event::NotifyGone { .. }
                 | Event::Blocked(_)
+                | Event::Clipboard(_)
         )
     }
 }
@@ -249,13 +255,19 @@ mod tests {
         let events = Events::default();
         assert!(events.push(Event::Popup { url: "a".into() }));
         assert!(!events.push(Event::Popup { url: "b".into() }));
-        assert!(!events.push(Event::DownloadDone { id: 3 }));
+        assert!(!events.push(Event::DownloadDone {
+            id: 3,
+            name: String::new(),
+        }));
         assert_eq!(
             events.take(),
             vec![
                 Event::Popup { url: "a".into() },
                 Event::Popup { url: "b".into() },
-                Event::DownloadDone { id: 3 },
+                Event::DownloadDone {
+                    id: 3,
+                    name: String::new(),
+                },
             ]
         );
         assert!(events.take().is_empty());
@@ -376,7 +388,10 @@ mod tests {
             origin: "https://a.test".into(),
             user_gesture: true,
         });
-        events.push(Event::DownloadDone { id: 9 });
+        events.push(Event::DownloadDone {
+            id: 9,
+            name: String::new(),
+        });
         let taken = events.take();
         assert_eq!(
             taken.len(),
@@ -386,7 +401,7 @@ mod tests {
         assert!(matches!(taken[MAX_QUEUED], Event::NotifyPermission { .. }));
         assert!(matches!(
             taken[MAX_QUEUED + 1],
-            Event::DownloadDone { id: 9 }
+            Event::DownloadDone { id: 9, .. }
         ));
     }
 

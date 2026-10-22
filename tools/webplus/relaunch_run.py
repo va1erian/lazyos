@@ -4,13 +4,16 @@
 A WebProcess asks the UI for its NetworkProcess connection with a synchronous message; the NetworkProcess makes
 a socket pair, keeps one end and sends the other to the UI. A start-up whose reply is lost hangs the start page
 until WebKit gives up on the NetworkProcess (`WEBPROCESS:UNRESPONSIVE`, then `NETWORKPROCESS:GONE` about 15 s
-later). The kernel refusing that `sendmsg` (`ETOOMANYREFS`: musl prints "No error information") was such a loss:
+later; webd relays both as `WEBD:NOTE:...`). LazyWeb+ is a client of the resident daemon webd, so the
+NetworkProcess belongs to webd and outlives each close of the window: only the page's process and the view
+are made again at each start. The kernel refusing that `sendmsg` (`ETOOMANYREFS`: musl prints "No error information") was such a loss:
 the new connection's service-worker store handle could land in the pair before its end was sent.
 
 Boots a plain image (the real sites over QEMU's user network), opens each `--url` once so the profile holds what
 a person's does (a site with a service worker: its registration makes the NetworkProcess send a descriptor to
 every new connection), then closes the window and starts it from the menu `--cycles` times, waiting on the start
-page each time. Judged from the serial log: no `WEBPROCESS:UNRESPONSIVE`, no `NETWORKPROCESS:GONE`, no refused
+page each time. Judged from the serial log: no `WEBPROCESS:UNRESPONSIVE`, no `NETWORKPROCESS:GONE`, no lost
+view (`WEBD:LOST`), a view made and destroyed by webd for each start, no refused
 `sendmsg` (`PROC:SCM:REFUSE`), no `Error sending IPC message`, and the start page loaded every time.
 
     python tools/webplus/relaunch_run.py --build                  # build, squoosh.app, six relaunches
@@ -92,8 +95,13 @@ def verdict(text: str, cycles: int) -> list[str]:
     if warm > 0:
         early, _ = live_run.verdict(text[:warm])
         found += [sign for sign in early if "SCM:REFUSE" in sign or "IPC message" in sign or "signal" in sign]
-    for pid, reason in re.findall(r"WEBPLUS:NETWORKPROCESS:GONE:(-?\d+):(\S+)", text):
+    for pid, reason in re.findall(r"^NETWORKPROCESS:GONE:(-?\d+):(\S+)", judge.engine_text(text), re.M):
         found.append(f"the NetworkProcess (pid {pid}) was ended ({reason})")
+    views, live = judge.client_views(text)
+    if len(views) < cycles + 1:
+        found.append(f"webd made {len(views)} view(s) for the window, not {cycles + 1}")
+    # The last start is still open at the end of the run; every earlier view went with its window.
+    found += [f"webd's view {view} of a closed window was never destroyed" for view in live if view != views[-1]]
     starts = text.count(f"{judge.P}:LOAD:{judge.START}")
     if starts < cycles + 1:
         found.append(f"the start page loaded {starts} times, not {cycles + 1}")

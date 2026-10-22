@@ -26,11 +26,8 @@ BUILD = wkpins.jsc_pins.WORK / "webkit-port-build"
 PREFIX = wkpins.PREFIX
 PORT_DIR = wkpins.ROOT / "webkit" / "port"
 OUTPUTS = {"WebProcess": "WebProcess", "NetworkProcess": "NetworkProcess", "webkit-smoke": "webkit-smoke",
-           "lazywebplus-app": "lazywebplus-app", "webkit-views": "webkit-views",
+           "webkit-views": "webkit-views",
            "webd-abi-test": "webd-abi-test", "webd-app": "webd-app"}
-#: The window's static library (``tools/webkit/app.py`` builds it on the host); with it the
-#: ``lazywebplus-app`` target exists (``Source/WebKit/PlatformLazyOS.cmake``).
-PLUS_LIBRARY = wkpins.OUT / "lib" / "libxui_webplus.a"
 #: webd's service, the same way (``tools/webkit/webd.py``): with it the ``webd-app`` target exists.
 WEBD_LIBRARY = wkpins.OUT / "lib" / "libxui_webd_host.a"
 #: Static archives of the bundle, in an order a single-pass linker would accept
@@ -68,10 +65,9 @@ def options() -> dict[str, str]:
     wrap = toolenv.wrappers()
     flags = " ".join(toolenv.CODEGEN)
     libs = ";".join(str(PREFIX / "lib" / name) for name in STATIC_LIBRARIES)
-    window = {"LAZYOS_PLUS_LIBRARY": str(PLUS_LIBRARY)} if PLUS_LIBRARY.is_file() else {}
     service = {"LAZYOS_WEBD_LIBRARY": str(WEBD_LIBRARY)} if WEBD_LIBRARY.is_file() else {}
     return {
-        **window, **service,
+        **service,
         "PORT": "LazyOS", "CMAKE_BUILD_TYPE": "Release", "DEVELOPER_MODE": "OFF",
         "ENABLE_TOOLS": "OFF", "ENABLE_MINIBROWSER": "OFF", "USE_HEADER_MAPS": "OFF",
         # The Notifications API (docs/lazywebplus.md): on, explicitly, so a build tree configured
@@ -208,7 +204,7 @@ def install_host_layout() -> None:
         directory.mkdir(parents=True, exist_ok=True)
     for name in OUTPUTS:
         if not (wkpins.BIN / name).is_file():
-            continue  # the desktop apps are built on request (`app.py`), after this
+            continue  # the desktop apps are built on request (`webd.py`), after this
         installed = HOST_BIN / IMAGE_NAMES.get(name, name)
         shutil.copy2(wkpins.BIN / name, installed)
         installed.chmod(0o755)

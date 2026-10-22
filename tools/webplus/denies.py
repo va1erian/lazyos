@@ -1,17 +1,21 @@
 """The `LABEL:DENY` lines a LazyWeb+ run may print (issue #835, #836's note on the WebKit browser).
 
-The page process and the network process run confined (docs/architecture/process-sandbox.md); the
-engine looks up a few optional things and falls back when the kernel says no. Those denials are
-documented and left alone: the tables are not widened to silence them (the page process must not
-write the fonts directory). Any other denial of either child, or of the app, is a missing permission
-or an attack, and fails the run (`python tools/webplus/run.py --label-trace`).
+LazyWeb+ is a client of `webd` (os.lazy.webd), which owns the engine: the page process and the network
+process run confined as `app:os.lazy.webd/webprocess` and `app:os.lazy.webd/networkprocess`
+(docs/architecture/process-sandbox.md); the engine looks up a few optional things and falls back when
+the kernel says no. Those denials are documented and left alone: the tables are not widened to silence
+them (the page process must not write the fonts directory). Any other denial of either child, of webd,
+of LazyWeb+ or of its `listupdate` helper is a missing permission or an attack, and fails the run
+(`python tools/webplus/run.py --label-trace`).
 """
 
 from __future__ import annotations
 
 import re
 
+#: The client, and the daemon whose children run the engine.
 APP = "os.lazy.lazywebplus"
+ENGINE_APP = "os.lazy.webd"
 
 #: (label suffix, regex of the rest of the line): what is allowed to be refused.
 OPTIONAL = [
@@ -36,7 +40,7 @@ def unexpected(lines: list[str]) -> list[str]:
     found = []
     for line in sorted(set(lines)):
         match = LINE.search(line)
-        if match and any(match["label"] == f"app:{APP}/{child}" and re.fullmatch(rest, match["what"])
+        if match and any(match["label"] == f"app:{ENGINE_APP}/{child}" and re.fullmatch(rest, match["what"])
                          for child, rest in OPTIONAL):
             continue
         found.append(line)

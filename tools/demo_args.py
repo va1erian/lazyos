@@ -208,10 +208,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--lazywebplus", action="store_true",
                         help="LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus "
                              "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
-                             "stack, the big-app profile, a 1 GiB OS volume, WebProcess and "
-                             "NetworkProcess in /system/bin and the app's core package; built in "
-                             "Docker (tools/webkit/deps.py, port.py, app.py) and packaged by "
-                             "tools/xui/build.py")
+                             "stack, the big-app profile, a 1 GiB OS volume and webd (required: the "
+                             "browser draws the pages webd renders, so it conflicts with --no-webd); "
+                             "webd and its engine processes are built in Docker (tools/webkit/deps.py, "
+                             "port.py, webd.py), the browser, a plain xui app, by tools/xui/build.py")
     parser.add_argument("--webd", action="store_true",
                         help="webd, the daemon that serves WebKit light views to other apps, os.lazy.webd "
                              "(LAZYOS_WEBD=1; docs/webd.md): the desktop, the big-app profile, a 1 GiB OS "
@@ -342,6 +342,8 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         suites.apply(args, suites.resolve(args.suite, args.with_options))
     if args.no_webd and (args.webd or args.webd_demo):
         parser.error("--no-webd conflicts with --webd and --webd-demo")
+    if args.no_webd and args.lazywebplus:
+        parser.error("--no-webd conflicts with --lazywebplus: the browser draws the pages webd renders")
     args.webd = args.webd or args.webd_demo
     if args.lazywebplus or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
@@ -365,8 +367,9 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
                     or args.pictures
                     or args.traydemo or args.games or args.devtools or args.setup)
     # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
-    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails).
-    args.webd_implicit = args.desktop and not args.webd and not args.no_webd
+    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails). LazyWeb+
+    # requires it and builds it itself (`build_lazywebplus`), so for it the build is not implicit.
+    args.webd_implicit = args.desktop and not args.webd and not args.no_webd and not args.lazywebplus
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
     args.tls = args.tls or args.mail or args.lazywebplus

@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""A page that hangs, through LazyWeb+ (docs/lazywebplus.md, "Engine processes and the heartbeat",
-issue #862): build the desktop image, browse a page whose button runs a loop that never ends, and
-judge that the browser says so and lets the person out.
+"""A page that hangs, through LazyWeb+ (docs/lazywebplus.md, issue #862): build the desktop image,
+browse a page whose button runs a loop that never ends, and judge that the browser says so and lets
+the person out. LazyWeb+ is a client of the resident daemon webd, which owns the page's process: the
+engine's markers are webd's (``WEBD:NOTE:...``, ``WEBD:LOST``).
 
-The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
-``app.py``, then ``python tools/xui/build.py``). The page is
+The image is `run.py`'s (the apps built first: ``python tools/webkit/deps.py``, ``python
+tools/webkit/port.py --only WebProcess NetworkProcess webd-app``, ``python tools/webkit/webd.py``, then
+``python tools/xui/build.py``). The page is
 ``tools/webtest/fixtures/theoldnet.com/webplus/hang.html``, served over HTTPS from the host with the run's
 throwaway CA like the rest of LazyWeb+'s pages.
 
 One boot (``hang_session.hang``): the click starts the loop, WebKit's ping goes unanswered and the
 window's bar comes up; Wait puts it away; the toolbar's Reload ends the stuck process and loads the
-page in a new one; hung again, the bar's Stop ends that process and leaves the page stopped; the
-window closes and every process is accounted for (``hang_judge.py``).
+page in a new one; hung again, the bar's Stop ends that process and leaves the page stopped (webd
+reports the view lost); the next load makes a new view and the page loads in it; the window closes and
+every view and page process is accounted for (``hang_judge.py``).
 
     python tools/webplus/hang_run.py                # build, boot, judge
     python tools/webplus/hang_run.py --no-build     # the image and certificates of the last run
@@ -19,7 +22,7 @@ window closes and every process is accounted for (``hang_judge.py``).
 
 Needs the ports ``run.py`` needs (80 and 443 on 127.0.0.1). Screenshots and logs go to
 ``shots/webplus-hang``; read the ``h*`` pictures: the bar over the page, the page again, the stopped
-page. Every run recreates ``target/lazyos.img``'s OS volume.
+page, the page loaded again. Every run recreates ``target/lazyos.img``'s OS volume.
 """
 
 from __future__ import annotations
@@ -43,7 +46,8 @@ ROOT = base.ROOT
 def verdict(text: str, ran: bool) -> int:
     ok = base.report("SESSION", "the boot ran to its end", [] if ran else ["the session did not finish (see summary.json)"])
     ok = base.report("HANG", "the stuck page was said to be stuck, Wait put the bar away, Reload and Stop ended "
-                     "its process and every process is accounted for", h.judge_hang(text)) and ok
+                     "its process, the next load made a new view and every view and page process is accounted for",
+                     h.judge_hang(text)) and ok
     print(f"{base.judge.P}:HANG:HARNESS:" + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
@@ -88,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         ran, text = base.run_session(hang_session.hang(args.step_timeout), out / "hang", args,
-                                    expected_failures=("webprocess:stopped", "The page was stopped"))
+                                    expected_failures=("webprocess:stopped", "The page was stopped",
+                                                       "The page's process ended"))
     finally:
         served.close()
     return verdict(text, ran)

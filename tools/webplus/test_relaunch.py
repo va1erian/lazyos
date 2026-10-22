@@ -19,7 +19,7 @@ INIT:LAUNCH:PASS app=os.lazy.lazywebplus pid=25 session=1
 WEBPLUS:UP:PASS
 PROC:SCM:REFUSE why=cycle tgid=25 count=1 comm=ReceiveQueue
 Error sending IPC message: No error information
-WEBPLUS:WEBPROCESS:UNRESPONSIVE:36
+WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:36
 """
 
 #: The user's report of the same day: the reply lost the other way, the NetworkProcess killed by WebKit
@@ -27,15 +27,17 @@ WEBPLUS:WEBPROCESS:UNRESPONSIVE:36
 KILLED = """\
 WEBPLUS:LOAD:about:start
 Error sending IPC message: No error information
-WEBPLUS:WEBPROCESS:UNRESPONSIVE:39
-WEBPLUS:PROCESS:TERMINATE:network:41:group=0:pid=-1
-WEBPLUS:NETWORKPROCESS:GONE:0:crash
-WEBPLUS:WEBPROCESS:RESPONSIVE:39
+WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:39
+WEBD:NOTE:PROCESS:TERMINATE:network:41:group=0:pid=-1
+WEBD:NOTE:NETWORKPROCESS:GONE:0:crash
+WEBD:NOTE:WEBPROCESS:RESPONSIVE:39
 WEBPLUS:LOAD:about:start
 """
 
-HEALTHY = "".join(f"WEBPLUS:UP:PASS\nWEBPLUS:LOAD:about:start\nINIT:LAUNCH:EXIT app=os.lazy.lazywebplus\n"
-                  for _ in range(3))
+#: Three starts: webd makes a view for each and destroys it with the window (the last is still open).
+HEALTHY = "".join(f"WEBD:VIEW:CREATE client={live_run.judge.CLIENT_LABEL} view={n}\nWEBPLUS:UP:PASS\n"
+                  f"WEBPLUS:LOAD:about:start\n" + (f"WEBD:VIEW:DESTROY view={n}\n" if n < 3 else "")
+                  + "INIT:LAUNCH:EXIT app=os.lazy.lazywebplus\n" for n in (1, 2, 3))
 
 
 class Verdict(unittest.TestCase):
@@ -64,14 +66,29 @@ class Verdict(unittest.TestCase):
         self.assertEqual(relaunch_run.verdict(crash, 2), ["webprocess (tgid 39) died of signal 11"])
 
     def test_the_blocker_warm_up_is_slow_not_hung_but_a_lost_message_in_it_counts(self):
-        warm = ("WEBPLUS:WEBPROCESS:UNRESPONSIVE:40\nWEBPLUS:WEBPROCESS:RESPONSIVE:40\n"
+        warm = ("WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:40\nWEBD:NOTE:WEBPROCESS:RESPONSIVE:40\n"
                 "SCHED:STUCK tgid=25 thread=47/thread abi=linux nr=7 ms=3150 cpu_ms=0 krip=0x1 urip=0x2 comm=SocketMonitor\n"
                 "WEBPLUS:BLOCK:READY:easylist:rules=58928\n")
         self.assertEqual(relaunch_run.verdict(warm + HEALTHY, 2), [])
         lost = warm.replace("WEBPLUS:BLOCK:READY", "Error sending IPC message: No error information\nWEBPLUS:BLOCK:READY")
         self.assertEqual(len(relaunch_run.verdict(lost + HEALTHY, 2)), 1)
-        late = warm + HEALTHY + "WEBPLUS:WEBPROCESS:UNRESPONSIVE:36\n"
+        late = warm + HEALTHY + "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:36\n"
         self.assertTrue(relaunch_run.verdict(late, 2), "after the warm-up, an unresponsive page counts")
+
+    def test_a_view_webd_never_destroyed_or_lost_fails(self):
+        leaked = HEALTHY.replace("WEBD:VIEW:DESTROY view=1\n", "")
+        self.assertEqual(relaunch_run.verdict(leaked, 2), ["webd's view 1 of a closed window was never destroyed"])
+        few = relaunch_run.verdict(HEALTHY, 5)
+        self.assertTrue(any("view(s) for the window, not 6" in finding for finding in few), few)
+        lost = relaunch_run.verdict(HEALTHY + "WEBD:LOST view=3 reason=crashed\n", 2)
+        self.assertTrue(any("WEBD:LOST" in finding for finding in lost), lost)
+
+    def test_the_networkprocess_is_webds_and_its_end_is_a_finding(self):
+        # webd keeps its network process across the window's closes: its end is a finding at any time.
+        found = relaunch_run.verdict(HEALTHY + "WEBD:NOTE:NETWORKPROCESS:GONE:41:crash\n", 2)
+        self.assertEqual(found, ["the NetworkProcess (pid 41) was ended (crash)"])
+        # ...and under the client's prefix it is not the engine's line.
+        self.assertEqual(relaunch_run.verdict(HEALTHY + "WEBPLUS:NETWORKPROCESS:GONE:41:crash\n", 2), [])
 
     def test_the_live_verdict_sees_a_refused_send_too(self):
         hang, _ = live_run.verdict(REFUSED)

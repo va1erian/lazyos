@@ -174,11 +174,8 @@ target_include_directories(webkit-smoke SYSTEM PRIVATE ${FONTCONFIG_INCLUDE_DIR}
 target_compile_definitions(webkit-smoke PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-smoke PRIVATE WebKit)
 
-# The desktop UI process (webkit/port/app/, docs/lazywebplus.md): WebKit's run loop in C++, the
-# window in a Rust static library. lazywebplus-app links LazyWeb+'s window (LAZYOS_PLUS_LIBRARY,
-# built by tools/webkit/app.py). Without the library its target does not exist, so the W4
-# programs build as before.
-# The engine: views, their clients and their paint, with no window and no C ABI of its own.
+# The engine: views, their clients and their paint, with no window and no C ABI of its own (webkit-views and
+# webd-app compile it; lazyos_ui.h holds the constants it shares with webd).
 set(_lazyos_engine_sources
     "${LAZYOS_PORT_DIR}/app/engine.cpp"
     "${LAZYOS_PORT_DIR}/app/clients.cpp"
@@ -193,23 +190,6 @@ set(_lazyos_engine_sources
     "${LAZYOS_PORT_DIR}/app/profile.cpp"
     "${LAZYOS_PORT_DIR}/app/fullview.cpp"
 )
-# ... and the C ABI of lazyos_ui.h over it, for a program with a window of that kind.
-set(_lazyos_app_sources
-    "${LAZYOS_PORT_DIR}/app/main.cpp"
-    "${LAZYOS_PORT_DIR}/app/legacy.cpp"
-    ${_lazyos_engine_sources}
-)
-
-function (lazyos_add_app name library)
-    add_executable(${name} ${_lazyos_app_sources})
-    target_include_directories(${name} PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
-    target_compile_definitions(${name} PRIVATE ${_lazyos_program_definitions})
-    target_link_libraries(${name} PRIVATE WebKit "${library}")
-endfunction ()
-
-if (LAZYOS_PLUS_LIBRARY)
-    lazyos_add_app(lazywebplus-app "${LAZYOS_PLUS_LIBRARY}")
-endif ()
 
 # Two views at once with no window (webkit/port/views/, docs/webd-plan.md P1): the engine's second
 # owner, which is also the test of its views. Built on request (`port.py --only webkit-views`).

@@ -1,6 +1,6 @@
 // Navigation policy and downloads (docs/lazywebplus.md).
 //
-// Every navigation asks the window (LZW_FEATURE_POLICY, lzw_ui_navigate) with the kind of
+// Every navigation asks the window (LZW_FEATURE_POLICY, ViewSink::navigate) with the kind of
 // navigation and whether a user gesture started it: a script must never be able to start another
 // program or run one of the browser's commands. A response the page cannot show, or one the
 // server sent as an attachment, becomes a download (LZW_FEATURE_DOWNLOADS): the window chooses the

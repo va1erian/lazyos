@@ -724,7 +724,10 @@ navigation (docs/lazywebplus.md, *Navigation policy*). `mimed` had no way to cho
 `python tools/webplus/run.py` (two boots of one image: pages, dialogs, blocked launches, downloads, profile,
 cookie and history across the second boot; `WEBPLUS:HARNESS:PASS`). Its engine processes are sandboxed like
 W5's (the manifest's `[processes.*]` tables, the network process also writing `$HOME/Downloads`;
-`attack_run.py --browser --app lazywebplus`: 60 probes as expected). The harness found that **no cookie was
+`attack_run.py --browser --app lazywebplus`: 60 probes as expected). *Since webd's P4 (2026-10-22) this is history:*
+LazyWeb+ is a plain xui app and a client of webd ([`webd-plan.md`](webd-plan.md), [`lazywebplus.md`](lazywebplus.md)); the
+UI process, the C ABI between it and the window and `lazywebplus-app` are gone, and the engine processes and their
+labels are webd's. The harness found that **no cookie was
 ever stored**: WebKit opens its SQLite databases in WAL mode, whose index is a mapped file, and LazyOS has no
 file-backed `mmap` (`SQLITE_IOERR_SHMMAP`), so the bundle's SQLite is built with `SQLITE_OMIT_WAL`. The W5
 browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
@@ -801,8 +804,8 @@ UI process in `webkit/port/app`), the dependency and build scripts
 (`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
 `os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
 (`run_demo.py --webkit`, a launcher group), and `os.lazy.lazywebplus` (`xui-app/webplus`,
-`xui-app/packages/lazywebplus`) by `LAZYOS_LAZYWEBPLUS=1` (`--lazywebplus`), with WebKit fetched at a pinned
-revision at build time and never vendored.
+`xui-app/packages/lazywebplus`) by `LAZYOS_LAZYWEBPLUS=1` (`--lazywebplus`; since P4 a client of webd that links
+no WebKit), with WebKit fetched at a pinned revision at build time and never vendored.
 
 ## 8. Alternatives considered
 

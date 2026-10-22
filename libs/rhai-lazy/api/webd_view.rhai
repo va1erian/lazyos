@@ -152,6 +152,19 @@ fn download(view, url) {
     msg::connect("os.lazy.webd.view.v1").invoke("Download", [view, url])
 }
 
+/// `Recover(view: U64, reload: Bool) -> ()`
+///
+/// The page's process does not answer (the app got `Responsive(false)`) and
+/// the person chose a way out (LazyWeb+, P4): the view's web process is
+/// ended. With `reload` the page loads again in a fresh process. Without it
+/// the page stays stopped: the engine reports the page as ended by request,
+/// which is `ViewLost` with reason `Other`, and the app makes a new view.
+/// The engine refuses (and does nothing) while other views share the
+/// process; the service does not know.
+fn recover(view, reload) {
+    msg::connect("os.lazy.webd.view.v1").invoke("Recover", [view, reload])
+}
+
 /// `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway`
 ///
 /// Input, as on the light interface.
@@ -231,6 +244,27 @@ fn blocking_load(view, list) {
 /// Detach list `list` and remove it from the store.
 fn blocking_forget(view, list) {
     msg::connect("os.lazy.webd.view.v1").invoke("BlockingForget", [view, list])
+}
+
+/// `NotifyForget(view: U64, origin: String) -> ()`
+///
+/// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+/// `Notification.permission` is `default` again and its next request is
+/// asked again (`NotifyPermissionRequest`). A view made with
+/// `notifications` only; `origin` is checked as in `NotifyPermission`.
+fn notify_forget(view, origin) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyForget", [view, origin])
+}
+
+/// `NotifyState(view: U64, notification: U64, state: U32) -> ()`
+///
+/// What became of notification `notification` that `NotifyShow` gave a
+/// view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
+/// is on screen, was clicked (the page's click handler runs) or went away.
+/// `ESRCH` for a notification webd did not give this view or that is over;
+/// `EACCES` for a view without `notify_in_client`.
+fn notify_state(view, notification, state) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyState", [view, notification, state])
 }
 
 /// `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway`
@@ -446,6 +480,38 @@ fn handed_off(view, url) {
     msg::connect("os.lazy.webd.view.v1").invoke("HandedOff", [view, url])
 }
 
+/// `NotifyShow(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> () oneway`
+///
+/// Event (a view made with `notify_in_client`): the page asked to show
+/// notification `notification` and its profile allowed `origin`; the app
+/// shows it (as its own toast, titled by the app, not by the page) and
+/// answers with `NotifyState`. `page_url` is the page that asked, `tag` the
+/// page's tag; the texts are the page's own and are cut at 16 KiB each.
+///
+/// One-way: returns `()` once the message is queued.
+fn notify_show(view, notification, origin, page_url, title, body, tag) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyShow", [view, notification, origin, page_url, title, body, tag])
+}
+
+/// `NotifyCancel(view: U64, notification: U64) -> () oneway`
+///
+/// Event: the page closed notification `notification` itself.
+///
+/// One-way: returns `()` once the message is queued.
+fn notify_cancel(view, notification) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyCancel", [view, notification])
+}
+
+/// `NotifyGone(view: U64, notification: U64) -> () oneway`
+///
+/// Event: the page's object for `notification` is gone (its document went
+/// away); the toast is the person's now and a click reaches no script.
+///
+/// One-way: returns `()` once the message is queued.
+fn notify_gone(view, notification) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyGone", [view, notification])
+}
+
 // Not callable from a script (the request carries a channel, buffer
 // or ring): CreateView, AttachSlot, LoadHtml, BlockingCompile.
 
@@ -453,7 +519,7 @@ fn handed_off(view, url) {
 ///
 /// How a full view is made; fixed for its life.
 fn new_view_config() {
-    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false }
+    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false, notify_in_client: false }
 }
 
 /// A `Rect` with every field at its zero value.
@@ -472,6 +538,9 @@ fn new_view_config() {
 /// Appended to the engine's user agent; at most 64 bytes.
 /// Frames carry damage, scroll shifts and bands.
 /// JavaScript dialogs reach the app (else they are dismissed).
+/// With `notifications`: the app shows the page's notifications
+/// (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
+/// click on one brings the app's window forward.
 /// A rectangle of the view, in pixels.
 fn new_rect() {
     #{ x: 0, y: 0, width: 0, height: 0 }
@@ -590,3 +659,12 @@ export const PERMISSION_ANSWER_BLOCK = "Block";
 export const PERMISSION_ANSWER_ALLOW = "Allow";
 
 export const PERMISSION_ANSWER_DISMISS = "Dismiss";
+
+// The variants of `NotifyStateKind`, in wire order.
+export const NOTIFY_STATE_KIND = ["Shown", "Clicked", "Closed"];
+
+export const NOTIFY_STATE_KIND_SHOWN = "Shown";
+
+export const NOTIFY_STATE_KIND_CLICKED = "Clicked";
+
+export const NOTIFY_STATE_KIND_CLOSED = "Closed";

@@ -81,6 +81,9 @@ pub struct ShellWorker {
     jobs: Option<Sender<Job>>,
     news: Receiver<ShellNews>,
     thread: Option<JoinHandle<()>>,
+    /// Run while the worker is being joined: the shell's calls are made on the window's thread
+    /// (`platform::main_thread`), which must keep taking them while the worker takes its toasts down.
+    turn: Option<Box<dyn Fn()>>,
 }
 
 impl ShellWorker {
@@ -97,7 +100,14 @@ impl ShellWorker {
             jobs: Some(jobs),
             news,
             thread: Some(thread),
+            turn: None,
         })
+    }
+
+    /// `turn` is run, over and over, while a dropped worker ends (see the field).
+    pub fn with_turn(mut self, turn: impl Fn() + 'static) -> ShellWorker {
+        self.turn = Some(Box::new(turn));
+        self
     }
 }
 
@@ -124,6 +134,18 @@ impl Drop for ShellWorker {
         // The worker sees its inbox hang up, takes the toasts down and ends.
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
+            if let Some(turn) = &self.turn {
+                // The worker takes its toasts down within CLEAN_UP; a worker stuck past twice that is
+                // left behind (it ends with the process) rather than holding the quit.
+                let until = Instant::now() + CLEAN_UP * 2;
+                while !thread.is_finished() && Instant::now() < until {
+                    turn();
+                    thread::sleep(Duration::from_millis(2));
+                }
+                if !thread.is_finished() {
+                    return;
+                }
+            }
             let _ = thread.join();
         }
     }
