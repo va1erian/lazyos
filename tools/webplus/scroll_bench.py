@@ -4,9 +4,10 @@
 Boots a plain image (no test host mappings: the real CA bundle and the real sites over QEMU's user network),
 maximizes the window on the start page, opens each address, lets it settle, puts the pointer in the page and
 turns the wheel for ``--seconds`` (the same continuous pattern as ``frame_run.py``), then prints one block per
-page from the serial log: the window's frames (``INFO:SMOOTH``: frames drawn a second while scrolling, the
-longest gap, how much of what was shown was checkerboard), the page's answer (``INFO:PAINT``), CPU by process
-(``PERF:CPU``) and the window thread (``INFO:WINDOW``).
+page from the serial log: the window's frames (``WEBPLUS:INFO:SMOOTH``, the client's: frames drawn a second
+while scrolling, the longest gap, how much of what was shown was checkerboard), the page's answer
+(``INFO:PAINT``, webd's, relayed as ``WEBD:NOTE:INFO:PAINT``), CPU by process (``PERF:CPU``: the client, webd's
+UI process, the web process and the network process, apart) and the window thread (``WEBPLUS:INFO:WINDOW``).
 
     python tools/webplus/scroll_bench.py --build                     # build, then ars technica and webkit.org
     python tools/webplus/scroll_bench.py --url https://webkit.org/ --seconds 15
@@ -35,6 +36,7 @@ _spec.loader.exec_module(webplus_run)
 
 import frame_run  # noqa: E402
 import judge  # noqa: E402
+import procs  # noqa: E402
 import scroll_stats  # noqa: E402
 import session  # noqa: E402
 
@@ -106,7 +108,8 @@ def consent(url: str) -> list[dict]:
     return []
 
 
-SMOOTH = re.compile(r"INFO:SMOOTH:(\S+)")
+#: The client's frame meter (the window's own, not webd's).
+SMOOTH = re.compile(rf"{judge.P}:INFO:SMOOTH:(\S+)")
 
 
 def smooth_block(text: str) -> list[str]:
@@ -129,17 +132,18 @@ def report(text: str) -> str:
     out: list[str] = []
     marks = [i for i, line in enumerate(lines) if f"{judge.P}:NAV:" in line]
     bounds = marks + [len(lines)]
+    pids = procs.engine_pids(text)  # the engine's processes were announced before the first navigation
     for n, start in enumerate(marks):
         chunk = "\n".join(lines[start:bounds[n + 1]])
         url = lines[start].split(f"{judge.P}:NAV:", 1)[1].strip()
         out.append(f"== {url}")
         out += smooth_block(chunk)
-        result = scroll_stats.stats(chunk.splitlines())
+        result = scroll_stats.stats(chunk.splitlines(), pids)
         if "error" in result:
             out.append(f"  {result['error']}")
         else:
             out.append("  " + scroll_stats.render(url, result).replace("\n", "\n  "))
-        table, _ = frame_run.summarise(chunk)
+        table, _ = frame_run.summarise(chunk, pids)
         out.append("  " + table.replace("\n", "\n  "))
     return "\n".join(out)
 

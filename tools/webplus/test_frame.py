@@ -13,10 +13,10 @@ import frame_run  # noqa: E402
 LOG = """\
 WEBPLUS:LOAD:https://theoldnet.com/webplus/scroll.html
 WEBPLUS:TITLE:WebPlus scroll
-WEBPROCESS:UP:39
-NETWORKPROCESS:UP:41
-WEBPLUS:INFO:PAINT:mode=fast:n=40:needs=50:px=36000000:clear=0:wk=40000:swz=8000:post=20000:avg=1700:max=3000:lat=9000:wheel=30:mouse=0:w2d=12000/30000
-WEBPLUS:INFO:PAINT:mode=fast:n=20:needs=20:px=18000000:clear=0:wk=20000:swz=4000:post=10000:avg=1700:max=2500:lat=9000:wheel=15:mouse=0:w2d=14000/20000
+WEBD:NOTE:WEBPROCESS:UP:39
+WEBD:NOTE:NETWORKPROCESS:UP:41
+WEBD:NOTE:INFO:PAINT:mode=fast:n=40:needs=50:px=36000000:clear=0:wk=40000:swz=8000:post=20000:avg=1700:max=3000:lat=9000:wheel=30:mouse=0:w2d=12000/30000
+WEBD:NOTE:INFO:PAINT:mode=fast:n=20:needs=20:px=18000000:clear=0:wk=20000:swz=4000:post=10000:avg=1700:max=2500:lat=9000:wheel=15:mouse=0:w2d=14000/20000
 PERF:CPU tgid=39 pct=62 user=60 kernel=2 class=normal demotions=3 comm=fork
 PERF:CPU tgid=30 pct=21 user=9 kernel=12 class=interactive demotions=0 comm=xuid
 PERF:CPU tgid=39 pct=58 user=56 kernel=2 class=normal demotions=3 comm=fork
@@ -55,7 +55,7 @@ class Summary(unittest.TestCase):
         self.assertNotIn("XUID:COMPOSE", frame_run.summarise(LOG)[0])
 
     def test_the_probe_images_check_is_shown_apart(self):
-        line = ("WEBPLUS:INFO:PAINT:mode=fast:n=30:needs=30:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:"
+        line = ("WEBD:NOTE:INFO:PAINT:mode=fast:n=30:needs=30:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:"
                 "mouse=0:w2d=1/1:full=0:delta=30:scroll=30:checks=1:bad=0:wkcalls=30:wkmax=1:bands=0:ver=60000\n")
         table, _ = frame_run.summarise(LOG + line)
         self.assertIn("check      667 us a paint, not in the stages", table)
@@ -63,7 +63,7 @@ class Summary(unittest.TestCase):
 
     def test_window_thread_and_delta_counts_are_shown(self):
         extra = ("WEBPLUS:INFO:WINDOW:updates=20:full=2:apply=4000:draws=22:draw=44000:max=9000:parts=7\n"
-                 "WEBPLUS:INFO:PAINT:mode=fast:n=10:needs=10:px=900000:clear=0:wk=5000:swz=900:post=1000:"
+                 "WEBD:NOTE:INFO:PAINT:mode=fast:n=10:needs=10:px=900000:clear=0:wk=5000:swz=900:post=1000:"
                  "avg=700:max=900:lat=1:wheel=5:mouse=0:w2d=1000/2000:full=2:delta=8:scroll=7\n")
         table, _ = frame_run.summarise(LOG + extra)
         self.assertIn("20 updates, 2 whole", table)
@@ -73,13 +73,34 @@ class Summary(unittest.TestCase):
         self.assertIn("2 whole frames, 8 deltas, 7 of them scrolls", table)
 
     def test_a_picture_that_differed_from_a_whole_paint_fails_the_run(self):
-        good = LOG + "WEBPLUS:INFO:PAINT:mode=fast:n=3:needs=3:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:mouse=0:w2d=1/1:full=1:delta=2:scroll=2:checks=2:bad=0\n"
+        good = LOG + "WEBD:NOTE:INFO:PAINT:mode=fast:n=3:needs=3:px=9:clear=0:wk=1:swz=1:post=1:avg=1:max=1:lat=1:wheel=1:mouse=0:w2d=1/1:full=1:delta=2:scroll=2:checks=2:bad=0\n"
         table, ok = frame_run.summarise(good)
         self.assertTrue(ok)
         self.assertIn("2 checks, 0 differed", table)
-        table, ok = frame_run.summarise(good + "WEBPLUS:FAIL:PAINT:MISMATCH:pixels=3:first=1,2:view=10x10\n")
+        table, ok = frame_run.summarise(good + "WEBD:NOTE:FAIL:PAINT:MISMATCH:pixels=3:first=1,2:view=10x10\n")
         self.assertFalse(ok)
         self.assertIn("differed from a whole paint", table)
+
+    def test_the_engines_lines_are_webds_not_the_clients(self):
+        # An engine marker under the client's prefix is nothing: the paint meter and the process names
+        # are read from webd's relay only.
+        old = LOG.replace("WEBD:NOTE:", "WEBPLUS:")
+        table, enough = frame_run.summarise(old)
+        self.assertFalse(enough)
+        self.assertIn("no INFO:PAINT", table)
+        self.assertNotRegex(table, r"WebProcess\s")
+
+    def test_the_browsers_four_processes_are_reported_apart(self):
+        rows = ("PERF:CPU tgid=50 pct=30 user=25 kernel=5 class=normal demotions=0 comm=lazywebplus.elf\n"
+                "PERF:CPU tgid=51 pct=45 user=40 kernel=5 class=normal demotions=0 comm=webd.elf\n")
+        table, _ = frame_run.summarise(LOG + rows)
+        self.assertRegex(table, r"LazyWeb\+ client\s+1\s+30\s+25\s+5")
+        self.assertRegex(table, r"webd UI process\s+1\s+45\s+40\s+5")
+        # 60 (web) + 21 (xuid) + 30 + 45 = 156% over 30 paints a second.
+        self.assertIn("CPU per painted frame: 52.0 ms", table)
+        self.assertIn("LazyWeb+ client 10.0, webd UI process 15.0, WebProcess 20.0, NetworkProcess 0.0; everything else 7.0", table)
+        # Without them their share is zero, and said so.
+        self.assertIn("webd UI process 0.0", frame_run.summarise(LOG)[0])
 
     def test_nothing_busy_is_not_enough(self):
         table, enough = frame_run.summarise("WEBPLUS:TITLE:WebPlus scroll\n")

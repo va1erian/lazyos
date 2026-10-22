@@ -129,6 +129,13 @@ def markers(text: str, kind: str) -> list[str]:
     return lines(text, f"{P}:{kind}:")
 
 
+def engine_line(line: str) -> str | None:
+    """The engine's marker on one serial line, without webd's `WEBD:NOTE:` prefix (anywhere on the line: the
+    console may interleave), or None when the line is not one."""
+    at = line.find(NOTE)
+    return line[at + len(NOTE):].strip() if at >= 0 else None
+
+
 def engine_lines(text: str) -> list[str]:
     """The engine's markers of a log, in order, without webd's `WEBD:NOTE:` prefix: webd relays what the
     WebKit half prints (`PROCESS:LAUNCH:web:41`, `WEBPROCESS:UP:41`, `INFO:PAINT:...`). Every reader of an
@@ -356,8 +363,21 @@ def process_history(text: str, must_end: tuple[str, ...] = ("web",)) -> tuple[li
     return problems, ended
 
 
-def view_ids(text: str, pattern: re.Pattern[str]) -> list[int]:
-    return [int(m["view"]) for m in pattern.finditer(text)]
+VIEW_EVENT = re.compile(r"WEBD:VIEW:(?:CREATE client=(?P<client>\S+) view=(?P<made>\d+)|DESTROY view=(?P<gone>\d+))")
+
+
+def client_views(text: str) -> tuple[list[str], list[str]]:
+    """(the views webd made for the client, in order; those of them still live at the end of the log). A view
+    id may be used again once destroyed, so the log is followed in order."""
+    made: list[str] = []
+    live: list[str] = []
+    for match in VIEW_EVENT.finditer(text):
+        if match["made"] and match["client"] == CLIENT_LABEL:
+            made.append(match["made"])
+            live.append(match["made"])
+        elif match["gone"] and match["gone"] in live:
+            live.remove(match["gone"])
+    return made, live
 
 
 def judge_quit(text: str) -> list[str]:
@@ -370,11 +390,8 @@ def judge_quit(text: str) -> list[str]:
         problems.append(f"the window did not close cleanly: no {P}:QUIT:PASS (saw {re.findall(rf'{P}:QUIT:\\w+', text)})")
     for alive in re.findall(rf"{P}:CHILD:[^\r\n]*ALIVE[^\r\n]*", text):
         problems.append(f"a child outlived the window: {alive}")
-    mine = [int(m["view"]) for m in VIEW_CREATE.finditer(text) if m["client"] == CLIENT_LABEL]
-    destroyed = set(view_ids(text, VIEW_DESTROY))
-    for view in mine:
-        if view not in destroyed:
-            problems.append(f"webd's view {view} of the window was never destroyed (no WEBD:VIEW:DESTROY view={view})")
+    for view in client_views(text)[1]:
+        problems.append(f"webd's view {view} of the window was never destroyed (no WEBD:VIEW:DESTROY view={view})")
     history, _ = process_history(text)
     return problems + history
 

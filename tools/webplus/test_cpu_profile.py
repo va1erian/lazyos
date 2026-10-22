@@ -66,7 +66,7 @@ class Callers(unittest.TestCase):
             + [(0.0, 3, 0x1000, 0x400010, [0x500000])] * 4      # not in memcpy
             + [(0.0, 3, 0x2000, 0x600000, [0x400010])] * 9      # another process
         )
-        text = "\n".join(prof.callers(rows, "lazywebplus-app", "vol", 0x1000, "memcpy", 5, run=addr2line))
+        text = "\n".join(prof.callers(rows, "webd-app", "vol", 0x1000, "memcpy", 5, run=addr2line))
         self.assertIn("5 samples in functions matching 'memcpy'", text)
         self.assertRegex(text, r"3\s+paint")
         self.assertRegex(text, r"1\s+decode")

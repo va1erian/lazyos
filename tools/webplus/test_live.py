@@ -13,19 +13,19 @@ import live_run  # noqa: E402
 #: From a hang reported on the Kaby Lake stick (2026-10-17): the NetworkProcess in ext2 for whole periods,
 #: the page's process unresponsive behind it.
 HANG = """\
-WEBPLUS:INFO:TIME:nav=2:start=11138:commit=11922:finish=17547:load=6409
+WEBD:NOTE:INFO:TIME:nav=2:start=11138:commit=11922:finish=17547:load=6409
 LOCK:WAIT lock=ext2 holder=43/fork:networkprocess thread=51/thread tgid=43 abi=linux nr=74 waiters=1 ms=627 comm=persistent
 LOCK:WAIT lock=ext2 holder=51/thread:persistent thread=43/fork tgid=43 abi=linux nr=18 waiters=1 ms=583 comm=networkprocess
 PERF:CPU tgid=43 pct=38 user=6 kernel=32 class=normal demotions=16 comm=networkprocess
 ENOSYS 285 fallocate count=39 comm=background
-WEBPLUS:WEBPROCESS:UNRESPONSIVE:41
+WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:41
 PERF:CPU tgid=43 pct=53 user=0 kernel=53 class=normal demotions=25 comm=networkprocess
 PERF:CPU tgid=43 pct=59 user=0 kernel=59 class=normal demotions=46 comm=networkprocess
 SCHED:STUCK tgid=43 thread=43/fork abi=linux nr=74 ms=5150 cpu_ms=550 krip=0xffff8000001621ce urip=0x79a28e7 comm=fork
 """
 
 HEALTHY = """\
-WEBPLUS:INFO:TIME:nav=2:start=11138:commit=11922:finish=17547:load=6409
+WEBD:NOTE:INFO:TIME:nav=2:start=11138:commit=11922:finish=17547:load=6409
 PERF:CPU tgid=41 pct=33 user=32 kernel=1 class=normal demotions=34 comm=webprocess
 PERF:CPU tgid=43 pct=11 user=6 kernel=5 class=normal demotions=0 comm=networkprocess
 SCHED:STUCK tgid=36 thread=36/fork abi=linux nr=59 ms=2200 cpu_ms=490 krip=0xffff80000007e5e9 urip=0x79a28e7 comm=fork
@@ -52,6 +52,17 @@ class Verdict(unittest.TestCase):
         clean = "PROC:EXIT tgid=39 thread=39/fork status=0 sig=- by=- parent=30 cpu_ms=900 comm=webprocess\n"
         other = "PROC:EXIT tgid=40 thread=40/fork status=134 sig=6 by=- parent=20 cpu_ms=9 comm=busybox\n"
         self.assertEqual(live_run.verdict(killed + clean + other)[0], [])
+
+    def test_an_unresponsive_page_is_webds_line_and_a_lost_view_is_a_finding(self):
+        # The engine's marker under the client's prefix is nothing (the engine is webd's).
+        self.assertEqual(live_run.verdict(HEALTHY + "WEBPLUS:WEBPROCESS:UNRESPONSIVE:41\n")[0], [])
+        self.assertEqual(len(live_run.verdict(HEALTHY + "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:41\n")[0]), 1)
+        lost = live_run.verdict(HEALTHY + "WEBD:LOST view=7 reason=crashed\n")[0]
+        self.assertEqual(lost, ["webd lost the window's view (WEBD:LOST view=7 reason=crashed)"])
+
+    def test_webds_ui_process_dying_of_a_signal_is_a_finding(self):
+        abort = "PROC:EXIT tgid=31 thread=31/main status=134 sig=6 by=- parent=1 cpu_ms=900 comm=webd.elf\n"
+        self.assertEqual(live_run.verdict(abort)[0], ["webd.elf (tgid 31) died of signal 6"])
 
     def test_a_busy_but_healthy_log_is_clean(self):
         hang, facts = live_run.verdict(HEALTHY)
