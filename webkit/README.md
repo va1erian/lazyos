@@ -202,7 +202,7 @@ EGL and GLESv2 stand-ins and are never reached.
 ## The engine: one Host, any number of Views
 
 `port/app/` is two things. The **engine** (`engine.cpp`, `clients.cpp`, `policy.cpp`, `uiclient.cpp`,
-`notify.cpp`, `blocking.cpp`, `paint.cpp`, `light.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
+`notify.cpp`, `blocking.cpp`, `paint.cpp`, `light.cpp`, `profile.cpp`, `fullview.cpp`, `children.cpp`, `log.cpp`, all declared in `engine.h`) is WebKit's
 UI process without a window: one `Host` (the `WKContext`, the notification manager, the engine processes)
 and any number of `View`s, a page each with its own state (loading, dialogs, downloads, permission
 requests, paint state, rule-list controller). Whatever a view says goes to its `ViewSink`, whatever the host
@@ -254,10 +254,13 @@ made:
   of its own. `WKPageClose` before the release made it worse.
 * **A persistent profile lives as long as the process**, for the same reason, and the children take
   `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
-  its environment when it starts, and one NetworkProcess serves every profile): a second profile's explicit
-  data directories are right, its curl cookie jar is not yet.
+  its environment when it starts, and one NetworkProcess serves every profile). For LazyWeb+'s one profile
+  that is right. An owner of several (webd) starts the host with `startHostWithChildren` (`profile.cpp`): the
+  children's folder and an in-memory default cookie database are decided then and never changed, and each
+  persistent store's NetworkProcess session opens its own `cookieStorageFile` (`NetworkSessionCurl.cpp`,
+  `setCookieDatabase`), so every profile's cookies are in its own jar (`webd-abi-test profiles` proves it).
 
-## webd's engine half (`port/webd`): light views behind a C ABI
+## webd's engine half (`port/webd`): light and full views behind a C ABI
 
 `port/webd/webd_abi.h` is the contract between the engine and webd's service (Rust, `xui-app/crates/webd`,
 docs/webd-plan.md, P2 slice 1): `webd_engine_*` calls the service makes from any thread, `webd_ui_*` callbacks
@@ -334,6 +337,70 @@ python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run
 | `many` | twelve views of one group (scripts alternating on and off, so the process holds both) share ONE web process and each paints its own colour and title; destroyed in another order than made, the process lives until the last view and ends with it |
 | `lost` | `SIGKILL` of the web process (pid from `webd_engine_children`) is `view_lost(CRASHED)`, the id is dead, a new view works; the same for both views of a group, which is then rebuilt with one new process |
 | `cycle` | twenty views made, painted and destroyed in turn: every web process ends, nothing is told after `view_destroy` |
+
+### Full views (P2 slice 3)
+
+A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its configuration and its own calls
+(`load`, `reload`, `stop`, `back`, `forward`, `download`, `download_cancel`, `dialog_reply`,
+`navigation_answer`, `notify_*`, `blocking_*`; each does nothing to a light view, and `load_html` nothing to a
+full one), `sink_full.cpp` is its `ViewSink`: `legacy.cpp`'s `LegacySink` with the view id on every call
+(`webd_ui_page_state` instead of `webd_ui_state`). `slots.h` is what the three files share.
+
+* *The host.* Full views need `webd_engine_start_host` with a `children_directory`
+  (`startHostWithChildren`): without it a full view is refused (`view_lost(REFUSED)`,
+  `FULL:REFUSED:...`), since the first profile would otherwise decide every other's cookie jar. The host also
+  prepares the light lock, so both kinds share it. `webd_engine_start` and `_start_host` refuse a second start.
+* *Configuration.* `features` are masked to the six view features and `WEBD_FEATURE_POLICY` is always added;
+  `profile` must be absolute with no `.`, `..` or empty component (else refused), and is created (a profile that
+  cannot be made is refused, not silently kept in memory); `memory_only`, `deltas`, `group` as the header says;
+  `scripts = 0` turns script off (preferences are touched only when something is asked: scripts off, a font
+  size, a suffix); `user_style` is a user script that appends a `<style>` (scripts on only, else
+  `CONFIG:IGNORED:user_style`); `color_scheme = 1` is `CONFIG:IGNORED` as for a light view.
+* *User agent suffix.* At most 64 printable ASCII bytes (else `CONFIG:IGNORED:user_agent_suffix`). With
+  site-specific quirks on, the page's process sends PlayStation's fixed agent for every address
+  (`WebPagePlayStation.cpp`, `platformUserAgent`), so `WKPageSetApplicationNameForUserAgent` never reached a
+  request; and it would append `/<WebKit version>` (`UserAgentPlayStation.cpp`). A view with a suffix has the
+  quirks off and WebKit's agent, a space and the suffix as its custom agent.
+* *Held navigations* (`WEBD_VERDICT_ASK`): `ViewSink::navigateRequest` gets a per-view request id (from 1,
+  never reused) and `main_frame` (the main frame's navigation, or a new window's: a `target=_blank` link is
+  asked with `main_frame = 1` before `webd_ui_new_window`; `window.open` is not asked at all, WebKit goes
+  straight to the new window). The listener is kept, retained, until `navigation_answer` (allow: the rule lists
+  and Use, or Download for `<a download>`, as the normal path; deny: Ignore). Any newer main-frame navigation of
+  the view (a click, a `load`, Back) refuses every held one before it is asked about, and so does the view's
+  end; a late answer is ignored. Stop does not drop them.
+* *Painting.* `deltas = 0`: whole frames, as a light view. `deltas = 1`: `paintResize/Full/Rect/Update/Plan`
+  go to `webd_paint_*`, `frameDelta` to `webd_ui_frame_delta`, bands to `webd_ui_band`, and `webd_ui_scroll`
+  comes before every post (the engine tells the offset before each paint; the sink does not deduplicate it for
+  such a view). The engine paints a whole frame on the first paint and after every size change whatever the
+  plan says; a plan with a rectangle or a scroll area outside the view is painted whole
+  (`PAINT:PLAN:REFUSED`). A hidden view is not asked for a plan.
+* *Downloads.* Ids per view from 1. The path `webd_ui_download_start` writes must be absolute and
+  NUL-terminated within the buffer, or the download is refused. Two engine bugs this found, fixed for LazyWeb+
+  too: WebKit's curl download reports 0 for both totals (`NetworkDataTaskCurl.cpp`), so progress was always 0
+  (the engine counts the bytes and takes the total from the response); and a cancel ends only through
+  `WKDownloadCancel`'s completion, never `didFailWithError` (`DownloadProxy::cancel`), so the owner never heard
+  of it: the engine now reports `download_fail("Cancelled")` from the completion and frees its bookkeeping.
+* *Notifications.* `webd_engine_notify_permission(view, origin, answer)` settles that view's pending requests
+  only (`notifyPermissionIn`); WebKit's record of the decision is the context's (one for every profile).
+  Nothing is remembered context-wide at start (`HostEnv::notifyPermissionAt` is -1). **WebKit refuses the
+  permission in a page whose session is ephemeral** (`WebNotificationClient::requestPermission`), before
+  anything reaches the UI process: a view without a persistent profile (none, or `memory_only`) can never notify.
+
+```bash
+LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify
+```
+
+| mode | what it asserts |
+|---|---|
+| `full` | the first page state answers `view_create`; a load from the test's HTTP server: url, committed url, title, `finished`, `progress`, no back/forward, the load asked as a main-frame `other` without a gesture, the user agent ends with the suffix; a link click (asked as a link with its gesture), Back, Forward, Reload with `can_back`/`can_forward` and `finished`; a denied navigation requests nothing; a failed load says why and leaves the page; no delta for `deltas = 0`; `load_html` does nothing to a full view |
+| `profiles` | profile A's page sets a cookie by `Set-Cookie` and by `document.cookie`; a second view of A (another process) sends both; profile B and a memory-only view send none, and A does not send the memory-only view's; the children's environment is still the start's; the cookie is in a file below A's `cookies/`, in nothing below B, the children's folder or the working directory, and the memory-only view's is on no disk |
+| `ask` | a click to another origin held: nothing requested until `navigation_answer(allow)` loads it; a second held one denied stays; a third dropped by a newer `load`, its late answer does nothing; a view destroyed with one held ends cleanly |
+| `dialog` | alert, confirm, prompt answered in turn (`done:true:typed`), Cancel is `false:null`, a stale reply is nothing; 25 alerts of a loop answered in order; an endless loop answered ten times, then its view destroyed with a dialog open, and a new view works |
+| `download` | a link to an attachment: name, path under the test's folder, progress, `received`/`total` equal to the file, done, the bytes; the page stays; a slow Save As cancelled is `download_fail("Cancelled")` |
+| `popup` | a script's `window.open` is `new_window(gesture 0)`, a click's `new_window(gesture 1)`, a `target=_blank` link is asked first and is `new_window(gesture 1)`; nothing loads |
+| `deltas` | a tall page and two wheel turns: a delta that moved the picture arrives, a scroll call before every post, and the picture rebuilt from the frame and the deltas equals the whole frame `refresh` sends, pixel for pixel |
+| `blocking` | a rule list compiled into the profile blocks `blocked.png` (the server never sees it, `blocked == 1`); a list never stored is `NOT_STORED`; a page the service excepts requests it; a forgotten list blocks nothing |
+| `notify` | two views of one origin ask; one allowed, the other still pending, then dismissed (`denied`); the allowed page's notification is shown with its origin, title and body, and hears shown and clicked |
 
 ### The program: `webd-app`
 
