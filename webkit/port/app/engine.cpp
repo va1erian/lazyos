@@ -187,6 +187,22 @@ static View* groupMate(const ViewConfig& config)
     return any;
 }
 
+// Which destroyed views may go to the reuse pool: LIGHT views only, of a real group (webd gives every
+// client one, never reused; group 0 is "no group" and could never be adopted).
+//
+// A full view is never pooled. Its proxy carries state a new view must not inherit and that this port
+// cannot reset: an in-memory store (a private window's or the client's own profile: its cookies and
+// storage would survive into the next private window, where a fresh view gets a fresh store), the back
+// and forward list (Back, Reload and recover would act on the closed page), and the page's content
+// controller (a view with content blocking would keep the old lists, unknown to the new View). A light
+// view has none of these through its interface: no history, no Back/Reload/Recover, no blocking (its
+// features are 0), and every page is the client's own LoadHtml; its in-memory store is the same
+// client's, as it is for the one view Mail and Docs keep for every page. Found in the pre-PR review.
+static bool poolable(const View& view)
+{
+    return view.config.light && view.config.group != 0 && view.soleEver;
+}
+
 // Two views are of one class when a proxy configured for one can serve the other: the same owner's
 // group and profile, and everything baked into the WKPage/WKView at creation (data store, content
 // controller, the light or full configuration, the user agent). Width and height are not here: a
@@ -207,8 +223,9 @@ static constexpr size_t kPoolMax = 16;
 
 static void sayPool()
 {
-    say("INFO:POOL:reused=%llu:pooled=%zu:live=%zu:retired=%zu",
-        static_cast<unsigned long long>(H.poolReused), H.pool.size(), H.views.size(), H.retired.size());
+    say("INFO:POOL:reused=%llu:pooled=%zu:live=%zu:retired=%zu:parked=%zu",
+        static_cast<unsigned long long>(H.poolReused), H.pool.size(), H.views.size(), H.retired.size(),
+        H.parked.size());
 }
 
 // A pooled proxy of `config`'s class, removed from the pool, or an empty ParkedPage (null view) when
@@ -216,7 +233,9 @@ static void sayPool()
 static ParkedPage takeFromPool(const ViewConfig& config)
 {
     for (auto it = H.pool.begin(); it != H.pool.end(); ++it) {
-        if (sameViewClass(it->config, config)) {
+        // Only once the parked page has no process: its termination has been taken in, so no late
+        // notice of it reaches the clients the new view installs (a page still ending stays pooled).
+        if (sameViewClass(it->config, config) && WKPageGetProcessIdentifier(it->page) <= 0) {
             ParkedPage taken = std::move(*it);
             H.pool.erase(it);
             return taken;
@@ -242,7 +261,6 @@ static void parkForReuse(View& view)
         H.pool.erase(H.pool.begin());
     }
     H.pool.push_back(std::move(parked));
-    sayPool();
 }
 
 View* createView(const ViewConfig& config, ViewSink* sink)
@@ -351,10 +369,15 @@ void destroyView(int id)
     // Whether a view that is staying shares this view's process: then the process cannot be ended and
     // the proxy cannot be pooled (it is a related page of a live process), so it is parked forever.
     bool shared = false;
+    // The page's process is known to be over (ended here) or never began: only then may the proxy be
+    // reused. A view destroyed while its first process is still launching (no id yet, but a load began)
+    // is not: the next owner would inherit a process and a page mid-load.
+    bool processSettled = false;
     if (view->page) {
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
         shared = !processMates(*view).empty();
+        const bool began = view->webProcessSeen || view->loading || view->lightLoads > 0 || view->navigations > 0;
         // Its process goes with it (107 MB), unless a view that is staying uses it too; the page proxy
         // stays, hollow (see below). In a process that stays the page is unloaded instead: it must not
         // go on running (timers, requests, a busy loop) for nobody, and its heap is given back.
@@ -364,6 +387,9 @@ void destroyView(int id)
             WKRelease(blank);
         } else if (WKPageGetProcessIdentifier(view->page) > 0) {
             WKPageTerminate(view->page);
+            processSettled = true;
+        } else {
+            processSettled = !began;
         }
     }
     releasePaint(*view);
@@ -375,19 +401,21 @@ void destroyView(int id)
     }
     // A WebPageProxy cannot be released on this port: WebKit aborts the UI process when it is destroyed
     // (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family of
-    // patches 0021 and 0027). So the proxy is kept. The sole user of its process (the common case, and
-    // every step of a create/destroy loop) goes to the reuse pool, where a later view of the same owner
-    // and class adopts it instead of starting a fresh proxy; the store of a view that had one of its own
-    // is kept with it. A view whose process a sibling still uses cannot be pooled (its proxy is a related
-    // page of a live process), so it is parked forever as before; that grows only with the multi-view
-    // case, never with a single view's loop. No bitmap, no thread; the page is blank by now.
-    if (!shared && view->soleEver && view->view && view->page) {
+    // patches 0021 and 0027). So the proxy is kept. A light view that was the only page of its process
+    // all its life, whose process is over, goes to the reuse pool, where the same client's next light
+    // view of the same class adopts it instead of starting a fresh proxy (`poolable` says why only light
+    // views). Everything else is parked forever as before: full views, views whose process a sibling
+    // still used (a related page of a live process), group 0, a view destroyed mid-launch. Those grow
+    // with use, as before P5; the pool bounds a client's light create/destroy loop. No bitmap, no thread.
+    if (!shared && processSettled && poolable(*view) && view->view && view->page) {
         parkForReuse(*view);
         H.views.erase(id);
     } else {
         H.parked.push_back(std::move(H.views[id]));
         H.views.erase(id);
     }
+    // After the view is gone from the table, so `live` counts what is left.
+    sayPool();
 }
 
 // ---- the owner's calls ------------------------------------------------------------------------------

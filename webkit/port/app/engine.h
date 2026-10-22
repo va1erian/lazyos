@@ -351,10 +351,10 @@ struct Host {
     // reuse). This list grows only with the multi-view/tabs case, never with a single view's
     // create/destroy loop (which has no sibling; see destroyView).
     std::vector<std::unique_ptr<View>> parked;
-    // Reusable page proxies of destroyed views that were the sole user of their process: a later view
-    // of the same owner and class adopts one rather than making a new proxy (engine.cpp, reuseParked /
-    // parkForReuse). Bounded by kPoolMax; an overflow proxy, which still cannot be released, goes to
-    // `retired`.
+    // Reusable page proxies of destroyed LIGHT views that were the only page of their process and whose
+    // process is over: the same client's next light view of the same class adopts one rather than making
+    // a new proxy (engine.cpp, poolable / parkForReuse / takeFromPool). Bounded by kPoolMax; an overflow
+    // proxy, which still cannot be released, goes to `retired`.
     std::vector<ParkedPage> pool;
     // Pooled proxies evicted when the pool was full: kept forever like `parked` (whole, so the view's
     // reference and its data store both stay alive), only so they are not released (releasing a

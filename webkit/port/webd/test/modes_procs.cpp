@@ -159,16 +159,41 @@ std::string modeLost()
     return "";
 }
 
+namespace {
+
+std::string poolText(const PoolCounts& p)
+{
+    char text[160];
+    snprintf(text, sizeof text, "reused=%ld pooled=%ld live=%ld retired=%ld parked=%ld", p.reused, p.pooled, p.live, p.retired, p.parked);
+    return text;
+}
+
+// A light view of `group` made and destroyed without a page (no web process starts): what the pool says after.
+PoolCounts emptyLight(int group, int scripts)
+{
+    Options options;
+    options.group = group;
+    options.scripts = scripts;
+    options.width = 160;
+    options.height = 100;
+    destroy(create(options));
+    return poolCounts();
+}
+
+} // namespace
+
 std::string modeCycle()
 {
-    // A client's views all share one group (the service gives one group per client), so a destroyed
-    // view's page proxy is pooled and the next create of the same class adopts it instead of making a
-    // new proxy: a create/destroy loop must not grow webd (docs/webd-plan.md P5, "What still grows
-    // without bound"). The group is fixed here, as a real client's is.
+    // A client's light views share one group (the service gives one per client), so a destroyed light view's
+    // page proxy is pooled and the client's next light view of the same class adopts it instead of a new
+    // proxy: a light create/destroy loop must not grow webd (docs/webd-plan.md "P5 as built"). Only light
+    // views are pooled (engine.cpp `poolable`): a full view's proxy keeps its in-memory store, history and
+    // content controller, which a new view must not inherit.
     constexpr int kGroup = 7;
 
-    // Part 1: paint a view, destroy it, and do it again, a few times. Each later view adopts the pooled
-    // proxy (poolReused grows), still paints, and the proxy table stays at one pooled, none retired.
+    // Part 1: paint a light view, destroy it, wait for its process to end, again. Every later view adopts the
+    // pooled proxy, still paints its own page, starts a process of its own that ends with it, and the pool
+    // stays at one proxy.
     constexpr int kPaintCycles = 16;
     for (int i = 0; i < kPaintCycles; ++i) {
         Options options;
@@ -183,38 +208,46 @@ std::string modeCycle()
         destroy(v);
         if (facts(v).violations || facts(v).lost)
             return "view " + std::to_string(i) + " was told something after view_destroy";
+        if (!waitExits(i + 1, 30000))
+            return "view " + std::to_string(i) + "'s web process did not end: " + describeProcesses();
         const PoolCounts pool = poolCounts();
-        if (pool.pooled != 1 || pool.retired != 0)
-            return "after destroy the pool was not one proxy and none retired: pooled=" + std::to_string(pool.pooled) + " retired=" + std::to_string(pool.retired);
+        if (pool.pooled != 1 || pool.retired != 0 || pool.reused != i || pool.parked != 0)
+            return "after painted cycle " + std::to_string(i) + " the pool is not one reused proxy: " + poolText(pool);
     }
-    PoolCounts afterPaint = poolCounts();
-    note("CYCLE:%d painted views, pool reused=%ld pooled=%ld retired=%ld:%s", kPaintCycles, afterPaint.reused, afterPaint.pooled, afterPaint.retired, describeProcesses().c_str());
-    // The first view made the proxy; every one after it reused the pooled one.
-    if (afterPaint.reused < kPaintCycles - 1)
-        return "painted cycles did not reuse the pooled proxy: reused=" + std::to_string(afterPaint.reused) + " of " + std::to_string(kPaintCycles);
+    const Processes procs = processes();
+    note("CYCLE:%d painted views:%s:%s", kPaintCycles, poolText(poolCounts()).c_str(), describeProcesses().c_str());
+    if (procs.webLaunches != kPaintCycles || procs.webExits != kPaintCycles)
+        return "expected a web process per painted view, each ended: " + describeProcesses();
 
-    // Part 2: many create/destroy iterations without a load (so no web process starts, and the loop is
-    // cheap): the proxy table must be flat after the warm-up. This is the growth the pool fixes: before
-    // it, every destroyed view left a WebPageProxy forever, so webd grew without bound.
+    // Part 2: what must NOT be adopted or pooled. Another class of the same client (scripts on) gets a proxy
+    // of its own and is pooled beside the first; a full view and a view of group 0 are parked forever.
+    const PoolCounts before = poolCounts();
+    PoolCounts p = emptyLight(kGroup, 1);
+    if (p.reused != before.reused || p.pooled != before.pooled + 1 || p.parked != before.parked)
+        return "a view of another class adopted or was not pooled: " + poolText(p);
+    FullOptions full;
+    full.group = kGroup;
+    full.memoryOnly = 1;
+    destroy(createFull(full));
+    PoolCounts q = poolCounts();
+    if (q.reused != p.reused || q.pooled != p.pooled || q.parked != p.parked + 1)
+        return "a full view was pooled or adopted a light proxy: " + poolText(q);
+    PoolCounts r = emptyLight(0, 0);
+    if (r.reused != q.reused || r.pooled != q.pooled || r.parked != q.parked + 1)
+        return "a view of group 0 was pooled: " + poolText(r);
+    note("CYCLE:other class pooled apart; full and group-0 views parked:%s", poolText(r).c_str());
+
+    // Part 3: thousands of light create/destroy iterations (no page, so no process: the loop is cheap). Before
+    // the pool each left a proxy forever; now each adopts the pooled one, and nothing grows.
     constexpr int kFastCycles = 3000;
-    const long reusedBefore = poolCounts().reused;
-    for (int i = 0; i < kFastCycles; ++i) {
-        Options options;
-        options.group = kGroup;
-        options.width = 160;
-        options.height = 100;
-        const uint64_t v = create(options);
-        destroy(v);
-    }
-    const PoolCounts pool = poolCounts();
-    note("CYCLE:%d fast create/destroy, pool reused=%ld pooled=%ld live=%ld retired=%ld", kFastCycles, pool.reused, pool.pooled, pool.live, pool.retired);
-    // Flat means the proxy pool never grows past one and none is retired (an overflow), whatever the
-    // last snapshot's live count is (it is 0 or 1 depending on whether the last marker was a create or a
-    // destroy). Without the pool the parked-proxy count would be `kFastCycles`.
-    if (pool.pooled > 1 || pool.retired != 0)
-        return "the proxy pool grew over a create/destroy loop: pooled=" + std::to_string(pool.pooled) + " retired=" + std::to_string(pool.retired);
-    if (pool.reused < reusedBefore + kFastCycles)
-        return "a fast cycle did not reuse the pooled proxy every time: reused grew by " + std::to_string(pool.reused - reusedBefore) + " over " + std::to_string(kFastCycles);
+    for (int i = 0; i < kFastCycles; ++i)
+        emptyLight(kGroup, 0);
+    const PoolCounts end = poolCounts();
+    note("CYCLE:%d fast create/destroy:%s", kFastCycles, poolText(end).c_str());
+    if (end.pooled != r.pooled || end.parked != r.parked || end.retired != 0 || end.live != 0)
+        return "the proxies grew over a create/destroy loop: " + poolText(end) + " (before: " + poolText(r) + ")";
+    if (end.reused != r.reused + kFastCycles)
+        return "a fast cycle did not reuse the pooled proxy every time: " + poolText(end);
     note("CYCLE:the proxy pool stayed flat over %d create/destroy iterations", kPaintCycles + kFastCycles);
     return "";
 }
