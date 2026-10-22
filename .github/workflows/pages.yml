@@ -42,11 +42,11 @@ concurrency:
 
 jobs:
   build:
-    # Nothing new to publish after a cancelled abi-compat run, or one a pull request started
-    # (a fork's pull request from a branch called main).
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.event != 'pull_request')
+    # Not for an abi-compat run a pull request started (a fork's pull request from a branch
+    # called main). A cancelled abi-compat run still rebuilds: the build always takes main's
+    # latest commit, and skipping the run would still displace a pending docs run in the
+    # concurrency queue above.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +98,8 @@ jobs:
           ls docs/compat
 
       # --strict: a broken link or a #fragment that matches no heading fails the
-      # build, so a renamed doc is caught in the pull request that renames it.
+      # build. Pull requests do not run it, so run it locally before pushing docs
+      # changes; a miss fails this build on main (the site stays on the last good deploy).
       - name: Build the site
         env:
           SITE_REF: ${{ github.event.repository.default_branch }}
