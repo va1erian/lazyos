@@ -234,6 +234,13 @@ class NavTests(TreeCase):
         with self.assertRaises(SystemExit):
             discover(self.root, config())
 
+    def test_outputs_that_differ_only_by_case_collide(self) -> None:
+        self.put("README.md")
+        self.put("docs/index.md")
+        self.put("docs/Readme.md")  # readme.html and Readme.html
+        with self.assertRaises(SystemExit):
+            discover(self.root, config())
+
     def test_nested_directory_sections_use_the_longest_match(self) -> None:
         for name in ("docs/rhai/a.md", "docs/rhai/api/b.md", "docs/rhai/deep/c.md"):
             self.put(name, "# x\n")

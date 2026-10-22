@@ -32,16 +32,20 @@ def discover(root: Path, cfg: Config) -> list[Page]:
         if not (root / src).is_file():
             raise SystemExit(f"site.toml: extra page {src} does not exist")
         pages.append(Page(src=src, out=HOME if src == home else out, section=cfg.extra_sections.get(src, "")))
+    # Compared in lower case: two outputs that differ only by case would overwrite
+    # each other on a case-insensitive checkout or when the site is unpacked there.
     outs: dict[str, str] = {name: "the generator" for name in RESERVED}
     for page in pages:
-        if page.out in outs:
-            raise SystemExit(f"{page.src} and {outs[page.out]} would both build {page.out}")
-        outs[page.out] = page.src
+        if page.out.lower() in outs:
+            raise SystemExit(f"{page.src} and {outs[page.out.lower()]} would both build {page.out}")
+        outs[page.out.lower()] = page.src
     for path in sorted(docs.rglob("*")):  # files copied beside the pages
         if path.is_file() and path.suffix != ".md":
             rel = path.relative_to(docs).as_posix()
-            if rel in outs or rel.startswith(ASSETS + "/"):
-                raise SystemExit(f"docs/{rel} is copied to the site but would overwrite {outs.get(rel, 'the theme')}")
+            if rel.lower() in outs or rel.startswith(ASSETS + "/"):
+                raise SystemExit(
+                    f"docs/{rel} is copied to the site but would overwrite {outs.get(rel.lower(), 'the theme')}"
+                )
     return pages
 
 
