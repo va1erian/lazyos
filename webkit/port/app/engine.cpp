@@ -187,6 +187,64 @@ static View* groupMate(const ViewConfig& config)
     return any;
 }
 
+// Two views are of one class when a proxy configured for one can serve the other: the same owner's
+// group and profile, and everything baked into the WKPage/WKView at creation (data store, content
+// controller, the light or full configuration, the user agent). Width and height are not here: a
+// reused view is resized. Views of one class share a web process already, so reusing a proxy across
+// the class is no weaker a wall than the group is.
+static bool sameViewClass(const ViewConfig& a, const ViewConfig& b)
+{
+    return a.group == b.group && a.group != 0 && a.profile == b.profile && a.memoryOnly == b.memoryOnly
+        && a.light == b.light && a.noNetwork == b.noNetwork && a.storeKind == b.storeKind
+        && a.features == b.features && a.configured == b.configured && a.scripts == b.scripts
+        && a.colorScheme == b.colorScheme && a.defaultFontSize == b.defaultFontSize
+        && a.userStyle == b.userStyle && a.userAgentSuffix == b.userAgentSuffix;
+}
+
+// The pool's capacity: a client reuses the same few classes (its own profile, a private one, the
+// browser profile), so this is generous. An overflow proxy is retired, never released.
+static constexpr size_t kPoolMax = 16;
+
+static void sayPool()
+{
+    say("INFO:POOL:reused=%llu:pooled=%zu:live=%zu:retired=%zu",
+        static_cast<unsigned long long>(H.poolReused), H.pool.size(), H.views.size(), H.retired.size());
+}
+
+// A pooled proxy of `config`'s class, removed from the pool, or an empty ParkedPage (null view) when
+// there is none.
+static ParkedPage takeFromPool(const ViewConfig& config)
+{
+    for (auto it = H.pool.begin(); it != H.pool.end(); ++it) {
+        if (sameViewClass(it->config, config)) {
+            ParkedPage taken = std::move(*it);
+            H.pool.erase(it);
+            return taken;
+        }
+    }
+    return ParkedPage {};
+}
+
+// Keep a destroyed view's proxy for reuse by a later view of its class (its process was ended by the
+// caller). The oldest proxy is retired when the pool is full. The view's view/page are taken, so its
+// destructor releases nothing.
+static void parkForReuse(View& view)
+{
+    ParkedPage parked;
+    parked.view = view.view;
+    parked.page = view.page;
+    parked.profile = view.profile;
+    parked.config = view.config;
+    view.view = nullptr;
+    view.page = nullptr;
+    if (H.pool.size() >= kPoolMax) {
+        H.retired.push_back(H.pool.front().view);
+        H.pool.erase(H.pool.begin());
+    }
+    H.pool.push_back(std::move(parked));
+    sayPool();
+}
+
 View* createView(const ViewConfig& config, ViewSink* sink)
 {
     // A light view without its network lock would be a browser view: never made (light.cpp).
@@ -201,39 +259,63 @@ View* createView(const ViewConfig& config, ViewSink* sink)
     auto owned = std::make_unique<View>(H.nextView++, effective, sink);
     View& view = *owned;
     View* mate = groupMate(config);
-    // A group shares the mate's store (an ephemeral one is the mate's own, there is no other way to
-    // name it), else the profile directory's or a new one.
-    view.profile = mate ? mate->profile : profileFor(config.profile, config.memoryOnly);
+    // Reuse a parked proxy of the same owner and class when no live mate shares its process already: a
+    // WebPageProxy cannot be released on this port, so without reuse a create/destroy loop grows the
+    // process without bound (docs/webd-plan.md P5). A live mate is preferred (its process is warm); the
+    // pool is drained only when the group would otherwise start a process, which is exactly the loop
+    // that grew webd.
+    // A view that joins a live process (a related page of its mate) must never be pooled for reuse, and
+    // neither must the mate: both now share a process, which makes reusing either one's proxy later
+    // unsafe (webkit-views group).
+    if (mate) {
+        view.soleEver = false;
+        mate->soleEver = false;
+    }
+    ParkedPage reused = mate ? ParkedPage {} : takeFromPool(effective);
+    if (reused.view) {
+        // The proxy keeps its data store, content controller and light/full configuration from when it
+        // was made (same class): adopt them. Its process was ended at park; the owner's first load
+        // starts a fresh one. Its clients were cleared at destroy and are installed again below.
+        view.profile = reused.profile;
+        view.view = reused.view;
+        view.page = reused.page;
+        ++H.poolReused;
+        sayPool();
+    } else {
+        // A group shares the mate's store (an ephemeral one is the mate's own, there is no other way to
+        // name it), else the profile directory's or a new one.
+        view.profile = mate ? mate->profile : profileFor(config.profile, config.memoryOnly);
 
-    WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
-    WKPageConfigurationSetContext(pageConfiguration, H.context);
-    WKPageConfigurationSetWebsiteDataStore(pageConfiguration, view.profile->store);
-    // Related pages share a WebProcess (WebPageProxy::create takes the related page's process).
-    if (mate)
-        WKPageConfigurationSetRelatedPage(pageConfiguration, mate->page);
-    // The provider, for an owner whose host features did not ask for it but whose view does.
-    if (view.has(LZW_FEATURE_NOTIFICATIONS))
-        installNotifications();
-    // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
-    startBlocking(view, pageConfiguration);
-    // A light view's preferences and network lock, before the view too.
-    if (config.light && !configureLight(view, pageConfiguration)) {
-        say("FAIL:view:the light view could not be configured");
-        return nullptr;
+        WKPageConfigurationRef pageConfiguration = WKPageConfigurationCreate();
+        WKPageConfigurationSetContext(pageConfiguration, H.context);
+        WKPageConfigurationSetWebsiteDataStore(pageConfiguration, view.profile->store);
+        // Related pages share a WebProcess (WebPageProxy::create takes the related page's process).
+        if (mate)
+            WKPageConfigurationSetRelatedPage(pageConfiguration, mate->page);
+        // The provider, for an owner whose host features did not ask for it but whose view does.
+        if (view.has(LZW_FEATURE_NOTIFICATIONS))
+            installNotifications();
+        // Content blocking (LZW_FEATURE_BLOCKING): the page's user content controller, before the view.
+        startBlocking(view, pageConfiguration);
+        // A light view's preferences and network lock, before the view too.
+        if (config.light && !configureLight(view, pageConfiguration)) {
+            say("FAIL:view:the light view could not be configured");
+            return nullptr;
+        }
+        // A full view whose owner configured it (webd): its scripts, font size, style and network lock, before the
+        // view too.
+        if (!config.light && config.configured && !configureFull(view, pageConfiguration))
+            return nullptr;
+        // The configuration is not released, as before: the view keeps what it needs of it.
+        view.view = WKViewCreate(pageConfiguration);
+        if (!view.view) {
+            say("FAIL:view:WKViewCreate returned null");
+            return nullptr;
+        }
+        view.page = WKViewGetPage(view.view);
+        if (!config.light && config.configured && !config.userAgentSuffix.empty())
+            applyUserAgentSuffix(view);
     }
-    // A full view whose owner configured it (webd): its scripts, font size, style and network lock, before the
-    // view too.
-    if (!config.light && config.configured && !configureFull(view, pageConfiguration))
-        return nullptr;
-    // The configuration is not released, as before: the view keeps what it needs of it.
-    view.view = WKViewCreate(pageConfiguration);
-    if (!view.view) {
-        say("FAIL:view:WKViewCreate returned null");
-        return nullptr;
-    }
-    view.page = WKViewGetPage(view.view);
-    if (!config.light && config.configured && !config.userAgentSuffix.empty())
-        applyUserAgentSuffix(view);
 
     WKViewClientV0 viewClient = { };
     viewClient.base.version = 0;
@@ -266,13 +348,17 @@ void destroyView(int id)
     dropDialogs(*view);
     dropDownloads(*view);
     dropHeldNavigations(*view);
+    // Whether a view that is staying shares this view's process: then the process cannot be ended and
+    // the proxy cannot be pooled (it is a related page of a live process), so it is parked forever.
+    bool shared = false;
     if (view->page) {
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
+        shared = !processMates(*view).empty();
         // Its process goes with it (107 MB), unless a view that is staying uses it too; the page proxy
         // stays, hollow (see below). In a process that stays the page is unloaded instead: it must not
         // go on running (timers, requests, a busy loop) for nobody, and its heap is given back.
-        if (!processMates(*view).empty()) {
+        if (shared) {
             WKURLRef blank = WKURLCreateWithUTF8CString("about:blank");
             WKPageLoadURL(view->page, blank);
             WKRelease(blank);
@@ -287,13 +373,21 @@ void destroyView(int id)
         else
             ++it;
     }
-    // Parked, never released: WebKit's WebPageProxy aborts the UI process when it is destroyed on this
-    // port (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family
-    // of patches 0021 and 0027). A proxy per view that ever was, and the store of a view that had one of
-    // its own; no bitmap, no thread, and a process only when a group's other views still use it (the
-    // page itself is blank by then).
-    H.parked.push_back(std::move(H.views[id]));
-    H.views.erase(id);
+    // A WebPageProxy cannot be released on this port: WebKit aborts the UI process when it is destroyed
+    // (a CheckedPtr to a dead timer in the run loop, one run in three in webkit-views two; the family of
+    // patches 0021 and 0027). So the proxy is kept. The sole user of its process (the common case, and
+    // every step of a create/destroy loop) goes to the reuse pool, where a later view of the same owner
+    // and class adopts it instead of starting a fresh proxy; the store of a view that had one of its own
+    // is kept with it. A view whose process a sibling still uses cannot be pooled (its proxy is a related
+    // page of a live process), so it is parked forever as before; that grows only with the multi-view
+    // case, never with a single view's loop. No bitmap, no thread; the page is blank by now.
+    if (!shared && view->soleEver && view->view && view->page) {
+        parkForReuse(*view);
+        H.views.erase(id);
+    } else {
+        H.parked.push_back(std::move(H.views[id]));
+        H.views.erase(id);
+    }
 }
 
 // ---- the owner's calls ------------------------------------------------------------------------------

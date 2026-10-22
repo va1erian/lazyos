@@ -93,6 +93,14 @@ bool waitProcesses(const std::function<bool(const Processes&)>& ready, int ms);
 // Whether the engine said a line that starts with `prefix`.
 bool said(const std::string& prefix);
 
+// The reuse pool's counts from the last INFO:POOL line the engine said (engine.cpp sayPool), or all
+// -1 when it has said none: how many views adopted a pooled proxy, how many are pooled, how many are
+// live, how many were retired (overflow). The cycle mode judges that the pool stays flat.
+struct PoolCounts {
+    long reused { -1 }, pooled { -1 }, live { -1 }, retired { -1 };
+};
+PoolCounts poolCounts();
+
 struct Options {
     int scripts { 0 };
     int group { 0 };

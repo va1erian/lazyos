@@ -236,6 +236,11 @@ struct View {
     std::string error;
     // The WebProcess is gone (crashed, or did not start): the page is blank until the next load.
     bool crashed { false };
+    // This page has only ever been the single page in its WebProcess (never a related page of a group).
+    // Only such a proxy may be pooled and reused: reusing a proxy that once shared a process aborts the
+    // UI process on this port (webkit-views group, the family of patches 0021/0027). Set false when the
+    // view is made as, or becomes, a group mate (engine.cpp). See destroyView / createView.
+    bool soleEver { true };
     // The user pressed Stop: the failure WebKit reports for it is not one.
     bool stopRequested { false };
     // The WebProcess does not answer WebKit's responsiveness pings.
@@ -324,13 +329,38 @@ struct Profile {
     ~Profile();
 };
 
+// A page proxy a destroyed view left behind, kept so a later view of the same owner and class can
+// reuse it instead of making a new one: a WebPageProxy cannot be released on this port (destroyView),
+// so without this a create/destroy loop grows the process without bound (docs/webd-plan.md, "What
+// still grows without bound", P5). The WKView holds the page; this struct owns the WKView reference
+// (released only at process exit, never) and the class key a new view must match to adopt it.
+struct ParkedPage {
+    WKViewRef view { nullptr };
+    WKPageRef page { nullptr };
+    std::shared_ptr<Profile> profile;
+    ViewConfig config;
+};
+
 // Everything that is one per process.
 struct Host {
     HostEnv* env { nullptr };
     WKContextRef context { nullptr };
     std::map<int, std::unique_ptr<View>> views;
-    // Views that were destroyed for their owner and whose page proxies are kept (see destroyView).
+    // Views destroyed while a sibling still shared their process: the page was unloaded to about:blank
+    // and the proxy is kept forever (it is a related page of a live process, so it cannot be pooled for
+    // reuse). This list grows only with the multi-view/tabs case, never with a single view's
+    // create/destroy loop (which has no sibling; see destroyView).
     std::vector<std::unique_ptr<View>> parked;
+    // Reusable page proxies of destroyed views that were the sole user of their process: a later view
+    // of the same owner and class adopts one rather than making a new proxy (engine.cpp, reuseParked /
+    // parkForReuse). Bounded by kPoolMax; an overflow proxy, which still cannot be released, goes to
+    // `retired`.
+    std::vector<ParkedPage> pool;
+    // Pooled proxies evicted when the pool was full: kept forever like `parked`, held only so their
+    // reference is not dropped (releasing a WebPageProxy aborts the UI process).
+    std::vector<WKViewRef> retired;
+    // How many views have adopted a pooled proxy (INFO:POOL, the cycle test).
+    uint64_t poolReused { 0 };
     int nextView { 1 };
     // The persistent profiles in use, by directory (an ephemeral store is the view's alone).
     std::map<std::string, std::weak_ptr<Profile>> profiles;
