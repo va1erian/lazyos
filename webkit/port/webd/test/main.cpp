@@ -3,7 +3,12 @@
 // driver thread calls webd_engine_* like the Rust service's thread and waits for the webd_ui_* callbacks
 // (support.cpp). One mode per process, so each starts with a host of its own:
 //
-//   webd-abi-test html | script | config | lock | network | many | lost | cycle
+//   webd-abi-test html | script | config | lock | network | many | lost | cycle            (light views)
+//   webd-abi-test full | profiles | ask | dialog | download | popup | deltas | blocking | notify   (full views)
+//
+// The light modes start the host with webd_engine_start, as slice 1's service did; the full ones with
+// webd_engine_start_host and a children's folder of their own, against HTTP servers the test runs on
+// 127.0.0.1 (support_full.cpp, server.cpp, modes_full.cpp, modes_page.cpp, modes_paint.cpp).
 //
 // Each prints its facts after "WEBD:" (the engine's own markers too) and ends with WEBD:<mode>:PASS, or
 // WEBD:<mode>:FAIL:<why>. Exit status 0 on PASS with no engine process left behind.
@@ -59,18 +64,29 @@ bool passed = false;
 struct Named {
     const char* name;
     std::string (*run)();
+    bool full;
 };
 
 const Named modes[] = {
-    { "html", webdtest::modeHtml },
-    { "script", webdtest::modeScript },
-    { "config", webdtest::modeConfig },
-    { "lock", webdtest::modeLock },
-    { "network", webdtest::modeNetwork },
-    { "many", webdtest::modeMany },
-    { "lost", webdtest::modeLost },
-    { "cycle", webdtest::modeCycle },
+    { "html", webdtest::modeHtml, false },
+    { "script", webdtest::modeScript, false },
+    { "config", webdtest::modeConfig, false },
+    { "lock", webdtest::modeLock, false },
+    { "network", webdtest::modeNetwork, false },
+    { "many", webdtest::modeMany, false },
+    { "lost", webdtest::modeLost, false },
+    { "cycle", webdtest::modeCycle, false },
+    { "full", webdtest::modeFull, true },
+    { "profiles", webdtest::modeProfiles, true },
+    { "ask", webdtest::modeAsk, true },
+    { "dialog", webdtest::modeDialog, true },
+    { "download", webdtest::modeDownload, true },
+    { "popup", webdtest::modePopup, true },
+    { "deltas", webdtest::modeDeltas, true },
+    { "blocking", webdtest::modeBlocking, true },
+    { "notify", webdtest::modeNotify, true },
 };
+bool fullHost = false;
 
 // The service's thread: runs the mode, says how it went and ends the run loop.
 void* driver(void*)
@@ -107,10 +123,11 @@ int main(int argc, char** argv)
         if (argc > 1 && !strcmp(argv[1], named.name)) {
             mode = named.name;
             run = named.run;
+            fullHost = named.full;
         }
     }
     if (!run) {
-        printf("usage: webd-abi-test html|script|config|lock|network|many|lost|cycle\n");
+        printf("usage: webd-abi-test html|script|config|lock|network|many|lost|cycle|full|profiles|ask|dialog|download|popup|deltas|blocking|notify\n");
         return 2;
     }
     setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -136,8 +153,24 @@ int main(int argc, char** argv)
 
     mainThread = pthread_self();
     WKRunLoopInitializeMain();
-    if (webd_engine_start() != 0) {
-        webdtest::note("%s:FAIL:webd_engine_start failed", mode);
+    int started = 1;
+    if (fullHost) {
+        // The children's folder: decided once, here, for every profile the mode makes.
+        webdtest::childrenDirectory = std::string(rules) + "/children";
+        webd_host_config host = { };
+        host.struct_size = sizeof host;
+        host.children_directory = webdtest::childrenDirectory.c_str();
+        started = webd_engine_start_host(&host);
+        // A second start of either kind is refused.
+        if (started == 0 && (webd_engine_start() == 0 || webd_engine_start_host(&host) == 0)) {
+            webdtest::note("%s:FAIL:a second host start was not refused", mode);
+            _exit(1);
+        }
+    } else {
+        started = webd_engine_start();
+    }
+    if (started != 0) {
+        webdtest::note("%s:FAIL:the host did not start", mode);
         _exit(1);
     }
     pthread_attr_t attributes;

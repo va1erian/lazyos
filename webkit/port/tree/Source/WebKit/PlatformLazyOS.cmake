@@ -219,15 +219,24 @@ target_compile_definitions(webkit-views PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-views PRIVATE WebKit)
 
 # webd's engine half (webkit/port/webd/, docs/webd-plan.md P2): the C ABI of webd_abi.h over the engine's light
-# views, and the headless program that plays the service to test it (`port.py --only webd-abi-test`,
+# and full views, and the headless program that plays the service to test it (`port.py --only webd-abi-test`,
 # `--run-webd`).
-set(_lazyos_webd_sources "${LAZYOS_PORT_DIR}/webd/abi.cpp")
+set(_lazyos_webd_sources
+    "${LAZYOS_PORT_DIR}/webd/abi.cpp"
+    "${LAZYOS_PORT_DIR}/webd/abi_full.cpp"
+    "${LAZYOS_PORT_DIR}/webd/sink_full.cpp"
+)
 add_executable(webd-abi-test
     "${LAZYOS_PORT_DIR}/webd/test/main.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/support.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/support_full.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/server.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/modes_basic.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/modes_net.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/modes_procs.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_full.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_page.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_paint.cpp"
     ${_lazyos_webd_sources}
     ${_lazyos_engine_sources})
 target_include_directories(webd-abi-test PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app" "${LAZYOS_PORT_DIR}/webd" "${LAZYOS_PORT_DIR}/webd/test")
