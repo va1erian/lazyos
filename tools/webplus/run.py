@@ -132,8 +132,10 @@ def run_session(steps: list[dict], out: Path, args, expected_failures: tuple[str
                "--fail-on", "PANIC", "--fail-on", "EXCEPTION",
                # Every failure but the one load the session breaks on purpose.
                "--fail-on", rf"{judge.P}:FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)}{allowed})",
-               # ...and the engine's own (webd relays them as WEBD:NOTE:FAIL:...).
-               "--fail-on", rf"{re.escape(judge.NOTE)}FAIL:(?!provisional:{re.escape(judge.FAIL_URL)}:|Could not load {re.escape(judge.FAIL_URL)}{allowed})",
+               # ...and the engine's own (webd relays them as WEBD:NOTE:FAIL:...). A load that fails is
+               # the client's `FAIL` above: webd's `FAIL:provisional::` names no address (it prints
+               # none outside a probe engine), so it is left to that one.
+               "--fail-on", rf"{re.escape(judge.NOTE)}FAIL:(?!provisional:)",
                "--fail-on", rf"{judge.P}:(BIND|RUN):FAIL", "--fail-on", rf"{judge.P}:QUIT:FAIL",
                "--fail-on", rf"{judge.P}:DOWNLOAD:FAIL"]
     if args.qemu:

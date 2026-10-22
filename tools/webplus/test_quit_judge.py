@@ -119,9 +119,10 @@ class QuitTests(unittest.TestCase):
         self.assertTrue(any("lost a view" in p for p in j.judge_start(text)))
 
     def test_an_engine_failure_is_a_failed_load_unless_it_is_the_planned_one(self) -> None:
-        text = good_first() + f"{N}FAIL:provisional:http://elsewhere/:nope\n"
+        # webd names no address in a provisional failure: the client's own FAIL judges that load.
+        text = good_first() + f"{P}:FAIL:Could not load http://elsewhere/: nope\n"
         self.assertTrue(any("elsewhere" in p for p in j.judge_pages(text)))
-        planned = good_first() + f"{N}FAIL:provisional:{j.FAIL_URL}:Server returned nothing\n"
+        planned = good_first() + f"{N}FAIL:provisional::Server returned nothing (code 52)\n"
         self.assertEqual(j.judge_pages(planned), [])
         crashed = good_first() + f"{N}FAIL:webprocess:crashed\n"
         self.assertTrue(any("webprocess:crashed" in p for p in j.judge_pages(crashed)))

@@ -40,7 +40,7 @@ import sites  # noqa: E402
 
 from pixels import SCROLL_PX, judge_maximized, judge_scroll, region_stats  # noqa: E402,F401  (the runner's)
 
-from webd_log import (CLIENT_LABEL, NOTE, P, VIEW_CREATE, VIEW_DESTROY, VIEW_EVENT, VIEW_LOST, WEBD_UP,  # noqa: E402,F401
+from webd_log import (CLIENT_LABEL, is_client, NOTE, P, VIEW_CREATE, VIEW_DESTROY, VIEW_EVENT, VIEW_LOST, WEBD_UP,  # noqa: E402,F401
                       client_views, engine_line, engine_lines, engine_markers, engine_pids, engine_text, lines,
                       process_history)  # the log reader: webd_log.py
 
@@ -126,7 +126,7 @@ def judge_start(text: str) -> list[str]:
         problems.append(f"no {P}:UP:PASS")
     if WEBD_UP not in text:
         problems.append(f"no {WEBD_UP}: the web engine daemon never came up")
-    if not any(m["client"] == CLIENT_LABEL for m in VIEW_CREATE.finditer(text)):
+    if not any(is_client(m["client"]) for m in VIEW_CREATE.finditer(text)):
         problems.append(f"webd never made the window's view: no WEBD:VIEW:CREATE client={CLIENT_LABEL}")
     for kind in ("WEBPROCESS", "NETWORKPROCESS"):
         if not engine_pids(text, kind, "UP"):
@@ -158,7 +158,9 @@ def expected_failure(failure: str) -> bool:
 def load_failures(text: str) -> list[str]:
     """What follows `FAIL` in the client's `WEBPLUS:FAIL[:<error>]` and in the engine's own
     `FAIL:<what>` markers (`FAIL:provisional:<url>:...`): the text starts with `:` when there is one."""
-    return lines(text, f"{P}:FAIL") + [line[len("FAIL"):] for line in engine_lines(text) if line.startswith("FAIL")]
+    # webd's `FAIL:provisional::` names no address: the client's own `FAIL` reports that load.
+    return lines(text, f"{P}:FAIL") + [line[len("FAIL"):] for line in engine_lines(text)
+                                       if line.startswith("FAIL") and not line.startswith("FAIL:provisional:")]
 
 
 def judge_pages(text: str) -> list[str]:

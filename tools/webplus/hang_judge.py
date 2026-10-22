@@ -160,7 +160,7 @@ def judge_hang(text: str) -> list[str]:
         rf"{P}:HANG:ANSWER:stop\b", rf"{E}WEBPROCESS:RECOVER:{pid}:stop\b",
         rf"{E}PROCESS:EXIT:web:{pid}\b", rf"WEBD:LOST view={pid} reason={STOP_REASON}\b",
         # The next load makes a new view, with a new page process, and the page loads in it.
-        rf"WEBD:VIEW:CREATE client={re.escape(j.CLIENT_LABEL)} view={pid}\b", rf"{E}PROCESS:LAUNCH:web:{pid}\b",
+        rf"WEBD:VIEW:CREATE client=\S+ view={pid}\b", rf"{E}PROCESS:LAUNCH:web:{pid}\b",
         rf"{P}:TITLE:{re.escape(READY)}\b",
     ])
     if sum(1 for _ in re.finditer(rf"{P}:TITLE:{re.escape(READY)}", text)) < 2:
@@ -185,7 +185,7 @@ def judge_hang(text: str) -> list[str]:
             problems.append(f"webd lost view {view} for a reason other than the window's Stop: {reason}")
     if len(lost) != 1:
         problems.append(f"expected one lost view (the Stop's), saw {lost}")
-    created = [m for m in j.VIEW_CREATE.finditer(text) if m["client"] == j.CLIENT_LABEL]
+    created = [m for m in j.VIEW_CREATE.finditer(text) if j.is_client(m["client"])]
     if len(created) != 2:
         problems.append(f"expected two views made for the window (the first and the one after Stop), saw "
                         f"{[m['view'] for m in created]}")

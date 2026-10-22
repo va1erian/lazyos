@@ -25,6 +25,14 @@ NOTE = "WEBD:NOTE:"
 WEBD_UP = "WEBD:UP:PASS"
 #: The package label of the client, as webd names the caller of a view.
 CLIENT_LABEL = "app:os.lazy.lazywebplus"
+#: What webd prints for a caller whose label it may not name (the credential gate names a label only
+#: to its holder, so webd prints `label#<id>`): in these images LazyWeb+ is the only full-view client.
+CLIENT_LABEL_ID = re.compile(r"label#\d+")
+
+
+def is_client(name: str) -> bool:
+    """Whether `name` (a `VIEW:CREATE client=`) is LazyWeb+."""
+    return name == CLIENT_LABEL or CLIENT_LABEL_ID.fullmatch(name) is not None
 VIEW_CREATE = re.compile(r"WEBD:VIEW:CREATE client=(?P<client>\S+) view=(?P<view>\d+)")
 VIEW_DESTROY = re.compile(r"WEBD:VIEW:DESTROY view=(?P<view>\d+)")
 VIEW_LOST = re.compile(r"WEBD:LOST view=(?P<view>\d+) reason=(?P<reason>\w+)")
@@ -76,7 +84,7 @@ def client_views(text: str) -> tuple[list[str], list[str]]:
     made: list[str] = []
     live: list[str] = []
     for match in VIEW_EVENT.finditer(text):
-        if match["made"] and match["client"] == CLIENT_LABEL:
+        if match["made"] and is_client(match["client"]):
             made.append(match["made"])
             live.append(match["made"])
         elif match["gone"] and match["gone"] in live:
