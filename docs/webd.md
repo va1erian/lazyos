@@ -211,7 +211,7 @@ origin the view's profile allowed (`NotifyPermissionRequest` / `NotifyPermission
 record for the whole context, so a decision of one profile reads as `Notification.permission` in another, and is
 then refused at `show`); content blocking compiles the client's rule lists into the browser profile's store
 (`BlockingCompile`), with a per-profile switch and exceptions (`SetBlocking`) and a one-shot `Reload(bypass)`. The
-ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+ today).
+ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+).
 
 **For LazyWeb+ (P4).** `Recover(view, reload)` is the way out of a page whose process stopped answering
 (`Responsive(false)`): the view's web process is ended, and with `reload` the page loads again in a fresh one;
@@ -231,6 +231,16 @@ or more than 64 open at once in the view, is answered "closed" to the page and n
 script). The app answers with `NotifyState(notification, Shown | Clicked | Closed)`, which runs the page's `show`,
 `click` and `close`; `ESRCH` for an id that is over or not the view's, `EACCES` for a view without the flag. webd
 posts no toast for such a view.
+
+**LazyWeb+ is a client** (P4, 2026-10-22). The browser ([`lazywebplus.md`](lazywebplus.md)) is a plain xui app
+whose page is one full view made through the browser scope, in the `browser` profile; it links no WebKit, and the
+window's loop reads the view's event channel through an endpoint descriptor the moment webd writes. It uses
+`Recover`, `NotifyForget`, `notify_in_client` and `SetBlocking`/`BlockingCompile` as described above, holds the
+real-input lock for hand-offs itself (`Handoff.Ask`), and keeps its history, notification choices and ad-block
+lists in its own folder. What moved from the old in-process browser, what is lost on upgrade and what is still
+missing (tabs, `file:`): [`webd-plan.md`](webd-plan.md), "P4 as built". A client with a full view attaches three
+frame slots and two band slots (`SlotPlan`), fewer when the process's shared-buffer limit (`limit.shared_buffer_max`,
+eight screens) cannot hold them.
 
 **Frames with damage** (`ViewConfig.deltas`). The paint plan is the window's (`xui-app/crates/damage`,
 `lazydamage`, moved out of `xui-webkit` so both keep one set of rules), kept per view by the service
@@ -261,7 +271,8 @@ with a remote picture which never reached the server; a delta frame with `dy=-40
 
 What the numbers do not say: they are a simple local page at 800x578; the light self-test's `Refresh` was 31-34 ms
 because its pacer had just painted; and LazyWeb+'s scroll repro (Ars Technica, 2560x1440) was not run through webd
-(no live site in the harness, and LazyWeb+ is not a webd client before P4). The hop costs at most one poll here.
+by this harness (no live site in it; LazyWeb+ became a webd client in P4, whose numbers are in `webd-plan.md`). The
+hop costs at most one poll here.
 
 **Not exercised in QEMU** (host-tested only, or in `webd-abi-test`): `Handoff.Browser` through `mimed`, a page's
 notifications as toasts (the engine's half passes `webd-abi-test notify`), bands (patch 0030 painted none for a
@@ -316,8 +327,12 @@ line, AGENTS.md):
   asks the engine for no whole frame until a send gets through. `ViewLost` is resent until delivered or the
   client's channel is gone. The client keeps slot releases and input release edges it could not send and resends
   them at each `poll`.
-* **The console.** The engine's per-page markers (`LIGHT:LINK`, `LIGHT:REFUSED:*`, `CONFIG:IGNORED:*`, `INFO:*`) are
-  flood-limited; the lifecycle markers (`PROCESS:*`, `FAIL:*`, `LIGHT:LOCK:READY`) never are.
+* **The console.** The engine's per-page markers (`LIGHT:LINK`, `LIGHT:REFUSED:*`, `CONFIG:IGNORED:*`, `INFO:*`, the
+  hang pings `WEBPROCESS:(UN)RESPONSIVE:*`) are flood-limited; the lifecycle markers (`PROCESS:*`, `FAIL:*`,
+  `LIGHT:LOCK:READY`) never are. The engine's repeating lines have a budget of their own, 120 per ten seconds,
+  apart from the 20 per ten seconds allowed for the lines a client can cause (a refusal, a dropped frame), so a
+  client's refusals cannot silence the paint meter a harness reads, nor the other way round
+  (`xui-app/webd/src/lines.rs`, `serve.rs`).
 * **The self-test** kills only a web process it can show is its own (two samples agree, it differs from the one
   before the view existed, its view is alone in webd's own group) and refuses with "cannot tell" otherwise: the
   ABI offers only the newest process id. A `webd_engine_view_pid(view)` would make it exact.

@@ -10,10 +10,17 @@ it is not for a process whose job is to run what a web page says. A
 the manifest did not list.
 
 ```
-UI process (lazywebplus-app) app:os.lazy.lazywebplus     ordinary app label
- |- fork + execve /system/bin/webprocess      -> app:os.lazy.lazywebplus/webprocess      confined
- `- fork + execve /system/bin/networkprocess  -> app:os.lazy.lazywebplus/networkprocess  confined
+webd (webd-app)                 app:os.lazy.webd                   ordinary app label
+ |- fork + execve /system/bin/webprocess      -> app:os.lazy.webd/webprocess      confined
+ `- fork + execve /system/bin/networkprocess  -> app:os.lazy.webd/networkprocess  confined
+
+LazyWeb+ (xui-lazywebplus)      app:os.lazy.lazywebplus            ordinary app label
+ `- fork + execve /system/bin/curl           -> app:os.lazy.lazywebplus/listupdate  confined
 ```
+
+The engine's processes are children of **webd**, the session's WebKit daemon (`docs/webd.md`), not of the browser:
+since the browser became a client of webd (`docs/webd-plan.md` P4) it starts no engine process. Its package keeps one
+table, `listupdate` (`curl` fetching the ad blocker's lists), which is the same mechanism with a different program.
 
 The package side (the `[processes.<name>]` tables, `pkgd` loading them, the
 kernel stamping the child label at `execve`) is in `docs/packages.md` and
@@ -54,7 +61,7 @@ changes) and are otherwise untouched.
 | Descriptors at exec | `procctl::sys_execve` -> `confine::scrub_inherited_descriptors` | everything above fd 2 that is not a connected socket is closed, and standard input becomes `/dev/null` (a terminal's keystrokes are not the sandbox's) |
 | Messenger calls, name resolution, topics | the label ACL (`ipc::policy`, unchanged) | default deny |
 
-**Descriptors.** Audit of the browser's UI process: nothing in `webkit/port/app` opens a
+**Descriptors.** Audit of the engine host's UI process (made for the browser's, which is webd's now): nothing in `webkit/port/app` opens a
 file, a socket or a pipe itself; the window library's `eventfd` and `epoll` are created
 `*_CLOEXEC` (`xui-app/src/backend/wakeup.rs`); an endpoint descriptor is only a pollable view
 (`ipc::endpointfd`), whatever crosses; WebKit's IPC socketpair marks the *server* end
