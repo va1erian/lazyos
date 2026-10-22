@@ -448,3 +448,34 @@ fn memory_pressure_refuses_a_view_that_would_start_a_new_web_process() {
     fx.create_view(other, Via::Net, web(), 8, 8)
         .expect("no gating when the charge is unknown");
 }
+
+#[test]
+fn the_memory_gate_boundary_and_a_charge_over_the_limit() {
+    use xui_webd::limits::WEB_PROCESS_RESERVE_BYTES as RESERVE;
+    let limit: u64 = 1 << 30;
+    // Exactly a reserve of room: the new process fits (the gate refuses only past the limit).
+    let mut fx = Fx::new("mem-boundary");
+    fx.set_memory(limit - RESERVE, limit);
+    fx.create_view(origin(7), Via::Net, web(), 8, 8)
+        .expect("a reserve's worth of room is enough");
+    // One byte less: refused.
+    let mut fx = Fx::new("mem-boundary-1");
+    fx.set_memory(limit - RESERVE + 1, limit);
+    assert_eq!(
+        fx.create_view(origin(7), Via::Net, web(), 8, 8),
+        Err(EDQUOT)
+    );
+    // A charge already over the limit (the kernel lets a quota be passed by what was mapped before):
+    // refused, and the sum does not wrap at the top of the range.
+    let mut fx = Fx::new("mem-over");
+    fx.set_memory(limit + 4096, limit);
+    assert_eq!(
+        fx.create_view(origin(7), Via::Net, web(), 8, 8),
+        Err(EDQUOT)
+    );
+    fx.set_memory(u64::MAX - 1, limit);
+    assert_eq!(
+        fx.create_view(origin(7), Via::Net, web(), 8, 8),
+        Err(EDQUOT)
+    );
+}

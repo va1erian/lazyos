@@ -342,7 +342,7 @@ browser moves onto webd**.
 | **P2 webd, light first** (done: slices 1 and 2 light, 3 the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
 | **P4 LazyWeb+ thin client** (done) | `xui-webplus` on `RemoteEngine` (`xui-webkit-remote`); downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py`, `hang_run.py` pass against webd; the 108 MiB engine host leaves the package; see "P4 as built" | 1.5-2.5 weeks |
-| **P5 hardening** (done, see "P5 as built") | the parked-view reuse pool (create/destroy loops flat), the user-memory-pressure gate on a new web process, the malicious-client and malicious-page-process attack harnesses run in QEMU, the reconnect protocol (host-tested + login case in QEMU), seeded fuzz of the slot/band state machine, the full request decode and the event queue. Not done: cross-view fairness scheduler, overscan-without-nudge patch, shared-group hang recovery, tabs | the attack harnesses pass (no `LABEL:DENY` beyond the documented optional ones; the client's only denials are the two scopes it was not granted); the proxy pool is flat over thousands of create/destroy cycles | 2 weeks |
+| **P5 hardening** (done, see "P5 as built") | the parked-view reuse pool for light views (their create/destroy loops flat; full views and related pages still park), the user-memory-pressure gate on a new web process, the malicious-client and malicious-page-process attack harnesses run in QEMU, the reconnect protocol (host-tested + login case in QEMU); the seeded fuzzers of the slot/band model, the full request decode and the service predate P5 and were reviewed, not extended. Not done: cross-view fairness scheduler, overscan-without-nudge patch, shared-group hang recovery, tabs | the attack harnesses pass (no `LABEL:DENY` beyond the documented optional ones; the client's only denials are the two scopes it was not granted); the light-view proxy pool is flat over thousands of create/destroy cycles | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
 ### P2 slice 1: light views, headless (started 2026-10-21)
@@ -567,7 +567,7 @@ The client side of the light interface and its proof; the program, package and `
   the hollow proxy passes ten runs in a row. For webd this means a client's view that comes and goes (Mail's
   message pane) leaves a proxy behind each time (and the store and session of a private view): bitmaps, the pacer
   thread and the process are freed. **P5 needs a pool of parked views reused by the same owner and profile**, or a
-  WebKit patch that finds the dead timer.
+  WebKit patch that finds the dead timer. (P5 built the pool for light views only: "P5 as built".)
 * **Three of the page callbacks are process-wide** (patches `0024`, `0028`, `0030`): fixed in the engine by finding
   the view from the page argument. A patch that makes them per page would be cleaner and costs a WebKit rebuild.
 * **Memory-only and persistent owners cannot share a NetworkProcess's curl jar.** A `memoryOnly` view (#940) sets
@@ -652,7 +652,7 @@ The client side of the light interface and its proof; the program, package and `
   `blob:`. Found on the way: the `host` feature's ffi tests had not compiled since slice 3 (fixed, and they check
   the appended layout).
 * **Not done in this slice.** The pool of parked views (a destroyed view still leaves its page proxy, and a full
-  view of the app's own profile its store and session: P5, as before); `Find`, `Zoom`, `Snapshot`; a
+  view of the app's own profile its store and session: P5, as before; P5 pooled light views only); `Find`, `Zoom`, `Snapshot`; a
   `webd_engine_view_pid`; the toasts and the `mimed` hand-off were not run in QEMU (host tests, and the engine's
   `notify` mode); bands never appeared (patch 0030 painted none for short scrolls); `Origins` limits navigations,
   not sub-resources.
@@ -756,8 +756,8 @@ client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `
   notification (it posts nothing for a profile that did not allow it). Documented, not fixed.
 * **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
   `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs do not reach the cap of 4.
-  Missing: the window chrome for tabs, a parked-view pool in webd (every closed view leaves a parked proxy,
-  below), and a recovery for a hung tab, since `recover` refuses a process other views share (a hung tab would
+  Missing: the window chrome for tabs, a way to stop closed tabs leaving a parked proxy each (P5's pool covers
+  light views only: a tab is a full view and a related page), and a recovery for a hung tab, since `recover` refuses a process other views share (a hung tab would
   need its group's views made again).
 
 #### Measured
@@ -799,7 +799,8 @@ harness measures key to paint), the Ars Technica repro of the performance plan (
 * **The latency criterion on the Ars Technica repro** (`scroll_bench.py`, `pointer_bench.py`, live) and a key-to-paint
   measurement, several runs a side.
 * **A pool of parked views**, reused by the same owner and profile: every closed view leaves a parked proxy
-  (section "What P1 found"), and tabs or a navigation that remakes the view would grow webd.
+  (section "What P1 found"), and tabs or a navigation that remakes the view would grow webd. *(P5: done for
+  light views; full views and related pages still park forever — "P5 as built".)*
 * **A per-view process id and its children** (`webd_engine_view_pid`), so a client or the self-test can tell
   whose process a view runs in.
 * **Hang recovery of a shared group**: ending a process that several views use, and making their views again.
@@ -818,22 +819,35 @@ charge for ended processes).
 What this phase did, what it found, and what it deliberately left. Fewer items than the list above,
 each with real evidence; the rest is recorded below as still open.
 
-* **A pool of reusable page proxies (the create/destroy growth).** A `WebPageProxy` cannot be released
-  on this port (the UI process aborts: patches 0021/0027), so `destroyView` parked every proxy forever
-  and a create/destroy loop (Mail's message pane, a view a navigation remakes, tabs) grew webd without
-  bound. A destroyed view that was the **sole page in its process for its whole life** is now kept in a
-  reuse pool keyed by owner+profile+config class; the next view of that class adopts the parked proxy
-  and its data store instead of making a new one (`engine.cpp`, `sameViewClass` / `parkForReuse` /
-  `takeFromPool`; `Host.pool`, bounded by `kPoolMax`, overflow to `Host.retired`). **Found:** reusing a
-  proxy that ever shared a process aborts the UI process (reproduced in `webkit-views group`), so only
-  never-shared proxies are pooled (`View::soleEver`); a group's proxies are parked forever as before,
-  and a sibling-shared destroy still parks forever. **Proven** (`webd-abi-test cycle`, one Docker
-  build): 16 painted create/destroy cycles reuse the pooled proxy (`reused=15`) and still paint; 3000
-  fast create/destroy iterations keep the proxy table flat (`pooled=1, retired=0, reused=3015`) where
-  before it would have left 3000 parked proxies. `webkit-views` (all modes incl. `group`), every
-  `webd-abi-test` mode and `webd-app` build and pass. `INFO:POOL:reused=..:pooled=..:live=..:retired=..`
-  reports the pool. A per-view process id (`webd_engine_view_pid`) was **not** added; the pool, not the
-  self-test's heuristic, is what bounds growth, and reuse made it less pressing.
+* **A pool of reusable page proxies, for light views (the create/destroy growth).** A `WebPageProxy`
+  cannot be released on this port (the UI process aborts: patches 0021/0027), so `destroyView` parked
+  every proxy forever, and a client that kept making and ending views grew webd without bound. A
+  destroyed **light** view of a real group (webd gives each client one, never reused) whose process is
+  over, and which was the only page of its process all its life, now goes to a reuse pool; the same
+  client's next light view of the same class (everything baked in at creation: `sameViewClass`) adopts
+  the parked proxy instead of making a new one (`engine.cpp` `poolable` / `parkForReuse` /
+  `takeFromPool`; `Host.pool`, bounded by `kPoolMax`, overflow kept whole in `Host.retired`). A proxy is
+  adopted only once its page has no process, and a view destroyed while its first process is still
+  launching is not pooled. **Found while building it:** reusing a proxy that ever shared a process
+  aborts the UI process (`webkit-views group`), hence `View::soleEver`. **Found by the review, and why
+  the pool is light-only:** a full view's proxy carries state a new view must not inherit and this port
+  cannot reset — its in-memory store (a private window's cookies and storage would have reached the next
+  private window, which without the pool gets a fresh store), its back and forward list (Back, Reload and
+  `Recover` would act on the closed page) and its content controller (a view with content blocking would
+  have kept the old lists, unknown to the new view). A light view exposes none of these (no history, no
+  Back/Reload/Recover, no blocking; its store is the same client's, as the one view Mail and Docs keep
+  for every page is). Full views, related pages (tabs, a view joining a live mate), group 0 and views
+  destroyed mid-launch are parked forever as before P5: **those still grow with use** (a client that
+  keeps one view alive and loops a second of its group grows webd; see "What P5 still did not do").
+  **Proven** (`webd-abi-test cycle`, now on the full host as webd runs; Docker): 16 painted light views,
+  each adopting the pooled proxy, painting its own page and starting a web process that ends with it
+  (`launches=16 exits=16`, `reused=15 pooled=1 parked=0`); a view of another class pooled apart; a full
+  view and a group-0 view parked, not pooled (`parked=2`); then 3000 create/destroy iterations with
+  nothing growing (`pooled=2 parked=2 retired=0`, `reused=3015`), where before every one left a proxy.
+  `webkit-views` (all modes incl. `group`), every `webd-abi-test` mode and `webd-app` pass. webd prints
+  `INFO:POOL:reused=..:pooled=..:live=..:retired=..:parked=..` at every destroy and adoption, under a
+  budget of its own (`xui-app/webd/src/lines.rs`, `Line::Pool`) so a looping client cannot silence the
+  paint meter. A per-view process id (`webd_engine_view_pid`) was **not** added.
 
 * **Memory-pressure gate.** A full view that would start a new web process (a new (client, profile)
   pair, ~107 MiB) is refused with `EDQUOT` once the user's memory charge is within a process' reserve
@@ -844,7 +858,12 @@ each with real evidence; the rest is recorded below as still open.
   (`SetVisible`), and a client reconnects or closes a view it no longer needs. The fixed cap of 4 web
   processes per user still applies; this is the finer gate when the quota is lower than four processes'
   worth, and it is off when the host cannot read the charge. Host-tested
-  (`full_views::memory_pressure_refuses_a_view_that_would_start_a_new_web_process`).
+  (`full_views::memory_pressure_refuses_a_view_that_would_start_a_new_web_process`,
+  `the_memory_gate_boundary_and_a_charge_over_the_limit`). Limits, stated: the charge is read at
+  `CreateView`, but a process is charged only once its page loads, so a burst of `CreateView`s on new
+  (client, profile) pairs all pass before any is charged (bounded by the cap of 4); light views are not
+  gated (each client's light views share one process, bounded by the view count); a quota under the
+  reserve (160 MiB) refuses every new full view.
 
 * **The attack harness (the headline), two halves, run in QEMU.**
   * *Malicious page process* (a compromised WebProcess/NetworkProcess, under webd's real child labels):
@@ -901,6 +920,20 @@ each with real evidence; the rest is recorded below as still open.
 
 #### What P5 still did not do (recorded)
 
+* **Full views and related pages still leave a proxy each.** The pool covers light views only (above).
+  A client can still grow webd by keeping one view alive and looping a second of its group, or by
+  looping full views. Ways out: a cap on parked proxies per client (refuse `CreateView` past it), a way
+  to reset a full view's store, history and controller, or a WebKit patch that finds the dead timer so a
+  proxy can be released.
+* **A per-sender quota on queued oneway messages** (the kernel): the shared-inbox flood above is
+  mitigated in the webd clients, not prevented; a hostile client still makes other clients wait up to
+  0.2 s a call. The QEMU harness's `flood_alive` shows webd keeps serving, judged from the flooding
+  client itself, not from a second, innocent one.
+* **The client harness covers the kernel gate, the cap and liveness; the data-level attacks stay host
+  tests.** Not in QEMU: buffer-size lies, a buffer shared as a page and a slot or by two views, another
+  client's dialog and download ids on a view of its own, a client killed mid-session. Not tested anywhere:
+  a buffer changed by the client while webd reads it (`LoadHtml` copies once; safe by construction).
+
 * **Fairness across views.** Each view still paints on its own pacer thread (`paint.cpp`); hidden views
   get no paints (done), but there is no cross-view round-robin budget, so two animated visible views do
   not share a per-pass budget. A global paint scheduler is a larger, risky engine change (several real
@@ -929,7 +962,9 @@ each with real evidence; the rest is recorded below as still open.
   frees slots. The display's `EPIPE` liveness approach is enough.
 * **Shutdown/logout**: `init` sends `Quit` (resident lifecycle); webd ends children with the existing
   SIGTERM/SIGKILL-by-group path, flushes profiles, answers within the 3 s grace.
-* **Memory**: `lzw_ui_user_memory` gates process creation; refusal surfaces as `ViewLost(no_memory)`.
+* **Memory**: `lzw_ui_user_memory` gates process creation. As built (P5) the refusal is at `CreateView`
+  (`EDQUOT`, "not enough memory for another web process"), not a later `ViewLost(no_memory)`: the view is
+  never made, so nothing is half-started.
 
 ## 9. Removal plans
 
@@ -1035,6 +1070,6 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
 | 6 | Notification identity | webd posts the toast under its own name with the site host as title; a view made with `notify_in_client` (a browser, P4) gets the notifications instead and the app posts them under its own name, so a click raises its window | the shell grows `on_behalf_of` |
-| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user, refusal is `ViewLost(no_memory)` | P5 measures real use |
+| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user and (P5) a user-memory gate; refusal is `EDQUOT` at `CreateView` (the plan said `ViewLost(no_memory)`) | P5 measures real use |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

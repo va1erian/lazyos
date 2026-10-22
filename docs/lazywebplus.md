@@ -368,8 +368,8 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   webd-plan open question 5) is not built.
 * **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
   `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs would not reach the cap of 4.
-  What is missing is the window's chrome for tabs, a pool of parked views in webd (every closed view leaves a
-  parked proxy until then, webd-plan P5), and a way to recover a hung tab (`Recover` refuses a process other
+  What is missing is the window's chrome for tabs, a way to stop each closed tab leaving a parked proxy in webd
+  (webd-plan P5 pooled light views only: a browser view is a full view, and tabs would be related pages), and a way to recover a hung tab (`Recover` refuses a process other
   views share, so a hung tab would need its group's views made again). `window.open` and `target=_blank` open in
   the one view.
 * **A notification permission leaks across profiles.** WebKit keeps one permission record for the whole context,
@@ -424,8 +424,9 @@ again), **Reload** (`Recover(view, reload = true)`: end the stuck process and lo
 one) and **Stop** (`Recover(view, false)`: end it; webd reports the view lost, and the page is blank with a
 message until the next load makes a new view). The model is `src/hang.rs` (host-tested), the bar
 `src/app/hang.rs`, the tests `tests/hang.rs`; the harness is `python tools/webplus/hang_run.py`. A web process
-that ended is not destroyed on the WebKit side (patch `0021`), so each leaves a parked proxy; the reason and the
-numbers are in `webd-plan.md` ("What P1 found") and `tools/webplus/hang_run.py` judges the count.
+that ended is not destroyed on the WebKit side (patch `0021`), so each leaves a parked proxy (webd's reuse pool of
+P5 takes light views only, never a browser's full view); the reason and the numbers are in `webd-plan.md` ("What P1
+found", "P5 as built") and `tools/webplus/hang_run.py` judges the count.
 
 ## Testing
 
