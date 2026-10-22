@@ -356,9 +356,10 @@ struct Host {
     // parkForReuse). Bounded by kPoolMax; an overflow proxy, which still cannot be released, goes to
     // `retired`.
     std::vector<ParkedPage> pool;
-    // Pooled proxies evicted when the pool was full: kept forever like `parked`, held only so their
-    // reference is not dropped (releasing a WebPageProxy aborts the UI process).
-    std::vector<WKViewRef> retired;
+    // Pooled proxies evicted when the pool was full: kept forever like `parked` (whole, so the view's
+    // reference and its data store both stay alive), only so they are not released (releasing a
+    // WebPageProxy aborts the UI process). Never adopted again.
+    std::vector<ParkedPage> retired;
     // How many views have adopted a pooled proxy (INFO:POOL, the cycle test).
     uint64_t poolReused { 0 };
     int nextView { 1 };

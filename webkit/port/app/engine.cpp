@@ -238,7 +238,7 @@ static void parkForReuse(View& view)
     view.view = nullptr;
     view.page = nullptr;
     if (H.pool.size() >= kPoolMax) {
-        H.retired.push_back(H.pool.front().view);
+        H.retired.push_back(std::move(H.pool.front()));
         H.pool.erase(H.pool.begin());
     }
     H.pool.push_back(std::move(parked));
