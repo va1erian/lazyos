@@ -1,9 +1,10 @@
 //! What the window asks of the engine.
 //!
-//! The engine is WebKit's UI-process half, in C++ (`webkit/port/app/`): it
-//! runs on its own thread, so every [`Engine`] call only queues work and
-//! returns. The other direction is the [`Mailbox`](crate::mailbox::Mailbox):
-//! the engine posts painted frames and page state, the window collects them.
+//! The engine is WebKit, which runs in another process (`webd`, docs/webd.md): a window drives it
+//! through an implementation of [`Engine`] (`xui-webkit-remote`'s `RemoteEngine` over webd's full
+//! views) and every call returns without waiting for the page. The other direction is the
+//! [`Mailbox`](crate::mailbox::Mailbox): the engine posts painted frames and page state, the window
+//! collects them.
 
 /// Which mouse button an event is about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +170,11 @@ pub trait Engine {
     fn blocking_compile(&self, id: &str, json: &str);
     /// Detaches rule list `id` and removes it from the store.
     fn blocking_forget(&self, id: &str);
+    /// Content blocking on or off for the browsing profile, and the sites it is off for (the
+    /// user's switch and exceptions; webd decides each navigation from them).
+    fn set_blocking(&self, enabled: bool, exceptions: &[String]);
+    /// Loads the page again once without the content blocker ("Reload without blocking").
+    fn reload_unblocked(&self);
 }
 
 /// One call an engine received, for tests.
@@ -197,6 +203,8 @@ pub enum Call {
     /// The id and the JSON's length: a recording keeps no megabytes.
     BlockingCompile(String, usize),
     BlockingForget(String),
+    SetBlocking(bool, Vec<String>),
+    ReloadUnblocked,
 }
 
 /// An engine that records its calls.
@@ -287,6 +295,12 @@ impl Engine for Recorder {
     }
     fn blocking_forget(&self, id: &str) {
         self.push(Call::BlockingForget(id.to_string()));
+    }
+    fn set_blocking(&self, enabled: bool, exceptions: &[String]) {
+        self.push(Call::SetBlocking(enabled, exceptions.to_vec()));
+    }
+    fn reload_unblocked(&self) {
+        self.push(Call::ReloadUnblocked);
     }
 }
 

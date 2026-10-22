@@ -1,0 +1,29 @@
+# `RemoteEngine`: the seam's `Engine` (`xui-webkit`) over webd's full views (`xui-webd-client`'s
+# `FullWebView`, idl/webd.midl), so LazyWeb+'s window drives a page that webd's WebKit paints in
+# another process (docs/webd-plan.md, phase P4). It turns the view's events into the seam's mailbox:
+# frames and deltas straight out of the shared slots, the page's state, the news.
+#
+# Portable and host-tested against the service half (`xui-webd`) over its in-memory fabric and a fake
+# web engine, the way `xui-webd-client`'s own tests are. It links no WebKit.
+[package]
+name = "xui-webkit-remote"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-or-later"
+description = "The seam's engine over webd's full views: LazyWeb+ as a client of webd"
+
+[lib]
+name = "xui_webkit_remote"
+path = "src/lib.rs"
+
+[dependencies]
+xui-webkit = { path = "../webkit" }
+xui-webd-client = { path = "../webd-client" }
+messenger-generated = { path = "../../../libs/generated" }
+
+[dev-dependencies]
+# The other end in the tests: the service half and the client crate's test world (`tests/support`
+# of `xui-webd-client`, included by path).
+xui-webd = { path = "../webd" }
+libmessenger = { path = "../../../libs/messenger" }
