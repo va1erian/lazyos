@@ -997,7 +997,12 @@ every app to disk; the time it takes is the OS volume's write speed.
 `EPERM` and "<name> is part of LazyOS and can't be removed; you can hide it from
 the menu in Settings", audited as `denied`. Installing a version of a core app
 older than the shipped one is refused the same way; a newer one installs over it
-and stays core.
+and stays core. The namespace `os.lazy.*` (and the bare `os.lazy`) is reserved for
+the image: `Install` and `Develop` refuse (`EPERM`, "the name ... is reserved for
+LazyOS") a package named in it that the image does not ship and that has no
+installed row (a retired core app that was demoted to a user app keeps its
+updates), because other apps resolve `app.os.lazy.*` to whoever holds that label
+(`pkgstore::reserved`).
 
 **Replacing a core app** is a system change (docs/accounts-plan.md U2, 3.3).
 `Install` refuses it from a session and from `elevd` ("<name> is a core app:
