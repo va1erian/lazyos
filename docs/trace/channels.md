@@ -90,7 +90,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `PKGD` | `Pkgd` | `pkgd` | kernel suite, other, user | sessions, tools/accounts, tools/boot, tools/dbg, tools/devtool, tools/emusic, tools/fuse, tools/install, tools/lazyrad, tools/lazysky, tools/playground, tools/screenshot, tools/services, tools/shutdown, tools/webd, tools/webplus, tools/wifi | programs |
 | `PLAYGROUND` | `Playground` | `playground` | xui-app | sessions, tools/devtool, tools/playground | programs |
 | `PRINTD` | `Printd` | `printd` | xui-app | sessions, tools/print | programs |
-| `PROC` | `Proc` | `proc` | kernel, kernel suite | tools/playground, tools/webplus | programs |
+| `PROC` | `Proc` | `proc` | kernel, kernel suite | tools/playground, tools/webd, tools/webkit, tools/webplus | programs |
 | `QUAKE` | `Quake` | `quake` | quake | sessions | programs |
 | `REMOVABLE` | `Removable` | `removable` | xui-app | tools/storage | programs |
 | `RHAI` | `Rhai` | `rhai` | kernel suite | tools/rhai | programs |
@@ -117,7 +117,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TLS` | `Tls` | `tls` | other, xui-app | tools/net, tools/nettls | programs |
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/storage, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
-| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/playground, tools/screenshot, tools/tray, tools/webd, tools/webplus, tools/wifi | programs |
+| `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/playground, tools/screenshot, tools/tray, tools/webd, tools/webkit, tools/webplus, tools/wifi | programs |
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/sound, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
