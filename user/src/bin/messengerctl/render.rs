@@ -12,7 +12,7 @@ use user::task_snapshot::TaskSnapshot;
 /// serial log (`SYS_WRITE` mirrors console output to serial — see
 /// `kernel/src/process/mod.rs`'s `sys_write`) without scraping the
 /// human-oriented table `stats` prints. This is a debug/tooling aid for the
-/// prototype MCP debug bridge (see the `MCP Debug Bridge` wiki design doc);
+/// prototype MCP debug bridge (see `docs/mcp-debug-bridge.md`);
 /// it is not part of the Messenger wire protocol.
 pub(crate) fn print_report_json(stats: &FabricStats) {
     let mut tasks = String::from("[");

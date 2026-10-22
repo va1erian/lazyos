@@ -1,0 +1,62 @@
+# Configuration for tools/site/build.py (the GitHub Pages documentation site).
+# Pages are every Markdown file under docs/ plus the `extras` below; the
+# sidebar groups them by directory, with the files named in `overview` first.
+
+[site]
+title = "LazyOS"
+tagline = "A friendly, transparent and secure hobby operating system in Rust"
+repo = "va1erian/lazyos"   # overridden by GITHUB_REPOSITORY in CI
+ref = "main"              # branch the "Edit on GitHub" and source links point at
+
+[nav]
+# Section headings, in the order the sidebar shows them; a section that is not
+# listed follows alphabetically.
+order = [
+  "Overview",
+  "Guides & reference",
+  "Plans",
+  "Architecture reference",
+  "Interface reference (IDL)",
+  "Hardware & ABI compatibility",
+  "Performance reports",
+  "Rhai scripting",
+  "Tracing",
+  "Project",
+]
+
+# Pages that open the "Overview" section, in this order.
+overview = [
+  "docs/platform-plan.md",
+  "docs/architecture.md",
+  "docs/messenger.md",
+  "docs/security-model.md",
+  "docs/linux-abi-plan.md",
+  "docs/xui-plan.md",
+  "docs/packages.md",
+]
+
+# docs/<dir> -> section heading. Other directories get their title-cased name.
+[nav.directories]
+"docs/architecture" = "Architecture reference"
+"docs/idl" = "Interface reference (IDL)"
+"docs/compat" = "Hardware & ABI compatibility"
+"docs/perf" = "Performance reports"
+"docs/rhai" = "Rhai scripting"
+"docs/trace" = "Tracing"
+
+# Top-level docs whose file name ends with one of these are "Plans".
+[nav.plans]
+suffixes = ["-plan", "-plan-"]
+
+# Pages from outside docs/: repository path -> output path.
+[extras]
+"README.md" = "index.html"
+"CONTRIBUTING.md" = "contributing.html"
+
+[extras.sections]
+"CONTRIBUTING.md" = "Project"
+
+# Markdown files CI produces (git-ignored): a link to one of these is not an
+# error when the file is absent from the checkout.
+[generated]
+paths = ["docs/compat/matrix.md", "docs/compat/coverage.md"]
