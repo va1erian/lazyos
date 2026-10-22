@@ -804,7 +804,9 @@ harness measures key to paint), the Ars Technica repro of the performance plan (
 * **The notification permission context leak** (above): a per-profile permission record, or a patch that makes
   WebKit's record per data store.
 * **`file:` browsing** through a client-side read and `LoadHtml`.
-* **Tabs** (above).
+* **Tabs** (above). [`lazywebplus-plan.md`](lazywebplus-plan.md) B1 takes the parked-view pool, group
+  recovery and `webd_engine_view_pid` from this list, and adds a client-chosen `process_key` inside a group
+  (one web process per site) with memory-gated limits.
 
 Kernel testing requirement: nothing above adds kernel code, except P4's one default (`shared_buffer_max`). webd's correctness tests are host tests (model
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view
