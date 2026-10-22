@@ -4,7 +4,8 @@ own tests (`test_notify_judge.py`).
 Three kinds of evidence, each judged on its own:
 
 * **serial** - the window's markers (`WEBPLUS:NOTIFY:ASK|ALLOW|BLOCK|DISMISS|SHOW|CLICK|CLOSE|DROP|
-  DENY|FORGET:...`, printed in a UI-probe image only: they name sites) and the shell's own
+  DENY|FORGET:...`, printed in a UI-probe image only: they name sites; webd hands the client a page's
+  notifications and the client posts the toasts itself, so the toasts are LazyWeb+'s) and the shell's own
   (`SHELL:NOTIFY:POST owner=<app> id=<n> level=<level> title=<title>`, `SHELL:NOTIFY:SHOW id=<n>`,
   `SHELL:NOTIFY:LIMIT`). The shell's lines are the evidence of *who* the toast came from and what
   it said: a toast posted for a page is titled with the site, at level Info, by the browser;
@@ -90,6 +91,9 @@ def judge_identity(text: str, allowed_hosts: tuple[str, ...]) -> list[str]:
     owners = {p["owner"] for p in web}
     if len(owners) != 1:
         problems.append(f"toasts came from {len(owners)} different owners: {sorted(owners)}")
+    for owner in sorted(owners):
+        if re.search(r"webd|web engine", owner, re.I):
+            problems.append(f"a toast was posted by the web engine daemon ({owner}), not by the browser")
     for p in web:
         if p["title"] not in allowed_hosts:
             problems.append(f"a toast was titled {p['title']!r}, expected the site (one of {allowed_hosts})")
