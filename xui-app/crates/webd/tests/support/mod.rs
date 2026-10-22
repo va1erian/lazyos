@@ -7,6 +7,7 @@
 pub mod full;
 pub mod full_calls;
 pub mod full_events;
+pub mod full_model;
 
 use std::sync::Arc;
 
