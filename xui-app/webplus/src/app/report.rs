@@ -64,6 +64,7 @@ impl Browser {
 
     /// Help > Report an issue.
     pub(super) fn open_report(&mut self, ui: &Ui<Msg>) {
+        self.hide_overlays(ui);
         let previews = report::previews(&self.report_facts());
         self.report.form.show(ui, &previews);
         self.announce(ui);
@@ -96,6 +97,10 @@ impl Browser {
                     }
                     Err(e) => self.set_status(&format!("Report not saved: {e}")),
                 }
+            }
+            ReportMsg::Hide => {
+                self.report.form.hide(ui);
+                self.page.focus();
             }
             ReportMsg::Cancel => {
                 self.report.form.hide(ui);

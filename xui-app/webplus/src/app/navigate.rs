@@ -57,6 +57,9 @@ impl Browser {
         let shown = self.shown_url(url);
         self.trace(&format!("NAV:{}", marker_text(&shown)));
         self.stopping = false;
+        // A pending HTTPS offer belongs to the typed navigation that made it (`open_typed` sets it
+        // again after this); any other navigation would otherwise inherit the old typed text.
+        self.pending_https = None;
         self.set_loading(true);
         self.set_status(&format!("Opening {shown}"));
         if !self.editing {

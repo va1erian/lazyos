@@ -325,7 +325,7 @@ pub fn support_decode(url: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len());
     let mut i = 0;
     while i < body.len() {
-        if body[i] == b'%' && i + 2 < body.len() + 0 {
+        if body[i] == b'%' && i + 2 < body.len() {
             if let Ok(hex) = u8::from_str_radix(&String::from_utf8_lossy(&body[i + 1..i + 3]), 16) {
                 out.push(hex);
                 i += 3;

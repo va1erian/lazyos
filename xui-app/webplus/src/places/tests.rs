@@ -443,8 +443,13 @@ fn sizes_and_addresses_are_capped() {
             "{bad:?}"
         );
     }
-    // Other schemes are the person's business.
-    assert!(set.add_link(UNSORTED, "t", "mailto:a@b.test", 1).is_ok());
+    // Only web pages are ever opened from the bookmarks.
+    for other in ["mailto:a@b.test", "file:///etc/passwd", "ftp://x.test/"] {
+        assert!(matches!(
+            set.add_link(UNSORTED, "t", other, 1),
+            Err(Error::Unsupported)
+        ));
+    }
     assert!(set
         .add_link(UNSORTED, "t", "https://javascript.test/", 1)
         .is_ok());
@@ -471,7 +476,7 @@ fn the_number_of_entries_is_capped() {
 }
 
 #[test]
-fn a_change_that_cannot_be_written_stays_in_memory_and_says_so() {
+fn a_change_that_cannot_be_written_is_undone_and_says_so() {
     let dir = Dir::new();
     // The "file" is a path inside a regular file: nothing can be created there.
     let blocker = dir.0.join("blocker");
@@ -479,7 +484,8 @@ fn a_change_that_cannot_be_written_stays_in_memory_and_says_so() {
     let mut set = Bookmarks::open(blocker.join("bookmarks.log"));
     let result = set.add_link(UNSORTED, "a", "http://a.test/", 1);
     assert!(matches!(result, Err(Error::Io(_))));
-    assert_eq!(set.len(), 1);
+    assert_eq!(set.len(), 0, "memory matches the file");
+    assert_eq!(set.version(), 0);
 }
 
 #[test]

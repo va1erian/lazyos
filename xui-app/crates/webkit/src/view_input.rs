@@ -139,10 +139,15 @@ pub(crate) fn handle<M: 'static>(
         } => {
             state.mods.set(modifier_bits(modifiers));
             ui.focus(id);
-            if button == MouseButton::Right && swallow_right() {
-                // The window's menu takes this click; the page never sees it, nor its release.
-                state.swallowed.set(true);
-                return;
+            if button == MouseButton::Right {
+                // Set on every right press, so a release that never came (a lost one) cannot
+                // drop the release of a later press the page did get.
+                let swallowed = swallow_right();
+                state.swallowed.set(swallowed);
+                if swallowed {
+                    // The window's menu takes this click; the page never sees it, nor its release.
+                    return;
+                }
             }
             // The backend turns a quick second press into a double click in
             // place of a press; the page counts clicks itself.

@@ -7,6 +7,7 @@
 //! stay usable. **Send to LazyAgent** is a disabled placeholder where `os.lazy.agent.report.v1` will
 //! plug in (docs/lazywebplus-plan.md, section 7).
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use xui_core::app::Ui;
@@ -28,13 +29,15 @@ pub enum ReportMsg {
     CopyMarkdown,
     SaveMarkdown,
     Cancel,
+    /// Escape: put the form away and keep what was typed.
+    Hide,
 }
 
 /// The tick boxes' texts, in the order of [`Include`]'s fields.
 const TICKS: [&str; 5] = [
     "Version and tab count",
     "Page host",
-    "Page address (no query)",
+    "Page address and path (no query, user)",
     "Window trace, last 200 lines",
     "Engine events this run",
 ];
@@ -54,6 +57,14 @@ pub struct Handles {
     save: Handle<Button<Msg>>,
     send: Handle<Button<Msg>>,
     cancel: Handle<Button<Msg>>,
+    /// Whether the frame is up (the window's key mapper reads it: Escape hides it).
+    open: Rc<Cell<bool>>,
+}
+
+impl Handles {
+    pub fn open_flag(&self) -> Rc<Cell<bool>> {
+        Rc::clone(&self.open)
+    }
 }
 
 fn text_field(title: &str, handle: &Handle<MultilineEdit<Msg>>) -> Entry<Msg> {
@@ -75,7 +86,7 @@ fn tick_row(index: usize, h: &Handles) -> Entry<Msg> {
                 .checked(DEFAULT_ON[index])
                 .on_toggle(|_| Msg::Report(ReportMsg::Toggled))
                 .bind(&h.ticks[index])
-                .width(220),
+                .width(260),
             label("").bind(&h.previews[index]).fill(1),
         ))
         .fixed(24)
@@ -134,6 +145,7 @@ pub struct Form {
     save: Rc<Button<Msg>>,
     send: Rc<Button<Msg>>,
     cancel: Rc<Button<Msg>>,
+    open: Rc<Cell<bool>>,
 }
 
 impl Form {
@@ -149,12 +161,14 @@ impl Form {
             save: h.save.get(),
             send: h.send.get(),
             cancel: h.cancel.get(),
+            open: Rc::clone(&h.open),
         };
         form.send.set_enabled(false);
         form
     }
 
     pub fn hide(&self, ui: &Ui<Msg>) {
+        self.open.set(false);
         ui.set_visible(self.frame.id(), false);
     }
 
@@ -165,6 +179,7 @@ impl Form {
     /// Shows the form (what was typed stays), with `previews` beside the tick boxes.
     pub fn show(&self, ui: &Ui<Msg>, previews: &[String; 5]) {
         self.set_previews(previews);
+        self.open.set(true);
         ui.set_visible(self.frame.id(), true);
         ui.relayout();
         self.happened.focus();

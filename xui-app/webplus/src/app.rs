@@ -49,7 +49,7 @@ use crate::frameclock::FrameClock;
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
-use crate::keys::shortcut;
+use crate::keys::{overlay_shortcut, shortcut};
 use crate::notify::{BarAnswer, Notifications};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
@@ -234,12 +234,23 @@ impl Browser {
         let focused = Rc::clone(&host.focused);
         let suggestions_open = Rc::new(Cell::new(false));
         let key_suggestions = Rc::clone(&suggestions_open);
+        let editor_open = widgets.bookmarks.editor.open_flag();
+        let report_open = widgets.report.open_flag();
+        let name_field = widgets.bookmarks.editor.name_id();
         ui.on_key(move |key, mods| {
             let in_address = focused() == Some(field);
             // While the dropdown has rows, its keys come before the window's (Escape puts it away
             // before it restores the address).
             if in_address && key_suggestions.get() {
                 if let Some(msg) = suggest::key(key, mods) {
+                    return Some(msg);
+                }
+            }
+            if !in_address {
+                let in_name = focused() == Some(name_field);
+                if let Some(msg) =
+                    overlay_shortcut(key, editor_open.get(), report_open.get(), in_name)
+                {
                     return Some(msg);
                 }
             }

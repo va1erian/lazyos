@@ -79,7 +79,7 @@ impl Command {
             "reload-unblocked" => Some(Command::ReloadUnblocked),
             "open-site" => Some(Command::OpenSite),
             "allow-http" => percent_decode(arg)
-                .filter(|host| crate::address::host_of(host) == Some(host.as_str()))
+                .filter(|host| crate::address::is_offer_host(host))
                 .map(Command::AllowHttp),
             _ => None,
         }
@@ -405,12 +405,27 @@ mod tests {
             Command::parse("x-lazyweb:allow-http/example.com%3A8080"),
             Some(Command::AllowHttp("example.com:8080".into()))
         );
+        // A bare label is what `intranet/wiki` leaves in the offer.
+        for good in [
+            "intranet",
+            "localhost",
+            "10.0.0.1",
+            "%5B%3A%3A1%5D%3A80",
+            "[::1]",
+        ] {
+            assert!(
+                Command::parse(&format!("x-lazyweb:allow-http/{good}")).is_some(),
+                "{good}"
+            );
+        }
         for bad in [
             "x-lazyweb:allow-http",
             "x-lazyweb:allow-http/",
             "x-lazyweb:allow-http/a%20b",
             "x-lazyweb:allow-http/evil.test%2Fpath",
-            "x-lazyweb:allow-http/word",
+            "x-lazyweb:allow-http/user%40host.test",
+            "x-lazyweb:allow-http/a%3Fb",
+            "x-lazyweb:allow-http/bad_label%21",
         ] {
             assert_eq!(Command::parse(bad), None, "{bad}");
         }

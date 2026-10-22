@@ -17,6 +17,23 @@ use crate::notify::Incoming;
 use crate::pages::{Command as PageCommand, DOWNLOADS};
 use crate::transfers::Started;
 
+/// The kind of a lost view, read from the engine's sentence: one of a few fixed words, never any of
+/// its text.
+fn lost_kind(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("memory") {
+        "out-of-memory"
+    } else if lower.contains("crash") {
+        "crashed"
+    } else if lower.contains("webd") || lower.contains("reconnect") {
+        "service-gone"
+    } else if lower.contains("ended") {
+        "ended"
+    } else {
+        "other"
+    }
+}
+
 impl Browser {
     /// Applies the page state the engine last posted.
     pub(super) fn show_state(&mut self, ui: &Ui<Msg>) {
@@ -45,13 +62,17 @@ impl Browser {
         }
 
         if self.state.crashed && !old.crashed {
-            let why = self.state.error.clone();
-            self.note_engine(&format!("view lost: {why}"));
+            // Only a fixed word goes in the list a report may carry: the error is the engine's
+            // sentence, which can hold an address.
+            let kind = lost_kind(&self.state.error);
+            self.note_engine(&format!("view lost: {kind}"));
             self.page.clear();
             self.notifications.page_crashed();
         }
         if self.state.committed_url != old.committed_url {
             self.page.forget_bands();
+            // Another page took over: a later failure is not the typed address's.
+            self.pending_https = None;
             // The page browsed last, and the one-shot "without blocking" ends with its site.
             let committed = self.state.committed_url.clone();
             let site = blocker::site_of(&committed);
@@ -298,5 +319,26 @@ impl Browser {
             self.engine
                 .dialog_reply(replaced.id, replaced.accepted, &replaced.value);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lost_kind;
+
+    #[test]
+    fn a_lost_view_is_reported_by_a_fixed_word_whatever_the_error_says() {
+        assert_eq!(lost_kind("The page's process crashed"), "crashed");
+        assert_eq!(
+            lost_kind("The page's process ran out of memory"),
+            "out-of-memory"
+        );
+        assert_eq!(
+            lost_kind("The web engine (webd) stopped; reconnecting"),
+            "service-gone"
+        );
+        assert_eq!(lost_kind("The page's process ended"), "ended");
+        let odd = lost_kind("Could not make a view for https://secret.example/path?token=1");
+        assert_eq!(odd, "other");
     }
 }

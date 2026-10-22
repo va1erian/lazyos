@@ -8,6 +8,7 @@
 //! The file is the browser's own, in its data folder (`$HOME/.apps/os.lazy.lazywebplus/`), written
 //! only by the window and read back without trusting it.
 
+mod file;
 pub mod log;
 pub mod model;
 mod store;
@@ -16,6 +17,8 @@ mod store;
 mod fuzz;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod torn;
 
 pub use model::{Entry, Error, Id, Kind, BAR, OTHER, UNSORTED};
 pub use store::Bookmarks;

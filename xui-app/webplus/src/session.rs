@@ -10,7 +10,7 @@
 //! and length, and only `http(s)` addresses are taken.
 
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use crate::address;
@@ -159,17 +159,30 @@ fn quote(text: &str) -> String {
     out
 }
 
-/// What the last run left, and the marker for this one. Call once at start with the profile folder.
+/// Whether the last run crashed, and the marker for this one. Call once at start with the profile
+/// folder. When another LazyWeb+ process runs on the profile (its id is in the marker and still
+/// lives) this is no crash, and the marker stays that process's.
 pub fn begin(profile: &Path) -> bool {
-    let crashed = profile.join(RUNNING).is_file();
-    // A failure to write the marker only means a crash goes unnoticed.
-    let _ = fs::write(profile.join(RUNNING), b"LazyWeb+ is running.\n");
-    crashed
+    let path = profile.join(RUNNING);
+    let existing = fs::read_to_string(&path).ok();
+    let own = std::process::id();
+    let start = marker::decide(existing.as_deref(), own, marker::process_alive);
+    if start != marker::Start::Shared {
+        // A failure to write the marker only means a crash goes unnoticed.
+        let _ = fs::write(&path, marker::text(own));
+    }
+    start == marker::Start::Crashed
 }
 
-/// The window closed on purpose: the next start is not a crash.
+/// The window closed on purpose: the next start is not a crash. The marker of another process is
+/// left in place.
 pub fn end(profile: &Path) {
-    let _ = fs::remove_file(profile.join(RUNNING));
+    let path = profile.join(RUNNING);
+    if let Ok(existing) = fs::read_to_string(&path) {
+        if marker::is_own(&existing, std::process::id()) {
+            let _ = fs::remove_file(&path);
+        }
+    }
 }
 
 /// The saved session, if there is one that parses.
@@ -186,8 +199,18 @@ pub fn load(profile: &Path) -> Option<Session> {
 /// Writes `session` through a temporary file, so a crash while writing leaves the old one.
 pub fn save(profile: &Path, session: &Session) -> io::Result<()> {
     let tmp = profile.join("session.json.tmp");
-    fs::write(&tmp, session.to_json())?;
-    fs::rename(&tmp, profile.join(FILE))
+    // Synced before the rename: otherwise a power cut can leave the new name on empty data.
+    let mut file = fs::File::create(&tmp)?;
+    file.write_all(session.to_json().as_bytes())?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&tmp, profile.join(FILE))?;
+    // So that the rename itself survives; best effort (a directory cannot be opened everywhere).
+    #[cfg(unix)]
+    if let Ok(dir) = fs::File::open(profile) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 /// Decides when a navigation is written: at once the first time, then at most once a second, the
@@ -446,6 +469,8 @@ mod json {
         }
     }
 }
+
+pub mod marker;
 
 #[cfg(test)]
 mod tests;

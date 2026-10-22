@@ -94,8 +94,8 @@ pub struct Entry {
 /// Why a store refused an operation.
 #[derive(Debug)]
 pub enum Error {
-    /// A `javascript:` address (a bookmark of it would run a script in whatever page it is opened
-    /// from), or an empty one.
+    /// An address that is not `http:` or `https:` (a bookmark of `javascript:` would run a script
+    /// in whatever page it is opened from, and no other scheme is ever opened), or an empty one.
     Unsupported,
     /// An address longer than [`MAX_URL`].
     UrlTooLong,

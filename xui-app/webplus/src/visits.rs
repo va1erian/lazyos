@@ -38,6 +38,9 @@ pub struct Visits {
     file: Option<PathBuf>,
     /// Lines in the file, including the ones loading dropped.
     lines: usize,
+    /// Counts the changes to `entries`, so that what is built from them (the suggestions' index)
+    /// is rebuilt only when they changed.
+    version: u64,
 }
 
 /// The text of the newest [`MAX_READ`] bytes of `file` (nothing when it cannot be read); a cut-off first
@@ -75,7 +78,13 @@ impl Visits {
             entries,
             file: Some(file),
             lines,
+            version: 0,
         }
+    }
+
+    /// A number that changes with every change to the visits.
+    pub fn version(&self) -> u64 {
+        self.version
     }
 
     /// The visits, oldest first.
@@ -122,6 +131,7 @@ impl Visits {
             }
             _ => self.entries.push(visit),
         }
+        self.version += 1;
         let drop = self.entries.len().saturating_sub(MAX_VISITS);
         self.entries.drain(..drop);
         self.save_last()
@@ -134,6 +144,7 @@ impl Visits {
             return Ok(());
         }
         self.entries.pop();
+        self.version += 1;
         self.rewrite()
     }
 
@@ -145,6 +156,7 @@ impl Visits {
         self.entries.retain(|visit| visit.url != url);
         let removed = before - self.entries.len();
         if removed > 0 {
+            self.version += 1;
             self.rewrite()?;
         }
         Ok(removed)
@@ -153,6 +165,7 @@ impl Visits {
     /// Forgets every visit, on disk too.
     pub fn clear(&mut self) -> io::Result<()> {
         self.entries.clear();
+        self.version += 1;
         self.rewrite()
     }
 
@@ -415,5 +428,25 @@ mod tests {
         let visits = Visits::open(file);
         assert_eq!(visits.entries().len(), 1);
         assert_eq!(visits.entries()[0].url, "http://b/");
+    }
+
+    #[test]
+    fn the_version_moves_with_every_change_and_only_then() {
+        let mut visits = Visits::in_memory();
+        let start = visits.version();
+        visits.record("http://a.test/", "A", 1).unwrap();
+        let recorded = visits.version();
+        assert!(recorded > start);
+        // The same page, same title: nothing changed.
+        visits.record("http://a.test/", "A", 2).unwrap();
+        visits.record("about:blank", "x", 3).unwrap();
+        assert_eq!(visits.version(), recorded);
+        visits.remove_url("http://nothing/").unwrap();
+        assert_eq!(visits.version(), recorded);
+        visits.remove_url("http://a.test/").unwrap();
+        let removed = visits.version();
+        assert!(removed > recorded);
+        visits.clear().unwrap();
+        assert!(visits.version() > removed);
     }
 }

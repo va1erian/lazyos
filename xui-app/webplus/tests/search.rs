@@ -105,3 +105,53 @@ fn a_certificate_error_never_asks_to_drop_the_encryption() {
     let loads = loads(&calls);
     assert_eq!(loads, ["about:blank", "https://bad.example/"], "{loads:?}");
 }
+
+#[test]
+fn a_single_label_host_with_a_path_gets_its_offer_and_the_yes_loads_the_typed_address() {
+    let (_, calls) = drive("search-label", Some("about:blank"), |stage, rig| {
+        type_address(stage, "intranet/wiki");
+        rig.state(
+            stage,
+            failed("https://intranet/wiki", "Couldn't connect to server"),
+        );
+        let page = rig.internal.url_of(downgrade::NAME);
+        rig.state(stage, loaded(&page, "This site did not answer", 1));
+        // The button's command, as the page carries it.
+        rig.events(
+            stage,
+            vec![Event::Command {
+                url: downgrade::allow_command("intranet"),
+            }],
+        );
+    });
+    let loads = loads(&calls);
+    assert_eq!(loads[1], "https://intranet/wiki", "{loads:?}");
+    assert_eq!(
+        loads.last().map(String::as_str),
+        Some("http://intranet/wiki"),
+        "{loads:?}"
+    );
+}
+
+#[test]
+fn an_offer_does_not_outlive_the_navigation_that_made_it() {
+    let (_, calls) = drive("search-stale", Some("about:blank"), |stage, rig| {
+        type_address(stage, "stale.example");
+        // Something else starts a navigation (a page's window request), then the old host fails.
+        rig.events(
+            stage,
+            vec![Event::Popup {
+                url: "https://other.example/".into(),
+            }],
+        );
+        rig.state(
+            stage,
+            failed("https://stale.example/", "Couldn't connect to server"),
+        );
+    });
+    let loads = loads(&calls);
+    assert!(
+        !loads.iter().any(|u| u.starts_with("data:")),
+        "no question for a stale offer: {loads:?}"
+    );
+}

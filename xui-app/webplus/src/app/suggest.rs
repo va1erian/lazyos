@@ -27,6 +27,8 @@ pub(super) struct Panel {
     /// Whether rows are showing: the window's key mapper reads it to claim the arrow keys.
     open: Rc<Cell<bool>>,
     state: Dropdown,
+    /// The index of the history as of the visits' version it was built for.
+    index: Option<(u64, Index)>,
 }
 
 impl Panel {
@@ -35,6 +37,7 @@ impl Panel {
             widget: widgets.suggest.get(),
             open,
             state: Dropdown::default(),
+            index: None,
         }
     }
 
@@ -81,7 +84,19 @@ impl Browser {
     /// The address field's text changed by typing: rank the history for it.
     pub(super) fn address_edited(&mut self, ui: &Ui<Msg>) {
         let text = self.address.text();
-        let index = Index::from_visits(self.visits.entries());
+        // Built again only when the history changed, not at every key.
+        let version = self.visits.version();
+        if self
+            .suggest
+            .index
+            .as_ref()
+            .is_none_or(|(built, _)| *built != version)
+        {
+            self.suggest.index = Some((version, Index::from_visits(self.visits.entries())));
+        }
+        let Some((_, index)) = &self.suggest.index else {
+            return;
+        };
         let matches = index.rank(&text, now(), MAX_ROWS);
         self.suggest.state.set(&text, &matches);
         self.show_suggestions(ui);

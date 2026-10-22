@@ -120,7 +120,11 @@ anything else, or text that starts with `?`, is a **web search** through the tem
 http(s) URL with `%s` is ignored; the query is percent-encoded). When a typed host does not answer over HTTPS at
 all (refused, reset, timed out: never a certificate or TLS error, `src/downgrade.rs`) the browser's own page
 `about:https` asks "Load it without encryption?" and its button, an `x-lazyweb:allow-http/<host>` command (own
-pages only, for a click), opens `http://` and remembers the host until the window closes. The kind of failure is
+pages only, for a click), opens `http://` and remembers the host until the window closes. The command takes what
+the offer holds: a bare label (`intranet` from `intranet/wiki`: one word is a host only when a path follows it
+when typed, but the offer names the host alone), an IP literal, `[ipv6]` or `host[:port]`, never a path,
+whitespace, `@` or a control character. An offer belongs to the typed navigation that made it: any other
+navigation, or a different page committing, drops it. The kind of failure is
 read from the engine's sentence (`Could not load <url>: <why>`), which webd does not yet give as a code.
 
 **Suggestions** (`src/suggest/`, `src/app/suggest.rs`): as the person types, at most 8 pages of the history
@@ -133,9 +137,11 @@ Nothing goes to the network. `UI:WIDGET` names the box `suggest` and its rows `s
 for 50,000 entries (`cargo test --release -p xui-webplus bench -- --ignored --nocapture`).
 
 **After a crash** (`src/session.rs`, `src/app/restore.rs`): a `running` file in the profile folder lives while a
-window runs and is removed at a clean quit; `session.json`
+window runs and is removed at a clean quit (it holds the process id, so a second LazyWeb+ process on the same
+profile, found alive in `/proc/<pid>`, is not taken for a crash, leaves the marker alone and never removes it at
+its own quit; off Linux a marker is always taken as stale); `session.json`
 (`{"version":1,"windows":[{"tabs":[{"url":...,"title":...}],"active":0}]}`) is written after each navigation to a
-web page (at most once a second, through a temporary file; never for the browser's own pages and never when the
+web page (at most once a second, through a temporary file that is synced before the rename; never for the browser's own pages and never when the
 page's data is kept in memory). A start that finds `running` shows a bar "LazyWeb+ did not close properly.
 Restore the last page?" (**Restore**, **Dismiss**); `confd` `user/<uid>/lazywebplus/session/restore` = `always`
 restores without asking (an address given on the command line is never replaced). Both files are read as
@@ -158,13 +164,18 @@ modified)`. Three roots are fixed (Bookmarks bar, Other bookmarks, Unsorted); en
 separators. A corrupt or cut-off tail ends the log there and is rewritten away at the next start; a record whose
 frame is whole but whose content is not is skipped; a file that is not ours is renamed `bookmarks.log.bad`. Titles
 are cut at 512 characters and stripped of control and bidirectional characters, addresses refused over 2048
-bytes or when they are `javascript:` (even with control characters inside the scheme), there are at most 100,000
+bytes or when they are not `http:` or `https:` (`javascript:` even with control characters inside the scheme; a
+bookmark never starts another program, and a load of the file drops any other scheme), there are at most 100,000
 entries and folders nest at most 16 deep; whatever a hand-edited file holds is re-checked on load and an entry
-whose parent is gone goes to Unsorted. Each change is one synced append; the file is rewritten into a new file
+whose parent is gone goes to Unsorted. Each change is one synced append; one that fails partway is cut back to the file's old length and the change is
+undone in memory (the status bar says it was not saved), and if the cut fails too the store writes only by
+rewriting the whole file until that works. The file is rewritten into a new file
 and renamed over the old one when more than half its records are dead (and it holds at least 32).
 
 The toolbar's star bookmarks the page into Unsorted with one click and opens a small editor (name, folder, Done,
-Remove, Cancel) with the second; Ctrl+D does the same. Only `http:` and `https:` pages are bookmarked, never the
+Remove, Cancel) with the second; Ctrl+D does the same. The editor and the report form are never up together
+(opening one, or the star, puts the other and the suggestions away); Escape cancels the one that is up (the report
+form keeps what was typed), Enter in the editor's name is Done, and with none up Escape still stops a load. Only `http:` and `https:` pages are bookmarked, never the
 browser's own `data:` pages. The **Bookmarks** menu holds *Bookmark This Page*, *Edit This Bookmark* and *Show
 Bookmarks*, which opens the list (the bar's entries, then Other bookmarks and Unsorted as submenus, at most 40
 rows and three levels, the rest counted in one row) as a popup built from the store at that moment: xui's menu bar
@@ -175,9 +186,9 @@ export, favicons, and creating folders from the window (the store supports them)
 **Report an issue** (Help menu; `src/report/`, the window in `src/app/report.rs`). The fallback of the plan's
 section 7, for when LazyAgent is not there: a form over the page (xui's `Dialog` has one text entry, so it is a frame
 in the layout) with What happened, What you expected and Steps, and a tick box with a one-line preview for each part
-a report may carry: the version and tab count (on by default), the page's host, the page's address without user,
-query or fragment, the last 200 lines of the window's own `Webplus` trace (every `marker()` line goes through a
-bounded in-process ring), and the engine events this run saw (a lost view with its reason, `Responsive(false)` and
+a report may carry: the version and tab count (on by default), the page's host, the page's address with its path
+but without user, query or fragment (the tick box says so), the last 200 lines of the window's own `Webplus` trace (every `marker()` line goes through a
+bounded in-process ring), and the engine events this run saw (a lost view with the kind of its reason, a fixed word, `Responsive(false)` and
 back, what the person answered the "not responding" bar), each off by default. **Copy Markdown** puts the report on
 the clipboard and **Save .md** writes `lazywebplus-report-<time>.md` into the Downloads folder (the window has no
 Save dialog; a name taken gets ` (1)`, nothing is replaced). The Markdown is built by a pure, host-tested function:

@@ -41,6 +41,19 @@ pub struct Handles {
     done: Handle<Button<Msg>>,
     remove: Handle<Button<Msg>>,
     cancel: Handle<Button<Msg>>,
+    /// Whether the frame is up (the window's key mapper reads it: Escape cancels, Enter is Done).
+    open: Rc<Cell<bool>>,
+}
+
+impl Handles {
+    /// The name field, where Enter means Done.
+    pub fn name_id(&self) -> xui_core::backend::WidgetId {
+        self.name.get().id()
+    }
+
+    pub fn open_flag(&self) -> Rc<Cell<bool>> {
+        Rc::clone(&self.open)
+    }
 }
 
 /// The frame for the window's layout, over the page.
@@ -96,6 +109,7 @@ pub struct Editor {
     remove: Rc<Button<Msg>>,
     cancel: Rc<Button<Msg>>,
     editing: Cell<Option<Id>>,
+    open: Rc<Cell<bool>>,
 }
 
 impl Editor {
@@ -108,11 +122,13 @@ impl Editor {
             remove: h.remove.get(),
             cancel: h.cancel.get(),
             editing: Cell::new(None),
+            open: Rc::clone(&h.open),
         }
     }
 
     pub fn hide(&self, ui: &Ui<Msg>) {
         self.editing.set(None);
+        self.open.set(false);
         ui.set_visible(self.frame.id(), false);
     }
 
@@ -124,6 +140,7 @@ impl Editor {
     /// Shows the frame for bookmark `id`, titled `title`, in `parent`.
     pub fn show(&self, ui: &Ui<Msg>, id: Id, title: &str, parent: Id) {
         self.editing.set(Some(id));
+        self.open.set(true);
         self.name.set_text(title);
         self.folder
             .select(ROOT_IDS.iter().position(|r| *r == parent).unwrap_or(KEEP));

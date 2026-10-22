@@ -114,6 +114,21 @@ pub(crate) fn host_of(text: &str) -> Option<&str> {
     is_host.then_some(authority)
 }
 
+/// Whether `text` is a `host[:port]` a pending HTTPS offer can hold (what [`classify`] puts in
+/// `Typed::Host::host`): unlike [`host_of`] it takes a bare label (`intranet` from `intranet/wiki`),
+/// and it takes no path, whitespace, user part or control character.
+pub(crate) fn is_offer_host(text: &str) -> bool {
+    if text.is_empty()
+        || text.contains(['/', '?', '#', '@'])
+        || text.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return false;
+    }
+    // The slash stands for the path that made a bare label a host when it was typed.
+    let probe = format!("{text}/");
+    host_of(&probe) == Some(text)
+}
+
 /// `name` and `port` of `authority` (`host:port`); an IPv6 literal keeps its colons.
 fn split_port(authority: &str) -> Option<(&str, Option<&str>)> {
     if let Some(rest) = authority.strip_prefix('[') {

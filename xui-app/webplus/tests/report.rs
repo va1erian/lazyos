@@ -101,7 +101,7 @@ fn cancel_forgets_what_was_typed() {
 }
 
 #[test]
-fn a_lost_view_is_an_engine_event_with_the_reason() {
+fn a_lost_view_is_an_engine_event_with_only_the_kind_of_reason() {
     let (_, _) = drive("report_lost", Some("https://example.com/"), |stage, rig| {
         rig.state(stage, loaded("https://example.com/", "T", 1));
         rig.state(
@@ -117,6 +117,7 @@ fn a_lost_view_is_an_engine_event_with_the_reason() {
         stage.click(x, y);
         stage.emit(Msg::Report(ReportMsg::SaveMarkdown));
         let md = saved(rig);
-        assert!(md.contains("view lost: The page's process crashed"), "{md}");
+        assert!(md.contains("view lost: crashed"), "{md}");
+        assert!(!md.contains("process crashed"), "only the kind: {md}");
     });
 }

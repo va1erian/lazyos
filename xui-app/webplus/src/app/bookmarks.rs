@@ -6,9 +6,17 @@ use xui_core::widget::Placeable;
 use super::{now, Browser, Msg};
 use crate::bookmarks::{self, menu, BookmarkMsg};
 use crate::chrome::Command;
-use crate::places::{Error, Kind, UNSORTED};
+use crate::places::{Kind, UNSORTED};
 
 impl Browser {
+    /// Puts away the frames that cover the page (the bookmark editor, the report form) and the
+    /// suggestion dropdown, so that only the one about to open is up.
+    pub(super) fn hide_overlays(&mut self, ui: &Ui<Msg>) {
+        self.bookmarks.editor.hide(ui);
+        self.report.form.hide(ui);
+        self.hide_suggest(ui);
+    }
+
     /// The page the window shows, as the engine last said.
     fn current_url(&self) -> &str {
         if self.state.committed_url.is_empty() {
@@ -46,6 +54,7 @@ impl Browser {
 
     /// The star: bookmark the page into Unsorted, or, when it is bookmarked already, edit it.
     fn star(&mut self, ui: &Ui<Msg>) {
+        self.hide_overlays(ui);
         let url = self.current_url().to_owned();
         if !bookmarks::bookmarkable(&url) {
             self.set_status("Only web pages can be bookmarked");
@@ -57,19 +66,18 @@ impl Browser {
         }
         let title = self.state.title.clone();
         let result = self.bookmarks.store.add_link(UNSORTED, &title, &url, now());
-        match result {
-            Ok(_) | Err(Error::Io(_)) => crate::marker("BOOKMARK:ADD"),
-            Err(_) => {}
+        if result.is_ok() {
+            crate::marker("BOOKMARK:ADD");
         }
         self.set_status(&match result {
             Ok(_) => String::from("Bookmarked in Unsorted. Click the star again to edit it."),
-            Err(Error::Io(e)) => format!("Bookmarked, but not saved: {e}"),
             Err(e) => format!("Not bookmarked: {e}"),
         });
     }
 
     /// Opens the editor for the page's bookmark.
     fn edit_bookmark(&mut self, ui: &Ui<Msg>) {
+        self.hide_overlays(ui);
         let url = self.current_url().to_owned();
         let Some(entry) = self.bookmarks.store.find_url(&url).cloned() else {
             self.set_status("This page is not bookmarked");
@@ -136,7 +144,11 @@ impl Browser {
     fn open_bookmark(&mut self, n: usize) {
         let id = self.bookmarks.targets.borrow().get(n).copied();
         let entry = id.and_then(|id| self.bookmarks.store.get(id));
-        if let Some(entry) = entry.filter(|e| e.kind == Kind::Link) {
+        // Only web pages: a bookmark must never start another program (`open` hands such schemes
+        // over), whatever a hand-edited file holds.
+        if let Some(entry) =
+            entry.filter(|e| e.kind == Kind::Link && bookmarks::bookmarkable(&e.url))
+        {
             let url = entry.url.clone();
             self.open(&url);
         }

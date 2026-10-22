@@ -1,25 +1,25 @@
 //! The bookmarks: the entries in memory and the log file that keeps them.
 //!
 //! Every change is a few [`Op`]s, applied in memory and then appended to the file and synced (a
-//! change is one commit). A change that cannot be written stays in memory and says so
-//! ([`Error::Io`]): the person keeps working and the status bar tells them it is not saved. When
-//! more than half of the file's records are dead (replaced or deleted entries) it is rewritten
-//! into a new file that is renamed over the old one.
+//! change is one commit). A change that cannot be written is undone in memory and says so
+//! ([`Error::Io`]), so the set always matches the file. A write that fails partway is cut back to
+//! the length the file had; if that fails too the file ends in torn bytes that would hide every
+//! later record, so the store writes nothing but a rewrite of the whole file until one succeeds
+//! (every change tries it). When more than half of the file's records are dead (replaced or
+//! deleted entries) it is rewritten into a new file that is renamed over the old one.
 
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::io::{self, Write};
+use std::path::PathBuf;
 
+use super::file::{append, clean_web_url, read_head, truncate, Fault};
 use super::log::{self, Op};
 use super::model::{
     clean_title, clean_url, is_root, Entry, Error, Id, Kind, FIRST_ID, MAX_DEPTH, MAX_ENTRIES,
     UNSORTED,
 };
 
-/// How much of the file is read. A log this large holds far more than [`MAX_ENTRIES`] entries'
-/// worth of live records; the rest is ignored like a corrupt tail.
-const MAX_READ: u64 = 64 * 1024 * 1024;
 /// A file with fewer records is never rewritten: compaction would cost more than it saves.
 pub const COMPACT_MIN_RECORDS: usize = 32;
 
@@ -33,6 +33,10 @@ pub struct Bookmarks {
     next_id: Id,
     /// Counts the changes made, so a view can tell that it is out of date.
     version: u64,
+    /// The file ends in bytes that could not be cut off: only a rewrite makes it appendable again.
+    unwritable: bool,
+    /// Failures to inject into the next write (tests only set it).
+    pub(super) fault: Fault,
 }
 
 impl Bookmarks {
@@ -44,6 +48,8 @@ impl Bookmarks {
             records: 0,
             next_id: FIRST_ID,
             version: 0,
+            unwritable: false,
+            fault: Fault::default(),
         }
     }
 
@@ -126,7 +132,7 @@ impl Bookmarks {
 
     /// Adds a link to the root or folder `parent`, last.
     pub fn add_link(&mut self, parent: Id, title: &str, url: &str, now: u64) -> Result<Id, Error> {
-        let url = clean_url(url)?;
+        let url = clean_web_url(url)?;
         self.add(parent, Kind::Link, clean_title(title), url, now)
     }
 
@@ -164,6 +170,7 @@ impl Bookmarks {
             .map(|e| e.position.saturating_add(1))
             .max()
             .unwrap_or(0);
+        let before = self.snapshot();
         let id = self.next_id;
         self.next_id += 1;
         let entry = Entry {
@@ -177,7 +184,7 @@ impl Bookmarks {
             modified: now,
         };
         self.entries.insert(id, entry.clone());
-        self.commit(&[Op::Put(entry)])?;
+        self.commit(before, &[Op::Put(entry)])?;
         Ok(id)
     }
 
@@ -186,13 +193,14 @@ impl Bookmarks {
         let mut entry = self.entries.get(&id).cloned().ok_or(Error::NoSuchEntry)?;
         match entry.kind {
             Kind::Separator => return Err(Error::NoSuchEntry),
-            Kind::Link => entry.url = clean_url(url)?,
+            Kind::Link => entry.url = clean_web_url(url)?,
             Kind::Folder => {}
         }
         entry.title = clean_title(title);
         entry.modified = now;
+        let before = self.snapshot();
         self.entries.insert(id, entry.clone());
-        self.commit(&[Op::Put(entry)])
+        self.commit(before, &[Op::Put(entry)])
     }
 
     /// Moves `id` into `parent` at `index` among its entries (past the end is last).
@@ -212,6 +220,7 @@ impl Bookmarks {
         let mut order: Vec<Id> = self.children(parent).iter().map(|e| e.id).collect();
         order.retain(|other| *other != id);
         order.insert(index.min(order.len()), id);
+        let before = self.snapshot();
         let mut ops = Vec::new();
         for (position, other) in order.into_iter().enumerate() {
             let position = u32::try_from(position).unwrap_or(u32::MAX);
@@ -226,7 +235,7 @@ impl Bookmarks {
             }
         }
         // Where it left from keeps its gap: positions only order, they need not be dense.
-        self.commit(&ops)
+        self.commit(before, &ops)
     }
 
     /// Removes `id` and, for a folder, everything in it; how many entries went.
@@ -247,10 +256,11 @@ impl Bookmarks {
             );
         }
         let ops: Vec<Op> = gone.iter().map(|id| Op::Delete(*id)).collect();
+        let before = self.snapshot();
         for id in &gone {
             self.entries.remove(id);
         }
-        self.commit(&ops)?;
+        self.commit(before, &ops)?;
         Ok(gone.len())
     }
 
@@ -320,9 +330,11 @@ impl Bookmarks {
                 }
                 e.title = clean_title(&e.title);
                 match e.kind {
+                    // Only web pages are ever opened from the bookmarks (`bookmarkable`): a file
+                    // that holds another scheme was not written by this browser.
                     Kind::Link => match clean_url(&e.url) {
-                        Ok(url) => e.url = url,
-                        Err(_) => return,
+                        Ok(url) if crate::bookmarks::bookmarkable(&url) => e.url = url,
+                        _ => return,
                     },
                     Kind::Folder => e.url.clear(),
                     Kind::Separator => {
@@ -375,26 +387,51 @@ impl Bookmarks {
         }
     }
 
-    /// Writes `ops` to the file as one commit, and compacts when the file is mostly dead.
-    fn commit(&mut self, ops: &[Op]) -> Result<(), Error> {
+    /// The entries as they are now, kept to undo a change that cannot be written (none for a set
+    /// that is not saved: nothing can fail there).
+    fn snapshot(&self) -> Option<BTreeMap<Id, Entry>> {
+        self.file.is_some().then(|| self.entries.clone())
+    }
+
+    /// Writes `ops` to the file as one commit, and compacts when the file is mostly dead. When it
+    /// cannot be written the entries go back to `before`.
+    fn commit(&mut self, before: Option<BTreeMap<Id, Entry>>, ops: &[Op]) -> Result<(), Error> {
         if ops.is_empty() {
             return Ok(());
         }
-        self.records += ops.len();
-        self.version += 1;
         let Some(file) = self.file.clone() else {
+            self.records += ops.len();
+            self.version += 1;
             return Ok(());
         };
-        let mut bytes = Vec::new();
-        for op in ops {
-            bytes.extend_from_slice(&log::encode(op));
+        let written = if self.unwritable {
+            // The rewrite carries this change too: it is made from the entries as they now are.
+            self.compact().map_err(|e| (e, false))
+        } else {
+            let mut bytes = Vec::new();
+            for op in ops {
+                bytes.extend_from_slice(&log::encode(op));
+            }
+            append(&file, &bytes, self.fault).map(|()| self.records += ops.len())
+        };
+        match written {
+            Ok(()) => {
+                self.unwritable = false;
+                self.version += 1;
+                if self.should_compact() {
+                    // Best effort: the log is whole either way.
+                    let _ = self.compact();
+                }
+                Ok(())
+            }
+            Err((error, torn)) => {
+                if let Some(before) = before {
+                    self.entries = before;
+                }
+                self.unwritable |= torn;
+                Err(Error::Io(error))
+            }
         }
-        append(&file, &bytes)?;
-        if self.should_compact() {
-            // Best effort: the log is whole either way.
-            let _ = self.compact();
-        }
-        Ok(())
     }
 
     fn should_compact(&self) -> bool {
@@ -425,35 +462,4 @@ impl Bookmarks {
         self.records = self.entries.len();
         Ok(())
     }
-}
-
-/// The first [`MAX_READ`] bytes of `file` (nothing when it cannot be read).
-fn read_head(file: &Path) -> Vec<u8> {
-    let Ok(f) = fs::File::open(file) else {
-        return Vec::new();
-    };
-    let mut bytes = Vec::new();
-    let _ = f.take(MAX_READ).read_to_end(&mut bytes);
-    bytes
-}
-
-/// Appends `bytes` to `file` (writing the header first when it is new or empty) and syncs.
-fn append(file: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(dir) = file.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let mut f = OpenOptions::new().create(true).append(true).open(file)?;
-    if f.metadata()?.len() == 0 {
-        f.write_all(log::MAGIC)?;
-    }
-    f.write_all(bytes)?;
-    f.sync_data()
-}
-
-/// Cuts `file` back to its first `len` bytes.
-fn truncate(file: &Path, len: usize) -> io::Result<()> {
-    OpenOptions::new()
-        .write(true)
-        .open(file)?
-        .set_len(len as u64)
 }
