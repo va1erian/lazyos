@@ -3,7 +3,9 @@
 use xui_core::{Key, Modifiers};
 
 use crate::app::Msg;
+use crate::bookmarks::BookmarkMsg;
 use crate::chrome::Command;
+use crate::report::form::ReportMsg;
 
 /// The window's keyboard shortcuts. Enter and Escape mean the address field only while it has
 /// the focus, and Escape means Stop only while a page loads: otherwise the page's own forms,
@@ -22,8 +24,26 @@ pub fn shortcut(key: Key, mods: Modifiers, in_address: bool, loading: bool) -> O
         Key::L if mods.ctrl => Some(Msg::FocusAddress),
         Key::H if mods.ctrl => menu(Command::ShowHistory),
         Key::J if mods.ctrl => menu(Command::ShowDownloads),
+        Key::D if mods.ctrl => Some(Msg::Bookmarks(BookmarkMsg::Star)),
         Key::S if mods.ctrl => menu(Command::SavePage),
         Key::W if mods.ctrl => menu(Command::Close),
+        _ => None,
+    }
+}
+
+/// The keys of the frames over the page while one is up: Escape puts the bookmark editor or the
+/// report form away, and Enter in the editor's name field is Done. The address field keeps its own
+/// Escape and Enter (`shortcut`), so this is asked only when it does not have the focus.
+pub fn overlay_shortcut(
+    key: Key,
+    editor_open: bool,
+    report_open: bool,
+    in_name_field: bool,
+) -> Option<Msg> {
+    match key {
+        Key::ESCAPE if editor_open => Some(Msg::Bookmarks(BookmarkMsg::Cancel)),
+        Key::ESCAPE if report_open => Some(Msg::Report(ReportMsg::Hide)),
+        Key::RETURN if editor_open && in_name_field => Some(Msg::Bookmarks(BookmarkMsg::Done)),
         _ => None,
     }
 }
@@ -103,6 +123,26 @@ mod tests {
         // Escape stops a load that is under way and is the page's otherwise.
         assert!(is(shortcut(Key::ESCAPE, none, false, true), Command::Stop));
         assert!(shortcut(Key::ESCAPE, none, false, false).is_none());
+    }
+
+    #[test]
+    fn escape_puts_away_the_frame_over_the_page_and_enter_in_the_name_is_done() {
+        assert!(matches!(
+            overlay_shortcut(Key::ESCAPE, true, false, false),
+            Some(Msg::Bookmarks(BookmarkMsg::Cancel))
+        ));
+        assert!(matches!(
+            overlay_shortcut(Key::ESCAPE, false, true, false),
+            Some(Msg::Report(ReportMsg::Hide))
+        ));
+        assert!(matches!(
+            overlay_shortcut(Key::RETURN, true, false, true),
+            Some(Msg::Bookmarks(BookmarkMsg::Done))
+        ));
+        // Enter elsewhere in the editor, or with nothing up, is not ours; nor is Escape then.
+        assert!(overlay_shortcut(Key::RETURN, true, false, false).is_none());
+        assert!(overlay_shortcut(Key::RETURN, false, true, true).is_none());
+        assert!(overlay_shortcut(Key::ESCAPE, false, false, false).is_none());
     }
 
     #[test]

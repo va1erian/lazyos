@@ -148,6 +148,8 @@ pub struct Rig {
     pub internal: Internal,
     pub blocker: Blocker,
     pub home: PathBuf,
+    /// Where the window said its controls are (`Host::probe`), by name.
+    pub rects: Rc<RefCell<std::collections::HashMap<String, xui_core::geometry::Rect>>>,
 }
 
 impl Rig {
@@ -157,6 +159,16 @@ impl Rig {
 
     pub fn history_file(&self) -> PathBuf {
         self.home.join("history.tsv")
+    }
+
+    /// The middle of the control the window named, in client pixels.
+    pub fn centre(&self, name: &str) -> (i32, i32) {
+        let r = self.rects.borrow()[name];
+        ((r.left + r.right) / 2, (r.top + r.bottom) / 2)
+    }
+
+    pub fn bookmarks_file(&self) -> PathBuf {
+        self.home.join("bookmarks.log")
     }
 
     pub fn notify_file(&self) -> PathBuf {
@@ -196,8 +208,21 @@ pub fn drive_full(
     first: Option<&str>,
     step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static,
 ) -> (Image, Vec<Call>, Rc<Opened>) {
+    drive_with(name, first, |_| {}, |host, _| host, step)
+}
+
+/// Like [`drive_full`], with the test's own folder seeded by `prepare` before the window opens and
+/// the host (profile folder, prefs) adjusted by `tweak`, which is given that folder.
+pub fn drive_with(
+    name: &str,
+    first: Option<&str>,
+    prepare: impl FnOnce(&std::path::Path),
+    tweak: impl FnOnce(Host, &std::path::Path) -> Host + 'static,
+    step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static,
+) -> (Image, Vec<Call>, Rc<Opened>) {
     register_fonts();
     let home = scratch(name);
+    prepare(&home);
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());
     let opened = Rc::new(Opened::default());
@@ -206,6 +231,9 @@ pub fn drive_full(
     let started = Rc::clone(&opened);
     let toasts = Rc::new(FakeToasts::default());
     let permissions = Permissions::open(home.join("notify.tsv"));
+    let rects: Rc<RefCell<std::collections::HashMap<String, xui_core::geometry::Rect>>> =
+        Rc::default();
+    let probe_rects = Rc::clone(&rects);
     let rig = Rig {
         toasts: Rc::clone(&toasts),
         permissions: permissions.clone(),
@@ -215,8 +243,10 @@ pub fn drive_full(
         internal: internal.clone(),
         blocker: blocker.clone(),
         home: home.clone(),
+        rects: Rc::clone(&rects),
     };
     let first = first.map(str::to_owned);
+    let profile = home.clone();
     let (build_engine, build_mailbox) = (Rc::clone(&engine), Arc::clone(&mailbox));
     let image = render_with(
         Snapshot::new(Dip(SIZE.0 as f32), Dip(SIZE.1 as f32)).theme(Theme::light()),
@@ -233,9 +263,16 @@ pub fn drive_full(
                     permissions,
                     toasts: Some(toasts as Rc<dyn Toasts>),
                     blocker,
-                    host: Host {
-                        launcher: Rc::new(RecordingLauncher(opened)),
-                        ..Host::none()
+                    host: {
+                        let host = Host {
+                            launcher: Rc::new(RecordingLauncher(opened)),
+                            profile: Some(profile),
+                            probe: Box::new(move |_, name, rect| {
+                                probe_rects.borrow_mut().insert(name.to_owned(), rect);
+                            }),
+                            ..Host::none()
+                        };
+                        tweak(host, &home)
                     },
                 },
             )
@@ -288,7 +325,7 @@ pub fn support_decode(url: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len());
     let mut i = 0;
     while i < body.len() {
-        if body[i] == b'%' && i + 2 < body.len() + 0 {
+        if body[i] == b'%' && i + 2 < body.len() {
             if let Ok(hex) = u8::from_str_radix(&String::from_utf8_lossy(&body[i + 1..i + 3]), 16) {
                 out.push(hex);
                 i += 3;

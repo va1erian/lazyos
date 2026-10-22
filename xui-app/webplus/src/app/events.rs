@@ -17,6 +17,23 @@ use crate::notify::Incoming;
 use crate::pages::{Command as PageCommand, DOWNLOADS};
 use crate::transfers::Started;
 
+/// The kind of a lost view, read from the engine's sentence: one of a few fixed words, never any of
+/// its text.
+fn lost_kind(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("memory") {
+        "out-of-memory"
+    } else if lower.contains("crash") {
+        "crashed"
+    } else if lower.contains("webd") || lower.contains("reconnect") {
+        "service-gone"
+    } else if lower.contains("ended") {
+        "ended"
+    } else {
+        "other"
+    }
+}
+
 impl Browser {
     /// Applies the page state the engine last posted.
     pub(super) fn show_state(&mut self, ui: &Ui<Msg>) {
@@ -45,11 +62,20 @@ impl Browser {
         }
 
         if self.state.crashed && !old.crashed {
+            // Only a fixed word goes in the list a report may carry: the error is the engine's
+            // sentence, which can hold an address.
+            let kind = lost_kind(&self.state.error);
+            self.note_engine(&format!("view lost: {kind}"));
             self.page.clear();
             self.notifications.page_crashed();
         }
         if self.state.committed_url != old.committed_url {
             self.page.forget_bands();
+            // Another page took over: a later failure is not the typed address's. A report that
+            // also carries an error is the typed load failing, whose offer `load_failed` makes.
+            if self.state.error.is_empty() {
+                self.pending_https = None;
+            }
             // The page browsed last, and the one-shot "without blocking" ends with its site.
             let committed = self.state.committed_url.clone();
             let site = blocker::site_of(&committed);
@@ -100,7 +126,7 @@ impl Browser {
             self.set_loading(false);
             self.set_status("");
             if std::mem::take(&mut self.stopping) {
-                println!("WEBPLUS:STOPPED");
+                crate::marker("STOPPED");
             }
         } else if self.state.title != old.title {
             self.title_changed();
@@ -110,6 +136,7 @@ impl Browser {
     fn load_finished(&mut self) {
         // "Opening <url>" must not outlive the load; hovering a link shows its address again.
         self.set_status("");
+        self.pending_https = None;
         let url = self.state.committed_url.clone();
         let shown = self.shown_url(&url);
         self.trace(&format!("LOAD:{}", marker_text(&shown)));
@@ -120,11 +147,12 @@ impl Browser {
     fn load_failed(&mut self) {
         let error = self.state.error.clone();
         if self.host.traces {
-            println!("WEBPLUS:FAIL:{}", marker_text(&error));
+            crate::marker(&format!("FAIL:{}", marker_text(&error)));
         } else {
-            println!("WEBPLUS:FAIL");
+            crate::marker("FAIL");
         }
         self.set_status(&error);
+        self.offer_http(&error);
     }
 
     /// The title changed after the load ended (a script set it): say so and keep the history's.
@@ -145,6 +173,7 @@ impl Browser {
         if let Err(e) = self.visits.record(&url, &title, now()) {
             eprintln!("lazywebplus: history not saved: {e}");
         }
+        self.note_session(&url, &title);
         self.recorded = Some((url, title));
     }
 
@@ -155,6 +184,8 @@ impl Browser {
         for event in self.mailbox.take_events() {
             match event {
                 Event::Hover(url) => {
+                    self.link_hover
+                        .set(crate::context::link_items(&url).is_some());
                     self.hover = url;
                     self.refresh_status();
                 }
@@ -285,11 +316,32 @@ impl Browser {
 
     /// A JavaScript dialog: drawn over the window; the page waits for the answer.
     fn dialog(&mut self, id: u64, kind: xui_webkit::engine::DialogKind, text: &str) {
-        println!("WEBPLUS:DIALOG:{}", kind.name());
+        crate::marker(&format!("DIALOG:{}", kind.name()));
         let title = dialogs::title_for(&self.state.committed_url);
         if let Some(replaced) = self.dialogs.show(id, kind, &title, text) {
             self.engine
                 .dialog_reply(replaced.id, replaced.accepted, &replaced.value);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lost_kind;
+
+    #[test]
+    fn a_lost_view_is_reported_by_a_fixed_word_whatever_the_error_says() {
+        assert_eq!(lost_kind("The page's process crashed"), "crashed");
+        assert_eq!(
+            lost_kind("The page's process ran out of memory"),
+            "out-of-memory"
+        );
+        assert_eq!(
+            lost_kind("The web engine (webd) stopped; reconnecting"),
+            "service-gone"
+        );
+        assert_eq!(lost_kind("The page's process ended"), "ended");
+        let odd = lost_kind("Could not make a view for https://secret.example/path?token=1");
+        assert_eq!(odd, "other");
     }
 }

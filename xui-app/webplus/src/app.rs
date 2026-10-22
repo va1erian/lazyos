@@ -22,30 +22,35 @@ use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
 use xui_webkit::view::PageView;
 
+mod bookmarks;
 mod commands;
 mod events;
+mod frame;
 mod hang;
 mod host;
+mod navigate;
 mod notifications;
+mod report;
+mod restore;
+mod search;
 mod shield;
 mod status;
+mod suggest;
 mod webd;
 
 pub use host::{Host, Probe, Setup};
 
-use crate::address;
-use crate::blocker::{self, Blocker};
+use crate::blocker::Blocker;
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
+use crate::downgrade::{Allowed, Pending};
 use crate::frameclock::FrameClock;
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
-use crate::keys::shortcut;
-use crate::marker_text;
+use crate::keys::{overlay_shortcut, shortcut};
 use crate::notify::{BarAnswer, Notifications};
-use crate::pages::{self, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -74,16 +79,24 @@ pub enum Msg {
     RestoreAddress,
     /// The user changed the address field's text.
     AddressEdited,
+    /// The person acted on the suggestions under the address field.
+    Suggest(crate::suggest::dropdown::Act),
     /// The user clicked in the page: whatever was half-typed in the address field is abandoned.
     PageClicked,
     /// A right click on the page, at a point of the view.
     PageMenu(i32, i32),
+    /// The star, the editor or the list of bookmarks.
+    Bookmarks(crate::bookmarks::BookmarkMsg),
+    /// The report form's buttons and tick boxes.
+    Report(crate::report::form::ReportMsg),
     /// The answer to a JavaScript dialog.
     Dialog(DialogAction),
     /// The person answered the bar a site's request to notify them shows.
     NotifyAnswer(BarAnswer),
     /// The person answered the bar a page that does not respond shows.
     Hang(HangAnswer),
+    /// The person answered the bar that offers the last page back after a crash.
+    Restore(bool),
     /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
     Shell,
     /// A list of the ad blocker changed state on the worker's thread.
@@ -110,6 +123,10 @@ pub struct Browser {
     download_label: Rc<Label<Msg>>,
     download_bar: Rc<ProgressBar<Msg>>,
     dialogs: Dialogs,
+    /// The bookmarks and the widgets that show them.
+    bookmarks: crate::bookmarks::State,
+    /// The issue report form and the engine events it quotes.
+    report: report::Report,
     /// The permission bar and what it is asking about.
     bar: notifications::Bar,
     /// The "not responding" bar and its question.
@@ -136,6 +153,8 @@ pub struct Browser {
     message: String,
     /// The link under the pointer.
     hover: String,
+    /// Whether that link has a menu of its own (shared with the page view's right click).
+    link_hover: Rc<Cell<bool>>,
     /// A load is under way (shared with the page view: Escape means Stop only then).
     loading: Rc<Cell<bool>>,
     /// The user pressed Stop: the end of the load that follows is a stop, not a failure.
@@ -143,8 +162,18 @@ pub struct Browser {
     /// The user is typing an address: the page's own news (its URL as it loads, redirects) must
     /// not replace what they typed.
     editing: bool,
+    /// The history suggestions under the address field.
+    suggest: suggest::Panel,
+    /// The crash-restore bar and the session being kept.
+    restore: restore::State,
     /// The title the visit was last recorded with (a title can arrive after the load).
     recorded: Option<(String, String)>,
+    /// A host typed in the address bar and opened over HTTPS, not yet known to have worked.
+    pending_https: Option<Pending>,
+    /// The host the "did not answer over HTTPS" page is asking about.
+    offered: Option<Pending>,
+    /// The hosts the person loaded without encryption in this window's life.
+    allowed_http: Allowed,
     /// The page view's size when the controls were last announced.
     announced: Cell<(i32, i32)>,
     /// The previous picture's buffer, reused for the next frame.
@@ -203,8 +232,29 @@ impl Browser {
         let field = address.id();
         let key_loading = Rc::clone(&loading);
         let focused = Rc::clone(&host.focused);
+        let suggestions_open = Rc::new(Cell::new(false));
+        let key_suggestions = Rc::clone(&suggestions_open);
+        let editor_open = widgets.bookmarks.editor.open_flag();
+        let report_open = widgets.report.open_flag();
+        let name_field = widgets.bookmarks.editor.name_id();
         ui.on_key(move |key, mods| {
-            shortcut(key, mods, focused() == Some(field), key_loading.get())
+            let in_address = focused() == Some(field);
+            // While the dropdown has rows, its keys come before the window's (Escape puts it away
+            // before it restores the address).
+            if in_address && key_suggestions.get() {
+                if let Some(msg) = suggest::key(key, mods) {
+                    return Some(msg);
+                }
+            }
+            if !in_address {
+                let in_name = focused() == Some(name_field);
+                if let Some(msg) =
+                    overlay_shortcut(key, editor_open.get(), report_open.get(), in_name)
+                {
+                    return Some(msg);
+                }
+            }
+            shortcut(key, mods, in_address, key_loading.get())
         });
 
         let context = Context::new(ui);
@@ -223,6 +273,8 @@ impl Browser {
             download_label: widgets.download_label.get(),
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
+            report: report::Report::new(crate::report::form::Form::new(&widgets.report)),
+            bookmarks: crate::bookmarks::State::open(host.profile.as_deref(), &widgets.bookmarks),
             bar: notifications::Bar::new(&widgets),
             hang: hang::Bar::new(&widgets),
             notifications: Notifications::new(permissions, toasts),
@@ -240,10 +292,16 @@ impl Browser {
             caption: APP_NAME.to_owned(),
             message: String::new(),
             hover: String::new(),
+            link_hover: Rc::clone(&widgets.link_hover),
             loading,
             stopping: false,
             editing: false,
+            suggest: suggest::Panel::new(&widgets, suggestions_open),
+            restore: restore::State::new(&widgets),
             recorded: None,
+            pending_https: None,
+            offered: None,
+            allowed_http: Allowed::default(),
             announced: Cell::new((0, 0)),
             spare: Vec::new(),
             buttons: Cell::new(None),
@@ -253,12 +311,17 @@ impl Browser {
             shown: RefCell::new(String::new()),
         };
         browser.start_engine(ui);
-        let first = url.unwrap_or_else(|| browser.internal.start());
+        let restored = browser.begin_session(url.is_some());
+        let first = url.or(restored).unwrap_or_else(|| browser.internal.start());
         browser.start_navigation(&first);
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
         browser.hang.start_hidden(ui);
+        browser.show_restore_bar(ui);
+        browser.bookmarks.editor.hide(ui);
+        browser.report.form.hide(ui);
+        browser.update_star();
         browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
@@ -283,136 +346,6 @@ impl Browser {
     pub fn status_text(&self) -> String {
         self.shown.borrow().clone()
     }
-
-    /// Builds one of the browser's own pages as it stands now.
-    fn build_page(&mut self, name: &'static str) -> String {
-        let html = match name {
-            HISTORY => pages::history(self.visits.entries()),
-            DOWNLOADS => pages::downloads(
-                &self.transfers.rows(),
-                &self.transfers.folder().display().to_string(),
-            ),
-            ABOUT => pages::about(
-                env!("CARGO_PKG_VERSION"),
-                &self.notifications.permissions().sites(),
-            ),
-            BLOCKER => blocker::page::blocker(&blocker::page::Report {
-                settings: self.blocker.settings(),
-                lists: self.blocker.lists(),
-                site: self.site_url.as_deref().and_then(blocker::site_of),
-                blocked: self.blocker.blocked(),
-            }),
-            _ => return self.internal.start(),
-        };
-        self.internal.build(name, &html)
-    }
-
-    /// Opens `target`: a URL, or the name of one of the browser's own pages. A scheme the engine
-    /// does not load (typed in the address bar: the user's own act) goes to the app that has it.
-    fn open(&mut self, target: &str) {
-        let url = match Internal::name_of(target) {
-            Some(name) => self.build_page(name),
-            None => target.to_string(),
-        };
-        if !address::engine_loads(&url) {
-            let status = crate::handoff::open(self.host.launcher.as_ref(), &url, true);
-            self.set_status(&status);
-            return;
-        }
-        self.editing = false;
-        self.start_navigation(&url);
-    }
-
-    /// Tells the engine to load `url` and shows that it is opening.
-    fn start_navigation(&mut self, url: &str) {
-        let shown = self.shown_url(url);
-        self.trace(&format!("NAV:{}", marker_text(&shown)));
-        self.stopping = false;
-        self.set_loading(true);
-        self.set_status(&format!("Opening {shown}"));
-        if !self.editing {
-            self.address.set_text(&shown);
-        }
-        self.engine.load(url);
-    }
-
-    /// Opens what the address field holds.
-    fn go(&mut self) {
-        let text = self.address.text();
-        if let Some(name) = Internal::name_of(&text) {
-            self.open(name);
-            return;
-        }
-        match address::normalize(&text) {
-            Some(url) => {
-                self.address.set_text(&url);
-                self.open(&url);
-                self.page.focus();
-            }
-            None => self.set_status("Type an address first"),
-        }
-    }
-
-    /// The page on show is one of the browser's own, named `name`.
-    fn showing(&self, name: &str) -> bool {
-        let url = if self.state.committed_url.is_empty() {
-            &self.state.url
-        } else {
-            &self.state.committed_url
-        };
-        self.internal.name_for(url) == Some(name)
-    }
-
-    fn show_frame(&mut self, ui: &Ui<Msg>) {
-        self.page.add_bands(xui_webkit::bands::take());
-        if let Some(update) = self.mailbox.take_update(std::mem::take(&mut self.spare)) {
-            if self.state.crashed {
-                // A picture painted just before the page's process went away.
-                self.spare = update.full.map(|frame| frame.rgba).unwrap_or_default();
-                return;
-            }
-            let full = update.full.is_some();
-            let before = self.page.picture_size();
-            let started = Instant::now();
-            let applied = self.page.apply(update);
-            // A whole picture of a new size: the page was laid out at the view's size (what a
-            // session waits for after it resized the window).
-            match self.page.picture_size() {
-                Some((w, h)) if full && Some((w, h)) != before => {
-                    self.trace(&format!("INFO:RESIZE:{w}x{h}"));
-                }
-                _ => {}
-            }
-            let took = started.elapsed();
-            if let Some(line) = self.clock.record(
-                started + took,
-                took,
-                full,
-                self.page.picture_parts(),
-                self.page.take_draw_time(),
-            ) {
-                crate::marker(&line);
-            }
-            if let Some(line) = self.page.spec_line() {
-                crate::marker(&line);
-            }
-            if let Some(line) = self.page.smooth_line() {
-                crate::marker(&line);
-            }
-            if applied.resync {
-                self.mailbox.request_full();
-            }
-            if !applied.spare.is_empty() {
-                self.spare = applied.spare;
-            }
-            self.frames += 1;
-            // The first frame, and the first after the window changed size: where the controls are.
-            let page = ui.bounds(self.page.id());
-            if self.announced.get() != (page.width(), page.height()) {
-                self.announce(ui);
-            }
-        }
-    }
 }
 
 /// The window's caption for a page title.
@@ -436,6 +369,12 @@ impl App for Browser {
     type Msg = Msg;
 
     fn update(&mut self, msg: Msg, ui: &mut Ui<Msg>) {
+        // Enter opens the highlighted suggestion, if the person moved onto one, before the
+        // dropdown goes.
+        let chosen = self.suggest.chosen().filter(|_| matches!(msg, Msg::Go));
+        if suggest::closes(&msg) {
+            self.hide_suggest(ui);
+        }
         match msg {
             Msg::Frame => self.show_frame(ui),
             Msg::State => self.show_state(ui),
@@ -449,7 +388,10 @@ impl App for Browser {
                 };
                 self.command(command, ui);
             }
-            Msg::Go => self.go(),
+            Msg::Go => match chosen {
+                Some(row) => self.open_row(row),
+                None => self.go(),
+            },
             Msg::FocusAddress => self.focus_address(),
             Msg::RestoreAddress => {
                 self.editing = false;
@@ -457,7 +399,11 @@ impl App for Browser {
                 self.address.set_text(&shown);
                 self.page.focus();
             }
-            Msg::AddressEdited => self.editing = true,
+            Msg::AddressEdited => {
+                self.editing = true;
+                self.address_edited(ui);
+            }
+            Msg::Suggest(act) => self.suggest_act(ui, act),
             Msg::PageClicked => {
                 if self.editing {
                     // The page has the keyboard again: its address is the field's again.
@@ -468,6 +414,8 @@ impl App for Browser {
             }
             Msg::PageMenu(x, y) => self.show_context(ui, (x, y)),
             Msg::BlockerChanged => self.blocker_changed(),
+            Msg::Bookmarks(msg) => self.bookmark_msg(ui, msg),
+            Msg::Report(msg) => self.report_msg(ui, msg),
             Msg::Dialog(action) => {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine
@@ -476,10 +424,15 @@ impl App for Browser {
             }
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
             Msg::Hang(answer) => self.hang_answer(ui, answer),
+            Msg::Restore(yes) => self.restore_answer(ui, yes),
             Msg::Shell => self.shell_news(ui),
-            Msg::Engine => self.pump(ui),
+            Msg::Engine => {
+                self.pump(ui);
+                self.flush_session();
+            }
             Msg::Jobs => (self.host.jobs)(),
         }
         self.update_buttons();
+        self.update_star();
     }
 }

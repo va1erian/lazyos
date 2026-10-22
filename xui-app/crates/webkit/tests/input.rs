@@ -153,3 +153,41 @@ fn a_right_button_drag_keeps_the_capture_until_it_is_released() {
         "a move during the drag names the held button: {calls:?}"
     );
 }
+
+#[test]
+fn a_lost_release_of_a_swallowed_right_press_does_not_eat_a_later_release() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        let right = |down: bool| {
+            let (x, y, modifiers) = (ox + 10, oy + 10, Modifiers::NONE);
+            let button = MouseButton::Right;
+            if down {
+                Event::MouseDown {
+                    x,
+                    y,
+                    button,
+                    modifiers,
+                }
+            } else {
+                Event::MouseUp {
+                    x,
+                    y,
+                    button,
+                    modifiers,
+                }
+            }
+        };
+        // The menu took a press, and its release never arrived.
+        support::swallow_right(true);
+        stage.inject(right(true));
+        // The next press goes to the page, and so must its release.
+        support::swallow_right(false);
+        engine.take();
+        stage.inject(right(true));
+        stage.inject(right(false));
+    });
+    assert!(
+        calls.contains(&Call::Mouse(MouseKind::Up, Button::Right, 10, 10, 0)),
+        "{calls:?}"
+    );
+}

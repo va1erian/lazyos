@@ -30,6 +30,16 @@ pub enum Msg {
     Clicked,
 }
 
+thread_local! {
+    /// What the view's `swallow_right` hook answers (a test sets it).
+    static SWALLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes the window's menu take (or leave to the page) the next right presses.
+pub fn swallow_right(on: bool) {
+    SWALLOW.with(|s| s.set(on));
+}
+
 /// What a window adds to the view; the rig adds nothing.
 pub struct Host;
 
@@ -55,20 +65,23 @@ impl Browser {
         _host: Host,
     ) -> Result<Browser> {
         let page = xui_core::arrange::Handle::<PageView<Msg>>::default();
-        ui.root(column().children((
-            label("").fixed(Dip(STRIP)),
-            build(move |ui| {
-                let hooks = Hooks {
-                    is_shortcut: Rc::new(|_, _| false),
-                    clicked: Msg::Clicked,
-                    right_click: None,
-                };
-                PageView::new(ui, engine, hooks)
-            })
-            .bind(&page)
-            .fill(1),
-            label("").fixed(Dip(STATUS)),
-        )))?;
+        ui.root(
+            column().children((
+                label("").fixed(Dip(STRIP)),
+                build(move |ui| {
+                    let hooks = Hooks {
+                        is_shortcut: Rc::new(|_, _| false),
+                        clicked: Msg::Clicked,
+                        right_click: None,
+                        swallow_right: Some(Rc::new(|| SWALLOW.with(std::cell::Cell::get))),
+                    };
+                    PageView::new(ui, engine, hooks)
+                })
+                .bind(&page)
+                .fill(1),
+                label("").fixed(Dip(STATUS)),
+            )),
+        )?;
         let proxy = ui.proxy();
         mailbox.set_notify(move |notice| {
             let _ = proxy.send(match notice {

@@ -7,7 +7,7 @@ use super::*;
 
 /// `confd`'s registered name: a store call blocks while it is not registered, so nothing is read or
 /// written unless it already is.
-const CONFD: &str = "os.lazy.confd";
+pub(super) const CONFD: &str = "os.lazy.confd";
 
 /// The ad blocker's switches, as `confd` keys under `user/<uid>/lazywebplus/blocker/`: the global
 /// switch (a bool), the sites left alone and the lists turned off (space separated text). They are

@@ -10,6 +10,7 @@ use crate::blocker::Blocker;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
 use crate::notify::{Permissions, Toasts};
+use crate::prefs::Prefs;
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -37,6 +38,8 @@ pub struct Host {
     /// Runs what other threads queued for the window's thread (the blocker's engine calls, the
     /// shell's notification calls).
     pub jobs: Rc<dyn Fn()>,
+    /// The person's choices from `confd` (search template, session restore).
+    pub prefs: Prefs,
 }
 
 impl Host {
@@ -59,6 +62,7 @@ impl Host {
             profile: None,
             pump: Rc::new(|| false),
             jobs: Rc::new(|| {}),
+            prefs: Prefs::default(),
         }
     }
 }
