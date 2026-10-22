@@ -5,7 +5,8 @@
 //! stopped and released, accepts periods and completes them. virtio-sound
 //! does exactly that over its virtqueues (`virtio_card.rs`); an Intel HDA
 //! controller plays a cyclic buffer and presents the same model
-//! (`hda_card.rs`).
+//! (`hda_card.rs`). A USB device behind `usbd` speaks it over Messenger
+//! (`usb_card.rs`).
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -16,6 +17,7 @@ use super::device::{self, Kind};
 use super::dma::Region;
 use super::error::Error;
 use super::hda_card::HdaCard;
+use super::usb_card::UsbCard;
 use super::virtio_card::VirtioCard;
 
 /// Transmit slots (periods in flight) a stream may use.
@@ -33,6 +35,7 @@ pub(super) enum StreamOp {
 pub(super) enum Card {
     Virtio(Box<VirtioCard>),
     Hda(Box<HdaCard>),
+    Usb(Box<UsbCard>),
 }
 
 /// Forward a call to whichever card this is.
@@ -41,11 +44,17 @@ macro_rules! each {
         match $self {
             Card::Virtio($card) => $call,
             Card::Hda($card) => $call,
+            Card::Usb($card) => $call,
         }
     };
 }
 
 impl Card {
+    /// The USB device `usbd` drives, once there is one (`usb=1`).
+    pub(super) fn open_usb() -> Result<Card, Error> {
+        Ok(Card::Usb(Box::new(UsbCard::open()?)))
+    }
+
     /// Claim the card (`dev=<id>` from `devd`, else the first one) and go live.
     pub(super) fn open(wanted: Option<u64>) -> Result<Card, Error> {
         let (row, kind) = device::find(wanted)?;
@@ -60,6 +69,7 @@ impl Card {
         match self {
             Card::Virtio(_) => "virtio-sound",
             Card::Hda(_) => "intel-hda",
+            Card::Usb(_) => "usb-audio",
         }
     }
 
@@ -68,14 +78,29 @@ impl Card {
         match self {
             Card::Virtio(_) => user::audio_events::VIRTIO_CARD,
             Card::Hda(_) => user::audio_events::HDA_CARD,
+            Card::Usb(_) => user::audio_events::USB_CARD,
         }
+    }
+
+    /// What to show a person (`AudioInfo.name`, the mixer's output list).
+    pub(super) fn display_name(&self) -> alloc::string::String {
+        match self {
+            Card::Virtio(_) => "Virtual sound card".into(),
+            Card::Hda(_) => "Built-in audio".into(),
+            Card::Usb(card) => card.display_name(),
+        }
+    }
+
+    /// The card can no longer be driven (a USB device that went away).
+    pub(super) fn lost(&self) -> bool {
+        matches!(self, Card::Usb(card) if card.lost())
     }
 
     /// Streams the device reports.
     pub(super) fn streams(&self) -> u32 {
         match self {
             Card::Virtio(card) => card.streams,
-            Card::Hda(_) => 1,
+            Card::Hda(_) | Card::Usb(_) => 1,
         }
     }
 

@@ -23,15 +23,19 @@ pub enum EndpointType {
     InterruptOut,
     BulkIn,
     BulkOut,
+    IsochIn,
+    IsochOut,
 }
 
 impl EndpointType {
     fn value(self) -> u32 {
         match self {
+            EndpointType::IsochOut => 1,
             EndpointType::InterruptOut => 3,
             EndpointType::BulkOut => 2,
             EndpointType::Control => 4,
             EndpointType::BulkIn => 6,
+            EndpointType::IsochIn => 5,
             EndpointType::InterruptIn => 7,
         }
     }
@@ -191,6 +195,34 @@ impl EndpointContext {
     }
 }
 
+impl EndpointContext {
+    /// An isochronous endpoint carrying at most `max_esit` bytes per service
+    /// interval (`interval` from [`crate::regs::isoch_interval`]); its TRBs
+    /// average one service interval's payload.
+    pub fn isoch(
+        kind: EndpointType,
+        max_packet: u16,
+        max_burst: u8,
+        interval: u8,
+        max_esit: u32,
+        dequeue: u64,
+    ) -> EndpointContext {
+        EndpointContext {
+            kind,
+            max_packet,
+            interval,
+            dequeue,
+            average_trb: max_esit.clamp(1, 0xFFFF) as u16,
+            max_burst,
+            max_esit,
+        }
+    }
+
+    fn isochronous(&self) -> bool {
+        matches!(self.kind, EndpointType::IsochIn | EndpointType::IsochOut)
+    }
+}
+
 /// An input context being built in a caller-provided dword buffer.
 pub struct InputContext<'a> {
     dwords: &'a mut [u32],
@@ -221,6 +253,17 @@ impl<'a> InputContext<'a> {
         Ok(())
     }
 
+    /// Set the Drop flag for endpoint context `dci` (2..=31: the slot and
+    /// endpoint 0 cannot be dropped), for a Configure Endpoint that takes an
+    /// endpoint away (an alternate setting switched off).
+    pub fn drop_endpoint(&mut self, dci: u8) -> Result<(), Error> {
+        if !(2..=31).contains(&dci) {
+            return Err(Error::BadArgument);
+        }
+        self.dwords[0] |= 1 << dci;
+        Ok(())
+    }
+
     /// The add flags (input control context dword 1).
     pub fn added(&self) -> u32 {
         self.dwords[1]
@@ -247,8 +290,10 @@ impl<'a> InputContext<'a> {
         let ctx = self.context(usize::from(dci) + 1);
         // Max ESIT Payload Hi in bits 24..=31, Interval in 16..=23.
         ctx[0] = u32::from(ep.interval) << 16 | (ep.max_esit >> 16) << 24;
-        // Error Count 3: retry a failed transaction three times.
-        ctx[1] = 3 << 1
+        // Error Count 3: retry a failed transaction three times; an
+        // isochronous endpoint never retries, and the field must be 0.
+        let errors = if ep.isochronous() { 0 } else { 3 };
+        ctx[1] = errors << 1
             | ep.kind.value() << 3
             | u32::from(ep.max_burst) << 8
             | u32::from(ep.max_packet) << 16;

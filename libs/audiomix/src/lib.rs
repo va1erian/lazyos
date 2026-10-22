@@ -26,6 +26,7 @@ pub mod events;
 pub mod gain;
 pub mod grant;
 mod mixer;
+pub mod outputs;
 pub mod resample;
 pub mod service;
 mod stream;
@@ -39,6 +40,8 @@ mod tests_events;
 mod tests_fuzz;
 #[cfg(test)]
 mod tests_mix;
+#[cfg(test)]
+mod tests_outputs;
 #[cfg(test)]
 mod tests_service;
 #[cfg(test)]

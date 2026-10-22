@@ -30,6 +30,7 @@ use usbhid::report::gamepad::{has_pad_collection, parse_gamepad};
 use usbhid::report::{self, Pointer};
 use xhci::trb::{request, Trb};
 
+use super::audio::AudioFn;
 use super::device::{hex, Device, DATA_BYTES};
 use super::hc::Hc;
 use super::hid::{Hid, ReportLayout};
@@ -45,7 +46,13 @@ pub(super) enum Function {
     Hub(HubFn),
     /// A stick: its bulk pipes and the kernel's disk on it.
     Msc(Box<Msc>),
+    /// A speaker, headset or DAC (`audio.rs`), driven for `sndd`.
+    Audio(Box<AudioFn>),
 }
+
+/// The audio class code and its AudioControl subclass.
+const CLASS_AUDIO: u8 = 1;
+const SUBCLASS_AUDIO_CONTROL: u8 = 1;
 
 impl Function {
     /// Whether the transfer events of endpoint `dci` are this function's.
@@ -54,6 +61,7 @@ impl Function {
             Function::Hid { dci: own, .. } => *own == dci,
             Function::Hub(hub) => hub.dci == dci,
             Function::Msc(msc) => msc.owns(dci),
+            Function::Audio(audio) => audio.owns(dci),
         }
     }
 
@@ -62,19 +70,33 @@ impl Function {
     /// `Device::take_report` collects them.
     pub(super) fn on_transfer(
         &mut self,
-        _hc: &mut Hc,
-        _device: &mut Device,
-        _event: &Trb,
+        hc: &mut Hc,
+        device: &mut Device,
+        event: &Trb,
     ) -> Result<(), Error> {
+        if let Function::Audio(audio) = self {
+            audio.on_transfer(hc, device, event);
+        }
         Ok(())
     }
 
     /// The device is going away: release what it held.
-    pub(super) fn close(self, trace: bool) {
+    pub(super) fn close(self, hc: &mut Hc, trace: bool) {
         match self {
             Function::Hid { hid, .. } => hid.close(trace),
             Function::Hub(_) => {}
             Function::Msc(msc) => msc.close(),
+            Function::Audio(audio) => audio.close(hc),
+        }
+    }
+
+    /// What the function is, for the `USBD:DETACH` line.
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Function::Hid { .. } => "hid",
+            Function::Hub(_) => "hub",
+            Function::Msc(_) => "msc",
+            Function::Audio(_) => "audio",
         }
     }
 }
@@ -115,7 +137,7 @@ pub(super) fn bind(
         Err(error) => {
             // Sources already registered are closed, not leaked.
             for function in functions {
-                function.close(false);
+                function.close(hc, false);
             }
             Err(error)
         }
@@ -165,6 +187,14 @@ fn bind_interface(
         },
         CLASS_MASS_STORAGE if !report_protocol => {
             Ok(Msc::bind(device, interface)?.map(|msc| Function::Msc(Box::new(msc))))
+        }
+        // Opt-in until it has run on real machines (docs/usb-audio-plan.md A5).
+        CLASS_AUDIO
+            if cfg!(lazyos_usb_audio)
+                && !report_protocol
+                && interface.subclass == SUBCLASS_AUDIO_CONTROL =>
+        {
+            Ok(AudioFn::bind(hc, device, interface)?.map(|audio| Function::Audio(Box::new(audio))))
         }
         // New classes go here (see the module documentation).
         _ => Ok(None),

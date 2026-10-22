@@ -14,7 +14,7 @@ use super::apps::AppSpec;
 use super::installed::InstalledApp;
 use super::lifecycle::Lifecycle;
 use super::reload::Hot;
-use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE, LINUX_ROWS};
+use super::state::{manifest_cred, Restart, ServiceSpec, BOOT_EVIDENCE, IDENTITY_ARGS, LINUX_ROWS};
 
 /// Runtime phase of a service; `label` is the word published in events and
 /// shown by `messengerctl services`.
@@ -129,11 +129,14 @@ impl Service {
             path: spec.path,
             // `soak=`/`demo=` only drive boot evidence; release and desktop
             // boots skip them. The manifest writes them as one word list.
-            args: if BOOT_EVIDENCE {
-                spec.args.split_whitespace().map(String::from).collect()
-            } else {
-                Vec::new()
-            },
+            // An argument that says what the row *is* (`sndd usb=1`, the USB
+            // audio card) is kept everywhere.
+            args: spec
+                .args
+                .split_whitespace()
+                .filter(|word| BOOT_EVIDENCE || IDENTITY_ARGS.contains(word))
+                .map(String::from)
+                .collect(),
             restart: spec.restart,
             deps: spec.deps,
             cred: manifest_cred(spec.name),

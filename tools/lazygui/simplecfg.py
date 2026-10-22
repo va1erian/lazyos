@@ -63,7 +63,8 @@ SIMPLE_GROUPS = (
      ("lazywebplus",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
-SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "hires", "autologin", "setup", "usb_image")
+SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "hires", "autologin", "setup", "usb_image",
+                  "usb_audio")
 
 
 def software_choices() -> list[str]:
@@ -124,7 +125,8 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
                   srb2kart: bool = False,
-                  lazywebplus: bool = False, games: bool = False, devtools: bool = False) -> dict:
+                  lazywebplus: bool = False, games: bool = False, devtools: bool = False,
+                  usb_audio: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
     ``build`` is a cargo profile (``dev``/``release``) and ``interface`` is
@@ -148,7 +150,9 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     first-boot setup, docs/accounts-plan.md U1; it wins over ``autologin``); ``pictures``
     the Picture Viewer (Desktop only, docs/lazyrad-pictures.md); ``emusic`` adds
     the emusic package (Desktop only, like ``doom``); ``usb_image`` also writes
-    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
+    ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md);
+    ``usb_audio`` USB speakers, headsets and DACs as a second output (either interface,
+    docs/usb-audio-plan.md); ``wifi``
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
     ``net``); ``lazywebplus`` LazyWeb+, the web browser on WebKit (Desktop only, docs/lazywebplus.md; it
@@ -220,6 +224,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "devtools": desktop and devtools,
         "pictures": desktop and pictures,
         "usb_image": desktop and usb_image,
+        "usb_audio": usb_audio,
         # The netboot payload is an Advanced-only control, like the kernel limits.
         "netboot": False,
         "netboot_key": "",

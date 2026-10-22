@@ -12,6 +12,7 @@
 //! well-formed `AttachRing`; on every other path it is dropped, which is how
 //! `audiod` closes buffers attached to the wrong method.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use messenger_generated::os_lazy_audio_mixer_v1 as control;
@@ -215,6 +216,7 @@ fn info<R: Ring>(mixer: &Mixer<R>) -> audio::AudioInfo {
         formats: 1 << audio_format::S16_LE,
         rates: (1u32 << RATES.len()) - 1,
         channels: MIX_CHANNELS as u32,
+        name: String::from(mixer.output_name()),
     }
 }
 

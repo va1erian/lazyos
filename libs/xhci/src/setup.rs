@@ -61,6 +61,17 @@ pub mod request {
         }
     }
 
+    /// GET_DESCRIPTOR(STRING `index`) in language `lang`, `length` bytes.
+    pub fn get_string(index: u8, lang: u16, length: u16) -> SetupPacket {
+        SetupPacket {
+            request_type: 0x80,
+            request: GET_DESCRIPTOR,
+            value: 3 << 8 | u16::from(index),
+            index: lang,
+            length,
+        }
+    }
+
     /// GET_DESCRIPTOR(REPORT) of HID `interface`, for `length` bytes: the
     /// recipient is the interface, not the device (HID 1.11 7.1.1).
     pub fn get_report_descriptor(interface: u8, length: u16) -> SetupPacket {
@@ -190,6 +201,109 @@ pub mod request {
             value: u16::from(depth),
             index: 0,
             length: 0,
+        }
+    }
+
+    /// USB Audio Class requests (UAC 1.0 5.2, UAC 2.0 5.2): to an entity of
+    /// the AudioControl interface, or (1.0 Sampling Frequency) to an
+    /// endpoint. The payloads come from `usbaudio::request`.
+    pub mod audio {
+        use super::super::SetupPacket;
+
+        /// UAC 1.0 SET_CUR and GET_CUR; UAC 2.0 CUR (both directions) has
+        /// SET_CUR's number, and RANGE is 2.
+        pub const SET_CUR: u8 = 0x01;
+        pub const GET_CUR: u8 = 0x81;
+        pub const CUR: u8 = 0x01;
+        pub const RANGE: u8 = 0x02;
+        /// Control selectors: 1.0 endpoint SAMPLING_FREQ_CONTROL, 2.0 clock
+        /// CS_SAM_FREQ_CONTROL, feature unit FU_MUTE_CONTROL and 2.0
+        /// CX_CLOCK_SELECTOR_CONTROL are all 1.
+        pub const SAMPLING_FREQ: u8 = 0x01;
+        pub const MUTE: u8 = 0x01;
+        pub const SELECTOR: u8 = 0x01;
+
+        fn entity(interface: u8, entity: u8) -> u16 {
+            u16::from(entity) << 8 | u16::from(interface)
+        }
+
+        /// UAC 1.0: set endpoint `address`'s sampling frequency (3 bytes).
+        pub fn uac1_set_rate(address: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0x22,
+                request: SET_CUR,
+                value: u16::from(SAMPLING_FREQ) << 8,
+                index: u16::from(address),
+                length: 3,
+            }
+        }
+
+        /// UAC 1.0: read endpoint `address`'s sampling frequency back.
+        pub fn uac1_get_rate(address: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0xA2,
+                request: GET_CUR,
+                value: u16::from(SAMPLING_FREQ) << 8,
+                index: u16::from(address),
+                length: 3,
+            }
+        }
+
+        /// UAC 2.0: set clock source `clock`'s frequency (4 bytes).
+        pub fn uac2_set_rate(interface: u8, clock: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0x21,
+                request: CUR,
+                value: u16::from(SAMPLING_FREQ) << 8,
+                index: entity(interface, clock),
+                length: 4,
+            }
+        }
+
+        /// UAC 2.0: read clock source `clock`'s frequency.
+        pub fn uac2_get_rate(interface: u8, clock: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0xA1,
+                request: CUR,
+                value: u16::from(SAMPLING_FREQ) << 8,
+                index: entity(interface, clock),
+                length: 4,
+            }
+        }
+
+        /// UAC 2.0: `length` bytes of clock `clock`'s frequency ranges (2
+        /// first, for the count; then the whole reply).
+        pub fn uac2_rate_ranges(interface: u8, clock: u8, length: u16) -> SetupPacket {
+            SetupPacket {
+                request_type: 0xA1,
+                request: RANGE,
+                value: u16::from(SAMPLING_FREQ) << 8,
+                index: entity(interface, clock),
+                length,
+            }
+        }
+
+        /// UAC 2.0: select an input (1 byte, 1-based) of clock selector `id`.
+        pub fn uac2_select_clock(interface: u8, id: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0x21,
+                request: CUR,
+                value: u16::from(SELECTOR) << 8,
+                index: entity(interface, id),
+                length: 1,
+            }
+        }
+
+        /// Feature unit `unit`'s master mute (1 byte, both revisions: 0
+        /// unmutes, 1 mutes).
+        pub fn set_mute(interface: u8, unit: u8) -> SetupPacket {
+            SetupPacket {
+                request_type: 0x21,
+                request: SET_CUR,
+                value: u16::from(MUTE) << 8,
+                index: entity(interface, unit),
+                length: 1,
+            }
         }
     }
 }

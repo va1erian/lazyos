@@ -13,11 +13,13 @@ HINT = ("intel-hda: QEMU's HDA controller with a line-out codec; e1000: QEMU's I
         "drivers at boot and each finds its own device. Interrupts: the I/O APIC "
         "(LAZYOS_IRQCHIP) and MSI are what real PCs need; pic and no MSI are the "
         "old INTx path (issue #616). gpud: READ-ONLY look at the Intel GPU's display "
-        "state (the Kaby Lake box); QEMU has no such device, so it does not start there.")
+        "state (the Kaby Lake box); QEMU has no such device, so it does not start there. "
+        "USB audio: usbd drives USB speakers, headsets and DACs, offered beside the sound "
+        "card in the Volume tray menu (QEMU gets a usb-audio device).")
 
 
 def build_group(parent: ttk.Frame, sound_card_var, nic_var, devd_var, irqchip_var,
-                msi_var, intelgfx_var) -> None:
+                msi_var, intelgfx_var, usb_audio_var) -> None:
     """Populate the Drivers group."""
     row = ttk.Frame(parent)
     row.pack(fill="x", padx=6, pady=2)
@@ -40,5 +42,8 @@ def build_group(parent: ttk.Frame, sound_card_var, nic_var, devd_var, irqchip_va
     ttk.Checkbutton(parent, text="Intel GPU service gpud: adopt and report the firmware's display "
                                  "state, read-only (LAZYOS_INTELGFX; run_demo --intelgfx)",
                     variable=intelgfx_var).pack(anchor="w", padx=6)
+    ttk.Checkbutton(parent, text="USB audio: speakers, headsets and DACs through usbd and "
+                                 "sndd usb=1 (LAZYOS_USB_AUDIO; run_demo --usb-audio)",
+                    variable=usb_audio_var).pack(anchor="w", padx=6)
     ttk.Label(parent, text=HINT, wraplength=520, foreground="#666"
               ).pack(fill="x", padx=6, pady=(0, 6))

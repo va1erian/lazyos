@@ -56,8 +56,9 @@ through it. The guest prints, in order:
 |---|---|
 | `SND:PLAY:PASS freq=440 ...` | the driver played a tone straight through the card |
 | `SND:IRQ:PASS delivered=N` | the armed INTx line delivered interrupts (`SNDD:IRQ:POLLING` instead when the machine's line is not routable, which the harness reports but accepts) |
-| `SNDD:READY` | the card is registered (`os.lazy.audio.card`) |
-| `AUDIOD:CARD rate=48000 ...` | the mixer opened the card's stream |
+| `SNDD:READY name=os.lazy.audio.card/<id>` | the card is registered (`virtio-snd0`, `intel-hda0`, `usb-audio0`) |
+| `AUDIOD:OUTPUTS <id>,...` | the cards the mixer found (docs/usb-audio-plan.md) |
+| `AUDIOD:CARD id=<id> rate=48000 ...` | the mixer opened that card's stream |
 | `BEEP:PLAY:PASS freq=880 ...` | a real client played a tone through the mixer |
 | `BEEP:PROBE:PASS checks=<n>` | malformed and hostile requests (limits, commits, volumes, a 300-request transfer flood) were all refused correctly, and the mixer survived |
 | `BEEP:INTRUDER:PASS` | a second task was refused on the owner's stream, and got one of its own |

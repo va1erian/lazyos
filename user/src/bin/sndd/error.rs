@@ -31,6 +31,8 @@ pub(super) enum Error {
     /// The HDA controller or its codec could not be brought up (the serial
     /// log has the detail).
     Hda(&'static str),
+    /// The link to `usbd`'s audio function failed (the device went away).
+    Usb(&'static str),
 }
 
 impl From<virtio::Error> for Error {
@@ -54,6 +56,7 @@ impl Error {
             Error::Busy => "stream busy".into(),
             Error::Messenger(text) => format!("messenger: {text}"),
             Error::Hda(what) => format!("hda: {what}"),
+            Error::Usb(what) => format!("usb audio: {what}"),
         }
     }
 }

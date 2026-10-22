@@ -911,6 +911,7 @@ pub mod os_lazy_audio_v1 {
         pub formats: u32,
         pub rates: u32,
         pub channels: u32,
+        pub name: alloc::string::String,
     }
 
     pub fn encode_audio_info(value: &AudioInfo) -> Result<Vec<u8>, Error> {
@@ -919,6 +920,7 @@ pub mod os_lazy_audio_v1 {
         target.u32(2, value.formats)?;
         target.u32(3, value.rates)?;
         target.u32(4, value.channels)?;
+        target.string(5, &value.name)?;
         Ok(target.finish())
     }
 
@@ -939,6 +941,9 @@ pub mod os_lazy_audio_v1 {
                 4 => {
                     out.channels = field.as_u32()?;
                 }
+                5 => {
+                    out.name = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -953,6 +958,8 @@ pub mod os_lazy_audio_v1 {
     /// 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
     /// 10 192000. Reserved bits are zero.
     /// Maximum channels per stream.
+    /// What to show a person for this card (`Built-in audio`,
+    /// `USB: <product>`); the mixer reports its current output's.
     /// The parameters an opened stream actually runs at.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StreamGrant {
@@ -1649,6 +1656,17 @@ pub mod os_lazy_audio_mixer_v1 {
     /// spells out what it serves (`Register.interface_names`, issue #495).
     pub const INTERFACE_NAME: &str = "os.lazy.audio.mixer.v1";
 
+    /// `OutputKind::Other` wire value.
+    pub const OUTPUT_KIND_OTHER: u32 = 0;
+    /// `OutputKind::Virtio` wire value.
+    pub const OUTPUT_KIND_VIRTIO: u32 = 1;
+    /// `OutputKind::Hda` wire value.
+    pub const OUTPUT_KIND_HDA: u32 = 2;
+    /// `OutputKind::Usb` wire value.
+    pub const OUTPUT_KIND_USB: u32 = 3;
+    /// `OutputKind::Hdmi` wire value.
+    pub const OUTPUT_KIND_HDMI: u32 = 4;
+
     /// `StreamState::Idle` wire value.
     pub const STREAM_STATE_IDLE: u32 = 0;
     /// `StreamState::Running` wire value.
@@ -1786,6 +1804,53 @@ pub mod os_lazy_audio_mixer_v1 {
         Ok(out)
     }
 
+    /// One sound output: a card a driver serves under
+    /// `os.lazy.audio.card/<id>`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Output {
+        pub id: alloc::string::String,
+        pub name: alloc::string::String,
+        pub kind: u32,
+        pub active: bool,
+        pub preferred: bool,
+    }
+
+    pub fn encode_output(value: &Output) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        target.string(2, &value.name)?;
+        target.u32(3, value.kind)?;
+        target.bool(4, value.active)?;
+        target.bool(5, value.preferred)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_output(body: &[u8]) -> Result<Output, Error> {
+        let mut out = Output::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.id = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.kind = field.as_u32()?;
+                }
+                4 => {
+                    out.active = field.as_bool()?;
+                }
+                5 => {
+                    out.preferred = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// `ListStreams` method id.
     pub const METHOD_LISTSTREAMS: u32 = 711680798;
     /// `SetStreamVolume` method id.
@@ -1794,6 +1859,10 @@ pub mod os_lazy_audio_mixer_v1 {
     pub const METHOD_GETMASTER: u32 = 1362695053;
     /// `SetMaster` method id.
     pub const METHOD_SETMASTER: u32 = 301176513;
+    /// `ListOutputs` method id.
+    pub const METHOD_LISTOUTPUTS: u32 = 124559009;
+    /// `SelectOutput` method id.
+    pub const METHOD_SELECTOUTPUT: u32 = 234575836;
 
     /// Every open stream, in opening order.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -1910,6 +1979,62 @@ pub mod os_lazy_audio_mixer_v1 {
                     out.mute = field.as_bool()?;
                 }
                 _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every sound output a driver serves now (a built-in codec, a USB
+    /// headset, an HDMI display), the one playing first.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListOutputsReply {
+        pub outputs: alloc::vec::Vec<Output>,
+    }
+
+    pub fn encode_list_outputs_reply(value: &ListOutputsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.outputs {
+            nested.raw(Kind::Struct, 1, &encode_output(item)?)?;
+        }
+        target.array(1, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_outputs_reply(body: &[u8]) -> Result<ListOutputsReply, Error> {
+        let mut out = ListOutputsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                let mut nested = field.nested(0)?;
+                while let Some(item) = nested.next()? {
+                    out.outputs.push(decode_output(item.payload)?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Play through output `id` from now on, and prefer it whenever it is
+    /// present. Streams keep playing across the switch. `ENOENT` for an
+    /// output that is not present.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SelectOutputArgs {
+        pub id: alloc::string::String,
+    }
+
+    pub fn encode_select_output_args(value: &SelectOutputArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_select_output_args(body: &[u8]) -> Result<SelectOutputArgs, Error> {
+        let mut out = SelectOutputArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.id = field.as_str()?.into();
             }
         }
         Ok(out)
@@ -20741,6 +20866,349 @@ pub mod os_lazy_shell_tray_events_v1 {
     ];
 }
 
+/// `os.lazy.usb.audio.v1` (interface id `0xd48ce91568d0be08`).
+#[rustfmt::skip]
+pub mod os_lazy_usb_audio_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xd48ce91568d0be08;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.usb.audio.v1";
+
+    /// `Sync::None` wire value.
+    pub const SYNC_NONE: u32 = 0;
+    /// `Sync::Async` wire value.
+    pub const SYNC_ASYNC: u32 = 1;
+    /// `Sync::Adaptive` wire value.
+    pub const SYNC_ADAPTIVE: u32 = 2;
+    /// `Sync::Synchronous` wire value.
+    pub const SYNC_SYNCHRONOUS: u32 = 3;
+
+    /// What the bound device is and can play.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Device {
+        pub vendor: u32,
+        pub product: u32,
+        pub name: alloc::string::String,
+        pub version: u32,
+        pub rates: u32,
+        pub channels: u32,
+        pub bits: u32,
+        pub sync: u32,
+        pub high_speed: bool,
+        pub port: alloc::string::String,
+    }
+
+    pub fn encode_device(value: &Device) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.vendor)?;
+        target.u32(2, value.product)?;
+        target.string(3, &value.name)?;
+        target.u32(4, value.version)?;
+        target.u32(5, value.rates)?;
+        target.u32(6, value.channels)?;
+        target.u32(7, value.bits)?;
+        target.u32(8, value.sync)?;
+        target.bool(9, value.high_speed)?;
+        target.string(10, &value.port)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_device(body: &[u8]) -> Result<Device, Error> {
+        let mut out = Device::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.vendor = field.as_u32()?;
+                }
+                2 => {
+                    out.product = field.as_u32()?;
+                }
+                3 => {
+                    out.name = field.as_str()?.into();
+                }
+                4 => {
+                    out.version = field.as_u32()?;
+                }
+                5 => {
+                    out.rates = field.as_u32()?;
+                }
+                6 => {
+                    out.channels = field.as_u32()?;
+                }
+                7 => {
+                    out.bits = field.as_u32()?;
+                }
+                8 => {
+                    out.sync = field.as_u32()?;
+                }
+                9 => {
+                    out.high_speed = field.as_bool()?;
+                }
+                10 => {
+                    out.port = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The product string the device reports, empty when it has none.
+    /// The class revision: 1 (UAC 1.0) or 2 (UAC 2.0).
+    /// Rate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.
+    /// Channels and significant bits of the alternate a 48 kHz stereo
+    /// stream would use.
+    /// A `Sync` ordinal.
+    /// The device runs at high speed (microframes) rather than full.
+    /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
+    /// How far the device got.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Progress {
+        pub completed: u64,
+        pub underruns: u32,
+        pub missed: u32,
+    }
+
+    pub fn encode_progress(value: &Progress) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.completed)?;
+        target.u32(2, value.underruns)?;
+        target.u32(3, value.missed)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_progress(body: &[u8]) -> Result<Progress, Error> {
+        let mut out = Progress::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.completed = field.as_u64()?;
+                }
+                2 => {
+                    out.underruns = field.as_u32()?;
+                }
+                3 => {
+                    out.missed = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Describe` method id.
+    pub const METHOD_DESCRIBE: u32 = 582948360;
+    /// `Attach` method id.
+    pub const METHOD_ATTACH: u32 = 145305188;
+    /// `Configure` method id.
+    pub const METHOD_CONFIGURE: u32 = 373171691;
+    /// `Start` method id.
+    pub const METHOD_START: u32 = 182978943;
+    /// `Stop` method id.
+    pub const METHOD_STOP: u32 = 1266644741;
+    /// `Release` method id.
+    pub const METHOD_RELEASE: u32 = 1830722334;
+    /// `Submit` method id.
+    pub const METHOD_SUBMIT: u32 = 1081664837;
+    /// `Reap` method id.
+    pub const METHOD_REAP: u32 = 1527513801;
+
+    /// Periods played (or dropped by a stop) since `Configure`.
+    /// Times the isochronous ring ran dry (`usbd` was starved).
+    /// Service intervals the controller missed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DescribeReply {
+        pub device: Device,
+    }
+
+    pub fn encode_describe_reply(value: &DescribeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_device(&value.device)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_describe_reply(body: &[u8]) -> Result<DescribeReply, Error> {
+        let mut out = DescribeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.device = decode_device(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Share the staging buffer periods are submitted from. Replaces an
+    /// earlier one (a restarted `sndd`), stopping any stream.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachArgs {
+        pub staging: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `Attach`.
+    pub fn encode_attach_args(value: &AttachArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.buffer(1, &value.staging, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Attach` from its body and the objects the kernel installed
+    /// (`ATTACH_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.staging = field.claim_buffer(objects, next)?;
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Attach` request carries, in object-list order:
+    /// `staging`, `objects[0]`, a shared buffer.
+    pub const ATTACH_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// Pick the alternate setting and rate for a stereo stream at `rate` Hz
+    /// (the closest the device has), switch the device to it and reset the
+    /// counters. Returns the rate it runs at.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConfigureArgs {
+        pub rate: u32,
+    }
+
+    pub fn encode_configure_args(value: &ConfigureArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.rate)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_configure_args(body: &[u8]) -> Result<ConfigureArgs, Error> {
+        let mut out = ConfigureArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.rate = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConfigureReply {
+        pub granted: u32,
+    }
+
+    pub fn encode_configure_reply(value: &ConfigureReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.granted)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_configure_reply(body: &[u8]) -> Result<ConfigureReply, Error> {
+        let mut out = ConfigureReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.granted = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Queue one period: `len` bytes at `offset` of the staging buffer.
+    /// `slot` is the caller's tag, echoed nowhere; periods complete in order.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubmitArgs {
+        pub slot: u32,
+        pub offset: u32,
+        pub len: u32,
+    }
+
+    pub fn encode_submit_args(value: &SubmitArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.slot)?;
+        target.u32(2, value.offset)?;
+        target.u32(3, value.len)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_submit_args(body: &[u8]) -> Result<SubmitArgs, Error> {
+        let mut out = SubmitArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.slot = field.as_u32()?;
+                }
+                2 => {
+                    out.offset = field.as_u32()?;
+                }
+                3 => {
+                    out.len = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReapReply {
+        pub progress: Progress,
+    }
+
+    pub fn encode_reap_reply(value: &ReapReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_progress(&value.progress)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reap_reply(body: &[u8]) -> Result<ReapReply, Error> {
+        let mut out = ReapReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.progress = decode_progress(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_ATTACH, ATTACH_OBJECTS),
+    ];
+}
+
 /// `os.lazy.webd.light.v1` (interface id `0xc685c12f0603531c`).
 #[rustfmt::skip]
 pub mod os_lazy_webd_light_v1 {
@@ -23829,6 +24297,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0xc685c12f0603531c,
         method: 11,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.usb.audio.v1.Attach
+    objects::ObjectDecl {
+        interface: 0xd48ce91568d0be08,
+        method: 145305188,
         kinds: &[objects::Kind::Buffer],
     },
     // os.lazy.shell.tray.v1.Set

@@ -34,6 +34,8 @@ const KEEPALIVE_TICKS: u64 = 300;
 
 pub(super) struct Card {
     client: Client<Native>,
+    /// What the driver calls the card (`AudioInfo.name`).
+    name: alloc::string::String,
     stream: u32,
     ring: NativeRing,
     ring_frames: u64,
@@ -51,9 +53,17 @@ pub(super) struct Card {
 }
 
 impl Card {
-    /// Open the card's stream and attach the mixer's ring to it.
-    pub(super) fn open(now: u64) -> Result<Card> {
-        let client = Client::new(Native::connect(audioclient::CARD_NAME)?);
+    /// Open output `id`'s stream (`os.lazy.audio.card/<id>`) and attach the
+    /// mixer's ring to it.
+    pub(super) fn open(id: &str, now: u64) -> Result<Card> {
+        let name = alloc::format!("{}{id}", audiomix::outputs::CARD_PREFIX);
+        let client = Client::new(Native::connect(&name)?);
+        let label = client
+            .info()
+            .map(|info| info.name)
+            .ok()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| audiomix::outputs::default_name(id));
         let grant = client.open_stream(
             wire::DIRECTION_PLAYBACK,
             wire::FORMAT_S16_LE,
@@ -76,6 +86,7 @@ impl Card {
             .attach_ring(grant.stream, ring.share())
             .map_err(close)?;
         Ok(Card {
+            name: label,
             stream: grant.stream,
             ring_frames: period_frames * u64::from(grant.periods),
             period_frames,
@@ -90,6 +101,10 @@ impl Card {
             last_call: now,
             period: vec![0; 2 * period_frames as usize],
         })
+    }
+
+    pub(super) fn name(&self) -> &str {
+        &self.name
     }
 
     pub(super) fn rate(&self) -> u32 {

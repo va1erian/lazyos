@@ -21,7 +21,7 @@ use crate::messenger::{registry, Endpoint, Error as MsgError};
 use crate::sys;
 
 pub use audioclient::{
-    Client, MixerControl, Params, PlaybackStream, CARD_NAME, NAME, TICK_HZ, UNITY_GAIN,
+    Client, MixerControl, Params, PlaybackStream, CARD_PREFIX, NAME, TICK_HZ, UNITY_GAIN,
 };
 
 /// `EIO`, for transport failures that carry no errno of their own.
@@ -43,7 +43,7 @@ pub struct Native {
 }
 
 impl Native {
-    /// Resolve `name` ([`NAME`] for the mixer, [`CARD_NAME`] for the card).
+    /// Resolve `name` ([`NAME`] for the mixer, [`CARD_PREFIX`] and an id for a card).
     pub fn connect(name: &str) -> Result<Native> {
         let endpoint = registry::resolve(name).map_err(error_of)?;
         Ok(Native { endpoint })

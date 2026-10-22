@@ -16,6 +16,13 @@
 // Who may hold it is the Messenger policy's decision (an installed app needs
 // the permission explicitly); the service itself does not ask.
 //
+// The mixer plays through one *output* at a time: every card a driver
+// registers under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and
+// `SelectOutput` switches; without a choice (or when the chosen one is
+// absent) the best kind present plays (USB, HDMI, a built-in codec, a
+// virtual card; the newest of a kind), so a headset plugged in
+// takes over and unplugging it falls back to the one before.
+//
 // Gains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144
 // (four times unity). Failures are returned as the shared
 // structured error field (see `services::error_field`): an unknown stream is
@@ -58,6 +65,23 @@ fn set_master(gain_q16, mute) {
     msg::connect("os.lazy.audio.mixer.v1").invoke("SetMaster", [gain_q16, mute])
 }
 
+/// `ListOutputs() -> (outputs: Array<Output>)`
+///
+/// Every sound output a driver serves now (a built-in codec, a USB
+/// headset, an HDMI display), the one playing first.
+fn list_outputs() {
+    msg::connect("os.lazy.audio.mixer.v1").invoke("ListOutputs", [])
+}
+
+/// `SelectOutput(id: String) -> ()`
+///
+/// Play through output `id` from now on, and prefer it whenever it is
+/// present. Streams keep playing across the switch. `ENOENT` for an
+/// output that is not present.
+fn select_output(id) {
+    msg::connect("os.lazy.audio.mixer.v1").invoke("SelectOutput", [id])
+}
+
 /// A `StreamStatus` with every field at its zero value.
 ///
 /// What one open stream is doing.
@@ -75,6 +99,27 @@ fn new_stream_status() {
 fn new_master() {
     #{ gain_q16: 0, mute: false, card: false, rate: 0, channels: 0, streams: 0, max_streams: 0 }
 }
+
+/// A `Output` with every field at its zero value.
+///
+/// One sound output: a card a driver serves under
+/// `os.lazy.audio.card/<id>`.
+fn new_output() {
+    #{ id: "", name: "", kind: 0, active: false, preferred: false }
+}
+
+// The variants of `OutputKind`, in wire order.
+export const OUTPUT_KIND = ["Other", "Virtio", "Hda", "Usb", "Hdmi"];
+
+export const OUTPUT_KIND_OTHER = "Other";
+
+export const OUTPUT_KIND_VIRTIO = "Virtio";
+
+export const OUTPUT_KIND_HDA = "Hda";
+
+export const OUTPUT_KIND_USB = "Usb";
+
+export const OUTPUT_KIND_HDMI = "Hdmi";
 
 // The variants of `StreamState`, in wire order.
 export const STREAM_STATE = ["Idle", "Running", "Stopped", "Draining", "Drained"];

@@ -351,7 +351,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
     args.lazyrad = args.lazyrad or bool(args.lazyrad_samples) or args.modplayer
-    if (args.modplayer or args.emusic) and not args.sound:
+    if (args.modplayer or args.emusic or args.usb_audio) and not args.sound:
         args.sound = "auto"
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player

@@ -47,6 +47,11 @@ impl Service {
         }
     }
 
+    /// The card can no longer be driven: the driver should exit.
+    pub(super) fn card_lost(&self) -> bool {
+        self.card.lost()
+    }
+
     /// Whether the loop should wake every tick to keep the device fed.
     pub(super) fn busy(&self) -> bool {
         self.session.as_ref().is_some_and(Session::is_running)
@@ -161,6 +166,7 @@ impl Service {
                 formats: params::format_bitmap(info),
                 rates: params::rate_bitmap(info),
                 channels: u32::from(info.channels_max),
+                name: self.card.display_name(),
             },
         })
         .map_err(MsgError::Parcel)

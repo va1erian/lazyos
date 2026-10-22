@@ -196,6 +196,16 @@ fn main() {
     if env::var_os("LAZYOS_USB").as_deref() == Some(std::ffi::OsStr::new("1")) {
         println!("cargo:rustc-cfg=lazyos_usb");
     }
+    // `LAZYOS_USB_AUDIO=1` (docs/usb-audio-plan.md): `usbd` binds USB
+    // speakers, headsets and DACs and `init` runs `sndd usb=1` for them.
+    // Opt-in until the stage has run on the Kaby Lake and Alder Lake boxes.
+    println!("cargo:rerun-if-env-changed=LAZYOS_USB_AUDIO");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_usb_audio)");
+    if env::var_os("LAZYOS_USB").as_deref() == Some(std::ffi::OsStr::new("1"))
+        && env::var_os("LAZYOS_USB_AUDIO").as_deref() == Some(std::ffi::OsStr::new("1"))
+    {
+        println!("cargo:rustc-cfg=lazyos_usb_audio");
+    }
     // `LAZYOS_UI_PROBE=1` (issue #538, debug images): `xuid` prints each
     // window's content rectangle as a `UI:RECT` line for session scripts. A
     // compile-time switch: the compositor never touches the file system for it.

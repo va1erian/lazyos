@@ -359,6 +359,11 @@ pub mod devd;
 /// generated `os.lazy.gpu.v1` stubs and a blocking [`gpu::Client`].
 pub mod gpu;
 
+/// The USB audio function `usbd` drives (docs/usb-audio-plan.md): the
+/// generated `os.lazy.usb.audio.v1` stubs and the blocking client `sndd`
+/// uses.
+pub mod usb_audio;
+
 /// The network mount service `mountd` (docs/smb-plan.md §3.4): the generated
 /// `os.lazy.mount.v1` stubs and its service name.
 pub mod mount;

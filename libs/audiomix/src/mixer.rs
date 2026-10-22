@@ -6,6 +6,7 @@
 //! calls (`os.lazy.audio.mixer.v1`) pass no owner: they may change a stream's
 //! volume, never feed, stop or close it.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use virtio_snd::params::{Grant, ParamError, Request};
@@ -83,6 +84,8 @@ pub struct Mixer<R> {
     master_muted: bool,
     acc: Vec<i64>,
     scratch: Scratch,
+    /// The name of the output it plays through (`AudioInfo.name`).
+    output: String,
 }
 
 type Result<T> = core::result::Result<T, MixError>;
@@ -97,7 +100,28 @@ impl<R: Ring> Mixer<R> {
             master_muted: false,
             acc: Vec::new(),
             scratch: Scratch::default(),
+            output: String::new(),
         }
+    }
+
+    /// Play through another output from now on: its rate and period. Open
+    /// streams keep their rings and positions and are resampled to the new
+    /// rate; call [`Mixer::forget_card`] for the old output first.
+    pub fn retarget(&mut self, rate: u32, period_frames: usize) {
+        self.config.rate = rate;
+        self.config.period_frames = period_frames;
+        for stream in &mut self.streams {
+            stream.retarget(rate);
+        }
+    }
+
+    /// The name of the output it plays through.
+    pub fn output_name(&self) -> &str {
+        &self.output
+    }
+
+    pub fn set_output_name(&mut self, name: &str) {
+        self.output = String::from(name);
     }
 
     pub fn config(&self) -> &Config {

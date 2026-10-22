@@ -20,6 +20,7 @@ use xhci::trb::{kind, Trb};
 
 use alloc::string::String;
 
+use super::audio::AudioFn;
 use super::class::{self, Function};
 use super::device::Device;
 use super::hc::Hc;
@@ -97,7 +98,7 @@ impl Controller {
             );
             while let Some(node) = self.nodes.pop() {
                 for function in node.functions {
-                    function.close(settings.trace);
+                    function.close(&mut self.hc, settings.trace);
                 }
             }
             self.dead = true;
@@ -114,6 +115,18 @@ impl Controller {
             }
         }
         busy
+    }
+
+    /// The audio function and its device, if one is bound here.
+    pub(super) fn audio(&mut self) -> Option<(&mut Hc, &mut Device, &mut AudioFn)> {
+        for node in &mut self.nodes {
+            for function in &mut node.functions {
+                if let Function::Audio(audio) = function {
+                    return Some((&mut self.hc, &mut node.device, audio));
+                }
+            }
+        }
+        None
     }
 
     /// Serve the kernel's pending requests to this controller's sticks
@@ -397,8 +410,8 @@ impl Controller {
                     hub.on_report(&report[..len]);
                     hub_changed = true;
                 }
-                // Its pipes are not report pipes: never reached.
-                Function::Msc(_) => {}
+                // Their pipes are not report pipes: never reached.
+                Function::Msc(_) | Function::Audio(_) => {}
             }
         }
         if hub_changed {
@@ -422,17 +435,9 @@ impl Controller {
         };
         let gone = self.nodes.swap_remove(index);
         let name = gone.device.name.clone();
-        let kinds: Vec<&str> = gone
-            .functions
-            .iter()
-            .map(|f| match f {
-                Function::Hid { .. } => "hid",
-                Function::Hub(_) => "hub",
-                Function::Msc(_) => "msc",
-            })
-            .collect();
+        let kinds: Vec<&str> = gone.functions.iter().map(Function::kind).collect();
         for function in gone.functions {
-            function.close(settings.trace);
+            function.close(&mut self.hc, settings.trace);
         }
         let at = gone.device.at;
         self.skipped.retain(|skipped| !skipped.is_within(&at));

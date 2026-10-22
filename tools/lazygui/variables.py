@@ -65,6 +65,8 @@ def make_vars() -> dict:
         # The Intel GPU service gpud (LAZYOS_INTELGFX, run_demo --intelgfx):
         # read-only adoption of the firmware's display state; off.
         "intelgfx": b(value=False),
+        # USB audio (LAZYOS_USB_AUDIO, run_demo --usb-audio, docs/usb-audio-plan.md).
+        "usb_audio": b(value=False),
         "abi_build": b(value=False),
         "home_disk": b(value=True),
         "data_disk": b(value=False),
@@ -159,6 +161,7 @@ def make_vars() -> dict:
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
         "simple_usb_image": b(value=False),
+        "simple_usb_audio": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),

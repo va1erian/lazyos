@@ -3,14 +3,22 @@
 //! Decoding and the stream rules live in `audiomix::service`, shared with the
 //! host tests; this module adds what only a real server has: transferred
 //! handles, deferred `Drain` replies, the card connection and the timers.
+//!
+//! The card is one of the outputs drivers register under
+//! `os.lazy.audio.card/<id>` (`audiomix::outputs` decides which): the
+//! registry is scanned once a second, and when the output to use changes
+//! (a headset plugged in or out, `SelectOutput`) the new card is opened
+//! before the old one is let go, and the open streams carry on through it.
 
+use alloc::string::String;
 use alloc::vec::Vec;
 use user::trace;
 
+use audiomix::outputs::{card_id, Outputs};
 use audiomix::service::{self, errno as mix_errno, Outcome, Request};
 use audiomix::{Config, Mixer};
 use user::messenger::audio::{self as api, wire};
-use user::messenger::{services, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{registry, services, Endpoint, Error as MsgError, Message, Parcel};
 use user::sys;
 
 use super::card::Card;
@@ -18,6 +26,8 @@ use super::ring::MappedRing;
 
 /// Ticks between attempts to reach the card while there is none.
 const CARD_RETRY_TICKS: u64 = 100;
+/// Ticks between looks at which outputs are registered.
+const SCAN_TICKS: u64 = 100;
 
 /// A `Drain` waiting for its stream to play out.
 struct Pending {
@@ -32,8 +42,12 @@ pub(super) struct Server {
     /// volume and the open streams survive a driver restart.
     mixer: Option<Mixer<MappedRing>>,
     card: Option<Card>,
+    /// The output `card` is.
+    card_id: Option<String>,
     card_retry_at: u64,
     waiting_logged: bool,
+    outputs: Outputs,
+    scanned_at: Option<u64>,
     pending: Vec<Pending>,
     /// Streams whose drain finished this step (reused; never reallocated in
     /// the steady state).
@@ -45,8 +59,11 @@ impl Server {
         Server {
             mixer: None,
             card: None,
+            card_id: None,
             card_retry_at: 0,
             waiting_logged: false,
+            outputs: Outputs::new(),
+            scanned_at: None,
             pending: Vec::new(),
             finished: Vec::new(),
         }
@@ -72,6 +89,20 @@ impl Server {
         // kernel gate holds every request to its declaration); the message
         // keeps whatever it carried until the ring is taken, and closes it
         // when it drops.
+        // Which output plays is `audiod`'s, not the engine's.
+        if interface == api::CONTROL_INTERFACE {
+            if let Some(outcome) = self.outputs.handle(method, &message.parcel.body) {
+                if matches!(outcome, Outcome::Reply(_)) && method == api::control_wire::METHOD_SELECTOUTPUT {
+                    // Switch on the next step, whatever the retry timer says.
+                    self.card_retry_at = 0;
+                }
+                return Some(match outcome {
+                    Outcome::Reply(body) => api::reply_parcel(interface, method, body),
+                    Outcome::Refuse(code) => error_parcel(interface, method, code),
+                    Outcome::DrainPending(_) => error_parcel(interface, method, mix_errno::EINVAL),
+                });
+            }
+        }
         let ring = if interface == api::INTERFACE && method == wire::METHOD_ATTACHRING {
             match message.decode(wire::decode_attach_ring_args) {
                 Ok(args) => MappedRing::map(&args.ring),
@@ -135,8 +166,8 @@ impl Server {
     /// Everything that is not a request: reach the card, feed it, finish
     /// drains, reclaim abandoned streams.
     pub(super) fn step(&mut self, endpoint: &Endpoint, now: u64) {
-        self.connect_card(now);
         self.finished.clear();
+        self.connect_card(now);
         if let (Some(card), Some(mixer)) = (self.card.as_mut(), self.mixer.as_mut()) {
             let finished = &mut self.finished;
             if let Err(error) = card.pump(mixer, now, |stream| finished.push(stream)) {
@@ -145,7 +176,11 @@ impl Server {
                     card.close();
                 }
                 mixer.forget_card(|stream| finished.push(stream));
-                self.card_retry_at = now + CARD_RETRY_TICKS;
+                self.card_id = None;
+                self.outputs.set_active(None);
+                // Look again at once: the next output may already be there.
+                self.scanned_at = None;
+                self.card_retry_at = now + CARD_RETRY_TICKS / 10;
             }
         }
         // A draining stream is never reclaimed, so no pending drain is lost.
@@ -202,36 +237,90 @@ impl Server {
         }
     }
 
-    /// Open the card when there is none and it is time to try.
+    /// Find the outputs, and play through the one to use: open it when
+    /// there is no card or another output should play.
     fn connect_card(&mut self, now: u64) {
-        if self.card.is_some() || now < self.card_retry_at {
+        if self.scanned_at.is_none_or(|at| now >= at + SCAN_TICKS) {
+            self.scanned_at = Some(now);
+            self.scan();
+        }
+        let Some(target) = self.outputs.target().map(String::from) else {
+            if !self.waiting_logged {
+                trace::line!(trace::Channel::Audiod, "WAITCARD no output registered");
+                self.waiting_logged = true;
+            }
+            return;
+        };
+        if self.card.is_some() && self.card_id.as_deref() == Some(target.as_str()) {
             return;
         }
-        match Card::open(now) {
+        if now < self.card_retry_at {
+            return;
+        }
+        let opening = sys::clock();
+        match Card::open(&target, now) {
             Ok(card) => {
-                trace::line!(
-                    trace::Channel::Audiod,
-                    "CARD rate={} channels=2 period={}",
-                    card.rate(),
-                    card.period_frames()
-                );
-                let config = Config::new(card.rate(), card.period_frames());
-                let stale = self
-                    .mixer
-                    .as_ref()
-                    .is_some_and(|m| m.config().rate != config.rate);
-                if self.mixer.is_none() || stale {
-                    self.mixer = Some(Mixer::new(config));
+                let ticks = sys::clock() - opening;
+                if ticks > 10 {
+                    trace::line!(trace::Channel::Audiod, "CARD:SLOW id={target} open_ticks={ticks}");
                 }
-                self.card = Some(card);
+                self.adopt(target, card)
             }
             Err(error) => {
-                if !self.waiting_logged {
-                    trace::line!(trace::Channel::Audiod, "WAITCARD {error}");
-                    self.waiting_logged = true;
-                }
+                trace::line!(trace::Channel::Audiod, "CARD:FAIL id={target} {error}");
+                // Passed over for a while: the next output plays meanwhile.
+                self.outputs.failed(&target);
                 self.card_retry_at = now + CARD_RETRY_TICKS;
             }
+        }
+    }
+
+    /// Play through `card` (output `id`) from now on; the card it replaces
+    /// is let go, and the streams are resampled to the new rate.
+    fn adopt(&mut self, id: String, card: Card) {
+        let finished = &mut self.finished;
+        let started = sys::clock();
+        if let Some(old) = self.card.take() {
+            old.close();
+            if let Some(mixer) = self.mixer.as_mut() {
+                mixer.forget_card(|stream| finished.push(stream));
+            }
+        }
+        trace::line!(
+            trace::Channel::Audiod,
+            "CARD id={id} rate={} channels=2 period={} close_ticks={} name={}",
+            card.rate(),
+            card.period_frames(),
+            sys::clock() - started,
+            card.name()
+        );
+        match self.mixer.as_mut() {
+            Some(mixer) => mixer.retarget(card.rate(), card.period_frames()),
+            None => self.mixer = Some(Mixer::new(Config::new(card.rate(), card.period_frames()))),
+        }
+        if let Some(mixer) = self.mixer.as_mut() {
+            mixer.set_output_name(card.name());
+        }
+        self.outputs.set_name(&id, card.name());
+        self.outputs.set_active(Some(&id));
+        self.card_id = Some(id);
+        self.card = Some(card);
+        self.waiting_logged = false;
+    }
+
+    /// The outputs registered now: cards whose name a sound driver owns
+    /// (`_snd`, or root on a kernel-spawned boot).
+    fn scan(&mut self) {
+        let Ok(entries) = registry::list() else {
+            return;
+        };
+        let ids: Vec<String> = entries
+            .iter()
+            .filter(|entry| entry.owner_uid == u64::from(sndpolicy::SND_UID) || entry.owner_uid == 0)
+            .filter_map(|entry| card_id(&entry.name).map(String::from))
+            .collect();
+        if self.outputs.update(ids.iter().map(String::as_str)) {
+            trace::line!(trace::Channel::Audiod, "OUTPUTS {}", ids.join(","));
         }
     }
 }

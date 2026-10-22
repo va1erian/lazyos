@@ -18,8 +18,9 @@ pub use messenger_generated::os_lazy_audio_mixer_v1 as control_wire;
 /// The mixer (`audiod`): the name applications resolve.
 pub const NAME: &str = audioclient::NAME;
 
-/// The card driver (`sndd`): only the mixer opens it.
-pub const CARD_NAME: &str = audioclient::CARD_NAME;
+/// Where card drivers (`sndd`) register, `<prefix><card id>`: only the
+/// mixer opens them.
+pub const CARD_PREFIX: &str = audioclient::CARD_PREFIX;
 
 /// The interface id every stream parcel carries.
 pub const INTERFACE: u64 = wire::INTERFACE_ID;

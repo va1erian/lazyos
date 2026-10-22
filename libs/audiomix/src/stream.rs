@@ -317,6 +317,12 @@ impl<R: Ring> Stream<R> {
         self.finish_drain()
     }
 
+    /// The mixer now runs at `mix_rate` (another output): resample to it
+    /// from here on.
+    pub(crate) fn retarget(&mut self, mix_rate: u32) {
+        self.resampler = Resampler::new(self.grant.rate_hz, mix_rate);
+    }
+
     /// The card is gone: treat everything mixed as played.
     pub(crate) fn forget_card(&mut self) -> bool {
         self.played = self.consumed;

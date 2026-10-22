@@ -20,6 +20,7 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `kernel/src/input/sources.rs`, `rawsys.rs` | Input sources: register/publish/close, kernel-stamped device ids, class checks, a token bucket per slot, release on close and on task death |
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
+| `libs/usbaudio/`, `user/src/bin/usbd/audio*.rs` | USB audio (`LAZYOS_USB_AUDIO=1`, [usb-audio-plan.md](../usb-audio-plan.md)): UAC 1.0/2.0 descriptors, alternate and rate choice, the isochronous OUT ring and explicit feedback, the `os.lazy.usb.audio.v1` server `sndd usb=1` drives; harness `tools/sound/usb_run.py` |
 
 USB sticks (mass storage) are served to the kernel as block devices by the
 same driver (`class.rs` binds them to `msc.rs`): [usb-storage.md](usb-storage.md).
@@ -154,8 +155,10 @@ crash-test build that exits while holding a key.
 
 ## Not done
 
-- Any class but HID, hub and mass storage ([usb-storage.md](usb-storage.md));
-  keyboard LEDs (`SET_REPORT`); isochronous endpoints.
+- Any class but HID, hub, mass storage ([usb-storage.md](usb-storage.md)) and
+  audio playback ([usb-audio-plan.md](../usb-audio-plan.md); isochronous OUT
+  and feedback IN endpoints, opt-in); keyboard LEDs (`SET_REPORT`); audio
+  capture.
 - Not exercised by QEMU, so proven only by host tests until a real machine
   runs it: 64-byte contexts, the BIOS handoff with a BIOS that owns the
   controller, USB 3 warm reset, high-speed hubs with transaction

@@ -72,6 +72,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
 | [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
 | [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
+| [`sys::usb_audio`](#sysusb_audio) | `os.lazy.usb.audio.v1` |
 | [`sys::webd_light`](#syswebd_light) | `os.lazy.webd.light.v1` |
 | [`sys::net_wifi_hw`](#sysnet_wifi_hw) | `os.lazy.net.wifi.hw.v1` |
 | [`sys::net_wifi`](#sysnet_wifi) | `os.lazy.net.wifi.v1` |
@@ -137,9 +138,13 @@ The system mixer's control interface (docs/audio-plan.md stage A2).
 | `set_stream_volume(stream, gain_q16, mute)` | `SetStreamVolume(stream: U32, gain_q16: U32, mute: Bool) -> ()` | Set one stream's gain and mute flag, whoever owns it. |
 | `get_master()` | `GetMaster() -> (master: Master)` | The master gain, the mute flag and what the card runs at. |
 | `set_master(gain_q16, mute)` | `SetMaster(gain_q16: U32, mute: Bool) -> ()` | Set the master gain and mute flag, applied after mixing. |
+| `list_outputs()` | `ListOutputs() -> (outputs: Array<Output>)` | Every sound output a driver serves now (a built-in codec, a USB |
+| `select_output(id)` | `SelectOutput(id: String) -> ()` | Play through output `id` from now on, and prefer it whenever it is |
 | `new_stream_status()` | struct `StreamStatus` | a `StreamStatus` at its zero value |
 | `new_master()` | struct `Master` | a `Master` at its zero value |
+| `new_output()` | struct `Output` | a `Output` at its zero value |
 
+- `OUTPUT_KIND` = the `OutputKind` variants; `OUTPUT_KIND_OTHER`, `OUTPUT_KIND_VIRTIO`, `OUTPUT_KIND_HDA`, `OUTPUT_KIND_USB`, `OUTPUT_KIND_HDMI`
 - `STREAM_STATE` = the `StreamState` variants; `STREAM_STATE_IDLE`, `STREAM_STATE_RUNNING`, `STREAM_STATE_STOPPED`, `STREAM_STATE_DRAINING`, `STREAM_STATE_DRAINED`
 
 ## `sys::clipboard`
@@ -945,6 +950,28 @@ What the shell sends an app about its item: oneway methods on the channel
 | `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
 | `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
+
+## `sys::usb_audio`
+
+Interface `os.lazy.usb.audio.v1`, source [`usb_audio.rhai`](usb_audio.rhai).
+
+A USB audio playback function, as `usbd` drives it
+
+| Function | IDL | About |
+|---|---|---|
+| `describe()` | `Describe() -> (device: Device)` | Periods played (or dropped by a stop) since `Configure`. |
+| `configure(rate)` | `Configure(rate: U32) -> (granted: U32)` | Pick the alternate setting and rate for a stereo stream at `rate` Hz |
+| `start()` | `Start() -> ()` | Start sending; until periods arrive the device hears silence. |
+| `stop()` | `Stop() -> ()` | Stop sending; every queued period counts as completed. |
+| `release()` | `Release() -> ()` | Stop and switch the device to its zero-bandwidth alternate. |
+| `submit(slot, offset, len)` | `Submit(slot: U32, offset: U32, len: U32) -> ()` | Queue one period: `len` bytes at `offset` of the staging buffer. |
+| `reap()` | `Reap() -> (progress: Progress)` |  |
+| `new_device()` | struct `Device` | a `Device` at its zero value |
+| `new_progress()` | struct `Progress` | a `Progress` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `Attach`.
+
+- `SYNC` = the `Sync` variants; `SYNC_NONE`, `SYNC_ASYNC`, `SYNC_ADAPTIVE`, `SYNC_SYNCHRONOUS`
 
 ## `sys::webd_light`
 

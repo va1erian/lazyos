@@ -11,7 +11,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPT
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "hires", "tls", "mail", "traydemo", "autologin", "setup", "pictures",
                  "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazywebplus", "games",
-                 "devtools")
+                 "devtools", "usb_audio")
 
 _OPTION_TEXT = {
     "shell": "LazyShell desktop (taskbar, start menu, desktop icons)",
@@ -24,6 +24,8 @@ _OPTION_TEXT = {
     "hires": "Hi-res: 2560x1440 at 1x (a roomy 1440p desktop; text keeps its size)",
     "usb_image": "USB stick image too (target/lazyos-usb.img for a real PC; "
                  "write it with tools/boot/stick_gui.py)",
+    "usb_audio": "USB audio: headsets, speakers and DACs as a sound output "
+                 "(picked in the Volume tray menu)",
 }
 
 

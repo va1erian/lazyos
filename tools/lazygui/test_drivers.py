@@ -84,6 +84,27 @@ class DriverChoiceTests(unittest.TestCase):
         # devd off cannot start it: the build refuses the pair (build.rs).
         self.assertEqual(catalog.build_env(advanced(intelgfx=True, devd=False)).get("LAZYOS_DEVD"), "0")
 
+    def test_usb_audio_is_off_by_default_and_brings_its_stacks(self) -> None:
+        # docs/usb-audio-plan.md: opt-in, and always set so an inherited
+        # LAZYOS_USB_AUDIO never overrides the control.
+        self.assertNotIn("--usb-audio", demo_argv())
+        self.assertEqual(catalog.build_env(advanced()).get("LAZYOS_USB_AUDIO"), "0")
+        self.assertEqual(demo_argv(usb_audio=True).count("--usb-audio"), 1)
+        env = catalog.build_env(advanced(usb_audio=True))
+        self.assertEqual((env.get("LAZYOS_USB_AUDIO"), env.get("LAZYOS_USB"), env.get("LAZYOS_SOUND")),
+                         ("1", "1", "1"))
+        # A headless run records both devices on one audiodev.
+        extra = drivers.session_sound(advanced(usb_audio=True, out="shots/x"))
+        self.assertTrue(any("usb-audio" in arg for arg in extra))
+        self.assertTrue(any("virtio-sound-pci" in arg for arg in extra))
+
+    def test_usb_audio_is_a_simple_option(self) -> None:
+        from lazygui.simplecfg import SIMPLE_OPTIONS, plain_config
+        self.assertIn("usb_audio", SIMPLE_OPTIONS)
+        cfg = plain_config(advanced(), "dev", "Desktop", usb_audio=True)
+        self.assertTrue(cfg["usb_audio"])
+        self.assertFalse(plain_config(advanced(), "dev", "Desktop")["usb_audio"])
+
     def test_the_choices_are_run_demos(self) -> None:
         self.assertEqual(sorted(drivers.SOUND_CARDS), sorted(demo_qemu.SOUND_CARDS))
         self.assertEqual(sorted(drivers.NICS), sorted(demo_qemu.NICS))

@@ -10,6 +10,13 @@
 /// Who may hold it is the Messenger policy's decision (an installed app needs
 /// the permission explicitly); the service itself does not ask.
 ///
+/// The mixer plays through one *output* at a time: every card a driver
+/// registers under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and
+/// `SelectOutput` switches; without a choice (or when the chosen one is
+/// absent) the best kind present plays (USB, HDMI, a built-in codec, a
+/// virtual card; the newest of a kind), so a headset plugged in
+/// takes over and unplugging it falls back to the one before.
+///
 /// Gains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144
 /// (four times unity). Failures are returned as the shared
 /// structured error field (see `services::error_field`): an unknown stream is
@@ -23,6 +30,13 @@ interface os.lazy.audio.mixer.v1 {
     method GetMaster() -> (master: Master = 1);
     /// Set the master gain and mute flag, applied after mixing.
     method SetMaster(gain_q16: U32 = 1, mute: Bool = 2) -> ();
+    /// Every sound output a driver serves now (a built-in codec, a USB
+    /// headset, an HDMI display), the one playing first.
+    method ListOutputs() -> (outputs: Array<Output> = 1);
+    /// Play through output `id` from now on, and prefer it whenever it is
+    /// present. Streams keep playing across the switch. `ENOENT` for an
+    /// output that is not present.
+    method SelectOutput(id: String = 1) -> ();
 
     /// What one open stream is doing.
     struct StreamStatus {
@@ -53,6 +67,25 @@ interface os.lazy.audio.mixer.v1 {
         /// Streams open now, and the most the mixer accepts.
         streams: U32 = 6,
         max_streams: U32 = 7
+    }
+
+    /// What kind of device an output is. Ordinals are append-only.
+    enum OutputKind { Other, Virtio, Hda, Usb, Hdmi }
+
+    /// One sound output: a card a driver serves under
+    /// `os.lazy.audio.card/<id>`.
+    struct Output {
+        /// The card id (`intel-hda0`, `usb-audio0`, ...), what
+        /// `SelectOutput` takes.
+        id: String = 1,
+        /// What to show a person (`Built-in audio`, `USB: <product>`).
+        name: String = 2,
+        /// An `OutputKind` ordinal.
+        kind: U32 = 3,
+        /// The mixer plays through it now.
+        active: Bool = 4,
+        /// It is the output someone selected last.
+        preferred: Bool = 5
     }
 
     /// A stream's lifecycle, as `os.lazy.audio.v1` drives it.

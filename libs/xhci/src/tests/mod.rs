@@ -13,6 +13,7 @@ use crate::trb::{self, kind, request, Trb, CHAIN, CYCLE, IDT, IOC};
 use crate::Error;
 
 mod bulk;
+mod isoch;
 mod extcap;
 mod route;
 

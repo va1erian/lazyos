@@ -161,7 +161,7 @@ class Launcher:
 
         driveropts.build_group(self._group(parent, "Drivers (issue #497)"),
                                *(self.v[k] for k in ("sound_card", "nic", "devd", "irqchip", "msi",
-                                                  "intelgfx")))
+                                                  "intelgfx", "usb_audio")))
 
         self.g_test = self._group(parent, "Test app / session script")
         self.cmb_script = ttk.Combobox(self.g_test, textvariable=self.v["script"],

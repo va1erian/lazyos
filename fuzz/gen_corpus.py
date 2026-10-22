@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 # The seed builders, one module per family of targets beside this script.
+from seeds_audio import usbaudio_seeds
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
 )
@@ -50,6 +51,7 @@ TARGETS = {
     "inputmap_pointer": inputmap_pointer_seeds,
     "inputmap_gamepad": inputmap_gamepad_seeds,
     "usbdesc": usbdesc_seeds,
+    "usbaudio": usbaudio_seeds,
     "hidreport": hidreport_seeds,
     "hidreportdesc": hidreportdesc_seeds,
     "mscdesc": mscdesc_seeds,

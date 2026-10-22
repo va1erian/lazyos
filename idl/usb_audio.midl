@@ -1,0 +1,78 @@
+/// A USB audio playback function, as `usbd` drives it
+/// (docs/usb-audio-plan.md).
+///
+/// `usbd` owns every xHCI controller, so the isochronous endpoint of a USB
+/// speaker, headset or DAC can only be fed by it. `sndd usb=1` serves the
+/// device as an ordinary sound card (`os.lazy.audio.v1` under
+/// `os.lazy.audio.card/usb-audio0`) and drives it through this interface,
+/// which `usbd` serves under `os.lazy.usb.audio` while an audio device is
+/// bound (one at a time) and withdraws when it goes away.
+///
+/// The model is `sndd`'s card model: periods are *submitted* in order from
+/// one shared staging buffer and later *completed* (`Reap` counts them).
+/// Samples are always interleaved stereo `S16Le`; `usbd` converts them to the
+/// device's subslot and channel count as it copies them into its own DMA,
+/// so the staging buffer is read only by copy and a rewrite of it changes
+/// what plays, never what `usbd` touches. `Stop` completes every period
+/// still queued, as a stopped virtio-sound stream hands back its buffers.
+///
+/// Only `_snd` (uid 901) and root may call it: anyone else gets `EACCES`.
+/// No device bound (it was unplugged) is `ENODEV`; a call out of order
+/// (`Submit` before `Configure`, a range outside the staging buffer) is
+/// `EINVAL`. Failures are returned as the shared structured error field.
+interface os.lazy.usb.audio.v1 {
+    /// How the device paces itself (the data endpoint's sync type).
+    /// Ordinals are append-only.
+    enum Sync { None, Async, Adaptive, Synchronous }
+
+    /// What the bound device is and can play.
+    struct Device {
+        vendor: U32 = 1,
+        product: U32 = 2,
+        /// The product string the device reports, empty when it has none.
+        name: String = 3,
+        /// The class revision: 1 (UAC 1.0) or 2 (UAC 2.0).
+        version: U32 = 4,
+        /// Rate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.
+        rates: U32 = 5,
+        /// Channels and significant bits of the alternate a 48 kHz stereo
+        /// stream would use.
+        channels: U32 = 6,
+        bits: U32 = 7,
+        /// A `Sync` ordinal.
+        sync: U32 = 8,
+        /// The device runs at high speed (microframes) rather than full.
+        high_speed: Bool = 9,
+        /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
+        port: String = 10
+    }
+
+    /// How far the device got.
+    struct Progress {
+        /// Periods played (or dropped by a stop) since `Configure`.
+        completed: U64 = 1,
+        /// Times the isochronous ring ran dry (`usbd` was starved).
+        underruns: U32 = 2,
+        /// Service intervals the controller missed.
+        missed: U32 = 3
+    }
+
+    method Describe() -> (device: Device = 1);
+    /// Share the staging buffer periods are submitted from. Replaces an
+    /// earlier one (a restarted `sndd`), stopping any stream.
+    method Attach(staging: Buffer = 1) -> ();
+    /// Pick the alternate setting and rate for a stereo stream at `rate` Hz
+    /// (the closest the device has), switch the device to it and reset the
+    /// counters. Returns the rate it runs at.
+    method Configure(rate: U32 = 1) -> (granted: U32 = 1);
+    /// Start sending; until periods arrive the device hears silence.
+    method Start() -> ();
+    /// Stop sending; every queued period counts as completed.
+    method Stop() -> ();
+    /// Stop and switch the device to its zero-bandwidth alternate.
+    method Release() -> ();
+    /// Queue one period: `len` bytes at `offset` of the staging buffer.
+    /// `slot` is the caller's tag, echoed nowhere; periods complete in order.
+    method Submit(slot: U32 = 1, offset: U32 = 2, len: U32 = 3) -> ();
+    method Reap() -> (progress: Progress = 1);
+}

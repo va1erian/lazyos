@@ -1,5 +1,6 @@
 """QEMU devices `tools/run_demo.py` derives from its flags: the sound card, the
-NIC model, and the `devd` switch (issue #497)."""
+NIC model, the `devd` switch (issue #497) and a USB audio device
+(docs/usb-audio-plan.md)."""
 
 from __future__ import annotations
 
@@ -16,6 +17,9 @@ SOUND_CARDS = {
     "virtio": ["virtio-sound-pci,audiodev={dev}"],
     "hda": ["intel-hda,id=hda0", "hda-output,bus=hda0.0,audiodev={dev}"],
 }
+#: `--usb-audio`: QEMU's UAC 1.0 speaker on an xHCI controller of its own, on
+#: the same audiodev as the sound card, so the guest has two outputs to pick.
+USB_AUDIO = ["qemu-xhci,id=xhciaudio", "usb-audio,bus=xhciaudio.0,audiodev={dev}"]
 #: `--nic`: the QEMU device of each NIC model (`tools/net/qemu_net.py`).
 NICS = ("virtio", "e1000")
 
@@ -42,8 +46,8 @@ def boot_disk_args(disk: str, image) -> list[str]:
 
 
 def add_device_options(parser: argparse.ArgumentParser) -> None:
-    """`--sound`, `--sound-card`, `--nic`, `--no-devd`, `--irqchip`,
-    `--no-msi` and `--intelgfx`."""
+    """`--sound`, `--sound-card`, `--usb-audio`, `--nic`, `--no-devd`,
+    `--irqchip`, `--no-msi` and `--intelgfx`."""
     parser.add_argument("--sound", nargs="?", const="auto", metavar="BACKEND",
                         help="attach a sound card (--sound-card) and build with LAZYOS_SOUND=1, "
                              "which boots the `sndd` driver and plays its test tones. "
@@ -52,6 +56,14 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sound-card", choices=sorted(SOUND_CARDS), default="virtio",
                         help="with --sound: virtio-sound (default) or an Intel HDA controller "
                              "with a line-out codec (issue #497); `sndd` drives either")
+    parser.add_argument("--usb-audio", action="store_true",
+                        help="USB speakers, headsets and DACs (LAZYOS_USB_AUDIO=1 with "
+                             "LAZYOS_USB=1 and the sound stack, docs/usb-audio-plan.md): `usbd` "
+                             "drives the device and `sndd usb=1` serves it as a second output "
+                             "the Volume tray menu and `mixer outputs` offer; implies --sound, "
+                             "and QEMU gets a `usb-audio` device next to the sound card. "
+                             "Opt-in until it has run on the Kaby Lake and Alder Lake boxes "
+                             "(add --usb-image --dbgd --build-only for their stick)")
     parser.add_argument("--nic", choices=NICS, default="virtio",
                         help="with --net: virtio-net (default) or an Intel 8254x (QEMU's "
                              "e1000, issue #497); `netdrv` drives either")
@@ -82,6 +94,13 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
     env["LAZYOS_DEVD"] = "0" if args.no_devd else "1"
     env["LAZYOS_IRQCHIP"] = args.irqchip
     env["LAZYOS_MSI"] = "0" if args.no_msi else "1"
+    # Either way, so an inherited value never overrides `--usb-audio`.
+    env["LAZYOS_USB_AUDIO"] = "1" if args.usb_audio else "0"
+    if args.usb_audio:
+        env["LAZYOS_USB"] = "1"
+        env["LAZYOS_SOUND"] = "1"
+        if not args.desktop:
+            env.setdefault("LAZYOS_SERVICES", "1")
     # Either way, so an inherited value never overrides `--intelgfx`.
     env["LAZYOS_INTELGFX"] = "1" if args.intelgfx else "0"
     if args.intelgfx and not (args.desktop or args.net or args.sound):
@@ -91,8 +110,9 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
         env.setdefault("LAZYOS_SERVICES", "1")
 
 
-def sound_args(backend: str, card: str = "virtio") -> list[str]:
-    """QEMU arguments for a `card` sound card on `backend` (see `--sound`)."""
+def sound_args(backend: str, card: str = "virtio", usb_audio: bool = False) -> list[str]:
+    """QEMU arguments for a `card` sound card on `backend` (see `--sound`), and
+    a USB audio device on the same backend with `usb_audio`."""
     if backend == "auto":
         backend = {"win32": "dsound", "darwin": "coreaudio"}.get(sys.platform, "pa")
     if backend.startswith("wav:"):
@@ -102,7 +122,7 @@ def sound_args(backend: str, card: str = "virtio") -> list[str]:
     else:
         audiodev = f"{backend},id=snd0"
     args = ["-audiodev", audiodev]
-    for device in SOUND_CARDS[card]:
+    for device in SOUND_CARDS[card] + (USB_AUDIO if usb_audio else []):
         args += ["-device", device.format(dev="snd0")]
     return args
 
@@ -144,7 +164,8 @@ USB_APPS = [ROOT / "target" / "xui" / "xui-removable.elf"]
 def usb_desktop(args) -> bool:
     """Whether this build ships the USB stack (`LAZYOS_USB=1`), which brings the
     removable-drives tray applet."""
-    return bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
+    return (bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
+            or bool(getattr(args, "usb_audio", False)))
 
 
 def usb_env(sticks: list[str], desktop: bool) -> dict[str, str]:
