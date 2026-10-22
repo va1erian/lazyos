@@ -32,6 +32,8 @@ messenger-generated = { path = "../../../libs/generated" }
 lazydamage = { path = "../damage" }
 # Download names and the .part protocol: the browser rules (`downloads.rs`).
 lazydownloads = { path = "../downloads" }
+# A page's notification as a toast, and the per-site limits: the browser rules (`service/notify.rs`).
+lazywebnotify = { path = "../webnotify" }
 
 [dev-dependencies]
 # Seeded fuzz of the slot state machine, the dispatch and the request decoders (`FUZZ_CASES`).

@@ -113,3 +113,13 @@ pub const INPUT_LOCK_MS: u64 = 3000;
 /// Navigations held at once per view, and notifications on screen at once per view.
 pub const HELD_PER_VIEW: usize = 8;
 pub const TOASTS_PER_VIEW: usize = 4;
+
+/// webd is the one sender of every client's toasts, so the shell's allowance for a sender (16 on
+/// screen, a burst of 6 and one more each half second) is shared by all clients. One client's pages
+/// therefore get a share of it: [`TOASTS_PER_CLIENT`] on screen at once (three clients fit in the 16)
+/// and a pace of [`CLIENT_TOAST_BURST`] at once, then one every [`CLIENT_TOAST_REFILL_MS`]; no one
+/// looping `new Notification(); close()` can use up what the others need. Beyond these a site has the
+/// per-site limits of LazyWeb+ (`lazywebnotify`).
+pub const TOASTS_PER_CLIENT: usize = 5;
+pub const CLIENT_TOAST_BURST: u64 = 3;
+pub const CLIENT_TOAST_REFILL_MS: u64 = 2000;

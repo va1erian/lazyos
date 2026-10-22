@@ -124,6 +124,9 @@ pub struct Service<E: Engine, F: Fabric> {
     saver: Option<Arc<Saver>>,
     /// Which sites may show notifications, per profile, while webd runs (`NotifyPermission`).
     permissions: BTreeMap<Profile, BTreeMap<String, bool>>,
+    /// What each client has on screen and its pace, so one client's pages cannot use up the shell's
+    /// allowance for webd (`service/notify.rs`).
+    client_toasts: BTreeMap<ClientKey, notify::ClientToasts>,
 }
 
 impl<E: Engine, F: Fabric> Service<E, F> {
@@ -144,6 +147,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             places: Places::default(),
             saver: None,
             permissions: BTreeMap::new(),
+            client_toasts: BTreeMap::new(),
         }
     }
 

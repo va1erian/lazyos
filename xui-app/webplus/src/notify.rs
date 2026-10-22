@@ -18,8 +18,8 @@
 //! `SHOW:<origin>:<id>` a toast is on screen, `CLICK:<id>`, `CLOSE:<id>`, `DROP:<origin>:<why>` a
 //! post over the limits, `DENY:<origin>:<why>` something that was not allowed, `FORGET:<origin>`.
 
-pub mod live;
-pub mod origin;
+/// The origin, the toast's words and the limits are their own crate (`lazywebnotify`), shared with webd.
+pub use lazywebnotify::{live, origin};
 pub mod shell;
 pub mod store;
 

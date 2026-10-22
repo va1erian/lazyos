@@ -31,7 +31,7 @@ const SECOND: u64 = 1000;
 pub struct Live {
     /// WebKit's id for it: what the engine is told about.
     pub id: u64,
-    /// The site, as [`Origin::key`](super::origin::Origin::key).
+    /// The site, as [`Origin::key`](crate::origin::Origin::key).
     pub origin: String,
     /// The page that asked.
     pub page_url: String,
@@ -87,13 +87,82 @@ struct Pace {
 }
 
 /// Every live web notification and every site's pace.
-#[derive(Default)]
 pub struct Registry {
     live: Vec<Live>,
     paces: HashMap<String, Pace>,
+    /// Live web toasts in all ([`LIVE_TOTAL`] unless [`Registry::with_total`] says otherwise).
+    total: usize,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Registry::with_total(LIVE_TOTAL)
+    }
+}
+
+/// A token bucket: `burst` posts at once, one more earned every `refill_ms`. A site's pace is one
+/// (inside [`Registry`]); webd keeps one per client as well, so that one client's pages cannot use
+/// up the sender-wide allowance the shell grants webd for every client.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bucket {
+    burst: u64,
+    refill_ms: u64,
+    /// Milliseconds earned toward the next token, plus whole tokens times `refill_ms`.
+    earned: u64,
+    at_ms: u64,
+}
+
+impl Bucket {
+    /// A full bucket at `now_ms`. `refill_ms` is at least 1.
+    pub fn new(now_ms: u64, burst: u64, refill_ms: u64) -> Bucket {
+        let refill_ms = refill_ms.max(1);
+        Bucket {
+            burst,
+            refill_ms,
+            earned: burst.saturating_mul(refill_ms),
+            at_ms: now_ms,
+        }
+    }
+
+    /// Takes one post out of the bucket; false when it has not earned one.
+    pub fn take(&mut self, now_ms: u64) -> bool {
+        let cap = self.burst.saturating_mul(self.refill_ms);
+        self.earned = self
+            .earned
+            .saturating_add(now_ms.saturating_sub(self.at_ms))
+            .min(cap);
+        self.at_ms = self.at_ms.max(now_ms);
+        if self.earned < self.refill_ms {
+            return false;
+        }
+        self.earned -= self.refill_ms;
+        true
+    }
+
+    /// Whether it is full again (nothing worth remembering).
+    pub fn is_full(&self, now_ms: u64) -> bool {
+        self.earned
+            .saturating_add(now_ms.saturating_sub(self.at_ms))
+            >= self.burst.saturating_mul(self.refill_ms)
+    }
 }
 
 impl Registry {
+    /// A registry that keeps `total` live toasts in all (at least one) instead of [`LIVE_TOTAL`]: webd
+    /// keeps one per client, within the shell's allowance for all of webd's clients together.
+    pub fn with_total(total: usize) -> Registry {
+        Registry {
+            live: Vec::new(),
+            paces: HashMap::new(),
+            total: total.max(1),
+        }
+    }
+
+    /// Whether anything is live.
+    pub fn is_empty(&self) -> bool {
+        self.live.is_empty()
+    }
+
     /// Decides on notification `id` of `origin`, asked for by `page_url`; a post is kept as live
     /// (without a toast yet: [`Registry::posted`]).
     pub fn admit(
@@ -115,7 +184,7 @@ impl Registry {
         if same_tag.is_none() && site_live >= LIVE_PER_ORIGIN {
             return Admit::Drop(Dropped::Site);
         }
-        if same_tag.is_none() && self.live.len() >= LIVE_TOTAL {
+        if same_tag.is_none() && self.live.len() >= self.total {
             return Admit::Drop(Dropped::Busy);
         }
         if !self.pay(now_ms, origin) {
@@ -197,6 +266,11 @@ impl Registry {
         if let Some(n) = self.live.iter_mut().find(|n| n.id == id) {
             n.orphaned = true;
         }
+    }
+
+    /// Every toast is gone (the shell lost its line): nothing is live, the paces stay.
+    pub fn forget_all(&mut self) {
+        self.live.clear();
     }
 
     /// Every page object is gone (the page's process crashed): the toasts stay and none can
@@ -426,6 +500,44 @@ mod tests {
         let gone = registry.expire(LIFETIME_MS + 1);
         assert_eq!(gone.len(), 1);
         assert_eq!(registry.live_of(A), 0);
+    }
+
+    #[test]
+    fn a_bucket_allows_its_burst_then_one_per_refill() {
+        let mut bucket = Bucket::new(1000, 3, 2000);
+        assert!(bucket.take(1000) && bucket.take(1000) && bucket.take(1000));
+        assert!(!bucket.take(1000), "the burst is spent");
+        assert!(!bucket.take(2999), "not yet one refill");
+        assert!(bucket.take(3000), "one refill earned");
+        assert!(!bucket.take(3000));
+        // A long quiet time earns the burst and no more.
+        let mut taken = 0;
+        while bucket.take(1_000_000) {
+            taken += 1;
+        }
+        assert_eq!(taken, 3);
+        assert!(bucket.is_full(1_000_000 + 6000));
+        assert!(!bucket.is_full(1_000_000));
+        // A clock that goes backwards earns nothing and breaks nothing.
+        assert!(!bucket.take(5));
+    }
+
+    #[test]
+    fn a_registry_can_keep_fewer_live_toasts_in_all() {
+        let mut registry = Registry::with_total(2);
+        assert!(matches!(
+            post(&mut registry, 0, 1, A, "a"),
+            Admit::Post { .. }
+        ));
+        assert!(matches!(
+            post(&mut registry, 0, 2, B, "b"),
+            Admit::Post { .. }
+        ));
+        assert_eq!(
+            post(&mut registry, 0, 3, "https://c.test", "c"),
+            Admit::Drop(Dropped::Busy)
+        );
+        assert!(!registry.is_empty());
     }
 
     #[test]
