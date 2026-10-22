@@ -360,11 +360,13 @@ void webd_engine_load_html(uint64_t view, const uint8_t* html, size_t len, const
 {
     std::string document(reinterpret_cast<const char*>(html), html ? len : 0);
     std::string base = base_url ? base_url : "";
-    // A light view's one load. A full view loads addresses (webd_engine_load), never the caller's HTML under
-    // an origin it names.
+    // A light view's one load (an inert base only); a full view's page of the client's own, under a base the
+    // service checked (about:, data:, http:, https:; never file:, which the engine refuses too).
     withView(view, [document = std::move(document), base = std::move(base)](Slot& s, View& v) {
         if (s.config.light)
             v.loadHtml(document, base);
+        else
+            loadFullHtml(v, document, base);
     });
 }
 

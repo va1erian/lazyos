@@ -395,6 +395,9 @@ std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnl
 void configureFull(View& view, WKPageConfigurationRef configuration);
 // After the page exists: the user agent suffix, when there is one.
 void applyUserAgentSuffix(View& view);
+// A full view's load of the owner's HTML (UTF-8) with a base URL of the about:, data:, http: or https: scheme
+// (empty is about:blank); any other loads nothing and the next state carries an error. Replaces the page.
+void loadFullHtml(View& view, const std::string& html, const std::string& baseUrl);
 
 // ---- log.cpp: markers and small helpers ----------------------------------------------------------
 

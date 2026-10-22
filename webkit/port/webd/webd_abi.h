@@ -80,7 +80,10 @@ typedef struct webd_view_config {
     // 1: the view sends what changed (webd_paint_*, webd_ui_frame_delta, webd_ui_band) rather than whole
     // frames only; 0: every frame is a whole one (webd_ui_frame), as for a light view.
     int32_t deltas;
-    // Appended to the user agent (WKPageSetApplicationNameForUserAgent), or NULL; at most 64 bytes.
+    // Appended to the user agent, or NULL; at most 64 printable ASCII bytes (else ignored, CONFIG:IGNORED). The
+    // page's agent becomes WebKit's, a space and the suffix (a custom user agent: WKPageSetApplicationNameForUserAgent
+    // would add "/<WebKit version>"), and the view has no site-specific quirks, which on this port put WebKit's
+    // fixed agent on every request whatever the page's own is (WebPagePlayStation.cpp).
     const char* user_agent_suffix;
 } webd_view_config;
 
@@ -120,6 +123,9 @@ void webd_engine_view_destroy(uint64_t view);
 // Loads the caller's HTML (`html`, `len` bytes of UTF-8, copied before the call returns) with this base URL
 // ("about:blank" or an opaque origin; anything with a network or file scheme is refused: nothing loads and the
 // next webd_ui_state carries a non-empty error). Replaces the page.
+// A FULL view takes the client's own page too, under a base URL of the about:, data:, http: or https: scheme the
+// service checked against the view's policy ("" is about:blank); any other (file:, ...) loads nothing and the
+// next webd_ui_page_state carries an error. Its navigation asks webd_ui_navigate like any other.
 void webd_engine_load_html(uint64_t view, const uint8_t* html, size_t len, const char* base_url);
 
 // The view's size in pixels; the next frame has this size.

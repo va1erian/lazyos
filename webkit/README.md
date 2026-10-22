@@ -342,8 +342,7 @@ python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run
 
 A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its configuration and its own calls
 (`load`, `reload`, `stop`, `back`, `forward`, `download`, `download_cancel`, `dialog_reply`,
-`navigation_answer`, `notify_*`, `blocking_*`; each does nothing to a light view, and `load_html` nothing to a
-full one), `sink_full.cpp` is its `ViewSink`: `legacy.cpp`'s `LegacySink` with the view id on every call
+`navigation_answer`, `notify_*`, `blocking_*`; each does nothing to a light view), `sink_full.cpp` is its `ViewSink`: `legacy.cpp`'s `LegacySink` with the view id on every call
 (`webd_ui_page_state` instead of `webd_ui_state`). `slots.h` is what the three files share.
 
 * *The host.* Full views need `webd_engine_start_host` with a `children_directory`
@@ -356,6 +355,11 @@ full one), `sink_full.cpp` is its `ViewSink`: `legacy.cpp`'s `LegacySink` with t
   `scripts = 0` turns script off (preferences are touched only when something is asked: scripts off, a font
   size, a suffix); `user_style` is a user script that appends a `<style>` (scripts on only, else
   `CONFIG:IGNORED:user_style`); `color_scheme = 1` is `CONFIG:IGNORED` as for a light view.
+* *The client's own page.* `load_html` on a full view is `loadFullHtml` (`fullview.cpp`): the bytes as
+  `WKPageLoadData`, UTF-8 `text/html`, under a base whose scheme (as WebKit parses it) is `about`, `data`, `http` or
+  `https`; anything else (`file:`) loads nothing and the next page state carries an error (`FULL:BASE:REFUSED`).
+  Its navigation is asked about (`webd_ui_navigate`, the base URL, kind `other`) like any other, and relative
+  addresses in the page resolve against the base.
 * *User agent suffix.* At most 64 printable ASCII bytes (else `CONFIG:IGNORED:user_agent_suffix`). With
   site-specific quirks on, the page's process sends PlayStation's fixed agent for every address
   (`WebPagePlayStation.cpp`, `platformUserAgent`), so `WKPageSetApplicationNameForUserAgent` never reached a
@@ -392,7 +396,7 @@ LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkP
 
 | mode | what it asserts |
 |---|---|
-| `full` | the first page state answers `view_create`; a load from the test's HTTP server: url, committed url, title, `finished`, `progress`, no back/forward, the load asked as a main-frame `other` without a gesture, the user agent ends with the suffix; a link click (asked as a link with its gesture), Back, Forward, Reload with `can_back`/`can_forward` and `finished`; a denied navigation requests nothing; a failed load says why and leaves the page; no delta for `deltas = 0`; `load_html` does nothing to a full view |
+| `full` | the first page state answers `view_create`; a load from the test's HTTP server: url, committed url, title, `finished`, `progress`, no back/forward, the load asked as a main-frame `other` without a gesture, the user agent ends with the suffix; a link click (asked as a link with its gesture), Back, Forward, Reload with `can_back`/`can_forward` and `finished`; a denied navigation requests nothing; a failed load says why and leaves the page; no delta for `deltas = 0`; `load_html` under the server's `http` base (asked about; its relative picture requested from the server; title and state arrive), under `about:blank`, and refused under `file:` (an error, nothing loads) |
 | `profiles` | profile A's page sets a cookie by `Set-Cookie` and by `document.cookie`; a second view of A (another process) sends both; profile B and a memory-only view send none, and A does not send the memory-only view's; the children's environment is still the start's; the cookie is in a file below A's `cookies/`, in nothing below B, the children's folder or the working directory, and the memory-only view's is on no disk |
 | `ask` | a click to another origin held: nothing requested until `navigation_answer(allow)` loads it; a second held one denied stays; a third dropped by a newer `load`, its late answer does nothing; a view destroyed with one held ends cleanly |
 | `dialog` | alert, confirm, prompt answered in turn (`done:true:typed`), Cancel is `false:null`, a stale reply is nothing; 25 alerts of a loop answered in order; an endless loop answered ten times, then its view destroyed with a dialog open, and a new view works |
