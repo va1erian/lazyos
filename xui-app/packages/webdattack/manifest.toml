@@ -1,0 +1,36 @@
+# Web Attack Probe: the malicious-client half of webd's attack harness (tools/webd/attack_run.py,
+# docs/webd-plan.md P5). A real client of webd that lists only the base full-view interface, so the
+# kernel refuses the `net` and `browser` scopes it tries to reach. Shipped only by `LAZYOS_WEBDDEMO=1`
+# images (a test fixture, like webddemo and webdbrowse; build_support/webd_embed.rs CLIENT_PACKAGES).
+#
+# `bin/webdattack.elf` is not checked in: the build copies the built xui app into a scratch copy of
+# this tree. `version` is replaced by the workspace version.
+
+[app]
+name = "Web Attack Probe"
+system_name = "os.lazy.webdattack"
+author = "LazyOS"
+version = "0.1.0"
+description = "A hostile client of webd: tries scopes it was not granted, floods input and exhausts views; everything must be refused"
+category = "system"
+
+[entry]
+binary = "bin/webdattack.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# The display, pointer shapes and input every window needs, and ONLY the base full-view interface
+# `os.lazy.webd.view.v1` (MEDIUM). It deliberately does NOT list `os.lazy.webd.net.v1` or
+# `os.lazy.webd.browser.v1`: a `CreateView` it sends through either is refused by the kernel before
+# webd sees it (a `LABEL:DENY` of this label for that interface), which is what the harness proves.
+# A traced run shows no other `LABEL:DENY` for `app:os.lazy.webdattack` (tools/webd/attack_run.py).
+interfaces = [
+    "os.lazy.display.v1",
+    "os.lazy.display.cursor.v1",
+    "os.lazy.input.v1",
+    "os.lazy.webd.view.v1",
+]

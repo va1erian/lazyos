@@ -456,3 +456,7 @@ path = "src/bin/webddemo.rs"
 [[bin]]
 name = "xui-webdbrowse"
 path = "src/bin/webdbrowse.rs"
+
+[[bin]]
+name = "xui-webdattack"
+path = "src/bin/webdattack.rs"

@@ -186,6 +186,10 @@ CORE_APPS: dict[str, CoreApp] = {
     # Web View Test (docs/webd-plan.md P2 slice 3): drives webd's full views through the view, net
     # and browser scopes against the harness server. Only a `LAZYOS_WEBDDEMO=1` image ships it.
     "webdbrowse": xui_app("xui-webdbrowse.elf", "webdbrowse", optional=True),
+    # Web Attack Probe (docs/webd-plan.md P5): the malicious client of webd's attack harness
+    # (`python tools/webd/attack_run.py`). Lists only `os.lazy.webd.view.v1`, so the kernel refuses
+    # the net and browser scopes it tries. Only a `LAZYOS_WEBDDEMO=1` image ships it.
+    "webdattack": xui_app("xui-webdattack.elf", "webdattack", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
