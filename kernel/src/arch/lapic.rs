@@ -224,6 +224,13 @@ pub fn eoi() {
 /// Callers: [`send_init`], [`send_sipi`], [`send_fixed`]. The xAPIC path
 /// waits for the previous send to drain first (the delivery-status bit);
 /// x2APIC needs no wait and no high half.
+///
+/// The ICR is this CPU's own register, so two CPUs never share one; the
+/// hazard is an interrupt on *this* CPU sending between the xAPIC's two
+/// writes (its `ICR_HI` would redirect ours). The pair therefore runs with
+/// interrupts off. An NMI is not held off: none sends, but the panic path
+/// may run in one (`smp::stop_others`), and it never returns to the send it
+/// interrupted.
 fn send(dest: u32, low: u32) {
     match mode() {
         Some(Mode::X2Apic) => {
@@ -238,18 +245,21 @@ fn send(dest: u32, low: u32) {
             );
         }
         Some(Mode::XApic) => {
-            // Wait for the previous IPI to drain (bounded: a hub of a few
-            // rounds on real silicon; the last resort is sending anyway,
-            // which at worst doubles an IPI).
-            for _ in 0..1_000_000 {
-                if read(ICR_LO) & ICR_DELIVERY_PENDING == 0 {
-                    break;
+            x86_64::instructions::interrupts::without_interrupts(|| {
+                // Wait for the previous IPI to drain (bounded: a hub of a
+                // few rounds on real silicon; the last resort is sending
+                // anyway, which at worst doubles an IPI).
+                for _ in 0..1_000_000 {
+                    if read(ICR_LO) & ICR_DELIVERY_PENDING == 0 {
+                        break;
+                    }
                 }
-            }
-            // The destination field is ICR_HI bits 24..32: a bare id there
-            // reads as destination 0, the BSP, and an INIT resets it.
-            write(ICR_HI, dest << 24);
-            write(ICR_LO, low);
+                // The destination field is ICR_HI bits 24..32: a bare id
+                // there reads as destination 0, the BSP, and an INIT resets
+                // it.
+                write(ICR_HI, dest << 24);
+                write(ICR_LO, low);
+            });
         }
         None => {}
     }
@@ -273,6 +283,12 @@ pub fn send_sipi(dest: u32, vector_page: u8) {
 /// kernel's reschedule/shootdown/stop IPIs.
 pub fn send_fixed(dest: u32, vector: u8) {
     send(dest, ICR_LEVEL_ASSERT | u32::from(vector));
+}
+
+/// An NMI to one APIC (the suite's NMI cases; no kernel path sends one).
+#[cfg(lazyos_tests)]
+pub fn send_nmi(dest: u32) {
+    send(dest, ICR_LEVEL_ASSERT | DELIVERY_NMI);
 }
 
 /// The AP's own local-APIC bring-up (the machine's mode is already decided

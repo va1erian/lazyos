@@ -49,10 +49,27 @@ pub(super) fn prepare() -> Option<u64> {
         // construction, so the unaligned write.
         ((at_u + trampoline::GDTR_BASE_OFF as u64) as *mut u32)
             .write_unaligned(TRAMPOLINE_PHYS as u32 + trampoline::GDT_OFF);
-        put16(trampoline::RETF1_CS_OFF).write_volatile(0x0008);
+        put16(trampoline::RETF1_CS_OFF).write_volatile(trampoline::SEL_CODE32);
         put16(trampoline::RETF1_OFF_OFF).write_volatile(prot_off);
-        put32(trampoline::RETF2_CS_OFF).write_volatile(0x0020);
+        put32(trampoline::RETF2_CS_OFF).write_volatile(u32::from(trampoline::SEL_CODE64));
         put32(trampoline::RETF2_OFF_OFF).write_volatile(long_off);
+        // The early NMI table's three vector-2 gates (trampoline.rs).
+        let stub = |label: &u8| TRAMPOLINE_PHYS + blob_off(label) as u64;
+        let table = at_u + trampoline::EARLY_IDT_OFF as u64;
+        for (offset, value) in early_nmi_gates(
+            blob_off(&trampoline::smp_nmi16) as u16,
+            stub(&trampoline::smp_nmi32),
+            stub(&trampoline::smp_nmi64),
+        ) {
+            ((table + offset) as *mut u64).write_volatile(value);
+        }
+        put32(trampoline::EARLY_NMIS_OFF).write_volatile(0);
+        // The early IDTR the blob's first instruction loads (the blob
+        // carries the same values; these are the authoritative ones).
+        put16(trampoline::EARLY_IDTR_OFF).write_volatile(trampoline::EARLY_IDT_LIMIT);
+        ((at_u + trampoline::EARLY_IDTR_OFF as u64 + 2) as *mut u32)
+            .write_unaligned(TRAMPOLINE_PHYS as u32 + trampoline::EARLY_IDT_OFF);
+
         // And the mailbox fields every AP shares (`CR3`, the magic); the
         // per-AP fields (`entry`, `cpu`, `stack`) are written per AP.
         ((at_u + trampoline::MB_CR3_OFF as u64) as *mut u64)
@@ -81,15 +98,35 @@ fn build_ap_page_table() -> Option<u64> {
     // PML4[0] -> PDPT[0] -> PD[0] -> the 2 MiB identity huge page 0..2 MiB.
     entry(pml4_phys, 0, pdpt_phys | PRESENT | WRITE);
     entry(pdpt_phys, 0, pd_phys | PRESENT | WRITE);
-    entry(pd_phys, 0, PRESENT | WRITE | HUGE); // physical 0, the 2 MiB page
-                                               // The kernel half: entries 256..512 verbatim from the boot table (the
-                                               // kernel half is machine-wide; sharing the entries shares the mappings).
+    // Physical 0, the 2 MiB page.
+    entry(pd_phys, 0, PRESENT | WRITE | HUGE);
+    // The kernel half: entries 256..512 verbatim from the boot table (the
+    // kernel half is machine-wide; sharing the entries shares the mappings).
     let boot = mem::boot_table().as_u64();
     for index in 256..512_usize {
         let value = read_entry(boot, index)?;
         entry(pml4_phys, index, value);
     }
     Some(pml4_phys)
+}
+
+/// The early NMI table's words, as `(byte offset, u64)` pairs: the real-mode
+/// IVT entry 2 (`offset16:0x0800`) at `+8`, the 32-bit interrupt gate at
+/// `+16` and the 64-bit one at `+32` (two words). Each mode reads only its own
+/// slot; the IVT's 4 bytes share their word with nothing a mode reads.
+fn early_nmi_gates(real_off: u16, stub32: u64, stub64: u64) -> [(u64, u64); 4] {
+    const GATE_INTERRUPT: u64 = 0x8E; // present, DPL 0, interrupt gate
+    let ivt = u64::from(real_off) | (0x0800 << 16);
+    let gate32 = (stub32 & 0xFFFF)
+        | (u64::from(trampoline::SEL_CODE32) << 16)
+        | (GATE_INTERRUPT << 40)
+        | ((stub32 >> 16) & 0xFFFF) << 48;
+    let gate64_lo = (stub64 & 0xFFFF)
+        | (u64::from(trampoline::SEL_CODE64) << 16)
+        | (GATE_INTERRUPT << 40)
+        | ((stub64 >> 16) & 0xFFFF) << 48;
+    let gate64_hi = stub64 >> 32;
+    [(8, ivt), (16, gate32), (32, gate64_lo), (40, gate64_hi)]
 }
 
 /// Write one PML4/PDPT/PD entry: `table_phys` is below 4 GiB (a freshly

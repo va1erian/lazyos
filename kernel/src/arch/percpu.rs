@@ -209,10 +209,6 @@ pub const OFF_WINDOW_OPEN: usize = offset_of!(Cpu, window) + offset_of!(WindowSt
 
 static AREAS: [Cpu; MAX_CPUS] = [const { Cpu::ZERO }; MAX_CPUS];
 
-/// Set once the boot CPU's `%gs` names its area ([`init`]): before it, a
-/// `gs:[0]` load reads address 0 (the panic path asks first).
-static READY: AtomicBool = AtomicBool::new(false);
-
 /// The boot CPU's area, addressable before `%gs` points at it: `gdt::init`
 /// builds the boot CPU's GDT/TSS through this, then calls [`init`].
 pub fn boot_area() -> &'static Cpu {
@@ -236,13 +232,6 @@ pub fn init() {
     area.index.store(0, Ordering::Relaxed);
     area.online.store(true, Ordering::Release);
     super::gsgate::install(area as *const Cpu as u64);
-    READY.store(true, Ordering::Release);
-}
-
-/// Whether `%gs` names a per-CPU area on the boot CPU yet (and so on every
-/// CPU that can be running: the APs start after it).
-pub fn ready() -> bool {
-    READY.load(Ordering::Acquire)
 }
 
 /// Make area `index` addressable for the AP about to be started on it: its

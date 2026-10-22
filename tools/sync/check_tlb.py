@@ -8,7 +8,8 @@ write through to a freed frame. Every unmap or write-protect goes through
 listed here with the reason they are safe, and this lint fails when a new one
 appears or an old one moves out of its file:
 
-* `mem/tlb.rs` is the implementation and `arch/smp/ipi.rs` the remote half.
+* `mem/tlb.rs` is the implementation and `arch/smp/shootdown.rs` the remote
+  half; `arch/smp/bringup.rs` flushes a new AP's own TLB once it is online.
 * `pagefault.rs`, `filemap.rs` and `uspace.rs` each have one site that only
   *loosens* an entry (a COW page made writable in place, a shared page made
   writable, a read-only parent made writable): a remote CPU's stale
@@ -35,7 +36,8 @@ BARE = re.compile(r"\btlb::flush(?:_all)?\s*\(|\binvlpg\b")
 # path (under kernel/src) -> how many bare calls it may hold.
 ALLOWED = {
     "mem/tlb.rs": 4,  # flush_local (2), shootdown_all, Batch::note
-    "arch/smp/ipi.rs": 2,  # the shootdown handler's flush_all / flush
+    "arch/smp/shootdown.rs": 2,  # the shootdown handler's flush_all / flush
+    "arch/smp/bringup.rs": 1,  # a new AP's full flush after it goes online
     "mem/pagefault.rs": 1,  # COW made writable in place: loosens
     "mem/filemap.rs": 1,  # shared page made writable: loosens
     "mem/uspace.rs": 1,  # make_walk_writable: loosens

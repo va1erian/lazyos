@@ -19,8 +19,26 @@
 //! It then returns: an NMI on a machine that was only slow costs nothing.
 //! Everything here avoids locks and the heap (it may interrupt their holder),
 //! and writes through [`RawSerial`].
+//!
+//! **Nested NMIs** (docs/architecture/smp.md, "NMIs"). The handler runs on
+//! its own IST stack, and the CPU blocks further NMIs only until the next
+//! `iretq` — any exception inside the handler (a `#PF` on a stack word it
+//! dumps) ends in one. A second NMI would then land on the same IST top and
+//! overwrite the first one's frame. So the gate first copies the hardware
+//! frame out of the IST top onto the rest of the NMI stack and runs there;
+//! an NMI whose interrupted `rsp` lies inside this CPU's NMI stack has
+//! interrupted the handler, and is dropped (counted in [`nested_dropped`])
+//! with an `iretq` straight from the IST top, which the outer one no longer
+//! uses. A dropped NMI loses only a second hang report.
 
+use core::arch::global_asm;
 use core::fmt::{self, Write};
+use core::sync::atomic::{AtomicU64, Ordering};
+
+use crate::arch::percpu::NMI_STACK_SIZE;
+
+#[cfg(lazyos_tests)]
+pub mod test;
 
 use x86_64::registers::control::Cr3;
 use x86_64::structures::idt::InterruptStackFrameValue;
@@ -59,12 +77,61 @@ pub struct Interrupted {
     pub rsp: u64,
 }
 
-// IDT entry for vector 2 (`arch::gsgate`: an NMI lands anywhere, swap
-// windows included).
-crate::arch::gsgate::paranoid_gate!(nmi_gate => nmi_handler);
+/// NMIs dropped because they interrupted this handler (all CPUs).
+static NESTED: AtomicU64 = AtomicU64::new(0);
+
+/// NMIs dropped as nested since boot.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))]
+pub fn nested_dropped() -> u64 {
+    NESTED.load(Ordering::Relaxed)
+}
+
+// IDT entry for vector 2, on `gdt::NMI_IST`. On entry `rsp` is the hardware
+// frame at the IST top (RIP, CS, RFLAGS, RSP, SS). The nested test: the
+// interrupted RSP within `[top - SIZE + 16, top)`, with `top = frame + 40`
+// (the CPU aligned the IST top down to 16 before its five pushes), as one
+// unsigned compare. Otherwise the frame is copied 64 bytes below and the
+// rest is `arch::gsgate`'s paranoid gate (an NMI lands anywhere, swap windows
+// included).
+global_asm!(
+    concat!(
+        ".global nmi_gate\n",
+        "nmi_gate:\n",
+        "push rax\n push rcx\n",
+        "lea rax, [rsp + 16]\n",
+        "mov rcx, [rax + 24]\n sub rcx, rax\n add rcx, {lo_bias}\n cmp rcx, {span}\n jb 3f\n",
+        "lea rsp, [rax - 64]\n and rsp, -16\n",
+        "push qword ptr [rax + 32]\n push qword ptr [rax + 24]\n push qword ptr [rax + 16]\n",
+        "push qword ptr [rax + 8]\n push qword ptr [rax]\n",
+        "mov rcx, [rax - 16]\n mov rax, [rax - 8]\n",
+        crate::arch::gsgate::gate_save!(),
+        "xor ebx, ebx\n mov ecx, 0xC0000101\n rdmsr\n test edx, edx\n js 1f\n",
+        "swapgs\n mov ebx, 1\n1:\n",
+        "lea rdi, [rsp + 88]\n",
+        crate::arch::gsgate::gate_call!(),
+        "test ebx, ebx\n jz 2f\n swapgs\n2:\n",
+        crate::arch::gsgate::gate_restore!(),
+        "iretq\n",
+        "3:\n lock inc qword ptr [rip + {nested}]\n pop rcx\n pop rax\n iretq\n"
+    ),
+    lo_bias = const NMI_STACK_SIZE - 56,
+    span = const NMI_STACK_SIZE - 16,
+    nested = sym NESTED,
+    target = sym nmi_handler,
+);
+
+extern "C" {
+    pub(crate) fn nmi_gate();
+}
 
 /// The NMI: print the hang report for the interrupted context.
 extern "C" fn nmi_handler(frame: &InterruptStackFrameValue) {
+    let cpu = crate::arch::percpu::current();
+    cpu.ipi.nmis.fetch_add(1, Ordering::Relaxed);
+    #[cfg(lazyos_tests)]
+    if test::intercept(cpu) {
+        return;
+    }
     let at = Interrupted {
         rip: frame.instruction_pointer.as_u64(),
         cs: frame.code_segment.0.into(),

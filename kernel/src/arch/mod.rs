@@ -26,6 +26,9 @@ pub mod nmi;
 pub mod pagewalk;
 pub mod percpu;
 pub mod pic;
+#[cfg(lazyos_tests)]
+pub mod probe;
+
 pub mod raw_serial;
 pub mod refclock;
 pub mod rtc;

@@ -120,6 +120,13 @@ pub struct IpiState {
     /// (`arch::nmi::TestMode`; 0 = the real report).
     #[cfg(lazyos_tests)]
     pub nmi_test: AtomicU8,
+    /// Test rig: the points of `ap_entry` before its IDT load where this AP
+    /// stops for the BSP to send it an NMI (a bit each), and the point it
+    /// is stopped at (0: running).
+    #[cfg(lazyos_tests)]
+    pub early_pause: AtomicU8,
+    #[cfg(lazyos_tests)]
+    pub early_paused: AtomicU8,
     /// Test rig: a function for this CPU to run in its next reschedule IPI
     /// (0: none), its argument, its result and a completion generation. The
     /// suite uses it to make an AP touch memory on demand, which is the only
@@ -192,6 +199,10 @@ impl IpiState {
         tsc_bias: AtomicU64::new(0),
         #[cfg(lazyos_tests)]
         nmi_test: AtomicU8::new(0),
+        #[cfg(lazyos_tests)]
+        early_pause: AtomicU8::new(0),
+        #[cfg(lazyos_tests)]
+        early_paused: AtomicU8::new(0),
         #[cfg(lazyos_tests)]
         job: AtomicU64::new(0),
         #[cfg(lazyos_tests)]
