@@ -29,10 +29,11 @@
 //! sections, interrupt handlers) are not charged here.
 
 use core::panic::Location;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use spin::Mutex;
 
+use super::percpu;
 use crate::task::MAX_TASKS;
 
 /// Spans this long or longer break the latency bound and are logged.
@@ -46,7 +47,7 @@ pub const LINUX_SLOTS: usize = 512;
 const NATIVE: u64 = 1 << 63;
 /// Tag for a kernel section ([`kernel_section`]).
 const KERNEL: u64 = 1 << 62;
-/// Marks "no syscall" in [`TASK_NR`] and [`SPAN_NR`].
+/// Marks "no syscall" in [`Cpu::irqoff::nr`] (per CPU, `arch::percpu`).
 const NONE: u64 = u64::MAX;
 
 type Site = Location<'static>;
@@ -60,13 +61,6 @@ static TASK_NR: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(NONE) }; MAX_TA
 /// The tick each task entered that syscall at (`SCHED:STUCK` tells two calls
 /// of the same number apart by it).
 static TASK_ENTER: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
-/// The open span: its start (0 = none), the syscall it is charged to and
-/// where it began.
-static SPAN_START: AtomicU64 = AtomicU64::new(0);
-static SPAN_NR: AtomicU64 = AtomicU64::new(NONE);
-static SPAN_FROM: AtomicPtr<Site> = AtomicPtr::new(core::ptr::null_mut());
-/// The task whose syscall the open span belongs to.
-static SPAN_TASK: AtomicU64 = AtomicU64::new(0);
 /// Spans that reached [`REPORT_US`].
 static OVER: AtomicU64 = AtomicU64::new(0);
 
@@ -157,12 +151,13 @@ pub fn exit() {
 /// Interrupts go back on (or the task gives up the CPU): end the open span.
 #[track_caller]
 pub fn close() {
-    let start = SPAN_START.swap(0, Ordering::Relaxed);
-    let nr = SPAN_NR.load(Ordering::Relaxed);
+    let span = &percpu::current().irqoff;
+    let start = span.start.swap(0, Ordering::Relaxed);
+    let nr = span.nr.load(Ordering::Relaxed);
     if start == 0 || nr == NONE {
         return;
     }
-    let from = SPAN_FROM.load(Ordering::Relaxed);
+    let from = span.from.load(Ordering::Relaxed);
     record(nr, rdtsc().wrapping_sub(start), from, Location::caller());
 }
 
@@ -172,8 +167,9 @@ pub fn close() {
 /// that gives up the CPU closes the span first ([`paused`]).
 #[inline]
 pub fn span_open() -> bool {
-    SPAN_START.load(Ordering::Relaxed) != 0
-        && SPAN_TASK.load(Ordering::Relaxed) == crate::task::current() as u64
+    let span = &percpu::current().irqoff;
+    span.start.load(Ordering::Relaxed) != 0
+        && span.task.load(Ordering::Relaxed) == crate::task::current() as u64
 }
 
 /// Run `f`, which lets interrupts in or gives up the CPU (a voluntary
@@ -201,15 +197,18 @@ pub fn resume() {
 }
 
 fn start(tagged: u64, at: &'static Site) {
-    SPAN_NR.store(tagged, Ordering::Relaxed);
+    let span = &percpu::current().irqoff;
+    span.nr.store(tagged, Ordering::Relaxed);
     if tagged == NONE {
-        SPAN_START.store(0, Ordering::Relaxed);
+        span.start.store(0, Ordering::Relaxed);
         return;
     }
-    SPAN_FROM.store(at as *const Site as *mut Site, Ordering::Relaxed);
-    SPAN_TASK.store(crate::task::current() as u64, Ordering::Relaxed);
+    span.from
+        .store(at as *const Site as *mut Site, Ordering::Relaxed);
+    span.task
+        .store(crate::task::current() as u64, Ordering::Relaxed);
     let now = rdtsc();
-    SPAN_START.store(now, Ordering::Relaxed);
+    span.start.store(now, Ordering::Relaxed);
     super::irq_window::restart(now);
     report_queued();
 }
@@ -228,7 +227,8 @@ fn record(tagged: u64, cycles: u64, from: *const Site, to: &'static Site) {
     }
     slot.store(cycles, Ordering::Relaxed);
     if over_bound {
-        // SAFETY: `SPAN_FROM` only ever holds null or a `&'static Location`.
+        // SAFETY: the span's `from` (per CPU, `arch::percpu`) only ever
+        // holds null or a `&'static Location`.
         let from = unsafe { from.as_ref() }.unwrap_or(to);
         let missed = super::clock::missed_ticks();
         enqueue(Report {

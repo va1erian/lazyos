@@ -32,30 +32,24 @@
 //! at the next ordinary tick, at the latest just after the syscall returns.
 //! Scheduling latency is still the syscall's length; interrupt latency is not.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use super::percpu;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// A window opens once `1/WINDOW_DIV` of a timer period (1 ms at 100 Hz) has
 /// passed since the previous one: half the 2 ms bound, so the work between two
 /// poll points can take as long again before the bound is broken.
 pub const WINDOW_DIV: u64 = 10;
 
-/// Nonzero while a window is open; read by `timer_isr` (hence `no_mangle`).
-#[no_mangle]
-pub static IRQ_WINDOW_OPEN: AtomicU8 = AtomicU8::new(0);
 /// Set once the kernel has enabled interrupts: before that the PIC and the
 /// IDT may not be ready, and boot-time file reads must not open a window.
+/// Machine-wide (one boot); everything else in this module is per CPU.
 static ARMED: AtomicBool = AtomicBool::new(false);
-/// TSC when the last window closed (or the span began).
-static LAST: AtomicU64 = AtomicU64::new(0);
-/// Windows opened, and ticks taken inside them, since boot.
-static OPENED: AtomicU64 = AtomicU64::new(0);
-static WINDOW_TICKS: AtomicU64 = AtomicU64::new(0);
-/// Ticks taken in windows that the scheduler has not charged yet.
-static UNCHARGED: AtomicU64 = AtomicU64::new(0);
 
 /// Allow windows: called right before the kernel first enables interrupts.
 pub fn arm() {
-    LAST.store(rdtsc(), Ordering::Relaxed);
+    let now = rdtsc();
+    let cpu = percpu::current();
+    cpu.window.last.store(now, Ordering::Relaxed);
     ARMED.store(true, Ordering::Release);
 }
 
@@ -68,7 +62,7 @@ pub fn disarm() {
 /// A span with interrupts off began at `now` (`irqoff`): the next window is
 /// due one window period later.
 pub fn restart(now: u64) {
-    LAST.store(now, Ordering::Relaxed);
+    percpu::current().window.last.store(now, Ordering::Relaxed);
 }
 
 /// Open a window if interrupts are off and the last one is a while ago.
@@ -82,7 +76,8 @@ pub fn poll_point() {
     }
     let due = super::clock::cycles_per_tick() / WINDOW_DIV;
     let now = rdtsc();
-    if now.wrapping_sub(LAST.load(Ordering::Relaxed)) < due {
+    let cpu = percpu::current();
+    if now.wrapping_sub(cpu.window.last.load(Ordering::Relaxed)) < due {
         return;
     }
     if super::irqoff::span_open() {
@@ -91,7 +86,7 @@ pub fn poll_point() {
         // No span: an interrupt handler, or interrupts-off code nothing
         // accounts for. No window may open here, but the i8042 is still
         // drained so its queue cannot overflow (`input::ps2`).
-        LAST.store(now, Ordering::Relaxed);
+        cpu.window.last.store(now, Ordering::Relaxed);
         crate::input::ps2::service();
     }
 }
@@ -105,7 +100,7 @@ pub fn open() {
     }
     super::irqoff::close();
     crate::perf::irqoff_pause();
-    IRQ_WINDOW_OPEN.store(1, Ordering::SeqCst);
+    percpu::current().window.open.store(1, Ordering::SeqCst);
     // SAFETY: interrupts are enabled for exactly one instruction (`sti`
     // takes effect after the next one), so every pending interrupt is
     // delivered between the `nop` and the `cli`. While the flag above is
@@ -115,9 +110,14 @@ pub fn open() {
     // none of them switches tasks, so this stack resumes right after. No
     // `nomem`: the flag stores above and below must stay on their side.
     unsafe { core::arch::asm!("sti", "nop", "cli", options(nostack)) };
-    IRQ_WINDOW_OPEN.store(0, Ordering::SeqCst);
-    OPENED.fetch_add(1, Ordering::Relaxed);
-    LAST.store(rdtsc(), Ordering::Relaxed);
+    // Re-fetch, don't reuse a `&mut` held across the window: a handler that
+    // ran inside it (`window_tick`) took its own `&mut` to this area, and
+    // two live ones are aliasing UB (the per-CPU rule: a reference from
+    // `current()` must not be held across anything that can re-enter).
+    let cpu = percpu::current();
+    cpu.window.open.store(0, Ordering::SeqCst);
+    cpu.window.opened.fetch_add(1, Ordering::Relaxed);
+    cpu.window.last.store(rdtsc(), Ordering::Relaxed);
     crate::perf::irqoff_resume();
     // Restarts the span, and `LAST` again if a syscall is being charged.
     super::irqoff::resume();
@@ -127,7 +127,7 @@ pub fn open() {
 /// may take locks).
 #[inline]
 pub fn is_open() -> bool {
-    IRQ_WINDOW_OPEN.load(Ordering::Relaxed) != 0
+    percpu::current().window.open.load(Ordering::Relaxed) != 0
 }
 
 /// IRQ0 inside a window, called by `timer_isr` instead of `schedule`. Keeps
@@ -142,8 +142,11 @@ extern "C" fn window_tick() {
     }
     let periods = super::clock::periods_since_last();
     super::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
-    WINDOW_TICKS.fetch_add(periods, Ordering::Relaxed);
-    UNCHARGED.fetch_add(periods, Ordering::Relaxed);
+    let cpu = percpu::current();
+    cpu.window
+        .window_ticks
+        .fetch_add(periods, Ordering::Relaxed);
+    cpu.window.uncharged.fetch_add(periods, Ordering::Relaxed);
     // SAFETY: called only from `timer_isr`, i.e. in the tick handler (PIT
     // IRQ0 or the local APIC timer) with the tick in service, once.
     unsafe { super::timer::end_of_tick() };
@@ -154,28 +157,35 @@ extern "C" fn window_tick() {
 /// charged (the scheduler charges them at its next entry).
 #[cfg(lazyos_tests)]
 pub fn add_uncharged_for_test(ticks: u64) {
-    UNCHARGED.fetch_add(ticks, Ordering::Relaxed);
+    percpu::current()
+        .window
+        .uncharged
+        .fetch_add(ticks, Ordering::Relaxed);
 }
 
 /// Ticks taken inside windows since the previous call, for the scheduler to
 /// charge to the task that was running them.
 pub fn take_uncharged() -> u64 {
-    if UNCHARGED.load(Ordering::Relaxed) == 0 {
+    let cpu = percpu::current();
+    if cpu.window.uncharged.load(Ordering::Relaxed) == 0 {
         return 0;
     }
-    UNCHARGED.swap(0, Ordering::Relaxed)
+    cpu.window.uncharged.swap(0, Ordering::Relaxed)
 }
 
 /// Windows opened since boot.
 #[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn opened() -> u64 {
-    OPENED.load(Ordering::Relaxed)
+    percpu::current().window.opened.load(Ordering::Relaxed)
 }
 
 /// Timer ticks taken inside windows since boot.
 #[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn window_ticks() -> u64 {
-    WINDOW_TICKS.load(Ordering::Relaxed)
+    percpu::current()
+        .window
+        .window_ticks
+        .load(Ordering::Relaxed)
 }
 
 /// Windows open only inside a syscall or a kernel section (an `irqoff` span

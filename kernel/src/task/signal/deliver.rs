@@ -222,7 +222,7 @@ pub(crate) fn apply_linux_frame_syscall(regs: &UserRegs) {
 /// Rebuild the interrupted user context from this task's syscall-return stack.
 ///
 /// The words pushed by `linux_syscall_entry` live on the *task's own* kernel
-/// stack, so unlike the global `USER_CONTEXT` snapshot they cannot be
+/// stack, so unlike the per-CPU `syscall.user_context` snapshot they cannot be
 /// clobbered by another task that runs while this one is blocked inside its
 /// syscall. `rax` is passed in (the syscall result the return path holds);
 /// `r11`/`rcx` mirror the saved flags/rip, exactly as the `syscall` instruction

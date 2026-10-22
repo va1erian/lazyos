@@ -23,7 +23,7 @@
 use core::fmt::{self, Write};
 
 use x86_64::registers::control::Cr3;
-use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::idt::InterruptStackFrameValue;
 
 use super::raw_serial::RawSerial;
 
@@ -59,8 +59,12 @@ pub struct Interrupted {
     pub rsp: u64,
 }
 
-/// IDT entry for vector 2.
-pub extern "x86-interrupt" fn nmi_handler(frame: InterruptStackFrame) {
+// IDT entry for vector 2 (`arch::gsgate`: an NMI lands anywhere, swap
+// windows included).
+crate::arch::gsgate::paranoid_gate!(nmi_gate => nmi_handler);
+
+/// The NMI: print the hang report for the interrupted context.
+extern "C" fn nmi_handler(frame: &InterruptStackFrameValue) {
     let at = Interrupted {
         rip: frame.instruction_pointer.as_u64(),
         cs: frame.code_segment.0.into(),

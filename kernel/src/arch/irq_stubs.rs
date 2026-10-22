@@ -7,15 +7,18 @@
 //! glitch on it is at least acknowledged and masked instead of hitting an
 //! empty gate.
 
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use crate::arch::gsgate::irq_gate;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrameValue};
 
 /// First vector of the remapped PIC.
 const VECTOR_BASE: u8 = 32;
 
 macro_rules! irq_stub {
-    ($($name:ident => $line:literal),* $(,)?) => {
+    ($($name:ident / $gate:ident => $line:literal),* $(,)?) => {
         $(
-            extern "x86-interrupt" fn $name(stack: InterruptStackFrame) {
+            irq_gate!($gate => $name);
+
+            extern "C" fn $name(stack: &InterruptStackFrameValue) {
                 let quiet = crate::task::interrupted_quiet_context(stack.code_segment.0 as u64);
                 crate::dev::irq::dispatch($line);
                 // Tell a userspace claimant now rather than at the next
@@ -32,24 +35,28 @@ macro_rules! irq_stub {
         /// Install the stub for every line that has no built-in handler.
         pub fn install(idt: &mut InterruptDescriptorTable) {
             $(
-                idt[VECTOR_BASE + $line].set_handler_fn($name);
+                // SAFETY: an `irq_gate!` stub (`arch::gsgate`): no error
+                // code, ends in `iretq`.
+                unsafe {
+                    idt[VECTOR_BASE + $line].set_handler_addr(super::idt::gate($gate));
+                }
             )*
         }
     };
 }
 
 irq_stub! {
-    irq2 => 2,
-    irq3 => 3,
-    irq4 => 4,
-    irq5 => 5,
-    irq6 => 6,
-    irq7 => 7,
-    irq8 => 8,
-    irq9 => 9,
-    irq10 => 10,
-    irq11 => 11,
-    irq13 => 13,
-    irq14 => 14,
-    irq15 => 15,
+    irq2 / irq2_gate => 2,
+    irq3 / irq3_gate => 3,
+    irq4 / irq4_gate => 4,
+    irq5 / irq5_gate => 5,
+    irq6 / irq6_gate => 6,
+    irq7 / irq7_gate => 7,
+    irq8 / irq8_gate => 8,
+    irq9 / irq9_gate => 9,
+    irq10 / irq10_gate => 10,
+    irq11 / irq11_gate => 11,
+    irq13 / irq13_gate => 13,
+    irq14 / irq14_gate => 14,
+    irq15 / irq15_gate => 15,
 }

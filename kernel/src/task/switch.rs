@@ -39,16 +39,25 @@ use core::arch::global_asm;
 /// DPL 0, so only kernel code can raise it.
 pub const YIELD_VECTOR: u8 = 0x81;
 
+// Each label swaps `%gs` first on a ring-3 `CS` (`arch::gsgate`); the exit
+// tests the resumed frame, which after a switch is another task's.
 global_asm!(
-    r#"
+    concat!(
+        r#"
     .global timer_isr
     timer_isr:
+"#,
+        crate::gs_entry_swap_on_user_cs!(),
+        r#"
         push rax
         mov eax, 1
         jmp 2f
 
     .global yield_isr
     yield_isr:
+"#,
+        crate::gs_entry_swap_on_user_cs!(),
+        r#"
         push rax
         xor eax, eax
 
@@ -78,10 +87,11 @@ global_asm!(
         mov esi, eax
         /* A tick inside an interrupt window (`arch::irq_window`) only counts
            and acknowledges: the window may hold any lock, so `schedule`
-           (which takes the task table) must not run, and nothing switches. */
+           (which takes the task table) must not run, and nothing switches.
+           The flag is this CPU's (`arch::percpu`, read through `%gs`). */
         test eax, eax
         jz 3f
-        cmp byte ptr [rip + IRQ_WINDOW_OPEN], 0
+        cmp byte ptr gs:[{off_window_open}], 0
         je 3f
         call window_tick
         jmp 4f
@@ -104,8 +114,13 @@ global_asm!(
         pop rcx
         pop rbx
         pop rax
+"#,
+        crate::gs_exit_swap_on_user_cs!(),
+        r#"
         iretq
     "#
+    ),
+    off_window_open = const crate::arch::percpu::OFF_WINDOW_OPEN,
 );
 
 extern "C" {

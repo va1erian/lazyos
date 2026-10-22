@@ -265,7 +265,7 @@ pub fn cpu_ticks(slot: usize) -> u64 {
 /// Only due entries of the timer queue are visited (P2.1). An entry whose
 /// task is no longer blocked with that same deadline is stale and dropped.
 pub(super) fn expire_deadlines(tasks: &mut [Option<Task>; MAX_TASKS], now: u64) {
-    let cur = CURRENT.load(Ordering::Relaxed);
+    let cur = current();
     let mut timers = super::timerq::TIMERS.lock();
     // Computed only if something is due: a long sleep must not earn a burst
     // of catch-up quanta, so a woken sleeper rejoins at the current virtual
