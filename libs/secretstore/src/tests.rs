@@ -206,5 +206,8 @@ fn entry_scrubs_secret_and_pmk_on_drop() {
     entry.scrub();
 
     assert!(entry.secret.iter().all(|&b| b == 0));
-    assert!(entry.pmks.iter().all(|(_, pmk)| pmk.iter().all(|&b| b == 0)));
+    assert!(entry
+        .pmks
+        .iter()
+        .all(|(_, pmk)| pmk.iter().all(|&b| b == 0)));
 }
