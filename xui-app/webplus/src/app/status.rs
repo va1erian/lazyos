@@ -34,6 +34,9 @@ impl Browser {
         if self.hang.visible() {
             named.extend(self.hang.controls(ui));
         }
+        if self.restore.visible() {
+            named.extend(self.restore.controls(ui));
+        }
         for (name, rect) in named {
             (self.host.probe)(&self.caption, name, rect);
         }

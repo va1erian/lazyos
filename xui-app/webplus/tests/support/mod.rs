@@ -196,8 +196,21 @@ pub fn drive_full(
     first: Option<&str>,
     step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static,
 ) -> (Image, Vec<Call>, Rc<Opened>) {
+    drive_with(name, first, |_| {}, |host, _| host, step)
+}
+
+/// Like [`drive_full`], with the test's own folder seeded by `prepare` before the window opens and
+/// the host (profile folder, prefs) adjusted by `tweak`, which is given that folder.
+pub fn drive_with(
+    name: &str,
+    first: Option<&str>,
+    prepare: impl FnOnce(&std::path::Path),
+    tweak: impl FnOnce(Host, &std::path::Path) -> Host + 'static,
+    step: impl FnOnce(&Stage<'_, Msg>, &Rig) + 'static,
+) -> (Image, Vec<Call>, Rc<Opened>) {
     register_fonts();
     let home = scratch(name);
+    prepare(&home);
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());
     let opened = Rc::new(Opened::default());
@@ -233,9 +246,12 @@ pub fn drive_full(
                     permissions,
                     toasts: Some(toasts as Rc<dyn Toasts>),
                     blocker,
-                    host: Host {
-                        launcher: Rc::new(RecordingLauncher(opened)),
-                        ..Host::none()
+                    host: {
+                        let host = Host {
+                            launcher: Rc::new(RecordingLauncher(opened)),
+                            ..Host::none()
+                        };
+                        tweak(host, &home)
                     },
                 },
             )

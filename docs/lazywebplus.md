@@ -111,6 +111,36 @@ shown as `data:` URLs (so there is one rendering path), reached by the menu, Ctr
 `$HOME/.apps/os.lazy.lazywebplus/history.tsv` (the newest 1000 pages that finished loading over `http:`,
 `https:` or `file:`), cleared from `about:history`.
 
+## The address bar, suggestions and the last session
+
+**What is typed** (`src/address.rs`, host-tested): an address with a scheme is opened as it is; text that reads as
+a host (`example.com`, `localhost:8080`, an IPv4 or IPv6 literal, `intranet/wiki`) opens over **HTTPS first**;
+anything else, or text that starts with `?`, is a **web search** through the template in `confd`
+`user/<uid>/lazywebplus/search/template` (default `https://duckduckgo.com/?q=%s`; a value that is not an
+http(s) URL with `%s` is ignored; the query is percent-encoded). When a typed host does not answer over HTTPS at
+all (refused, reset, timed out: never a certificate or TLS error, `src/downgrade.rs`) the browser's own page
+`about:https` asks "Load it without encryption?" and its button, an `x-lazyweb:allow-http/<host>` command (own
+pages only, for a click), opens `http://` and remembers the host until the window closes. The kind of failure is
+read from the engine's sentence (`Could not load <url>: <why>`), which webd does not yet give as a code.
+
+**Suggestions** (`src/suggest/`, `src/app/suggest.rs`): as the person types, at most 8 pages of the history
+(titles' words, host labels and the start of the address; ranked by visits times a recency weight, doubled when the
+text opens the address) and a last "Search for ..." row float over the page under the address field. Up and Down
+move, Enter opens the highlighted row (or the typed text when none), Escape puts it away, End finishes the best
+match's host, Shift+Delete forgets the highlighted page in `history.tsv` (rewritten through a temporary file).
+Nothing goes to the network. `UI:WIDGET` names the box `suggest` and its rows `suggest:<n>`. Markers
+`SUGGEST:SHOW:<rows>`, `SUGGEST:OPEN:visit|search`, `SUGGEST:REMOVE`, `SUGGEST:HIDE`. The ranking takes about 4 ms
+for 50,000 entries (`cargo test --release -p xui-webplus bench -- --ignored --nocapture`).
+
+**After a crash** (`src/session.rs`, `src/app/restore.rs`): a `running` file in the profile folder lives while a
+window runs and is removed at a clean quit; `session.json`
+(`{"version":1,"windows":[{"tabs":[{"url":...,"title":...}],"active":0}]}`) is written after each navigation to a
+web page (at most once a second, through a temporary file; never for the browser's own pages and never when the
+page's data is kept in memory). A start that finds `running` shows a bar "LazyWeb+ did not close properly.
+Restore the last page?" (**Restore**, **Dismiss**); `confd` `user/<uid>/lazywebplus/session/restore` = `always`
+restores without asking (an address given on the command line is never replaced). Both files are read as
+untrusted. Markers `SESSION:RESTORE:ASK|YES|NO|AUTO`, `HTTPS:ASK|ALLOW`.
+
 ## Downloads
 
 A response the view cannot show, or one sent as an attachment, is downloaded by webd: it names the file (the

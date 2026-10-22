@@ -36,6 +36,8 @@ const NOTIFY_BUTTON: Dip = Dip(84.0);
 const HANG_HEIGHT: Dip = Dip(64.0);
 /// Where the suggestions start: under the address field, past the four buttons.
 const SUGGEST_LEFT: Dip = Dip(138.0);
+/// The bar offering the last page back after a crash, in the same place.
+const RESTORE_HEIGHT: Dip = Dip(64.0);
 /// The square icon buttons of the toolbar, and the download progress bar.
 const TOOL_SIDE: Dip = Dip(30.0);
 const PROGRESS_WIDTH: Dip = Dip(120.0);
@@ -137,6 +139,12 @@ pub struct Widgets {
     pub hang_wait: Handle<Button<Msg>>,
     pub hang_reload: Handle<Button<Msg>>,
     pub hang_stop: Handle<Button<Msg>>,
+    /// The bar that offers the last page back after a crash (hidden unless the last run left the
+    /// marker) and its parts.
+    pub restore_bar: Handle<GroupBox<Msg>>,
+    pub restore_text: Handle<Label<Msg>>,
+    pub restore_yes: Handle<Button<Msg>>,
+    pub restore_no: Handle<Button<Msg>>,
 }
 
 /// The whole window. `loading` is whether a page loads (Escape means Stop only then, so the page
@@ -147,6 +155,7 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         hang_bar(widgets).fixed(HANG_HEIGHT),
+        restore_bar(widgets).fixed(RESTORE_HEIGHT),
         // The suggestions float over the top of the page, under the address field.
         stack()
             .children((
@@ -348,6 +357,31 @@ fn hang_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
             )),
     )
     .bind(&widgets.hang_bar)
+}
+
+/// LazyWeb+ did not close properly: Restore brings the last page back, Dismiss keeps the start page.
+fn restore_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
+    let answer = |text: &str, yes, handle: &Handle<Button<Msg>>| {
+        button(text)
+            .on_click(Msg::Restore(yes))
+            .bind(handle)
+            .width(NOTIFY_BUTTON)
+    };
+    group(
+        "Restore",
+        row()
+            .gap(8)
+            .align(Align::Center)
+            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
+            .children((
+                label("LazyWeb+ did not close properly. Restore the last page?")
+                    .bind(&widgets.restore_text)
+                    .fill(1),
+                answer("Restore", true, &widgets.restore_yes),
+                answer("Dismiss", false, &widgets.restore_no),
+            )),
+    )
+    .bind(&widgets.restore_bar)
 }
 
 /// The status text taking the rest, a download's progress, and the badge.

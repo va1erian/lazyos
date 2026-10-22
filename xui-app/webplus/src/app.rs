@@ -28,6 +28,7 @@ mod frame;
 mod hang;
 mod host;
 mod notifications;
+mod restore;
 mod search;
 mod shield;
 mod status;
@@ -90,6 +91,8 @@ pub enum Msg {
     NotifyAnswer(BarAnswer),
     /// The person answered the bar a page that does not respond shows.
     Hang(HangAnswer),
+    /// The person answered the bar that offers the last page back after a crash.
+    Restore(bool),
     /// The shell's worker has news about the toasts (a toast is up, clicked, closed).
     Shell,
     /// A list of the ad blocker changed state on the worker's thread.
@@ -151,6 +154,8 @@ pub struct Browser {
     editing: bool,
     /// The history suggestions under the address field.
     suggest: suggest::Panel,
+    /// The crash-restore bar and the session being kept.
+    restore: restore::State,
     /// The title the visit was last recorded with (a title can arrive after the load).
     recorded: Option<(String, String)>,
     /// A host typed in the address bar and opened over HTTPS, not yet known to have worked.
@@ -268,6 +273,7 @@ impl Browser {
             stopping: false,
             editing: false,
             suggest: suggest::Panel::new(&widgets, suggestions_open),
+            restore: restore::State::new(&widgets),
             recorded: None,
             pending_https: None,
             offered: None,
@@ -281,12 +287,14 @@ impl Browser {
             shown: RefCell::new(String::new()),
         };
         browser.start_engine(ui);
-        let first = url.unwrap_or_else(|| browser.internal.start());
+        let restored = browser.begin_session(url.is_some());
+        let first = url.or(restored).unwrap_or_else(|| browser.internal.start());
         browser.start_navigation(&first);
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
         browser.hang.start_hidden(ui);
+        browser.show_restore_bar(ui);
         browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
@@ -463,8 +471,12 @@ impl App for Browser {
             }
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
             Msg::Hang(answer) => self.hang_answer(ui, answer),
+            Msg::Restore(yes) => self.restore_answer(ui, yes),
             Msg::Shell => self.shell_news(ui),
-            Msg::Engine => self.pump(ui),
+            Msg::Engine => {
+                self.pump(ui);
+                self.flush_session();
+            }
             Msg::Jobs => (self.host.jobs)(),
         }
         self.update_buttons();

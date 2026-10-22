@@ -109,6 +109,7 @@ pub(super) fn run() -> i32 {
     start_blocker(&blocker, profile.as_ref(), memory_only, relay);
     let internal = Internal::default();
     let choices = prefs::load();
+    let quit_profile = profile.clone();
     let window_blocker = blocker.clone();
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
     let window_backend = Rc::clone(&backend);
@@ -196,6 +197,10 @@ pub(super) fn run() -> i32 {
             .expect("the LazyWeb+ window's widgets built")
     });
     backend.unbind();
+    // A clean quit: the next start is not a crash (`session.rs`).
+    if let Some(profile) = &quit_profile {
+        crate::session::end(profile);
+    }
     // The list updater's `curl` must not outlive the window.
     let left = !stop_children();
     if left {

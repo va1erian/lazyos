@@ -10,7 +10,10 @@
 //!
 //! The parts with no window are tested on the host:
 //!
-//! - [`address`]: what the address bar turns typed text into.
+//! - [`address`]: what the address bar turns typed text into (a host over HTTPS first, or a search).
+//! - [`downgrade`]: the way back to HTTP when a host does not answer over HTTPS.
+//! - [`suggest`]: the history suggestions under the address field.
+//! - [`session`] and [`prefs`]: the last page kept for a crash, and the choices kept in `confd`.
 //! - [`policy`]: which navigations the engine may make, which go to another app, which are
 //!   the browser's own commands, and what a page may do without a user gesture.
 //! - [`visits`]: the browsing history kept per user.
@@ -44,6 +47,7 @@ pub mod notify;
 pub mod pages;
 pub mod policy;
 pub mod prefs;
+pub mod session;
 pub mod suggest;
 pub mod transfers;
 pub mod visits;

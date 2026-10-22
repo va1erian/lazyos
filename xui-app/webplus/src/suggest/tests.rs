@@ -132,7 +132,7 @@ fn the_best_host_completes_what_was_typed_and_only_one_word_of_it() {
     assert_eq!(completion("", best), None);
     // A title match that does not open the host adds nothing.
     let titled = Index::from_visits(&[visit("https://z.example/", "Docs", 0)]);
-    assert_eq!(completion("docs", &titled.rank("docs", NOW, 1)[0]), None);
+    assert_eq!(completion("docs", titled.rank("docs", NOW, 1)[0]), None);
 }
 
 #[test]

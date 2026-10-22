@@ -147,6 +147,7 @@ impl Browser {
         if let Err(e) = self.visits.record(&url, &title, now()) {
             eprintln!("lazywebplus: history not saved: {e}");
         }
+        self.note_session(&url, &title);
         self.recorded = Some((url, title));
     }
 
