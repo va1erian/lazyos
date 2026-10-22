@@ -210,9 +210,9 @@ fn main() {
         io_attempt(File::open("/etc/ssl/certs/ca-certificates.crt")),
     );
     // The profile folder webd named for its children (`LAZYOS_WEBKIT_PROFILE`, below
-    // `.apps/os.lazy.webd`); the kernel-only harness has none and uses the app's folder.
+    // `.apps/os.lazy.webd/profiles`); the kernel-only harness has none and uses that folder.
     let profile = std::env::var("LAZYOS_WEBKIT_PROFILE")
-        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webd"));
+        .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webd/profiles"));
     say(role, "write_profile", write_probe(&profile, "attack-probe"));
     // The network process may save downloads here; nothing else may.
     say(
@@ -343,7 +343,7 @@ const NETWORK_FILES: &[&str] = &[
     "read:/etc/resolv.conf",
     "read:/etc/hosts",
     "read:/etc/ssl/certs/ca-certificates.crt",
-    "write:$HOME/.apps/os.lazy.webd",
+    "write:$HOME/.apps/os.lazy.webd/profiles",
     "write:$HOME/Downloads",
 ];
 
@@ -385,7 +385,7 @@ fn driver() -> i32 {
     let home = "/home/user";
     // The user's profile directory, which webd makes and the
     // NetworkProcess may write in; the user owns it.
-    let profile = format!("{home}/.apps/os.lazy.webd");
+    let profile = format!("{home}/.apps/os.lazy.webd/profiles");
     let downloads = format!("{home}/Downloads");
     println!(
         "ATTACK:driver:NOTE:mkdir {profile}: {:?}",

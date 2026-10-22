@@ -272,7 +272,7 @@ class AgreementTests(unittest.TestCase):
         plus = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
         got = plus["processes"]["networkprocess"]
         writes = [r for r in got["files"] if r.startswith("write:")]
-        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.webd", "write:$HOME/Downloads"])
+        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.webd/profiles", "write:$HOME/Downloads"])
         self.assertEqual(judge.expected("os.lazy.webd")["networkprocess"]["write_downloads"].kind, "allowed")
         self.assertEqual(judge.expected("os.lazy.webd")["webprocess"]["write_downloads"].kind, "blocked")
         self.assertEqual(plus["app"]["system_name"], "os.lazy.webd")
