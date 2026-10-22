@@ -716,7 +716,9 @@ volume, 4 GiB of RAM and an 8G user memory quota. It registers `http`, `https` a
 browser; which of two browsers `mimed` would open is the user's choice (`user/<uid>/mimed/default/<type>`,
 Settings > Default apps, `deskmenu::defaults`), install order otherwise. The engine's processes are sandboxed
 (#836: `docs/architecture/process-sandbox.md`); attack them with `python tools/webkit/attack_run.py --browser --app
-lazywebplus`. The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
+lazywebplus` (the compromised page-process half of webd's attack harness) and attack webd from a hostile *client*
+with `python tools/webd/attack_run.py` (`os.lazy.webdattack`, which reaches for scopes it was not granted, floods
+input and exhausts the view cap: docs/webd-plan.md "P5 as built"). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
 otherwise). The window crates are declared `GPL-2.0-only OR GPL-3.0-or-later` and the program is distributed as
 GPL-3.0-or-later (it links `xui-webkit-remote` and `xui-webd-client`); only link GPLv2-compatible crates into the
 window: `python tools/nettls/licenses.py --lazywebplus` and `python tools/webkit/licenses.py`. Upgrading from the

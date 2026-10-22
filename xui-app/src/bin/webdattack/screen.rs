@@ -12,13 +12,19 @@ use xui_core::geometry::Size;
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Canvas, Color, Dip, Rect, TextStyle};
-use xui_webd_client::attack;
+use xui_webd_client::event::Error;
+use xui_webd_client::full::{FullWebView, Scope};
+use xui_webd_client::{attack, ViewConfig};
 
 use crate::Msg;
 
-/// How long after the first paint the probes run (ms): enough for the window to be up and webd
-/// resolvable. The probes themselves use bounded calls, so a slow webd does not hang the UI.
-const DELAY_MS: u32 = 400;
+/// How often the timer checks whether webd is up (ms). webd starts its WebKit context and compiles the
+/// network-lock rule list at login, which takes a few seconds, so an app that opens at the same login
+/// (this one) must wait for it before the probes mean anything.
+const TICK_MS: u32 = 500;
+/// Ticks to wait for webd before giving up and running the probes anyway (so a truly absent webd still
+/// produces a verdict): 60 x 500 ms = 30 s.
+const MAX_TICKS: u32 = 60;
 
 pub struct Screen {
     control: Control<Msg>,
@@ -48,12 +54,20 @@ impl Screen {
             canvas.draw_text("Web Attack Probe", bounds, &style);
         }));
         let done = Rc::new(RefCell::new(false));
+        let ticks = Rc::new(RefCell::new(0u32));
         {
             let done = Rc::clone(&done);
-            // A one-shot: the first fire runs the probes and returns Quit; later fires do nothing.
-            control.set_timer(DELAY_MS, move || {
+            let ticks = Rc::clone(&ticks);
+            // Fires until webd is up (a view-scope create no longer answers "not running") or the
+            // deadline; then runs the probes once and quits. Later fires after that do nothing.
+            control.set_timer(TICK_MS, move || {
                 let mut ran = done.try_borrow_mut().ok()?;
                 if *ran {
+                    return None;
+                }
+                let mut n = ticks.try_borrow_mut().ok()?;
+                *n += 1;
+                if !webd_up() && *n < MAX_TICKS {
                     return None;
                 }
                 *ran = true;
@@ -68,11 +82,27 @@ impl Screen {
     }
 }
 
+/// Whether webd answers a view-scope `CreateView` with anything but "not running" (it is up). The
+/// trial view is destroyed at once; the real probes make their own.
+fn webd_up() -> bool {
+    let mut trial = FullWebView::new(WebdTransport::full(), Scope::View, ViewConfig::default());
+    // Up means the create answered with anything but "not running" (made, or refused by the service):
+    // a config the view scope does not accept is still an answer from a running webd.
+    let up = !matches!(trial.create(8, 8), Err(Error::NotRunning));
+    trial.destroy();
+    up
+}
+
 /// Run every probe against the running webd and print the outcomes.
 fn run_probes() {
     let probes = attack::run(WebdTransport::full);
     for probe in &probes {
-        trace::line!(Channel::Webdattack, "PROBE:{}:{}", probe.name, probe.outcome);
+        trace::line!(
+            Channel::Webdattack,
+            "PROBE:{}:{}",
+            probe.name,
+            probe.outcome
+        );
     }
     trace::pass!(Channel::Webdattack, "DONE");
 }

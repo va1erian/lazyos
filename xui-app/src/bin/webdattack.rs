@@ -45,15 +45,20 @@ impl App for WebdAttack {
 }
 
 fn main() {
-    launch::run(Channel::Webdattack, "Web Attack Probe", WINDOW, |ui, backend| {
-        backend.on_first_frame(|| trace::pass!(Channel::Webdattack, "UP"));
-        let screen: Handle<Screen> = Handle::new();
-        ui.root(
-            column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
-                .bind(&screen)
-                .fill(1),)),
-        )?;
-        ui.on_close(|| Some(Msg::Quit));
-        Ok(WebdAttack { _screen: screen })
-    })
+    launch::run(
+        Channel::Webdattack,
+        "Web Attack Probe",
+        WINDOW,
+        |ui, backend| {
+            backend.on_first_frame(|| trace::pass!(Channel::Webdattack, "UP"));
+            let screen: Handle<Screen> = Handle::new();
+            ui.root(
+                column().children((build(|ui: &Ui<Msg>| Ok(Screen::new(ui)))
+                    .bind(&screen)
+                    .fill(1),)),
+            )?;
+            ui.on_close(|| Some(Msg::Quit));
+            Ok(WebdAttack { _screen: screen })
+        },
+    )
 }

@@ -351,8 +351,23 @@ line, AGENTS.md):
 * **The self-test** kills only a web process it can show is its own (two samples agree, it differs from the one
   before the view existed, its view is alone in webd's own group) and refuses with "cannot tell" otherwise: the
   ABI offers only the newest process id. A `webd_engine_view_pid(view)` would make it exact.
-* **What still grows without bound.** Every view that ever was leaves its parked `WebPageProxy` (engine.cpp
-  `destroyView`: a page proxy cannot be released on this port), and a client's first view of a group makes a data
-  store and network session that stay too. An app that loops `CreateView`/`DestroyView` grows webd and the
-  network process for the rest of the session. The fix is a pool of parked views reused per owner (P5); until
-  then, the per-client view count limits only views alive at once.
+* **The parked-view reuse pool (P5).** A `WebPageProxy` cannot be released on this port (`destroyView`), so a
+  destroyed view's proxy is kept. A view that was the **sole page in its process for its whole life** goes to a
+  reuse pool keyed by owner+profile+config class, and the next view of that class adopts it (and its data store)
+  instead of making a new one; so an app that loops `CreateView`/`DestroyView` (Mail's message pane, a view a
+  navigation remakes, tabs) no longer grows webd (`engine.cpp` `sameViewClass`/`parkForReuse`/`takeFromPool`,
+  `INFO:POOL`). Reusing a proxy that ever shared a process aborts the UI process (`webkit-views group`), so a
+  group's proxies, and any view whose process a sibling still used at destroy, are parked forever as before —
+  that grows only with the multi-view/tabs case, not a single view's loop. Proven flat over 3016 create/destroy
+  cycles (`webd-abi-test cycle`). A `webd_engine_view_pid(view)` would still make the self-test's process-id guess
+  exact, but the pool, not the self-test, is what bounds growth now.
+* **Memory-pressure gate (P5).** A full view that would start a new web process is refused with `EDQUOT` once the
+  user's memory charge is within a web process' reserve of the quota (`service/create.rs`, `Service::memory_tight`
+  over `webd_ui_user_memory`), so the child's `exec` is not left to fail with `ENOMEM`. webd refuses the new view
+  rather than evicting a background one (hidden views already get no paints); the fixed cap of 4 web processes per
+  user is the coarser bound.
+* **Attack harness (P5).** Two halves run in QEMU: the malicious client (`tools/webd/attack_run.py`,
+  `os.lazy.webdattack`: reaches scopes it was not granted, floods input, exhausts the view cap) and the malicious
+  page process (`tools/webkit/attack_run.py`, a compromised engine process under webd's child labels). The
+  client's data-vector attacks (buffer-size lies, cross-client ids, garbage configs, event-queue bounds) stay
+  host-tested and seeded-fuzzed in `xui-app/crates/webd/tests`.

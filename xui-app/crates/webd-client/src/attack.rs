@@ -86,7 +86,10 @@ pub fn run<T: ScopedTransport>(mut make: impl FnMut() -> T) -> Vec<Probe> {
     for i in 0..1000i32 {
         view.mouse(crate::MouseKind::Move, -1, i % W as i32, i % H as i32, 0);
     }
-    say("flood_alive", outcome(view.load_html("<title>a</title>", "about:blank")));
+    say(
+        "flood_alive",
+        outcome(view.load_html("<title>a</title>", "about:blank")),
+    );
 
     // 5. The view-count cap: a client may hold VIEWS_PER_CLIENT views; one more is refused. The views
     //    are kept alive so the cap is really reached (the one from probe 3 counts).

@@ -1,6 +1,8 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22** (see "P4 as built"). Builds on W4/W5/W6 of
+Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22** (see "P4 as built"); **P5 (hardening:
+the parked-view pool, memory-pressure gate, the malicious-client and page-process attack harnesses)
+done 2026-10-22** (see "P5 as built"). Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -340,7 +342,7 @@ browser moves onto webd**.
 | **P2 webd, light first** (done: slices 1 and 2 light, 3 the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
 | **P4 LazyWeb+ thin client** (done) | `xui-webplus` on `RemoteEngine` (`xui-webkit-remote`); downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py`, `hang_run.py` pass against webd; the 108 MiB engine host leaves the package; see "P4 as built" | 1.5-2.5 weeks |
-| **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
+| **P5 hardening** (done, see "P5 as built") | the parked-view reuse pool (create/destroy loops flat), the user-memory-pressure gate on a new web process, the malicious-client and malicious-page-process attack harnesses run in QEMU, the reconnect protocol (host-tested + login case in QEMU), seeded fuzz of the slot/band state machine, the full request decode and the event queue. Not done: cross-view fairness scheduler, overscan-without-nudge patch, shared-group hang recovery, tabs | the attack harnesses pass (no `LABEL:DENY` beyond the documented optional ones; the client's only denials are the two scopes it was not granted); the proxy pool is flat over thousands of create/destroy cycles | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
 ### P2 slice 1: light views, headless (started 2026-10-21)
@@ -810,6 +812,105 @@ Kernel testing requirement: nothing above adds kernel code, except P4's one defa
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view
 create/destroy cycles judging descriptors, frames and the user-memory charge (`hang_run.py` already judges that
 charge for ended processes).
+
+### P5 as built (2026-10-22): hardening
+
+What this phase did, what it found, and what it deliberately left. Fewer items than the list above,
+each with real evidence; the rest is recorded below as still open.
+
+* **A pool of reusable page proxies (the create/destroy growth).** A `WebPageProxy` cannot be released
+  on this port (the UI process aborts: patches 0021/0027), so `destroyView` parked every proxy forever
+  and a create/destroy loop (Mail's message pane, a view a navigation remakes, tabs) grew webd without
+  bound. A destroyed view that was the **sole page in its process for its whole life** is now kept in a
+  reuse pool keyed by owner+profile+config class; the next view of that class adopts the parked proxy
+  and its data store instead of making a new one (`engine.cpp`, `sameViewClass` / `parkForReuse` /
+  `takeFromPool`; `Host.pool`, bounded by `kPoolMax`, overflow to `Host.retired`). **Found:** reusing a
+  proxy that ever shared a process aborts the UI process (reproduced in `webkit-views group`), so only
+  never-shared proxies are pooled (`View::soleEver`); a group's proxies are parked forever as before,
+  and a sibling-shared destroy still parks forever. **Proven** (`webd-abi-test cycle`, one Docker
+  build): 16 painted create/destroy cycles reuse the pooled proxy (`reused=15`) and still paint; 3000
+  fast create/destroy iterations keep the proxy table flat (`pooled=1, retired=0, reused=3015`) where
+  before it would have left 3000 parked proxies. `webkit-views` (all modes incl. `group`), every
+  `webd-abi-test` mode and `webd-app` build and pass. `INFO:POOL:reused=..:pooled=..:live=..:retired=..`
+  reports the pool. A per-view process id (`webd_engine_view_pid`) was **not** added; the pool, not the
+  self-test's heuristic, is what bounds growth, and reuse made it less pressing.
+
+* **Memory-pressure gate.** A full view that would start a new web process (a new (client, profile)
+  pair, ~107 MiB) is refused with `EDQUOT` once the user's memory charge is within a process' reserve
+  (`WEB_PROCESS_RESERVE_BYTES`, 160 MiB) of the quota, rather than letting the child's `exec` fail with
+  `ENOMEM` as the old in-process browser did (`service/create.rs`, `Service::memory_tight`, reading
+  `webd_ui_user_memory` through `EventQueue::memory_charge`). The decision taken (plan 11 item 7):
+  **refuse the new view, do not evict** a background one — hidden views already get no paints
+  (`SetVisible`), and a client reconnects or closes a view it no longer needs. The fixed cap of 4 web
+  processes per user still applies; this is the finer gate when the quota is lower than four processes'
+  worth, and it is off when the host cannot read the charge. Host-tested
+  (`full_views::memory_pressure_refuses_a_view_that_would_start_a_new_web_process`).
+
+* **The attack harness (the headline), two halves, run in QEMU.**
+  * *Malicious page process* (a compromised WebProcess/NetworkProcess, under webd's real child labels):
+    `tools/webkit/attack_run.py` (adapted to webd's labels in P4 but never run in QEMU) was run.
+    `--kernel` boots the probe under `app:os.lazy.sandbox-web`/`-net` and judges the kernel's file,
+    socket, resolve, fork, signal and ptrace gates.
+  * *Malicious client* (new, `tools/webd/attack_run.py`): a real client `os.lazy.webdattack` ("Web
+    Attack Probe", `xui-app/src/bin/webdattack.rs`, logic in `xui_webd_client::attack`) whose manifest
+    lists **only** `os.lazy.webd.view.v1`. It tries a `CreateView` through the `net` and `browser`
+    scopes it was not granted (the kernel refuses each with a `LABEL:DENY` of its label — a gate the
+    host fabric cannot reproduce, so it is proven only here), floods 1000 oneway mouse moves (webd keeps
+    answering), and exhausts the per-client view cap (the 9th view is `ENOSPC`). `attackjudge.py` holds
+    the expected outcome of each probe; `test_attack_judge.py` (11 cases) fails when it should. The
+    malicious-client *data* vectors (buffer-size lies, cross-client ids, slot aliasing, garbage/truncated
+    configs, event-queue bounds) are host-tested and seeded-fuzzed in `xui-app/crates/webd/tests`
+    (`quotas`, `isolation`, `full_isolation`, `backpressure`, `full_garbage`, `full_fuzz`, `fuzz`); the
+    QEMU harness adds the kernel scope gate, the real-client resource cap and service liveness under a
+    flood, which those cannot.
+  * **Found by the client harness: one client's flood makes every client's calls fail.** webd's inbox is
+    one kernel endpoint that all its clients share (Messenger's registry aliases a service's clients to
+    one channel; `MAX_QUEUE_DEPTH` 64), and oneway sends are not counted per sender
+    (`MAX_PENDING_PER_SENDER` covers calls only). After the probe's 1000 oneway mouse moves, its next
+    calls (`LoadHtml`, `CreateView`) all came back `EAGAIN` (the kernel's `QueueFull`, before webd saw
+    them) — and so would another app's: Docs, Mail and LazyWeb+ took that `EAGAIN` as a refusal (LazyWeb+
+    backs a refused view off by ten seconds). webd itself never answers `EAGAIN`, so the client transport
+    (`xui_app::platform::webd`, every webd client) now retries a call the full inbox refused, sleeping 4 ms
+    between tries (so webd runs and drains on one CPU) and giving up after 50 (0.2 s). The general fix —
+    a per-sender quota on queued oneway messages in the kernel, which would protect every shared
+    service — is a kernel change left for later (noted here, not done).
+  * **Result** (WHPX, 4 GiB, a fresh OS volume, label trace): `WEBDATTACK:HARNESS:PASS 6 probes, every one
+    as expected` — `scope_net` and `scope_browser` `REFUSED:13` with exactly one `LABEL:DENY` each, naming
+    the net (`0xf313574271ceba59`) and browser (`0x2c352157f6ab1380`) interface ids; `view_ok`;
+    `flood_alive` (after the transport fix; `REFUSED:11` before it); `view_cap` `REFUSED:28:8`;
+    `alive_after`. The boot's only other refusal is the network process's documented optional stat of
+    `/etc/ssl/openssl.cnf`; none of `app:os.lazy.webd`. The first run had every probe `NOTRUNNING`: the
+    client fired 400 ms after its first frame, before webd had registered (WebKit's context and the lock's
+    rule list take seconds at login); it now waits up to 30 s for webd to answer.
+  * **Found in the page-process harness (a judge bug, not a sandbox gap):** the first `--kernel` run
+    failed one row, `webprocess.write_profile`: the write *was* refused (`EPERM`) and the kernel *did*
+    print `LABEL:DENY ... file=/home/user/.apps/os.lazy.webd/profiles access=stat`, but the judge's
+    pattern (`\.apps(/os\.lazy\.webd)? access=`) predated P4's move of the children's folder to
+    `profiles/`, and the self-test's canned trace had the old spelling too, so nothing had caught it.
+    Fixed (`tools/webkit/attackjudge.py` takes the folder at any depth; `test_attack_judge.py` uses the
+    trace the kernel printed and checks every level, and that another app's folder does not match). The
+    saved run re-judged: **`ATTACK:HARNESS:PASS 60 probes, every one as expected`**.
+
+* **Reconnect protocol.** webd going away (crash, `Quit`, upgrade) is handled by the client libraries
+  and is host-tested against the real service half: `xui-webkit-remote` (`webd_going_away_blanks_the_page
+  _and_a_new_view_loads_it_again`, `no_webd_says_so_and_a_page_asked_for_meanwhile_loads_when_it_comes`)
+  and `xui-webd-client`'s pane (`a_lost_view_is_made_again_and_the_newest_page_comes_back`,
+  `a_service_lost_while_the_view_is_made_is_tried_again_not_given_up`). The "webd not running at login"
+  case is QEMU-tested (`docs_no_engine.json`), and the per-view loss (a web process killed) is QEMU-tested
+  (`tools/webd/run.py`). The exit-4 watchdog path stays host/`webd-abi-test`-only.
+
+#### What P5 still did not do (recorded)
+
+* **Fairness across views.** Each view still paints on its own pacer thread (`paint.cpp`); hidden views
+  get no paints (done), but there is no cross-view round-robin budget, so two animated visible views do
+  not share a per-pass budget. A global paint scheduler is a larger, risky engine change (several real
+  views scrolling to verify) and was left; the per-view pacer and the hidden-view cutoff are what ship.
+* **Overscan without the geometry nudge** (a new WebKit patch at the end of `webkit/patches`): not done
+  — a patch change rebuilds the affected WebKit objects (long), and the nudge works; left documented.
+* **Hang recovery of a shared group**, the **notification-permission context leak**, **`file:`
+  browsing**, and **tabs**: not done (as before).
+* **Measurement debt** (the Ars Technica scroll repro, key-to-paint, several runs a side): not re-run;
+  it needs the live site, which the harnesses do not serve.
 
 ## 8. Failure and lifecycle
 

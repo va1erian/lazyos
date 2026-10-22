@@ -190,3 +190,11 @@ a child's file ids by its app (`label_child_file_rules_are_covered`), and no
 entry while the slot holds handles (`label_child_not_entered_with_handles`). `cargo test -p filepolicy` covers the grammar and
 the judgement against a reference matcher with seeded fuzzing
 (`FUZZ_CASES=20000 cargo test -p filepolicy --release`).
+
+End to end, webd's two confined children are attacked from inside their labels by
+`python tools/webkit/attack_run.py` (`--kernel` under stand-in labels, `--browser` under webd's real
+`app:os.lazy.webd/webprocess|networkprocess`): every file read/write outside the label's grants, every
+socket, resolve, `execve`, `fork`, signal and `ptrace` must be refused with a `LABEL:DENY` of the label
+(`docs/webd-plan.md` "P5 as built"). The complementary harness `python tools/webd/attack_run.py` attacks
+webd from a hostile *client* (`os.lazy.webdattack`) rather than from a page process: it proves the
+kernel refuses a `CreateView` through a Messenger scope the client's manifest does not grant.
