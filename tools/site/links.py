@@ -11,7 +11,7 @@ import posixpath
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 SCHEME = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.\-]*:|//)")
 HTML_URL = re.compile(r"""(\b(?:href|src)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
@@ -34,13 +34,21 @@ class LinkResolver:
     missing_generated: set[str] = field(default_factory=set)
     anchors: list[tuple[str, str, str]] = field(default_factory=list)  # source, target page, fragment
 
-    def github(self, rel: str) -> str:
-        kind = "tree" if (self.root / rel).is_dir() else "blob"
-        return f"{self.repo_url}/{kind}/{self.ref}/{rel}"
+    def github(self, rel: str, raw: bool = False) -> str:
+        if raw:  # an image: the page's own bytes, not GitHub's HTML view of them
+            kind = "raw"
+        else:
+            kind = "tree" if (self.root / rel).is_dir() else "blob"
+        return f"{self.repo_url}/{kind}/{self.ref}/{quote(rel)}"
 
-    def rewrite(self, href: str, src: str, out: str) -> str:
-        """The URL to use for `href`, written in `src` and built to `out`."""
-        if not href or href.startswith("#") or SCHEME.match(href):
+    def rewrite(self, href: str, src: str, out: str, raw: bool = False) -> str:
+        """The URL to use for `href`, written in `src` and built to `out`; `raw`
+        for something a page embeds (an image) rather than links to."""
+        if href.startswith("#"):
+            if len(href) > 1:
+                self.anchors.append((src, out, unquote(href[1:])))
+            return href
+        if not href or SCHEME.match(href):
             return href
         raw_path, hash_, fragment = href.partition("#")
         path_part, query_sep, query = raw_path.partition("?")
@@ -54,27 +62,29 @@ class LinkResolver:
 
         if rel in self.pages:
             if fragment:
-                self.anchors.append((src, self.pages[rel], fragment))
-            return relative_url(self.pages[rel], out) + suffix
+                self.anchors.append((src, self.pages[rel], unquote(fragment)))
+            return quote(relative_url(self.pages[rel], out)) + suffix
         if rel.startswith("..") or rel == ".":
             self.broken.append((src, href))
             return href
         full = self.root / rel
         if rel.startswith("docs/") and full.is_file():
             # Copied next to the pages (every non-Markdown file under docs/ is).
-            return relative_url(rel[len("docs/"):], out) + suffix
+            return quote(relative_url(rel[len("docs/"):], out)) + suffix
         if full.exists():
-            return self.github(rel) + (hash_ + fragment if hash_ else "")
-        if rel in self.generated:
+            return self.github(rel, raw) + (hash_ + fragment if hash_ else "")
+        if rel in self.generated and rel.startswith("docs/") and rel.endswith(".md"):
+            # CI writes it; the page will exist on the site even if this checkout lacks it.
             self.missing_generated.add(rel)
-            return href
+            return quote(relative_url(posixpath.splitext(rel[len("docs/"):])[0] + ".html", out)) + suffix
         self.broken.append((src, href))
-        return self.github(rel) + (hash_ + fragment if hash_ else "")
+        return self.github(rel, raw) + (hash_ + fragment if hash_ else "")
 
     def rewrite_html(self, html: str, src: str, out: str) -> str:
         """Rewrite the href/src attributes inside raw HTML in a Markdown file."""
 
         def sub(m: re.Match[str]) -> str:
-            return f"{m.group(1)}{m.group(2)}{self.rewrite(m.group(3), src, out)}{m.group(2)}"
+            raw = m.group(1).strip().lower().startswith("src")
+            return f"{m.group(1)}{m.group(2)}{self.rewrite(m.group(3), src, out, raw=raw)}{m.group(2)}"
 
         return HTML_URL.sub(sub, html)

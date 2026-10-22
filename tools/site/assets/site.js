@@ -46,7 +46,7 @@
       .catch(function () { list.textContent = "Search is unavailable."; list.hidden = false; });
   }
 
-  function terms(q) { return q.toLowerCase().split(/[^a-z0-9_.:]+/).filter(Boolean); }
+  function terms(q) { return q.toLowerCase().split(/[^\p{L}\p{N}_.:]+/u).filter(Boolean); }
 
   function score(doc, words) {
     var total = 0;

@@ -45,8 +45,10 @@ concurrency:
 
 jobs:
   build:
-    # A cancelled abi-compat run has nothing new to publish.
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'cancelled'
+    # Nothing new to publish after a cancelled abi-compat run, or one a pull request started.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,9 +65,10 @@ jobs:
         run: python tools/site/test_site.py
 
       # docs/compat/matrix.md and coverage.md are written by the ABI bench and
-      # are git-ignored; take them from the newest abi-compat artifact built on
-      # main from this repository (never from a fork's pull request). Without
-      # one the site simply has no ABI pages yet.
+      # are git-ignored; take them from the newest `abi-reports` artifact built
+      # on main from this repository (never from a fork's pull request; the
+      # older whole-run `abi-compat` artifact is the fallback). Without one the
+      # site has no ABI pages: a deploy then drops them, hence the warning.
       - name: Fetch the latest ABI reports (best effort)
         continue-on-error: true
         shell: bash
@@ -73,21 +76,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=abi-compat&per_page=30" \
-            --jq '[.artifacts[]
-                   | select(.expired == false
-                            and .workflow_run.head_branch == "main"
-                            and .workflow_run.head_repository_id == .workflow_run.repository_id)][0].id // empty')
+          id=""
+          for name in abi-reports abi-compat; do
+            id=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=100" \
+              --jq '.artifacts[]
+                    | select(.expired == false
+                             and .workflow_run.head_branch == "main"
+                             and .workflow_run.head_repository_id == .workflow_run.repository_id)
+                    | .id' | sed -n 1p)
+            if [ -n "$id" ]; then break; fi
+          done
           if [ -z "$id" ]; then
-            echo "No abi-compat artifact on main yet; building without the ABI pages."
+            echo "::warning::No ABI report artifact from main (expired, or abi-compat has not run since it was added): building without the ABI pages."
             exit 0
           fi
           scratch=$(mktemp -d)
           gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "${scratch}/abi.zip"
           unzip -q "${scratch}/abi.zip" -d "${scratch}/abi"
           for name in matrix.md coverage.md; do
-            found=$(find "${scratch}/abi" -path '*docs/compat/*' -name "$name" | head -n1)
-            if [ -n "$found" ]; then cp "$found" "docs/compat/$name"; fi
+            found=$(find "${scratch}/abi" \( -path "*/docs/compat/${name}" -o -path "${scratch}/abi/${name}" \) | head -n1)
+            if [ -n "$found" ]; then cp "$found" "docs/compat/${name}"; fi
           done
           ls docs/compat
 
@@ -104,7 +112,8 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name != 'pull_request'
+    # Only main publishes: a manual run from another branch builds but never deploys.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write

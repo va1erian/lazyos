@@ -2,8 +2,9 @@ name: abi-compat
 
 # Linux ABI conformance bench: build the static musl fixtures, run each in
 # headless LazyOS, and publish the compatibility matrix + syscall coverage.
-# The reports go out as the `abi-compat` artifact; pages.yml (which runs after
-# this workflow on main) picks it up and publishes it on the docs site.
+# The reports go out as the `abi-compat` and `abi-reports` artifacts; pages.yml
+# (which runs after this workflow on main) picks up the latter and publishes it
+# on the docs site.
 #
 # run.py exits non-zero when a fixture fails or never reports, which fails the
 # job; later steps use `if: always()` so the matrix and PR comment still land.
@@ -75,6 +76,18 @@ jobs:
           path: |
             docs/compat/**
             shots/abi/**
+          if-no-files-found: warn
+
+      # Just the two reports, for pages.yml: the docs site publishes them, and
+      # the big artifact above (screenshots included) is not worth fetching.
+      - name: Upload the ABI reports for the docs site
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-reports
+          path: |
+            docs/compat/matrix.md
+            docs/compat/coverage.md
           if-no-files-found: warn
 
       - name: Summarise on the pull request

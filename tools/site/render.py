@@ -55,7 +55,10 @@ def highlight(code: str, lang: str, _attrs: str) -> str:
 def make_parser() -> MarkdownIt:
     md = MarkdownIt("commonmark", {"html": True, "linkify": True, "highlight": highlight})
     md.enable(["table", "strikethrough", "linkify"])
-    md.use(anchors_plugin, min_level=1, max_level=4, slug_func=github_slug)
+    # Only schemes and www.: `AGENTS.md`, `lib.rs` and `x.py` are real TLDs, and
+    # GitHub does not turn bare file names into links either.
+    md.linkify.set({"fuzzy_link": False, "fuzzy_email": False, "fuzzy_ip": False})
+    md.use(anchors_plugin, min_level=1, max_level=6, slug_func=github_slug)
     md.use(footnote_plugin)
     md.use(tasklists_plugin)
 
@@ -117,7 +120,7 @@ class Renderer:
             if child.type == "link_open":
                 child.attrSet("href", self.resolver.rewrite(child.attrGet("href") or "", src, out))
             elif child.type == "image":
-                child.attrSet("src", self.resolver.rewrite(child.attrGet("src") or "", src, out))
+                child.attrSet("src", self.resolver.rewrite(child.attrGet("src") or "", src, out, raw=True))
             elif child.type == "html_inline":
                 child.content = self.resolver.rewrite_html(child.content, src, out)
 

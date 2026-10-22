@@ -8,7 +8,7 @@ from links import relative_url
 from model import Config, Page
 from pygments.formatters import HtmlFormatter
 
-ASSETS = "site-assets"
+from collect import ASSETS  # noqa: E402
 
 # Applied before the page paints so a stored choice does not flash.
 THEME_BOOT = (

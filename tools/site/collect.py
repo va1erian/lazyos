@@ -8,6 +8,8 @@ from pathlib import Path
 from model import Config, Page
 
 HOME = "index.html"
+ASSETS = "site-assets"  # theme files and the search index (theme.py uses the same name)
+RESERVED = ("contents.html", "404.html")  # pages the generator writes itself
 
 
 def md_to_html(rel_to_docs: str) -> str:
@@ -26,11 +28,16 @@ def discover(root: Path, cfg: Config) -> list[Page]:
         if not (root / src).is_file():
             raise SystemExit(f"site.toml: extra page {src} does not exist")
         pages.append(Page(src=src, out=out, section=cfg.extra_sections.get(src, "")))
-    outs: dict[str, str] = {}
+    outs: dict[str, str] = {name: "the generator" for name in RESERVED}
     for page in pages:
         if page.out in outs:
             raise SystemExit(f"{page.src} and {outs[page.out]} would both build {page.out}")
         outs[page.out] = page.src
+    for path in sorted(docs.rglob("*")):  # files copied beside the pages
+        if path.is_file() and path.suffix != ".md":
+            rel = path.relative_to(docs).as_posix()
+            if rel in outs or rel.startswith(ASSETS + "/"):
+                raise SystemExit(f"docs/{rel} is copied to the site but would overwrite {outs.get(rel, 'the theme')}")
     return pages
 
 

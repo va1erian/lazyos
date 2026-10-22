@@ -98,6 +98,31 @@ class LinkTests(TreeCase):
         self.assertIn('href="sub/b.html"', out)
         self.assertIn("src='data.txt'", out)
 
+    def test_images_outside_docs_use_raw_urls(self) -> None:
+        r = self.resolver()
+        self.assertEqual(
+            r.rewrite("../kernel/src/lib.rs", "docs/a.md", "a.html", raw=True),
+            "https://github.com/o/r/raw/main/kernel/src/lib.rs",
+        )
+        out = r.rewrite_html('<img src="../kernel/src/lib.rs"> <a href="../kernel/src/lib.rs">k</a>', "docs/a.md", "a.html")
+        self.assertIn("/raw/main/", out)
+        self.assertIn("/blob/main/", out)
+
+    def test_same_page_fragments_are_recorded_and_decoded(self) -> None:
+        r = self.resolver()
+        self.assertEqual(r.rewrite("#sec%C3%A9", "docs/a.md", "a.html"), "#sec%C3%A9")
+        r.rewrite("sub/b.md#caf%C3%A9", "docs/a.md", "a.html")
+        self.assertEqual(r.anchors, [("docs/a.md", "a.html", "secé"), ("docs/a.md", "sub/b.html", "café")])
+
+    def test_generated_page_missing_locally_links_to_its_site_page(self) -> None:
+        r = self.resolver()
+        self.assertEqual(r.rewrite("compat/matrix.md", "docs/a.md", "a.html"), "compat/matrix.html")
+
+    def test_odd_file_names_are_percent_encoded(self) -> None:
+        self.put("docs/odd name#1.txt")
+        r = self.resolver()
+        self.assertEqual(r.rewrite("odd%20name%231.txt", "docs/a.md", "a.html"), "odd%20name%231.txt")
+
     def test_relative_url(self) -> None:
         self.assertEqual(relative_url("a.html", "a.html"), "a.html")
         self.assertEqual(relative_url("x/y.html", "a.html"), "x/y.html")
@@ -131,6 +156,15 @@ class RenderTests(TreeCase):
     def test_unknown_fence_language_is_plain(self) -> None:
         done = self.render("```midl\ninterface x {}\n```\n")
         self.assertIn("<pre><code", done.body)
+
+    def test_bare_file_names_are_not_autolinked(self) -> None:
+        body = self.render("See AGENTS.md, lib.rs and tools/x.py, or https://example.org.\n").body
+        self.assertNotIn("http://AGENTS.md", body)
+        self.assertNotIn("<a href=\"http://lib.rs", body)
+        self.assertIn('href="https://example.org"', body)
+
+    def test_deep_headings_get_ids(self) -> None:
+        self.assertIn("deep", self.render("# T\n\n###### Deep\n").ids)
 
     def test_raw_html_is_kept(self) -> None:
         self.assertIn("<details>", self.render("<details><summary>s</summary>\n\nbody\n\n</details>\n").body)
@@ -223,6 +257,30 @@ class BuildTests(TreeCase):
         self.put("docs/guide.md", "# Guide\n\n[x](sub/b.md#nothing-here)\n")
         pages, resolver = self.build()
         self.assertEqual(len(site_build.check_anchors(pages, resolver)), 1)
+
+    def test_docs_file_may_not_overwrite_a_generated_or_rendered_page(self) -> None:
+        self.put("README.md", "# Home\n")
+        for clash in ("docs/contents.md", "docs/404.md"):
+            self.put(clash, "# X\n")
+            with self.assertRaises(SystemExit, msg=clash):
+                self.build()
+            (self.root / clash).unlink()
+        self.put("docs/a.md", "# A\n")
+        self.put("docs/a.html", "<p>hand-written</p>")
+        with self.assertRaises(SystemExit):
+            self.build()
+
+    def test_generated_pages_have_no_edit_link(self) -> None:
+        self.put("README.md", "# Home\n")
+        self.put("docs/compat/matrix.md", "# Matrix\n")
+        cfg = config(generated={"docs/compat/matrix.md"})
+        self.build(cfg)
+        self.assertNotIn("Edit this page", (self.out / "compat" / "matrix.html").read_text(encoding="utf-8"))
+        self.assertIn("Edit this page", (self.out / "index.html").read_text(encoding="utf-8"))
+
+    def test_default_base_url(self) -> None:
+        self.assertEqual(site_build.default_base_url(config(repo="o/lazyos")), "/lazyos/")
+        self.assertEqual(site_build.default_base_url(config(repo="o/o.github.io")), "/")
 
     def test_titles_are_escaped(self) -> None:
         self.put("README.md", "# Home\n")

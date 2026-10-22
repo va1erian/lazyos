@@ -8,8 +8,8 @@
 Every Markdown file under docs/ becomes a page, as do README.md and
 CONTRIBUTING.md (site.toml); every other file under docs/ is copied beside the
 pages. Links are rewritten for the site, code outside docs/ links to GitHub, and
-all URLs are relative, so the output works under any path (a project site, a
-preview, file://). `tools/site/README.md` has the rest.
+all page URLs are relative, so the output works under any path (a project site, a
+preview, a local server; search needs http, not file://). `tools/site/README.md` has the rest.
 """
 
 from __future__ import annotations
@@ -47,6 +47,13 @@ def apply_environment(cfg: Config) -> None:
     """CI knows the repository and the ref better than site.toml does."""
     cfg.repo = os.environ.get("GITHUB_REPOSITORY") or cfg.repo
     cfg.ref = os.environ.get("SITE_REF") or cfg.ref
+
+
+def default_base_url(cfg: Config) -> str:
+    """Where Pages serves the site: /<repo>/, or / for a user site (<owner>.github.io).
+    Only 404.html needs it (it is served from any path); a custom domain sets SITE_BASE_URL=/."""
+    name = cfg.repo.rsplit("/", 1)[-1]
+    return "/" if name.endswith(".github.io") else f"/{name}/"
 
 
 def render_all(root: Path, cfg: Config, pages: list[Page]) -> LinkResolver:
@@ -135,7 +142,8 @@ def build(root: Path, out: Path, cfg: Config, base_url: str, commit: str) -> tup
         shutil.rmtree(out)
     out.mkdir(parents=True)
     for page in [*pages, toc_page]:
-        edit = f"{cfg.repo_url}/blob/{cfg.ref}/{page.src}" if page.src else ""
+        # No source to edit for the contents page or for what CI generates.
+        edit = f"{cfg.repo_url}/blob/{cfg.ref}/{page.src}" if page.src and page.src not in cfg.generated else ""
         html_text = render_page(page, cfg, nav, commit, edit_url=edit)
         dest = out / page.out
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -164,12 +172,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root", type=Path, default=ROOT, help="repository root")
     ap.add_argument("--config", type=Path, default=HERE / "site.toml", help="site configuration")
     ap.add_argument("--strict", action="store_true", help="fail on a broken link or a bad fragment")
-    ap.add_argument("--base-url", help="URL path the site is served under, for 404.html (default /<repo name>/)")
+    ap.add_argument("--base-url", help="URL path the site is served under, for 404.html only "
+                    "(default /<repo name>/, or SITE_BASE_URL)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     apply_environment(cfg)
-    base_url = args.base_url or f"/{cfg.repo.rsplit('/', 1)[-1]}/"
+    base_url = args.base_url or os.environ.get("SITE_BASE_URL") or default_base_url(cfg)
     commit = (os.environ.get("GITHUB_SHA") or git("rev-parse", "HEAD", root=args.root) or "unknown")[:10]
     pages, resolver = build(args.root, args.out, cfg, base_url, commit)
 
