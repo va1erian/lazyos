@@ -17,8 +17,9 @@ use std::sync::{Arc, RwLock};
 use crate::engine::{Engine, EngineConfig, EngineEvents};
 use crate::events::EventQueue;
 
+mod calls;
 mod full;
-pub use full::start_host;
+pub use calls::start_host;
 
 /// `webd_view_config`, field for field. Every field is read once, when the view is created.
 #[repr(C)]
@@ -192,52 +193,52 @@ impl Engine for FfiEngine {
     }
 
     fn load(&self, view: u64, url: &str) {
-        full::load(view, url)
+        calls::load(view, url)
     }
     fn reload(&self, view: u64) {
-        full::reload(view)
+        calls::reload(view)
     }
     fn stop(&self, view: u64) {
-        full::stop(view)
+        calls::stop(view)
     }
     fn back(&self, view: u64) {
-        full::back(view)
+        calls::back(view)
     }
     fn forward(&self, view: u64) {
-        full::forward(view)
+        calls::forward(view)
     }
     fn download(&self, view: u64, url: &str) {
-        full::download(view, url)
+        calls::download(view, url)
     }
     fn download_cancel(&self, view: u64, download: u64) {
-        full::download_cancel(view, download)
+        calls::download_cancel(view, download)
     }
     fn dialog_reply(&self, view: u64, dialog: u64, accepted: bool, value: &str) {
-        full::dialog_reply(view, dialog, accepted, value)
+        calls::dialog_reply(view, dialog, accepted, value)
     }
     fn navigation_answer(&self, view: u64, request: u64, allow: bool) {
-        full::navigation_answer(view, request, allow)
+        calls::navigation_answer(view, request, allow)
     }
     fn notify_shown(&self, id: u64) {
-        full::notify_shown(id)
+        calls::notify_shown(id)
     }
     fn notify_clicked(&self, id: u64) {
-        full::notify_clicked(id)
+        calls::notify_clicked(id)
     }
     fn notify_closed(&self, id: u64) {
-        full::notify_closed(id)
+        calls::notify_closed(id)
     }
     fn notify_permission(&self, view: u64, origin: &str, answer: i32) {
-        full::notify_permission(view, origin, answer)
+        calls::notify_permission(view, origin, answer)
     }
     fn blocking_load(&self, view: u64, list: &str) {
-        full::blocking_load(view, list)
+        calls::blocking_load(view, list)
     }
     fn blocking_compile(&self, view: u64, list: &str, json: &[u8]) {
-        full::blocking_compile(view, list, json)
+        calls::blocking_compile(view, list, json)
     }
     fn blocking_forget(&self, view: u64, list: &str) {
-        full::blocking_forget(view, list)
+        calls::blocking_forget(view, list)
     }
 }
 

@@ -181,11 +181,11 @@ fn a_held_navigation_is_asked_once_and_a_mailto_never_loads() {
     view.navigation_answer(request, true).expect("answered");
     // A `mailto:` is not the engine's to load: webd says no for the app.
     assert_eq!(web.web.answers(), vec![(id, request, false)]);
-    // A second answer finds no request (webd says ENOENT, as for a view that is gone): refused,
+    // A second answer finds no request (webd says ESRCH): refused,
     // and the view goes on.
     assert_eq!(
         view.navigation_answer(request, true),
-        Err(Error::Refused(xui_webd_client::transport::errno::ENOENT))
+        Err(Error::Refused(xui_webd_client::transport::errno::ESRCH))
     );
     assert!(view.is_live());
     assert_eq!(view.page().committed_url, url("/mailto"));

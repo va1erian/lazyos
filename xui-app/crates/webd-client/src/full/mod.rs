@@ -285,12 +285,12 @@ impl<T: ScopedTransport> FullWebView<T> {
     }
 
     /// A call about something of the view's that may be gone by itself (a held navigation expires
-    /// after 10 seconds): webd answers `ENOENT` for it as for a view that is gone, so `ENOENT` here
-    /// is a refusal and leaves the view; a view that is really gone shows at the next poll or call.
+    /// after 10 seconds): webd answers `ESRCH` for a request it no longer holds, a refusal that
+    /// leaves the view.
     fn call_about_request(&mut self, method: u32, body: Vec<u8>) -> Result<(), Error> {
         match self.transport.call(method, body, Vec::new()) {
             Ok(_) => Ok(()),
-            Err(code) if -code == errno::ENOENT => Err(Error::Refused(errno::ENOENT)),
+            Err(code) if -code == errno::ESRCH => Err(Error::Refused(errno::ESRCH)),
             Err(code) => Err(self.failed(-code)),
         }
     }

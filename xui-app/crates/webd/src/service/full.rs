@@ -143,7 +143,10 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                     .full
                     .as_mut()
                     .and_then(|full| full.held.remove(&args.request))
-                    .ok_or(Refusal::new(errno::ENOENT, "no such request"))?;
+                    .ok_or(Refusal::new(
+                        errno::ESRCH,
+                        "no such request: answered or expired",
+                    ))?;
                 self.engine
                     .navigation_answer(args.view, args.request, args.allow && held.loadable);
             }

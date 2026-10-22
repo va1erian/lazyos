@@ -1,6 +1,6 @@
 //! The calls only the full interface has: loading and navigation, the answers to the page's
 //! questions, downloads and content blocking. Each waits for webd's reply: `EACCES` is a feature
-//! the view was not made with (or an address its policy refuses), `ENOENT` a request that is gone.
+//! the view was not made with (or an address its policy refuses), `ESRCH` a request that is gone.
 
 use libmessenger::Buffer;
 use messenger_generated::os_lazy_webd_view_v1 as wire;
@@ -106,7 +106,7 @@ impl<T: ScopedTransport> FullWebView<T> {
 
     /// Answer `NavigationRequested` `request`: `allow` loads it (only an address the engine can
     /// load: another scheme is the app's to open). A request answered already or expired (10
-    /// seconds) is [`Error::Refused`] with `ENOENT`, and the view goes on.
+    /// seconds) is [`Error::Refused`] with `ESRCH`, and the view goes on.
     pub fn navigation_answer(&mut self, request: u64, allow: bool) -> Result<(), Error> {
         let view = self.live_view()?;
         let args = wire::NavigationAnswerArgs {

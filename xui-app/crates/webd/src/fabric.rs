@@ -6,6 +6,7 @@
 /// Positive errno values the service answers with (`docs/midl.md`, "Errors").
 pub mod errno {
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const E2BIG: i64 = 7;
     pub const EAGAIN: i64 = 11;
     pub const EACCES: i64 = 13;

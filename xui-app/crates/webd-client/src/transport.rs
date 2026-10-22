@@ -16,6 +16,7 @@ pub const FULL_SERVICE_NAME: &str = "app.os.lazy.webd.view";
 /// negated, as the kernel does.
 pub mod errno {
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const ENOMEM: i64 = 12;
     pub const EAGAIN: i64 = 11;
     pub const EACCES: i64 = 13;
