@@ -14,6 +14,13 @@ it lets a task change *how loud* others are, never *what* they play or hear.
 Who may hold it is the Messenger policy's decision (an installed app needs
 the permission explicitly); the service itself does not ask.
 
+The mixer plays through one *output* at a time: every card a driver
+registers under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and
+`SelectOutput` switches; without a choice (or when the chosen one is
+absent) the best kind present plays (USB, HDMI, a built-in codec, a
+virtual card; the newest of a kind), so a headset plugged in
+takes over and unplugging it falls back to the one before.
+
 Gains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144
 (four times unity). Failures are returned as the shared
 structured error field (see `services::error_field`): an unknown stream is
@@ -84,6 +91,39 @@ Returns `()`.
 let result = sys::audio_mixer::set_master(gain_q16, mute);
 ```
 
+### `list_outputs()`
+
+`ListOutputs() -> (outputs: Array<Output>)`
+
+Every sound output a driver serves now (a built-in codec, a USB
+headset, an HDMI display), the one playing first.
+
+Returns `outputs`: `Array<Output>` (array of map (`Output`)).
+
+```rhai
+let result = sys::audio_mixer::list_outputs();
+```
+
+### `select_output(id)`
+
+`SelectOutput(id: String) -> ()`
+
+Play through output `id` from now on, and prefer it whenever it is
+present. Streams keep playing across the switch. `ENOENT` for an
+output that is not present.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `id` | `String` | string |
+
+Returns `()`.
+
+```rhai
+let result = sys::audio_mixer::select_output(id);
+```
+
 ## Types
 
 ### `StreamStatus`
@@ -127,6 +167,35 @@ The output side of the mixer.
 ```rhai
 let value = sys::audio_mixer::new_master();
 ```
+
+### `Output`
+
+One sound output: a card a driver serves under
+`os.lazy.audio.card/<id>`.
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `id` | `String` | string |
+| `name` | `String` | string |
+| `kind` | `U32` | int |
+| `active` | `Bool` | bool |
+| `preferred` | `Bool` | bool |
+
+```rhai
+let value = sys::audio_mixer::new_output();
+```
+
+### `OutputKind`
+
+A string; the constants of this module are:
+
+- `OUTPUT_KIND_OTHER` = `"Other"`
+- `OUTPUT_KIND_VIRTIO` = `"Virtio"`
+- `OUTPUT_KIND_HDA` = `"Hda"`
+- `OUTPUT_KIND_USB` = `"Usb"`
+- `OUTPUT_KIND_HDMI` = `"Hdmi"`
+
+`OUTPUT_KIND` is the array of all of them.
 
 ### `StreamState`
 
