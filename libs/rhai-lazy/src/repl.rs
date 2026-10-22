@@ -26,7 +26,7 @@ const PENDING_MAX: usize = 1 << 20;
 const HELP: &str = "\
 Enter Rhai code; an unfinished block continues on the next line.
   :help       this text
-  :history    the entries typed so far (Up/Down recall them; !N or !! re-runs)
+  :history    the entries typed so far (!N or !! re-runs one)
   :cancel     drop an unfinished multi-line entry
   :reset      forget all variables and functions
   :quit       leave (also Ctrl-D or exit(n))";

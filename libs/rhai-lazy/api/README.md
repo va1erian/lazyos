@@ -63,7 +63,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::notify`](#sysnotify) | `os.lazy.notify.v1` |
 | [`sys::notify_events`](#sysnotify_events) | `os.lazy.notify.events.v1` |
 | [`sys::pkgd`](#syspkgd) | `os.lazy.pkgd.v1` |
-| [`sys::print`](#sysprint) | `os.lazy.print.v1` |
+| [`sys::print_`](#sysprint_) | `os.lazy.print.v1` |
 | [`sys::messenger_registry`](#sysmessenger_registry) | `os.lazy.messenger.registry.v1` |
 | [`sys::shell`](#sysshell) | `os.lazy.shell.v1` |
 | [`sys::sysmond`](#syssysmond) | `os.lazy.sysmond.v1` |
@@ -781,9 +781,9 @@ The application package manager (`docs/packages.md`, phase 3 of the
 |---|---|---|
 | `system/events/pkg/{op}` | `PkgEvent` | `pkg_topic(op)`, `on_pkg(op, handler)`, `subscribe_pkg(op)`, `publish_pkg(op, payload)` |
 
-## `sys::print`
+## `sys::print_`
 
-Interface `os.lazy.print.v1`, source [`print.rhai`](print.rhai).
+Interface `os.lazy.print.v1`, source [`print_.rhai`](print_.rhai).
 
 The print spooler, `printd` (docs/printing-plan.md P6).
 

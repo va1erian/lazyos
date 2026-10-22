@@ -107,9 +107,10 @@ fn main() {
         println!("cargo:rustc-cfg=lazyos_x2apic");
     }
 
-    // SMP (docs/smp-plan.md): `LAZYOS_SMP=1` compiles the multicore support in
-    // (per-CPU foundations first, S8.1). Unset or `0`, today's single-CPU code
-    // paths are compiled unchanged. `LAZYOS_SMP_SOAK=1` builds the SMP suite's
+    // SMP (docs/smp-plan.md): `LAZYOS_SMP=1` sets `cfg(lazyos_smp)`, which
+    // S8.3's entry lock will key on; nothing reads it yet (the per-CPU areas
+    // and the AP bring-up are in every build, and `limit.cpu_max`, default 1,
+    // decides whether APs start). `LAZYOS_SMP_SOAK=1` builds the SMP suite's
     // long soaks too (`tools/test/run.py --soak`); the suite reads it with
     // `option_env!` from S8.3 on.
     println!("cargo:rerun-if-env-changed=LAZYOS_SMP");

@@ -68,10 +68,13 @@ _ZERO = {name: ("0.0" if name == "F64" else "false" if name == "Bool" else "0") 
 
 
 def alias(interface: Interface) -> str:
-    """`os.lazy.confd.v1` -> `confd`; `os.lazy.net.nic.v1` -> `net_nic`."""
+    """`os.lazy.confd.v1` -> `confd`; `os.lazy.net.nic.v1` -> `net_nic`. An
+    alias that is a Rhai reserved word gets a trailing `_` (`os.lazy.print.v1`
+    -> `print_`), because `sys::print::...` does not parse."""
     name = re.sub(r"\.v\d+$", "", interface.name)
     name = re.sub(r"^os\.lazy\.", "", name)
-    return re.sub(r"[^0-9a-z]+", "_", name.lower()).strip("_")
+    name = re.sub(r"[^0-9a-z]+", "_", name.lower()).strip("_")
+    return f"{name}_" if name in RHAI_RESERVED else name
 
 
 def scriptable(interfaces: list[Interface]) -> list[Interface]:

@@ -56,6 +56,10 @@ file (or welcome.md) --pulldown-cmark--> HTML --LoadHtml--> webd (WebKit, light 
   "All files" fallback and starts in the current document's folder. A file that
   cannot be read shows an error page (and `DOCS:OPEN:FAIL:<path>`) instead of
   ending the app.
+* **History.** **Back**, **Forward** (`Alt+Left`, `Alt+Right`) and **Home** (the documentation
+  index, `fhs::docs::INDEX`) walk the documents visited, kept by `history::History` (bounded, the
+  welcome page is a place in it); opening what is already on show adds nothing. Markers:
+  `DOCS:NAV:PASS:<back|forward|home>:<path>`.
 * **Test document.** `xui-app/docs/testdata/testdoc.md` ships in every image as
   `/system/share/samples/testdoc.md` (embedded by `build.rs`). It covers every construct the viewer
   draws and is long enough to scroll; the unit tests render it and

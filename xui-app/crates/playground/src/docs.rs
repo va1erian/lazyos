@@ -290,10 +290,6 @@ fn interface_blocks(interface: &Interface) -> Vec<Block> {
         interface.default_service()
     )];
     match module(interface) {
-        Some(m) if !module_usable(interface) => facts.push(format!(
-            "Rhai module sys::{} cannot be written ({} is a Rhai keyword): use msg::connect",
-            m.alias, m.alias
-        )),
         Some(m) => facts.push(format!("Rhai module: sys::{}", m.alias)),
         None => facts.push(format!(
             "No sys module (a kernel scope); alias would be sys::{}",

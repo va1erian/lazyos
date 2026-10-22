@@ -28,22 +28,39 @@ invalidating it all at once.
 
 ## The rows
 
-### Boot, CPU and entry (S8.1)
+### Boot, CPU and entry (S8.1) — **done**
+
+**Design note (recorded with the rows below).** Per-CPU state lives in
+`arch/percpu.rs`'s areas, addressed through `%gs`, with the **`swapgs`
+discipline** of `arch/gsgate.rs`: in ring 0 `IA32_GS_BASE` is the CPU's
+area, in ring 3 `IA32_KERNEL_GS_BASE` holds it, and one `swapgs` crosses
+each boundary. The first S8.1 build ran every privilege level on one GS base
+and never swapped ("user code never touches `%gs`"); that was wrong in a way
+that mattered: ring 3 can load any DPL-3 selector into `%gs`, zeroing its
+base, and the next `syscall` then saved the user context through `gs:` into
+low *user* memory and loaded its stack pointer from there (found in the
+2026-10-21 review, regression test `gs_suite`). Two rules keep the
+discipline sound: **`CR4.FSGSBASE` is never enabled** (ring 3's
+`wrgsbase`/`rdgsbase` would forge or read the base — every user GS base is
+then a descriptor's, 0, which is what lets the paranoid gates recognize the
+kernel's by its sign bit), and **every new ring-3-reachable vector goes
+through an `irq_gate!` or `paranoid_gate!`** (or splices the same tests into
+its naked stub), never an `x86-interrupt` handler.
 
 | Site | What | Disposition |
 |---|---|---|
-| `arch/linux.rs:18,23,49` | `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` — the Linux `syscall` stub's stack switch globals | per-CPU (S8.1) |
-| `arch/linux.rs:8` | Deliberate `swapgs` avoidance (per-task GS desyncs on block) | superseded: per-CPU GS is block-invariant; `swapgs` at every ring-3 entry, with a naked CS-test wrapper per entry path (S8.1) |
-| `arch/gdt.rs` | `GDT`, `TSS`, `KERNEL_STACK`, `DOUBLE_FAULT_STACK`; `set_kernel_stack` rewrites the one TSS on every switch (`schedule.rs:226`) | per-CPU (S8.1) |
-| `arch/idt.rs` | One shared IDT (stays shared); IST/double-fault stacks | per-CPU (S8.1) |
-| `process/gate.rs`, `arch/irq_stubs.rs`, `arch/msi_stubs.rs`, `arch/idt.rs` faults, `arch/event_timer.rs` | Rust `x86-interrupt` handlers with no stub where a CS test could go | naked wrapper + CS test each, counted here (S8.1) |
-| `arch/nmi.rs` | Plain `x86-interrupt` NMI handler — the hang reporter, fires over IF=0 spins, i.e. exactly at entry boundaries | IST + paranoid entry with a swap-tracking rule (S8.1) |
-| `arch/irqoff.rs` | `SPAN_START/SPAN_NR/SPAN_FROM/SPAN_TASK` — one open interrupts-off span | per-CPU (S8.1) |
-| `arch/irq_window.rs` | `IRQ_WINDOW_OPEN`, `LAST`, `OPENED`, `WINDOW_TICKS`, `UNCHARGED`; the timer asm reads the flag as a `#[no_mangle]` global | per-CPU (S8.1); the contract generalizes to IPI handlers (S8.2) |
-| `task/mod.rs:187` | `CURRENT` — the one current task | per-CPU (S8.1) |
-| `task/mod.rs:196` | `SCHEDULING` — boot-phase flag | stays global (boot-only: never set after the scheduler starts) |
+| `arch/linux.rs` | `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` — the Linux `syscall` stub's stack switch globals | **done** (S8.1): `percpu::Cpu::syscall`, read through `%gs`; the stub's writes are `gs:`-relative (`OFF_USER_CONTEXT`/`OFF_SAVED_USER_RSP`/`OFF_SYSCALL_STACK`, pinned by `percpu_entry_asm_offsets_match_the_layout`) |
+| `arch/linux.rs:8` | Deliberate `swapgs` avoidance (per-task GS desyncs on block) | **done** (S8.1): GS state is per-CPU, which survives a block; the stub swaps first and before `sysretq`/`iretq` (design note above) |
+| `arch/gdt.rs` | `GDT`, `TSS`, `KERNEL_STACK`, `DOUBLE_FAULT_STACK`; `set_kernel_stack` rewrites the one TSS on every switch (`schedule.rs:226`) | **done** (S8.1): per-CPU in the area (`gdt::init_cpu`); `set_kernel_stack` writes this CPU's TSS |
+| `arch/idt.rs` | One shared IDT (stays shared); IST/double-fault stacks | **done** (S8.1): the double-fault IST stack is per-CPU in the area; the IDT stays shared and reads the *current* TSS at fault time |
+| `task/mod.rs:187` | `CURRENT` — the one current task | **done** (S8.1): `percpu::Cpu::current` via `task::current()`/`set_current` |
+| `arch/irqoff.rs` | `SPAN_START/SPAN_NR/SPAN_FROM/SPAN_TASK` — one open interrupts-off span | **done** (S8.1): `percpu::Cpu::irqoff`; the per-syscall maxima and the per-task `TASK_NR` stay machine-wide |
+| `arch/irq_window.rs` | `IRQ_WINDOW_OPEN`, `LAST`, `OPENED`, `WINDOW_TICKS`, `UNCHARGED`; the timer asm reads the flag as a `#[no_mangle]` global | **done** (S8.1): `percpu::Cpu::window`; `timer_isr` reads the flag `gs:`-relative (`OFF_WINDOW_OPEN`); `ARMED` stays machine-wide (one boot) |
+| `task/preempt.rs` | `NEED_RESCHED`, `PREEMPTING`, `SELECTED`, `SELECTED_AT`, `SLICE_END`, `DEFERRED`, `HANDOFF_FROM/TO` — global | **done** (S8.1): `percpu::Cpu::preempt` (atomic fields, for the S8.3 wake IPI); `NAPPING` stays per-task |
+| `process/gate.rs`, `arch/irq_stubs.rs`, `arch/msi_stubs.rs`, `arch/idt.rs` faults, `arch/event_timer.rs` | Rust `x86-interrupt` handlers with no stub where a CS test could go | **done** (S8 review): `extern "C"` handlers behind `arch/gsgate.rs`'s generated gates — IRQ/MSI/IPI/event-timer/keyboard/mouse/spurious through `irq_gate!` (CS test both ends), the faults through `paranoid_gate!`; the naked stubs (`int 0x80`, timer/yield, `#DE`/`#UD`/`#GP`/`#PF`) splice the same tests |
+| `arch/nmi.rs` | Plain `x86-interrupt` NMI handler | **done** (S8 review): paranoid gate — reads `IA32_GS_BASE`, swaps iff it is not a kernel-half address, swaps back iff it swapped (an NMI may land inside a swap window); no IST needed for GS reasons |
 | `task/fpu.rs:28` | `AREAS` — per-task FPU images, unsynchronized ("interrupts off on the single CPU") | entry lock (S8.3; the switch path runs under the inherited hold) |
-| `task/relax.rs` | `Yield` relax parks 200 µs — sound because the holder was preempted on this CPU | `TASKS.is_locked()` check per-CPU-aware (S8.1); the strategy itself dies with its premise (sleeplocks, S8.6) |
+| `task/relax.rs` | `Yield` relax parks 200 µs — sound because the holder was preempted on this CPU | the `TASKS.is_locked()` spin guard stays correct for N CPUs (spinning while a remote holder runs is safe); the strategy itself dies with its premise (sleeplocks, S8.6) |
 | `arch/fault_storm.rs:10` | "handled with interrupts off on a single CPU, so plain atomics" | entry lock (S8.3), audited |
 
 ### Bring-up, clocks, IPIs (S8.2)
@@ -51,7 +68,7 @@ invalidating it all at once.
 | Site | What | Disposition |
 |---|---|---|
 | `libs/acpi/src/madt.rs` | Only a processor count and `first_apic_id` were kept | **done** (S8.0): `apic_ids` list, logged as `apic_ids=[..]` at boot |
-| `vendor/bootloader` | Hands over on the BSP only; physical memory at a dynamic offset, nothing identity-mapped low | trampoline (`global_asm!`, `.code16`) + a dedicated AP page table; trampoline page and mailbox reserved before `mem::init` (S8.2) |
+| `vendor/bootloader` | Hands over on the BSP only; physical memory at a dynamic offset, nothing identity-mapped low | trampoline (`global_asm!`, `.code16`) + a dedicated AP page table; the trampoline page (mailbox and stack inside) is below the allocator's 1 MiB floor, and the bring-up refuses SMP unless the memory map calls it usable RAM (S8.2) |
 | `arch/lapic.rs` | Timer, EOI, x2APIC; no ICR | `send_init`/`send_sipi`/`send_fixed`/`send_nmi` (S8.2) |
 | `arch/irqchip.rs:102-104`, `dev/msi.rs:96-99` | I/O APIC and MSI destinations hardwired to the BSP's APIC ID | entry lock keeps them sound (all IRQs on the entry-lock CPU's APIC); steering per device (S8.6) |
 | IPI vectors | none exist | `RESCHED`/`SHOOTDOWN`/`STOP` in 0x60–0x7F, pinned here so MSI (0x40–0x5F) cannot collide (S8.2) |
@@ -108,6 +125,5 @@ invalidating it all at once.
    `python tools/sync/check_locks.py --ratchet` — a migration lowers counts.
 3. When writing new kernel code that would once have relied on "interrupts
    off", add its assumption here instead of a comment that says "single CPU".
-   The lock-order table this file refers to (`locking.md`) is written in
-   S8.1 with the `sync::Lock` work; until then the scattered orders are
-   listed in the plan's section 4.
+   The lock-order table lives in [`locking.md`](locking.md) (written in S8.1);
+   the scattered orders it consolidates are quoted there verbatim.

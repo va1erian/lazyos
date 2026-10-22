@@ -265,7 +265,7 @@ layer 2 API; everything else goes to Rhai unchanged.
 Scripts build pipelines as values with Rhai's operator overloading on a custom
 type, which the spike confirmed works:
 
-```rhai
+```rhai ignore
 let p = (cmd(["cat", "notes.txt"]) | cmd(["grep", "todo"])) > "todo.txt";
 p.run();                                    // wait, return the exit status
 let job = p.spawn();                        // background; returns a Job
