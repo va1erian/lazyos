@@ -807,7 +807,9 @@ harness measures key to paint), the Ars Technica repro of the performance plan (
 * **The notification permission context leak** (above): a per-profile permission record, or a patch that makes
   WebKit's record per data store.
 * **`file:` browsing** through a client-side read and `LoadHtml`.
-* **Tabs** (above).
+* **Tabs** (above). [`lazywebplus-plan.md`](lazywebplus-plan.md) B1 takes the parked-view pool, group
+  recovery and `webd_engine_view_pid` from this list, and adds a client-chosen `process_key` inside a group
+  (one web process per site) with memory-gated limits.
 
 Kernel testing requirement: nothing above adds kernel code, except P4's one default (`shared_buffer_max`). webd's correctness tests are host tests (model
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view
@@ -1090,6 +1092,6 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
 | 6 | Notification identity | webd posts the toast under its own name with the site host as title; a view made with `notify_in_client` (a browser, P4) gets the notifications instead and the app posts them under its own name, so a click raises its window | the shell grows `on_behalf_of` |
-| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user and (P5) a user-memory gate; refusal is `EDQUOT` at `CreateView` (the plan said `ViewLost(no_memory)`) | P5 measures real use |
+| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user and (P5) a user-memory gate; refusal is `EDQUOT` at `CreateView` (the plan said `ViewLost(no_memory)`) | P5 measures real use. **Proposed amendment** ([`lazywebplus-plan.md`](lazywebplus-plan.md) 2.3): a client may split its own group with `ViewConfig.process_key` (one process per site), never join another's; at most 32 keys per client, the cap becomes a memory gate under a ceiling of 16 |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

@@ -22,6 +22,32 @@ live. Inspection cannot change the machine; a box built with
    `python tools/run_demo.py --dbgd`. Troubleshooting: `docs/dbgd.md` section 4.
    One client at a time: do not run the CLI while the MCP bridge is connected.
 
+## Getting a box and a client
+
+```bash
+python tools/run_demo.py --dbgd                 # networking + dbgd; key in target/dbgd.key; 9701 forwarded
+python tools/run_demo.py --dbgd-control         # ...plus restart and service hot reload (v2)
+python tools/run_demo.py --dbgd-mmio            # + allowlisted register reads: dbgctl.py mmio 00:02.0 0 0x70008 16
+python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
+python tools/dbg/dbgctl.py pci-config 00:02.0 0 256   # read-only config space of a function (no claim)
+python tools/dbg/dbgctl.py reload usbd          # rebuilt /system/bin/usbd from target/lazyos.img, rolled back if it dies
+python tools/dbg/dbgctl.py app-install X.lzp    # install an app package (core too), relaunch its windows
+python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
+```
+
+Verifying a change to `dbgd` itself:
+
+```bash
+python tools/dbg/run.py [--usb] [--no-control]  # build, boot, judge every method and the reloads (shots/dbg)
+cargo test -p dbgwire -p pciprobe               # protocol, config, allowlists (fs, MMIO ranges), seeded fuzz
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=dev_peek python tools/test/run.py --accel none   # the hardware-read kernel ops
+LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none
+```
+
+`dbgd` itself is `user/src/bin/dbgd.rs` with the wire format in
+`libs/dbgwire`; it is off unless built in and configured (`diag.dbg=1` in
+`lazyos.cfg`), and a kernel built without `LAZYOS_DBGD=1` has none of its ops.
+
 ## Where the information is
 
 | Question | Tool |
@@ -46,8 +72,11 @@ live. Inspection cannot change the machine; a box built with
 - `usb.dump` is rewritten by `usbd` at most every 2 s and only when the bus
   changed: compare `ep0dq` with `ring` to see whether the controller fetched
   TRBs; `usbsts` bits (HSE, HCE) say whether it died.
-- The program-output ring is 64 KiB: a chatty boot can push early lines out.
-  Say so rather than concluding a line never happened.
+- Program output (`sys::write_str`) is not in the boot log: a `LAZYOS_DBGD=1`
+  kernel keeps it in its own ring, which is where a service's `USBD:`/`NETDRV:`
+  lines are read back (`log.tail source=programs`). That ring is 64 KiB: a
+  chatty boot can push early lines out. Say so rather than concluding a line
+  never happened.
 - Hardware reads: a register is reachable because someone listed it. Never
   suggest `LAZYOS_DBGD_MMIO_ALLOW` for a register you have not looked up (a
   GMBUS or ELD data port advances on read), and say when a read returned

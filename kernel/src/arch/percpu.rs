@@ -124,6 +124,32 @@ pub struct IpiState {
     pub sd_pages: AtomicU64,
     /// The last shootdown generation this CPU acknowledged.
     pub sd_ack: AtomicU64,
+    /// Set by the STOP handler just before this CPU halts for good (the
+    /// panicking CPU waits on it; the suite restarts the CPU afterwards).
+    pub stopped: AtomicBool,
+    /// The TSC coherence exchange (`arch::smp::tscsync`): the step counter
+    /// both sides wait on, the AP's two reads and the BSP's, and whether the
+    /// AP has reached its half.
+    pub sy_state: AtomicU64,
+    pub sy_t1: AtomicU64,
+    pub sy_tb: AtomicU64,
+    pub sy_t2: AtomicU64,
+    pub sy_ready: AtomicBool,
+    /// Test rig: cycles this AP adds to its TSC reads in the exchange.
+    #[cfg(lazyos_tests)]
+    pub tsc_bias: AtomicU64,
+    /// Test rig: a function for this CPU to run in its next reschedule IPI
+    /// (0: none), its argument, its result and a completion generation. The
+    /// suite uses it to make an AP touch memory on demand, which is the only
+    /// way to prove its TLB holds (or no longer holds) a translation.
+    #[cfg(lazyos_tests)]
+    pub job: AtomicU64,
+    #[cfg(lazyos_tests)]
+    pub job_arg: AtomicU64,
+    #[cfg(lazyos_tests)]
+    pub job_result: AtomicU64,
+    #[cfg(lazyos_tests)]
+    pub job_done: AtomicU64,
 }
 
 /// One CPU's state. `self_ptr` must stay first: the asm and `current()`
@@ -220,6 +246,22 @@ impl Cpu {
             sd_addr: AtomicU64::new(0),
             sd_pages: AtomicU64::new(0),
             sd_ack: AtomicU64::new(0),
+            stopped: AtomicBool::new(false),
+            sy_state: AtomicU64::new(0),
+            sy_t1: AtomicU64::new(0),
+            sy_tb: AtomicU64::new(0),
+            sy_t2: AtomicU64::new(0),
+            sy_ready: AtomicBool::new(false),
+            #[cfg(lazyos_tests)]
+            tsc_bias: AtomicU64::new(0),
+            #[cfg(lazyos_tests)]
+            job: AtomicU64::new(0),
+            #[cfg(lazyos_tests)]
+            job_arg: AtomicU64::new(0),
+            #[cfg(lazyos_tests)]
+            job_result: AtomicU64::new(0),
+            #[cfg(lazyos_tests)]
+            job_done: AtomicU64::new(0),
         },
         // The TSS's reserved fields are private, so a literal is out; the
         // zeroed `MaybeUninit` is plain-data zero bytes and `init_cpu`

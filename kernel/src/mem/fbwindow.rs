@@ -46,7 +46,7 @@ pub fn map(phys: u64, len: u64, anchor: u64) -> Result<u64, &'static str> {
                 // SAFETY: a present 4 KiB leaf of the window (only this module
                 // maps it); it is pointed at a page of the same framebuffer.
                 unsafe { entry.write_volatile(pa | flags.bits()) };
-                x86_64::instructions::tlb::flush(VirtAddr::new(va));
+                super::tlb::shootdown(va, 1);
             }
             Err(_) => {
                 if !map_page_in(kernel_table(), VirtAddr::new(va), PhysAddr::new(pa), flags) {

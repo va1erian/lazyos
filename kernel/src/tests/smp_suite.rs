@@ -186,6 +186,97 @@ pub fn bring_up_is_idempotent() -> Result<(), String> {
     Ok(())
 }
 
+/// `STOP_VECTOR`, the panic path's tool: a stopped AP halts with interrupts
+/// off and answers nothing; the bring-up can start it again (the suite
+/// leaves the machine as it found it). Vacuous at one CPU.
+pub fn stop_vector_halts_an_ap_and_it_restarts() -> Result<(), String> {
+    let online = smp::online_cpus();
+    if online <= 1 {
+        return Ok(());
+    }
+    let victim = (1..percpu::MAX_CPUS)
+        .rev()
+        .find(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
+        .ok_or("no online AP")?;
+    check!(
+        smp::stop_cpu_for_test(victim),
+        "the AP did not halt on STOP"
+    );
+    check!(
+        smp::online_cpus() == online - 1,
+        "online count after the stop: {}",
+        smp::online_cpus()
+    );
+    // The others carry on: a shootdown skips the stopped CPU (offline).
+    crate::mem::tlb::shootdown(0xE000_0000, 1);
+    smp::bring_up_for_test(percpu::MAX_CPUS);
+    check!(
+        smp::online_cpus() == online,
+        "the restart left {} CPUs online, expected {online}",
+        smp::online_cpus()
+    );
+    let ack = |i: usize| percpu::area(i).map(|cpu| cpu.ipi.sd_ack.load(Ordering::Acquire));
+    let before: Vec<_> = (1..percpu::MAX_CPUS).map(ack).collect();
+    crate::mem::tlb::shootdown(0xE000_0000, 1);
+    let after: Vec<_> = (1..percpu::MAX_CPUS).map(ack).collect();
+    let online_ids: Vec<usize> = (1..percpu::MAX_CPUS)
+        .filter(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
+        .collect();
+    for &i in &online_ids {
+        check!(
+            after[i - 1] > before[i - 1],
+            "CPU{i} did not acknowledge a shootdown after the restart"
+        );
+    }
+    Ok(())
+}
+
+/// The TSC coherence gate: an AP whose counter reads a millisecond away from
+/// the BSP's is refused and left parked (`HW:SMP:TSC:SKEW`), and the same CPU
+/// started again with a clean counter is accepted. Vacuous at one CPU.
+pub fn skewed_tsc_ap_is_refused() -> Result<(), String> {
+    let online = smp::online_cpus();
+    if online <= 1 {
+        return Ok(());
+    }
+    let victim = (1..percpu::MAX_CPUS)
+        .rev()
+        .find(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
+        .ok_or("no online AP")?;
+    check!(
+        smp::stop_cpu_for_test(victim),
+        "the AP did not halt on STOP"
+    );
+    // One millisecond of the calibrated clock (a tick is 10 ms), on every
+    // area the bring-up might pick; running APs only read it when they start.
+    let skew = crate::arch::clock::cycles_per_tick() / 10;
+    let set_bias = |bias: u64| {
+        for index in 1..percpu::MAX_CPUS {
+            if let Some(cpu) = percpu::area(index) {
+                cpu.ipi.tsc_bias.store(bias, Ordering::Release);
+            }
+        }
+    };
+    let refusals = smp::skew_refusals();
+    set_bias(skew);
+    smp::bring_up_for_test(percpu::MAX_CPUS);
+    let refused = smp::online_cpus() == online - 1 && smp::skew_refusals() == refusals + 1;
+    set_bias(0);
+    check!(
+        refused,
+        "a CPU with a 1 ms TSC offset was not refused for it ({} CPUs, {} refusals)",
+        smp::online_cpus(),
+        smp::skew_refusals() - refusals
+    );
+    smp::bring_up_for_test(percpu::MAX_CPUS);
+    check!(
+        smp::online_cpus() == online,
+        "the clean restart left {} CPUs online, expected {online}",
+        smp::online_cpus()
+    );
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "smp_bring_up_bring_every_ap_online",
@@ -204,4 +295,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         ipi_soak_shootdowns_and_rescheds,
     ),
     ("smp_bring_up_is_idempotent", bring_up_is_idempotent),
+    (
+        "smp_stop_vector_halts_an_ap_and_it_restarts",
+        stop_vector_halts_an_ap_and_it_restarts,
+    ),
+    ("smp_skewed_tsc_ap_is_refused", skewed_tsc_ap_is_refused),
 ];

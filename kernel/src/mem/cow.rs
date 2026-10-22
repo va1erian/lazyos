@@ -47,8 +47,10 @@ pub fn clone_user_table(parent: PhysAddr) -> Option<PhysAddr> {
         vma::clone_space(parent, child);
     }
     // Our own leaves may now be read-only (or were restored by a failed
-    // clone), so drop stale writable TLB entries either way.
+    // clone), so drop stale writable TLB entries either way, on every CPU
+    // that may be running a thread of the parent.
     switch_to(kernel_table());
+    super::tlb::shootdown_all();
     if failed {
         None
     } else {
