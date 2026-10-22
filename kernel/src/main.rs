@@ -372,6 +372,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    // Other CPUs stop first: the dump below assumes the machine is one CPU.
+    arch::smp::stop_others();
     serial::final_line(format_args!("LazyOS PANIC: {}", info));
     // A real PC has no serial port: put the reason and the boot log on screen.
     panic_screen::show("LazyOS stopped: kernel panic", format_args!("{}", info));

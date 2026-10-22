@@ -227,6 +227,10 @@ pub fn eoi() {
 fn send(dest: u32, low: u32) {
     match mode() {
         Some(Mode::X2Apic) => {
+            // The ICR write is a WRMSR, which is neither serializing nor
+            // ordered against earlier stores (SDM 10.12.3): the mailbox the
+            // target reads on receipt must be globally visible first.
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
             // x2APIC: one 64-bit write, destination in bits 32..64.
             msr::write(
                 0x800 + (ICR_LO >> 4),
@@ -267,9 +271,6 @@ pub fn send_sipi(dest: u32, vector_page: u8) {
 
 /// A fixed (ordinary interrupt) IPI carrying `vector` to one APIC: the
 /// kernel's reschedule/shootdown/stop IPIs.
-// The kernel's callers arrive with S8.2's shootdown conversions; the smp
-// suite drives it today.
-#[cfg_attr(not(lazyos_tests), allow(dead_code))]
 pub fn send_fixed(dest: u32, vector: u8) {
     send(dest, ICR_LEVEL_ASSERT | u32::from(vector));
 }

@@ -5,6 +5,19 @@ S8.2 work (AP bring-up, IPIs, TLB shootdown), where it stopped, and what to
 do next. The plan of record is [`smp-plan.md`](smp-plan.md) §S8.2; the
 per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 
+## Update 2026-10-22 (after #958 merged)
+
+#958 landed S8.1 and S8.2 on `main`. Since then, on top of it: the shootdown
+caller conversions (every site listed below, batched with `tlb::Batch`, plus
+the COW-copy hole the plan had exempted), the panic-path `STOP` sender, the TSC
+coherence gate, tests for all of it (`smp_tlb_suite`, `STOP` and skew cases)
+and `tools/sync/check_tlb.py`. The as-built description is now
+[`architecture/smp.md`](architecture/smp.md); read its "Known gaps" before
+starting S8.3. Open from the lists below: the declined review items (the
+`&'static mut Cpu` aliasing, one shootdown sender at a time, nested NMIs), the
+refused-SIPI timeout test, a KVM/WHPX run of the real clock gate, and
+`limit.cpu_max`'s default.
+
 ## Branch and PR state
 
 - **`claude/smp-s8.2-ap-fixes`** (2026-10-21): S8.1 (#902's squash) and the

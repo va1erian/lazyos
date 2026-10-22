@@ -70,6 +70,7 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
             *entry = (old & !COW_BIT) | PTE_WRITABLE;
             make_walk_writable(table, va);
         }
+        // Local on purpose: the entry only loosens (mem/tlb.rs).
         x86_64::instructions::tlb::flush(VirtAddr::new(va));
         return Resolve::Handled;
     }
@@ -84,10 +85,13 @@ pub fn cow_resolve(table: PhysAddr, va: u64) -> Resolve {
         *entry = frame.as_u64() | ((old & !PTE_ADDR) & !COW_BIT) | PTE_WRITABLE;
         make_walk_writable(table, va);
     }
+    // Every CPU stops reading the shared frame through this mapping (a
+    // sibling thread's stale read-only entry would keep doing so, unfaulted,
+    // after its other owners write or free it) before our reference goes.
+    tlb::shootdown(va, 1);
     // The page now lives privately here: release our reference to the shared
     // frame (which frees it if this was the last user).
     free_frame(PhysAddr::new(old & PTE_ADDR));
-    x86_64::instructions::tlb::flush(VirtAddr::new(va));
     Resolve::Handled
 }
 

@@ -5,7 +5,7 @@
 //! leaks a page-table frame per range for a long-lived address space whose
 //! mappings come and go (shared buffers, issue #237).
 
-use x86_64::{PhysAddr, VirtAddr};
+use x86_64::PhysAddr;
 
 use super::free_frame;
 use super::pte::{self, ADDR, HUGE, PRESENT};
@@ -61,7 +61,7 @@ unsafe fn reclaim_directory(table: PhysAddr, block: u64, start: u64, end: u64) {
             if is_empty(pt) {
                 pte::table(pd).add(slot).write_volatile(0);
                 // INVLPG also drops cached paging-structure entries for `span`.
-                x86_64::instructions::tlb::flush(VirtAddr::new(span));
+                super::tlb::shootdown(span, 1);
                 free_frame(pt);
             }
         }
@@ -69,7 +69,7 @@ unsafe fn reclaim_directory(table: PhysAddr, block: u64, start: u64, end: u64) {
     }
     if is_empty(pd) {
         pte::table(p3).add(index(block, 30)).write_volatile(0);
-        x86_64::instructions::tlb::flush(VirtAddr::new(block));
+        super::tlb::shootdown(block, 1);
         free_frame(pd);
     }
 }

@@ -118,7 +118,7 @@ pub fn map_write_combining(va: u64, len: u64) -> Result<u64, &'static str> {
                 };
             }
         }
-        x86_64::instructions::tlb::flush_all();
+        super::tlb::shootdown_all();
         // SAFETY: as above; drops any line cached under the old type.
         unsafe { core::arch::asm!("wbinvd", options(nostack, preserves_flags)) };
     });
