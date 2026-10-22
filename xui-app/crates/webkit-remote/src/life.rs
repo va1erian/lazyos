@@ -16,6 +16,10 @@ use messenger_generated::os_lazy_webd_view_v1 as wire;
 
 use crate::{RemoteEngine, RETRY_MS};
 
+/// Failed tries to make the view before the page says why (at one a second: webd registers in a few
+/// seconds after login, and LazyWeb+ may open first).
+const QUIET_TRIES: u32 = 5;
+
 /// Where the view stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Health {
@@ -84,6 +88,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
         let pending = {
             let mut inner = self.inner.borrow_mut();
             inner.health = super::Health::Live;
+            inner.tries = 0;
             inner.finished_base = inner.state.finished;
             let inner = &mut *inner;
             let view = &mut inner.view;
@@ -104,15 +109,21 @@ impl<T: ScopedTransport> RemoteEngine<T> {
         }
     }
 
-    /// No view: say why, and come back later when it is worth asking again.
+    /// No view: say why (after [`QUIET_TRIES`] when there never was one), and come back later when it
+    /// is worth asking again.
     fn unhealthy(&self, health: Health, why: &str) {
         let now = self.now_ms();
-        {
+        let quiet = {
             let mut inner = self.inner.borrow_mut();
             inner.health = health;
             inner.retry_at = now + RETRY_MS;
-        }
+            inner.tries = inner.tries.saturating_add(1);
+            inner.tries < QUIET_TRIES && inner.state.committed_url.is_empty()
+        };
         self.notice_channel();
+        if quiet {
+            return;
+        }
         self.post_own(|state| {
             state.loading = false;
             state.crashed = true;

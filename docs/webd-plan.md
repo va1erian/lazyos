@@ -739,8 +739,6 @@ client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `
 * WebKit keeps one notification-permission record for the whole context, so a site allowed in the browser profile
   reads as `Notification.permission == "granted"` in another app's profile, where webd then refuses the
   notification (it posts nothing for a profile that did not allow it). Documented, not fixed.
-* `RemoteEngine` still sends a pointer move as button 0 (`input.rs` clamps the code with `max(0)`), though webd
-  now accepts -1.
 * **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
   `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs do not reach the cap of 4.
   Missing: the window chrome for tabs, a parked-view pool in webd (every closed view leaves a parked proxy,

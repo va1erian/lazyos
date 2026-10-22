@@ -230,9 +230,20 @@ fn no_webd_says_so_and_a_page_asked_for_meanwhile_loads_when_it_comes() {
     rig.engine.load(&url("/page2"));
     rig.engine.resize(64, 48);
     assert_eq!(rig.engine.health(), Health::NotRunning);
-    let state = rig.state();
-    assert!(state.error.contains("not running"));
+    // An app opened at login may start before webd: the first tries are quiet.
+    assert!(rig.mailbox.take_state().is_none());
     assert!(rig.engine.pump(), "the window is asked to come back");
+    let mut said = None;
+    for _ in 0..6 {
+        std::thread::sleep(std::time::Duration::from_millis(1050));
+        rig.engine.pump();
+        if let Some(state) = rig.mailbox.take_state() {
+            said = Some(state);
+            break;
+        }
+    }
+    let state = said.expect("after a few tries the page says webd is missing");
+    assert!(state.error.contains("not running"), "{}", state.error);
     rig.web.world.borrow_mut().down = false;
     std::thread::sleep(std::time::Duration::from_millis(1100));
     rig.pump();
