@@ -265,6 +265,31 @@ Returns `()`.
 let result = sys::webd_view::download(view, url);
 ```
 
+### `recover(view, reload)`
+
+`Recover(view: U64, reload: Bool) -> ()`
+
+The page's process does not answer (the app got `Responsive(false)`) and
+the person chose a way out (LazyWeb+, P4): the view's web process is
+ended. With `reload` the page loads again in a fresh process. Without it
+the page stays stopped: the engine reports the page as ended by request,
+which is `ViewLost` with reason `Other`, and the app makes a new view.
+The engine refuses (and does nothing) while other views share the
+process; the service does not know.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `reload` | `Bool` | bool |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::recover(view, reload);
+```
+
 ### `mouse(view, kind, button, x, y, mods)`
 
 `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway`
@@ -484,6 +509,52 @@ Returns `()`.
 
 ```rhai
 let result = sys::webd_view::blocking_forget(view, list);
+```
+
+### `notify_forget(view, origin)`
+
+`NotifyForget(view: U64, origin: String) -> ()`
+
+Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+`Notification.permission` is `default` again and its next request is
+asked again (`NotifyPermissionRequest`). A view made with
+`notifications` only; `origin` is checked as in `NotifyPermission`.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `origin` | `String` | string |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::notify_forget(view, origin);
+```
+
+### `notify_state(view, notification, state)`
+
+`NotifyState(view: U64, notification: U64, state: U32) -> ()`
+
+What became of notification `notification` that `NotifyShow` gave a
+view made with `notify_in_client` (a `NotifyStateKind`): the app's toast
+is on screen, was clicked (the page's click handler runs) or went away.
+`ESRCH` for a notification webd did not give this view or that is over;
+`EACCES` for a view without `notify_in_client`.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `notification` | `U64` | int |
+| `state` | `U32` | int |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::notify_state(view, notification, state);
 ```
 
 ### `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)`
@@ -961,6 +1032,73 @@ One-way: the call returns `()` once the message is queued.
 let result = sys::webd_view::handed_off(view, url);
 ```
 
+### `notify_show(view, notification, origin, page_url, title, body, tag)`
+
+`NotifyShow(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> () oneway`
+
+Event (a view made with `notify_in_client`): the page asked to show
+notification `notification` and its profile allowed `origin`; the app
+shows it (as its own toast, titled by the app, not by the page) and
+answers with `NotifyState`. `page_url` is the page that asked, `tag` the
+page's tag; the texts are the page's own and are cut at 16 KiB each.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `notification` | `U64` | int |
+| `origin` | `String` | string |
+| `page_url` | `String` | string |
+| `title` | `String` | string |
+| `body` | `String` | string |
+| `tag` | `String` | string |
+
+One-way: the call returns `()` once the message is queued.
+
+```rhai
+let result = sys::webd_view::notify_show(view, notification, origin, page_url, title, body, tag);
+```
+
+### `notify_cancel(view, notification)`
+
+`NotifyCancel(view: U64, notification: U64) -> () oneway`
+
+Event: the page closed notification `notification` itself.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `notification` | `U64` | int |
+
+One-way: the call returns `()` once the message is queued.
+
+```rhai
+let result = sys::webd_view::notify_cancel(view, notification);
+```
+
+### `notify_gone(view, notification)`
+
+`NotifyGone(view: U64, notification: U64) -> () oneway`
+
+Event: the page's object for `notification` is gone (its document went
+away); the toast is the person's now and a click reaches no script.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `notification` | `U64` | int |
+
+One-way: the call returns `()` once the message is queued.
+
+```rhai
+let result = sys::webd_view::notify_gone(view, notification);
+```
+
 Not callable from a script (the request carries a kernel object): `CreateView`, `AttachSlot`, `LoadHtml`, `BlockingCompile`.
 
 ## Types
@@ -984,6 +1122,7 @@ How a full view is made; fixed for its life.
 | `user_agent_suffix` | `String` | string |
 | `deltas` | `Bool` | bool |
 | `dialogs` | `Bool` | bool |
+| `notify_in_client` | `Bool` | bool |
 
 ```rhai
 let value = sys::webd_view::new_view_config();
@@ -1005,6 +1144,9 @@ The Notifications API.
 Appended to the engine's user agent; at most 64 bytes.
 Frames carry damage, scroll shifts and bands.
 JavaScript dialogs reach the app (else they are dismissed).
+With `notifications`: the app shows the page's notifications
+(`NotifyShow`, answered with `NotifyState`) instead of webd, so a
+click on one brings the app's window forward.
 A rectangle of the view, in pixels.
 
 | Name | IDL type | Script value |
@@ -1137,6 +1279,16 @@ A string; the constants of this module are:
 - `PERMISSION_ANSWER_DISMISS` = `"Dismiss"`
 
 `PERMISSION_ANSWER` is the array of all of them.
+
+### `NotifyStateKind`
+
+A string; the constants of this module are:
+
+- `NOTIFY_STATE_KIND_SHOWN` = `"Shown"`
+- `NOTIFY_STATE_KIND_CLICKED` = `"Clicked"`
+- `NOTIFY_STATE_KIND_CLOSED` = `"Closed"`
+
+`NOTIFY_STATE_KIND` is the array of all of them.
 
 ## See also
 
