@@ -3,7 +3,8 @@
 The image is the same one the other boots use. Its browser fetches the filter list from
 `easylist.to` (the harness serves a small list of its own there, `tools/webtest/sites.py`) at its
 first start, so the **first boot** has the list fetched, converted and compiled in the
-background. Two more boots of the image:
+background (the client converts it; webd compiles it into its browser profile's rule store). Two
+more boots of the image:
 
 * **blocker boot** (`blocker`): the list comes from WebKit's store (no conversion), a page with an
   ad picture, a tracker pixel, two scripts and a picture of its own loads with the ad network
@@ -54,7 +55,8 @@ UPDATE_NOW_AT = (894, 271)
 
 
 def block_markers(text: str, kind: str) -> list[str]:
-    """What follows `WEBPLUS:BLOCK:<kind>:` on every such line."""
+    """What follows `WEBPLUS:BLOCK:<kind>:` on every such line (the client's: the list's life and the
+    site's switch). The engine's own count of blocked loads is `WEBD:NOTE:BLOCK:COUNT:<n>`."""
     return j.markers(text, f"BLOCK:{kind}")
 
 
@@ -104,7 +106,7 @@ def judge_blocker_boot(text: str) -> list[str]:
         problems.append(f"no {j.P}:LOAD:{BLOCKER_PAGE}")
     if f"{SITE_NAME}:OFF" not in block_markers(text, "SITE"):
         problems.append(f"the exception for {SITE_NAME} was not made (no {j.P}:BLOCK:SITE:{SITE_NAME}:OFF)")
-    counts = [int(m) for m in block_markers(text, "COUNT") if m.isdigit()]
+    counts = [int(m) for m in j.engine_markers(text, "BLOCK:COUNT") if m.isdigit()]
     if not counts or max(counts) != 3:
         problems.append(f"the engine counted {counts} blocked loads on the page (wanted 3: banner, pixel, script)")
     if f"{LIST_ID}:NOTMODIFIED" not in block_markers(text, "UPDATE"):

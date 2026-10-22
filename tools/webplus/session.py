@@ -2,8 +2,10 @@
 
 The image is a desktop built with `LAZYOS_LAZYWEBPLUS=1`, the UI probe and
 `LAZYOS_XUI_AUTOSTART=lazywebplus`, so the browser's window is the only one and opens at login on
-its start page. Two boots of the same image (the profile in `$HOME/.apps/os.lazy.lazywebplus` must
-be found again):
+its start page. The browser is a client of the resident daemon `webd`, which owns the engine and
+keeps the cookies and the HTTP cache in its `browser` profile (`$HOME/.apps/os.lazy.webd/profiles/browser`);
+the history and the downloads stay LazyWeb+'s (`$HOME/.apps/os.lazy.lazywebplus`). Two boots of the same
+image (both profiles must be found again):
 
 * **first boot** (`first`): the start page, example.com over HTTP, theoldnet.com over HTTPS with
   its pictures, a page that sets a cookie, a page whose script opens an `alert`, a `confirm` and a
@@ -12,7 +14,8 @@ be found again):
   links (a `mailto:` link, `target=_blank`, `window.open` from a click, an attachment, a slow
   attachment whose progress is on screen), `about:history` and `about:downloads` by key, the wheel
   over a tall page, a form typed into, Back, an address nothing answers, a page that never
-  answers and Stop, Maximize, and a close from the title bar;
+  answers and Stop, Maximize, and a close from the title bar (webd destroys the view and the page's
+  process ends);
 * **second boot** (`second`): theoldnet.com again, which the HTTP cache on the profile serves (the
   first boot's copy: no request reaches the server), the history of the first is in `about:history`, the
   cookie rides on the request, and the Clear history button of the history page (a click on a link of one of the
@@ -93,7 +96,7 @@ def back_to(window: str, until: str, timeout: float) -> list[dict]:
 
 def boot_gates(timeout: float) -> list[dict]:
     wait = lambda marker, secs=timeout: {"wait_for": marker, "timeout": secs}  # noqa: E731
-    return [wait("PKGD:PROVISION:DONE", 600), wait(f"{j.P}:UP"), wait(f"{j.P}:UP:PASS"),
+    return [wait("PKGD:PROVISION:DONE", 600), wait(f"{j.P}:UP:PASS"),
             wait("NETD:RESOLV wrote"), {"wait": 2.0}]
 
 

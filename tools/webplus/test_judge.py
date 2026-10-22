@@ -10,6 +10,7 @@ sites answer the way the judge expects.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -25,6 +26,10 @@ import session  # noqa: E402
 import sites  # noqa: E402
 
 P = j.P
+#: webd relays the engine's markers behind this (`judge.engine_lines`).
+N = j.NOTE
+CREATE = f"WEBD:VIEW:CREATE client={j.CLIENT_LABEL} view=7"
+DESTROY = "WEBD:VIEW:DESTROY view=7"
 
 
 def log(*lines: str) -> str:
@@ -37,8 +42,8 @@ def page(url: str, title: str) -> list[str]:
 
 def good_first() -> str:
     """A serial log that satisfies every serial judge of the first boot."""
-    lines = [f"{P}:UP", f"{P}:UP:PASS", f"{P}:PROCESS:LAUNCH:web:41", f"{P}:PROCESS:LAUNCH:network:42",
-             f"{P}:WEBPROCESS:UP:41", f"{P}:NETWORKPROCESS:UP:42"]
+    lines = [j.WEBD_UP, CREATE, f"{P}:UP:PASS", f"{N}PROCESS:LAUNCH:network:42", f"{N}PROCESS:LAUNCH:web:41",
+             f"{N}NETWORKPROCESS:UP:42", f"{N}WEBPROCESS:UP:41"]
     for url, title in ((j.START, "LazyWeb+"), (j.EXAMPLE_URL, j.EXAMPLE_TITLE), (j.OLDNET_URL, j.OLDNET_TITLE),
                        (j.COOKIE_URL, j.COOKIE_NONE)):
         lines += page(url, title)
@@ -56,7 +61,9 @@ def good_first() -> str:
     lines += page(j.FORM_URL, j.FORM_TITLE) + [f"{P}:TITLE:{j.ECHO_TITLE}"]
     lines += [f"{P}:FAIL:Could not load {j.FAIL_URL}: Server returned nothing", f"{P}:STOPPED"]
     lines += [f"{P}:INFO:RESIZE:1000x400", f"{P}:INFO:RESIZE:1276x602"]
-    lines += [f"{P}:CHILD:web:41:GONE", f"{P}:CHILD:network:42:GONE", f"{P}:QUIT:PASS"]
+    # The window closes: webd destroys its view and the page's process ends; the network process is
+    # webd's and stays.
+    lines += [DESTROY, f"{N}PROCESS:EXIT:web:41:signal=9", f"{P}:QUIT:PASS"]
     return log(*lines)
 
 
@@ -141,71 +148,119 @@ class DownloadTests(unittest.TestCase):
 
 
 class QuitTests(unittest.TestCase):
-    def test_a_child_that_outlived_the_window_fails_the_run(self) -> None:
-        alive = good_first().replace(f"{P}:CHILD:web:41:GONE", f"{P}:CHILD:web:41:ALIVE")
+    def test_a_good_quit_leaves_webds_network_process_running(self) -> None:
+        text = good_first()
+        self.assertIn(f"{N}PROCESS:LAUNCH:network:42", text)
+        self.assertNotIn("PROCESS:EXIT:network", text)
+        self.assertEqual(j.judge_quit(text), [])
+
+    def test_a_page_process_that_outlived_the_window_fails_the_run(self) -> None:
+        alive = good_first().replace(f"{N}PROCESS:EXIT:web:41:signal=9\n", "")
         problems = j.judge_quit(alive)
-        self.assertTrue(any("41" in p for p in problems), problems)
+        self.assertTrue(any("web process 41" in p and "never seen to end" in p for p in problems), problems)
+
+    def test_a_curl_child_that_outlived_the_window_fails_the_run(self) -> None:
+        text = good_first().replace(f"{P}:QUIT:PASS", f"{P}:CHILD:curl:ALIVE\n{P}:QUIT:PASS")
+        self.assertTrue(any("outlived" in p and "curl" in p for p in j.judge_quit(text)))
 
     def test_a_dirty_quit_fails(self) -> None:
         self.assertTrue(j.judge_quit(good_first().replace("QUIT:PASS", "QUIT:FAIL")))
 
-    def test_the_shutdowns_extended_child_line_is_accepted(self) -> None:
-        text = good_first().replace(f"{P}:CHILD:web:41:GONE", f"{P}:CHILD:web:41:GONE:term=0:kill=0:wait=41")
+    def test_a_view_webd_never_destroyed_fails(self) -> None:
+        text = good_first().replace(f"{DESTROY}\n", "")
+        self.assertTrue(any("view 7" in p and "never destroyed" in p for p in j.judge_quit(text)))
+        # A view of another client is not the window's to destroy.
+        other = good_first().replace(CREATE, CREATE + "\nWEBD:VIEW:CREATE client=app:os.lazy.other view=8")
+        self.assertEqual(j.judge_quit(other), [])
+
+    def test_the_shutdowns_extended_exit_line_is_accepted(self) -> None:
+        text = good_first().replace("PROCESS:EXIT:web:41:signal=9", "PROCESS:EXIT:web:41:status=0:wait=41")
         self.assertEqual(j.judge_quit(text), [])
 
-    def test_a_replaced_network_process_that_ended_earlier_is_accounted_for(self) -> None:
-        text = good_first().replace(f"{P}:CHILD:network:42:GONE", f"{P}:CHILD:network:44:GONE")
-        text = text.replace(f"{P}:NETWORKPROCESS:UP:42", f"{P}:NETWORKPROCESS:UP:42\n{P}:NETWORKPROCESS:UP:44")
-        self.assertTrue(j.judge_quit(text), "42 was never seen to end")
-        text = text.replace(f"{P}:NETWORKPROCESS:UP:44",
-                            f"{P}:PROCESS:EXIT:network:42:signal=9\n{P}:PROCESS:LAUNCH:network:44\n{P}:NETWORKPROCESS:UP:44")
-        self.assertEqual(j.judge_quit(text), [])
+    def test_a_replaced_web_process_that_ended_earlier_is_accounted_for(self) -> None:
+        # Page recovered: 41 ended, 44 took its place (a Reload), and 44 ends with the view.
+        first = f"{N}PROCESS:EXIT:web:41:signal=9"
+        second = f"{N}PROCESS:LAUNCH:web:44\n{N}WEBPROCESS:UP:44"
+        text = good_first().replace(first, f"{first}\n{second}")
+        self.assertTrue(any("web process 44" in p for p in j.judge_quit(text)), "44 was never seen to end")
+        self.assertEqual(j.judge_quit(text.replace(second, f"{second}\n{N}PROCESS:EXIT:web:44:signal=9")), [])
 
-    def test_a_launched_process_nobody_saw_end_fails(self) -> None:
-        text = good_first().replace(f"{P}:QUIT:PASS", f"{P}:PROCESS:LAUNCH:network:50\n{P}:QUIT:PASS")
-        self.assertTrue(any("50" in p for p in j.judge_quit(text)))
-        text = text.replace(f"{P}:QUIT:PASS", f"{P}:PROCESS:EXIT:network:50:status=0\n{P}:QUIT:PASS")
+    def test_a_network_process_webd_replaced_need_not_end(self) -> None:
+        # WebKit gave up on the first network process and webd started another: both are webd's.
+        text = good_first().replace(f"{N}NETWORKPROCESS:UP:42",
+                                    f"{N}NETWORKPROCESS:UP:42\n{N}PROCESS:EXIT:network:42:signal=9\n"
+                                    f"{N}PROCESS:LAUNCH:network:44\n{N}NETWORKPROCESS:UP:44")
         self.assertEqual(j.judge_quit(text), [])
 
     def test_a_terminate_that_sent_nothing_to_a_live_process_fails(self) -> None:
-        sent = f"{P}:PROCESS:TERMINATE:network:42:group=0:pid=-1"
-        end = f"{P}:CHILD:network:42:GONE"
+        sent = f"{N}PROCESS:TERMINATE:web:41:group=0:pid=-1"
+        end = f"{N}PROCESS:EXIT:web:41:signal=9"
         self.assertEqual(j.judge_quit(good_first().replace(end, f"{sent}\n{end}")), [])
-        lost = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=3"
+        lost = f"{N}PROCESS:TERMINATE:web:41:group=3:pid=3"
         self.assertTrue(j.judge_quit(good_first().replace(end, f"{lost}\n{end}")))
         # The group is gone but the process itself was signalled: sent.
-        fallback = f"{P}:PROCESS:TERMINATE:network:42:group=3:pid=0"
+        fallback = f"{N}PROCESS:TERMINATE:web:41:group=3:pid=0"
         self.assertEqual(j.judge_quit(good_first().replace(end, f"{fallback}\n{end}")), [])
         # Nothing to signal once it has ended: not a fault.
-        after = f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:TERMINATE:network:42:group=-1:pid=-1"
-        text = good_first().replace(f"{P}:CHILD:network:42:GONE", after)
-        self.assertEqual(j.judge_quit(text), [])
+        after = f"{end}\n{N}PROCESS:TERMINATE:web:41:group=-1:pid=-1"
+        self.assertEqual(j.judge_quit(good_first().replace(end, after)), [])
 
     def test_a_reused_id_is_a_new_process_not_the_old_ones_end(self) -> None:
         # Slot 42 was a network process that ended; a web process then took the slot. Its launch is not
         # accounted for by the earlier exit, and an exit of the wrong type is a fault.
         base = good_first()
-        text = base.replace(f"{P}:CHILD:network:42:GONE",
-                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42\n{P}:CHILD:web:42:GONE")
+        exit_web = f"{N}PROCESS:EXIT:web:41:signal=9"
+        text = base.replace(exit_web, f"{N}PROCESS:EXIT:network:42:status=0\n{N}PROCESS:LAUNCH:web:42\n"
+                                      f"{N}PROCESS:EXIT:web:42:signal=9\n{exit_web}")
         self.assertEqual(j.judge_quit(text), [])
-        text = base.replace(f"{P}:CHILD:network:42:GONE",
-                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42")
+        text = base.replace(exit_web, f"{N}PROCESS:EXIT:network:42:status=0\n{N}PROCESS:LAUNCH:web:42\n{exit_web}")
         self.assertTrue(any("never seen to end" in p for p in j.judge_quit(text)))
-        text = base.replace(f"{P}:CHILD:network:42:GONE",
-                            f"{P}:PROCESS:EXIT:network:42:status=0\n{P}:PROCESS:LAUNCH:web:42\n"
-                            f"{P}:PROCESS:EXIT:network:42:gone\n{P}:CHILD:web:42:GONE")
+        text = base.replace(exit_web, f"{N}PROCESS:EXIT:network:42:status=0\n{N}PROCESS:LAUNCH:web:42\n"
+                                      f"{N}PROCESS:EXIT:network:42:gone\n{N}PROCESS:EXIT:web:42:signal=9\n{exit_web}")
         self.assertTrue(any("not live" in p or "launched as web" in p for p in j.judge_quit(text)))
 
-    def test_a_launch_of_an_id_still_live_and_a_late_child_line_are_faults(self) -> None:
-        end = f"{P}:CHILD:network:42:GONE"
-        text = good_first().replace(end, f"{P}:PROCESS:LAUNCH:network:42\n{end}")
+    def test_a_launch_of_an_id_still_live_and_a_second_exit_are_faults(self) -> None:
+        end = f"{N}PROCESS:EXIT:web:41:signal=9"
+        text = good_first().replace(end, f"{N}PROCESS:LAUNCH:network:42\n{end}")
         self.assertTrue(any("still live" in p for p in j.judge_quit(text)))
-        text = good_first().replace(f"{P}:QUIT:PASS", f"{P}:CHILD:network:42:GONE\n{P}:QUIT:PASS")
-        self.assertTrue(any("had ended already" in p for p in j.judge_quit(text)))
+        text = good_first().replace(f"{P}:QUIT:PASS", f"{end}\n{P}:QUIT:PASS")
+        self.assertTrue(any("not live" in p for p in j.judge_quit(text)))
 
-    def test_a_start_without_both_children_fails(self) -> None:
-        self.assertTrue(any("NETWORKPROCESS" in p for p in j.judge_start(f"{P}:UP\n{P}:UP:PASS\n{P}:WEBPROCESS:UP:1\n")))
-        self.assertTrue(j.judge_start(f"{P}:UP:PASS\n{P}:WEBPROCESS:UP:1\n{P}:NETWORKPROCESS:UP:2\n"))
+    def test_the_old_prefix_is_not_the_engines(self) -> None:
+        # Only webd's relay counts as an engine line: a `WEBPLUS:` one (the in-process engine's form) is nothing.
+        text = good_first().replace(f"{N}PROCESS:EXIT:web:41:signal=9", f"{P}:PROCESS:EXIT:web:41:signal=9")
+        self.assertTrue(any("never seen to end" in p for p in j.judge_quit(text)))
+
+    def test_a_start_without_both_processes_a_view_or_webd_fails(self) -> None:
+        base = f"{j.WEBD_UP}\n{CREATE}\n{P}:UP:PASS\n{N}WEBPROCESS:UP:1\n{N}NETWORKPROCESS:UP:2\n"
+        self.assertEqual([p for p in j.judge_start(base)], [])
+        self.assertTrue(any("NETWORKPROCESS" in p for p in j.judge_start(base.replace(f"{N}NETWORKPROCESS:UP:2\n", ""))))
+        self.assertTrue(any("WEBPROCESS" in p for p in j.judge_start(base.replace(f"{N}WEBPROCESS:UP:1\n", ""))))
+        self.assertTrue(any("UP:PASS" in p for p in j.judge_start(base.replace(f"{P}:UP:PASS\n", ""))))
+        self.assertTrue(any("WEBD:VIEW:CREATE" in p for p in j.judge_start(base.replace(f"{CREATE}\n", ""))))
+        self.assertTrue(any(j.WEBD_UP in p for p in j.judge_start(base.replace(f"{j.WEBD_UP}\n", ""))))
+        # The process lines under the old prefix do not count.
+        old = base.replace(N, f"{P}:")
+        self.assertTrue(any("WEBPROCESS" in p for p in j.judge_start(old)))
+
+    def test_a_lost_view_fails_a_normal_boot(self) -> None:
+        text = good_first() + "WEBD:LOST view=7 reason=crashed\n"
+        self.assertTrue(any("lost a view" in p for p in j.judge_start(text)))
+
+    def test_an_engine_failure_is_a_failed_load_unless_it_is_the_planned_one(self) -> None:
+        text = good_first() + f"{N}FAIL:provisional:http://elsewhere/:nope\n"
+        self.assertTrue(any("elsewhere" in p for p in j.judge_pages(text)))
+        planned = good_first() + f"{N}FAIL:provisional:{j.FAIL_URL}:Server returned nothing\n"
+        self.assertEqual(j.judge_pages(planned), [])
+        crashed = good_first() + f"{N}FAIL:webprocess:crashed\n"
+        self.assertTrue(any("webprocess:crashed" in p for p in j.judge_pages(crashed)))
+
+    def test_the_engines_timing_lines_are_read_through_webd(self) -> None:
+        text = (f"{N}INFO:TIME:firstpaint=1:sincecommit=2:sincenav=33\n"
+                f"{N}INFO:TIME:nav=1:start=2:commit=3:finish=4:load=55\n"
+                f"{P}:INFO:TIME:firstpaint=1:sincecommit=2:sincenav=99\n")
+        self.assertEqual(j.first_paint_ms(text), [33])
+        self.assertEqual(j.load_ms(text), [55])
 
 
 def request(path: str, cookie: str = "", scheme: str = "https", host: str = "theoldnet.com", status: int = 200):
@@ -294,7 +349,7 @@ class ProfileTests(unittest.TestCase):
     def listing(self, **override) -> dict:
         files = {f"Downloads/{j.DOWNLOAD_NAME}": b"x" * j.DOWNLOAD_BYTES, f"Downloads/{j.SLOW_NAME}": b"y" * j.SLOW_BYTES,
                  f"Downloads/{j.DOWNLOAD_NAME}.part": None, f"Downloads/{j.SLOW_NAME}.part": None,
-                 f".apps/os.lazy.lazywebplus/{j.COOKIE_DB}": b"SQLite format 3"}
+                 j.COOKIE_KEY: b"SQLite format 3"}
         files.update(override)
         return files
 
@@ -317,11 +372,16 @@ class ProfileTests(unittest.TestCase):
     def test_a_cut_download_a_left_part_file_and_no_cookie_database_are_named(self) -> None:
         listing = self.listing(**{f"Downloads/{j.DOWNLOAD_NAME}": b"x" * 10,
                                   f"Downloads/{j.SLOW_NAME}.part": b"y",
-                                  f".apps/os.lazy.lazywebplus/{j.COOKIE_DB}": None})
+                                  j.COOKIE_KEY: None})
         problems = j.judge_profile(listing, self.history(*self.FIRST), "")
         self.assertTrue(any("is 10 bytes" in p for p in problems), problems)
         self.assertTrue(any(".part was left" in p for p in problems), problems)
         self.assertTrue(any(j.COOKIE_DB in p for p in problems), problems)
+
+    def test_the_cookie_jar_is_in_webds_browser_profile_not_the_apps_folder(self) -> None:
+        self.assertEqual(j.COOKIE_KEY, ".apps/os.lazy.webd/profiles/browser/cookies/cookie.jar.db")
+        old = self.listing(**{j.COOKIE_KEY: None, f".apps/os.lazy.lazywebplus/{j.COOKIE_DB}": b"SQLite format 3"})
+        self.assertTrue(any(j.COOKIE_DB in p for p in j.judge_profile(old, self.history(*self.FIRST), "")))
 
     def test_clear_history_must_leave_the_file_empty(self) -> None:
         problems = j.judge_profile(self.listing(), self.history(*self.FIRST), self.history(j.EXAMPLE_URL))
@@ -330,10 +390,11 @@ class ProfileTests(unittest.TestCase):
 
 class SecondBootTests(unittest.TestCase):
     def good(self) -> str:
-        return log(f"{P}:UP", f"{P}:UP:PASS", f"{P}:WEBPROCESS:UP:5", f"{P}:NETWORKPROCESS:UP:6",
+        return log(j.WEBD_UP, CREATE, f"{P}:UP:PASS", f"{N}PROCESS:LAUNCH:web:5", f"{N}WEBPROCESS:UP:5",
+                   f"{N}NETWORKPROCESS:UP:6",
                    *page(j.OLDNET_URL, j.OLDNET_TITLE),
                    *page(j.COOKIE_URL, j.COOKIE_KEPT), *page("about:history", "History"),
-                   f"{P}:CHILD:web:5:GONE", f"{P}:CHILD:network:6:GONE", f"{P}:QUIT:PASS")
+                   DESTROY, f"{N}PROCESS:EXIT:web:5:signal=9", f"{P}:QUIT:PASS")
 
     def test_the_cookie_must_come_back(self) -> None:
         self.assertEqual(j.judge_second(self.good()), [])
@@ -384,8 +445,9 @@ class SessionTests(unittest.TestCase):
             for step in steps:
                 for field in ("wait_for", "until"):
                     marker = step.get(field, "")
-                    if marker.startswith(P):
-                        self.assertRegex(marker, rf"^{P}:[A-Z]+", marker)
+                    # The client's markers, or an engine marker as webd relays it (WEBD:NOTE:...).
+                    if marker.startswith((P, j.NOTE)):
+                        self.assertRegex(marker, rf"^(?:{P}|{re.escape(j.NOTE)}):?[A-Z]+", marker)
 
     def test_the_second_boot_does_not_rebuild_the_world(self) -> None:
         text = json.dumps(session.second())
@@ -414,11 +476,37 @@ class RunTests(unittest.TestCase):
         for needle in ("LAZYOS_LAZYWEBPLUS", "LAZYOS_XUI_AUTOSTART=\"lazywebplus\"", "LAZYOS_UI_PROBE", "WEBKIT_LIMITS"):
             self.assertIn(needle, source, needle)
 
+    def test_the_browser_is_built_with_webd_never_without_it(self) -> None:
+        # LAZYOS_LAZYWEBPLUS=1 requires webd; LAZYOS_WEBD=0 beside it is a build error.
+        source = (HERE / "run.py").read_text(encoding="utf-8")
+        self.assertNotIn('LAZYOS_WEBD="0"', source)
+        self.assertIn('"LAZYOS_WEBD"', source, "an inherited LAZYOS_WEBD=0 is removed from the build's environment")
+
+    def test_the_build_needs_the_client_webd_and_the_engine_processes(self) -> None:
+        names = ["xui-lazywebplus.elf", "xui-webd.elf", "WebProcess", "NetworkProcess", "fetch.elf"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            saved = (run.ROOT, run.BIN, run.ELF, run.WEBD_ELF, run.CURL_ELF)
+            try:
+                run.ROOT, run.BIN = root, root
+                run.ELF, run.WEBD_ELF, run.CURL_ELF = root / names[0], root / names[1], root / names[4]
+                missing = run.built()
+                self.assertTrue(all(name in missing for name in names), missing)
+                self.assertNotIn("lazywebplus-app", missing)
+                for name in names:
+                    (root / name).write_bytes(b"x")
+                self.assertIsNone(run.built())
+                (root / "xui-webd.elf").unlink()
+                self.assertIn("xui-webd.elf", run.built())
+            finally:
+                run.ROOT, run.BIN, run.ELF, run.WEBD_ELF, run.CURL_ELF = saved
+
 
 
 class DenyTests(unittest.TestCase):
-    PAGE = f"LABEL:DENY label=app:{denies.APP}/webprocess"
-    NET = f"LABEL:DENY label=app:{denies.APP}/networkprocess"
+    # The engine's processes are webd's children now (webd's package tables).
+    PAGE = f"LABEL:DENY label=app:{denies.ENGINE_APP}/webprocess"
+    NET = f"LABEL:DENY label=app:{denies.ENGINE_APP}/networkprocess"
 
     def test_the_documented_optional_denials_pass(self) -> None:
         lines = [f"{self.PAGE} file=/etc access=stat", f"{self.PAGE} file=/usr/share/zoneinfo access=stat",
@@ -432,6 +520,11 @@ class DenyTests(unittest.TestCase):
                      f"{self.PAGE} net=inet",
                      f"{self.NET} file=/etc/localtime access=stat",   # the other child's optional lookup
                      f"LABEL:DENY label=app:{denies.APP} iface=0x1 method=2",
+                     f"LABEL:DENY label=app:{denies.APP}/listupdate file=/etc access=stat",
+                     f"LABEL:DENY label=app:{denies.ENGINE_APP} iface=0x1 method=2",
+                     # The old in-process engine's labels: LazyWeb+ has no engine children any more.
+                     f"LABEL:DENY label=app:{denies.APP}/webprocess file=/etc access=stat",
+                     f"LABEL:DENY label=app:{denies.APP}/networkprocess file=/etc/ssl/openssl.cnf access=stat",
                      "LABEL:DENY label=app:os.lazy.other/webprocess file=/etc access=stat"):
             self.assertEqual(denies.unexpected([line]), [line], line)
 
