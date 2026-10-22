@@ -362,11 +362,6 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
 
 ## Known limits
 
-* **A fast scroll checkerboards.** The in-process engine's page process painted the rows above and below the
-  view ahead of a scroll (overscan bands, patch 0030); under webd it paints none, so the picture shown ahead of
-  the page has checkerboard where those rows would be (about 11% of the rows shown while the wheel turns, against
-  none before; the frame rate and the wheel's latency to the engine are unchanged: webd-plan "P4 as built",
-  "Measured"). The first item of P5.
 * **`file:` URLs do not open.** webd never loads `file:`, so a local HTML file opened from Files fails with an
   error. The plan's answer (the client reads the file and passes the bytes with `LoadHtml` and a base address,
   webd-plan open question 5) is not built.
