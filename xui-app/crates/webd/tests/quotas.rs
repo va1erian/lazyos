@@ -435,8 +435,13 @@ fn bad_input_is_dropped_not_forwarded() {
         Err(EINVAL)
     );
     assert_eq!(
-        rig.raw(app, wire::METHOD_MOUSE, mouse(0, -1), vec![]),
+        rig.raw(app, wire::METHOD_MOUSE, mouse(0, -2), vec![]),
         Err(EINVAL)
+    );
+    // -1 is "no button" (a move with nothing held): forwarded as it is.
+    assert_eq!(
+        rig.raw(app, wire::METHOD_MOUSE, mouse(2, -1), vec![]),
+        Ok(Vec::new())
     );
     let key = wire::encode_key_args(&wire::KeyArgs {
         view,
@@ -447,5 +452,6 @@ fn bad_input_is_dropped_not_forwarded() {
     })
     .unwrap();
     assert_eq!(rig.raw(app, wire::METHOD_KEY, key, vec![]), Err(EINVAL));
-    assert!(rig.engine.take().is_empty());
+    // Only the move with no button reached the engine.
+    assert_eq!(rig.engine.take().len(), 1);
 }
