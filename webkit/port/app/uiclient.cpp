@@ -2,8 +2,8 @@
 // pointer shape, a request for a new window, the page's JavaScript dialogs, and (notify.cpp's
 // callback) the permission to notify.
 //
-// Dialogs never block this thread: the question goes to the window (lzw_ui_dialog) and the result
-// listener is kept, retained, until the window answers (lzw_engine_dialog_reply) or the page it
+// Dialogs never block this thread: the question goes to the owner's sink and the result
+// listener is kept, retained, until the owner answers or the page it
 // belongs to goes away (dropDialogs). The page's own process waits, which is what a dialog is;
 // nothing else does, so the frame mailbox keeps flowing.
 

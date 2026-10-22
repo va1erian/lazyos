@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build webd (``webd-app``), the program that owns WebKit for the session and serves light views.
 
-``docs/webd.md`` and ``docs/webd-plan.md`` (P2 slice 2). Like LazyWeb+ (``app.py``, which this
-reuses) the program is one static-PIE musl program in two halves:
+``docs/webd.md`` and ``docs/webd-plan.md`` (P2 slice 2). The program is one static-PIE musl program in two halves
+(``uilink.py`` has the steps):
 
 1. the service, a Rust static library built **on the host** with cargo for
    ``x86_64-unknown-linux-musl`` into ``target/webkit/lib``: ``xui-app/webd`` (``xui-webd-host``,
@@ -14,7 +14,7 @@ reuses) the program is one static-PIE musl program in two halves:
 The result is ``target/webkit/bin/webd-app``, copied to ``target/xui/xui-webd.elf``, where
 ``tools/xui/core_packages.py`` finds it for the package (``xui-app/packages/webd``). Needs the port's other
 programs built first (``python tools/webkit/port.py``): webd starts ``WebProcess`` and ``NetworkProcess``,
-installed as ``/system/bin/webprocess`` and ``networkprocess`` by ``LAZYOS_WEBD=1`` images.
+installed as ``/system/bin/webprocess`` and ``networkprocess`` by ``LAZYOS_WEBD=1`` images (every desktop, and the ones of ``LAZYOS_LAZYWEBPLUS=1``).
 
 Usage::
 
@@ -37,9 +37,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import app  # noqa: E402  (tools/webkit/app.py: the build steps every desktop WebKit program shares)
+import uilink  # noqa: E402  (tools/webkit/uilink.py: the build steps of a program with a Rust half)
 
-APP = app.App("xui-webd-host", "libxui_webd_host.a", "webd-app", "xui-webd.elf")
+APP = uilink.App("xui-webd-host", "libxui_webd_host.a", "webd-app", "xui-webd.elf")
 
 
 def main() -> int:
@@ -49,10 +49,10 @@ def main() -> int:
     parser.add_argument("--no-docker", action="store_true", help="link on this Linux host")
     args = parser.parse_args()
 
-    library = app.build_window_library(APP)
+    library = uilink.build_window_library(APP)
     built: dict[str, str | None] = {"service": str(library) if library else None}
     if not args.lib_only and library:
-        program = app.link_program(APP, args.no_docker, args.require)
+        program = uilink.link_program(APP, args.no_docker, args.require)
         built[APP.program] = str(program) if program else None
     print(json.dumps(built, indent=2))
     missing = [name for name, path in built.items() if path is None]

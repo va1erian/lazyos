@@ -54,18 +54,19 @@ class VerdictTests(unittest.TestCase):
             self.assertIn(fhspaths.program("WEBPROCESS"), by_name[name], name)
         self.assertIn("depsproof", by_name["zlib"])
 
-    def test_the_port_only_rows_name_both_browsers_programs(self) -> None:
+    def test_the_port_only_rows_name_webds_program(self) -> None:
         rows = {row.split("|")[1].strip().split()[0]: row for row in licenses.rows()}
         for name in ("libwpe", "glstub", "WebKit"):
-            self.assertIn("lazywebplus-app", rows[name], name)
-            self.assertIn("LAZYOS_LAZYWEBPLUS=1", rows[name], name)
+            self.assertIn("webd-app", rows[name], name)
+            self.assertIn("LAZYOS_WEBD=1", rows[name], name)
+            self.assertNotIn("lazywebplus-app", rows[name], name)
 
-    def test_lazywebplus_window_is_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
+    def test_lazywebplus_crates_are_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
         self.assertEqual(licenses.check_webplus_licence(), [])
         for name in licenses.WEBPLUS_CRATES:
             self.assertTrue((licenses.ROOT / name).is_file(), name)
 
-    def test_a_gpl2_only_window_cannot_carry_openssl(self) -> None:
+    def test_a_gpl2_only_crate_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             crate = root / "xui-app" / "webplus"
