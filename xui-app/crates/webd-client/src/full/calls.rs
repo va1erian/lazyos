@@ -130,6 +130,29 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.call(wire::METHOD_NOTIFYPERMISSION, body)
     }
 
+    /// Forget the profile's decision about `origin` (a view made with `notifications`): the page's
+    /// `Notification.permission` is `default` again and its next request is asked again.
+    pub fn notify_forget(&mut self, origin: &str) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let args = wire::NotifyForgetArgs {
+            view,
+            origin: origin.to_owned(),
+        };
+        let body = wire::encode_notify_forget_args(&args).map_err(|_| BAD)?;
+        self.call(wire::METHOD_NOTIFYFORGET, body)
+    }
+
+    /// The page's process does not answer ([`crate::full::FullEvent::Responsive`] `false`) and the
+    /// person chose a way out: it is ended. With `reload` the page loads again in a fresh process.
+    /// Without it the page stays stopped and the view ends (`ViewLost`, reason `Other`): make a
+    /// new one. Nothing happens while other views share the process.
+    pub fn recover(&mut self, reload: bool) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let body =
+            wire::encode_recover_args(&wire::RecoverArgs { view, reload }).map_err(|_| BAD)?;
+        self.call(wire::METHOD_RECOVER, body)
+    }
+
     /// Content blocking on or off for the view's profile, and the hosts it is off for.
     pub fn set_blocking(&mut self, enabled: bool, exceptions: &[String]) -> Result<(), Error> {
         let view = self.live_view()?;
