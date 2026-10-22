@@ -100,6 +100,19 @@ public:
     virtual void downloadFail(uint64_t /*id*/, const char* /*reason*/) { }
     // LZW_FEATURE_POLICY: LZW_VERDICT_*; a pure decision.
     virtual int navigate(const char* /*url*/, int /*kind*/, bool /*gesture*/, const char* /*committed*/) { return 0; }
+    // The same question with the view's id for it (`request`, per view, never reused) and whether it replaces the
+    // page (`mainFrame`: the main frame's navigation or a new window's). It may also answer kVerdictAsk: the
+    // navigation is then held (View::held) until View::answerNavigation, a newer main-frame navigation or the
+    // view's end. The default asks `navigate`, so an owner of that question (legacy.cpp) holds nothing.
+    // (kVerdictDeny is LZW_VERDICT_DENY; policy.cpp asserts it.)
+    static constexpr int kVerdictDeny = 1;
+    static constexpr int kVerdictAsk = 3;
+    virtual int navigateRequest(uint64_t /*request*/, const char* url, int kind, bool gesture, bool /*mainFrame*/, const char* committed)
+    {
+        // An owner of the old question never holds: an answer it did not have before is a refusal, as it was.
+        const int verdict = navigate(url, kind, gesture, committed);
+        return verdict == kVerdictAsk ? kVerdictDeny : verdict;
+    }
 
     // LZW_FEATURE_NOTIFICATIONS.
     virtual void notifyShow(uint64_t /*id*/, const char* /*origin*/, const char* /*pageUrl*/, const char* /*title*/, const char* /*body*/, const char* /*tag*/) { }
@@ -165,6 +178,20 @@ struct ViewConfig {
     int defaultFontSize { 0 };
     // Extra CSS for every page loaded with loadHtml (empty: none).
     std::string userStyle;
+    // A full (not light) view whose owner set `scripts`, `defaultFontSize`, `colorScheme` and `userStyle` for it
+    // too (webd, fullview.cpp). Unset (LazyWeb+), a browser view is as it always was.
+    bool configured { false };
+    // Appended to the user agent (WKPageSetApplicationNameForUserAgent); empty: WebKit's own.
+    std::string userAgentSuffix;
+};
+
+// A navigation the owner was asked about and has not answered (ViewSink::kVerdictAsk): its retained listener
+// and what finishing it needs.
+struct HeldNavigation {
+    WKFramePolicyListenerRef listener { nullptr };
+    std::string address;
+    bool mainFrame { false };
+    bool download { false };
 };
 
 struct Host;
@@ -235,6 +262,9 @@ struct View {
     uint64_t nextDownload { 1 };
     // Permission requests waiting for the owner's answer, by the origin that asked (retained).
     std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> permissionRequests;
+    // Navigations held for the owner's answer, by request id, and the next id (ViewSink::navigateRequest).
+    std::map<uint64_t, HeldNavigation> held;
+    uint64_t nextRequest { 1 };
     // The link last reported under the pointer.
     std::string hover;
     // Whether the page's last new-window request came with a user gesture, and its address.
@@ -270,6 +300,8 @@ struct View {
     void download(const std::string& url);
     void downloadCancel(uint64_t id);
     void replyDialog(uint64_t id, bool accepted, const std::string& value);
+    // Finishes held navigation `id` as the normal path would (allow) or refuses it; an id no longer held is ignored.
+    void answerNavigation(uint64_t id, bool allow);
     void recover(bool reload);
 };
 
@@ -297,6 +329,8 @@ struct Host {
     std::map<std::string, std::weak_ptr<Profile>> profiles;
     // ... which are never torn down (engine.cpp, profileFor).
     std::vector<std::shared_ptr<Profile>> keptProfiles;
+    // The children's environment was decided once at start (startHostWithChildren): no profile changes it.
+    bool environmentFixed { false };
     // The context's notification manager (set with the provider, LZW_FEATURE_NOTIFICATIONS), and
     // which view each live notification belongs to.
     WKNotificationManagerRef notifications { nullptr };
@@ -324,6 +358,9 @@ inline View* viewOf(const void* clientInfo) { return static_cast<View*>(const_ca
 // `profileHint` is the directory of the profile the first view will use, if the owner knows it: the
 // children take their environment when they start, so it is set before anything can start one.
 bool startHost(HostEnv* env, const std::string& profileHint = std::string());
+// startHost for an owner of several profiles (webd): the children's environment is decided here, once, and no
+// view changes it (profile.cpp, fixChildrenEnvironment). False when `childrenDirectory` cannot be made.
+bool startHostWithChildren(HostEnv* env, const std::string& childrenDirectory);
 // A page with its own state; null when WebKit refuses. Main thread.
 View* createView(const ViewConfig& config, ViewSink* sink);
 // Ends a page: its clients are cleared, its dialogs and downloads answered, its paint state and bitmaps
@@ -337,6 +374,27 @@ void destroyView(int id);
 void onMain(std::function<void()> task);
 // Queues a task for a view, dropped if the view is gone when the run loop gets to it.
 void onView(int id, std::function<void(View&)> task);
+
+// ---- profile.cpp: data stores and the children's environment ------------------------------------
+
+// `mkdir -p`, private to the user (0700).
+bool makePrivateDirectories(const std::string& path);
+// What the children inherit for a host that has one profile (LazyWeb+): the first persistent profile's directory
+// and cookie jar. Nothing once the environment is fixed.
+void exportProfileEnvironment(const std::string& profile);
+// The children start in `directory` (created) and curl's default cookie database is in memory, for every profile
+// to come: H.environmentFixed. Before anything can start a process.
+bool fixChildrenEnvironment(const std::string& directory);
+// The profile a view of this configuration lives in: the directory's, when another view has it open already,
+// else a new one.
+std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnly);
+
+// ---- fullview.cpp: a full view's configuration (webd) ---------------------------------------------
+
+// Before the view exists, for a view with ViewConfig::configured: scripts, font size, user style.
+void configureFull(View& view, WKPageConfigurationRef configuration);
+// After the page exists: the user agent suffix, when there is one.
+void applyUserAgentSuffix(View& view);
 
 // ---- log.cpp: markers and small helpers ----------------------------------------------------------
 
@@ -402,6 +460,8 @@ void navigationActionDidBecomeDownload(WKPageRef, WKNavigationActionRef, WKDownl
 void navigationResponseDidBecomeDownload(WKPageRef, WKNavigationResponseRef, WKDownloadRef, const void*);
 // The page's downloads end with the page.
 void dropDownloads(View& view);
+// Every navigation held for the owner is refused (a newer main-frame navigation, the view's end).
+void dropHeldNavigations(View& view);
 
 // ---- uiclient.cpp: the page's UI client and the view's pointer -----------------------------------
 
@@ -442,6 +502,9 @@ void notifyShown(uint64_t id);
 void notifyClicked(uint64_t id);
 void notifyClosed(uint64_t id);
 void notifyPermission(const std::string& origin, int answer);
+// The same answer for `view`'s pending requests of `origin` only (webd: views of several owners); WebKit's
+// policy, which is the context's, is told as notifyPermission tells it.
+void notifyPermissionIn(View& view, const std::string& origin, int answer);
 void notifyForget(const std::string& origin);
 
 // ---- blocking.cpp: content-extension rule lists (issue #845) -------------------------------------

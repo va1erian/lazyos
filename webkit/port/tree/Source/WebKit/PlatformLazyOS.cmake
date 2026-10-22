@@ -190,6 +190,8 @@ set(_lazyos_engine_sources
     "${LAZYOS_PORT_DIR}/app/paint.cpp"
     "${LAZYOS_PORT_DIR}/app/light.cpp"
     "${LAZYOS_PORT_DIR}/app/log.cpp"
+    "${LAZYOS_PORT_DIR}/app/profile.cpp"
+    "${LAZYOS_PORT_DIR}/app/fullview.cpp"
 )
 # ... and the C ABI of lazyos_ui.h over it, for a program with a window of that kind.
 set(_lazyos_app_sources

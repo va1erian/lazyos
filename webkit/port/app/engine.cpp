@@ -52,16 +52,6 @@ namespace webkitapp {
 
 Host H;
 
-Profile::~Profile()
-{
-    for (auto& list : lists)
-        WKRelease(list.second);
-    if (rules)
-        WKRelease(rules);
-    if (store)
-        WKRelease(store);
-}
-
 View* viewById(int id)
 {
     auto it = H.views.find(id);
@@ -85,124 +75,6 @@ void runTask(void* context)
     auto* task = static_cast<std::function<void()>*>(context);
     (*task)();
     delete task;
-}
-
-// The cookie jar, below the profile directory (a SQLite database the NetworkProcess owns).
-constexpr const char* kCookieJar = "cookies/cookie.jar.db";
-
-// `mkdir -p`, private to the user: what this browser keeps is the user's alone.
-bool makeDirectories(const std::string& path)
-{
-    for (size_t at = 1; at <= path.size(); ++at) {
-        if (at != path.size() && path[at] != '/')
-            continue;
-        const std::string prefix = path.substr(0, at);
-        if (mkdir(prefix.c_str(), 0700) != 0 && errno != EEXIST)
-            return false;
-    }
-    return true;
-}
-
-// What the children inherit: the launcher starts them in the profile directory, WebKit's default
-// data directories (patch 0015) are below it, and curl opens its cookie database at
-// CURL_COOKIE_JAR_PATH (the working directory otherwise) before the data store's own file is applied
-// (WebCore/platform/network/curl/NetworkStorageSessionCurl.cpp). A process takes its environment when
-// it starts and one NetworkProcess serves every profile, so the first persistent profile's directory is
-// the one named: a second profile's explicit directories (below) are right, its curl cookie jar is not
-// yet (docs/webd-plan.md, "Profiles, processes, isolation").
-void exportProfileEnvironment(const std::string& profile)
-{
-    static bool exported = false;
-    if (exported)
-        return;
-    exported = true;
-    setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
-    setenv("CURL_COOKIE_JAR_PATH", (profile + "/" + kCookieJar).c_str(), 1);
-}
-
-// The website data store the page lives in: everything WebKit keeps (cookies, the HTTP cache,
-// local storage, IndexedDB, ...) below `profile`; WebKit's own defaults for the directories this
-// does not name follow the profile too (patch 0015, through LAZYOS_WEBKIT_PROFILE). No profile
-// gives an ephemeral store, never a directory of the working directory.
-WKWebsiteDataStoreRef createDataStore(const std::string& profile, bool memoryOnly)
-{
-    // The owner asked for the page's data to stay in memory (issue #940): the profile still holds
-    // the content-blocking store (startBlocking), but nothing of the page is written to it.
-    // The children still start in the profile (the one folder their rules let them write, and where
-    // WebKit's default directories of patch 0015 go), and curl's default session keeps its cookie
-    // database in SQLite's memory (`CookieJarDB::isOnMemory`), not as cookie.jar.db in the working
-    // directory.
-    if (memoryOnly) {
-        if (!profile.empty() && makeDirectories(profile))
-            setenv("LAZYOS_WEBKIT_PROFILE", profile.c_str(), 1);
-        setenv("CURL_COOKIE_JAR_PATH", ":memory:", 1);
-        say("PROFILE:EPHEMERAL:the page's data is kept in memory");
-        return WKWebsiteDataStoreCreateNonPersistentDataStore();
-    }
-    if (profile.empty() || !makeDirectories(profile)) {
-        say("PROFILE:NONE:the browser keeps nothing");
-        return WKWebsiteDataStoreCreateNonPersistentDataStore();
-    }
-    exportProfileEnvironment(profile);
-
-    auto path = [&profile](const char* leaf) {
-        return WKStringCreateWithUTF8CString((profile + "/" + leaf).c_str());
-    };
-    WKWebsiteDataStoreConfigurationRef configuration = WKWebsiteDataStoreConfigurationCreate();
-    struct Setting {
-        void (*set)(WKWebsiteDataStoreConfigurationRef, WKStringRef);
-        const char* leaf;
-    };
-    const Setting settings[] = {
-        { WKWebsiteDataStoreConfigurationSetCookieStorageFile, kCookieJar },
-        { WKWebsiteDataStoreConfigurationSetNetworkCacheDirectory, "cache" },
-        { WKWebsiteDataStoreConfigurationSetLocalStorageDirectory, "storage/local" },
-        { WKWebsiteDataStoreConfigurationSetIndexedDBDatabaseDirectory, "storage/indexeddb" },
-        { WKWebsiteDataStoreConfigurationSetWebSQLDatabaseDirectory, "storage/websql" },
-        { WKWebsiteDataStoreConfigurationSetCacheStorageDirectory, "storage/cachestorage" },
-        { WKWebsiteDataStoreConfigurationSetGeneralStorageDirectory, "storage/general" },
-        { WKWebsiteDataStoreConfigurationSetResourceLoadStatisticsDirectory, "storage/statistics" },
-        { WKWebsiteDataStoreConfigurationSetServiceWorkerRegistrationDirectory, "storage/serviceworkers" },
-    };
-    for (const auto& setting : settings) {
-        WKStringRef value = path(setting.leaf);
-        setting.set(configuration, value);
-        WKRelease(value);
-    }
-    // The directories exist before a process that may only write inside them looks for one.
-    for (const char* leaf : { "cookies", "cache", "storage" })
-        makeDirectories(profile + "/" + leaf);
-    WKWebsiteDataStoreRef store = WKWebsiteDataStoreCreateWithConfiguration(configuration);
-    WKRelease(configuration);
-    say("PROFILE:PASS");
-    sayHarness("PROFILE:DIR:%s", oneLine(profile).c_str());
-    return store;
-}
-
-// The profile a view of this configuration lives in: the directory's, when it has one and another view
-// has it open already, else a new one.
-std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnly)
-{
-    // A directory used both ways is two profiles: one persistent store, one in memory.
-    const std::string key = directory + (memoryOnly ? "\n:memory" : "");
-    if (!directory.empty()) {
-        auto known = H.profiles.find(key);
-        if (known != H.profiles.end()) {
-            if (std::shared_ptr<Profile> shared = known->second.lock())
-                return shared;
-        }
-    }
-    auto profile = std::make_shared<Profile>();
-    profile->directory = directory;
-    profile->store = createDataStore(directory, memoryOnly);
-    if (!directory.empty()) {
-        H.profiles[key] = profile;
-        // A persistent data store lives as long as the process: releasing the last one while its
-        // NetworkProcess session is open aborted the UI process (webkit-views two), and the old
-        // single-page host never let go of its store either.
-        H.keptProfiles.push_back(profile);
-    }
-    return profile;
 }
 
 void clearClients(View& view)
@@ -239,7 +111,7 @@ bool startHost(HostEnv* env, const std::string& profileHint)
     elapsedMs();
     // The profile directory first: it goes into the environment the children inherit, and nothing
     // may start a process before it is there.
-    if (!profileHint.empty() && makeDirectories(profileHint))
+    if (!profileHint.empty() && makePrivateDirectories(profileHint))
         exportProfileEnvironment(profileHint);
     // The page's process paints a view's height of the page above and below the view ahead of a
     // scroll (WebKit patch 0030, paint.cpp "bands"); a harness may set another amount, 0 for none.
@@ -266,6 +138,13 @@ bool startHost(HostEnv* env, const std::string& profileHint)
         installNotifications();
     installContextClient();
     return H.context != nullptr;
+}
+
+bool startHostWithChildren(HostEnv* env, const std::string& childrenDirectory)
+{
+    // The owner first: the environment's markers go to it.
+    H.env = env;
+    return fixChildrenEnvironment(childrenDirectory) && startHost(env);
 }
 
 // The other live views whose page runs in the same WebProcess as `view`'s (a group's). A crashed view
@@ -337,6 +216,9 @@ View* createView(const ViewConfig& config, ViewSink* sink)
         say("FAIL:view:the light view could not be configured");
         return nullptr;
     }
+    // A full view whose owner configured it (webd): its scripts, font size and style, before the view too.
+    if (!config.light && config.configured)
+        configureFull(view, pageConfiguration);
     // The configuration is not released, as before: the view keeps what it needs of it.
     view.view = WKViewCreate(pageConfiguration);
     if (!view.view) {
@@ -344,6 +226,8 @@ View* createView(const ViewConfig& config, ViewSink* sink)
         return nullptr;
     }
     view.page = WKViewGetPage(view.view);
+    if (!config.light && config.configured && !config.userAgentSuffix.empty())
+        applyUserAgentSuffix(view);
 
     WKViewClientV0 viewClient = { };
     viewClient.base.version = 0;
@@ -375,6 +259,7 @@ void destroyView(int id)
     clearClients(*view);
     dropDialogs(*view);
     dropDownloads(*view);
+    dropHeldNavigations(*view);
     if (view->page) {
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
