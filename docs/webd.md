@@ -235,9 +235,9 @@ with a remote picture which never reached the server; a delta frame with `dy=-40
 
 | Measured (one run, `WEBDBROWSE:LATENCY`; the client polls every 8 ms, so 8 ms is "within one poll") | |
 |---|---|
-| `Load` of a page to its first frame (view up, page from the host) | 32 ms (17 ms in the first run) |
-| wheel turn sent to the first frame after it (20 turns) | min 8, median 8, max 8 ms (first run 7 / 8 / 16) |
-| `Refresh` to frame (10) | 8 / 8 / 8 ms |
+| `Load` of a page to its first frame (view up, page from the host) | 17, 32 and 25 ms (three runs) |
+| wheel turn sent to the first frame after it (20 turns) | min / median / max 7 / 8 / 16, 8 / 8 / 8 and 8 / 8 / 8 ms |
+| `Refresh` to frame (10) | 8 / 8 / 8, 8 / 8 / 8 and 6 / 8 / 8 ms |
 | the engine's own wheel-to-damage (`w2d`, `INFO:PAINT`) | 2.0-2.1 ms average, 2.4-3.7 ms worst |
 
 What the numbers do not say: they are a simple local page at 800x578; the light self-test's `Refresh` was 31-34 ms
