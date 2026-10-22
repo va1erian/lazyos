@@ -4,10 +4,11 @@ name: pages
 # file under docs/, README.md and CONTRIBUTING.md, built by tools/site/build.py
 # and deployed to GitHub Pages. It replaces the GitHub wiki.
 #
-# Rebuilt when the docs or the generator change, and after every abi-compat run
-# on main so the Linux ABI matrix and syscall coverage (CI output, git-ignored)
-# stay current under "Hardware & ABI compatibility". Pull requests build and
-# check the site (broken links fail) but do not deploy it.
+# Runs only after a merge to main (a push to main that touches the docs or the
+# generator) and after every abi-compat run on main, so the Linux ABI matrix and
+# syscall coverage (CI output, git-ignored) stay current under "Hardware & ABI
+# compatibility". It never runs for a pull request: check links before merging
+# with `python tools/site/build.py --strict` (tools/site/README.md).
 #
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 # To rebuild by hand: Actions -> pages -> Run workflow, or locally
@@ -16,13 +17,6 @@ name: pages
 on:
   push:
     branches: [main]
-    paths:
-      - "docs/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "tools/site/**"
-      - ".github/workflows/pages.yml"
-  pull_request:
     paths:
       - "docs/**"
       - "README.md"
@@ -39,16 +33,20 @@ permissions:
   contents: read
   actions: read # download the latest abi-compat artifact
 
+# Runs queue one behind another (a merge that touches docs and code starts two);
+# a run waiting behind another is replaced by a newer one, a running one is
+# never cancelled.
 concurrency:
-  group: pages-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: pages-build
+  cancel-in-progress: false
 
 jobs:
   build:
-    # Nothing new to publish after a cancelled abi-compat run, or one a pull request started.
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.event != 'pull_request')
+    # Not for an abi-compat run a pull request started (a fork's pull request from a branch
+    # called main). A cancelled abi-compat run still rebuilds: the build always takes main's
+    # latest commit, and skipping the run would still displace a pending docs run in the
+    # concurrency queue above.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +98,8 @@ jobs:
           ls docs/compat
 
       # --strict: a broken link or a #fragment that matches no heading fails the
-      # build, so a renamed doc is caught in the pull request that renames it.
+      # build. Pull requests do not run it, so run it locally before pushing docs
+      # changes; a miss fails this build on main (the site stays on the last good deploy).
       - name: Build the site
         env:
           SITE_REF: ${{ github.event.repository.default_branch }}
@@ -113,7 +112,7 @@ jobs:
   deploy:
     needs: build
     # Only main publishes: a manual run from another branch builds but never deploys.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       pages: write
