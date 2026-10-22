@@ -92,7 +92,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
     fn send_move(&self, update: Move) {
         self.inner.borrow_mut().view.mouse(
             MouseKind::Move,
-            update.button.code().max(0),
+            update.button.code(),
             update.x,
             update.y,
             update.mods,
