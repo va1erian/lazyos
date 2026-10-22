@@ -4459,7 +4459,7 @@ pub static INTERFACES: &[Interface] = &[
                 name: "Mouse",
                 id: 20,
                 oneway: true,
-                doc: "Input, as the display protocol delivers it, in view pixels. `kind` is a\n`MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1\ncontrol, 2 alt, 3 meta.",
+                doc: "Input, as the display protocol delivers it, in view pixels. `kind` is a\n`MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no\nbutton held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.",
                 params: &[Field { name: "view", id: 1, ty: Ty::U64 }, Field { name: "kind", id: 2, ty: Ty::U32 }, Field { name: "button", id: 3, ty: Ty::I32 }, Field { name: "x", id: 4, ty: Ty::I32 }, Field { name: "y", id: 5, ty: Ty::I32 }, Field { name: "mods", id: 6, ty: Ty::U32 }],
                 returns: &[],
                 objects: &[],

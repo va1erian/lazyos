@@ -24197,8 +24197,8 @@ pub mod os_lazy_webd_light_v1 {
     pub const LOAD_HTML_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
 
     /// Input, as the display protocol delivers it, in view pixels. `kind` is a
-    /// `MouseKind`, `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift, 1
-    /// control, 2 alt, 3 meta.
+    /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
+    /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MouseArgs {
         pub view: u64,

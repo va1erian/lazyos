@@ -269,7 +269,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             .ok()
             .filter(|kind| (0..=2).contains(kind))
             .ok_or(MALFORMED)?;
-        if !(0..=2).contains(&args.button) {
+        if !(-1..=2).contains(&args.button) {
             return Err(MALFORMED);
         }
         live(&mut self.views, client, full, args.view)?;
