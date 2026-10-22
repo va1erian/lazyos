@@ -397,6 +397,9 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   Nothing is remembered context-wide at start (`HostEnv::notifyPermissionAt` is -1). **WebKit refuses the
   permission in a page whose session is ephemeral** (`WebNotificationClient::requestPermission`), before
   anything reaches the UI process: a view without a persistent profile (none, or `memory_only`) can never notify.
+  `webd_engine_notify_forget(view, origin)` (P4) is `notifyForget`: the context's record only, host-wide.
+* *Recover.* `webd_engine_recover(view, reload)` (P4) is `View::recover`: the view's web process is ended and the
+  page reloads in a fresh one, or stays stopped (`LOST_OTHER`); a process other views share is left alone.
 
 ```bash
 LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify nonet

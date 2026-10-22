@@ -235,6 +235,16 @@ void webd_engine_blocking_load(uint64_t view, const char* list);
 void webd_engine_blocking_compile(uint64_t view, const char* list, const char* json, size_t len);
 void webd_engine_blocking_forget(uint64_t view, const char* list);
 
+// P4 (LazyWeb+ is a client of webd). The view's page process does not answer and the person chose a way out:
+// the process is ended (View::recover). Non-zero `reload` loads the page again in a fresh process; 0 leaves the
+// page stopped, which the engine reports as the page ended by request (webd_ui_view_lost, WEBD_LOST_OTHER). A
+// process other views share is not ended (the engine says WEBPROCESS:RECOVER:SHARED and does nothing).
+void webd_engine_recover(uint64_t view, int reload);
+// Forgets the profile's decision about `origin`: the pages of that site get Notification.permission "default"
+// again (WebKit's record is the context's, so host-wide, as for webd_engine_notify_permission). `view` is the
+// full view the request came through; an unknown or light view ignores the call.
+void webd_engine_notify_forget(uint64_t view, const char* origin);
+
 // ---- the engine tells the service (WebKit's main thread) ----
 
 // What a full view's page reports about itself (instead of webd_ui_state). Strings UTF-8, never NULL, valid for

@@ -208,4 +208,15 @@ void webd_engine_blocking_forget(uint64_t view, const char* list)
     withFullView(view, [name = text(list)](Slot&, View& v) { blockingForget(v, name); });
 }
 
+void webd_engine_recover(uint64_t view, int reload)
+{
+    withFullView(view, [reload](Slot&, View& v) { v.recover(reload != 0); });
+}
+
+void webd_engine_notify_forget(uint64_t view, const char* origin)
+{
+    // WebKit's record is the context's: the call is host-wide, the view only proves the caller has a full one.
+    withFullView(view, [site = text(origin)](Slot&, View&) { notifyForget(site); });
+}
+
 } // extern "C"
