@@ -30,6 +30,8 @@ libmessenger = { path = "../../../libs/messenger" }
 messenger-generated = { path = "../../../libs/generated" }
 # The paint plan of a view with deltas: the window rules, per view (`paints.rs`).
 lazydamage = { path = "../damage" }
+# Download names and the .part protocol: the browser rules (`downloads.rs`).
+lazydownloads = { path = "../downloads" }
 
 [dev-dependencies]
 # Seeded fuzz of the slot state machine, the dispatch and the request decoders (`FUZZ_CASES`).

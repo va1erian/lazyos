@@ -68,6 +68,9 @@ members = [
     # `lazydamage`: what WebKit's updates changed between two paints, kept as one scroll and a few
     # rectangles (the window's, and webd's per view); pure, host-tested against a model.
     "crates/damage",
+    # `lazydownloads`: download names made safe and unique in the Downloads folder, and the `.part`
+    # protocol; LazyWeb+ and webd share it.
+    "crates/downloads",
     # webd's service half (docs/webd-plan.md P2): light views over Messenger, the view table, the
     # quotas and the slot state machine; portable and host-tested, with the C ABI of the WebKit
     # half behind the `host` feature.

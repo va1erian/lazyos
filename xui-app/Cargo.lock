@@ -2326,6 +2326,10 @@ name = "lazydamage"
 version = "0.1.0"
 
 [[package]]
+name = "lazydownloads"
+version = "0.1.0"
+
+[[package]]
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
@@ -6077,6 +6081,7 @@ version = "0.1.0"
 dependencies = [
  "fuzzkit",
  "lazydamage",
+ "lazydownloads",
  "libmessenger",
  "messenger-generated",
 ]
@@ -6120,6 +6125,7 @@ version = "0.1.0"
 dependencies = [
  "fhs",
  "lazyadblock",
+ "lazydownloads",
  "xui-app",
  "xui-canvas",
  "xui-core",
