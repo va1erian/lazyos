@@ -16,7 +16,12 @@ extern "C" {
 // webd_engine_start. 0 on success.
 int webd_host_init(void);
 
-// Serves app.os.lazy.webd.light until `init` says Quit, SIGTERM (webd_host_signal_quit) or the engine's
+// The profiles' root ($HOME/.apps/os.lazy.webd/profiles), made by webd_host_init, where the engine's
+// processes start (webd_engine_start_host); NULL when there is none (light views only). Valid for the
+// process's life.
+const char* webd_host_children_directory(void);
+
+// Serves app.os.lazy.webd.light and app.os.lazy.webd.view until `init` says Quit, SIGTERM (webd_host_signal_quit) or the engine's
 // main thread stops answering. Blocks. Returns the exit status: 0 clean, 1 it could not serve, 4 hung.
 int webd_host_main(void);
 

@@ -6,7 +6,8 @@
 //! `webd_host_main` serves until it is told to stop, then `webd_host_report` says how the shutdown
 //! went. `webd_host_signal_quit` is the SIGTERM handler's way in.
 
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, c_int, CStr, CString};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use xui_app::trace::{self, Channel};
@@ -18,6 +19,47 @@ use crate::{doorbell, serve};
 /// The queue the engine's callbacks fill and the service drains.
 static QUEUE: OnceLock<Arc<EventQueue>> = OnceLock::new();
 
+/// The profiles' root (`$HOME/.apps/os.lazy.webd/profiles`): where the engine's processes start and
+/// the `browser` profile lives. Made by `webd_host_init`; unset without a usable `$HOME`.
+static PROFILES: OnceLock<CString> = OnceLock::new();
+
+/// The service's places: the profiles' root and the person's Downloads folder.
+pub fn places() -> xui_webd::fullconfig::Places {
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|home| home.starts_with('/'));
+    xui_webd::fullconfig::Places {
+        profiles: PROFILES
+            .get()
+            .map(|dir| PathBuf::from(dir.to_string_lossy().into_owned())),
+        downloads: home.map(|home| PathBuf::from(format!("{home}/{DOWNLOADS}"))),
+    }
+}
+
+/// Make the profiles' root inside the app's own data folder (the manifest lets the app and its
+/// network process write it). No fallback: without it no full view with a profile is made.
+fn choose_profiles_folder() {
+    let Some(home) = std::env::var("HOME")
+        .ok()
+        .filter(|home| home.starts_with('/'))
+    else {
+        return;
+    };
+    let folder = format!("{}/profiles", fhs::app_data_dir(&home, SYSTEM_NAME));
+    if std::fs::create_dir_all(&folder).is_ok() {
+        if let Ok(text) = CString::new(folder) {
+            let _ = PROFILES.set(text);
+        }
+    }
+}
+
+/// The directory the engine's processes start in (`webd_engine_start_host`), or NULL: then
+/// `main.cpp` starts the engine for light views only (`webd_engine_start`).
+#[no_mangle]
+pub extern "C" fn webd_host_children_directory() -> *const c_char {
+    PROFILES.get().map_or(std::ptr::null(), |dir| dir.as_ptr())
+}
+
 /// The calling user's memory charge and limit, for the engine's process-creation gate.
 fn user_memory() -> Option<(u64, u64)> {
     let charge = lazyos_sys::quota::user_memory().ok()?;
@@ -26,6 +68,9 @@ fn user_memory() -> Option<(u64, u64)> {
 
 /// The package's `system_name`: the engine's data lives in `$HOME/.apps/os.lazy.webd`.
 const SYSTEM_NAME: &str = "os.lazy.webd";
+
+/// The person's downloads folder below `$HOME`, as LazyWeb+ has it (`xui_webplus::DOWNLOADS_DIR`).
+const DOWNLOADS: &str = "Downloads";
 
 /// Point the engine at a folder for its network-lock rule store (`LAZYOS_WEBD_RULES_DIR`,
 /// `webkit/port/app/light.cpp`): the one thing a light view makes it write. Inside the app's own
@@ -51,6 +96,7 @@ fn choose_rules_folder() {
 #[no_mangle]
 pub extern "C" fn webd_host_init() -> c_int {
     choose_rules_folder();
+    choose_profiles_folder();
     if let Err(error) = doorbell::create() {
         trace::fail!(Channel::Webd, "UP", "doorbell: {error}");
         return 1;

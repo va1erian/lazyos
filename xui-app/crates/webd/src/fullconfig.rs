@@ -183,6 +183,12 @@ pub fn setup(
     if (config.downloads || config.blocking) && !browser {
         return Err(invalid("downloads and blocking need the browser profile"));
     }
+    // A view with no network carries the light views' lock list, which the blocker's lists would
+    // replace at a navigation (the engine refuses the two together); a view with no network has
+    // nothing to block anyway.
+    if config.blocking && schemes == Schemes::DataOnly {
+        return Err(invalid("content blocking needs a network scheme policy"));
+    }
     // WebKit refuses a notification permission request in a page whose session is not persistent.
     if config.notifications && !profile.persistent() {
         return Err(invalid(
