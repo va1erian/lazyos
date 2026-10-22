@@ -372,8 +372,17 @@ impl Browser {
                 return;
             }
             let full = update.full.is_some();
+            let before = self.page.picture_size();
             let started = Instant::now();
             let applied = self.page.apply(update);
+            // A whole picture of a new size: the page was laid out at the view's size (what a
+            // session waits for after it resized the window).
+            match self.page.picture_size() {
+                Some((w, h)) if full && Some((w, h)) != before => {
+                    self.trace(&format!("INFO:RESIZE:{w}x{h}"));
+                }
+                _ => {}
+            }
             let took = started.elapsed();
             if let Some(line) = self.clock.record(
                 started + took,

@@ -28,8 +28,12 @@ pub enum Line {
     Lost { view: u64, reason: &'static str },
     /// `WEBD:NOTE:<text>`.
     Note(String),
-    /// A `NOTE` that can fire in a loop: printed under a budget.
+    /// A `NOTE` a client can make fire in a loop: printed under a budget.
     Flood(String),
+    /// An engine line that can fire in a loop (a page's timing, the paint meter, a hung page's
+    /// pings): printed under a budget of its own, so a client's refusals cannot silence the paint
+    /// meter a harness reads, nor the other way round.
+    EngineFlood(String),
 }
 
 /// The engine's markers (`webd_ui_say`, as the C++ half prints them without the `WEBD:NOTE:` prefix)
@@ -94,7 +98,7 @@ pub fn lines_of(note: Note, client_name: &mut dyn FnMut(ClientKey) -> String) ->
         Note::FrameDropped { view, why } => {
             vec![Line::Flood(format!("frame dropped view={view}: {why}"))]
         }
-        Note::Engine(line) if engine_line_floods(&line) => vec![Line::Flood(line)],
+        Note::Engine(line) if engine_line_floods(&line) => vec![Line::EngineFlood(line)],
         Note::Engine(line) => vec![Line::Note(line)],
         // A page can make these in a loop (dialogs, held navigations): rate limited.
         Note::Full { view, what } => vec![Line::Flood(format!("full view={view} {what}"))],
@@ -220,7 +224,7 @@ mod tests {
             "WEBPROCESS:RECOVER:SHARED:42",
             "INFO:TIME:nav=3:start=1:commit=2:finish=3:load=4",
         ] {
-            assert_eq!(say(text), vec![Line::Flood(text.into())], "{text}");
+            assert_eq!(say(text), vec![Line::EngineFlood(text.into())], "{text}");
         }
         // What must not be lost stays a plain note.
         for text in [
