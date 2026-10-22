@@ -86,6 +86,7 @@ pub(super) fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     if counted && !tscsync::withdraw(cpu) {
         let claimed = rdtsc();
         while !cpu.online.load(Ordering::Acquire) {
+            super::shootdown::serve_pending();
             if rdtsc().wrapping_sub(claimed) > bound / 10 {
                 // Wedged between its claim and its store. It may still go
                 // online, so it stays counted (the count must never trail
@@ -214,7 +215,7 @@ extern "C" fn ap_entry() -> ! {
 fn deadline_now() -> bool {
     #[cfg(lazyos_tests)]
     {
-        super::testrig::RUSH.load(Ordering::Acquire)
+        super::testrig::rushed()
     }
     #[cfg(not(lazyos_tests))]
     {

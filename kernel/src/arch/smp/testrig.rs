@@ -134,10 +134,27 @@ pub(super) static NO_SIPI: AtomicBool = AtomicBool::new(false);
 
 /// Test hook: the bring-up gives up the moment it accepted an AP's clock.
 pub(super) static RUSH: AtomicBool = AtomicBool::new(false);
+/// Cycles the rushed bring-up waits between its accept and its give-up (0:
+/// none), so the AP's claim can win the race too.
+static RUSH_DELAY: AtomicU64 = AtomicU64::new(0);
 
-/// Make the next bring-ups give up right after the accept (or stop).
-pub fn rush_deadline(on: bool) {
+/// Make the next bring-ups give up `delay` cycles after the accept (or
+/// stop doing so).
+pub fn rush_deadline(on: bool, delay: u64) {
+    RUSH_DELAY.store(delay, Ordering::Relaxed);
     RUSH.store(on, Ordering::Release);
+}
+
+/// The bring-up's hook: whether to give up now (after the delay).
+pub(super) fn rushed() -> bool {
+    if !RUSH.load(Ordering::Acquire) {
+        return false;
+    }
+    let started = rdtsc();
+    while rdtsc().wrapping_sub(started) < RUSH_DELAY.load(Ordering::Relaxed) {
+        spin_loop();
+    }
+    true
 }
 
 /// Make the next bring-ups refuse to start their APs (or stop refusing).

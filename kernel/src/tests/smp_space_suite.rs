@@ -73,11 +73,18 @@ fn long_sparse_span_reaches_remote_tlbs() -> Result<(), String> {
             fresh.push(frame);
         }
         let before = acks(&aps);
-        check!(
-            crate::mem::unmap_range(table, VA, VA + (SPAN + 1) * 4096) == 2,
-            "unmap_range did not clear both ends"
-        );
-        advanced_by(&aps, &before, 1, "unmap_range over a sparse 201-page span")?;
+        let cleared = crate::mem::unmap_range(table, VA, VA + (SPAN + 1) * 4096);
+        let advanced = advanced_by(&aps, &before, 1, "unmap_range over a sparse 201-page span");
+        if cleared != 2 || advanced.is_err() {
+            for frame in fresh {
+                crate::mem::free_frame(frame);
+            }
+            check!(
+                cleared == 2,
+                "unmap_range cleared {cleared} of the span's 2 ends"
+            );
+            return advanced;
+        }
         for (i, (&va, &frame)) in ends.iter().zip(&fresh).enumerate() {
             check!(
                 crate::mem::map_page_in(table, VirtAddr::new(va), frame, user_flags()),

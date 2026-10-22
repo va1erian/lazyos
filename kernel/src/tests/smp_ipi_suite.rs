@@ -302,9 +302,12 @@ fn deadline_race_never_strands_a_cpu() -> Result<(), String> {
     let (mut claimed, mut withdrawn) = (0, 0);
     for round in 0..ROUNDS {
         let victim = stop_last_ap()?;
-        smp::rush_deadline(true);
+        // Half the rounds give up at once (the withdrawal usually wins),
+        // half 50 us later (the AP's claim usually does).
+        let delay = (round % 2) as u64 * crate::arch::clock::cycles_per_tick() / 200;
+        smp::rush_deadline(true, delay);
         smp::bring_up_for_test(percpu::MAX_CPUS);
-        smp::rush_deadline(false);
+        smp::rush_deadline(false, 0);
         let areas = (0..percpu::MAX_CPUS)
             .filter_map(percpu::area)
             .filter(|cpu| cpu.online.load(Ordering::Acquire))

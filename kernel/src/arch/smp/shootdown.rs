@@ -87,7 +87,10 @@ pub fn serve_pending() {
     super::ipi::halt_if_stopping();
 }
 
-/// The machine's shootdowns are sent one at a time; this is the turn.
+/// The machine's shootdowns are sent one at a time; this is the turn. A
+/// waiter halted for another CPU's panic (`serve_pending`) keeps its ticket
+/// for good, so the turns stop there: the panic path never shoots down, and
+/// must not start to without skipping the lock.
 struct Turn;
 
 impl Turn {
