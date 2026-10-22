@@ -4,9 +4,12 @@ client's scenario expects (`full_server.py`): canned logs and records, one failu
 
 from __future__ import annotations
 
+import struct
 import sys
+import tempfile
 import unittest
 import urllib.request
+import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -78,6 +81,51 @@ class Judge(unittest.TestCase):
         other = "LABEL:DENY label=app:os.lazy.mail iface=1 method=2\n"
         self.assertTrue(j.judge_denies(own))
         self.assertEqual(j.judge_denies(optional + other), [])
+
+
+def png(path: Path, width: int, height: int, paint) -> None:
+    """A truecolour PNG whose pixel (x, y) is `paint(x, y)`."""
+    rows = b"".join(b"\0" + b"".join(bytes(paint(x, y)) for x in range(width)) for y in range(height))
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+class Shot(unittest.TestCase):
+    """`judge_shot`: the window must show a page of at least two colours, each over 5% of it."""
+
+    REGION = (10, 10, 60, 40)
+
+    def shot(self, paint) -> Path:
+        directory = Path(tempfile.mkdtemp(prefix="webd-shot-"))
+        self.addCleanup(lambda: [f.unlink() for f in directory.iterdir()] or directory.rmdir())
+        path = directory / "shot.png"
+        png(path, 80, 60, paint)
+        return path
+
+    def test_a_page_with_bands_passes(self):
+        path = self.shot(lambda x, y: (240, 240, 240) if y < 30 else (20, 20, 160))
+        self.assertEqual(j.judge_shot(path, self.REGION, "the long page"), [])
+
+    def test_a_blank_window_fails(self):
+        path = self.shot(lambda x, y: (255, 255, 255))
+        problems = j.judge_shot(path, self.REGION, "the long page")
+        self.assertTrue(problems and "one colour" in problems[0], problems)
+
+    def test_a_colour_under_five_percent_does_not_count(self):
+        # A 2x2 dot in a 60x40 window is far under 5% of what is sampled.
+        path = self.shot(lambda x, y: (200, 0, 0) if 20 <= x < 22 and 20 <= y < 22 else (255, 255, 255))
+        self.assertTrue(j.judge_shot(path, self.REGION, "the long page"))
+
+    def test_a_missing_shot_an_unknown_window_or_a_region_off_screen_fails(self):
+        path = self.shot(lambda x, y: (y, x, 0))
+        self.assertTrue(j.judge_shot(None, self.REGION, "x"))
+        self.assertTrue(j.judge_shot(path.with_name("none.png"), self.REGION, "x"))
+        self.assertTrue(j.judge_shot(path, None, "x"))
+        self.assertTrue(j.judge_shot(path, (500, 500, 10, 10), "x"))
 
 
 class Server(unittest.TestCase):

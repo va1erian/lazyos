@@ -236,7 +236,7 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
     (
         "os.lazy.webd.browser.v1",
         HIGH,
-        "Browse the web with your browsing cookies and history, save downloads in your Downloads folder and open links in other apps",
+        "Browse the web with your browsing cookies and history, save downloads in your Downloads folder, open links in other apps and show notifications from sites you allow",
     ),
     (
         "os.lazy.init.app.v1",

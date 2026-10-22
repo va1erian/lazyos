@@ -187,12 +187,17 @@ lists with its scope. A light view and a full view live in one table: a call thr
 **Profiles.** `""` is the client's own and stays **in memory**: webd may not name a client's label (the credential
 gate names a label only to its holder) and label ids last one boot, so nothing would find a folder again.
 `browser` is the one profile on disk, `$HOME/.apps/os.lazy.webd/profiles/browser` (cookies in
-`cookies/cookie.jar.db`, cache, storage); `ephemeral` keeps its data in memory (a private window). The engine's
+`cookies/cookie.jar.db`, cache, storage); `ephemeral` keeps its data in memory (a private window). The client's own
+profile and its private windows are both in memory, with no folder, in the client's one web process group, so the
+engine's group-mate match carries a store kind too (`webd_view_config.store_kind`, `WEBD_STORE_OWN` /
+`WEBD_STORE_PRIVATE`): a private window is never a related page of the client's own view and shares neither its
+cookies and storage nor its process (`webd-abi-test store`; found in the review of 2026-10-22). The engine's
 processes start in `profiles/` with `CURL_COOKIE_JAR_PATH=:memory:`, decided once at start
 (`webd_engine_start_host`): each persistent profile's cookies are in its own file, which WebKit's curl session
 opens per data store (`NetworkSessionCurl.cpp`), never in another's (`webd-abi-test profiles`, and the harness
 below). Views of one client and one profile share a web process; at most **4 web processes per user** for full
-views (a new (client, profile) pair past that is `EDQUOT`).
+views (a new (client, profile) pair past that is `EDQUOT`; a client's own profile and its private windows count as
+two).
 
 **Navigation policy** (`policy.rs`, decided on WebKit's thread from rules the service registered,
 `events/rules.rs`): `about:`, `data:`, `blob:` always load; `http(s)` per the scheme policy (`Origins`: the listed
@@ -200,16 +205,24 @@ views (a new (client, profile) pair past that is `EDQUOT`).
 and `javascript:` never. Anything else is a hand-off: `Deny`; `Ask` (the engine holds the navigation, the client
 gets `NavigationRequested`, no answer in 10 s is a no; a yes loads only an `http(s)` address); `Browser` (webd gives
 it to `mimed`, only for the page itself, with a user gesture, within 3 s of real input the client forwarded). A
-frame inside the page is allowed or refused, never asked about. The client's own `Load` and a `LoadHtml` base pass
-the same policy. `Origins` limits where the page goes, not what it loads: its sub-resources come from anywhere.
+frame inside the page is allowed or refused, never asked about. A held navigation the service queues over a newer
+one of the same view before the client saw it is answered no for the engine (the engine drops its held navigations
+only for a true main-frame navigation, not for a new window's), so no page hangs on a forgotten request. The
+client's own `Load` and a `LoadHtml` base pass the same policy, and a base is `about:`, `data:`, `http:` or `https:`
+only (never `blob:`, which carries the origin of whoever made it). `Origins` limits where the page goes, not what it loads: its sub-resources come from anywhere.
 
 **Questions and news.** `Dialog` waits for `DialogReply` (more than 3 in 10 s are dismissed without asking);
 `NewWindowRequested` (nothing opens); downloads go to `$HOME/Downloads` under LazyWeb+'s naming rules
 (`xui-app/crates/downloads`, `lazydownloads`: a `.part` file renamed when every byte arrived, never over another
-file, 256 per session); a page's notifications are webd's toasts titled with the site's host, posted only for an
-origin the view's profile allowed (`NotifyPermissionRequest` / `NotifyPermission`; WebKit keeps one permission
-record for the whole context, so a decision of one profile reads as `Notification.permission` in another, and is
-then refused at `show`); content blocking compiles the client's rule lists into the browser profile's store
+file; at most 32 under way per client and 256 in all, a finished one frees its place); a page's notifications are
+webd's toasts titled with the site (the host, with a port that is not the scheme's own; a host too long for the
+title keeps its end, never the leading labels a spoof would fill; the page's words are cleaned of controls and
+bidirectional overrides; `lazywebnotify`, the rules LazyWeb+ also uses), posted only for an origin the view's
+profile allowed. webd is the shell's one sender for every client, so each client has a share of the sender's
+allowance: 5 toasts on screen, a burst of 3 and one more per 2 s, and per site 3 live and a pace of LazyWeb+'s
+(`limits.rs`); what is over is dropped and the page's notification is told it closed. The permission bar is
+`NotifyPermissionRequest` / `NotifyPermission`; WebKit keeps one permission record for the whole context, so a
+decision of one profile reads as `Notification.permission` in another, and is then refused at `show`. Content blocking compiles the client's rule lists into the browser profile's store
 (`BlockingCompile`), with a per-profile switch and exceptions (`SetBlocking`) and a one-shot `Reload(bypass)`. The
 ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+ today).
 
@@ -282,7 +295,9 @@ line, AGENTS.md):
   `os.lazy.mimed.v1` (a hand-off), `os.lazy.notify.v1` (the toasts; their clicks come back on the channel webd
   moved in, which needs nothing), `network = ["outbound"]` (a child label holds at most its app's), the resolver's
   files and the certificate bundle, and `write:$HOME/Downloads`; the NetworkProcess gets the network, those reads,
-  the app's folder and `$HOME/Downloads`. The traced `full_run.py` (all of it but the hand-off and the toasts, which
+  the app's `profiles/` folder and `$HOME/Downloads` (not the whole app folder: `rules/` holds the network-lock
+  store the light views' guarantee rests on, which only the UI process makes and reads;
+  `tools/webd/test_manifest.py`). The traced `full_run.py` (all of it but the hand-off and the toasts, which
   no QEMU run exercised: their grants are by reading) showed no `LABEL:DENY` of `app:os.lazy.webd` or of the client,
   and for the children only the optional ones above plus the page process's fontconfig probes
   (`tools/webd/judge.py`, `OPTIONAL_CHILD`). The client, `os.lazy.webdbrowse`, lists `os.lazy.webd.view.v1`,

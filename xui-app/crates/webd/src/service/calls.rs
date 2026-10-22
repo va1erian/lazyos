@@ -239,6 +239,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 let network = crate::policy::kind(base) == crate::policy::Kind::Network;
                 if base.len() > URL_BYTES_MAX
                     || !config::c_string_safe(base)
+                    || !crate::policy::may_be_page_base(base)
                     || !full_view.rules.policy.client_may_load(base)
                     || (shared && network)
                 {
