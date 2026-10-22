@@ -32,6 +32,36 @@ pub struct EngineConfig {
     pub default_font_size: i32,
     /// Extra CSS for every page of the view; empty for none.
     pub user_style: String,
+    /// `None`: a light view. `Some`: a full view (`webd_view_config` with `light = 0`), with what
+    /// the service decided for it from its `ViewConfig` and the scope it came through.
+    pub full: Option<FullConfig>,
+}
+
+/// `webd_view_config.features` (the engine's `LZW_FEATURE_*` values).
+pub const FEATURE_PAGE_UI: i32 = 1;
+pub const FEATURE_DIALOGS: i32 = 2;
+pub const FEATURE_DOWNLOADS: i32 = 4;
+pub const FEATURE_POLICY: i32 = 8;
+pub const FEATURE_NOTIFICATIONS: i32 = 64;
+pub const FEATURE_BLOCKING: i32 = 128;
+
+/// What a full view is made with, beyond the light fields (`webd_view_config`'s appended part).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FullConfig {
+    /// `FEATURE_*` bits; `FEATURE_POLICY` always.
+    pub features: i32,
+    /// The absolute directory of the profile's store, or empty for a store in memory of the view's
+    /// group.
+    pub profile: String,
+    /// The store keeps the page's data in memory (the directory then holds only the rule store).
+    pub memory_only: bool,
+    /// The view sends what changed (deltas, bands), not only whole frames.
+    pub deltas: bool,
+    /// Appended to the user agent; printable ASCII, at most 64 bytes.
+    pub user_agent_suffix: String,
+    /// No network at all (a `DataOnly` view): the light views' network lock is attached too, so a
+    /// sub-resource, a fetch or a socket of the page reaches nothing, not only its navigations.
+    pub no_network: bool,
 }
 
 /// What the service asks the engine. `&self`: the C functions take no state and the recording
@@ -59,6 +89,30 @@ pub trait Engine {
     fn quit(&self);
     /// The page processes' ids as last seen, `(web, network)`; 0 for none.
     fn children(&self) -> (i32, i32);
+
+    // ---- full views (webd_abi.h, P2 slice 3). A light view never gets these. The defaults do
+    // nothing, for engines (test doubles) that serve light views only. ----
+
+    /// `webd_engine_load`: the service has checked `url` against the view's policy.
+    fn load(&self, _view: u64, _url: &str) {}
+    fn reload(&self, _view: u64) {}
+    fn stop(&self, _view: u64) {}
+    fn back(&self, _view: u64) {}
+    fn forward(&self, _view: u64) {}
+    /// Save `url` as a download.
+    fn download(&self, _view: u64, _url: &str) {}
+    fn download_cancel(&self, _view: u64, _download: u64) {}
+    fn dialog_reply(&self, _view: u64, _dialog: u64, _accepted: bool, _value: &str) {}
+    /// The answer to a navigation the engine holds (`navigate` said ask).
+    fn navigation_answer(&self, _view: u64, _request: u64, _allow: bool) {}
+    fn notify_shown(&self, _id: u64) {}
+    fn notify_clicked(&self, _id: u64) {}
+    fn notify_closed(&self, _id: u64) {}
+    /// 1 allow, 0 block, -1 dismiss: settles `view`'s pending requests for `origin`.
+    fn notify_permission(&self, _view: u64, _origin: &str, _answer: i32) {}
+    fn blocking_load(&self, _view: u64, _list: &str) {}
+    fn blocking_compile(&self, _view: u64, _list: &str, _json: &[u8]) {}
+    fn blocking_forget(&self, _view: u64, _list: &str) {}
 }
 
 /// What the engine tells the service, one method per `webd_ui_*` callback. Called on WebKit's main

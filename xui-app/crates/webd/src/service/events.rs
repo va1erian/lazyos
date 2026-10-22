@@ -10,17 +10,20 @@
 //! one per paint. The one event that must not be lost, `ViewLost`, is sent again until it arrives.
 
 use messenger_generated::os_lazy_webd_light_v1 as wire;
+use messenger_generated::os_lazy_webd_view_v1 as view_wire;
 
+use super::deliver::frame_args;
 use super::{Note, Service};
 use crate::config::clip;
 use crate::engine::{self, Engine};
+use crate::events::pictures::Offset;
 use crate::events::{Drained, FrameNow, Once, StateNow};
 use crate::fabric::{errno, Fabric};
 use crate::limits::{EVENT_TEXT_BYTES, FULL_BACKOFF_MS, PING_INTERVAL_MS};
 
 /// How an event send ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Sent {
+pub(super) enum Sent {
     Yes,
     /// The client's queue is full; the event is lost.
     Full,
@@ -48,6 +51,8 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         }
         self.retry_lost();
         self.retry_refreshes();
+        self.expire_held();
+        self.toast_news();
     }
 
     /// The engine itself is gone (its process exited): every view is lost, reason `Other`.
@@ -70,7 +75,15 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             scrolls,
             frames,
             once,
+            pages,
+            pictures,
+            bands,
+            hovers,
+            cursors,
+            responsive,
+            blocked,
         } = drained;
+        self.deliver_pages(pages);
         for (id, state) in states {
             self.deliver_state(id, state);
         }
@@ -84,8 +97,15 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             self.event_to_live(id, wire::METHOD_SCROLL, body);
         }
         for (id, frame) in frames {
-            self.deliver_frame(id, frame);
+            self.deliver_frame(id, frame, None);
         }
+        for (id, update) in pictures {
+            self.deliver_update(id, update);
+        }
+        for (id, list) in bands {
+            self.deliver_bands(id, list);
+        }
+        self.deliver_latest(hovers, cursors, responsive, blocked);
         for event in once {
             match event {
                 Once::LinkClicked { view, url } => {
@@ -101,6 +121,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 }
                 Once::Lost { view, reason } => self.lose(view, lost_reason(reason)),
                 Once::Say(line) => self.note(Note::Engine(line)),
+                full => {
+                    let _ = self.full_once(full);
+                }
             }
         }
     }
@@ -118,7 +141,12 @@ impl<E: Engine, F: Fabric> Service<E, F> {
 
     /// Send an event about `id` if the view is alive; its owner is whoever made it, the engine
     /// names views by id only.
-    fn event_to_live(&mut self, id: u64, method: u32, body: Result<Vec<u8>, libmessenger::Error>) {
+    pub(super) fn event_to_live(
+        &mut self,
+        id: u64,
+        method: u32,
+        body: Result<Vec<u8>, libmessenger::Error>,
+    ) {
         let (Some(view), Ok(body)) = (self.views.any_mut(id), body) else {
             return;
         };
@@ -129,13 +157,19 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         self.send(id, channel, method, body);
     }
 
-    /// Put a whole frame into a free slot and tell the client; drop it when there is none.
-    fn deliver_frame(&mut self, id: u64, frame: FrameNow) {
+    /// Put a whole frame into a free slot and tell the client; drop it when there is none. `offset`:
+    /// the scroll offset its pixels were painted at (a view with deltas). `true` when delivered.
+    pub(super) fn deliver_frame(
+        &mut self,
+        id: u64,
+        frame: FrameNow,
+        offset: Option<Offset>,
+    ) -> bool {
         let Some(view) = self.views.any_mut(id) else {
-            return;
+            return false;
         };
         if view.lost.is_some() {
-            return;
+            return false;
         }
         if view.backing_off(self.now_ms) {
             // The client's queue was full a moment ago: the copy would be lost again. The picture is
@@ -145,7 +179,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 view: id,
                 why: "client backing off",
             });
-            return;
+            return false;
         }
         let size_ok = u32::try_from(frame.width).is_ok_and(|w| w == view.width)
             && u32::try_from(frame.height).is_ok_and(|h| h == view.height)
@@ -156,7 +190,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 view: id,
                 why: "wrong size",
             });
-            return;
+            return false;
         }
         let Some(slot) = view.slots.acquire() else {
             view.want_frame();
@@ -164,33 +198,39 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 view: id,
                 why: "no free slot",
             });
-            return;
+            return false;
         };
         match view.slots.memory_mut(slot) {
             Some(memory) if memory.capacity() >= frame.rgba.len() => memory.write(&frame.rgba),
             _ => {
                 view.slots.release(slot);
                 view.want_frame();
-                return;
+                return false;
             }
         }
         view.seq += 1;
-        let (channel, seq) = (view.channel, view.seq);
-        let body = wire::encode_frame_args(&wire::FrameArgs {
-            view: id,
-            slot: slot as u32,
-            seq,
-            width: frame.width as u32,
-            height: frame.height as u32,
-        });
+        let (channel, seq, full) = (view.channel, view.seq, view.full.is_some());
+        let size = (frame.width as u32, frame.height as u32);
+        let body = if full {
+            view_wire::encode_frame_args(&frame_args(id, slot, seq, size, None, offset))
+        } else {
+            wire::encode_frame_args(&wire::FrameArgs {
+                view: id,
+                slot: slot as u32,
+                seq,
+                width: size.0,
+                height: size.1,
+            })
+        };
         let Ok(body) = body else {
-            return;
+            return false;
         };
         match self.send(id, channel, wire::METHOD_FRAME, body) {
             Sent::Yes => {
                 if let Some(view) = self.views.any_mut(id) {
                     view.frame_delivered();
                 }
+                true
             }
             Sent::Full => {
                 // The client never heard of the slot: it is still free, and the picture is owed.
@@ -203,8 +243,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                     view: id,
                     why: "client queue full",
                 });
+                false
             }
-            Sent::Gone => {}
+            Sent::Gone => false,
         }
     }
 
@@ -275,8 +316,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
 
     /// Send an event; the result also keeps the view's back-off: a full queue starts it (no
     /// picture is asked for or copied for [`FULL_BACKOFF_MS`]) and a send that gets through ends it.
-    fn send(&mut self, id: u64, channel: u64, method: u32, body: Vec<u8>) -> Sent {
-        match self.fabric.send(channel, method, body) {
+    pub(super) fn send(&mut self, id: u64, channel: u64, method: u32, body: Vec<u8>) -> Sent {
+        // Events go out as the interface the view was made through.
+        let interface = match self.views.any_mut(id) {
+            Some(view) if view.full.is_some() => view_wire::INTERFACE_ID,
+            _ => wire::INTERFACE_ID,
+        };
+        match self.fabric.send(channel, interface, method, body) {
             Ok(()) => {
                 if let Some(view) = self.views.any_mut(id) {
                     view.backoff_until = None;
@@ -306,6 +352,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if view.lost.is_none() {
             self.engine.view_destroy(id);
         }
+        // Its rules, pictures and news go; its toasts stay up (they outlive a page) but a click on
+        // one has no page to reach.
+        self.queue.forget_view(id);
         self.fabric.close_channel(view.channel);
         let owner = view.owner;
         // Slots unmap when the view drops.

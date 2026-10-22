@@ -1,6 +1,7 @@
-//! One function per client call. Each decodes, checks that the view is the caller's, validates, then
-//! acts on the table and the engine. A view of another client is `ENOENT`, exactly like a view
-//! that never existed.
+//! One function per call the two interfaces share. Each decodes, checks that the view is the caller's
+//! and of the interface the call came through, validates, then acts on the table and the engine. A
+//! view of another client, or a light view named through the full interface (and the other way), is
+//! `ENOENT`, exactly like a view that never existed.
 
 use libmessenger::Object;
 use messenger_generated::os_lazy_webd_light_v1 as wire;
@@ -10,16 +11,19 @@ use crate::config::{self, Refusal};
 use crate::engine::Engine;
 use crate::fabric::{errno, Fabric};
 use crate::ident::ClientKey;
-use crate::limits::{HTML_BYTES_MAX, SLOTS_PER_VIEW, SLOT_BYTES_PER_CLIENT, VIEWS_PER_CLIENT};
+use crate::limits::{
+    BAND_ROWS_MAX, HTML_BYTES_MAX, SLOTS_PER_VIEW, SLOTS_WITH_BANDS, SLOT_BYTES_PER_CLIENT,
+    URL_BYTES_MAX, VIEWS_PER_CLIENT,
+};
 use crate::view::{View, Views};
 
-const MALFORMED: Refusal = Refusal::new(errno::EINVAL, "malformed request");
+pub(super) const MALFORMED: Refusal = Refusal::new(errno::EINVAL, "malformed request");
 const NO_VIEW: Refusal = Refusal::new(errno::ENOENT, "no such view");
 const LOST: Refusal = Refusal::new(errno::ENODEV, "the view was lost");
 
 const TOO_MUCH: Refusal = Refusal::new(errno::EDQUOT, "too much slot memory");
 
-type Reply = Result<Vec<u8>, Refusal>;
+pub(super) type Reply = Result<Vec<u8>, Refusal>;
 
 /// Whether `held` bytes of slot memory plus `charge` more pass the client's quota (a sum that does
 /// not fit in a `u64` does).
@@ -28,14 +32,36 @@ fn over_quota(held: u64, charge: u64) -> bool {
         .is_none_or(|total| total > SLOT_BYTES_PER_CLIENT)
 }
 
-/// The caller's view that is still alive: `ENOENT` for one that is not the caller's, `ENODEV`
-/// for one the engine gave up.
-fn live(views: &mut Views, client: ClientKey, id: u64) -> Result<&mut View, Refusal> {
-    let view = views.get_mut(client, id).ok_or(NO_VIEW)?;
+/// The caller's view of the kind the call came through (`full`), still alive: `ENOENT` for one that
+/// is not the caller's or of the other kind, `ENODEV` for one the engine gave up.
+pub(super) fn live(
+    views: &mut Views,
+    client: ClientKey,
+    full: bool,
+    id: u64,
+) -> Result<&mut View, Refusal> {
+    let view = views
+        .get_mut(client, id)
+        .filter(|view| view.full.is_some() == full)
+        .ok_or(NO_VIEW)?;
     if view.lost.is_some() {
         return Err(LOST);
     }
     Ok(view)
+}
+
+/// What a slot must hold at least: a frame of the view (slots 0 to 2), or a band as wide as the view
+/// (the band slots of a full view with deltas). `None`: no such slot for this view.
+fn slot_bytes(view: &View, slot: u32) -> Option<u64> {
+    let slot = usize::try_from(slot).ok()?;
+    let bands = view.full.as_ref().is_some_and(|full| full.rules.deltas);
+    if slot < SLOTS_PER_VIEW {
+        Some(config::frame_bytes(view.width, view.height))
+    } else if bands && slot < SLOTS_WITH_BANDS {
+        Some(config::frame_bytes(view.width, BAND_ROWS_MAX))
+    } else {
+        None
+    }
 }
 
 impl<E: Engine, F: Fabric> Service<E, F> {
@@ -72,10 +98,14 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         wire::encode_create_view_reply(&wire::CreateViewReply { view: id }).map_err(|_| MALFORMED)
     }
 
-    pub(super) fn destroy_view(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn destroy_view(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_destroy_view_args(body).map_err(|_| MALFORMED)?;
         // Gone, never made and someone else's all succeed: the answer must not tell them apart.
-        if self.views.get(client, args.view).is_some() {
+        let mine = self
+            .views
+            .get(client, args.view)
+            .is_some_and(|view| view.full.is_some() == full);
+        if mine {
             self.drop_view(args.view, "destroyed");
         }
         Ok(Vec::new())
@@ -84,18 +114,17 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn attach_slot(
         &mut self,
         client: ClientKey,
+        full: bool,
         body: &[u8],
         pending: &mut Vec<Object>,
     ) -> Reply {
         let args = wire::decode_attach_slot_args(body, pending).map_err(|_| MALFORMED)?;
-        let slot = usize::try_from(args.slot)
-            .ok()
-            .filter(|slot| *slot < SLOTS_PER_VIEW)
-            .ok_or(Refusal::new(errno::EINVAL, "no such slot"))?;
         let used = self.views.slot_bytes_of(client);
-        let view = live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
+        let needed =
+            slot_bytes(view, args.slot).ok_or(Refusal::new(errno::EINVAL, "no such slot"))?;
+        let slot = args.slot as usize;
         let buffer = args.pixels;
-        let needed = config::frame_bytes(view.width, view.height);
         if buffer.end().is_none() || buffer.len < needed {
             return Err(Refusal::new(errno::EINVAL, "slot is smaller than the view"));
         }
@@ -132,9 +161,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn release_slot(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn release_slot(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_release_slot_args(body).map_err(|_| MALFORMED)?;
-        let view = live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
         if let Ok(slot) = usize::try_from(args.slot) {
             view.slots.release(slot);
         }
@@ -145,10 +174,10 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn resize(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn resize(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_resize_args(body).map_err(|_| MALFORMED)?;
         let (width, height) = config::check_size(args.width, args.height)?;
-        let view = live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
         view.width = args.width;
         view.height = args.height;
         // Every slot was sized for the old picture; the client attaches new ones.
@@ -158,17 +187,17 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn set_visible(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn set_visible(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_set_visible_args(body).map_err(|_| MALFORMED)?;
-        let view = live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
         view.visible = args.visible;
         self.engine.set_visible(args.view, args.visible);
         Ok(Vec::new())
     }
 
-    pub(super) fn refresh(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn refresh(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_refresh_args(body).map_err(|_| MALFORMED)?;
-        let view = live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
         // The client wants a picture it can show: if it is waiting for one already, this is it.
         view.want_frame();
         if view.should_refresh() {
@@ -180,15 +209,37 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn load_html(
         &mut self,
         client: ClientKey,
+        full: bool,
         body: &[u8],
         pending: &mut Vec<Object>,
     ) -> Reply {
         let args = wire::decode_load_html_args(body, pending).map_err(|_| MALFORMED)?;
-        live(&mut self.views, client, args.view)?;
+        let view = live(&mut self.views, client, full, args.view)?;
         if args.html.len > HTML_BYTES_MAX {
             return Err(Refusal::new(errno::E2BIG, "page is too large"));
         }
-        let base_url = config::check_base_url(&args.base_url)?;
+        let base_url = match &view.full {
+            // A full view's page may sit at an address its policy lets it load (relative addresses
+            // resolve against it); never at a file.
+            Some(full_view) => {
+                let base = if args.base_url.is_empty() {
+                    "about:blank"
+                } else {
+                    args.base_url.as_str()
+                };
+                if base.len() > URL_BYTES_MAX
+                    || !config::c_string_safe(base)
+                    || !full_view.rules.policy.client_may_load(base)
+                {
+                    return Err(Refusal::new(
+                        errno::EACCES,
+                        "the view may not load that base URL",
+                    ));
+                }
+                base.to_owned()
+            }
+            None => config::check_base_url(&args.base_url)?.to_owned(),
+        };
         // `read` takes the handle over, also when it fails.
         claim(pending, Object::Buffer(args.html.handle));
         let bytes = self
@@ -197,11 +248,11 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             .map_err(|_| Refusal::new(errno::EINVAL, "page buffer cannot be read"))?;
         // The engine takes UTF-8; bytes that are not become U+FFFD instead of a refused page.
         let html = String::from_utf8_lossy(&bytes);
-        self.engine.load_html(args.view, html.as_bytes(), base_url);
+        self.engine.load_html(args.view, html.as_bytes(), &base_url);
         Ok(Vec::new())
     }
 
-    pub(super) fn mouse(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn mouse(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_mouse_args(body).map_err(|_| MALFORMED)?;
         let kind = i32::try_from(args.kind)
             .ok()
@@ -210,7 +261,11 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if !(0..=2).contains(&args.button) {
             return Err(MALFORMED);
         }
-        live(&mut self.views, client, args.view)?;
+        live(&mut self.views, client, full, args.view)?;
+        // A press or a release is real input: the page may hand an address over shortly after it.
+        if full && kind != wire::MOUSE_KIND_MOVE as i32 {
+            self.stamp_input(args.view);
+        }
         self.engine.mouse(
             args.view,
             kind,
@@ -222,9 +277,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn wheel(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn wheel(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_wheel_args(body).map_err(|_| MALFORMED)?;
-        live(&mut self.views, client, args.view)?;
+        live(&mut self.views, client, full, args.view)?;
         self.engine.wheel(
             args.view,
             args.x,
@@ -236,13 +291,16 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn key(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn key(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_key_args(body).map_err(|_| MALFORMED)?;
         // The text travels as a C string.
         if !config::c_string_safe(&args.text) {
             return Err(MALFORMED);
         }
-        live(&mut self.views, client, args.view)?;
+        live(&mut self.views, client, full, args.view)?;
+        if full && args.press {
+            self.stamp_input(args.view);
+        }
         self.engine.key(
             args.view,
             args.press,
@@ -253,11 +311,17 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         Ok(Vec::new())
     }
 
-    pub(super) fn focus(&mut self, client: ClientKey, body: &[u8]) -> Reply {
+    pub(super) fn focus(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_focus_args(body).map_err(|_| MALFORMED)?;
-        live(&mut self.views, client, args.view)?;
+        live(&mut self.views, client, full, args.view)?;
         self.engine.focus(args.view, args.focused);
         Ok(Vec::new())
+    }
+
+    /// Real input reached a full view now (the queue's clock, the one its decisions read).
+    fn stamp_input(&mut self, view: u64) {
+        let now = self.queue.now_ms();
+        self.queue.rules().input(view, now);
     }
 }
 

@@ -3,16 +3,17 @@
 
 use libmessenger::{Encoder, Header, Parcel, VERSION};
 use messenger_generated::errors::ERROR_FIELD;
+#[cfg(test)]
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 
 use crate::config::Refusal;
 
-fn parcel(method: u32, body: Vec<u8>) -> Parcel {
+fn parcel(interface: u64, method: u32, body: Vec<u8>) -> Parcel {
     Parcel {
         header: Header {
             version: VERSION,
             flags: 0,
-            interface_id: wire::INTERFACE_ID,
+            interface_id: interface,
             method,
             txn_id: 0,
             reply_to: 0,
@@ -24,12 +25,12 @@ fn parcel(method: u32, body: Vec<u8>) -> Parcel {
 }
 
 /// A successful reply carrying `body`.
-pub fn ok(method: u32, body: Vec<u8>) -> Parcel {
-    parcel(method, body)
+pub fn ok(interface: u64, method: u32, body: Vec<u8>) -> Parcel {
+    parcel(interface, method, body)
 }
 
 /// A failed reply: the structured error field with the positive errno and a friendly text.
-pub fn error(method: u32, refusal: Refusal) -> Parcel {
+pub fn error(interface: u64, method: u32, refusal: Refusal) -> Parcel {
     let mut body = Encoder::new();
     // One bounded field into a fresh encoder cannot overflow.
     let _ = body.error(
@@ -37,7 +38,7 @@ pub fn error(method: u32, refusal: Refusal) -> Parcel {
         refusal.code.unsigned_abs() as u32,
         refusal.text,
     );
-    parcel(method, body.finish())
+    parcel(interface, method, body.finish())
 }
 
 #[cfg(test)]
@@ -47,7 +48,7 @@ mod tests {
 
     #[test]
     fn an_error_reply_carries_the_positive_code_and_text() {
-        let reply = error(3, Refusal::new(16, "slot is busy"));
+        let reply = error(wire::INTERFACE_ID, 3, Refusal::new(16, "slot is busy"));
         assert_eq!(
             (reply.header.interface_id, reply.header.method),
             (wire::INTERFACE_ID, 3)

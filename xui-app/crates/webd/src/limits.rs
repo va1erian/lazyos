@@ -55,3 +55,61 @@ pub const FULL_BACKOFF_MS: u64 = 250;
 /// cannot grow memory; the oldest go first. Frames, states and scroll positions are kept as the
 /// latest per view instead (`events`).
 pub const QUEUE_KEPT: usize = 1024;
+
+// ---- full views (os.lazy.webd.view.v1, P2 slice 3) ----
+
+/// Web processes one user's full views may hold at once: a view of a new (app, profile) pair past
+/// this is `EDQUOT` (docs/webd-plan.md 3.3 and open question 7; a process costs about 107 MiB on this
+/// system). Light views are not counted: each app's light views share one process and the per-client
+/// view count bounds them.
+pub const WEB_PROCESSES_PER_USER: usize = 4;
+
+/// Frame slots are 0..SLOTS_PER_VIEW; a view with deltas also has band slots up to this.
+pub const SLOTS_WITH_BANDS: usize = SLOTS_PER_VIEW + 2;
+
+/// Rows of the page a band carries at most (WebKit patch 0030 paints at most 1024 at a time): a band
+/// slot holds `width * BAND_ROWS_MAX * 4` bytes.
+pub const BAND_ROWS_MAX: u32 = 1024;
+
+/// Bands kept per view between two turns of the service: they are speculative, the oldest go first.
+pub const BANDS_KEPT: usize = 4;
+
+/// Deltas a view may be behind by between two turns (as the window's mailbox): past this, or past a
+/// frame's worth of pixels, the engine is told to paint a whole frame instead.
+pub const DELTAS_KEPT: usize = 8;
+
+/// A URL a client sends (`Load`, `Download`, a base URL), at most.
+pub const URL_BYTES_MAX: usize = 8 << 10;
+
+/// `ViewConfig.origins`: how many, and how long each.
+pub const ORIGINS_MAX: usize = 64;
+pub const ORIGIN_BYTES_MAX: usize = 256;
+
+/// `SetBlocking`'s exceptions: how many, and how long each (a host name).
+pub const EXCEPTIONS_MAX: usize = 64;
+pub const EXCEPTION_BYTES_MAX: usize = 255;
+
+/// A content rule list (`BlockingCompile`), at most: a converted EasyList is a few MiB.
+pub const RULES_BYTES_MAX: u64 = 32 << 20;
+
+/// A rule list's name, at most.
+pub const LIST_NAME_BYTES_MAX: usize = 128;
+
+/// `ViewConfig.user_agent_suffix`, at most (printable ASCII).
+pub const USER_AGENT_SUFFIX_MAX: usize = 64;
+
+/// A held navigation (`Handoff.Ask`) not answered within this is refused.
+pub const HOLD_MS: u64 = 10_000;
+
+/// JavaScript dialogs a view may open in [`DIALOG_WINDOW_MS`]; more are dismissed without asking
+/// the app (a page that loops `alert()` must not keep a window busy).
+pub const DIALOGS_PER_WINDOW: usize = 3;
+pub const DIALOG_WINDOW_MS: u64 = 10_000;
+
+/// A page may hand an address to another program (`Handoff.Browser`) only with a user gesture and
+/// within this long of real input forwarded to its view (xui_webkit::gesture's lock).
+pub const INPUT_LOCK_MS: u64 = 3000;
+
+/// Navigations held at once per view, and notifications on screen at once per view.
+pub const HELD_PER_VIEW: usize = 8;
+pub const TOASTS_PER_VIEW: usize = 4;
