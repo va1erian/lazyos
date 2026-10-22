@@ -22,9 +22,9 @@
 //! `LAZYOS_WEBKIT_PORT=1` embeds the WebKit port's console proof (`tools/webkit/port.py`,
 //! W4): the `WebProcess` and `NetworkProcess` it launches, the headless UI process
 //! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf.in`,
-//! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_LAZYWEBPLUS=1` is the browser
-//! (`lazywebplus_embed`): the same two processes and configuration, without the proof, beside
-//! the app's core package. `LAZYOS_WEBD=1` (`webd_embed`) is webd, which starts the same two.
+//! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_WEBD=1` (`webd_embed`) is webd, which
+//! starts the same two, without the proof; the browser (`LAZYOS_LAZYWEBPLUS=1`) is a client of webd and
+//! embeds none.
 
 use std::path::Path;
 
@@ -63,7 +63,7 @@ const WEBKIT_DEPS_BUILT: &str = "target/webkit/bin";
 const WEBKIT_DEPS_PROGRAMS: &[(&str, &str)] = &[("depsproof", fhs::bin::DEPSPROOF)];
 
 /// Where `tools/webkit/port.py` writes the port's programs, and what `LAZYOS_WEBKIT_PORT=1`
-/// embeds; `LAZYOS_LAZYWEBPLUS=1` embeds the first two (the browser starts them).
+/// embeds; webd embeds the first two (webd starts them).
 const WEBKIT_BUILT: &str = "target/webkit/bin";
 const WEBKIT_PROCESSES: &[(&str, &str)] = &[
     ("WebProcess", fhs::bin::WEBPROCESS),
@@ -98,7 +98,6 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_JSC");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_DEPS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
-    println!("cargo:rerun-if-env-changed=LAZYOS_LAZYWEBPLUS");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
     println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
     if switch_on("LAZYOS_DYNLINK") {
@@ -157,7 +156,6 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_ATTACK");
     for (switch, programs) in [
         ("LAZYOS_WEBKIT_PORT", WEBKIT_PORT_PROGRAMS),
-        ("LAZYOS_LAZYWEBPLUS", WEBKIT_PROCESSES),
         // webd starts the same two processes (docs/webd.md).
         ("LAZYOS_WEBD", WEBKIT_PROCESSES),
     ] {
@@ -170,21 +168,12 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         if !wanted {
             continue;
         }
-        // The attack image's stand-ins (below) are the browser's two processes: webd, which starts the same
-        // programs, must not replace them with the real ones.
-        if switch == "LAZYOS_WEBD"
-            && switch_on("LAZYOS_LAZYWEBPLUS")
-            && switch_on("LAZYOS_WEBKIT_ATTACK")
-        {
-            continue;
-        }
-        // The sandbox attack harness (`tools/webkit/attack_run.py`): the browser's two engine
-        // processes are replaced by a stand-in that attacks from inside their labels. Never
-        // for an image anyone uses: it is a test fixture, and says so.
-        let browser = switch == "LAZYOS_LAZYWEBPLUS";
-        let attack = browser && switch_on("LAZYOS_WEBKIT_ATTACK");
-        let (built, builder) = if browser {
-            crate::lazywebplus_embed::engine_source(attack)
+        // The sandbox attack harness (`tools/webkit/attack_run.py`): webd's two engine processes are
+        // replaced by a stand-in that attacks from inside their labels. Never for an image anyone
+        // uses: it is a test fixture, and says so.
+        let attack = switch == "LAZYOS_WEBD" && switch_on("LAZYOS_WEBKIT_ATTACK");
+        let (built, builder) = if switch == "LAZYOS_WEBD" {
+            crate::webd_embed::engine_source(attack)
         } else {
             (WEBKIT_BUILT, "tools/webkit/port.py")
         };

@@ -227,7 +227,6 @@ pub fn rerun_if_changed() {
         "xui_embed",
         "core_packages",
         "devtools_embed",
-        "lazywebplus_embed",
         "webd_embed",
         "lazysky_embed",
         "pictures_embed",
@@ -347,10 +346,12 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
     // `LAZYOS_DEVTOOLS=1`); asking for one without having built it is an error.
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     crate::os_image::rerun_if_changed(&lazysky_elf);
-    let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
+    let lazywebplus_elf = dir.join(crate::webd_embed::LAZYWEBPLUS_ELF);
     crate::os_image::rerun_if_changed(&lazywebplus_elf);
     let webd_elf = dir.join(crate::webd_embed::ELF);
     crate::os_image::rerun_if_changed(&webd_elf);
+    // LazyWeb+ first: its requirements (webd, the desktop, the network) are named before webd's own.
+    let lazywebplus_wanted = crate::webd_embed::lazywebplus_enabled(desktop);
     let webd_wanted = crate::webd_embed::enabled(desktop);
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let devtools =
@@ -371,9 +372,9 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazysky_embed::not_built(lazysky_elf.is_file()),
         ),
         (
-            crate::lazywebplus_embed::enabled(desktop),
-            crate::lazywebplus_embed::PACKAGE_SHORT,
-            crate::lazywebplus_embed::not_built(lazywebplus_elf.is_file()),
+            lazywebplus_wanted,
+            crate::webd_embed::LAZYWEBPLUS_PACKAGE_SHORT,
+            crate::webd_embed::lazywebplus_not_built(lazywebplus_elf.is_file()),
         ),
         (
             webd_wanted,
