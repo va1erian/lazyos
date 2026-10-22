@@ -16,9 +16,9 @@ use support::origin;
 use xui_webd::fabric::Fabric;
 
 /// Every method of the full interface, plus ones nobody defined.
-const METHODS: [u32; 38] = [
+const METHODS: [u32; 39] = [
     1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 30, 31, 32, 33, 34, 35, 36,
-    37, 100, 101, 106, 111, 112, 0, 8, 9, 17, 38, 99, 4242,
+    37, 100, 101, 106, 111, 112, 0, 8, 9, 17, 38, 39, 99, 4242,
 ];
 
 fn blob(rng: &mut Rng, max: u64) -> Vec<u8> {
@@ -203,6 +203,11 @@ fn valid_request(rng: &mut Rng, fx: &mut Fx, method: u32, view: u64) -> (Vec<u8>
                 origin: text(rng),
             }))
         }
+        wire::METHOD_NOTIFYSTATE => plain(wire::encode_notify_state_args(&wire::NotifyStateArgs {
+            view,
+            notification: rng.below(4) as u64,
+            state: rng.below(4) as u32,
+        })),
         wire::METHOD_DOWNLOAD => plain(wire::encode_download_args(&wire::DownloadArgs {
             view,
             url: text(rng),

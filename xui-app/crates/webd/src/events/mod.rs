@@ -141,8 +141,11 @@ pub enum Once {
         view: u64,
         id: u64,
         origin: String,
+        /// The page that asked and its tag: what a view with `notify_in_client` hands its app.
+        page_url: String,
         title: String,
         body: String,
+        tag: String,
     },
     NotifyCancel {
         view: u64,

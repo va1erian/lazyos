@@ -369,6 +369,7 @@ fn a_scope_interface_refuses_every_method_but_create_view() {
             wire::METHOD_BLOCKINGLOAD,
             wire::METHOD_BLOCKINGFORGET,
             wire::METHOD_NOTIFYFORGET,
+            wire::METHOD_NOTIFYSTATE,
             wire::METHOD_FRAME,
             0,
             99,
