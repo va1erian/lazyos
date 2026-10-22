@@ -121,7 +121,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
-| `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/docs, tools/mail, tools/webd | programs |
+| `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/docs, tools/mail, tools/webd, tools/webplus | programs |
 | `WEBDBROWSE` | `Webdbrowse` | `webdbrowse` | xui-app | sessions, tools/webd | programs |
 | `WEBDDEMO` | `Webddemo` | `webddemo` | xui-app | sessions, tools/webd | programs |
 | `WEBKIT` | `Webkit` | `webkit` | - | tools/webkit | programs |
