@@ -30,7 +30,9 @@ PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
 TRACE = {
     "read_resolv_conf": "file=/etc/resolv.conf access=stat",
     "read_ca_bundle": "file=/etc/ssl/certs/ca-certificates.crt access=stat",
-    "write_profile": "file=/home/user/.apps access=write",
+    # What the kernel printed in a real --kernel run (2026-10-22): the probe writes below the children's
+    # folder `.apps/os.lazy.webd/profiles` (P4), and the refusal names that folder.
+    "write_profile": "file=/home/user/.apps/os.lazy.webd/profiles access=stat",
     "write_downloads": "file=/home/user/Downloads access=stat",
     "inet_socket": "net=inet",
     "inet_serve": "net=inet",
@@ -111,6 +113,17 @@ class JudgeTests(unittest.TestCase):
             line.replace("BLOCKED:1", "ALLOWED:ok") if (r, p) == ("webprocess", "write_downloads") else line))
         found, _ = judge.judge(log, "browser", app)
         self.assertTrue(any("webprocess.write_downloads" in f and "BREACH" in f for f in found), found)
+
+    def test_the_profile_refusal_matches_at_any_level_of_the_childrens_folder(self) -> None:
+        # The judge's pattern lagged P4's move to `profiles/` and failed a sandbox that held.
+        pattern = judge.EXPECTED["webprocess"]["write_profile"].trace
+        for what in ("file=/home/user/.apps access=write",
+                     "file=/home/user/.apps/os.lazy.webd access=stat",
+                     "file=/home/user/.apps/os.lazy.webd/profiles access=stat",
+                     "file=/home/user/.apps/os.lazy.webd/profiles/browser/attack-probe access=write"):
+            self.assertRegex(what, pattern)
+        # Not some other app's folder.
+        self.assertNotRegex("file=/home/user/.apps/os.lazy.mail access=stat", pattern)
 
     def test_every_probe_has_a_trace_the_patterns_match(self) -> None:
         blocked = {p for table in judge.EXPECTED.values() for p, e in table.items() if e.kind == "blocked"}

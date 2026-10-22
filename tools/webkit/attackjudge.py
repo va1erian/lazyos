@@ -108,7 +108,9 @@ EXPECTED: dict[str, dict[str, Expect]] = {
         "read_dev_urandom": allowed(),
         "read_resolv_conf": blocked(r"file=/etc/resolv\.conf access=stat"),
         "read_ca_bundle": blocked(r"file=/etc/ssl/certs/ca-certificates\.crt access=stat"),
-        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.webd)? access=(write|stat)"),
+        # The children's folder is `.apps/os.lazy.webd/profiles` (P4) and the probe may be refused at
+        # any level of it, so the pattern takes the folder and anything below it.
+        "write_profile": blocked(r"file=/\S+/\.apps(/os\.lazy\.webd(/\S*)?)? access=(write|stat)"),
         "write_downloads": blocked(DOWNLOADS_DENY),
         "inet_socket": blocked(r"net=inet"),
         "inet_serve": blocked(r"net=inet"),
