@@ -155,6 +155,9 @@ BINS = {
     # Web View Test: the client of webd's full views (docs/webd-plan.md P2 slice 3); only a
     # `LAZYOS_WEBDDEMO=1` image ships it.
     "xui-webdbrowse": "xui-webdbrowse.elf",
+    # Web Attack Probe: the malicious client of webd's attack harness (docs/webd-plan.md P5); only a
+    # `LAZYOS_WEBDDEMO=1` image ships it.
+    "xui-webdattack": "xui-webdattack.elf",
 }
 
 

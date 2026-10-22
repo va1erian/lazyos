@@ -22,7 +22,7 @@ use crate::events::rules::ViewRules;
 use crate::fabric::{errno, Fabric};
 use crate::fullconfig::{self, Profile, Scope};
 use crate::ident::ClientKey;
-use crate::limits::{VIEWS_PER_CLIENT, WEB_PROCESSES_PER_USER};
+use crate::limits::{VIEWS_PER_CLIENT, WEB_PROCESSES_PER_USER, WEB_PROCESS_RESERVE_BYTES};
 use crate::policy::Schemes;
 use crate::view::{FullView, View};
 
@@ -42,6 +42,18 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 ))
             })
             .collect()
+    }
+
+    /// Whether the user's memory charge is too low to start another web process (a margin of
+    /// [`WEB_PROCESS_RESERVE_BYTES`] over the current charge would exceed the limit). `false` when the
+    /// host cannot read the charge or reports no limit, so the fixed process cap is then the only gate.
+    pub(super) fn memory_tight(&self) -> bool {
+        match self.queue.memory_charge() {
+            Some((used, limit)) if limit > 0 => {
+                used.saturating_add(WEB_PROCESS_RESERVE_BYTES) > limit
+            }
+            _ => false,
+        }
     }
 
     /// The browser profile's downloads, one saver for every view that may download.
@@ -78,10 +90,21 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         )?;
         let mut processes = self.web_processes(client.uid);
         let no_network = setup.rules.policy.schemes == Schemes::DataOnly;
-        if processes.insert((client, setup.rules.profile.clone(), no_network))
-            && processes.len() > WEB_PROCESSES_PER_USER
-        {
+        let starts_process = processes.insert((client, setup.rules.profile.clone(), no_network));
+        if starts_process && processes.len() > WEB_PROCESSES_PER_USER {
             return Err(Refusal::new(errno::EDQUOT, "too many web processes"));
+        }
+        // Memory pressure (docs/webd-plan.md 11 item 7): a view that would start a new web process is
+        // refused when the user's memory charge cannot hold one more, rather than letting the child's
+        // `exec` fail under the quota. Hidden background views already get no paints (set_visible); the
+        // decision taken is to refuse the new view, not evict an old one (the client reconnects or
+        // closes a view it no longer needs). When the host cannot read the charge the fixed cap above
+        // is the only bound.
+        if starts_process && self.memory_tight() {
+            return Err(Refusal::new(
+                errno::EDQUOT,
+                "not enough memory for another web process",
+            ));
         }
         let group = self
             .groups

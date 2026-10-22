@@ -44,10 +44,13 @@ pub const LAZYWEBPLUS_ELF: &str = "xui-lazywebplus.elf";
 /// switch should carry. A client whose tree is absent (a branch that does not have it yet) is skipped,
 /// so the daemon builds alone ([`client_tree_present`]).
 /// `webddemo` shows a light view; `webdbrowse` (Web View Test) drives full views through every scope
-/// against the harness server.
+/// against the harness server; `webdattack` (Web Attack Probe) is the malicious client of webd's
+/// attack harness (`tools/webd/attack_run.py`): it lists only the base full-view interface, so the
+/// kernel refuses the scopes it tries to reach.
 pub const CLIENT_PACKAGES: &[(&str, &str)] = &[
     ("webddemo", "xui-webddemo.elf"),
     ("webdbrowse", "xui-webdbrowse.elf"),
+    ("webdattack", "xui-webdattack.elf"),
 ];
 
 fn on(variable: &str) -> bool {

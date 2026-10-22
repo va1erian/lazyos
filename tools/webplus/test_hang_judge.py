@@ -87,6 +87,18 @@ class HangJudge(unittest.TestCase):
                      j.WEBD_UP + "\n"):
             self.assertTrue(h.judge_hang(good().replace(gone, "")), gone)
 
+    def test_the_stops_exit_and_the_lost_view_may_come_in_either_order(self) -> None:
+        # WebKit reports a termination it asked for at once; the reaper prints the exit when the kernel reaps
+        # the killed child: a run of 2026-10-22 printed the loss four lines before the exit.
+        lines = good().splitlines()
+        lost = max(i for i, line in enumerate(lines) if line.startswith("WEBD:LOST view=7"))
+        exit_at = max(i for i in range(lost) if lines[i].startswith(f"{N}PROCESS:EXIT:web:"))
+        swapped = lines[:exit_at] + lines[exit_at + 1:lost + 1] + [lines[exit_at]] + lines[lost + 1:]
+        self.assertEqual(h.judge_hang("\n".join(swapped) + "\n"), [])
+        # The Stop's process must still end.
+        without = lines[:exit_at] + lines[exit_at + 1:]
+        self.assertTrue(any("Stop ended" in p for p in h.judge_hang("\n".join(without) + "\n")))
+
     def test_the_stop_is_proved_without_the_old_failure_marker(self) -> None:
         # webd may or may not relay FAIL:webprocess:stopped: the RECOVER, the process's end and the lost view prove it.
         self.assertEqual(h.judge_hang(good()), [])

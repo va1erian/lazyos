@@ -94,6 +94,21 @@ bool said(const std::string& prefix)
     return std::any_of(lines.begin(), lines.end(), [&](const std::string& l) { return l.compare(0, prefix.size(), prefix) == 0; });
 }
 
+PoolCounts poolCounts()
+{
+    std::lock_guard<std::mutex> hold(mutex);
+    PoolCounts counts;
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        // "INFO:POOL:reused=%llu:pooled=%zu:live=%zu:retired=%zu:parked=%zu"
+        if (it->compare(0, 10, "INFO:POOL:") != 0)
+            continue;
+        sscanf(it->c_str(), "INFO:POOL:reused=%ld:pooled=%ld:live=%ld:retired=%ld:parked=%ld",
+            &counts.reused, &counts.pooled, &counts.live, &counts.retired, &counts.parked);
+        break;
+    }
+    return counts;
+}
+
 uint64_t create(const Options& options)
 {
     const uint64_t id = detail::newId();

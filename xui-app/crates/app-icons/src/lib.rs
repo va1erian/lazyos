@@ -49,11 +49,6 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazyrad",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
-    // WebKit: Lucide `external-link` (a page with an arrow out of it) on a cobalt tile.
-    (
-        "xui-app/packages/webkit",
-        Art::Lucide(Lucide::ExternalLink, Tone::Cobalt),
-    ),
     // LazyWeb+: neither set has a globe; a link on a rose tile.
     (
         "xui-app/packages/lazywebplus",
@@ -175,6 +170,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
     // Web View Test: scaffolded with a placeholder; pick its art.
     (
         "xui-app/packages/webdbrowse",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
+    // Web Attack Probe: the malicious client of webd's attack harness (a test fixture).
+    (
+        "xui-app/packages/webdattack",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
 ];

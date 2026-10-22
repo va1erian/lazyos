@@ -27,6 +27,7 @@
 //! [`ViewEvent::Lost`] (from `poll`) and [`Error::Lost`] (from any later call), never a panic or a
 //! hang; [`LightWebView::recreate`] makes a new view and loads the last page again.
 
+pub mod attack;
 pub mod browse;
 pub mod demo;
 pub mod event;

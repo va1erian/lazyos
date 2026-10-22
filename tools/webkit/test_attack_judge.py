@@ -30,7 +30,9 @@ PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
 TRACE = {
     "read_resolv_conf": "file=/etc/resolv.conf access=stat",
     "read_ca_bundle": "file=/etc/ssl/certs/ca-certificates.crt access=stat",
-    "write_profile": "file=/home/user/.apps access=write",
+    # What the kernel printed in a real --kernel run (2026-10-22): the probe writes below the children's
+    # folder `.apps/os.lazy.webd/profiles` (P4), and the refusal names that folder.
+    "write_profile": "file=/home/user/.apps/os.lazy.webd/profiles access=stat",
     "write_downloads": "file=/home/user/Downloads access=stat",
     "inet_socket": "net=inet",
     "inet_serve": "net=inet",
@@ -53,6 +55,9 @@ TRACE = {
     "resolve_display": "resolve=os.lazy.display.v1 op=2",
     "resolve_input": "resolve=os.lazy.input.v1 op=2",
     "resolve_clipboard": "resolve=os.lazy.clipboard.v1 op=2",
+    "resolve_webd_view": "resolve=app.os.lazy.webd.view op=2",
+    "resolve_webd_light": "resolve=app.os.lazy.webd.light op=2",
+    "write_rules": "file=/home/user/.apps/os.lazy.webd/rules access=stat",
     "read_fonts": "file=/system/share/fonts access=stat",
 }
 #: The network role's own trace for the one probe that differs.
@@ -111,6 +116,50 @@ class JudgeTests(unittest.TestCase):
             line.replace("BLOCKED:1", "ALLOWED:ok") if (r, p) == ("webprocess", "write_downloads") else line))
         found, _ = judge.judge(log, "browser", app)
         self.assertTrue(any("webprocess.write_downloads" in f and "BREACH" in f for f in found), found)
+
+    def test_the_profile_refusal_matches_at_any_level_of_the_childrens_folder(self) -> None:
+        # The judge's pattern lagged P4's move to `profiles/` and failed a sandbox that held.
+        pattern = judge.EXPECTED["webprocess"]["write_profile"].trace
+        for what in ("file=/home/user/.apps access=write",
+                     "file=/home/user/.apps/os.lazy.webd access=stat",
+                     "file=/home/user/.apps/os.lazy.webd/profiles access=stat",
+                     "file=/home/user/.apps/os.lazy.webd/profiles/browser/attack-probe access=write"):
+            self.assertRegex(what, pattern)
+        # Not some other app's folder, nor a `.apps` outside a home.
+        self.assertNotRegex("file=/home/user/.apps/os.lazy.mail access=stat", pattern)
+        self.assertNotRegex("file=/home/user/other/.apps access=stat", pattern)
+        self.assertNotRegex("file=/tmp/.apps/os.lazy.webd access=write", pattern)
+
+    def test_one_refusal_does_not_stand_in_for_several_probes(self) -> None:
+        # fork, exec_busybox and exec_native share a pattern: each needs a refusal of its own, between the
+        # line of the probe before it and its own line.
+        log = perfect()
+        lines = log.splitlines()
+        at = next(i for i, line in enumerate(lines) if line.startswith("ATTACK:webprocess:exec_native:"))
+        self.assertIn("LABEL:DENY", lines[at - 1])
+        del lines[at - 1]
+        found = self.problems("\n".join(lines) + "\n")
+        self.assertTrue(any("webprocess.exec_native" in f and "no LABEL:DENY" in f for f in found), found)
+
+    def test_the_downloads_folder_may_be_missing_in_the_real_webds_image_only(self) -> None:
+        # The folder is made by webd's own process at the first download; the probe runs before any.
+        missing = lambda r, p, line: (  # noqa: E731
+            line.replace("ALLOWED:ok", "ALLOWED:2") if (r, p) == ("networkprocess", "write_downloads") else line)
+        self.assertEqual(self.problems(perfect("browser", tweak=missing), "browser"), [])
+        found = self.problems(perfect("kernel", tweak=missing))
+        self.assertTrue(any("networkprocess.write_downloads" in f for f in found), found)
+        # A refusal is never accepted, nor another failure than "not there yet".
+        refused = lambda r, p, line: (  # noqa: E731
+            line.replace("ALLOWED:ok", "BLOCKED:1") if (r, p) == ("networkprocess", "write_downloads") else line)
+        self.assertTrue(self.problems(perfect("browser", tweak=refused), "browser"))
+        for errno in ("28", "30", "5"):
+            failed = lambda r, p, line, e=errno: (  # noqa: E731
+                line.replace("ALLOWED:ok", f"ALLOWED:{e}") if (r, p) == ("networkprocess", "write_downloads") else line)
+            self.assertTrue(self.problems(perfect("browser", tweak=failed), "browser"), errno)
+
+    def test_only_the_label_traces_suppression_fails_a_run(self) -> None:
+        self.assertTrue(judge.trace_suppressed("LABEL:SUPPRESSED n=3\n"))
+        self.assertFalse(judge.trace_suppressed("PROC:SCM:SUPPRESSED n=3\nUI:SUPPRESSED n=1\n"))
 
     def test_every_probe_has_a_trace_the_patterns_match(self) -> None:
         blocked = {p for table in judge.EXPECTED.values() for p, e in table.items() if e.kind == "blocked"}

@@ -167,9 +167,11 @@ pub fn is_core_stem(stem: &str) -> bool {
         // `LAZYOS_WEBD=1` (`webd_embed`).
         "webd",
         // The test clients of webd, only with `LAZYOS_WEBDDEMO=1` (`webd_embed::CLIENT_PACKAGES`):
-        // the light view's demo and Web View Test (full views through every scope).
+        // the light view's demo, Web View Test (full views through every scope) and Web Attack Probe
+        // (the malicious client of the attack harness: it reaches for scopes it was not granted).
         "webddemo",
         "webdbrowse",
+        "webdattack",
         // Calculator: A basic calculator.
         "calc",
         // PDF Viewer: Read PDF documents.

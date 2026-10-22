@@ -159,6 +159,17 @@ fn resolve(name: &str) -> Attempt {
     }
 }
 
+/// Create (and remove) one file in `dir` without making `dir`: for a folder another process makes. A
+/// folder that is not there is `ENOENT`, which is not a refusal.
+fn write_into(dir: &str, name: &str) -> Attempt {
+    let path = format!("{dir}/{name}");
+    let result = io_attempt(File::create(&path));
+    if result.is_ok() {
+        let _ = fs::remove_file(&path);
+    }
+    result
+}
+
 fn write_probe(dir: &str, name: &str) -> Attempt {
     let path = format!("{dir}/{name}");
     // `create_dir_all` of a directory that is there is `mkdir` -> `EEXIST` -> fine; the
@@ -214,11 +225,20 @@ fn main() {
     let profile = std::env::var("LAZYOS_WEBKIT_PROFILE")
         .unwrap_or_else(|_| format!("{home}/.apps/os.lazy.webd/profiles"));
     say(role, "write_profile", write_probe(&profile, "attack-probe"));
-    // The network process may save downloads here; nothing else may.
+    // The network process may save downloads here; nothing else may. The folder itself is made by
+    // webd's own (unconfined) process at the first download, never by an engine process (making it
+    // would need a write grant on the home), so the probe writes into it and does not make it.
     say(
         role,
         "write_downloads",
-        write_probe(&format!("{home}/Downloads"), "attack-probe"),
+        write_into(&format!("{home}/Downloads"), "attack-probe"),
+    );
+    // The light views' network-lock rule store: only webd's own process makes and reads it; a page or
+    // network process that could rewrite it could lift the lock for every light view.
+    say(
+        role,
+        "write_rules",
+        write_into(&format!("{home}/.apps/os.lazy.webd/rules"), "attack-probe"),
     );
     say(role, "inet_socket", inet_socket());
     say(role, "inet_serve", inet_serve());
@@ -270,6 +290,14 @@ fn main() {
     say(role, "resolve_display", resolve("os.lazy.display.v1"));
     say(role, "resolve_input", resolve("os.lazy.input.v1"));
     say(role, "resolve_clipboard", resolve("os.lazy.clipboard.v1"));
+    // webd's own services, the first thing a compromised page process would call: a child label owns no
+    // names and has only the app's interfaces, so neither may be reached from inside it.
+    say(role, "resolve_webd_view", resolve("app.os.lazy.webd.view"));
+    say(
+        role,
+        "resolve_webd_light",
+        resolve("app.os.lazy.webd.light"),
+    );
     say(
         role,
         "exec_busybox",
@@ -383,23 +411,19 @@ fn load_label(label: &str, ids: &[u64]) -> Result<(), i64> {
 /// Run as the first program: give each role its label and rules, start it as the user, wait.
 fn driver() -> i32 {
     let home = "/home/user";
-    // The user's profile directory, which webd makes and the
-    // NetworkProcess may write in; the user owns it.
-    let profile = format!("{home}/.apps/os.lazy.webd/profiles");
-    let downloads = format!("{home}/Downloads");
-    println!(
-        "ATTACK:driver:NOTE:mkdir {profile}: {:?}",
-        fs::create_dir_all(&profile)
-    );
-    println!(
-        "ATTACK:driver:NOTE:mkdir {downloads}: {:?}",
-        fs::create_dir_all(&downloads)
-    );
-    for path in [format!("{home}/.apps"), profile.clone(), downloads] {
-        println!(
-            "ATTACK:driver:NOTE:chown {path}: {:?}",
-            std::os::unix::fs::chown(&path, Some(1000), Some(1000))
-        );
+    // The folders webd makes, owned by the user: its own, the profiles the NetworkProcess may write,
+    // the light views' rule store nobody else may, and Downloads.
+    let webd = format!("{home}/.apps/os.lazy.webd");
+    for dir in [
+        &format!("{home}/.apps"),
+        &webd,
+        &format!("{webd}/profiles"),
+        &format!("{webd}/rules"),
+        &format!("{home}/Downloads"),
+    ] {
+        let made = fs::create_dir_all(dir)
+            .and_then(|()| std::os::unix::fs::chown(dir, Some(1000), Some(1000)));
+        println!("ATTACK:driver:NOTE:mkdir {dir}: {made:?}");
     }
     // What the roles are granted to read must exist, so that "allowed" means a file was read
     // and not that nothing was there: a font directory (a console image has none) and the

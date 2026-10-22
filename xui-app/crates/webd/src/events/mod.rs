@@ -302,6 +302,13 @@ impl EventQueue {
         (self.clock)()
     }
 
+    /// The user's memory charge and limit in bytes (`webd_ui_user_memory`), `None` when the host
+    /// cannot read it. The service reads it to refuse a view that would start a web process the
+    /// user's quota cannot hold (`service::create`, docs/webd-plan.md 11 item 7).
+    pub fn memory_charge(&self) -> Option<(u64, u64)> {
+        self.memory.as_ref().and_then(|source| source())
+    }
+
     /// Call `wake` after every event is queued (a doorbell for the service thread).
     pub fn with_wake(mut self, wake: impl Fn() + Send + Sync + 'static) -> Self {
         self.wake = Some(Box::new(wake));
@@ -484,7 +491,7 @@ impl EngineEvents for EventQueue {
     }
 
     fn user_memory(&self) -> Option<(u64, u64)> {
-        self.memory.as_ref().and_then(|source| source())
+        self.memory_charge()
     }
 }
 

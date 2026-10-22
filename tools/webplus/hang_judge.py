@@ -158,11 +158,17 @@ def judge_hang(text: str) -> list[str]:
         rf"{P}:TITLE:{re.escape(READY)}\b",
         rf"{E}WEBPROCESS:UNRESPONSIVE:{pid}\b", rf"{P}:HANG:SHOW\b",
         rf"{P}:HANG:ANSWER:stop\b", rf"{E}WEBPROCESS:RECOVER:{pid}:stop\b",
-        rf"{E}PROCESS:EXIT:web:{pid}\b", rf"WEBD:LOST view={pid} reason={STOP_REASON}\b",
+        # The process's end and the view's loss both follow the Stop, in either order: WebKit reports a
+        # termination it asked for at once, and the reaper prints the exit when the kernel reaps the
+        # killed child (checked apart below).
+        rf"WEBD:LOST view={pid} reason={STOP_REASON}\b",
         # The next load makes a new view, with a new page process, and the page loads in it.
         rf"WEBD:VIEW:CREATE client=\S+ view={pid}\b", rf"{E}PROCESS:LAUNCH:web:{pid}\b",
         rf"{P}:TITLE:{re.escape(READY)}\b",
     ])
+    stopped = re.search(rf"{E}WEBPROCESS:RECOVER:(\d+):stop\b", text)
+    if stopped and not re.search(rf"{E}PROCESS:EXIT:web:{stopped.group(1)}\b", text[stopped.end():]):
+        problems.append(f"the process Stop ended ({stopped.group(1)}) has no {j.NOTE}PROCESS:EXIT after the Stop")
     if sum(1 for _ in re.finditer(rf"{P}:TITLE:{re.escape(READY)}", text)) < 2:
         problems.append(f"the page did not load (and title itself {READY!r}) a second time after Reload")
     # Every relaunch is announced, whatever id the kernel gave it (the lowest free slot is often the dead

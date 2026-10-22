@@ -364,6 +364,8 @@ void webd_engine_load_html(uint64_t view, const uint8_t* html, size_t len, const
     // A light view's one load (an inert base only); a full view's page of the client's own, under a base the
     // service checked (about:, data:, http:, https:; never file:, which the engine refuses too).
     withView(view, [document = std::move(document), base = std::move(base)](Slot& s, View& v) {
+        // A process may be launching for the page from here on (destroyView ends it).
+        v.loadRequested = true;
         if (s.config.light)
             v.loadHtml(document, base);
         else

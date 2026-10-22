@@ -34,7 +34,14 @@ pub enum Line {
     /// pings): printed under a budget of its own, so a client's refusals cannot silence the paint
     /// meter a harness reads, nor the other way round.
     EngineFlood(String),
+    /// The page-proxy pool's count (`INFO:POOL:*`, one per view made from the pool and per view ended):
+    /// a client looping `CreateView`/`DestroyView` makes it fire in a loop, so it has a budget of its
+    /// own and cannot use up the one the paint meter and the timings share.
+    Pool(String),
 }
+
+/// The prefix of the engine's pool line (`engine.cpp` `sayPool`).
+pub const POOL_LINE: &str = "INFO:POOL:";
 
 /// The engine's markers (`webd_ui_say`, as the C++ half prints them without the `WEBD:NOTE:` prefix)
 /// that a page or a client can make fire in a loop: a link click, a refused frame or history entry,
@@ -98,6 +105,7 @@ pub fn lines_of(note: Note, client_name: &mut dyn FnMut(ClientKey) -> String) ->
         Note::FrameDropped { view, why } => {
             vec![Line::Flood(format!("frame dropped view={view}: {why}"))]
         }
+        Note::Engine(line) if line.starts_with(POOL_LINE) => vec![Line::Pool(line)],
         Note::Engine(line) if engine_line_floods(&line) => vec![Line::EngineFlood(line)],
         Note::Engine(line) => vec![Line::Note(line)],
         // A page can make these in a loop (dialogs, held navigations): rate limited.
@@ -239,5 +247,20 @@ mod tests {
         ] {
             assert_eq!(say(text), vec![Line::Note(text.into())], "{text}");
         }
+    }
+
+    #[test]
+    fn the_pool_line_has_a_budget_apart_from_the_paint_meters() {
+        // A client looping create/destroy makes one per view: it must not use up the budget the paint
+        // meter and the timings share (`EngineFlood`), so it is its own kind.
+        let text = "INFO:POOL:reused=3:pooled=1:live=0:retired=0:parked=0";
+        assert_eq!(
+            lines_of(Note::Engine(text.into()), &mut name),
+            vec![Line::Pool(text.into())]
+        );
+        assert_eq!(
+            lines_of(Note::Engine("INFO:PAINT:x".into()), &mut name),
+            vec![Line::EngineFlood("INFO:PAINT:x".into())]
+        );
     }
 }

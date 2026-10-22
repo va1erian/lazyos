@@ -226,8 +226,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="leave webd out of a desktop (LAZYOS_WEBD=0): Docs and Mail then say the web "
                              "engine is not running; no Docker build")
     parser.add_argument("--webd-demo", action="store_true",
-                        help="webd plus its test clients os.lazy.webddemo and os.lazy.webdbrowse "
-                             "(LAZYOS_WEBDDEMO=1), which tools/webd drives; implies --webd")
+                        help="webd plus its test clients os.lazy.webddemo, os.lazy.webdbrowse and the "
+                             "attack probe os.lazy.webdattack (LAZYOS_WEBDDEMO=1), which tools/webd drives; "
+                             "implies --webd")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "

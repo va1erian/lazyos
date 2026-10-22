@@ -134,12 +134,40 @@ impl WebdTransport {
             return Err(-errno::ENOENT);
         };
         let carried = objects.clone();
-        service
-            .call_moving_within(interface, method, ERROR_FIELD, body, objects, CALL_TICKS)
+        // webd's inbox is one endpoint every client shares (64 messages deep), and oneway input is not
+        // counted per sender, so another client's flood can fill it: the kernel then refuses the call
+        // with `EAGAIN` before webd sees it (found by `tools/webd/attack_run.py`). The service itself
+        // never answers `EAGAIN`, so this always means "not queued, try again": the objects are still
+        // this task's. Sleeping lets webd run and drain (one CPU), and the retries are bounded so a UI
+        // thread waits at most `QUEUE_FULL_RETRIES` x `QUEUE_FULL_PAUSE`.
+        let mut tries = 0;
+        let result = loop {
+            let attempt = service.call_moving_within(
+                interface,
+                method,
+                ERROR_FIELD,
+                body.clone(),
+                objects.clone(),
+                CALL_TICKS,
+            );
+            match attempt {
+                Err(code) if code == -errno::EAGAIN && tries < QUEUE_FULL_RETRIES => {
+                    tries += 1;
+                    std::thread::sleep(QUEUE_FULL_PAUSE);
+                }
+                other => break other,
+            }
+        };
+        result
             .map(|reply| reply.body)
             .inspect_err(|_| close_unsent(&carried))
     }
 }
+
+/// Tries of a call webd's full inbox refused (`EAGAIN`) before the caller is told, and the pause
+/// between them: 50 x 4 ms is at most 0.2 s on a UI thread, enough for webd to drain 64 messages.
+const QUEUE_FULL_RETRIES: u32 = 50;
+const QUEUE_FULL_PAUSE: std::time::Duration = std::time::Duration::from_millis(4);
 
 /// Close the channels of a request that never left (the service is not there, or the kernel
 /// refused it before queuing it): the kernel moves a request's channels only once it is queued, so

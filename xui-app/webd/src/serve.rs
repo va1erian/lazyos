@@ -66,6 +66,8 @@ static FLOOD: Budget = Budget::new(20, 1000);
 /// seconds, room for the paint meter of a few painting views (two lines a second each) and a page's
 /// timings.
 static ENGINE_FLOOD: Budget = Budget::new(120, 1000);
+/// The page-proxy pool's line (`lines::Line::Pool`): at most 20 per ten seconds, apart from the others.
+static POOL: Budget = Budget::new(20, 1000);
 
 /// Ask the loop to end (any thread, and a signal handler: an atomic store and a `write`).
 pub fn request_quit() {
@@ -116,6 +118,11 @@ fn flush_notes(service: &mut Svc) {
                 }
                 Line::EngineFlood(text) => {
                     if trace::within(&ENGINE_FLOOD, Channel::Webd) {
+                        trace::line!(Channel::Webd, "NOTE:{text}");
+                    }
+                }
+                Line::Pool(text) => {
+                    if trace::within(&POOL, Channel::Webd) {
                         trace::line!(Channel::Webd, "NOTE:{text}");
                     }
                 }

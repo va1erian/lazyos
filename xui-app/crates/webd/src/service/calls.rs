@@ -82,6 +82,19 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if self.views.count_of(client) >= VIEWS_PER_CLIENT {
             return Err(Refusal::new(errno::ENOSPC, "too many views"));
         }
+        // A client's light views share one web process: the first live one starts it. Under memory
+        // pressure that view is refused, as a full view's new process is (`service::create`); found by
+        // the P5 review (light views were not gated, so a light client had no bound but the view count).
+        let starts_process = !self
+            .views
+            .iter()
+            .any(|(_, view)| view.owner == client && view.full.is_none() && view.lost.is_none());
+        if starts_process && self.memory_tight() {
+            return Err(Refusal::new(
+                errno::EDQUOT,
+                "not enough memory for another web process",
+            ));
+        }
         config.group = self
             .groups
             .group_of(client)

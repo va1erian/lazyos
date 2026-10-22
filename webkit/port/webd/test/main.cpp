@@ -75,7 +75,8 @@ const Named modes[] = {
     { "network", webdtest::modeNetwork, false },
     { "many", webdtest::modeMany, false },
     { "lost", webdtest::modeLost, false },
-    { "cycle", webdtest::modeCycle, false },
+    // On the full host, as webd itself runs: the mode also checks a full view is never pooled.
+    { "cycle", webdtest::modeCycle, true },
     { "full", webdtest::modeFull, true },
     { "profiles", webdtest::modeProfiles, true },
     { "ask", webdtest::modeAsk, true },
