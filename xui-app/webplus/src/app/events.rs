@@ -71,8 +71,11 @@ impl Browser {
         }
         if self.state.committed_url != old.committed_url {
             self.page.forget_bands();
-            // Another page took over: a later failure is not the typed address's.
-            self.pending_https = None;
+            // Another page took over: a later failure is not the typed address's. A report that
+            // also carries an error is the typed load failing, whose offer `load_failed` makes.
+            if self.state.error.is_empty() {
+                self.pending_https = None;
+            }
             // The page browsed last, and the one-shot "without blocking" ends with its site.
             let committed = self.state.committed_url.clone();
             let site = blocker::site_of(&committed);

@@ -334,7 +334,12 @@ impl Bookmarks {
                     // that holds another scheme was not written by this browser.
                     Kind::Link => match clean_url(&e.url) {
                         Ok(url) if crate::bookmarks::bookmarkable(&url) => e.url = url,
-                        _ => return,
+                        // The file's last word on this id is a refusal, so an earlier good record
+                        // of it does not survive either.
+                        _ => {
+                            self.entries.remove(&e.id);
+                            return;
+                        }
                     },
                     Kind::Folder => e.url.clear(),
                     Kind::Separator => {

@@ -137,9 +137,9 @@ Nothing goes to the network. `UI:WIDGET` names the box `suggest` and its rows `s
 for 50,000 entries (`cargo test --release -p xui-webplus bench -- --ignored --nocapture`).
 
 **After a crash** (`src/session.rs`, `src/app/restore.rs`): a `running` file in the profile folder lives while a
-window runs and is removed at a clean quit (it holds the process id, so a second LazyWeb+ process on the same
-profile, found alive in `/proc/<pid>`, is not taken for a crash, leaves the marker alone and never removes it at
-its own quit; off Linux a marker is always taken as stale); `session.json`
+window runs and is removed at a clean quit (it holds the process id, so a window that quits never removes the
+marker a later one wrote; LazyOS cannot tell whether a process still runs, so a second LazyWeb+ process on the same
+profile also offers a restore, which can be dismissed); `session.json`
 (`{"version":1,"windows":[{"tabs":[{"url":...,"title":...}],"active":0}]}`) is written after each navigation to a
 web page (at most once a second, through a temporary file that is synced before the rename; never for the browser's own pages and never when the
 page's data is kept in memory). A start that finds `running` shows a bar "LazyWeb+ did not close properly.

@@ -160,22 +160,17 @@ fn quote(text: &str) -> String {
 }
 
 /// Whether the last run crashed, and the marker for this one. Call once at start with the profile
-/// folder. When another LazyWeb+ process runs on the profile (its id is in the marker and still
-/// lives) this is no crash, and the marker stays that process's.
+/// folder: a marker left behind is a crash (`session/marker.rs` says why no liveness check).
 pub fn begin(profile: &Path) -> bool {
     let path = profile.join(RUNNING);
-    let existing = fs::read_to_string(&path).ok();
-    let own = std::process::id();
-    let start = marker::decide(existing.as_deref(), own, marker::process_alive);
-    if start != marker::Start::Shared {
-        // A failure to write the marker only means a crash goes unnoticed.
-        let _ = fs::write(&path, marker::text(own));
-    }
-    start == marker::Start::Crashed
+    let crashed = path.exists();
+    // A failure to write the marker only means a crash goes unnoticed.
+    let _ = fs::write(&path, marker::text(std::process::id()));
+    crashed
 }
 
-/// The window closed on purpose: the next start is not a crash. The marker of another process is
-/// left in place.
+/// The window closed on purpose: the next start is not a crash. A marker a later process wrote
+/// is left in place.
 pub fn end(profile: &Path) {
     let path = profile.join(RUNNING);
     if let Ok(existing) = fs::read_to_string(&path) {
