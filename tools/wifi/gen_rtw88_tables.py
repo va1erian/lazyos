@@ -228,10 +228,13 @@ def read_source(path: Path) -> str:
 def fetch(dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     target = dest / "rtw8822c_table.c"
+    if target.is_file() and target.stat().st_size > 0:
+        return target
     # raw.githubusercontent.com answers a busy CI runner with 429 now and then.
     for attempt in range(6):
         try:
-            with urllib.request.urlopen(URL, timeout=60) as resp:
+            req = urllib.request.Request(URL, headers={"User-Agent": "Mozilla/5.0 (compatible; LazyOS-CI/1.0)"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 target.write_bytes(resp.read())
             return target
         except urllib.error.HTTPError as error:
