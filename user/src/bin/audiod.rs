@@ -6,7 +6,7 @@
 //! clients may do so at once. Every tick the mixer reads what each running
 //! stream committed, converts it to the card's rate, scales it by the
 //! stream's volume, sums the streams, applies the master volume and queues
-//! the period on the card, whose one stream (`sndd`, `os.lazy.audio.card`) it
+//! the period on the card, whose one stream (`sndd`, `os.lazy.audio.card/<id>`) it
 //! holds for as long as it runs. The control panel, `os.lazy.audio.mixer.v1`,
 //! lists the streams and sets any stream's volume and the master volume.
 //!

@@ -1,5 +1,6 @@
 //! A physically contiguous DMA region a driver can both program into a device
-//! (by bus address) and fill from ring 3 (by mapped address).
+//! (by bus address) and fill from ring 3 (by mapped address), or (the USB
+//! card) a shared buffer another driver copies from.
 
 use user::dev;
 use user::sys;
@@ -17,6 +18,8 @@ pub(super) struct Region {
     va: *mut u8,
     bus: u64,
     len: usize,
+    /// The shared buffer's handle (0 for DMA memory).
+    handle: u64,
 }
 
 impl Region {
@@ -32,7 +35,26 @@ impl Region {
             va: va as *mut u8,
             bus,
             len,
+            handle: 0,
         })
+    }
+
+    /// At least `len` zeroed bytes of shared memory (no bus address): the
+    /// USB card's staging, which `usbd` maps and copies from.
+    pub(super) fn shared(len: usize) -> Result<Region, Error> {
+        let len = len.div_ceil(PAGE) * PAGE;
+        let (handle, va, _) = sys::buffer_create(len as u64).map_err(Error::Dev)?;
+        Ok(Region {
+            va: va as *mut u8,
+            bus: 0,
+            len,
+            handle,
+        })
+    }
+
+    /// The shared buffer's handle, to send in a `Buffer` field.
+    pub(super) fn handle(&self) -> u64 {
+        self.handle
     }
 
     pub(super) fn len(&self) -> usize {

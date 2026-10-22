@@ -160,7 +160,7 @@ working; `init` restarts it and it re-adopts the live state from registers.
         ▼                                      │   pipe, plane, wm), gtt, power/forcewake, ring/exec,
    GGTT-mapped scanout  ───────────────────────┘   blitter, render kernels, media
         │
-        ▼ HDMI  ─ ELD / audio enable ─►  sndd (HDA codec side)  ◄─ os.lazy.audio.card
+        ▼ HDMI  ─ ELD / audio enable ─►  sndd (HDA codec side)  ◄─ os.lazy.audio.card/<id>
 ```
 
 - **`libs/intelgfx`** (`no_std`, host-tested like `libs/rtw88`): pure

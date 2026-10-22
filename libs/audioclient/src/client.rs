@@ -188,4 +188,19 @@ impl<T: Transport> MixerControl<T> {
             .map_err(malformed)?;
         self.call(control::METHOD_SETMASTER, body).map(|_| ())
     }
+
+    /// Every sound output, the one playing first.
+    pub fn outputs(&self) -> Result<Vec<control::Output>> {
+        let reply = self.call(control::METHOD_LISTOUTPUTS, Vec::new())?;
+        Ok(control::decode_list_outputs_reply(&reply)
+            .map_err(malformed)?
+            .outputs)
+    }
+
+    /// Play through output `id` (and prefer it while it is present).
+    pub fn select_output(&self, id: &str) -> Result<()> {
+        let body = control::encode_select_output_args(&control::SelectOutputArgs { id: id.into() })
+            .map_err(malformed)?;
+        self.call(control::METHOD_SELECTOUTPUT, body).map(|_| ())
+    }
 }

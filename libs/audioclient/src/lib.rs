@@ -41,8 +41,10 @@ pub use playback::{Params, PlaybackStream};
 /// The system mixer: the name applications resolve.
 pub const NAME: &str = "os.lazy.audio";
 
-/// The card driver, whose one stream belongs to the mixer.
-pub const CARD_NAME: &str = "os.lazy.audio.card";
+/// Where card drivers register, one name per card
+/// (`os.lazy.audio.card/intel-hda0`, `.../usb-audio0`); each card's one
+/// stream belongs to the mixer, which picks the card to play through.
+pub const CARD_PREFIX: &str = "os.lazy.audio.card/";
 
 /// Unity gain in 16.16 fixed point; see `os.lazy.audio.v1` `SetVolume`.
 pub const UNITY_GAIN: u32 = 1 << 16;

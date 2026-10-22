@@ -28,6 +28,8 @@ pub const MIXER_CARD: &str = "mixer";
 pub const VIRTIO_CARD: &str = "virtio-snd0";
 /// The Intel HDA card's `{card}` (issue #497): the same driver, another card.
 pub const HDA_CARD: &str = "intel-hda0";
+/// The USB audio device `usbd` drives (`sndd usb=1`).
+pub const USB_CARD: &str = "usb-audio0";
 
 /// Ticks one publish may take (100 Hz).
 const PUBLISH_TICKS: u64 = 5;

@@ -40,7 +40,8 @@ const PCI_BUS_MASTER: u64 = 1 << 2;
 /// Slots this driver enables per controller (one per device or hub it can
 /// drive at once). The kernel records at most 16 DMA buffers per claim
 /// (`kernel/src/dev/claims.rs`): the core region, the scratchpads and one
-/// region per slot must fit.
+/// region per slot must fit, with the bulk window and the audio region:
+/// 16 in all.
 pub(super) const MAX_SLOTS: u8 = 12;
 /// TRBs in the command ring and in the event ring.
 const COMMAND_TRBS: usize = 64;
@@ -107,6 +108,9 @@ pub(super) struct Hc {
     /// The bulk data buffer this controller's sticks share (`msc.rs`), made
     /// on first use and kept: they are served one transfer at a time.
     bulk: Option<Region>,
+    /// The audio region (`audio_ring.rs`): made when the first audio device
+    /// binds, lent to it, and kept for the next one when it goes.
+    audio: Option<Region>,
     /// Where the kernel posts this claim's interrupts, once armed (`irq.rs`);
     /// `None` polls.
     pub(super) irq: Option<Endpoint>,
@@ -216,6 +220,7 @@ impl Hc {
             pool: [const { None }; MAX_SLOTS as usize + 1],
             regions: 0,
             bulk: None,
+            audio: None,
             irq: None,
         };
         hc.reset()?;
@@ -383,6 +388,20 @@ impl Hc {
         let bus = region.bus(0);
         let offset = (bus.next_multiple_of(BULK_WINDOW as u64) - bus) as usize;
         Ok((region, offset))
+    }
+
+    /// Lend the audio region to the audio device binding now (made on
+    /// first use: one DMA buffer per controller, never freed).
+    pub(super) fn take_audio_region(&mut self) -> Result<Region, Error> {
+        match self.audio.take() {
+            Some(region) => Ok(region),
+            None => Region::alloc(self.handle, super::audio_ring::AUDIO_BYTES),
+        }
+    }
+
+    /// Take the region back from a detached audio device.
+    pub(super) fn give_audio_region(&mut self, region: Region) {
+        self.audio = Some(region);
     }
 
     /// Point DCBAA entry `slot` at a device context.

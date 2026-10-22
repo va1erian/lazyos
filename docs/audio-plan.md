@@ -19,7 +19,7 @@ hardened, single-client pipe. This is the `audiod` that
                         | libs/audiomix: per-stream ring -> resample ->
                         | stream gain -> sum -> master gain -> saturate
                         v os.lazy.audio.v1, one stream, 48 kHz stereo S16
-                      sndd  "os.lazy.audio.card"   (_snd, uid 901, CAP_DEV_CLAIM)
+                      sndd  "os.lazy.audio.card/<id>"   (_snd, uid 901, CAP_DEV_CLAIM)
                         v virtqueues + DMA
                       virtio-sound
 ```
@@ -28,9 +28,12 @@ hardened, single-client pipe. This is the `audiod` that
   stream protocol the card serves: open, attach a shared ring, commit, start,
   drain, close. A client cannot tell the mixer from a card except that the
   mixer accepts many streams, every rate and mono or stereo.
-- **The card belongs to the mixer.** `sndd` registers as `os.lazy.audio.card`;
-  `audiod` opens its one stream at startup and holds it while it runs (stopping
-  the device when idle), so nothing else can take the card from it.
+- **The card belongs to the mixer.** `sndd` registers each card as
+  `os.lazy.audio.card/<id>` (`intel-hda0`, `usb-audio0`, ...); `audiod` opens
+  the one it plays through and holds its stream while it runs (stopping the
+  device when idle), so nothing else can take the card from it. Which card
+  plays is the mixer's *output* choice (docs/usb-audio-plan.md, "Several
+  outputs"): the one selected, else the best kind present (USB first).
 - **The client owns its ring**, exactly as with the driver: the mixer reads it
   with raw copies of ranges computed from its own counters, so a client
   scribbling over its ring only produces noise in its own stream.

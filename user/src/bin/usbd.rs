@@ -26,7 +26,9 @@
 //! `USBD:HID:KBD` / `USBD:HID:MOUSE` / `USBD:HID:TABLET` (configured and
 //! publishing), `USBD:READY`, `USBD:DETACH` (unplugged: keys and buttons
 //! released, slot disabled, children first); with `trace=1`, one `USBD:KEY`
-//! line per key edge. Devices come and go at runtime (U3): a port change
+//! line per key edge; `USBD:AUDIO:*` for a USB speaker, headset or DAC
+//! (`usbd/audio.rs`, `LAZYOS_USB_AUDIO=1`), whose stream `sndd usb=1`
+//! drives over `os.lazy.usb.audio.v1`. Devices come and go at runtime (U3): a port change
 //! attaches or detaches, and a detached device's DMA memory serves its
 //! slot's next device (`regions=` counts allocations per controller).
 
@@ -42,6 +44,12 @@ use user::trace;
 
 use user::sys;
 
+#[path = "usbd/audio.rs"]
+mod audio;
+#[path = "usbd/audio_ring.rs"]
+mod audio_ring;
+#[path = "usbd/audio_service.rs"]
+mod audio_service;
 #[path = "usbd/bus.rs"]
 mod bus;
 #[path = "usbd/class.rs"]
@@ -224,6 +232,7 @@ fn run() -> Result<(), Error> {
     );
     let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
     let mut dump = Dump::new();
+    let mut audio = audio_service::Server::new();
     dump.write(&mut controllers, true);
     loop {
         // Acknowledge interrupts first: the line stays masked until then,
@@ -234,6 +243,9 @@ fn run() -> Result<(), Error> {
             busy |= controller.poll(&settings);
             busy |= controller.serve_storage(settings.trace);
         }
+        // The audio name follows the device; its requests feed the ring.
+        audio.sync(&mut controllers);
+        busy |= audio.serve(&mut controllers);
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
         dump.write(&mut controllers, busy);
@@ -242,7 +254,7 @@ fn run() -> Result<(), Error> {
                 .iter_mut()
                 .any(|controller| controller.wait_storage(settings.trace))
         {
-            irq::park(&controllers);
+            irq::park(&controllers, audio.endpoint());
         }
     }
 }

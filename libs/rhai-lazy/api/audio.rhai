@@ -10,8 +10,8 @@
 // serves it under `os.lazy.audio`, the name applications resolve: any number
 // of streams from any number of clients, each resampled to the card's rate,
 // scaled by its own volume and the master volume, and mixed. A userspace
-// audio driver (`sndd`, virtio-sound first) serves it for one card under
-// `os.lazy.audio.card`; its one stream belongs to the mixer. Control is
+// audio driver (`sndd`) serves it for one card under `os.lazy.audio.card/<id>`
+// (`virtio-snd0`, `intel-hda0`, `usb-audio0`); its one stream belongs to the mixer. Control is
 // request/reply; sample data flows through a shared ring buffer per stream,
 // so the wire never carries audio. A stream has exactly one owner, the task
 // that opened it.
@@ -147,7 +147,7 @@ fn set_mute(stream, mute) {
 ///
 /// Card capabilities.
 fn new_audio_info() {
-    #{ streams: 0, formats: 0, rates: 0, channels: 0 }
+    #{ streams: 0, formats: 0, rates: 0, channels: 0, name: "" }
 }
 
 /// A `StreamGrant` with every field at its zero value.
@@ -160,6 +160,8 @@ fn new_audio_info() {
 /// 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
 /// 10 192000. Reserved bits are zero.
 /// Maximum channels per stream.
+/// What to show a person for this card (`Built-in audio`,
+/// `USB: <product>`); the mixer reports its current output's.
 /// The parameters an opened stream actually runs at.
 fn new_stream_grant() {
     #{ stream: 0, dir: 0, format: 0, rate: 0, channels: 0, period_bytes: 0, periods: 0 }

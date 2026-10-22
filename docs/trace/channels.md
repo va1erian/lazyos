@@ -20,7 +20,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `ARCHIVER` | `Archiver` | `archiver` | xui-app | sessions | programs |
 | `ASYNC` | `Async` | `async` | user | sessions | programs |
 | `AUDIO` | `Audio` | `audio` | other, user, xui-app | tools/sound | programs |
-| `AUDIOD` | `Audiod` | `audiod` | user | tools/sound | programs |
+| `AUDIOD` | `Audiod` | `audiod` | user | sessions, tools/sound | programs |
 | `BEEP` | `Beep` | `beep` | user | sessions, tools/sound | programs |
 | `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot, tools/install | programs |
 | `CALC` | `Calc` | `calc` | xui-app | sessions, tools/screenshot | programs |
@@ -118,7 +118,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `TRAY` | `Tray` | `tray` | xui-app | sessions, tools/storage, tools/tray | programs |
 | `TRAYDEMO` | `Traydemo` | `traydemo` | xui-app | sessions, tools/tray | programs |
 | `UI` | `Ui` | `ui` | user, xui-app | sessions, tools/accounts, tools/playground, tools/screenshot, tools/tray, tools/webd, tools/webplus, tools/wifi | programs |
-| `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/storage, tools/test_irqpath.py, tools/usb | programs |
+| `USBD` | `Usbd` | `usbd` | other, user | tools/boot, tools/dbg, tools/install, tools/irqpath.py, tools/sound, tools/storage, tools/test_irqpath.py, tools/usb | programs |
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/docs, tools/mail, tools/webd | programs |

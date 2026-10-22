@@ -14,6 +14,7 @@ use crate::Error;
 
 mod bulk;
 mod extcap;
+mod isoch;
 mod route;
 
 /// A segment in ordinary memory at a pretend bus address.

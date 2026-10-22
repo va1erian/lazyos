@@ -1558,6 +1558,32 @@ python tools/sound/run.py --card hda           # MSI
 python tools/usb/run.py                        # qemu-xhci on MSI-X
 ```
 
+## USB audio and several outputs (`LAZYOS_USB_AUDIO=1`)
+
+`usbd` binds USB speakers, headsets and DACs (UAC 1.0 and 2.0 playback,
+`usbd/audio*.rs` over `libs/usbaudio`: descriptors, alternate and rate choice,
+isochronous TDs with Start Isoch ASAP, explicit feedback) and serves
+`os.lazy.usb.audio.v1` (`idl/usb_audio.midl`) under `os.lazy.usb.audio` while
+one is bound; `sndd usb=1` (init row `sndd-usb`, `_snd`) drives it as the card
+`usb-audio0`. Every card registers as `os.lazy.audio.card/<id>`, and `audiod`
+plays through one *output*: the one selected (`SelectOutput`, the Volume tray
+menu's Output rows, `mixer output <id>`; kept per user in
+`user/<uid>/audio/output`), else the best kind present (USB, HDMI, built-in,
+virtual: a headset plugged in takes over, unplugging falls back). Opt-in until it has run on the Kaby
+Lake and Alder Lake boxes: [`docs/usb-audio-plan.md`](docs/usb-audio-plan.md).
+
+```bash
+cargo test -p usbaudio -p xhci -p audiomix             # descriptors, pacing, isoch TRBs, output choice
+python tools/sound/usb_run.py                          # QEMU usb-audio: 440 Hz + 880 Hz recorded and judged
+python tools/sound/usb_run.py --hotplug                # + a virtio card: two outputs, unplug and replug
+python tools/run_demo.py --desktop --usb-audio --dbgd --usb-image --build-only   # the boxes' stick
+```
+
+Markers: `USBD:AUDIO:BIND|UP|START|STOP|RATE|FAIL|XFER`, `SNDD:USB:CARD|WAIT|GONE`,
+`AUDIOD:OUTPUTS`, `AUDIOD:CARD id=<id>`, `VOLUME:OUTPUTS`, `VOLUME:OUTPUT:<id>`.
+Session `tools/screenshot/examples/volume_outputs.json` (the tray menu with two
+outputs).
+
 ## Sound harness
 
 The virtio-sound driver (`sndd`) and the system mixer (`audiod`,

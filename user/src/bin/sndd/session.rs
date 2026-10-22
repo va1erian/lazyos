@@ -92,7 +92,8 @@ pub(super) fn errno_of(error: &Error) -> MsgError {
         | Error::Virtio(_)
         | Error::Status(_)
         | Error::Messenger(_)
-        | Error::Hda(_) => errno::EIO,
+        | Error::Hda(_)
+        | Error::Usb(_) => errno::EIO,
     })
 }
 

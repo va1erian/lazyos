@@ -8,8 +8,8 @@ Two services serve it (docs/audio-plan.md). The system mixer `audiod`
 serves it under `os.lazy.audio`, the name applications resolve: any number
 of streams from any number of clients, each resampled to the card's rate,
 scaled by its own volume and the master volume, and mixed. A userspace
-audio driver (`sndd`, virtio-sound first) serves it for one card under
-`os.lazy.audio.card`; its one stream belongs to the mixer. Control is
+audio driver (`sndd`) serves it for one card under `os.lazy.audio.card/<id>`
+(`virtio-snd0`, `intel-hda0`, `usb-audio0`); its one stream belongs to the mixer. Control is
 request/reply; sample data flows through a shared ring buffer per stream,
 so the wire never carries audio. A stream has exactly one owner, the task
 that opened it.
@@ -256,6 +256,7 @@ Card capabilities.
 | `formats` | `U32` | int |
 | `rates` | `U32` | int |
 | `channels` | `U32` | int |
+| `name` | `String` | string |
 
 ```rhai
 let value = sys::audio::new_audio_info();
@@ -271,6 +272,8 @@ Supported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,
 3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,
 10 192000. Reserved bits are zero.
 Maximum channels per stream.
+What to show a person for this card (`Built-in audio`,
+`USB: <product>`); the mixer reports its current output's.
 The parameters an opened stream actually runs at.
 
 | Name | IDL type | Script value |

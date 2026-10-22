@@ -4,7 +4,9 @@
 the device core ([`devices.md`](devices.md)) and the reference for the ones
 that follow: it claims QEMU's `virtio-sound-pci` function through syscall 23,
 drives it with a modern virtio-PCI transport, and serves the class interface
-`os.lazy.audio.v1` (`idl/audio.midl`) for the card under `os.lazy.audio.card`.
+`os.lazy.audio.v1` (`idl/audio.midl`) for the card under
+`os.lazy.audio.card/<id>` (`virtio-snd0`, `intel-hda0`; `usb-audio0` for a USB
+speaker or headset driven through `usbd`, docs/usb-audio-plan.md).
 `audiod` is the system mixer: it serves the same interface under
 `os.lazy.audio`, the name applications resolve, mixes any number of client
 streams into the card's one stream, and serves the volume control panel
@@ -28,7 +30,8 @@ are still open.
 | `idl/audio.midl`, `idl/audio_mixer.midl` | The stream interface and the mixer's control panel, compiled by `midlc` into `libs/generated` and `docs/idl/` |
 | `user/src/bin/sndd.rs`, `sndd/` | The driver: `device.rs` claim + BAR mapping, `card.rs` queues and control/transmit paths, `stream.rs` slots and DMA staging, `session.rs` ownership/ring/commit/volume logic, `service.rs` request dispatch |
 | `libs/audiomix/` | The mixer's engine (`mixer.rs`, `stream.rs`: stream table, contract checks, marks), `resample.rs`, `gain.rs`, `grant.rs`, and `service.rs`, the wire layer `audiod` and the host tests share |
-| `user/src/bin/audiod.rs`, `audiod/` | The mixer: `card.rs` paces the card, `server.rs` handles requests and deferred drains, `ring.rs` maps client rings, `demo.rs` runs the evidence clients |
+| `user/src/bin/audiod.rs`, `audiod/` | The mixer: `card.rs` paces the card, `server.rs` handles requests and deferred drains and picks the output (`audiomix::outputs`: the cards registered under `os.lazy.audio.card/<id>`, `ListOutputs`/`SelectOutput`), `ring.rs` maps client rings, `demo.rs` runs the evidence clients |
+| `user/src/bin/sndd/usb_card.rs`, `usbd/audio*.rs`, `libs/usbaudio` | USB audio (`LAZYOS_USB_AUDIO=1`): `sndd usb=1`'s card over `os.lazy.usb.audio.v1`, `usbd`'s isochronous stream, the class descriptors and pacing ([`usb-audio-plan.md`](../usb-audio-plan.md)) |
 | `libs/audioclient/` | The client library: `Client`, `MixerControl` and the blocking `PlaybackStream` over a `Transport` trait |
 | `user/src/audio.rs` | The native `Transport` (Messenger endpoint + display shared buffers) |
 | `user/src/messenger/audio.rs` | Service names and reply framing shared by the two servers |

@@ -31,17 +31,21 @@ use super::mem::{Region, PAGE};
 use super::pipe::{Pipe, Report, Reports, MAX_REPORT, PIPE_BYTES};
 use super::Error;
 
+#[path = "device_ext.rs"]
+mod ext;
+
 /// TRBs in endpoint 0's ring.
 const EP0_TRBS: usize = 32;
 /// Layout of a device's region. Page 0: the input context (up to 33 * 64
 /// bytes with 64-byte contexts) and endpoint 0's ring. Page 1: the output
 /// device context (up to 32 * 64 bytes) and the control data buffer. Page
-/// 2: one [`PIPE_BYTES`] window per pipe.
+/// 2: one [`PIPE_BYTES`] window per pipe. The data buffer fills the second
+/// half of page 1: 2 KiB holds an audio device's configuration chain.
 const INPUT: usize = 0;
 const EP0_RING: usize = 3072;
 const OUTPUT: usize = PAGE;
 const DATA: usize = PAGE + 2048;
-pub(super) const DATA_BYTES: usize = 1024;
+pub(super) const DATA_BYTES: usize = 2048;
 const PIPES: usize = 2 * PAGE;
 /// Pipes one device may open (one per interface it binds, two for bulk).
 pub(super) const MAX_PIPES: usize = 4;
@@ -68,6 +72,11 @@ pub(super) struct Device {
     /// Endpoint contexts of every pipe, given to Configure Endpoint.
     contexts: Vec<(u8, EndpointContext)>,
     windows_used: usize,
+    /// The configuration chain as read, for classes whose descriptors
+    /// `usbhid` does not keep (audio).
+    pub(super) config_bytes: Vec<u8>,
+    /// `iProduct` of the device descriptor (0: no product string).
+    pub(super) product_string: u8,
 }
 
 impl Device {
@@ -108,6 +117,8 @@ impl Device {
             reports: Vec::new(),
             contexts: Vec::new(),
             windows_used: 0,
+            config_bytes: Vec::new(),
+            product_string: 0,
         };
         match device.address(hc).and_then(|()| device.read_device(hc)) {
             Ok(()) => Ok(device),
@@ -154,6 +165,7 @@ impl Device {
         let setup = request::get_descriptor(desc::kind::DEVICE, 0, desc::DEVICE_LEN as u16);
         self.control_in(hc, setup, &mut bytes)?;
         self.descriptor = desc::parse_device(&bytes).map_err(|_| Error::Descriptor("device"))?;
+        self.product_string = bytes[15];
         trace::line!(
             trace::Channel::Usbd,
             "DESC:DEVICE port={} {}",
@@ -170,17 +182,20 @@ impl Device {
         self.control_in(hc, setup, &mut header)?;
         let total = desc::config_total_len(&header).map_err(|_| Error::Descriptor("config"))?;
         let mut chain = [0u8; DATA_BYTES];
-        let chain = chain
-            .get_mut(..usize::from(total))
-            .ok_or(Error::Descriptor("wTotalLength"))?;
-        let setup = request::get_descriptor(desc::kind::CONFIGURATION, 0, total);
-        self.control_in(hc, setup, chain)?;
+        // A longer chain (a DAC with many formats) is read up to the buffer
+        // and cut after its last whole record (`ext::truncate_chain`).
+        let len = usize::from(total).min(DATA_BYTES);
+        let setup = request::get_descriptor(desc::kind::CONFIGURATION, 0, len as u16);
+        self.control_in(hc, setup, &mut chain[..len])?;
+        let kept = ext::truncate_chain(&mut chain[..len], usize::from(total));
+        let chain = &chain[..kept];
         trace::line!(
             trace::Channel::Usbd,
             "DESC:CONFIG port={} {}",
             self.name,
             hex(chain)
         );
+        self.config_bytes = chain.to_vec();
         desc::parse_config(chain).map_err(|_| Error::Descriptor("config chain"))
     }
 
@@ -222,6 +237,11 @@ impl Device {
     /// Configure Endpoint with every pipe opened so far, declaring the
     /// device a hub when `hub` is set; then start the report pipes.
     pub(super) fn configure(&mut self, hc: &mut Hc, hub: Option<HubSlot>) -> Result<(), Error> {
+        // Nothing to configure yet (an audio device's endpoints come with
+        // its alternate setting, `ext.rs`): the slot stays Addressed.
+        if self.contexts.is_empty() && hub.is_none() {
+            return Ok(());
+        }
         let entries = self.contexts.iter().map(|&(dci, _)| dci).max().unwrap_or(1);
         let slot = self.at.slot_context(entries, hub);
         let contexts = self.contexts.clone();

@@ -11,7 +11,7 @@
 //! network card gets an interface name in the kernel's enumeration order, one
 //! counter per prefix (`eth0`, `eth1`, ... for wired cards, `wlan0`, `wlan1`,
 //! ... for wireless ones), and serves `os.lazy.net.nic/<name>`. A driver row whose
-//! Messenger name is unique (`os.lazy.audio.card`) serves one device: the
+//! Messenger name is unique (`os.lazy.audio.card/intel-hda0`) serves one device: the
 //! first matching device in enumeration order wins and later ones are
 //! reported `busy`.
 //!

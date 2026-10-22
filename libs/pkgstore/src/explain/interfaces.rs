@@ -57,6 +57,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "See what the graphics hardware is showing: the screen mode and where its picture is",
     ),
     (
+        "os.lazy.usb.audio.v1",
+        HIGH,
+        "Drive a USB speaker or headset directly, which only the sound driver may do",
+    ),
+    (
         "os.lazy.files.v1",
         LOW,
         "See which files you have selected in Files",

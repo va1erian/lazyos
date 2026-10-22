@@ -82,6 +82,7 @@ members = [
     # USB descriptors and HID boot reports for `usbd` (docs/usb-hid-plan.md
     # U0): pure `no_std` parsers of hostile device input, with host tests.
     "libs/usbhid",
+    "libs/usbaudio",
     # xHCI registers, TRBs, contexts and ring state machines for `usbd`
     # (docs/usb-hid-plan.md U0): pure `no_std` logic with host tests.
     "libs/xhci",

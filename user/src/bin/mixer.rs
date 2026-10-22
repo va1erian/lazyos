@@ -6,6 +6,8 @@
 //! mixer master <percent>        set the master volume (0-400, 100 is unity)
 //! mixer mute | unmute           mute or unmute everything
 //! mixer stream <id> <percent> [mute]   set one stream's volume
+//! mixer outputs                 every sound output (built-in, USB, HDMI)
+//! mixer output <id>             play through that output
 //! mixer probe                   control-panel checks (boot evidence)
 //! ```
 //!
@@ -34,7 +36,7 @@ const EINVAL: i64 = 22;
 const ENOENT: i64 = 2;
 
 const USAGE: &str =
-    "usage: mixer [master <0-400> | mute | unmute | stream <id> <0-400> [mute] | probe]\n";
+    "usage: mixer [master <0-400> | mute | unmute | stream <id> <0-400> [mute] | outputs | output <id> | probe]\n";
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -113,6 +115,11 @@ fn command(words: &[&str]) -> Result<(), String> {
                 .map_err(fail("stream"))?;
             show(&panel)
         }
+        ["outputs"] => outputs(&panel),
+        ["output", id] => {
+            panel.select_output(id).map_err(fail("output"))?;
+            outputs(&panel)
+        }
         ["-h" | "--help" | "help"] => {
             sys::write_str(USAGE);
             Ok(())
@@ -148,6 +155,24 @@ fn show(panel: &MixerControl<&Native>) -> Result<(), String> {
             if stream.mute { " muted" } else { "" },
             stream.frames,
             stream.underruns
+        ));
+    }
+    Ok(())
+}
+
+/// One line per output; `*` marks the one playing, `preferred` the one chosen.
+fn outputs(panel: &MixerControl<&Native>) -> Result<(), String> {
+    for output in panel.outputs().map_err(fail("outputs"))? {
+        sys::write_str(&format!(
+            "{} {:<16} {}{}\n",
+            if output.active { '*' } else { ' ' },
+            output.id,
+            output.name,
+            if output.preferred {
+                "  (preferred)"
+            } else {
+                ""
+            }
         ));
     }
     Ok(())

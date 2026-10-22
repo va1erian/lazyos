@@ -63,7 +63,7 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
         return Some(ELEVD_CRED);
     }
     #[cfg(lazyos_sound)]
-    if name == "sndd" {
+    if name == "sndd" || name == "sndd-usb" {
         return Some(SND_CRED);
     }
     #[cfg(lazyos_sound)]
@@ -132,6 +132,10 @@ pub(super) const BOOT_SELFTESTS: bool = cfg!(debug_assertions);
 /// separate from [`BOOT_SELFTESTS`] because the desktop profile still serves
 /// the registry and policy self-tests but must not start demo programs.
 pub(super) const BOOT_EVIDENCE: bool = BOOT_SELFTESTS && !DESKTOP;
+
+/// Manifest arguments that choose what a row does rather than drive boot
+/// evidence: kept on every boot (`Service::from_manifest`).
+pub(super) const IDENTITY_ARGS: &[&str] = &["usb=1"];
 
 /// The argument string of the `timed` row: `demo=1` runs the boot evidence;
 /// `LAZYOS_TIMED_ARGS` replaces it at build time (the NTP harness passes
@@ -328,6 +332,18 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: USBD_ARGS,
         restart: Restart::OnFailure,
         deps: &["inputd"],
+    },
+    // The USB audio card (docs/usb-audio-plan.md): `sndd` driving the
+    // speaker, headset or DAC `usbd` binds. It claims nothing and waits for
+    // the device on its own, and exits when it is unplugged, so `Always`
+    // starts it waiting for the next one.
+    #[cfg(all(lazyos_sound, lazyos_usb_audio))]
+    ServiceSpec {
+        name: "sndd-usb",
+        path: fhs::bin::SNDD,
+        args: "usb=1 demo=1",
+        restart: Restart::Always,
+        deps: &[],
     },
     // The NIC driver, at boot only without `devd` (as `sndd` above).
     #[cfg(all(lazyos_net, not(lazyos_devd)))]

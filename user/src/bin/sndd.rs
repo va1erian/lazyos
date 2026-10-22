@@ -7,9 +7,13 @@
 //! transport in `libs/virtio`, the protocol in `libs/virtio-snd`) or an Intel
 //! High Definition Audio controller and its codec (`libs/hda`, issue #497: no
 //! new `dev_*` op). `devd` starts it with `dev=<id>`; without one it takes the
-//! first card it knows. It arms the device interrupt when it can and polls
+//! first card it knows. With `usb=1` it claims nothing: its card is the USB
+//! speaker, headset or DAC `usbd` drives (`sndd/usb_card.rs`,
+//! docs/usb-audio-plan.md), waited for and given up (the driver exits for
+//! `init` to start it again) when it goes. It arms the device interrupt when it can and polls
 //! otherwise. It serves
-//! `os.lazy.audio.v1` (`idl/audio.midl`) under [`api::CARD_NAME`]: a client
+//! `os.lazy.audio.v1` (`idl/audio.midl`) under `os.lazy.audio.card/<id>`
+//! ([`api::CARD_PREFIX`] and the card's event name): a client
 //! opens the stream, shares a ring, and the driver copies committed periods
 //! into its own DMA slots. That client is the system mixer, `audiod`
 //! (docs/audio-plan.md), which holds the one stream for as long as it runs;
@@ -58,6 +62,8 @@ mod service;
 mod session;
 #[path = "sndd/stream.rs"]
 mod stream;
+#[path = "sndd/usb_card.rs"]
+mod usb_card;
 #[path = "sndd/virtio_card.rs"]
 mod virtio_card;
 #[path = "sndd/virtio_device.rs"]
@@ -86,6 +92,8 @@ struct Args {
     demo: bool,
     /// `dev=<id>`: the device `devd` matched this driver to.
     dev: Option<u64>,
+    /// `usb=1`: drive the USB audio device `usbd` serves instead of a PCI card.
+    usb: bool,
     freq_hz: u32,
     ms: u32,
 }
@@ -98,6 +106,7 @@ impl Args {
         let mut args = Args {
             demo: false,
             dev: None,
+            usb: false,
             freq_hz: DEFAULT_FREQ_HZ,
             ms: DEFAULT_MS,
         };
@@ -105,6 +114,7 @@ impl Args {
             match part.split_once('=') {
                 Some(("demo", "1")) => args.demo = true,
                 Some(("dev", id)) => args.dev = id.parse().ok(),
+                Some(("usb", "1")) => args.usb = true,
                 // Bounded so a hostile argument cannot ask for hours of audio
                 // or a frequency the generator would have to clamp.
                 Some(("freq", value)) => {
@@ -146,13 +156,20 @@ pub extern "C" fn _start() -> ! {
         }
         Err(error) => {
             trace::line!(trace::Channel::Snd, "PLAY:FAIL {}", error.describe());
+            if args.usb {
+                usb_card::wait_until_gone();
+            }
             sys::exit(1)
         }
     }
 }
 
 fn run(args: &Args) -> Result<(), Error> {
-    let mut card = Card::open(args.dev)?;
+    let mut card = if args.usb {
+        Card::open_usb()?
+    } else {
+        Card::open(args.dev)?
+    };
     trace::line!(
         trace::Channel::Sndd,
         "CARD model={} streams={}",
@@ -177,7 +194,9 @@ fn run(args: &Args) -> Result<(), Error> {
     }
     if args.demo {
         // Boot evidence (issue #481): `_snd` cannot claim another class.
-        user::dev::inspect::cross_class_probe("snd");
+        if !args.usb {
+            user::dev::inspect::cross_class_probe("snd");
+        }
         self_test(&mut card, &infos, args)?;
     }
     serve(card, &infos)
@@ -238,11 +257,11 @@ fn self_test(card: &mut Card, infos: &[PcmInfo], args: &Args) -> Result<(), Erro
 fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
     let fail = |error: MsgError| Error::Messenger(error.message());
     let (published, server) = messenger::create_pair().map_err(fail)?;
-    registry::register(api::CARD_NAME, &published, &[api::INTERFACE], 0).map_err(fail)?;
+    let name = alloc::format!("{}{}", api::CARD_PREFIX, card.event_name());
+    registry::register(&name, &published, &[api::INTERFACE], 0).map_err(fail)?;
     trace::line!(
         trace::Channel::Sndd,
-        "READY name={} interface={:#x}",
-        api::CARD_NAME,
+        "READY name={name} interface={:#x}",
         api::INTERFACE
     );
 
@@ -268,6 +287,12 @@ fn serve(card: Card, infos: &[PcmInfo]) -> Result<(), Error> {
             Err(error) => return Err(fail(error)),
         }
         service.housekeeping(&mut events);
+        if service.card_lost() {
+            // The USB device went away: `init` starts the driver again,
+            // and it waits for the next one.
+            trace::line!(trace::Channel::Sndd, "USB:GONE the device went away");
+            sys::exit(0);
+        }
         if !events.is_empty() {
             publisher.publish(&events, sys::clock());
             events.clear();

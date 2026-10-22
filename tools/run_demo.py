@@ -465,7 +465,7 @@ def main(argv: list[str]) -> int:
         command += home_disk_args(home_disk)
     command += stick_args
     if args.sound:
-        command += sound_args(args.sound, args.sound_card)
+        command += sound_args(args.sound, args.sound_card, args.usb_audio)
     if args.net:
         busy = qemu_net.busy_ports(forwards)
         if busy:

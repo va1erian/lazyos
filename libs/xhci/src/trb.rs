@@ -34,6 +34,7 @@ const TYPE_SHIFT: u32 = 10;
 /// TRB types (6.4.6).
 pub mod kind {
     pub const NORMAL: u8 = 1;
+    pub const ISOCH: u8 = 5;
     pub const SETUP_STAGE: u8 = 2;
     pub const DATA_STAGE: u8 = 3;
     pub const STATUS_STAGE: u8 = 4;
@@ -61,7 +62,13 @@ pub mod code {
     pub const TRANSACTION: u8 = 4;
     pub const TRB: u8 = 5;
     pub const STALL: u8 = 6;
+    pub const RESOURCE: u8 = 7;
+    pub const BANDWIDTH: u8 = 8;
+    pub const RING_UNDERRUN: u8 = 14;
+    pub const RING_OVERRUN: u8 = 15;
     pub const CONTEXT_STATE: u8 = 19;
+    pub const MISSED_SERVICE: u8 = 23;
+    pub const ISOCH_BUFFER_OVERRUN: u8 = 31;
     pub const SHORT_PACKET: u8 = 13;
     pub const STOPPED: u8 = 26;
 }
@@ -218,4 +225,30 @@ pub fn bulk(buffer: u64, length: u32) -> Option<Trb> {
         return None;
     }
     Some(Trb::of(kind::NORMAL, buffer, length, IOC | ISP))
+}
+
+/// Start Isoch ASAP (bit 31): schedule the TD in the next free service
+/// interval, ignoring Frame ID (xHCI 4.11.2.5). What Linux does for audio
+/// unless the controller has CFC.
+pub const SIA: u32 = 1 << 31;
+
+/// One Isoch TRB carrying a whole TD: `length` bytes at `buffer` in
+/// `packets` packets (at least 1; a zero-length TD is one packet), with
+/// Start Isoch ASAP. `ioc` asks for an event; an IN transfer (`is_in`)
+/// also interrupts on a short packet. The TD must fit one burst (the
+/// endpoint's Max Burst + 1 packets), which makes the burst count 0 and
+/// the last burst's packet count `packets - 1` (xHCI 4.11.2.3, 6.4.1.3).
+/// `None` for a length the field cannot hold or no packet at all.
+pub fn isoch(buffer: u64, length: u32, packets: u8, ioc: bool, is_in: bool) -> Option<Trb> {
+    if length >= 1 << 17 || packets == 0 || packets > 16 {
+        return None;
+    }
+    let mut flags = SIA | u32::from(packets - 1) << 16;
+    if ioc {
+        flags |= IOC;
+    }
+    if is_in {
+        flags |= ISP;
+    }
+    Some(Trb::of(kind::ISOCH, buffer, length, flags))
 }

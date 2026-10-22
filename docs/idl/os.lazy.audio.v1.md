@@ -8,8 +8,8 @@ Two services serve it (docs/audio-plan.md). The system mixer `audiod`
 serves it under `os.lazy.audio`, the name applications resolve: any number
 of streams from any number of clients, each resampled to the card's rate,
 scaled by its own volume and the master volume, and mixed. A userspace
-audio driver (`sndd`, virtio-sound first) serves it for one card under
-`os.lazy.audio.card`; its one stream belongs to the mixer. Control is
+audio driver (`sndd`) serves it for one card under `os.lazy.audio.card/<id>`
+(`virtio-snd0`, `intel-hda0`, `usb-audio0`); its one stream belongs to the mixer. Control is
 request/reply; sample data flows through a shared ring buffer per stream,
 so the wire never carries audio. A stream has exactly one owner, the task
 that opened it.
@@ -90,6 +90,7 @@ object list (the index each field must hold).
 - `formats: U32`
 - `rates: U32`
 - `channels: U32`
+- `name: String`
 
 ## struct `StreamGrant`
 

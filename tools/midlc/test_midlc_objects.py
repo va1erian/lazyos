@@ -299,6 +299,7 @@ class RepositoryTests(unittest.TestCase):
                 ("os.lazy.webd.browser.v1", "CreateView"): [
                     ("events", "channel", "os.lazy.webd.view.v1")
                 ],
+                ("os.lazy.usb.audio.v1", "Attach"): [("staging", "buffer", None)],
             },
         )
 

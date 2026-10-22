@@ -277,3 +277,16 @@ pub fn interrupt_interval(speed: Speed, b_interval: u8) -> u8 {
         _ => (b_interval.clamp(1, 16) - 1).max(MIN_INTERRUPT_INTERVAL),
     }
 }
+
+/// The endpoint context `Interval` for an isochronous endpoint (6.2.3.6):
+/// full and low speed `bInterval` is `2^(bInterval-1)` 1 ms frames, that
+/// is `bInterval + 2` as a microframe exponent; faster speeds encode
+/// `2^(bInterval-1)` microframes. Not raised to a minimum: audio needs the
+/// interval its descriptor names.
+pub fn isoch_interval(speed: Speed, b_interval: u8) -> u8 {
+    let exponent = b_interval.clamp(1, 16) - 1;
+    match speed {
+        Speed::Low | Speed::Full => (exponent + 3).min(15),
+        _ => exponent.min(15),
+    }
+}

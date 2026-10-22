@@ -14,6 +14,13 @@ it lets a task change *how loud* others are, never *what* they play or hear.
 Who may hold it is the Messenger policy's decision (an installed app needs
 the permission explicitly); the service itself does not ask.
 
+The mixer plays through one *output* at a time: every card a driver
+registers under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and
+`SelectOutput` switches; without a choice (or when the chosen one is
+absent) the best kind present plays (USB, HDMI, a built-in codec, a
+virtual card; the newest of a kind), so a headset plugged in
+takes over and unplugging it falls back to the one before.
+
 Gains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144
 (four times unity). Failures are returned as the shared
 structured error field (see `services::error_field`): an unknown stream is
@@ -27,6 +34,8 @@ structured error field (see `services::error_field`): an unknown stream is
 | SetStreamVolume | 953940373 | sync | `(stream: U32, gain_q16: U32, mute: Bool) -> ()` |
 | GetMaster | 1362695053 | sync | `() -> (master: Master)` |
 | SetMaster | 301176513 | sync | `(gain_q16: U32, mute: Bool) -> ()` |
+| ListOutputs | 124559009 | sync | `() -> (outputs: Array<Output>)` |
+| SelectOutput | 234575836 | sync | `(id: String) -> ()` |
 
 ## struct `StreamStatus`
 
@@ -49,6 +58,18 @@ structured error field (see `services::error_field`): an unknown stream is
 - `channels: U32`
 - `streams: U32`
 - `max_streams: U32`
+
+## struct `Output`
+
+- `id: String`
+- `name: String`
+- `kind: U32`
+- `active: Bool`
+- `preferred: Bool`
+
+## enum `OutputKind`
+
+- Other, Virtio, Hda, Usb, Hdmi
 
 ## enum `StreamState`
 

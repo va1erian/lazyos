@@ -28,5 +28,6 @@ resident = true
 
 [permissions]
 # Derived from a run under `LAZYOS_LABEL_TRACE=1` (no `LABEL:DENY`).
-# The master volume, through the mixer's control interface.
-interfaces = ["os.lazy.audio.mixer.v1"]
+# The master volume and the output, through the mixer's control interface;
+# `confd` keeps the output the user picked (`user/<uid>/audio/output`).
+interfaces = ["os.lazy.audio.mixer.v1", "os.lazy.confd.v1"]

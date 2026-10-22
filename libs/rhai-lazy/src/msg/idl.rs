@@ -90,7 +90,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.v1",
         id: 0x536f1f4639cf07f0,
-        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nTwo services serve it (docs/audio-plan.md). The system mixer `audiod`\nserves it under `os.lazy.audio`, the name applications resolve: any number\nof streams from any number of clients, each resampled to the card's rate,\nscaled by its own volume and the master volume, and mixed. A userspace\naudio driver (`sndd`, virtio-sound first) serves it for one card under\n`os.lazy.audio.card`; its one stream belongs to the mixer. Control is\nrequest/reply; sample data flows through a shared ring buffer per stream,\nso the wire never carries audio. A stream has exactly one owner, the task\nthat opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses objects in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(the request's `ring`), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream\nlimit, with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
+        doc: "An audio card's control and data-plane interface (docs/driver-plan.md §3.8).\n\nTwo services serve it (docs/audio-plan.md). The system mixer `audiod`\nserves it under `os.lazy.audio`, the name applications resolve: any number\nof streams from any number of clients, each resampled to the card's rate,\nscaled by its own volume and the master volume, and mixed. A userspace\naudio driver (`sndd`) serves it for one card under `os.lazy.audio.card/<id>`\n(`virtio-snd0`, `intel-hda0`, `usb-audio0`); its one stream belongs to the mixer. Control is\nrequest/reply; sample data flows through a shared ring buffer per stream,\nso the wire never carries audio. A stream has exactly one owner, the task\nthat opened it.\n\n**The client owns the ring.** Replies cannot carry buffers (the kernel\nrefuses objects in a reply), and the driver must not trust memory a\nclient can rewrite while the device reads it, so the driver keeps its own DMA\nslots and copies committed periods out of the client's ring. A playback\nclient therefore: `OpenStream` (learn the granted parameters), create a\nshared buffer of at least `periods * period_bytes` bytes, `AttachRing` it\n(the request's `ring`), write interleaved samples into it, `Commit`\nhow many frames it has written, `Start`, and finally `Drain` and\n`CloseStream`.\n\nFrame *n* of the stream lives at ring byte `(n mod ring_frames) *\nframe_bytes`, where `ring_frames = periods * period_bytes / frame_bytes`.\n`Commit` carries the **total** frames written since the ring was attached\n(frame numbering restarts at 0 after `Stop`); it must never go backwards and\nnever run more than `ring_frames` ahead of the `consumed` count the driver\nlast reported (`consumed` is what it has already copied out of the ring, so\nthose frames are safe to overwrite), or the call fails with `EINVAL`.\n`Position`, which counts frames the device has *played*, never exceeds\n`consumed`, so a client that paces itself on `Position` is always safe. The\ndriver consumes whole periods as they are committed, plus a final short\nperiod during `Drain`. If the device runs out of committed data it plays\nsilence and the stream keeps running.\n\nThe driver grants the closest supported parameters and reports them in the\nreply, never failing for a merely unsupported rate or period size. A\nrequest outside `AudioInfo` (unknown format, zero or oversized channel\ncount, a zero period) fails with `EINVAL`; a stream the card cannot provide\n(capture, today) with `ENOTSUP`; a busy card, or a mixer at its stream\nlimit, with `EBUSY`. Calls on a stream\nby anyone but its owner fail with `EACCES`. Failures are returned as the\nshared structured error field (see `services::error_field`) instead of the\ndeclared reply fields.",
         methods: &[
             Method {
                 name: "Info",
@@ -196,11 +196,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "AudioInfo",
                 doc: "Card capabilities.",
-                fields: &[Field { name: "streams", id: 1, ty: Ty::U32 }, Field { name: "formats", id: 2, ty: Ty::U32 }, Field { name: "rates", id: 3, ty: Ty::U32 }, Field { name: "channels", id: 4, ty: Ty::U32 }],
+                fields: &[Field { name: "streams", id: 1, ty: Ty::U32 }, Field { name: "formats", id: 2, ty: Ty::U32 }, Field { name: "rates", id: 3, ty: Ty::U32 }, Field { name: "channels", id: 4, ty: Ty::U32 }, Field { name: "name", id: 5, ty: Ty::String }],
             },
             Struct {
                 name: "StreamGrant",
-                doc: "Number of concurrent playback streams.\nSupported `Format` bitmap: bit *n* is set when the `Format` with\nordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`, 2 `S32Le`,\n3 `Float32`). Reserved bits are zero; a client ignores them.\nSupported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,\n3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,\n10 192000. Reserved bits are zero.\nMaximum channels per stream.\nThe parameters an opened stream actually runs at.",
+                doc: "Number of concurrent playback streams.\nSupported `Format` bitmap: bit *n* is set when the `Format` with\nordinal *n* is supported (bit 0 `S16Le`, 1 `S24Le`, 2 `S32Le`,\n3 `Float32`). Reserved bits are zero; a client ignores them.\nSupported sample-rate bitmap: bit 0 8000 Hz, 1 11025, 2 16000,\n3 22050, 4 32000, 5 44100, 6 48000, 7 88200, 8 96000, 9 176400,\n10 192000. Reserved bits are zero.\nMaximum channels per stream.\nWhat to show a person for this card (`Built-in audio`,\n`USB: <product>`); the mixer reports its current output's.\nThe parameters an opened stream actually runs at.",
                 fields: &[Field { name: "stream", id: 1, ty: Ty::U32 }, Field { name: "dir", id: 2, ty: Ty::U32 }, Field { name: "format", id: 3, ty: Ty::U32 }, Field { name: "rate", id: 4, ty: Ty::U32 }, Field { name: "channels", id: 5, ty: Ty::U32 }, Field { name: "period_bytes", id: 6, ty: Ty::U32 }, Field { name: "periods", id: 7, ty: Ty::U32 }],
             },
             Struct {
@@ -227,7 +227,7 @@ pub static INTERFACES: &[Interface] = &[
     Interface {
         name: "os.lazy.audio.mixer.v1",
         id: 0x39a0c9a99b23a265,
-        doc: "The system mixer's control interface (docs/audio-plan.md stage A2).\n\n`audiod` serves it next to `os.lazy.audio.v1` under the same name,\n`os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its\nown stream, this interface is the volume control panel of the machine: it\nlists every stream and sets any stream's volume and the master volume.\n\nIt never exposes samples, rings or the stream calls themselves, so holding\nit lets a task change *how loud* others are, never *what* they play or hear.\nWho may hold it is the Messenger policy's decision (an installed app needs\nthe permission explicitly); the service itself does not ask.\n\nGains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144\n(four times unity). Failures are returned as the shared\nstructured error field (see `services::error_field`): an unknown stream is\n`ENOENT`, an out-of-range gain `EINVAL`.",
+        doc: "The system mixer's control interface (docs/audio-plan.md stage A2).\n\n`audiod` serves it next to `os.lazy.audio.v1` under the same name,\n`os.lazy.audio`. Where `os.lazy.audio.v1` lets a stream's owner drive its\nown stream, this interface is the volume control panel of the machine: it\nlists every stream and sets any stream's volume and the master volume.\n\nIt never exposes samples, rings or the stream calls themselves, so holding\nit lets a task change *how loud* others are, never *what* they play or hear.\nWho may hold it is the Messenger policy's decision (an installed app needs\nthe permission explicitly); the service itself does not ask.\n\nThe mixer plays through one *output* at a time: every card a driver\nregisters under `os.lazy.audio.card/<id>`. `ListOutputs` lists them and\n`SelectOutput` switches; without a choice (or when the chosen one is\nabsent) the best kind present plays (USB, HDMI, a built-in codec, a\nvirtual card; the newest of a kind), so a headset plugged in\ntakes over and unplugging it falls back to the one before.\n\nGains are 16.16 fixed point: 65536 is unity, 0 silent, at most 262144\n(four times unity). Failures are returned as the shared\nstructured error field (see `services::error_field`): an unknown stream is\n`ENOENT`, an out-of-range gain `EINVAL`.",
         methods: &[
             Method {
                 name: "ListStreams",
@@ -265,6 +265,24 @@ pub static INTERFACES: &[Interface] = &[
                 returns: &[],
                 objects: &[],
             },
+            Method {
+                name: "ListOutputs",
+                id: 124559009,
+                oneway: false,
+                doc: "Every sound output a driver serves now (a built-in codec, a USB\nheadset, an HDMI display), the one playing first.",
+                params: &[],
+                returns: &[Field { name: "outputs", id: 1, ty: Ty::Array(&Ty::Struct("Output")) }],
+                objects: &[],
+            },
+            Method {
+                name: "SelectOutput",
+                id: 234575836,
+                oneway: false,
+                doc: "Play through output `id` from now on, and prefer it whenever it is\npresent. Streams keep playing across the switch. `ENOENT` for an\noutput that is not present.",
+                params: &[Field { name: "id", id: 1, ty: Ty::String }],
+                returns: &[],
+                objects: &[],
+            },
         ],
         structs: &[
             Struct {
@@ -277,8 +295,14 @@ pub static INTERFACES: &[Interface] = &[
                 doc: "The owner's task id (the kernel-stamped sender of `OpenStream`).\nA `StreamState` ordinal.\nFrames played so far (the owner's `Position`).\nTimes the stream ran dry while playing.\nThe output side of the mixer.",
                 fields: &[Field { name: "gain_q16", id: 1, ty: Ty::U32 }, Field { name: "mute", id: 2, ty: Ty::Bool }, Field { name: "card", id: 3, ty: Ty::Bool }, Field { name: "rate", id: 4, ty: Ty::U32 }, Field { name: "channels", id: 5, ty: Ty::U32 }, Field { name: "streams", id: 6, ty: Ty::U32 }, Field { name: "max_streams", id: 7, ty: Ty::U32 }],
             },
+            Struct {
+                name: "Output",
+                doc: "One sound output: a card a driver serves under\n`os.lazy.audio.card/<id>`.",
+                fields: &[Field { name: "id", id: 1, ty: Ty::String }, Field { name: "name", id: 2, ty: Ty::String }, Field { name: "kind", id: 3, ty: Ty::U32 }, Field { name: "active", id: 4, ty: Ty::Bool }, Field { name: "preferred", id: 5, ty: Ty::Bool }],
+            },
         ],
         enums: &[
+            Enum { name: "OutputKind", variants: &["Other", "Virtio", "Hda", "Usb", "Hdmi"] },
             Enum { name: "StreamState", variants: &["Idle", "Running", "Stopped", "Draining", "Drained"] },
         ],
         topics: &[],
@@ -3794,6 +3818,101 @@ pub static INTERFACES: &[Interface] = &[
             },
         ],
         enums: &[],
+        topics: &[],
+    },
+    Interface {
+        name: "os.lazy.usb.audio.v1",
+        id: 0xd48ce91568d0be08,
+        doc: "A USB audio playback function, as `usbd` drives it\n(docs/usb-audio-plan.md).\n\n`usbd` owns every xHCI controller, so the isochronous endpoint of a USB\nspeaker, headset or DAC can only be fed by it. `sndd usb=1` serves the\ndevice as an ordinary sound card (`os.lazy.audio.v1` under\n`os.lazy.audio.card/usb-audio0`) and drives it through this interface,\nwhich `usbd` serves under `os.lazy.usb.audio` while an audio device is\nbound (one at a time) and withdraws when it goes away.\n\nThe model is `sndd`'s card model: periods are *submitted* in order from\none shared staging buffer and later *completed* (`Reap` counts them).\nSamples are always interleaved stereo `S16Le`; `usbd` converts them to the\ndevice's subslot and channel count as it copies them into its own DMA,\nso the staging buffer is read only by copy and a rewrite of it changes\nwhat plays, never what `usbd` touches. `Stop` completes every period\nstill queued, as a stopped virtio-sound stream hands back its buffers.\n\nOnly `_snd` (uid 901) and root may call it: anyone else gets `EACCES`.\nNo device bound (it was unplugged) is `ENODEV`; a call out of order\n(`Submit` before `Configure`, a range outside the staging buffer) is\n`EINVAL`. Failures are returned as the shared structured error field.",
+        methods: &[
+            Method {
+                name: "Describe",
+                id: 582948360,
+                oneway: false,
+                doc: "Periods played (or dropped by a stop) since `Configure`.\nTimes the isochronous ring ran dry (`usbd` was starved).\nService intervals the controller missed.",
+                params: &[],
+                returns: &[Field { name: "device", id: 1, ty: Ty::Struct("Device") }],
+                objects: &[],
+            },
+            Method {
+                name: "Attach",
+                id: 145305188,
+                oneway: false,
+                doc: "Share the staging buffer periods are submitted from. Replaces an\nearlier one (a restarted `sndd`), stopping any stream.",
+                params: &[Field { name: "staging", id: 1, ty: Ty::Buffer }],
+                returns: &[],
+                objects: &[Object { name: "staging", channel: None }],
+            },
+            Method {
+                name: "Configure",
+                id: 373171691,
+                oneway: false,
+                doc: "Pick the alternate setting and rate for a stereo stream at `rate` Hz\n(the closest the device has), switch the device to it and reset the\ncounters. Returns the rate it runs at.",
+                params: &[Field { name: "rate", id: 1, ty: Ty::U32 }],
+                returns: &[Field { name: "granted", id: 1, ty: Ty::U32 }],
+                objects: &[],
+            },
+            Method {
+                name: "Start",
+                id: 182978943,
+                oneway: false,
+                doc: "Start sending; until periods arrive the device hears silence.",
+                params: &[],
+                returns: &[],
+                objects: &[],
+            },
+            Method {
+                name: "Stop",
+                id: 1266644741,
+                oneway: false,
+                doc: "Stop sending; every queued period counts as completed.",
+                params: &[],
+                returns: &[],
+                objects: &[],
+            },
+            Method {
+                name: "Release",
+                id: 1830722334,
+                oneway: false,
+                doc: "Stop and switch the device to its zero-bandwidth alternate.",
+                params: &[],
+                returns: &[],
+                objects: &[],
+            },
+            Method {
+                name: "Submit",
+                id: 1081664837,
+                oneway: false,
+                doc: "Queue one period: `len` bytes at `offset` of the staging buffer.\n`slot` is the caller's tag, echoed nowhere; periods complete in order.",
+                params: &[Field { name: "slot", id: 1, ty: Ty::U32 }, Field { name: "offset", id: 2, ty: Ty::U32 }, Field { name: "len", id: 3, ty: Ty::U32 }],
+                returns: &[],
+                objects: &[],
+            },
+            Method {
+                name: "Reap",
+                id: 1527513801,
+                oneway: false,
+                doc: "",
+                params: &[],
+                returns: &[Field { name: "progress", id: 1, ty: Ty::Struct("Progress") }],
+                objects: &[],
+            },
+        ],
+        structs: &[
+            Struct {
+                name: "Device",
+                doc: "What the bound device is and can play.",
+                fields: &[Field { name: "vendor", id: 1, ty: Ty::U32 }, Field { name: "product", id: 2, ty: Ty::U32 }, Field { name: "name", id: 3, ty: Ty::String }, Field { name: "version", id: 4, ty: Ty::U32 }, Field { name: "rates", id: 5, ty: Ty::U32 }, Field { name: "channels", id: 6, ty: Ty::U32 }, Field { name: "bits", id: 7, ty: Ty::U32 }, Field { name: "pacing", id: 8, ty: Ty::U32 }, Field { name: "high_speed", id: 9, ty: Ty::Bool }, Field { name: "port", id: 10, ty: Ty::String }],
+            },
+            Struct {
+                name: "Progress",
+                doc: "The product string the device reports, empty when it has none.\nThe class revision: 1 (UAC 1.0) or 2 (UAC 2.0).\nRate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.\nChannels and significant bits of the alternate a 48 kHz stereo\nstream would use.\nHow the device paces itself: a `Sync` ordinal (`sync` is a\nreserved word in Rhai, which every interface is generated for).\nThe device runs at high speed (microframes) rather than full.\nThe `usbd` port name (`<hc>-<port>[.<hub port>...]`).\nHow far the device got.",
+                fields: &[Field { name: "completed", id: 1, ty: Ty::U64 }, Field { name: "underruns", id: 2, ty: Ty::U32 }, Field { name: "missed", id: 3, ty: Ty::U32 }],
+            },
+        ],
+        enums: &[
+            Enum { name: "Sync", variants: &["None", "Async", "Adaptive", "Synchronous"] },
+        ],
         topics: &[],
     },
     Interface {

@@ -1,31 +1,46 @@
-//! `volume` (`os.lazy.volume`): the sound volume in the taskbar tray
-//! (docs/tray-plan.md T3). A resident applet with no window: a Lucide
-//! `volume-2` icon whose tooltip shows the master volume, the wheel over it
-//! turns the volume up and down in 5 % steps, a click or the menu's Mute row
-//! mutes, all through the system mixer's control interface
-//! (`os.lazy.audio.mixer.v1`, `audiod`). It opens with every session.
+//! `volume` (`os.lazy.volume`): the sound volume and the sound output in the
+//! taskbar tray (docs/tray-plan.md T3, docs/usb-audio-plan.md "Several
+//! outputs"). A resident applet with no window: a Lucide `volume-2` icon
+//! whose tooltip shows the master volume and the output playing, the wheel
+//! over it turns the volume up and down in 5 % steps, a click or the menu's
+//! Mute row mutes, and the menu lists every output (the built-in codec, a
+//! USB headset, an HDMI display) to play through, all through the system
+//! mixer's control interface (`os.lazy.audio.mixer.v1`, `audiod`). The
+//! output picked is remembered per user (`user/<uid>/audio/output` in
+//! `confd`) and asked for again whenever it is present and the mixer does
+//! not prefer it (a restarted mixer). It opens with every session.
 //!
 //! Serial evidence: `VOLUME:UP:PASS level=<percent> mute=<bool>` once it
 //! read the mixer (`VOLUME:NOCARD` without a mixer or a card),
 //! `VOLUME:LEVEL:<percent>` and `VOLUME:MUTE:<bool>` on every change
 //! (`VOLUME:WRITE:FAIL` when the mixer refused it and nothing changed),
-//! `VOLUME:QUIT:PASS` when `init` asks it to quit.
+//! `VOLUME:OUTPUTS <id>,...` when the list changes, `VOLUME:OUTPUT:<id>`
+//! when one is picked, `VOLUME:QUIT:PASS` when `init` asks it to quit.
+
+#[path = "volume/outputs.rs"]
+mod outputs;
 
 use audioclient::MixerControl;
 use trayclient::{item, lucide, menu_row, wire, Event};
 use xui_app::platform::audio::{Audio, UNITY_GAIN};
 use xui_app::resident::{Resident, Wake};
+use xui_app::trace::{self, Channel};
+
+use outputs::Outputs;
 
 /// One wheel notch: 5 % of unity gain.
 const STEP: u32 = UNITY_GAIN / 20;
 /// The menu's Mute row.
 const ROW_MUTE: u32 = 1;
+/// Idle wakes (500 ms each) between looks at the output list.
+const POLL_WAKES: u32 = 4;
 
 /// The master volume as the applet last set or read it.
 struct Volume {
     gain: u32,
     mute: bool,
     card: bool,
+    outputs: Outputs,
 }
 
 impl Volume {
@@ -34,12 +49,13 @@ impl Volume {
     }
 
     fn tooltip(&self) -> String {
+        let output = self.outputs.active_name();
         if !self.card {
-            String::from("No sound card")
+            String::from("No sound output")
         } else if self.mute {
-            format!("Muted ({} %)", self.percent())
+            format!("Muted ({} %) - {output}", self.percent())
         } else {
-            format!("Volume {} %", self.percent())
+            format!("Volume {} % - {output}", self.percent())
         }
     }
 
@@ -47,7 +63,9 @@ impl Volume {
         let mut mute = menu_row(ROW_MUTE, "Mute", wire::MENU_KIND_CHECK);
         mute.checked = self.mute;
         mute.enabled = self.card;
-        vec![mute]
+        let mut rows = vec![mute];
+        rows.extend(self.outputs.rows());
+        rows
     }
 
     fn status(&self) -> u32 {
@@ -59,28 +77,29 @@ impl Volume {
     }
 }
 
-/// Read the mixer's master volume; `None` without a mixer.
+fn mixer() -> Option<MixerControl<Audio>> {
+    Some(MixerControl::new(Audio::try_connect()?))
+}
+
+/// Read the mixer's master volume and outputs; `None` without a mixer.
 fn read() -> Option<Volume> {
-    let mixer = MixerControl::new(Audio::try_connect()?);
+    let mixer = mixer()?;
     let master = mixer.master().ok()?;
+    let mut outputs = Outputs::default();
+    outputs.refresh(&mixer);
     Some(Volume {
         gain: master.gain_q16.min(UNITY_GAIN),
         mute: master.mute,
         card: master.card,
+        outputs,
     })
 }
 
 /// Apply `volume` to the mixer.
 fn write(volume: &Volume) -> bool {
-    let Some(audio) = Audio::try_connect() else {
-        return false;
-    };
-    MixerControl::new(audio)
-        .set_master(volume.gain, volume.mute)
-        .is_ok()
+    mixer().is_some_and(|mixer| mixer.set_master(volume.gain, volume.mute).is_ok())
 }
 
-/// Show `volume` on the item.
 fn show(res: &Resident, volume: &Volume) {
     let patch = wire::UpdateArgs {
         tooltip: Some(volume.tooltip()),
@@ -93,8 +112,13 @@ fn show(res: &Resident, volume: &Volume) {
     let _ = res.tray.borrow_mut().update(patch);
 }
 
-/// A tray event; `true` when the volume changed.
+/// A tray event; `true` when what the item shows changed.
 fn event(volume: &mut Volume, event: Event) -> bool {
+    if let Event::MenuItem { id, .. } = event {
+        if let Some(picked) = volume.outputs.row_output(id) {
+            return pick(volume, &picked);
+        }
+    }
     if !volume.card {
         return false;
     }
@@ -112,24 +136,52 @@ fn event(volume: &mut Volume, event: Event) -> bool {
             };
             if !write(volume) {
                 volume.gain = previous;
-                println!("VOLUME:WRITE:FAIL");
+                trace::line!(Channel::Volume, "WRITE:FAIL");
                 return false;
             }
-            println!("VOLUME:LEVEL:{}", volume.percent());
+            trace::line!(Channel::Volume, "LEVEL:{}", volume.percent());
             true
         }
         Event::Activate { .. } | Event::MenuItem { id: ROW_MUTE, .. } => {
             volume.mute = !volume.mute;
             if !write(volume) {
                 volume.mute = !volume.mute;
-                println!("VOLUME:WRITE:FAIL");
+                trace::line!(Channel::Volume, "WRITE:FAIL");
                 return false;
             }
-            println!("VOLUME:MUTE:{}", volume.mute);
+            trace::line!(Channel::Volume, "MUTE:{}", volume.mute);
             true
         }
         _ => false,
     }
+}
+
+/// Play through output `id` and remember it for this user.
+fn pick(volume: &mut Volume, id: &str) -> bool {
+    let Some(mixer) = mixer() else {
+        return false;
+    };
+    if mixer.select_output(id).is_err() {
+        trace::line!(Channel::Volume, "WRITE:FAIL");
+        return false;
+    }
+    outputs::remember(id);
+    trace::line!(Channel::Volume, "OUTPUT:{id}");
+    volume.outputs.refresh(&mixer);
+    true
+}
+
+/// A periodic look: the outputs (a headset plugged in or out) and whether
+/// a card is attached. Whether anything shown changed.
+fn poll(volume: &mut Volume) -> bool {
+    let Some(mixer) = mixer() else {
+        return false;
+    };
+    let card = mixer.master().is_ok_and(|master| master.card);
+    let changed = volume.outputs.refresh(&mixer) || card != volume.card;
+    volume.card = card;
+    volume.outputs.reapply(&mixer);
+    changed
 }
 
 fn main() {
@@ -138,9 +190,13 @@ fn main() {
         gain: UNITY_GAIN,
         mute: false,
         card: false,
+        outputs: Outputs::default(),
     });
     if !volume.card {
-        println!("VOLUME:NOCARD");
+        trace::line!(Channel::Volume, "NOCARD");
+    }
+    if let Some(mixer) = mixer() {
+        volume.outputs.reapply(&mixer);
     }
     let mut first = item(lucide("volume-2"), &volume.tooltip());
     first.status = volume.status();
@@ -148,19 +204,21 @@ fn main() {
     // Before the shell serves the tray the item is set when it announces
     // itself (`xui_app::tray`), so a refusal here is not fatal.
     if let Err(code) = res.tray.borrow_mut().set(first) {
-        println!("VOLUME:TRAY:LATER err={}", -code);
+        trace::line!(Channel::Volume, "TRAY:LATER err={}", -code);
     }
-    println!(
-        "VOLUME:UP:PASS level={} mute={}",
+    trace::line!(
+        Channel::Volume,
+        "UP:PASS level={} mute={}",
         volume.percent(),
         volume.mute
     );
+    let mut wakes = 0;
     loop {
         for wake in res.idle(500) {
             match wake {
                 Wake::Quit(_) => {
                     let _ = res.tray.borrow_mut().clear();
-                    println!("VOLUME:QUIT:PASS");
+                    trace::line!(Channel::Volume, "QUIT:PASS");
                     std::process::exit(0);
                 }
                 // There is no window to show: the icon is the whole app.
@@ -171,6 +229,10 @@ fn main() {
                     }
                 }
             }
+        }
+        wakes += 1;
+        if wakes % POLL_WAKES == 0 && poll(&mut volume) {
+            show(&res, &volume);
         }
     }
 }

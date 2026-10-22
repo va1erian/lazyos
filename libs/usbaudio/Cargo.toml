@@ -1,0 +1,20 @@
+[package]
+name = "usbaudio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "USB Audio Class 1 and 2 descriptors, stream choice, isochronous pacing and sample conversion for the LazyOS usbd driver"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "usbaudio"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run_desc`, the byte-script entry point shared by the in-tree
+# seeded tests and the cargo-fuzz target (`fuzz/fuzz_targets/usbaudio.rs`).
+# Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
