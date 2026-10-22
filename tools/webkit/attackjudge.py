@@ -57,8 +57,9 @@ class Expect:
     #: For `allowed`: any outcome that is not a refusal counts (a connect that times out is
     #: still "the socket was made"), instead of only success.
     loose: bool = False
-    #: The same, but only for the real browser's image, where the file may not be there yet
-    #: (`netd` writes the resolver configuration when DHCP answers).
+    #: Only for the real browser's image, where the file or folder may not be there yet (`netd` writes
+    #: the resolver configuration when DHCP answers; webd makes Downloads at the first download):
+    #: success, or `ENOENT` and nothing else (`ENOSPC`, `EIO`, `EROFS` are not "not there yet").
     browser_loose: bool = False
 
 
@@ -154,6 +155,8 @@ def expected(app: str = DEFAULT_APP) -> dict[str, dict[str, Expect]]:
 #: `ENOSYS` for what does not exist.
 POLICY_ERRNOS = {"1", "13"}
 ABSENT_ERRNO = "38"
+#: ENOENT: a file or folder another process writes later (`Expect.browser_loose`).
+NOT_THERE_ERRNO = "2"
 
 
 def judge(serial: str, mode: str = "kernel", app: str = DEFAULT_APP) -> tuple[list[str], list[str]]:
@@ -225,10 +228,11 @@ def _check(expect: Expect, verdict: str, detail: str, denies: list[str], mode: s
     if expect.kind == "allowed":
         if verdict != "ALLOWED":
             return False, f"was refused (errno {detail}) but must still work"
-        loose = expect.loose or (expect.browser_loose and mode == "browser")
-        if detail != "ok" and not loose:
-            return False, f"failed with errno {detail}: it is not refused, but it did not work"
-        return True, ""
+        if detail == "ok" or expect.loose:
+            return True, ""
+        if expect.browser_loose and mode == "browser" and detail == NOT_THERE_ERRNO:
+            return True, ""
+        return False, f"failed with errno {detail}: it is not refused, but it did not work"
     if verdict != "BLOCKED":
         return False, f"was not refused (ALLOWED:{detail})"
     if expect.kind == "absent":
@@ -257,5 +261,7 @@ def driver_problems(serial: str) -> list[str]:
 
 
 def trace_suppressed(serial: str) -> bool:
-    """The label channel's rate limit dropped lines (the probes are paced to avoid it)."""
-    return bool(re.search(r"SUPPRESSED", serial))
+    """The label channel's rate limit dropped lines (the probes are paced to avoid it). Only the label
+    trace's own notice (`LABEL:SUPPRESSED n=<count>`, `tracefmt`): another channel's says nothing about
+    the denials."""
+    return bool(re.search(r"LABEL:SUPPRESSED\b", serial))

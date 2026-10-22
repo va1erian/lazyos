@@ -99,7 +99,9 @@ class JudgeTests(unittest.TestCase):
         self.assert_fail(clean().replace("WEBDATTACK:DONE:PASS", "WEBD:UP:PASS\nWEBDATTACK:DONE:PASS"), "WEBD:UP:PASS 2 times")
 
     def test_a_suppressed_trace_fails(self) -> None:
-        self.assert_fail(clean() + "LABEL:SUPPRESSED 4\n", "dropped lines")
+        self.assert_fail(clean() + "LABEL:SUPPRESSED n=4\n", "dropped lines")
+        # Another channel's rate limit says nothing about the denials.
+        self.assert_pass(clean() + "PROC:SCM:SUPPRESSED n=4\nWEBD:SUPPRESSED n=2\n")
 
     def test_the_cap_at_the_wrong_count_fails(self) -> None:
         cap = f"view_cap:REFUSED:{aj.ENOSPC}:{aj.VIEWS_PER_CLIENT}"

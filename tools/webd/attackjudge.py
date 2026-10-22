@@ -33,7 +33,9 @@ QUIT = re.compile(r"^WEBDATTACK:QUIT:PASS\s*$", re.M)
 WEBD_UP = re.compile(r"WEBD:UP:PASS")
 #: Not anchored: the kernel's lines may carry a time stamp before the tag.
 DENY = re.compile(r"LABEL:DENY label=(?P<label>\S+) (?P<what>.*?)\s*$", re.M)
-SUPPRESSED = re.compile(r"SUPPRESSED")
+#: The label trace's own notice that its rate limit dropped lines (`tracefmt` budget); another
+#: channel's suppression says nothing about the denials.
+SUPPRESSED = re.compile(r"LABEL:SUPPRESSED\b")
 
 #: Positive errno values a policy refusal carries: EPERM (the kernel's gate) or EACCES (a Messenger
 #: refusal). The service's own resource refusals carry their own errno (ENOSPC 28).

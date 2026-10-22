@@ -148,10 +148,18 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(self.problems(perfect("browser", tweak=missing), "browser"), [])
         found = self.problems(perfect("kernel", tweak=missing))
         self.assertTrue(any("networkprocess.write_downloads" in f for f in found), found)
-        # A refusal is never accepted.
+        # A refusal is never accepted, nor another failure than "not there yet".
         refused = lambda r, p, line: (  # noqa: E731
             line.replace("ALLOWED:ok", "BLOCKED:1") if (r, p) == ("networkprocess", "write_downloads") else line)
         self.assertTrue(self.problems(perfect("browser", tweak=refused), "browser"))
+        for errno in ("28", "30", "5"):
+            failed = lambda r, p, line, e=errno: (  # noqa: E731
+                line.replace("ALLOWED:ok", f"ALLOWED:{e}") if (r, p) == ("networkprocess", "write_downloads") else line)
+            self.assertTrue(self.problems(perfect("browser", tweak=failed), "browser"), errno)
+
+    def test_only_the_label_traces_suppression_fails_a_run(self) -> None:
+        self.assertTrue(judge.trace_suppressed("LABEL:SUPPRESSED n=3\n"))
+        self.assertFalse(judge.trace_suppressed("PROC:SCM:SUPPRESSED n=3\nUI:SUPPRESSED n=1\n"))
 
     def test_every_probe_has_a_trace_the_patterns_match(self) -> None:
         blocked = {p for table in judge.EXPECTED.values() for p, e in table.items() if e.kind == "blocked"}
