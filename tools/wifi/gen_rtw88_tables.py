@@ -44,6 +44,12 @@ URL = (
     "https://raw.githubusercontent.com/torvalds/linux/"
     f"{COMMIT}/drivers/net/wireless/realtek/rtw88/rtw8822c_table.c"
 )
+# The same file through the API, which GITHUB_TOKEN authenticates: the shared
+# CI runners' anonymous raw.githubusercontent.com quota is often exhausted.
+API_URL = (
+    "https://api.github.com/repos/torvalds/linux/contents/"
+    f"drivers/net/wireless/realtek/rtw88/rtw8822c_table.c?ref={COMMIT}"
+)
 PAIRS_PER_LINE = 8
 TRIPLES_PER_LINE = 4
 ROWS_PER_LINE = 6
@@ -228,10 +234,20 @@ def read_source(path: Path) -> str:
 def fetch(dest: Path) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     target = dest / "rtw8822c_table.c"
+    if target.is_file():  # restored from the CI cache, keyed by the pinned commit
+        return target
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        request = urllib.request.Request(API_URL, headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.raw+json",
+        })
+    else:
+        request = urllib.request.Request(URL)
     # raw.githubusercontent.com answers a busy CI runner with 429 now and then.
     for attempt in range(6):
         try:
-            with urllib.request.urlopen(URL, timeout=60) as resp:
+            with urllib.request.urlopen(request, timeout=60) as resp:
                 target.write_bytes(resp.read())
             return target
         except urllib.error.HTTPError as error:
