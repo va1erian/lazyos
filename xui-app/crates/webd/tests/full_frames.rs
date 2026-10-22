@@ -248,9 +248,9 @@ fn bands_use_the_two_band_slots_which_need_a_whole_rows_worth_of_bytes() {
     // A band as wide as the view is the only band: other widths, and bands taller than the slot, are
     // dropped, and a dropped band does not keep its slot.
     fx.release_slot(app, view, 3).unwrap();
-    fx.queue.band(view, 0, 0, 5, 1, &vec![1; 20]);
+    fx.queue.band(view, 0, 0, 5, 1, &[1; 20]);
     fx.queue.band(view, 0, 0, 4, 2000, &vec![2; 4 * 2000 * 4]);
-    fx.queue.band(view, 0, 200, 4, 1, &vec![3; 16]);
+    fx.queue.band(view, 0, 200, 4, 1, &[3; 16]);
     fx.pump(1);
     assert_eq!(
         fx.news(events),
