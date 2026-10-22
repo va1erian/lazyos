@@ -2,7 +2,7 @@
 // Regenerate with:
 //   python tools/midlc/midlc.py --rhai-api libs/rhai-lazy/api idl/*.midl
 //
-// `sys::print`: the Messenger interface `os.lazy.print.v1`.
+// `sys::print_`: the Messenger interface `os.lazy.print.v1`.
 //
 // The print spooler, `printd` (docs/printing-plan.md P6).
 //

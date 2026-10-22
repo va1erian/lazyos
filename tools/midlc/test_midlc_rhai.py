@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import midlc  # noqa: E402
 import midlc_rhai  # noqa: E402
+import midlc_rhai_pages  # noqa: E402
 
 ROOT = HERE.parent.parent
 
@@ -53,6 +54,7 @@ class NamingTests(unittest.TestCase):
             "os.lazy.net.nic.v1": "net_nic",
             "os.lazy.messenger.topics.v1": "messenger_topics",
             "org.example.thing.v2": "org_example_thing",
+            "os.lazy.print.v1": "print_",  # `sys::print::` does not parse
         }
         for name, alias in cases.items():
             self.assertEqual(midlc_rhai.alias(midlc.Interface(name)), alias)
@@ -164,6 +166,27 @@ class IndexAndCliTests(unittest.TestCase):
         self.assertIn("`hello(name, new_)`", readme)
         self.assertIn("`on_moved(path, handler)`", readme)
         self.assertIn("`Attach`", readme)
+
+    def test_the_pages_document_every_function_with_its_replies_and_topics(self) -> None:
+        pages = midlc_rhai_pages.emit_rhai_pages(parse(DEMO))
+        self.assertEqual(sorted(pages), ["demo.md", "index.md"])
+        page = pages["demo.md"]
+        self.assertIn("# `sys::demo`", page)
+        self.assertIn("### `hello(name, new_)`", page)
+        self.assertIn("Returns `reply`: `String` (string).", page)
+        self.assertIn("One-way: the call returns `()` once the message is queued.", page)
+        self.assertIn("| `tag` | `Option<String>` | string or () |", page)
+        self.assertIn("| `mode` | `Mode` | string (`Mode` variant) |", page)
+        self.assertIn("- `MODE_VERY_SLOW` = `\"VerySlow\"`", page)
+        self.assertIn("### `system/demo/moved/{path...}`", page)
+        self.assertIn("`on_moved(path, handler)`", page)
+        self.assertIn("Not callable from a script (the request carries a kernel object): `Attach`.", page)
+        self.assertIn("[sys::demo](demo.md)".replace("sys::demo", "`sys::demo`"), pages["index.md"])
+
+    def test_the_committed_pages_are_current(self) -> None:
+        inputs = [str(p) for p in sorted((ROOT / "idl").glob("*.midl"))]
+        result = self.run_midlc("--check", "--rhai-docs", str(ROOT / "docs/rhai/api"), *inputs)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def run_midlc(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(HERE / "midlc.py"), *args],

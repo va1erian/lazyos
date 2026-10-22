@@ -88,7 +88,7 @@ From the build: `LAZYOS_LIMIT_HEAP_MAX=768M LAZYOS_LIMIT_FD_MAX=4096 cargo build
 (the build refuses a malformed value), `python tools/run_demo.py --limit
 heap_max=768M --limit fd_max=4096`, or the GUI launcher's Advanced tab ("Kernel
 limits": `heap_max=768M fd_max=4096`). `cpu_max` (the SMP bring-up's ceiling,
-[`smp-plan.md`](smp-plan.md)) behaves the same way: `limit.cpu_max=4` /
+[`smp-plan.md`](../smp-plan.md)) behaves the same way: `limit.cpu_max=4` /
 `LAZYOS_LIMIT_CPU_MAX=4`; the kernel derives its default from the MADT from
 S8.2 on, and ignores the value until then.
 

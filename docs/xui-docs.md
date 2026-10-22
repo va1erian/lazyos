@@ -2,11 +2,12 @@
 
 `xui-docs` (the core package `os.lazy.docs`, `xui-app/packages/docs/`) shows a Markdown file in a `xuid` window: wrapped text,
 headings, lists, tables, code and block quotes, scrolled with the mouse wheel,
-`PageUp`/`PageDown` or the arrow keys. With no argument it shows a built-in
-welcome page that doubles as a syntax tour. It is the first user of
+`PageUp`/`PageDown` or the arrow keys. With no argument it shows a short built-in
+welcome page that points at the documentation index (`/docs/os/index.md`). It is the first user of
 [`xui-blitz`](https://github.com/va1erian/xui/tree/main/crates/xui-blitz)
 `BlitzView` on LazyOS and the intended renderer for documentation pages. It fetches
-nothing: images are not loaded and links are drawn but not followed.
+nothing: images are not loaded, and a link opens only if it leads to another
+Markdown file on the volume (see *Links and history*).
 
 ## How it works
 
@@ -45,6 +46,19 @@ file (or welcome.md) --pulldown-cmark--> HTML --Blitz (engine thread)--> RGBA fr
   the old one (which destroys its node and stops its engine thread): a
   carry-over from the litehtml view, whose painter kept per-document font ids
   across loads. `BlitzView::load_html` would also do.
+* **Links and history.** The page is laid out against the document's own
+  `file://` URL (`nav::base_url`), so Blitz resolves every relative link
+  (`controls.md`, `../rhai/msg.md#errors`, `#heading`) to an absolute URL and
+  reports the click (`DOCS:LINK:<url>`). `nav::classify` turns it back into a
+  guest path: a Markdown file opens in a fresh view, a `#heading` of the open
+  document scrolls (Blitz does that itself for a link inside the page; for one
+  it reports, the page is loaded again against its URL with the fragment), and anything else (another scheme, a
+  file that is not Markdown) is ignored. Headings carry GitHub-style ids
+  (`with_heading_ids`: lower case, punctuation dropped, spaces to hyphens, a
+  repeat numbered) so a fragment has something to land on. The toolbar's
+  **Back**, **Forward** (`Alt+Left`, `Alt+Right`) and **Home** (the index,
+  `fhs::docs::INDEX`) walk a bounded history kept by `nav::History`; the
+  welcome page is a place in it. Markers: `DOCS:NAV:PASS:<link|back|forward|home>:<path>`.
 * **Test document.** `xui-app/docs/testdata/testdoc.md` ships in every image as
   `/system/share/samples/testdoc.md` (embedded by `build.rs`). It covers every construct the viewer
   draws and is long enough to scroll; the unit tests render it and
@@ -63,8 +77,9 @@ toolchain; zig is now only for Mail's SQLite, `tools/xui/zig.py`.)
 
 ## Known limits
 
-* Links and images are not followed or loaded: the viewer has no fetching
-  code; relative links to other documents are the natural next step.
+* Images are not loaded and web links do nothing: the viewer has no fetching
+  code. Back does not restore the scroll position (`BlitzView` has a setter
+  but no getter).
 * The LazyOS backend delivers a `Resize` when the window is resized
   (`xui-app/src/backend/input.rs`), but the app places its toolbar and view at
   fixed rectangles taken from the initial client size and does not handle it,

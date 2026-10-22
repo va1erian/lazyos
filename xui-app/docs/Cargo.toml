@@ -26,3 +26,7 @@ xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00
 webfonts = { path = "../crates/webfonts" }
 xui-blitz = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+# Link targets: Blitz reports a click as an absolute `file://` URL against the
+# document's own base URL; `nav` turns it back into a guest path.
+url = "2"
+percent-encoding = "2"

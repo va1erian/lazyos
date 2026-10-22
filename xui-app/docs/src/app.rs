@@ -1,11 +1,14 @@
-//! The Docs window: a slim toolbar (an Open button and the current path) above
-//! the Blitz page, and the Open dialog behind the button and `Ctrl+O`.
+//! The Docs window: a slim toolbar (Open, Back, Forward, Home and the current
+//! path) above the Blitz page, and the Open dialog behind the button and `Ctrl+O`.
+//! A click on a link to another Markdown document opens it (Back and Forward,
+//! `Alt+Left` and `Alt+Right`, walk what was visited); `#heading` links scroll.
 //!
 //! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once
 //! the welcome page's first frame has been painted, `DOCS:OPEN:PASS:<path>` after
 //! a document loads and `DOCS:RENDER:PASS:<path>` once *its* view has painted (a
-//! fresh view per document, so the first marker says nothing about it), `DOCS:OPEN:FAIL:<path>` when it cannot be read, and
-//! `DOCS:LINK:<href>` on a link click.
+//! fresh view per document, so the first marker says nothing about it), `DOCS:OPEN:FAIL:<path>` when it cannot be read,
+//! `DOCS:LINK:<href>` on a link click and `DOCS:NAV:PASS:<link|back|forward|home>:<path>`
+//! when the click moved to a document.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -16,7 +19,9 @@ use xui_core::arrange::{absolute, button, label, Handle, LayoutExt};
 use xui_core::backend::Result;
 use xui_core::widget::StdFileSystem;
 use xui_core::widget::{FileDialog, HasText, Label};
+use xui_app::trace::{self, Channel};
 use xui_core::{Key, Px, Rect};
+use xui_docs::nav::{base_url, classify, History, Link, Place};
 use xui_docs::{error_page, load_file, themed};
 use xui_blitz::{BlitzView, BlitzViewEvent};
 
@@ -37,21 +42,28 @@ pub enum Msg {
     Copy(String),
     /// The Open button or `Ctrl+O`.
     Open,
+    Back,
+    Forward,
+    /// The documentation index.
+    Home,
     /// The dialog accepted `path`.
     OpenChosen(PathBuf),
     /// The dialog was cancelled.
     DialogClosed,
 }
 
-/// A view of `html` filling `bounds`. One view per document: a fresh view
-/// starts clean, and dropping the old one stops its engine thread.
-fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String) -> Result<BlitzView<Msg>> {
+/// A view of `html` filling `bounds`, laid out against `base` (the document's
+/// own `file://` URL, so its relative links resolve and a `#fragment` scrolls).
+/// One view per document: a fresh view starts clean, and dropping the old one
+/// stops its engine thread.
+fn make_view(ui: &Ui<Msg>, bounds: Rect, html: String, base: String) -> Result<BlitzView<Msg>> {
     BlitzView::builder(|| Msg::Frame, |event| match event {
         BlitzViewEvent::LinkClicked(href) => Some(Msg::Link(href)),
         BlitzViewEvent::CopyRequested(text) => Some(Msg::Copy(text)),
         _ => None,
     })
     .html(themed(html, ui.theme().is_dark))
+    .base_url(base)
     .build(ui, bounds)
 }
 
@@ -66,6 +78,11 @@ pub struct Docs {
     dialog_open: Rc<Cell<bool>>,
     /// The document on show, for the dialog's start folder.
     current: Option<PathBuf>,
+    /// The page on show as HTML (not yet themed), to scroll it to a heading.
+    html: String,
+    /// The welcome page, shown again by Back and by a start with no document.
+    welcome: String,
+    history: History,
     /// What to append to `DOCS:RENDER:PASS` when the current view first paints
     /// (empty for the welcome page, `:<path>` for a document); `None` once
     /// reported.
@@ -89,10 +106,28 @@ impl Docs {
                     px(92),
                     px(26),
                 ),
+                button("Back").on_click_with(|| Some(Msg::Back)).at(
+                    px(108),
+                    px(5),
+                    px(56),
+                    px(26),
+                ),
+                button("Forward").on_click_with(|| Some(Msg::Forward)).at(
+                    px(168),
+                    px(5),
+                    px(72),
+                    px(26),
+                ),
+                button("Home").on_click_with(|| Some(Msg::Home)).at(
+                    px(244),
+                    px(5),
+                    px(56),
+                    px(26),
+                ),
                 label("").bind(&path_label).at(
-                    px(110),
+                    px(308),
                     px(8),
-                    px((client.width() - 118).max(0)),
+                    px((client.width() - 316).max(0)),
                     px(22),
                 ),
             ),
@@ -116,11 +151,18 @@ impl Docs {
         let hotkey_gate = Rc::clone(&dialog_open);
         ui.on_key(move |key, modifiers| {
             let command = modifiers.ctrl || modifiers.win;
+            if modifiers.alt && !hotkey_gate.get() {
+                match key {
+                    Key::LEFT => return Some(Msg::Back),
+                    Key::RIGHT => return Some(Msg::Forward),
+                    _ => {}
+                }
+            }
             (command && key == Key::O && !hotkey_gate.get()).then_some(Msg::Open)
         });
 
         let view_bounds = Rect::new(0, TOOLBAR_H, client.width(), client.height().max(TOOLBAR_H));
-        let view = make_view(ui, view_bounds, html)?;
+        let view = make_view(ui, view_bounds, html.clone(), base_url(None, None))?;
         let tick = ui.set_timer(100);
         ui.on_timer(move |id| (id == tick).then_some(Msg::Tick));
 
@@ -131,6 +173,9 @@ impl Docs {
             open_dialog,
             dialog_open,
             current: None,
+            welcome: html.clone(),
+            html,
+            history: History::default(),
             render_marker: Some(String::new()),
         };
         docs.show(ui, path);
@@ -158,21 +203,97 @@ impl Docs {
     }
 
     /// Shows the document at `path` in a fresh view, or the reason it cannot be
-    /// read.
+    /// read. What was on show goes into the history.
     pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) {
+        self.history.visit(self.place());
+        self.show_document(ui, path, None);
+    }
+
+    /// Where the window is now, for the history.
+    fn place(&self) -> Place {
+        Place {
+            path: self.current.clone(),
+        }
+    }
+
+    /// Replaces the view with the document at `path` (the welcome page for
+    /// `None`).
+    fn show_place(&mut self, ui: &mut Ui<Msg>, path: Option<PathBuf>) {
+        let Some(path) = path else {
+            let html = self.welcome.clone();
+            self.replace_view(ui, html, base_url(None, None));
+            self.render_marker = Some(String::new());
+            self.show(ui, None);
+            return;
+        };
+        self.show_document(ui, path, None);
+    }
+
+    /// Replaces the view with the document at `path`, scrolled to `fragment`
+    /// when one is named.
+    fn show_document(&mut self, ui: &mut Ui<Msg>, path: PathBuf, fragment: Option<&str>) {
         let (html, marker) = match load_file(&path) {
             Ok(html) => (html, "PASS"),
             Err(error) => (error_page(&format!("{}: {error}", path.display())), "FAIL"),
         };
-        match make_view(ui, self.view_bounds, html) {
-            // Assigning drops the old view, which destroys its node and stops
-            // its worker thread.
-            Ok(view) => self.view = view,
-            Err(error) => println!("DOCS:VIEW:FAIL:{error}"),
-        }
+        self.replace_view(ui, html, base_url(Some(&path), fragment));
         self.render_marker = Some(format!(":{}", path.display()));
         self.show(ui, Some(path.clone()));
         println!("DOCS:OPEN:{marker}:{}", path.display());
+    }
+
+    /// Swaps in a view of `html`; assigning drops the old view, which destroys
+    /// its node and stops its worker thread.
+    fn replace_view(&mut self, ui: &Ui<Msg>, html: String, base: String) {
+        match make_view(ui, self.view_bounds, html.clone(), base) {
+            Ok(view) => self.view = view,
+            Err(error) => println!("DOCS:VIEW:FAIL:{error}"),
+        }
+        self.html = html;
+    }
+
+    /// Scrolls the page on show to `fragment`: the same page, laid out again
+    /// against its URL with the fragment, which the engine scrolls to.
+    fn scroll_to(&mut self, ui: &Ui<Msg>, fragment: &str) {
+        let base = base_url(self.current.as_deref(), Some(fragment));
+        let html = themed(self.html.clone(), ui.theme().is_dark);
+        self.view.load_html(html, base);
+    }
+
+    /// A click on a link: another document opens, a heading of this one
+    /// scrolls, anything else is ignored (no network, no other programs).
+    fn follow(&mut self, ui: &mut Ui<Msg>, href: &str) {
+        match classify(href) {
+            Some(Link::Document { path, fragment }) => {
+                if self.current.as_deref() == Some(path.as_path()) {
+                    if let Some(fragment) = fragment {
+                        self.scroll_to(ui, &fragment);
+                    }
+                    return;
+                }
+                self.history.visit(self.place());
+                self.show_document(ui, path.clone(), fragment.as_deref());
+                let shown = path.display().to_string();
+                trace::pass!(Channel::Docs, "NAV", "link:{shown}");
+            }
+            Some(Link::Other(_) | Link::External(_)) | None => {}
+        }
+    }
+
+    /// Back (`forward` false) or Forward through the documents visited.
+    fn step(&mut self, ui: &mut Ui<Msg>, forward: bool) {
+        let here = self.place();
+        let target = if forward {
+            self.history.forward(here)
+        } else {
+            self.history.back(here)
+        };
+        if let Some(place) = target {
+            self.show_place(ui, place.path.clone());
+            let name = if forward { "forward" } else { "back" };
+            let path = place.path.map(|p| p.display().to_string()).unwrap_or_default();
+            trace::pass!(Channel::Docs, "NAV", "{name}:{path}");
+        }
     }
 
     /// Shows the Open dialog, starting in the current document's folder.
@@ -199,7 +320,17 @@ impl App for Docs {
                     println!("DOCS:RENDER:PASS{suffix}");
                 }
             }
-            Msg::Link(href) => println!("DOCS:LINK:{href}"),
+            Msg::Link(href) => {
+                println!("DOCS:LINK:{href}");
+                self.follow(ui, &href);
+            }
+            Msg::Back => self.step(ui, false),
+            Msg::Forward => self.step(ui, true),
+            Msg::Home => {
+                let index = fhs::docs::INDEX;
+                self.open(ui, PathBuf::from(index));
+                trace::pass!(Channel::Docs, "NAV", "home:{index}");
+            }
             Msg::Copy(text) => {
                 // `BlitzView` only reports the request; the app owns the clipboard.
                 ui.set_clipboard_text(&text);

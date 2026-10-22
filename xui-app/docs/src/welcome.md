@@ -1,93 +1,26 @@
 # Docs
 
-This is the LazyOS documentation viewer. It renders **Markdown** with
-[Blitz](https://github.com/DioxusLabs/blitz), so a page is laid out like a
-web page: wrapped text, tables, lists and code, in a window you can scroll with
-the mouse wheel, `PageUp`/`PageDown` or the arrow keys.
+Welcome to the LazyOS documentation viewer.
 
-## Opening a document
+**[Open the documentation index](/docs/os/index.md)** (or press **Home**).
 
-Press `Ctrl+O` or click **Open...** in the toolbar to pick a Markdown file. The
-image ships one to try, `/system/share/samples/testdoc.md`. You can also start the app with a path,
-for example `/system/bin/docs /system/share/samples/testdoc.md`. With no path it shows this page, which
-doubles as a tour of what it can draw.
+## Where to start
 
-## Text
+- [Build an app with LazyRAD](/docs/os/lazyrad/index.md): forms, controls, scripts and packaging
+- [Script the system with Rhai](/docs/os/rhai/index.md): the language, the `rhai` command and the cookbook
+- [Messenger API reference](/docs/os/rhai/api/index.md): every `sys::` module, one page each
+- [How LazyOS works](/docs/os/architecture.md): kernel, Messenger, drivers and the desktop
 
-Plain paragraphs wrap to the window width. You can write **bold**, *italic*,
-~~strikethrough~~ and `inline code`, and mix them: ***bold italic***, or a
-**bold phrase with `code` inside**. A line that ends in two spaces  
-continues on the next line without starting a new paragraph.
-
-### Headings
-
-Headings go from level 1 (the page title above) to level 4, each with its own
-size and spacing. Levels 1 and 2 are underlined with a rule.
-
-#### Level four
-
-Body text follows a heading with a comfortable line height.
-
-## Lists
-
-- A bullet list
-- with several items,
-  - and a nested list
-  - two levels deep
-- and a last item.
-
-1. A numbered list
-2. counts upward,
-3. for as many items as you like.
-
-## Tables
-
-| Markdown | Result | Notes |
-|---|---|---|
-| `# Heading` | a heading | levels 1 to 4 |
-| `**bold**` | **bold** | strong emphasis |
-| `*italic*` | *italic* | a synthesised slant |
-| `` `code` `` | `code` | monospace face |
-| `- item` | a bullet | nests by indentation |
-| `> quote` | a block quote | see below |
-
-## Code
-
-Fenced blocks keep their spacing and are set in a monospace face:
-
-```
-fn main() {
-    let notes = ["wrap", "scroll", "select"];
-    for note in notes {
-        println!("Docs can {note}");
-    }
-}
-```
-
-## Quotes and rules
-
-> A block quote sits behind a bar and a muted colour. Quotes can hold **bold**
-> text, `code` and more than one paragraph.
->
-> Like this second one.
-
-Three dashes make a horizontal rule:
-
----
-
-## Moving around
+## Using the viewer
 
 | Input | Action |
 |---|---|
-| `Ctrl+O` | open a document |
-| Mouse wheel | scroll a few lines |
-| `PageUp` / `PageDown` | scroll a page |
-| `Up` / `Down` | scroll a line |
-| `Home` / `End` | jump to the top or bottom |
+| Click a link | open that document |
+| **Back** / **Forward**, `Alt+Left` / `Alt+Right` | walk the documents you visited |
+| **Open...**, `Ctrl+O` | pick any Markdown file |
+| Mouse wheel, `PageUp` / `PageDown`, arrows, `Home` / `End` | scroll |
 | `Ctrl+A`, `Ctrl+C` | select everything, copy |
 
-## Limits
-
-Raw HTML inside a document is shown as text, never interpreted. Documents over
-1 MiB are cut off. Links are drawn but not followed yet, and there is no network:
-images are not loaded.
+`/system/share/samples/testdoc.md` shows everything the viewer can draw. Raw
+HTML in a document is shown as text, and there is no network: pictures are not
+loaded and web links do nothing.

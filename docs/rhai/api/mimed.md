@@ -1,0 +1,196 @@
+# `sys::mimed`
+
+The Rhai module for the Messenger interface `os.lazy.mimed.v1`. Wire-level reference: [os.lazy.mimed.v1](../../idl/os.lazy.mimed.v1.md).
+
+The MIME database and open-with registry (issues #116, #158).
+
+`mimed` guesses a MIME type from a path, resolves which app handles a type
+and verb, and turns "open this file" into a launch request for `init` plus
+a `system/events/open/<app>` event on the central broker. Failures are
+returned as a structured error field (errno-style code, friendly text), not
+as a typed reply.
+
+## Functions
+
+### `guess(path)`
+
+`Guess(path: String) -> (mime: String)`
+
+MIME type for `path` from the database; a path the database has no
+entry for reports `application/octet-stream`.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `path` | `String` | string |
+
+Returns `mime`: `String` (string).
+
+```rhai
+let result = sys::mimed::guess(path);
+```
+
+### `lookup(mime, verb)`
+
+`Lookup(mime: String, verb: String) -> (app: Option<String>)`
+
+The app registered for `mime` and `verb`; an empty `app` means none is.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `mime` | `String` | string |
+| `verb` | `String` | string |
+
+Returns `app`: `Option<String>` (string or ()).
+
+```rhai
+let result = sys::mimed::lookup(mime, verb);
+```
+
+### `verbs(mime)`
+
+`Verbs(mime: String) -> (verbs: Array<String>)`
+
+Verbs registered for `mime` (`open`, `edit`, `reveal`, ...), in
+registration order.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `mime` | `String` | string |
+
+Returns `verbs`: `Array<String>` (array of string).
+
+```rhai
+let result = sys::mimed::verbs(mime);
+```
+
+### `open(path, verb)`
+
+`Open(path: String, verb: String) -> (app: String, mime: String, topic: String, published: Bool, launched: Bool)`
+
+Guess the type of `path`, resolve the app for `verb` (falling back to
+`open`), ask `init` to launch it and publish the launch event.
+`published` reports whether the event went out, `launched` whether
+`init` accepted the launch request.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `path` | `String` | string |
+| `verb` | `String` | string |
+
+Returns a map:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `app` | `String` | string |
+| `mime` | `String` | string |
+| `topic` | `String` | string |
+| `published` | `Bool` | bool |
+| `launched` | `Bool` | bool |
+
+```rhai
+let result = sys::mimed::open(path, verb);
+```
+
+### `register(mime, app, verb, owner)`
+
+`Register(mime: String, app: String, verb: String, owner: U32) -> ()`
+
+Add or replace the app registered for `mime` and `verb`; the registry
+keeps the latest registration for each pair. Only a system service (the
+package manager, which registers an installed app's handlers) may
+register, and the registry holds a bounded number of pairs: `EPERM`
+from anyone else, `ENOSPC` when it is full and the pair is new. A
+user's own choice of app for a type is a preference
+(`user/<uid>/mimed/default/<type>`), not a registration. `owner` is the
+uid that installed the app, `0` for the image's own apps and what an
+administrator installed for everyone: `Open` skips a registration whose
+owner is neither `0` nor the uid that opens, so one user's package never
+takes a type over for the next user.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `mime` | `String` | string |
+| `app` | `String` | string |
+| `verb` | `String` | string |
+| `owner` | `U32` | int |
+
+Returns `()`.
+
+```rhai
+let result = sys::mimed::register(mime, app, verb, owner);
+```
+
+### `unregister(mime, app, verb)`
+
+`Unregister(mime: String, app: String, verb: String) -> ()`
+
+Withdraw `app`'s registration for `mime` and `verb`, so removing an
+installed app leaves no dangling handler. Only the caller's root
+identity may withdraw (the package manager); the registration is
+dropped only while `app` still holds it, so a later registration by
+another app is never undone, and the registration `app` had replaced
+takes over again. Withdrawing a registration that is not there is not
+an error.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `mime` | `String` | string |
+| `app` | `String` | string |
+| `verb` | `String` | string |
+
+Returns `()`.
+
+```rhai
+let result = sys::mimed::unregister(mime, app, verb);
+```
+
+## Types
+
+### `OpenEvent`
+
+One fire-and-forget launch record: the payload of the
+`system/events/open/<app>` topic. The app id is the topic's `<app>`
+segment, so it is not repeated here.
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `path` | `String` | string |
+| `mime` | `String` | string |
+| `verb` | `String` | string |
+
+```rhai
+let value = sys::mimed::new_open_event();
+```
+
+## Topics
+
+### `system/events/open/{app}`
+
+Published when `Open` resolves `<app>` for `path` (issue #307). Not
+retained: a launch is an event, not state.
+
+Payload `OpenEvent`, QoS `latest`.
+
+Helpers: `OPEN_PATTERN`, `open_topic(app)`, `on_open(app, handler)`, `subscribe_open(app)`, `publish_open(app, payload)`.
+
+```rhai
+sys::mimed::on_open(app, |event| print(event.payload));
+```
+
+## See also
+
+- [Messenger APIs for Rhai](index.md)
+- [msg: Messenger from Rhai](../msg.md)
+- [os.lazy.mimed.v1 on the wire](../../idl/os.lazy.mimed.v1.md)

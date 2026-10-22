@@ -199,9 +199,9 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[ApiTopic { helper: "pkg", pattern: "system/events/pkg/+" }],
     },
     ApiModule {
-        alias: "print",
+        alias: "print_",
         interface: "os.lazy.print.v1",
-        source: include_str!("print.rhai"),
+        source: include_str!("print_.rhai"),
         topics: &[],
     },
     ApiModule {

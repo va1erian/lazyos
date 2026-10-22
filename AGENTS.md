@@ -315,6 +315,21 @@ from font files, so an app with a `BlitzView` calls `webfonts::register()`
 `python tools/xui/test_zig.py` tests the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
 (wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
 
+### Writing documentation for the Docs app
+
+Every `docs/**/*.md` ships at `/docs/os/<path>` and is read in the Docs app
+(start at `docs/index.md`; the welcome page and the Home button lead there). The
+app follows relative links to other `.md` files, `#heading` links (GitHub-style
+ids) and keeps a Back/Forward history; it draws no images and shows raw HTML as
+text, so write plain Markdown and link pages by relative path. A file over 256
+KiB is not embedded. Every fenced `rhai` block must compile and every relative
+link must resolve: `python tools/docs/check_snippets.py` checks both (CI:
+`.github/workflows/docs.yml`; tag a deliberate fragment `rhai ignore`).
+`docs/rhai/api/` (one page per `sys::` module) is generated from `idl/` by
+`midlc --rhai-docs`; never edit it by hand. The guides: `docs/lazyrad/`
+(LazyRAD: forms, controls, scripting, packaging, cookbook) and `docs/rhai/`
+(language, the `rhai` command, `msg`, cookbook).
+
 ## LazyWriter (word processor)
 
 `writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
@@ -941,7 +956,7 @@ python tools/rhai/run.py              # console checks (rhai_demo.json)
 python tools/rhai/run.py --desktop    # plus the desktop Terminal and the msg session
 python tools/rhai/run.py --lazyrad    # the LazyRAD Messenger sample (lazyrad_msg.json)
 cargo test --manifest-path libs/rhai-lazy/Cargo.toml   # bindings vs an in-memory fabric
-python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl   # after an IDL change
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api --rhai-docs docs/rhai/api idl/*.midl   # after an IDL change
 ```
 
 `python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
