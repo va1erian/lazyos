@@ -30,8 +30,8 @@ graphics change works from source alone — capture and inspect real pixels.
    Add `--expect-width`, `--expect-height`, `--min-colors`, or `--max-mean` as needed.
 
 5. **Run CI** for a full headless pass: `.github/workflows/screenshots.yml`
-   captures, verifies, uploads artifacts, publishes to the `screenshots` branch,
-   and comments images on pull requests.
+   (manual only: Actions -> screenshots -> Run workflow) captures, verifies,
+   uploads artifacts and publishes to the `screenshots` branch.
 
 See `tools/screenshot/README.md` for full options.
 
@@ -1177,9 +1177,9 @@ python tools/abi/coverage.py         # summarise ENOSYS syscalls from the logs
 `run.py` embeds one fixture as `/system/bin/abi-init` (via `LAZYOS_INIT`), boots, and
 classifies it from the serial log (`ABI:<name>:PASS|FAIL`, or `ABI:INIT:SKIP`).
 It writes `docs/compat/matrix.md` (+ `compat.json`). CI
-(`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
-coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
-wiki **Linux ABI Plan**.
+(`.github/workflows/abi-compat.yml`) runs the bench, uploads the matrix and
+coverage (the docs site publishes them, see "Documentation site"), and comments
+them on PRs. See `tools/abi/README.md` and `docs/linux-abi-plan.md`.
 
 The Linux loader runs dynamically linked musl programs (`PT_INTERP`; issue
 #535): the interpreter is looked up as stored, else in `/system/lib`
@@ -1837,6 +1837,28 @@ surface) is not done until both kinds of coverage exist and
 `python tools/test/run.py --accel none` passes. Do not rely on the ABI bench
 or screenshot pipeline as a substitute — those catch integration/visual
 regressions, not kernel-internal correctness or resource leaks.
+
+## Documentation site (GitHub Pages)
+
+The docs are published as a website, `https://va1erian.github.io/lazyos/`, built
+from `docs/**/*.md`, `README.md` and `CONTRIBUTING.md` by `tools/site/build.py`
+(the GitHub wiki is retired: do not write to it). Keep writing docs for GitHub's
+file browser: relative links between `.md` files and `#fragments` are rewritten
+for the site, a link to code outside `docs/` becomes a GitHub link, and the first
+`# heading` is the page title. A new doc needs no registration (a top-level
+`*-plan.md` lands under "Plans"; `tools/site/site.toml` lists the rest). After
+renaming or adding docs, check links the way CI does:
+
+```bash
+pip install -r tools/site/requirements.txt
+python tools/site/build.py --strict      # target/site; fails on a broken link or fragment
+python tools/site/test_site.py
+python -m http.server -d target/site     # look at it; Read a screenshot for layout changes
+```
+
+`.github/workflows/pages.yml` builds and deploys it on pushes to `main` that touch
+the docs, and after every `abi-compat` run so the ABI matrix and syscall coverage
+(CI output, git-ignored) are published. Plan and layout: `tools/site/README.md`.
 
 ## Project conventions
 

@@ -1,0 +1,128 @@
+name: pages
+
+# The documentation site (https://<owner>.github.io/<repo>/): every Markdown
+# file under docs/, README.md and CONTRIBUTING.md, built by tools/site/build.py
+# and deployed to GitHub Pages. It replaces the GitHub wiki.
+#
+# Runs only after a merge to main (a push to main that touches the docs or the
+# generator) and after every abi-compat run on main, so the Linux ABI matrix and
+# syscall coverage (CI output, git-ignored) stay current under "Hardware & ABI
+# compatibility". It never runs for a pull request: check links before merging
+# with `python tools/site/build.py --strict` (tools/site/README.md).
+#
+# One-time setup: Settings -> Pages -> Source: "GitHub Actions".
+# To rebuild by hand: Actions -> pages -> Run workflow, or locally
+# `python tools/site/build.py` (tools/site/README.md).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "tools/site/**"
+      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: [abi-compat]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read # download the latest abi-compat artifact
+
+# Runs queue one behind another (a merge that touches docs and code starts two);
+# a run waiting behind another is replaced by a newer one, a running one is
+# never cancelled.
+concurrency:
+  group: pages-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Not for an abi-compat run a pull request started (a fork's pull request from a branch
+    # called main). A cancelled abi-compat run still rebuilds: the build always takes main's
+    # latest commit, and skipping the run would still displace a pending docs run in the
+    # concurrency queue above.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/site/requirements.txt
+
+      - run: pip install -r tools/site/requirements.txt
+
+      - name: Generator tests
+        run: python tools/site/test_site.py
+
+      # docs/compat/matrix.md and coverage.md are written by the ABI bench and
+      # are git-ignored; take them from the newest `abi-reports` artifact built
+      # on main from this repository (never from a fork's pull request; the
+      # older whole-run `abi-compat` artifact is the fallback). Without one the
+      # site has no ABI pages: a deploy then drops them, hence the warning.
+      - name: Fetch the latest ABI reports (best effort)
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          id=""
+          for name in abi-reports abi-compat; do
+            id=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${name}&per_page=100" \
+              --jq '.artifacts[]
+                    | select(.expired == false
+                             and .workflow_run.head_branch == "main"
+                             and .workflow_run.head_repository_id == .workflow_run.repository_id)
+                    | .id' | sed -n 1p)
+            if [ -n "$id" ]; then break; fi
+          done
+          if [ -z "$id" ]; then
+            echo "::warning::No ABI report artifact from main (expired, or abi-compat has not run since it was added): building without the ABI pages."
+            exit 0
+          fi
+          scratch=$(mktemp -d)
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "${scratch}/abi.zip"
+          unzip -q "${scratch}/abi.zip" -d "${scratch}/abi"
+          for name in matrix.md coverage.md; do
+            found=$(find "${scratch}/abi" \( -path "*/docs/compat/${name}" -o -path "${scratch}/abi/${name}" \) | head -n1)
+            if [ -n "$found" ]; then cp "$found" "docs/compat/${name}"; fi
+          done
+          ls docs/compat
+
+      # --strict: a broken link or a #fragment that matches no heading fails the
+      # build. Pull requests do not run it, so run it locally before pushing docs
+      # changes; a miss fails this build on main (the site stays on the last good deploy).
+      - name: Build the site
+        env:
+          SITE_REF: ${{ github.event.repository.default_branch }}
+        run: python tools/site/build.py --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site
+
+  deploy:
+    needs: build
+    # Only main publishes: a manual run from another branch builds but never deploys.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

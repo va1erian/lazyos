@@ -10,7 +10,7 @@ target
 shots/
 *.ppm
 
-# Generated ABI conformance output (tools/abi); CI publishes it to the wiki
+# Generated ABI conformance output (tools/abi); the docs site (tools/site) publishes it
 docs/compat/*
 # ...except the hand-written real-hardware evidence (docs/compat/hardware.md,
 # docs/compat/<machine>/; real-pc-boot-plan.md, kabylake-box-plan.md)

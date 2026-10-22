@@ -52,6 +52,11 @@ Where to read next:
 - [`docs/messenger.md`](docs/messenger.md), [`docs/security-model.md`](docs/security-model.md), [`docs/linux-abi-plan.md`](docs/linux-abi-plan.md), [`docs/xui-plan.md`](docs/xui-plan.md).
 - [`docs/lazywebplus.md`](docs/lazywebplus.md) (the browser), [`docs/lazysky.md`](docs/lazysky.md) (the Bluesky client), [`docs/tls-plan.md`](docs/tls-plan.md) (HTTPS), [`docs/performance-plan.md`](docs/performance-plan.md) (latency and responsiveness), [`docs/hidpi-plan.md`](docs/hidpi-plan.md) (2x desktop), [`docs/nes-player.md`](docs/nes-player.md) (the NES emulator).
 
+## Documentation
+
+The docs are published at <https://va1erian.github.io/lazyos/> (searchable, built
+from [`docs/`](docs) by `tools/site`; `python tools/site/build.py` builds it locally).
+
 ## Prerequisites
 
 - Rust (the pinned toolchain in `rust-toolchain.toml` is installed automatically by `rustup`).
