@@ -97,18 +97,21 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
 
     fn resize(&self, width: i32, height: i32) {
         let size = (width.max(1) as u32, height.max(1) as u32);
-        let (live, ended) = {
+        let (live, first) = {
             let mut inner = self.inner.borrow_mut();
             inner.size = Some(size);
-            if inner.health == Health::Waiting {
+            let first = inner.health == Health::Waiting;
+            if first {
                 inner.health = Health::NotRunning;
             }
-            (inner.view.is_live(), inner.health == Health::Ended)
+            (inner.view.is_live(), first)
         };
         if live {
             self.call(|view| view.resize(size.0, size.1));
-        } else if !ended {
-            // A page whose process ended stays blank until the next load makes its view.
+        } else if first {
+            // The first size makes the view; after that a missing one is asked for again on the
+            // retry clock (a window drag must not bypass its backoff), and a page whose process
+            // ended stays blank until the next load makes its view.
             self.ensure_view();
         }
     }
@@ -187,12 +190,11 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
     }
 
     fn notify_forget(&self, origin: &str) {
+        // Kept until a view is made: a call that fails (the view lost meanwhile) is not lost.
         let live = {
             let mut inner = self.inner.borrow_mut();
             inner.permissions.remove(origin);
-            if !inner.view.is_live() {
-                inner.forgotten.insert(origin.to_owned());
-            }
+            inner.forgotten.insert(origin.to_owned());
             inner.view.is_live()
         };
         if live {

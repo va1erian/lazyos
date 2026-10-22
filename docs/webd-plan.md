@@ -791,6 +791,9 @@ harness measures key to paint), the Ars Technica repro of the performance plan (
 
 #### What P5 still needs
 
+* **Overscan without the geometry nudge**: patch 0030 should work out its overscan when the drawing area starts;
+  until then every new page process gets two extra layouts and `resize` events (`clients.cpp`, `nudgeGeometry`),
+  light views and views without deltas included, which paint bands nobody shows.
 * **The latency criterion on the Ars Technica repro** (`scroll_bench.py`, `pointer_bench.py`, live) and a key-to-paint
   measurement, several runs a side.
 * **A pool of parked views**, reused by the same owner and profile: every closed view leaves a parked proxy

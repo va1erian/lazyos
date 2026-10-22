@@ -75,8 +75,10 @@ static void reportResponsiveness(View& v)
 // does not take as a geometry change: it works out how many rows to paint ahead of a scroll (the overscan
 // bands, LAZYOS_WEBKIT_OVERSCAN) only in updateGeometry. A view made at its final size and never resized
 // (every view of webd: the client gives the size at CreateView) would so get no band at all. One row less
-// and back is two geometry updates the process takes as they come; nothing is painted at the odd size
-// (paint.cpp paints the view's own size).
+// and back is two geometry updates the process takes as they come: the page sees two resize events, and
+// at worst one update of the shorter size reaches the backing store (paint.cpp paints the view's own size,
+// so no frame of another size reaches the owner). The proper fix is in patch 0030 (work out the overscan
+// at the drawing area's start); a WebKit rebuild was not worth it for P4.
 static void nudgeGeometry(View& v)
 {
     if (!v.view || v.width <= 0 || v.height < 2)

@@ -31,7 +31,7 @@ pub enum Health {
     Live,
     /// webd is not there (or went away): asked again every [`RETRY_MS`].
     NotRunning,
-    /// webd refused the view (this errno): asked again every [`RETRY_MS`].
+    /// webd refused the view (this errno): asked again every [`RETRY_MS`] times `REFUSED_BACKOFF`.
     Refused(i64),
     /// The page's process ended; the next load makes a new view.
     Ended,
@@ -92,6 +92,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             let mut inner = self.inner.borrow_mut();
             inner.health = super::Health::Live;
             inner.tries = 0;
+            inner.said = None;
             inner.loaded = false;
             inner.finished_base = inner.state.finished;
             let inner = &mut *inner;
@@ -116,8 +117,8 @@ impl<T: ScopedTransport> RemoteEngine<T> {
         }
     }
 
-    /// No view: say why (after [`QUIET_TRIES`] when there never was one), and come back later when it
-    /// is worth asking again.
+    /// No view: say why, once (a webd that has not registered yet, at start, only after
+    /// [`QUIET_TRIES`]), and come back later when it is worth asking again.
     fn unhealthy(&self, health: Health, why: &str) {
         let now = self.now_ms();
         let quiet = {
@@ -126,12 +127,17 @@ impl<T: ScopedTransport> RemoteEngine<T> {
                 Health::Refused(_) => RETRY_MS * REFUSED_BACKOFF,
                 _ => RETRY_MS,
             };
-            // Said once: the same refusal a second time changes nothing on screen.
-            let again = inner.health == health && inner.tries > QUIET_TRIES;
             inner.health = health;
             inner.retry_at = now + wait;
             inner.tries = inner.tries.saturating_add(1);
-            again || (inner.tries < QUIET_TRIES && inner.state.committed_url.is_empty())
+            let starting = health == Health::NotRunning
+                && inner.tries < QUIET_TRIES
+                && inner.state.committed_url.is_empty();
+            let said = inner.said == Some(health);
+            if !starting && !said {
+                inner.said = Some(health);
+            }
+            starting || said
         };
         self.notice_channel();
         if quiet {

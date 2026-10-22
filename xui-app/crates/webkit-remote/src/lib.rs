@@ -120,6 +120,8 @@ struct Inner<T: ScopedTransport> {
     /// Tries in a row that found no view: the page says webd is missing only after a few (an
     /// app opened at login may start before webd has registered).
     tries: u32,
+    /// What the page was last told about a missing view (said once, not every retry).
+    said: Option<Health>,
     /// Calls made before the view existed (the blocker's), run once it does.
     deferred: Vec<Box<dyn FnOnce(&mut FullWebView<T>)>>,
     blocking: Option<(bool, Vec<String>)>,
@@ -162,6 +164,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
                 health: Health::Waiting,
                 retry_at: 0,
                 tries: 0,
+                said: None,
                 deferred: Vec::new(),
                 blocking: None,
                 permissions: options.permissions.into_iter().collect(),

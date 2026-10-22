@@ -2,9 +2,9 @@
 //! the ad blocker's switches tell webd.
 //!
 //! The view's event channel wakes the window by itself (the platform parks the loop on it), so the
-//! timers here only cover what has no wake of its own: a pointer move waiting its turn and a view
-//! webd is asked for again ([`FAST_MS`] while the engine says so), and a slow beat that keeps the
-//! rest honest ([`BEAT_MS`]).
+//! timers here only cover what has no wake of its own: a pointer move waiting its turn ([`FAST_MS`]
+//! while the engine says so), and a slow beat ([`BEAT_MS`]) for a view webd is asked for again and
+//! the messages webd's full inbox refused.
 
 use xui_core::app::Ui;
 
