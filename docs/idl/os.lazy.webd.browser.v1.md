@@ -36,3 +36,4 @@ object list (the index each field must hold).
 - `user_agent_suffix: String`
 - `deltas: Bool`
 - `dialogs: Bool`
+- `notify_in_client: Bool`
