@@ -180,6 +180,43 @@ fn a_question_nobody_answers_in_ten_seconds_is_a_no() {
 }
 
 #[test]
+fn a_question_the_queue_replaced_before_the_app_saw_it_is_answered_no() {
+    // Why (review of 2026-10-22, finding 2): the queue keeps one undelivered question per view. The
+    // engine drops its older held navigation only for a true main-frame navigation; for a new window's
+    // (`window.open` after `location = 'mailto:...'`) it keeps the listener, so a request the service
+    // forgot would hang the page's navigation until the view ends. It must be answered, and not asked.
+    let mut fx = Fx::new("ask-superseded");
+    let app = origin(7);
+    let (view, events) = fx.view(app, Via::Net, asking(), 4, 4);
+    fx.engine.take();
+    fx.queue
+        .navigate(view, 1, "http://elsewhere.test/one", LINK, true, true);
+    fx.queue
+        .navigate(view, 2, "http://elsewhere.test/two", LINK, true, true);
+    fx.pump(0);
+    let asked = fx.news(events);
+    assert_eq!(asked.len(), 1, "only the newest is put to the app");
+    assert!(matches!(
+        &asked[0],
+        FEv::Navigation(args) if args.request == 2
+    ));
+    assert_eq!(
+        fx.engine.take(),
+        vec![answer(view, 1, false)],
+        "the replaced one is refused for the engine"
+    );
+    // It was never held for the app: no answer, no expiry, one question outstanding.
+    assert_eq!(fx.nav_answer(app, view, 1, true), Err(ESRCH));
+    fx.pump(HOLD_MS + 1);
+    assert_eq!(fx.engine.take(), vec![answer(view, 2, false)]);
+    let notes = fx.service.take_notes();
+    assert!(notes.contains(&Note::Full {
+        view,
+        what: "held superseded"
+    }));
+}
+
+#[test]
 fn a_view_holds_eight_questions_and_refuses_the_rest_at_once() {
     // Why: each held navigation is an event the app must answer; a page that navigates in a loop
     // must not queue unbounded questions (or the app's answers).

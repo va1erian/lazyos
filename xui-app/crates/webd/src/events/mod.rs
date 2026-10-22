@@ -100,6 +100,13 @@ pub enum Once {
         kind: i32,
         gesture: bool,
     },
+    /// A [`Once::Held`] the queue replaced with a newer one of the same view before the service saw it. The
+    /// client is never asked about it, but the engine may still hold it (it drops its held navigations only
+    /// for a true main-frame navigation, not for a new window's), so the service answers it no.
+    Superseded {
+        view: u64,
+        request: u64,
+    },
     /// The page asked for an address another program opens (`Handoff.Browser`), and the engine did
     /// not load it: the service hands it over.
     HandOff {

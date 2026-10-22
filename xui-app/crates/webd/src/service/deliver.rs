@@ -275,6 +275,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 kind,
                 gesture,
             } => self.held(view, request, url, kind, gesture),
+            Once::Superseded { view, request } => {
+                self.engine.navigation_answer(view, request, false);
+                self.note(Note::Full {
+                    view,
+                    what: "held superseded",
+                });
+            }
             Once::HandOff { view, url } => {
                 let handed = self.outside.open_url(&url);
                 self.note(Note::Full {
