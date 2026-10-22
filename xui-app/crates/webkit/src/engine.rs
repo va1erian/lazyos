@@ -173,8 +173,6 @@ pub trait Engine {
     /// Content blocking on or off for the browsing profile, and the sites it is off for (the
     /// user's switch and exceptions; webd decides each navigation from them).
     fn set_blocking(&self, enabled: bool, exceptions: &[String]);
-    /// Loads the page again once without the content blocker ("Reload without blocking").
-    fn reload_unblocked(&self);
 }
 
 /// One call an engine received, for tests.
@@ -204,7 +202,6 @@ pub enum Call {
     BlockingCompile(String, usize),
     BlockingForget(String),
     SetBlocking(bool, Vec<String>),
-    ReloadUnblocked,
 }
 
 /// An engine that records its calls.
@@ -298,9 +295,6 @@ impl Engine for Recorder {
     }
     fn set_blocking(&self, enabled: bool, exceptions: &[String]) {
         self.push(Call::SetBlocking(enabled, exceptions.to_vec()));
-    }
-    fn reload_unblocked(&self) {
-        self.push(Call::ReloadUnblocked);
     }
 }
 

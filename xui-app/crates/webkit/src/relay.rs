@@ -140,9 +140,6 @@ impl Engine for Relay {
         let exceptions = exceptions.to_vec();
         self.queue(move |e| e.set_blocking(enabled, &exceptions));
     }
-    fn reload_unblocked(&self) {
-        self.queue(|e| e.reload_unblocked());
-    }
 }
 
 #[cfg(test)]

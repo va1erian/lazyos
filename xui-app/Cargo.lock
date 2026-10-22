@@ -6137,11 +6137,13 @@ dependencies = [
  "fhs",
  "lazyadblock",
  "lazydownloads",
+ "lazyos-sys",
  "xui-app",
  "xui-canvas",
  "xui-core",
  "xui-settings",
  "xui-webkit",
+ "xui-webkit-remote",
 ]
 
 [[package]]
