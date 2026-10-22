@@ -19,12 +19,21 @@ use crate::fullconfig::Profile;
 use crate::ident::ClientKey;
 use crate::limits::{ORIGIN_BYTES_MAX, TOASTS_PER_VIEW};
 use crate::outside::ToastNews;
-use crate::policy::host;
+use crate::policy::{host, origin};
+
+/// What a decision is kept under: the normalised origin (`scheme://host[:port]`, lower case, the
+/// scheme's own port left out) when it is one, so a client's spelling and WebKit's agree.
+fn site_key(text: &str) -> String {
+    origin(text).unwrap_or_else(|| text.to_owned())
+}
 
 impl<E: Engine, F: Fabric> Service<E, F> {
     /// What the profile decided about `origin`, if anything.
     fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
-        self.permissions.get(profile)?.get(origin).copied()
+        self.permissions
+            .get(profile)?
+            .get(&site_key(origin))
+            .copied()
     }
 
     /// The notification news of the engine. Returns anything else back.
@@ -154,7 +163,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             self.permissions
                 .entry(profile)
                 .or_default()
-                .insert(args.origin.clone(), answer > 0);
+                .insert(site_key(&args.origin), answer > 0);
         }
         self.engine
             .notify_permission(args.view, &args.origin, answer);
@@ -167,6 +176,10 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         for news in self.outside.toast_news() {
             let toast = match news {
                 ToastNews::Clicked { toast } | ToastNews::Closed { toast } => toast,
+                ToastNews::Lost => {
+                    self.forget_toasts();
+                    continue;
+                }
             };
             let found = self.views.ids().into_iter().find_map(|view| {
                 let full = self.full_of(view)?;
@@ -192,6 +205,21 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                         self.engine.notify_closed(id);
                     }
                 }
+                ToastNews::Lost => {}
+            }
+        }
+    }
+
+    /// Every toast is gone with the shell's line: each page gets its `close`, and no view's count
+    /// stays full of toasts nobody will report.
+    fn forget_toasts(&mut self) {
+        for view in self.views.ids() {
+            let ids: Vec<u64> = match self.full_of(view) {
+                Some(full) => std::mem::take(&mut full.toasts).into_values().collect(),
+                None => continue,
+            };
+            for id in ids.into_iter().filter(|id| *id != 0) {
+                self.engine.notify_closed(id);
             }
         }
     }

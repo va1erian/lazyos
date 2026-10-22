@@ -125,13 +125,24 @@ fn the_browser_scope_gets_the_shared_profile_on_disk_and_its_features() {
         ok.rules.downloads.as_deref(),
         Some(Path::new("/home/user/Downloads"))
     );
-    // A private window: the same profile's folder (for the rule store), its data in memory.
+    // A private window: a store in memory of its own group (no folder: the engine would share a
+    // memory store keyed by it across clients), so no content blocking.
     let private = wire::ViewConfig {
         ephemeral: true,
         ..browser()
     };
     let ok = setup(&private, Scope::Browser, 10, 10, 2, &places()).unwrap();
-    assert!(ok.engine.full.unwrap().memory_only);
+    let full = ok.engine.full.clone().unwrap();
+    assert!(full.memory_only);
+    assert_eq!(full.profile, "");
+    let blocked = wire::ViewConfig {
+        blocking: true,
+        ..private.clone()
+    };
+    assert_eq!(
+        code(setup(&blocked, Scope::Browser, 10, 10, 2, &places())),
+        EINVAL
+    );
     assert_eq!(ok.rules.profile, Profile::Browser { ephemeral: true });
 }
 

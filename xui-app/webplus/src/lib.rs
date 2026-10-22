@@ -87,6 +87,6 @@ pub const SYSTEM_NAME: &str = "os.lazy.lazywebplus";
 /// The history file in that folder.
 pub const HISTORY_FILE: &str = "history.tsv";
 /// The downloads folder in the home.
-pub const DOWNLOADS_DIR: &str = "Downloads";
+pub const DOWNLOADS_DIR: &str = lazydownloads::FOLDER;
 /// The sites allowed or blocked to notify, in the same folder (`origin<TAB>allow|block<TAB>time`).
 pub const NOTIFY_FILE: &str = "notify.tsv";

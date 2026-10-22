@@ -4,7 +4,7 @@
 //! anything waits. Nothing here talks to a client: what a decision means for one (a held navigation,
 //! a hand-off, a download) is queued as an event like the rest.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use lazydamage::{IRect, Pending, Plan};
@@ -22,6 +22,8 @@ pub struct ViewRules {
     pub blocking: bool,
     /// Where downloads go, when the view may download.
     pub downloads: Option<Arc<Saver>>,
+    /// The client wants `NewWindowRequested`; without, a page's `window.open` is not even queued.
+    pub popups: bool,
 }
 
 /// A profile's content-blocking switch and the hosts it is off for (`SetBlocking`).
@@ -44,10 +46,13 @@ struct Entry {
     rules: ViewRules,
     /// When real input last reached the view (the service's clock, ms); 0: never.
     last_input_ms: u64,
-    /// The next main-frame navigation goes without the blocker (`Reload(bypass_blocking)`).
-    bypass_blocking: bool,
+    /// The next main-frame navigation to this address goes without the blocker
+    /// (`Reload(bypass_blocking)` of the page on show); any other navigation forgets it.
+    bypass_blocking: Option<String>,
     /// What changed since the last paint, for a view with deltas (`webd_paint_*`).
     paint: Option<Pending>,
+    /// The view's downloads under way (the engine's ids): their `.part` files go with the view.
+    downloads: BTreeSet<u64>,
 }
 
 /// The paint plan as the C ABI hands it out.
@@ -79,14 +84,31 @@ impl Table {
             Entry {
                 rules,
                 last_input_ms: 0,
-                bypass_blocking: false,
+                bypass_blocking: None,
+                downloads: BTreeSet::new(),
                 paint: None,
             },
         );
     }
 
+    /// Whether `view` wants new-window requests.
+    pub fn popups(&self, view: u64) -> bool {
+        self.views
+            .get(&view)
+            .is_some_and(|entry| entry.rules.popups)
+    }
+
+    /// The view is gone: its rules go, and the `.part` file of every download it had under way is
+    /// removed (the engine cancels them, and tells nobody once the view is forgotten).
     pub fn unregister(&mut self, view: u64) {
-        self.views.remove(&view);
+        let Some(entry) = self.views.remove(&view) else {
+            return;
+        };
+        if let Some(saver) = entry.rules.downloads {
+            for download in entry.downloads {
+                let _ = saver.finish(download_key(view, download), false);
+            }
+        }
     }
 
     pub fn input(&mut self, view: u64, now_ms: u64) {
@@ -95,9 +117,10 @@ impl Table {
         }
     }
 
-    pub fn bypass_blocking(&mut self, view: u64) {
+    /// The reload of `url` (the page on show) goes once without the blocker.
+    pub fn bypass_blocking(&mut self, view: u64, url: &str) {
         if let Some(entry) = self.views.get_mut(&view) {
-            entry.bypass_blocking = true;
+            entry.bypass_blocking = Some(url.to_owned());
         }
     }
 
@@ -136,7 +159,13 @@ impl Table {
         if !entry.rules.blocking {
             return false;
         }
-        if std::mem::take(&mut entry.bypass_blocking) {
+        // Used up by the next main-frame decision, which is the reload's unless the page navigated
+        // first: then it is forgotten, never applied to another address.
+        if entry
+            .bypass_blocking
+            .take()
+            .is_some_and(|wanted| wanted == url)
+        {
             return false;
         }
         let settings = self
@@ -157,9 +186,21 @@ impl Table {
     }
 
     /// A destination for a download the engine starts, or `None` to refuse it.
-    pub fn download(&self, view: u64, download: u64, suggested: &str) -> Option<Destination> {
-        let saver = self.views.get(&view)?.rules.downloads.clone()?;
-        saver.reserve(download_key(view, download), suggested).ok()
+    pub fn download(&mut self, view: u64, download: u64, suggested: &str) -> Option<Destination> {
+        let entry = self.views.get_mut(&view)?;
+        let saver = entry.rules.downloads.clone()?;
+        let destination = saver
+            .reserve(download_key(view, download), suggested)
+            .ok()?;
+        entry.downloads.insert(download);
+        Some(destination)
+    }
+
+    /// A download ended (its file finished or removed by the caller).
+    pub fn download_ended(&mut self, view: u64, download: u64) {
+        if let Some(entry) = self.views.get_mut(&view) {
+            entry.downloads.remove(&download);
+        }
     }
 
     /// The saver of a view's downloads (to finish one).
@@ -257,6 +298,7 @@ mod tests {
             profile: Profile::Browser { ephemeral: false },
             blocking,
             downloads: None,
+            popups: false,
         }
     }
 
@@ -298,9 +340,13 @@ mod tests {
             !table.blocking(2, "http://ads.example/"),
             "the view did not ask for it"
         );
-        table.bypass_blocking(1);
+        table.bypass_blocking(1, "http://ads.example/");
         assert!(!table.blocking(1, "http://ads.example/"));
         assert!(table.blocking(1, "http://ads.example/"), "once");
+        // A navigation elsewhere before the reload uses it up without applying it.
+        table.bypass_blocking(1, "http://ads.example/");
+        assert!(table.blocking(1, "http://other.example/"));
+        assert!(table.blocking(1, "http://ads.example/"));
         let profile = Profile::Browser { ephemeral: false };
         table.set_blocking(
             profile.clone(),

@@ -30,6 +30,8 @@ pub struct FullView {
     pub dialogs: VecDeque<u64>,
     /// Notifications of this view on screen: toast id to the engine's notification id.
     pub toasts: BTreeMap<u64, u64>,
+    /// The page on screen as the engine last said (what `Reload(bypass_blocking)` reloads).
+    pub committed: String,
 }
 
 impl FullView {
@@ -39,6 +41,7 @@ impl FullView {
             held: BTreeMap::new(),
             dialogs: VecDeque::new(),
             toasts: BTreeMap::new(),
+            committed: String::new(),
         }
     }
 }

@@ -13,6 +13,9 @@ pub enum ToastNews {
     Clicked { toast: u64 },
     /// Toast `toast` went away (dismissed, timed out, replaced).
     Closed { toast: u64 },
+    /// The line the news came on is gone (the shell restarted): no toast shown so far will be
+    /// reported again, so the service forgets them all.
+    Lost,
 }
 
 /// The system around webd. Every method answers at once; the defaults refuse, for a service
@@ -23,7 +26,8 @@ pub trait Outside {
         false
     }
 
-    /// Show a toast; its id, or `None` when the shell would not.
+    /// Show a toast; its id, or `None` when the shell would not (or its news could not be heard: a
+    /// toast whose click and close never come back would hold a view's toast count for good).
     fn toast(&self, _title: &str, _body: &str) -> Option<u64> {
         None
     }

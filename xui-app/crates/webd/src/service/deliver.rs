@@ -85,6 +85,9 @@ fn state_text(value: &str) -> String {
 impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn deliver_pages(&mut self, pages: BTreeMap<u64, PageNow>) {
         for (id, page) in pages {
+            if let Some(full) = self.full_of(id) {
+                full.committed.clone_from(&page.committed_url);
+            }
             let body = wire::encode_state_args(&wire::StateArgs {
                 view: id,
                 title: state_text(&page.title),
@@ -367,7 +370,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// (refused at once). The pump refuses it when [`HOLD_MS`] pass without an answer.
     fn held(&mut self, view: u64, request: u64, url: String, kind: i32, gesture: bool) {
         let deadline_ms = self.now_ms.saturating_add(HOLD_MS);
-        let loadable = Self::loadable(&url);
+        let loadable = self
+            .full_of(view)
+            .is_some_and(|full| full.rules.policy.may_load_when_asked(&url));
         let alive = self.views.any_mut(view).is_some_and(|v| v.lost.is_none());
         let kept = alive
             && self.full_of(view).is_some_and(|full| {

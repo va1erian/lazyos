@@ -242,6 +242,7 @@ pub unsafe extern "C" fn webd_ui_band(
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_hover(view: u64, url: *const c_char) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.hover(view, &unsafe { text(url) });
     }
 }
@@ -258,6 +259,7 @@ pub extern "C" fn webd_ui_cursor(view: u64, shape: c_int) {
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_new_window(view: u64, url: *const c_char, gesture: c_int) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.new_window(view, &unsafe { text(url) }, gesture != 0);
     }
 }
@@ -280,6 +282,7 @@ pub unsafe extern "C" fn webd_ui_dialog(
     default: *const c_char,
 ) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         let (message, default) = unsafe { (text(message), text(default)) };
         sink.dialog(view, dialog, kind, &message, &default);
     }
@@ -302,6 +305,7 @@ pub unsafe extern "C" fn webd_ui_download_start(
     let (Some(sink), false) = (sink(), path.is_null()) else {
         return 1;
     };
+    // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
     let (url, suggested) = unsafe { (text(url), text(suggested)) };
     let Some(part) = sink.download_start(view, download, &url, &suggested, total) else {
         return 1;
@@ -337,6 +341,7 @@ pub extern "C" fn webd_ui_download_done(view: u64, download: u64) {
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_download_fail(view: u64, download: u64, reason: *const c_char) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.download_fail(view, download, &unsafe { text(reason) });
     }
 }
@@ -358,6 +363,7 @@ pub unsafe extern "C" fn webd_ui_navigate(
     let Some(sink) = sink() else {
         return 1;
     };
+    // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
     let url = unsafe { text(url) };
     sink.navigate(view, request, &url, kind, gesture != 0, main_frame != 0) as c_int
 }
@@ -375,6 +381,7 @@ pub unsafe extern "C" fn webd_ui_notify_show(
     _tag: *const c_char,
 ) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         let (origin, title, body) = unsafe { (text(origin), text(title), text(body)) };
         sink.notify_show(view, id, &origin, &title, &body);
     }
@@ -399,6 +406,7 @@ pub extern "C" fn webd_ui_notify_gone(view: u64, id: u64) {
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_notify_permission_request(view: u64, origin: *const c_char) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.notify_permission_request(view, &unsafe { text(origin) });
     }
 }
@@ -408,6 +416,7 @@ pub unsafe extern "C" fn webd_ui_notify_permission_request(view: u64, origin: *c
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_notify_permission_gone(view: u64, origin: *const c_char) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.notify_permission_gone(view, &unsafe { text(origin) });
     }
 }
@@ -421,6 +430,7 @@ pub unsafe extern "C" fn webd_ui_blocking(view: u64, url: *const c_char) -> c_in
     let Some(sink) = sink() else {
         return 1;
     };
+    // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
     c_int::from(sink.blocking(view, &unsafe { text(url) }))
 }
 
@@ -429,6 +439,7 @@ pub unsafe extern "C" fn webd_ui_blocking(view: u64, url: *const c_char) -> c_in
 #[no_mangle]
 pub unsafe extern "C" fn webd_ui_blocking_list(view: u64, list: *const c_char, status: c_int) {
     if let Some(sink) = sink() {
+        // SAFETY: the engine passes NULL or NUL-terminated strings valid for the call (webd_abi.h), which this copies before returning.
         sink.blocking_list(view, &unsafe { text(list) }, status);
     }
 }

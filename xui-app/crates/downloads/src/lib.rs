@@ -13,6 +13,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+/// The person's downloads folder below `$HOME` (LazyWeb+'s and webd's).
+pub const FOLDER: &str = "Downloads";
+
 /// The longest file name kept, in bytes.
 const MAX_NAME: usize = 120;
 

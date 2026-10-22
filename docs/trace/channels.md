@@ -122,7 +122,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `VIDEO` | `Video` | `video` | xui-app | sessions | programs |
 | `VOLUME` | `Volume` | `volume` | xui-app | sessions, tools/shutdown, tools/tray | programs |
 | `WEBD` | `Webd` | `webd` | xui-app | sessions, tools/docs, tools/mail, tools/webd | programs |
-| `WEBDBROWSE` | `Webdbrowse` | `webdbrowse` | xui-app | sessions | programs |
+| `WEBDBROWSE` | `Webdbrowse` | `webdbrowse` | xui-app | sessions, tools/webd | programs |
 | `WEBDDEMO` | `Webddemo` | `webddemo` | xui-app | sessions, tools/webd | programs |
 | `WEBKIT` | `Webkit` | `webkit` | - | tools/webkit | programs |
 | `WEBPLUS` | `Webplus` | `webplus` | xui-app | sessions, tools/webplus | programs |

@@ -17,7 +17,6 @@ use crate::limits::{
     EVENT_TEXT_BYTES, EXCEPTIONS_MAX, EXCEPTION_BYTES_MAX, LIST_NAME_BYTES_MAX, RULES_BYTES_MAX,
     URL_BYTES_MAX,
 };
-use crate::policy::kind;
 
 const NOT_GIVEN: Refusal = Refusal::new(errno::EACCES, "the view was not made with that");
 
@@ -84,7 +83,10 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 let args = wire::decode_reload_args(body).map_err(bad)?;
                 let blocking = self.rules_of(client, args.view)?.blocking;
                 if args.bypass_blocking && blocking {
-                    self.queue.rules().bypass_blocking(args.view);
+                    let page = self.full_of(args.view).map(|full| full.committed.clone());
+                    self.queue
+                        .rules()
+                        .bypass_blocking(args.view, &page.unwrap_or_default());
                 }
                 self.engine.reload(args.view);
             }
@@ -210,11 +212,5 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             _ => return Err(Refusal::new(errno::ENOTSUP, "unknown method")),
         }
         Ok(Vec::new())
-    }
-
-    /// Whether a held navigation of `url` would load if the client said yes (a network address the
-    /// engine can load; another scheme is the client's to open).
-    pub(super) fn loadable(url: &str) -> bool {
-        kind(url) == crate::policy::Kind::Network
     }
 }

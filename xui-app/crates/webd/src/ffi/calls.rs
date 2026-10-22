@@ -56,60 +56,75 @@ pub unsafe fn start_host(children: &Path) -> Result<(), i32> {
 }
 
 // The calls: each copies its arguments (the engine only queues work) and returns.
-// SAFETY (every block below): the strings live across the call and the engine copies them.
 
 pub fn load(view: u64, url: &str) {
     let url = c_string(url);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_load(view, url.as_ptr()) }
 }
 pub fn reload(view: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_reload(view) }
 }
 pub fn stop(view: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_stop(view) }
 }
 pub fn back(view: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_back(view) }
 }
 pub fn forward(view: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_forward(view) }
 }
 pub fn download(view: u64, url: &str) {
     let url = c_string(url);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_download(view, url.as_ptr()) }
 }
 pub fn download_cancel(view: u64, download: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_download_cancel(view, download) }
 }
 pub fn dialog_reply(view: u64, dialog: u64, accepted: bool, value: &str) {
     let value = c_string(value);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_dialog_reply(view, dialog, c_int::from(accepted), value.as_ptr()) }
 }
 pub fn navigation_answer(view: u64, request: u64, allow: bool) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_navigation_answer(view, request, c_int::from(allow)) }
 }
 pub fn notify_shown(id: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_notify_shown(id) }
 }
 pub fn notify_clicked(id: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_notify_clicked(id) }
 }
 pub fn notify_closed(id: u64) {
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_notify_closed(id) }
 }
 pub fn notify_permission(view: u64, origin: &str, answer: i32) {
     let origin = c_string(origin);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_notify_permission(view, origin.as_ptr(), answer) }
 }
 pub fn blocking_load(view: u64, list: &str) {
     let list = c_string(list);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_blocking_load(view, list.as_ptr()) }
 }
 pub fn blocking_compile(view: u64, list: &str, json: &[u8]) {
     let list = c_string(list);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_blocking_compile(view, list.as_ptr(), json.as_ptr().cast(), json.len()) }
 }
 pub fn blocking_forget(view: u64, list: &str) {
     let list = c_string(list);
+    // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_blocking_forget(view, list.as_ptr()) }
 }

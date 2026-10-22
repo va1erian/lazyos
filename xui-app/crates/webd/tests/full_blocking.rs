@@ -53,22 +53,18 @@ fn blocking_is_on_by_default_and_follows_the_switch_and_the_exceptions() {
     ] {
         assert_eq!(fx.queue.blocking(view, url), blocks, "{url}");
     }
-    // The settings are the profile's: another view of it sees them, a private window does not.
+    // The settings are the profile's: another view of it sees them.
     let (same, _) = fx.view(app, Via::Browser, blocker(), 4, 4);
     assert!(!fx.queue.blocking(same, "http://example.com/"));
+    assert!(fx.queue.blocking(same, "http://example.com.evil.test/"));
+    // A private window has no folder for the rule lists: blocking is refused at CreateView.
     let private = wire::ViewConfig {
         ephemeral: true,
         ..blocker()
     };
-    let (alone, _) = fx.view(origin(8), Via::Browser, private, 4, 4);
-    assert!(fx.queue.blocking(alone, "http://example.com/"));
-    fx.set_blocking(origin(8), alone, false, &[]).unwrap();
-    assert!(!fx.queue.blocking(alone, ADS));
-    assert!(
-        !fx.queue.blocking(same, "http://example.com/"),
-        "unchanged by the other profile"
-    );
-    assert!(fx.queue.blocking(same, "http://example.com.evil.test/"));
+    assert!(fx
+        .create_view(origin(8), Via::Browser, private, 4, 4)
+        .is_err());
 }
 
 #[test]
@@ -122,6 +118,15 @@ fn a_reload_can_bypass_the_blocker_once() {
         fx.queue.blocking(view, ADS),
         "an ordinary reload keeps the blocker"
     );
+    // The bypass is for the page on show (its reload), as the engine last said it.
+    fx.queue.page_state(
+        view,
+        xui_webd::events::PageNow {
+            committed_url: ADS.into(),
+            ..Default::default()
+        },
+    );
+    fx.pump(0);
     fx.reload(app, view, true).unwrap();
     assert!(!fx.queue.blocking(view, ADS), "the bypassed load");
     assert!(fx.queue.blocking(view, ADS), "once");

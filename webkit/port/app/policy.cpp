@@ -181,6 +181,9 @@ void cancelDone(WKDataRef, const void* context)
 
 void cancel(int view, uint64_t id, WKDownloadRef download)
 {
+    // The completion below frees the bookkeeping the client's callbacks point at: they are taken off
+    // first, so a late callback (a write or a failure WebKit delivers after the cancel) finds none.
+    WKDownloadSetClient(download, nullptr);
     WKDownloadCancel(download, new std::pair<int, uint64_t>(view, id), cancelDone);
 }
 

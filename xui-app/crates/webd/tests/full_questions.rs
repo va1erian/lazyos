@@ -125,8 +125,10 @@ fn a_yes_loads_only_a_network_address_the_engine_can_load() {
             Verdict::Ask,
             "{url}"
         );
+        // One turn each: within a turn only a view's newest held navigation is asked about (the
+        // engine refuses an older one when it holds a newer).
+        fx.pump(0);
     }
-    fx.pump(0);
     for request in 1..=4 {
         fx.nav_answer(app, view, request, true).unwrap();
     }
@@ -193,6 +195,7 @@ fn a_view_holds_eight_questions_and_refuses_the_rest_at_once() {
             fx.queue.navigate(view, request, &url, LINK, true, true),
             Verdict::Ask
         );
+        fx.pump(0);
     }
     fx.queue
         .navigate(other, 100, "http://elsewhere.test/", LINK, true, true);

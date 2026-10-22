@@ -23,15 +23,24 @@ use crate::fabric::{errno, Fabric};
 use crate::fullconfig::{self, Profile, Scope};
 use crate::ident::ClientKey;
 use crate::limits::{VIEWS_PER_CLIENT, WEB_PROCESSES_PER_USER};
+use crate::policy::Schemes;
 use crate::view::{FullView, View};
 
 impl<E: Engine, F: Fabric> Service<E, F> {
-    /// The web processes `uid`'s full views hold: one per (client, profile).
-    fn web_processes(&self, uid: u32) -> BTreeSet<(ClientKey, Profile)> {
+    /// The web processes `uid`'s full views hold: one per (client, profile, network lock): the engine
+    /// groups a view with the network lock only with views that have it too.
+    fn web_processes(&self, uid: u32) -> BTreeSet<(ClientKey, Profile, bool)> {
         self.views
             .iter()
             .filter(|(_, view)| view.owner.uid == uid && view.lost.is_none())
-            .filter_map(|(_, view)| Some((view.owner, view.full.as_ref()?.rules.profile.clone())))
+            .filter_map(|(_, view)| {
+                let rules = &view.full.as_ref()?.rules;
+                Some((
+                    view.owner,
+                    rules.profile.clone(),
+                    rules.policy.schemes == Schemes::DataOnly,
+                ))
+            })
             .collect()
     }
 
@@ -57,30 +66,35 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if self.views.count_of(client) >= VIEWS_PER_CLIENT {
             return Err(Refusal::new(errno::ENOSPC, "too many views"));
         }
-        let group = self
-            .groups
-            .group_of(client)
-            .ok_or(Refusal::new(errno::ENOSPC, "no web process group left"))?;
-        let setup = fullconfig::setup(
+        // Checked before a group number is taken: a refused call from an unlabelled task must not
+        // leave one behind.
+        let mut setup = fullconfig::setup(
             &args.config,
             scope,
             args.width,
             args.height,
-            group,
+            0,
             &self.places,
         )?;
         let mut processes = self.web_processes(client.uid);
-        if processes.insert((client, setup.rules.profile.clone()))
+        let no_network = setup.rules.policy.schemes == Schemes::DataOnly;
+        if processes.insert((client, setup.rules.profile.clone(), no_network))
             && processes.len() > WEB_PROCESSES_PER_USER
         {
             return Err(Refusal::new(errno::EDQUOT, "too many web processes"));
         }
+        let group = self
+            .groups
+            .group_of(client)
+            .ok_or(Refusal::new(errno::ENOSPC, "no web process group left"))?;
+        setup.engine.group = group;
         let downloads = setup.rules.downloads.clone().map(|dir| self.saver(&dir));
         let engine_rules = ViewRules {
             policy: setup.rules.policy.clone(),
             profile: setup.rules.profile.clone(),
             blocking: setup.rules.blocking,
             downloads,
+            popups: setup.rules.popups,
         };
         let deltas = setup.rules.deltas;
         let mut view = View::new(client, args.events, args.width, args.height);

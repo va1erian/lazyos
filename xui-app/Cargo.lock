@@ -6100,6 +6100,7 @@ name = "xui-webd-host"
 version = "0.1.0"
 dependencies = [
  "fhs",
+ "lazydownloads",
  "lazyos-sys",
  "libc",
  "libmessenger",

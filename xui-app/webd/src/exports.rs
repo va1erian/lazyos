@@ -32,7 +32,7 @@ pub fn places() -> xui_webd::fullconfig::Places {
         profiles: PROFILES
             .get()
             .map(|dir| PathBuf::from(dir.to_string_lossy().into_owned())),
-        downloads: home.map(|home| PathBuf::from(format!("{home}/{DOWNLOADS}"))),
+        downloads: home.map(|home| PathBuf::from(format!("{home}/{}", lazydownloads::FOLDER))),
     }
 }
 
@@ -68,9 +68,6 @@ fn user_memory() -> Option<(u64, u64)> {
 
 /// The package's `system_name`: the engine's data lives in `$HOME/.apps/os.lazy.webd`.
 const SYSTEM_NAME: &str = "os.lazy.webd";
-
-/// The person's downloads folder below `$HOME`, as LazyWeb+ has it (`xui_webplus::DOWNLOADS_DIR`).
-const DOWNLOADS: &str = "Downloads";
 
 /// Point the engine at a folder for its network-lock rule store (`LAZYOS_WEBD_RULES_DIR`,
 /// `webkit/port/app/light.cpp`): the one thing a light view makes it write. Inside the app's own

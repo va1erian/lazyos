@@ -163,6 +163,12 @@ impl Policy {
         }
     }
 
+    /// Whether a held navigation of `url` loads if the client says yes: a network address, in a view
+    /// that has the network. Any other scheme is the client's to open itself; the engine is told no.
+    pub fn may_load_when_asked(&self, url: &str) -> bool {
+        kind(url) == Kind::Network && self.schemes != Schemes::DataOnly
+    }
+
     /// The verdict for a navigation the engine is about to start. `recent_input`: real input reached
     /// the view within [`INPUT_LOCK_MS`].
     pub fn decide(
@@ -176,8 +182,10 @@ impl Policy {
             Kind::Local => Verdict::Allow,
             Kind::Network if self.network_allowed(url) => Verdict::Allow,
             Kind::Never => Verdict::Deny,
-            // A network address the policy does not cover: only `Ask` can let it through, and only
-            // for the page itself.
+            // A view without the network scope never loads one, whatever its client would answer.
+            Kind::Network if self.schemes == Schemes::DataOnly => Verdict::Deny,
+            // A network address an `Origins` policy does not list: only `Ask` can let it through, and
+            // only for the page itself.
             Kind::Network => match self.handoff {
                 Handoff::Ask if main_frame => Verdict::Ask,
                 _ => Verdict::Deny,
@@ -282,6 +290,19 @@ mod tests {
         );
         assert!(listed.client_may_load("https://example.com/x"));
         assert!(!listed.client_may_load("http://example.com/x"));
+    }
+
+    #[test]
+    fn a_view_without_the_network_never_asks_about_a_network_address() {
+        let p = policy(Schemes::DataOnly, Handoff::Ask);
+        assert_eq!(
+            p.decide("http://elsewhere/", true, true, true),
+            Verdict::Deny
+        );
+        assert_eq!(p.decide("mailto:a@b", true, true, true), Verdict::Ask);
+        assert!(!p.may_load_when_asked("http://elsewhere/"));
+        assert!(policy(Schemes::Origins, Handoff::Ask).may_load_when_asked("http://elsewhere/"));
+        assert!(!policy(Schemes::Origins, Handoff::Ask).may_load_when_asked("mailto:a@b"));
     }
 
     #[test]

@@ -24,9 +24,10 @@ impl Outside for System {
 
     fn toast(&self, title: &str, body: &str) -> Option<u64> {
         if self.listener.borrow().is_none() {
-            // Without the listener a click would reach nobody; the toast is still worth showing.
             *self.listener.borrow_mut() = notify::listen().ok();
         }
+        // Without the listener webd would never hear the toast go: not shown at all.
+        self.listener.borrow().as_ref()?;
         notify::post(&Notice::new(Level::Info, title, body)).ok()
     }
 
@@ -49,10 +50,10 @@ impl Outside for System {
                     Event::Closed { id, .. } => Some(ToastNews::Closed { toast: id }),
                 })
                 .collect(),
-            // The shell restarted: listen again at the next toast.
+            // The shell restarted: listen again at the next toast; the toasts of before are gone.
             Err(_) => {
                 *slot = None;
-                Vec::new()
+                vec![ToastNews::Lost]
             }
         }
     }

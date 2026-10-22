@@ -10,6 +10,7 @@ use super::{claim, Note, Service};
 use crate::config::{self, Refusal};
 use crate::engine::Engine;
 use crate::fabric::{errno, Fabric};
+use crate::fullconfig::Profile;
 use crate::ident::ClientKey;
 use crate::limits::{
     BAND_ROWS_MAX, HTML_BYTES_MAX, SLOTS_PER_VIEW, SLOTS_WITH_BANDS, SLOT_BYTES_PER_CLIENT,
@@ -232,9 +233,14 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 } else {
                     args.base_url.as_str()
                 };
+                // The client's own markup at a site's address in the person's browsing profile would run
+                // as that site with its cookies and storage: only the app's own profile may do it.
+                let shared = matches!(full_view.rules.profile, Profile::Browser { .. });
+                let network = crate::policy::kind(base) == crate::policy::Kind::Network;
                 if base.len() > URL_BYTES_MAX
                     || !config::c_string_safe(base)
                     || !full_view.rules.policy.client_may_load(base)
+                    || (shared && network)
                 {
                     return Err(Refusal::new(
                         errno::EACCES,

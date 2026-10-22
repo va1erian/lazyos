@@ -103,6 +103,9 @@ impl EventQueue {
     }
 
     pub fn new_window(&self, view: u64, url: &str, gesture: bool) {
+        if !self.rules().popups(view) {
+            return;
+        }
         self.push_once(Once::NewWindow {
             view,
             url: kept(url),
@@ -212,6 +215,7 @@ impl EventQueue {
             .destination(key)
             .and_then(|d| d.path.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_default();
+        self.rules().download_ended(view, download);
         match saver.finish(key, true) {
             Ok(()) => self.push_once(Once::DownloadDone {
                 view,
@@ -231,6 +235,7 @@ impl EventQueue {
         if let Some(saver) = self.rules().saver(view) {
             let _ = saver.finish(download_key(view, download), false);
         }
+        self.rules().download_ended(view, download);
         self.push_once(Once::DownloadFailed {
             view,
             download,

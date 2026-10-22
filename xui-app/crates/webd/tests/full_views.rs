@@ -291,7 +291,8 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
         }
     );
 
-    // A private window: the folder is named (it holds the rule store) but the page's data is memory.
+    // A private window: no folder (a memory store keyed by it would be every client's), its data in
+    // memory and its group's own.
     let private = wire::ViewConfig {
         ephemeral: true,
         ..browser()
@@ -303,10 +304,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
     let full = config.full.unwrap();
     assert!(full.memory_only);
     assert_eq!(full.features, FEATURE_POLICY | FEATURE_PAGE_UI);
-    assert_eq!(
-        Path::new(&full.profile),
-        Path::new("/webd-test/profiles/browser")
-    );
+    assert_eq!(full.profile, "");
 
     // No network at all, and the app's own profile: no folder, memory, the lock on.
     fx.view(origin(8), Via::View, data_only(), 64, 64);

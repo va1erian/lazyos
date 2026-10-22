@@ -183,6 +183,12 @@ pub fn setup(
     if (config.downloads || config.blocking) && !browser {
         return Err(invalid("downloads and blocking need the browser profile"));
     }
+    // The rule lists live in the profile's folder, which a private window does not have.
+    if config.blocking && !profile.persistent() {
+        return Err(invalid(
+            "content blocking needs the browser profile kept on disk",
+        ));
+    }
     // A view with no network carries the light views' lock list, which the blocker's lists would
     // replace at a navigation (the engine refuses the two together); a view with no network has
     // nothing to block anyway.
@@ -199,7 +205,9 @@ pub fn setup(
     if suffix.len() > USER_AGENT_SUFFIX_MAX || !suffix.bytes().all(|b| (0x20..0x7f).contains(&b)) {
         return Err(invalid("user agent suffix is not short printable ASCII"));
     }
-    let directory = if browser {
+    // A private window's store is in memory and its group's own: given the profile's folder, the engine
+    // would key one memory store by it and keep it for every client's private windows for the session.
+    let directory = if profile.persistent() {
         let dir = places
             .browser()
             .ok_or(Refusal::new(ENOTSUP, "webd has no profile folder"))?;

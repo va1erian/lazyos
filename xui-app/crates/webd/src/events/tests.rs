@@ -1,6 +1,7 @@
 //! Tests of the queue between WebKit's thread and the service's.
 
 use super::*;
+use crate::limits::QUEUE_KEPT;
 
 #[test]
 fn a_newer_frame_replaces_the_one_not_yet_seen() {

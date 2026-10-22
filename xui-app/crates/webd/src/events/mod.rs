@@ -4,7 +4,8 @@
 //! What describes the present is kept as the latest per view (a page's state, its scroll position,
 //! its newest frame): the service has no use for a frame it was too slow to see, and holding a queue
 //! of frames is exactly what a slow client must not cause. What happened once (a link click, a copy,
-//! the loss of a view, a marker line) is kept in order, up to [`QUEUE_KEPT`], oldest dropped first.
+//! the loss of a view, a marker line) is kept in order, up to [`QUEUE_KEPT`](crate::limits::QUEUE_KEPT),
+//! the oldest that nobody waits for dropped first (`once.rs`).
 //! The service thread calls [`EventQueue::drain`] when the optional wake-up has told it to.
 //!
 //! Full views (P2 slice 3) add: their page state ([`PageNow`]), the pictures of a view with deltas
@@ -13,6 +14,7 @@
 //! the engine's thread makes on the spot from the rules the service registered (`rules`).
 
 mod full;
+mod once;
 pub mod pictures;
 pub mod rules;
 
@@ -22,7 +24,7 @@ use std::time::Instant;
 
 use crate::config::clip;
 use crate::engine::EngineEvents;
-use crate::limits::{BANDS_KEPT, EVENT_TEXT_BYTES, QUEUE_KEPT};
+use crate::limits::{BANDS_KEPT, EVENT_TEXT_BYTES};
 use pictures::{Pictures, Update};
 use rules::Table;
 
@@ -241,7 +243,7 @@ type MemorySource = Box<dyn Fn() -> Option<(u64, u64)> + Send + Sync>;
 
 /// What the queue keeps of a text the page controls (a URL it clicked, what it copied, its title):
 /// at most [`EVENT_TEXT_BYTES`], cut at a character boundary *before* it is stored, because a page
-/// with scripts on can make tens of megabytes of it and [`QUEUE_KEPT`] of those would be gigabytes.
+/// with scripts on can make tens of megabytes of it and `QUEUE_KEPT` of those would be gigabytes.
 /// Nothing is sent longer than that anyway (`service/events.rs`).
 fn kept(text: &str) -> String {
     clip(text, EVENT_TEXT_BYTES).to_owned()
@@ -385,14 +387,7 @@ impl EventQueue {
     }
 
     fn push_once(&self, event: Once) {
-        {
-            let mut inner = self.lock();
-            if inner.once.len() >= QUEUE_KEPT {
-                inner.once.pop_front();
-                inner.dropped += 1;
-            }
-            inner.once.push_back(event);
-        }
+        self.lock().push(event);
         self.ring();
     }
 
