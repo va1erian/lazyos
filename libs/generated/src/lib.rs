@@ -21210,6 +21210,2722 @@ pub mod os_lazy_usb_audio_v1 {
     ];
 }
 
+/// `os.lazy.webd.view.v1` (interface id `0x4fe4e35a0bc7bd89`).
+#[rustfmt::skip]
+pub mod os_lazy_webd_view_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x4fe4e35a0bc7bd89;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.webd.view.v1";
+
+    /// `SchemePolicy::Web` wire value.
+    pub const SCHEME_POLICY_WEB: u32 = 0;
+    /// `SchemePolicy::DataOnly` wire value.
+    pub const SCHEME_POLICY_DATA_ONLY: u32 = 1;
+    /// `SchemePolicy::Origins` wire value.
+    pub const SCHEME_POLICY_ORIGINS: u32 = 2;
+
+    /// `Handoff::Deny` wire value.
+    pub const HANDOFF_DENY: u32 = 0;
+    /// `Handoff::Ask` wire value.
+    pub const HANDOFF_ASK: u32 = 1;
+    /// `Handoff::Browser` wire value.
+    pub const HANDOFF_BROWSER: u32 = 2;
+
+    /// `MouseKind::Move` wire value.
+    pub const MOUSE_KIND_MOVE: u32 = 0;
+    /// `MouseKind::Press` wire value.
+    pub const MOUSE_KIND_PRESS: u32 = 1;
+    /// `MouseKind::Release` wire value.
+    pub const MOUSE_KIND_RELEASE: u32 = 2;
+
+    /// `LostReason::Unknown` wire value.
+    pub const LOST_REASON_UNKNOWN: u32 = 0;
+    /// `LostReason::Refused` wire value.
+    pub const LOST_REASON_REFUSED: u32 = 1;
+    /// `LostReason::Crashed` wire value.
+    pub const LOST_REASON_CRASHED: u32 = 2;
+    /// `LostReason::OutOfMemory` wire value.
+    pub const LOST_REASON_OUT_OF_MEMORY: u32 = 3;
+    /// `LostReason::Other` wire value.
+    pub const LOST_REASON_OTHER: u32 = 4;
+
+    /// `CursorShape::Default` wire value.
+    pub const CURSOR_SHAPE_DEFAULT: u32 = 0;
+    /// `CursorShape::Hand` wire value.
+    pub const CURSOR_SHAPE_HAND: u32 = 1;
+    /// `CursorShape::Text` wire value.
+    pub const CURSOR_SHAPE_TEXT: u32 = 2;
+    /// `CursorShape::Wait` wire value.
+    pub const CURSOR_SHAPE_WAIT: u32 = 3;
+    /// `CursorShape::Hidden` wire value.
+    pub const CURSOR_SHAPE_HIDDEN: u32 = 4;
+    /// `CursorShape::ResizeH` wire value.
+    pub const CURSOR_SHAPE_RESIZE_H: u32 = 5;
+    /// `CursorShape::ResizeV` wire value.
+    pub const CURSOR_SHAPE_RESIZE_V: u32 = 6;
+    /// `CursorShape::ResizeNwse` wire value.
+    pub const CURSOR_SHAPE_RESIZE_NWSE: u32 = 7;
+    /// `CursorShape::ResizeNesw` wire value.
+    pub const CURSOR_SHAPE_RESIZE_NESW: u32 = 8;
+
+    /// `DialogKind::Alert` wire value.
+    pub const DIALOG_KIND_ALERT: u32 = 0;
+    /// `DialogKind::Confirm` wire value.
+    pub const DIALOG_KIND_CONFIRM: u32 = 1;
+    /// `DialogKind::Prompt` wire value.
+    pub const DIALOG_KIND_PROMPT: u32 = 2;
+
+    /// `NavigationKind::LinkClicked` wire value.
+    pub const NAVIGATION_KIND_LINK_CLICKED: u32 = 0;
+    /// `NavigationKind::FormSubmitted` wire value.
+    pub const NAVIGATION_KIND_FORM_SUBMITTED: u32 = 1;
+    /// `NavigationKind::BackForward` wire value.
+    pub const NAVIGATION_KIND_BACK_FORWARD: u32 = 2;
+    /// `NavigationKind::Reload` wire value.
+    pub const NAVIGATION_KIND_RELOAD: u32 = 3;
+    /// `NavigationKind::FormResubmitted` wire value.
+    pub const NAVIGATION_KIND_FORM_RESUBMITTED: u32 = 4;
+    /// `NavigationKind::Other` wire value.
+    pub const NAVIGATION_KIND_OTHER: u32 = 5;
+
+    /// `BlockingStatus::Ready` wire value.
+    pub const BLOCKING_STATUS_READY: u32 = 0;
+    /// `BlockingStatus::NotStored` wire value.
+    pub const BLOCKING_STATUS_NOT_STORED: u32 = 1;
+    /// `BlockingStatus::Stale` wire value.
+    pub const BLOCKING_STATUS_STALE: u32 = 2;
+    /// `BlockingStatus::CompileFailed` wire value.
+    pub const BLOCKING_STATUS_COMPILE_FAILED: u32 = 3;
+    /// `BlockingStatus::Unavailable` wire value.
+    pub const BLOCKING_STATUS_UNAVAILABLE: u32 = 4;
+
+    /// `PermissionAnswer::Block` wire value.
+    pub const PERMISSION_ANSWER_BLOCK: u32 = 0;
+    /// `PermissionAnswer::Allow` wire value.
+    pub const PERMISSION_ANSWER_ALLOW: u32 = 1;
+    /// `PermissionAnswer::Dismiss` wire value.
+    pub const PERMISSION_ANSWER_DISMISS: u32 = 2;
+
+    /// How a full view is made; fixed for its life.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ViewConfig {
+        pub profile: alloc::string::String,
+        pub ephemeral: bool,
+        pub scheme_policy: u32,
+        pub origins: alloc::vec::Vec<alloc::string::String>,
+        pub scripts: bool,
+        pub handoff: u32,
+        pub downloads: bool,
+        pub popups: bool,
+        pub blocking: bool,
+        pub notifications: bool,
+        pub user_agent_suffix: alloc::string::String,
+        pub deltas: bool,
+        pub dialogs: bool,
+    }
+
+    pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.profile)?;
+        target.bool(2, value.ephemeral)?;
+        target.u32(3, value.scheme_policy)?;
+        let mut nested = Encoder::new();
+        for item in &value.origins {
+            nested.string(1, item)?;
+        }
+        target.array(4, &nested)?;
+        target.bool(5, value.scripts)?;
+        target.u32(6, value.handoff)?;
+        target.bool(7, value.downloads)?;
+        target.bool(8, value.popups)?;
+        target.bool(9, value.blocking)?;
+        target.bool(10, value.notifications)?;
+        target.string(11, &value.user_agent_suffix)?;
+        target.bool(12, value.deltas)?;
+        target.bool(13, value.dialogs)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_view_config(body: &[u8]) -> Result<ViewConfig, Error> {
+        let mut out = ViewConfig::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.profile = field.as_str()?.into();
+                }
+                2 => {
+                    out.ephemeral = field.as_bool()?;
+                }
+                3 => {
+                    out.scheme_policy = field.as_u32()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.origins.push(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    out.scripts = field.as_bool()?;
+                }
+                6 => {
+                    out.handoff = field.as_u32()?;
+                }
+                7 => {
+                    out.downloads = field.as_bool()?;
+                }
+                8 => {
+                    out.popups = field.as_bool()?;
+                }
+                9 => {
+                    out.blocking = field.as_bool()?;
+                }
+                10 => {
+                    out.notifications = field.as_bool()?;
+                }
+                11 => {
+                    out.user_agent_suffix = field.as_str()?.into();
+                }
+                12 => {
+                    out.deltas = field.as_bool()?;
+                }
+                13 => {
+                    out.dialogs = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `""`: the app's own profile (in memory); `browser`: the shared
+    /// browsing profile (`os.lazy.webd.browser.v1`).
+    /// The profile's data stays in memory (a private window).
+    /// A `SchemePolicy`.
+    /// With `Origins`: the `scheme://host[:port]` the page may load.
+    /// JavaScript runs in the page.
+    /// A `Handoff`: what happens to a navigation the policy does not cover.
+    /// Responses the page cannot show become downloads.
+    /// `NewWindowRequested` events are sent.
+    /// Content blocking (the profile's rule lists).
+    /// The Notifications API.
+    /// Appended to the engine's user agent; at most 64 bytes.
+    /// Frames carry damage, scroll shifts and bands.
+    /// JavaScript dialogs reach the app (else they are dismissed).
+    /// A rectangle of the view, in pixels.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Rect {
+        pub x: i32,
+        pub y: i32,
+        pub width: i32,
+        pub height: i32,
+    }
+
+    pub fn encode_rect(value: &Rect) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.width)?;
+        target.i32(4, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_rect(body: &[u8]) -> Result<Rect, Error> {
+        let mut out = Rect::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.width = field.as_i32()?;
+                }
+                4 => {
+                    out.height = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The part of the picture that moved: the area and the offset.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Shift {
+        pub x: i32,
+        pub y: i32,
+        pub width: i32,
+        pub height: i32,
+        pub dx: i32,
+        pub dy: i32,
+    }
+
+    pub fn encode_shift(value: &Shift) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.i32(1, value.x)?;
+        target.i32(2, value.y)?;
+        target.i32(3, value.width)?;
+        target.i32(4, value.height)?;
+        target.i32(5, value.dx)?;
+        target.i32(6, value.dy)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_shift(body: &[u8]) -> Result<Shift, Error> {
+        let mut out = Shift::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.x = field.as_i32()?;
+                }
+                2 => {
+                    out.y = field.as_i32()?;
+                }
+                3 => {
+                    out.width = field.as_i32()?;
+                }
+                4 => {
+                    out.height = field.as_i32()?;
+                }
+                5 => {
+                    out.dx = field.as_i32()?;
+                }
+                6 => {
+                    out.dy = field.as_i32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `CreateView` method id.
+    pub const METHOD_CREATEVIEW: u32 = 1;
+    /// `DestroyView` method id.
+    pub const METHOD_DESTROYVIEW: u32 = 2;
+    /// `AttachSlot` method id.
+    pub const METHOD_ATTACHSLOT: u32 = 3;
+    /// `ReleaseSlot` method id.
+    pub const METHOD_RELEASESLOT: u32 = 4;
+    /// `Resize` method id.
+    pub const METHOD_RESIZE: u32 = 5;
+    /// `SetVisible` method id.
+    pub const METHOD_SETVISIBLE: u32 = 6;
+    /// `Refresh` method id.
+    pub const METHOD_REFRESH: u32 = 7;
+    /// `Load` method id.
+    pub const METHOD_LOAD: u32 = 10;
+    /// `LoadHtml` method id.
+    pub const METHOD_LOADHTML: u32 = 11;
+    /// `Reload` method id.
+    pub const METHOD_RELOAD: u32 = 12;
+    /// `Stop` method id.
+    pub const METHOD_STOP: u32 = 13;
+    /// `Back` method id.
+    pub const METHOD_BACK: u32 = 14;
+    /// `Forward` method id.
+    pub const METHOD_FORWARD: u32 = 15;
+    /// `Download` method id.
+    pub const METHOD_DOWNLOAD: u32 = 16;
+    /// `Mouse` method id.
+    pub const METHOD_MOUSE: u32 = 20;
+    /// `Wheel` method id.
+    pub const METHOD_WHEEL: u32 = 21;
+    /// `Key` method id.
+    pub const METHOD_KEY: u32 = 22;
+    /// `Focus` method id.
+    pub const METHOD_FOCUS: u32 = 23;
+    /// `DialogReply` method id.
+    pub const METHOD_DIALOGREPLY: u32 = 30;
+    /// `NavigationAnswer` method id.
+    pub const METHOD_NAVIGATIONANSWER: u32 = 31;
+    /// `NotifyPermission` method id.
+    pub const METHOD_NOTIFYPERMISSION: u32 = 32;
+    /// `DownloadCancel` method id.
+    pub const METHOD_DOWNLOADCANCEL: u32 = 33;
+    /// `SetBlocking` method id.
+    pub const METHOD_SETBLOCKING: u32 = 34;
+    /// `BlockingCompile` method id.
+    pub const METHOD_BLOCKINGCOMPILE: u32 = 35;
+    /// `BlockingLoad` method id.
+    pub const METHOD_BLOCKINGLOAD: u32 = 36;
+    /// `BlockingForget` method id.
+    pub const METHOD_BLOCKINGFORGET: u32 = 37;
+    /// `Frame` method id.
+    pub const METHOD_FRAME: u32 = 100;
+    /// `State` method id.
+    pub const METHOD_STATE: u32 = 101;
+    /// `Scroll` method id.
+    pub const METHOD_SCROLL: u32 = 102;
+    /// `LinkClicked` method id.
+    pub const METHOD_LINKCLICKED: u32 = 103;
+    /// `ClipboardWrite` method id.
+    pub const METHOD_CLIPBOARDWRITE: u32 = 104;
+    /// `ViewLost` method id.
+    pub const METHOD_VIEWLOST: u32 = 105;
+    /// `Ping` method id.
+    pub const METHOD_PING: u32 = 106;
+    /// `Band` method id.
+    pub const METHOD_BAND: u32 = 107;
+    /// `Hover` method id.
+    pub const METHOD_HOVER: u32 = 108;
+    /// `Cursor` method id.
+    pub const METHOD_CURSOR: u32 = 109;
+    /// `NewWindowRequested` method id.
+    pub const METHOD_NEWWINDOWREQUESTED: u32 = 110;
+    /// `NavigationRequested` method id.
+    pub const METHOD_NAVIGATIONREQUESTED: u32 = 111;
+    /// `Dialog` method id.
+    pub const METHOD_DIALOG: u32 = 112;
+    /// `DownloadStarted` method id.
+    pub const METHOD_DOWNLOADSTARTED: u32 = 113;
+    /// `DownloadProgress` method id.
+    pub const METHOD_DOWNLOADPROGRESS: u32 = 114;
+    /// `DownloadDone` method id.
+    pub const METHOD_DOWNLOADDONE: u32 = 115;
+    /// `DownloadFailed` method id.
+    pub const METHOD_DOWNLOADFAILED: u32 = 116;
+    /// `NotifyPermissionRequest` method id.
+    pub const METHOD_NOTIFYPERMISSIONREQUEST: u32 = 117;
+    /// `NotifyClicked` method id.
+    pub const METHOD_NOTIFYCLICKED: u32 = 118;
+    /// `BlockingList` method id.
+    pub const METHOD_BLOCKINGLIST: u32 = 119;
+    /// `Blocked` method id.
+    pub const METHOD_BLOCKED: u32 = 120;
+    /// `Responsive` method id.
+    pub const METHOD_RESPONSIVE: u32 = 121;
+    /// `HandedOff` method id.
+    pub const METHOD_HANDEDOFF: u32 = 122;
+
+    /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
+    /// interface the view has no network: `config.scheme_policy` must be
+    /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
+    /// and `downloads` and `blocking` false (`EACCES` otherwise).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewArgs {
+        pub config: ViewConfig,
+        pub width: u32,
+        pub height: u32,
+        pub events: u64,
+    }
+
+    /// The body and the object list of `CreateView`.
+    pub fn encode_create_view_args(value: &CreateViewArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.raw(Kind::Struct, 1, &encode_view_config(&value.config)?)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        target.channel(5, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `CreateView` from its body and the objects the kernel installed
+    /// (`CREATE_VIEW_OBJECTS`, each claimed by its field).
+    pub fn decode_create_view_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<CreateViewArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = CreateViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.config = decode_view_config(field.payload)?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                5 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewReply {
+        pub view: u64,
+    }
+
+    pub fn encode_create_view_reply(value: &CreateViewReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_view_reply(body: &[u8]) -> Result<CreateViewReply, Error> {
+        let mut out = CreateViewReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `CreateView` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.webd.view.v1` on.
+    pub const CREATE_VIEW_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// End the view; not an error for a view that is gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DestroyViewArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_destroy_view_args(value: &DestroyViewArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_destroy_view_args(body: &[u8]) -> Result<DestroyViewArgs, Error> {
+        let mut out = DestroyViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
+    /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
+    /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachSlotArgs {
+        pub view: u64,
+        pub slot: u32,
+        pub pixels: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `AttachSlot`.
+    pub fn encode_attach_slot_args(value: &AttachSlotArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        target.buffer(3, &value.pixels, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `AttachSlot` from its body and the objects the kernel installed
+    /// (`ATTACH_SLOT_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_slot_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachSlotArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.pixels = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `AttachSlot` request carries, in object-list order:
+    /// `pixels`, `objects[0]`, a shared buffer.
+    pub const ATTACH_SLOT_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// The app is done reading `slot`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReleaseSlotArgs {
+        pub view: u64,
+        pub slot: u32,
+    }
+
+    pub fn encode_release_slot_args(value: &ReleaseSlotArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_release_slot_args(body: &[u8]) -> Result<ReleaseSlotArgs, Error> {
+        let mut out = ReleaseSlotArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Change the view's size; every slot is detached.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResizeArgs {
+        pub view: u64,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_resize_args(value: &ResizeArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_resize_args(body: &[u8]) -> Result<ResizeArgs, Error> {
+        let mut out = ResizeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// A view that is not visible gets no paints.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetVisibleArgs {
+        pub view: u64,
+        pub visible: bool,
+    }
+
+    pub fn encode_set_visible_args(value: &SetVisibleArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.visible)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_visible_args(body: &[u8]) -> Result<SetVisibleArgs, Error> {
+        let mut out = SetVisibleArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.visible = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Ask for a whole frame.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RefreshArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_refresh_args(value: &RefreshArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_refresh_args(body: &[u8]) -> Result<RefreshArgs, Error> {
+        let mut out = RefreshArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Load `url` in the view: it must pass the view's scheme policy (`EACCES`
+    /// otherwise; `file:` never does), at most 8 KiB.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoadArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_load_args(value: &LoadArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_load_args(body: &[u8]) -> Result<LoadArgs, Error> {
+        let mut out = LoadArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Replace the page with `html` (UTF-8, at most 8 MiB) at `base_url`:
+    /// empty, `about:` or `data:`, or with a network scheme policy an `http:`
+    /// or `https:` address the policy allows (relative addresses resolve
+    /// against it). Never `file:`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LoadHtmlArgs {
+        pub view: u64,
+        pub html: libmessenger::Buffer,
+        pub base_url: alloc::string::String,
+    }
+
+    /// The body and the object list of `LoadHtml`.
+    pub fn encode_load_html_args(value: &LoadHtmlArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.view)?;
+        target.buffer(2, &value.html, objects)?;
+        target.string(3, &value.base_url)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `LoadHtml` from its body and the objects the kernel installed
+    /// (`LOAD_HTML_OBJECTS`, each claimed by its field).
+    pub fn decode_load_html_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<LoadHtmlArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = LoadHtmlArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.html = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.base_url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `LoadHtml` request carries, in object-list order:
+    /// `html`, `objects[0]`, a shared buffer.
+    pub const LOAD_HTML_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// Load the page again; `bypass_blocking` loads it once without the
+    /// content blocker.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ReloadArgs {
+        pub view: u64,
+        pub bypass_blocking: bool,
+    }
+
+    pub fn encode_reload_args(value: &ReloadArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.bypass_blocking)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_reload_args(body: &[u8]) -> Result<ReloadArgs, Error> {
+        let mut out = ReloadArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.bypass_blocking = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StopArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_stop_args(value: &StopArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stop_args(body: &[u8]) -> Result<StopArgs, Error> {
+        let mut out = StopArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BackArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_back_args(value: &BackArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_back_args(body: &[u8]) -> Result<BackArgs, Error> {
+        let mut out = BackArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ForwardArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_forward_args(value: &ForwardArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_forward_args(body: &[u8]) -> Result<ForwardArgs, Error> {
+        let mut out = ForwardArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Save `url` as a download (Save Page As): a view with `downloads` only.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_download_args(value: &DownloadArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_args(body: &[u8]) -> Result<DownloadArgs, Error> {
+        let mut out = DownloadArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Input, as on the light interface.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct MouseArgs {
+        pub view: u64,
+        pub kind: u32,
+        pub button: i32,
+        pub x: i32,
+        pub y: i32,
+        pub mods: u32,
+    }
+
+    pub fn encode_mouse_args(value: &MouseArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.kind)?;
+        target.i32(3, value.button)?;
+        target.i32(4, value.x)?;
+        target.i32(5, value.y)?;
+        target.u32(6, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_mouse_args(body: &[u8]) -> Result<MouseArgs, Error> {
+        let mut out = MouseArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.kind = field.as_u32()?;
+                }
+                3 => {
+                    out.button = field.as_i32()?;
+                }
+                4 => {
+                    out.x = field.as_i32()?;
+                }
+                5 => {
+                    out.y = field.as_i32()?;
+                }
+                6 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WheelArgs {
+        pub view: u64,
+        pub x: i32,
+        pub y: i32,
+        pub ticks_x: i32,
+        pub ticks_y: i32,
+        pub mods: u32,
+    }
+
+    pub fn encode_wheel_args(value: &WheelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.i32(4, value.ticks_x)?;
+        target.i32(5, value.ticks_y)?;
+        target.u32(6, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wheel_args(body: &[u8]) -> Result<WheelArgs, Error> {
+        let mut out = WheelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.ticks_x = field.as_i32()?;
+                }
+                5 => {
+                    out.ticks_y = field.as_i32()?;
+                }
+                6 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KeyArgs {
+        pub view: u64,
+        pub press: bool,
+        pub keysym: u32,
+        pub text: alloc::string::String,
+        pub mods: u32,
+    }
+
+    pub fn encode_key_args(value: &KeyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.press)?;
+        target.u32(3, value.keysym)?;
+        target.string(4, &value.text)?;
+        target.u32(5, value.mods)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_key_args(body: &[u8]) -> Result<KeyArgs, Error> {
+        let mut out = KeyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.press = field.as_bool()?;
+                }
+                3 => {
+                    out.keysym = field.as_u32()?;
+                }
+                4 => {
+                    out.text = field.as_str()?.into();
+                }
+                5 => {
+                    out.mods = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FocusArgs {
+        pub view: u64,
+        pub focused: bool,
+    }
+
+    pub fn encode_focus_args(value: &FocusArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.focused)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_focus_args(body: &[u8]) -> Result<FocusArgs, Error> {
+        let mut out = FocusArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.focused = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DialogReplyArgs {
+        pub view: u64,
+        pub dialog: u64,
+        pub accepted: bool,
+        pub value: alloc::string::String,
+    }
+
+    pub fn encode_dialog_reply_args(value: &DialogReplyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.dialog)?;
+        target.bool(3, value.accepted)?;
+        target.string(4, &value.value)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_dialog_reply_args(body: &[u8]) -> Result<DialogReplyArgs, Error> {
+        let mut out = DialogReplyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.dialog = field.as_u64()?;
+                }
+                3 => {
+                    out.accepted = field.as_bool()?;
+                }
+                4 => {
+                    out.value = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The answer to `NavigationRequested` `request`: `allow` loads it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavigationAnswerArgs {
+        pub view: u64,
+        pub request: u64,
+        pub allow: bool,
+    }
+
+    pub fn encode_navigation_answer_args(value: &NavigationAnswerArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.request)?;
+        target.bool(3, value.allow)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_navigation_answer_args(body: &[u8]) -> Result<NavigationAnswerArgs, Error> {
+        let mut out = NavigationAnswerArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.request = field.as_u64()?;
+                }
+                3 => {
+                    out.allow = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`):
+    /// kept for the view's profile while webd runs.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyPermissionArgs {
+        pub view: u64,
+        pub origin: alloc::string::String,
+        pub answer: u32,
+    }
+
+    pub fn encode_notify_permission_args(value: &NotifyPermissionArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.origin)?;
+        target.u32(3, value.answer)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_permission_args(body: &[u8]) -> Result<NotifyPermissionArgs, Error> {
+        let mut out = NotifyPermissionArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.origin = field.as_str()?.into();
+                }
+                3 => {
+                    out.answer = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stop download `download`; its `.part` file is removed.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadCancelArgs {
+        pub view: u64,
+        pub download: u64,
+    }
+
+    pub fn encode_download_cancel_args(value: &DownloadCancelArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.download)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_cancel_args(body: &[u8]) -> Result<DownloadCancelArgs, Error> {
+        let mut out = DownloadCancelArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.download = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Content blocking on or off for the view's profile, and the hosts it is
+    /// off for. A view made with `blocking` only.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetBlockingArgs {
+        pub view: u64,
+        pub enabled: bool,
+        pub exceptions: alloc::vec::Vec<alloc::string::String>,
+    }
+
+    pub fn encode_set_blocking_args(value: &SetBlockingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.enabled)?;
+        let mut nested = Encoder::new();
+        for item in &value.exceptions {
+            nested.string(1, item)?;
+        }
+        target.array(3, &nested)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_blocking_args(body: &[u8]) -> Result<SetBlockingArgs, Error> {
+        let mut out = SetBlockingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.enabled = field.as_bool()?;
+                }
+                3 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.exceptions.push(item.as_str()?.into());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Compile `rules` (a WebKit content rule list, JSON, at most 32 MiB) as
+    /// list `list` into the profile's store and attach it; the result comes as
+    /// `BlockingList`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BlockingCompileArgs {
+        pub view: u64,
+        pub list: alloc::string::String,
+        pub rules: libmessenger::Buffer,
+    }
+
+    /// The body and the object list of `BlockingCompile`.
+    pub fn encode_blocking_compile_args(value: &BlockingCompileArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.list)?;
+        target.buffer(3, &value.rules, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `BlockingCompile` from its body and the objects the kernel installed
+    /// (`BLOCKING_COMPILE_OBJECTS`, each claimed by its field).
+    pub fn decode_blocking_compile_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<BlockingCompileArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = BlockingCompileArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.list = field.as_str()?.into();
+                }
+                3 => {
+                    out.rules = field.claim_buffer(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `BlockingCompile` request carries, in object-list order:
+    /// `rules`, `objects[0]`, a shared buffer.
+    pub const BLOCKING_COMPILE_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer];
+
+    /// Attach list `list` from the profile's store (compiled earlier).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BlockingLoadArgs {
+        pub view: u64,
+        pub list: alloc::string::String,
+    }
+
+    pub fn encode_blocking_load_args(value: &BlockingLoadArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.list)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_blocking_load_args(body: &[u8]) -> Result<BlockingLoadArgs, Error> {
+        let mut out = BlockingLoadArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.list = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Detach list `list` and remove it from the store.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BlockingForgetArgs {
+        pub view: u64,
+        pub list: alloc::string::String,
+    }
+
+    pub fn encode_blocking_forget_args(value: &BlockingForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.list)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_blocking_forget_args(body: &[u8]) -> Result<BlockingForgetArgs, Error> {
+        let mut out = BlockingForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.list = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
+    /// Otherwise the app moves its picture by `shift` (when present) and then
+    /// copies `rects` from the slot. `offset_x`/`offset_y` is the page's scroll
+    /// offset these pixels were painted at; `at_bottom` when the page cannot
+    /// scroll further down from there.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct FrameArgs {
+        pub view: u64,
+        pub slot: u32,
+        pub seq: u64,
+        pub width: u32,
+        pub height: u32,
+        pub whole: bool,
+        pub shift: core::option::Option<Shift>,
+        pub rects: alloc::vec::Vec<Rect>,
+        pub offset_x: i32,
+        pub offset_y: i32,
+        pub at_bottom: bool,
+    }
+
+    pub fn encode_frame_args(value: &FrameArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        target.u64(3, value.seq)?;
+        target.u32(4, value.width)?;
+        target.u32(5, value.height)?;
+        target.bool(6, value.whole)?;
+        match &value.shift {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.raw(Kind::Struct, 1, &encode_shift(item)?)?;
+                target.option(7, Some(&nested))?;
+            }
+            None => {
+                target.option(7, None)?;
+            }
+        }
+        let mut nested = Encoder::new();
+        for item in &value.rects {
+            nested.raw(Kind::Struct, 1, &encode_rect(item)?)?;
+        }
+        target.array(8, &nested)?;
+        target.i32(9, value.offset_x)?;
+        target.i32(10, value.offset_y)?;
+        target.bool(11, value.at_bottom)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_frame_args(body: &[u8]) -> Result<FrameArgs, Error> {
+        let mut out = FrameArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.seq = field.as_u64()?;
+                }
+                4 => {
+                    out.width = field.as_u32()?;
+                }
+                5 => {
+                    out.height = field.as_u32()?;
+                }
+                6 => {
+                    out.whole = field.as_bool()?;
+                }
+                7 => {
+                    if field.payload.is_empty() {
+                        out.shift = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.shift = Some(decode_shift(item.payload)?);
+                    }
+                }
+                8 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.rects.push(decode_rect(item.payload)?);
+                    }
+                }
+                9 => {
+                    out.offset_x = field.as_i32()?;
+                }
+                10 => {
+                    out.offset_y = field.as_i32()?;
+                }
+                11 => {
+                    out.at_bottom = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: what the page says about itself. `url` is the address on show,
+    /// `committed_url` the page on screen; `progress` in thousandths;
+    /// `secure` when the committed page came over verified HTTPS. Texts are
+    /// cut at 48 KiB.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StateArgs {
+        pub view: u64,
+        pub title: alloc::string::String,
+        pub loading: bool,
+        pub finished: u32,
+        pub error: alloc::string::String,
+        pub url: alloc::string::String,
+        pub committed_url: alloc::string::String,
+        pub can_back: bool,
+        pub can_forward: bool,
+        pub progress: u32,
+        pub secure: bool,
+    }
+
+    pub fn encode_state_args(value: &StateArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.title)?;
+        target.bool(3, value.loading)?;
+        target.u32(4, value.finished)?;
+        target.string(5, &value.error)?;
+        target.string(6, &value.url)?;
+        target.string(7, &value.committed_url)?;
+        target.bool(8, value.can_back)?;
+        target.bool(9, value.can_forward)?;
+        target.u32(10, value.progress)?;
+        target.bool(11, value.secure)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_state_args(body: &[u8]) -> Result<StateArgs, Error> {
+        let mut out = StateArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.title = field.as_str()?.into();
+                }
+                3 => {
+                    out.loading = field.as_bool()?;
+                }
+                4 => {
+                    out.finished = field.as_u32()?;
+                }
+                5 => {
+                    out.error = field.as_str()?.into();
+                }
+                6 => {
+                    out.url = field.as_str()?.into();
+                }
+                7 => {
+                    out.committed_url = field.as_str()?.into();
+                }
+                8 => {
+                    out.can_back = field.as_bool()?;
+                }
+                9 => {
+                    out.can_forward = field.as_bool()?;
+                }
+                10 => {
+                    out.progress = field.as_u32()?;
+                }
+                11 => {
+                    out.secure = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page scrolled (as on the light interface).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ScrollArgs {
+        pub view: u64,
+        pub x: i32,
+        pub y: i32,
+        pub at_bottom: bool,
+    }
+
+    pub fn encode_scroll_args(value: &ScrollArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.i32(2, value.x)?;
+        target.i32(3, value.y)?;
+        target.bool(4, value.at_bottom)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_scroll_args(body: &[u8]) -> Result<ScrollArgs, Error> {
+        let mut out = ScrollArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.x = field.as_i32()?;
+                }
+                3 => {
+                    out.y = field.as_i32()?;
+                }
+                4 => {
+                    out.at_bottom = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: as on the light interface (a full view's navigation is not
+    /// locked, so webd does not send it today).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LinkClickedArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_link_clicked_args(value: &LinkClickedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_link_clicked_args(body: &[u8]) -> Result<LinkClickedArgs, Error> {
+        let mut out = LinkClickedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ClipboardWriteArgs {
+        pub view: u64,
+        pub text: alloc::string::String,
+    }
+
+    pub fn encode_clipboard_write_args(value: &ClipboardWriteArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.text)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_clipboard_write_args(body: &[u8]) -> Result<ClipboardWriteArgs, Error> {
+        let mut out = ClipboardWriteArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.text = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ViewLostArgs {
+        pub view: u64,
+        pub reason: u32,
+    }
+
+    pub fn encode_view_lost_args(value: &ViewLostArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_view_lost_args(body: &[u8]) -> Result<ViewLostArgs, Error> {
+        let mut out = ViewLostArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.reason = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: band slot `slot` holds `height` rows of the page from document
+    /// row `doc_y`, painted at horizontal offset `doc_x`, `width` wide.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BandArgs {
+        pub view: u64,
+        pub slot: u32,
+        pub doc_x: i32,
+        pub doc_y: i32,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    pub fn encode_band_args(value: &BandArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.slot)?;
+        target.i32(3, value.doc_x)?;
+        target.i32(4, value.doc_y)?;
+        target.u32(5, value.width)?;
+        target.u32(6, value.height)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_band_args(body: &[u8]) -> Result<BandArgs, Error> {
+        let mut out = BandArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.slot = field.as_u32()?;
+                }
+                3 => {
+                    out.doc_x = field.as_i32()?;
+                }
+                4 => {
+                    out.doc_y = field.as_i32()?;
+                }
+                5 => {
+                    out.width = field.as_u32()?;
+                }
+                6 => {
+                    out.height = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the pointer is over a link (its address) or no longer ("").
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HoverArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_hover_args(value: &HoverArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_hover_args(body: &[u8]) -> Result<HoverArgs, Error> {
+        let mut out = HoverArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page wants this pointer shape (a `CursorShape`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CursorArgs {
+        pub view: u64,
+        pub shape: u32,
+    }
+
+    pub fn encode_cursor_args(value: &CursorArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.shape)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_cursor_args(body: &[u8]) -> Result<CursorArgs, Error> {
+        let mut out = CursorArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.shape = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page asked for a new window (`target=_blank`,
+    /// `window.open`); nothing opened. `gesture`: a click or key started it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NewWindowRequestedArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+        pub gesture: bool,
+    }
+
+    pub fn encode_new_window_requested_args(value: &NewWindowRequestedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        target.bool(3, value.gesture)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_new_window_requested_args(body: &[u8]) -> Result<NewWindowRequestedArgs, Error> {
+        let mut out = NewWindowRequestedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                3 => {
+                    out.gesture = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a navigation outside the view's policy is held (`Handoff.Ask`);
+    /// answer with `NavigationAnswer` within 10 seconds or it is refused.
+    /// `kind` is a `NavigationKind`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NavigationRequestedArgs {
+        pub view: u64,
+        pub request: u64,
+        pub url: alloc::string::String,
+        pub kind: u32,
+        pub gesture: bool,
+    }
+
+    pub fn encode_navigation_requested_args(value: &NavigationRequestedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.request)?;
+        target.string(3, &value.url)?;
+        target.u32(4, value.kind)?;
+        target.bool(5, value.gesture)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_navigation_requested_args(body: &[u8]) -> Result<NavigationRequestedArgs, Error> {
+        let mut out = NavigationRequestedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.request = field.as_u64()?;
+                }
+                3 => {
+                    out.url = field.as_str()?.into();
+                }
+                4 => {
+                    out.kind = field.as_u32()?;
+                }
+                5 => {
+                    out.gesture = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page opened a JavaScript dialog (a `DialogKind`) and waits
+    /// for `DialogReply`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DialogArgs {
+        pub view: u64,
+        pub dialog: u64,
+        pub kind: u32,
+        pub message: alloc::string::String,
+        pub default_value: alloc::string::String,
+    }
+
+    pub fn encode_dialog_args(value: &DialogArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.dialog)?;
+        target.u32(3, value.kind)?;
+        target.string(4, &value.message)?;
+        target.string(5, &value.default_value)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_dialog_args(body: &[u8]) -> Result<DialogArgs, Error> {
+        let mut out = DialogArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.dialog = field.as_u64()?;
+                }
+                3 => {
+                    out.kind = field.as_u32()?;
+                }
+                4 => {
+                    out.message = field.as_str()?.into();
+                }
+                5 => {
+                    out.default_value = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a download began, into the person's Downloads folder under a
+    /// `.part` name. `total` is the announced size or -1.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadStartedArgs {
+        pub view: u64,
+        pub download: u64,
+        pub url: alloc::string::String,
+        pub name: alloc::string::String,
+        pub total: i64,
+    }
+
+    pub fn encode_download_started_args(value: &DownloadStartedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.download)?;
+        target.string(3, &value.url)?;
+        target.string(4, &value.name)?;
+        target.i64(5, value.total)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_started_args(body: &[u8]) -> Result<DownloadStartedArgs, Error> {
+        let mut out = DownloadStartedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.download = field.as_u64()?;
+                }
+                3 => {
+                    out.url = field.as_str()?.into();
+                }
+                4 => {
+                    out.name = field.as_str()?.into();
+                }
+                5 => {
+                    out.total = field.as_i64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadProgressArgs {
+        pub view: u64,
+        pub download: u64,
+        pub received: i64,
+        pub total: i64,
+    }
+
+    pub fn encode_download_progress_args(value: &DownloadProgressArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.download)?;
+        target.i64(3, value.received)?;
+        target.i64(4, value.total)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_progress_args(body: &[u8]) -> Result<DownloadProgressArgs, Error> {
+        let mut out = DownloadProgressArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.download = field.as_u64()?;
+                }
+                3 => {
+                    out.received = field.as_i64()?;
+                }
+                4 => {
+                    out.total = field.as_i64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: every byte is in `name` (a file of the Downloads folder).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadDoneArgs {
+        pub view: u64,
+        pub download: u64,
+        pub name: alloc::string::String,
+    }
+
+    pub fn encode_download_done_args(value: &DownloadDoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.download)?;
+        target.string(3, &value.name)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_done_args(body: &[u8]) -> Result<DownloadDoneArgs, Error> {
+        let mut out = DownloadDoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.download = field.as_u64()?;
+                }
+                3 => {
+                    out.name = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DownloadFailedArgs {
+        pub view: u64,
+        pub download: u64,
+        pub reason: alloc::string::String,
+    }
+
+    pub fn encode_download_failed_args(value: &DownloadFailedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.download)?;
+        target.string(3, &value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_download_failed_args(body: &[u8]) -> Result<DownloadFailedArgs, Error> {
+        let mut out = DownloadFailedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.download = field.as_u64()?;
+                }
+                3 => {
+                    out.reason = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: a page asked to show notifications for `origin`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyPermissionRequestArgs {
+        pub view: u64,
+        pub origin: alloc::string::String,
+    }
+
+    pub fn encode_notify_permission_request_args(value: &NotifyPermissionRequestArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.origin)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_permission_request_args(body: &[u8]) -> Result<NotifyPermissionRequestArgs, Error> {
+        let mut out = NotifyPermissionRequestArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.origin = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the person clicked notification `notification` (webd posted it
+    /// as a toast titled with the site); the page's click handler ran.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyClickedArgs {
+        pub view: u64,
+        pub notification: u64,
+    }
+
+    pub fn encode_notify_clicked_args(value: &NotifyClickedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.notification)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_clicked_args(body: &[u8]) -> Result<NotifyClickedArgs, Error> {
+        let mut out = NotifyClickedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.notification = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: what became of rule list `list` (a `BlockingStatus`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BlockingListArgs {
+        pub view: u64,
+        pub list: alloc::string::String,
+        pub status: u32,
+    }
+
+    pub fn encode_blocking_list_args(value: &BlockingListArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.list)?;
+        target.u32(3, value.status)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_blocking_list_args(body: &[u8]) -> Result<BlockingListArgs, Error> {
+        let mut out = BlockingListArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.list = field.as_str()?.into();
+                }
+                3 => {
+                    out.status = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the number of loads the lists blocked on the page on show.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct BlockedArgs {
+        pub view: u64,
+        pub count: u32,
+    }
+
+    pub fn encode_blocked_args(value: &BlockedArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u32(2, value.count)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_blocked_args(body: &[u8]) -> Result<BlockedArgs, Error> {
+        let mut out = BlockedArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.count = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page's process stopped answering, or answers again.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ResponsiveArgs {
+        pub view: u64,
+        pub responsive: bool,
+    }
+
+    pub fn encode_responsive_args(value: &ResponsiveArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.responsive)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_responsive_args(body: &[u8]) -> Result<ResponsiveArgs, Error> {
+        let mut out = ResponsiveArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.responsive = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: webd gave `url` to the program the person chose for it
+    /// (`Handoff.Browser`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct HandedOffArgs {
+        pub view: u64,
+        pub url: alloc::string::String,
+    }
+
+    pub fn encode_handed_off_args(value: &HandedOffArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.url)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_handed_off_args(body: &[u8]) -> Result<HandedOffArgs, Error> {
+        let mut out = HandedOffArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.url = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CREATEVIEW, CREATE_VIEW_OBJECTS),
+        (METHOD_ATTACHSLOT, ATTACH_SLOT_OBJECTS),
+        (METHOD_LOADHTML, LOAD_HTML_OBJECTS),
+        (METHOD_BLOCKINGCOMPILE, BLOCKING_COMPILE_OBJECTS),
+    ];
+}
+
+/// `os.lazy.webd.net.v1` (interface id `0xf313574271ceba59`).
+#[rustfmt::skip]
+pub mod os_lazy_webd_net_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0xf313574271ceba59;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.webd.net.v1";
+
+    /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ViewConfig {
+        pub profile: alloc::string::String,
+        pub ephemeral: bool,
+        pub scheme_policy: u32,
+        pub origins: alloc::vec::Vec<alloc::string::String>,
+        pub scripts: bool,
+        pub handoff: u32,
+        pub downloads: bool,
+        pub popups: bool,
+        pub blocking: bool,
+        pub notifications: bool,
+        pub user_agent_suffix: alloc::string::String,
+        pub deltas: bool,
+        pub dialogs: bool,
+    }
+
+    pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.profile)?;
+        target.bool(2, value.ephemeral)?;
+        target.u32(3, value.scheme_policy)?;
+        let mut nested = Encoder::new();
+        for item in &value.origins {
+            nested.string(1, item)?;
+        }
+        target.array(4, &nested)?;
+        target.bool(5, value.scripts)?;
+        target.u32(6, value.handoff)?;
+        target.bool(7, value.downloads)?;
+        target.bool(8, value.popups)?;
+        target.bool(9, value.blocking)?;
+        target.bool(10, value.notifications)?;
+        target.string(11, &value.user_agent_suffix)?;
+        target.bool(12, value.deltas)?;
+        target.bool(13, value.dialogs)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_view_config(body: &[u8]) -> Result<ViewConfig, Error> {
+        let mut out = ViewConfig::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.profile = field.as_str()?.into();
+                }
+                2 => {
+                    out.ephemeral = field.as_bool()?;
+                }
+                3 => {
+                    out.scheme_policy = field.as_u32()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.origins.push(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    out.scripts = field.as_bool()?;
+                }
+                6 => {
+                    out.handoff = field.as_u32()?;
+                }
+                7 => {
+                    out.downloads = field.as_bool()?;
+                }
+                8 => {
+                    out.popups = field.as_bool()?;
+                }
+                9 => {
+                    out.blocking = field.as_bool()?;
+                }
+                10 => {
+                    out.notifications = field.as_bool()?;
+                }
+                11 => {
+                    out.user_agent_suffix = field.as_str()?.into();
+                }
+                12 => {
+                    out.deltas = field.as_bool()?;
+                }
+                13 => {
+                    out.dialogs = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `CreateView` method id.
+    pub const METHOD_CREATEVIEW: u32 = 1;
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewArgs {
+        pub config: ViewConfig,
+        pub width: u32,
+        pub height: u32,
+        pub events: u64,
+    }
+
+    /// The body and the object list of `CreateView`.
+    pub fn encode_create_view_args(value: &CreateViewArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.raw(Kind::Struct, 1, &encode_view_config(&value.config)?)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        target.channel(5, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `CreateView` from its body and the objects the kernel installed
+    /// (`CREATE_VIEW_OBJECTS`, each claimed by its field).
+    pub fn decode_create_view_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<CreateViewArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = CreateViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.config = decode_view_config(field.payload)?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                5 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewReply {
+        pub view: u64,
+    }
+
+    pub fn encode_create_view_reply(value: &CreateViewReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_view_reply(body: &[u8]) -> Result<CreateViewReply, Error> {
+        let mut out = CreateViewReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `CreateView` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.webd.view.v1` on.
+    pub const CREATE_VIEW_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CREATEVIEW, CREATE_VIEW_OBJECTS),
+    ];
+}
+
+/// `os.lazy.webd.browser.v1` (interface id `0x2c352157f6ab1380`).
+#[rustfmt::skip]
+pub mod os_lazy_webd_browser_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x2c352157f6ab1380;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.webd.browser.v1";
+
+    /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ViewConfig {
+        pub profile: alloc::string::String,
+        pub ephemeral: bool,
+        pub scheme_policy: u32,
+        pub origins: alloc::vec::Vec<alloc::string::String>,
+        pub scripts: bool,
+        pub handoff: u32,
+        pub downloads: bool,
+        pub popups: bool,
+        pub blocking: bool,
+        pub notifications: bool,
+        pub user_agent_suffix: alloc::string::String,
+        pub deltas: bool,
+        pub dialogs: bool,
+    }
+
+    pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.profile)?;
+        target.bool(2, value.ephemeral)?;
+        target.u32(3, value.scheme_policy)?;
+        let mut nested = Encoder::new();
+        for item in &value.origins {
+            nested.string(1, item)?;
+        }
+        target.array(4, &nested)?;
+        target.bool(5, value.scripts)?;
+        target.u32(6, value.handoff)?;
+        target.bool(7, value.downloads)?;
+        target.bool(8, value.popups)?;
+        target.bool(9, value.blocking)?;
+        target.bool(10, value.notifications)?;
+        target.string(11, &value.user_agent_suffix)?;
+        target.bool(12, value.deltas)?;
+        target.bool(13, value.dialogs)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_view_config(body: &[u8]) -> Result<ViewConfig, Error> {
+        let mut out = ViewConfig::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.profile = field.as_str()?.into();
+                }
+                2 => {
+                    out.ephemeral = field.as_bool()?;
+                }
+                3 => {
+                    out.scheme_policy = field.as_u32()?;
+                }
+                4 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.origins.push(item.as_str()?.into());
+                    }
+                }
+                5 => {
+                    out.scripts = field.as_bool()?;
+                }
+                6 => {
+                    out.handoff = field.as_u32()?;
+                }
+                7 => {
+                    out.downloads = field.as_bool()?;
+                }
+                8 => {
+                    out.popups = field.as_bool()?;
+                }
+                9 => {
+                    out.blocking = field.as_bool()?;
+                }
+                10 => {
+                    out.notifications = field.as_bool()?;
+                }
+                11 => {
+                    out.user_agent_suffix = field.as_str()?.into();
+                }
+                12 => {
+                    out.deltas = field.as_bool()?;
+                }
+                13 => {
+                    out.dialogs = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `CreateView` method id.
+    pub const METHOD_CREATEVIEW: u32 = 1;
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewArgs {
+        pub config: ViewConfig,
+        pub width: u32,
+        pub height: u32,
+        pub events: u64,
+    }
+
+    /// The body and the object list of `CreateView`.
+    pub fn encode_create_view_args(value: &CreateViewArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.raw(Kind::Struct, 1, &encode_view_config(&value.config)?)?;
+        target.u32(2, value.width)?;
+        target.u32(3, value.height)?;
+        target.channel(5, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `CreateView` from its body and the objects the kernel installed
+    /// (`CREATE_VIEW_OBJECTS`, each claimed by its field).
+    pub fn decode_create_view_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<CreateViewArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = CreateViewArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.config = decode_view_config(field.payload)?;
+                }
+                2 => {
+                    out.width = field.as_u32()?;
+                }
+                3 => {
+                    out.height = field.as_u32()?;
+                }
+                5 => {
+                    out.events = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct CreateViewReply {
+        pub view: u64,
+    }
+
+    pub fn encode_create_view_reply(value: &CreateViewReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_create_view_reply(body: &[u8]) -> Result<CreateViewReply, Error> {
+        let mut out = CreateViewReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `CreateView` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.webd.view.v1` on.
+    pub const CREATE_VIEW_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_CREATEVIEW, CREATE_VIEW_OBJECTS),
+    ];
+}
+
 /// `os.lazy.webd.light.v1` (interface id `0xc685c12f0603531c`).
 #[rustfmt::skip]
 pub mod os_lazy_webd_light_v1 {
@@ -24186,6 +26902,36 @@ pub fn declared_topic(topic: &str) -> Option<&'static topics::TopicDecl> {
 /// sorted by interface id then method id.
 #[rustfmt::skip]
 pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
+    // os.lazy.webd.browser.v1.CreateView
+    objects::ObjectDecl {
+        interface: 0x2c352157f6ab1380,
+        method: 1,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.webd.view.v1.CreateView
+    objects::ObjectDecl {
+        interface: 0x4fe4e35a0bc7bd89,
+        method: 1,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.webd.view.v1.AttachSlot
+    objects::ObjectDecl {
+        interface: 0x4fe4e35a0bc7bd89,
+        method: 3,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.webd.view.v1.LoadHtml
+    objects::ObjectDecl {
+        interface: 0x4fe4e35a0bc7bd89,
+        method: 11,
+        kinds: &[objects::Kind::Buffer],
+    },
+    // os.lazy.webd.view.v1.BlockingCompile
+    objects::ObjectDecl {
+        interface: 0x4fe4e35a0bc7bd89,
+        method: 35,
+        kinds: &[objects::Kind::Buffer],
+    },
     // os.lazy.input.v1.Open
     objects::ObjectDecl {
         interface: 0x5026bd54a60f1ff6,
@@ -24316,6 +27062,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0xedc6a2bd550db5ab,
         method: 3,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.webd.net.v1.CreateView
+    objects::ObjectDecl {
+        interface: 0xf313574271ceba59,
+        method: 1,
         kinds: &[objects::Kind::Channel],
     },
 ];

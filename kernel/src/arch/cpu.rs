@@ -63,10 +63,18 @@ pub fn init() {
         cr0.remove(Cr0Flags::EMULATE_COPROCESSOR);
         cr0.insert(Cr0Flags::MONITOR_COPROCESSOR);
         cr0.remove(Cr0Flags::TASK_SWITCHED);
+        // Native x87 error reporting (#MF) and caches on: an AP leaves INIT
+        // with CD/NW set and NE clear, and nothing else would change them.
+        cr0.insert(Cr0Flags::NUMERIC_ERROR);
+        cr0.remove(Cr0Flags::CACHE_DISABLE | Cr0Flags::NOT_WRITE_THROUGH);
         Cr0::write(cr0);
 
         let mut cr4 = Cr4::read();
         cr4.insert(Cr4Flags::OSFXSR | Cr4Flags::OSXMMEXCPT_ENABLE);
+        // Never `FSGSBASE`, whatever firmware left: ring 3's `wrgsbase`
+        // could then plant a kernel-half GS base, which the paranoid gates
+        // read as the kernel's (`arch::gsgate`).
+        cr4.remove(Cr4Flags::FSGSBASE);
         Cr4::write(cr4);
     }
 

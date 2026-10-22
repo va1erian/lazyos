@@ -67,6 +67,38 @@ impl Picture {
         &mut self.rgba
     }
 
+    /// The pixels to change in place (a full view's delta), and the frame number they now show.
+    pub(crate) fn patch(&mut self, seq: u64) -> &mut [u8] {
+        self.seq = seq;
+        &mut self.rgba
+    }
+
+    /// Move the part of the picture inside `area` (`[x, y, width, height]`, clipped to the
+    /// picture) by `(dx, dy)`: what leaves the area is gone, what it uncovers keeps its old pixels
+    /// (the delta repaints it). Rows are copied in the order that never reads one already moved.
+    pub(crate) fn shift(&mut self, area: [i32; 4], dx: i32, dy: i32) {
+        let (w, h) = (self.width as i64, self.height as i64);
+        let [ax, ay, aw, ah] = area.map(i64::from);
+        let (dx, dy) = (i64::from(dx), i64::from(dy));
+        let (x0, y0) = (ax.max(0), ay.max(0));
+        let (x1, y1) = ((ax + aw).min(w), (ay + ah).min(h));
+        // The destination columns and rows that stay inside the area.
+        let (tx0, ty0) = ((x0 + dx).max(x0), (y0 + dy).max(y0));
+        let (tx1, ty1) = ((x1 + dx).min(x1), (y1 + dy).min(y1));
+        if tx1 <= tx0 || ty1 <= ty0 {
+            return;
+        }
+        let stride = w as usize * 4;
+        let row_bytes = (tx1 - tx0) as usize * 4;
+        let rows = ty1 - ty0;
+        for i in 0..rows {
+            let row = if dy > 0 { rows - 1 - i } else { i };
+            let to = (ty0 + row) as usize * stride + tx0 as usize * 4;
+            let from = (ty0 + row - dy) as usize * stride + (tx0 - dx) as usize * 4;
+            self.rgba.copy_within(from..from + row_bytes, to);
+        }
+    }
+
     /// The colour most of the picture is, counting a pixel only when it is clearly that colour (a
     /// page of text on white is white).
     pub fn dominant(&self) -> Colour {

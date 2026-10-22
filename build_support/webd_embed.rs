@@ -14,8 +14,8 @@
 //! ships it**: `LAZYOS_WEBD` is `1` (required: a missing program fails the build), `0` (left out; Docs and Mail
 //! then say the web engine is not running) or unset, which means "on a desktop whenever `target/xui/xui-webd.elf`
 //! has been built" ([`Switch::Auto`]), so a checkout without Docker and WebKit still builds a desktop and
-//! says so in a warning. The demo client (`os.lazy.webddemo`, [`CLIENT_PACKAGES`]) is a test fixture and ships
-//! only with `LAZYOS_WEBDDEMO=1`. A client is a window, so webd wants the desktop; it needs no network stack
+//! says so in a warning. The test clients (`os.lazy.webddemo` and `os.lazy.webdbrowse`, [`CLIENT_PACKAGES`])
+//! are test fixtures and ship only with `LAZYOS_WEBDDEMO=1`. A client is a window, so webd wants the desktop; it needs no network stack
 //! (a light view has no network at all): the switch is refused without `LAZYOS_DESKTOP=1` and nothing else is
 //! asked. The program is tens of MB and loaded whole into RAM, so the image wants a larger OS volume
 //! (`os_disk::default_size`).
@@ -36,7 +36,12 @@ pub const ELF: &str = "xui-webd.elf";
 /// `tools/xui/core_packages.py` like any app; this table only says which of them an image with the
 /// switch should carry. A client whose tree is absent (a branch that does not have it yet) is skipped,
 /// so the daemon builds alone ([`client_tree_present`]).
-pub const CLIENT_PACKAGES: &[(&str, &str)] = &[("webddemo", "xui-webddemo.elf")];
+/// `webddemo` shows a light view; `webdbrowse` (Web View Test) drives full views through every scope
+/// against the harness server.
+pub const CLIENT_PACKAGES: &[(&str, &str)] = &[
+    ("webddemo", "xui-webddemo.elf"),
+    ("webdbrowse", "xui-webdbrowse.elf"),
+];
 
 fn on(variable: &str) -> bool {
     println!("cargo:rerun-if-env-changed={variable}");

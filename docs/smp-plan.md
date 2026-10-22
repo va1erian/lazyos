@@ -83,7 +83,12 @@ S8.7 perf + docs            accept "speedup on N vCPUs", as-built docs
 Each stage is independently mergeable, each keeps the suite green at `-smp 1`,
 and S8.4+ keep it green at `-smp 2/4` with the stage's own stress cases.
 
-## 4. Cross-cutting safety net (build first, in S8.0/S8.1)
+## 4. Cross-cutting safety net (built with their first users)
+
+Status: the audit and the raw-lock ratchet landed in S8.0; the per-CPU areas
+in S8.1; the `sync::Lock` type below lands **with its first user — the entry
+lock in S8.3** — so it is never dead code, and every lock the kernel adds
+from S8.3 on is born under lockdep.
 
 These are the tools that make "no weird bugs later" a testable claim rather
 than a hope. They exist before any second CPU runs.
@@ -188,27 +193,31 @@ than a hope. They exist before any second CPU runs.
   firmware halt; the kernel does not see them yet). Ratchet script in CI with
   the current baseline.
 
-### S8.1 — Per-CPU foundations (still one active CPU)
+### S8.1 — Per-CPU foundations (still one active CPU) — **done**
 
-Mechanism: **per-CPU areas addressed via `%gs`**, `swapgs` at every
-user→kernel boundary. `arch/linux.rs:8` avoided `swapgs` because *per-task* GS
-desyncs when a syscall blocks; that objection does not apply to *per-CPU* GS:
-the area belongs to the CPU, is installed by the CPU's own entry code, and a
-task that blocks and resumes elsewhere simply re-enters through that CPU's
-gate. The entry stubs must distinguish user-origin (swapgs) from
-kernel-origin (no swapgs) entries — the standard CS-bit test in the stub.
-Fallback considered and rejected: indexing by `lapic::id()` read on entry
-(one MSR read in x2APIC, but an uncached MMIO read in xAPIC mode on the hot
-syscall path, and no help for the IRQ-stack pointer the stub needs before any
-read).
+Mechanism: **per-CPU areas addressed via `%gs`, with `swapgs` at every
+ring 3 boundary** (`arch/gsgate.rs`). The S8.1 build first tried running
+every privilege level on one GS base and never swapping, on the argument
+that user `%gs` is unused; the S8 review (2026-10-21) found that ring 3 can
+still *load* `%gs` (`mov gs, ax` with any DPL-3 selector sets its base to
+the descriptor's, 0), after which the `syscall` stub saved the user context
+through `gs:` at low user addresses and took its stack pointer from there.
+So the plan's original discipline is back: in ring 0 `IA32_GS_BASE` is the
+CPU's area, in ring 3 `IA32_KERNEL_GS_BASE` holds it, and each entry from
+and exit to ring 3 executes one `swapgs`. Per-CPU (not per-task) GS state
+stays block-invariant: a task that parks in a syscall and resumes elsewhere
+re-enters through that CPU's gate. The fallback considered and rejected is
+unchanged: indexing by `lapic::id()` read on entry (one MSR read in x2APIC,
+but an uncached MMIO read in xAPIC mode on the hot syscall path, and no help
+for the IRQ-stack pointer the stub needs before any read).
 
 - New `kernel/src/arch/percpu.rs`: `struct Cpu { index, apic_id, online,
-  tss, gdt, kstack (entry/IRQ), current: usize, preempt: PreemptState,
-  irqoff: SpanState, irq_window: WindowState, syscall: SyscallEntryState,
-  held_locks (lockdep), rng (chaos), stats }`, one static area per
-  `MAX_CPUS` (compile-time 64; runtime count from `limits::cpu_max`), base
-  address in `IA32_GS_BASE` (kernel-only; no `KERNEL_GS_BASE` swapping — user
-  `%gs` is not used today, verified in the audit).
+  tss, gdt, kernel + double-fault stacks, current, preempt: PreemptState,
+  irqoff: SpanState, window: WindowState, syscall: SyscallEntry }`, one
+  static area per `MAX_CPUS` (compile-time 64; runtime count from
+  `limits::cpu_max`), base address in `IA32_GS_BASE`. The lockdep held-lock
+  stack and the chaos PRNG join the area with `sync::Lock` (S8.3); the
+  stats join with the perf work (S8.7).
 - Convert, one PR each, with the audit row checked off:
   - `arch/gdt.rs`: per-CPU `GDT`/`TSS`/`KERNEL_STACK`/`DOUBLE_FAULT_STACK`;
     `set_kernel_stack` writes *this CPU's* TSS (today it rewrites the one TSS
@@ -228,26 +237,26 @@ read).
   - `arch/fault_storm.rs`, `dev/peek.rs` claim-table note: convert or
     annotate per the audit.
 - The IDT stays one shared table; IST/double-fault stacks become per-CPU.
-- **Entry paths get a naked wrapper + CS test each.** Today most entry paths
-  are Rust `x86-interrupt` handlers with no stub where a swapgs/CS test could
-  go (`process/gate.rs`'s `int 0x80`, the shared naked IRQ/MSI stubs, every
-  fault in `arch/idt.rs`); each ring-3-origin path gains a naked asm wrapper
-  that tests the interrupted CS and swaps GS. The audit counts them — they
-  are the same paths S8.3's ring-3-origin entry-lock rule keys on.
-- **NMI gets an IST + paranoid entry in this stage.** `nmi.rs` is a plain
-  `x86-interrupt` handler today, and the kernel deliberately uses NMI as the
-  hang reporter (it fires over IF=0 spins) — so it will land exactly at
-  entry boundaries: in user mode (needs its own swapgs) or inside a stub
-  after swapgs (must not swap again, must not un-swap on exit). The
-  swap-tracking rule is recorded in `docs/architecture/smp.md`.
-- `relax.rs`'s `TASKS.is_locked()` diagnostic check becomes per-CPU-aware
-  here.
-- Acceptance: everything above passes at `-smp 1` bit-identically (the
-  per-CPU area of CPU 0 *is* the old globals' replacement; a `cfg`-gated
-  assertion cross-checks old vs new during the transition PRs, then is
-  removed). `tools/sync/check_locks.py` baseline only shrinks. New
-  `LAZYOS_TEST_FILTER=percpu` cases (area layout, swapgs paths via
-  `dispatch_for_test`, entry from user vs kernel).
+- `relax.rs`'s `TASKS.is_locked()` diagnostic check: audited — spinning
+  while a remote holder runs is safe for N CPUs, so no change is needed
+  here; the strategy itself is retired in S8.6.
+- **Every entry path got its gate** (`arch/gsgate.rs`): maskable
+  interrupts and `int` gates swap on a ring-3 `CS` at entry and on the
+  *resumed* frame's `CS` at exit (`IF` is clear in every swap window, so
+  `CS` is exact); exceptions, NMI and `#DF` take the paranoid entry (they can
+  land inside a window, so they read `IA32_GS_BASE`: a kernel-half address is
+  the kernel's); `syscall` swaps first and right before `sysretq`/`iretq`.
+  The `x86-interrupt` handlers became `extern "C"` functions behind
+  generated naked gates, since the compiler's `iretq` leaves no room for the
+  exit swap. `gs_suite` runs a real ring-3 task with a zero GS base through
+  `syscall`, `int 0x80` and timer preemption.
+- Acceptance: everything above passes at `-smp 1` **and `-smp 4`** unchanged
+  (the per-CPU area of CPU 0 *is* the old globals' replacement, and the APs
+  stay parked); `percpu_suite` pins the self-pointer contract, the asm
+  offsets, this-CPU TSS writes and second-area isolation. **Status: done** —
+  the suite is green at `-smp 4` (1568 PASS), `tools/sync/check_locks.py`
+  baseline only shrank (the moved statics left no raw locks behind), and the
+  desktop `core_apps` session exercises the real `%gs` entry paths.
 
 ### S8.2 — AP bring-up, IPIs, TLB shootdown (APs online but idle)
 
@@ -261,9 +270,12 @@ read).
   first draft got wrong: the bootloader (0.11.17) maps physical memory at a
   **dynamic offset and identity-maps nothing low**, so the kernel builds a
   small dedicated AP page table (identity-mapped low page + the shared kernel
-  half) at boot, and reserves the trampoline page and the per-AP mailbox
-  **before `mem::init` makes the frame allocator live**. Host test: the blob
-  links at two addresses to identical bytes (position independence).
+  half) at boot. The trampoline page (`0x8000`, mailbox and stack inside it)
+  needs no reservation: the frame allocator never hands out anything below
+  1 MiB; the bring-up instead refuses SMP unless the boot memory map calls
+  the page usable RAM (as built; the first draft planned a reservation).
+  Host test: the blob links at two addresses to identical bytes (position
+  independence) — not built yet.
 - **LAPIC ICR** (`arch/lapic.rs`): `send_init`, `send_sipi`, `send_fixed`,
   `send_nmi` for xAPIC MMIO (0x300/0x310, delivery-status polling) and x2APIC
   MSR (0x83F/0x830... per SDM; one write in x2APIC). Bring-up sequence per AP:
@@ -563,13 +575,13 @@ Replace "global runq under the entry lock" with per-CPU run queues + a
 
 | Global today | File | Disposition |
 |---|---|---|
-| `CURRENT` | `task/mod.rs:187` | per-CPU (S8.1) |
+| `CURRENT` | `task/mod.rs:187` | per-CPU — **done (S8.1)** |
 | `SCHEDULING` | `task/mod.rs` | boot-phase flag; stays global (audit) |
-| `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` | `arch/linux.rs` | per-CPU (S8.1) |
-| `GDT`, `TSS`, `KERNEL_STACK`, `DOUBLE_FAULT_STACK` | `arch/gdt.rs` | per-CPU (S8.1) |
-| `NEED_RESCHED`, `PREEMPTING`, `SELECTED*`, `SLICE_END`, `DEFERRED`, `HANDOFF_*` | `task/preempt.rs` | per-CPU (S8.1); `NAPPING` stays per-task |
-| `SPAN_*` | `arch/irqoff.rs` | per-CPU (S8.1) |
-| `IRQ_WINDOW_OPEN`, `LAST/OPENED/WINDOW_TICKS/UNCHARGED` | `arch/irq_window.rs` | per-CPU (S8.1) |
+| `KERNEL_STACK`, `SAVED_USER_RSP`, `USER_CONTEXT` | `arch/linux.rs` | per-CPU — **done (S8.1)** |
+| `GDT`, `TSS`, kernel + double-fault stacks | `arch/gdt.rs` | per-CPU — **done (S8.1)** |
+| `NEED_RESCHED`, `PREEMPTING`, `SELECTED*`, `SLICE_END`, `DEFERRED`, `HANDOFF_*` | `task/preempt.rs` | per-CPU — **done (S8.1)**; `NAPPING` stays per-task |
+| `SPAN_*` | `arch/irqoff.rs` | per-CPU — **done (S8.1)** |
+| `IRQ_WINDOW_OPEN`, `LAST/OPENED/WINDOW_TICKS/UNCHARGED` | `arch/irq_window.rs` | per-CPU — **done (S8.1)** |
 | `LAST_TSC`, `MISSED` catch-up state | `arch/clock.rs` | timekeeper CPU only (S8.2) |
 | `ARMED`, `RATE` event timer | `arch/event_timer.rs` | per-CPU (S8.4) |
 | `RUNNABLE`, `DONE` | `task/runq.rs` | per-CPU (S8.4) |

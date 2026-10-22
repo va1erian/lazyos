@@ -26,6 +26,9 @@ path = "src/lib.rs"
 crate-type = ["rlib", "staticlib"]
 
 [dependencies]
+lazydownloads = { path = "../crates/downloads" }
+# A page's notification as a toast, and its limits (shared with webd).
+lazywebnotify = { path = "../crates/webnotify" }
 # One xui revision for every crate, so a single `xui_core` links.
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 # The seam: the engine trait, the mailbox, the page view and the C ABI.

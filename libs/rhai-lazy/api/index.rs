@@ -199,9 +199,9 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[ApiTopic { helper: "pkg", pattern: "system/events/pkg/+" }],
     },
     ApiModule {
-        alias: "print",
+        alias: "print_",
         interface: "os.lazy.print.v1",
-        source: include_str!("print.rhai"),
+        source: include_str!("print_.rhai"),
         topics: &[],
     },
     ApiModule {
@@ -256,6 +256,24 @@ pub static MODULES: &[ApiModule] = &[
         alias: "usb_audio",
         interface: "os.lazy.usb.audio.v1",
         source: include_str!("usb_audio.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "webd_view",
+        interface: "os.lazy.webd.view.v1",
+        source: include_str!("webd_view.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "webd_net",
+        interface: "os.lazy.webd.net.v1",
+        source: include_str!("webd_net.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "webd_browser",
+        interface: "os.lazy.webd.browser.v1",
+        source: include_str!("webd_browser.rhai"),
         topics: &[],
     },
     ApiModule {

@@ -143,7 +143,10 @@ void* webkitThread(void*)
 {
     installCrashHandler(webkitCrashStack, sizeof webkitCrashStack);
     WKRunLoopInitializeMain();
-    if (webd_engine_start() != 0) {
+    // Full views need the children's environment decided now (webd_abi.h, webd_host_config); without the
+    // profiles' folder (no $HOME) the host serves light views only.
+    webd_host_config host = { sizeof(webd_host_config), webd_host_children_directory() };
+    if ((host.children_directory ? webd_engine_start_host(&host) : webd_engine_start()) != 0) {
         engineState = -1;
         return nullptr;
     }

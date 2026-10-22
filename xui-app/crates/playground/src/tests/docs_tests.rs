@@ -359,23 +359,16 @@ fn interface_topic_struct_and_enum_pages_carry_the_schema_text() {
 }
 
 #[test]
-fn the_print_module_cannot_be_written_so_it_has_no_sys_spelling() {
+fn the_print_module_is_spelled_with_a_trailing_underscore() {
+    // `sys::print` does not parse (`print` is a Rhai keyword), so the module is
+    // `sys::print_`; every generated module is usable.
     let print = schema::interface("os.lazy.print.v1").unwrap();
-    assert!(module(print).is_some());
-    assert!(!module_usable(print));
+    assert_eq!(module(print).map(|m| m.alias), Some("print_"));
+    assert!(module_usable(print));
     let open = print.method("Open").unwrap();
-    assert!(sys_function(print, open).is_none());
-    let spellings = docs::spellings(print, open);
-    assert!(spellings.iter().all(|s| !s.code.contains("sys::")));
-    assert!(spellings.iter().any(|s| s.label == "connect"));
-    // Every other module is usable.
+    assert!(sys_function(print, open).is_some_and(|f| f.contains("sys::print_::")));
     for module in api::modules() {
         let interface = schema::interface(module.interface).unwrap();
-        assert_eq!(
-            module_usable(interface),
-            module.alias != "print",
-            "{}",
-            module.alias
-        );
+        assert!(module_usable(interface), "{}", module.alias);
     }
 }

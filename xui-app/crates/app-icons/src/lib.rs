@@ -172,6 +172,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/webddemo",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
+    // Web View Test: scaffolded with a placeholder; pick its art.
+    (
+        "xui-app/packages/webdbrowse",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

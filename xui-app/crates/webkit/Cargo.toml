@@ -21,6 +21,7 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
+lazydamage = { path = "../damage" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
 
 # The compositor-client backend (`LazyOSBackend`) is only used by the C ABI,

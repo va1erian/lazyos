@@ -222,10 +222,9 @@ pub fn task_max() -> usize {
     get(Id::TaskMax) as usize
 }
 
-/// CPUs the kernel may bring up. Nothing reads it until the SMP bring-up
-/// (`docs/smp-plan.md` S8.2 derives the default from the MADT); the key
-/// exists so a config file written for an SMP kernel loads on this one too.
-#[allow(dead_code)]
+/// CPUs the kernel may bring up (`arch::smp::init` caps the MADT's count
+/// with it). The default is 1 until S8.3 gives the APs work, so a normal boot
+/// keeps them parked; `LAZYOS_LIMIT_CPU_MAX=N` opts an image in.
 pub fn cpu_max() -> usize {
     get(Id::CpuMax) as usize
 }

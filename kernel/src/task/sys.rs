@@ -30,14 +30,17 @@ pub unsafe fn put_frame_word(rsp: u64, index: usize, value: u64) {
     core::ptr::write_volatile((rsp + index as u64 * 8) as *mut u64, value)
 }
 
-/// Read the word at `crate::arch::linux::KERNEL_STACK.offset(slot)`. Negative
-/// slots look below the stack top, where the Linux `syscall` entry stub
-/// pushes the caller's saved registers before dispatch.
+/// Read the word at the current CPU's syscall stack top `.offset(slot)`
+/// (`arch::percpu`'s syscall stack). Negative slots look below the stack
+/// top, where the Linux `syscall` entry stub pushes the caller's saved
+/// registers before dispatch.
 ///
 /// # Safety
 /// Must be called from within the current task's own syscall, before the
 /// entry stub's pushed words are popped or overwritten by a nested syscall.
 #[inline]
 pub unsafe fn kernel_stack_word(slot: isize) -> u64 {
-    core::ptr::read_volatile((crate::arch::linux::KERNEL_STACK as *const u64).offset(slot))
+    core::ptr::read_volatile(
+        (crate::arch::percpu::current().syscall.stack as *const u64).offset(slot),
+    )
 }

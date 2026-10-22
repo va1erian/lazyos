@@ -12,7 +12,7 @@ use messenger_generated::os_lazy_webd_light_v1 as wire;
 use support::{origin, rig, Ev, Rig};
 use xui_webd::engine::EngineEvents;
 use xui_webd::ident::Origin;
-use xui_webd::limits::{SLOTS_PER_VIEW, VIEWS_PER_CLIENT};
+use xui_webd::limits::{SLOTS_PER_VIEW, SLOTS_WITH_BANDS, VIEWS_PER_CLIENT};
 use xui_webd::slots::{AttachError, Slots};
 
 #[test]
@@ -20,11 +20,12 @@ fn slots_match_a_model() {
     for_seeds("webd_slots_model", |_, rng| {
         let mut slots: Slots<u32> = Slots::default();
         // The model: per slot, None or (memory, bytes, busy).
-        let mut model: [Option<(u32, u64, bool)>; SLOTS_PER_VIEW] = [None; SLOTS_PER_VIEW];
+        // Frame slots first, then a full view's band slots.
+        let mut model: [Option<(u32, u64, bool)>; SLOTS_WITH_BANDS] = [None; SLOTS_WITH_BANDS];
         for step in 0..400u32 {
-            match rng.below(6) {
+            match rng.below(7) {
                 0 | 1 => {
-                    let index = rng.below(SLOTS_PER_VIEW as u64 + 1) as usize;
+                    let index = rng.below(SLOTS_WITH_BANDS as u64 + 1) as usize;
                     let bytes = rng.below(1000);
                     let got = slots.attach(index, step, bytes);
                     let want = match model.get(index) {
@@ -38,17 +39,28 @@ fn slots_match_a_model() {
                     assert_eq!(got, want, "attach {index}");
                 }
                 2 | 3 => {
-                    let got = slots.acquire();
-                    let want = model
-                        .iter()
-                        .position(|slot| matches!(slot, Some((_, _, false))));
+                    // A frame goes to the lowest free frame slot, a band to the lowest free band slot.
+                    let band = rng.one_in(3);
+                    let got = if band {
+                        slots.acquire_band()
+                    } else {
+                        slots.acquire()
+                    };
+                    let range = if band {
+                        SLOTS_PER_VIEW..SLOTS_WITH_BANDS
+                    } else {
+                        0..SLOTS_PER_VIEW
+                    };
+                    let want = range
+                        .clone()
+                        .find(|index| matches!(model[*index], Some((_, _, false))));
                     if let Some(index) = want {
                         model[index].as_mut().unwrap().2 = true;
                     }
-                    assert_eq!(got, want, "acquire");
+                    assert_eq!(got, want, "acquire band={band}");
                 }
-                4 => {
-                    let index = rng.below(SLOTS_PER_VIEW as u64 + 1) as usize;
+                4 | 5 => {
+                    let index = rng.below(SLOTS_WITH_BANDS as u64 + 1) as usize;
                     let want = matches!(model.get(index), Some(Some((_, _, true))));
                     if want {
                         model[index].as_mut().unwrap().2 = false;
@@ -58,7 +70,7 @@ fn slots_match_a_model() {
                 _ => {
                     if rng.one_in(4) {
                         slots.detach_all();
-                        model = [None; SLOTS_PER_VIEW];
+                        model = [None; SLOTS_WITH_BANDS];
                     }
                 }
             }
@@ -69,7 +81,11 @@ fn slots_match_a_model() {
                 slots.bytes(),
                 model.iter().flatten().map(|slot| slot.1).sum::<u64>()
             );
-            assert_eq!(slots.has_free(), attached > busy);
+            let frames = &model[..SLOTS_PER_VIEW];
+            let free_frame = frames
+                .iter()
+                .any(|slot| matches!(slot, Some((_, _, false))));
+            assert_eq!(slots.has_free(), free_frame);
             for (index, slot) in model.iter().enumerate() {
                 assert_eq!(slots.is_busy(index), matches!(slot, Some((_, _, true))));
                 assert_eq!(slots.memory_mut(index).copied(), slot.map(|slot| slot.0));

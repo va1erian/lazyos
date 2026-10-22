@@ -46,3 +46,4 @@ os.lazy.sysmond.v1
 os.lazy.timed.v1
 os.lazy.usb.audio.v1
 os.lazy.webd.light.v1
+os.lazy.webd.view.v1

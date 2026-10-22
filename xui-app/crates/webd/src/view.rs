@@ -4,13 +4,49 @@
 //! client can never name a later view). A view is looked up *with* the caller's [`ClientKey`]: a view of
 //! another client is indistinguishable from one that does not exist.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::fabric::Mapping;
+use crate::fullconfig::Rules;
 use crate::ident::ClientKey;
 use crate::slots::Slots;
 
-/// One light view.
+/// A navigation the engine holds for the client's answer (`Handoff.Ask`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    /// When it is refused unless answered (the pump's clock).
+    pub deadline_ms: u64,
+    /// A yes loads it (an `http(s)` address); for any other scheme the engine is told no whatever the
+    /// client answers (the client may open it itself).
+    pub loadable: bool,
+}
+
+/// What a full view has beyond a light one.
+pub struct FullView {
+    pub rules: Rules,
+    /// Held navigations by the engine's request id.
+    pub held: BTreeMap<u64, Held>,
+    /// When the page's last dialogs were shown (the pump's clock), for the rate limit.
+    pub dialogs: VecDeque<u64>,
+    /// Notifications of this view on screen: toast id to the engine's notification id.
+    pub toasts: BTreeMap<u64, u64>,
+    /// The page on screen as the engine last said (what `Reload(bypass_blocking)` reloads).
+    pub committed: String,
+}
+
+impl FullView {
+    pub fn new(rules: Rules) -> Self {
+        FullView {
+            rules,
+            held: BTreeMap::new(),
+            dialogs: VecDeque::new(),
+            toasts: BTreeMap::new(),
+            committed: String::new(),
+        }
+    }
+}
+
+/// One view, light or full.
 pub struct View {
     pub owner: ClientKey,
     /// The client's event endpoint (a handle the service owns).
@@ -35,6 +71,8 @@ pub struct View {
     /// The view is lost and the client has not been told: its `ViewLost` met a full queue and is
     /// sent again at every turn of the pump until it gets through.
     pub lost_unsent: bool,
+    /// `Some` for a view made through `os.lazy.webd.view.v1` (or a scope of it).
+    pub full: Option<Box<FullView>>,
 }
 
 impl View {
@@ -52,6 +90,7 @@ impl View {
             refresh_sent: false,
             backoff_until: None,
             lost_unsent: false,
+            full: None,
         }
     }
 
@@ -216,6 +255,6 @@ mod tests {
         fn mapped_bytes(&self) -> u64 {
             0
         }
-        fn write(&mut self, _bytes: &[u8]) {}
+        fn write_at(&mut self, _offset: usize, _bytes: &[u8]) {}
     }
 }

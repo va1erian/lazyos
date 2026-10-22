@@ -1,0 +1,15 @@
+# What WebKit's updates changed between two paints (docs/lazywebplus-performance-plan.md): one scroll
+# and a few rectangles, or "all of it". Pure Rust, no dependency: the window's seam (`xui-webkit`,
+# which re-exports it as `xui_webkit::damage`) and webd's service (`xui-webd`, one per view) keep
+# the same rules. Tested here and against a model of WebKit's backing store in `xui-webkit`.
+[package]
+name = "lazydamage"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-2.0-only OR GPL-3.0-or-later"
+description = "What a WebKit page changed between two paints: one scroll and a few rectangles"
+
+[lib]
+name = "lazydamage"
+path = "src/lib.rs"

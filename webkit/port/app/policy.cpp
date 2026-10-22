@@ -7,6 +7,10 @@
 // file in the user's Downloads folder (a ".part" name), the NetworkProcess writes it there, and
 // the window renames it when every byte arrived.
 //
+// An owner may also hold a navigation for a question of its own (webd's `ask`, ViewSink::kVerdictAsk): the
+// listener is kept, retained, in the view until the owner answers (View::answerNavigation), and a newer
+// main-frame navigation or the view's end refuses it. LazyWeb+'s window never holds one.
+//
 // Markers (the window prefix first; the ones that name a page only in a UI-probe image):
 //   CLICK:<url>        a link was clicked: the navigation it started (a window that prints no markers of its own)
 //   DOWNLOAD:REFUSED   the window refused a download
@@ -40,6 +44,11 @@ struct DownloadInfo {
     int view { 0 };
     uint64_t id { 0 };
     bool refused { false };
+    // What arrived so far and the size the response announced (-1: none). WebKit's curl download reports each
+    // write's bytes and 0 for both totals (NetworkDataTaskCurl.cpp, `didReceiveData(bytesWritten, 0, 0)`), so
+    // the totals are counted here.
+    int64_t received { 0 };
+    int64_t announced { -1 };
 };
 
 // The size a response announces, or -1: WebKit's C API answers a 32-bit length, and 0 or all ones
@@ -63,7 +72,8 @@ WKStringRef decideDestination(WKDownloadRef, WKURLResponseRef response, WKString
         WKRelease(url);
     char path[4096] = { 0 };
     View* v = viewById(info->view);
-    if (!v || v->sink->downloadStart(info->id, address.c_str(), utf8(suggestedFilename).c_str(), announcedLength(response), path, sizeof path) != 0) {
+    info->announced = announcedLength(response);
+    if (!v || v->sink->downloadStart(info->id, address.c_str(), utf8(suggestedFilename).c_str(), info->announced, path, sizeof path) != 0) {
         info->refused = true;
         say("DOWNLOAD:REFUSED");
         return nullptr;
@@ -71,17 +81,25 @@ WKStringRef decideDestination(WKDownloadRef, WKURLResponseRef response, WKString
     return WKStringCreateWithUTF8CString(path);
 }
 
-void didWriteData(WKDownloadRef, long long, long long totalBytesWritten, long long totalBytesExpectedToWrite, const void* clientInfo)
+void didWriteData(WKDownloadRef, long long bytesWritten, long long totalBytesWritten, long long totalBytesExpectedToWrite, const void* clientInfo)
 {
     DownloadInfo* info = infoOf(clientInfo);
+    if (bytesWritten > 0)
+        info->received += bytesWritten;
+    const int64_t received = totalBytesWritten > 0 ? totalBytesWritten : info->received;
+    const int64_t total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : info->announced;
     View* v = viewById(info->view);
     if (v && !info->refused)
-        v->sink->downloadProgress(info->id, totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : -1);
+        v->sink->downloadProgress(info->id, received, total);
 }
+
+// The downloads under way, by view and id: what a cancel's completion (below) finds its bookkeeping by.
+std::map<std::pair<int, uint64_t>, DownloadInfo*> live;
 
 // The download ended: its view lets go of it (a view that is gone has let go already).
 void forget(DownloadInfo* info)
 {
+    live.erase({ info->view, info->id });
     if (View* v = viewById(info->view)) {
         auto it = v->downloads.find(info->id);
         if (it != v->downloads.end()) {
@@ -131,6 +149,7 @@ void adopt(View& v, WKDownloadRef download)
     auto* info = new DownloadInfo();
     info->view = v.id;
     info->id = v.nextDownload++;
+    live[{ info->view, info->id }] = info;
     WKRetain(download);
     v.downloads[info->id] = download;
     WKDownloadClientV0 client = { };
@@ -143,6 +162,46 @@ void adopt(View& v, WKDownloadRef download)
     // The client is copied: the next download reuses this struct with its own info.
     WKDownloadSetClient(download, &client.base);
 }
+
+// A cancel ends the download through this completion alone: WebKit forgets the download once the
+// NetworkProcess answers and calls none of its client's callbacks (DownloadProxy::cancel), so the owner is
+// told here, and the bookkeeping freed. A download that ended first (finished, failed) is gone from `live`.
+void cancelDone(WKDataRef, const void* context)
+{
+    std::unique_ptr<std::pair<int, uint64_t>> key(static_cast<std::pair<int, uint64_t>*>(const_cast<void*>(context)));
+    auto it = live.find(*key);
+    if (it == live.end())
+        return;
+    DownloadInfo* info = it->second;
+    View* v = viewById(info->view);
+    if (v && !info->refused)
+        v->sink->downloadFail(info->id, "Cancelled");
+    forget(info);
+}
+
+void cancel(int view, uint64_t id, WKDownloadRef download)
+{
+    // The completion below frees the bookkeeping the client's callbacks point at: they are taken off
+    // first, so a late callback (a write or a failure WebKit delivers after the cancel) finds none.
+    WKDownloadSetClient(download, nullptr);
+    WKDownloadCancel(download, new std::pair<int, uint64_t>(view, id), cancelDone);
+}
+
+// An allowed navigation goes ahead: the rule lists apply or not to the page it begins (issue #845), before
+// its first request, and it is loaded, or saved when the page asked for a file.
+void finishNavigation(View& v, WKFramePolicyListenerRef listener, const std::string& address, bool mainFrame, bool download)
+{
+    blockingNavigation(v, address, mainFrame);
+    if (download)
+        WKFramePolicyListenerDownload(listener);
+    else
+        WKFramePolicyListenerUse(listener);
+}
+
+static_assert(ViewSink::kVerdictDeny == LZW_VERDICT_DENY, "the engine's refusal is lazyos_ui.h's");
+static_assert(ViewSink::kVerdictAsk != LZW_VERDICT_ALLOW && ViewSink::kVerdictAsk != LZW_VERDICT_DENY
+        && ViewSink::kVerdictAsk != LZW_VERDICT_HANDOFF,
+    "holding a navigation is a verdict of its own");
 
 } // namespace
 
@@ -187,28 +246,36 @@ void decidePolicyForNavigationAction(WKPageRef, WKNavigationActionRef action, WK
     // (no target frame) does not replace the page on show: a script's window.open("about:blank")
     // must not switch the blocker off for the page that made it.
     bool mainFrame = false;
-    if (!target) {
+    const bool newWindow = !target;
+    if (newWindow) {
         v.popupGesture = gesture;
         v.popupUrl = address;
     } else {
         mainFrame = WKFrameInfoGetIsMainFrame(target);
         WKRelease(target);
     }
+    // <a download>: the page asked for a file, not a page.
+    const bool download = v.has(LZW_FEATURE_DOWNLOADS) && WKNavigationActionShouldPerformDownload(action);
 
     if (v.has(LZW_FEATURE_POLICY)) {
+        // A navigation that replaces the page supersedes the ones still waiting for the owner's answer.
+        if (mainFrame)
+            dropHeldNavigations(v);
         const std::string committed = committedUrl(v);
-        if (v.sink->navigate(address.c_str(), type, gesture, committed.c_str()) != LZW_VERDICT_ALLOW) {
+        const uint64_t request = v.nextRequest++;
+        const int verdict = v.sink->navigateRequest(request, address.c_str(), type, gesture, mainFrame || newWindow, committed.c_str());
+        if (verdict == ViewSink::kVerdictAsk) {
+            // Neither loaded nor refused: the page's process waits for this one as it waits for any policy.
+            WKRetain(listener);
+            v.held[request] = HeldNavigation { listener, address, mainFrame, download };
+            return;
+        }
+        if (verdict != LZW_VERDICT_ALLOW) {
             WKFramePolicyListenerIgnore(listener);
             return;
         }
     }
-    // The rule lists apply or not to the page this begins (issue #845), before its first request.
-    blockingNavigation(v, address, mainFrame);
-    // <a download>: the page asked for a file, not a page.
-    if (v.has(LZW_FEATURE_DOWNLOADS) && WKNavigationActionShouldPerformDownload(action))
-        WKFramePolicyListenerDownload(listener);
-    else
-        WKFramePolicyListenerUse(listener);
+    finishNavigation(v, listener, address, mainFrame, download);
 }
 
 void decidePolicyForNavigationResponse(WKPageRef, WKNavigationResponseRef response, WKFramePolicyListenerRef listener, WKTypeRef, const void* clientInfo)
@@ -246,7 +313,8 @@ void dropDownloads(View& view)
     auto pending = std::move(view.downloads);
     view.downloads.clear();
     for (auto& entry : pending) {
-        WKDownloadCancel(entry.second, nullptr, [](WKDataRef, const void*) { });
+        // The cancel's completion finds the view gone: it tells nobody and frees the bookkeeping.
+        cancel(view.id, entry.first, entry.second);
         WKRelease(entry.second);
     }
 }
@@ -265,7 +333,31 @@ void View::downloadCancel(uint64_t id)
 {
     auto it = downloads.find(id);
     if (it != downloads.end())
-        WKDownloadCancel(it->second, nullptr, [](WKDataRef, const void*) { });
+        cancel(this->id, id, it->second);
+}
+
+void View::answerNavigation(uint64_t id, bool allow)
+{
+    auto it = held.find(id);
+    if (it == held.end())
+        return; // answered, dropped by a newer navigation, or never held
+    const HeldNavigation navigation = std::move(it->second);
+    held.erase(it);
+    if (allow)
+        finishNavigation(*this, navigation.listener, navigation.address, navigation.mainFrame, navigation.download);
+    else
+        WKFramePolicyListenerIgnore(navigation.listener);
+    WKRelease(navigation.listener);
+}
+
+void dropHeldNavigations(View& v)
+{
+    auto pending = std::move(v.held);
+    v.held.clear();
+    for (auto& entry : pending) {
+        WKFramePolicyListenerIgnore(entry.second.listener);
+        WKRelease(entry.second.listener);
+    }
 }
 
 } // namespace webkitapp

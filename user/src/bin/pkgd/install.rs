@@ -302,6 +302,13 @@ impl Pkgd {
             );
             return Err(self.refuse(&subject, uid, "INSTALL", failure));
         }
+        // `os.lazy.*` names service names other apps trust: a new one comes
+        // only from the image (a demoted core app's row still updates).
+        if let Err(why) =
+            pkgstore::reserved::install(system_name, self.is_core(system_name), previous.is_some())
+        {
+            return Err(self.refuse(&subject, uid, "INSTALL", fail(EPERM, why)));
+        }
         // A plain install replaces the app for whoever owns it: only the user
         // who installed it, or a system caller, may.
         if let Some(row) = &previous {

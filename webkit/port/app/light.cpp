@@ -168,6 +168,8 @@ void prepareLightLock()
 
 LightLock lightLock() { return lockState; }
 
+WKUserContentFilterRef lightLockFilter() { return lockState == LightLock::Ready ? lockFilter : nullptr; }
+
 void whenLightLockSettled(std::function<void()> task)
 {
     if (lockState != LightLock::Pending)

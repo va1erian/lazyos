@@ -1,0 +1,39 @@
+# `os.lazy.webd.net.v1`
+
+Interface id: `0xf313574271ceba59`
+
+The scope that lets a web view load `http:` and `https:` content: a
+`CreateView` made through this interface may use the `Web` and `Origins`
+scheme policies. Same arguments as `os.lazy.webd.view.v1.CreateView`; the
+view is then used through that interface.
+
+## Methods
+
+| Method | Id | Kind | Signature |
+|---|---|---|---|
+| CreateView | 1 | sync | `(config: ViewConfig, width: U32, height: U32, events: Channel<os.lazy.webd.view.v1>) -> (view: U64)` |
+
+## Objects
+
+Kernel objects a request carries, in the order of the parcel's
+object list (the index each field must hold).
+
+| Method | Field | Type | Object |
+|---|---|---|---|
+| CreateView | `events` | `Channel<os.lazy.webd.view.v1>` | `objects[0]`, a channel the receiver sends `os.lazy.webd.view.v1` on |
+
+## struct `ViewConfig`
+
+- `profile: String`
+- `ephemeral: Bool`
+- `scheme_policy: U32`
+- `origins: Array<String>`
+- `scripts: Bool`
+- `handoff: U32`
+- `downloads: Bool`
+- `popups: Bool`
+- `blocking: Bool`
+- `notifications: Bool`
+- `user_agent_suffix: String`
+- `deltas: Bool`
+- `dialogs: Bool`

@@ -21,7 +21,8 @@ struct Chan {
     dead: bool,
     /// The client's queue is full: sends fail with `-EAGAIN`.
     full: bool,
-    events: VecDeque<(u32, Vec<u8>)>,
+    /// `(interface id, method id, body)`.
+    events: VecDeque<(u64, u32, Vec<u8>)>,
 }
 
 struct Buf {
@@ -112,6 +113,18 @@ impl MemFabric {
     /// The events the service sent on `channel` since the last call: `(method id, body)`.
     pub fn take_events(&self, channel: u64) -> Vec<(u32, Vec<u8>)> {
         match self.inner.borrow_mut().channels.get_mut(&channel) {
+            Some(chan) => chan
+                .events
+                .drain(..)
+                .map(|(_, method, body)| (method, body))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The same, with the interface each event was sent as: `(interface id, method id, body)`.
+    pub fn take_tagged(&self, channel: u64) -> Vec<(u64, u32, Vec<u8>)> {
+        match self.inner.borrow_mut().channels.get_mut(&channel) {
             Some(chan) => chan.events.drain(..).collect(),
             None => Vec::new(),
         }
@@ -163,9 +176,10 @@ impl Mapping for MemMapping {
         self.data.borrow().len() as u64
     }
 
-    fn write(&mut self, bytes: &[u8]) {
+    fn write_at(&mut self, offset: usize, bytes: &[u8]) {
         let mut data = self.data.borrow_mut();
-        data[self.offset..self.offset + bytes.len()].copy_from_slice(bytes);
+        let start = self.offset + offset;
+        data[start..start + bytes.len()].copy_from_slice(bytes);
     }
 }
 
@@ -177,7 +191,7 @@ impl Drop for MemMapping {
 }
 
 impl Fabric for MemFabric {
-    fn send(&self, channel: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
+    fn send(&self, channel: u64, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
         let mut inner = self.inner.borrow_mut();
         let Some(chan) = inner.channels.get_mut(&channel).filter(|chan| chan.open) else {
             return Err(-errno::EPIPE);
@@ -188,7 +202,7 @@ impl Fabric for MemFabric {
         if chan.full {
             return Err(-errno::EAGAIN);
         }
-        chan.events.push_back((method, body));
+        chan.events.push_back((interface, method, body));
         Ok(())
     }
 

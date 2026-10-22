@@ -697,7 +697,7 @@ loader, also a capability-gated syscall: defence in depth) always;
 `os.lazy.net.socket.v1`, `os.lazy.net.stack.v1` (name lookups and ping need no
 socket) and `os.lazy.mount.v1` (file-server mounts) unless `network =
 ["outbound"]`. A plain tool is therefore eight denies and the allow-all, nine
-rules (the Playground's `PKGD:POLICY:PASS ... rules=9`); `outbound` removes
+rules (the Playground's `PKGD:POLICY:PASS ... rules=11`); `outbound` removes
 three and `develop` one. The kernel's raw `AF_INET` gate follows the same
 rule for the socket service (`confine::may_open_inet`), so a tool's own native
 code gets no socket either unless `network` is declared. No
@@ -997,7 +997,12 @@ every app to disk; the time it takes is the OS volume's write speed.
 `EPERM` and "<name> is part of LazyOS and can't be removed; you can hide it from
 the menu in Settings", audited as `denied`. Installing a version of a core app
 older than the shipped one is refused the same way; a newer one installs over it
-and stays core.
+and stays core. The namespace `os.lazy.*` (and the bare `os.lazy`) is reserved for
+the image: `Install` and `Develop` refuse (`EPERM`, "the name ... is reserved for
+LazyOS") a package named in it that the image does not ship and that has no
+installed row (a retired core app that was demoted to a user app keeps its
+updates), because other apps resolve `app.os.lazy.*` to whoever holds that label
+(`pkgstore::reserved`).
 
 **Replacing a core app** is a system change (docs/accounts-plan.md U2, 3.3).
 `Install` refuses it from a session and from `elevd` ("<name> is a core app:

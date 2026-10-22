@@ -10,7 +10,7 @@
 use core::fmt::{self, Write};
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use super::{Task, TaskState, CURRENT, TASKS};
+use super::{Task, TaskState, TASKS};
 use crate::arch::nmi::write_stack;
 
 /// Word indices in a scheduler-saved frame: 15 general registers, then the
@@ -76,7 +76,7 @@ pub fn write_report(out: &mut impl Write) -> fmt::Result {
     let Some(tasks) = TASKS.try_lock() else {
         return writeln!(out, "HANG:TASKS table locked; rows unavailable");
     };
-    let current = CURRENT.load(Ordering::Relaxed);
+    let current = super::current();
     for (slot, task) in tasks.iter().enumerate() {
         if let Some(task) = task {
             write_task(out, slot, task, slot == current)?;

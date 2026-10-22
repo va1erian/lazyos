@@ -53,7 +53,7 @@ flags = [
     "jsc", "webkit-deps", "webkit-port",
     "traydemo", "wifi", "wifi-sim", "intelgfx",
     # Every desktop (so `base`) already ships webd, for Docs and Mail (docs/webd-plan.md P3): `webd` only makes
-    # that required, `no-webd` leaves it out and `webd-demo` adds its demo client.
+    # that required, `no-webd` leaves it out and `webd-demo` adds its two test clients (webddemo, webdbrowse).
     "webd", "no-webd", "webd-demo",
     "dbgd", "dbgd-control", "dbgd-mmio",
     "assets",

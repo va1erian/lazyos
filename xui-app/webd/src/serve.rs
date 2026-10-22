@@ -15,7 +15,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use messenger_generated::os_lazy_webd_browser_v1 as browser_wire;
 use messenger_generated::os_lazy_webd_light_v1 as wire;
+use messenger_generated::os_lazy_webd_net_v1 as net_wire;
+use messenger_generated::os_lazy_webd_view_v1 as view_wire;
 use xui_app::resident::{Lifecycle, Wake};
 use xui_app::server::{Request, Server};
 use xui_app::sys;
@@ -29,11 +32,15 @@ use xui_webd::{Call, Service};
 use crate::fabric::RealFabric;
 use crate::heartbeat::{Beat, Heartbeat};
 use crate::lines::{lines_of, Line};
-use crate::{doorbell, selftest};
+use crate::outside::System;
+use crate::{doorbell, exports, selftest};
 
 /// The name the light interface is registered under (`docs/webd-plan.md` section 3.1: a labelled app
 /// registers `app.<id>.<name>` for an interface of its own domain `<id>.<name>.v<N>`).
 pub const NAME: &str = "app.os.lazy.webd.light";
+/// The name the full interface and its two scopes are registered under (one endpoint: the scope of a
+/// `CreateView` is the interface id of its parcel, which the kernel checked).
+pub const FULL_NAME: &str = "app.os.lazy.webd.view";
 
 /// How long the service thread parks at most, in milliseconds.
 const IDLE_MS: u64 = 1000;
@@ -127,8 +134,15 @@ fn answer(server: &Server, service: &mut Svc, mut request: Request) {
     }
 }
 
-/// Every request that is queued now, up to [`PER_PASS`]; the number answered.
-fn serve_requests(server: &Server, service: &mut Svc, buf: &mut [u8]) -> usize {
+/// Every request that is queued now on either endpoint, up to [`PER_PASS`] each; the number answered.
+fn serve_requests(servers: &[Server], service: &mut Svc, buf: &mut [u8]) -> usize {
+    servers
+        .iter()
+        .map(|server| serve_one(server, service, buf))
+        .sum()
+}
+
+fn serve_one(server: &Server, service: &mut Svc, buf: &mut [u8]) -> usize {
     let mut answered = 0;
     while answered < PER_PASS {
         match server.poll(buf) {
@@ -172,8 +186,8 @@ fn lifecycle(life: &mut Option<Lifecycle>) -> bool {
 }
 
 /// Park until a request, a lifecycle event, a ring of the doorbell or the idle deadline.
-fn park(server: &Server, life: &Option<Lifecycle>) {
-    let mut handles = vec![server.endpoint()];
+fn park(servers: &[Server], life: &Option<Lifecycle>) {
+    let mut handles: Vec<u64> = servers.iter().map(Server::endpoint).collect();
     if let Some(life) = life {
         handles.push(life.channel());
     }
@@ -204,6 +218,33 @@ pub fn run(queue: Arc<EventQueue>) -> i32 {
         }
     };
     trace::line!(Channel::Webd, "SERVE:{NAME}");
+    let mut servers = vec![server];
+    let full = Server::register(
+        FULL_NAME,
+        &[
+            view_wire::INTERFACE_ID,
+            net_wire::INTERFACE_ID,
+            browser_wire::INTERFACE_ID,
+        ],
+        &[
+            view_wire::INTERFACE_NAME,
+            net_wire::INTERFACE_NAME,
+            browser_wire::INTERFACE_NAME,
+        ],
+    );
+    match full {
+        Ok(server) => {
+            servers.push(server);
+            trace::line!(Channel::Webd, "SERVE:{FULL_NAME}");
+        }
+        // The light views still work: Docs and Mail need nothing more.
+        Err(code) => trace::fail!(
+            Channel::Webd,
+            "SERVE",
+            "register {FULL_NAME}: err={}",
+            -code
+        ),
+    }
     let mut life = match Lifecycle::watch() {
         Ok(life) => Some(life),
         // Started by hand rather than by `init`: SIGTERM still ends it.
@@ -212,13 +253,15 @@ pub fn run(queue: Arc<EventQueue>) -> i32 {
             None
         }
     };
-    let mut service: Svc = Service::new(FfiEngine, RealFabric, queue, session);
+    let mut service: Svc = Service::new(FfiEngine, RealFabric, queue, session)
+        .with_places(exports::places())
+        .with_outside(Box::new(System::default()));
     let mut buf = vec![0u8; REQUEST_BYTES];
     let mut watchdog = Heartbeat::new();
     let mut status = EXIT_CLEAN;
     loop {
         doorbell::clear();
-        serve_requests(&server, &mut service, &mut buf);
+        serve_requests(&servers, &mut service, &mut buf);
         service.pump(now_ms());
         flush_notes(&mut service);
         if lifecycle(&mut life) || QUIT.load(Ordering::Acquire) {
@@ -248,7 +291,7 @@ pub fn run(queue: Arc<EventQueue>) -> i32 {
                 break;
             }
         }
-        park(&server, &life);
+        park(&servers, &life);
     }
     if status != EXIT_HUNG {
         service.shutdown();

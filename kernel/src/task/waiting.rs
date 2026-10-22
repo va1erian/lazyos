@@ -109,7 +109,7 @@ fn wake_inner(index: usize, reason: WakeReason, ends_stop: bool) -> bool {
             task.wake_reason = Some(reason);
             rejoin(task, now);
             runq::sync(&tasks, index);
-            let cur = CURRENT.load(Ordering::Relaxed);
+            let cur = current();
             crate::perf::on_wake(index, cur);
             if super::preempt::note_wake(&tasks, index, cur) {
                 super::sched::rearm_event_timer();

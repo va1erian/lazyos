@@ -72,6 +72,7 @@ pub fn engine_config(
         color_scheme,
         default_font_size,
         user_style: config.user_style.clone(),
+        full: None,
     })
 }
 
@@ -154,6 +155,7 @@ mod tests {
                 color_scheme: 0,
                 default_font_size: 0,
                 user_style: String::new(),
+                full: None,
             }
         );
     }

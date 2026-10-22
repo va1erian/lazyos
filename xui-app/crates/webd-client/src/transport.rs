@@ -8,10 +8,15 @@ use libmessenger::Object;
 /// The registered name `webd` serves the light interface under.
 pub const SERVICE_NAME: &str = "app.os.lazy.webd.light";
 
+/// The registered name `webd` serves the full interface (`os.lazy.webd.view.v1`) and its two scope
+/// interfaces (`os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`) under.
+pub const FULL_SERVICE_NAME: &str = "app.os.lazy.webd.view";
+
 /// Positive errno values the client reads (`docs/midl.md`, "Errors"); transports return them
 /// negated, as the kernel does.
 pub mod errno {
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const ENOMEM: i64 = 12;
     pub const EAGAIN: i64 = 11;
     pub const EACCES: i64 = 13;
@@ -35,6 +40,13 @@ pub trait SharedMem {
     fn write(&mut self, bytes: &[u8]);
     /// Copy the first `into.len()` bytes out; `into.len() <= len()`.
     fn read(&self, into: &mut [u8]);
+    /// Copy `into.len()` bytes out from `offset`; `offset + into.len() <= len()`. A full view's
+    /// delta reads only its rectangles out of a slot; a transport should copy just those bytes.
+    fn read_at(&self, offset: usize, into: &mut [u8]) {
+        let mut prefix = vec![0; offset + into.len()];
+        self.read(&mut prefix);
+        into.copy_from_slice(&prefix[offset..]);
+    }
 }
 
 /// One event off a view's endpoint: the method id and its TLV body.
@@ -90,6 +102,21 @@ pub trait Transport {
     fn alloc(&mut self, bytes: usize) -> Result<Self::Mem, i64>;
     /// Close a channel handle this task holds.
     fn close_channel(&mut self, handle: u64);
+}
+
+/// A transport bound to the full interface (`os.lazy.webd.view.v1`: `call`, `send` and `recv` use
+/// it) that can also make one call through another interface of the same service: a full view's
+/// `CreateView` goes through the scope it asks for (`os.lazy.webd.net.v1`, `os.lazy.webd.browser.v1`),
+/// which the kernel checks against the caller's manifest. Events arrive as `os.lazy.webd.view.v1`.
+pub trait ScopedTransport: Transport {
+    /// [`Transport::call`] with the request's interface id set to `interface`.
+    fn call_through(
+        &mut self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<Vec<u8>, i64>;
 }
 
 #[cfg(test)]

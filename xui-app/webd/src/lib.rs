@@ -31,6 +31,8 @@ mod exports;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod fabric;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
+mod outside;
+#[cfg(all(target_os = "linux", target_env = "musl"))]
 mod selftest;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod serve;

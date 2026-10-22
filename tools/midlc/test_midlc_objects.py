@@ -285,6 +285,20 @@ class RepositoryTests(unittest.TestCase):
                 ],
                 ("os.lazy.webd.light.v1", "AttachSlot"): [("pixels", "buffer", None)],
                 ("os.lazy.webd.light.v1", "LoadHtml"): [("html", "buffer", None)],
+                ("os.lazy.webd.view.v1", "CreateView"): [
+                    ("events", "channel", "os.lazy.webd.view.v1")
+                ],
+                ("os.lazy.webd.view.v1", "AttachSlot"): [("pixels", "buffer", None)],
+                ("os.lazy.webd.view.v1", "LoadHtml"): [("html", "buffer", None)],
+                ("os.lazy.webd.view.v1", "BlockingCompile"): [("rules", "buffer", None)],
+                # The two scope interfaces carry the full view's events channel: they are the
+                # same CreateView, gated by the kernel on the caller's manifest.
+                ("os.lazy.webd.net.v1", "CreateView"): [
+                    ("events", "channel", "os.lazy.webd.view.v1")
+                ],
+                ("os.lazy.webd.browser.v1", "CreateView"): [
+                    ("events", "channel", "os.lazy.webd.view.v1")
+                ],
                 ("os.lazy.usb.audio.v1", "Attach"): [("staging", "buffer", None)],
             },
         )

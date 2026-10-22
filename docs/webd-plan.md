@@ -1,6 +1,6 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; the full interface (`os.lazy.webd.view.v1`) and LazyWeb+ on webd (P4) are not built. Builds on W4/W5/W6 of
+Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); LazyWeb+ on webd (P4) is not built. Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -335,7 +335,7 @@ browser moves onto webd**.
 |---|---|---|---|
 | **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
 | **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
-| **P2 webd, light first** (slices 1 and 2 done; 3 is the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
+| **P2 webd, light first** (done: slices 1 and 2 light, 3 the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
 | **P4 LazyWeb+ thin client** | `xui-webplus` on `RemoteEngine`; downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py` pass against webd; the 108 MiB engine host leaves the package | 1.5-2.5 weeks |
 | **P5 hardening** | process caps, memory-pressure eviction, background throttling, fairness, reconnect protocol, attack harness for webd (malicious client, malicious page process), seeded fuzz of the slot state machine and `ViewConfig` decode | no `LABEL:DENY` beyond the documented optional ones; two views scrolling at once keep frame pacing | 2 weeks |
@@ -573,10 +573,85 @@ The client side of the light interface and its proof; the program, package and `
   the children's environment decided once at host start (or a second NetworkProcess for memory-only owners): P2.
 * **Reserve the webd names.** `pkgstore` lets a client resolve `app.os.lazy.webd.*` to whoever holds the label
   `app:os.lazy.webd`, and nothing yet stops a user package from being named `os.lazy.webd` on an image that does
-  not ship the core one. P2 has `pkgd` refuse user packages in `os.lazy.*`.
+  not ship the core one. P2 has `pkgd` refuse user packages in `os.lazy.*`. **Done in slice 3**
+  (`libs/pkgstore/src/reserved.rs`, see "P2 slice 3 as built").
 * **The children's environment is the first persistent profile's** (`LAZYOS_WEBKIT_PROFILE`, `CURL_COOKIE_JAR_PATH`):
   a second profile's cookies in a shared NetworkProcess need a patch or a second process (decision D4's "per-profile
-  cookie jars at first" is true for the data store, not yet for curl's jar).
+  cookie jars at first" is true for the data store, not yet for curl's jar). **Resolved in slice 3 without a patch:**
+  curl's NetworkSession opens each persistent store's own cookie file (`NetworkSessionCurl.cpp`,
+  `setCookieDatabase(cookiePersistentStorageFile)`) and an ephemeral session uses `:memory:`; only the default
+  session read the variable. webd fixes the children's environment once at start (`webd_engine_start_host`: the
+  profiles' root, `CURL_COOKIE_JAR_PATH=:memory:`), and `webd-abi-test profiles` and `tools/webd/full_run.py` prove
+  two profiles keep their cookies apart. LazyWeb+'s single page keeps the old behaviour.
+
+### P2 slice 3 as built (2026-10-22): the full interface
+
+* **The interface** is `idl/webd.midl`: `os.lazy.webd.view.v1`, the superset of the light one (the shared methods
+  keep their ids and wire shapes, the full ones append fields: `tools/webd/test_idl.py` holds the files
+  together), and **two scope interfaces**, `os.lazy.webd.net.v1` and `os.lazy.webd.browser.v1`, each with only a
+  `CreateView` of the same shape. The plan called the scopes "not interfaces"; making them interfaces is what lets
+  the kernel check them (the display's pointer scope, `idl/display_cursor.midl`, is the precedent): the interface id
+  of the `CreateView` parcel is what the view may reach, and webd decodes all three with one codec. One endpoint,
+  `app.os.lazy.webd.view`, serves the three (`SERVICE_NAMES` rows for each); explain rows MEDIUM (view) and HIGH
+  (net, browser). `ViewConfig` has the plan's fields minus `Mode`s (downloads and popups are booleans), plus
+  `deltas` and `dialogs`. Method ids: calls 1-7, 10-16, 20-23, 30-37; events 100-122.
+* **Decisions the plan left open, as taken.** The app's own profile (`profile = ""`) stays **in memory** (webd
+  cannot name a client's label: the credential gate; label ids are per boot), so `browser` is the only profile on
+  disk; downloads, blocking and notifications need it (notifications: WebKit refuses permission requests in a
+  non-persistent session). Downloads go to `$HOME/Downloads`, not a profile folder (a client could not read
+  webd's); the browser scope is required. Toasts are posted by webd, titled with the site (open question 6). The
+  rule lists' download (`listupdate`) stays with the client that owns the lists: webd compiles what it is given
+  (`BlockingCompile`) and keeps the per-profile switch and exceptions. The web process cap counts full views'
+  (client, profile) pairs, 4 per user, refused at `CreateView` (`EDQUOT`) rather than as `ViewLost`. A full view
+  without the network scope carries the light views' lock list (navigations alone would leave sub-resources
+  open; `webd-abi-test nonet`).
+* **Engine** (`webkit/port/app`, opt-in, LazyWeb+ unchanged): held navigations (`WEBD_VERDICT_ASK`, the listener
+  kept until an answer or a newer navigation), per-view notification permission settling, a fixed children's
+  environment, full-view config (`fullview.cpp`: scripts, font size, user style, a user agent suffix set as the
+  custom agent with site quirks off, the lock), store code split into `profile.cpp`; two fixes LazyWeb+ also gets:
+  curl downloads reported no totals (counted now) and a cancelled download never reported its end. webd's half:
+  `abi_full.cpp`, `sink_full.cpp`; `webd-abi-test` modes `full profiles ask dialog download popup deltas blocking
+  notify nonet` beside the light ones (`webkit/README.md`).
+* **Service** (`xui-app/crates/webd`): `fullconfig.rs` (scopes), `policy.rs`, `events/{rules,pictures,full}.rs`
+  (the decisions WebKit's thread makes on the spot, the pictures in order, the full callbacks),
+  `service/{create,full,deliver,notify}.rs`, `outside.rs` (`mimed` and the toasts, `xui-app/webd/src/outside.rs`
+  on LazyOS). Two crates moved out of LazyWeb+'s so both share one set of rules: `lazydamage` (the paint plan) and
+  `lazydownloads` (download names, `.part`). 60 new host tests and two seeded fuzzers (`full_fuzz`,
+  `full_garbage`) found two bugs, fixed: an address with a backslash (`https://evil.test\@example.com/`) was read
+  as the listed origin; a full `State` with four 48 KiB texts overran the client's 100 KiB buffer (each is cut
+  at 24 KiB).
+* **Client** (`xui-app/crates/webd-client`): `FullWebView` (create through a scope, slots and band slots, deltas
+  applied to its picture, every call and event) and the scenario of the test app `os.lazy.webdbrowse` (shipped by
+  `LAZYOS_WEBDDEMO=1`), host-tested against the service and a fake web engine.
+* **Proof:** `python tools/webd/full_run.py` passes (docs/webd.md, "Full views": 17 steps, the server's log, the
+  downloaded file on the OS volume, the label trace, a screenshot). Found on the way: with two 1024-row band
+  slots, view A and its window left no room for a second view under the **per-process shared-buffer cap** (16 MiB
+  at 1280x720, `limit.shared_buffer_max`, charged to the buffer's creator); a band slot is now the view's height
+  of rows. **P4 must budget its slots against that cap**: a maximized LazyWeb+ at 2560x1440 has a 44 MiB cap and a
+  frame is 14.7 MB, so three frame slots and two bands do not fit (two frame slots and one band, or a raised limit).
+* **Latency** (the plan's criterion: within 10% of LazyWeb+ on the Ars Technica repro): **not measured against
+  that repro** (no live site in the harness; LazyWeb+ is not a webd client until P4). Measured on a local page
+  at 800x578 through webd: wheel turn to the first frame after it at most one 8 ms poll of the client (20 of 20),
+  `Refresh` to frame the same, a page `Load` to its first frame 17-32 ms; the engine's own wheel-to-damage 2.0 ms on
+  average. The hop is below the client's poll resolution; P4 measures it on the repro with LazyWeb+ as the client.
+* **Review of 2026-10-22 (six findings, all confirmed, fixed).** (1) A client's own profile and its private
+  windows were both "in memory, no folder, the client's one group", which is all the engine's `groupMate` compared,
+  so a private window was a related page of the client's own view and shared its cookies and storage:
+  `webd_view_config` grows `store_kind` (`WEBD_STORE_OWN`/`PRIVATE`) that `groupMate` compares; `webd-abi-test
+  store` (it sent the own cookie to the private window before). (2) The event queue dropped an older undelivered
+  `Held` of a view although the engine drops its held navigations only for a true main-frame navigation: a
+  replaced one is now a `Superseded` the service answers no. (3) Toasts: the title/body rules and the per-site
+  limits left LazyWeb+ for `lazywebnotify` and webd uses them, with a share per client of the shell's allowance for
+  its one sender (5 on screen, a burst of 3, one per 2 s). (4) The NetworkProcess writes `profiles/` and
+  Downloads, not the app folder (`rules/` is the lock store). (5) `lazydownloads` counts downloads under way
+  (256, 32 per client), not every one ever. (6) A `LoadHtml` base is `about:`/`data:`/`http(s):` only, never
+  `blob:`. Found on the way: the `host` feature's ffi tests had not compiled since slice 3 (fixed, and they check
+  the appended layout).
+* **Not done in this slice.** The pool of parked views (a destroyed view still leaves its page proxy, and a full
+  view of the app's own profile its store and session: P5, as before); `Find`, `Zoom`, `Snapshot`; a
+  `webd_engine_view_pid`; the toasts and the `mimed` hand-off were not run in QEMU (host tests, and the engine's
+  `notify` mode); bands never appeared (patch 0030 painted none for short scrolls); `Origins` limits navigations,
+  not sub-resources.
 
 Kernel testing requirement: nothing above adds kernel code. webd's correctness tests are host tests (model
 against the recording engine and an in-memory fabric); its stress tests are harness runs of thousands of view

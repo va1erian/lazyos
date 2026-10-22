@@ -317,6 +317,23 @@ with a warning and every other app still builds. `python tools/xui/test_zig.py` 
 `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`) and judges the markers and pictures
 (it needs webd built: `tools/webkit/webd.py`; `tools/docs/test_judge.py` is the judge's self-test).
 
+### Writing documentation for the Docs app
+
+Every `docs/**/*.md` ships at `/docs/os/<path>` and is read in the Docs app
+(start at `docs/index.md`; the welcome page and the Home button lead there). The
+app follows relative links to other `.md` files and keeps a Back/Forward/Home
+history; a `#heading` link does nothing there (a light view cannot scroll to
+it) but works elsewhere, so keep them correct (headings get GitHub-style ids and
+the checker verifies them). It draws no images and shows raw HTML as
+text, so write plain Markdown and link pages by relative path. A file over 256
+KiB is not embedded. Every fenced `rhai` block must compile and every relative
+link must resolve: `python tools/docs/check_snippets.py` checks both (CI:
+`.github/workflows/docs.yml`; tag a deliberate fragment `rhai ignore`).
+`docs/rhai/api/` (one page per `sys::` module) is generated from `idl/` by
+`midlc --rhai-docs`; never edit it by hand. The guides: `docs/lazyrad/`
+(LazyRAD: forms, controls, scripting, packaging, cookbook) and `docs/rhai/`
+(language, the `rhai` command, `msg`, cookbook).
+
 ## LazyWriter (word processor)
 
 `writer` (`os.lazy.writer`) is a core desktop app on xui's `xui-rich-text`
@@ -748,7 +765,12 @@ request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a r
 `webd` is the per-session daemon that owns WebKit and serves **light views** to other apps over Messenger
 ([`docs/webd.md`](docs/webd.md), plan [`docs/webd-plan.md`](docs/webd-plan.md), P2): an app hands it HTML
 (`LoadHtml`) and gets pixels back in shared slots; a light view has no network, no storage, locked navigation
-and scripts off unless asked. The interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
+and scripts off unless asked. **Full views** (`idl/webd.midl`, `os.lazy.webd.view.v1`, served as
+`app.os.lazy.webd.view`, P2 slice 3) are what a browser needs; what a view may reach is the interface its
+`CreateView` came through, which the kernel checks against the manifest: `os.lazy.webd.view.v1` alone has no
+network, `os.lazy.webd.net.v1` loads http(s), `os.lazy.webd.browser.v1` adds the `browser` profile on disk,
+downloads, content blocking and hand-offs. The shared methods keep the light interface's ids and shapes
+(`python tools/webd/test_idl.py`). The light interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
 portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-memory fabric), the engine half
 `webkit/port/webd/abi.cpp` over `webd_abi.h` (`webd-abi-test`), and the program `webd-app` joins them:
 `webkit/port/webd/main.cpp` (WebKit's run loop on a thread of its own; **the first thread runs the service**,
@@ -768,12 +790,18 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-host    # 
 cargo test -p build-support-tests                                     # webd_tests: the switch's requirements
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/webd \
     --script tools/screenshot/examples/webd_selftest.json            # the built-in client (Reopen "/selftest"); LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+cargo test --manifest-path xui-app/Cargo.toml -p xui-webd-client -p lazydamage -p lazydownloads   # the clients, the shared paint plan and download rules
+python tools/webd/run.py                                              # light views end to end (webddemo)
+python tools/webd/full_run.py                                         # full views end to end (webdbrowse against tools/webd/full_server.py on 18081)
+python tools/webd/test_full_judge.py && python tools/webd/test_idl.py
 ```
 
-Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
+Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `SERVE:app.os.lazy.webd.view`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
-The demo client `os.lazy.webddemo` ships only with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
+The test clients `os.lazy.webddemo` (a light view) and `os.lazy.webdbrowse` (Web View Test: full views
+through every scope, logic in `xui_webd_client::browse`, markers `WEBDBROWSE:<STEP>:PASS|FAIL`) ship only
+with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
@@ -909,7 +937,7 @@ python tools/rhai/run.py              # console checks (rhai_demo.json)
 python tools/rhai/run.py --desktop    # plus the desktop Terminal and the msg session
 python tools/rhai/run.py --lazyrad    # the LazyRAD Messenger sample (lazyrad_msg.json)
 cargo test --manifest-path libs/rhai-lazy/Cargo.toml   # bindings vs an in-memory fabric
-python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api idl/*.midl   # after an IDL change
+python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api --rhai-docs docs/rhai/api idl/*.midl   # after an IDL change
 ```
 
 `python tools/run_demo.py` rebuilds `rhai` before each image (`--no-rhai` skips it).
@@ -1139,9 +1167,9 @@ python tools/abi/coverage.py         # summarise ENOSYS syscalls from the logs
 `run.py` embeds one fixture as `/system/bin/abi-init` (via `LAZYOS_INIT`), boots, and
 classifies it from the serial log (`ABI:<name>:PASS|FAIL`, or `ABI:INIT:SKIP`).
 It writes `docs/compat/matrix.md` (+ `compat.json`). CI
-(`.github/workflows/abi-compat.yml`) runs the bench, publishes the matrix and
-coverage to the wiki, and comments them on PRs. See `tools/abi/README.md` and the
-wiki **Linux ABI Plan**.
+(`.github/workflows/abi-compat.yml`) runs the bench, uploads the matrix and
+coverage (the docs site publishes them, see "Documentation site"), and comments
+them on PRs. See `tools/abi/README.md` and `docs/linux-abi-plan.md`.
 
 The Linux loader runs dynamically linked musl programs (`PT_INTERP`; issue
 #535): the interpreter is looked up as stored, else in `/system/lib`
@@ -1825,6 +1853,28 @@ surface) is not done until both kinds of coverage exist and
 `python tools/test/run.py --accel none` passes. Do not rely on the ABI bench
 or screenshot pipeline as a substitute — those catch integration/visual
 regressions, not kernel-internal correctness or resource leaks.
+
+## Documentation site (GitHub Pages)
+
+The docs are published as a website, `https://va1erian.github.io/lazyos/`, built
+from `docs/**/*.md`, `README.md` and `CONTRIBUTING.md` by `tools/site/build.py`
+(the GitHub wiki is retired: do not write to it). Keep writing docs for GitHub's
+file browser: relative links between `.md` files and `#fragments` are rewritten
+for the site, a link to code outside `docs/` becomes a GitHub link, and the first
+`# heading` is the page title. A new doc needs no registration (a top-level
+`*-plan.md` lands under "Plans"; `tools/site/site.toml` lists the rest). After
+renaming or adding docs, check links the way CI does:
+
+```bash
+pip install -r tools/site/requirements.txt
+python tools/site/build.py --strict      # target/site; fails on a broken link or fragment
+python tools/site/test_site.py
+python -m http.server -d target/site     # look at it; Read a screenshot for layout changes
+```
+
+`.github/workflows/pages.yml` builds and deploys it on pushes to `main` that touch
+the docs, and after every `abi-compat` run so the ABI matrix and syscall coverage
+(CI output, git-ignored) are published. Plan and layout: `tools/site/README.md`.
 
 ## Project conventions
 

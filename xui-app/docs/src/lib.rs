@@ -4,11 +4,14 @@
 //! navigation): the only untrusted-input concern is markup smuggled through the Markdown, so raw
 //! HTML in the source is rendered as literal text and never reaches the layout engine as markup.
 
+pub mod history;
+
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use pulldown_cmark::{html, Event, Options, Parser};
+use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
 
 pub mod links;
 
@@ -83,11 +86,71 @@ pub fn page(markdown: &str) -> String {
         other => other,
     });
     let mut body = String::with_capacity(markdown.len() * 2);
-    html::push_html(&mut body, events);
+    html::push_html(&mut body, with_heading_ids(events.collect()).into_iter());
     if cut {
         body.push_str("<p><i>(document truncated)</i></p>");
     }
     wrap(&body)
+}
+
+/// `events` with every heading given an `id`, the way GitHub spells them
+/// (lower case, punctuation dropped, spaces to hyphens, a repeat numbered), so
+/// a link to `#a-heading` scrolls to it.
+fn with_heading_ids(mut events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut open: Option<(usize, String)> = None;
+    let mut ids: Vec<(usize, String)> = Vec::new();
+    for (index, event) in events.iter().enumerate() {
+        match event {
+            Event::Start(Tag::Heading { id: None, .. }) => open = Some((index, String::new())),
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((_, title)) = &mut open {
+                    title.push_str(text);
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some((start, title)) = open.take() {
+                    let base = slug(&title);
+                    // A heading with nothing to spell gets no id.
+                    if base.is_empty() {
+                        continue;
+                    }
+                    // A repeat is numbered, skipping a number a heading of that
+                    // very text already took ("Foo 1" beside two "Foo").
+                    let count = seen.entry(base.clone()).or_insert(0);
+                    let mut id = base.clone();
+                    while !taken.insert(id.clone()) {
+                        *count += 1;
+                        id = format!("{base}-{count}");
+                    }
+                    ids.push((start, id));
+                }
+            }
+            _ => {}
+        }
+    }
+    for (index, new_id) in ids {
+        if let Event::Start(Tag::Heading { id, .. }) = &mut events[index] {
+            *id = Some(CowStr::from(new_id));
+        }
+    }
+    events
+}
+
+/// A heading's anchor: alphanumerics lower-cased, `-` and `_` kept, spaces as
+/// hyphens, everything else dropped.
+fn slug(title: &str) -> String {
+    title
+        .trim()
+        .chars()
+        .filter_map(|c| match c {
+            ' ' => Some("-".to_string()),
+            '-' | '_' => Some(c.to_string()),
+            c if c.is_alphanumeric() => Some(c.to_lowercase().collect::<String>()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// `body` inside the viewer's document skeleton and stylesheet.
@@ -146,7 +209,7 @@ mod tests {
     #[test]
     fn renders_headings_emphasis_and_tables() {
         let html = page("# Title\n\nsome **bold** text\n\n|a|b|\n|-|-|\n|1|2|\n");
-        assert!(html.contains("<h1>Title</h1>"));
+        assert!(html.contains("<h1 id=\"title\">Title</h1>"));
         assert!(html.contains("<strong>bold</strong>"));
         assert!(html.contains("<table>"));
     }
@@ -165,6 +228,30 @@ mod tests {
         let html = page(&big);
         assert!(html.contains("(document truncated)"));
         assert!(html.len() < MAX_BYTES * 3);
+    }
+
+    #[test]
+    fn headings_get_github_style_ids() {
+        let html = page("# The `rhai` command
+
+## Errors & limits
+
+## Errors & limits
+");
+        assert!(html.contains("<h1 id=\"the-rhai-command\">"));
+        assert!(html.contains("<h2 id=\"errors--limits\">"));
+        assert!(html.contains("<h2 id=\"errors--limits-1\">"));
+    }
+
+    #[test]
+    fn heading_ids_are_unique_and_never_empty() {
+        let html = page("## Foo\n\n## Foo\n\n## Foo 1\n\n## ???\n\n## \u{c9}t\u{e9}\n");
+        assert!(html.contains("<h2 id=\"foo\">"));
+        assert!(html.contains("<h2 id=\"foo-1\">"));
+        // "Foo 1" slugs to `foo-1`, which the repeat already took.
+        assert!(html.contains("<h2 id=\"foo-1-1\">"));
+        assert!(html.contains("<h2>???</h2>"), "no id for a heading with nothing to spell");
+        assert!(html.contains("<h2 id=\"\u{e9}t\u{e9}\">"));
     }
 
     #[test]
@@ -236,10 +323,10 @@ mod tests {
     fn the_test_document_renders_every_feature_it_advertises() {
         let html = page(TESTDOC);
         for wanted in [
-            "<h1>",
-            "<h2>",
-            "<h3>",
-            "<h4>",
+            "<h1 id=",
+            "<h2 id=",
+            "<h3 id=",
+            "<h4 id=",
             "<table>",
             "<blockquote>",
             "<pre>",
@@ -266,7 +353,7 @@ mod tests {
         let path = dir.join("note.md");
         std::fs::write(&path, "# From disk\n\ntext").unwrap();
         let html = load_file(&path).expect("loads");
-        assert!(html.contains("<h1>From disk</h1>"));
+        assert!(html.contains("<h1 id=\"from-disk\">From disk</h1>"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -111,6 +111,9 @@ fn synthetic_modern_prefers_the_xsdt() {
     // Every counted processor's APIC ID, in table order: the list the SMP
     // bring-up sends its INIT-SIPI to (docs/smp-plan.md S8.2).
     assert_eq!(madt.apic_ids.as_slice(), [0, 0x100, 0x108, 0x110]);
+    // The bring-up starts only the enabled ones: 0x110 is online-capable
+    // (a socket that may be populated later), not present.
+    assert_eq!(madt.startable.as_slice(), [0, 0x100, 0x108]);
     assert_eq!(madt.isa_gsi(9), (9, 0x0D));
     assert_eq!(madt.isa_gsi(4), (4, 0));
     assert_eq!(madt.lapic_nmis.len(), 2);

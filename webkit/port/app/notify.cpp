@@ -11,7 +11,8 @@
 //
 // The manager is the context's, one for every view; a notification is the view's whose page showed it
 // (H.notificationViews). A permission request is held, retained, by its view until the owner answers;
-// the answer for an origin settles every pending request of that origin, in every view, at once. The decisions the window kept are given to
+// the answer for an origin settles every pending request of that origin, in every view, at once (an owner of
+// views of several clients, webd, settles one view's: notifyPermissionIn). The decisions the window kept are given to
 // WebKit when it asks (`notificationPermissions`, read when a page's process starts) and told to it
 // when they change (`WKNotificationManagerProviderDidUpdateNotificationPolicy`).
 //
@@ -186,28 +187,44 @@ void notificationPermissionRequest(WKPageRef, WKSecurityOriginRef origin, WKNoti
 
 namespace {
 
+// Answers `v`'s pending requests of `origin`: allowed, or not.
+void settleView(View& v, const std::string& origin, bool allow)
+{
+    std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> keep;
+    auto pending = std::move(v.permissionRequests);
+    v.permissionRequests.clear();
+    for (auto& entry : pending) {
+        if (entry.first != origin) {
+            keep.push_back(entry);
+            continue;
+        }
+        if (allow)
+            WKNotificationPermissionRequestAllow(entry.second);
+        else
+            WKNotificationPermissionRequestDeny(entry.second);
+        WKRelease(entry.second);
+    }
+    v.permissionRequests = std::move(keep);
+}
+
 // Answers every pending request of `origin`, in every view: allowed, or not; whether the decision is
 // remembered is the caller's business.
 void settle(const std::string& origin, bool allow)
 {
-    for (auto& viewEntry : H.views) {
-        View& v = *viewEntry.second;
-        std::vector<std::pair<std::string, WKNotificationPermissionRequestRef>> keep;
-        auto pending = std::move(v.permissionRequests);
-        v.permissionRequests.clear();
-        for (auto& entry : pending) {
-            if (entry.first != origin) {
-                keep.push_back(entry);
-                continue;
-            }
-            if (allow)
-                WKNotificationPermissionRequestAllow(entry.second);
-            else
-                WKNotificationPermissionRequestDeny(entry.second);
-            WKRelease(entry.second);
-        }
-        v.permissionRequests = std::move(keep);
-    }
+    for (auto& viewEntry : H.views)
+        settleView(*viewEntry.second, origin, allow);
+}
+
+// WebKit's record of the decision (the context's, one for every view and profile).
+void tellPolicy(const std::string& origin, int answer)
+{
+    if (answer < 0 || !H.notifications || origin.empty())
+        return;
+    WKStringRef string = WKStringCreateWithUTF8CString(origin.c_str());
+    WKSecurityOriginRef site = WKSecurityOriginCreateFromString(string);
+    WKRelease(string);
+    WKNotificationManagerProviderDidUpdateNotificationPolicy(H.notifications, site, answer > 0);
+    WKRelease(site);
 }
 
 WKSecurityOriginRef originFromString(const std::string& text)
@@ -305,12 +322,15 @@ void notifyPermission(const std::string& origin, int answer)
 {
     // The policy first: the WebProcess handles its messages in order, and the page's
     // continuation (which makes `new Notification` look the permission up) must run after it.
-    if (answer >= 0 && H.notifications && !origin.empty()) {
-        WKSecurityOriginRef site = originFromString(origin);
-        WKNotificationManagerProviderDidUpdateNotificationPolicy(H.notifications, site, answer > 0);
-        WKRelease(site);
-    }
+    tellPolicy(origin, answer);
     settle(origin, answer > 0);
+}
+
+void notifyPermissionIn(View& view, const std::string& origin, int answer)
+{
+    // As above, but the other views' requests of the origin are another owner's to answer.
+    tellPolicy(origin, answer);
+    settleView(view, origin, answer > 0);
 }
 
 // The person revoked the decision about `origin`: the pages of that site get "default" again.

@@ -64,10 +64,13 @@ pub struct Madt {
     /// APIC ID of the first enabled processor entry (normally the BSP).
     pub first_apic_id: Option<u32>,
     /// APIC ID of every enabled (or online-capable) processor, in table
-    /// order: the list the SMP bring-up sends its INIT-SIPI to
-    /// (`docs/smp-plan.md` S8.2). IDs past [`MAX_LAPICS`] are counted as
-    /// dropped.
+    /// order. IDs past [`MAX_LAPICS`] are counted as dropped.
     pub apic_ids: List<u32, MAX_LAPICS>,
+    /// The subset with the *enabled* flag: the processors present now, which
+    /// the SMP bring-up sends its INIT-SIPI to (`docs/smp-plan.md` S8.2). An
+    /// online-capable-only entry is a socket that may be populated later
+    /// (hot-plug); starting it would only wait out a timeout.
+    pub startable: List<u32, MAX_LAPICS>,
     pub ioapics: List<IoApic, MAX_IOAPICS>,
     pub overrides: List<Override, MAX_OVERRIDES>,
     pub lapic_nmis: List<LapicNmi, MAX_LAPIC_NMIS>,
@@ -87,6 +90,7 @@ impl Madt {
             processors: 0,
             first_apic_id: None,
             apic_ids: List::default(),
+            startable: List::default(),
             ioapics: List::default(),
             overrides: List::default(),
             lapic_nmis: List::default(),
@@ -186,6 +190,9 @@ impl Madt {
             self.processors = self.processors.saturating_add(1);
             self.first_apic_id.get_or_insert(apic_id);
             self.apic_ids.push(apic_id);
+        }
+        if flags & 0b1 != 0 {
+            self.startable.push(apic_id);
         }
     }
 

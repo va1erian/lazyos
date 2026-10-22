@@ -1,26 +1,15 @@
 //! Linux `syscall`/`sysret` entry.
 //!
-//! `syscall` does not switch stacks, so the entry stub switches to the current
-//! task's kernel stack (a global, since the kernel never uses `%gs`), saves the
-//! user general registers, calls [`crate::process::linux_dispatch`], then
-//! restores and returns with `sysretq`.
-//!
-//! We deliberately avoid `swapgs`: tasks can block *inside* a syscall (futex)
-//! and be context-switched, which would desynchronise the per-task GS state.
+//! `syscall` does not switch stacks, so the entry stub `swapgs`es to this
+//! CPU's kernel GS base (`arch::gsgate`: GS state is the CPU's, never the
+//! task's, since tasks block inside syscalls), switches to the CPU's syscall
+//! stack (a per-CPU area field, `arch::percpu`), saves the user general
+//! registers, calls [`crate::process::linux_dispatch`], then restores,
+//! swaps back and returns with `sysretq`.
 
-use crate::arch::msr;
+use super::msr;
+use super::percpu;
 use core::arch::global_asm;
-use core::ptr::addr_of_mut;
-
-/// Kernel stack top the next Linux syscall switches to (single CPU). The
-/// scheduler updates this alongside the TSS `RSP0` when it switches tasks.
-#[no_mangle]
-pub static mut KERNEL_STACK: u64 = 0;
-
-/// Transient scratch for the user RSP during entry (single CPU; only touched
-/// with interrupts disabled, before dispatch can be preempted).
-#[no_mangle]
-pub static mut SAVED_USER_RSP: u64 = 0;
 
 /// User register state captured at `syscall` entry. Linux preserves these across
 /// the syscall, so `clone` can build the child thread's first frame from them.
@@ -44,46 +33,47 @@ pub struct UserContext {
     pub r10: u64,
 }
 
-/// Single-CPU snapshot of the registers at the last `syscall` entry.
-#[no_mangle]
-pub static mut USER_CONTEXT: UserContext = UserContext {
-    rip: 0,
-    rflags: 0,
-    rsp: 0,
-    rbx: 0,
-    rbp: 0,
-    r12: 0,
-    r13: 0,
-    r14: 0,
-    r15: 0,
-    rdi: 0,
-    rsi: 0,
-    rdx: 0,
-    r8: 0,
-    r9: 0,
-    r10: 0,
-};
+impl UserContext {
+    /// The area's entry-time value (`linux_syscall_entry` overwrites it on
+    /// the first `syscall`).
+    pub const ZEROED: UserContext = UserContext {
+        rip: 0,
+        rflags: 0,
+        rsp: 0,
+        rbx: 0,
+        rbp: 0,
+        r12: 0,
+        r13: 0,
+        r14: 0,
+        r15: 0,
+        rdi: 0,
+        rsi: 0,
+        rdx: 0,
+        r8: 0,
+        r9: 0,
+        r10: 0,
+    };
+}
 
-/// Snapshot of the registers at the current task's last `syscall` entry.
+/// Snapshot of the registers at the current CPU's last `syscall` entry.
 pub fn user_context() -> UserContext {
-    // Safety: single CPU; read while handling the syscall that captured it.
-    unsafe { core::ptr::read(addr_of_mut!(USER_CONTEXT)) }
+    percpu::current().syscall.user_context
 }
 
 /// Replace the captured context (after `rt_sigreturn` restores a frame, the
 /// next signal delivery must build on the restored registers, not the
 /// `rt_sigreturn` entry state).
 pub fn set_user_context(context: UserContext) {
-    // Safety: single CPU; called inside the syscall gate.
-    unsafe { *addr_of_mut!(USER_CONTEXT) = context };
+    percpu::current().syscall.user_context = context;
 }
 
 /// The user RSP `linux_syscall_entry` saved for the in-progress syscall. Read
 /// from the task's own return stack, so a task that blocked inside the syscall
 /// cannot observe another task's snapshot.
 pub fn saved_user_rsp() -> u64 {
-    // Safety: single CPU; we are inside the syscall on this task's stack.
-    unsafe { *((KERNEL_STACK as *const u64).offset(-1)) }
+    // Safety: we are inside the syscall, on this CPU's syscall stack (read
+    // through `%gs`; only this CPU touches its area).
+    unsafe { *((percpu::current().syscall.stack as *const u64).offset(-1)) }
 }
 
 /// Saved user registers `linux_syscall_entry` will reload before `sysretq`,
@@ -91,10 +81,10 @@ pub fn saved_user_rsp() -> u64 {
 /// rsi, rdx, r8, r9, r10. `rt_sigreturn` writes every slot.
 pub fn set_saved_register(slot: usize, value: u64) {
     debug_assert!(slot < 12);
-    // Safety: single CPU; the pushes sit at fixed offsets below the kernel
-    // stack top, and we are inside the syscall on this task's stack.
+    // Safety: the pushes sit at fixed offsets below the kernel stack top,
+    // and we are inside the syscall on this task's stack.
     unsafe {
-        let top = KERNEL_STACK as *mut u64;
+        let top = percpu::current().syscall.stack as *mut u64;
         *top.offset(-4 - slot as isize) = value;
     }
 }
@@ -115,26 +105,29 @@ macro_rules! entry_body {
     ($hook:literal) => {
         concat!(
             r#"
-        /* Save the user context (Linux preserves it across `syscall`). */
-        mov [rip + USER_CONTEXT + 0], rcx
-        mov [rip + USER_CONTEXT + 8], r11
-        mov [rip + USER_CONTEXT + 16], rsp
-        mov [rip + USER_CONTEXT + 24], rbx
-        mov [rip + USER_CONTEXT + 32], rbp
-        mov [rip + USER_CONTEXT + 40], r12
-        mov [rip + USER_CONTEXT + 48], r13
-        mov [rip + USER_CONTEXT + 56], r14
-        mov [rip + USER_CONTEXT + 64], r15
-        mov [rip + USER_CONTEXT + 72], rdi
-        mov [rip + USER_CONTEXT + 80], rsi
-        mov [rip + USER_CONTEXT + 88], rdx
-        mov [rip + USER_CONTEXT + 96], r8
-        mov [rip + USER_CONTEXT + 104], r9
-        mov [rip + USER_CONTEXT + 112], r10
+        /* Save the user context (Linux preserves it across `syscall`) into
+           this CPU's per-CPU area (`arch::percpu`, addressed through `%gs`:
+           the real entry swapped it in first; the test probe is entered
+           from ring 0, where it already is). */
+        mov gs:[{off_uc} + 0], rcx
+        mov gs:[{off_uc} + 8], r11
+        mov gs:[{off_uc} + 16], rsp
+        mov gs:[{off_uc} + 24], rbx
+        mov gs:[{off_uc} + 32], rbp
+        mov gs:[{off_uc} + 40], r12
+        mov gs:[{off_uc} + 48], r13
+        mov gs:[{off_uc} + 56], r14
+        mov gs:[{off_uc} + 64], r15
+        mov gs:[{off_uc} + 72], rdi
+        mov gs:[{off_uc} + 80], rsi
+        mov gs:[{off_uc} + 88], rdx
+        mov gs:[{off_uc} + 96], r8
+        mov gs:[{off_uc} + 104], r9
+        mov gs:[{off_uc} + 112], r10
 
-        mov [rip + SAVED_USER_RSP], rsp
-        mov rsp, [rip + KERNEL_STACK]    /* current task kernel stack */
-        push qword ptr [rip + SAVED_USER_RSP]
+        mov gs:[{off_rsp}], rsp
+        mov rsp, gs:[{off_stack}]      /* this CPU's syscall stack */
+        push qword ptr gs:[{off_rsp}]
         push r11                        /* user RFLAGS */
         push rcx                        /* user RIP */
         /* The callee-saved user registers are pushed too: `rt_sigreturn` must
@@ -189,6 +182,10 @@ global_asm!(
         r#"
     .global linux_syscall_entry
     linux_syscall_entry:
+        /* `syscall` only comes from ring 3: take this CPU's kernel GS base
+           before the first `gs:` access (`arch::gsgate`). IF is clear
+           (FMASK), so nothing can run between here and the swap. */
+        swapgs
 "#,
         entry_body!(""),
         r#"
@@ -219,6 +216,8 @@ global_asm!(
         pop rcx
         pop r11
         pop rsp                         /* rsp = user RSP (rax holds result) */
+        cli                             /* no IRQ in the swap window (r11 has IF) */
+        swapgs                          /* back to the user's GS base */
         sysretq
     2:
         /* Full return: every register, including rcx and r11, comes from the
@@ -247,18 +246,23 @@ global_asm!(
         push qword ptr [rsp + 24]
         push {user_cs}
         push qword ptr [rsp + 32]
+        cli                             /* no IRQ in the swap window */
+        swapgs                          /* back to the user's GS base */
         iretq
     "#
     ),
     pad = const ENTRY_CALL_PAD,
     user_cs = const STAR_SYSRET_BASE as u64 + 16,
     user_ss = const STAR_SYSRET_BASE as u64 + 8,
+    off_uc = const percpu::OFF_USER_CONTEXT,
+    off_rsp = const percpu::OFF_SAVED_USER_RSP,
+    off_stack = const percpu::OFF_SYSCALL_STACK,
 );
 
-/// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
-/// but entered with a plain `call` from ring 0 and left with `ret`, recording
-/// `rsp` and the seventh-argument slot at the `call linux_dispatch`. Takes
-/// `(nr, r9)`; every other syscall register is zero.
+// Test-only twin of `linux_syscall_entry`: the same body (via `entry_body!`),
+// but entered with a plain `call` from ring 0 and left with `ret`, recording
+// `rsp` and the seventh-argument slot at the `call linux_dispatch`. Takes
+// `(nr, r9)`; every other syscall register is zero.
 #[cfg(lazyos_tests)]
 global_asm!(
     concat!(
@@ -281,11 +285,14 @@ global_asm!(
         mov [rip + PROBE_A6], rax"
         ),
         r#"
-        mov rsp, [rip + SAVED_USER_RSP]
+        mov rsp, gs:[{off_rsp}]
         ret
     "#
     ),
     pad = const ENTRY_CALL_PAD,
+    off_uc = const percpu::OFF_USER_CONTEXT,
+    off_rsp = const percpu::OFF_SAVED_USER_RSP,
+    off_stack = const percpu::OFF_SYSCALL_STACK,
 );
 
 /// `rsp` / seventh-argument slot the probe saw at `call linux_dispatch`.
@@ -302,22 +309,27 @@ extern "C" {
 }
 
 /// Run syscall `nr` through the real entry body on `stack_top`, returning
-/// `(rsp at the call, a6 slot at the call)`. Saves and restores the globals
-/// the stub overwrites. Interrupts must be off (the harness's normal state).
+/// `(rsp at the call, a6 slot at the call)`. Saves and restores the per-CPU
+/// state the stub overwrites. Interrupts must be off (the harness's normal
+/// state).
 #[cfg(lazyos_tests)]
 pub fn probe_entry(nr: u64, r9: u64, stack_top: u64) -> (u64, u64) {
     let context = user_context();
-    // Safety: single CPU, interrupts off; the globals are restored below.
+    let syscall = &mut percpu::current().syscall;
+    let stack = syscall.stack;
+    let user_rsp = syscall.saved_user_rsp;
+    syscall.stack = stack_top;
+    // SAFETY: the probe is the real entry body; the state it touches is
+    // restored below, and interrupts are off (no per-CPU state can change).
     unsafe {
-        let stack = KERNEL_STACK;
-        let user_rsp = SAVED_USER_RSP;
-        KERNEL_STACK = stack_top;
         lazyos_entry_probe(nr, r9);
-        KERNEL_STACK = stack;
-        SAVED_USER_RSP = user_rsp;
-        set_user_context(context);
-        (PROBE_RSP, PROBE_A6)
     }
+    let syscall = &mut percpu::current().syscall;
+    syscall.stack = stack;
+    syscall.saved_user_rsp = user_rsp;
+    set_user_context(context);
+    // SAFETY: statics the probe's asm wrote, single-CPU, interrupts off.
+    unsafe { (PROBE_RSP, PROBE_A6) }
 }
 
 extern "C" {
@@ -335,7 +347,9 @@ pub const STAR_SYSRET_BASE: u16 = 0x10 | 3;
 /// `IA32_STAR[47:32]`: `syscall` loads CS = base, SS = base + 8.
 pub const STAR_SYSCALL_BASE: u16 = 0x08;
 
-/// Program the MSRs for Linux syscalls.
+/// Program the MSRs for Linux syscalls. `%gs` is already the CPU's area
+/// (`percpu::init` from `gdt::init`), so the stub's `gs:`-relative loads find
+/// it.
 pub fn init() {
     // STAR: SYSCALL CS=0x08/SS=0x10, SYSRET CS=0x23/SS=0x1b (see the GDT order).
     let star = ((STAR_SYSRET_BASE as u64) << 48) | ((STAR_SYSCALL_BASE as u64) << 32);
@@ -348,10 +362,9 @@ pub fn init() {
     msr::write(msr::IA32_EFER, efer | 1);
 }
 
-/// Update the kernel stack the next Linux syscall will switch to.
+/// Update the kernel stack the next Linux syscall on this CPU switches to.
 pub fn set_kernel_stack(top: u64) {
-    // Safety: single CPU; called from the scheduler with the task held.
-    unsafe { *addr_of_mut!(KERNEL_STACK) = top };
+    percpu::current().syscall.stack = top;
 }
 
 /// Make the in-progress syscall return through `iretq` with `rcx` and `r11`
@@ -360,10 +373,10 @@ pub fn set_kernel_stack(top: u64) {
 /// `rcx` and `r11` are live registers like any other. The entry stub clears
 /// the flag on every syscall.
 pub fn set_full_return(rcx: u64, r11: u64) {
-    // Safety: single CPU; the three slots sit at fixed offsets below the
-    // saved registers (see `ENTRY_PUSHED_QWORDS`), on this task's stack.
+    // Safety: the three slots sit at fixed offsets below the saved registers
+    // (see `ENTRY_PUSHED_QWORDS`), on this task's stack.
     unsafe {
-        let top = KERNEL_STACK as *mut u64;
+        let top = percpu::current().syscall.stack as *mut u64;
         *top.offset(-4 - 12) = 1;
         *top.offset(-4 - 13) = rcx;
         *top.offset(-4 - 14) = r11;
@@ -375,15 +388,15 @@ pub fn set_full_return(rcx: u64, r11: u64) {
 /// to the caller: the entry stub pushed `[user_rsp, rflags, rip]` just below the
 /// current kernel-stack top.
 pub fn set_user_return(rip: u64, rsp: u64, rflags: u64) {
-    // Safety: single CPU; we are inside the syscall on this task's stack.
+    // Safety: we are inside the syscall, on this task's stack.
     unsafe {
-        let top = KERNEL_STACK as *mut u64;
+        let top = percpu::current().syscall.stack as *mut u64;
         *top.offset(-3) = rip;
         *top.offset(-2) = rflags;
         *top.offset(-1) = rsp;
-        let context = addr_of_mut!(USER_CONTEXT);
-        (*context).rip = rip;
-        (*context).rsp = rsp;
-        (*context).rflags = rflags;
+        let context = &mut percpu::current().syscall.user_context;
+        context.rip = rip;
+        context.rsp = rsp;
+        context.rflags = rflags;
     }
 }

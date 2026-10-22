@@ -1,0 +1,278 @@
+/// webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
+/// slice 3): what a browser needs of the web engine. A superset of the light
+/// interface (`idl/webd_light.midl`): every method the two share has the same
+/// id and wire shape (`tools/webd/test_idl.py` holds them together), and the
+/// full one adds navigation over the network, a profile (cookies and site
+/// storage), JavaScript dialogs, downloads, notifications, content blocking, the
+/// link under the pointer, the pointer's shape, new-window requests, a policy for
+/// other schemes, and frames that carry only what changed. Served by `webd` as
+/// `app.os.lazy.webd.view`, together with the two scope interfaces below.
+///
+/// **Scopes.** What a view may reach is decided by the interface its
+/// `CreateView` came through, which the kernel checks against the caller's
+/// manifest before webd sees the call (the way `os.lazy.display.cursor.v1` is
+/// a scope of the display):
+///
+/// * `os.lazy.webd.view.v1` (this interface): no network. The scheme policy
+///   must be `DataOnly`; the page is what the app gives it (`LoadHtml`), with
+///   scripts, dialogs and a profile of the app's own if it asks.
+/// * `os.lazy.webd.net.v1`: also `Web` and `Origins` scheme policies: the
+///   page loads `http:` and `https:` content.
+/// * `os.lazy.webd.browser.v1`: also the shared `browser` profile (cookies and
+///   history of the person's web browsing, kept on disk), downloads into the
+///   person's Downloads folder, content blocking, and `Handoff.Browser`
+///   (webd gives `mailto:` and other schemes to the program the person chose).
+///
+/// Every other call goes through this interface, so a package lists it with
+/// any scope it asks for. A `CreateView` the scope does not cover is `EACCES`.
+///
+/// **Identity comes from the kernel, never from the call**, as for light
+/// views: a view belongs to the (user, label) of the task that made it, and a
+/// call on another's view is `ENOENT`. The profile `""` is the app's own: a
+/// data store per app that stays in memory (webd cannot name an app's label
+/// across boots, so nothing of it is kept on disk); `browser` is the one
+/// profile kept on disk.
+///
+/// **Frames.** As for light views, the app attaches up to three `Buffer`
+/// slots of the view's size (slots 0 to 2) and webd paints into a released
+/// one. With `ViewConfig.deltas`, a `Frame` may carry only what changed:
+/// `whole` is false, the app first moves the part of its picture inside
+/// `shift` by `(dx, dy)` (what leaves the area is gone, what it uncovers is
+/// stale) and then copies each of `rects` from the slot, where they sit at
+/// their place in a whole frame's layout (`width * 4` bytes per row). A view
+/// with deltas may also attach band slots (3 and 4, `width * min(height, 1024) * 4` bytes
+/// each): `Band` events carry rows of the page outside the view, painted ahead
+/// of a scroll. A frame that cannot be delivered (no free slot, a full queue)
+/// makes the next one a whole frame.
+///
+/// **Questions.** A navigation the view's policy does not cover with
+/// `Handoff.Ask` is held: `NavigationRequested` asks the app, and no answer in
+/// 10 seconds is a no. A JavaScript dialog waits for `DialogReply` (at most 3
+/// dialogs in 10 seconds per view: more are dismissed without asking). A
+/// notification permission request waits for `NotifyPermission`.
+///
+/// Limits (`xui-app/crates/webd/src/limits.rs`) are the light interface's,
+/// plus: at most 4 web processes per user for full views (a view of a new
+/// app or profile past that is `EDQUOT`), at most 64 origins of at most 256
+/// bytes, at most 64 blocking exceptions, a URL at most 8 KiB, at most 256
+/// downloads per profile in a session, a rule list at most 32 MiB. Failures
+/// reply with the standard error field (id 15).
+interface os.lazy.webd.view.v1 {
+    /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
+    /// interface the view has no network: `config.scheme_policy` must be
+    /// `DataOnly`, `config.profile` `""`, `config.handoff` not `Browser`,
+    /// and `downloads` and `blocking` false (`EACCES` otherwise).
+    method CreateView(config: ViewConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.view.v1> = 5) -> (view: U64 = 1) = 1;
+    /// End the view; not an error for a view that is gone.
+    method DestroyView(view: U64 = 1) -> () = 2;
+    /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
+    /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
+    /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
+    method AttachSlot(view: U64 = 1, slot: U32 = 2, pixels: Buffer = 3) -> () = 3;
+    /// The app is done reading `slot`.
+    method ReleaseSlot(view: U64 = 1, slot: U32 = 2) -> () = 4 oneway;
+    /// Change the view's size; every slot is detached.
+    method Resize(view: U64 = 1, width: U32 = 2, height: U32 = 3) -> () = 5;
+    /// A view that is not visible gets no paints.
+    method SetVisible(view: U64 = 1, visible: Bool = 2) -> () = 6 oneway;
+    /// Ask for a whole frame.
+    method Refresh(view: U64 = 1) -> () = 7 oneway;
+    /// Load `url` in the view: it must pass the view's scheme policy (`EACCES`
+    /// otherwise; `file:` never does), at most 8 KiB.
+    method Load(view: U64 = 1, url: String = 2) -> () = 10;
+    /// Replace the page with `html` (UTF-8, at most 8 MiB) at `base_url`:
+    /// empty, `about:` or `data:`, or with a network scheme policy an `http:`
+    /// or `https:` address the policy allows (relative addresses resolve
+    /// against it). Never `file:`.
+    method LoadHtml(view: U64 = 1, html: Buffer = 2, base_url: String = 3) -> () = 11;
+    /// Load the page again; `bypass_blocking` loads it once without the
+    /// content blocker.
+    method Reload(view: U64 = 1, bypass_blocking: Bool = 2) -> () = 12;
+    method Stop(view: U64 = 1) -> () = 13;
+    method Back(view: U64 = 1) -> () = 14;
+    method Forward(view: U64 = 1) -> () = 15;
+    /// Save `url` as a download (Save Page As): a view with `downloads` only.
+    method Download(view: U64 = 1, url: String = 2) -> () = 16;
+    /// Input, as on the light interface.
+    method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
+    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
+    method Key(view: U64 = 1, press: Bool = 2, keysym: U32 = 3, text: String = 4, mods: U32 = 5) -> () = 22 oneway;
+    method Focus(view: U64 = 1, focused: Bool = 2) -> () = 23 oneway;
+    /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
+    method DialogReply(view: U64 = 1, dialog: U64 = 2, accepted: Bool = 3, value: String = 4) -> () = 30;
+    /// The answer to `NavigationRequested` `request`: `allow` loads it.
+    method NavigationAnswer(view: U64 = 1, request: U64 = 2, allow: Bool = 3) -> () = 31;
+    /// The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`):
+    /// kept for the view's profile while webd runs.
+    method NotifyPermission(view: U64 = 1, origin: String = 2, answer: U32 = 3) -> () = 32;
+    /// Stop download `download`; its `.part` file is removed.
+    method DownloadCancel(view: U64 = 1, download: U64 = 2) -> () = 33;
+    /// Content blocking on or off for the view's profile, and the hosts it is
+    /// off for. A view made with `blocking` only.
+    method SetBlocking(view: U64 = 1, enabled: Bool = 2, exceptions: Array<String> = 3) -> () = 34;
+    /// Compile `rules` (a WebKit content rule list, JSON, at most 32 MiB) as
+    /// list `list` into the profile's store and attach it; the result comes as
+    /// `BlockingList`.
+    method BlockingCompile(view: U64 = 1, list: String = 2, rules: Buffer = 3) -> () = 35;
+    /// Attach list `list` from the profile's store (compiled earlier).
+    method BlockingLoad(view: U64 = 1, list: String = 2) -> () = 36;
+    /// Detach list `list` and remove it from the store.
+    method BlockingForget(view: U64 = 1, list: String = 2) -> () = 37;
+
+    /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
+    /// Otherwise the app moves its picture by `shift` (when present) and then
+    /// copies `rects` from the slot. `offset_x`/`offset_y` is the page's scroll
+    /// offset these pixels were painted at; `at_bottom` when the page cannot
+    /// scroll further down from there.
+    method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5, whole: Bool = 6, shift: Option<Shift> = 7, rects: Array<Rect> = 8, offset_x: I32 = 9, offset_y: I32 = 10, at_bottom: Bool = 11) -> () = 100 oneway;
+    /// Event: what the page says about itself. `url` is the address on show,
+    /// `committed_url` the page on screen; `progress` in thousandths;
+    /// `secure` when the committed page came over verified HTTPS. Texts are
+    /// cut at 48 KiB.
+    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5, url: String = 6, committed_url: String = 7, can_back: Bool = 8, can_forward: Bool = 9, progress: U32 = 10, secure: Bool = 11) -> () = 101 oneway;
+    /// Event: the page scrolled (as on the light interface).
+    method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 oneway;
+    /// Event: as on the light interface (a full view's navigation is not
+    /// locked, so webd does not send it today).
+    method LinkClicked(view: U64 = 1, url: String = 2) -> () = 103 oneway;
+    method ClipboardWrite(view: U64 = 1, text: String = 2) -> () = 104 oneway;
+    method ViewLost(view: U64 = 1, reason: U32 = 2) -> () = 105 oneway;
+    method Ping() -> () = 106 oneway;
+    /// Event: band slot `slot` holds `height` rows of the page from document
+    /// row `doc_y`, painted at horizontal offset `doc_x`, `width` wide.
+    method Band(view: U64 = 1, slot: U32 = 2, doc_x: I32 = 3, doc_y: I32 = 4, width: U32 = 5, height: U32 = 6) -> () = 107 oneway;
+    /// Event: the pointer is over a link (its address) or no longer ("").
+    method Hover(view: U64 = 1, url: String = 2) -> () = 108 oneway;
+    /// Event: the page wants this pointer shape (a `CursorShape`).
+    method Cursor(view: U64 = 1, shape: U32 = 2) -> () = 109 oneway;
+    /// Event: the page asked for a new window (`target=_blank`,
+    /// `window.open`); nothing opened. `gesture`: a click or key started it.
+    method NewWindowRequested(view: U64 = 1, url: String = 2, gesture: Bool = 3) -> () = 110 oneway;
+    /// Event: a navigation outside the view's policy is held (`Handoff.Ask`);
+    /// answer with `NavigationAnswer` within 10 seconds or it is refused.
+    /// `kind` is a `NavigationKind`.
+    method NavigationRequested(view: U64 = 1, request: U64 = 2, url: String = 3, kind: U32 = 4, gesture: Bool = 5) -> () = 111 oneway;
+    /// Event: the page opened a JavaScript dialog (a `DialogKind`) and waits
+    /// for `DialogReply`.
+    method Dialog(view: U64 = 1, dialog: U64 = 2, kind: U32 = 3, message: String = 4, default_value: String = 5) -> () = 112 oneway;
+    /// Event: a download began, into the person's Downloads folder under a
+    /// `.part` name. `total` is the announced size or -1.
+    method DownloadStarted(view: U64 = 1, download: U64 = 2, url: String = 3, name: String = 4, total: I64 = 5) -> () = 113 oneway;
+    method DownloadProgress(view: U64 = 1, download: U64 = 2, received: I64 = 3, total: I64 = 4) -> () = 114 oneway;
+    /// Event: every byte is in `name` (a file of the Downloads folder).
+    method DownloadDone(view: U64 = 1, download: U64 = 2, name: String = 3) -> () = 115 oneway;
+    method DownloadFailed(view: U64 = 1, download: U64 = 2, reason: String = 3) -> () = 116 oneway;
+    /// Event: a page asked to show notifications for `origin`.
+    method NotifyPermissionRequest(view: U64 = 1, origin: String = 2) -> () = 117 oneway;
+    /// Event: the person clicked notification `notification` (webd posted it
+    /// as a toast titled with the site); the page's click handler ran.
+    method NotifyClicked(view: U64 = 1, notification: U64 = 2) -> () = 118 oneway;
+    /// Event: what became of rule list `list` (a `BlockingStatus`).
+    method BlockingList(view: U64 = 1, list: String = 2, status: U32 = 3) -> () = 119 oneway;
+    /// Event: the number of loads the lists blocked on the page on show.
+    method Blocked(view: U64 = 1, count: U32 = 2) -> () = 120 oneway;
+    /// Event: the page's process stopped answering, or answers again.
+    method Responsive(view: U64 = 1, responsive: Bool = 2) -> () = 121 oneway;
+    /// Event: webd gave `url` to the program the person chose for it
+    /// (`Handoff.Browser`).
+    method HandedOff(view: U64 = 1, url: String = 2) -> () = 122 oneway;
+
+    /// How a full view is made; fixed for its life.
+    struct ViewConfig {
+        /// `""`: the app's own profile (in memory); `browser`: the shared
+        /// browsing profile (`os.lazy.webd.browser.v1`).
+        profile: String = 1,
+        /// The profile's data stays in memory (a private window).
+        ephemeral: Bool = 2,
+        /// A `SchemePolicy`.
+        scheme_policy: U32 = 3,
+        /// With `Origins`: the `scheme://host[:port]` the page may load.
+        origins: Array<String> = 4,
+        /// JavaScript runs in the page.
+        scripts: Bool = 5,
+        /// A `Handoff`: what happens to a navigation the policy does not cover.
+        handoff: U32 = 6,
+        /// Responses the page cannot show become downloads.
+        downloads: Bool = 7,
+        /// `NewWindowRequested` events are sent.
+        popups: Bool = 8,
+        /// Content blocking (the profile's rule lists).
+        blocking: Bool = 9,
+        /// The Notifications API.
+        notifications: Bool = 10,
+        /// Appended to the engine's user agent; at most 64 bytes.
+        user_agent_suffix: String = 11,
+        /// Frames carry damage, scroll shifts and bands.
+        deltas: Bool = 12,
+        /// JavaScript dialogs reach the app (else they are dismissed).
+        dialogs: Bool = 13
+    }
+    /// A rectangle of the view, in pixels.
+    struct Rect { x: I32 = 1, y: I32 = 2, width: I32 = 3, height: I32 = 4 }
+    /// The part of the picture that moved: the area and the offset.
+    struct Shift { x: I32 = 1, y: I32 = 2, width: I32 = 3, height: I32 = 4, dx: I32 = 5, dy: I32 = 6 }
+
+    /// Which addresses the page may load: `Web` (http, https, data, blob,
+    /// about), `DataOnly` (data, blob, about), `Origins` (`DataOnly` plus the
+    /// listed origins).
+    enum SchemePolicy { Web, DataOnly, Origins }
+    /// A navigation the policy does not cover: refused, asked, or (`mailto:`
+    /// and other non-web schemes) given to the program the person chose.
+    enum Handoff { Deny, Ask, Browser }
+    enum MouseKind { Move, Press, Release }
+    enum LostReason { Unknown, Refused, Crashed, OutOfMemory, Other }
+    enum CursorShape { Default, Hand, Text, Wait, Hidden, ResizeH, ResizeV, ResizeNwse, ResizeNesw }
+    enum DialogKind { Alert, Confirm, Prompt }
+    enum NavigationKind { LinkClicked, FormSubmitted, BackForward, Reload, FormResubmitted, Other }
+    enum BlockingStatus { Ready, NotStored, Stale, CompileFailed, Unavailable }
+    enum PermissionAnswer { Block, Allow, Dismiss }
+}
+
+/// The scope that lets a web view load `http:` and `https:` content: a
+/// `CreateView` made through this interface may use the `Web` and `Origins`
+/// scheme policies. Same arguments as `os.lazy.webd.view.v1.CreateView`; the
+/// view is then used through that interface.
+interface os.lazy.webd.net.v1 {
+    method CreateView(config: ViewConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.view.v1> = 5) -> (view: U64 = 1) = 1;
+
+    /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
+    struct ViewConfig {
+        profile: String = 1,
+        ephemeral: Bool = 2,
+        scheme_policy: U32 = 3,
+        origins: Array<String> = 4,
+        scripts: Bool = 5,
+        handoff: U32 = 6,
+        downloads: Bool = 7,
+        popups: Bool = 8,
+        blocking: Bool = 9,
+        notifications: Bool = 10,
+        user_agent_suffix: String = 11,
+        deltas: Bool = 12,
+        dialogs: Bool = 13
+    }
+}
+
+/// The scope of a web browser: everything `os.lazy.webd.net.v1` allows, plus
+/// the shared `browser` profile kept on disk, downloads into the person's
+/// Downloads folder, content blocking and `Handoff.Browser`.
+interface os.lazy.webd.browser.v1 {
+    method CreateView(config: ViewConfig = 1, width: U32 = 2, height: U32 = 3, events: Channel<os.lazy.webd.view.v1> = 5) -> (view: U64 = 1) = 1;
+
+    /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
+    struct ViewConfig {
+        profile: String = 1,
+        ephemeral: Bool = 2,
+        scheme_policy: U32 = 3,
+        origins: Array<String> = 4,
+        scripts: Bool = 5,
+        handoff: U32 = 6,
+        downloads: Bool = 7,
+        popups: Bool = 8,
+        blocking: Bool = 9,
+        notifications: Bool = 10,
+        user_agent_suffix: String = 11,
+        deltas: Bool = 12,
+        dialogs: Bool = 13
+    }
+}

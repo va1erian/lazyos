@@ -36,6 +36,8 @@
 //!   pre-check;
 //! * [`recycle`]: when an idle `pkgd` restarts to give its heap back (the one rule, so
 //!   the memory tests judge what `pkgd` does);
+//! * [`reserved`]: the `os.lazy.*` namespace, which only the image's own
+//!   packages may use;
 //! * [`resident`]: the permissions `[entry] resident = true` implies, read by
 //!   both [`explain`] and [`rules`];
 //! * [`toolgate`]: where a developer tool may come from and when it is
@@ -62,6 +64,7 @@ pub mod inspect;
 pub mod layout;
 pub mod provision;
 pub mod recycle;
+pub mod reserved;
 pub mod resident;
 pub mod rules;
 pub mod shellrole;

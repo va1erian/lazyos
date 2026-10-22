@@ -1,9 +1,10 @@
 name: webd
 
-# webd, the daemon that serves WebKit light views (docs/webd.md): the host tests of its three Rust crates
-# (the service with its quota, isolation and slot fuzz tests, the client, the real-Messenger host) and the
-# harness judge's self-test. The end-to-end run (`python tools/webd/run.py`) needs the WebKit build volume and
-# is run by hand, as LazyWeb+'s is.
+# webd, the daemon that serves WebKit views (docs/webd.md): the host tests of its Rust crates (the service
+# with its quota, isolation, slot and full-interface fuzz tests, the client, the real-Messenger host, the
+# paint-plan and download crates it shares with LazyWeb+), the two interfaces' shared shape, and the
+# harnesses' judges. The end-to-end runs (`python tools/webd/run.py`, `full_run.py`) need the WebKit build
+# volume and are run by hand, as LazyWeb+'s are.
 
 on:
   push:
@@ -15,12 +16,18 @@ on:
       - "xui-app/src/platform/webd.rs"
       - "xui-app/src/bin/webddemo.rs"
       - "xui-app/src/bin/webddemo/**"
+      - "xui-app/src/bin/webdbrowse.rs"
+      - "xui-app/src/bin/webdbrowse/**"
+      - "xui-app/crates/damage/**"
+      - "xui-app/crates/downloads/**"
+      - "xui-app/crates/webnotify/**"
       - "xui-app/src/lightview/**"
       - "xui-app/docs/**"
       - "xui-app/mail/src/app/reader.rs"
       - "tools/docs/**"
       - "tools/mail/**"
       - "idl/webd_light.midl"
+      - "idl/webd.midl"
       - "tools/webd/**"
       - ".github/workflows/webd.yml"
   pull_request:
@@ -31,12 +38,18 @@ on:
       - "xui-app/src/platform/webd.rs"
       - "xui-app/src/bin/webddemo.rs"
       - "xui-app/src/bin/webddemo/**"
+      - "xui-app/src/bin/webdbrowse.rs"
+      - "xui-app/src/bin/webdbrowse/**"
+      - "xui-app/crates/damage/**"
+      - "xui-app/crates/downloads/**"
+      - "xui-app/crates/webnotify/**"
       - "xui-app/src/lightview/**"
       - "xui-app/docs/**"
       - "xui-app/mail/src/app/reader.rs"
       - "tools/docs/**"
       - "tools/mail/**"
       - "idl/webd_light.midl"
+      - "idl/webd.midl"
       - "tools/webd/**"
       - ".github/workflows/webd.yml"
   workflow_dispatch:
@@ -69,9 +82,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host -p xui-docs
+          cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-client -p xui-webd-host -p xui-docs -p lazydamage -p lazydownloads -p lazywebnotify
           cargo test --manifest-path xui-app/Cargo.toml -p xui-app --lib lightview
-          FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p xui-webd --release --test fuzz
+          FUZZ_CASES=20000 cargo test --manifest-path xui-app/Cargo.toml -p xui-webd --release --test fuzz --test full_fuzz --test full_garbage
 
       # tkinter: lazygui's package __init__ imports the Tk UI even for the limits table run.py reads.
       - name: Install tkinter
@@ -82,6 +95,9 @@ jobs:
         run: |
           set -euo pipefail
           python tools/webd/test_judge.py
+          python tools/webd/test_full_judge.py
+          python tools/webd/test_idl.py
+          python tools/webd/test_manifest.py
           python tools/webd/session.py --check
           python tools/docs/test_judge.py
           python tools/mail/test_judge.py

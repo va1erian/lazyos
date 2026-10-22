@@ -29,7 +29,8 @@ pub mod blocker;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
-pub mod downloads;
+/// Naming and reserving downloads: its own crate (`lazydownloads`), shared with webd.
+pub use lazydownloads as downloads;
 pub mod frameclock;
 pub mod handoff;
 pub mod hang;
@@ -86,6 +87,6 @@ pub const SYSTEM_NAME: &str = "os.lazy.lazywebplus";
 /// The history file in that folder.
 pub const HISTORY_FILE: &str = "history.tsv";
 /// The downloads folder in the home.
-pub const DOWNLOADS_DIR: &str = "Downloads";
+pub const DOWNLOADS_DIR: &str = lazydownloads::FOLDER;
 /// The sites allowed or blocked to notify, in the same folder (`origin<TAB>allow|block<TAB>time`).
 pub const NOTIFY_FILE: &str = "notify.tsv";

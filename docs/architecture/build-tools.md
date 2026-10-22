@@ -9,6 +9,7 @@
 |---|---|---|---|
 | IDL compiler | `tools/midlc/midlc.py`, `idl/*.midl`, `libs/generated/src/lib.rs`, `docs/idl/`, `idl/manifest.json` | Generate typed Rust wire helpers, per-interface docs and a manifest; `--check` fails when stubs are stale; method ids are stable hashes | `.github/workflows/midlc.yml` |
 | Linux ABI bench | `tools/abi/{build,run,coverage}.py`, `tools/abi/fixtures/src/*` | Build musl fixtures, boot each as `/system/bin/abi-init`, parse serial `ABI:*` lines into `docs/compat/matrix.md` + `compat.json`; coverage lists `ENOSYS` numbers | `.github/workflows/abi-compat.yml` |
+| Documentation site | `tools/site/{build,collect,render,links,theme}.py`, `tools/site/site.toml`, `tools/site/README.md` | Render `docs/**/*.md` (plus the README) to a static GitHub Pages site with a sidebar, search and rewritten links; `--strict` fails on a broken link or fragment | `.github/workflows/pages.yml` |
 | Kernel tests | `tools/test/run.py`, `kernel/src/tests/` | Boot a `LAZYOS_TESTS=1` image headless, parse `TEST:*` lines, write `docs/test/report.md` + `.json`; exits non-zero on failure/missing summary | `.github/workflows/kernel-tests.yml` |
 | Screenshots | `tools/screenshot/qemu_shot.py`, `qemu_session.py`, `qemu_qmp.py`, `pngstats.py`, `tools/screenshot/examples/*.json` | Headless screenshot capture, scripted input injection (QMP `input-send-event`), programmatic PNG assertions | `.github/workflows/screenshots.yml` |
 | Parcel codec tests | `libs/messenger/src/lib.rs`, `libs/generated/tests/echo.rs` | Host cargo tests (round-trip, limits, fuzz; generated-stub round trips) | `.github/workflows/messenger.yml`, `midlc.yml` |
@@ -33,8 +34,8 @@
 - Screenshot tooling discovers QEMU from `--qemu`, then `PATH`, then
   `C:\Program Files\qemu` on Windows; input injection works headless via QMP.
 - Generated output is git-ignored (`.gitignore`): `shots/`, `docs/compat/`,
-  `docs/test/`; CI publishes the artifacts (and the screenshots branch / wiki
-  copies).
+  `docs/test/`; CI publishes the artifacts (and the screenshots branch; the docs
+  site publishes the ABI reports).
 
 **CI workflows** (`.github/workflows/`)
 
@@ -42,7 +43,8 @@
 |---|---|
 | `image.yml` | Builds a fresh and then an in-place-updated OS image and checks both with `e2fsck -fn`, `debugfs` and the kept UUID (`tools/ci/check_os_image.sh`) |
 | `kernel-tests.yml` | `tools/test/run.py` (KVM when usable); appends the report to the job summary; uploads `docs/test/**`, `shots/kernel-tests/**` |
-| `abi-compat.yml` | Builds fixtures, runs the bench, uploads `docs/compat/**` + `shots/abi/**`, publishes the matrix/coverage to the wiki, comments on PRs |
+| `abi-compat.yml` | Builds fixtures, runs the bench, uploads `docs/compat/**` + `shots/abi/**` (the `abi-compat` artifact that `pages.yml` publishes), comments on PRs |
+| `pages.yml` | Builds the documentation site (`tools/site/build.py --strict`, generator tests) and deploys it to GitHub Pages on `main`; also after every `abi-compat` run, to publish the ABI reports |
 | `screenshots.yml` | Captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch, comments images on PRs |
 | `messenger.yml` | `cargo test -p libmessenger` |
 | `midlc.yml` | `test_midlc.py`, `midlc.py --check`, `cargo test -p messenger-generated` |

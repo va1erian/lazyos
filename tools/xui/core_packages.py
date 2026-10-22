@@ -183,6 +183,9 @@ CORE_APPS: dict[str, CoreApp] = {
     # Web View Demo (docs/webd-plan.md P2 slice 2): the client of webd's light views, driven by
     # `python tools/webd/run.py`. Only a `LAZYOS_WEBD=1` image ships it.
     "webddemo": xui_app("xui-webddemo.elf", "webddemo", optional=True),
+    # Web View Test (docs/webd-plan.md P2 slice 3): drives webd's full views through the view, net
+    # and browser scopes against the harness server. Only a `LAZYOS_WEBDDEMO=1` image ships it.
+    "webdbrowse": xui_app("xui-webdbrowse.elf", "webdbrowse", optional=True),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).
