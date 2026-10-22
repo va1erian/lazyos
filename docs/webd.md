@@ -96,12 +96,14 @@ arrive as `WEBD:NOTE:<line>`.
 |---|---|
 | `WEBD:UP:PASS` | the host is up (doorbell made, engine started) |
 | `WEBD:SERVE:app.os.lazy.webd.light` | the name is registered |
+| `WEBD:SERVE:app.os.lazy.webd.view` | the full interface and its two scopes are registered (`SERVE:FAIL` leaves the light views working) |
 | `WEBD:WATCH:WARN:...` | no lifecycle line (started by hand, not by `init`): only `SIGTERM` ends it |
 | `WEBD:VIEW:CREATE client=<label> view=<id>` | `CreateView` (`<label>` is `app:<system_name>` for webd's own label, `label#<id>` for another app (the credential gate names
 a label only to its holder or to `CAP_SETUID`), `none` for an unlabelled caller) |
 | `WEBD:VIEW:DESTROY view=<id>` | the view ended: `DestroyView`, the client died, or the service stopped (a `NOTE` says which) |
 | `WEBD:LOST view=<id> reason=<refused\|crashed\|memory\|other\|unknown>` | the engine gave the view up |
 | `WEBD:NOTE:<text>` | a refusal, a dropped frame (rate limited), or an engine marker |
+| `WEBD:NOTE:full view=<id> <what>` | a full view's page did something the service decided about: `held`, `held refused`, `held expired`, `hand-off`, `hand-off refused`, `dialog dismissed`, `toast`, `toast refused` (rate limited) |
 | `WEBD:HANG:FAIL:...` | the watchdog fired |
 | `WEBD:QUIT:REQUESTED grace_ms=<n>` / `WEBD:QUIT:PASS` | `init` asked / the program ended cleanly with no engine process left (`QUIT:FAIL:status=.. engine processes left=..` otherwise) |
 | `WEBD:SELFTEST:*` | the built-in client (below) |
@@ -161,12 +163,99 @@ cost, `webd_selftest.json` for the times). Memory is the kernel's `frames_live` 
 | **A view that is up** | `LoadHtml` to frame 32 ms; `Refresh` to frame 31, 33, 34 ms (min, median, max of 20): the Messenger hop out, the engine's paint (a 33 ms pacer) and the hop back. The hops are inside that pacer's noise; a hop alone needs a probe method that does no painting |
 | **Whole lives** | `PROC:EXIT` of the web process after two pages and a kill: 30 to 40 ms of CPU |
 
+## Full views (`os.lazy.webd.view.v1`, P2 slice 3)
+
+What a browser needs, through webd: [`idl/webd.midl`](../idl/webd.midl), served with its two scopes as
+`app.os.lazy.webd.view`. Every method the light interface has keeps its id and wire shape (the full one appends
+fields: `State` has the address, the committed address, back/forward, progress and `secure`; `Frame` has
+`whole`, `shift`, `rects` and the scroll offset), and `tools/webd/test_idl.py` holds the two files together.
+
+**Scopes.** A view may reach what the interface its `CreateView` came through allows; the kernel checks the
+parcel's interface against the caller's manifest before webd sees the call, as it does for the display's
+pointer scope (`xui-app/crates/webd/src/fullconfig.rs`):
+
+| Interface of the `CreateView` | Scheme policy | Profile | Hand-off, downloads, blocking, notifications |
+|---|---|---|---|
+| `os.lazy.webd.view.v1` (MEDIUM: "Show web pages that you give it") | `DataOnly` only; the view also carries the light views' network lock, so nothing of the page (an image, a fetch, a socket) reaches the network | `""` | no |
+| `os.lazy.webd.net.v1` (HIGH: "Load web pages and pictures from the internet") | `Web`, `Origins`, `DataOnly` | `""` | no |
+| `os.lazy.webd.browser.v1` (HIGH: "Browse the web with your browsing cookies and history, ...") | any | `""` or `browser` | yes (downloads, blocking and notifications need the `browser` profile; notifications need it on disk) |
+
+Anything outside is `EACCES` at `CreateView`; every other call goes through `os.lazy.webd.view.v1`, which a client
+lists with its scope. A light view and a full view live in one table: a call through the other interface finds
+"no such view" (`ENOENT`).
+
+**Profiles.** `""` is the client's own and stays **in memory**: webd may not name a client's label (the credential
+gate names a label only to its holder) and label ids last one boot, so nothing would find a folder again.
+`browser` is the one profile on disk, `$HOME/.apps/os.lazy.webd/profiles/browser` (cookies in
+`cookies/cookie.jar.db`, cache, storage); `ephemeral` keeps its data in memory (a private window). The engine's
+processes start in `profiles/` with `CURL_COOKIE_JAR_PATH=:memory:`, decided once at start
+(`webd_engine_start_host`): each persistent profile's cookies are in its own file, which WebKit's curl session
+opens per data store (`NetworkSessionCurl.cpp`), never in another's (`webd-abi-test profiles`, and the harness
+below). Views of one client and one profile share a web process; at most **4 web processes per user** for full
+views (a new (client, profile) pair past that is `EDQUOT`).
+
+**Navigation policy** (`policy.rs`, decided on WebKit's thread from rules the service registered,
+`events/rules.rs`): `about:`, `data:`, `blob:` always load; `http(s)` per the scheme policy (`Origins`: the listed
+`scheme://host[:port]`, an address with a backslash, white space or a control character has no origin); `file:`
+and `javascript:` never. Anything else is a hand-off: `Deny`; `Ask` (the engine holds the navigation, the client
+gets `NavigationRequested`, no answer in 10 s is a no; a yes loads only an `http(s)` address); `Browser` (webd gives
+it to `mimed`, only for the page itself, with a user gesture, within 3 s of real input the client forwarded). A
+frame inside the page is allowed or refused, never asked about. The client's own `Load` and a `LoadHtml` base pass
+the same policy. `Origins` limits where the page goes, not what it loads: its sub-resources come from anywhere.
+
+**Questions and news.** `Dialog` waits for `DialogReply` (more than 3 in 10 s are dismissed without asking);
+`NewWindowRequested` (nothing opens); downloads go to `$HOME/Downloads` under LazyWeb+'s naming rules
+(`xui-app/crates/downloads`, `lazydownloads`: a `.part` file renamed when every byte arrived, never over another
+file, 256 per session); a page's notifications are webd's toasts titled with the site's host, posted only for an
+origin the view's profile allowed (`NotifyPermissionRequest` / `NotifyPermission`; WebKit keeps one permission
+record for the whole context, so a decision of one profile reads as `Notification.permission` in another, and is
+then refused at `show`); content blocking compiles the client's rule lists into the browser profile's store
+(`BlockingCompile`), with a per-profile switch and exceptions (`SetBlocking`) and a one-shot `Reload(bypass)`. The
+ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+ today).
+
+**Frames with damage** (`ViewConfig.deltas`). The paint plan is the window's (`xui-app/crates/damage`,
+`lazydamage`, moved out of `xui-webkit` so both keep one set of rules), kept per view by the service
+(`webd_paint_*`). A `Frame` with `whole = false` carries `shift` (move that area of the picture by `dx, dy`) and
+`rects` (copy each from the slot, where it sits in a whole frame's layout) and the scroll offset the pixels were
+painted at; a delta that cannot be delivered (no free slot, a full queue) ends the chain: the queue refuses deltas
+until the engine paints a whole frame, which the view asks for when a slot is free
+(`events/pictures.rs`, `service/deliver.rs`). Band slots 3 and 4 (`width * min(height, 1024) * 4` bytes) carry
+`Band` events. `xui_webd_client::FullWebView` applies all of it to its picture.
+
+**The proof** (`python tools/webd/full_run.py`, 2026-10-22, WHPX, 4 GiB): `os.lazy.webdbrowse` ("Web View Test",
+shipped by `--webd-demo`) runs 17 steps against `tools/webd/full_server.py` (plain HTTP on 18081) and the judge
+reads the client's markers, the server's request log, the OS volume and a screenshot: navigation, back and
+forward; a rule list compiled and the blocked picture kept off the network until the bypassing reload; the
+`browser` profile's cookie sent by two of its views and never by the client's own profile, whose own cookie never
+reached the `browser` profile; a download whose file in `/home/user/Downloads` has the server's bytes; an alert
+and a confirm answered; a `window.open` reported with `gesture=false`; a `mailto:` held and refused; a `CreateView`
+with the network through `os.lazy.webd.view.v1` refused, and a view without the network scope that loaded HTML
+with a remote picture which never reached the server; a delta frame with `dy=-40` after a wheel turn. No
+`LABEL:DENY` of the client or webd; their children's only refusals are the documented optional ones.
+
+| Measured (one run, `WEBDBROWSE:LATENCY`; the client polls every 8 ms, so 8 ms is "within one poll") | |
+|---|---|
+| `Load` of a page to its first frame (view up, page from the host) | 32 ms (17 ms in the first run) |
+| wheel turn sent to the first frame after it (20 turns) | min 8, median 8, max 8 ms (first run 7 / 8 / 16) |
+| `Refresh` to frame (10) | 8 / 8 / 8 ms |
+| the engine's own wheel-to-damage (`w2d`, `INFO:PAINT`) | 2.0-2.1 ms average, 2.4-3.7 ms worst |
+
+What the numbers do not say: they are a simple local page at 800x578; the light self-test's `Refresh` was 31-34 ms
+because its pacer had just painted; and LazyWeb+'s scroll repro (Ars Technica, 2560x1440) was not run through webd
+(no live site in the harness, and LazyWeb+ is not a webd client before P4). The hop costs at most one poll here.
+
+**Not exercised in QEMU** (host-tested only, or in `webd-abi-test`): `Handoff.Browser` through `mimed`, a page's
+notifications as toasts (the engine's half passes `webd-abi-test notify`), bands (patch 0030 painted none for a
+240 or 40 px scroll in either test), `Origins`.
+
 ## Files
 
 `$HOME/.apps/os.lazy.webd/rules/`: the engine's network-lock rule store, compiled at every start
 (`LAZYOS_WEBD_RULES_DIR`, set by `webd_host_init`; the engine has no fallback: without the variable it prints
 `FAIL:light:...` and refuses every light view, because a predictable folder in a shared place is not one a lock
-may rest on). Nothing else is written: no cache, history or cookies.
+may rest on). `$HOME/.apps/os.lazy.webd/profiles/`: where the engine's processes start; `profiles/browser/` is the
+`browser` profile (cookies, cache, storage, the content-blocking store). A finished download is renamed in
+`$HOME/Downloads`. A light view writes nothing else: no cache, history or cookies.
 
 ## Permissions
 
@@ -189,6 +278,15 @@ line, AGENTS.md):
   has no network. Its only refusals are the optional one LazyWeb+ documents (#836, `tools/webplus/denies.py`):
   a stat of `/etc/ssl/openssl.cnf`; the page process's are its stats of `/etc`, `/etc/localtime` and
   `/usr/share/zoneinfo` (the time zone probe). None of the fontconfig ones appeared.
+* **Full views (P2 slice 3).** The manifest adds `os.lazy.webd.view.v1` (the full views' events go out with it),
+  `os.lazy.mimed.v1` (a hand-off), `os.lazy.notify.v1` (the toasts; their clicks come back on the channel webd
+  moved in, which needs nothing), `network = ["outbound"]` (a child label holds at most its app's), the resolver's
+  files and the certificate bundle, and `write:$HOME/Downloads`; the NetworkProcess gets the network, those reads,
+  the app's folder and `$HOME/Downloads`. The traced `full_run.py` (all of it but the hand-off and the toasts, which
+  no QEMU run exercised: their grants are by reading) showed no `LABEL:DENY` of `app:os.lazy.webd` or of the client,
+  and for the children only the optional ones above plus the page process's fontconfig probes
+  (`tools/webd/judge.py`, `OPTIONAL_CHILD`). The client, `os.lazy.webdbrowse`, lists `os.lazy.webd.view.v1`,
+  `os.lazy.webd.net.v1` and `os.lazy.webd.browser.v1` with the display and input.
 
 ## Limits, back-pressure and what grows (from the review of 2026-10-21)
 
