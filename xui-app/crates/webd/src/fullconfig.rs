@@ -248,6 +248,9 @@ pub fn setup(
             deltas: config.deltas,
             user_agent_suffix: suffix.clone(),
             no_network: schemes == Schemes::DataOnly,
+            // The client's own profile and its private windows are both in memory in the client's one
+            // group; only this tells the engine to keep them in different stores and web processes.
+            private_store: matches!(profile, Profile::Browser { ephemeral: true }),
         }),
         ..EngineConfig::default()
     };

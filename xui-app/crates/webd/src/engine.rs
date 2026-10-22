@@ -62,6 +62,9 @@ pub struct FullConfig {
     /// No network at all (a `DataOnly` view): the light views' network lock is attached too, so a
     /// sub-resource, a fetch or a socket of the page reaches nothing, not only its navigations.
     pub no_network: bool,
+    /// A private window's store (`WEBD_STORE_PRIVATE`): in memory like the client's own profile, but never
+    /// the same store or web process as the client's other views, which share the client's group.
+    pub private_store: bool,
 }
 
 /// What the service asks the engine. `&self`: the C functions take no state and the recording

@@ -292,7 +292,7 @@ def run_views() -> bool:
 #: The modes of ``webd-abi-test`` (webkit/port/webd/test): each runs in a process of its own. The first eight
 #: are light views (P2 slice 1), the rest full views (slice 3).
 WEBD_MODES = ("html", "script", "config", "lock", "network", "many", "lost", "cycle",
-              "full", "profiles", "ask", "dialog", "download", "popup", "deltas", "blocking", "notify", "nonet")
+              "full", "profiles", "ask", "dialog", "download", "popup", "deltas", "blocking", "notify", "nonet", "store")
 
 
 def run_webd(modes: list[str] | None = None) -> bool:

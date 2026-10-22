@@ -238,6 +238,7 @@ add_executable(webd-abi-test
     "${LAZYOS_PORT_DIR}/webd/test/modes_page.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/modes_paint.cpp"
     "${LAZYOS_PORT_DIR}/webd/test/modes_nonet.cpp"
+    "${LAZYOS_PORT_DIR}/webd/test/modes_store.cpp"
     ${_lazyos_webd_sources}
     ${_lazyos_engine_sources})
 target_include_directories(webd-abi-test PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app" "${LAZYOS_PORT_DIR}/webd" "${LAZYOS_PORT_DIR}/webd/test")

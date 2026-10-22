@@ -79,6 +79,7 @@ uint64_t createFull(const FullOptions& options)
     config.deltas = options.deltas;
     config.user_agent_suffix = options.userAgentSuffix.empty() ? nullptr : options.userAgentSuffix.c_str();
     config.no_network = options.noNetwork;
+    config.store_kind = options.storeKind;
     webd_engine_view_create(id, &config);
     return id;
 }

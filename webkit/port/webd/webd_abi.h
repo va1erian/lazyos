@@ -91,7 +91,16 @@ typedef struct webd_view_config {
     // light view (refused if the lock failed). With WEBD_FEATURE_BLOCKING it is refused (view_lost(REFUSED)):
     // the blocking lists are rebuilt on the page's controller at every navigation and could drop the lock.
     int32_t no_network;
+    // Which kind of store the view's data lives in (WEBD_STORE_*), appended with the 2026-10-22 review. Views join an
+    // existing view's web process and data store only when the group, the profile directory, memory_only, no_network
+    // AND this match: a client's own in-memory profile and the same client's private window are both "in memory,
+    // no directory, one group", and without this field the second would be a related page of the first and share
+    // its cookies and storage. Any value but the two below is a store of its own kind (never shared with 0 or 1).
+    int32_t store_kind;
 } webd_view_config;
+
+#define WEBD_STORE_OWN 0      // the client's own profile (default)
+#define WEBD_STORE_PRIVATE 1  // a private window: in memory, shared only with the client's other private windows
 
 // webd_view_config.features (the values are lazyos_ui.h's LZW_FEATURE_*, which abi.cpp asserts).
 #define WEBD_FEATURE_PAGE_UI 1          // webd_ui_hover, webd_ui_cursor, webd_ui_new_window

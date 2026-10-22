@@ -135,6 +135,15 @@ fn the_browser_scope_gets_the_shared_profile_on_disk_and_its_features() {
     let full = ok.engine.full.clone().unwrap();
     assert!(full.memory_only);
     assert_eq!(full.profile, "");
+    assert!(
+        full.private_store,
+        "a private window is its own kind of store"
+    );
+    // The client's own profile is also in memory with no folder; only the store kind differs.
+    let own = setup(&web(), Scope::Browser, 10, 10, 2, &places()).unwrap();
+    let own = own.engine.full.unwrap();
+    assert!(own.memory_only && own.profile.is_empty());
+    assert!(!own.private_store);
     let blocked = wire::ViewConfig {
         blocking: true,
         ..private.clone()

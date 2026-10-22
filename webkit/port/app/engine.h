@@ -187,6 +187,9 @@ struct ViewConfig {
     // about:). It is made only when the lock is ready, and never with LZW_FEATURE_BLOCKING (whose rebuilds of
     // the controller's lists would drop it).
     bool noNetwork { false };
+    // Which kind of store the owner keeps this view's data in (webd: WEBD_STORE_OWN / WEBD_STORE_PRIVATE). Views
+    // join a group mate only with an equal value, so two kinds of in-memory store of one group stay apart.
+    int storeKind { 0 };
 };
 
 // A navigation the owner was asked about and has not answered (ViewSink::kVerdictAsk): its retained listener
