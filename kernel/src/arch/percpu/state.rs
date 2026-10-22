@@ -90,6 +90,9 @@ pub struct IpiState {
     /// The TSC this CPU read just before publishing `online` (the bring-up
     /// logs the latency the BSP sees; it is not a skew measure).
     pub tsc_entry: AtomicU64,
+    /// The TSC offset the coherence gate measured for this CPU when it was
+    /// accepted (cycles; logged with its `online` line).
+    pub tsc_skew: AtomicU64,
     /// Shootdown request (`arch::smp::shootdown`): the first virtual address
     /// and the page count to invalidate (0 and 0 = everything; a long range
     /// flushes everything), valid while `sd_req != sd_ack`.
@@ -184,6 +187,7 @@ impl PreemptState {
 impl IpiState {
     pub(super) const ZERO: IpiState = IpiState {
         tsc_entry: AtomicU64::new(0),
+        tsc_skew: AtomicU64::new(0),
         sd_addr: AtomicU64::new(0),
         sd_pages: AtomicU64::new(0),
         sd_req: AtomicU64::new(0),

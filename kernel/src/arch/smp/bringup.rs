@@ -55,6 +55,7 @@ pub(super) fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
             checked = true;
             match tscsync::bsp_side(cpu, started, bound) {
                 Some(skew) if skew <= tsc_tolerance() => {
+                    cpu.ipi.tsc_skew.store(skew, Ordering::Relaxed);
                     APS_ONLINE.fetch_add(1, Ordering::AcqRel);
                     counted = true;
                     tscsync::accept(cpu);

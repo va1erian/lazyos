@@ -153,7 +153,13 @@ fn invariant_tsc() -> bool {
 /// kernels also force the TSC invariance gate (TCG refuses `invtsc`).
 #[cfg(lazyos_tests)]
 pub fn bring_up_for_test(n: usize) {
-    TSC_FORCE.store(true, Ordering::Relaxed);
+    if !TSC_FORCE.swap(true, Ordering::Relaxed) {
+        // What the boot path's gate would have seen (the suite overrides it).
+        serial_println!(
+            "HW:SMP:TSC:INVARIANT={} (forced for the suite)",
+            invariant_tsc()
+        );
+    }
     CPUS.store(n.min(percpu::MAX_CPUS).max(1), Ordering::Relaxed);
     if cpus() > 1 && AP_PML4.load(Ordering::Relaxed) == 0 && prepare().is_none() {
         CPUS.store(1, Ordering::Relaxed);
@@ -176,6 +182,7 @@ pub fn init() {
     // sanity; TCG
     // refuses `invtsc`, so the gate yields to the test-rig override rather
     // than disarming every TCG-based SMP test.
+    serial_println!("HW:SMP:TSC:INVARIANT={}", invariant_tsc());
     if !invariant_tsc() && !TSC_FORCE.load(Ordering::Relaxed) {
         serial_println!("HW:SMP:TSC:NONINV staying single-CPU");
         CPUS.store(1, Ordering::Relaxed);
@@ -258,8 +265,9 @@ pub fn bring_up(count: usize) {
         };
         if bring_up_one(index, id, ms) {
             serial_println!(
-                "HW:SMP:CPU{index} apic={id:#x} online (latency={})",
-                entry_latency(index)
+                "HW:SMP:CPU{index} apic={id:#x} online (latency={}, skew={} cycles)",
+                entry_latency(index),
+                percpu::area(index).map_or(0, |c| c.ipi.tsc_skew.load(Ordering::Relaxed))
             );
         }
     }
