@@ -59,7 +59,7 @@ def ensure_target() -> bool:
     return True
 
 
-def build_window_library(app: App = APP) -> Path | None:
+def build_window_library(app: App) -> Path | None:
     """The window as a static library in ``target/webkit/lib``; None when cargo cannot build for musl."""
     if not ensure_target():
         return None
