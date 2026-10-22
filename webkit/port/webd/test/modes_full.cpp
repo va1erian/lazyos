@@ -58,6 +58,8 @@ std::string modeFull()
             return html(linkPage("One", "/two"));
         if (r.path == "/two")
             return html(linkPage("Two", ""));
+        if (r.path == "/base/pic.png")
+            return Response { 200, "image/png", {}, "not really a picture" };
         return missing();
     });
     if (!server.start())
@@ -128,11 +130,32 @@ std::string modeFull()
     if (f.deltas || f.movedDeltas)
         return "a view without deltas got a delta";
     note("FULL:requests=%d:%s", requests, server.describe().c_str());
-    // A light view's call does nothing to a full view.
-    loadHtml(v, page("Light", "#00f"));
+    // The client's own page under the server's address: its relative picture is asked for there.
+    const std::string base = origin + "/base/";
+    int finished = facts(v).finished;
+    loadHtml(v, page("Html", "#00f", "<img src=\"pic.png\">"), base.c_str());
+    if (!waitView(v, [&](const ViewFacts& g) { return g.title == "Html" && !g.loading && g.finished > finished && g.error.empty(); }, 60000))
+        return "load_html with an http base did not show: " + describeFull(facts(v));
+    if (!server.wait("/base/pic.png", 1, 30000))
+        return "the page's relative picture was not asked for under its base: " + server.describe();
+    const Navigation* htmlAsked = lastNavigation(facts(v), base);
+    note("FULL:load_html:http base:committed=%s:asked=%s", facts(v).committed.c_str(), htmlAsked ? htmlAsked->url.c_str() : "(none)");
+    if (!htmlAsked || !htmlAsked->mainFrame)
+        return "load_html's navigation was not asked about";
+    // ... and under about:blank.
+    finished = facts(v).finished;
+    loadHtml(v, page("Blank", "#0a0"), "about:blank");
+    if (!waitView(v, [&](const ViewFacts& g) { return g.title == "Blank" && !g.loading && g.finished > finished && g.error.empty(); }, 60000))
+        return "load_html with about:blank did not show: " + describeFull(facts(v));
+    // A file: base is refused: nothing loads and the state says why.
+    const int states = facts(v).pageStates;
+    loadHtml(v, page("File", "#f00"), "file:///etc/");
+    if (!waitView(v, [&](const ViewFacts& g) { return g.pageStates > states && !g.error.empty(); }, 30000))
+        return "a file: base was not refused with an error";
     usleep(800 * 1000);
-    if (facts(v).title != "Two")
-        return "load_html changed a full view";
+    if (facts(v).title != "Blank")
+        return "a file: base loaded: " + describeFull(facts(v));
+    note("FULL:load_html:about:blank shown, file: refused:%s", facts(v).error.c_str());
     destroy(v);
     if (facts(v).violations)
         return "the engine told something about the id after view_destroy";

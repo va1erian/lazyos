@@ -7,8 +7,10 @@
 //  * the user style: the C API has no user style sheet, so a user script at the document's end adds a <style>
 //    to the main frame; without scripts it cannot, and says so;
 //  * the user agent suffix: WebKit's user agent, a space and the suffix, as the page's custom one; site-specific
-//    quirks off for that view (they put a fixed user agent on every request).
+//    quirks off for that view (they put a fixed user agent on every request);
+//  * the owner's own HTML (loadFullHtml) under an about:, data:, http: or https: base, never a file: one.
 
+#include <WebKit/WKData.h>
 #include <WebKit/WKPage.h>
 #include <WebKit/WKPageConfigurationRef.h>
 #include <WebKit/WKPreferencesRef.h>
@@ -16,8 +18,10 @@
 #include <WebKit/WKString.h>
 #include <WebKit/WKType.h>
 #include <WebKit/WKUserContentControllerRef.h>
+#include <WebKit/WKURL.h>
 #include <WebKit/WKUserScriptRef.h>
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string>
@@ -97,6 +101,37 @@ void configureFull(View& v, WKPageConfigurationRef configuration)
         else
             say("CONFIG:IGNORED:user_style");
     }
+}
+
+void loadFullHtml(View& v, const std::string& html, const std::string& baseUrl)
+{
+    WKURLRef base = WKURLCreateWithUTF8CString(baseUrl.empty() ? "about:blank" : baseUrl.c_str());
+    WKStringRef schemeText = WKURLCopyScheme(base);
+    std::string scheme = utf8(schemeText);
+    if (schemeText)
+        WKRelease(schemeText);
+    for (char& c : scheme)
+        c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    // The owner's page under an origin the service checked: an inert one or a web one, never a file (the page
+    // would read the disk) or any other scheme. WebKit's parse decides the scheme, not the caller's spelling.
+    if (scheme != "about" && scheme != "data" && scheme != "http" && scheme != "https") {
+        WKRelease(base);
+        say("FULL:BASE:REFUSED");
+        v.error = "The page was not loaded: its base URL must be about:, data:, http: or https:.";
+        ++v.stateSerial;
+        postState(v);
+        return;
+    }
+    // Bytes, as the light path loads them (a WKString would end at the first NUL); the navigation it starts
+    // is asked about (webd_ui_navigate) like any other.
+    WKDataRef data = WKDataCreate(reinterpret_cast<const unsigned char*>(html.data()), html.size());
+    WKStringRef mime = WKStringCreateWithUTF8CString("text/html");
+    WKStringRef encoding = WKStringCreateWithUTF8CString("UTF-8");
+    WKPageLoadData(v.page, data, mime, encoding, base);
+    WKRelease(encoding);
+    WKRelease(mime);
+    WKRelease(data);
+    WKRelease(base);
 }
 
 void applyUserAgentSuffix(View& v)
