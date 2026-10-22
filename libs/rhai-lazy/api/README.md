@@ -72,6 +72,9 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::messenger_topics_bell`](#sysmessenger_topics_bell) | `os.lazy.messenger.topics.bell.v1` |
 | [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
 | [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
+| [`sys::webd_view`](#syswebd_view) | `os.lazy.webd.view.v1` |
+| [`sys::webd_net`](#syswebd_net) | `os.lazy.webd.net.v1` |
+| [`sys::webd_browser`](#syswebd_browser) | `os.lazy.webd.browser.v1` |
 | [`sys::webd_light`](#syswebd_light) | `os.lazy.webd.light.v1` |
 | [`sys::net_wifi_hw`](#sysnet_wifi_hw) | `os.lazy.net.wifi.hw.v1` |
 | [`sys::net_wifi`](#sysnet_wifi) | `os.lazy.net.wifi.v1` |
@@ -945,6 +948,99 @@ What the shell sends an app about its item: oneway methods on the channel
 | `scroll(delta)` | `Scroll(delta: I32) -> () oneway` | The wheel rolled `delta` notches over the icon (positive: up). |
 | `ping()` | `Ping() -> () oneway` | Liveness probe; nothing to answer. |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
+
+## `sys::webd_view`
+
+Interface `os.lazy.webd.view.v1`, source [`webd_view.rhai`](webd_view.rhai).
+
+webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
+
+| Function | IDL | About |
+|---|---|---|
+| `destroy_view(view)` | `DestroyView(view: U64) -> ()` | End the view; not an error for a view that is gone. |
+| `release_slot(view, slot)` | `ReleaseSlot(view: U64, slot: U32) -> () oneway` | The app is done reading `slot`. |
+| `resize(view, width, height)` | `Resize(view: U64, width: U32, height: U32) -> ()` | Change the view's size; every slot is detached. |
+| `set_visible(view, visible)` | `SetVisible(view: U64, visible: Bool) -> () oneway` | A view that is not visible gets no paints. |
+| `refresh(view)` | `Refresh(view: U64) -> () oneway` | Ask for a whole frame. |
+| `load(view, url)` | `Load(view: U64, url: String) -> ()` | Load `url` in the view: it must pass the view's scheme policy (`EACCES` |
+| `reload(view, bypass_blocking)` | `Reload(view: U64, bypass_blocking: Bool) -> ()` | Load the page again; `bypass_blocking` loads it once without the |
+| `stop(view)` | `Stop(view: U64) -> ()` |  |
+| `back(view)` | `Back(view: U64) -> ()` |  |
+| `forward(view)` | `Forward(view: U64) -> ()` |  |
+| `download(view, url)` | `Download(view: U64, url: String) -> ()` | Save `url` as a download (Save Page As): a view with `downloads` only. |
+| `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as on the light interface. |
+| `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` |  |
+| `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` |  |
+| `focus(view, focused)` | `Focus(view: U64, focused: Bool) -> () oneway` |  |
+| `dialog_reply(view, dialog, accepted, value)` | `DialogReply(view: U64, dialog: U64, accepted: Bool, value: String) -> ()` | The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text. |
+| `navigation_answer(view, request, allow)` | `NavigationAnswer(view: U64, request: U64, allow: Bool) -> ()` | The answer to `NavigationRequested` `request`: `allow` loads it. |
+| `notify_permission(view, origin, answer)` | `NotifyPermission(view: U64, origin: String, answer: U32) -> ()` | The answer to `NotifyPermissionRequest` for `origin` (a `PermissionAnswer`): |
+| `download_cancel(view, download)` | `DownloadCancel(view: U64, download: U64) -> ()` | Stop download `download`; its `.part` file is removed. |
+| `set_blocking(view, enabled, exceptions)` | `SetBlocking(view: U64, enabled: Bool, exceptions: Array<String>) -> ()` | Content blocking on or off for the view's profile, and the hosts it is |
+| `blocking_load(view, list)` | `BlockingLoad(view: U64, list: String) -> ()` | Attach list `list` from the profile's store (compiled earlier). |
+| `blocking_forget(view, list)` | `BlockingForget(view: U64, list: String) -> ()` | Detach list `list` and remove it from the store. |
+| `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
+| `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
+| `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled (as on the light interface). |
+| `link_clicked(view, url)` | `LinkClicked(view: U64, url: String) -> () oneway` | Event: as on the light interface (a full view's navigation is not |
+| `clipboard_write(view, text)` | `ClipboardWrite(view: U64, text: String) -> () oneway` |  |
+| `view_lost(view, reason)` | `ViewLost(view: U64, reason: U32) -> () oneway` |  |
+| `ping()` | `Ping() -> () oneway` |  |
+| `band(view, slot, doc_x, doc_y, width, height)` | `Band(view: U64, slot: U32, doc_x: I32, doc_y: I32, width: U32, height: U32) -> () oneway` | Event: band slot `slot` holds `height` rows of the page from document |
+| `hover(view, url)` | `Hover(view: U64, url: String) -> () oneway` | Event: the pointer is over a link (its address) or no longer (""). |
+| `cursor(view, shape)` | `Cursor(view: U64, shape: U32) -> () oneway` | Event: the page wants this pointer shape (a `CursorShape`). |
+| `new_window_requested(view, url, gesture)` | `NewWindowRequested(view: U64, url: String, gesture: Bool) -> () oneway` | Event: the page asked for a new window (`target=_blank`, |
+| `navigation_requested(view, request, url, kind, gesture)` | `NavigationRequested(view: U64, request: U64, url: String, kind: U32, gesture: Bool) -> () oneway` | Event: a navigation outside the view's policy is held (`Handoff.Ask`); |
+| `dialog(view, dialog, kind, message, default_value)` | `Dialog(view: U64, dialog: U64, kind: U32, message: String, default_value: String) -> () oneway` | Event: the page opened a JavaScript dialog (a `DialogKind`) and waits |
+| `download_started(view, download, url, name, total)` | `DownloadStarted(view: U64, download: U64, url: String, name: String, total: I64) -> () oneway` | Event: a download began, into the person's Downloads folder under a |
+| `download_progress(view, download, received, total)` | `DownloadProgress(view: U64, download: U64, received: I64, total: I64) -> () oneway` |  |
+| `download_done(view, download, name)` | `DownloadDone(view: U64, download: U64, name: String) -> () oneway` | Event: every byte is in `name` (a file of the Downloads folder). |
+| `download_failed(view, download, reason)` | `DownloadFailed(view: U64, download: U64, reason: String) -> () oneway` |  |
+| `notify_permission_request(view, origin)` | `NotifyPermissionRequest(view: U64, origin: String) -> () oneway` | Event: a page asked to show notifications for `origin`. |
+| `notify_clicked(view, notification)` | `NotifyClicked(view: U64, notification: U64) -> () oneway` | Event: the person clicked notification `notification` (webd posted it |
+| `blocking_list(view, list, status)` | `BlockingList(view: U64, list: String, status: U32) -> () oneway` | Event: what became of rule list `list` (a `BlockingStatus`). |
+| `blocked(view, count)` | `Blocked(view: U64, count: U32) -> () oneway` | Event: the number of loads the lists blocked on the page on show. |
+| `responsive(view, responsive)` | `Responsive(view: U64, responsive: Bool) -> () oneway` | Event: the page's process stopped answering, or answers again. |
+| `handed_off(view, url)` | `HandedOff(view: U64, url: String) -> () oneway` | Event: webd gave `url` to the program the person chose for it |
+| `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
+| `new_rect()` | struct `Rect` | a `Rect` at its zero value |
+| `new_shift()` | struct `Shift` | a `Shift` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `CreateView`, `AttachSlot`, `LoadHtml`, `BlockingCompile`.
+
+- `SCHEME_POLICY` = the `SchemePolicy` variants; `SCHEME_POLICY_WEB`, `SCHEME_POLICY_DATA_ONLY`, `SCHEME_POLICY_ORIGINS`
+- `HANDOFF` = the `Handoff` variants; `HANDOFF_DENY`, `HANDOFF_ASK`, `HANDOFF_BROWSER`
+- `MOUSE_KIND` = the `MouseKind` variants; `MOUSE_KIND_MOVE`, `MOUSE_KIND_PRESS`, `MOUSE_KIND_RELEASE`
+- `LOST_REASON` = the `LostReason` variants; `LOST_REASON_UNKNOWN`, `LOST_REASON_REFUSED`, `LOST_REASON_CRASHED`, `LOST_REASON_OUT_OF_MEMORY`, `LOST_REASON_OTHER`
+- `CURSOR_SHAPE` = the `CursorShape` variants; `CURSOR_SHAPE_DEFAULT`, `CURSOR_SHAPE_HAND`, `CURSOR_SHAPE_TEXT`, `CURSOR_SHAPE_WAIT`, `CURSOR_SHAPE_HIDDEN`, `CURSOR_SHAPE_RESIZE_H`, `CURSOR_SHAPE_RESIZE_V`, `CURSOR_SHAPE_RESIZE_NWSE`, `CURSOR_SHAPE_RESIZE_NESW`
+- `DIALOG_KIND` = the `DialogKind` variants; `DIALOG_KIND_ALERT`, `DIALOG_KIND_CONFIRM`, `DIALOG_KIND_PROMPT`
+- `NAVIGATION_KIND` = the `NavigationKind` variants; `NAVIGATION_KIND_LINK_CLICKED`, `NAVIGATION_KIND_FORM_SUBMITTED`, `NAVIGATION_KIND_BACK_FORWARD`, `NAVIGATION_KIND_RELOAD`, `NAVIGATION_KIND_FORM_RESUBMITTED`, `NAVIGATION_KIND_OTHER`
+- `BLOCKING_STATUS` = the `BlockingStatus` variants; `BLOCKING_STATUS_READY`, `BLOCKING_STATUS_NOT_STORED`, `BLOCKING_STATUS_STALE`, `BLOCKING_STATUS_COMPILE_FAILED`, `BLOCKING_STATUS_UNAVAILABLE`
+- `PERMISSION_ANSWER` = the `PermissionAnswer` variants; `PERMISSION_ANSWER_BLOCK`, `PERMISSION_ANSWER_ALLOW`, `PERMISSION_ANSWER_DISMISS`
+
+## `sys::webd_net`
+
+Interface `os.lazy.webd.net.v1`, source [`webd_net.rhai`](webd_net.rhai).
+
+The scope that lets a web view load `http:` and `https:` content: a
+
+| Function | IDL | About |
+|---|---|---|
+| `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `CreateView`.
+
+## `sys::webd_browser`
+
+Interface `os.lazy.webd.browser.v1`, source [`webd_browser.rhai`](webd_browser.rhai).
+
+The scope of a web browser: everything `os.lazy.webd.net.v1` allows, plus
+
+| Function | IDL | About |
+|---|---|---|
+| `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `CreateView`.
 
 ## `sys::webd_light`
 

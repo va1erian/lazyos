@@ -249,6 +249,23 @@ fn a_light_only_client_of_webd_cannot_resolve_the_full_service() {
 }
 
 #[test]
+fn a_webd_scope_is_its_own_rule_and_travels_on_the_full_service() {
+    let resolve = |name: &str| allow(resolve_scope::INTERFACE_ID, fnv1a32(name));
+    let view_only = compile(&manifest("interfaces = [\"os.lazy.webd.view.v1\"]\n")).unwrap();
+    // The scopes are interfaces of their own: a client of the full interface alone has neither,
+    // so the kernel refuses its `CreateView` through them before webd sees it.
+    for scope in ["os.lazy.webd.net.v1", "os.lazy.webd.browser.v1"] {
+        assert!(!view_only.contains(&allow(fnv1a64(scope), ANY_METHOD)));
+        let rules = compile(&manifest(&format!(
+            "interfaces = [\"os.lazy.webd.view.v1\", \"{scope}\"]\n"
+        )))
+        .unwrap();
+        assert!(rules.contains(&allow(fnv1a64(scope), ANY_METHOD)));
+        assert!(rules.contains(&resolve("app.os.lazy.webd.view")));
+    }
+}
+
+#[test]
 fn network_outbound_allows_the_socket_interface_and_files_compile_to_nothing() {
     let rules = compile(&manifest("network = [\"outbound\"]\n")).unwrap();
     assert!(rules.contains(&allow(fnv1a64("os.lazy.net.socket.v1"), ANY_METHOD)));

@@ -15,6 +15,11 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::{Arc, RwLock};
 
 use crate::engine::{Engine, EngineConfig, EngineEvents};
+use crate::events::EventQueue;
+
+mod calls;
+mod full;
+pub use calls::start_host;
 
 /// `webd_view_config`, field for field. Every field is read once, when the view is created.
 #[repr(C)]
@@ -32,6 +37,16 @@ pub struct WebdViewConfig {
     pub default_font_size: i32,
     /// UTF-8, NUL-terminated, or NULL for none.
     pub user_style: *const c_char,
+    // ---- full views (read when `light` is 0) ----
+    pub features: i32,
+    /// The profile's directory, or NULL for a store in memory.
+    pub profile: *const c_char,
+    pub memory_only: i32,
+    pub deltas: i32,
+    pub user_agent_suffix: *const c_char,
+    pub no_network: i32,
+    /// `WEBD_STORE_OWN` (0) or `WEBD_STORE_PRIVATE` (1).
+    pub store_kind: i32,
 }
 
 extern "C" {
@@ -49,6 +64,15 @@ extern "C" {
     fn webd_engine_run_on_main(task: extern "C" fn(*mut c_void), context: *mut c_void);
     fn webd_engine_quit();
     fn webd_engine_children(web: *mut c_int, network: *mut c_int);
+}
+
+/// A C string for an optional text: `None` for an empty one (the engine reads NULL as none).
+fn optional(text: &str) -> Option<CString> {
+    (!text.is_empty()).then(|| c_string(text))
+}
+
+fn ptr(text: &Option<CString>) -> *const c_char {
+    text.as_ref().map_or(std::ptr::null(), |s| s.as_ptr())
 }
 
 /// A C string for the engine. The service already refuses text with a NUL, so this never cuts.
@@ -86,19 +110,29 @@ impl FfiEngine {
 
 impl Engine for FfiEngine {
     fn view_create(&self, view: u64, config: &EngineConfig) {
-        let style = (!config.user_style.is_empty()).then(|| c_string(&config.user_style));
+        let style = optional(&config.user_style);
+        let full = config.full.clone().unwrap_or_default();
+        let profile = optional(&full.profile);
+        let suffix = optional(&full.user_agent_suffix);
         let raw = WebdViewConfig {
             struct_size: std::mem::size_of::<WebdViewConfig>() as u32,
-            light: 1,
+            light: i32::from(config.full.is_none()),
             scripts: i32::from(config.scripts),
             width: config.width,
             height: config.height,
             group: config.group,
             color_scheme: config.color_scheme,
             default_font_size: config.default_font_size,
-            user_style: style.as_ref().map_or(std::ptr::null(), |s| s.as_ptr()),
+            user_style: ptr(&style),
+            features: full.features,
+            profile: ptr(&profile),
+            memory_only: i32::from(full.memory_only),
+            deltas: i32::from(full.deltas),
+            user_agent_suffix: ptr(&suffix),
+            no_network: i32::from(full.no_network),
+            store_kind: i32::from(full.private_store),
         };
-        // SAFETY: `raw` and the style string live across the call; the engine reads them only within it.
+        // SAFETY: `raw` and its strings live across the call; the engine reads them only within it.
         unsafe { webd_engine_view_create(view, &raw) }
     }
 
@@ -160,19 +194,68 @@ impl Engine for FfiEngine {
         unsafe { webd_engine_children(&mut web, &mut network) };
         (web, network)
     }
+
+    fn load(&self, view: u64, url: &str) {
+        calls::load(view, url)
+    }
+    fn reload(&self, view: u64) {
+        calls::reload(view)
+    }
+    fn stop(&self, view: u64) {
+        calls::stop(view)
+    }
+    fn back(&self, view: u64) {
+        calls::back(view)
+    }
+    fn forward(&self, view: u64) {
+        calls::forward(view)
+    }
+    fn download(&self, view: u64, url: &str) {
+        calls::download(view, url)
+    }
+    fn download_cancel(&self, view: u64, download: u64) {
+        calls::download_cancel(view, download)
+    }
+    fn dialog_reply(&self, view: u64, dialog: u64, accepted: bool, value: &str) {
+        calls::dialog_reply(view, dialog, accepted, value)
+    }
+    fn navigation_answer(&self, view: u64, request: u64, allow: bool) {
+        calls::navigation_answer(view, request, allow)
+    }
+    fn notify_shown(&self, id: u64) {
+        calls::notify_shown(id)
+    }
+    fn notify_clicked(&self, id: u64) {
+        calls::notify_clicked(id)
+    }
+    fn notify_closed(&self, id: u64) {
+        calls::notify_closed(id)
+    }
+    fn notify_permission(&self, view: u64, origin: &str, answer: i32) {
+        calls::notify_permission(view, origin, answer)
+    }
+    fn blocking_load(&self, view: u64, list: &str) {
+        calls::blocking_load(view, list)
+    }
+    fn blocking_compile(&self, view: u64, list: &str, json: &[u8]) {
+        calls::blocking_compile(view, list, json)
+    }
+    fn blocking_forget(&self, view: u64, list: &str) {
+        calls::blocking_forget(view, list)
+    }
 }
 
-static SINK: RwLock<Option<Arc<dyn EngineEvents>>> = RwLock::new(None);
+static SINK: RwLock<Option<Arc<EventQueue>>> = RwLock::new(None);
 
-/// Make `sink` the receiver of the `webd_ui_*` callbacks, replacing any earlier one. Call before
-/// the engine starts.
-pub fn install(sink: Arc<dyn EngineEvents>) {
+/// Make `sink` the receiver of the `webd_ui_*` and `webd_paint_*` callbacks, replacing any earlier
+/// one. Call before the engine starts.
+pub fn install(sink: Arc<EventQueue>) {
     *SINK
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(sink);
 }
 
-fn sink() -> Option<Arc<dyn EngineEvents>> {
+fn sink() -> Option<Arc<EventQueue>> {
     SINK.read()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()

@@ -1,15 +1,18 @@
 // webd's engine half (docs/webd-plan.md section 3.2, 3.6; the contract is webd_abi.h): the C ABI the service
-// half calls (webd_engine_*) over the engine of webkit/port/app, one Host and any number of light Views, and
-// the engine's answers turned into the service's callbacks (webd_ui_*).
+// half calls (webd_engine_*) over the engine of webkit/port/app, one Host and any number of Views, and the
+// engine's answers turned into the service's callbacks (webd_ui_*). This file holds the slots, the light views'
+// sink and the calls every view takes; a full view's sink is sink_full.cpp and its own calls abi_full.cpp.
 //
-// The service chooses every view id; the engine's View ids are its own, so each id has a Slot that holds the
-// engine's view, what the service has been told (so a callback that says nothing new is not sent) and the
-// calls that arrived before the view was made. Every webd_engine_* call copies its arguments and queues a task
-// for WebKit's main thread, where the slots live: nothing here waits for WebKit and no call about an id the
-// engine does not know (never made, destroyed, lost) does anything.
+// The service chooses every view id; the engine's View ids are its own, so each id has a Slot (slots.h) that
+// holds the engine's view, what the service has been told (so a callback that says nothing new is not sent) and
+// the calls that arrived before the view was made. Every webd_engine_* call copies its arguments and queues a
+// task for WebKit's main thread, where the slots live: nothing here waits for WebKit and no call about an id
+// the engine does not know (never made, destroyed, lost) does anything.
 //
 // A light view cannot be made before the network lock is compiled (light.cpp), which takes a moment after
-// startup: view_create is answered when it is, and the view's calls wait for it in order.
+// startup: view_create is answered when it is, and the view's calls wait for it in order. A full view needs no
+// lock and is made at once, but only by a host whose children's environment was fixed at start
+// (webd_engine_start_host with a children directory): without it the first profile would decide every other's.
 
 #include <WebKit/WKPage.h>
 #include <WebKit/WKRunLoop.h>
@@ -17,6 +20,7 @@
 #include <WebKit/WKType.h>
 
 #include <algorithm>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <stddef.h>
@@ -26,9 +30,13 @@
 #include <vector>
 
 #include "engine.h"
+#include "slots.h"
 #include "webd_abi.h"
 
 namespace webkitapp {
+namespace webd {
+
+Env env;
 
 namespace {
 
@@ -40,19 +48,7 @@ constexpr uint32_t kKeysymC = 0x43;
 constexpr uint32_t kKeysymLowerC = 0x63;
 constexpr uint32_t kModControl = 1u << 1;
 
-class Env final : public HostEnv {
-public:
-    int features() override { return 0; }
-    void say(const char* line) override { webd_ui_say(line); }
-    bool probe() override { return false; }
-    int userMemory(uint64_t* used, uint64_t* limit) override { return webd_ui_user_memory(used, limit); }
-};
-
-Env env;
-
-struct Slot;
-
-// What one view tells the service. Main thread. Once the slot is dead (destroyed or lost) nothing is sent.
+// What one light view tells the service. Main thread. Once the slot is dead (destroyed or lost) nothing is sent.
 class Sink final : public ViewSink {
 public:
     explicit Sink(Slot& slot)
@@ -75,35 +71,8 @@ private:
     int m_scrollX { -1 }, m_scrollY { -1 }, m_atBottom { -1 };
 };
 
-// A call that waits for the view to be made: it runs with the slot and the engine's view.
-using Call = std::function<void(Slot&, View&)>;
-
-struct Slot {
-    Slot(uint64_t id, const ViewConfig& config)
-        : id(id)
-        , config(config)
-        , sink(*this)
-    {
-    }
-
-    const uint64_t id;
-    const ViewConfig config;
-    Sink sink;
-    int engine { 0 };
-    bool ready { false };
-    bool dead { false };
-    bool visible { true };
-    std::vector<Call> pending;
-};
-
 // Main thread only.
 std::map<uint64_t, std::unique_ptr<Slot>> slots;
-
-Slot* find(uint64_t id)
-{
-    auto it = slots.find(id);
-    return it == slots.end() ? nullptr : it->second.get();
-}
 
 // Ends the engine's view and forgets the slot. Never from inside one of the view's own sink calls (the
 // code that called the sink carries on): the callers queue it.
@@ -116,26 +85,6 @@ void forget(uint64_t id)
     if (slot->ready)
         destroyView(slot->engine);
     slots.erase(id);
-}
-
-// The view cannot go on: the service is told once, and the id is dropped.
-void lose(Slot& slot, int reason)
-{
-    if (slot.dead)
-        return;
-    slot.dead = true;
-    webd_ui_view_lost(slot.id, reason);
-    const uint64_t id = slot.id;
-    onMain([id] { forget(id); });
-}
-
-int lostReason(const char* terminated)
-{
-    if (!strcmp(terminated, "memory"))
-        return WEBD_LOST_MEMORY;
-    if (!strcmp(terminated, "crash"))
-        return WEBD_LOST_CRASHED;
-    return WEBD_LOST_OTHER;
 }
 
 void Sink::state(const ViewState& s)
@@ -186,52 +135,6 @@ void Sink::scrollOffset(int x, int y, bool atBottom)
     webd_ui_scroll(m_slot.id, x, y, atBottom ? 1 : 0);
 }
 
-// The view may be made now: the lock is settled.
-void finishCreate(uint64_t id)
-{
-    Slot* slot = find(id);
-    if (!slot || slot->dead)
-        return;
-    if (lightLock() != LightLock::Ready) {
-        lose(*slot, WEBD_LOST_REFUSED);
-        return;
-    }
-    View* view = createView(slot->config, &slot->sink);
-    if (!view) {
-        lose(*slot, WEBD_LOST_OTHER);
-        return;
-    }
-    slot->engine = view->id;
-    slot->ready = true;
-    // Success is the first state the service hears for the id.
-    postState(*view);
-    auto waiting = std::move(slot->pending);
-    for (auto& call : waiting) {
-        // A call may have ended the view (it cannot today; the check costs nothing).
-        Slot* again = find(id);
-        View* live = again && !again->dead ? viewById(again->engine) : nullptr;
-        if (!live)
-            return;
-        call(*again, *live);
-    }
-}
-
-// Runs `call` on the main thread with the view of `id`, or when it is made; an unknown or dead id ignores it.
-void withView(uint64_t id, Call call)
-{
-    onMain([id, call = std::move(call)]() mutable {
-        Slot* slot = find(id);
-        if (!slot || slot->dead)
-            return;
-        if (!slot->ready) {
-            slot->pending.push_back(std::move(call));
-            return;
-        }
-        if (View* view = viewById(slot->engine))
-            call(*slot, *view);
-    });
-}
-
 int clampSide(int side) { return std::max(1, std::min(side, kMaxSide)); }
 
 // The selection, read back for a Copy: script is the only way to ask the page (WebKit's C API has no selected
@@ -256,21 +159,138 @@ void copySelection(Slot& slot, View& view)
     WKRelease(script);
 }
 
+// What every view's configuration says, light or full: read now, in the caller's thread.
+ViewConfig commonConfig(const webd_view_config& local)
+{
+    ViewConfig vc;
+    vc.scripts = local.scripts == 1;
+    vc.group = local.group;
+    vc.width = clampSide(local.width);
+    vc.height = clampSide(local.height);
+    vc.colorScheme = local.color_scheme;
+    vc.defaultFontSize = std::max(0, std::min(local.default_font_size, kMaxFont));
+    if (local.user_style) {
+        const size_t length = strnlen(local.user_style, kMaxStyle + 1);
+        if (length <= kMaxStyle)
+            vc.userStyle.assign(local.user_style, length);
+        else
+            say("CONFIG:IGNORED:user_style");
+    }
+    return vc;
+}
+
 } // namespace
 
+bool claimStart()
+{
+    // Once: a second host would be a second WKContext and its processes.
+    static std::atomic<bool> started { false };
+    return !started.exchange(true);
+}
+
+Slot* find(uint64_t id)
+{
+    auto it = slots.find(id);
+    return it == slots.end() ? nullptr : it->second.get();
+}
+
+Slot* addSlot(uint64_t id, const ViewConfig& config, bool deltas)
+{
+    if (find(id))
+        return nullptr;
+    auto slot = std::make_unique<Slot>(id, config, deltas);
+    if (config.light)
+        slot->sink = std::make_unique<Sink>(*slot);
+    else
+        slot->sink = makeFullSink(*slot);
+    Slot* made = slot.get();
+    slots[id] = std::move(slot);
+    return made;
+}
+
+void lose(Slot& slot, int reason)
+{
+    if (slot.dead)
+        return;
+    slot.dead = true;
+    webd_ui_view_lost(slot.id, reason);
+    const uint64_t id = slot.id;
+    onMain([id] { forget(id); });
+}
+
+int lostReason(const char* terminated)
+{
+    if (!strcmp(terminated, "memory"))
+        return WEBD_LOST_MEMORY;
+    if (!strcmp(terminated, "crash"))
+        return WEBD_LOST_CRASHED;
+    return WEBD_LOST_OTHER;
+}
+
+void finishCreate(uint64_t id)
+{
+    Slot* slot = find(id);
+    if (!slot || slot->dead)
+        return;
+    if ((slot->config.light || slot->config.noNetwork) && lightLock() != LightLock::Ready) {
+        lose(*slot, WEBD_LOST_REFUSED);
+        return;
+    }
+    View* view = createView(slot->config, slot->sink.get());
+    if (!view) {
+        lose(*slot, WEBD_LOST_OTHER);
+        return;
+    }
+    slot->engine = view->id;
+    slot->ready = true;
+    // Success is the first state the service hears for the id.
+    postState(*view);
+    auto waiting = std::move(slot->pending);
+    for (auto& call : waiting) {
+        // A call may have ended the view (it cannot today; the check costs nothing).
+        Slot* again = find(id);
+        View* live = again && !again->dead ? viewById(again->engine) : nullptr;
+        if (!live)
+            return;
+        call(*again, *live);
+    }
+}
+
+void withView(uint64_t id, Call call)
+{
+    onMain([id, call = std::move(call)]() mutable {
+        Slot* slot = find(id);
+        if (!slot || slot->dead)
+            return;
+        if (!slot->ready) {
+            slot->pending.push_back(std::move(call));
+            return;
+        }
+        if (View* view = viewById(slot->engine))
+            call(*slot, *view);
+    });
+}
+
+void withFullView(uint64_t id, Call call)
+{
+    withView(id, [call = std::move(call)](Slot& slot, View& view) {
+        if (!slot.config.light)
+            call(slot, view);
+    });
+}
+
+} // namespace webd
 } // namespace webkitapp
 
 using namespace webkitapp;
+using namespace webkitapp::webd;
 
 extern "C" {
 
 int webd_engine_start(void)
 {
-    // Once: a second host would be a second WKContext and its processes.
-    static bool started = false;
-    if (started)
+    if (!claimStart())
         return 1;
-    started = true;
     // No profile directory: a light view keeps nothing.
     if (!startHost(&env))
         return 1;
@@ -282,43 +302,53 @@ void webd_engine_view_create(uint64_t view, const webd_view_config* config)
 {
     // Read now: the caller's struct and strings are valid only until this returns.
     webd_view_config local = { };
-    std::string style;
     bool refused = !config || view == 0;
+    bool light = true;
+    bool deltas = false;
+    ViewConfig vc;
     if (!refused) {
         memcpy(&local, config, std::min<size_t>(config->struct_size, sizeof local));
         // Too short to say what the view is: refused.
-        refused = config->struct_size < offsetof(webd_view_config, light) + sizeof local.light || local.light != 1;
-        const bool hasStyle = config->struct_size >= offsetof(webd_view_config, user_style) + sizeof local.user_style;
-        if (hasStyle && local.user_style) {
-            const size_t length = strnlen(local.user_style, kMaxStyle + 1);
-            if (length <= kMaxStyle)
-                style.assign(local.user_style, length);
-            else
-                say("CONFIG:IGNORED:user_style");
-        }
+        refused = config->struct_size < offsetof(webd_view_config, light) + sizeof local.light || (local.light != 0 && local.light != 1);
+        // Fields past the caller's struct_size were not copied: zero, as the header promises.
+        if (config->struct_size < offsetof(webd_view_config, user_style) + sizeof local.user_style)
+            local.user_style = nullptr;
     }
-    ViewConfig vc;
-    vc.light = true;
-    vc.scripts = local.scripts == 1;
-    vc.group = local.group;
-    vc.width = clampSide(local.width);
-    vc.height = clampSide(local.height);
-    vc.colorScheme = local.color_scheme;
-    vc.defaultFontSize = std::max(0, std::min(local.default_font_size, kMaxFont));
-    vc.userStyle = std::move(style);
-    onMain([view, vc = std::move(vc), refused]() mutable {
+    if (!refused) {
+        light = local.light == 1;
+        vc = commonConfig(local);
+        vc.light = light;
+        if (!light)
+            refused = !fullConfig(local, vc, deltas);
+    }
+    onMain([view, vc = std::move(vc), refused, light, deltas]() mutable {
         if (view == 0)
             return;
         if (find(view)) {
             say("VIEW:DUPLICATE");
             return;
         }
+        // A full view's profiles need the children's environment decided at start (slots.h, fullConfig).
+        if (!refused && !light && !H.environmentFixed) {
+            say("FULL:REFUSED:the host has no children's directory (webd_engine_start_host)");
+            refused = true;
+        }
         if (refused) {
             webd_ui_view_lost(view, WEBD_LOST_REFUSED);
             return;
         }
-        slots[view] = std::make_unique<Slot>(view, vc);
-        whenLightLockSettled([view] { finishCreate(view); });
+        // A profile the engine cannot make is a refusal, not a view that silently keeps nothing.
+        if (!light && !vc.profile.empty() && !makePrivateDirectories(vc.profile)) {
+            say("FULL:REFUSED:cannot make the profile directory");
+            webd_ui_view_lost(view, WEBD_LOST_REFUSED);
+            return;
+        }
+        addSlot(view, vc, deltas);
+        // A view without network (light, or full with no_network) is made once the lock is settled.
+        if (light || vc.noNetwork)
+            whenLightLockSettled([view] { finishCreate(view); });
+        else
+            finishCreate(view);
     });
 }
 
@@ -331,7 +361,14 @@ void webd_engine_load_html(uint64_t view, const uint8_t* html, size_t len, const
 {
     std::string document(reinterpret_cast<const char*>(html), html ? len : 0);
     std::string base = base_url ? base_url : "";
-    withView(view, [document = std::move(document), base = std::move(base)](Slot&, View& v) { v.loadHtml(document, base); });
+    // A light view's one load (an inert base only); a full view's page of the client's own, under a base the
+    // service checked (about:, data:, http:, https:; never file:, which the engine refuses too).
+    withView(view, [document = std::move(document), base = std::move(base)](Slot& s, View& v) {
+        if (s.config.light)
+            v.loadHtml(document, base);
+        else
+            loadFullHtml(v, document, base);
+    });
 }
 
 void webd_engine_resize(uint64_t view, int width, int height)

@@ -1,0 +1,10 @@
+[
+  {"wait_for": "WEBDBROWSE:UP:PASS", "timeout": 240},
+  {"wait_for": "WEBDBROWSE:VIEW:", "timeout": 240},
+  {"wait": 3.0},
+  {"shot": "webdbrowse_initial"},
+  {"key_down": "ctrl"},
+  {"key": "q", "until": "WEBDBROWSE:QUIT:PASS", "timeout": 60, "retries": 2},
+  {"key_up": "ctrl"},
+  {"quit": true}
+]

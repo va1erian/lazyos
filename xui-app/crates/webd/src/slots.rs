@@ -10,7 +10,7 @@
 //! Pure: the memory `M` is whatever the caller keeps per slot (a mapping in the service, a number
 //! in the fuzz test), so the rules are tested without a fabric.
 
-use crate::limits::SLOTS_PER_VIEW;
+use crate::limits::{SLOTS_PER_VIEW, SLOTS_WITH_BANDS};
 
 /// Why an attach was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,7 +31,8 @@ struct Slot<M> {
 
 /// A view's slots.
 pub struct Slots<M> {
-    slots: [Option<Slot<M>>; SLOTS_PER_VIEW],
+    /// Frame slots `0..SLOTS_PER_VIEW`, then the band slots of a full view with deltas.
+    slots: [Option<Slot<M>>; SLOTS_WITH_BANDS],
 }
 
 impl<M> Default for Slots<M> {
@@ -58,12 +59,20 @@ impl<M> Slots<M> {
         Ok(())
     }
 
-    /// Hand out the lowest free slot as busy and return its number.
+    /// Hand out the lowest free frame slot as busy and return its number.
     pub fn acquire(&mut self) -> Option<usize> {
-        let index = self
-            .slots
-            .iter()
-            .position(|slot| slot.as_ref().is_some_and(|slot| !slot.busy))?;
+        self.acquire_in(0..SLOTS_PER_VIEW)
+    }
+
+    /// Hand out the lowest free band slot (a full view with deltas) as busy.
+    pub fn acquire_band(&mut self) -> Option<usize> {
+        self.acquire_in(SLOTS_PER_VIEW..SLOTS_WITH_BANDS)
+    }
+
+    fn acquire_in(&mut self, range: std::ops::Range<usize>) -> Option<usize> {
+        let index = range
+            .clone()
+            .find(|index| self.slots[*index].as_ref().is_some_and(|slot| !slot.busy))?;
         if let Some(slot) = &mut self.slots[index] {
             slot.busy = true;
         }
@@ -111,9 +120,12 @@ impl<M> Slots<M> {
         }
     }
 
-    /// Whether a frame could be placed now.
+    /// Whether a frame could be placed now (a frame slot is free).
     pub fn has_free(&self) -> bool {
-        self.slots.iter().flatten().any(|slot| !slot.busy)
+        self.slots[..SLOTS_PER_VIEW]
+            .iter()
+            .flatten()
+            .any(|slot| !slot.busy)
     }
 
     /// Slots attached, and how many of them are busy.
@@ -171,7 +183,7 @@ mod tests {
         assert_eq!(slots.memory_mut(0), Some(&mut 3));
         assert_eq!(slots.bytes(), 30);
         assert_eq!(
-            slots.attach(SLOTS_PER_VIEW, 4, 1),
+            slots.attach(SLOTS_WITH_BANDS, 4, 1),
             Err(AttachError::OutOfRange)
         );
     }

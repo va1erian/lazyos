@@ -7,18 +7,30 @@
 //! written outside the one folder: the engine only learns a path this module built from
 //! [`sanitize`]'s output, and the folder is created here, not by the page.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+/// The person's downloads folder below `$HOME` (LazyWeb+'s and webd's).
+pub const FOLDER: &str = "Downloads";
+
 /// The longest file name kept, in bytes.
 const MAX_NAME: usize = 120;
 
-/// The most downloads one session may start: a page that starts them in a loop (no gesture is needed
-/// for an attachment) must not fill the disk or the bookkeeping.
+/// The most downloads under way at once (reserved and not yet [`Saver::finish`]ed): a page that starts
+/// them in a loop (no gesture is needed for an attachment) must not fill the disk or the bookkeeping.
+/// Finished ones free their place, so a long session is never locked out for good.
 pub const MAX_DOWNLOADS: usize = 256;
+
+/// The most downloads under way at once for one owner ([`Saver::reserve_for`]): webd shares one saver
+/// between its clients, and one client's page must not use up the others' places.
+pub const MAX_DOWNLOADS_PER_OWNER: usize = 32;
+
+/// How many finished downloads keep their destination (the downloads page opens the file from it); the
+/// oldest are forgotten past this, so the bookkeeping is bounded however long the session lasts.
+pub const KEEP_FINISHED: usize = 1024;
 
 /// The name used when the server's gives nothing usable.
 const FALLBACK_NAME: &str = "download";
@@ -36,10 +48,20 @@ pub struct Destination {
 /// destination as a download starts) and the window.
 pub type Destinations = Arc<Mutex<HashMap<u64, Destination>>>;
 
+/// Which downloads are under way, and in what order the finished ones are forgotten.
+#[derive(Default)]
+struct Accounts {
+    /// Download id to its owner, for the downloads under way.
+    active: BTreeMap<u64, Option<u64>>,
+    /// Finished downloads, oldest first.
+    finished: VecDeque<u64>,
+}
+
 /// Chooses the destination of every download, in one folder.
 pub struct Saver {
     dir: PathBuf,
     destinations: Destinations,
+    accounts: Mutex<Accounts>,
 }
 
 impl Saver {
@@ -48,6 +70,7 @@ impl Saver {
         Saver {
             dir,
             destinations: Destinations::default(),
+            accounts: Mutex::default(),
         }
     }
 
@@ -64,22 +87,49 @@ impl Saver {
     /// Reserves a destination for download `id` whose server suggested `suggested`: the folder is
     /// made, the name is made safe and unique among the files there and the downloads under way.
     pub fn reserve(&self, id: u64, suggested: &str) -> io::Result<Destination> {
+        self.reserve_as(None, id, suggested)
+    }
+
+    /// [`Saver::reserve`] for `owner`, who also may have at most [`MAX_DOWNLOADS_PER_OWNER`] under way.
+    pub fn reserve_for(&self, owner: u64, id: u64, suggested: &str) -> io::Result<Destination> {
+        self.reserve_as(Some(owner), id, suggested)
+    }
+
+    fn reserve_as(&self, owner: Option<u64>, id: u64, suggested: &str) -> io::Result<Destination> {
         fs::create_dir_all(&self.dir)?;
+        // The destinations first, then the accounts, everywhere.
         let mut taken = self
             .destinations
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if taken.len() >= MAX_DOWNLOADS {
-            return Err(io::Error::other("too many downloads in this session"));
+        let mut accounts = self.accounts.lock().unwrap_or_else(PoisonError::into_inner);
+        if accounts.active.len() >= MAX_DOWNLOADS {
+            return Err(io::Error::other("too many downloads under way"));
         }
-        let path = unique_path(&self.dir, &sanitize(suggested), |p| {
-            taken.values().any(|d| d.path == p || d.part == p)
-        });
+        if owner.is_some()
+            && accounts.active.values().filter(|o| **o == owner).count() >= MAX_DOWNLOADS_PER_OWNER
+        {
+            return Err(io::Error::other(
+                "too many downloads under way for this app",
+            ));
+        }
+        // Only the downloads under way hold a name: a finished one either left its file in the folder
+        // (which `unique_path` sees) or removed it, and then the name is free again. Checking every
+        // destination ever kept would also make each new name cost more than the last.
+        let path = {
+            let busy: HashSet<&Path> = taken
+                .iter()
+                .filter(|(id, _)| accounts.active.contains_key(*id))
+                .flat_map(|(_, d)| [d.path.as_path(), d.part.as_path()])
+                .collect();
+            unique_path(&self.dir, &sanitize(suggested), |p| busy.contains(p))
+        };
         let destination = Destination {
             part: part_path(&path),
             path,
         };
         taken.insert(id, destination.clone());
+        accounts.active.insert(id, owner);
         Ok(destination)
     }
 
@@ -98,6 +148,7 @@ impl Saver {
         let Some(destination) = self.destination(id) else {
             return Ok(());
         };
+        self.release(id);
         if completed {
             // Something else may have made the name since it was reserved: never replace it.
             let result = if destination.path.exists() {
@@ -115,6 +166,27 @@ impl Saver {
             match fs::remove_file(&destination.part) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
                 _ => Ok(()),
+            }
+        }
+    }
+}
+
+impl Saver {
+    /// Download `id` is no longer under way: its place is free again, and the oldest finished
+    /// destinations beyond [`KEEP_FINISHED`] are forgotten.
+    fn release(&self, id: u64) {
+        let mut taken = self
+            .destinations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let mut accounts = self.accounts.lock().unwrap_or_else(PoisonError::into_inner);
+        if accounts.active.remove(&id).is_none() {
+            return;
+        }
+        accounts.finished.push_back(id);
+        while accounts.finished.len() > KEEP_FINISHED {
+            if let Some(old) = accounts.finished.pop_front() {
+                taken.remove(&old);
             }
         }
     }
@@ -272,6 +344,71 @@ mod tests {
             saver.reserve(id, "f.bin").unwrap();
         }
         assert!(saver.reserve(MAX_DOWNLOADS as u64, "f.bin").is_err());
+    }
+
+    #[test]
+    fn a_finished_download_frees_its_place() {
+        // Why (review of 2026-10-22, finding 5): the cap counted every download ever reserved, so
+        // after 256 in one run of webd every client's downloads were refused until it restarted.
+        let saver = Saver::new(temp("places"));
+        for id in 0..MAX_DOWNLOADS as u64 {
+            saver.reserve(id, "f.bin").unwrap();
+        }
+        assert!(saver.reserve(1000, "f.bin").is_err());
+        saver.finish(3, false).unwrap();
+        saver.finish(3, false).unwrap();
+        saver.reserve(1000, "f.bin").unwrap();
+        assert!(saver.reserve(1001, "f.bin").is_err(), "one place, once");
+        // A completed one frees its place as well.
+        let d = saver.destination(7).unwrap();
+        fs::write(&d.part, b"x").unwrap();
+        saver.finish(7, true).unwrap();
+        saver.reserve(1002, "h.bin").unwrap();
+    }
+
+    #[test]
+    fn a_long_session_never_runs_out_of_places() {
+        let saver = Saver::new(temp("long"));
+        for id in 0..(3 * MAX_DOWNLOADS) as u64 {
+            saver.reserve(id, "f.bin").unwrap();
+            saver.finish(id, false).unwrap();
+        }
+    }
+
+    #[test]
+    fn one_owner_cannot_use_up_anothers_places() {
+        let saver = Saver::new(temp("owners"));
+        for id in 0..MAX_DOWNLOADS_PER_OWNER as u64 {
+            saver.reserve_for(1, id, "f.bin").unwrap();
+        }
+        assert!(saver.reserve_for(1, 1000, "f.bin").is_err());
+        let other = saver.reserve_for(2, 2000, "f.bin").unwrap();
+        assert!(other.path.starts_with(saver.dir()));
+        saver.finish(0, false).unwrap();
+        saver.reserve_for(1, 1000, "f.bin").unwrap();
+        // The global cap still holds for all owners together.
+        let busy = Saver::new(temp("owners-global"));
+        for owner in 0..(MAX_DOWNLOADS / MAX_DOWNLOADS_PER_OWNER) as u64 {
+            for n in 0..MAX_DOWNLOADS_PER_OWNER as u64 {
+                busy.reserve_for(owner, owner * 1000 + n, "f.bin").unwrap();
+            }
+        }
+        assert!(busy.reserve_for(99, 99_000, "f.bin").is_err());
+    }
+
+    #[test]
+    fn finished_downloads_are_remembered_a_while_and_then_forgotten() {
+        let saver = Saver::new(temp("keep"));
+        let total = KEEP_FINISHED as u64 + 50;
+        for id in 0..total {
+            saver.reserve(id, "f.bin").unwrap();
+            saver.finish(id, false).unwrap();
+        }
+        // The downloads page can still open a recent one...
+        assert!(saver.destination(total - 1).is_some());
+        // ...and the oldest are gone: the bookkeeping is bounded.
+        assert!(saver.destination(0).is_none());
+        assert!(saver.destinations().lock().unwrap().len() <= KEEP_FINISHED);
     }
 
     #[test]

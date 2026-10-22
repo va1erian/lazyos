@@ -191,6 +191,20 @@ pub const DENY: &[Deny] = &[
         when: DenyWhen::UnlessNetwork,
         reason: "file servers on the network need the network declared",
     },
+    // webd's two scope interfaces (`CreateView` only, the kernel checks the caller's manifest for them):
+    // a view that loads from the network, and a view in the person's own browser profile.
+    Deny {
+        interface: "os.lazy.webd.net.v1",
+        // Not lifted by the `network` declaration: that one promises three doors (sockets, name lookups,
+        // file servers), and a web view that loads from the network is a fourth nobody consented to.
+        when: DenyWhen::Always,
+        reason: "web views that load from the network",
+    },
+    Deny {
+        interface: "os.lazy.webd.browser.v1",
+        when: DenyWhen::Always,
+        reason: "the person's browser profile: cookies, history and downloads",
+    },
 ];
 
 /// Interface names in [`DENY`] that are kernel ACL scopes: nothing serves

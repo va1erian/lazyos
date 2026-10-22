@@ -16,6 +16,10 @@
 //!   webd's inbox is full.
 //! * [`page`], [`demo`]: the HTML and the logic of the demo client (`webddemo`), apart from its window, so
 //!   the host tests and the QEMU harness (`tools/webd`) agree with the app.
+//! * [`full`]: the full view (`os.lazy.webd.view.v1` and its scopes, `idl/webd.midl`):
+//!   [`FullWebView`] over a [`ScopedTransport`], with navigation, the page's questions, downloads,
+//!   content blocking, deltas and bands. [`browse`]: the scenario of the test client
+//!   (`webdbrowse`) that drives full views through every scope, host-tested like [`demo`].
 //!
 //! What a client sees when things go wrong, each tested: a refused call is [`Error::Refused`] with
 //! the service's errno and leaves the view as it was; a service that is not there is
@@ -23,8 +27,10 @@
 //! [`ViewEvent::Lost`] (from `poll`) and [`Error::Lost`] (from any later call), never a panic or a
 //! hang; [`LightWebView::recreate`] makes a new view and loads the last page again.
 
+pub mod browse;
 pub mod demo;
 pub mod event;
+pub mod full;
 pub mod input;
 mod outbox;
 pub mod page;
@@ -34,8 +40,9 @@ pub mod transport;
 pub mod view;
 
 pub use event::{Error, Lost, PageState, ViewEvent};
+pub use full::{FullCounters, FullEvent, FullState, FullWebView, Scope, ViewConfig};
 pub use input::{mods, MouseKind};
 pub use pane::{Pane, PaneEvent, Status};
 pub use picture::{Colour, Picture};
-pub use transport::{SharedMem, Transport, SERVICE_NAME};
+pub use transport::{ScopedTransport, SharedMem, Transport, FULL_SERVICE_NAME, SERVICE_NAME};
 pub use view::{Counters, LightConfig, LightWebView, EVENTS_PER_POLL, SLOTS};

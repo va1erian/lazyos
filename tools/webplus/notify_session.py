@@ -44,8 +44,9 @@ BOX = {"ask": (180, 35), "post": (180, 125), "burst": (180, 215), "away": (180, 
 #: The window's minimize button, from the middle of its title bar (the maximize button is at 472).
 MINIMIZE_AT = (454, 0)
 #: The first row's *Forget* button on `about:lazyweb`, in page pixels (measured from a screenshot; the newest decision is the
-#: first row; the page's table puts the button at the right end of its row).
-FORGET_AT = (839, 317)
+#: first row; the page's table puts the button at the right end of its row). 299 is that row's middle: 317 was its lower edge,
+#: and a click there landed on the second row's button (a run of 2026-10-22).
+FORGET_AT = (839, 299)
 
 
 def caption(title: str) -> str:

@@ -79,7 +79,10 @@ channel, buffer or ring cannot be called from a script and is listed as such.
 | [`sys::shell_tray_events`](shell_tray_events.md) | `os.lazy.shell.tray.events.v1` | What the shell sends an app about its item: oneway methods on the channel the app transferred with `Set`. | [wire](../../idl/os.lazy.shell.tray.events.v1.md) |
 | [`sys::sysmond`](sysmond.md) | `os.lazy.sysmond.v1` | The system monitor service (issue #144): one live system-stats snapshot. | [wire](../../idl/os.lazy.sysmond.v1.md) |
 | [`sys::timed`](timed.md) | `os.lazy.timed.v1` | The time-of-day service (issue #369): UTC from the kernel wall clock, the system time zone from `confd` (`sys/time/zone`), and a retained ... | [wire](../../idl/os.lazy.timed.v1.md) |
+| [`sys::webd_browser`](webd_browser.md) | `os.lazy.webd.browser.v1` | The scope of a web browser: everything `os.lazy.webd.net.v1` allows, plus the shared `browser` profile kept on disk, downloads into the ... | [wire](../../idl/os.lazy.webd.browser.v1.md) |
 | [`sys::webd_light`](webd_light.md) | `os.lazy.webd.light.v1` | webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app that only needs WebKit's HTML/CSS/layout/font engine asks ... | [wire](../../idl/os.lazy.webd.light.v1.md) |
+| [`sys::webd_net`](webd_net.md) | `os.lazy.webd.net.v1` | The scope that lets a web view load `http:` and `https:` content: a `CreateView` made through this interface may use the `Web` and ... | [wire](../../idl/os.lazy.webd.net.v1.md) |
+| [`sys::webd_view`](webd_view.md) | `os.lazy.webd.view.v1` | webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2 slice 3): what a browser needs of the web engine. | [wire](../../idl/os.lazy.webd.view.v1.md) |
 
 ## See also
 

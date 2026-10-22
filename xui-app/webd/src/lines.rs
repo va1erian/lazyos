@@ -96,6 +96,8 @@ pub fn lines_of(note: Note, client_name: &mut dyn FnMut(ClientKey) -> String) ->
         }
         Note::Engine(line) if engine_line_floods(&line) => vec![Line::Flood(line)],
         Note::Engine(line) => vec![Line::Note(line)],
+        // A page can make these in a loop (dialogs, held navigations): rate limited.
+        Note::Full { view, what } => vec![Line::Flood(format!("full view={view} {what}"))],
     }
 }
 

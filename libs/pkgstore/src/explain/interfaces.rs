@@ -221,6 +221,23 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         LOW,
         "Show formatted text and pictures that you give it",
     ),
+    // webd's full views (docs/webd-plan.md 3.3 to 3.5): the interface itself reaches no network; the
+    // two scopes are what a browser asks for.
+    (
+        "os.lazy.webd.view.v1",
+        MEDIUM,
+        "Show web pages that you give it, with scripts and its own cookies kept in memory",
+    ),
+    (
+        "os.lazy.webd.net.v1",
+        HIGH,
+        "Load web pages and pictures from the internet",
+    ),
+    (
+        "os.lazy.webd.browser.v1",
+        HIGH,
+        "Browse the web with your browsing cookies and history, save downloads in your Downloads folder, open links in other apps and show notifications from sites you allow",
+    ),
     (
         "os.lazy.init.app.v1",
         LOW,

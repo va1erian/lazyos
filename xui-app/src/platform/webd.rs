@@ -13,11 +13,17 @@
 //! counters first, like [`crate::tray::TrayIcon::poll`], and a call is a `Service::call_moving_within`
 //! with a tick deadline. The service is resolved without waiting (`Service::try_connect`): an app that
 //! starts before `webd` has registered retries `create` on a timer.
+//!
+//! A full view (`FullWebView`, `os.lazy.webd.view.v1`) takes [`WebdTransport::full`]: it talks to
+//! `app.os.lazy.webd.view`, sends every call as `os.lazy.webd.view.v1` except the `CreateView` of a
+//! scope (`ScopedTransport::call_through`), and reads events of that interface.
 
 use libmessenger::{Object, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
+use messenger_generated::os_lazy_webd_view_v1 as view_wire;
 use xui_webd_client::transport::{
-    close_unqueued, RawEvent, SharedMem, Transport, EVENT_BYTES, SERVICE_NAME,
+    close_unqueued, RawEvent, ScopedTransport, SharedMem, Transport, EVENT_BYTES,
+    FULL_SERVICE_NAME, SERVICE_NAME,
 };
 
 use crate::platform::messenger::Service;
@@ -59,6 +65,18 @@ impl SharedMem for Pages {
         // yet announced), which can tear a picture but never reads outside the mapping.
         unsafe { std::ptr::copy_nonoverlapping(self.va as *const u8, into.as_mut_ptr(), count) };
     }
+
+    fn read_at(&self, offset: usize, into: &mut [u8]) {
+        let count = into.len().min(self.len.saturating_sub(offset));
+        // SAFETY: as in `read`: `offset + count <= len`, so the copy stays inside the mapping.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                (self.va as *const u8).add(offset.min(self.len)),
+                into.as_mut_ptr(),
+                count,
+            )
+        };
+    }
 }
 
 impl Drop for Pages {
@@ -67,9 +85,11 @@ impl Drop for Pages {
     }
 }
 
-/// The transport.
+/// The transport: the registered name it calls and the interface of its calls and events.
 pub struct WebdTransport {
     buf: Vec<u8>,
+    name: &'static str,
+    interface: u64,
 }
 
 impl Default for WebdTransport {
@@ -79,14 +99,45 @@ impl Default for WebdTransport {
 }
 
 impl WebdTransport {
+    /// For a light view: `app.os.lazy.webd.light`, `os.lazy.webd.light.v1`.
     pub fn new() -> Self {
         WebdTransport {
             buf: vec![0; EVENT_BYTES],
+            name: SERVICE_NAME,
+            interface: wire::INTERFACE_ID,
         }
     }
 
-    fn service() -> Option<Service> {
-        Service::try_connect(SERVICE_NAME)
+    /// For a full view: `app.os.lazy.webd.view`, `os.lazy.webd.view.v1` (and a scope's
+    /// `CreateView` through [`ScopedTransport::call_through`]).
+    pub fn full() -> Self {
+        WebdTransport {
+            buf: vec![0; EVENT_BYTES],
+            name: FULL_SERVICE_NAME,
+            interface: view_wire::INTERFACE_ID,
+        }
+    }
+
+    fn service(&self) -> Option<Service> {
+        Service::try_connect(self.name)
+    }
+
+    fn call_as(
+        &mut self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<Vec<u8>, i64> {
+        let Some(service) = self.service() else {
+            close_unsent(&objects);
+            return Err(-errno::ENOENT);
+        };
+        let carried = objects.clone();
+        service
+            .call_moving_within(interface, method, ERROR_FIELD, body, objects, CALL_TICKS)
+            .map(|reply| reply.body)
+            .inspect_err(|_| close_unsent(&carried))
     }
 }
 
@@ -108,27 +159,12 @@ impl Transport for WebdTransport {
     type Mem = Pages;
 
     fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>, i64> {
-        let Some(service) = Self::service() else {
-            close_unsent(&objects);
-            return Err(-errno::ENOENT);
-        };
-        let carried = objects.clone();
-        service
-            .call_moving_within(
-                wire::INTERFACE_ID,
-                method,
-                ERROR_FIELD,
-                body,
-                objects,
-                CALL_TICKS,
-            )
-            .map(|reply| reply.body)
-            .inspect_err(|_| close_unsent(&carried))
+        self.call_as(self.interface, method, body, objects)
     }
 
     fn send(&mut self, method: u32, body: Vec<u8>) -> Result<(), i64> {
-        let service = Self::service().ok_or(-errno::ENOENT)?;
-        service.send_oneway(wire::INTERFACE_ID, method, body)
+        let service = self.service().ok_or(-errno::ENOENT)?;
+        service.send_oneway(self.interface, method, body)
     }
 
     fn create_pair(&mut self) -> Result<(u64, u64), i64> {
@@ -153,7 +189,7 @@ impl Transport for WebdTransport {
             .buf
             .get(..result.bytes as usize)
             .and_then(|bytes| Parcel::decode(bytes).ok())
-            .filter(|parcel| parcel.header.interface_id == wire::INTERFACE_ID);
+            .filter(|parcel| parcel.header.interface_id == self.interface);
         // A message that does not decode, or is not this interface's, is read and dropped: the
         // client counts it as ignored and goes on to the next.
         Ok(Some(match parcel {
@@ -176,5 +212,17 @@ impl Transport for WebdTransport {
 
     fn close_channel(&mut self, handle: u64) {
         let _ = sys::msg_close(handle);
+    }
+}
+
+impl ScopedTransport for WebdTransport {
+    fn call_through(
+        &mut self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<Vec<u8>, i64> {
+        self.call_as(interface, method, body, objects)
     }
 }

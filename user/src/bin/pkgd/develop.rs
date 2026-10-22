@@ -244,6 +244,9 @@ impl Pkgd {
             );
             return Err(self.refuse(&subject, uid, "DEVELOP", failure));
         }
+        if let Err(why) = pkgstore::reserved::develop(&info.system_name) {
+            return Err(self.refuse(&subject, uid, "DEVELOP", fail(EPERM, why)));
+        }
         let label = develop::label(&info.system_name);
         let rules = match develop::rules(assessed.package.manifest()) {
             Ok(rules) => rules,

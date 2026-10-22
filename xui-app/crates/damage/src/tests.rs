@@ -1,6 +1,6 @@
 //! Tests of `damage`: the rectangle arithmetic and the rules for what a paint has to do.
 
-use crate::damage::*;
+use crate::*;
 
 fn r(x: i32, y: i32, w: i32, h: i32) -> IRect {
     IRect::new(x, y, w, h)

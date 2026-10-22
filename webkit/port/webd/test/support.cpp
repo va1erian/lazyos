@@ -33,6 +33,24 @@ void told(ViewFacts& f)
         ++f.violations;
 }
 
+} // namespace
+
+namespace detail {
+std::mutex& lock() { return mutex; }
+std::condition_variable& changed() { return webdtest::changed; }
+ViewFacts& record(uint64_t id) { return webdtest::record(id); }
+void told(ViewFacts& f) { webdtest::told(f); }
+uint64_t newId()
+{
+    std::lock_guard<std::mutex> hold(mutex);
+    const uint64_t id = nextId++;
+    record(id);
+    return id;
+}
+} // namespace detail
+
+namespace {
+
 void fenceTask(void* context)
 {
     std::lock_guard<std::mutex> hold(mutex);
@@ -78,12 +96,7 @@ bool said(const std::string& prefix)
 
 uint64_t create(const Options& options)
 {
-    uint64_t id;
-    {
-        std::lock_guard<std::mutex> hold(mutex);
-        id = nextId++;
-        record(id);
-    }
+    const uint64_t id = detail::newId();
     webd_view_config config = { };
     config.struct_size = sizeof config;
     config.light = 1;
@@ -191,15 +204,25 @@ void webd_ui_frame(uint64_t view, const uint8_t* rgba, int width, int height)
     f.height = height;
     f.last = colour;
     f.seen += colour;
+    // The picture a delta view's posts are laid over (support_full.cpp), and whether a scroll came first.
+    f.picture.assign(rgba, rgba + static_cast<size_t>(width) * height * 4);
+    f.pictureWidth = width;
+    f.pictureHeight = height;
+    if (!f.scrollAnnounced)
+        ++f.unannounced;
+    f.scrollAnnounced = false;
     changed.notify_all();
 }
 
-void webd_ui_scroll(uint64_t view, int, int, int)
+void webd_ui_scroll(uint64_t view, int x, int y, int)
 {
     std::lock_guard<std::mutex> hold(mutex);
     ViewFacts& f = record(view);
     told(f);
     ++f.scrolls;
+    f.scrollAnnounced = true;
+    f.scrollX = x;
+    f.scrollY = y;
     changed.notify_all();
 }
 

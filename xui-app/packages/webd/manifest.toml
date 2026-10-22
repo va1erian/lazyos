@@ -19,7 +19,7 @@ name = "Web Engine"
 system_name = "os.lazy.webd"
 author = "LazyOS"
 version = "0.1.0"
-description = "Draws formatted text and pictures for other apps with WebKit, the engine of Safari. An app gives it a page of HTML and gets the pixels back; the pages it draws have no network, no scripts unless the app asks, and no access to your files. Its page processes are sandboxed: they read only fonts and have no network. It keeps its rule store in its own folder (.apps/os.lazy.webd)"
+description = "Draws web pages for other apps with WebKit, the engine of Safari. An app gives it a page of HTML, or (if you let that app reach the internet) an address, and gets the pixels back. Its page processes are sandboxed: they read only fonts and have no network. Its network process may reach the network, keep the browsing cookies in its own folder (.apps/os.lazy.webd) and save downloads to your Downloads folder; it hands addresses another app opens (mailto:) to the app you chose, and shows a site's notifications under its own name"
 category = "system"
 
 [entry]
@@ -34,23 +34,33 @@ autostart = true
 resident = true
 
 [permissions]
-# Derived from a run under `LAZYOS_LABEL_TRACE=1` (docs/webd.md, "Permissions"): the light interface,
-# for the events the service sends on the clients' channels and, in the built-in self-test only, for the
-# calls its test client makes. The service itself is registered under the app's own namespace
-# (`app.os.lazy.webd.light`), which needs no permission. Nothing else: no display, no input, no
-# network, no file of the person's.
+# Derived from runs under `LAZYOS_LABEL_TRACE=1` (docs/webd.md, "Permissions"). The light and the full
+# interface: the service sends each view's events on its client's channel with the interface the view
+# was made through, and the kernel judges a oneway send by its header like a call; the light self-test
+# also calls the light interface. The services are registered under the app's own namespace
+# (`app.os.lazy.webd.light`, `app.os.lazy.webd.view`), which needs no permission. A full view's page may
+# hand an address to the app the person chose (`os.lazy.mimed.v1`, Handoff.Browser) and show its
+# notifications as webd's toasts (`os.lazy.notify.v1`; the clicks come back on the channel it moved in).
 interfaces = [
     "os.lazy.webd.light.v1",
+    "os.lazy.webd.view.v1",
+    "os.lazy.mimed.v1",
+    "os.lazy.notify.v1",
 ]
-network = []
-# The engine keeps its network-lock rule store under the app's own folder (the one thing a light view
-# makes it write); the page process reads the fonts. The reads are the union of what the two processes
-# below read.
+# The network process's (a child label holds at most what the app holds).
+network = ["outbound"]
+# The engine keeps its network-lock rule store and the profiles under the app's own folder; a finished
+# download is renamed in the person's Downloads folder; the page process reads the fonts; the network
+# process reads the resolver's files and the certificate bundle. The union of the processes below.
 files = [
     "write:$HOME/.apps/os.lazy.webd",
+    "write:$HOME/Downloads",
     "read:/system/share/fonts",
     "read:/system/etc/fonts",
     "read:/tmp/fontconfig",
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
 ]
 
 # One process per client app (every view of one app shares it), running whatever the page says with the
@@ -68,11 +78,22 @@ files = [
     "read:/tmp/fontconfig",
 ]
 
-# WebKit starts its network process whether or not a view uses it (docs/webd-plan.md, spike L1). A light
-# view has no network, so this one holds nothing either: no socket, no file. The full interface will give it
-# what a browser needs.
+# One network process for every profile (docs/webd-plan.md 3.3): it reaches the network for the full
+# views whose scope allows it (a light view, and a full view without the network scope, carry a content
+# rule list that blocks every load in the engine), keeps each profile's cookies, cache and storage below
+# the profiles' folder, and writes downloads. It can read every profile's cookies: the cost of not paying
+# 107 MiB per profile, stated in the plan. It writes only `profiles/` of the app's folder, not the folder:
+# the network-lock rule store (`rules/`) is compiled and read by the UI process, and the light views'
+# no-network guarantee rests on it, so a compromised network process must not be able to rewrite it
+# (`tools/webd/test_manifest.py`).
 [processes.networkprocess]
 program = "/system/bin/networkprocess"
 interfaces = []
-network = []
-files = []
+network = ["outbound"]
+files = [
+    "read:/etc/resolv.conf",
+    "read:/etc/hosts",
+    "read:/etc/ssl/certs/ca-certificates.crt",
+    "write:$HOME/.apps/os.lazy.webd/profiles",
+    "write:$HOME/Downloads",
+]

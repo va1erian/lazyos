@@ -8,7 +8,6 @@
 //! what the service does *with* the objects they carry.
 
 use libmessenger::{flags, Buffer, Header, Parcel, VERSION};
-use messenger_generated::os_lazy_webd_light_v1 as wire;
 use xui_app::sys::{self, errno};
 use xui_webd::fabric::{Fabric, Mapping};
 
@@ -16,12 +15,12 @@ use xui_webd::fabric::{Fabric, Mapping};
 pub struct RealFabric;
 
 impl Fabric for RealFabric {
-    fn send(&self, channel: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
+    fn send(&self, channel: u64, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64> {
         let parcel = Parcel {
             header: Header {
                 version: VERSION,
                 flags: flags::ONE_WAY,
-                interface_id: wire::INTERFACE_ID,
+                interface_id: interface,
                 method,
                 txn_id: 0,
                 reply_to: 0,
@@ -117,13 +116,18 @@ impl Mapping for SlotMapping {
         self.size
     }
 
-    fn write(&mut self, bytes: &[u8]) {
-        let count = bytes.len().min(self.len);
+    fn write_at(&mut self, offset: usize, bytes: &[u8]) {
+        let count = bytes.len().min(self.len.saturating_sub(offset));
+        if count == 0 {
+            return;
+        }
         // SAFETY: `map_range` checked that `base..base + len` lies inside the mapping, which stays
-        // mapped until `Drop` closes the handle; `count <= len`. The client reads the slot only
-        // after the `Frame` event and writes it never, so nothing else touches these bytes while a
-        // frame is copied in (and a client that does is only hurting its own picture).
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), self.base as *mut u8, count) }
+        // mapped until `Drop` closes the handle; `offset + count <= len`. The client reads the slot
+        // only after the `Frame` event and writes it never, so nothing else touches these bytes while
+        // a frame is copied in (and a client that does is only hurting its own picture).
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), (self.base + offset) as *mut u8, count)
+        }
     }
 }
 

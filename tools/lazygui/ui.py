@@ -128,8 +128,8 @@ class Launcher:
         self._check(g, "webd, required: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
                        "(LAZYOS_WEBD; run_demo --webd; every desktop ships it already, for Docs and Mail; "
                        "this adds the big-app profile and fails the build if it cannot be built)", "webd")
-        self._check(g, "webd demo client, os.lazy.webddemo (LAZYOS_WEBDDEMO; run_demo --webd-demo; "
-                       "tools/webd/run.py drives it)", "webd_demo")
+        self._check(g, "webd test clients, os.lazy.webddemo and os.lazy.webdbrowse (LAZYOS_WEBDDEMO; "
+                       "run_demo --webd-demo; tools/webd drives them)", "webd_demo")
         self._check(g, "Leave webd out of the desktop (LAZYOS_WEBD=0; run_demo --no-webd): Docs and Mail "
                        "then say the web engine is not running", "no_webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "

@@ -1,0 +1,15 @@
+# Downloads into one folder (docs/lazywebplus.md "Downloads", docs/webd-plan.md 3.5): a server's
+# suggested name made safe and unique, the `.part` file the engine writes and its rename once every
+# byte arrived. Std only, host-tested. LazyWeb+'s window (`xui-webplus`, as `xui_webplus::downloads`)
+# and webd's service (`xui-webd`) use the same rules.
+[package]
+name = "lazydownloads"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-2.0-only OR GPL-3.0-or-later"
+description = "Download names made safe and unique in one folder, and the .part protocol"
+
+[lib]
+name = "lazydownloads"
+path = "src/lib.rs"

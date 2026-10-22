@@ -2322,6 +2322,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazydamage"
+version = "0.1.0"
+
+[[package]]
+name = "lazydownloads"
+version = "0.1.0"
+
+[[package]]
 name = "lazyhttps"
 version = "0.1.0"
 dependencies = [
@@ -2416,6 +2424,10 @@ dependencies = [
  "zune-core",
  "zune-jpeg",
 ]
+
+[[package]]
+name = "lazywebnotify"
+version = "0.1.0"
 
 [[package]]
 name = "lettre"
@@ -6072,6 +6084,9 @@ name = "xui-webd"
 version = "0.1.0"
 dependencies = [
  "fuzzkit",
+ "lazydamage",
+ "lazydownloads",
+ "lazywebnotify",
  "libmessenger",
  "messenger-generated",
 ]
@@ -6090,6 +6105,7 @@ name = "xui-webd-host"
 version = "0.1.0"
 dependencies = [
  "fhs",
+ "lazydownloads",
  "lazyos-sys",
  "libc",
  "libmessenger",
@@ -6102,6 +6118,7 @@ dependencies = [
 name = "xui-webkit"
 version = "0.1.0"
 dependencies = [
+ "lazydamage",
  "lazyos-sys",
  "xui-app",
  "xui-canvas",
@@ -6114,6 +6131,8 @@ version = "0.1.0"
 dependencies = [
  "fhs",
  "lazyadblock",
+ "lazydownloads",
+ "lazywebnotify",
  "xui-app",
  "xui-canvas",
  "xui-core",

@@ -6,6 +6,7 @@
 /// Positive errno values the service answers with (`docs/midl.md`, "Errors").
 pub mod errno {
     pub const ENOENT: i64 = 2;
+    pub const ESRCH: i64 = 3;
     pub const E2BIG: i64 = 7;
     pub const EAGAIN: i64 = 11;
     pub const EACCES: i64 = 13;
@@ -27,15 +28,21 @@ pub trait Mapping {
     /// for, whatever the client declared.
     fn mapped_bytes(&self) -> u64;
     /// Copy `bytes` to the start of the range. The service checks `bytes.len() <= capacity()` first.
-    fn write(&mut self, bytes: &[u8]);
+    fn write(&mut self, bytes: &[u8]) {
+        self.write_at(0, bytes);
+    }
+    /// Copy `bytes` to `offset` bytes into the range (a rectangle's rows of a delta). The service
+    /// checks `offset + bytes.len() <= capacity()` first.
+    fn write_at(&mut self, offset: usize, bytes: &[u8]);
 }
 
 /// The service's side of the Messenger fabric. Errors are negative errno values, as the kernel
 /// returns them.
 pub trait Fabric {
-    /// Send a oneway event `method` with `body` on `channel` (a client's event endpoint). `-EPIPE` means the
-    /// client is gone; `-EAGAIN` that its queue is full (the event is lost, the client is slow).
-    fn send(&self, channel: u64, method: u32, body: Vec<u8>) -> Result<(), i64>;
+    /// Send a oneway event `method` of `interface` (the light or the full one, as the view was made)
+    /// with `body` on `channel` (a client's event endpoint). `-EPIPE` means the client is gone;
+    /// `-EAGAIN` that its queue is full (the event is lost, the client is slow).
+    fn send(&self, channel: u64, interface: u64, method: u32, body: Vec<u8>) -> Result<(), i64>;
     /// Close a channel handle the service owns.
     fn close_channel(&self, channel: u64);
     /// Close a buffer handle the service owns without using it.

@@ -8,7 +8,7 @@
 //! window can apply: one scroll and a few rectangles, or "all of it" when that does not hold.
 //!
 //! The rules are pure, so they are tested here against a model of the backing store
-//! (`tests/scroll_model.rs`); the C++ only forwards what WebKit says and asks for the [`Plan`].
+//! (`xui-webkit`'s `tests/scroll_model.rs`); the C++ only forwards what WebKit says and asks for the [`Plan`].
 //!
 //! **Superset, never subset.** A rectangle that is repainted needlessly costs a little time; one
 //! that is not repainted shows a stale picture. Wherever the exact answer is awkward (a rectangle
@@ -316,3 +316,6 @@ impl Pending {
         Some(Plan::Delta { scroll, rects })
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -157,7 +157,10 @@ fn run() {
         }
         // SAFETY: no arguments; the counter is an atomic.
         let wakeups = u64::from(unsafe { lzw_launcher_reaper_wakeups() });
-        if ticks == REAPER_FIRST || ticks == REAPER_SECOND || reaper_said.is_some_and(|said| said != wakeups) {
+        if ticks == REAPER_FIRST
+            || ticks == REAPER_SECOND
+            || reaper_said.is_some_and(|said| said != wakeups)
+        {
             say(&REAPER_BUDGET, &format!("INFO:REAPER:wakeups={wakeups}"));
         }
         if ticks >= REAPER_FIRST {

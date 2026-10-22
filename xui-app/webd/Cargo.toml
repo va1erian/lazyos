@@ -39,5 +39,7 @@ messenger-generated = { path = "../../libs/generated" }
 xui-app = { path = ".." }
 lazyos-sys = { path = "../../libs/lazyos-sys", features = ["std", "parcel"] }
 libc = "0.2"
+# The name of the person's downloads folder, shared with LazyWeb+.
+lazydownloads = { path = "../crates/downloads" }
 # The app's data folder (`app_data_dir`), where the engine keeps its network-lock rule store.
 fhs = { path = "../../libs/fhs", features = ["alloc"] }

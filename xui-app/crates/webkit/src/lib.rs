@@ -14,7 +14,8 @@
 pub mod abi;
 pub mod address;
 pub mod bands;
-pub mod damage;
+/// What changed between two paints: its own crate (`lazydamage`) so webd keeps the same rules per view.
+pub use lazydamage as damage;
 pub mod engine;
 pub mod events;
 pub mod framing;
@@ -29,8 +30,6 @@ pub mod raster;
 pub mod smooth;
 pub mod speculate;
 pub mod taskstat;
-#[cfg(test)]
-mod tests_damage;
 #[cfg(test)]
 mod tests_raster;
 pub mod view;
