@@ -68,6 +68,7 @@ impl Browser {
                 self.set_status("Updating the ad blocker's lists");
             }
             PageCommand::ReloadUnblocked => self.reload_unblocked(),
+            PageCommand::AllowHttp(host) => self.allow_http(&host),
             PageCommand::OpenSite => {
                 if let Some(url) = self.site_url.clone() {
                     self.open(&url);

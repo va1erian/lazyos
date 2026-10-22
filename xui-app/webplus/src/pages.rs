@@ -49,6 +49,8 @@ pub enum Command {
     ReloadUnblocked,
     /// Go back to the page browsed last.
     OpenSite,
+    /// Load `host` (`host[:port]`) over plain HTTP: the answer to `downgrade::question`.
+    AllowHttp(String),
 }
 
 impl Command {
@@ -76,6 +78,9 @@ impl Command {
             "update-lists" => Some(Command::UpdateLists),
             "reload-unblocked" => Some(Command::ReloadUnblocked),
             "open-site" => Some(Command::OpenSite),
+            "allow-http" => percent_decode(arg)
+                .filter(|host| crate::address::host_of(host) == Some(host.as_str()))
+                .map(Command::AllowHttp),
             _ => None,
         }
     }
@@ -392,6 +397,23 @@ mod tests {
             Command::parse("x-lazyweb:open-site"),
             Some(Command::OpenSite)
         );
+    }
+
+    #[test]
+    fn allow_http_takes_a_host_and_nothing_else() {
+        assert_eq!(
+            Command::parse("x-lazyweb:allow-http/example.com%3A8080"),
+            Some(Command::AllowHttp("example.com:8080".into()))
+        );
+        for bad in [
+            "x-lazyweb:allow-http",
+            "x-lazyweb:allow-http/",
+            "x-lazyweb:allow-http/a%20b",
+            "x-lazyweb:allow-http/evil.test%2Fpath",
+            "x-lazyweb:allow-http/word",
+        ] {
+            assert_eq!(Command::parse(bad), None, "{bad}");
+        }
     }
 
     #[test]

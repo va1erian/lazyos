@@ -30,6 +30,7 @@ pub mod blocker;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
+pub mod downgrade;
 /// Naming and reserving downloads: its own crate (`lazydownloads`), shared with webd.
 pub use lazydownloads as downloads;
 pub mod frameclock;
@@ -42,6 +43,7 @@ pub mod memory;
 pub mod notify;
 pub mod pages;
 pub mod policy;
+pub mod prefs;
 pub mod transfers;
 pub mod visits;
 

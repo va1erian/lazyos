@@ -110,6 +110,7 @@ impl Browser {
     fn load_finished(&mut self) {
         // "Opening <url>" must not outlive the load; hovering a link shows its address again.
         self.set_status("");
+        self.pending_https = None;
         let url = self.state.committed_url.clone();
         let shown = self.shown_url(&url);
         self.trace(&format!("LOAD:{}", marker_text(&shown)));
@@ -125,6 +126,7 @@ impl Browser {
             crate::marker("FAIL");
         }
         self.set_status(&error);
+        self.offer_http(&error);
     }
 
     /// The title changed after the load ended (a script set it): say so and keep the history's.

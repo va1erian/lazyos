@@ -27,6 +27,7 @@ mod events;
 mod hang;
 mod host;
 mod notifications;
+mod search;
 mod shield;
 mod status;
 mod webd;
@@ -38,6 +39,7 @@ use crate::blocker::{self, Blocker};
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
+use crate::downgrade::{self, Allowed, Pending};
 use crate::frameclock::FrameClock;
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
@@ -145,6 +147,12 @@ pub struct Browser {
     editing: bool,
     /// The title the visit was last recorded with (a title can arrive after the load).
     recorded: Option<(String, String)>,
+    /// A host typed in the address bar and opened over HTTPS, not yet known to have worked.
+    pending_https: Option<Pending>,
+    /// The host the "did not answer over HTTPS" page is asking about.
+    offered: Option<Pending>,
+    /// The hosts the person loaded without encryption in this window's life.
+    allowed_http: Allowed,
     /// The page view's size when the controls were last announced.
     announced: Cell<(i32, i32)>,
     /// The previous picture's buffer, reused for the next frame.
@@ -244,6 +252,9 @@ impl Browser {
             stopping: false,
             editing: false,
             recorded: None,
+            pending_https: None,
+            offered: None,
+            allowed_http: Allowed::default(),
             announced: Cell::new((0, 0)),
             spare: Vec::new(),
             buttons: Cell::new(None),
@@ -302,6 +313,7 @@ impl Browser {
                 site: self.site_url.as_deref().and_then(blocker::site_of),
                 blocked: self.blocker.blocked(),
             }),
+            downgrade::NAME => self.downgrade_page(),
             _ => return self.internal.start(),
         };
         self.internal.build(name, &html)
@@ -343,12 +355,8 @@ impl Browser {
             self.open(name);
             return;
         }
-        match address::normalize(&text) {
-            Some(url) => {
-                self.address.set_text(&url);
-                self.open(&url);
-                self.page.focus();
-            }
+        match address::classify(&text, &self.host.prefs.search) {
+            Some(typed) => self.open_typed(typed),
             None => self.set_status("Type an address first"),
         }
     }

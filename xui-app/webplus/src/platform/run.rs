@@ -108,6 +108,7 @@ pub(super) fn run() -> i32 {
     let blocker = Blocker::volatile();
     start_blocker(&blocker, profile.as_ref(), memory_only, relay);
     let internal = Internal::default();
+    let choices = prefs::load();
     let window_blocker = blocker.clone();
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
     let window_backend = Rc::clone(&backend);
@@ -167,6 +168,7 @@ pub(super) fn run() -> i32 {
                 focused: Rc::new(move || focus_backend.focused()),
                 launcher: Rc::new(LazyLauncher),
                 profile: profile.clone(),
+                prefs: choices,
                 probe: Box::new(|window, name, rect| {
                     xui_app::probe::widget(
                         window,
