@@ -82,7 +82,10 @@ files = [
 # views whose scope allows it (a light view, and a full view without the network scope, carry a content
 # rule list that blocks every load in the engine), keeps each profile's cookies, cache and storage below
 # the profiles' folder, and writes downloads. It can read every profile's cookies: the cost of not paying
-# 107 MiB per profile, stated in the plan.
+# 107 MiB per profile, stated in the plan. It writes only `profiles/` of the app's folder, not the folder:
+# the network-lock rule store (`rules/`) is compiled and read by the UI process, and the light views'
+# no-network guarantee rests on it, so a compromised network process must not be able to rewrite it
+# (`tools/webd/test_manifest.py`).
 [processes.networkprocess]
 program = "/system/bin/networkprocess"
 interfaces = []
@@ -91,6 +94,6 @@ files = [
     "read:/etc/resolv.conf",
     "read:/etc/hosts",
     "read:/etc/ssl/certs/ca-certificates.crt",
-    "write:$HOME/.apps/os.lazy.webd",
+    "write:$HOME/.apps/os.lazy.webd/profiles",
     "write:$HOME/Downloads",
 ]
