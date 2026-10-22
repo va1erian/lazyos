@@ -19,6 +19,7 @@ pub mod event;
 mod frames;
 mod input;
 mod oneway;
+mod sink;
 
 use libmessenger::Buffer;
 use messenger_generated::os_lazy_webd_browser_v1 as browser_wire;
@@ -31,6 +32,7 @@ use crate::transport::{errno, ScopedTransport, SharedMem};
 use oneway::Owed;
 
 pub use event::{blocking_status_name, Band, FrameInfo, FullEvent, FullState, Rect, Shift};
+pub use sink::{PixelSink, SlotPixels, SlotPlan};
 pub use wire::ViewConfig;
 
 /// Frame slots a view attaches (0 to 2).
@@ -85,6 +87,8 @@ pub struct FullCounters {
     pub ignored: u64,
     /// Whole frames asked for because a delta could not be applied.
     pub refreshes: u64,
+    /// Slots of the plan that could not be had (the view runs with fewer).
+    pub slots_left_out: u64,
 }
 
 struct Live {
@@ -103,8 +107,12 @@ pub struct FullWebView<T: ScopedTransport> {
     /// By slot number; `None` for one not attached.
     slots: Vec<Option<T::Mem>>,
     picture: Picture,
-    /// The picture is the last frame webd sent, so a delta may be applied to it.
+    /// The picture (or the sink's) is the last frame webd sent, so a delta may be applied to it.
     base: bool,
+    /// The size of the last whole frame applied: a delta of another size has no base.
+    drawn: (u32, u32),
+    /// Which slots to attach.
+    plan: SlotPlan,
     last_seq: u64,
     page: FullState,
     scroll: (i32, i32, bool),
@@ -128,6 +136,8 @@ impl<T: ScopedTransport> FullWebView<T> {
             slots: Vec::new(),
             picture: Picture::default(),
             base: false,
+            drawn: (0, 0),
+            plan: SlotPlan::default(),
             last_seq: 0,
             page: FullState::default(),
             scroll: (0, 0, false),
@@ -224,7 +234,9 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.attach_slots()
     }
 
-    /// Allocate and attach the slots for the current size.
+    /// Allocate and attach the slots for the current size, in the plan's order. The first frame
+    /// slot must attach; a later one that cannot be had (the process's shared-buffer limit, a
+    /// quota) is left out and the view runs with fewer.
     fn attach_slots(&mut self) -> Result<(), Error> {
         let view = self.live_view()?;
         let (width, height) = self.size;
@@ -233,29 +245,35 @@ impl<T: ScopedTransport> FullWebView<T> {
         if frame == 0 {
             return Err(Error::Refused(errno::EINVAL));
         }
-        let count = if self.config.deltas {
-            ALL_SLOTS
-        } else {
-            FRAME_SLOTS
-        };
         self.slots = (0..ALL_SLOTS).map(|_| None).collect();
-        for slot in 0..count {
+        for (n, slot) in self.plan.order(self.config.deltas).into_iter().enumerate() {
             let bytes = if slot < FRAME_SLOTS { frame } else { band };
-            let mem = self
-                .transport
-                .alloc(bytes)
-                .map_err(|code| Error::Refused(-code))?;
-            let args = wire::AttachSlotArgs {
-                view,
-                slot: slot as u32,
-                pixels: Buffer::whole(mem.handle(), bytes as u64),
-            };
-            let (body, objects) =
-                wire::encode_attach_slot_args(&args).map_err(|_| Error::Refused(errno::EINVAL))?;
-            self.call_with(wire::METHOD_ATTACHSLOT, body, objects)?;
-            self.slots[slot] = Some(mem);
+            match self.attach_one(view, slot, bytes) {
+                Ok(mem) => self.slots[slot] = Some(mem),
+                Err(Error::Refused(_)) if n > 0 => {
+                    self.counters.slots_left_out += 1;
+                    break;
+                }
+                Err(error) => return Err(error),
+            }
         }
         Ok(())
+    }
+
+    fn attach_one(&mut self, view: u64, slot: usize, bytes: usize) -> Result<T::Mem, Error> {
+        let mem = self
+            .transport
+            .alloc(bytes)
+            .map_err(|code| Error::Refused(-code))?;
+        let args = wire::AttachSlotArgs {
+            view,
+            slot: slot as u32,
+            pixels: Buffer::whole(mem.handle(), bytes as u64),
+        };
+        let (body, objects) =
+            wire::encode_attach_slot_args(&args).map_err(|_| Error::Refused(errno::EINVAL))?;
+        self.call_with(wire::METHOD_ATTACHSLOT, body, objects)?;
+        Ok(mem)
     }
 
     /// The id of the live view, or why there is none.
