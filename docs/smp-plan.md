@@ -8,7 +8,9 @@ interrupts off* — so we first make that invariant explicit and machine-checked
 then bring up the other CPUs **inside** it, and only afterwards relax it
 subsystem by subsystem, each relaxation behind its own soak.
 
-Status: S8.0, S8.1 and S8.2 are built (as-built notes:
+Status: S8.0, S8.1 and S8.2 are built, and so are the prerequisites the S8.2
+review set for S8.3 (shared per-CPU references, concurrent shootdown senders,
+NMI hardening, the dying-table rule; as-built notes:
 [`architecture/smp.md`](architecture/smp.md)); S8.3 onward is plan. Prerequisites from
 `docs/performance-plan.md` (LAPIC/I-O-APIC/MSI, per-class run queues) have
 landed.
@@ -373,10 +375,15 @@ for the IRQ-stack pointer the stub needs before any read).
   32-round two-way exchange with a 50 µs tolerance, and the AP waits for the
   BSP's accept before it publishes `online`; shootdowns of a loop are batched
   (`tlb::Batch`, one round trip per span, frames freed after it); the panic
-  path stops the other CPUs (`smp::stop_others`). Not yet: a refused-SIPI
-  hook for the timeout path of failed-AP tolerance (a clock-refused AP and a
-  stopped-and-restarted AP are tested), the `-smp 1/2/4` matrix beyond
-  `-smp 4`, and the must-fix list for S8.3 in the as-built doc.
+  path stops the other CPUs (`smp::stop_others`). Since then, the must-fix
+  list for S8.3 is closed: `percpu::current()` hands out `&'static Cpu`;
+  any CPU may send a shootdown (a sender lock, generation-numbered requests,
+  wait loops that serve their own mailbox — the `smp::serve_pending` rule
+  S8.3's entry lock must follow); nested NMIs are dropped off the IST top and
+  an early NMI table covers an AP's start; free page tables are checked
+  against every CPU's published `CR3`; and the failed-AP timeout path is
+  tested with a refused-SIPI hook. Not yet: the `-smp 1/2/4` matrix beyond
+  `-smp 1` and `-smp 4`.
 
 ### S8.3 — The kernel entry lock (ENABLED MILESTONE)
 
