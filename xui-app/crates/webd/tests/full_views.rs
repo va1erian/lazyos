@@ -406,3 +406,45 @@ fn a_scope_interface_refuses_every_method_but_create_view() {
     );
     assert_eq!(fx.fabric.double_closes(), 0);
 }
+
+#[test]
+fn memory_pressure_refuses_a_view_that_would_start_a_new_web_process() {
+    // Why: a web process is about 107 MiB; under a low user-memory quota the child's `exec` would
+    // fail with ENOMEM (the old in-process browser hit this), so webd refuses the view that would
+    // start a new process once the user's charge cannot hold one more (docs/webd-plan.md 11 item 7).
+    let mut fx = Fx::new("mem-pressure");
+    let app = origin(7);
+    // 8 GiB limit, 200 MiB used: room for a process. The view is made.
+    fx.set_memory(200 << 20, 8 << 30);
+    let (first, _) = fx
+        .create_view(app, Via::Browser, browser(), 8, 8)
+        .expect("a view fits when the charge is low");
+
+    // Now the charge is within one process' reserve of the limit: a view that would start a *new*
+    // web process (a different profile) is refused with EDQUOT, the engine never hears of it, and no
+    // handle leaks.
+    fx.set_memory((8 << 30) - (100 << 20), 8 << 30);
+    let made = creates(&fx);
+    let handles = fx.fabric.open_handles();
+    assert_eq!(
+        fx.create_view(app, Via::Net, web(), 8, 8),
+        Err(EDQUOT),
+        "a new-process view must be refused under memory pressure"
+    );
+    assert_eq!(creates(&fx), made, "the engine heard of a refused view");
+    assert_eq!(fx.fabric.open_handles(), handles, "the endpoint leaked");
+
+    // A view that joins an existing (client, profile) group starts no process, so it is still made
+    // even under pressure (its web process already exists).
+    let (second, _) = fx
+        .create_view(app, Via::Browser, browser(), 8, 8)
+        .expect("a view that reuses an existing process is not gated by memory");
+    assert_ne!(second, first);
+
+    // When the host cannot read the charge (limit 0) the gate is off: the fixed process cap is then
+    // the only bound.
+    fx.set_memory(u64::MAX, 0);
+    let other = origin(8);
+    fx.create_view(other, Via::Net, web(), 8, 8)
+        .expect("no gating when the charge is unknown");
+}

@@ -64,6 +64,16 @@ pub const QUEUE_KEPT: usize = 1024;
 /// view count bounds them.
 pub const WEB_PROCESSES_PER_USER: usize = 4;
 
+/// Memory a new web process is assumed to need, used as a safety margin when webd gates a
+/// `CreateView` that would start one against the user's memory charge (docs/webd-plan.md 11 item 7):
+/// a full view's web process is about 107 MiB measured, and the first full view also starts the
+/// shared network process. webd refuses a view whose new process would push the user's charge past
+/// its quota by this margin rather than letting the child's `exec` fail with `ENOMEM` (which the old
+/// in-process browser hit, `engine.cpp`). The fixed [`WEB_PROCESSES_PER_USER`] cap still applies; this
+/// is the finer gate when the quota is lower than four processes' worth. 160 MiB leaves headroom for
+/// the network process and the page's first heap over the 107 MiB resident of the process image.
+pub const WEB_PROCESS_RESERVE_BYTES: u64 = 160 << 20;
+
 /// Frame slots are 0..SLOTS_PER_VIEW; a view with deltas also has band slots up to this.
 pub const SLOTS_WITH_BANDS: usize = SLOTS_PER_VIEW + 2;
 

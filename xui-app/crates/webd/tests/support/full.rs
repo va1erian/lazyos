@@ -149,6 +149,8 @@ pub struct Fx {
     pub rig: Rig,
     /// The queue's clock (what the engine's decisions and the input stamps read), in ms.
     pub clock: Arc<AtomicU64>,
+    /// The user's memory charge webd reads: `[used, limit]` in bytes (see `set_memory`).
+    pub mem: Arc<[AtomicU64; 2]>,
     pub outside: RecOutside,
     pub dir: TempDir,
 }
@@ -201,7 +203,19 @@ impl Fx {
     pub fn new(name: &str) -> Fx {
         let clock = Arc::new(AtomicU64::new(1000));
         let read = clock.clone();
-        let queue = Arc::new(EventQueue::new().with_clock(move || read.load(Ordering::SeqCst)));
+        // The user's memory charge the service reads to gate web-process creation: `[used, limit]`,
+        // both zero by default so `memory_charge` is `None` (no gating) and the existing cases are
+        // unchanged. `set_memory` makes it report a charge.
+        let mem = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let read_mem = mem.clone();
+        let queue = Arc::new(
+            EventQueue::new()
+                .with_clock(move || read.load(Ordering::SeqCst))
+                .with_memory(move || {
+                    let limit = read_mem[1].load(Ordering::SeqCst);
+                    (limit > 0).then(|| (read_mem[0].load(Ordering::SeqCst), limit))
+                }),
+        );
         let engine = RecordingEngine::new();
         let fabric = MemFabric::new();
         let dir = TempDir::new(name);
@@ -221,6 +235,7 @@ impl Fx {
                 queue,
             },
             clock,
+            mem,
             outside,
             dir,
         }
@@ -228,6 +243,12 @@ impl Fx {
 
     pub fn set_clock(&self, ms: u64) {
         self.clock.store(ms, Ordering::SeqCst);
+    }
+
+    /// Make webd read this memory charge (`used`, `limit`) in bytes; `limit` 0 means "unknown".
+    pub fn set_memory(&self, used: u64, limit: u64) {
+        self.mem[0].store(used, Ordering::SeqCst);
+        self.mem[1].store(limit, Ordering::SeqCst);
     }
 
     /// Send a request on `interface` with the given objects.
