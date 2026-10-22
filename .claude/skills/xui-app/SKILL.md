@@ -52,7 +52,7 @@ Write **Rust** only when the app needs it:
    `xui-app/packages/<short>/` with icons, the GUI launcher entry and a session
    script `tools/screenshot/examples/xui_<short>.json`. It prints the
    follow-ups it cannot do: the package permissions (derive them from a run
-   with `LAZYOS_LABEL_TRACE=1`, AGENTS.md "Packages and the label-policy
+   with `LAZYOS_LABEL_TRACE=1`, docs/agents/services.md "Packages and the label-policy
    trace") and the icon art.
 2. Anything worth testing goes in a crate under `xui-app/crates/<name>/`
    behind a trait for the OS (`ConfigStore`, `System`): the bin only connects

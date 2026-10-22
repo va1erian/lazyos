@@ -72,3 +72,6 @@ The wire-level reference for each Messenger interface (method ids, field types,
 topics) is generated from the interface files and sits next to these pages; the
 [Messenger API reference](rhai/api/index.md) links to the page of every
 interface.
+
+Guidance for AI agents working on the code (per-subsystem build, run and
+verification recipes) is in the [agent guides](agents/index.md).
