@@ -4,6 +4,10 @@
 
 #![allow(dead_code)]
 
+pub mod full;
+pub mod full_calls;
+pub mod full_events;
+
 use std::sync::Arc;
 
 use libmessenger::{Buffer, Decoder, Header, Kind, Parcel, VERSION};
