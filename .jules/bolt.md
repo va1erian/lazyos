@@ -1,3 +1,0 @@
-## 2026-03-31 - Vector Cursor Rasterization Bounding Box Pruning
-**Learning:** In software vector rasterizers like `cursorgfx`, unconstrained per-pixel distance and winding checks over large bounding squares consume most CPU cycles evaluating pixels far outside the geometry. Pre-calculating edge properties (`dx`, `dy`, `len2`, bounding boxes) and restricting raster grid loops to the layer's padded bounding box reduced rasterization time by ~3.9x with zero pixel diff.
-**Action:** Always pre-compute edge invariants and restrict raster loops to geometry bounding boxes when performing software vector drawing.
