@@ -31,10 +31,14 @@ struct Regs {
 // Syscall entry stub: save argument registers, dispatch, restore, iretq. An
 // interrupt gate keeps the caller's direction flag, so it is cleared before
 // any Rust runs (issue #405; `task::switch` has the full story).
-global_asm!(
+// `%gs` is swapped on a ring-3 `CS` at both ends (`arch::gsgate`).
+global_asm!(concat!(
     r#"
     .global syscall_isr
     syscall_isr:
+"#,
+    crate::gs_entry_swap_on_user_cs!(),
+    r#"
         push rdi
         push rsi
         push rdx
@@ -52,9 +56,12 @@ global_asm!(
         pop rdx
         pop rsi
         pop rdi
+"#,
+    crate::gs_exit_swap_on_user_cs!(),
+    r#"
         iretq
     "#
-);
+));
 
 extern "C" {
     fn syscall_isr();

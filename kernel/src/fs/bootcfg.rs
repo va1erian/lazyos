@@ -100,6 +100,7 @@ pub fn parse(text: &str) -> Result<BootCfg, CfgError> {
             || line.starts_with(crate::limits::PREFIX)
             || line.starts_with(DIAG_PREFIX)
             || line.starts_with(crate::display::modecfg::PREFIX)
+            || line.starts_with(crate::arch::smp::PREFIX)
             || line.starts_with(crate::fs::boot_image::PREFIX)
         {
             continue;
@@ -181,6 +182,7 @@ pub fn load(boot: &dyn Filesystem) -> Option<BootCfg> {
                     // limits, which the `limit.*` lines then override.
                     crate::display::modeset::apply_config(text);
                     crate::limits::apply_config(text);
+                    crate::arch::smp::apply_config(text);
                     crate::trace::apply_config(text);
                     crate::fs::boot_image::apply_config(text);
                     #[cfg(lazyos_dbgd)]

@@ -10,7 +10,7 @@ use support::full::{browser, FEv, Fx, Via};
 use support::origin;
 use xui_webd::engine::{EngineEvents, LOST_CRASHED};
 use xui_webd::fabric::errno::*;
-use xui_webd::limits::TOASTS_PER_VIEW;
+use xui_webd::limits::{CLIENT_TOAST_REFILL_MS, TOASTS_PER_VIEW};
 use xui_webd::outside::ToastNews;
 use xui_webd::recording::Call as EngineCall;
 use xui_webd::Note;
@@ -87,7 +87,11 @@ fn an_allowed_sites_toast_is_titled_with_its_host_never_with_its_own_words() {
                 "example.com".to_string(),
                 "System: your password expired\nclick here".to_string()
             ),
-            (102, "shop.example.net".to_string(), "Order".to_string()),
+            (
+                102,
+                "shop.example.net:8443".to_string(),
+                "Order".to_string()
+            ),
         ]
     );
     assert_eq!(
@@ -170,28 +174,38 @@ fn a_view_shows_four_toasts_at_once_and_a_shell_that_refuses_is_a_close() {
     let mut fx = Fx::new("notify-limit");
     let app = origin(7);
     let (view, _) = fx.view(app, Via::Browser, notifying(), 4, 4);
-    fx.notify_permission(app, view, SITE, ALLOW).unwrap();
-    fx.engine.take();
-    for id in 1..=TOASTS_PER_VIEW as u64 + 1 {
-        fx.queue.notify_show(view, id, SITE, "n", "");
+    // Different sites, a pace apart: only the view's own count is in the way.
+    let sites: Vec<String> = (1..=7).map(|n| format!("https://s{n}.test")).collect();
+    for site in &sites {
+        fx.notify_permission(app, view, site, ALLOW).unwrap();
     }
-    fx.pump(0);
+    fx.engine.take();
+    let step = CLIENT_TOAST_REFILL_MS;
+    for n in 0..=TOASTS_PER_VIEW as u64 {
+        fx.queue
+            .notify_show(view, n + 1, &sites[n as usize], "n", "");
+        fx.pump(n * step);
+    }
     assert_eq!(fx.outside.toasts().len(), TOASTS_PER_VIEW);
     let last = EngineCall::NotifyClosed(TOASTS_PER_VIEW as u64 + 1);
     assert_eq!(fx.engine.take().last(), Some(&last));
     // A toast the person dismissed makes room.
+    let mut now = 5 * step;
     fx.outside.news(ToastNews::Closed { toast: 101 });
-    fx.pump(1);
+    fx.pump(now);
     fx.engine.take();
-    fx.queue.notify_show(view, 50, SITE, "n", "");
-    fx.pump(2);
+    now += step;
+    fx.queue.notify_show(view, 50, &sites[5], "n", "");
+    fx.pump(now);
     assert_eq!(fx.engine.take(), vec![EngineCall::NotifyShown(50)]);
     fx.outside.refuse_toasts(true);
     fx.outside.news(ToastNews::Closed { toast: 102 });
-    fx.pump(3);
+    now += step;
+    fx.pump(now);
     fx.engine.take();
-    fx.queue.notify_show(view, 51, SITE, "n", "");
-    fx.pump(4);
+    now += step;
+    fx.queue.notify_show(view, 51, &sites[6], "n", "");
+    fx.pump(now);
     assert_eq!(fx.engine.take(), vec![EngineCall::NotifyClosed(51)]);
     assert!(fx.service.take_notes().contains(&Note::Full {
         view,

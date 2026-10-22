@@ -233,25 +233,42 @@ fn download_and_cancel_reach_the_engine_and_save_page_as_follows_the_policy() {
 }
 
 #[test]
-fn a_session_starts_at_most_256_downloads() {
-    // Why: a page needs no gesture to serve an attachment; a loop of them must not fill the
-    // folder's bookkeeping or the disk.
+fn a_client_has_at_most_32_downloads_under_way_and_a_finished_one_frees_its_place() {
+    // Why: a page needs no gesture to serve an attachment; a loop of them must not fill the folder's
+    // bookkeeping or the disk, and (review of 2026-10-22, finding 5) must neither use up the places
+    // of the other clients of the one saver nor lock the session out for good once it has seen 256.
     let mut fx = Fx::new("dl-cap");
-    let app = origin(7);
+    let (app, other) = (origin(7), origin(8));
     let (view, _) = fx.view(app, Via::Browser, downloading(), 4, 4);
-    for id in 1..=lazydownloads::MAX_DOWNLOADS as u64 {
-        let name = format!("f{id}");
-        assert!(
-            fx.queue
-                .download_start(view, id, "http://x/", &name, 1)
-                .is_some(),
-            "{id}"
-        );
-    }
-    assert_eq!(
+    let (neighbour, _) = fx.view(other, Via::Browser, downloading(), 4, 4);
+    let start = |fx: &Fx, view, id: u64| {
         fx.queue
-            .download_start(view, 9999, "http://x/", "one-more", 1),
-        None
+            .download_start(view, id, "http://x/", &format!("f{id}"), 1)
+    };
+    let per_client = lazydownloads::MAX_DOWNLOADS_PER_OWNER as u64;
+    for id in 1..=per_client {
+        assert!(start(&fx, view, id).is_some(), "{id}");
+    }
+    assert_eq!(start(&fx, view, 9999), None, "the client's places are used");
+    assert!(
+        start(&fx, neighbour, 1).is_some(),
+        "another client's downloads are not affected"
+    );
+    // Downloads end and others start, far more than the old session-wide 256: the oldest under way
+    // fails each round (the first `per_client` are 1.., the rest 1000..).
+    for round in 0..lazydownloads::MAX_DOWNLOADS as u64 * 2 {
+        let ending = if round < per_client {
+            round + 1
+        } else {
+            1000 + round - per_client
+        };
+        fx.queue.download_fail(view, ending, "connection reset");
+        fx.pump(round);
+        assert!(start(&fx, view, 1000 + round).is_some(), "round {round}");
+    }
+    assert!(
+        start(&fx, neighbour, 2).is_some(),
+        "the neighbour still has its places"
     );
 }
 

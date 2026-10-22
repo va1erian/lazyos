@@ -288,6 +288,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
             deltas: true,
             user_agent_suffix: "LazyTest/1".into(),
             no_network: false,
+            private_store: false,
         }
     );
 
@@ -303,6 +304,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
     };
     let full = config.full.unwrap();
     assert!(full.memory_only);
+    assert!(full.private_store, "not the client's own in-memory store");
     assert_eq!(full.features, FEATURE_POLICY | FEATURE_PAGE_UI);
     assert_eq!(full.profile, "");
 
@@ -321,6 +323,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
             deltas: false,
             user_agent_suffix: String::new(),
             no_network: true,
+            private_store: false,
         }
     );
 }

@@ -161,6 +161,11 @@ fn load_html_may_name_a_base_the_policy_lets_the_view_load_and_never_a_file() {
         (open, "https://example.com/", Some("https://example.com/")),
         (open, "data:text/html,x", Some("data:text/html,x")),
         (open, "file:///etc/", None),
+        // A blob address carries the origin of whoever made it: never a base (review of 2026-10-22).
+        (open, "blob:https://bank.example/0e5a-uuid", None),
+        (open, "blob:null/1", None),
+        (open, "BLOB:https://bank.example/x", None),
+        (offline, "blob:https://bank.example/x", None),
         (open, "javascript:alert(1)", None),
         (open, "mailto:a@b", None),
         (open, "ftp://example.com/", None),

@@ -1,0 +1,23 @@
+[
+  {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
+  {"wait_for": "DOCS:UP:PASS", "timeout": 240},
+  {"wait_for": "DOCS:RENDER:PASS", "timeout": 240},
+  {"at": 1.0, "shot": "01_welcome"},
+
+  {"at": 1.0, "click_at": {"window": "Docs", "offset": [-308, -162]}, "until": "DOCS:RENDER:PASS:/docs/os/index.md", "timeout": 60, "retries": 2},
+  {"at": 1.5, "shot": "02_index"},
+
+  {"at": 1.0, "click_at": {"window": "index.md - Docs", "offset": [-374, -9]}, "until": "DOCS:RENDER:PASS:/docs/os/lazyrad/index.md", "timeout": 60, "retries": 2},
+  {"at": 1.5, "shot": "03_lazyrad"},
+
+  {"at": 1.0, "key_down": "alt"},
+  {"at": 1.2, "key": "left", "until": "DOCS:NAV:PASS:back:/docs/os/index.md", "timeout": 30, "retries": 2},
+  {"at": 1.4, "key_up": "alt"},
+  {"at": 2.0, "shot": "04_back_to_index"},
+
+  {"at": 1.0, "click_at": {"window": "index.md - Docs", "offset": [-246, -304]}, "until": "DOCS:NAV:PASS:forward:/docs/os/lazyrad/index.md", "timeout": 30, "retries": 2},
+  {"at": 1.5, "shot": "05_forward"},
+
+  {"at": 1.0, "click_at": {"window": "index.md - Docs", "offset": [-179, -304]}, "until": "DOCS:NAV:PASS:home:/docs/os/index.md", "timeout": 30, "retries": 2},
+  {"at": 2.0, "quit": true}
+]

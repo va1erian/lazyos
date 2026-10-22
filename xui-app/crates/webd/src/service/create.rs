@@ -95,6 +95,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             blocking: setup.rules.blocking,
             downloads,
             popups: setup.rules.popups,
+            owner: u64::try_from(group).unwrap_or(0),
         };
         let deltas = setup.rules.deltas;
         let mut view = View::new(client, args.events, args.width, args.height);

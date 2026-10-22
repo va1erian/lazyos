@@ -166,7 +166,8 @@ app's window, so only the browser can bring the browser back.
   page's address in the one view, when it is a page of the notifying site (otherwise the site's front page); the
   old handler cannot run, there is no document for it. A toast the person dismisses or that times out is a
   `NotifyState(Closed)`, a `close` event for the page.
-* **Limits are per site** ([`notify/live.rs`](../xui-app/webplus/src/notify/live.rs)): 3 live toasts, a burst of
+* **Limits are per site** ([`live.rs`](../xui-app/crates/webnotify/src/live.rs) in `lazywebnotify`, the crate
+  that also holds the toast's title and body rules and is shared with webd): 3 live toasts, a burst of
   3 posts and one more a second; 10 live web toasts in all, so the shell's 16 and its burst of 6 are never used
   up by a site, and a download's toast always has room. What a site posts beyond that is dropped
   (`WEBPLUS:NOTIFY:DROP:<origin>:<why>`), not queued, and answered as closed so the page's object does not stay

@@ -175,7 +175,10 @@ static View* groupMate(const ViewConfig& config)
         if (!other.page || other.config.group != config.group || other.config.profile != config.profile
             || other.config.memoryOnly != config.memoryOnly || other.config.light != config.light
             // A page with no network must not be related to one that has it (related pages script each other).
-            || other.config.noNetwork != config.noNetwork)
+            || other.config.noNetwork != config.noNetwork
+            // A client's own in-memory profile and its private window have the same group, no directory and
+            // memoryOnly: the store kind is all that tells their data apart (webd_abi.h, WEBD_STORE_*).
+            || other.config.storeKind != config.storeKind)
             continue;
         if (!other.crashed && !other.recovering && WKPageGetProcessIdentifier(other.page) > 0)
             return &other;

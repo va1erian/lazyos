@@ -23,6 +23,7 @@ impl Once {
             self,
             Once::Lost { .. }
                 | Once::Held { .. }
+                | Once::Superseded { .. }
                 | Once::HandOff { .. }
                 | Once::Dialog { .. }
                 | Once::DownloadStarted { .. }
@@ -37,12 +38,26 @@ impl Once {
 impl Inner {
     /// Queue `event`, keeping the queue bounded (see the module).
     pub(super) fn push(&mut self, event: Once) {
-        // The engine refused a view's older held navigation when it held a newer one: only the newest
-        // is worth asking about (an answer to the older one is ignored by the engine anyway).
+        // Only the newest held navigation of a view is worth asking the client about. The engine drops
+        // an older one itself only for a true main-frame navigation; a new window's (`window.open`,
+        // `target=_blank`) is reported as `main_frame` too but leaves the older one held, with its
+        // listener, until an answer. So the older request is not forgotten: it becomes a `Superseded`
+        // the service answers no (an answer for a request the engine no longer holds is ignored).
         if let Once::Held { view, .. } = &event {
             let view = *view;
-            self.once
-                .retain(|old| !matches!(old, Once::Held { view: v, .. } if *v == view));
+            for old in self.once.iter_mut() {
+                if let Once::Held {
+                    view: v, request, ..
+                } = old
+                {
+                    if *v == view {
+                        *old = Once::Superseded {
+                            view,
+                            request: *request,
+                        };
+                    }
+                }
+            }
         }
         if self.once.len() >= QUEUE_KEPT {
             match self.once.iter().position(|old| !old.awaited()) {
@@ -119,6 +134,17 @@ mod tests {
             })
             .collect();
         assert_eq!(held, vec![(1, 5), (2, 9)]);
+        // The replaced ones are not forgotten: the service answers each no for the engine.
+        let superseded: Vec<(u64, u64)> = inner
+            .once
+            .iter()
+            .filter_map(|e| match e {
+                Once::Superseded { view, request } => Some((*view, *request)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(superseded, vec![(1, 1), (1, 2), (1, 3), (1, 4)]);
+        assert!(inner.once.iter().all(Once::awaited));
     }
 
     #[test]

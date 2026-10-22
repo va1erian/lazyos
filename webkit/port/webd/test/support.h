@@ -143,6 +143,7 @@ struct FullOptions {
     int width { 400 }, height { 300 };
     std::string userAgentSuffix;
     int noNetwork { 0 };
+    int storeKind { 0 };
 };
 
 // A new id and webd_engine_view_create for a full view.
@@ -192,5 +193,6 @@ std::string modeDeltas();
 std::string modeBlocking();
 std::string modeNotify();
 std::string modeNonet();
+std::string modeStore();
 
 } // namespace webdtest

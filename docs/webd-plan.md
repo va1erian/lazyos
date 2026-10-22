@@ -636,6 +636,19 @@ The client side of the light interface and its proof; the program, package and `
   at 800x578 through webd: wheel turn to the first frame after it at most one 8 ms poll of the client (20 of 20),
   `Refresh` to frame the same, a page `Load` to its first frame 17-32 ms; the engine's own wheel-to-damage 2.0 ms on
   average. The hop is below the client's poll resolution; P4 measures it on the repro with LazyWeb+ as the client.
+* **Review of 2026-10-22 (six findings, all confirmed, fixed).** (1) A client's own profile and its private
+  windows were both "in memory, no folder, the client's one group", which is all the engine's `groupMate` compared,
+  so a private window was a related page of the client's own view and shared its cookies and storage:
+  `webd_view_config` grows `store_kind` (`WEBD_STORE_OWN`/`PRIVATE`) that `groupMate` compares; `webd-abi-test
+  store` (it sent the own cookie to the private window before). (2) The event queue dropped an older undelivered
+  `Held` of a view although the engine drops its held navigations only for a true main-frame navigation: a
+  replaced one is now a `Superseded` the service answers no. (3) Toasts: the title/body rules and the per-site
+  limits left LazyWeb+ for `lazywebnotify` and webd uses them, with a share per client of the shell's allowance for
+  its one sender (5 on screen, a burst of 3, one per 2 s). (4) The NetworkProcess writes `profiles/` and
+  Downloads, not the app folder (`rules/` is the lock store). (5) `lazydownloads` counts downloads under way
+  (256, 32 per client), not every one ever. (6) A `LoadHtml` base is `about:`/`data:`/`http(s):` only, never
+  `blob:`. Found on the way: the `host` feature's ffi tests had not compiled since slice 3 (fixed, and they check
+  the appended layout).
 * **Not done in this slice.** The pool of parked views (a destroyed view still leaves its page proxy, and a full
   view of the app's own profile its store and session: P5, as before); `Find`, `Zoom`, `Snapshot`; a
   `webd_engine_view_pid`; the toasts and the `mimed` hand-off were not run in QEMU (host tests, and the engine's

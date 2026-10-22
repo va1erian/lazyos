@@ -4,7 +4,7 @@
 // (support.cpp). One mode per process, so each starts with a host of its own:
 //
 //   webd-abi-test html | script | config | lock | network | many | lost | cycle            (light views)
-//   webd-abi-test full | profiles | ask | dialog | download | popup | deltas | blocking | notify | nonet  (full views)
+//   webd-abi-test full | profiles | ask | dialog | download | popup | deltas | blocking | notify | nonet | store  (full views)
 //
 // The light modes start the host with webd_engine_start, as slice 1's service did; the full ones with
 // webd_engine_start_host and a children's folder of their own, against HTTP servers the test runs on
@@ -86,6 +86,7 @@ const Named modes[] = {
     { "blocking", webdtest::modeBlocking, true },
     { "notify", webdtest::modeNotify, true },
     { "nonet", webdtest::modeNonet, true },
+    { "store", webdtest::modeStore, true },
 };
 bool fullHost = false;
 
@@ -128,7 +129,7 @@ int main(int argc, char** argv)
         }
     }
     if (!run) {
-        printf("usage: webd-abi-test html|script|config|lock|network|many|lost|cycle|full|profiles|ask|dialog|download|popup|deltas|blocking|notify|nonet\n");
+        printf("usage: webd-abi-test html|script|config|lock|network|many|lost|cycle|full|profiles|ask|dialog|download|popup|deltas|blocking|notify|nonet|store\n");
         return 2;
     }
     setvbuf(stdout, nullptr, _IOLBF, 0);

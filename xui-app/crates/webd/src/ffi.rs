@@ -45,6 +45,8 @@ pub struct WebdViewConfig {
     pub deltas: i32,
     pub user_agent_suffix: *const c_char,
     pub no_network: i32,
+    /// `WEBD_STORE_OWN` (0) or `WEBD_STORE_PRIVATE` (1).
+    pub store_kind: i32,
 }
 
 extern "C" {
@@ -128,6 +130,7 @@ impl Engine for FfiEngine {
             deltas: i32::from(full.deltas),
             user_agent_suffix: ptr(&suffix),
             no_network: i32::from(full.no_network),
+            store_kind: i32::from(full.private_store),
         };
         // SAFETY: `raw` and its strings live across the call; the engine reads them only within it.
         unsafe { webd_engine_view_create(view, &raw) }

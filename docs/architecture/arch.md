@@ -96,8 +96,10 @@ per-task thread pointer, restored on every context switch.
 - `syscall` does not switch stacks, so the stub moves to the task's kernel stack
   (`KERNEL_STACK`, updated alongside TSS `RSP0`) and pushes user `rsp/rflags/rip`
   plus all callee-saved user registers.
-- No `swapgs`: tasks may block inside a syscall (futex) and be switched out, so
-  GS-based per-task state would desynchronize.
+- `swapgs` first and right before `sysretq`/`iretq` (`arch/gsgate.rs`): the
+  GS base in ring 0 is the CPU's per-CPU area, never per-task state (tasks
+  block inside syscalls and resume elsewhere), and ring 3's own GS base —
+  which it can zero by loading a selector — is never trusted.
 - `USER_CONTEXT` snapshots entry registers for `clone`; `set_user_return` and
   `set_saved_register` let `execve` and signal delivery rewrite the return path.
 - `saved_user_rsp` reads the return stack, not the global snapshot, so a blocked

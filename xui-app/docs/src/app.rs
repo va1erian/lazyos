@@ -1,13 +1,15 @@
-//! The Docs window: a slim toolbar (an Open button and the current path) above the page, and the
-//! Open dialog behind the button and `Ctrl+O`. The page is a light view of `webd` (WebKit): one view
-//! for the whole life of the window, every document a new page in it.
+//! The Docs window: a slim toolbar (Open, Back, Forward, Home and the current path) above the page,
+//! and the Open dialog behind the button and `Ctrl+O`. The page is a light view of `webd` (WebKit):
+//! one view for the whole life of the window, every document a new page in it. Back and Forward
+//! (`Alt+Left`, `Alt+Right`) walk the documents visited, Home shows the documentation index.
 //!
 //! Serial evidence (the screenshot sessions wait on it): `DOCS:RENDER:PASS` once the welcome page's
 //! first frame has been painted, `DOCS:OPEN:PASS:<path>` after a document loads and
 //! `DOCS:RENDER:PASS:<path>` once *its* page has painted (the first marker says nothing about it),
 //! `DOCS:OPEN:FAIL:<path>` when it cannot be read, `DOCS:LINK:<href>` on a link click (then
 //! `DOCS:LINK:OPEN:<path>`, `DOCS:LINK:URL:<url>` or `DOCS:LINK:REFUSED:<href>` for what was done with
-//! it) and `DOCS:ENGINE:UP` / `DOCS:ENGINE:FAIL:<why>` when the web engine comes and goes.
+//! it), `DOCS:NAV:PASS:<back|forward|home>:<path>` when Back, Forward or Home moved to a page and
+//! `DOCS:ENGINE:UP` / `DOCS:ENGINE:FAIL:<why>` when the web engine comes and goes.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -22,6 +24,7 @@ use xui_core::backend::Result;
 use xui_core::layout::Insets;
 use xui_core::widget::{FileDialog, HasText, Label, StdFileSystem};
 use xui_core::{Color, Dip, Key, Rect};
+use xui_docs::history::{History, Place};
 use xui_docs::links::{classify, Link};
 use xui_docs::{error_page, load_file, themed};
 use xui_webd_client::Status;
@@ -53,6 +56,12 @@ pub enum Msg {
     OpenChosen(PathBuf),
     /// The dialog was cancelled.
     DialogClosed,
+    /// The Back button or `Alt+Left`.
+    Back,
+    /// The Forward button or `Alt+Right`.
+    Forward,
+    /// The Home button: the documentation index.
+    Home,
 }
 
 /// The window's widgets and state.
@@ -68,6 +77,9 @@ pub struct Docs {
     /// page, the path for a document); `None` once reported.
     render_marker: Option<String>,
     dark: bool,
+    /// The welcome page, shown again by Back.
+    welcome: String,
+    history: History,
 }
 
 impl Docs {
@@ -86,6 +98,9 @@ impl Docs {
                     .padding(Insets::symmetric(Dip(8.0), Dip(5.0)))
                     .children((
                         button("Open...").on_click(Msg::Open).width(Dip(92.0)),
+                        button("Back").on_click(Msg::Back).width(Dip(56.0)),
+                        button("Forward").on_click(Msg::Forward).width(Dip(72.0)),
+                        button("Home").on_click(Msg::Home).width(Dip(56.0)),
                         label("").bind(&path_label).align_y(Align::Center).fill(1),
                     ))
                     .fixed(Dip(TOOLBAR_H)),
@@ -120,11 +135,21 @@ impl Docs {
 
         let hotkey_gate = Rc::clone(&dialog_open);
         ui.on_key(move |key, modifiers| {
+            if hotkey_gate.get() {
+                return None;
+            }
+            if modifiers.alt {
+                match key {
+                    Key::LEFT => return Some(Msg::Back),
+                    Key::RIGHT => return Some(Msg::Forward),
+                    _ => {}
+                }
+            }
             let command = modifiers.ctrl || modifiers.win;
-            (command && key == Key::O && !hotkey_gate.get()).then_some(Msg::Open)
+            (command && key == Key::O).then_some(Msg::Open)
         });
 
-        view.set_html(themed(html, dark));
+        view.set_html(themed(html.clone(), dark));
         // Arrow keys and `PageDown` scroll the page from the start, no click needed.
         view.focus();
         let mut docs = Docs {
@@ -135,6 +160,8 @@ impl Docs {
             current: None,
             render_marker: Some(String::new()),
             dark,
+            welcome: html,
+            history: History::default(),
         };
         docs.show(ui, path);
         Ok(docs)
@@ -160,8 +187,24 @@ impl Docs {
         self.current = path;
     }
 
-    /// Shows the document at `path` in the page, or the reason it cannot be read.
-    pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) {
+    /// Shows the document at `path` in the page, or the reason it cannot be read. What was on show
+    /// goes into the history, unless it is the same document. Returns whether it was read.
+    pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) -> bool {
+        if self.current.as_deref() != Some(path.as_path()) {
+            self.history.visit(self.place());
+        }
+        self.load(ui, path)
+    }
+
+    /// Where the window is now, for the history.
+    fn place(&self) -> Place {
+        Place {
+            path: self.current.clone(),
+        }
+    }
+
+    /// Replaces the page with the document at `path` (no history). Returns whether it was read.
+    fn load(&mut self, ui: &mut Ui<Msg>, path: PathBuf) -> bool {
         let shown = path.display();
         let (html, opened) = match load_file(&path) {
             Ok(html) => (html, true),
@@ -175,6 +218,41 @@ impl Docs {
             trace::fail!(Channel::Docs, "OPEN", "{shown}");
         }
         self.show(ui, Some(path.clone()));
+        opened
+    }
+
+    /// Shows the welcome page again (no history).
+    fn load_welcome(&mut self, ui: &mut Ui<Msg>) {
+        self.view.set_html(themed(self.welcome.clone(), self.dark));
+        self.render_marker = Some(String::new());
+        self.show(ui, None);
+    }
+
+    /// Back (`forward` false) or Forward through the documents visited.
+    fn step(&mut self, ui: &mut Ui<Msg>, forward: bool) {
+        let here = self.place();
+        let target = if forward {
+            self.history.forward(here)
+        } else {
+            self.history.back(here)
+        };
+        let Some(place) = target else { return };
+        let shown = place
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let loaded = match place.path {
+            Some(path) => self.load(ui, path),
+            None => {
+                self.load_welcome(ui);
+                true
+            }
+        };
+        if loaded {
+            let name = if forward { "forward" } else { "back" };
+            trace::pass!(Channel::Docs, "NAV", "{name}:{shown}");
+        }
     }
 
     /// What a click on `href` does (`xui_docs::links`).
@@ -244,6 +322,14 @@ impl App for Docs {
                 self.open(ui, path);
             }
             Msg::DialogClosed => self.dialog_open.set(false),
+            Msg::Back => self.step(ui, false),
+            Msg::Forward => self.step(ui, true),
+            Msg::Home => {
+                let index = fhs::docs::INDEX;
+                if self.open(ui, PathBuf::from(index)) {
+                    trace::pass!(Channel::Docs, "NAV", "home:{index}");
+                }
+            }
         }
     }
 }

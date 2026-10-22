@@ -697,7 +697,7 @@ loader, also a capability-gated syscall: defence in depth) always;
 `os.lazy.net.socket.v1`, `os.lazy.net.stack.v1` (name lookups and ping need no
 socket) and `os.lazy.mount.v1` (file-server mounts) unless `network =
 ["outbound"]`. A plain tool is therefore eight denies and the allow-all, nine
-rules (the Playground's `PKGD:POLICY:PASS ... rules=9`); `outbound` removes
+rules (the Playground's `PKGD:POLICY:PASS ... rules=11`); `outbound` removes
 three and `develop` one. The kernel's raw `AF_INET` gate follows the same
 rule for the socket service (`confine::may_open_inet`), so a tool's own native
 code gets no socket either unless `network` is declared. No

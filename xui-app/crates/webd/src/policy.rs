@@ -79,6 +79,17 @@ pub fn scheme(url: &str) -> Option<String> {
     Some(scheme.to_ascii_lowercase())
 }
 
+/// Whether `url` may be the base of the client's own page (`LoadHtml`): `about:`, `data:`, `http:` or
+/// `https:`, the schemes the engine's `load_html` accepts. Never `blob:`, which `kind` calls local but
+/// which carries the origin of whoever made it (`blob:https://bank.example/x` is that site), nor any
+/// other scheme: the engine's own allowlist (`loadFullHtml`) is a second wall, not the only one.
+pub fn may_be_page_base(url: &str) -> bool {
+    matches!(
+        scheme(url).as_deref(),
+        Some("about" | "data" | "http" | "https")
+    )
+}
+
 pub fn kind(url: &str) -> Kind {
     match scheme(url).as_deref() {
         Some("about" | "data" | "blob") => Kind::Local,
@@ -271,6 +282,32 @@ mod tests {
                 assert_eq!(p.decide(url, true, true, true), Verdict::Deny, "{url}");
                 assert!(!p.client_may_load(url));
             }
+        }
+    }
+
+    #[test]
+    fn a_page_base_is_about_data_http_or_https_and_never_a_blob() {
+        for ok in [
+            "about:blank",
+            "ABOUT:srcdoc",
+            "data:text/html,x",
+            "http://a.test/",
+            "HTTPS://a.test/x",
+        ] {
+            assert!(may_be_page_base(ok), "{ok}");
+        }
+        for bad in [
+            "blob:https://bank.example/uuid",
+            "blob:null/1",
+            "BLOB:http://a/1",
+            "file:///etc/",
+            "javascript:alert(1)",
+            "mailto:a@b",
+            "ftp://a.test/",
+            "nonsense",
+            "",
+        ] {
+            assert!(!may_be_page_base(bad), "{bad}");
         }
     }
 

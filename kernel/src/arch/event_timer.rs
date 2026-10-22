@@ -32,9 +32,11 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
-use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::idt::InterruptStackFrameValue;
 
 use super::{clock, lapic};
+
+crate::arch::gsgate::irq_gate!(event_timer_gate => handler);
 
 /// The deadline timer's vector, next to the APIC tick's.
 pub const VECTOR: u8 = lapic::TIMER_VECTOR + 1;
@@ -155,7 +157,8 @@ pub fn program(next: Option<u64>, now: u64) {
 /// lock, so it would spin forever with interrupts off. The deadline is then
 /// honoured by the next ordinary tick, whose scheduler entry expires it and
 /// re-arms the timer (now idle), as the window's PIT tick already defers.
-pub extern "x86-interrupt" fn handler(_stack: InterruptStackFrame) {
+/// Its IDT entry is `event_timer_gate` (`arch::gsgate`).
+extern "C" fn handler(_stack: &InterruptStackFrameValue) {
     // The timer is idle now; whatever expiry decides re-arms it.
     ARMED.store(u64::MAX, Ordering::Relaxed);
     lapic::eoi();

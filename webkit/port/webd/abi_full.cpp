@@ -89,6 +89,8 @@ bool fullConfig(const webd_view_config& local, ViewConfig& vc, bool& deltas)
         say("FULL:REFUSED:no_network with content blocking (the lists' rebuilds would drop the lock)");
         return false;
     }
+    // Absent in an older caller's struct: its own profile (0), as before the field existed.
+    vc.storeKind = covers(local, offsetof(webd_view_config, store_kind), sizeof local.store_kind) ? local.store_kind : WEBD_STORE_OWN;
     deltas = covers(local, offsetof(webd_view_config, deltas), sizeof local.deltas) && local.deltas == 1;
     if (covers(local, offsetof(webd_view_config, user_agent_suffix), sizeof local.user_agent_suffix) && local.user_agent_suffix
         && *local.user_agent_suffix && !cleanSuffix(local.user_agent_suffix, vc.userAgentSuffix))

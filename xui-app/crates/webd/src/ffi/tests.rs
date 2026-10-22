@@ -50,6 +50,18 @@ pub unsafe extern "C" fn webd_engine_view_create(view: u64, config: *const WebdV
         c.default_font_size,
         unsafe { s(c.user_style) }
     ));
+    if c.light == 0 {
+        log(format!(
+            "full {view} features={} profile={} memory_only={} deltas={} suffix={} no_network={} store={}",
+            c.features,
+            unsafe { s(c.profile) },
+            c.memory_only,
+            c.deltas,
+            unsafe { s(c.user_agent_suffix) },
+            c.no_network,
+            c.store_kind
+        ));
+    }
 }
 
 #[no_mangle]
@@ -149,7 +161,8 @@ pub unsafe extern "C" fn webd_engine_children(web: *mut c_int, network: *mut c_i
 
 #[test]
 fn the_view_config_has_the_headers_layout() {
-    // webkit/port/webd/webd_abi.h: eight 4-byte integers, then the pointer.
+    // webkit/port/webd/webd_abi.h: eight 4-byte integers, then the pointer, then (P2 slice 3 and the review of
+    // 2026-10-22, append-only) the full views' fields.
     assert_eq!(offset_of!(WebdViewConfig, struct_size), 0);
     assert_eq!(offset_of!(WebdViewConfig, light), 4);
     assert_eq!(offset_of!(WebdViewConfig, scripts), 8);
@@ -160,10 +173,24 @@ fn the_view_config_has_the_headers_layout() {
     assert_eq!(offset_of!(WebdViewConfig, default_font_size), 28);
     assert_eq!(offset_of!(WebdViewConfig, user_style), 32);
     assert_eq!(align_of::<WebdViewConfig>(), align_of::<*const c_char>());
+    // The appended fields keep their place: a caller's older, shorter struct stays valid (struct_size).
     #[cfg(target_pointer_width = "64")]
-    assert_eq!(size_of::<WebdViewConfig>(), 40);
+    {
+        assert_eq!(offset_of!(WebdViewConfig, features), 40);
+        assert_eq!(offset_of!(WebdViewConfig, profile), 48);
+        assert_eq!(offset_of!(WebdViewConfig, memory_only), 56);
+        assert_eq!(offset_of!(WebdViewConfig, deltas), 60);
+        assert_eq!(offset_of!(WebdViewConfig, user_agent_suffix), 64);
+        assert_eq!(offset_of!(WebdViewConfig, no_network), 72);
+        assert_eq!(offset_of!(WebdViewConfig, store_kind), 76);
+        assert_eq!(size_of::<WebdViewConfig>(), 80);
+    }
     #[cfg(target_pointer_width = "32")]
-    assert_eq!(size_of::<WebdViewConfig>(), 36);
+    {
+        assert_eq!(offset_of!(WebdViewConfig, features), 36);
+        assert_eq!(offset_of!(WebdViewConfig, store_kind), 60);
+        assert_eq!(size_of::<WebdViewConfig>(), 64);
+    }
 }
 
 // One test drives everything that touches the global sink and the stub log, so tests that run in
@@ -185,6 +212,7 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
             color_scheme: 1,
             default_font_size: 18,
             user_style: "p{}".into(),
+            full: None,
         },
     );
     engine.view_create(
@@ -195,6 +223,22 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
             ..EngineConfig::default()
         },
     );
+    // A private window's store reaches the engine as its own store kind, the client's own profile as 0.
+    for (view, private_store) in [(7, true), (8, false)] {
+        engine.view_create(
+            view,
+            &EngineConfig {
+                width: 1,
+                height: 1,
+                full: Some(crate::engine::FullConfig {
+                    private_store,
+                    memory_only: true,
+                    ..Default::default()
+                }),
+                ..EngineConfig::default()
+            },
+        );
+    }
     engine.load_html(5, b"<p>hi</p>", "about:blank");
     engine.resize(5, 640, 480);
     engine.set_visible(5, false);
@@ -212,6 +256,12 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
         vec![
             format!("create 5 size={size} light=1 scripts=1 320x200 group=3 scheme=1 font=18 style=p{{}}"),
             format!("create 6 size={size} light=1 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
+            format!("create 7 size={size} light=0 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
+            "full 7 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=1"
+                .to_string(),
+            format!("create 8 size={size} light=0 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
+            "full 8 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=0"
+                .to_string(),
             "html 5 <p>hi</p> base=about:blank".to_string(),
             "resize 5 640x480".to_string(),
             "visible 5 0".to_string(),

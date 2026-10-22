@@ -77,25 +77,16 @@
 
 use super::*;
 
-/// A wake made a task more deserving of the CPU than the current one.
-static NEED_RESCHED: AtomicBool = AtomicBool::new(false);
-/// Set by [`preempt_point`] for the yield it makes: the scheduler entry that
-/// follows is a preemption, not a park or a voluntary yield.
-static PREEMPTING: AtomicBool = AtomicBool::new(false);
-/// The task whose last selection charge is still open (not yet refunded or
-/// superseded by another selection), and when it was charged (monotonic ns).
-static SELECTED: AtomicUsize = AtomicUsize::new(usize::MAX);
-static SELECTED_AT: AtomicU64 = AtomicU64::new(0);
-/// The end of the selected task's minimum slice (monotonic ns).
-static SLICE_END: AtomicU64 = AtomicU64::new(0);
-/// When a deserving same-class wake deferred by the minimum slice falls due
-/// (monotonic ns; 0: none pending).
-static DEFERRED: AtomicU64 = AtomicU64::new(0);
+/// The per-CPU preemption state (`arch::percpu::PreemptState`): a shorthand
+/// so the bodies below read as before.
+macro_rules! state {
+    () => {
+        &crate::arch::percpu::current().preempt
+    };
+}
+
 /// The least CPU time a selection guarantees against same-class wakes.
 pub(super) const MIN_SLICE_NS: u64 = NS_PER_TICK / MIN_CHARGE_DIV;
-/// The pending handoff: the task that will park, and the one to run then.
-static HANDOFF_FROM: AtomicUsize = AtomicUsize::new(usize::MAX);
-static HANDOFF_TO: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 /// Record that `woken` became runnable while `cur` is on the CPU, raising the
 /// flag if it should run before the next tick. Called with the task table
@@ -131,7 +122,7 @@ pub(super) fn note_wake(tasks: &[Option<Task>; MAX_TASKS], woken: usize, cur: us
         _ => true,
     };
     if outranks {
-        NEED_RESCHED.store(true, Ordering::Relaxed);
+        state!().need_resched.store(true, Ordering::Relaxed);
     }
     false
 }
@@ -140,40 +131,58 @@ pub(super) fn note_wake(tasks: &[Option<Task>; MAX_TASKS], woken: usize, cur: us
 /// selection of its own on record (it woke on an idle CPU) gets a full slice
 /// from now.
 fn slice_left(cur: usize) -> bool {
-    SELECTED.load(Ordering::Relaxed) != cur
-        || crate::arch::clock::monotonic_ns() < SLICE_END.load(Ordering::Relaxed)
+    let state = state!();
+    state.selected.load(Ordering::Relaxed) as usize != cur
+        || crate::arch::clock::monotonic_ns() < state.slice_end.load(Ordering::Relaxed)
 }
 
 /// Defer a deserving same-class wake to the end of `cur`'s slice, keeping the
 /// earliest pending one. Returns whether the timer must be (re)armed.
 fn defer(cur: usize) -> bool {
-    let due = if SELECTED.load(Ordering::Relaxed) == cur {
-        SLICE_END.load(Ordering::Relaxed)
+    let state = state!();
+    let due = if state.selected.load(Ordering::Relaxed) as usize == cur {
+        state.slice_end.load(Ordering::Relaxed)
     } else {
         crate::arch::clock::monotonic_ns().saturating_add(MIN_SLICE_NS)
     }
     .max(1);
-    let pending = DEFERRED.load(Ordering::Relaxed);
+    let pending = state.deferred.load(Ordering::Relaxed);
     if pending != 0 && pending <= due {
         return false;
     }
-    DEFERRED.store(due, Ordering::Relaxed);
+    state.deferred.store(due, Ordering::Relaxed);
     true
+}
+
+/// A selection is being made: whatever raised the flag, or was deferred, is
+/// accounted for.
+pub(super) fn clear() {
+    let state = state!();
+    state.need_resched.store(false, Ordering::Relaxed);
+    state.deferred.store(0, Ordering::Relaxed);
+}
+
+/// Whether a wake asked for a reschedule that has not happened yet.
+#[allow(dead_code)] // test hook
+pub fn pending() -> bool {
+    state!().need_resched.load(Ordering::Relaxed)
 }
 
 /// Test hook: record `slot` as selected now, with its minimum slice ending
 /// at `slice_end` (monotonic ns), so a test can stage a running task inside
 /// or past its slice.
 #[cfg(lazyos_tests)]
-pub(super) fn set_selected(slot: usize, slice_end: u64) {
-    SELECTED.store(slot, Ordering::Relaxed);
-    SELECTED_AT.store(crate::arch::clock::monotonic_ns(), Ordering::Relaxed);
-    SLICE_END.store(slice_end, Ordering::Relaxed);
+pub(crate) fn set_selected(slot: usize, slice_end: u64) {
+    let now = crate::arch::clock::monotonic_ns();
+    let state = state!();
+    state.selected.store(slot as u64, Ordering::Relaxed);
+    state.selected_at.store(now, Ordering::Relaxed);
+    state.slice_end.store(slice_end, Ordering::Relaxed);
 }
 
 /// The deferred preemption's due time, for the deadline timer.
 pub(super) fn deferred() -> Option<u64> {
-    match DEFERRED.load(Ordering::Relaxed) {
+    match state!().deferred.load(Ordering::Relaxed) {
         0 => None,
         due => Some(due),
     }
@@ -181,21 +190,8 @@ pub(super) fn deferred() -> Option<u64> {
 
 /// Whether a deferred preemption is due now.
 fn deferred_due() -> bool {
-    let due = DEFERRED.load(Ordering::Relaxed);
+    let due = state!().deferred.load(Ordering::Relaxed);
     due != 0 && crate::arch::clock::monotonic_ns() >= due
-}
-
-/// A selection is being made: whatever raised the flag, or was deferred, is
-/// accounted for.
-pub(super) fn clear() {
-    NEED_RESCHED.store(false, Ordering::Relaxed);
-    DEFERRED.store(0, Ordering::Relaxed);
-}
-
-/// Whether a wake asked for a reschedule that has not happened yet.
-#[allow(dead_code)] // test hook
-pub fn pending() -> bool {
-    NEED_RESCHED.load(Ordering::Relaxed)
 }
 
 /// Give the CPU away if a wake asked for it.
@@ -211,8 +207,9 @@ pub fn preempt_point() {
     if crate::arch::irq_window::is_open() {
         return;
     }
-    if NEED_RESCHED.load(Ordering::Relaxed) || deferred_due() {
-        PREEMPTING.store(true, Ordering::Relaxed);
+    let state = state!();
+    if state.need_resched.load(Ordering::Relaxed) || deferred_due() {
+        state.preempting.store(true, Ordering::Relaxed);
         switch::yield_now();
     }
 }
@@ -220,21 +217,26 @@ pub fn preempt_point() {
 /// Whether this scheduler entry is the yield of a [`preempt_point`]
 /// (consumed: the flag covers one entry).
 pub(super) fn take_preempting() -> bool {
-    PREEMPTING.swap(false, Ordering::Relaxed)
+    state!().preempting.swap(false, Ordering::Relaxed)
 }
 
 /// `slot` was just selected and charged a quantum: start timing its use.
 pub(super) fn note_selected(slot: usize) {
     let now = crate::arch::clock::monotonic_ns();
-    SELECTED_AT.store(now, Ordering::Relaxed);
-    SLICE_END.store(now.saturating_add(MIN_SLICE_NS), Ordering::Relaxed);
-    SELECTED.store(slot, Ordering::Relaxed);
+    let state = state!();
+    state.selected_at.store(now, Ordering::Relaxed);
+    state
+        .slice_end
+        .store(now.saturating_add(MIN_SLICE_NS), Ordering::Relaxed);
+    state.selected.store(slot as u64, Ordering::Relaxed);
 }
 
 /// When `cur`'s open charge was made, if it has one: read it before the
 /// next selection replaces it. A charge is refunded at most once.
 pub(super) fn open_charge(cur: usize) -> Option<u64> {
-    (SELECTED.load(Ordering::Relaxed) == cur).then(|| SELECTED_AT.load(Ordering::Relaxed))
+    let state = state!();
+    (state.selected.load(Ordering::Relaxed) as usize == cur)
+        .then(|| state.selected_at.load(Ordering::Relaxed))
 }
 
 /// The least share of a quantum a selection costs, as a divisor: a run is
@@ -260,19 +262,24 @@ pub(super) fn refund(tasks: &mut [Option<Task>; MAX_TASKS], slot: usize, charged
 /// Messenger fabric calls this when a call wakes its callee and when a reply
 /// wakes its caller.
 pub fn hand_off(to: usize) {
-    HANDOFF_FROM.store(super::current(), Ordering::Relaxed);
-    HANDOFF_TO.store(to, Ordering::Relaxed);
+    let state = state!();
+    state
+        .handoff_from
+        .store(super::current() as u64, Ordering::Relaxed);
+    state.handoff_to.store(to as u64, Ordering::Relaxed);
 }
 
 /// The handoff target for this scheduler entry of `cur`, if `cur` recorded
 /// one and is now parked, the target is runnable, and no runnable task of a
 /// higher class would be passed over. Every entry consumes the record.
 pub(super) fn take_handoff(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Option<usize> {
-    let from = HANDOFF_FROM.swap(usize::MAX, Ordering::Relaxed);
-    let to = HANDOFF_TO.load(Ordering::Relaxed);
-    if from != cur || to == cur || to >= MAX_TASKS {
+    let state = state!();
+    let from = state.handoff_from.swap(u64::MAX, Ordering::Relaxed);
+    let to = state.handoff_to.load(Ordering::Relaxed);
+    if from != cur as u64 || to == cur as u64 || to as usize >= MAX_TASKS {
         return None;
     }
+    let to = to as usize;
     let parked = tasks[cur]
         .as_ref()
         .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }));

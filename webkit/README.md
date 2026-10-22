@@ -352,7 +352,10 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   cannot be made is refused, not silently kept in memory); `memory_only`, `deltas`, `group` as the header says;
   `scripts = 0` turns script off (preferences are touched only when something is asked: scripts off, a font
   size, a suffix); `user_style` is a user script that appends a `<style>` (scripts on only, else
-  `CONFIG:IGNORED:user_style`); `color_scheme = 1` is `CONFIG:IGNORED` as for a light view.
+  `CONFIG:IGNORED:user_style`); `color_scheme = 1` is `CONFIG:IGNORED` as for a light view; `store_kind` (`WEBD_STORE_OWN` 0, `WEBD_STORE_PRIVATE` 1,
+  appended to the struct) is part of the group-mate match beside the group, the profile directory, `memory_only`,
+  `light` and `no_network`: the client's own in-memory profile and its private windows differ in nothing else, and
+  without it the second was a related page of the first and shared its cookies (`webd-abi-test store`).
 * *The client's own page.* `load_html` on a full view is `loadFullHtml` (`fullview.cpp`): the bytes as
   `WKPageLoadData`, UTF-8 `text/html`, under a base whose scheme (as WebKit parses it) is `about`, `data`, `http` or
   `https`; anything else (`file:`) loads nothing and the next page state carries an error (`FULL:BASE:REFUSED`).
@@ -400,7 +403,7 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   page reloads in a fresh one, or stays stopped (`LOST_OTHER`); a process other views share is left alone.
 
 ```bash
-LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify nonet
+LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify nonet store
 ```
 
 | mode | what it asserts |
@@ -415,6 +418,7 @@ LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkP
 | `blocking` | a rule list compiled into the profile blocks `blocked.png` (the server never sees it, `blocked == 1`); a list never stored is `NOT_STORED`; a page the service excepts requests it; a forgotten list blocks nothing |
 | `nonet` | a control full view's page (`@import`, `<img>`, fetch, XHR, a script's picture) reaches the server; the same page in a `no_network` view (scripts on, `about:blank` base) makes no request; a denied link is asked and requests nothing; an allowed link and an allowed `load` are blocked by the lock (error, no request); an inert page still loads; `no_network` with blocking is refused |
 | `notify` | two views of one origin ask; one allowed, the other still pending, then dismissed (`denied`); the allowed page's notification is shown with its origin, title and body, and hears shown and clicked |
+| `store` | the same client's own in-memory profile (`store_kind` 0) and private window (1), both in one non-zero group with no folder and `memory_only`: a cookie set in the own profile is sent by a second own view (the control) and not by the private window; a private window's cookie is sent by a second private window and not by the own profile |
 
 ### The program: `webd-app`
 

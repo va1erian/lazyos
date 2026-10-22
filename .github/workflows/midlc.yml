@@ -58,7 +58,7 @@ jobs:
       # (`docs/rhai/msg.md`) and the `sys::*` Rhai modules
       # (`libs/rhai-lazy/api/README.md`) are all generated from `idl/`.
       - name: Generated stubs, schema and Rhai API are up to date
-        run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api --manifest idl/manifest.json --docs docs/idl idl/*.midl
+        run: python tools/midlc/midlc.py --check --out libs/generated/src/lib.rs --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api libs/rhai-lazy/api --rhai-docs docs/rhai/api --manifest idl/manifest.json --docs docs/idl idl/*.midl
 
       # The interface id checked at bind time hashes only the `.vN` name, so
       # this schema diff is the real compatibility test (docs/update-plan.md

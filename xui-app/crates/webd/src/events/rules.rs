@@ -24,6 +24,9 @@ pub struct ViewRules {
     pub downloads: Option<Arc<Saver>>,
     /// The client wants `NewWindowRequested`; without, a page's `window.open` is not even queued.
     pub popups: bool,
+    /// Who the view belongs to, for the shared saver's per-client limit on downloads under way (the
+    /// client's web process group: one number per client, never reused).
+    pub owner: u64,
 }
 
 /// A profile's content-blocking switch and the hosts it is off for (`SetBlocking`).
@@ -203,7 +206,7 @@ impl Table {
         let entry = self.views.get_mut(&view)?;
         let saver = entry.rules.downloads.clone()?;
         let destination = saver
-            .reserve(download_key(view, download), suggested)
+            .reserve_for(entry.rules.owner, download_key(view, download), suggested)
             .ok()?;
         entry.downloads.insert(download);
         Some(destination)
@@ -312,6 +315,7 @@ mod tests {
             blocking,
             downloads: None,
             popups: false,
+            owner: 1,
         }
     }
 

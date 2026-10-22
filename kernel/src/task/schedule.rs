@@ -76,7 +76,7 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     #[cfg(lazyos_tests)]
     harness::note_entry_flags();
     let preempted = preempt::take_preempting() && !tick;
-    let cur = CURRENT.load(Ordering::Relaxed);
+    let cur = current();
     if tick {
         diag::note_tick(cur, current_rsp);
         #[cfg(lazyos_tests)]
@@ -218,7 +218,7 @@ fn resume(mut next: usize, cur: usize) -> u64 {
 /// Make `slot` the current task: its address space, the ring-0 stack the next
 /// user trap uses, and its thread pointer. Returns its saved `rsp`.
 fn install(slot: usize) -> u64 {
-    let prev = CURRENT.load(Ordering::Relaxed);
+    let prev = current();
     let (pml4, kstack_top, rsp, fs_base, prev_runnable) = {
         let tasks = TASKS.lock();
         // INVARIANT: `slot` came from `select_next` (or is the interrupted
@@ -236,7 +236,7 @@ fn install(slot: usize) -> u64 {
             runnable(&tasks, prev),
         )
     };
-    CURRENT.store(slot, Ordering::Relaxed);
+    set_current(slot);
     crate::perf::on_run(slot, prev, prev_runnable);
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
@@ -363,9 +363,5 @@ pub fn itimer_changed() {
 /// if `periods` ticks landed in ring 3 (`user`) or ring 0.
 #[cfg(lazyos_tests)]
 pub fn itimer_tick_for_test(periods: u64, user: bool) {
-    itimer_tick(
-        CURRENT.load(Ordering::Relaxed),
-        periods,
-        if user { 3 } else { 0 },
-    );
+    itimer_tick(current(), periods, if user { 3 } else { 0 });
 }
