@@ -10,6 +10,7 @@
 use super::msr;
 use super::percpu;
 use core::arch::global_asm;
+use core::sync::atomic::Ordering;
 
 /// User register state captured at `syscall` entry. Linux preserves these across
 /// the syscall, so `clone` can build the child thread's first frame from them.
@@ -57,14 +58,14 @@ impl UserContext {
 
 /// Snapshot of the registers at the current CPU's last `syscall` entry.
 pub fn user_context() -> UserContext {
-    percpu::current().syscall.user_context
+    percpu::user_context()
 }
 
 /// Replace the captured context (after `rt_sigreturn` restores a frame, the
 /// next signal delivery must build on the restored registers, not the
 /// `rt_sigreturn` entry state).
 pub fn set_user_context(context: UserContext) {
-    percpu::current().syscall.user_context = context;
+    percpu::set_user_context(context);
 }
 
 /// The user RSP `linux_syscall_entry` saved for the in-progress syscall. Read
@@ -73,7 +74,7 @@ pub fn set_user_context(context: UserContext) {
 pub fn saved_user_rsp() -> u64 {
     // Safety: we are inside the syscall, on this CPU's syscall stack (read
     // through `%gs`; only this CPU touches its area).
-    unsafe { *((percpu::current().syscall.stack as *const u64).offset(-1)) }
+    unsafe { *((syscall_stack() as *const u64).offset(-1)) }
 }
 
 /// Saved user registers `linux_syscall_entry` will reload before `sysretq`,
@@ -84,7 +85,7 @@ pub fn set_saved_register(slot: usize, value: u64) {
     // Safety: the pushes sit at fixed offsets below the kernel stack top,
     // and we are inside the syscall on this task's stack.
     unsafe {
-        let top = percpu::current().syscall.stack as *mut u64;
+        let top = syscall_stack() as *mut u64;
         *top.offset(-4 - slot as isize) = value;
     }
 }
@@ -315,18 +316,18 @@ extern "C" {
 #[cfg(lazyos_tests)]
 pub fn probe_entry(nr: u64, r9: u64, stack_top: u64) -> (u64, u64) {
     let context = user_context();
-    let syscall = &mut percpu::current().syscall;
-    let stack = syscall.stack;
-    let user_rsp = syscall.saved_user_rsp;
-    syscall.stack = stack_top;
+    let syscall = &percpu::current().syscall;
+    let stack = syscall.stack.load(Ordering::Relaxed);
+    let user_rsp = syscall.saved_user_rsp.load(Ordering::Relaxed);
+    syscall.stack.store(stack_top, Ordering::Relaxed);
     // SAFETY: the probe is the real entry body; the state it touches is
     // restored below, and interrupts are off (no per-CPU state can change).
     unsafe {
         lazyos_entry_probe(nr, r9);
     }
-    let syscall = &mut percpu::current().syscall;
-    syscall.stack = stack;
-    syscall.saved_user_rsp = user_rsp;
+    let syscall = &percpu::current().syscall;
+    syscall.stack.store(stack, Ordering::Relaxed);
+    syscall.saved_user_rsp.store(user_rsp, Ordering::Relaxed);
     set_user_context(context);
     // SAFETY: statics the probe's asm wrote, single-CPU, interrupts off.
     unsafe { (PROBE_RSP, PROBE_A6) }
@@ -364,7 +365,15 @@ pub fn init() {
 
 /// Update the kernel stack the next Linux syscall on this CPU switches to.
 pub fn set_kernel_stack(top: u64) {
-    percpu::current().syscall.stack = top;
+    percpu::current()
+        .syscall
+        .stack
+        .store(top, Ordering::Relaxed);
+}
+
+/// The kernel stack top this CPU's Linux `syscall` entry switched to.
+fn syscall_stack() -> u64 {
+    percpu::current().syscall.stack.load(Ordering::Relaxed)
 }
 
 /// Make the in-progress syscall return through `iretq` with `rcx` and `r11`
@@ -376,7 +385,7 @@ pub fn set_full_return(rcx: u64, r11: u64) {
     // Safety: the three slots sit at fixed offsets below the saved registers
     // (see `ENTRY_PUSHED_QWORDS`), on this task's stack.
     unsafe {
-        let top = percpu::current().syscall.stack as *mut u64;
+        let top = syscall_stack() as *mut u64;
         *top.offset(-4 - 12) = 1;
         *top.offset(-4 - 13) = rcx;
         *top.offset(-4 - 14) = r11;
@@ -390,13 +399,14 @@ pub fn set_full_return(rcx: u64, r11: u64) {
 pub fn set_user_return(rip: u64, rsp: u64, rflags: u64) {
     // Safety: we are inside the syscall, on this task's stack.
     unsafe {
-        let top = percpu::current().syscall.stack as *mut u64;
+        let top = syscall_stack() as *mut u64;
         *top.offset(-3) = rip;
         *top.offset(-2) = rflags;
         *top.offset(-1) = rsp;
-        let context = &mut percpu::current().syscall.user_context;
-        context.rip = rip;
-        context.rsp = rsp;
-        context.rflags = rflags;
     }
+    let mut context = percpu::user_context();
+    context.rip = rip;
+    context.rsp = rsp;
+    context.rflags = rflags;
+    percpu::set_user_context(context);
 }

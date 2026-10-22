@@ -68,6 +68,16 @@ A new ring-3-reachable vector must use `irq_gate!`/`paranoid_gate!`, and
 double-fault and NMI stacks, the preemption/irq-window state, the IPI mailboxes
 (`IpiState`) and, in test kernels only, the job mailbox.
 
+`percpu::current()` and `percpu::area(i)` return **`&'static Cpu`**, never
+`&mut`: the owning CPU, an interrupt handler re-entering it and (S8.3) a
+remote waker hold one at the same time. Every member is an atomic or an
+`UnsafeCell` (same layout, so the asm's `gs:` offsets and the
+`percpu_entry_asm_offsets_match_the_layout` pin are unchanged); the
+non-atomic ones have one accessor each that states who may touch them:
+`set_rsp0` (the TSS, its own CPU), `user_context`/`set_user_context` (by
+value, its own CPU), `gdt::init_cpu` (TSS and GDT, before the CPU runs on
+them). The stacks are cells too, reached only by their top addresses.
+
 ### TSC gates
 
 Two, deliberately separate (the invariance one alone would have disarmed every
@@ -177,9 +187,6 @@ flush and logs how many APs kept the stale translation, so the others can fail.
 
 ## Known gaps (must close before S8.3)
 
-- `percpu::current()` returns `&'static mut Cpu`: two live `&mut` to one area
-  are formally UB (no miscompile seen). Return `&'static Cpu` and reach the few
-  non-atomic fields through raw accessors.
 - One shootdown sender at a time (above); the two-write xAPIC ICR send needs
   the same serialization.
 - Nested NMIs on the IST stack, and an NMI between SIPI and `ap_entry`'s IDT

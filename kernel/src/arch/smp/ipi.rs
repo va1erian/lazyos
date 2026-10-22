@@ -57,7 +57,7 @@ pub fn run_on(index: usize, job: fn(u64) -> u64, arg: u64) -> Option<u64> {
     let before = cpu.ipi.job_done.load(Ordering::Acquire);
     cpu.ipi.job_arg.store(arg, Ordering::Release);
     cpu.ipi.job.store(job as usize as u64, Ordering::Release);
-    lapic::send_fixed(cpu.apic_id, super::RESCHED_VECTOR);
+    lapic::send_fixed(cpu.apic_id(), super::RESCHED_VECTOR);
     let started = rdtsc();
     let bound = crate::arch::clock::cycles_per_tick() * 100;
     while cpu.ipi.job_done.load(Ordering::Acquire) == before {
@@ -99,7 +99,7 @@ extern "C" fn stop_handler(_frame: &InterruptStackFrameValue) {
     let _ = writeln!(
         crate::arch::raw_serial::RawSerial,
         "HW:SMP:STOP cpu={}",
-        percpu::current().index
+        percpu::current().index()
     );
     percpu::current().ipi.stopped.store(true, Ordering::Release);
     loop {
@@ -127,13 +127,13 @@ pub fn stop_others() {
             x86_64::instructions::hlt();
         }
     }
-    let me = percpu::current().index;
+    let me = percpu::current().index();
     for index in 0..percpu::MAX_CPUS {
         let Some(cpu) = percpu::area(index) else {
             break;
         };
         if index as u32 != me && cpu.online.load(Ordering::Acquire) {
-            lapic::send_fixed(cpu.apic_id, super::STOP_VECTOR);
+            lapic::send_fixed(cpu.apic_id(), super::STOP_VECTOR);
         }
     }
     // A CPU that cannot be stopped (wedged with interrupts off) is left:
@@ -165,7 +165,7 @@ pub fn stop_cpu_for_test(index: usize) -> bool {
         return false;
     }
     cpu.ipi.stopped.store(false, Ordering::Release);
-    lapic::send_fixed(cpu.apic_id, super::STOP_VECTOR);
+    lapic::send_fixed(cpu.apic_id(), super::STOP_VECTOR);
     let started = rdtsc();
     let bound = crate::arch::clock::cycles_per_tick() * 100;
     while !cpu.ipi.stopped.load(Ordering::Acquire) {
@@ -184,7 +184,7 @@ pub fn stop_cpu_for_test(index: usize) -> bool {
 /// CPU is in the kernel at a time today, so a mailbox is never contended;
 /// S8.3's entry lock keeps that true and records it.
 pub fn shootdown_others(addr: u64, pages: u64) {
-    let me = percpu::current().index;
+    let me = percpu::current().index();
     for index in 0..percpu::MAX_CPUS {
         let Some(cpu) = percpu::area(index) else {
             break;
@@ -195,7 +195,7 @@ pub fn shootdown_others(addr: u64, pages: u64) {
         let before = cpu.ipi.sd_ack.load(Ordering::Acquire);
         cpu.ipi.sd_addr.store(addr, Ordering::Release);
         cpu.ipi.sd_pages.store(pages, Ordering::Release);
-        lapic::send_fixed(cpu.apic_id, SHOOTDOWN_VECTOR);
+        lapic::send_fixed(cpu.apic_id(), SHOOTDOWN_VECTOR);
         let started = rdtsc();
         // A second of the calibrated clock (the bring-up refuses to start
         // APs without one, so it is never 0 here).
@@ -204,7 +204,7 @@ pub fn shootdown_others(addr: u64, pages: u64) {
             if rdtsc().wrapping_sub(started) > bound {
                 panic!(
                     "shootdown: CPU{index} apic={:#x} never acknowledged ({pages} pages at {addr:#x})",
-                    cpu.apic_id
+                    cpu.apic_id()
                 );
             }
             spin_loop();

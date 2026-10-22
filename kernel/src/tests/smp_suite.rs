@@ -52,7 +52,7 @@ pub fn bring_up_bring_every_ap_online() -> Result<(), String> {
             "CPU{index} is online with no TSC stamp"
         );
         check!(
-            cpu.apic_id != 0,
+            cpu.apic_id() != 0,
             "CPU{index} is online with the BSP's APIC id 0"
         );
     }
@@ -147,7 +147,7 @@ pub fn ipi_soak_shootdowns_and_rescheds() -> Result<(), String> {
     let before: Vec<u64> = online()
         .map(|cpu| cpu.ipi.sd_ack.load(Ordering::Acquire))
         .collect();
-    let apics: Vec<u32> = online().map(|cpu| cpu.apic_id).collect();
+    let apics: Vec<u32> = online().map(|cpu| cpu.apic_id()).collect();
     for round in 0..ROUNDS {
         let pages = if round % 2 == 0 { 1 } else { 4096 };
         crate::mem::tlb::shootdown(0xE000_0000 + (round % 64) * 4096, pages);

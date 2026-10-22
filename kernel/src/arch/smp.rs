@@ -240,7 +240,7 @@ pub fn bring_up(count: usize) {
 fn apic_online(id: u32) -> bool {
     (1..percpu::MAX_CPUS)
         .filter_map(percpu::area)
-        .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id == id)
+        .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id() == id)
 }
 
 /// Areas given to an AP that timed out: it may still be running on one (a
@@ -277,7 +277,7 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     let Some(cpu) = percpu::area(index) else {
         return false;
     };
-    cpu.apic_id = apic_id;
+    cpu.set_apic_id(apic_id);
     // The mailbox: per AP, written before the sequence (the AP reads it only
     // after its SIPI; there is no concurrency until `online` publishes).
     let mb = |off: u32| -> *mut u64 {
@@ -289,8 +289,7 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     unsafe {
         mb(trampoline::MB_CPU_OFF).write_volatile(area_addr);
         mb(trampoline::MB_ENTRY_OFF).write_volatile(ap_entry as *const () as u64);
-        mb(trampoline::MB_STACK_OFF)
-            .write_volatile(cpu.kernel_stack.as_ptr() as u64 + percpu::KERNEL_STACK_SIZE as u64);
+        mb(trampoline::MB_STACK_OFF).write_volatile(cpu.kernel_stack_top());
         // `CR3` and the magic were written by `prepare` (they are the same
         // for every AP); rewrite them anyway — the mailbox is one structure.
         mb(trampoline::MB_CR3_OFF).write_volatile(AP_PML4.load(Ordering::Relaxed));
@@ -388,14 +387,14 @@ extern "C" fn ap_entry() -> ! {
     msr::write(msr::IA32_EFER, efer | EFER_NXE);
     // This CPU's own GDT, TSS and stacks (its area), then `%gs` again: the
     // selector loads in `init_cpu` reset the hidden GS base to 0.
-    let area_addr = percpu::current().self_ptr;
-    // SAFETY: this AP owns its offline area (`prepare_ap`); nothing else
-    // touches it until `online` is published below, and the AP has left the
-    // trampoline's code and tables behind.
+    let area = percpu::current();
+    // SAFETY: this AP owns its offline area's TSS and GDT (`prepare_ap`);
+    // nothing else touches them until `online` is published below, and the
+    // AP has left the trampoline's code and tables behind.
     unsafe {
-        super::gdt::init_cpu(&mut *(area_addr as *mut percpu::Cpu));
+        super::gdt::init_cpu(area);
     }
-    percpu::set_gs_base(area_addr);
+    percpu::set_gs_base(area.self_ptr.load(Ordering::Relaxed));
     // The machine-wide IDT: an AP starts with IDTR = 0.
     if !super::idt::load_on_this_cpu() {
         loop {
@@ -406,7 +405,7 @@ extern "C" fn ap_entry() -> ! {
     // inside a locked print, the BSP's next print would deadlock.
     {
         use core::fmt::Write;
-        let index = percpu::current().index;
+        let index = percpu::current().index();
         let _ = writeln!(
             super::raw_serial::RawSerial,
             "HW:SMP:CPU{index} entered long mode"
