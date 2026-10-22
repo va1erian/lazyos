@@ -161,7 +161,13 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         // webd starts the same two processes (docs/webd.md).
         ("LAZYOS_WEBD", WEBKIT_PROCESSES),
     ] {
-        if !switch_on(switch) {
+        // webd is on for a desktop that has built it, with no switch of its own to set.
+        let wanted = if switch == "LAZYOS_WEBD" {
+            crate::webd_embed::shipped_env()
+        } else {
+            switch_on(switch)
+        };
+        if !wanted {
             continue;
         }
         // The attack image's stand-ins (below) are the browser's two processes: webd, which starts the same

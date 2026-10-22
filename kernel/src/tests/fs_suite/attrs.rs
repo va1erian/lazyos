@@ -17,6 +17,7 @@ fn alice_meta(mode: u16) -> Meta {
         size: 0,
         kind: FileKind::File,
         times: vfs::Times::default(),
+        nlink: 1,
     }
 }
 

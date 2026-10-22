@@ -49,16 +49,16 @@ SIMPLE_GROUPS = (
     ("wifi", "Wi-Fi", "The Wi-Fi driver and firmware for the RTL8822CE (turns "
                       "Networking on; QEMU has no such card).",
      ("wifi",)),
-    ("web", "Web", "The LazyWeb browser, Mail and the LazySky Bluesky client "
+    ("web", "Web", "Mail and the LazySky Bluesky client "
                    "(turns Networking on).",
-     ("lazyweb", "mail", "lazysky")),
+     ("mail", "lazysky")),
     ("devtools", "Developer tools", "The Messenger Playground: browse Messenger APIs and topics and script "
                                     "them in Rhai. A developer tool runs with your own authority, like "
                                     "the Terminal; builds the rhai command it runs scripts with (Desktop only).",
      ("devtools",)),
-    ("lazywebplus", "LazyWeb+", "LazyWeb's browser window on the WebKit engine: JavaScript and the "
-                                "modern web, with history, downloads and the rest of LazyWeb's "
-                                "chrome; three programs of about 108 MB, 4 GiB of RAM and a 1 GiB OS "
+    ("lazywebplus", "LazyWeb+", "The web browser, on the WebKit engine: JavaScript and the "
+                                "modern web, with history, downloads and an ad blocker; "
+                                "three programs of about 108 MB, 4 GiB of RAM and a 1 GiB OS "
                                 "volume; builds in Docker (turns Networking on).",
      ("lazywebplus",)),
 )
@@ -118,7 +118,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   shell: bool = True, devices: bool = False, doom: bool = False,
                   quake: bool = False,
                   modplayer: bool = False, net: bool = False, linuxapps: bool = False,
-                  hidpi: bool = False, hires: bool = False, tls: bool = False, lazyweb: bool = False,
+                  hidpi: bool = False, hires: bool = False, tls: bool = False,
                   mail: bool = False, traydemo: bool = False,
                   autologin: bool = False, setup: bool = False,
                   pictures: bool = False, emusic: bool = False,
@@ -139,8 +139,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     sqlite3, jq, rg), ``hidpi`` a 2560x1440 screen showing a 1280x720 desktop
     at 2x (docs/hidpi-plan.md), ``hires`` that screen as a roomy 2560x1440
     desktop at 1x (text keeps its size; it excludes ``hidpi``) and ``tls`` the HTTPS clients (curl, wget,
-    fetch; it implies ``net``); ``lazyweb`` the LazyWeb browser (Desktop only;
-    it implies ``tls``); ``mail`` the Mail app (Desktop only; it implies
+    fetch; it implies ``net``); ``mail`` the Mail app (Desktop only; it implies
     ``tls``); ``traydemo`` the tray sample app (Desktop only); ``games`` LazyGolf and the
     NES Player (Desktop only; the Games group); ``devtools`` the developer tools (the Messenger
     Playground; Desktop only, docs/devtool-packages-plan.md); ``autologin`` skips the
@@ -152,7 +151,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     ``target/lazyos-usb.img``, the real-PC stick image (Desktop only, docs/usb-stick.md); ``wifi``
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
-    ``net``); ``lazywebplus`` LazyWeb+, LazyWeb's browser on WebKit (Desktop only, docs/lazywebplus.md; it
+    ``net``); ``lazywebplus`` LazyWeb+, the web browser on WebKit (Desktop only, docs/lazywebplus.md; it
     implies ``net`` and the big-app profile).
     Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
@@ -166,11 +165,10 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         raise ValueError("HiDPI (a 1280x720 desktop at 2x) and Hi-res (a 2560x1440 desktop at 1x) "
                          "exclude each other")
     desktop = interface == "Desktop"
-    lazyweb = desktop and lazyweb
     lazysky = desktop and lazysky
     lazywebplus = desktop and lazywebplus
     # LazyWeb+'s ad blocker updates its lists with `curl` (issue #845).
-    tls = tls or lazyweb or lazywebplus or (desktop and mail)
+    tls = tls or lazywebplus or (desktop and mail)
     cfg = dict(base)
     cfg.update({
         "mode": "Interactive demo",
@@ -215,7 +213,6 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "linuxapps": linuxapps,
         "tls": tls,
         "journal": False,
-        "lazyweb": lazyweb,
         "lazysky": lazysky,
         "lazywebplus": lazywebplus,
         "mail": desktop and mail, "traydemo": desktop and traydemo,

@@ -70,7 +70,7 @@ yourself. The stick maker (`tools/boot/stick_gui.py`) and the launcher's
 Simple tab have the same *Software: Base / Full* choice. Write
 `target/lazyos-usb.img` to a USB stick ([`usb-stick.md`](usb-stick.md)).
 Before U1b, a full stick is the long list of flags that
-`python tools/run_demo.py --help` shows (`--lazyrad --pictures --lazyweb
+`python tools/run_demo.py --help` shows (`--lazyrad --pictures
 --lazywebplus --mail --lazysky --games --doom --quake ...`).
 
 ### 3. Install (today, plus U0 and U2 for the update-ready layout)
@@ -653,7 +653,7 @@ dependency solver with alternatives, Linux-side changes of any kind.
       needs:
       - networking and HTTPS (`NETD`, `TLS`);
       - LazyRAD, the MOD player and the Picture Viewer;
-      - LazyWeb, the WebKit browser and LazyWeb+;
+      - LazyWeb+, the WebKit browser;
       - Mail and LazySky;
       - the games (`GAMES`: LazyGolf, NES) and the Doom, Quake and emusic
         packages;
@@ -898,7 +898,7 @@ dependency solver with alternatives, Linux-side changes of any kind.
     | `systemd-tmpfiles` | a unit's `state.dirs`, ensured by `init` |
     | enable and start a service | the unit exists, so it runs; `restart-units` restarts it |
     | MIME and menu database | `pkgd` already replays app manifests to `mimed` at boot |
-    | font and certificate caches | the consumer rebuilds at start (`webfonts::register()`), or a `oneshot` unit under the package's own uid, idempotent |
+    | font and certificate caches | the consumer rebuilds at start (the `webfonts` crate is gone; webd's children use Fontconfig), or a `oneshot` unit under the package's own uid, idempotent |
     | data migration | the owning service at start (decision 25) |
     | kernel label and file policy | compiled from units and `[processes.*]` tables by `libs/pkgstore`'s code, loaded by `init` |
 22. **The kernel is a package that proves its ABI, and learns its release from
@@ -1122,7 +1122,7 @@ one machine, different in a CI container, so official builds pin them or
 remap) and the dev kernel's debug info (dev builds are not signed anyway).
 Remapping needs `CARGO_ENCODED_RUSTFLAGS`, because setting `RUSTFLAGS`
 replaces `.cargo/config.toml`'s `--cfg aes_force_soft`. **Not measured, and
-still open for P0:** the static-musl xui apps and their Blitz/WebKit
+still open for P0:** the static-musl xui apps and their WebKit
 dependencies, the zig-built C programs (dash, sqlite3, jq, Doom, Quake),
 Docker-built WebKit, a Windows-versus-Linux comparison, and the core `.lzp`
 archives against their inputs. Builds are fast (all 64 services in 27 s, the

@@ -2,20 +2,28 @@
 //! unit tests.
 //!
 //! A tree of [`Node`]s lives under one `spin::Mutex`; the root is inode 1.
-//! Files keep their bytes in a `Vec<u8>`, directories keep an ordered child
-//! list (so `readdir` is stable). Owner uid/gid and mode bits are stamped on
-//! creation by the VFS, which is what the permission checks read back, and
-//! change only through [`Filesystem::setattr`].
+//! Files keep their bytes in a `Vec<u8>`, directories keep an ordered list
+//! of named entries (so `readdir` is stable). A file may have several names
+//! (hard links, `links.rs`) and goes with its last one. Owner uid/gid and
+//! mode bits are stamped on creation by the VFS, which is what the permission
+//! checks read back, and change only through [`Filesystem::setattr`].
+//!
+//! Open files reach a regular file by its inode number (`nodeio.rs`), as on
+//! ext2: inode numbers are never reused, so a node names one file for the
+//! life of the filesystem, and a descriptor keeps its file through renames
+//! and through every one of its names.
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use spin::Mutex;
 
-use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, SetAttr, StatFs};
+use super::vfs::{DirEntry, FileKind, Filesystem, FsError, Id, Meta, NodeId, SetAttr, StatFs};
 
 mod capacity;
+mod links;
 mod node;
+mod nodeio;
 mod space;
 
 use node::Node;
@@ -85,10 +93,7 @@ impl RamFs {
 
     fn build(max_bytes: usize, max_nodes: usize, root_mode: u16) -> RamFs {
         let mut nodes = BTreeMap::new();
-        nodes.insert(
-            ROOT_INO,
-            Node::new(String::from("/"), FileKind::Dir, root_mode, Id::ROOT),
-        );
+        nodes.insert(ROOT_INO, Node::new(FileKind::Dir, root_mode, Id::ROOT));
         RamFs {
             inner: Mutex::new(Inner {
                 next_ino: ROOT_INO + 1,
@@ -118,12 +123,10 @@ impl RamFs {
             if node.kind != FileKind::Dir {
                 return Err(FsError::NotDir);
             }
-            let child = node
-                .children
-                .iter()
-                .find(|&&child| inner.nodes[&child].name == part)
-                .copied();
-            ino = child.ok_or(FsError::NotFound)?;
+            ino = node
+                .entry(part)
+                .map(|entry| entry.ino)
+                .ok_or(FsError::NotFound)?;
         }
         Ok(ino)
     }
@@ -156,11 +159,7 @@ impl RamFs {
 
     /// Find an existing child of `parent` by name.
     fn child(inner: &Inner, parent: u64, name: &str) -> Option<u64> {
-        inner.nodes[&parent]
-            .children
-            .iter()
-            .find(|&&child| inner.nodes[&child].name == name)
-            .copied()
+        inner.nodes[&parent].entry(name).map(|entry| entry.ino)
     }
 
     /// The node `ino`, which the caller resolved under the `inner` lock it
@@ -193,7 +192,7 @@ impl RamFs {
             stack
                 .try_reserve(children.len())
                 .map_err(|_| FsError::NoSpace)?;
-            stack.extend_from_slice(children);
+            stack.extend(children.iter().map(|entry| entry.ino));
         }
         Ok(false)
     }
@@ -229,48 +228,51 @@ impl Filesystem for RamFs {
     fn read(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         let inner = self.inner.lock();
         let ino = Self::resolve(&inner, path)?;
-        let node = &inner.nodes[&ino];
-        if node.kind != FileKind::File {
-            return Err(FsError::IsDir);
-        }
-        if offset >= node.data.len() as u64 {
-            return Ok(0);
-        }
-        let start = offset as usize;
-        let count = (node.data.len() - start).min(buf.len());
-        buf[..count].copy_from_slice(&node.data[start..start + count]);
-        Ok(count)
+        Self::read_ino(&inner, ino, offset, buf)
     }
 
     fn write(&self, path: &str, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let mut inner = self.inner.lock();
         let ino = Self::resolve(&inner, path)?;
-        if inner.nodes[&ino].kind != FileKind::File {
-            return Err(FsError::IsDir);
-        }
-        let end = offset
-            .checked_add(data.len() as u64)
-            .and_then(|end| usize::try_from(end).ok())
-            .ok_or(FsError::NoSpace)?;
-        if end > inner.nodes[&ino].data.len() {
-            Self::resize_file(&mut inner, ino, end)?;
-        }
-        let node = Self::node_mut(&mut inner, ino);
-        node.data[offset as usize..end].copy_from_slice(data);
-        node.touch();
-        Ok(data.len())
+        Self::write_ino(&mut inner, ino, offset, data)
+    }
+
+    /// Inode numbers are never reused (`nodeio.rs`).
+    fn stable_nodes(&self) -> bool {
+        true
+    }
+
+    fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
+        self.open_file_node(path).map(Some)
+    }
+
+    fn read_node(&self, node: NodeId, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
+        let inner = self.inner.lock();
+        Self::read_ino(&inner, Self::file_ino(&inner, node)?, offset, buf)
+    }
+
+    fn write_node(&self, node: NodeId, offset: u64, data: &[u8]) -> Result<usize, FsError> {
+        let mut inner = self.inner.lock();
+        let ino = Self::file_ino(&inner, node)?;
+        Self::write_ino(&mut inner, ino, offset, data)
+    }
+
+    fn stat_node(&self, node: NodeId) -> Result<Meta, FsError> {
+        let inner = self.inner.lock();
+        let ino = Self::file_ino(&inner, node)?;
+        Ok(inner.nodes[&ino].meta(ino))
+    }
+
+    fn truncate_node(&self, node: NodeId, size: u64) -> Result<(), FsError> {
+        let mut inner = self.inner.lock();
+        let ino = Self::file_ino(&inner, node)?;
+        Self::truncate_ino(&mut inner, ino, size)
     }
 
     fn truncate(&self, path: &str, size: u64) -> Result<(), FsError> {
         let mut inner = self.inner.lock();
         let ino = Self::resolve(&inner, path)?;
-        if inner.nodes[&ino].kind != FileKind::File {
-            return Err(FsError::IsDir);
-        }
-        let size = usize::try_from(size).map_err(|_| FsError::NoSpace)?;
-        Self::resize_file(&mut inner, ino, size)?;
-        Self::node_mut(&mut inner, ino).touch();
-        Ok(())
+        Self::truncate_ino(&mut inner, ino, size)
     }
 
     fn setattr(&self, path: &str, attr: &SetAttr) -> Result<Meta, FsError> {
@@ -293,14 +295,7 @@ impl Filesystem for RamFs {
             return Err(FsError::Exists);
         }
         Self::check_node_room(&mut inner, owner.uid)?;
-        Ok(Self::insert(
-            &mut inner,
-            parent,
-            name,
-            FileKind::File,
-            mode,
-            owner,
-        ))
+        Self::insert(&mut inner, parent, name, FileKind::File, mode, owner)
     }
 
     fn mkdir(&self, path: &str, mode: u16, owner: Id) -> Result<Meta, FsError> {
@@ -310,14 +305,11 @@ impl Filesystem for RamFs {
             return Err(FsError::Exists);
         }
         Self::check_node_room(&mut inner, owner.uid)?;
-        Ok(Self::insert(
-            &mut inner,
-            parent,
-            name,
-            FileKind::Dir,
-            mode,
-            owner,
-        ))
+        Self::insert(&mut inner, parent, name, FileKind::Dir, mode, owner)
+    }
+
+    fn link(&self, existing: &str, new: &str, caller: Id) -> Result<(), FsError> {
+        self.link_names(existing, new, caller)
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
@@ -327,11 +319,7 @@ impl Filesystem for RamFs {
         if inner.nodes[&ino].kind == FileKind::Dir {
             return Err(FsError::IsDir); // directories need rmdir
         }
-        Self::node_mut(&mut inner, parent)
-            .children
-            .retain(|&child| child != ino);
-        let removed = Self::take_node(&mut inner, ino);
-        Self::forget_node(&mut inner, &removed);
+        Self::drop_name(&mut inner, parent, &name);
         Ok(())
     }
 
@@ -345,61 +333,12 @@ impl Filesystem for RamFs {
         if !inner.nodes[&ino].children.is_empty() {
             return Err(FsError::NotEmpty);
         }
-        Self::node_mut(&mut inner, parent)
-            .children
-            .retain(|&child| child != ino);
-        let removed = Self::take_node(&mut inner, ino);
-        Self::forget_node(&mut inner, &removed);
+        Self::drop_name(&mut inner, parent, &name);
         Ok(())
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), FsError> {
-        let mut inner = self.inner.lock();
-        let (from_parent, from_name) = Self::resolve_parent(&inner, from)?;
-        let source = Self::child(&inner, from_parent, &from_name).ok_or(FsError::NotFound)?;
-        let (to_parent, to_name) = Self::resolve_parent(&inner, to)?;
-
-        // Renaming a node onto itself (any two spellings of one path) is a
-        // no-op, not a replace: removing the "existing" node would remove the
-        // source.
-        if Self::child(&inner, to_parent, &to_name) == Some(source) {
-            return Ok(());
-        }
-        // A directory cannot move beneath itself: that would detach the
-        // subtree into a cycle unreachable from the root.
-        if inner.nodes[&source].kind == FileKind::Dir && Self::is_within(&inner, source, to_parent)?
-        {
-            return Err(FsError::Invalid);
-        }
-
-        // The destination may exist: a file replaces a file, a directory may
-        // replace only an empty directory (POSIX would allow exactly this set).
-        if let Some(existing) = Self::child(&inner, to_parent, &to_name) {
-            let source_kind = inner.nodes[&source].kind;
-            let existing_kind = inner.nodes[&existing].kind;
-            match (source_kind, existing_kind) {
-                (FileKind::File, FileKind::File) => {}
-                (FileKind::Dir, FileKind::Dir) => {
-                    if !inner.nodes[&existing].children.is_empty() {
-                        return Err(FsError::NotEmpty);
-                    }
-                }
-                (FileKind::File, FileKind::Dir) => return Err(FsError::IsDir),
-                (FileKind::Dir, FileKind::File) => return Err(FsError::NotDir),
-            }
-            Self::node_mut(&mut inner, to_parent)
-                .children
-                .retain(|&child| child != existing);
-            let removed = Self::take_node(&mut inner, existing);
-            Self::forget_node(&mut inner, &removed);
-        }
-
-        Self::node_mut(&mut inner, from_parent)
-            .children
-            .retain(|&child| child != source);
-        Self::node_mut(&mut inner, source).name = to_name;
-        Self::node_mut(&mut inner, to_parent).children.push(source);
-        Ok(())
+        self.rename_names(from, to)
     }
 
     fn readdir(&self, path: &str) -> Result<Vec<DirEntry>, FsError> {
@@ -409,17 +348,15 @@ impl Filesystem for RamFs {
         if node.kind != FileKind::Dir {
             return Err(FsError::NotDir);
         }
-        Ok(node
-            .children
-            .iter()
-            .map(|&ino| {
-                let child = &inner.nodes[&ino];
-                DirEntry {
-                    name: child.name.clone(),
-                    ino,
-                    kind: child.kind,
-                }
-            })
-            .collect())
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(node.children.len())
+            .map_err(|_| FsError::NoSpace)?;
+        entries.extend(node.children.iter().map(|entry| DirEntry {
+            name: entry.name.clone(),
+            ino: entry.ino,
+            kind: inner.nodes[&entry.ino].kind,
+        }));
+        Ok(entries)
     }
 }

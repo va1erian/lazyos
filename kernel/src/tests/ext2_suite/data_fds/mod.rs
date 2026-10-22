@@ -21,6 +21,7 @@ mod inherit;
 mod inherit_read;
 mod inspect;
 mod io;
+pub(in crate::tests) mod links;
 mod names;
 mod nodes;
 mod reserved;

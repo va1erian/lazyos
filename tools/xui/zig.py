@@ -1,7 +1,6 @@
 """Zig as the C toolchain for Mail (`xui-mail`).
 
-Mail links SQLite, which is C. The other xui apps are pure Rust (LazyWeb and
-Docs render with Blitz) and link with the toolchain's bundled lld, but a
+Mail links SQLite, which is C. The other xui apps are pure Rust and link with the toolchain's bundled lld, but a
 static ``x86_64-unknown-linux-musl`` binary that contains C needs a musl C
 compiler and a linker for that target. Windows has none of them and a stock
 Linux runner only has glibc ones. ``zig cc`` is a clang driver that ships them

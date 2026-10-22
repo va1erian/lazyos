@@ -33,9 +33,9 @@ HERE = Path(__file__).resolve().parent
 
 
 def _load(name: str):
-    """A module of `tools/web/` by path, without putting that directory on
-    `sys.path` (it has a `session.py` and a `judge.py` of its own)."""
-    spec = importlib.util.spec_from_file_location(f"lazysky_{name}", HERE.parent / "web" / f"{name}.py")
+    """A module of `tools/webtest/` by path, without putting that directory on
+    `sys.path` (it has a `certs.py` of its own, as this directory does)."""
+    spec = importlib.util.spec_from_file_location(f"lazysky_{name}", HERE.parent / "webtest" / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

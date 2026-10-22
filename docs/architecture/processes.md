@@ -507,7 +507,9 @@ share the deadline timer, CPU-time timers are charged per scheduler tick, so
 they are tick-granular; `fork` gives the child none, `execve` keeps the
 interval timers; tests `itimer_suite`, fixture `alarm`). `SCM_RIGHTS`,
 `memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
-"Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
-filesystem stores links). The `persist` fixture also sets and re-checks mode,
+"Descriptor passing and shared memory" below). `link`/`linkat` make hard links on
+ext2 and the ramfs, and `stat`/`fstatat`/`statx` report the real `st_nlink`
+(issue #871, [filesystem.md](filesystem.md) "Hard links"); `symlink` answers `EPERM`
+(no filesystem stores symbolic links). The `persist` fixture also sets and re-checks mode,
 owner and times across its two boots. Kernel tests for the round-3 calls:
 `kernel/src/tests/linux_compat_suite/`.

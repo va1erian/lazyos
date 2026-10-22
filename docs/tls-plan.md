@@ -6,7 +6,7 @@ judged by `tools/net/tls_run.py`); T5's SNTP (in `timed`) is built, and IMAP is
 exercised by the Mail app ([`mail.md`](mail.md), `LAZYOS_MAIL=1`); T4's `imapc` was not built.
 Decisions taken: a Gmail test account with an app password exists, the
 password is typed on the real keyboard path (§6.4), and the TLS stack must be
-**GPLv2-compatible** (the NetSurf port, GPL-2.0-only, LazyWeb, links it: [lazyweb.md](lazyweb.md)), which ruled
+**GPLv2-compatible** (the NetSurf port, GPL-2.0-only, and then LazyWeb, a GPL-2.0-only browser since removed, linked it), which ruled
 out `ring` in favour of a pure-Rust RustCrypto provider (§3.2).
 Networking stages
 N0–N5 are ([networking-plan.md](networking-plan.md) §10.1,

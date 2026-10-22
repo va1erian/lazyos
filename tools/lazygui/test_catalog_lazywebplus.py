@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher tests for LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, docs/lazywebplus.md): the WebKit engine in
-LazyWeb's window, from the Simple and Advanced tabs and run_demo. `test_catalog.py` runs them too.
+"""Launcher tests for LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, docs/lazywebplus.md): the WebKit browser, from the Simple and Advanced tabs and run_demo. `test_catalog.py` runs them too.
 
 Run: python tools/lazygui/test_catalog_lazywebplus.py
 """

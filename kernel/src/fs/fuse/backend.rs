@@ -371,6 +371,7 @@ fn meta_of(attr: &Attr) -> Result<Meta, FsError> {
             mtime: attr.mtime,
             ctime: attr.ctime,
         },
+        nlink: 1,
     })
 }
 

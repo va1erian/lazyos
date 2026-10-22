@@ -1,6 +1,6 @@
-//! LazyWebPlus, LazyWeb's browser window on WebKit (docs/lazywebplus.md), in the disk image.
+//! LazyWeb+, the web browser on WebKit (docs/lazywebplus.md), in the disk image.
 //!
-//! The app is `lazywebplus-app`, WebKit's UI process with LazyWeb's window (`webkit/port/app/` in
+//! The app is `lazywebplus-app`, WebKit's UI process with its Rust window (`webkit/port/app/` in
 //! C++ and `xui-app/webplus` in Rust, linked by `tools/webkit/app.py` in the WebKit build
 //! container into `target/xui/xui-lazywebplus.elf`). Like every desktop app it ships as a core
 //! package, `os.lazy.lazywebplus` (`xui-app/packages/lazywebplus`, packed by

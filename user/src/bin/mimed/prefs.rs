@@ -1,5 +1,5 @@
 //! `mimed`'s per-user choices of default app (docs/lazywebplus.md): when two installed apps handle
-//! a type (LazyWeb and LazyWeb+ both open `x-scheme-handler/https`), the registry alone lets
+//! a type (a second browser would open `x-scheme-handler/https` like LazyWeb+), the registry alone lets
 //! whichever registered last win, which is install order. A user who has an opinion keeps it in
 //! `confd`, in their own subtree, under the key `deskmenu::defaults::user_key` builds (the one
 //! definition of it, shared with Settings, which writes it):

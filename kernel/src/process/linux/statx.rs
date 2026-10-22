@@ -98,7 +98,7 @@ fn encode(attrs: &Attrs) -> [u8; STATX_SIZE_BYTES] {
     let mut put = |at: usize, bytes: &[u8]| out[at..at + bytes.len()].copy_from_slice(bytes);
     put(0, &STATX_SUPPORTED.to_le_bytes()); // stx_mask
     put(4, &4096u32.to_le_bytes()); // stx_blksize
-    put(16, &1u32.to_le_bytes()); // stx_nlink
+    put(16, &attrs.nlink.to_le_bytes()); // stx_nlink
     put(20, &attrs.uid.to_le_bytes()); // stx_uid
     put(24, &attrs.gid.to_le_bytes()); // stx_gid
     put(28, &(attrs.mode as u16).to_le_bytes()); // stx_mode

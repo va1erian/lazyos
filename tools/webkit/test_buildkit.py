@@ -125,7 +125,7 @@ class StagedInstallTests(PrefixCase):
             (buildkit.staged_prefix() / "lib" / "libssl.a").write_text("s")
         record = self.stamp("openssl")
         self.assertEqual((record["license"], record["sha256"]), (dep.license, dep.source.sha256))
-        self.assertIn("LazyWeb", record["notes"])
+        self.assertIn("nettls", record["notes"])
 
     def test_staging_outside_a_recipe_is_an_error(self) -> None:
         with self.assertRaises(BuildError):

@@ -28,6 +28,7 @@ pub mod hidpi;
 pub mod input;
 pub mod installer;
 pub mod launch;
+pub mod lightview;
 pub mod net;
 pub mod platform;
 pub mod probe;

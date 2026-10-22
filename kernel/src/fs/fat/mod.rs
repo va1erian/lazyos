@@ -209,6 +209,7 @@ fn meta_for(entry: &Node) -> Meta {
         // The entry's DOS write date is not converted yet, so boot-volume
         // files report the epoch.
         times: Times::default(),
+        nlink: 1,
     }
 }
 
@@ -273,6 +274,10 @@ impl Filesystem for Fat16 {
     }
 
     fn mkdir(&self, _path: &str, _mode: u16, _owner: Id) -> Result<Meta, FsError> {
+        Err(FsError::ReadOnly)
+    }
+
+    fn link(&self, _existing: &str, _new: &str, _caller: Id) -> Result<(), FsError> {
         Err(FsError::ReadOnly)
     }
 

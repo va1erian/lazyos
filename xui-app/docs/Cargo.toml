@@ -1,12 +1,11 @@
-# The Docs app: renders Markdown on a Blitz view. A package of its own (not a
-# `xui-app` binary) because Blitz is a large dependency tree the other apps do
-# not need (see docs/xui-docs.md).
+# The Docs app: renders Markdown in a light view of `webd` (WebKit, docs/webd.md). A package of its own
+# (not a `xui-app` binary) so its Markdown engine and its tests stay out of `xui-app` (docs/xui-docs.md).
 [package]
 name = "xui-docs"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Markdown viewer for LazyOS: pulldown-cmark to HTML, laid out by Blitz"
+description = "Markdown viewer for LazyOS: pulldown-cmark to HTML, drawn by a light view of webd"
 
 [lib]
 name = "xui_docs"
@@ -21,12 +20,6 @@ xui-app = { path = ".." }
 # The documentation root the Open dialog starts in.
 fhs = { path = "../../libs/fhs" }
 xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
-# One xui revision for every crate, so a single `xui_core` links. No
-# `system-fonts`: LazyOS has no fontconfig (fonts are registered at start).
-webfonts = { path = "../crates/webfonts" }
-xui-blitz = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }
+# The client of webd's light views: the status the window reacts to (`xui_app::lightview` has the view).
+xui-webd-client = { path = "../crates/webd-client" }
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-# Link targets: Blitz reports a click as an absolute `file://` URL against the
-# document's own base URL; `nav` turns it back into a guest path.
-url = "2"
-percent-encoding = "2"

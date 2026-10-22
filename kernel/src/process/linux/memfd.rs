@@ -172,6 +172,7 @@ pub(super) fn attrs(fd: u64) -> Result<Attrs, u64> {
             uid: mem.uid(),
             gid: 0,
             times: Default::default(),
+            nlink: 1,
         }),
         _ => Err(err(EBADF)),
     }

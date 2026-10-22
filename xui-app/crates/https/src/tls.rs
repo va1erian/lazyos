@@ -1,4 +1,4 @@
-//! TLS for `https:` requests (adapted from LazyWeb's `fetch/tls.rs`): one rustls client configuration, built on first
+//! TLS for `https:` requests (adapted from the removed LazyWeb's fetcher): one rustls client configuration, built on first
 //! use, and a ureq connector that wraps each new connection in it.
 //!
 //! ureq's built-in rustls connector is not used: it sets no ALPN and would

@@ -63,6 +63,8 @@ class Fronts:
         self._server = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         self._server.load_cert_chain(leaf_cert, leaf_key)
         self._upstream = ssl.create_default_context(cafile=str(mock_ca))
+        # The mock's CA has no key-usage extension, which Python 3.13+'s strict mode refuses.
+        self._upstream.verify_flags &= ~ssl.VERIFY_X509_STRICT
         self._sni: dict[int, str | None] = {}
         self._server.sni_callback = self._remember_sni
         self._routes = [(imap[0], imap[1], True), (smtp[0], smtp[1], False)]

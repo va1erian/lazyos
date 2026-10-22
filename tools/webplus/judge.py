@@ -1,7 +1,6 @@
 """LazyWeb+'s harness verdict (`run.py`), as pure functions with their own tests (`test_judge.py`).
 
-Four kinds of evidence, each judged on its own, as for LazyWeb (`tools/web/judge.py`, whose
-helpers are loaded here):
+Four kinds of evidence, each judged on its own:
 
 * **serial** - the window's markers (`WEBPLUS:UP:PASS`, `LOAD:<url>`, `TITLE:<title>`, `NAV`,
   `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`, `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`,
@@ -9,7 +8,7 @@ helpers are loaded here):
   `CHILD:<name>:<pid>:GONE`, `QUIT:PASS`; the launcher's `PROCESS:LAUNCH|EXIT|TERMINATE`): every page loaded with its title, the script's three
   dialogs were answered (the title carries the answers), what the script tried on its own was
   `BLOCKED` and nothing but the user's click started another program, the downloads finished whole;
-* **servers** - what the host's stand-in sites recorded (`tools/web/sites.py`): the pages, every
+* **servers** - what the host's stand-in sites recorded (`tools/webtest/sites.py`): the pages, every
   picture, the form's query, no cookie on the first boot's request and the first boot's cookie on
   the second's (the profile is persistent);
 * **profile** - read from the OS volume on the host after each boot: the history file holds the
@@ -21,7 +20,6 @@ helpers are loaded here):
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -29,36 +27,26 @@ from urllib.parse import parse_qs, urlsplit
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-sys.path.append(str(ROOT / "tools" / "web"))
+sys.path.append(str(ROOT / "tools" / "webtest"))
 sys.path.append(str(ROOT / "tools" / "screenshot"))
 sys.path.append(str(ROOT / "tools"))
 sys.path.insert(0, str(HERE))
 import serial_integrity  # noqa: E402  (a log with SERIAL:DROPPED proves nothing)
 import session_pointer  # noqa: E402
+import pages  # noqa: E402  (the shared fixtures' pages: tools/webtest)
 import sites  # noqa: E402
 
-
-def _load(name: str, path: Path):
-    """A module by path: LazyWeb's `judge.py` has this file's name."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-web_judge = _load("web_judge", ROOT / "tools" / "web" / "judge.py")
 from pixels import SCROLL_PX, judge_maximized, judge_scroll, region_stats  # noqa: E402,F401  (the runner's)
 
 #: The window's marker prefix, and the UI process's (the same).
 P = "WEBPLUS"
 APP = "LazyWeb+"
 START = "about:start"
-EXAMPLE_URL = web_judge.EXAMPLE_URL
-EXAMPLE_TITLE = web_judge.EXAMPLE_TITLE
-OLDNET_URL = web_judge.OLDNET_URL
-OLDNET_TITLE = web_judge.OLDNET_TITLE
-OLDNET_HOSTS = web_judge.OLDNET_HOSTS
+EXAMPLE_URL = pages.EXAMPLE_URL
+EXAMPLE_TITLE = pages.EXAMPLE_TITLE
+OLDNET_URL = pages.OLDNET_URL
+OLDNET_TITLE = pages.OLDNET_TITLE
+OLDNET_HOSTS = pages.OLDNET_HOSTS
 SITE = "https://theoldnet.com"
 COOKIE_URL = SITE + sites.COOKIE_PATH
 COOKIE_NONE = "cookie:none"
@@ -82,7 +70,7 @@ SLOW_NAME = sites.SLOW_DOWNLOAD_NAME
 SLOW_BYTES = len(sites.slow_download_payload())
 TALL_URL = SITE + "/webkit/tall.html"
 TALL_TITLE = "WebKit tall"
-#: LazyWeb's links page (`fixtures/theoldnet.com/webkit/`): its red box is a link
+#: The links page (`fixtures/theoldnet.com/webkit/`): its red box is a link
 #: to the form, whose field takes the typed text and whose submit goes to the echo.
 LINKS_FORM_URL = SITE + "/webkit/links.html"
 LINKS_FORM_TITLE = "WebKit links"
@@ -97,7 +85,7 @@ SLOW_URL = SITE + sites.SLOW_PATH
 #: window says so.
 CLOSER_PORT = 81
 FAIL_URL = f"http://example.com:{CLOSER_PORT}/"
-page_assets = web_judge.page_assets
+page_assets = pages.page_assets
 HISTORY_FILE = "history.tsv"
 #: What the profile's folder holds that a persistent engine writes.
 #: Where the engine keeps the cookie jar below the profile folder (`createDataStore` in webkit/port/app/engine.cpp).

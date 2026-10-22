@@ -2,7 +2,9 @@
 //! `F_SETLK`, `F_SETLKW`, and the open-file-description `F_OFD_*` forms).
 //!
 //! One table holds every lock: the file (by its path, the identity every
-//! descriptor kind records), the owner, the byte range and read/write. The two
+//! descriptor kind records; a file opened by node by the node, so the names
+//! of a hard-linked file share their locks: `OpenFile::lock_key`), the
+//! owner, the byte range and read/write. The two
 //! families never conflict with each other, as on Linux. Owners:
 //!
 //! * a POSIX record lock belongs to the *process* (thread group), so a second
@@ -204,7 +206,7 @@ fn target(fd: u64) -> Result<(String, Owner), u64> {
             Some(path) => Ok((path, Owner::Snap(Arc::downgrade(file)))),
             None => Err(err(EINVAL)),
         },
-        Some(Fd::Vfs { ref file }) => Ok((file.path(), Owner::Vfs(Arc::downgrade(file)))),
+        Some(Fd::Vfs { ref file }) => Ok((file.lock_key(), Owner::Vfs(Arc::downgrade(file)))),
         Some(Fd::Closed) | None => Err(err(EBADF)),
         Some(_) => Err(err(EINVAL)),
     }

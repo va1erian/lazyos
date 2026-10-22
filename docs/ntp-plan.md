@@ -10,7 +10,7 @@ and Rhai `http` items of T5 are unrelated and stay there).
 
 When a network address exists, `timed` asks an NTP server for the time and
 steps the wall clock, so a machine with a dead or wrong RTC gets correct
-certificate validity (TLS, Mail, LazyWeb), SMB/NTLM timestamps and file
+certificate validity (TLS, Mail, LazyWeb+), SMB/NTLM timestamps and file
 times without the user touching Settings. It must cost nothing on an image
 with no network stack, never make the clock worse than the RTC would, and
 stay a correctness aid, not a security control (plain SNTP is

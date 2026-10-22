@@ -1,95 +1,98 @@
-# The Docs app: Markdown rendered by Blitz
+# The Docs app: Markdown shown in a light view of webd
 
 `xui-docs` (the core package `os.lazy.docs`, `xui-app/packages/docs/`) shows a Markdown file in a `xuid` window: wrapped text,
 headings, lists, tables, code and block quotes, scrolled with the mouse wheel,
-`PageUp`/`PageDown` or the arrow keys. With no argument it shows a short built-in
-welcome page that points at the documentation index (`/docs/os/index.md`). It is the first user of
-[`xui-blitz`](https://github.com/va1erian/xui/tree/main/crates/xui-blitz)
-`BlitzView` on LazyOS and the intended renderer for documentation pages. It fetches
-nothing: images are not loaded, and a link opens only if it leads to another
-Markdown file on the volume (see *Links and history*).
+`PageUp`/`PageDown` or the arrow keys. With no argument it shows a built-in
+welcome page that doubles as a syntax tour. The page is drawn by WebKit, in
+[`webd`](webd.md), the resident daemon that owns the web engine for the session: Docs asks it for a
+**light view** (`os.lazy.webd.light.v1`, no network, no scripts, no storage, locked navigation) and
+shows the picture it paints. Docs fetches nothing: images are not loaded.
+(Until the webd plan's P3 it drew the page with Blitz, a pure-Rust engine in the Docs process, and before that
+with litehtml; both are gone: the OS has one web engine, docs/webd-plan.md section 9.2.)
 
 ## How it works
 
 ```
-file (or welcome.md) --pulldown-cmark--> HTML --Blitz (engine thread)--> RGBA frame
-                                                                           |
-                                       xuid window  <-- xui canvas <-- BlitzView (UI thread)
+file (or welcome.md) --pulldown-cmark--> HTML --LoadHtml--> webd (WebKit, light view) --Frame (shared slot)--> picture
+                                                                                                                  |
+                                       xuid window  <-- xui canvas <-- xui_app::lightview::LightView (UI thread) <-'
+                                                                          ^-- mouse, wheel, keys, Ctrl+C --> webd
 ```
 
 * **`xui-app/docs/src/lib.rs`** turns Markdown into one styled HTML page. Raw
   HTML in the source is escaped to text, so a document cannot inject markup into
   the layout engine, and input is truncated at 1 MiB on a character boundary.
   It is pure Rust and unit-tested on the host.
-* **`xui-app/docs/src/main.rs`** creates a `BlitzView` filling the window on the
-  LazyOS backend. Blitz lays the page out and paints it on an engine thread (a
-  `std::thread`, so the Linux ABI's `clone`/`futex` matter) and posts a frame back
-  to the UI thread, which blits it.
-* **Fonts.** Blitz draws its own glyphs from font files and finds none by
-  itself on LazyOS (no fontconfig), so the `webfonts` crate registers the
-  Liberation fonts a desktop image installs (Sans, Serif, Mono, all four
-  styles) with `xui_blitz::register_font` at start; without that a page shows
-  no text. The page stylesheet therefore names Liberation Sans and Mono with
-  `sans-serif`/`monospace` as the fallback: Blitz draws nothing for a family it
-  lacks and no generic to fall back on. The window's own text (the toolbar) stays in Droid Sans.
-* **Scrolling.** Blitz draws overlay scrollbars on the page (they fade after a
-  scroll and can be dragged). The wheel needs the whole input chain; see
-  *Mouse wheel* in [`architecture/display.md`](architecture/display.md).
+* **`xui-app/docs/src/links.rs`** says what a click on a link does (below).
+* **`xui-app/docs/src/app.rs`** is the window: a toolbar and one `LightView` that fills the rest, laid out
+  by xui (`column`, `fill(1)`), so it follows the window's size. `main.rs` only starts the platform.
+* **`xui_app::lightview::LightView`** (`xui-app/src/lightview/`, shared with Mail) is the xui widget over
+  `xui_webd_client::Pane` (`xui-app/crates/webd-client/src/pane.rs`, portable and host-tested against the
+  service half): it creates the view at the control's size, keeps it, loads the newest page, follows
+  resizes, forwards the pointer, the wheel and the keyboard (Ctrl+C asks the engine to copy the selection;
+  the text arrives as `ClipboardWrite` and goes to the clipboard), and **recreates the view and loads the
+  page again if webd loses it**. The view's page scrolls inside WebKit; the picture is a whole frame, copied
+  out of a shared slot.
+* **One view for the life of the window.** Opening a document is a new page in the same view
+  (`LightView::set_html`). A view that is destroyed leaves a parked proxy behind in webd (docs/webd.md,
+  "Limits"), so Docs never makes a view per document.
+* **When webd is not running** (it starts with the session; the user can have stopped it from the tray, or
+  the image has none) the window says "The web engine is not running", keeps trying every quarter
+  second, and the page appears when the service does. After three losses in a row with no picture in
+  between it says the engine stopped and tries again on the next key press. There is no *Start* button:
+  starting a program needs `init`'s interface, which a light-view client is deliberately not given.
+* **Links.** A light view loads nothing by itself: it reports the click and Docs decides
+  (`xui_docs::links::classify`). A link to another Markdown file (`other.md`, `../x.md#part`) opens in
+  this window, resolved against the folder of the document on show (the documentation root for the welcome
+  page); any other file goes to `mimed` (`open_path`); `http:`, `https:` and `mailto:` go to the app
+  registered for the scheme (`open_url`: the browser, Mail); a `#section` link does nothing (a light view
+  cannot scroll to an anchor); every other scheme is refused. Markers: `DOCS:LINK:<href>` then
+  `DOCS:LINK:OPEN:<path>`, `:FILE:<path>`, `:URL:<url>` or `:REFUSED:<href>`.
+* **HiDPI.** A light view has no scale of its own; the widget asks for `html { zoom: <dpi/96> }` as the view's
+  style, which lays the page out at the window's scale while the pointer stays in view pixels.
 * **Opening documents.** A toolbar above the page has an **Open...** button and
   shows the current path; `Ctrl+O` does the same. Both raise the portable
-  `FileDialog` (the Editor's picker) over xui's `StdFileSystem`
-  (`xui-app/docs/src/app.rs`). It filters to Markdown with an
+  `FileDialog` (the Editor's picker) over xui's `StdFileSystem`. It filters to Markdown with an
   "All files" fallback and starts in the current document's folder. A file that
   cannot be read shows an error page (and `DOCS:OPEN:FAIL:<path>`) instead of
-  ending the app. `app.rs` is the window; `main.rs` only starts the platform.
-* **One view per document.** Opening a document creates a fresh view and drops
-  the old one (which destroys its node and stops its engine thread): a
-  carry-over from the litehtml view, whose painter kept per-document font ids
-  across loads. `BlitzView::load_html` would also do.
-* **Links and history.** The page is laid out against the document's own
-  `file://` URL (`nav::base_url`), so Blitz resolves every relative link
-  (`controls.md`, `../rhai/msg.md#errors`, `#heading`) to an absolute URL and
-  reports the click (`DOCS:LINK:<url>`). `nav::classify` turns it back into a
-  guest path: a Markdown file opens in a fresh view, a `#heading` of the open
-  document scrolls (Blitz does that itself for a link inside the page; for one
-  it reports, the page is loaded again against its URL with the fragment), and anything else (another scheme, a
-  file that is not Markdown) is ignored. Headings carry GitHub-style ids
-  (`with_heading_ids`: lower case, punctuation dropped, spaces to hyphens, a
-  repeat numbered) so a fragment has something to land on. The toolbar's
-  **Back**, **Forward** (`Alt+Left`, `Alt+Right`) and **Home** (the index,
-  `fhs::docs::INDEX`) walk a bounded history kept by `nav::History`; the
-  welcome page is a place in it. Markers: `DOCS:NAV:PASS:<link|back|forward|home>:<path>`.
+  ending the app.
+* **History.** **Back**, **Forward** (`Alt+Left`, `Alt+Right`) and **Home** (the documentation
+  index, `fhs::docs::INDEX`) walk the documents visited, kept by `history::History` (bounded, the
+  welcome page is a place in it); opening what is already on show adds nothing. Markers:
+  `DOCS:NAV:PASS:<back|forward|home>:<path>`.
 * **Test document.** `xui-app/docs/testdata/testdoc.md` ships in every image as
   `/system/share/samples/testdoc.md` (embedded by `build.rs`). It covers every construct the viewer
   draws and is long enough to scroll; the unit tests render it and
   `tools/screenshot/examples/xui_docs_open.json` opens it through the dialog.
 * **Start menu.** LazyShell's start menu lists Docs in the Office
-  submenu (its package's `category`). A build that skipped Docs does not ship
-  the app, and the launch is answered as unavailable like any unshipped app.
+  submenu (its package's `category`).
+* **Permissions** (`xui-app/packages/docs/manifest.toml`): the display, the cursor, input, `os.lazy.webd.light.v1`
+  and `os.lazy.mimed.v1` (for the links that leave the page). Nothing about the network or files.
 
-## Build
+## Build and test
 
-Docs renders with Blitz (`xui-blitz`), which is pure Rust: `tools/xui/build.py`
-builds it with the other apps, with the toolchain's bundled lld and no zig. It
-is still a package of its own (`xui-app/docs`) so that the other apps do not
-link Blitz. (Until issue #649 it used litehtml, which is C++ and needed the zig
-toolchain; zig is now only for Mail's SQLite, `tools/xui/zig.py`.)
+Docs is pure Rust: `tools/xui/build.py` builds it with the other apps (no zig). It is a package of its own
+(`xui-app/docs`) so its Markdown engine and tests stay out of `xui-app`. **Every desktop image ships webd**
+(`LAZYOS_WEBD`, docs/build-switches.md): without the program Docs still starts and says the web engine is
+not running.
+
+```bash
+cargo test --manifest-path xui-app/Cargo.toml -p xui-docs -p xui-webd-client   # Markdown, links, the pane (Linux/WSL for xui-docs)
+python tools/docs/run.py                                                        # build, boot, the two sessions, judge (needs webd built: tools/webkit/webd.py)
+```
+
+`tools/docs/run.py` builds an image with Docs and webd, runs `xui_docs.json` (wheel scrolling) and
+`xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`) and judges the markers and the
+pictures (`tools/docs/judge.py`, self-tested by `test_judge.py`). The CI job of the `docs` shard cannot build
+WebKit, so it only checks that Docs starts (`DOCS:UP:PASS`).
 
 ## Known limits
 
-* Images are not loaded and web links do nothing: the viewer has no fetching
-  code. Back does not restore the scroll position (`BlitzView` has a setter
-  but no getter).
-* The LazyOS backend delivers a `Resize` when the window is resized
-  (`xui-app/src/backend/input.rs`), but the app places its toolbar and view at
-  fixed rectangles taken from the initial client size and does not handle it,
-  so the view keeps that size.
-* Keyboard scrolling (`PageDown`, arrows) needs the page to have focus, which a
-  click on it gives; after a dialog closes the wheel works at once but the keys
-  need that click (`BlitzView` does not expose a way to focus itself).
-* Task-list checkboxes: the Markdown extension is off, a choice made when
-  the engine (litehtml) did not render `<input>`; Blitz may, so it can be
-  revisited.
+* A light view has no `Find`, `Zoom` or `Scroll` yet (docs/webd-plan.md, section 3.6): no find bar, no
+  text zoom, no jump to an anchor. Selecting text with the mouse and `Ctrl+C` work.
+* Images are not loaded (a light view has no network and Docs passes no `data:` pictures); relative links to
+  files other than Markdown go to `mimed`.
+* Task-list checkboxes: the Markdown extension is off.
 * `mimed` registers Docs for the `open` and `view` verbs of `text/markdown`.
   Docs is an optional app, so `open` names the Editor as a fallback: an
   image without Docs opens Markdown in the Editor, which is also the `edit`

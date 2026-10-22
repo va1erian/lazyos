@@ -1,7 +1,7 @@
 # LazyWeb+ performance plan: make mainstream sites usable
 
 Status: **draft, 2026-10-13** (rebased on main at #851/#852). Scope: `os.lazy.lazywebplus` ([`lazywebplus.md`](lazywebplus.md)) on the WebKit
-port ([`webkit-port-plan.md`](webkit-port-plan.md)). Out of scope: LazyWeb (Blitz), a GPU or video path,
+port ([`webkit-port-plan.md`](webkit-port-plan.md)). Out of scope: a GPU or video path,
 WebAssembly, SMP. Method follows [`performance-plan.md`](performance-plan.md): measure first, and keep what was
 *measured* apart from what was only *read from the code*.
 
@@ -69,7 +69,7 @@ Phases are ordered by risk-adjusted value. Each ends with a number from the harn
 1. `python tools/webplus/perf.py [--live] [--hidpi] [--accel none] [--site NAME]`: builds like `tools/webplus/run.py`,
    boots once, loads each site, scripts the same interaction (settle, accept consent, five wheel bursts, one
    pointer sweep), prints a table and writes `docs/perf/webplus.md`. Sites: fixtures committed in
-   `tools/web/fixtures/theoldnet.com/webplus/perf/` (an animation page: CSS + `requestAnimationFrame` + GIF; a
+   `tools/webtest/fixtures/theoldnet.com/webplus/perf/` (an animation page: CSS + `requestAnimationFrame` + GIF; a
    script-busy page: 2 MB JSON, 20k DOM nodes; 200 pictures; WOFF2 fonts; a tall page; iframes with timers) so a
    run is repeatable offline; `--live` reads `tools/webplus/perf_sites.txt` (ars, google search, wikipedia, github,
    hn, bbc, nytimes, reddit) and is manual (no copies of third-party pages are kept).
@@ -158,9 +158,9 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
    the blobs vanish and a revisit refetches what the inline path used to serve (the LazyWeb+ harness's
    cache-hit check fails). The shared-mmap body path itself is proven (`linux_filemap_cache_body_*`: create,
    `ftruncate`, `MAP_SHARED` write, `mprotect(PROT_READ)`, `msync`, unmap, read back, remount, a soak). So the
-   order is: hard links on ext2 (issue #871: an `ext2fs` link operation, VFS `link`, open-file and page-cache
-   identity by inode rather than path, `unlink_open` parking when `nlink > 1`, a real `st_nlink`; unlink's
-   decrement is in `ext2fs` already), then `fallocate` (`EOPNOTSUPP`).
+   order is: hard links on ext2 (issue #871, done: `Ext2::link`, VFS `link`, open-file and page-cache identity
+   by inode rather than path, no `.unlinked-*` parking while another name is left, a real `st_nlink`), then
+   `fallocate` (`EOPNOTSUPP`, issue #864, now unblocked).
 2. **Demand-paged, shared executables** (done in #942: read-only segments of an ext2 program are `Kind::FileImage`,
    see `architecture/virtual-memory.md`). Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged

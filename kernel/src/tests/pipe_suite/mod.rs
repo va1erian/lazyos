@@ -50,12 +50,14 @@ fn io_err(error: pipe::Error) -> String {
 }
 
 mod basic;
+mod edgegen;
 mod epoll_fork;
 mod exit;
 mod lifecycle;
 mod seqpoll;
 
 pub(super) use basic::*;
+pub(super) use edgegen::*;
 pub(super) use epoll_fork::*;
 pub(super) use exit::*;
 pub(super) use lifecycle::*;
@@ -78,6 +80,14 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "pipe_epoll_unowned_interest_leaves",
         epoll_unowned_interest_leaves,
+    ),
+    (
+        "pipe_socketpair_edge_equal_counter_steps",
+        socketpair_edge_survives_equal_counter_steps,
+    ),
+    (
+        "pipe_soak_socketpair_poll_gen_changes",
+        socketpair_poll_gen_changes_with_every_event,
     ),
     ("pipe_soak_epoll_fork_close", epoll_soak_fork_close),
     ("pipe_soak_unreaped_exit", soak_unreaped_exit),

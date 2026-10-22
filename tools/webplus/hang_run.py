@@ -5,7 +5,7 @@ judge that the browser says so and lets the person out.
 
 The image is `run.py`'s (the app built first: ``python tools/webkit/deps.py``, ``port.py`` and
 ``app.py``, then ``python tools/xui/build.py``). The page is
-``tools/web/fixtures/theoldnet.com/webplus/hang.html``, served over HTTPS from the host with the run's
+``tools/webtest/fixtures/theoldnet.com/webplus/hang.html``, served over HTTPS from the host with the run's
 throwaway CA like the rest of LazyWeb+'s pages.
 
 One boot (``hang_session.hang``): the click starts the loop, WebKit's ping goes unanswered and the
@@ -30,7 +30,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import run as base  # noqa: E402  (also puts tools/web, tools/abi and this directory on the path)
+import run as base  # noqa: E402  (also puts tools/webtest, tools/abi and this directory on the path)
 import certs  # noqa: E402
 import hang_judge as h  # noqa: E402
 import hang_session  # noqa: E402

@@ -195,7 +195,7 @@ Each phase is shippable on its own and keeps the existing sessions green
   measure call on `xui_canvas` for a family (check what xui exposes; add one
   upstream if it does not).
 - **Families**: JetBrains Mono (built in), Liberation Mono (already shipped in
-  desktop images for LazyWeb), and any monospace `.ttf`/`.otf` under
+  desktop images for web pages), and any monospace `.ttf`/`.otf` under
   `/system/share/fonts` and `~/.local/share/fonts` (paths in `libs/fhs`).
   A family is offered only if its `i` and `M` advances match. Add JetBrains
   Mono Bold and Italic to `assets/` (OFL-1.1, manifest lines) so bold is a
@@ -315,7 +315,7 @@ names the key, not the character a layout makes of it). Session:
   New Window, Preferences..., Close.
 - **Links**: URLs and `file://` paths detected per logical line, OSC 8 links
   as given; underlined on hover with `Ctrl`, `Ctrl+click` opens through
-  `mimed` (`sys::mimed::open` path, `docs/lazyweb.md`); never on a plain click.
+  `mimed` (`sys::mimed::open` path, `docs/lazywebplus.md`); never on a plain click.
 - **Find** (`Ctrl+Shift+F`): a small bar, matches highlighted in screen and
   history, Enter/Shift+Enter step, case toggle, plain text (regex later).
 - **Bell**: `visual` flashes the frame; `sound` plays a short tone through

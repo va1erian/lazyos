@@ -94,10 +94,28 @@ def configured() -> bool:
     return bool(os.environ.get("LAZYOS_OS_SIZE", "").strip())
 
 
+#: The configurations whose image is the desktop (`catalog.build_env` sets `LAZYOS_DESKTOP`).
+DESKTOP_KEYS = ("desktop", "lazysky", "lazywebplus", "webd", "webd_demo", "setup")
+
+
+def wants_webd(cfg: dict) -> bool:
+    """Whether the image ships webd: every desktop does (Docs and Mail draw their pages with it) unless the
+    launcher left it out, and `webd` / `webd_demo` ask for it outright."""
+    if cfg.get("no_webd"):
+        return False
+    return bool(cfg.get("webd") or cfg.get("webd_demo") or any(cfg.get(key) for key in DESKTOP_KEYS))
+
+
+def requires_webd(cfg: dict) -> bool:
+    """Whether the launcher asks for webd outright (`webd`, `webd_demo`): built, and a failure stops the
+    build. A plain desktop only ships it when it has been built (`LAZYOS_WEBD` unset, no Docker step)."""
+    return bool(not cfg.get("no_webd") and (cfg.get("webd") or cfg.get("webd_demo")))
+
+
 def wants_webkit(cfg: dict) -> bool:
-    """Whether a launcher configuration selects the browser or the console proof: the same three
+    """Whether a launcher configuration selects the browser, webd or the console proof: the same three
     programs of about 107 MiB each."""
-    return bool(cfg.get("webkit_port") or cfg.get("lazywebplus") or cfg.get("webd"))
+    return bool(cfg.get("webkit_port") or cfg.get("lazywebplus") or wants_webd(cfg))
 
 
 def args_wants(args) -> tuple[bool, bool]:
@@ -107,7 +125,7 @@ def args_wants(args) -> tuple[bool, bool]:
         return bool(getattr(args, flag, False)) or os.environ.get(switch) == "1"
     return (on("srb2kart", "LAZYOS_SRB2KART"),
             on("webkit_port", "LAZYOS_WEBKIT_PORT") or on("lazywebplus", "LAZYOS_LAZYWEBPLUS")
-            or on("webd", "LAZYOS_WEBD"))
+            or on("webd", "LAZYOS_WEBD") or bool(getattr(args, "webd_implicit", False)))
 
 
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:

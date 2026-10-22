@@ -7,6 +7,7 @@ socket, captures the serial log, parses the `TEST:` protocol, and writes
 
 Protocol (one line per test, emitted by `kernel/src/tests/mod.rs::run()`):
 
+    TEST:<name>:START               (before the test runs: names it if it hangs)
     TEST:<name>:PASS
     TEST:<name>:FAIL:<detail>
     TEST:SUMMARY:PASS=<n> FAIL=<n>
@@ -41,12 +42,13 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 REPORT_DIR = ROOT / "docs" / "test"
 
 sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from serialwatch import RE_RESULT, follow_serial, running_test  # noqa: E402
 from qemu_qmp import (  # noqa: E402
     DEFAULT_MEMORY, Qmp, accel_args, build_qemu_command, find_qemu, free_port, smp_type,
 )
 
 RE_SUMMARY = re.compile(r"^TEST:SUMMARY:PASS=(\d+) FAIL=(\d+)\s*$")
-RE_RESULT = re.compile(r"^TEST:([^:]+):(PASS|FAIL)(?::(.*))?$")
 RE_INFO = re.compile(r"^TEST:([^:]+):(INFO|PROGRESS):(.*)$")
 
 TEST_BANNER = "kernel test mode"
@@ -103,29 +105,6 @@ def parse_serial(text: str) -> dict:
         if RE_INFO.match(line):
             info.append(line)
     return {"tests": results, "info": info, "reported": summary}
-
-
-def follow_serial(serial_log: Path, proc: subprocess.Popen, deadline: float) -> str:
-    """Poll the serial log (streaming TEST lines) until the summary or deadline."""
-    consumed = 0
-    text = ""
-    while time.time() < deadline:
-        if serial_log.is_file():
-            text = serial_log.read_text(errors="replace")
-            complete = text.count("\n")
-            for line in text.splitlines()[consumed:complete]:
-                if line.startswith("TEST:") or "PANIC" in line or "EXCEPTION" in line:
-                    print(f"  {line}", flush=True)
-            consumed = complete
-            if "TEST:SUMMARY:" in text:
-                return text
-        if proc.poll() is not None:
-            time.sleep(0.5)  # let the last writes reach the file
-            if serial_log.is_file():
-                text = serial_log.read_text(errors="replace")
-            return text
-        time.sleep(0.25)
-    return text
 
 
 def stop_qemu(proc: subprocess.Popen, qmp: Qmp | None) -> None:
@@ -245,6 +224,14 @@ def main() -> int:
     parser.add_argument(
         "--timeout", type=float, default=1200.0, help="seconds to wait for TEST:SUMMARY"
     )
+    parser.add_argument(
+        "--stall-seconds",
+        type=float,
+        default=180.0,
+        help="report (once per stall, to the console and <out>/stall.txt) the test in "
+        "flight, the serial tail and the guest's RIP when the serial log is silent this "
+        "long; evidence only, the run still waits for --timeout (0: off; issue #787)",
+    )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build step")
     parser.add_argument(
         "--machine",
@@ -310,6 +297,7 @@ def main() -> int:
     out_dir = (ROOT / args.out).resolve() if not Path(args.out).is_absolute() else Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     serial_log = out_dir / "serial.log"
+    (out_dir / "stall.txt").unlink(missing_ok=True)
 
     if not args.no_build:
         build_test_image(image, soak=args.soak)
@@ -408,7 +396,10 @@ def main() -> int:
     qmp: Qmp | None = None
     try:
         qmp = Qmp("127.0.0.1", port, min(30.0, args.timeout))
-        text = follow_serial(serial_log, proc, time.time() + args.timeout)
+        text = follow_serial(
+            serial_log, proc, time.time() + args.timeout, qmp=qmp,
+            stall_after=args.stall_seconds, stall_file=out_dir / "stall.txt",
+        )
     except Exception as exc:  # QMP connect failure: still report what booted
         print(f"warning: QMP session failed: {exc}", file=sys.stderr)
     finally:
@@ -461,7 +452,8 @@ def main() -> int:
         else:
             print(
                 "error: test build booted but never printed TEST:SUMMARY "
-                "(panic or hang; see the serial log)",
+                f"(panic or hang; test in flight: {running_test(text) or 'unknown'}; "
+                "see the serial log and stall.txt)",
                 file=sys.stderr,
             )
         return 1

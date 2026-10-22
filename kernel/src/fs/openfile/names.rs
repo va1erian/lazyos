@@ -16,6 +16,10 @@ pub(in crate::fs) fn retarget(raw_from: &str, raw_to: &str) {
     for inode in OPEN.lock().iter() {
         let mut guard = inode.names.lock();
         let names = &mut *guard;
+        // A name the file no longer has does not follow a rename of it.
+        if !names.current {
+            continue;
+        }
         let Some(rest) = names.key.strip_prefix(from.as_str()) else {
             continue;
         };
@@ -39,6 +43,18 @@ pub(in crate::fs) fn retarget(raw_from: &str, raw_to: &str) {
         // directory leaves an orphan an orphan.)
         if itself {
             inode.orphan.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
+/// The name `path` was removed (an `unlink`, a `rename` over it) while its
+/// file may live on under another name: no open file is reached by it any
+/// more. A later open of a new file there registers that file anew.
+pub(in crate::fs) fn forget_name(path: &str) {
+    let path = canonical(path);
+    for inode in OPEN.lock().iter() {
+        if inode.is_named(&path) {
+            inode.forget_key();
         }
     }
 }

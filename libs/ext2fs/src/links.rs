@@ -137,7 +137,8 @@ impl Ext2 {
     /// Ordered for crash safety: the inode's link count rises first and is on
     /// the disk (a [`barrier`](Ext2::barrier) when cached) before the entry
     /// appears, so a power cut leaves the count too high (a leak) at worst,
-    /// never lower than the number of names.
+    /// never lower than the number of names. A file with [`MAX_LINKS`] names
+    /// already is [`Ext2Error::TooManyLinks`], as Linux's ext2 answers.
     pub fn link(&self, existing: &str, new_path: &str) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
         let _scope = self.op_scope();
@@ -156,12 +157,12 @@ impl Ext2 {
             return Err(Ext2Error::Exists);
         }
         let links = le16(&inode, INO_LINKS);
-        put16(
-            &mut inode,
-            INO_LINKS,
-            links.checked_add(1).ok_or(Ext2Error::Invalid)?,
-        );
-        touch(&mut inode, self.now());
+        if links >= MAX_LINKS {
+            return Err(Ext2Error::TooManyLinks);
+        }
+        put16(&mut inode, INO_LINKS, links + 1);
+        // A new name changes the inode, not its contents: `ctime` only.
+        put32(&mut inode, INO_CTIME, self.now());
         self.write_inode(ino, &inode)?;
         let added = self
             .barrier()
@@ -219,7 +220,8 @@ impl Ext2 {
             self.free_inode(child_ino, false)?;
         } else {
             put16(&mut child, INO_LINKS, links - 1);
-            touch(&mut child, self.now());
+            // One name fewer changes the inode, not its contents.
+            put32(&mut child, INO_CTIME, self.now());
             self.write_inode(child_ino, &child)?;
         }
         Ok(())

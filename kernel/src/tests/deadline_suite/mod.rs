@@ -27,6 +27,7 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("deadline_realtime_conversion", live::realtime_conversion),
     ("deadline_event_timer_boot", live::event_timer_boot),
     ("deadline_tick_abi_10ms", live::tick_abi_10ms),
+    ("deadline_sleep_judge_rules", live::sleep_judge_rules),
     ("deadline_sleep_accuracy", live::sleep_accuracy),
     ("deadline_thread_soak", soak::thread_soak),
 ];

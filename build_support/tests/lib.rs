@@ -23,8 +23,6 @@ mod hosts_embed;
 mod intelgfx_embed;
 #[path = "../lazysky_embed.rs"]
 mod lazysky_embed;
-#[path = "../lazyweb_embed.rs"]
-mod lazyweb_embed;
 #[path = "../lazywebplus_embed.rs"]
 mod lazywebplus_embed;
 #[path = "../netboot.rs"]
@@ -82,8 +80,6 @@ mod intelgfx_tests;
 mod layout_tests;
 #[cfg(test)]
 mod lazysky_tests;
-#[cfg(test)]
-mod lazyweb_tests;
 #[cfg(test)]
 mod lazywebplus_tests;
 #[cfg(test)]

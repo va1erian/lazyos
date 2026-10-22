@@ -2,7 +2,8 @@
 
 `webd` is the per-session daemon that owns WebKit and gives other apps **light views**: an app hands it a page
 of HTML and gets the page's pixels back in shared memory, plus a few page events. Plan, security model and the
-phases: [`webd-plan.md`](webd-plan.md). This file is the as-built description of the program (P2 slice 2);
+phases: [`webd-plan.md`](webd-plan.md). This file is the as-built description of the program (P2 slice 2) and of its first
+clients, Docs and Mail (P3: `xui_app::lightview`, [`xui-docs.md`](xui-docs.md), [`mail.md`](mail.md));
 the interface is [`idl/webd_light.midl`](../idl/webd_light.midl) (served as `app.os.lazy.webd.light`), the
 portable service is `xui-app/crates/webd` (`xui-webd`), the engine half is `webkit/port/webd/abi.cpp`
 ([`webkit/README.md`](../webkit/README.md), "webd's engine half").
@@ -124,14 +125,18 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/we
 python tools/webkit/deps.py && python tools/webkit/port.py          # Docker; once (LAZYOS_JSC_VOLUME names the work volume)
 python tools/webkit/webd.py                                           # the service library on the host, the link in Docker -> target/xui/xui-webd.elf
 python tools/xui/build.py                                             # packages it as os.lazy.webd
-python tools/run_demo.py --webd                                       # LAZYOS_WEBD=1: desktop, big-app profile, 1 GiB OS volume
-python tools/run_demo.py --webd --dry-run                             # the flags, build steps and environment
+python tools/run_demo.py --desktop                                    # every desktop ships webd: built when missing, LAZYOS_WEBD=1 (1 GiB OS volume)
+python tools/run_demo.py --webd                                       # webd required (a failed build stops the run), big-app profile
+python tools/run_demo.py --webd-demo                                  # + the demo client os.lazy.webddemo (tools/webd/run.py)
+python tools/run_demo.py --desktop --no-webd                          # leave it out (LAZYOS_WEBD=0): Docs and Mail say the engine is not running
 ```
 
-`LAZYOS_WEBD=1` embeds the package (and the demo client's, when `xui-app/packages/webddemo` exists:
-`build_support/webd_embed.rs` `CLIENT_PACKAGES`), `WebProcess`, `NetworkProcess` and `fonts.conf`, and opens webd with
-every session. The launcher's Advanced tab has the same switch. Not in `--suite full` yet (`tools/suites.toml`,
-`test_only`): until Mail and Docs use it (docs/webd-plan.md P3) it serves only its demo.
+**Every desktop image ships webd** (docs/webd-plan.md P3: Docs and Mail draw their pages with it). `LAZYOS_WEBD` is `1`
+(required: the build fails when `target/xui/xui-webd.elf` is missing), `0` (left out) or unset: a desktop ships it
+when that file exists and warns when it does not (`build_support/webd_embed.rs`, `Switch`). The switch embeds the
+package, `WebProcess`, `NetworkProcess` and `fonts.conf`, and opens webd with every session. `LAZYOS_WEBDDEMO=1`
+adds the demo client (`CLIENT_PACKAGES`). In `tools/suites.toml` the flags `webd`, `no-webd` and `webd-demo` are
+`test_only`: `base` is the desktop and so already has it. The launcher's Advanced tab has the controls.
 
 ## Measured
 

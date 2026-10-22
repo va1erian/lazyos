@@ -155,8 +155,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
-/// warning) when they were not. Docs is built with the other apps (Blitz, pure
-/// Rust), but a build that skipped it leaves a smaller desktop, not a broken
+/// warning) when they were not. Docs is built with the other apps (pure Rust,
+/// its pages drawn by webd), but a build that skipped it leaves a smaller desktop, not a broken
 /// one.
 const OPTIONAL_XUI_APPS: &[&str] = &["xui-docs.elf"];
 
@@ -227,7 +227,6 @@ pub fn rerun_if_changed() {
         "xui_embed",
         "core_packages",
         "devtools_embed",
-        "lazyweb_embed",
         "lazywebplus_embed",
         "webd_embed",
         "lazysky_embed",
@@ -342,13 +341,10 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         );
         sink.add_file(&destination, app);
     }
-    // The LazyRAD IDE, LazyWeb and the Picture Viewer are core packages
-    // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYWEB=1`,
-    // `LAZYOS_LAZYSKY=1`, `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_PICTURES=1`, and the
-    // developer tools as a class, `LAZYOS_DEVTOOLS=1`); asking for one without having
-    // built it is an error.
-    let lazyweb_elf = dir.join(crate::lazyweb_embed::ELF);
-    crate::os_image::rerun_if_changed(&lazyweb_elf);
+    // The LazyRAD IDE, LazySky, LazyWeb+ and the Picture Viewer are core packages
+    // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYSKY=1`,
+    // `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_PICTURES=1`, and the developer tools as a class,
+    // `LAZYOS_DEVTOOLS=1`); asking for one without having built it is an error.
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     crate::os_image::rerun_if_changed(&lazysky_elf);
     let lazywebplus_elf = dir.join(crate::lazywebplus_embed::ELF);
@@ -368,11 +364,6 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
                  `python tools/lazyrad/build.py` and `python tools/xui/core_packages.py`",
                 crate::lazyrad_embed::PACKAGE_SHORT
             ),
-        ),
-        (
-            crate::lazyweb_embed::enabled(desktop),
-            crate::lazyweb_embed::PACKAGE_SHORT,
-            crate::lazyweb_embed::not_built(lazyweb_elf.is_file()),
         ),
         (
             crate::lazysky_embed::enabled(desktop),
@@ -413,7 +404,7 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             None => panic!("{missing}"),
         }
     }
-    if webd_wanted {
+    if webd_wanted && crate::webd_embed::demo_clients() {
         embed_webd_clients(&built, &mut packages);
     }
     core_packages::embed(sink, &packages, &core_packages::autostart_shorts());
@@ -439,7 +430,7 @@ fn embed_webd_clients<'a>(
         match built.iter().find(|p| p.short == *short) {
             Some(package) => packages.push(package),
             None => panic!(
-                "LAZYOS_WEBD=1 but core package {short} is not built (target/xui/{elf}); run \
+                "LAZYOS_WEBDDEMO=1 but core package {short} is not built (target/xui/{elf}); run \
                  `python tools/xui/build.py`"
             ),
         }

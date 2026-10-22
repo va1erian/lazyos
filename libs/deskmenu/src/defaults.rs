@@ -1,8 +1,8 @@
 //! Default apps (docs/lazywebplus.md): which of two apps that handle a type opens it, per user.
 //!
 //! The open-with registry (`mimed`) keeps one app per `(type, verb)` and lets whichever
-//! registered last win, which is install order: LazyWeb and LazyWeb+ both register
-//! `x-scheme-handler/https`. A user who minds says so in `confd`, in their own subtree:
+//! registered last win, which is install order: LazyWeb+ registers `x-scheme-handler/https`, and
+//! so would a second browser. A user who minds says so in `confd`, in their own subtree:
 //!
 //! ```text
 //! user/<uid>/mimed/default/<mime type>      a string: the app id (`os.lazy.lazywebplus`)
@@ -29,7 +29,7 @@ pub const WEB_TYPES: [&str; 3] = [
 
 /// The apps Settings offers as the default web browser (the ones that register [`WEB_TYPES`]), in
 /// the order it lists them.
-pub const BROWSERS: [&str; 2] = ["os.lazy.lazyweb", "os.lazy.lazywebplus"];
+pub const BROWSERS: [&str; 1] = ["os.lazy.lazywebplus"];
 
 /// `uid`'s key for `mime`; `None` when `mime` cannot be part of a `confd` path.
 pub fn user_key(uid: u32, mime: &str) -> Option<String> {

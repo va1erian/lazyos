@@ -10,15 +10,20 @@
 //! The two processes it starts, `WebProcess` and `NetworkProcess`, are system programs in `/system/bin`
 //! (`linuxapps_embed`, the same files LazyWeb+ uses), where an app of any label can start them.
 //!
-//! The first clients are the demo (`os.lazy.webddemo`, [`CLIENT_PACKAGES`]) and, later, Mail, Docs and
-//! LazyWeb+. A client is a window, so webd wants the desktop; it needs no network stack (a light view
-//! has no network at all): the switch is refused without `LAZYOS_DESKTOP=1` and nothing else is asked.
-//! The program is tens of MB and loaded whole into RAM, so the image wants the big-app profile and a
-//! larger OS volume (`run_demo.py` picks both).
+//! Its clients are Docs and Mail (their pages are light views, docs/webd-plan.md P3), so **a desktop image
+//! ships it**: `LAZYOS_WEBD` is `1` (required: a missing program fails the build), `0` (left out; Docs and Mail
+//! then say the web engine is not running) or unset, which means "on a desktop whenever `target/xui/xui-webd.elf`
+//! has been built" ([`Switch::Auto`]), so a checkout without Docker and WebKit still builds a desktop and
+//! says so in a warning. The demo client (`os.lazy.webddemo`, [`CLIENT_PACKAGES`]) is a test fixture and ships
+//! only with `LAZYOS_WEBDDEMO=1`. A client is a window, so webd wants the desktop; it needs no network stack
+//! (a light view has no network at all): the switch is refused without `LAZYOS_DESKTOP=1` and nothing else is
+//! asked. The program is tens of MB and loaded whole into RAM, so the image wants a larger OS volume
+//! (`os_disk::default_size`).
 //!
-//! With the switch unset nothing changes.
+//! On a non-desktop image nothing changes.
 
 use std::ffi::OsStr;
+use std::path::PathBuf;
 
 /// The core package's short id (`xui-app/packages/webd`).
 pub const PACKAGE_SHORT: &str = "webd";
@@ -26,11 +31,11 @@ pub const PACKAGE_SHORT: &str = "webd";
 /// The built daemon under `target/xui/`, the packager's input.
 pub const ELF: &str = "xui-webd.elf";
 
-/// The packages that are clients of webd and ship only with it: `(short id, packaged program)`. A
-/// client lives in its own tree (`xui-app/packages/<short>`) and is listed in
-/// `tools/xui/core_packages.py` like any app; this table only says which of them an image with
-/// `LAZYOS_WEBD=1` should carry. A client whose tree is absent (a branch that does not have it
-/// yet) is skipped, so the daemon builds alone ([`client_tree_present`]).
+/// The packages that are test clients of webd and ship only with `LAZYOS_WEBDDEMO=1`: `(short id,
+/// packaged program)`. A client lives in its own tree (`xui-app/packages/<short>`) and is listed in
+/// `tools/xui/core_packages.py` like any app; this table only says which of them an image with the
+/// switch should carry. A client whose tree is absent (a branch that does not have it yet) is skipped,
+/// so the daemon builds alone ([`client_tree_present`]).
 pub const CLIENT_PACKAGES: &[(&str, &str)] = &[("webddemo", "xui-webddemo.elf")];
 
 fn on(variable: &str) -> bool {
@@ -38,14 +43,91 @@ fn on(variable: &str) -> bool {
     std::env::var_os(variable).as_deref() == Some(OsStr::new("1"))
 }
 
-/// Whether the image ships webd (`LAZYOS_WEBD=1`). Panics when the switch is set without the profile
-/// it needs ([`requirements`]).
+/// What `LAZYOS_WEBD` says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Switch {
+    /// `0`: leave it out.
+    Off,
+    /// Unset (or anything else): a desktop ships it when the program has been built.
+    Auto,
+    /// `1`: ship it; a missing program is an error.
+    On,
+}
+
+/// [`Switch`] of a `LAZYOS_WEBD` value (`None`: unset).
+pub fn parse_switch(value: Option<&OsStr>) -> Switch {
+    match value.and_then(OsStr::to_str) {
+        Some("1") => Switch::On,
+        Some("0") => Switch::Off,
+        _ => Switch::Auto,
+    }
+}
+
+/// Whether an image with this `switch` ships webd.
+pub fn shipped(switch: Switch, desktop: bool, built: bool) -> bool {
+    match switch {
+        Switch::On => true,
+        Switch::Off => false,
+        Switch::Auto => desktop && built,
+    }
+}
+
+/// The built daemon, `target/xui/xui-webd.elf` of this checkout.
+fn built_elf() -> PathBuf {
+    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
+        .join("target")
+        .join("xui")
+        .join(ELF)
+}
+
+/// The engine processes the daemon starts, `target/webkit/bin/` (`linuxapps_embed` puts them in `/system/bin`).
+const ENGINE_PROCESSES: [&str; 2] = ["WebProcess", "NetworkProcess"];
+
+/// Whether the daemon and the two processes it starts are all built: a daemon without them could not start a
+/// view, so an unset switch does not ship it.
+fn built() -> bool {
+    // A missing file is watched through its directory, never by name (cargo takes that for "always changed").
+    println!("cargo:rerun-if-changed=target/webkit/bin");
+    let dir =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir")).join("target");
+    built_elf().is_file()
+        && ENGINE_PROCESSES
+            .iter()
+            .all(|name| dir.join("webkit").join("bin").join(name).is_file())
+}
+
+/// Whether the image ships webd ([`Switch`]), from the environment: what the build modules that size
+/// the volume, pick the engine processes and the autostart list ask. No panic.
+pub fn shipped_env() -> bool {
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
+    println!("cargo:rerun-if-env-changed=LAZYOS_DESKTOP");
+    let desktop = on("LAZYOS_DESKTOP");
+    let switch = parse_switch(std::env::var_os("LAZYOS_WEBD").as_deref());
+    shipped(switch, desktop, built())
+}
+
+/// Whether the image ships webd (see [`Switch`]). Panics when `LAZYOS_WEBD=1` is set without the
+/// profile it needs ([`requirements`]); warns when a desktop was left without it.
 pub fn enabled(desktop: bool) -> bool {
-    let wanted = on("LAZYOS_WEBD");
-    if let Err(reason) = requirements(wanted, desktop) {
+    println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
+    let switch = parse_switch(std::env::var_os("LAZYOS_WEBD").as_deref());
+    if let Err(reason) = requirements(switch == Switch::On, desktop) {
         panic!("{reason}");
     }
-    wanted
+    let built = built();
+    if desktop && !built && switch == Switch::Auto {
+        println!(
+            "cargo:warning=this desktop ships without webd (target/xui/{ELF} or the engine processes in target/webkit/bin are not built): Docs and Mail will \
+             say the web engine is not running; build it with `python tools/run_demo.py --webd` or \
+             `python tools/webkit/webd.py` (Docker), or silence this with LAZYOS_WEBD=0"
+        );
+    }
+    shipped(switch, desktop, built)
+}
+
+/// Whether the image carries the test clients ([`CLIENT_PACKAGES`]): `LAZYOS_WEBDDEMO=1`.
+pub fn demo_clients() -> bool {
+    on("LAZYOS_WEBDDEMO")
 }
 
 /// Whether a build with `webd` can ship it: the switch needs the desktop profile (the clients are

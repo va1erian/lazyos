@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that every crate linked into the TLS clients has a GPLv2-compatible licence.
 
-A GPL-2.0-only program (the planned NetSurf port) will link the TLS stack,
+A GPL-2.0-only program may link the TLS stack,
 so every third-party crate compiled into ``fetch`` and ``tlsfix`` must be
 usable under a licence GPL-2.0 can absorb. ring (``Apache-2.0 AND ISC`` plus
 OpenSSL-derived code) and aws-lc-rs fail this; Apache-2.0 alone is not
@@ -19,7 +19,6 @@ pre-SPDX ``/`` separator means ``OR``.
 Usage::
 
     python tools/nettls/licenses.py            # nettls/ and tools/abi/fixtures/tlsfix/
-    python tools/nettls/licenses.py --lazyweb  # also xui-app/web/ (LazyWeb, GPL-2.0-only)
     python tools/nettls/licenses.py --lazywebplus  # also xui-app/webplus/ (LazyWeb+'s window, docs/lazywebplus.md)
     python tools/nettls/licenses.py --lazysky  # also xui-app/crates/lazysky-core/
     python tools/nettls/licenses.py --agent    # also xui-app/crates/agent-core/ (LazyAgent)
@@ -38,16 +37,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFESTS = [ROOT / "nettls" / "Cargo.toml", ROOT / "tools" / "abi" / "fixtures" / "tlsfix" / "Cargo.toml"]
-#: LazyWeb links the TLS stack into a program still declared GPL-2.0-only (the
-#: licence NetSurf required; relicensing is open, issue #649), so its whole
-#: tree must be GPLv2-compatible too. Opt-in (``--lazyweb``) until the tree
-#: passes: `unicode-linebreak` (Apache-2.0, through xui-canvas's
-#: cosmic-text) does not yet. Its manifest is a member of the `xui-app`
-#: workspace; `cargo tree` reports just this package's graph.
-LAZYWEB = ROOT / "xui-app" / "web" / "Cargo.toml"
-#: LazyWeb+'s window (docs/lazywebplus.md) is LazyWeb's chrome on WebKit: it links no TLS stack of its
-#: own (WebKit's curl does the HTTPS), but it keeps LazyWeb's rule for what is linked into it, so
-#: its tree (and `xui-webkit`'s, the engine seam it links) must be GPLv2-compatible too. The program
+#: LazyWeb+'s window (docs/lazywebplus.md) is the browser's chrome on WebKit: it links no TLS stack of
+#: its own (WebKit's curl does the HTTPS), but what is linked into it must stay GPLv2-compatible, so
+#: its tree (a member of the `xui-app` workspace: `cargo tree` reports just this package's graph)
+#: and `xui-webkit`'s, the engine seam it links, must be GPLv2-compatible too. The program
 #: it ends up in also links OpenSSL (Apache-2.0) through WebKit, which `tools/webkit/licenses.py`
 #: covers: that is why the crate is declared `GPL-2.0-only OR GPL-3.0-or-later`.
 LAZYWEBPLUS = ROOT / "xui-app" / "webplus" / "Cargo.toml"
@@ -76,8 +69,7 @@ ACCEPTABLE = {
     "Unicode-3.0", "Unicode-DFS-2016", "Unlicense", "CC0-1.0", "BSL-1.0",
     "GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later", "GPL-2.0+",
     "LGPL-2.1", "LGPL-2.1-only", "LGPL-2.1-or-later",
-    # MPL-2.0 section 3.3 lets it combine with GPL code as a Secondary License
-    # (Stylo, Blitz's style system).
+    # MPL-2.0 section 3.3 lets it combine with GPL code as a Secondary License.
     "MPL-2.0",
     # LLVM's exception exists precisely to make Apache-2.0 GPLv2-compatible.
     "Apache-2.0 WITH LLVM-exception",
@@ -227,7 +219,6 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--verbose", action="store_true", help="print every crate and its licence")
-    parser.add_argument("--lazyweb", action="store_true", help="also check LazyWeb (xui-app/web)")
     parser.add_argument("--lazywebplus", action="store_true", help="also check LazyWeb+'s window (xui-app/webplus)")
     parser.add_argument("--lazysky", action="store_true",
                         help="also check LazySky's core (xui-app/crates/lazysky-core)")
@@ -236,7 +227,7 @@ def main() -> int:
     args = parser.parse_args()
     self_test()
     problems: list[str] = []
-    for manifest in (MANIFESTS + ([LAZYWEB] if args.lazyweb else []) + ([LAZYWEBPLUS] if args.lazywebplus else [])
+    for manifest in (MANIFESTS + ([LAZYWEBPLUS] if args.lazywebplus else [])
                      + ([LAZYSKY] if args.lazysky else []) + ([AGENT] if args.agent else [])):
         problems += check(manifest, args.verbose, frozenset(LAZYWEBPLUS_WAIVERS) if manifest == LAZYWEBPLUS else frozenset())
     if problems:

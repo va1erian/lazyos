@@ -1,10 +1,10 @@
 //! Markdown to a styled HTML page: the pure, host-testable half of the Docs app.
 //!
-//! The page goes to Blitz, which has no scripting: the only untrusted-input
-//! concern is markup smuggled through the Markdown, so raw HTML in the source
-//! is rendered as literal text and never reaches the layout engine as markup.
+//! The page goes to a light view of `webd` (WebKit with no network, scripts off and a locked
+//! navigation): the only untrusted-input concern is markup smuggled through the Markdown, so raw
+//! HTML in the source is rendered as literal text and never reaches the layout engine as markup.
 
-pub mod nav;
+pub mod history;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -12,6 +12,8 @@ use std::io::{self, Read};
 use std::path::Path;
 
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag, TagEnd};
+
+pub mod links;
 
 /// The largest document the app renders; a bigger file is cut off (with a
 /// notice) rather than handed whole to the parser and layout engine.
@@ -28,10 +30,9 @@ pub fn read_bounded(reader: impl Read) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// The page stylesheet: Liberation Sans body, Liberation Mono code (the fonts
-/// `webfonts` registers with Blitz, which has no others on LazyOS; the generic
-/// family is the fallback, since a named family it lacks draws no text), light
-/// theme ([`DARK_CSS`] overrides its colours in dark mode).
+/// The page stylesheet: Liberation Sans body, Liberation Mono code (the fonts the image ships and
+/// `webd`'s page process reads; the generic family is the fallback), light theme ([`DARK_CSS`]
+/// overrides its colours in dark mode).
 const CSS: &str = "\
 body { font-family: 'Liberation Sans', sans-serif; font-size: 15px; line-height: 1.5; color: #1f2328;
        background: #ffffff; margin: 24px 32px; }
@@ -77,8 +78,7 @@ pub fn themed(html: String, dark: bool) -> String {
 /// complete HTML page.
 pub fn page(markdown: &str) -> String {
     let (markdown, cut) = truncate(markdown);
-    // No task lists: they render as `<input>` checkboxes, which litehtml (the
-    // engine before Blitz) did not draw.
+    // No task lists: they render as `<input>` checkboxes, which a document should not offer.
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     // Raw HTML becomes text: `push_html` escapes a `Text` event.
     let events = Parser::new_ext(markdown, options).map(|event| match event {

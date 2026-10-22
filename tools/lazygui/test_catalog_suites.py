@@ -29,7 +29,7 @@ class SuiteTests(unittest.TestCase):
 
     def test_full_turns_every_app_on_and_srb2kart_stays_off(self) -> None:
         cfg = self.config("full")
-        for name in ("lazyrad", "modplayer", "pictures", "lazyweb", "lazywebplus", "mail",
+        for name in ("lazyrad", "modplayer", "pictures", "lazywebplus", "mail",
                      "lazysky", "games", "doom", "quake", "emusic", "linuxapps", "tls", "net",
                      "smb", "big_app"):
             self.assertTrue(cfg[name], name)

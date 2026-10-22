@@ -178,13 +178,12 @@ pub fn downloads(rows: &[DownloadRow], folder: &str) -> String {
 /// The About page, with the sites whose notifications the person decided about.
 pub fn about(version: &str, sites: &[Site]) -> String {
     let mut body = format!(
-        "<p>Version {}. LazyWeb's browser window on the \
+        "<p>Version {}. The LazyOS browser, on the \
 <a href=\"https://webkit.org/\">WebKit</a> engine: JavaScript and the modern web, \
 HTTPS through the system's certificate bundle.</p>\
 <p class=\"note\">The process that runs a page is sandboxed: it can read the fonts and \
 nothing else, has no network and no access to your files. The network process keeps \
-cookies in .apps/os.lazy.lazywebplus and saves downloads to your Downloads folder. \
-LazyWeb, the browser without scripts, stays the one LazyOS ships.</p>\
+cookies in .apps/os.lazy.lazywebplus and saves downloads to your Downloads folder.</p>\
 <p class=\"note\">WebKit is free software under the LGPL 2.1 and BSD licences; this \
 window is under the GPL 2.0; fonts: Liberation (SIL OFL 1.1).</p>",
         escape(version)
