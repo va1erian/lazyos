@@ -76,17 +76,23 @@ fn text(value: &str) -> String {
     clip(value, EVENT_TEXT_BYTES).to_owned()
 }
 
+/// A full `State` carries four texts where the light one has two: each is cut at half the event
+/// text limit so the event fits the receive buffer a client offers (`EVENT_BYTES_MAX`).
+fn state_text(value: &str) -> String {
+    clip(value, EVENT_TEXT_BYTES / 2).to_owned()
+}
+
 impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn deliver_pages(&mut self, pages: BTreeMap<u64, PageNow>) {
         for (id, page) in pages {
             let body = wire::encode_state_args(&wire::StateArgs {
                 view: id,
-                title: text(&page.title),
+                title: state_text(&page.title),
                 loading: page.loading,
                 finished: page.finished,
-                error: text(&page.error),
-                url: text(&page.url),
-                committed_url: text(&page.committed_url),
+                error: state_text(&page.error),
+                url: state_text(&page.url),
+                committed_url: state_text(&page.committed_url),
                 can_back: page.can_back,
                 can_forward: page.can_forward,
                 progress: page.progress,

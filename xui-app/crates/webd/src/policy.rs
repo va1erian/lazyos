@@ -97,6 +97,15 @@ pub fn origin(url: &str) -> Option<String> {
         "https" => "443",
         _ => return None,
     };
+    // WebKit's URL parser reads `\` as `/` in an http(s) address (`https://evil.test\@example.com/` is
+    // evil.test), and white space or a control character may be dropped or kept: an address with any
+    // of them has no origin here, so it matches no allowlist entry.
+    if url
+        .chars()
+        .any(|c| c == '\\' || c.is_whitespace() || c.is_control())
+    {
+        return None;
+    }
     let rest = url[scheme.len() + 1..].strip_prefix("//")?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     // Credentials are not part of the origin.
@@ -223,6 +232,9 @@ mod tests {
             "http://a b/",
             "http://a:8x/",
             "data:x",
+            "https://evil.test\\@example.com/",
+            "https://evil.test:443\\@example.com/",
+            "http://example.com\t@evil/",
         ] {
             assert_eq!(origin(bad), None, "{bad}");
         }

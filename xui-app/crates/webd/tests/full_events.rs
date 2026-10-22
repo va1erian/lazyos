@@ -41,32 +41,32 @@ fn the_pages_texts_are_cut_before_they_are_sent() {
     fx.pump(0);
     let mut seen = 0;
     for event in fx.news(events) {
-        let lengths: Vec<usize> = match event {
-            FEv::Dialog(d) => vec![d.message.len(), d.default_value.len()],
-            FEv::State(s) => vec![
-                s.url.len(),
-                s.title.len(),
-                s.error.len(),
-                s.committed_url.len(),
-            ],
-            FEv::Hover(h) => vec![h.url.len()],
-            FEv::NewWindow(n) => vec![n.url.len()],
+        // A full State has four texts, each cut at half the limit so the event fits a client's buffer.
+        let (lengths, limit): (Vec<usize>, usize) = match event {
+            FEv::Dialog(d) => (
+                vec![d.message.len(), d.default_value.len()],
+                EVENT_TEXT_BYTES,
+            ),
+            FEv::State(s) => (
+                vec![
+                    s.url.len(),
+                    s.title.len(),
+                    s.error.len(),
+                    s.committed_url.len(),
+                ],
+                EVENT_TEXT_BYTES / 2,
+            ),
+            FEv::Hover(h) => (vec![h.url.len()], EVENT_TEXT_BYTES),
+            FEv::NewWindow(n) => (vec![n.url.len()], EVENT_TEXT_BYTES),
             other => panic!("{other:?}"),
         };
-        assert!(
-            lengths.iter().all(|len| *len == EVENT_TEXT_BYTES),
-            "{lengths:?}"
-        );
+        assert!(lengths.iter().all(|len| *len == limit), "{lengths:?}");
         seen += 1;
     }
     assert_eq!(seen, 4);
 }
 
 #[test]
-#[ignore = "bug: a full view's State carries four texts (url, title, error, committed_url) of up to \
-            EVENT_TEXT_BYTES each, 192 KiB, but EVENT_BYTES_MAX (and the client's 100 KiB receive \
-            buffer) is sized for the light State's two texts, so the kernel drops the event \
-            (EMSGSIZE); service/deliver.rs deliver_pages, limits.rs EVENT_BYTES_MAX"]
 fn the_largest_event_of_a_full_view_fits_the_clients_receive_buffer() {
     // Why: the kernel drops a message larger than the receiver's buffer, so the client would never
     // hear that page state (title, address, progress) at all.

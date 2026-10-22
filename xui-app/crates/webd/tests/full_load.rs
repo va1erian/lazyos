@@ -81,8 +81,6 @@ fn load_follows_the_views_scheme_policy_and_only_loadable_addresses_reach_the_en
 }
 
 #[test]
-#[ignore = "bug: policy::origin() splits the authority at / ? # only, not at a backslash, so \
-            https://evil.test\\@example.com/ is read as host example.com (WebKit: evil.test)"]
 fn a_backslash_does_not_hide_the_real_host_from_the_origin_list() {
     // Why: the engine's URL parser reads `\` as `/` in an http address, so the host of
     // `https://evil.test\@example.com/` is evil.test (the rest is its path); a policy that read
