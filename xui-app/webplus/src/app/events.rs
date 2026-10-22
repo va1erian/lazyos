@@ -100,7 +100,7 @@ impl Browser {
             self.set_loading(false);
             self.set_status("");
             if std::mem::take(&mut self.stopping) {
-                println!("WEBPLUS:STOPPED");
+                crate::marker("STOPPED");
             }
         } else if self.state.title != old.title {
             self.title_changed();
@@ -120,9 +120,9 @@ impl Browser {
     fn load_failed(&mut self) {
         let error = self.state.error.clone();
         if self.host.traces {
-            println!("WEBPLUS:FAIL:{}", marker_text(&error));
+            crate::marker(&format!("FAIL:{}", marker_text(&error)));
         } else {
-            println!("WEBPLUS:FAIL");
+            crate::marker("FAIL");
         }
         self.set_status(&error);
     }
@@ -285,7 +285,7 @@ impl Browser {
 
     /// A JavaScript dialog: drawn over the window; the page waits for the answer.
     fn dialog(&mut self, id: u64, kind: xui_webkit::engine::DialogKind, text: &str) {
-        println!("WEBPLUS:DIALOG:{}", kind.name());
+        crate::marker(&format!("DIALOG:{}", kind.name()));
         let title = dialogs::title_for(&self.state.committed_url);
         if let Some(replaced) = self.dialogs.show(id, kind, &title, text) {
             self.engine
