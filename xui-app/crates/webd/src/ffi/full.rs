@@ -444,6 +444,9 @@ pub unsafe extern "C" fn webd_ui_blocking(view: u64, url: *const c_char) -> c_in
 
 /// Decision `index` of the notification decisions a page process starts with: the origin (with its NUL)
 /// into `origin` (`origin_size` bytes), 1 allowed, 0 blocked, -1 past the end, -2 one that does not fit.
+/// WebKit reads them index by index; a decision the service changes between two reads can be skipped or
+/// read twice by that one process start, and the service tells running processes every change anyway
+/// (`notify_permission`, `notify_forget`), so a start only ever lags one change behind.
 ///
 /// # Safety
 /// `origin` valid for `origin_size` bytes, or NULL.

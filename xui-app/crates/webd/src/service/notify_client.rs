@@ -62,7 +62,14 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             body: cut(&body),
             tag: cut(&tag),
         });
-        self.event_to_live(view, wire::METHOD_NOTIFYSHOW, body);
+        // Not delivered (the app's inbox is full, the view is going): the page hears it closed, and
+        // the id does not stay open for ever.
+        if !self.event_to_live(view, wire::METHOD_NOTIFYSHOW, body) {
+            if let Some(full) = self.full_of(view) {
+                full.forwarded.remove(&id);
+            }
+            self.engine.notify_closed(id);
+        }
     }
 
     /// The page closed notification `id` (`NotifyCancel`: it is over) or its object went away

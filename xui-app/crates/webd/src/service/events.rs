@@ -146,15 +146,15 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         id: u64,
         method: u32,
         body: Result<Vec<u8>, libmessenger::Error>,
-    ) {
+    ) -> bool {
         let (Some(view), Ok(body)) = (self.views.any_mut(id), body) else {
-            return;
+            return false;
         };
         if view.lost.is_some() {
-            return;
+            return false;
         }
         let channel = view.channel;
-        self.send(id, channel, method, body);
+        matches!(self.send(id, channel, method, body), Sent::Yes)
     }
 
     /// Put a whole frame into a free slot and tell the client; drop it when there is none. `offset`:

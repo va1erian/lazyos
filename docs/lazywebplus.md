@@ -442,7 +442,7 @@ LazyWeb+ as a client of webd. The host tests are `xui-webplus` (`tests/`: the wi
 recording engine), `xui-webkit` and `xui-webkit-remote` (`tests/remote.rs`: the real engine's code against
 `xui-webd`'s in-memory fabric).
 
-The webd side of the sandbox is attacked by `python tools/webkit/attack_run.py --browser --app lazywebplus`
+The webd side of the sandbox is attacked by `python tools/webkit/attack_run.py --browser` (its `--app` is `webd`)
 (issue #832's harness, parametrised): a desktop image with `LAZYOS_LAZYWEBPLUS=1 LAZYOS_WEBKIT_ATTACK=1`, in
 which the two engine programs are a stand-in that attacks from inside the labels that webd's package tables
 give them. The judge's table (`tools/webkit/attackjudge.py`) is the same for both browsers but one row: the

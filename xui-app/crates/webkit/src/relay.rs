@@ -1,8 +1,8 @@
 //! An [`Engine`] for another thread: the ad blocker's worker compiles and loads its rule lists from a
 //! thread of its own, but the engine a window holds (a client of webd) lives on the window's thread,
 //! whose Messenger handles are its own. A [`Relay`] turns each call into a job the window's thread
-//! runs on the real engine ([`Jobs::run`]), and wakes that thread when the first job of a burst is
-//! queued.
+//! runs on the real engine ([`Jobs::run`]), and wakes that thread for every job queued (the wake is
+//! a message to the window's loop, which runs every queued job at once).
 
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};

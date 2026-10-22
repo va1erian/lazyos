@@ -232,7 +232,8 @@ fn no_webd_says_so_and_a_page_asked_for_meanwhile_loads_when_it_comes() {
     assert_eq!(rig.engine.health(), Health::NotRunning);
     // An app opened at login may start before webd: the first tries are quiet.
     assert!(rig.mailbox.take_state().is_none());
-    assert!(rig.engine.pump(), "the window is asked to come back");
+    // The window's slow beat covers the retries: no fast timer for them.
+    assert!(!rig.engine.pump());
     let mut said = None;
     for _ in 0..6 {
         std::thread::sleep(std::time::Duration::from_millis(1050));
@@ -273,6 +274,88 @@ fn a_dialog_and_a_window_request_become_the_windows_news() {
         !news.iter().any(|e| matches!(e, Event::Popup { .. })),
         "the page's own window.open opens nothing"
     );
+}
+
+#[test]
+fn a_page_whose_process_ended_stays_blank_through_a_resize_and_reload_loads_it_again() {
+    let rig = rig();
+    rig.engine.resize(64, 48);
+    rig.open("/page2");
+    let first = rig.view();
+    let queue = rig.web.world.borrow().queue.clone();
+    xui_webd::engine::EngineEvents::view_lost(&*queue, first, xui_webd::engine::LOST_CRASHED);
+    rig.pump();
+    let state = rig.state();
+    assert!(state.crashed && state.error.contains("crashed"), "{state:?}");
+    assert_eq!(rig.engine.health(), Health::Ended);
+    // A resize (a maximize) makes no new, empty view: the page stays blank and says why.
+    rig.engine.resize(80, 60);
+    assert_eq!(rig.engine.health(), Health::Ended);
+    assert!(rig.mailbox.take_state().is_none());
+    // Reload loads the page on show in a new view.
+    rig.engine.reload();
+    rig.pump();
+    assert_eq!(rig.engine.health(), Health::Live);
+    let state = rig.state();
+    assert_eq!(state.title, "Page Two");
+    assert!(!state.crashed);
+    assert_ne!(rig.view(), first);
+}
+
+#[test]
+fn a_decision_forgotten_while_there_is_no_view_is_told_to_the_next_one() {
+    let rig = rig_with(vec![("https://a.test".into(), NotifyAnswer::Allow)]);
+    rig.engine.notify_forget("https://a.test");
+    rig.engine.resize(64, 48);
+    rig.pump();
+    let view = rig.view();
+    assert!(
+        !rig.web.web.permissions().contains(&(view, "https://a.test".into(), 1)),
+        "a forgotten decision is not replayed"
+    );
+    assert_eq!(rig.web.web.forgets(), vec![(view, "https://a.test".into())]);
+}
+
+#[test]
+fn a_pages_notification_reaches_the_window() {
+    let rig = rig_with(vec![("https://a.test".into(), NotifyAnswer::Allow)]);
+    rig.engine.resize(64, 48);
+    rig.pump();
+    let view = rig.view();
+    let queue = rig.web.world.borrow().queue.clone();
+    queue.notify_show_from(view, 5, "https://a.test", "https://a.test/p", "Hi", "There", "t");
+    rig.pump();
+    let news = rig.mailbox.take_events();
+    let shown = Event::NotifyShow {
+        id: 5,
+        origin: "https://a.test".into(),
+        page_url: "https://a.test/p".into(),
+        title: "Hi".into(),
+        body: "There".into(),
+        tag: "t".into(),
+    };
+    assert!(news.contains(&shown), "{news:?}");
+    // The window's answers go to webd and leave the view as it was.
+    rig.engine.notify_shown(5);
+    rig.engine.notify_closed(5);
+    assert_eq!(rig.engine.health(), Health::Live);
+}
+
+#[test]
+fn a_long_page_of_the_browsers_own_is_given_as_html_and_told_back_by_its_address() {
+    let rig = rig();
+    rig.engine.resize(64, 48);
+    rig.pump();
+    let page = format!(
+        "data:text/html;charset=utf-8,%3Ctitle%3EHistory%3C%2Ftitle%3E{}",
+        "x".repeat(9000)
+    );
+    rig.engine.load(&page);
+    rig.pump();
+    let state = rig.state();
+    assert_eq!(state.title, "History");
+    assert_eq!(state.committed_url, page, "the window knows its page by its address");
+    assert!(rig.web.web.requests().is_empty(), "nothing fetched");
 }
 
 #[test]

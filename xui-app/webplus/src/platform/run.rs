@@ -24,9 +24,10 @@ impl Waker {
 /// The ad blocker's worker (a thread that fetches, converts and hands the lists to the engine through
 /// `relay`), started with the window: nothing waits for it, a page loads unblocked until a list is
 /// ready.
-fn start_blocker(blocker: &Blocker, profile: Option<&PathBuf>, relay: Relay) {
-    let Some(profile) = profile else {
-        // No home folder, so nowhere for a list to live: say so, rather than leaving the shield at
+fn start_blocker(blocker: &Blocker, profile: Option<&PathBuf>, memory_only: bool, relay: Relay) {
+    let Some(profile) = profile.filter(|_| !memory_only) else {
+        // No home folder, so nowhere for a list to live, or the page's data kept in memory (webd keeps
+        // content blocking for a profile on disk only): say so, rather than leaving the shield at
         // "preparing" for ever.
         for list in blocker.lists() {
             blocker.update_list(list.id, |l| {
@@ -105,7 +106,7 @@ pub(super) fn run() -> i32 {
     });
     // Settings at their defaults until `confd` answers (`Blocker::attach`, on a thread).
     let blocker = Blocker::volatile();
-    start_blocker(&blocker, profile.as_ref(), relay);
+    start_blocker(&blocker, profile.as_ref(), memory_only, relay);
     let internal = Internal::default();
     let window_blocker = blocker.clone();
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));

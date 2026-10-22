@@ -124,6 +124,12 @@ struct Inner<T: ScopedTransport> {
     deferred: Vec<Box<dyn FnOnce(&mut FullWebView<T>)>>,
     blocking: Option<(bool, Vec<String>)>,
     permissions: BTreeMap<String, NotifyAnswer>,
+    /// Decisions the person revoked while there was no view: told to the next one (webd keeps a
+    /// profile's decisions for as long as it runs).
+    forgotten: std::collections::BTreeSet<String>,
+    /// The live view has been asked to load something: a Reload of a view that never loaded a page
+    /// loads the page on show instead.
+    loaded: bool,
     aliases: alias::Aliases,
     moves: input::Moves,
     /// The event channel last told to `watch`.
@@ -159,6 +165,8 @@ impl<T: ScopedTransport> RemoteEngine<T> {
                 deferred: Vec::new(),
                 blocking: None,
                 permissions: options.permissions.into_iter().collect(),
+                forgotten: std::collections::BTreeSet::new(),
+                loaded: false,
                 aliases: alias::Aliases::default(),
                 moves: input::Moves::default(),
                 channel: None,
@@ -178,7 +186,8 @@ impl<T: ScopedTransport> RemoteEngine<T> {
 
     /// Reads what webd sent and hands it to the mailbox; sends a pointer move that waited; asks for
     /// the view again when it is due. Returns whether the window should call again soon
-    /// ([`MOVE_INTERVAL_MS`]) rather than only when the channel is readable.
+    /// ([`MOVE_INTERVAL_MS`]: a pointer move waits its turn) rather than only when the channel is
+    /// readable or on its slow beat (which also covers the retries, every [`RETRY_MS`]).
     pub fn pump(&self) -> bool {
         let now = self.now_ms();
         self.retry_if_due(now);
@@ -192,8 +201,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             self.news(event);
         }
         self.notice_channel();
-        let inner = self.inner.borrow();
-        inner.moves.waiting() || inner.health.retrying()
+        self.inner.borrow().moves.waiting()
     }
 
     /// The view's health, for the window's status and the traces.

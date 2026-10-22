@@ -61,7 +61,11 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
     }
 
     fn reload(&self) {
-        if self.inner.borrow().view.is_live() {
+        let (live, loaded) = {
+            let inner = self.inner.borrow();
+            (inner.view.is_live(), inner.loaded)
+        };
+        if live && loaded {
             self.call(|view| view.reload(false));
         } else {
             let page = self.page();
@@ -89,17 +93,18 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
 
     fn resize(&self, width: i32, height: i32) {
         let size = (width.max(1) as u32, height.max(1) as u32);
-        let live = {
+        let (live, ended) = {
             let mut inner = self.inner.borrow_mut();
             inner.size = Some(size);
             if inner.health == Health::Waiting {
                 inner.health = Health::NotRunning;
             }
-            inner.view.is_live()
+            (inner.view.is_live(), inner.health == Health::Ended)
         };
         if live {
             self.call(|view| view.resize(size.0, size.1));
-        } else {
+        } else if !ended {
+            // A page whose process ended stays blank until the next load makes its view.
             self.ensure_view();
         }
     }
@@ -180,19 +185,27 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
 
     fn notify_permission(&self, origin: &str, answer: NotifyAnswer) {
         if answer != NotifyAnswer::Dismiss {
-            self.inner
-                .borrow_mut()
-                .permissions
-                .insert(origin.to_owned(), answer);
+            let mut inner = self.inner.borrow_mut();
+            inner.permissions.insert(origin.to_owned(), answer);
+            inner.forgotten.remove(origin);
         }
         let origin = origin.to_owned();
         self.call(move |view| view.notify_permission(&origin, answer_code(answer)));
     }
 
     fn notify_forget(&self, origin: &str) {
-        self.inner.borrow_mut().permissions.remove(origin);
-        let origin = origin.to_owned();
-        self.call(move |view| view.notify_forget(&origin));
+        let live = {
+            let mut inner = self.inner.borrow_mut();
+            inner.permissions.remove(origin);
+            if !inner.view.is_live() {
+                inner.forgotten.insert(origin.to_owned());
+            }
+            inner.view.is_live()
+        };
+        if live {
+            let origin = origin.to_owned();
+            self.call(move |view| view.notify_forget(&origin));
+        }
     }
 
     fn blocking_load(&self, id: &str) {

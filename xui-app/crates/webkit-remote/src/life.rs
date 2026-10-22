@@ -19,6 +19,9 @@ use crate::{RemoteEngine, RETRY_MS};
 /// Failed tries to make the view before the page says why (at one a second: webd registers in a few
 /// seconds after login, and LazyWeb+ may open first).
 const QUIET_TRIES: u32 = 5;
+/// How much longer than [`RETRY_MS`] a refused view waits before it is asked for again (a refusal is
+/// the configuration or a quota: it rarely changes by itself).
+const REFUSED_BACKOFF: u64 = 10;
 
 /// Where the view stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +92,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             let mut inner = self.inner.borrow_mut();
             inner.health = super::Health::Live;
             inner.tries = 0;
+            inner.loaded = false;
             inner.finished_base = inner.state.finished;
             let inner = &mut *inner;
             let view = &mut inner.view;
@@ -97,6 +101,9 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             }
             for (origin, answer) in &inner.permissions {
                 let _ = view.notify_permission(origin, answer_code(*answer));
+            }
+            for origin in std::mem::take(&mut inner.forgotten) {
+                let _ = view.notify_forget(&origin);
             }
             for job in std::mem::take(&mut inner.deferred) {
                 job(view);
@@ -115,10 +122,16 @@ impl<T: ScopedTransport> RemoteEngine<T> {
         let now = self.now_ms();
         let quiet = {
             let mut inner = self.inner.borrow_mut();
+            let wait = match health {
+                Health::Refused(_) => RETRY_MS * REFUSED_BACKOFF,
+                _ => RETRY_MS,
+            };
+            // Said once: the same refusal a second time changes nothing on screen.
+            let again = inner.health == health && inner.tries > QUIET_TRIES;
             inner.health = health;
-            inner.retry_at = now + RETRY_MS;
+            inner.retry_at = now + wait;
             inner.tries = inner.tries.saturating_add(1);
-            inner.tries < QUIET_TRIES && inner.state.committed_url.is_empty()
+            again || (inner.tries < QUIET_TRIES && inner.state.committed_url.is_empty())
         };
         self.notice_channel();
         if quiet {
@@ -194,6 +207,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
         let result = {
             let mut inner = self.inner.borrow_mut();
             let inner = &mut *inner;
+            inner.loaded = true;
             match inner.aliases.prepare(url) {
                 Some((html, base)) => inner.view.load_html(&html, &base),
                 None => inner.view.load(url),

@@ -135,9 +135,15 @@ impl Drop for ShellWorker {
         self.jobs = None;
         if let Some(thread) = self.thread.take() {
             if let Some(turn) = &self.turn {
-                while !thread.is_finished() {
+                // The worker takes its toasts down within CLEAN_UP; a worker stuck past twice that is
+                // left behind (it ends with the process) rather than holding the quit.
+                let until = Instant::now() + CLEAN_UP * 2;
+                while !thread.is_finished() && Instant::now() < until {
                     turn();
                     thread::sleep(Duration::from_millis(2));
+                }
+                if !thread.is_finished() {
+                    return;
                 }
             }
             let _ = thread.join();
