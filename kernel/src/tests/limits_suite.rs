@@ -233,6 +233,20 @@ pub fn derived_defaults_scale() -> Result<(), String> {
         "4K buffers {}",
         uhd.shared_buffer_max
     );
+    // A maximized browser at 2560x1440 (a client of webd): three window
+    // buffers, three frame slots and two band slots of the page's size.
+    let qhd = 2560 * 1440 * 4;
+    for ram in [GIB, 4 * GIB] {
+        let browser = Limits::for_machine(ram, qhd).shared_buffer_max;
+        check!(
+            browser >= 8 * qhd,
+            "a browser's buffers at 1440p with {ram} bytes: {browser}"
+        );
+    }
+    check!(
+        Limits::for_machine(GIB, 1280 * 720 * 4).shared_buffer_max == 29 * MIB,
+        "720p: eight screens, rounded up to a MiB"
+    );
     // The floor of 256 MiB used to be all of a 256 MiB guest's RAM: the
     // default quota now stays under what the user can be given.
     check!(

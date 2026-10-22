@@ -37,13 +37,14 @@ use std::time::Instant;
 
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 use xui_webd_client::transport::ScopedTransport;
-use xui_webd_client::{FullWebView, Scope, SlotPlan, ViewConfig};
+use xui_webd_client::{FullWebView, Scope, ViewConfig};
 use xui_webkit::abi::NavKind;
 use xui_webkit::engine::NotifyAnswer;
 use xui_webkit::events::Event;
 use xui_webkit::mailbox::{Mailbox, PageState};
 
 pub use life::Health;
+pub use xui_webd_client::SlotPlan;
 
 /// The shortest time between two pointer moves sent to webd.
 pub const MOVE_INTERVAL_MS: u64 = 8;
@@ -76,6 +77,8 @@ pub struct Options {
     pub permissions: Vec<(String, NotifyAnswer)>,
     /// Told the view's event channel whenever it changes (a new view, none): the window parks on it.
     pub watch: Box<dyn Fn(Option<u64>)>,
+    /// Asks the window to call [`RemoteEngine::pump`] soon (a pointer move waits its turn).
+    pub wake: Box<dyn Fn()>,
 }
 
 /// The configuration of LazyWeb+'s view: the `browser` profile (on disk, or in memory with
@@ -130,6 +133,7 @@ pub struct RemoteEngine<T: ScopedTransport> {
     mailbox: Arc<Mailbox>,
     navigator: Box<dyn Fn(&Navigation) -> Option<Event>>,
     watch: Box<dyn Fn(Option<u64>)>,
+    wake: Box<dyn Fn()>,
     started: Instant,
 }
 
@@ -158,6 +162,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             mailbox,
             navigator: options.navigator,
             watch: options.watch,
+            wake: options.wake,
             started: Instant::now(),
         }
     }

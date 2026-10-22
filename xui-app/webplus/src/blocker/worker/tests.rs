@@ -47,6 +47,7 @@ impl Engine for Recording {
     fn blocking_forget(&self, id: &str) {
         self.calls.lock().unwrap().push(format!("forget {id}"));
     }
+    fn set_blocking(&self, _: bool, _: &[String]) {}
 }
 
 /// A fake `curl`: writes what the test staged to the `-o` file and returns its exit.

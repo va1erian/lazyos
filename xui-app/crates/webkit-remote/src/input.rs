@@ -68,9 +68,16 @@ impl<T: ScopedTransport> RemoteEngine<T> {
     /// A pointer move from the window.
     pub(crate) fn offer_move(&self, update: Move) {
         let now = self.now_ms();
-        let send = self.inner.borrow_mut().moves.offer(update, now);
-        if let Some(update) = send {
-            self.send_move(update);
+        let (send, was_waiting) = {
+            let mut inner = self.inner.borrow_mut();
+            let was_waiting = inner.moves.waiting();
+            (inner.moves.offer(update, now), was_waiting)
+        };
+        match send {
+            Some(update) => self.send_move(update),
+            // The first move of a burst to wait: the window comes back for it.
+            None if !was_waiting => (self.wake)(),
+            None => {}
         }
     }
 

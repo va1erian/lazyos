@@ -59,7 +59,7 @@ off, where a lock could deadlock against a preempted holder (the #382 class).
 | `stack_size` | Linux main-thread stack (`RLIMIT_STACK`) | 8 MiB | 64 KiB .. 1 GiB |
 | `quota_user_memory` | Per-uid user memory (mappings by length, reservations by resident page, `brk`, `sbrk`), non-root | `max(256 MiB, 3r/4)`, at most `r` less the initial heap and the DMA pool | 16 MiB .. 1 TiB |
 | `quota_kernel_memory` | Per-uid kernel memory (shared buffers), non-root | `max(32 MiB, r/8, 8s)`, at most `max(32 MiB, r/2)` | 4 MiB .. 1 TiB |
-| `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 3s)`, at most `max(16 MiB, r/4)` | 8 MiB .. 64 GiB |
+| `shared_buffer_max` | Shared-buffer bytes one process holds (and the largest single buffer) | `max(16 MiB, 8s)`, at most `max(16 MiB, r/4)`: a maximized window's buffers and the slots of a webd view (the browser, docs/webd-plan.md P4) | 8 MiB .. 64 GiB |
 | `scratch_max` | File bytes the in-memory scratch filesystem (`/transient` and `/tmp`, one instance) holds; a non-root uid may hold half | `min(1 GiB, heap_max / 2)`, at least 32 MiB | 4 MiB .. 64 GiB |
 | `task_max` | Task slots (processes and threads) in use machine-wide; `RLIMIT_NPROC`. A slot costs a 48 KiB kernel stack from the heap only while a task holds it | one per MiB of RAM, 256 .. 1024 | 64 .. `task::MAX_TASKS` (1024) |
 | `cpu_max` | CPUs the kernel may bring up ([`smp-plan.md`](../smp-plan.md) S8.2 derives the default from the MADT; 1 until then) | 1 | 1 .. 64 |
@@ -68,11 +68,11 @@ What that gives (screen 1280x720 unless stated):
 
 | Machine | `heap_max` | `quota_user_memory` | `quota_kernel_memory` | `shared_buffer_max` | DMA pool |
 |---|---|---|---|---|---|
-| 256 MiB | 128 MiB | 224 MiB | 32 MiB | 16 MiB | 16 MiB |
-| 1 GiB | 512 MiB | 768 MiB | 128 MiB | 16 MiB | 32 MiB |
-| 1 GiB, 1920x1080 | 512 MiB | 768 MiB | 128 MiB | 24 MiB | 32 MiB |
-| 1 GiB, 3840x2160 | 512 MiB | 768 MiB | 254 MiB | 95 MiB | 32 MiB |
-| 8 GiB | 4 GiB | 6 GiB | 1 GiB | 16 MiB | 64 MiB |
+| 256 MiB | 128 MiB | 224 MiB | 32 MiB | 29 MiB | 16 MiB |
+| 1 GiB | 512 MiB | 768 MiB | 128 MiB | 29 MiB | 32 MiB |
+| 1 GiB, 1920x1080 | 512 MiB | 768 MiB | 128 MiB | 64 MiB | 32 MiB |
+| 1 GiB, 3840x2160 | 512 MiB | 768 MiB | 254 MiB | 254 MiB | 32 MiB |
+| 8 GiB | 4 GiB | 6 GiB | 1 GiB | 29 MiB | 64 MiB |
 
 Root (uid 0) is metered but not capped by the quotas (`quota::ROOT_LIMITS`).
 

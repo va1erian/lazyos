@@ -1,11 +1,12 @@
-//! LazyWeb+: the browser window on WebKit's engine (docs/lazywebplus.md).
+//! LazyWeb+: the browser window, a client of `webd` (docs/lazywebplus.md, docs/webd-plan.md P4).
 //!
 //! The window has a menu bar, a toolbar with a throbber, a status bar with a padlock
 //! and the running downloads, Ctrl+L and the other keys, a browsing history and downloads folder
 //! in the user's home, pages of its own (`about:history`, `about:downloads`, `about:lazyweb`,
 //! the start page) and `mailto:` and other schemes handed to the app registered for them. The
-//! page is WebKit's: its UI process (`webkit/port/app/`, C++) paints it into a bitmap and the
-//! page view ([`page`], from `xui-webkit`) shows it and forwards the pointer and keys.
+//! page is WebKit's, in `webd`: one full view of webd's `browser` profile, driven through
+//! `xui-webkit-remote`'s `RemoteEngine`, whose picture the page view (`xui-webkit`) shows and to
+//! which it forwards the pointer and keys. This program links no WebKit.
 //!
 //! The parts with no window are tested on the host:
 //!
@@ -21,7 +22,7 @@
 //! - [`internal`]: those pages as the `data:` URLs the engine shows.
 //!
 //! The window itself ([`app`], [`chrome`]) is driven offscreen against a recording engine in
-//! `tests/`. On LazyOS, `ffi` is the C ABI the UI process calls.
+//! `tests/`. On LazyOS, `platform` runs it (the bin `xui-lazywebplus`).
 
 pub mod address;
 pub mod app;
@@ -45,10 +46,10 @@ pub mod transfers;
 pub mod visits;
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
-mod ffi;
+pub mod platform;
 
 /// Whether the markers that name a page, an address or a file (the ones a person's privacy cares about)
-/// may be printed: only in an image built with the UI probe (`LAZYOS_UI_PROBE=1`), as `engine.h` promises.
+/// may be printed: only in an image built with the UI probe (`LAZYOS_UI_PROBE=1`).
 static NAMED_MARKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Allows or forbids the markers that name pages (the window sets it from the UI probe at start).

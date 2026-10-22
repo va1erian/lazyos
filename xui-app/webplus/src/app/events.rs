@@ -56,7 +56,11 @@ impl Browser {
             if site.is_some() {
                 self.site_url = Some(committed);
             }
+            let once = self.blocker.once();
             self.blocker.leave_unless(site.as_deref());
+            if self.blocker.once() != once {
+                self.sync_blocking();
+            }
             // The page that asked is gone: its dialog is answered "no", and a site that asked to
             // notify and was not answered may ask again.
             if let Some(answer) = self.dialogs.dismiss() {
@@ -185,10 +189,11 @@ impl Browser {
                     self.transfers.progress(id, received, total);
                     self.update_downloads(ui);
                 }
-                Event::DownloadDone { id } => self.download_ended(ui, id, None),
+                Event::DownloadDone { id, name } => self.download_ended(ui, id, Some(&name), None),
                 Event::DownloadFailed { id, reason } => {
-                    self.download_ended(ui, id, Some(reason));
+                    self.download_ended(ui, id, None, Some(reason));
                 }
+                Event::Clipboard(text) => ui.set_clipboard_text(&text),
                 Event::Dialog { id, kind, text, .. } => self.dialog(id, kind, &text),
                 Event::NotifyShow {
                     id,
@@ -233,8 +238,14 @@ impl Browser {
         self.update_buttons();
     }
 
-    fn download_ended(&mut self, ui: &Ui<Msg>, id: u64, error: Option<String>) {
-        if let Some(status) = self.transfers.finished(id, error) {
+    fn download_ended(
+        &mut self,
+        ui: &Ui<Msg>,
+        id: u64,
+        name: Option<&str>,
+        error: Option<String>,
+    ) {
+        if let Some(status) = self.transfers.finished(id, name, error) {
             self.set_status(&status);
         }
         self.downloads_changed(ui);

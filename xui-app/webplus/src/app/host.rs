@@ -31,6 +31,12 @@ pub struct Host {
     /// The profile folder (`$HOME/.apps/<SYSTEM_NAME>`), where the File menu records whether the
     /// page's data is kept in memory (`memory.rs`); `None` without a home.
     pub profile: Option<std::path::PathBuf>,
+    /// Reads what the engine (webd's view) sent into the mailbox; true when it wants to be called
+    /// again soon (a pointer move waits its turn, webd is being asked for the view again).
+    pub pump: Rc<dyn Fn() -> bool>,
+    /// Runs what other threads queued for the window's thread (the blocker's engine calls, the
+    /// shell's notification calls).
+    pub jobs: Rc<dyn Fn()>,
 }
 
 impl Host {
@@ -51,6 +57,8 @@ impl Host {
             launcher: Rc::new(NoLauncher),
             probe: Box::new(|_, _, _| {}),
             profile: None,
+            pump: Rc::new(|| false),
+            jobs: Rc::new(|| {}),
         }
     }
 }

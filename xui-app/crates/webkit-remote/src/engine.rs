@@ -71,10 +71,6 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
         }
     }
 
-    fn reload_unblocked(&self) {
-        self.call(|view| view.reload(true));
-    }
-
     fn stop(&self) {
         self.call(|view| view.stop());
     }

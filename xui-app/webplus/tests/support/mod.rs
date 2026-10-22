@@ -18,7 +18,6 @@ use xui_webkit::events::Event;
 use xui_webkit::mailbox::{Mailbox, PageState};
 use xui_webplus::app::{Browser, Host, Msg, Setup};
 use xui_webplus::blocker::Blocker;
-use xui_webplus::downloads::Saver;
 use xui_webplus::handoff::Launcher;
 use xui_webplus::internal::Internal;
 use xui_webplus::notify::{Permissions, ShellNews, Toasts};
@@ -222,7 +221,6 @@ pub fn drive_full(
     let image = render_with(
         Snapshot::new(Dip(SIZE.0 as f32), Dip(SIZE.1 as f32)).theme(Theme::light()),
         move |ui| {
-            let saver = Arc::new(Saver::new(home.join("Downloads")));
             Browser::build(
                 ui,
                 build_engine,
@@ -230,7 +228,7 @@ pub fn drive_full(
                 Setup {
                     url: first,
                     visits: Visits::open(home.join("history.tsv")),
-                    transfers: Transfers::new(saver, None),
+                    transfers: Transfers::new(home.join("Downloads"), None),
                     internal,
                     permissions,
                     toasts: Some(toasts as Rc<dyn Toasts>),

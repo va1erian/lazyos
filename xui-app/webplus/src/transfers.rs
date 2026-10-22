@@ -1,8 +1,9 @@
 //! The window's downloads: the list `about:downloads` shows, and the summary
 //! the status bar shows while any is running.
 //!
-//! The engine writes the file ([`Saver`] chose where); this side keeps the rows, renames the
-//! `.part` file when the engine says every byte arrived, and tells the user with a toast.
+//! webd writes the file in the Downloads folder (a `.part` file renamed when every byte arrived,
+//! under a name of its choosing, `lazydownloads`); this side keeps the rows and tells the user with
+//! a toast.
 //!
 //! Serial evidence: `WEBPLUS:DOWNLOAD:START:<file>`, then
 //! `WEBPLUS:DOWNLOAD:DONE:<file>:<bytes>` or `WEBPLUS:DOWNLOAD:FAIL:<reason>`.
@@ -10,10 +11,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
-use std::sync::Arc;
 use std::thread;
 
-use crate::downloads::Saver;
 use crate::marker_text;
 use crate::pages::{self, DownloadRow, DownloadState};
 
@@ -49,6 +48,8 @@ pub trait Toaster: Send + 'static {
 struct Transfer {
     id: u64,
     row: DownloadRow,
+    /// The file, once webd said every byte is in it.
+    path: Option<PathBuf>,
 }
 
 /// One toast request for the notifier thread.
@@ -104,7 +105,7 @@ impl Notifier {
 /// The downloads, oldest first.
 pub struct Transfers {
     list: Vec<Transfer>,
-    saver: Arc<Saver>,
+    folder: PathBuf,
     notifier: Option<Notifier>,
 }
 
@@ -124,29 +125,25 @@ pub struct Started {
 }
 
 impl Transfers {
-    /// The downloads of a window whose files `saver` places; with a `toaster`, each also shows a
-    /// notification (`os.lazy.notify`).
-    pub fn new(saver: Arc<Saver>, toaster: Option<Box<dyn Toaster>>) -> Transfers {
+    /// The downloads of a window whose files webd writes in `folder`; with a `toaster`, each also
+    /// shows a notification (`os.lazy.notify`).
+    pub fn new(folder: PathBuf, toaster: Option<Box<dyn Toaster>>) -> Transfers {
         Transfers {
             list: Vec::new(),
-            saver,
+            folder,
             notifier: toaster.and_then(Notifier::spawn),
         }
     }
 
     /// The folder the downloads go to.
     pub fn folder(&self) -> &Path {
-        self.saver.dir()
+        &self.folder
     }
 
     /// A download started; the status line for it. The row shows the file's name as saved
     /// (`file (1).zip`), not the one the server suggested.
     pub fn started(&mut self, info: Started) -> String {
-        let name = self
-            .saver
-            .destination(info.id)
-            .and_then(|d| d.path.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or(info.name);
+        let name = info.name;
         crate::named_marker(&format!("DOWNLOAD:START:{}", marker_text(&name)));
         // Until it ends (then the toast is updated in place).
         if let Some(notifier) = &self.notifier {
@@ -171,6 +168,7 @@ impl Transfers {
                 total: info.total,
                 state: DownloadState::Running,
             },
+            path: None,
         });
         status
     }
@@ -184,23 +182,32 @@ impl Transfers {
         }
     }
 
-    /// A download ended; the status line for it. `error` is why it did not complete. A
-    /// completed download is renamed from its `.part` here: a rename that fails is a failure.
-    pub fn finished(&mut self, id: u64, error: Option<String>) -> Option<String> {
-        let folder = self.saver.dir().display().to_string();
-        let completed = error.is_none();
-        let saved_as = self.saver.destination(id).map(|d| d.path);
-        let error = error.or_else(|| {
-            self.saver
-                .finish(id, true)
-                .err()
-                .map(|e| format!("cannot save the file: {e}"))
-        });
-        if !completed {
-            let _ = self.saver.finish(id, false);
-        }
+    /// A download ended; the status line for it. `name` is the file webd wrote (`DownloadDone`),
+    /// `error` why it did not complete.
+    pub fn finished(
+        &mut self,
+        id: u64,
+        name: Option<&str>,
+        error: Option<String>,
+    ) -> Option<String> {
+        let folder = self.folder.display().to_string();
+        // Only a plain file name of the folder: webd names it, but a name is not a path.
+        let saved_as = name
+            .filter(|name| Path::new(name).file_name().and_then(|n| n.to_str()) == Some(*name))
+            .map(|name| self.folder.join(name));
+        let error = match (error, &saved_as) {
+            (Some(why), _) => Some(why),
+            (None, None) => Some(String::from("the engine named no file")),
+            (None, Some(_)) => None,
+        };
         let jobs = self.notifier.as_ref().map(|n| n.jobs.clone());
         let t = self.find(id)?;
+        if let (None, Some(path)) = (&error, saved_as) {
+            if let Some(file) = path.file_name() {
+                t.row.name = file.to_string_lossy().into_owned();
+            }
+            t.path = Some(path);
+        }
         let name = t.row.name.clone();
         let toast = |level, title: &str, body: String| Toast {
             level,
@@ -227,8 +234,11 @@ impl Transfers {
         Some(match error {
             None => {
                 t.row.state = DownloadState::Done;
-                // The engine's progress can be missing for a quick download: the file is the truth.
-                if let Some(size) = saved_as
+                // The engine's progress can be missing for a quick download: the file is the truth
+                // when it can be read.
+                if let Some(size) = t
+                    .path
+                    .as_ref()
                     .and_then(|path| std::fs::metadata(path).ok())
                     .map(|m| m.len())
                 {
@@ -262,7 +272,7 @@ impl Transfers {
     pub fn saved(&self, n: usize) -> Option<PathBuf> {
         let t = self.list.get(n)?;
         (t.row.state == DownloadState::Done)
-            .then(|| self.saver.destination(t.id).map(|d| d.path))
+            .then(|| t.path.clone())
             .flatten()
     }
 
@@ -311,16 +321,15 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn rig(name: &str) -> (Transfers, Arc<Saver>, PathBuf) {
+    fn rig(name: &str) -> (Transfers, PathBuf) {
         let dir =
             std::env::temp_dir().join(format!("lazywebplus-tr-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        let saver = Arc::new(Saver::new(dir.clone()));
-        (Transfers::new(Arc::clone(&saver), None), saver, dir)
+        fs::create_dir_all(&dir).unwrap();
+        (Transfers::new(dir.clone(), None), dir)
     }
 
-    fn start(transfers: &mut Transfers, saver: &Saver, id: u64, name: &str) -> String {
-        saver.reserve(id, name).unwrap();
+    fn start(transfers: &mut Transfers, id: u64, name: &str) -> String {
         transfers.started(Started {
             id,
             url: format!("http://x/{name}"),
@@ -331,8 +340,8 @@ mod tests {
 
     #[test]
     fn a_download_runs_completes_and_can_be_opened_from_its_row() {
-        let (mut transfers, saver, dir) = rig("complete");
-        assert!(start(&mut transfers, &saver, 7, "kit.zip").contains("kit.zip"));
+        let (mut transfers, dir) = rig("complete");
+        assert!(start(&mut transfers, 7, "kit.zip").contains("kit.zip"));
         assert_eq!(transfers.running(0), Some(7));
         assert!(transfers.saved(0).is_none(), "not yet");
         transfers.progress(7, 50, Some(100));
@@ -340,24 +349,24 @@ mod tests {
         assert_eq!(summary.percent, Some(50));
         assert!(summary.text.starts_with("kit.zip:"));
 
-        fs::write(saver.destination(7).unwrap().part, b"PK").unwrap();
-        let status = transfers.finished(7, None).unwrap();
+        fs::write(dir.join("kit.zip"), b"PK").unwrap();
+        let status = transfers.finished(7, Some("kit.zip"), None).unwrap();
         assert!(status.starts_with("Saved kit.zip"), "{status}");
         assert_eq!(transfers.saved(0), Some(dir.join("kit.zip")));
+        assert_eq!(transfers.rows()[0].received, 2, "the file's size");
         assert!(transfers.summary().is_none());
         assert!(!transfers.any_running());
-        assert_eq!(fs::read(dir.join("kit.zip")).unwrap(), b"PK");
     }
 
     #[test]
-    fn a_failed_download_leaves_no_file_and_no_open_link() {
-        let (mut transfers, saver, dir) = rig("fail");
-        start(&mut transfers, &saver, 1, "a.bin");
-        fs::write(saver.destination(1).unwrap().part, b"x").unwrap();
-        let status = transfers.finished(1, Some("Cancelled".into())).unwrap();
+    fn a_failed_download_has_no_open_link() {
+        let (mut transfers, _dir) = rig("fail");
+        start(&mut transfers, 1, "a.bin");
+        let status = transfers
+            .finished(1, None, Some("Cancelled".into()))
+            .unwrap();
         assert!(status.contains("failed: Cancelled"));
         assert!(transfers.saved(0).is_none() && transfers.running(0).is_none());
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
         assert!(matches!(
             transfers.rows()[0].state,
             DownloadState::Failed(_)
@@ -365,29 +374,28 @@ mod tests {
     }
 
     #[test]
-    fn a_completed_download_whose_file_vanished_is_a_failure_not_a_success() {
-        let (mut transfers, saver, _dir) = rig("vanished");
-        start(&mut transfers, &saver, 1, "a.bin");
-        let status = transfers.finished(1, None).unwrap();
+    fn a_done_name_that_is_a_path_is_not_a_file_of_the_folder() {
+        let (mut transfers, _dir) = rig("path");
+        start(&mut transfers, 1, "a.bin");
+        let status = transfers.finished(1, Some("../a.bin"), None).unwrap();
         assert!(status.contains("failed"), "{status}");
         assert!(transfers.saved(0).is_none());
     }
 
     #[test]
-    fn the_row_shows_the_name_it_was_saved_under() {
-        let (mut transfers, saver, _dir) = rig("names");
-        start(&mut transfers, &saver, 1, "kit.zip");
-        start(&mut transfers, &saver, 2, "kit.zip");
-        let rows = transfers.rows();
-        assert_eq!(rows[0].name, "kit.zip");
-        assert_eq!(rows[1].name, "kit (1).zip");
+    fn the_row_shows_the_name_webd_saved_it_under() {
+        let (mut transfers, dir) = rig("names");
+        start(&mut transfers, 1, "kit.zip");
+        fs::write(dir.join("kit (1).zip"), b"x").unwrap();
+        transfers.finished(1, Some("kit (1).zip"), None);
+        assert_eq!(transfers.rows()[0].name, "kit (1).zip");
+        assert_eq!(transfers.saved(0), Some(dir.join("kit (1).zip")));
     }
 
     #[test]
     fn several_running_downloads_are_summed_and_an_unknown_total_hides_the_percent() {
-        let (mut transfers, saver, _dir) = rig("sum");
-        start(&mut transfers, &saver, 1, "a.bin");
-        saver.reserve(2, "b.bin").unwrap();
+        let (mut transfers, _dir) = rig("sum");
+        start(&mut transfers, 1, "a.bin");
         transfers.started(Started {
             id: 2,
             url: "http://x/b".into(),

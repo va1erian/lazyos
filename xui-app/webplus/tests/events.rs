@@ -14,7 +14,6 @@ use xui_webkit::engine::{Call, DialogKind};
 use xui_webkit::events::Event;
 use xui_webplus::app::Msg;
 use xui_webplus::chrome::Command;
-use xui_webplus::downloads::Saver;
 use xui_webplus::pages::HISTORY;
 
 #[test]
@@ -99,12 +98,6 @@ fn a_command_runs_from_the_history_page_but_not_from_a_web_page() {
 fn a_download_runs_shows_in_the_status_bar_completes_and_is_listed() {
     let (running, _) = drive("download", Some("http://example.com/"), |stage, rig| {
         rig.state(stage, loaded("http://example.com/", "Example", 1));
-        let destination = Saver::new(rig.downloads())
-            .reserve(7, "oldnet-kit.zip")
-            .unwrap();
-        // The engine reserved through the shared saver of the process; here the window's own
-        // saver is a different one, so reserve through the window's by posting the start.
-        let _ = destination;
         rig.events(
             stage,
             vec![
@@ -113,7 +106,6 @@ fn a_download_runs_shows_in_the_status_bar_completes_and_is_listed() {
                     url: "https://theoldnet.com/files/oldnet-kit.zip".into(),
                     name: "oldnet-kit.zip".into(),
                     total: Some(307_200),
-                    path: String::new(),
                 },
                 Event::DownloadProgress {
                     id: 7,

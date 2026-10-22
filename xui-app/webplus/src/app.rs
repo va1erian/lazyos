@@ -16,8 +16,7 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use xui_core::app::{App, Ui};
-use xui_core::backend::Result;
-use xui_core::geometry::Rect;
+use xui_core::backend::{Result, TimerId};
 use xui_core::widget::{Button, DialogAction, Edit, HasText, Label, Menu, Placeable, ProgressBar};
 use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
@@ -30,6 +29,7 @@ mod host;
 mod notifications;
 mod shield;
 mod status;
+mod webd;
 
 pub use host::{Host, Probe, Setup};
 
@@ -88,6 +88,10 @@ pub enum Msg {
     Shell,
     /// A list of the ad blocker changed state on the worker's thread.
     BlockerChanged,
+    /// webd's view has news, or a call waits its turn (`Host::pump`).
+    Engine,
+    /// Other threads queued work for the window's thread (`Host::jobs`).
+    Jobs,
 }
 
 /// The window's widgets and state.
@@ -150,6 +154,8 @@ pub struct Browser {
     frames: u64,
     /// What the window thread spends on the page, printed once a second (`INFO:WINDOW:`).
     clock: FrameClock,
+    /// The short timer that runs while the engine wants to be called soon (`app/webd.rs`).
+    fast: Cell<Option<TimerId>>,
     /// The status bar's shown text (for the tests).
     shown: RefCell<String>,
 }
@@ -243,8 +249,10 @@ impl Browser {
             buttons: Cell::new(None),
             frames: 0,
             clock: FrameClock::default(),
+            fast: Cell::new(None),
             shown: RefCell::new(String::new()),
         };
+        browser.start_engine(ui);
         let first = url.unwrap_or_else(|| browser.internal.start());
         browser.start_navigation(&first);
         browser.update_buttons();
@@ -396,35 +404,6 @@ impl Browser {
             }
         }
     }
-
-    /// Says where the controls are, for a session (`xui_app::probe`): the page as a whole and
-    /// its top-left corner as a one-pixel control, so a script can click page coordinates.
-    fn announce(&self, ui: &Ui<Msg>) {
-        let page = ui.bounds(self.page.id());
-        self.announced.set((page.width(), page.height()));
-        let mut named = vec![
-            ("address", ui.bounds(self.address.id())),
-            ("back", ui.bounds(self.back.id())),
-            ("forward", ui.bounds(self.forward.id())),
-            ("reload", ui.bounds(self.reload.id())),
-            ("shield", ui.bounds(self.shield.id())),
-            ("page", page),
-            (
-                "page_origin",
-                Rect::new(page.left, page.top, page.left + 1, page.top + 1),
-            ),
-        ];
-        // The bar's own controls, while it is up: a session answers it by name.
-        if self.bar.shown().is_some() {
-            named.extend(self.bar.controls(ui));
-        }
-        if self.hang.visible() {
-            named.extend(self.hang.controls(ui));
-        }
-        for (name, rect) in named {
-            (self.host.probe)(&self.caption, name, rect);
-        }
-    }
 }
 
 /// The window's caption for a page title.
@@ -489,6 +468,8 @@ impl App for Browser {
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
             Msg::Hang(answer) => self.hang_answer(ui, answer),
             Msg::Shell => self.shell_news(ui),
+            Msg::Engine => self.pump(ui),
+            Msg::Jobs => (self.host.jobs)(),
         }
         self.update_buttons();
     }

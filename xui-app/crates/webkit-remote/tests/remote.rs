@@ -55,6 +55,7 @@ fn rig_with(permissions: Vec<(String, NotifyAnswer)>) -> Rig {
             let channels = Rc::clone(&channels);
             Box::new(move |channel| channels.borrow_mut().push(channel))
         },
+        wake: Box::new(|| {}),
     };
     let transport = TestTransport::full(&web.world, 7);
     let engine = RemoteEngine::new(transport, Arc::clone(&mailbox), options);

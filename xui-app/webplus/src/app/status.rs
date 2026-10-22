@@ -2,6 +2,7 @@
 //! buttons and the downloads strip.
 
 use xui_core::app::Ui;
+use xui_core::geometry::Rect;
 use xui_core::icon::Lucide;
 use xui_core::widget::{HasText, Placeable};
 
@@ -9,6 +10,35 @@ use super::{Browser, Msg};
 use crate::chrome::Command;
 
 impl Browser {
+    /// Says where the controls are, for a session (`xui_app::probe`): the page as a whole and
+    /// its top-left corner as a one-pixel control, so a script can click page coordinates.
+    pub(super) fn announce(&self, ui: &Ui<Msg>) {
+        let page = ui.bounds(self.page.id());
+        self.announced.set((page.width(), page.height()));
+        let mut named = vec![
+            ("address", ui.bounds(self.address.id())),
+            ("back", ui.bounds(self.back.id())),
+            ("forward", ui.bounds(self.forward.id())),
+            ("reload", ui.bounds(self.reload.id())),
+            ("shield", ui.bounds(self.shield.id())),
+            ("page", page),
+            (
+                "page_origin",
+                Rect::new(page.left, page.top, page.left + 1, page.top + 1),
+            ),
+        ];
+        // The bar's own controls, while it is up: a session answers it by name.
+        if self.bar.shown().is_some() {
+            named.extend(self.bar.controls(ui));
+        }
+        if self.hang.visible() {
+            named.extend(self.hang.controls(ui));
+        }
+        for (name, rect) in named {
+            (self.host.probe)(&self.caption, name, rect);
+        }
+    }
+
     pub(super) fn trace(&self, line: &str) {
         if self.host.traces {
             crate::marker(line);
