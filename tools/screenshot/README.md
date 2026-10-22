@@ -281,11 +281,10 @@ without failing, so a run can still be judged for crashes alone.
 
 ## CI
 
-`.github/workflows/screenshots.yml` runs on push, pull requests, and manually.
+`.github/workflows/screenshots.yml` runs manually only (workflow dispatch).
 It installs QEMU, builds the OS image if a Cargo project is present, captures
 screenshots headless, verifies they are non-blank, uploads them as an artifact,
-and (for same-repo PRs) publishes them to a force-pushed `screenshots` branch
-and comments them onto the PR.
+and publishes them to the `screenshots` branch.
 
 ### Attaching images to a pull request
 

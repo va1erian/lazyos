@@ -1,20 +1,13 @@
 name: screenshots
 
 # Boots LazyOS in headless QEMU, captures PNG screenshots, verifies they are
-# non-blank, publishes them to a force-pushed `screenshots` branch, and comments
-# them onto pull requests so an agent or reviewer can visually inspect output
-# without a display.
+# non-blank, and publishes them to the `screenshots` branch so an agent or
+# reviewer can visually inspect output without a display.
+#
+# Manual only (Actions -> screenshots -> Run workflow): nobody read the pictures
+# a push or pull request produced, so they no longer run on every change.
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-  pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   workflow_dispatch:
     inputs:
       image_path:
@@ -28,7 +21,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: screenshots-${{ github.ref }}
@@ -152,9 +144,6 @@ jobs:
 
       - name: Publish screenshots to 'screenshots' branch
         id: publish
-        if: >-
-          github.event_name != 'pull_request' ||
-          github.event.pull_request.head.repo.full_name == github.repository
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -203,51 +192,3 @@ jobs:
           fi
           echo "sha=$(git -C "$work" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-
-      - name: Comment screenshots on PR
-        if: github.event_name == 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          sha="${{ steps.publish.outputs.sha }}"
-          prefix="${{ steps.publish.outputs.prefix }}"
-          ref="${sha:-screenshots}"
-          {
-            echo "### QEMU screenshots"
-            echo
-            echo "_commit \`${GITHUB_SHA:0:7}\` — run [${GITHUB_RUN_ID}](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})_"
-            echo
-            shopt -s nullglob
-            for png in shots/*.png; do
-              name=$(basename "$png")
-              echo "<details><summary>${name}</summary>"
-              echo
-              url=""
-              if [ -f shots/urls.tsv ]; then
-                url=$(awk -F'\t' -v n="$name" '$1==n {print $2; exit}' shots/urls.tsv || true)
-              fi
-              if [ -n "$url" ] && [ "${url:0:4}" = "http" ]; then
-                echo "![${name}](${url})"
-              elif [ -n "$sha" ]; then
-                echo "![${name}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref}/${prefix}/${name})"
-              else
-                echo "_screenshot available as a workflow artifact_"
-              fi
-              echo
-              echo "</details>"
-              echo
-            done
-            if [ -f shots/serial.log ]; then
-              echo "<details><summary>serial.log (tail)</summary>"
-              echo
-              echo '```'
-              tail -n 60 shots/serial.log
-              echo '```'
-              echo
-              echo "</details>"
-            fi
-          } > comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" \
-            --repo "${GITHUB_REPOSITORY}" --body-file comment.md
