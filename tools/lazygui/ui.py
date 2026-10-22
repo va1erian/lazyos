@@ -122,8 +122,8 @@ class Launcher:
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
                     "webkit_port")
-        self._check(g, "LazyWeb+ browser: WebKit, os.lazy.lazywebplus, built in "
-                       "Docker (LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, "
+        self._check(g, "LazyWeb+ browser: os.lazy.lazywebplus, a client of webd (WebKit, built in "
+                       "Docker; LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, webd, "
                        "big-app profile, 1 GiB OS volume)", "lazywebplus")
         self._check(g, "webd, required: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
                        "(LAZYOS_WEBD; run_demo --webd; every desktop ships it already, for Docs and Mail; "
@@ -131,7 +131,8 @@ class Launcher:
         self._check(g, "webd test clients, os.lazy.webddemo and os.lazy.webdbrowse (LAZYOS_WEBDDEMO; "
                        "run_demo --webd-demo; tools/webd drives them)", "webd_demo")
         self._check(g, "Leave webd out of the desktop (LAZYOS_WEBD=0; run_demo --no-webd): Docs and Mail "
-                       "then say the web engine is not running", "no_webd")
+                       "then say the web engine is not running; ignored with LazyWeb+, which needs webd",
+                    "no_webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")

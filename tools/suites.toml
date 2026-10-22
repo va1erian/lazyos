@@ -7,7 +7,7 @@
 #
 # Every name is a `run_demo.py` flag without its leading dashes, so choosing a
 # suite runs each flag's own prerequisite build. A flag's implications
-# (`lazywebplus` brings networking, the big-app profile and the 1 GiB OS volume)
+# (`lazywebplus` brings networking, webd, the big-app profile and the 1 GiB OS volume)
 # stay `run_demo.py`'s; a suite may still name them. Each flag's build switch
 # is in docs/build-switches.md.
 #

@@ -58,8 +58,8 @@ SIMPLE_GROUPS = (
      ("devtools",)),
     ("lazywebplus", "LazyWeb+", "The web browser, on the WebKit engine: JavaScript and the "
                                 "modern web, with history, downloads and an ad blocker; "
-                                "three programs of about 108 MB, 4 GiB of RAM and a 1 GiB OS "
-                                "volume; builds in Docker (turns Networking on).",
+                                "webd and its two engine processes, about 108 MB each, 4 GiB of "
+                                "RAM and a 1 GiB OS volume; builds in Docker (turns Networking on).",
      ("lazywebplus",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.

@@ -110,7 +110,7 @@ def make_vars() -> dict:
         # (LAZYOS_WEBKIT_PORT, run_demo --webkit-port).
         "webkit_port": b(value=False),
         # LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
-        # run_demo --lazywebplus; implies the desktop, the stack and the big-app profile).
+        # run_demo --lazywebplus; implies the desktop, the stack, webd and the big-app profile).
         "lazywebplus": b(value=False),
         # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
         # run_demo --webd; implies the desktop and the big-app profile, not the stack).
