@@ -1,6 +1,6 @@
 # Games
 
-Moved out of [`AGENTS.md`](../../AGENTS.md) to keep it short. LazyGolf, the NES Player, Doom, emusic, Quake and SRB2Kart.
+Companion to [`AGENTS.md`](../../AGENTS.md); Lazygolf, the nes player, doom, emusic, quake and srb2kart.
 
 ## LazyGolf (`os.lazy.golf`)
 

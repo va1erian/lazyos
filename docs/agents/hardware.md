@@ -1,6 +1,6 @@
 # Display, drivers and hardware
 
-Moved out of [`AGENTS.md`](../../AGENTS.md) to keep it short. HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.
+Companion to [`AGENTS.md`](../../AGENTS.md); Hidpi, the intel gpu service, devd, interrupt routing, usb, sound, fat sticks and installing beside linux.
 
 ## HiDPI (a 720p desktop at 2x)
 

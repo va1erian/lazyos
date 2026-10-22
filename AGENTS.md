@@ -19,7 +19,10 @@ says which file to open. Read the matching file before you touch that area.
    `accounts`, `clipboardd`, the `xuid` compositor, ...) over a preemptive
    multitasking kernel with a VFS (ext2 read/write OS volume at `/`, read-only
    FAT `/boot`, ramfs `/transient` and `/tmp`, optional ext2 home volume).
-   Every interface is a `.midl` file under `idl/` with generated code; read
+   Every interface is a `.midl` file under `idl/` with generated code. An
+   object field (`Channel<I>` moves, `Buffer` is shared) is declared like any
+   other field, its index is its position in the method's declared order, and
+   `midlc` refuses the old `transfers (...)` clause. Read
    [`docs/messenger.md`](docs/messenger.md) (sections 1 and 5) before touching
    IPC. The architecture and roadmap are
    [`docs/platform-plan.md`](docs/platform-plan.md) and

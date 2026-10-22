@@ -1,6 +1,6 @@
 # WebKit, webd and the browser
 
-Moved out of [`AGENTS.md`](../../AGENTS.md) to keep it short. JavaScriptCore, the WebKit dependency bundle and port, LazyWeb+ and webd.
+Companion to [`AGENTS.md`](../../AGENTS.md); Javascriptcore, the webkit dependency bundle and port, lazyweb+ and webd.
 
 ## JavaScriptCore (`LAZYOS_JSC=1`: `jsc`, `cxxproof`)
 

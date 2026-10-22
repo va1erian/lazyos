@@ -1,6 +1,6 @@
 # System services, packages and security
 
-Moved out of [`AGENTS.md`](../../AGENTS.md) to keep it short. Developer tools and the Playground, Rhai, packages and the label trace, app failures, notifications, tray, accounts attacks, keyd secrets, shutdown.
+Companion to [`AGENTS.md`](../../AGENTS.md); Developer tools and the playground, rhai, packages and the label trace, app failures, notifications, tray, accounts attacks, keyd secrets, shutdown.
 
 ## Developer tools and the Messenger Playground (`LAZYOS_DEVTOOLS=1`)
 

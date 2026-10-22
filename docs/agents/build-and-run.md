@@ -1,6 +1,6 @@
 # Build, run and the disk image
 
-Moved out of [`AGENTS.md`](../../AGENTS.md) to keep it short. Running the demo, software suites, login and elevation, the OS volume layout, and the documentation site.
+Companion to [`AGENTS.md`](../../AGENTS.md); Running the demo, software suites, login and elevation, the os volume layout, and the documentation site.
 
 ## Running the demo
 
