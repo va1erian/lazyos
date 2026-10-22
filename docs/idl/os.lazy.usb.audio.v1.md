@@ -56,7 +56,7 @@ object list (the index each field must hold).
 - `rates: U32`
 - `channels: U32`
 - `bits: U32`
-- `sync: U32`
+- `pacing: U32`
 - `high_speed: Bool`
 - `port: String`
 

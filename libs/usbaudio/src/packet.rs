@@ -94,8 +94,8 @@ impl Pacer {
     /// TD's buffer slot): the nominal count rounded up, plus one for the
     /// accumulator and an eighth for feedback.
     pub fn slot_frames(&self) -> u32 {
-        let nominal = (u64::from(self.rate) * u64::from(self.micro))
-            .div_ceil(MICROFRAMES_PER_SECOND) as u32;
+        let nominal =
+            (u64::from(self.rate) * u64::from(self.micro)).div_ceil(MICROFRAMES_PER_SECOND) as u32;
         (nominal + nominal / TOLERANCE as u32 + 1).min(self.max_frames)
     }
 
@@ -103,7 +103,9 @@ impl Pacer {
     pub fn feedback(&mut self, report: &[u8]) -> bool {
         let raw = match report.len() {
             3 => u64::from(u32::from_le_bytes([report[0], report[1], report[2], 0])),
-            n if n >= 4 => u64::from(u32::from_le_bytes([report[0], report[1], report[2], report[3]])),
+            n if n >= 4 => u64::from(u32::from_le_bytes([
+                report[0], report[1], report[2], report[3],
+            ])),
             _ => return false,
         };
         // 16.16 per microframe at high speed; 10.14 per frame at full

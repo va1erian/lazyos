@@ -46,7 +46,9 @@ pub fn parse_ranges(bytes: &[u8]) -> Result<RateSet, Error> {
     for index in 0..usize::from(count) {
         let at = 2 + index * 12;
         let field = |offset: usize| -> Result<u32, Error> {
-            let b = bytes.get(at + offset..at + offset + 4).ok_or(Error::Short)?;
+            let b = bytes
+                .get(at + offset..at + offset + 4)
+                .ok_or(Error::Short)?;
             Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         };
         let (min, max, step) = (field(0)?, field(4)?, field(8)?);

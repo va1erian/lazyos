@@ -20910,7 +20910,7 @@ pub mod os_lazy_usb_audio_v1 {
         pub rates: u32,
         pub channels: u32,
         pub bits: u32,
-        pub sync: u32,
+        pub pacing: u32,
         pub high_speed: bool,
         pub port: alloc::string::String,
     }
@@ -20924,7 +20924,7 @@ pub mod os_lazy_usb_audio_v1 {
         target.u32(5, value.rates)?;
         target.u32(6, value.channels)?;
         target.u32(7, value.bits)?;
-        target.u32(8, value.sync)?;
+        target.u32(8, value.pacing)?;
         target.bool(9, value.high_speed)?;
         target.string(10, &value.port)?;
         Ok(target.finish())
@@ -20957,7 +20957,7 @@ pub mod os_lazy_usb_audio_v1 {
                     out.bits = field.as_u32()?;
                 }
                 8 => {
-                    out.sync = field.as_u32()?;
+                    out.pacing = field.as_u32()?;
                 }
                 9 => {
                     out.high_speed = field.as_bool()?;
@@ -20976,7 +20976,8 @@ pub mod os_lazy_usb_audio_v1 {
     /// Rate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.
     /// Channels and significant bits of the alternate a 48 kHz stereo
     /// stream would use.
-    /// A `Sync` ordinal.
+    /// How the device paces itself: a `Sync` ordinal (`sync` is a
+    /// reserved word in Rhai, which every interface is generated for).
     /// The device runs at high speed (microframes) rather than full.
     /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
     /// How far the device got.

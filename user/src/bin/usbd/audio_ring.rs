@@ -297,7 +297,11 @@ impl IsoStream {
             // Every TD was consumed (events of those without IOC never
             // come): the ring is empty and the next TD restarts it (SIA).
             self.underruns += 1;
-            periods.completed += self.in_flight.drain(..).map(|td| u64::from(td.ends)).sum::<u64>();
+            periods.completed += self
+                .in_flight
+                .drain(..)
+                .map(|td| u64::from(td.ends))
+                .sum::<u64>();
             let _ = self.ring.abandon();
             return;
         }
@@ -315,7 +319,11 @@ impl IsoStream {
                 self.errors += 1;
                 static XFER: tracefmt::Budget = tracefmt::Budget::new(20, 1000);
                 if trace::within(&XFER, trace::Channel::Usbd) {
-                    trace::line!(trace::Channel::Usbd, "AUDIO:XFER code={other} tds={}", self.tds);
+                    trace::line!(
+                        trace::Channel::Usbd,
+                        "AUDIO:XFER code={other} tds={}",
+                        self.tds
+                    );
                 }
             }
         }
@@ -329,7 +337,8 @@ impl IsoStream {
 
     /// Keep the feedback endpoint's reads queued; whether any was added.
     pub(super) fn fill_feedback(&mut self, region: &Region) -> Result<bool, Error> {
-        let (Some(ring), Some(packet)) = (self.feedback.as_mut(), self.shape.feedback_packet) else {
+        let (Some(ring), Some(packet)) = (self.feedback.as_mut(), self.shape.feedback_packet)
+        else {
             return Ok(false);
         };
         let len = u32::from(packet.clamp(1, FEEDBACK_BYTES as u16));
@@ -338,7 +347,8 @@ impl IsoStream {
             let buffer = self.feedback_next;
             self.feedback_next = (buffer + 1) % FEEDBACK_DEPTH;
             let bus = region.bus(FEEDBACK_BUFFERS + buffer * FEEDBACK_BYTES);
-            let trb = trb::isoch(bus, len, 1, true, true).ok_or(Error::Descriptor("feedback TD"))?;
+            let trb =
+                trb::isoch(bus, len, 1, true, true).ok_or(Error::Descriptor("feedback TD"))?;
             let pointer = ring.enqueue(&[trb], false).map_err(Error::Xhci)?;
             self.feedback_in_flight.push_back((pointer, buffer));
             added = true;
@@ -363,12 +373,19 @@ impl IsoStream {
             return;
         };
         let _ = ring.retire(event.parameter);
-        let (_, buffer) = self.feedback_in_flight.drain(..=position).next_back().unwrap_or((0, 0));
+        let (_, buffer) = self
+            .feedback_in_flight
+            .drain(..=position)
+            .next_back()
+            .unwrap_or((0, 0));
         if matches!(event.completion_code(), code::SUCCESS | code::SHORT_PACKET) {
             let packet = usize::from(self.shape.feedback_packet.unwrap_or(4)).min(FEEDBACK_BYTES);
             let len = packet.saturating_sub(event.residual() as usize);
             let mut report = [0u8; FEEDBACK_BYTES];
-            region.read(FEEDBACK_BUFFERS + buffer * FEEDBACK_BYTES, &mut report[..len]);
+            region.read(
+                FEEDBACK_BUFFERS + buffer * FEEDBACK_BYTES,
+                &mut report[..len],
+            );
             self.shape.pacer.feedback(&report[..len.min(4)]);
         }
     }

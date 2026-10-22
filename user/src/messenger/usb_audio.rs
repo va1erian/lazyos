@@ -55,9 +55,7 @@ impl Client {
     }
 
     fn call(&self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>> {
-        let reply = self
-            .endpoint
-            .call(&parcel(method, body, objects), None)?;
+        let reply = self.endpoint.call(&parcel(method, body, objects), None)?;
         match error_field(&reply)? {
             Some(code) => Err(Error::Errno(-code)),
             None => Ok(reply.body),
@@ -82,8 +80,8 @@ impl Client {
 
     /// Switch the device to `rate` Hz (or the closest it has); the rate granted.
     pub fn configure(&self, rate: u32) -> Result<u32> {
-        let body = wire::encode_configure_args(&wire::ConfigureArgs { rate })
-            .map_err(Error::Parcel)?;
+        let body =
+            wire::encode_configure_args(&wire::ConfigureArgs { rate }).map_err(Error::Parcel)?;
         let reply = self.call(wire::METHOD_CONFIGURE, body, Vec::new())?;
         Ok(wire::decode_configure_reply(&reply)
             .map_err(Error::Parcel)?

@@ -160,7 +160,10 @@ impl UsbCard {
         let granted = self.client.configure(hz);
         let granted = self.check(granted)?;
         if granted != hz {
-            trace::line!(trace::Channel::Sndd, "USB:RATE asked={hz} granted={granted}");
+            trace::line!(
+                trace::Channel::Sndd,
+                "USB:RATE asked={hz} granted={granted}"
+            );
             return Err(Error::Unsupported);
         }
         self.queued.clear();

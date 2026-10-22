@@ -168,7 +168,11 @@ fn outputs(panel: &MixerControl<&Native>) -> Result<(), String> {
             if output.active { '*' } else { ' ' },
             output.id,
             output.name,
-            if output.preferred { "  (preferred)" } else { "" }
+            if output.preferred {
+                "  (preferred)"
+            } else {
+                ""
+            }
         ));
     }
     Ok(())

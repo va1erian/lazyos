@@ -92,7 +92,9 @@ impl Server {
         // Which output plays is `audiod`'s, not the engine's.
         if interface == api::CONTROL_INTERFACE {
             if let Some(outcome) = self.outputs.handle(method, &message.parcel.body) {
-                if matches!(outcome, Outcome::Reply(_)) && method == api::control_wire::METHOD_SELECTOUTPUT {
+                if matches!(outcome, Outcome::Reply(_))
+                    && method == api::control_wire::METHOD_SELECTOUTPUT
+                {
                     // Switch on the next step, whatever the retry timer says.
                     self.card_retry_at = 0;
                 }
@@ -262,7 +264,10 @@ impl Server {
             Ok(card) => {
                 let ticks = sys::clock() - opening;
                 if ticks > 10 {
-                    trace::line!(trace::Channel::Audiod, "CARD:SLOW id={target} open_ticks={ticks}");
+                    trace::line!(
+                        trace::Channel::Audiod,
+                        "CARD:SLOW id={target} open_ticks={ticks}"
+                    );
                 }
                 self.adopt(target, card)
             }
@@ -316,7 +321,9 @@ impl Server {
         };
         let ids: Vec<String> = entries
             .iter()
-            .filter(|entry| entry.owner_uid == u64::from(sndpolicy::SND_UID) || entry.owner_uid == 0)
+            .filter(|entry| {
+                entry.owner_uid == u64::from(sndpolicy::SND_UID) || entry.owner_uid == 0
+            })
             .filter_map(|entry| card_id(&entry.name).map(String::from))
             .collect();
         if self.outputs.update(ids.iter().map(String::as_str)) {

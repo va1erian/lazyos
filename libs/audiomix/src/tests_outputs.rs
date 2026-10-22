@@ -40,7 +40,11 @@ fn the_kind_decides_not_the_order_drivers_registered_in() {
     let mut outputs = Outputs::new();
     outputs.update(["usb-audio0"]);
     outputs.update(["usb-audio0", "intel-hda0"]);
-    assert_eq!(outputs.target(), Some("usb-audio0"), "the built-in codec came later");
+    assert_eq!(
+        outputs.target(),
+        Some("usb-audio0"),
+        "the built-in codec came later"
+    );
     let mut outputs = Outputs::new();
     outputs.update(["intel-hda0"]);
     outputs.update(["intel-hda0", "virtio-snd0"]);
@@ -63,7 +67,11 @@ fn a_selection_sticks_while_present() {
     outputs.update(["intel-hda0", "intel-hda0-hdmi"]);
     assert_eq!(outputs.select("intel-hda0"), Ok(()));
     outputs.update(["intel-hda0", "intel-hda0-hdmi", "usb-audio0"]);
-    assert_eq!(outputs.target(), Some("intel-hda0"), "the choice beats a new device");
+    assert_eq!(
+        outputs.target(),
+        Some("intel-hda0"),
+        "the choice beats a new device"
+    );
     outputs.update(["intel-hda0-hdmi", "usb-audio0"]);
     assert_eq!(outputs.target(), Some("usb-audio0"), "absent: the newest");
     outputs.update(["intel-hda0", "intel-hda0-hdmi", "usb-audio0"]);
@@ -116,7 +124,10 @@ fn wire_calls() {
     };
     let listed = control::decode_list_outputs_reply(&body).unwrap().outputs;
     assert_eq!(listed.len(), 2);
-    assert_eq!((listed[0].id.as_str(), listed[0].active), ("usb-audio0", true));
+    assert_eq!(
+        (listed[0].id.as_str(), listed[0].active),
+        ("usb-audio0", true)
+    );
     assert_eq!(listed[0].name, "USB: Headset");
     assert_eq!(listed[1].name, "Built-in audio");
     let body = control::encode_select_output_args(&control::SelectOutputArgs {
@@ -128,10 +139,9 @@ fn wire_calls() {
         Some(Outcome::Reply(vec![]))
     );
     assert_eq!(outputs.target(), Some("intel-hda0"));
-    let missing = control::encode_select_output_args(&control::SelectOutputArgs {
-        id: "gone0".into(),
-    })
-    .unwrap();
+    let missing =
+        control::encode_select_output_args(&control::SelectOutputArgs { id: "gone0".into() })
+            .unwrap();
     assert_eq!(
         outputs.handle(control::METHOD_SELECTOUTPUT, &missing),
         Some(Outcome::Refuse(errno::ENOENT))
@@ -148,7 +158,9 @@ fn retarget_keeps_streams() {
     use crate::tests::{open_attached, OWNER};
     let mut mixer: Mixer<crate::tests::VecRing> = Mixer::new(Config::new(48_000, 1024));
     let (id, ring, _) = open_attached(&mut mixer, OWNER, 48_000, 2);
-    let tone: Vec<i16> = (0..2 * 4096).map(|i| if i % 4 < 2 { 8000 } else { -8000 }).collect();
+    let tone: Vec<i16> = (0..2 * 4096)
+        .map(|i| if i % 4 < 2 { 8000 } else { -8000 })
+        .collect();
     ring.write(0, 2, &tone);
     mixer.commit(id, OWNER, 4096, 0).unwrap();
     mixer.start(id, OWNER, 0).unwrap();
@@ -160,5 +172,8 @@ fn retarget_keeps_streams() {
     assert!(mixer.statuses().any(|s| s.id == id), "the stream survives");
     let mut out = vec![0i16; 1024];
     mixer.mix(&mut out, 512);
-    assert!(out.iter().any(|&s| s != 0), "still audible after the switch");
+    assert!(
+        out.iter().any(|&s| s != 0),
+        "still audible after the switch"
+    );
 }

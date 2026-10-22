@@ -87,7 +87,10 @@ impl AudioFn {
     ) -> Result<Option<AudioFn>, Error> {
         let Some(mut function) = parse_functions(&device.config_bytes)
             .ok()
-            .and_then(|all| all.into_iter().find(|f| f.control_interface == interface.number))
+            .and_then(|all| {
+                all.into_iter()
+                    .find(|f| f.control_interface == interface.number)
+            })
             .filter(|f| !f.alts.is_empty())
         else {
             return Ok(None);
@@ -95,11 +98,19 @@ impl AudioFn {
         if matches!(device.at.speed, Speed::Super | Speed::SuperPlus) {
             // Burst and payload come from the SuperSpeed companion, which the
             // class parser does not read: no UAC 3 / SuperSpeed audio yet.
-            trace::line!(trace::Channel::Usbd, "AUDIO:SKIP port={} SuperSpeed audio is not supported", device.name);
+            trace::line!(
+                trace::Channel::Usbd,
+                "AUDIO:SKIP port={} SuperSpeed audio is not supported",
+                device.name
+            );
             return Ok(None);
         }
         if BOUND.swap(true, Ordering::AcqRel) {
-            trace::line!(trace::Channel::Usbd, "AUDIO:BUSY port={} another audio device is in use", device.name);
+            trace::line!(
+                trace::Channel::Usbd,
+                "AUDIO:BUSY port={} another audio device is in use",
+                device.name
+            );
             return Ok(None);
         }
         if function.version == Version::Uac2 {
@@ -150,11 +161,15 @@ impl AudioFn {
             vendor: u32::from(self.vendor),
             product: u32::from(self.product),
             name: self.name.clone(),
-            version: if self.function.version == Version::Uac2 { 2 } else { 1 },
+            version: if self.function.version == Version::Uac2 {
+                2
+            } else {
+                1
+            },
             rates: function_rates(&self.function),
             channels: preferred.map_or(0, |alt| u32::from(alt.format.channels)),
             bits: preferred.map_or(0, |alt| u32::from(alt.format.bits)),
-            sync: preferred.map_or(0, |alt| alt.data.sync() as u32),
+            pacing: preferred.map_or(0, |alt| alt.data.sync() as u32),
             high_speed: self.high_speed,
             port: self.port.clone(),
         }
@@ -184,10 +199,16 @@ impl AudioFn {
         // command; a failure switches them off, so the controller never keeps
         // endpoints (and bandwidth) the stream has forgotten.
         let previous = self.live.take().map(|l| {
-            let dcis: Vec<u8> = [Some(l.data_dci), l.feedback_dci].into_iter().flatten().collect();
+            let dcis: Vec<u8> = [Some(l.data_dci), l.feedback_dci]
+                .into_iter()
+                .flatten()
+                .collect();
             (self.function.alts[l.alt].interface, dcis)
         });
-        let old: Vec<u8> = previous.as_ref().map(|(_, dcis)| dcis.clone()).unwrap_or_default();
+        let old: Vec<u8> = previous
+            .as_ref()
+            .map(|(_, dcis)| dcis.clone())
+            .unwrap_or_default();
         let region = self.region.as_mut().ok_or(Refusal::Device)?;
         let outcome = loop {
             match setup::switch_on(hc, device, region, &self.function, alt, choice.rate, &old) {
@@ -248,7 +269,12 @@ impl AudioFn {
         let live = self.live.as_mut().ok_or(Refusal::Invalid)?;
         if !live.running {
             live.running = true;
-            trace::line!(trace::Channel::Usbd, "AUDIO:START port={} rate={}", device.name, live.rate);
+            trace::line!(
+                trace::Channel::Usbd,
+                "AUDIO:START port={} rate={}",
+                device.name,
+                live.rate
+            );
         }
         self.pump(hc, device);
         Ok(())
@@ -269,8 +295,15 @@ impl AudioFn {
         if let (Some(dci), Some(pointer)) = (live.feedback_dci, feedback) {
             let _ = device.recover(hc, dci, pointer);
         }
-        trace::line!(trace::Channel::Usbd, "AUDIO:STOP port={} underruns={} missed={} errors={} pace={}",
-            device.name, live.iso.underruns, live.iso.missed, live.iso.errors, live.iso.rate_hz());
+        trace::line!(
+            trace::Channel::Usbd,
+            "AUDIO:STOP port={} underruns={} missed={} errors={} pace={}",
+            device.name,
+            live.iso.underruns,
+            live.iso.missed,
+            live.iso.errors,
+            live.iso.rate_hz()
+        );
     }
 
     /// `Release`: stop, and the zero-bandwidth alternate.
@@ -278,7 +311,10 @@ impl AudioFn {
         self.stop(hc, device);
         if let Some(live) = self.live.take() {
             let interface = self.function.alts[live.alt].interface;
-            let dcis: Vec<u8> = [Some(live.data_dci), live.feedback_dci].into_iter().flatten().collect();
+            let dcis: Vec<u8> = [Some(live.data_dci), live.feedback_dci]
+                .into_iter()
+                .flatten()
+                .collect();
             setup::switch_off(hc, device, interface, &dcis);
         }
     }
@@ -287,7 +323,9 @@ impl AudioFn {
     pub(super) fn submit(&mut self, offset: u32, len: u32) -> Result<(), Refusal> {
         let staging = self.staging.as_ref().ok_or(Refusal::Invalid)?;
         let (offset, len) = (offset as usize, len as usize);
-        let fits = offset.checked_add(len).is_some_and(|end| end <= staging.len());
+        let fits = offset
+            .checked_add(len)
+            .is_some_and(|end| end <= staging.len());
         if self.live.is_none() || len == 0 || !fits || len % usbaudio::convert::SOURCE_FRAME != 0 {
             return Err(Refusal::Invalid);
         }
@@ -313,7 +351,9 @@ impl AudioFn {
         if !live.running {
             return false;
         }
-        let filled = live.iso.fill(region, &mut self.periods, self.staging.as_ref());
+        let filled = live
+            .iso
+            .fill(region, &mut self.periods, self.staging.as_ref());
         let added = match filled {
             Ok(added) => added,
             Err(error) => {
@@ -359,5 +399,9 @@ impl AudioFn {
 }
 
 fn fail(device: &Device, why: &str) {
-    trace::line!(trace::Channel::Usbd, "AUDIO:FAIL port={} {why}", device.name);
+    trace::line!(
+        trace::Channel::Usbd,
+        "AUDIO:FAIL port={} {why}",
+        device.name
+    );
 }

@@ -148,7 +148,9 @@ pub(super) fn wait_event(hc: &mut Hc, deadline: u64) {
 /// (the audio function's endpoint) or [`FALLBACK_TICKS`] pass. Without any
 /// armed controller this is the old one-tick nap.
 pub(super) fn park(controllers: &[Controller], service: Option<Endpoint>) {
-    let armed = controllers.iter().any(|controller| controller.hc.irq.is_some());
+    let armed = controllers
+        .iter()
+        .any(|controller| controller.hc.irq.is_some());
     let endpoints: Vec<Endpoint> = controllers
         .iter()
         .filter_map(|controller| controller.hc.irq)

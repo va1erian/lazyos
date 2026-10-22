@@ -95,7 +95,7 @@ fn reap() {
 ///
 /// What the bound device is and can play.
 fn new_device() {
-    #{ vendor: 0, product: 0, name: "", version: 0, rates: 0, channels: 0, bits: 0, sync: 0, high_speed: false, port: "" }
+    #{ vendor: 0, product: 0, name: "", version: 0, rates: 0, channels: 0, bits: 0, pacing: 0, high_speed: false, port: "" }
 }
 
 /// A `Progress` with every field at its zero value.
@@ -105,7 +105,8 @@ fn new_device() {
 /// Rate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.
 /// Channels and significant bits of the alternate a 48 kHz stereo
 /// stream would use.
-/// A `Sync` ordinal.
+/// How the device paces itself: a `Sync` ordinal (`sync` is a
+/// reserved word in Rhai, which every interface is generated for).
 /// The device runs at high speed (microframes) rather than full.
 /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
 /// How far the device got.

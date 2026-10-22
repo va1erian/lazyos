@@ -39,8 +39,9 @@ interface os.lazy.usb.audio.v1 {
         /// stream would use.
         channels: U32 = 6,
         bits: U32 = 7,
-        /// A `Sync` ordinal.
-        sync: U32 = 8,
+        /// How the device paces itself: a `Sync` ordinal (`sync` is a
+        /// reserved word in Rhai, which every interface is generated for).
+        pacing: U32 = 8,
         /// The device runs at high speed (microframes) rather than full.
         high_speed: Bool = 9,
         /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).

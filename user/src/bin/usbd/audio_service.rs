@@ -12,7 +12,9 @@ use alloc::vec::Vec;
 use user::trace;
 
 use user::messenger::usb_audio::{self as api, wire};
-use user::messenger::{self, errno, registry, services, Endpoint, Error as MsgError, Message, Parcel};
+use user::messenger::{
+    self, errno, registry, services, Endpoint, Error as MsgError, Message, Parcel,
+};
 use user::sys;
 
 use super::audio::{AudioFn, Refusal};
@@ -72,7 +74,11 @@ impl Server {
                         self.ends = Some((published, server));
                     }
                     Err(error) => {
-                        trace::line!(trace::Channel::Usbd, "AUDIO:FAIL register {}", error.message());
+                        trace::line!(
+                            trace::Channel::Usbd,
+                            "AUDIO:FAIL register {}",
+                            error.message()
+                        );
                         let _ = published.close();
                         let _ = server.close();
                     }
@@ -125,7 +131,12 @@ fn refusal(refusal: Refusal) -> MsgError {
     })
 }
 
-fn dispatch(hc: &mut Hc, device: &mut Device, audio: &mut AudioFn, message: &Message) -> Result<Parcel> {
+fn dispatch(
+    hc: &mut Hc,
+    device: &mut Device,
+    audio: &mut AudioFn,
+    message: &Message,
+) -> Result<Parcel> {
     if message.interface_id() != api::INTERFACE {
         return Err(err(errno::EINVAL));
     }
@@ -153,7 +164,8 @@ fn dispatch(hc: &mut Hc, device: &mut Device, audio: &mut AudioFn, message: &Mes
         wire::METHOD_CONFIGURE => {
             let args = wire::decode_configure_args(body).map_err(MsgError::Parcel)?;
             let granted = audio.configure(hc, device, args.rate).map_err(refusal)?;
-            wire::encode_configure_reply(&wire::ConfigureReply { granted }).map_err(MsgError::Parcel)?
+            wire::encode_configure_reply(&wire::ConfigureReply { granted })
+                .map_err(MsgError::Parcel)?
         }
         wire::METHOD_START => {
             audio.start(hc, device).map_err(refusal)?;

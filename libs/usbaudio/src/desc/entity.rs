@@ -129,9 +129,7 @@ fn uac1(record: &[u8]) -> Option<Entity> {
                 master_mute,
             }
         }
-        subtype::INPUT_TERMINAL | subtype::OUTPUT_TERMINAL | subtype::FEATURE_UNIT => {
-            return None
-        }
+        subtype::INPUT_TERMINAL | subtype::OUTPUT_TERMINAL | subtype::FEATURE_UNIT => return None,
         _ => Entity::Other { id },
     })
 }

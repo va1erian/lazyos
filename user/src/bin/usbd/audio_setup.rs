@@ -16,7 +16,9 @@ use user::trace;
 
 use usbaudio::desc::{Entity, Function, Range, RateSet, Version};
 use usbaudio::packet::{esit_microframes, Pacer};
-use usbaudio::request::{parse_ranges, parse_rate, range_count, range_reply_len, rate_uac1, rate_uac2};
+use usbaudio::request::{
+    parse_ranges, parse_rate, range_count, range_reply_len, rate_uac1, rate_uac2,
+};
 use xhci::context::{EndpointContext, EndpointType};
 use xhci::regs::{self, isoch_interval, Speed};
 use xhci::trb::{code, kind, request};
@@ -75,7 +77,12 @@ pub(super) fn read_clock_rates(hc: &mut Hc, device: &mut Device, function: &mut 
             });
             set
         });
-        trace::line!(trace::Channel::Usbd, "AUDIO:CLOCK port={} id={clock} ranges={}", device.name, rates.ranges.len());
+        trace::line!(
+            trace::Channel::Usbd,
+            "AUDIO:CLOCK port={} id={clock} ranges={}",
+            device.name,
+            rates.ranges.len()
+        );
         function.set_clock_rates(clock, &rates);
     }
 }
@@ -118,7 +125,11 @@ pub(super) fn switch_on(
     };
     let iso = IsoStream::new(region, shape).map_err(Failure::Other)?;
     let data_dci = regs::dci(alt.data.address);
-    let burst = if high_speed { alt.data.transactions - 1 } else { 0 };
+    let burst = if high_speed {
+        alt.data.transactions - 1
+    } else {
+        0
+    };
     let mut add = vec![(
         data_dci,
         EndpointContext::isoch(
@@ -131,7 +142,9 @@ pub(super) fn switch_on(
         ),
     )];
     let feedback_dci = alt.feedback.map(|feedback| regs::dci(feedback.address));
-    if let (Some(feedback), Some(dci), Some(dequeue)) = (alt.feedback, feedback_dci, iso.feedback_dequeue()) {
+    if let (Some(feedback), Some(dci), Some(dequeue)) =
+        (alt.feedback, feedback_dci, iso.feedback_dequeue())
+    {
         // A UAC 1.0 feedback endpoint reports every 2^bRefresh frames.
         let interval = if high_speed {
             feedback.interval
@@ -211,7 +224,12 @@ fn set_rate(hc: &mut Hc, device: &mut Device, function: &Function, index: usize,
         .control_in(hc, get, &mut back)
         .ok()
         .and_then(|()| parse_rate(&back));
-    trace::line!(trace::Channel::Usbd, "AUDIO:RATE port={} asked={rate} device={}", device.name, read.map_or(alloc::string::String::from("?"), |r| alloc::format!("{r}")));
+    trace::line!(
+        trace::Channel::Usbd,
+        "AUDIO:RATE port={} asked={rate} device={}",
+        device.name,
+        read.map_or(alloc::string::String::from("?"), |r| alloc::format!("{r}"))
+    );
 }
 
 /// Switch the stream off: its endpoints dropped, alternate 0.
@@ -225,5 +243,9 @@ pub(super) fn switch_off(hc: &mut Hc, device: &mut Device, interface: u8, dcis: 
 }
 
 fn note(device: &Device, what: &str, error: &Error) {
-    trace::line!(trace::Channel::Usbd, "AUDIO:NOTE port={} {what} refused ({error}), continuing", device.name);
+    trace::line!(
+        trace::Channel::Usbd,
+        "AUDIO:NOTE port={} {what} refused ({error}), continuing",
+        device.name
+    );
 }

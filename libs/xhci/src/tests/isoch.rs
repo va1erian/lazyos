@@ -13,7 +13,10 @@ use std::vec;
 #[test]
 fn isoch_trb_layout() {
     let out = trb::isoch(0x2000, 192, 1, true, false).unwrap();
-    assert_eq!((out.kind(), out.parameter, out.status), (kind::ISOCH, 0x2000, 192));
+    assert_eq!(
+        (out.kind(), out.parameter, out.status),
+        (kind::ISOCH, 0x2000, 192)
+    );
     assert_eq!(out.control & (SIA | IOC | ISP), SIA | IOC);
     assert_eq!((out.control >> 16) & 0xF, 0, "TLBPC: one packet");
     assert_eq!((out.control >> 7) & 0b11, 0, "TBC: one burst");
@@ -60,10 +63,16 @@ fn audio_requests() {
     let rate = audio::uac1_set_rate(0x01);
     assert_eq!(rate.immediate_bytes(), [0x22, 0x01, 0, 0x01, 0x01, 0, 3, 0]);
     let clock = audio::uac2_set_rate(0, 0x29);
-    assert_eq!(clock.immediate_bytes(), [0x21, 0x01, 0, 0x01, 0, 0x29, 4, 0]);
+    assert_eq!(
+        clock.immediate_bytes(),
+        [0x21, 0x01, 0, 0x01, 0, 0x29, 4, 0]
+    );
     let range = audio::uac2_rate_ranges(0, 0x29, 2);
     assert!(range.is_in());
-    assert_eq!(range.immediate_bytes(), [0xA1, 0x02, 0, 0x01, 0, 0x29, 2, 0]);
+    assert_eq!(
+        range.immediate_bytes(),
+        [0xA1, 0x02, 0, 0x01, 0, 0x29, 2, 0]
+    );
     let mute = audio::set_mute(0, 2);
     assert_eq!(mute.immediate_bytes(), [0x21, 0x01, 0, 0x01, 0, 0x02, 1, 0]);
     assert!(audio::uac1_get_rate(0x01).is_in());

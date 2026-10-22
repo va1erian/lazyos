@@ -285,6 +285,7 @@ class RepositoryTests(unittest.TestCase):
                 ],
                 ("os.lazy.webd.light.v1", "AttachSlot"): [("pixels", "buffer", None)],
                 ("os.lazy.webd.light.v1", "LoadHtml"): [("html", "buffer", None)],
+                ("os.lazy.usb.audio.v1", "Attach"): [("staging", "buffer", None)],
             },
         )
 

@@ -38,7 +38,10 @@ pub(super) fn truncate_chain(chain: &mut [u8], total: usize) -> usize {
     let [lo, hi] = (end as u16).to_le_bytes();
     chain[2] = lo;
     chain[3] = hi;
-    trace::line!(trace::Channel::Usbd, "DESC:TRUNCATED total={total} kept={end}");
+    trace::line!(
+        trace::Channel::Usbd,
+        "DESC:TRUNCATED total={total} kept={end}"
+    );
     end
 }
 
@@ -74,8 +77,10 @@ impl Device {
             return String::new();
         }
         bytes[2..len]
-            .chunks_exact(2)
-            .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|unit| u16::from_le_bytes(*unit))
             .filter_map(|unit| char::from_u32(u32::from(unit)))
             .filter(|c| c.is_ascii_graphic() || *c == ' ')
             .take(NAME_CHARS)
@@ -103,7 +108,9 @@ impl Device {
         let slot = self.at.slot_context(highest, None);
         let context_64 = hc.info.context_64;
         let stride = if context_64 { 16 } else { 8 };
-        let words = self.mem.dwords(INPUT, xhci::context::INPUT_CONTEXTS * stride);
+        let words = self
+            .mem
+            .dwords(INPUT, xhci::context::INPUT_CONTEXTS * stride);
         let mut input = InputContext::new(words, context_64).map_err(Error::Xhci)?;
         input.slot(&slot).map_err(Error::Xhci)?;
         for &dci in drop {

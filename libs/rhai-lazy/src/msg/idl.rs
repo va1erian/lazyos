@@ -3902,11 +3902,11 @@ pub static INTERFACES: &[Interface] = &[
             Struct {
                 name: "Device",
                 doc: "What the bound device is and can play.",
-                fields: &[Field { name: "vendor", id: 1, ty: Ty::U32 }, Field { name: "product", id: 2, ty: Ty::U32 }, Field { name: "name", id: 3, ty: Ty::String }, Field { name: "version", id: 4, ty: Ty::U32 }, Field { name: "rates", id: 5, ty: Ty::U32 }, Field { name: "channels", id: 6, ty: Ty::U32 }, Field { name: "bits", id: 7, ty: Ty::U32 }, Field { name: "sync", id: 8, ty: Ty::U32 }, Field { name: "high_speed", id: 9, ty: Ty::Bool }, Field { name: "port", id: 10, ty: Ty::String }],
+                fields: &[Field { name: "vendor", id: 1, ty: Ty::U32 }, Field { name: "product", id: 2, ty: Ty::U32 }, Field { name: "name", id: 3, ty: Ty::String }, Field { name: "version", id: 4, ty: Ty::U32 }, Field { name: "rates", id: 5, ty: Ty::U32 }, Field { name: "channels", id: 6, ty: Ty::U32 }, Field { name: "bits", id: 7, ty: Ty::U32 }, Field { name: "pacing", id: 8, ty: Ty::U32 }, Field { name: "high_speed", id: 9, ty: Ty::Bool }, Field { name: "port", id: 10, ty: Ty::String }],
             },
             Struct {
                 name: "Progress",
-                doc: "The product string the device reports, empty when it has none.\nThe class revision: 1 (UAC 1.0) or 2 (UAC 2.0).\nRate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.\nChannels and significant bits of the alternate a 48 kHz stereo\nstream would use.\nA `Sync` ordinal.\nThe device runs at high speed (microframes) rather than full.\nThe `usbd` port name (`<hc>-<port>[.<hub port>...]`).\nHow far the device got.",
+                doc: "The product string the device reports, empty when it has none.\nThe class revision: 1 (UAC 1.0) or 2 (UAC 2.0).\nRate bitmap, the `AudioInfo.rates` numbering of `os.lazy.audio.v1`.\nChannels and significant bits of the alternate a 48 kHz stereo\nstream would use.\nHow the device paces itself: a `Sync` ordinal (`sync` is a\nreserved word in Rhai, which every interface is generated for).\nThe device runs at high speed (microframes) rather than full.\nThe `usbd` port name (`<hc>-<port>[.<hub port>...]`).\nHow far the device got.",
                 fields: &[Field { name: "completed", id: 1, ty: Ty::U64 }, Field { name: "underruns", id: 2, ty: Ty::U32 }, Field { name: "missed", id: 3, ty: Ty::U32 }],
             },
         ],

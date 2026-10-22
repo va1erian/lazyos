@@ -13,8 +13,8 @@ use crate::trb::{self, kind, request, Trb, CHAIN, CYCLE, IDT, IOC};
 use crate::Error;
 
 mod bulk;
-mod isoch;
 mod extcap;
+mod isoch;
 mod route;
 
 /// A segment in ordinary memory at a pretend bus address.

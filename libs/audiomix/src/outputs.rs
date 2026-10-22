@@ -100,7 +100,8 @@ impl Outputs {
         self.scans += 1;
         let ids: Vec<&str> = ids.into_iter().filter_map(|id| card_id_of(id)).collect();
         let before = self.present.len();
-        self.present.retain(|output| ids.contains(&output.id.as_str()));
+        self.present
+            .retain(|output| ids.contains(&output.id.as_str()));
         let mut changed = self.present.len() != before;
         for id in ids {
             if self.present.len() < MAX_OUTPUTS && !self.present.iter().any(|o| o.id == id) {
@@ -121,7 +122,12 @@ impl Outputs {
     pub fn target(&self) -> Option<&str> {
         let usable = |o: &&Present| o.failed.is_none_or(|at| self.scans >= at + FAILED_SCANS);
         if let Some(preferred) = self.preferred.as_deref() {
-            if self.present.iter().filter(usable).any(|o| o.id == preferred) {
+            if self
+                .present
+                .iter()
+                .filter(usable)
+                .any(|o| o.id == preferred)
+            {
                 return Some(preferred);
             }
         }
@@ -190,13 +196,13 @@ impl Outputs {
     /// `None` for any other method (the mixer's own).
     pub fn handle(&mut self, method: u32, body: &[u8]) -> Option<Outcome> {
         let answer = match method {
-            control::METHOD_LISTOUTPUTS => control::encode_list_outputs_reply(
-                &control::ListOutputsReply {
+            control::METHOD_LISTOUTPUTS => {
+                control::encode_list_outputs_reply(&control::ListOutputsReply {
                     outputs: self.list(),
-                },
-            )
-            .map(Outcome::Reply)
-            .unwrap_or(Outcome::Refuse(errno::EINVAL)),
+                })
+                .map(Outcome::Reply)
+                .unwrap_or(Outcome::Refuse(errno::EINVAL))
+            }
             control::METHOD_SELECTOUTPUT => match control::decode_select_output_args(body) {
                 Ok(args) => match self.select(&args.id) {
                     Ok(()) => Outcome::Reply(Vec::new()),
@@ -214,6 +220,8 @@ impl Outputs {
 fn card_id_of(id: &str) -> Option<&str> {
     let ok = !id.is_empty()
         && id.len() <= MAX_ID
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     ok.then_some(id)
 }

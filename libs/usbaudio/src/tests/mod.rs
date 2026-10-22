@@ -136,7 +136,9 @@ fn hostile_chains() {
     let streaming: [&[u8]; 6] = [
         &[0x09, 0x04, 0x01, 0x01, 0x01, 0x01, 0x02, 0x00, 0x00],
         &[0x07, 0x24, 0x01, 0x01, 0x01, 0x01, 0x00],
-        &[0x0B, 0x24, 0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x80, 0xBB, 0x00],
+        &[
+            0x0B, 0x24, 0x02, 0x01, 0x02, 0x02, 0x10, 0x01, 0x80, 0xBB, 0x00,
+        ],
         &[0x09, 0x05, 0x01, 0x0D, 0xC4, 0x00, 0x01, 0x00, 0x00],
         &[0x07, 0x25, 0x01, 0x00, 0x00, 0x00, 0x00],
         &[0x05, 0x04, 0x02, 0x00, 0x00],
@@ -150,9 +152,11 @@ fn hostile_chains() {
     assert_eq!(functions.len(), 4);
     assert!(functions.iter().all(|f| f.alts.len() == 1));
     // Not audio at all.
-    assert!(parse_functions(&config(&[&[0x09, 0x04, 0, 0, 1, 3, 1, 1, 0]]))
-        .unwrap()
-        .is_empty());
+    assert!(
+        parse_functions(&config(&[&[0x09, 0x04, 0, 0, 1, 3, 1, 1, 0]]))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -195,7 +199,10 @@ fn conversion_layouts() {
     };
     out.fill(0xAA);
     assert_eq!(convert(&source[..4], &surround, &mut out), 12);
-    assert_eq!(&out[..12], &[0x34, 0x12, 0x78, 0x56, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(
+        &out[..12],
+        &[0x34, 0x12, 0x78, 0x56, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
     // The output ends first: whole frames only.
     let mut small = [0u8; 7];
     assert_eq!(convert(&source, &stereo24, &mut small), 6);
