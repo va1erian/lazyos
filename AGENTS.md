@@ -1779,37 +1779,18 @@ python tools/smb/licenses.py               # GPLv2-compatible crates only
 (the value of a host environment variable), so no password is in the script;
 it scans the serial log, the capture and the session record for it.
 
-## Remote inspection (`dbgd`, `LAZYOS_DBGD=1`)
+## Remote inspection (`dbgd`, `LAZYOS_DBGD=1`): use the `lazyos-dbg` skill
 
-`dbgd` (`user/src/bin/dbgd.rs`, wire in `libs/dbgwire`) lets a person or an
-agent read a box over its network card: the kernel boot log live, what the
-services printed, tasks, memory, PCI devices, `devd`'s drivers, a USB
-controller snapshot, Messenger's registry, services and topics, a few files.
-Read-only, authenticated with a pre-shared key, off unless built in and
-configured (`diag.dbg=1` in `lazyos.cfg`); a kernel built without the
-switch has none of its ops. Plan, protocol and threat model:
-[`docs/dbgd-plan.md`](docs/dbgd-plan.md); how to use it:
-[`docs/dbgd.md`](docs/dbgd.md) and the `lazyos-dbg` skill
-(`.claude/skills/lazyos-dbg`).
-
-```bash
-python tools/run_demo.py --dbgd                 # networking + dbgd; key in target/dbgd.key; 9701 forwarded
-python tools/run_demo.py --dbgd-control         # ...plus restart and service hot reload (v2)
-python tools/dbg/dbgctl.py reload usbd          # rebuilt /system/bin/usbd from target/lazyos.img, rolled back if it dies
-python tools/dbg/dbgctl.py app-install X.lzp    # install an app package (core too), relaunch its windows
-python tools/dbg/dbgctl.py log --follow         # also: tasks, usb, devices, drivers, hw, msg-services, topic, cat, call
-python tools/dbg/dbgctl.py pci-config 00:02.0 0 256   # read-only config space of a function (no claim)
-python tools/run_demo.py --dbgd-mmio            # + allowlisted register reads: dbgctl.py mmio 00:02.0 0 0x70008 16
-python tools/dbg/run.py [--usb] [--no-control]  # build, boot, judge every method and the reloads (shots/dbg)
-python tools/mcp/debug_bridge.py --connect HOST # the MCP tools over TCP (QEMU or a real PC)
-cargo test -p dbgwire -p pciprobe               # protocol, config, allowlists (fs, MMIO ranges), seeded fuzz
-LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=dev_peek python tools/test/run.py --accel none   # the hardware-read kernel ops
-LAZYOS_DBGD=1 LAZYOS_NETD=1 LAZYOS_TEST_FILTER=sysinfo python tools/test/run.py --accel none
-```
-
-Program output (`sys::write_str`) is not in the boot log; a `LAZYOS_DBGD=1`
-kernel keeps it in its own ring, which is where a service's `USBD:`/`NETDRV:`
-lines can be read back (`log.tail source=programs`).
+To read a live box (QEMU or a real PC) over its network card (kernel boot log,
+what services printed, tasks, PCI devices, `devd` drivers, USB controller
+state, Messenger registry, allowlisted registers), **load the `lazyos-dbg`
+skill** (`.claude/skills/lazyos-dbg/SKILL.md`). It holds the build switches
+(`run_demo.py --dbgd`, `--dbgd-control`, `--dbgd-mmio`), the `dbgctl.py` and MCP
+usage, the method for reading the data, the rules for hardware reads and
+service hot reload, and the harness that verifies a change to `dbgd`
+(`python tools/dbg/run.py`). Plan, protocol and threat model:
+[`docs/dbgd-plan.md`](docs/dbgd-plan.md); user guide: [`docs/dbgd.md`](docs/dbgd.md).
+Prefer it to screenshots and serial scraping whenever a box is reachable.
 
 ## Network tooling
 
@@ -1962,25 +1943,102 @@ the docs, and after every `abi-compat` run so the ABI matrix and syscall coverag
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 
+## Before you push: run the CI basics (required)
+
+CI runs the cheap gates first and a failure there costs a whole round trip
+(push, wait, read logs, fix, push again, wait). Run the ones that apply to
+what you touched **before every push**, not after the first red run. All but
+the first two take seconds to a few minutes; "it compiles" is not enough.
+
+Always, for any code change:
+
+```bash
+cargo fmt --all -- --check                       # `cargo fmt --all` fixes it (CI's `fmt` job); also run it in a standalone workspace you edited, with --manifest-path
+python tools/check_file_length.py                # every .rs/.py under 500 lines (generated midlc output exempt)
+python tools/trace/check_adhoc.py --ratchet      # no new ad hoc marker prints (use the trace API)
+python tools/trace/catalog.py --check            # channel catalogue current after touching libs/tracefmt
+python tools/fhs/check_literals.py               # well-known paths come from libs/fhs, never literals
+python tools/sync/check_locks.py --ratchet       # no new raw `spin` lock in the kernel trees
+python tools/devtool/check_interfaces.py         # every idl/ interface is denied or reviewed for developer tools
+```
+
+Then the checks for the area you changed:
+
+- **Rust in the OS workspace:** `cargo clippy -p <crate> --all-targets -- -D warnings` and `cargo test -p <crate>` for
+  each crate you touched. Kernel and `user/`: `cargo clippy -p kernel -p user --target x86_64-unknown-none
+  -Zbuild-std=core,alloc -- -D warnings -D clippy::undocumented_unsafe_blocks` (every `unsafe` block needs its
+  `// SAFETY:`; a bare `unwrap`/`expect` in `kernel/src` fails). Then `cargo build` must succeed.
+- **`xui-app/`:** `cargo test --manifest-path xui-app/Cargo.toml -p <crate>` (the crate's snapshot tests too;
+  Read the PNGs it writes). `python tools/xui/check_pin.py` and `python tools/xui/check_call_bounds.py` if you
+  touched manifests or a UI-thread Messenger call.
+- **`idl/*.midl`:** regenerate and check with the exact command in `.github/workflows/midlc.yml`
+  (`python tools/midlc/midlc.py --check ...`) plus `python tools/midlc/test_midlc.py`; the generated files are
+  committed, so a forgotten regeneration fails CI. Add a new interface to `devtool::DENY` or
+  `tools/devtool/reviewed_interfaces.txt`.
+- **Syscalls:** the frozen table `libs/lazyos-sys/abi/syscalls.abi` only grows
+  (`cargo test -p lazyos-sys --all-features`).
+- **Kernel changes:** the kernel suite, `python tools/test/run.py --accel none`, in full (see "Testing
+  requirement for kernel components"), not only your `LAZYOS_TEST_FILTER`.
+- **Image build (`build.rs`, `build_support/`):** `cargo test -p build-support-tests`.
+- **Docs (`docs/**`, `README.md`):** `python tools/docs/check_snippets.py` and `python tools/site/build.py --strict`.
+- **A harness you changed:** its judge's self-test (`tools/<area>/test_judge.py`), and the harness itself for
+  graphics, webd, audio, USB and network work (the sections above name them).
+
+`.github/workflows/ci.yml` is the authoritative list (the `lint`, `fmt`,
+`file-length`, `trace`, `locks`, `fhs`, `build-and-boot` jobs) and each area
+workflow (`webd.yml`, `xui.yml`, `midlc.yml`, `kernel-tests.yml`, ...) lists the
+paths that trigger it: **open the workflow of every path you touched and run its
+steps that you can run locally.** If one cannot run in your environment (no
+Docker, no KVM, no zig), say which in the PR description instead of leaving it
+for CI to find. Two clean local runs beat one green-looking guess; fix a red
+check at its cause, never by skipping, `#[ignore]`-ing or loosening it.
+
 ## Pre-PR review (required)
 
-Before an agent opens or finalizes a pull request, it MUST get a thorough
-review of the branch from a separate agent: a Sonnet-class model or better, in
-a fresh context that did not write the change (the `code-review` skill, or an
-`Agent` subagent given the diff, not your conclusions). Do not skip this
-because the change is small or the tests pass.
+Before an agent opens or finalizes a pull request, it MUST run a thorough
+review of the branch with the **`/code-review` skill** (invoke it through the
+`Skill` tool: `code-review`, and pass `--fix` or fix the findings yourself). An
+agent without that skill uses the equivalent: a review in a fresh context that
+did not write the change (a separate reviewer agent given the diff, not your
+conclusions), at the highest effort it offers, over the scope below. Do not
+skip this because the change is small or the tests pass.
 
-1. Request the review when the work is done and the branch is committed, before
-   `gh pr create` (or before marking a draft ready).
-2. Ask for a review of correctness, security (untrusted input, `unsafe`
-   soundness, capability and label-policy changes), the kernel testing
-   requirement (correctness and stress tests), the project conventions above
-   (MIDL for every interface, `libs/fhs` paths, 500-line file limit, launcher
-   and GUI wiring for new apps), and visual verification for graphics changes.
-3. Fix every real finding, or say in the PR description why one was declined.
-   Re-run the review after substantial fixes.
-4. Put a short note in the PR description: who reviewed, and what was found
-   and changed.
+1. Run it when the work is done and the branch is committed, **after** the CI
+   basics above are green and before opening the PR (or before marking a draft
+   ready).
+2. Review scope: correctness, security (untrusted input, `unsafe` soundness,
+   capability and label-policy changes), the kernel testing requirement
+   (correctness and stress tests), the project conventions above (MIDL for every
+   interface, `libs/fhs` paths, 500-line file limit, launcher and GUI wiring for
+   new apps), and visual verification for graphics changes.
+3. **Kernel, drawing and webd changes get the strongest review, not the default
+   one.** That means `kernel/`, anything the kernel shares with userspace
+   (`libs/lazyos-sys`, `libs/ext2fs`, `libs/gpt`, memory, scheduler, syscalls,
+   IPC/Messenger, VFS, drivers and the services that own hardware such as `usbd`,
+   `netdrv`, `sndd`, `gpud`, `devd`, `init`), **drawing** (the framebuffer and
+   `kernel/src/{gfx,display,surface,xuid,cursor,text}*`, the `xuid` compositor,
+   `libs/{raster,cursorgfx}`, `xui-app/crates/damage`, any software rasteriser
+   or painter, HiDPI and clip/damage code) and **webd** (`xui-app/crates/webd*`,
+   `xui-app/webd`, `webkit/`, `idl/webd*.midl`, the WebKit port and its sandbox
+   and label policy). For these:
+   - run `/code-review max` (at least `xhigh`; an equivalent agent: its most
+     thorough mode, with `--max-findings all`), and run it **again** after
+     fixing the findings, until a pass finds nothing real;
+   - give the reviewer the specific risks to attack: lock order, interrupts-off
+     stretches and missing `poll_point`s, `unsafe` and DMA lifetimes, user
+     pointer validation, integer overflow on sizes from userspace or the wire,
+     use-after-free of a slot/generation, capability or label widening, resource
+     exhaustion, and for drawing off-by-one clips, stride/pitch and format
+     assumptions, damage that misses a region, and a pointer or frame drawn
+     twice; for webd, quotas, view/slot isolation, navigation policy and
+     hostile page behaviour;
+   - confirm the tests the review asks for exist (kernel correctness **and**
+     stress tests; host or fuzz tests for webd) and that you looked at real
+     pixels (`Read` the screenshot) for any drawing change.
+4. Fix every real finding, or say in the PR description why one was declined.
+5. Put a short note in the PR description: which review ran (skill and effort
+   level, or the equivalent agent), what was found and what changed, and which
+   CI checks you ran locally.
 
 ## Commands
 
