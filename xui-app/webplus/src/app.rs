@@ -22,12 +22,15 @@ use xui_webkit::engine::Engine;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
 use xui_webkit::view::PageView;
 
+mod bookmarks;
 mod commands;
 mod events;
 mod frame;
 mod hang;
 mod host;
+mod navigate;
 mod notifications;
+mod report;
 mod restore;
 mod search;
 mod shield;
@@ -37,20 +40,17 @@ mod webd;
 
 pub use host::{Host, Probe, Setup};
 
-use crate::address;
-use crate::blocker::{self, Blocker};
+use crate::blocker::Blocker;
 use crate::chrome::{self, Command, Widgets};
 use crate::context::Context;
 use crate::dialogs::Dialogs;
-use crate::downgrade::{self, Allowed, Pending};
+use crate::downgrade::{Allowed, Pending};
 use crate::frameclock::FrameClock;
 use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::shortcut;
-use crate::marker_text;
 use crate::notify::{BarAnswer, Notifications};
-use crate::pages::{self, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -85,6 +85,10 @@ pub enum Msg {
     PageClicked,
     /// A right click on the page, at a point of the view.
     PageMenu(i32, i32),
+    /// The star, the editor or the list of bookmarks.
+    Bookmarks(crate::bookmarks::BookmarkMsg),
+    /// The report form's buttons and tick boxes.
+    Report(crate::report::form::ReportMsg),
     /// The answer to a JavaScript dialog.
     Dialog(DialogAction),
     /// The person answered the bar a site's request to notify them shows.
@@ -119,6 +123,10 @@ pub struct Browser {
     download_label: Rc<Label<Msg>>,
     download_bar: Rc<ProgressBar<Msg>>,
     dialogs: Dialogs,
+    /// The bookmarks and the widgets that show them.
+    bookmarks: crate::bookmarks::State,
+    /// The issue report form and the engine events it quotes.
+    report: report::Report,
     /// The permission bar and what it is asking about.
     bar: notifications::Bar,
     /// The "not responding" bar and its question.
@@ -145,6 +153,8 @@ pub struct Browser {
     message: String,
     /// The link under the pointer.
     hover: String,
+    /// Whether that link has a menu of its own (shared with the page view's right click).
+    link_hover: Rc<Cell<bool>>,
     /// A load is under way (shared with the page view: Escape means Stop only then).
     loading: Rc<Cell<bool>>,
     /// The user pressed Stop: the end of the load that follows is a stop, not a failure.
@@ -252,6 +262,8 @@ impl Browser {
             download_label: widgets.download_label.get(),
             download_bar: widgets.download_bar.get(),
             dialogs: Dialogs::new(ui)?,
+            report: report::Report::new(crate::report::form::Form::new(&widgets.report)),
+            bookmarks: crate::bookmarks::State::open(host.profile.as_deref(), &widgets.bookmarks),
             bar: notifications::Bar::new(&widgets),
             hang: hang::Bar::new(&widgets),
             notifications: Notifications::new(permissions, toasts),
@@ -269,6 +281,7 @@ impl Browser {
             caption: APP_NAME.to_owned(),
             message: String::new(),
             hover: String::new(),
+            link_hover: Rc::clone(&widgets.link_hover),
             loading,
             stopping: false,
             editing: false,
@@ -295,6 +308,9 @@ impl Browser {
         browser.bar.start_hidden(ui);
         browser.hang.start_hidden(ui);
         browser.show_restore_bar(ui);
+        browser.bookmarks.editor.hide(ui);
+        browser.report.form.hide(ui);
+        browser.update_star();
         browser.update_shield();
         ui.set_window_title(APP_NAME);
         Ok(browser)
@@ -318,82 +334,6 @@ impl Browser {
     /// What the status bar shows.
     pub fn status_text(&self) -> String {
         self.shown.borrow().clone()
-    }
-
-    /// Builds one of the browser's own pages as it stands now.
-    fn build_page(&mut self, name: &'static str) -> String {
-        let html = match name {
-            HISTORY => pages::history(self.visits.entries()),
-            DOWNLOADS => pages::downloads(
-                &self.transfers.rows(),
-                &self.transfers.folder().display().to_string(),
-            ),
-            ABOUT => pages::about(
-                env!("CARGO_PKG_VERSION"),
-                &self.notifications.permissions().sites(),
-            ),
-            BLOCKER => blocker::page::blocker(&blocker::page::Report {
-                settings: self.blocker.settings(),
-                lists: self.blocker.lists(),
-                site: self.site_url.as_deref().and_then(blocker::site_of),
-                blocked: self.blocker.blocked(),
-            }),
-            downgrade::NAME => self.downgrade_page(),
-            _ => return self.internal.start(),
-        };
-        self.internal.build(name, &html)
-    }
-
-    /// Opens `target`: a URL, or the name of one of the browser's own pages. A scheme the engine
-    /// does not load (typed in the address bar: the user's own act) goes to the app that has it.
-    fn open(&mut self, target: &str) {
-        let url = match Internal::name_of(target) {
-            Some(name) => self.build_page(name),
-            None => target.to_string(),
-        };
-        if !address::engine_loads(&url) {
-            let status = crate::handoff::open(self.host.launcher.as_ref(), &url, true);
-            self.set_status(&status);
-            return;
-        }
-        self.editing = false;
-        self.start_navigation(&url);
-    }
-
-    /// Tells the engine to load `url` and shows that it is opening.
-    fn start_navigation(&mut self, url: &str) {
-        let shown = self.shown_url(url);
-        self.trace(&format!("NAV:{}", marker_text(&shown)));
-        self.stopping = false;
-        self.set_loading(true);
-        self.set_status(&format!("Opening {shown}"));
-        if !self.editing {
-            self.address.set_text(&shown);
-        }
-        self.engine.load(url);
-    }
-
-    /// Opens what the address field holds.
-    fn go(&mut self) {
-        let text = self.address.text();
-        if let Some(name) = Internal::name_of(&text) {
-            self.open(name);
-            return;
-        }
-        match address::classify(&text, &self.host.prefs.search) {
-            Some(typed) => self.open_typed(typed),
-            None => self.set_status("Type an address first"),
-        }
-    }
-
-    /// The page on show is one of the browser's own, named `name`.
-    fn showing(&self, name: &str) -> bool {
-        let url = if self.state.committed_url.is_empty() {
-            &self.state.url
-        } else {
-            &self.state.committed_url
-        };
-        self.internal.name_for(url) == Some(name)
     }
 }
 
@@ -463,6 +403,8 @@ impl App for Browser {
             }
             Msg::PageMenu(x, y) => self.show_context(ui, (x, y)),
             Msg::BlockerChanged => self.blocker_changed(),
+            Msg::Bookmarks(msg) => self.bookmark_msg(ui, msg),
+            Msg::Report(msg) => self.report_msg(ui, msg),
             Msg::Dialog(action) => {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine
@@ -480,5 +422,6 @@ impl App for Browser {
             Msg::Jobs => (self.host.jobs)(),
         }
         self.update_buttons();
+        self.update_star();
     }
 }

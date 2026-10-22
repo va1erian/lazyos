@@ -45,6 +45,8 @@ impl Browser {
         }
 
         if self.state.crashed && !old.crashed {
+            let why = self.state.error.clone();
+            self.note_engine(&format!("view lost: {why}"));
             self.page.clear();
             self.notifications.page_crashed();
         }
@@ -158,6 +160,8 @@ impl Browser {
         for event in self.mailbox.take_events() {
             match event {
                 Event::Hover(url) => {
+                    self.link_hover
+                        .set(crate::context::link_items(&url).is_some());
                     self.hover = url;
                     self.refresh_status();
                 }

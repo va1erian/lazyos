@@ -17,6 +17,9 @@
 //! - [`policy`]: which navigations the engine may make, which go to another app, which are
 //!   the browser's own commands, and what a page may do without a user gesture.
 //! - [`visits`]: the browsing history kept per user.
+//! - [`places`]: the bookmarks, a checksummed record log (`bookmarks.log`).
+//! - [`report`]: the issue report's Markdown (Help > Report an issue) and the trace it quotes.
+//! - [`sanitize`]: outside text made fit to keep, show or report.
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
 //! - [`notify`]: web notifications: per-site permission, the limits, the shell's toasts.
@@ -30,6 +33,7 @@
 pub mod address;
 pub mod app;
 pub mod blocker;
+pub mod bookmarks;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
@@ -45,8 +49,11 @@ pub mod keys;
 pub mod memory;
 pub mod notify;
 pub mod pages;
+pub mod places;
 pub mod policy;
 pub mod prefs;
+pub mod report;
+pub mod sanitize;
 pub mod session;
 pub mod suggest;
 pub mod transfers;
@@ -74,6 +81,8 @@ pub fn named_marker(line: &str) {
 /// Prints `WEBPLUS:<line>`: a marker that names no page, address or file. The one place this
 /// crate's evidence lines are printed from (the trace ratchet counts it once).
 pub fn marker(line: &str) {
+    // Kept for a report (Help > Report an issue) before it is printed.
+    report::ring::record(line);
     // On LazyOS through the trace API (one write per line, the channel's mask); a host build, where
     // the tests run, has no console to write.
     #[cfg(all(target_os = "linux", target_env = "musl"))]
@@ -96,5 +105,7 @@ pub const SYSTEM_NAME: &str = "os.lazy.lazywebplus";
 pub const HISTORY_FILE: &str = "history.tsv";
 /// The downloads folder in the home.
 pub const DOWNLOADS_DIR: &str = lazydownloads::FOLDER;
+/// The bookmarks log, in the same folder (`places`).
+pub const BOOKMARKS_FILE: &str = "bookmarks.log";
 /// The sites allowed or blocked to notify, in the same folder (`origin<TAB>allow|block<TAB>time`).
 pub const NOTIFY_FILE: &str = "notify.tsv";

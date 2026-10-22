@@ -141,6 +141,51 @@ Restore the last page?" (**Restore**, **Dismiss**); `confd` `user/<uid>/lazywebp
 restores without asking (an address given on the command line is never replaced). Both files are read as
 untrusted. Markers `SESSION:RESTORE:ASK|YES|NO|AUTO`, `HTTPS:ASK|ALLOW`.
 
+## Links and bookmarks
+
+**Right click on a link.** webd's `Hover` event names the link under the pointer. A right click while one is
+hovered opens the window's own menu (`src/context.rs`) instead of reaching the page (`Hooks::swallow_right` in
+`xui-webkit`): **Copy Link Address** (the clipboard) and **Open Link in Another App** (enabled only for a scheme the
+engine does not load, such as `mailto:`, and handed to `mimed` as the person's own click, `handoff.rs`). A
+`javascript:` link and the browser's own `x-lazyweb:` commands get no link menu; a right click on bare page (or on
+one of those) opens the Back/Forward/Reload popup and goes on to the page as before. The spot for "Open in new tab"
+is marked in `link_items` and `chrome::link_menu` for when tabs exist.
+
+**Bookmarks** (`src/places/`, the window in `src/bookmarks/` and `src/app/bookmarks.rs`). The store is an
+append-only record log, `$HOME/.apps/os.lazy.lazywebplus/bookmarks.log`: a header, then records of `length`,
+`CRC-32` and payload, each a put or a delete of one entry `(id, parent, kind, title, url, position, created,
+modified)`. Three roots are fixed (Bookmarks bar, Other bookmarks, Unsorted); entries are links, folders and
+separators. A corrupt or cut-off tail ends the log there and is rewritten away at the next start; a record whose
+frame is whole but whose content is not is skipped; a file that is not ours is renamed `bookmarks.log.bad`. Titles
+are cut at 512 characters and stripped of control and bidirectional characters, addresses refused over 2048
+bytes or when they are `javascript:` (even with control characters inside the scheme), there are at most 100,000
+entries and folders nest at most 16 deep; whatever a hand-edited file holds is re-checked on load and an entry
+whose parent is gone goes to Unsorted. Each change is one synced append; the file is rewritten into a new file
+and renamed over the old one when more than half its records are dead (and it holds at least 32).
+
+The toolbar's star bookmarks the page into Unsorted with one click and opens a small editor (name, folder, Done,
+Remove, Cancel) with the second; Ctrl+D does the same. Only `http:` and `https:` pages are bookmarked, never the
+browser's own `data:` pages. The **Bookmarks** menu holds *Bookmark This Page*, *Edit This Bookmark* and *Show
+Bookmarks*, which opens the list (the bar's entries, then Other bookmarks and Unsorted as submenus, at most 40
+rows and three levels, the rest counted in one row) as a popup built from the store at that moment: xui's menu bar
+cannot change its entries after it is built. Markers: `WEBPLUS:BOOKMARK:ADD|EDIT|REMOVE` (no address). Not built
+yet: the bookmarks bar under the toolbar, `about:bookmarks` (search, reorder, undo), Netscape HTML import and
+export, favicons, and creating folders from the window (the store supports them).
+
+**Report an issue** (Help menu; `src/report/`, the window in `src/app/report.rs`). The fallback of the plan's
+section 7, for when LazyAgent is not there: a form over the page (xui's `Dialog` has one text entry, so it is a frame
+in the layout) with What happened, What you expected and Steps, and a tick box with a one-line preview for each part
+a report may carry: the version and tab count (on by default), the page's host, the page's address without user,
+query or fragment, the last 200 lines of the window's own `Webplus` trace (every `marker()` line goes through a
+bounded in-process ring), and the engine events this run saw (a lost view with its reason, `Responsive(false)` and
+back, what the person answered the "not responding" bar), each off by default. **Copy Markdown** puts the report on
+the clipboard and **Save .md** writes `lazywebplus-report-<time>.md` into the Downloads folder (the window has no
+Save dialog; a name taken gets ` (1)`, nothing is replaced). The Markdown is built by a pure, host-tested function:
+control and bidirectional characters stripped, each typed field cut at 4,000 characters, trace lines at 300, at most
+256 KiB in all (cut with a note), the trace in a fence longer than any backtick run in it, and no page content,
+title or text. **Send to LazyAgent** is a disabled placeholder for `os.lazy.agent.report.v1`. Markers:
+`WEBPLUS:REPORT:COPY|SAVE`. Not built: the screenshot, and the omnibar's bug button.
+
 ## Downloads
 
 A response the view cannot show, or one sent as an attachment, is downloaded by webd: it names the file (the

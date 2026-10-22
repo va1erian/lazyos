@@ -39,6 +39,9 @@ pub struct Hooks<M> {
     /// The message raised for a right click at a point of the view, when the window has a
     /// context menu of its own (the page gets the click as well).
     pub right_click: Option<Rc<dyn Fn(i32, i32) -> M>>,
+    /// Asked at a right press: true when the window's menu takes the click, so the page does not
+    /// get it (a link menu replaces the page's own). `None` never swallows.
+    pub swallow_right: Option<Rc<dyn Fn() -> bool>>,
 }
 
 #[derive(Default)]
@@ -55,6 +58,8 @@ pub(crate) struct State {
     pub(crate) held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
     pub(crate) mods: Cell<u32>,
+    /// A right press was kept from the page (`Hooks::swallow_right`): its release is kept too.
+    pub(crate) swallowed: Cell<bool>,
     /// How far the picture is shown ahead of the page (`speculate.rs`).
     pub(crate) spec: RefCell<Speculation>,
     pub(crate) meter: RefCell<Meter>,
@@ -210,9 +215,20 @@ impl<M: Clone + 'static> PageView<M> {
                 is_shortcut,
                 clicked,
                 right_click,
+                swallow_right,
             } = hooks;
             control.on_events(move |event| {
-                handle(&ui, id, &state, engine.as_ref(), &is_shortcut, &arm, event);
+                let swallow = || swallow_right.as_ref().is_some_and(|ask| ask());
+                handle(
+                    &ui,
+                    id,
+                    &state,
+                    engine.as_ref(),
+                    &is_shortcut,
+                    &arm,
+                    &swallow,
+                    event,
+                );
                 match (event, &right_click) {
                     (
                         Event::MouseDown {
