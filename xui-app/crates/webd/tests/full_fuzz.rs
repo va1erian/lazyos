@@ -216,7 +216,7 @@ fn traffic(rng: &mut Rng) {
 /// The owner attaches every slot its view can use, of the right size.
 fn equip(fx: &mut Fx, who: &[Origin; 2], k: &mut Known) {
     let frame = (k.width * k.height * 4) as usize;
-    let band = (k.width * 1024 * 4) as usize;
+    let band = (k.width * k.height.min(1024) * 4) as usize;
     let count = if k.full && k.deltas {
         SLOTS_WITH_BANDS
     } else {
@@ -285,7 +285,7 @@ fn create(fx: &mut Fx, rng: &mut Rng, who: &[Origin; 2], known: &mut Vec<Known>)
 fn attach(fx: &mut Fx, rng: &mut Rng, who: &[Origin; 2], k: &mut Known) {
     let slot = rng.below(SLOTS_WITH_BANDS as u64 + 1) as u32;
     let frame = (k.width * k.height * 4) as usize;
-    let band = (k.width * 1024 * 4) as usize;
+    let band = (k.width * k.height.min(1024) * 4) as usize;
     let bytes = [frame, frame - 1, frame + 7, band, band - 1][rng.below(5) as usize];
     let caller = if rng.one_in(6) {
         1 - k.client

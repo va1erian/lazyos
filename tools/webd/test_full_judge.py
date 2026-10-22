@@ -26,7 +26,7 @@ def req(path: str, cookie: str = "") -> dict:
 
 
 GOOD_RECORD = {"requests": [
-    req("/"), req("/pic.png"), req("/page2"), req("/"), req("/pic.png"), req("/blocked.png"),
+    req("/"), req("/pic.png"), req("/"), req("/pic.png"), req("/blocked.png"), req("/page2"),
     req("/cookie", "webd=browser"), req("/cookie"), req("/setcookie-b"), req("/cookie", "webd=own"),
     req("/cookie", "webd=browser"), req("/file.bin"),
 ]}
@@ -50,9 +50,9 @@ class Judge(unittest.TestCase):
         self.assertTrue(j.judge_service(GOOD_LOG.replace("app.os.lazy.webd.view", "app.os.lazy.webd.light")))
 
     def test_a_blocked_picture_that_went_out_fails(self):
-        leaked = {"requests": [req("/"), req("/blocked.png"), req("/page2"), req("/"), req("/blocked.png")]}
+        leaked = {"requests": [req("/"), req("/blocked.png"), req("/"), req("/blocked.png")]}
         self.assertTrue(j.judge_blocking(leaked))
-        never = {"requests": [req("/"), req("/pic.png"), req("/page2"), req("/")]}
+        never = {"requests": [req("/"), req("/pic.png"), req("/"), req("/page2")]}
         self.assertTrue(j.judge_blocking(never))
 
     def test_cookies_that_cross_profiles_fail(self):

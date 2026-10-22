@@ -46,7 +46,7 @@
 // `shift` by `(dx, dy)` (what leaves the area is gone, what it uncovers is
 // stale) and then copies each of `rects` from the slot, where they sit at
 // their place in a whole frame's layout (`width * 4` bytes per row). A view
-// with deltas may also attach band slots (3 and 4, `width * 1024 * 4` bytes
+// with deltas may also attach band slots (3 and 4, `width * min(height, 1024) * 4` bytes
 // each): `Band` events carry rows of the page outside the view, painted ahead
 // of a scroll. A frame that cannot be delivered (no free slot, a full queue)
 // makes the next one a whole frame.

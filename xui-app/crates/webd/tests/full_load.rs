@@ -367,7 +367,7 @@ fn a_refused_full_request_carrying_a_buffer_keeps_no_handle_and_destroy_closes_t
     for (view, slot, bytes) in [
         (view, 5, 64),            // no such slot
         (view, 0, 63),            // smaller than the view
-        (view, 3, 64),            // a band slot needs width * 1024 * 4
+        (view, 3, 63),            // a band slot needs width * min(height, 1024) * 4
         (plain, 3, 4 * 1024 * 4), // not a view with deltas
         (view, 99, 64),
     ] {

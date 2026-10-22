@@ -40,7 +40,7 @@
 /// `shift` by `(dx, dy)` (what leaves the area is gone, what it uncovers is
 /// stale) and then copies each of `rects` from the slot, where they sit at
 /// their place in a whole frame's layout (`width * 4` bytes per row). A view
-/// with deltas may also attach band slots (3 and 4, `width * 1024 * 4` bytes
+/// with deltas may also attach band slots (3 and 4, `width * min(height, 1024) * 4` bytes
 /// each): `Band` events carry rows of the page outside the view, painted ahead
 /// of a scroll. A frame that cannot be delivered (no free slot, a full queue)
 /// makes the next one a whole frame.
@@ -67,7 +67,7 @@ interface os.lazy.webd.view.v1 {
     method DestroyView(view: U64 = 1) -> () = 2;
     /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
     /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
-    /// (at least `width * 1024 * 4` bytes). `EBUSY` while webd has it out.
+    /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
     method AttachSlot(view: U64 = 1, slot: U32 = 2, pixels: Buffer = 3) -> () = 3;
     /// The app is done reading `slot`.
     method ReleaseSlot(view: U64 = 1, slot: U32 = 2) -> () = 4 oneway;

@@ -21259,7 +21259,7 @@ pub mod os_lazy_webd_view_v1 {
 
     /// Register `pixels` as slot `slot`: 0 to 2 are frame slots (at least
     /// `width * height * 4` bytes), 3 and 4 band slots of a view with deltas
-    /// (at least `width * 1024 * 4` bytes). `EBUSY` while webd has it out.
+    /// (at least `width * min(height, 1024) * 4` bytes). `EBUSY` while webd has it out.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct AttachSlotArgs {
         pub view: u64,

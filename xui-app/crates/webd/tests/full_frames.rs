@@ -14,7 +14,8 @@ use xui_webd::fabric::errno::*;
 use xui_webd::recording::Call as EngineCall;
 use xui_webd::Note;
 
-const BAND_BYTES: usize = 4 * 1024 * 4;
+/// A band slot of the 4 x 4 views below: `width * min(height, 1024) * 4`.
+const BAND_BYTES: usize = 4 * 4 * 4;
 
 fn deltas() -> wire::ViewConfig {
     wire::ViewConfig {
@@ -205,11 +206,11 @@ fn a_delta_without_a_free_slot_is_dropped_the_chain_ends_and_a_release_asks_for_
 #[test]
 fn bands_use_the_two_band_slots_which_need_a_whole_rows_worth_of_bytes() {
     // Why: a band is rows of the page outside the view, painted ahead of a scroll; its slot holds
-    // `width * 1024 * 4` bytes, and only a view with deltas has band slots.
+    // `width * min(height, 1024) * 4` bytes, and only a view with deltas has band slots.
     let mut fx = Fx::new("frames-bands");
     let app = origin(7);
     let (view, events) = fx.view(app, Via::View, deltas(), 4, 4);
-    assert_eq!(fx.attach_slot(app, view, 3, 64).0, Err(EINVAL));
+    assert_eq!(fx.attach_slot(app, view, 3, 16).0, Err(EINVAL));
     assert_eq!(fx.attach_slot(app, view, 3, BAND_BYTES - 1).0, Err(EINVAL));
     assert_eq!(fx.attach_slot(app, view, 5, BAND_BYTES).0, Err(EINVAL));
     let (result, band3) = fx.attach_slot(app, view, 3, BAND_BYTES);

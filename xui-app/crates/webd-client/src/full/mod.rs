@@ -39,7 +39,8 @@ pub const FRAME_SLOTS: usize = 3;
 pub const BAND_SLOTS: usize = 2;
 /// Every slot number a view may use.
 pub const ALL_SLOTS: usize = FRAME_SLOTS + BAND_SLOTS;
-/// Rows a band slot holds (`width * BAND_ROWS * 4` bytes).
+/// Rows a band slot holds at most (`width * min(height, BAND_ROWS) * 4` bytes: the engine paints a band
+/// of at most the view's height).
 pub const BAND_ROWS: u32 = 1024;
 
 /// What a view may reach: the interface its `CreateView` goes through.
@@ -228,7 +229,7 @@ impl<T: ScopedTransport> FullWebView<T> {
         let view = self.live_view()?;
         let (width, height) = self.size;
         let frame = width as usize * height as usize * 4;
-        let band = width as usize * BAND_ROWS as usize * 4;
+        let band = width as usize * height.min(BAND_ROWS) as usize * 4;
         if frame == 0 {
             return Err(Error::Refused(errno::EINVAL));
         }

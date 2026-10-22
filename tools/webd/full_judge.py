@@ -62,11 +62,13 @@ def requests_of(record: dict, path: str) -> list[dict]:
 
 def judge_blocking(record: dict) -> list[str]:
     """`/blocked.png` never reached the server while the Index page was shown with the blocker on (between
-    the first `/` and the first `/page2`), and did reach it on the reload that bypassed the blocker."""
+    the first request of `/` and the second, the scenario's reload that bypasses the blocker), and did
+    reach it on that reload."""
     paths = [r["path"] for r in record.get("requests", [])]
-    if "/" not in paths or "/page2" not in paths:
-        return ["the server never saw the Index page and then Page Two"]
-    first, second = paths.index("/"), paths.index("/page2")
+    loads = [at for at, path in enumerate(paths) if path == "/"]
+    if len(loads) < 2:
+        return ["the server never saw the Index page loaded and then reloaded"]
+    first, second = loads[0], loads[1]
     problems = []
     if "/blocked.png" in paths[first:second]:
         problems.append("the blocked picture was requested while the blocker was on")

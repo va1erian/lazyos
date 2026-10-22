@@ -748,7 +748,12 @@ request log). Check `netstat -ano | grep "127.0.0.1:443 .*LISTENING"` before a r
 `webd` is the per-session daemon that owns WebKit and serves **light views** to other apps over Messenger
 ([`docs/webd.md`](docs/webd.md), plan [`docs/webd-plan.md`](docs/webd-plan.md), P2): an app hands it HTML
 (`LoadHtml`) and gets pixels back in shared slots; a light view has no network, no storage, locked navigation
-and scripts off unless asked. The interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
+and scripts off unless asked. **Full views** (`idl/webd.midl`, `os.lazy.webd.view.v1`, served as
+`app.os.lazy.webd.view`, P2 slice 3) are what a browser needs; what a view may reach is the interface its
+`CreateView` came through, which the kernel checks against the manifest: `os.lazy.webd.view.v1` alone has no
+network, `os.lazy.webd.net.v1` loads http(s), `os.lazy.webd.browser.v1` adds the `browser` profile on disk,
+downloads, content blocking and hand-offs. The shared methods keep the light interface's ids and shapes
+(`python tools/webd/test_idl.py`). The light interface is `idl/webd_light.midl` (served as `app.os.lazy.webd.light`), the
 portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-memory fabric), the engine half
 `webkit/port/webd/abi.cpp` over `webd_abi.h` (`webd-abi-test`), and the program `webd-app` joins them:
 `webkit/port/webd/main.cpp` (WebKit's run loop on a thread of its own; **the first thread runs the service**,
@@ -768,9 +773,13 @@ cargo test --manifest-path xui-app/Cargo.toml -p xui-webd -p xui-webd-host    # 
 cargo test -p build-support-tests                                     # webd_tests: the switch's requirements
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/webd \
     --script tools/screenshot/examples/webd_selftest.json            # the built-in client (Reopen "/selftest"); LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
+cargo test --manifest-path xui-app/Cargo.toml -p xui-webd-client -p lazydamage -p lazydownloads   # the clients, the shared paint plan and download rules
+python tools/webd/run.py                                              # light views end to end (webddemo)
+python tools/webd/full_run.py                                         # full views end to end (webdbrowse against tools/webd/full_server.py on 18081)
+python tools/webd/test_full_judge.py && python tools/webd/test_idl.py
 ```
 
-Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
+Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `SERVE:app.os.lazy.webd.view`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
 The test clients `os.lazy.webddemo` (a light view) and `os.lazy.webdbrowse` (Web View Test: full views

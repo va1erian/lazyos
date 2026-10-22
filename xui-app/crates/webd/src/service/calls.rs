@@ -58,7 +58,12 @@ fn slot_bytes(view: &View, slot: u32) -> Option<u64> {
     if slot < SLOTS_PER_VIEW {
         Some(config::frame_bytes(view.width, view.height))
     } else if bands && slot < SLOTS_WITH_BANDS {
-        Some(config::frame_bytes(view.width, BAND_ROWS_MAX))
+        // The engine paints a band of at most a view's height (and never more than 1024 rows): a
+        // slot for more would be memory the client's shared-buffer quota pays for nothing.
+        Some(config::frame_bytes(
+            view.width,
+            view.height.min(BAND_ROWS_MAX),
+        ))
     } else {
         None
     }

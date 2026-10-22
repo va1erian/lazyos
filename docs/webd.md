@@ -1,12 +1,17 @@
 # webd
 
-`webd` is the per-session daemon that owns WebKit and gives other apps **light views**: an app hands it a page
-of HTML and gets the page's pixels back in shared memory, plus a few page events. Plan, security model and the
-phases: [`webd-plan.md`](webd-plan.md). This file is the as-built description of the program (P2 slice 2) and of its first
-clients, Docs and Mail (P3: `xui_app::lightview`, [`xui-docs.md`](xui-docs.md), [`mail.md`](mail.md));
-the interface is [`idl/webd_light.midl`](../idl/webd_light.midl) (served as `app.os.lazy.webd.light`), the
-portable service is `xui-app/crates/webd` (`xui-webd`), the engine half is `webkit/port/webd/abi.cpp`
-([`webkit/README.md`](../webkit/README.md), "webd's engine half").
+`webd` is the per-session daemon that owns WebKit and gives other apps **light views** (an app hands it a page
+of HTML and gets the page's pixels back in shared memory, plus a few page events) and **full views** (what a
+browser needs: navigation over the network, a profile, dialogs, downloads, notifications, content blocking,
+frames that carry only what changed). Plan, security model and the phases: [`webd-plan.md`](webd-plan.md). This
+file is the as-built description of the program (P2 slices 2 and 3) and of its clients: Docs and Mail (P3:
+`xui_app::lightview`, [`xui-docs.md`](xui-docs.md), [`mail.md`](mail.md)) on light views, the test client
+Web View Test on full views ("Full views", below). The interfaces are
+[`idl/webd_light.midl`](../idl/webd_light.midl) (served as `app.os.lazy.webd.light`) and
+[`idl/webd.midl`](../idl/webd.midl) (`os.lazy.webd.view.v1` and its scopes, served as
+`app.os.lazy.webd.view`), the portable service is `xui-app/crates/webd` (`xui-webd`), the engine half is
+`webkit/port/webd/abi.cpp`, `abi_full.cpp` and `sink_full.cpp` ([`webkit/README.md`](../webkit/README.md),
+"webd's engine half").
 
 ## What runs
 
@@ -19,8 +24,8 @@ portable service is `xui-app/crates/webd` (`xui-webd`), the engine half is `webk
         '-- Frame(slot) / State / LinkClicked ...       v
                                                   second thread: WebKit's run loop (C++, abi.cpp over the engine)
                                                          |  fork+exec, confined labels
-                                              app:os.lazy.webd/webprocess (one per client app, fonts only)
-                                              app:os.lazy.webd/networkprocess (idle: a light view has no network)
+                                              app:os.lazy.webd/webprocess (one per client app and profile, fonts only)
+                                              app:os.lazy.webd/networkprocess (one for every profile)
 ```
 
 * **Package** `xui-app/packages/webd` (`os.lazy.webd`): `resident = true`, `autostart = true`, `abi = "linux"`. `init`
@@ -32,10 +37,12 @@ portable service is `xui-app/crates/webd` (`xui-webd`), the engine half is `webk
   the lifecycle line live there. WebKit's run loop runs on a thread `main.cpp` makes (8 MiB stack); the Rust
   half calls `webd_engine_*` (each only queues a task for the loop) and the engine calls `webd_ui_*` back on
   that thread, where the callbacks copy and queue (`xui_webd::events::EventQueue`).
-* **No network.** `os.lazy.webd.light.v1` has no way to ask for one, the engine refuses every load but
-  `data:`, `blob:` and `about:blank` (`webd-abi-test network`), and the manifest gives neither the program nor
-  the NetworkProcess a socket, a resolver or a certificate file. The image needs no network stack
-  (`LAZYOS_WEBD=1` does not ask for `LAZYOS_NETD`).
+* **No network for a light view.** `os.lazy.webd.light.v1` has no way to ask for one, and the engine refuses
+  every load but `data:`, `blob:` and `about:blank` (`webd-abi-test network`). Since slice 3 the manifest gives
+  the NetworkProcess the network, the resolver's files, the certificate bundle and the profiles' folder: a
+  full view whose client holds a network scope uses them. A full view without one carries the light views'
+  lock too (`webd-abi-test nonet`). The image needs no network stack for light views (`LAZYOS_WEBD=1` does not
+  ask for `LAZYOS_NETD`); a full view that loads from the network needs one (`run_demo.py --net`).
 
 ## The real Messenger binding (`xui-app/webd`)
 
