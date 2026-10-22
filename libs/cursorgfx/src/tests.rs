@@ -151,6 +151,7 @@ fn wire_values_round_trip() {
     assert_eq!(Shape::from_wire(u32::MAX), None);
 }
 
+
 #[test]
 fn extreme_sizes_are_clamped() {
     assert_eq!(render(Shape::Default, 0, 0).w, max_extent(0));
