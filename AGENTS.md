@@ -30,8 +30,8 @@ graphics change works from source alone — capture and inspect real pixels.
    Add `--expect-width`, `--expect-height`, `--min-colors`, or `--max-mean` as needed.
 
 5. **Run CI** for a full headless pass: `.github/workflows/screenshots.yml`
-   captures, verifies, uploads artifacts, publishes to the `screenshots` branch,
-   and comments images on pull requests.
+   (manual only: Actions -> screenshots -> Run workflow) captures, verifies,
+   uploads artifacts and publishes to the `screenshots` branch.
 
 See `tools/screenshot/README.md` for full options.
 

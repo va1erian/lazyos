@@ -45,7 +45,7 @@
 | `kernel-tests.yml` | `tools/test/run.py` (KVM when usable); appends the report to the job summary; uploads `docs/test/**`, `shots/kernel-tests/**` |
 | `abi-compat.yml` | Builds fixtures, runs the bench, uploads `docs/compat/**` + `shots/abi/**` (the `abi-compat` artifact that `pages.yml` publishes), comments on PRs |
 | `pages.yml` | Builds the documentation site (`tools/site/build.py --strict`, generator tests) and deploys it to GitHub Pages on `main`; also after every `abi-compat` run, to publish the ABI reports |
-| `screenshots.yml` | Captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch, comments images on PRs |
+| `screenshots.yml` | Manual only: captures, verifies with `pngstats.py`, uploads artifacts, publishes to the `screenshots` branch |
 | `messenger.yml` | `cargo test -p libmessenger` |
 | `midlc.yml` | `test_midlc.py`, `midlc.py --check`, `cargo test -p messenger-generated` |
 | `clippy.yml` | `cargo clippy -p kernel` with `-D clippy::undocumented_unsafe_blocks` (issue #124 gate); host libraries with `--all-targets -D warnings` (issue #247) |
