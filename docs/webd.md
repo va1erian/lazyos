@@ -213,6 +213,15 @@ then refused at `show`); content blocking compiles the client's rule lists into 
 (`BlockingCompile`), with a per-profile switch and exceptions (`SetBlocking`) and a one-shot `Reload(bypass)`. The
 ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+ today).
 
+**For LazyWeb+ (P4).** `Recover(view, reload)` is the way out of a page whose process stopped answering
+(`Responsive(false)`): the view's web process is ended, and with `reload` the page loads again in a fresh one;
+without it the page stays stopped, which the engine reports as the page ended by request (`ViewLost`, reason
+`Other`), and the client makes a new view; the engine refuses (`WEBPROCESS:RECOVER:SHARED`) while other views share
+the process. `NotifyForget(view, origin)` forgets the profile's decision about `origin` (a view made with
+`notifications`; `origin` is checked as in `NotifyPermission`): `Notification.permission` is `default` again and the
+site's next request is asked again (`NotifyPermissionRequest`); WebKit's record is the context's, so it goes for
+every profile.
+
 **Frames with damage** (`ViewConfig.deltas`). The paint plan is the window's (`xui-app/crates/damage`,
 `lazydamage`, moved out of `xui-webkit` so both keep one set of rules), kept per view by the service
 (`webd_paint_*`). A `Frame` with `whole = false` carries `shift` (move that area of the picture by `dx, dy`) and
