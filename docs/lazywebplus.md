@@ -446,7 +446,8 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   What is missing is the window's chrome for tabs, a pool of parked views in webd (every closed view leaves a
   parked proxy until then, webd-plan P5), and a way to recover a hung tab (`Recover` refuses a process other
   views share, so a hung tab would need its group's views made again). `window.open` and `target=_blank` open in
-  the one view.
+  the one view. Tabs, windows, bookmarks, an omnibar, data controls, a password vault and issue reports are
+  planned in [`lazywebplus-plan.md`](lazywebplus-plan.md).
 * **A notification permission leaks across profiles.** WebKit keeps one permission record for the whole context,
   so a site allowed in the browser profile reads as `Notification.permission == "granted"` in another app's
   profile, where webd then refuses the notification (it posts nothing for a profile that did not allow it).
@@ -456,8 +457,9 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   another app" (safe, but useless) until the page is opened again. A page longer than 8 KiB that WebKit loads
   again shows empty (above).
 * **Dialogs** are titled with the top-level site, not the frame that asked.
-* **Evidence lines** are `println!`s (the `Webplus` trace channel exists and is not used yet; the ones that name a
-  page, an address or a file print only in a `LAZYOS_UI_PROBE=1` image).
+* **Evidence lines** go through `xui_app::trace` (`Channel::Webplus`, `marker()` in `lib.rs`) except four
+  `println!`s left in `app/events.rs` (`STOPPED`, `FAIL`, `DIALOG`); the ones that name a page, an address or a
+  file print only in a `LAZYOS_UI_PROBE=1` image.
 * **`history.tsv` is in the browser's folder** (a plain file the window reads: the last 2 MiB of it, titles cut at
   512 characters, addresses over 2048 dropped). webd's processes cannot write it.
 * **`Notification.close()` during a navigation leaves the toast up.** A page that enters the back/forward cache is
