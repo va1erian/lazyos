@@ -288,8 +288,9 @@ pub fn area(index: usize) -> Option<&'static Cpu> {
 pub fn set_rsp0(top: u64) {
     // SAFETY: the TSS of the CPU running this, written only by that CPU
     // (here) after `init_cpu`; no reference to it is live (the descriptor
-    // holds its address, the hardware reads it), and an interrupt that
-    // re-enters this store writes a whole `u64` field the same way.
+    // holds its address, the hardware reads it). The scheduler, the only
+    // caller outside the suite, runs with interrupts off, so no handler on
+    // this CPU sees the store half done.
     unsafe {
         (*current().tss_ptr()).privilege_stack_table[0] = x86_64::VirtAddr::new(top);
     }

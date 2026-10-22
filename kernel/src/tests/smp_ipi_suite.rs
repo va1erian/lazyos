@@ -92,6 +92,10 @@ fn concurrent_senders_are_all_acked() -> Result<(), String> {
 /// of reusing the IST top under the first. Repeated, then the first NMI
 /// must still return normally every time.
 fn nested_nmi_is_dropped() -> Result<(), String> {
+    // The NMIs are sent through the local APIC (a PIC-only boot has none).
+    if lapic::current_mode().is_none() {
+        return Ok(());
+    }
     check!(
         crate::arch::probe::read_faults(UNMAPPED),
         "{UNMAPPED:#x} is mapped; the case needs a faulting address"
@@ -198,8 +202,9 @@ fn nmi_storm_during_bring_up_is_survived() -> Result<(), String> {
     smp::early_pause_at(cpu, 3);
     let early = smp::early_nmis();
     let late = cpu.ipi.nmis.load(Ordering::Relaxed);
-    // NMIs back to back (each send waits for the last to be delivered).
-    smp::nmi_storm(true, 0);
+    // An NMI every 10 us of the BSP's clock (a tick is 10 ms): dense, and
+    // never so dense the AP could do nothing but take them.
+    smp::nmi_storm(true, crate::arch::clock::cycles_per_tick() / 1000);
     smp::bring_up_for_test(percpu::MAX_CPUS);
     smp::nmi_storm(false, 0);
     // Let NMIs still in flight land in the quiet handler.
@@ -284,6 +289,56 @@ fn stop_sees_aps_the_count_missed() -> Result<(), String> {
     Ok(())
 }
 
+/// The bring-up gives up the instant it accepted an AP's clock, racing the
+/// AP's claim: either the AP claimed first (online, counted, and it answers
+/// a shootdown) or the withdrawal won (offline, not counted, its area
+/// retired). Never a parked CPU marked online, nor an online one uncounted.
+fn deadline_race_never_strands_a_cpu() -> Result<(), String> {
+    const ROUNDS: u32 = 10;
+    let online = smp::online_cpus();
+    if online <= 1 {
+        return Ok(());
+    }
+    let (mut claimed, mut withdrawn) = (0, 0);
+    for round in 0..ROUNDS {
+        let victim = stop_last_ap()?;
+        smp::rush_deadline(true);
+        smp::bring_up_for_test(percpu::MAX_CPUS);
+        smp::rush_deadline(false);
+        let areas = (0..percpu::MAX_CPUS)
+            .filter_map(percpu::area)
+            .filter(|cpu| cpu.online.load(Ordering::Acquire))
+            .count();
+        check!(
+            smp::online_cpus() == areas,
+            "round {round}: {} CPUs counted, {areas} areas online",
+            smp::online_cpus()
+        );
+        if percpu::area(victim).is_some_and(|c| c.online.load(Ordering::Acquire)) {
+            claimed += 1;
+            // It must really run: a stranded CPU would never acknowledge.
+            crate::mem::tlb::shootdown(0xE000_0000, 1);
+        } else {
+            withdrawn += 1;
+            check!(
+                smp::retired(victim),
+                "round {round}: a withdrawn area was not retired"
+            );
+            // The INIT that parked it has landed long before this.
+            wait_ms(10, || false);
+            smp::unretire(victim);
+            smp::bring_up_for_test(percpu::MAX_CPUS);
+        }
+        check!(
+            smp::online_cpus() == online,
+            "round {round}: {} CPUs online after the restart, expected {online}",
+            smp::online_cpus()
+        );
+    }
+    serial_println!("TEST:smp_deadline race: {claimed} claimed, {withdrawn} withdrawn");
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     (
         "smp_shootdown_concurrent_senders_are_all_acked",
@@ -305,5 +360,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     (
         "smp_stop_sees_aps_the_count_missed",
         stop_sees_aps_the_count_missed,
+    ),
+    (
+        "smp_deadline_race_never_strands_a_cpu",
+        deadline_race_never_strands_a_cpu,
     ),
 ];

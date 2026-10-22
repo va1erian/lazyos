@@ -67,9 +67,11 @@ pub(super) fn halt_if_stopping() {
     }
 }
 
-/// Whether any CPU but the boot CPU's area is online — read from the areas
-/// themselves, never `%gs` or the online count: the count trails an AP's own
-/// `online` store, and the panic path may run before `%gs` is set up.
+/// Whether any CPU but the boot CPU's area is online — `stop_others`'s gate
+/// (the suite's `stop_all_for_test` calls this same function). Read from the
+/// areas themselves, never `%gs` (the panic path may run before it is set
+/// up) nor the online count (a derived number: the bring-up keeps it ahead
+/// of the areas, but the gate must not depend on that).
 pub(super) fn any_ap_online() -> bool {
     (1..percpu::MAX_CPUS)
         .filter_map(percpu::area)

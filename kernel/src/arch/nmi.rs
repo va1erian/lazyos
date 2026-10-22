@@ -90,7 +90,9 @@ pub fn nested_dropped() -> u64 {
 // frame at the IST top (RIP, CS, RFLAGS, RSP, SS). The nested test: the
 // interrupted RSP within `[top - SIZE + 16, top)`, with `top = frame + 40`
 // (the CPU aligned the IST top down to 16 before its five pushes), as one
-// unsigned compare. Otherwise the frame is copied 64 bytes below and the
+// unsigned compare, and only from ring 0 (ring 3 may point its RSP anywhere;
+// the `syscall` entry's swap window, ring 0 on a user RSP, still could, at
+// the cost of one dropped hang report). Otherwise the frame is copied 64 bytes below and the
 // rest is `arch::gsgate`'s paranoid gate (an NMI lands anywhere, swap windows
 // included).
 global_asm!(
@@ -99,7 +101,8 @@ global_asm!(
         "nmi_gate:\n",
         "push rax\n push rcx\n",
         "lea rax, [rsp + 16]\n",
-        "mov rcx, [rax + 24]\n sub rcx, rax\n add rcx, {lo_bias}\n cmp rcx, {span}\n jb 3f\n",
+        "test byte ptr [rax + 8], 3\n jnz 4f\n",
+        "mov rcx, [rax + 24]\n sub rcx, rax\n add rcx, {lo_bias}\n cmp rcx, {span}\n jb 3f\n4:\n",
         "lea rsp, [rax - 64]\n and rsp, -16\n",
         "push qword ptr [rax + 32]\n push qword ptr [rax + 24]\n push qword ptr [rax + 16]\n",
         "push qword ptr [rax + 8]\n push qword ptr [rax]\n",

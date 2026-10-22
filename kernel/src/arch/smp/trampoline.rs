@@ -19,7 +19,9 @@
 //! **NMIs.** An NMI cannot be masked, and the platform can raise one at any
 //! CPU at any time (QEMU's `inject-nmi`, a board's NMI button; LINT1 is
 //! masked by the INIT until `ap_entry` programs it). With INIT's `IDTR` (base
-//! 0) it would triple-fault the machine. So the blob's **first instruction**
+//! 0) it would run whatever the real-mode IVT at physical 0 names, and in
+//! protected or long mode triple-fault the machine. So the blob's **first
+//! instruction**
 //! loads `IDTR` with the early NMI table at `0x0E60`, laid out so one table
 //! serves all three modes: the real-mode IVT's vector 2 at `+8`, the 32-bit
 //! IDT's at `+16` and the 64-bit IDT's at `+32` do not overlap. Each points at
@@ -43,6 +45,7 @@
 //! | `0x0E40` | retf patch slots: `u16` CS₁, `u16` offset₁, `u32` CS₂, `u32` offset₂ |
 //! | `0x0E50` | the early `IDTR` (`u16` limit 47, `u32` base `0x8E60`) |
 //! | `0x0E60` | the early NMI table (IVT/IDT32/IDT64 vector 2, BSP-patched) |
+//! | `0x0E98` | set once the AP is past its `lidt` (`u32`) |
 //! | `0x0E9C` | NMIs the early stubs took (`u32`) |
 //! | `0x0F00` | the mailbox: magic `u32`, then `CR3`, `ap_entry`, `Cpu` area, stack top |
 //!
@@ -84,6 +87,9 @@ pub const EARLY_IDT_OFF: u32 = 0x0E60;
 pub const EARLY_IDT_LIMIT: u16 = 47;
 /// NMIs the early stubs took (a `u32` the suite reads).
 pub const EARLY_NMIS_OFF: u32 = 0x0E9C;
+/// Set to 1 by the blob right after its `lidt` (the BSP clears it per AP):
+/// the suite's NMI storm starts there, never in the instruction before.
+pub const EARLY_STARTED_OFF: u32 = 0x0E98;
 /// The GDTR's page offset: a `u16` limit, then the `u32` base the BSP
 /// patches to `0x8000 + GDT_OFF`.
 pub const GDTR_OFF: u32 = 0x0E30;
@@ -118,6 +124,7 @@ global_asm!(
 smp_trampoline_start:
     .code16
     lidt cs:[0x0E50]                /* first: the early NMI table (above) */
+    mov dword ptr cs:[0x0E98], 1    /* past it (the suite's NMI storm waits) */
     cli
     xor ax, ax
     mov ds, ax                      /* IVT-safe for the first writes */
@@ -237,7 +244,8 @@ smp_nmi64:
     .long 0x8E60                    /* ... and base (0x8000 + 0x0E60) */
     .org 0x0E60
     .fill 48, 1, 0                  /* the early NMI table: BSP-patched */
-    .org 0x0E9C
+    .org 0x0E98
+    .long 0                         /* past the lidt */
     .long 0                         /* NMIs the early stubs took */
 smp_trampoline_end:
 

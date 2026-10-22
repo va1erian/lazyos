@@ -10,8 +10,8 @@
 //! switch), so the idle loop services its mailboxes without being able to
 //! race anything. No scheduler runs on an AP yet (S8.3 is the enabled
 //! milestone); no timer is armed (the tick stays the BSP's); nothing runs
-//! user code there yet (TLB shootdowns land with the entry lock in S8.3,
-//! when a second CPU first holds user translations).
+//! user code there yet. TLB shootdowns already reach them (`shootdown`):
+//! every page-table change goes through `mem::tlb` from S8.2 on.
 //!
 //! Configuration (`lazyos.cfg`, [`PREFIX`]): the CPU count is the MADT's
 //! enabled processors, capped by `smp.cpus=N` and by `limit.cpu_max`, whose
@@ -40,7 +40,7 @@ pub use shootdown::shootdown_others;
 #[cfg(lazyos_tests)]
 pub use testrig::{
     early_hits, early_nmis, early_pause_at, finish_on, nmi_storm, refuse_sipi, retired, run_on,
-    start_on, stop_all_for_test, stop_cpu_for_test, storm_sent, unretire,
+    rush_deadline, start_on, stop_all_for_test, stop_cpu_for_test, storm_sent, unretire,
 };
 
 use alloc::vec::Vec;
@@ -138,7 +138,6 @@ pub fn others_on_table(table: u64) -> u64 {
 }
 
 /// The decided CPU count: what the kernel may run on (1 until [`init`]).
-
 pub fn cpus() -> usize {
     CPUS.load(Ordering::Relaxed)
 }

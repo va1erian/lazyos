@@ -58,6 +58,9 @@ pub(super) fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
                     APS_ONLINE.fetch_add(1, Ordering::AcqRel);
                     counted = true;
                     tscsync::accept(cpu);
+                    if deadline_now() {
+                        break;
+                    }
                 }
                 Some(skew) => {
                     // Still in its exchange loop (it never published
@@ -74,7 +77,26 @@ pub(super) fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
             }
         }
         storm(cpu, apic_id);
+        super::shootdown::serve_pending();
         spin_loop();
+    }
+    // An AP that claimed its accept before the deadline publishes `online`
+    // a few instructions later: it is up, not late.
+    if counted && !tscsync::withdraw(cpu) {
+        let claimed = rdtsc();
+        while !cpu.online.load(Ordering::Acquire) {
+            if rdtsc().wrapping_sub(claimed) > bound / 10 {
+                // Wedged between its claim and its store. It may still go
+                // online, so it stays counted (the count must never trail
+                // an online area) and its area retired; it is not parked
+                // (an INIT now could land after it went online).
+                RETIRED.fetch_or(1 << index, Ordering::Relaxed);
+                serial_println!("HW:SMP:CPU{index} apic={apic_id:#x} FAIL (claimed, not online)");
+                return false;
+            }
+            spin_loop();
+        }
+        return true;
     }
     // Park it, and never hand its area out again: an AP that started but
     // never published may still be running on it.
@@ -105,6 +127,7 @@ fn write_mailbox(area_addr: u64, cpu: &percpu::Cpu) {
         // for every AP); rewrite them anyway — the mailbox is one structure.
         mb(trampoline::MB_CR3_OFF).write_volatile(AP_PML4.load(Ordering::Relaxed));
         (mb(trampoline::MB_MAGIC_OFF) as *mut u32).write_volatile(trampoline::MB_MAGIC);
+        (mb(trampoline::EARLY_STARTED_OFF) as *mut u32).write_volatile(0);
     }
 }
 
@@ -182,6 +205,19 @@ extern "C" fn ap_entry() -> ! {
     loop {
         x86_64::instructions::interrupts::enable();
         x86_64::instructions::hlt();
+    }
+}
+
+/// Test hook: the bring-up reaches its deadline right after it accepted the
+/// AP's clock (the race between its withdrawal and the AP's claim).
+fn deadline_now() -> bool {
+    #[cfg(lazyos_tests)]
+    {
+        super::testrig::RUSH.load(Ordering::Acquire)
+    }
+    #[cfg(not(lazyos_tests))]
+    {
+        false
     }
 }
 

@@ -228,9 +228,10 @@ pub fn eoi() {
 /// The ICR is this CPU's own register, so two CPUs never share one; the
 /// hazard is an interrupt on *this* CPU sending between the xAPIC's two
 /// writes (its `ICR_HI` would redirect ours). The pair therefore runs with
-/// interrupts off. An NMI is not held off: none sends, but the panic path
-/// may run in one (`smp::stop_others`), and it never returns to the send it
-/// interrupted.
+/// interrupts off. An NMI is not held off: only the panic path
+/// (`smp::stop_others`) and the suite's nested-NMI case send from one; the
+/// panic never returns to the send it interrupted, and the suite's NMI only
+/// interrupts its own completed send.
 fn send(dest: u32, low: u32) {
     match mode() {
         Some(Mode::X2Apic) => {

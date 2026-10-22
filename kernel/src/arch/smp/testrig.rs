@@ -81,6 +81,7 @@ pub fn stop_cpu_for_test(index: usize) -> bool {
         if rdtsc().wrapping_sub(started) > bound {
             return false;
         }
+        super::shootdown::serve_pending();
         spin_loop();
     }
     take_offline(index);
@@ -130,6 +131,14 @@ pub fn stop_all_for_test(hide_count: bool) -> usize {
 /// Test hook: the bring-up sends INIT but no SIPI, so the AP never starts
 /// (a CPU that refuses to start, for the timeout path).
 pub(super) static NO_SIPI: AtomicBool = AtomicBool::new(false);
+
+/// Test hook: the bring-up gives up the moment it accepted an AP's clock.
+pub(super) static RUSH: AtomicBool = AtomicBool::new(false);
+
+/// Make the next bring-ups give up right after the accept (or stop).
+pub fn rush_deadline(on: bool) {
+    RUSH.store(on, Ordering::Release);
+}
 
 /// Make the next bring-ups refuse to start their APs (or stop refusing).
 pub fn refuse_sipi(on: bool) {
@@ -216,6 +225,7 @@ fn serve_pause(cpu: &percpu::Cpu, apic_id: u32) {
     let started = rdtsc();
     let bound = crate::arch::clock::cycles_per_tick() * 5;
     while early_nmis() == before && rdtsc().wrapping_sub(started) < bound {
+        super::shootdown::serve_pending();
         spin_loop();
     }
     if early_nmis() != before {
@@ -227,10 +237,12 @@ fn serve_pause(cpu: &percpu::Cpu, apic_id: u32) {
 }
 
 /// One storm step (bring-up only): serve a pause point, then an NMI to
-/// `apic_id` if the storm is on and the pace allows.
+/// `apic_id` if the storm is on, the AP is past its trampoline's `lidt`
+/// (before it, an NMI takes INIT's `IDTR`: the accepted window) and the pace
+/// allows.
 pub(super) fn storm(cpu: &percpu::Cpu, apic_id: u32) {
     serve_pause(cpu, apic_id);
-    if !STORM.load(Ordering::Acquire) {
+    if !STORM.load(Ordering::Acquire) || page_word(super::trampoline::EARLY_STARTED_OFF) == 0 {
         return;
     }
     let now = rdtsc();
@@ -244,10 +256,15 @@ pub(super) fn storm(cpu: &percpu::Cpu, apic_id: u32) {
 
 /// NMIs the trampoline's early stubs took since `prepare` (all APs).
 pub fn early_nmis() -> u32 {
+    page_word(super::trampoline::EARLY_NMIS_OFF)
+}
+
+/// A `u32` of the trampoline page.
+fn page_word(offset: u32) -> u32 {
     let at = crate::mem::phys_to_virt(x86_64::PhysAddr::new(
-        super::TRAMPOLINE_PHYS + u64::from(super::trampoline::EARLY_NMIS_OFF),
+        super::TRAMPOLINE_PHYS + u64::from(offset),
     ));
     // SAFETY: the reserved trampoline page's mapped copy; an aligned `u32`
-    // the early stubs increment atomically.
+    // the AP's blob writes (atomically, where it counts).
     unsafe { at.as_ptr::<u32>().read_volatile() }
 }

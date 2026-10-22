@@ -63,15 +63,22 @@ fn long_sparse_span_reaches_remote_tlbs() -> Result<(), String> {
         for &va in &ends {
             enter_and_read(&aps, table, va)?;
         }
+        // The replacements are taken while the old frames are still mapped,
+        // so they cannot be the old frames handed back (which would hide a
+        // stale entry).
+        let mut fresh = Vec::new();
+        for i in 0..ends.len() {
+            let frame = crate::mem::alloc_zeroed_frame().ok_or("no frame")?;
+            tag(frame.as_u64(), 0xCD00 + i as u64);
+            fresh.push(frame);
+        }
         let before = acks(&aps);
         check!(
             crate::mem::unmap_range(table, VA, VA + (SPAN + 1) * 4096) == 2,
             "unmap_range did not clear both ends"
         );
         advanced_by(&aps, &before, 1, "unmap_range over a sparse 201-page span")?;
-        for (i, &va) in ends.iter().enumerate() {
-            let frame = crate::mem::alloc_zeroed_frame().ok_or("no frame")?;
-            tag(frame.as_u64(), 0xCD00 + i as u64);
+        for (i, (&va, &frame)) in ends.iter().zip(&fresh).enumerate() {
             check!(
                 crate::mem::map_page_in(table, VirtAddr::new(va), frame, user_flags()),
                 "remap failed"

@@ -2,7 +2,7 @@
 //! shootdown"): the per-target mailbox, the doorbell IPI and its handler,
 //! and the rules that keep several senders from deadlocking each other.
 //!
-//! **One sender at a time.** A sender takes [`SENDER`], a spin lock, with
+//! **One sender at a time.** A sender takes the sender lock, a ticket lock, with
 //! interrupts off, then posts to every target and waits for every ack. A
 //! mailbox therefore has one writer, and the previous holder waited for
 //! every ack before releasing it, so a request is never overwritten before
@@ -34,8 +34,12 @@ use crate::mem::tlb::FLUSH_ALL_ABOVE;
 
 irq_gate!(shootdown_gate => shootdown_handler);
 
-/// The sender lock: 0 when free, else the holder's area index + 1.
-static SENDER: AtomicU32 = AtomicU32::new(0);
+/// The sender lock, a ticket lock (first come, first served: a releasing
+/// sender cannot win the next turn back over a waiter): the next ticket,
+/// the ticket being served, and the holder's area index + 1 (0: none).
+static NEXT_TICKET: AtomicU32 = AtomicU32::new(0);
+static SERVING: AtomicU32 = AtomicU32::new(0);
+static HOLDER: AtomicU32 = AtomicU32::new(0);
 
 /// The doorbell: serve the mailbox (if a wait loop has not already).
 extern "C" fn shootdown_handler(_frame: &InterruptStackFrameValue) {
@@ -88,41 +92,45 @@ struct Turn;
 
 impl Turn {
     /// Wait for the sender lock, serving this CPU's own mailbox meanwhile.
-    /// The holder's ack wait is bounded at a second, so two seconds here is
-    /// a lock that will never be released.
+    /// Each holder's ack wait is bounded at a second, and at most one turn
+    /// per other online CPU is ahead of this one, so a second per online CPU
+    /// (plus one) here is a lock that will never be released.
     fn take(me: u32) -> Turn {
+        // Interrupts are off and an NMI never sends, so the only way this
+        // CPU already holds the lock is a bug that would wait on itself.
+        assert!(
+            HOLDER.load(Ordering::Relaxed) != me + 1,
+            "shootdown: CPU{me} re-entered its own send"
+        );
+        let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
         let started = rdtsc();
-        let bound = crate::arch::clock::cycles_per_tick() * 200;
-        loop {
-            match SENDER.compare_exchange_weak(0, me + 1, Ordering::Acquire, Ordering::Relaxed) {
-                Ok(_) => return Turn,
-                Err(holder) if holder == me + 1 => {
-                    panic!("shootdown: CPU{me} re-entered its own send")
-                }
-                Err(holder) => {
-                    serve_pending();
-                    if rdtsc().wrapping_sub(started) > bound {
-                        panic!(
-                            "shootdown: CPU{me} waited 2 s for the sender lock (held by CPU{})",
-                            holder.wrapping_sub(1)
-                        );
-                    }
-                    spin_loop();
-                }
+        let seconds = super::online_cpus() as u64 + 1;
+        let bound = crate::arch::clock::cycles_per_tick() * 100 * seconds;
+        while SERVING.load(Ordering::Acquire) != ticket {
+            serve_pending();
+            if rdtsc().wrapping_sub(started) > bound {
+                panic!(
+                    "shootdown: CPU{me} waited {seconds} s for the sender lock (held by CPU{})",
+                    HOLDER.load(Ordering::Relaxed).wrapping_sub(1)
+                );
             }
+            spin_loop();
         }
+        HOLDER.store(me + 1, Ordering::Relaxed);
+        Turn
     }
 }
 
 impl Drop for Turn {
     fn drop(&mut self) {
-        SENDER.store(0, Ordering::Release);
+        HOLDER.store(0, Ordering::Relaxed);
+        SERVING.fetch_add(1, Ordering::Release);
     }
 }
 
 /// `mem::tlb::shootdown`'s cross-CPU half: post `[addr, addr + pages *
 /// 4096)` to every other online CPU, ring each doorbell, and wait for every
-/// ack (a calibrated second each, then a panic naming the CPU). Safe from
+/// ack (a calibrated second for them all, then a panic naming a CPU). Safe from
 /// any CPU and any context but an NMI: interrupts are off for the whole
 /// exchange, so an interrupt handler on this CPU cannot start a second send
 /// in the middle of this one (or of its two-write xAPIC ICR sends).
@@ -173,14 +181,15 @@ fn post_all(me: u32, addr: u64, pages: u64) -> u64 {
 
 /// Wait until every CPU in `posted` acknowledged its request.
 fn wait_all(posted: u64, addr: u64, pages: u64) {
-    // A second of the calibrated clock (the bring-up refuses to start APs
-    // without one, so it is never 0 here).
+    // A second of the calibrated clock for every ack together (the
+    // bring-up refuses to start APs without one, so it is never 0 here):
+    // the lock's waiters count on it.
     let bound = crate::arch::clock::cycles_per_tick() * 100;
+    let started = rdtsc();
     for index in (0..percpu::MAX_CPUS).filter(|i| posted & (1 << i) != 0) {
         let Some(cpu) = percpu::area(index) else {
             continue;
         };
-        let started = rdtsc();
         let want = cpu.ipi.sd_req.load(Ordering::Relaxed);
         // A CPU taken offline meanwhile (the suite's `STOP`) is halted with
         // interrupts off and starts again through `ap_entry`'s full flush.
