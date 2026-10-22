@@ -968,6 +968,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `back(view)` | `Back(view: U64) -> ()` |  |
 | `forward(view)` | `Forward(view: U64) -> ()` |  |
 | `download(view, url)` | `Download(view: U64, url: String) -> ()` | Save `url` as a download (Save Page As): a view with `downloads` only. |
+| `recover(view, reload)` | `Recover(view: U64, reload: Bool) -> ()` | The page's process does not answer (the app got `Responsive(false)`) and |
 | `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as on the light interface. |
 | `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` |  |
 | `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` |  |
@@ -979,6 +980,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `set_blocking(view, enabled, exceptions)` | `SetBlocking(view: U64, enabled: Bool, exceptions: Array<String>) -> ()` | Content blocking on or off for the view's profile, and the hosts it is |
 | `blocking_load(view, list)` | `BlockingLoad(view: U64, list: String) -> ()` | Attach list `list` from the profile's store (compiled earlier). |
 | `blocking_forget(view, list)` | `BlockingForget(view: U64, list: String) -> ()` | Detach list `list` and remove it from the store. |
+| `notify_forget(view, origin)` | `NotifyForget(view: U64, origin: String) -> ()` | Forget the profile's decision about `origin` (LazyWeb+, P4): the page's |
 | `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
 | `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
 | `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled (as on the light interface). |

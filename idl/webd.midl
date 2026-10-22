@@ -93,6 +93,14 @@ interface os.lazy.webd.view.v1 {
     method Forward(view: U64 = 1) -> () = 15;
     /// Save `url` as a download (Save Page As): a view with `downloads` only.
     method Download(view: U64 = 1, url: String = 2) -> () = 16;
+    /// The page's process does not answer (the app got `Responsive(false)`) and
+    /// the person chose a way out (LazyWeb+, P4): the view's web process is
+    /// ended. With `reload` the page loads again in a fresh process. Without it
+    /// the page stays stopped: the engine reports the page as ended by request,
+    /// which is `ViewLost` with reason `Other`, and the app makes a new view.
+    /// The engine refuses (and does nothing) while other views share the
+    /// process; the service does not know.
+    method Recover(view: U64 = 1, reload: Bool = 2) -> () = 17;
     /// Input, as on the light interface.
     method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
     method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
@@ -118,6 +126,11 @@ interface os.lazy.webd.view.v1 {
     method BlockingLoad(view: U64 = 1, list: String = 2) -> () = 36;
     /// Detach list `list` and remove it from the store.
     method BlockingForget(view: U64 = 1, list: String = 2) -> () = 37;
+    /// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+    /// `Notification.permission` is `default` again and its next request is
+    /// asked again (`NotifyPermissionRequest`). A view made with
+    /// `notifications` only; `origin` is checked as in `NotifyPermission`.
+    method NotifyForget(view: U64 = 1, origin: String = 2) -> () = 38;
 
     /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
     /// Otherwise the app moves its picture by `shift` (when present) and then

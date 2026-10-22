@@ -2302,6 +2302,11 @@
         "oneway": false
       },
       {
+        "name": "Recover",
+        "id": 17,
+        "oneway": false
+      },
+      {
         "name": "Mouse",
         "id": 20,
         "oneway": true
@@ -2366,6 +2371,11 @@
       {
         "name": "BlockingForget",
         "id": 37,
+        "oneway": false
+      },
+      {
+        "name": "NotifyForget",
+        "id": 38,
         "oneway": false
       },
       {

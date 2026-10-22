@@ -152,6 +152,19 @@ fn download(view, url) {
     msg::connect("os.lazy.webd.view.v1").invoke("Download", [view, url])
 }
 
+/// `Recover(view: U64, reload: Bool) -> ()`
+///
+/// The page's process does not answer (the app got `Responsive(false)`) and
+/// the person chose a way out (LazyWeb+, P4): the view's web process is
+/// ended. With `reload` the page loads again in a fresh process. Without it
+/// the page stays stopped: the engine reports the page as ended by request,
+/// which is `ViewLost` with reason `Other`, and the app makes a new view.
+/// The engine refuses (and does nothing) while other views share the
+/// process; the service does not know.
+fn recover(view, reload) {
+    msg::connect("os.lazy.webd.view.v1").invoke("Recover", [view, reload])
+}
+
 /// `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway`
 ///
 /// Input, as on the light interface.
@@ -231,6 +244,16 @@ fn blocking_load(view, list) {
 /// Detach list `list` and remove it from the store.
 fn blocking_forget(view, list) {
     msg::connect("os.lazy.webd.view.v1").invoke("BlockingForget", [view, list])
+}
+
+/// `NotifyForget(view: U64, origin: String) -> ()`
+///
+/// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+/// `Notification.permission` is `default` again and its next request is
+/// asked again (`NotifyPermissionRequest`). A view made with
+/// `notifications` only; `origin` is checked as in `NotifyPermission`.
+fn notify_forget(view, origin) {
+    msg::connect("os.lazy.webd.view.v1").invoke("NotifyForget", [view, origin])
 }
 
 /// `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway`

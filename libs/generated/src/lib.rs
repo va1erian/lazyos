@@ -21082,6 +21082,8 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_FORWARD: u32 = 15;
     /// `Download` method id.
     pub const METHOD_DOWNLOAD: u32 = 16;
+    /// `Recover` method id.
+    pub const METHOD_RECOVER: u32 = 17;
     /// `Mouse` method id.
     pub const METHOD_MOUSE: u32 = 20;
     /// `Wheel` method id.
@@ -21106,6 +21108,8 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_BLOCKINGLOAD: u32 = 36;
     /// `BlockingForget` method id.
     pub const METHOD_BLOCKINGFORGET: u32 = 37;
+    /// `NotifyForget` method id.
+    pub const METHOD_NOTIFYFORGET: u32 = 38;
     /// `Frame` method id.
     pub const METHOD_FRAME: u32 = 100;
     /// `State` method id.
@@ -21646,6 +21650,43 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
+    /// The page's process does not answer (the app got `Responsive(false)`) and
+    /// the person chose a way out (LazyWeb+, P4): the view's web process is
+    /// ended. With `reload` the page loads again in a fresh process. Without it
+    /// the page stays stopped: the engine reports the page as ended by request,
+    /// which is `ViewLost` with reason `Other`, and the app makes a new view.
+    /// The engine refuses (and does nothing) while other views share the
+    /// process; the service does not know.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecoverArgs {
+        pub view: u64,
+        pub reload: bool,
+    }
+
+    pub fn encode_recover_args(value: &RecoverArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.bool(2, value.reload)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recover_args(body: &[u8]) -> Result<RecoverArgs, Error> {
+        let mut out = RecoverArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.reload = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Input, as on the light interface.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct MouseArgs {
@@ -22119,6 +22160,40 @@ pub mod os_lazy_webd_view_v1 {
                 }
                 2 => {
                     out.list = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+    /// `Notification.permission` is `default` again and its next request is
+    /// asked again (`NotifyPermissionRequest`). A view made with
+    /// `notifications` only; `origin` is checked as in `NotifyPermission`.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyForgetArgs {
+        pub view: u64,
+        pub origin: alloc::string::String,
+    }
+
+    pub fn encode_notify_forget_args(value: &NotifyForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.origin)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_forget_args(body: &[u8]) -> Result<NotifyForgetArgs, Error> {
+        let mut out = NotifyForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.origin = field.as_str()?.into();
                 }
                 _ => {}
             }
