@@ -25,20 +25,20 @@ mod prepare;
 mod trampoline;
 mod tscsync;
 
+pub(crate) use ipi::{resched_gate, shootdown_gate, stop_gate};
 #[cfg(lazyos_tests)]
 pub use ipi::{run_on, stop_cpu_for_test};
 pub use ipi::{shootdown_others, stop_others};
-pub(crate) use ipi::{resched_gate, shootdown_gate, stop_gate};
 
 use alloc::vec::Vec;
 use core::arch::x86_64::_rdtsc;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-use prepare::prepare;
 use super::lapic;
 use super::msr;
 use super::percpu;
 use crate::mem;
+use prepare::prepare;
 
 /// The `lazyos.cfg` prefix routed here by `fs::bootcfg`.
 pub const PREFIX: &str = "smp.";

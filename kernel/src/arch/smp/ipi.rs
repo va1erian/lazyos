@@ -10,9 +10,9 @@ use x86_64::VirtAddr;
 
 use super::{rdtsc, spin_loop, SHOOTDOWN_VECTOR};
 
-use crate::mem::tlb::FLUSH_ALL_ABOVE;
 use crate::arch::gsgate::irq_gate;
 use crate::arch::{lapic, percpu};
+use crate::mem::tlb::FLUSH_ALL_ABOVE;
 
 irq_gate!(resched_gate => resched_handler);
 irq_gate!(shootdown_gate => shootdown_handler);

@@ -87,7 +87,10 @@ pub struct Batch {
 
 impl Batch {
     pub const fn new() -> Self {
-        Self { lo: u64::MAX, hi: 0 }
+        Self {
+            lo: u64::MAX,
+            hi: 0,
+        }
     }
 
     /// `va`'s translation changed: drop it from this CPU's TLB now, and

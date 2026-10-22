@@ -38,8 +38,8 @@ use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 
 use super::{
-    alloc_frame, free_frame, leaf_entry, make_walk_writable, map_page_in, prot_flags,
-    pte, vma, Resolve, FRAME_SIZE,
+    alloc_frame, free_frame, leaf_entry, make_walk_writable, map_page_in, prot_flags, pte, vma,
+    Resolve, FRAME_SIZE,
 };
 use crate::fs::openfile::MapError;
 

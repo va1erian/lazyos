@@ -198,7 +198,10 @@ pub fn stop_vector_halts_an_ap_and_it_restarts() -> Result<(), String> {
         .rev()
         .find(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
         .ok_or("no online AP")?;
-    check!(smp::stop_cpu_for_test(victim), "the AP did not halt on STOP");
+    check!(
+        smp::stop_cpu_for_test(victim),
+        "the AP did not halt on STOP"
+    );
     check!(
         smp::online_cpus() == online - 1,
         "online count after the stop: {}",
@@ -240,7 +243,10 @@ pub fn skewed_tsc_ap_is_refused() -> Result<(), String> {
         .rev()
         .find(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
         .ok_or("no online AP")?;
-    check!(smp::stop_cpu_for_test(victim), "the AP did not halt on STOP");
+    check!(
+        smp::stop_cpu_for_test(victim),
+        "the AP did not halt on STOP"
+    );
     // One millisecond of the calibrated clock (a tick is 10 ms), on every
     // area the bring-up might pick; running APs only read it when they start.
     let skew = crate::arch::clock::cycles_per_tick() / 10;

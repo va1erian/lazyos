@@ -95,4 +95,3 @@ pub fn remap_page(table: PhysAddr, old_va: u64, new_va: u64) -> Result<bool, ()>
     }
     Ok(true)
 }
-

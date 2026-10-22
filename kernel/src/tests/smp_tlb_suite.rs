@@ -23,9 +23,7 @@ const VA: u64 = 0x0000_0010_0000_0000;
 
 fn online_aps() -> Vec<usize> {
     (1..percpu::MAX_CPUS)
-        .filter(|&i| {
-            percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire))
-        })
+        .filter(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
         .collect()
 }
 
@@ -81,8 +79,9 @@ fn read_all(aps: &[usize], va: u64) -> Result<Vec<u64>, String> {
 /// Put every AP back on the boot table. An AP that does not answer is still
 /// on the scratch table, which must then not be freed: the caller leaks it.
 fn leave_all(aps: &[usize]) -> bool {
-    aps.iter()
-        .fold(true, |ok, &ap| smp::run_on(ap, job_leave, 0).is_some() && ok)
+    aps.iter().fold(true, |ok, &ap| {
+        smp::run_on(ap, job_leave, 0).is_some() && ok
+    })
 }
 
 /// [`leave_all`] and then free `table`, or keep it (and say so) when an AP
@@ -107,7 +106,9 @@ fn acks(aps: &[usize]) -> Vec<u64> {
 fn advanced_by(aps: &[usize], before: &[u64], by: u64, what: &str) -> Result<(), String> {
     let now = acks(aps);
     check!(
-        now.iter().zip(before).all(|(n, b)| n.wrapping_sub(*b) == by),
+        now.iter()
+            .zip(before)
+            .all(|(n, b)| n.wrapping_sub(*b) == by),
         "{what}: expected {by} shootdown(s) per AP, got {:?} -> {now:?}",
         before
     );
@@ -216,7 +217,11 @@ fn stale_entries_exist_without_a_shootdown() -> Result<(), String> {
             }
             cure();
             let seen = read_all(&aps, VA)?;
-            let want = if round > 0 { mark } else { 0x0202_0202_0202_0202 };
+            let want = if round > 0 {
+                mark
+            } else {
+                0x0202_0202_0202_0202
+            };
             check!(
                 seen.iter().all(|&v| v == want),
                 "shooting down {name} left a stale translation: {seen:x?}"
