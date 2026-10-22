@@ -204,9 +204,12 @@ impl Docs {
 
     /// Shows the document at `path` in a fresh view, or the reason it cannot be
     /// read. What was on show goes into the history.
-    pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) {
-        self.history.visit(self.place());
-        self.show_document(ui, path, None);
+    pub fn open(&mut self, ui: &mut Ui<Msg>, path: PathBuf) -> bool {
+        // Opening what is on show again (Home on the index) is no new place.
+        if self.current.as_deref() != Some(path.as_path()) {
+            self.history.visit(self.place());
+        }
+        self.show_document(ui, path, None)
     }
 
     /// Where the window is now, for the history.
@@ -218,20 +221,21 @@ impl Docs {
 
     /// Replaces the view with the document at `path` (the welcome page for
     /// `None`).
-    fn show_place(&mut self, ui: &mut Ui<Msg>, path: Option<PathBuf>) {
+    fn show_place(&mut self, ui: &mut Ui<Msg>, path: Option<PathBuf>) -> bool {
         let Some(path) = path else {
             let html = self.welcome.clone();
             self.replace_view(ui, html, base_url(None, None));
             self.render_marker = Some(String::new());
             self.show(ui, None);
-            return;
+            return true;
         };
-        self.show_document(ui, path, None);
+        self.show_document(ui, path, None)
     }
 
     /// Replaces the view with the document at `path`, scrolled to `fragment`
     /// when one is named.
-    fn show_document(&mut self, ui: &mut Ui<Msg>, path: PathBuf, fragment: Option<&str>) {
+    /// Returns whether the document was read (an error page is shown if not).
+    fn show_document(&mut self, ui: &mut Ui<Msg>, path: PathBuf, fragment: Option<&str>) -> bool {
         let (html, marker) = match load_file(&path) {
             Ok(html) => (html, "PASS"),
             Err(error) => (error_page(&format!("{}: {error}", path.display())), "FAIL"),
@@ -240,6 +244,7 @@ impl Docs {
         self.render_marker = Some(format!(":{}", path.display()));
         self.show(ui, Some(path.clone()));
         println!("DOCS:OPEN:{marker}:{}", path.display());
+        marker == "PASS"
     }
 
     /// Swaps in a view of `html`; assigning drops the old view, which destroys
@@ -272,9 +277,10 @@ impl Docs {
                     return;
                 }
                 self.history.visit(self.place());
-                self.show_document(ui, path.clone(), fragment.as_deref());
-                let shown = path.display().to_string();
-                trace::pass!(Channel::Docs, "NAV", "link:{shown}");
+                if self.show_document(ui, path.clone(), fragment.as_deref()) {
+                    let shown = path.display().to_string();
+                    trace::pass!(Channel::Docs, "NAV", "link:{shown}");
+                }
             }
             Some(Link::Other(_) | Link::External(_)) | None => {}
         }
@@ -289,10 +295,11 @@ impl Docs {
             self.history.back(here)
         };
         if let Some(place) = target {
-            self.show_place(ui, place.path.clone());
-            let name = if forward { "forward" } else { "back" };
-            let path = place.path.map(|p| p.display().to_string()).unwrap_or_default();
-            trace::pass!(Channel::Docs, "NAV", "{name}:{path}");
+            if self.show_place(ui, place.path.clone()) {
+                let name = if forward { "forward" } else { "back" };
+                let path = place.path.map(|p| p.display().to_string()).unwrap_or_default();
+                trace::pass!(Channel::Docs, "NAV", "{name}:{path}");
+            }
         }
     }
 
@@ -328,8 +335,9 @@ impl App for Docs {
             Msg::Forward => self.step(ui, true),
             Msg::Home => {
                 let index = fhs::docs::INDEX;
-                self.open(ui, PathBuf::from(index));
-                trace::pass!(Channel::Docs, "NAV", "home:{index}");
+                if self.open(ui, PathBuf::from(index)) {
+                    trace::pass!(Channel::Docs, "NAV", "home:{index}");
+                }
             }
             Msg::Copy(text) => {
                 // `BlitzView` only reports the request; the app owns the clipboard.

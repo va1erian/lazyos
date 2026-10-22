@@ -6,7 +6,7 @@
 
 pub mod nav;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -97,6 +97,7 @@ pub fn page(markdown: &str) -> String {
 /// (lower case, punctuation dropped, spaces to hyphens, a repeat numbered), so
 /// a link to `#a-heading` scrolls to it.
 fn with_heading_ids(mut events: Vec<Event<'_>>) -> Vec<Event<'_>> {
+    let mut taken: HashSet<String> = HashSet::new();
     let mut seen: HashMap<String, usize> = HashMap::new();
     let mut open: Option<(usize, String)> = None;
     let mut ids: Vec<(usize, String)> = Vec::new();
@@ -111,9 +112,18 @@ fn with_heading_ids(mut events: Vec<Event<'_>>) -> Vec<Event<'_>> {
             Event::End(TagEnd::Heading(_)) => {
                 if let Some((start, title)) = open.take() {
                     let base = slug(&title);
+                    // A heading with nothing to spell gets no id.
+                    if base.is_empty() {
+                        continue;
+                    }
+                    // A repeat is numbered, skipping a number a heading of that
+                    // very text already took ("Foo 1" beside two "Foo").
                     let count = seen.entry(base.clone()).or_insert(0);
-                    let id = if *count == 0 { base } else { format!("{base}-{count}") };
-                    *count += 1;
+                    let mut id = base.clone();
+                    while !taken.insert(id.clone()) {
+                        *count += 1;
+                        id = format!("{base}-{count}");
+                    }
                     ids.push((start, id));
                 }
             }
@@ -135,9 +145,9 @@ fn slug(title: &str) -> String {
         .trim()
         .chars()
         .filter_map(|c| match c {
-            ' ' => Some('-'),
-            '-' | '_' => Some(c),
-            c if c.is_alphanumeric() => Some(c.to_ascii_lowercase()),
+            ' ' => Some("-".to_string()),
+            '-' | '_' => Some(c.to_string()),
+            c if c.is_alphanumeric() => Some(c.to_lowercase().collect::<String>()),
             _ => None,
         })
         .collect()
@@ -231,6 +241,17 @@ mod tests {
         assert!(html.contains("<h1 id=\"the-rhai-command\">"));
         assert!(html.contains("<h2 id=\"errors--limits\">"));
         assert!(html.contains("<h2 id=\"errors--limits-1\">"));
+    }
+
+    #[test]
+    fn heading_ids_are_unique_and_never_empty() {
+        let html = page("## Foo\n\n## Foo\n\n## Foo 1\n\n## ???\n\n## \u{c9}t\u{e9}\n");
+        assert!(html.contains("<h2 id=\"foo\">"));
+        assert!(html.contains("<h2 id=\"foo-1\">"));
+        // "Foo 1" slugs to `foo-1`, which the repeat already took.
+        assert!(html.contains("<h2 id=\"foo-1-1\">"));
+        assert!(html.contains("<h2>???</h2>"), "no id for a heading with nothing to spell");
+        assert!(html.contains("<h2 id=\"\u{e9}t\u{e9}\">"));
     }
 
     #[test]

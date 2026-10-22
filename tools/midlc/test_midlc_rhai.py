@@ -183,6 +183,20 @@ class IndexAndCliTests(unittest.TestCase):
         self.assertIn("Not callable from a script (the request carries a kernel object): `Attach`.", page)
         self.assertIn("[sys::demo](demo.md)".replace("sys::demo", "`sys::demo`"), pages["index.md"])
 
+    def test_the_index_summary_is_one_whole_short_sentence_in_a_stable_order(self) -> None:
+        cell = midlc_rhai_pages.first_sentence
+        self.assertEqual(cell("Say hello. More follows.\n\nSecond paragraph."), "Say hello.")
+        self.assertEqual(cell("The account database service (issues #101,\n#624; docs/x.md) and more."),
+                         "The account database service (issues #101, #624; docs/x.md) and more.")
+        self.assertEqual(cell("a | b"), "a / b")
+        self.assertEqual(cell(""), "")
+        long = cell("word " * 100)
+        self.assertTrue(long.endswith(" ...") and len(long) <= 145, long)
+        zeta = parse("interface os.lazy.zeta.v1 { method A() -> (); }")[0]
+        alpha = parse("interface os.lazy.alpha.v1 { method A() -> (); }")[0]
+        index = midlc_rhai_pages.emit_rhai_pages([zeta, alpha])["index.md"]
+        self.assertLess(index.index("sys::alpha"), index.index("sys::zeta"))
+
     def test_the_committed_pages_are_current(self) -> None:
         inputs = [str(p) for p in sorted((ROOT / "idl").glob("*.midl"))]
         result = self.run_midlc("--check", "--rhai-docs", str(ROOT / "docs/rhai/api"), *inputs)

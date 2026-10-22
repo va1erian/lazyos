@@ -16,12 +16,13 @@ fn main() -> ExitCode {
     let mut paths = Vec::new();
     for arg in std::env::args().skip(1) {
         match arg.strip_prefix('@') {
-            Some(list) => paths.extend(
-                std::fs::read_to_string(list)
-                    .unwrap_or_default()
-                    .lines()
-                    .map(String::from),
-            ),
+            Some(list) => match std::fs::read_to_string(list) {
+                Ok(text) => paths.extend(text.lines().map(String::from)),
+                Err(error) => {
+                    eprintln!("{list}: {error}");
+                    return ExitCode::from(2);
+                }
+            },
             None => paths.push(arg),
         }
     }

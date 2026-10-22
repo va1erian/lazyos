@@ -52,6 +52,11 @@ pub fn classify(href: &str) -> Option<Link> {
         return Some(Link::External(href.to_string()));
     }
     let path = percent_decode_str(url.path()).decode_utf8_lossy().into_owned();
+    // A path with a newline or other control character would forge a line in the
+    // evidence the app prints (`DOCS:OPEN:...`); nothing legitimate has one.
+    if path.chars().any(char::is_control) {
+        return Some(Link::Other(String::new()));
+    }
     let markdown = Path::new(&path)
         .extension()
         .and_then(|e| e.to_str())
@@ -163,6 +168,21 @@ mod tests {
         );
         assert_eq!(classify("mailto:a@b.c"), Some(Link::External("mailto:a@b.c".into())));
         assert_eq!(classify("not a url"), None);
+        // A decoded control character never reaches a path (or the evidence log).
+        assert_eq!(
+            classify("file:///docs/os/a%0ADOCS:OPEN:PASS:x.md"),
+            Some(Link::Other(String::new()))
+        );
+        assert_eq!(classify("file:///docs/os/a%00.md"), Some(Link::Other(String::new())));
+        // `..` is resolved by the URL parser and an empty fragment is none.
+        assert_eq!(
+            classify("file:///docs/os/lazyrad/../a.md#"),
+            Some(Link::Document {
+                path: PathBuf::from("/docs/os/a.md"),
+                fragment: None
+            })
+        );
+        assert_eq!(classify("file:///docs/os/"), Some(Link::Other("/docs/os/".into())));
         assert_eq!(
             classify("file:///docs/os/a%20b.MD"),
             Some(Link::Document {

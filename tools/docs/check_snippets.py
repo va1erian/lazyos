@@ -22,9 +22,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FENCE = re.compile(r"^```(?P<info>[^\n]*)\n(?P<body>.*?)^```[ \t]*$", re.S | re.M)
+FENCE = re.compile(r"^[ \t]*```(?P<info>[^\n]*)\n(?P<body>.*?)^[ \t]*```[ \t]*$", re.S | re.M)
 # `[text](target)`; image links and absolute URLs are not followed by Docs.
-LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
+LINK = re.compile(r"(?<!!)\[[^\]]*\]\(((?:[^()\s]|\([^()\s]*\))+)\)")
 
 
 def show(path: Path) -> str:
@@ -69,25 +69,40 @@ def embedded_root_doc(doc: Path, file: str) -> bool:
 
 
 def slug(title: str) -> str:
-    """A heading's anchor as the Docs app spells it (`xui-app/docs/src/lib.rs`)."""
-    title = re.sub(r"[`*_]", lambda m: "_" if m.group() == "_" else "", title.strip())
-    return "".join(
-        "-" if c == " " else c.lower() if c.isascii() and c.isalnum() else c if c in "-_" else ""
-        for c in title
-    )
+    """A heading's anchor as the Docs app spells it (`slug` in `xui-app/docs/src/lib.rs`):
+    alphanumerics lower-cased, `-` and `_` kept, spaces as hyphens, the rest dropped."""
+    out = []
+    for c in title.strip():
+        if c == " ":
+            out.append("-")
+        elif c in "-_":
+            out.append(c)
+        elif c.isalnum():
+            out.append(c.lower())
+    return "".join(out)
 
 
 def anchors(path: Path) -> set[str]:
-    """The ids the Docs app gives the headings of `path` (repeats are numbered)."""
+    """The ids the Docs app gives the headings of `path` (`with_heading_ids`): a
+    repeat is numbered, skipping a number another heading already took, and a
+    heading with nothing to spell has none."""
     seen: dict[str, int] = {}
-    result = set()
+    taken: set[str] = set()
     text = FENCE.sub("", path.read_text(encoding="utf-8"))
-    for match in re.finditer(r"^#{1,6}[ 	]+(.+?)[ 	#]*$", text, re.M):
-        base = slug(re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match[1]))
-        count = seen.get(base, 0)
-        result.add(base if count == 0 else f"{base}-{count}")
-        seen[base] = count + 1
-    return result
+    for match in re.finditer(r"^#{1,6}[ \t]+(.+?)[ \t#]*$", text, re.M):
+        title = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", match[1])
+        title = re.sub(r"[`*]", "", title)
+        base = slug(title)
+        if not base:
+            continue
+        count = seen.setdefault(base, 0)
+        candidate = base
+        while candidate in taken:
+            count += 1
+            candidate = f"{base}-{count}"
+        seen[base] = count
+        taken.add(candidate)
+    return taken
 
 
 def check_links(paths: list[Path]) -> list[str]:
@@ -102,7 +117,7 @@ def check_links(paths: list[Path]) -> list[str]:
             if not linked.exists():
                 if not embedded_root_doc(doc, file):
                     problems.append(f"{show(doc)}: broken link {target}")
-            elif fragment and linked.suffix == ".md" and fragment not in anchors(linked):
+            elif fragment and fragment not in anchors(linked):
                 problems.append(f"{show(doc)}: no heading #{fragment} in {show(linked)}")
     return problems
 

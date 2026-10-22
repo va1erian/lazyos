@@ -3,7 +3,9 @@
 The controls that show something or organize the form rather than take input:
 `Label`, `ProgressBar`, `Separator`, the two containers `GroupBox` and `Panel`, and
 the non-visual `Timer`. A script mostly writes to the first two, and a timer is
-how a form does something on its own schedule.
+how a form does something on its own schedule. The toolbox has tiles for
+`Label`, `GroupBox` and `Timer` only; `ProgressBar`, `Separator` and `Panel` are
+added by writing a `[[node]]` in the `.lfm` ([the overview](controls.md)).
 
 ## Label
 
@@ -84,7 +86,9 @@ holds follows by its own anchors ([Forms](forms.md)).
 
 A plain container with no properties of its own besides the common ones. Default
 size 200 x 120. Use it to move or resize a set of controls together or to give them
-one parent for anchoring.
+one parent for anchoring. The toolbox has no `Panel` tile: add one by writing a
+`[[node]]` in the `.lfm`, as below (and give its children `parent = "<panel name>"`
+by hand). The designer then shows the panel and lets you select and edit it.
 
 ```toml
 [[node]]

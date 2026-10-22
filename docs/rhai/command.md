@@ -76,7 +76,9 @@ that does not parse is a usage error (exit status 2) and nothing runs.
 | `2` | a usage error (unknown option, bad number, missing value) |
 
 Errors go to standard error as `rhai: <message> (line N, position M)`; for a
-script file the message starts with the file name, `rhai: backup.rhai: ...`.
+script file the message starts with the file name, `rhai: backup.rhai: ...`. An
+error raised by `throw` reads `rhai: Runtime error: boom (line 1, position 1)`,
+and one raised inside a function adds an `in call to function 'f'` line.
 `exit` is the one way to leave early on purpose. It cannot be caught by `try`.
 
 ```bash
@@ -86,7 +88,7 @@ rhai -e 'let x = ;'; echo $?
 rhai: Unexpected ';' (line 1, position 9)
 1
 rhai --max-ops 1000 -e 'loop {}'; echo $?
-rhai: Too many operations (line 1, position 12)
+rhai: Too many operations (line 1, position 6)
 1
 ```
 
@@ -284,10 +286,12 @@ keys, `/conf` or `/system`, or restart a service directly.
 ## Elevated actions
 
 A change that needs an administrator goes through `elevd`. A script asks for one
-**operation** from a fixed table, by name and with string arguments, and `xuid`
+**operation** from a fixed table (`sys::elevd` knows 18 names, listed below), by
+name and with string arguments, and `xuid`
 shows a trusted prompt that names what is about to happen; an administrator types
 their name and password into it. The script cannot see or supply the password. The
-call returns once the prompt is answered, and every request asks every time.
+call returns once the prompt is answered, and every request asks every time
+(the one exception is `conf.elevate`, see its row).
 
 ```bash
 rhai -e 'msg::set_timeout(0); sys::elevd::request("service.restart", ["inputd"])'
@@ -300,10 +304,12 @@ shorter than a person typing a password. `0` waits for the answer.
 |---|---|---|
 | `pkg.install` | path of an `.lzp` | installs a package (never over a core app) |
 | `pkg.update-core` | path | replaces a core app |
+| `pkg.install-devtool` | path | installs a developer-tool package (over a core app only if that is a developer tool too) |
 | `pkg.remove` | system name | removes an app |
 | `conf.set` | path, kind, value | sets any `confd` key (`sys/**` and other users' keys); kind is `bool`, `i64`, `u64`, `str` or `bytes` (hex) |
 | `conf.delete` | path | deletes a key |
 | `conf.get`, `conf.list` | path, prefix | reads any key |
+| `conf.elevate` | none | approval only, for the Config app's elevated view: once approved, the same caller reads every key without a prompt per row for a limited time (never for an unlabelled caller or a developer tool's label) |
 | `time.set` | UTC seconds | sets the wall clock |
 | `account.create` | name, password, `admin` or `user` | creates an account |
 | `account.delete` | name, `keep`, `archive` or `remove` | deletes an account and decides about its home |

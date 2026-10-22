@@ -192,9 +192,10 @@ fn form_load() {
   declares `subscribe:system/confd/changed/sys/ui/#`); one built at run time
   leaves the bare pattern, which the kernel's per-segment check refuses past
   its wildcard. Serving a name is a development feature: an installed app's
-  manifest cannot grant it, so wrap `msg::serve` in `try`/`catch` (as the
-  sample does). An error escaping `form_load` ends the app, and `init`
-  restarts it.
+  manifest cannot grant it (the kernel allows only `app.<system_name>.` names
+  and interfaces in the app's own domain), so wrap `msg::serve` in `try`/`catch`
+  (as the sample does). An error escaping `form_load` ends the app; `init` does
+  not restart it, and the desktop shows a "stopped unexpectedly" notice.
 
 The player prints `LRPLAY:MSG:PASS` on serial once `msg` and `sys` are
 installed, and `LRPLAY:MSGEVENT:PASS` after the first Messenger handler ran in

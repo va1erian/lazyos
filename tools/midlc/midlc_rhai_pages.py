@@ -68,10 +68,16 @@ channel, buffer or ring cannot be called from a script and is listed as such.
 """
 
 
-def first_sentence(text: str) -> str:
-    """The first line of `text`, trimmed of a trailing colon or semicolon."""
-    line = text.strip().splitlines()[0] if text.strip() else ""
-    return line.replace("|", "/")
+def first_sentence(text: str, limit: int = 140) -> str:
+    """The first sentence of `text`'s first paragraph on one line, for a table
+    cell: cut at the first full stop followed by a space (or at the paragraph's
+    end), at a word boundary within `limit` characters, `|` made harmless."""
+    paragraph = " ".join(text.strip().split("\n\n")[0].split())
+    cut = paragraph.find(". ")
+    sentence = paragraph if cut < 0 else paragraph[: cut + 1]
+    if len(sentence) > limit:
+        sentence = sentence[:limit].rsplit(" ", 1)[0].rstrip(",;:") + " ..."
+    return sentence.replace("|", "/")
 
 
 def rhai_type(ty: Type) -> str:
@@ -210,7 +216,7 @@ def module_page(interface: Interface) -> str:
 
 def index_page(interfaces: list[Interface]) -> str:
     lines = [INDEX_INTRO.rstrip("\n")]
-    for interface in interfaces:
+    for interface in sorted(interfaces, key=alias):
         name = alias(interface)
         about = first_sentence(interface.docs)
         lines.append(

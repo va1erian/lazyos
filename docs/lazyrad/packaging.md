@@ -14,7 +14,7 @@ app's files live and what happens when an app fails.
 | An app on LazyOS, in the Start menu, with its own permissions | **File > Make LazyOS App** | The IDE on LazyOS |
 | The same, from a script or a build | `tools/lazyrad/package.py`, the `lzpack` example, or LazyRAD's `lazyrad-pack` | A host with the LazyOS repository (`lazyrad-pack`: the LazyRAD repository) |
 | One executable file for a desktop OS | **File > Make `<Project>`.exe** | The IDE on a desktop host |
-| Just run it, no install | `lrplay --client <project folder>` | LazyOS Terminal |
+| Just run it, no install | `$P --client <project folder>`, where `P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)` (see "The `lrplay` command line") | LazyOS Terminal |
 | Hand over the source | Copy the project folder ([Projects](projects.md)) | Anywhere |
 
 ## Make LazyOS App
@@ -132,7 +132,7 @@ consent screens show the result with the system's own explanations.
 | Calls `sys::<alias>::...` | The alias's interface: `sys::confd::get(...)` declares `os.lazy.confd.v1` |
 | Calls a topic helper such as `sys::confd::on_changed("sys/ui/#", ...)` | A topic rule, narrowed by the literal arguments: `subscribe:system/confd/changed/sys/ui/#` |
 | Passes a **string literal** to `msg::connect`, `msg::on`, `msg::subscribe` or `msg::publish` | That interface or topic |
-| Calls `modplay::...` (the sound module) | `os.lazy.audio.v1` |
+| Calls `modplay::play` (the sound module; the scan matches that text only, not other `modplay::` calls) | `os.lazy.audio.v1` |
 | Anything about the network | Nothing: `network` is always empty |
 
 The scan reads the token text of every `.rhai` file in the package. It cannot
@@ -141,9 +141,12 @@ refused when the app runs, with a `permission denied (EACCES)` error. A topic
 helper whose arguments are built at run time keeps its bare pattern, which the
 kernel's per-segment check refuses past the wildcard.
 
-An installed app owns only the names that start with `app.<system_name>.`, so
-serving any other name with `msg::serve` (the `messenger` sample serves
-`demo.lazyrad`) is refused: wrap it in `try`/`catch`, as the sample does. The
+An installed app owns only the names that start with `app.<system_name>.` (one
+segment after that) and may advertise only interfaces in its own domain,
+`<system_name>.<name>.vN`. The manifest cannot widen this, and the system
+interfaces a script can serve (`os.lazy.echo.v1`) are outside the domain, so
+`msg::serve` (the `messenger` sample serves `demo.lazyrad`) is refused in an
+installed app: wrap it in `try`/`catch`, as the sample does. The
 [Messenger from Rhai](../rhai/msg.md) page describes `sys::*` and `msg::*`, and
 [LazyOS modules](lazyos.md) lists what a form script can reach.
 
@@ -242,12 +245,18 @@ Messenger services your scripts call:
 
 ```bash
 lazyrad-pack <project dir | .lrp> --player lrplay.elf [--out dist] \
-    [--author NAME] [--system-name ID] [--description TEXT] [--no-check]
+    [--author NAME] [--system-name ID] [--description TEXT] [--no-check] \
+    [--install-dev [<dir>]]
 ```
 
 It writes `<out>/<system_name>-<version>.lzp`, compiles the project first
-unless `--no-check`, and exits 0 on success, 1 when the build failed, 2 on a
-usage error.
+unless `--no-check`, and exits 0 on success, 1 when the build or the install
+failed, 2 on a usage error. When `--player` is omitted it uses the file named by
+the `LAZYRAD_PLAYER` environment variable, and stops with an error when neither
+is given. The private-folder rule is declared only when a script calls a
+`file_*` or `dir_*` function. `--install-dev` hands the package to the
+installer (`pkgd` when it is available); otherwise the package is saved to
+`<dir>` (default `/data/packages`) and reported as "saved, not installed".
 
 ## Standalone executables
 
@@ -311,7 +320,7 @@ When you press F5 in the packaged IDE, the project does not run with the IDE's
 own permissions. It runs as a child labelled `dev:<system_name>`, which gets the
 **same names, topics and rules the installed app would get**, so what works in
 Play works when installed, and what would be refused is refused now (including
-`msg::serve` of a name outside the app's own). This needs the IDE's manifest to
+`msg::serve`, which an installed app cannot do with a system interface). This needs the IDE's manifest to
 say `develop = true`, which it does.
 
 1. The IDE builds the package the way Make LazyOS App does and stages it in

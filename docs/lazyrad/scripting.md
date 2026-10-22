@@ -286,12 +286,14 @@ only `s`), but a path such as `form.state.count += 1` or
 Each form name in the project is a global that stands for that form's window:
 
 ```rhai
+// main_form.rhai
 fn settings_button_click() {
     settings_form.show();      // opens the window if it is not already open
 }
 
-fn close_settings_button_click() {
-    settings_form.unload();    // closes it
+// settings_form.rhai: a Close button inside the settings form itself
+fn close_button_click() {
+    settings_form.unload();    // closes this window
 }
 ```
 
@@ -302,8 +304,15 @@ fn close_settings_button_click() {
   or through Messenger topics ([LazyOS extras](lazyos.md)).
 * `msg_box` and file dialogs always open in the window of the form whose script
   asked for them.
-* A form's own name is also a global; inside `main_form`, `main_form.unload()`
-  closes that window.
+* A form's own name is also a global, so a secondary form closes itself with
+  `<its own name>.unload()` (as `settings_form` does above). `unload()` only
+  closes a window that `show()` opened. The startup form's window was not opened
+  that way, so `main_form.unload()` does nothing there: the startup form ends
+  when its script calls `app.quit()` or the user closes the window.
+* If a secondary form's `form_load` (or its top-level code) fails, `show()` does
+  not stop the program: the error is printed to stderr and the window opens
+  empty, with none of the form's controls. Only the startup form's failure ends
+  the program.
 
 ## Asynchronous calls and callbacks
 
@@ -364,8 +373,10 @@ main_form.rhai:12:5: Variable not found: total (in hello_button_click)
 ```
 
 When an error passes through several functions the chain is appended, outermost
-first, joined by arrows, and a run of the same function is collapsed
-(`mute x200`). Rhai's own messages repeat the position at their end.
+first, joined by arrows, and a run of the same function is collapsed to its name
+followed by a multiplication sign and the count: a function `mute` that called
+itself 200 times appears as `mute`, a space, the multiplication sign and `200`
+(mute, repeated 200 times). Rhai's own messages repeat the position at their end.
 
 | Where it happens | What happens |
 |---|---|

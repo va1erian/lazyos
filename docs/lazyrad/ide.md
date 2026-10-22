@@ -49,7 +49,7 @@ they are safe to copy.
 
 | Pane | What it does |
 |---|---|
-| Toolbox | The Pointer and one tile per control kind: Button, Edit, Label, CheckBox, RadioGroup, GroupBox, ListView, ComboBox, Canvas, PictureBox, Timer. |
+| Toolbox | The Pointer and one tile for each of eleven control kinds: Button, Edit, Label, CheckBox, RadioGroup, GroupBox, ListView, ComboBox, Canvas, PictureBox, Timer. The other kinds (ToggleButton, Hyperlink, MultilineEdit, NumberField, Slider, ProgressBar, Separator, Panel) have no tile: write a `[[node]]` in the `.lfm` by hand and the designer shows and edits it ([Controls](controls.md)). |
 | Document tabs | The Start Page, then one tab per open document. A form has two kinds: the **designer** (tab named `main_form`) and its **code** (`main_form.rhai`). A module has code only. A `*` after the title means unsaved changes. |
 | Project | The Project Explorer: the project row, a **Forms** group and a **Modules** group. |
 | Properties | The property grid for what is selected in the front designer. |
@@ -122,7 +122,7 @@ one-based line number. All four work in the code tab in front.
 |---|---|
 | Add Form | A new form named `form1`, `form2`, ... (the first unused) with a `form_load` stub. Opens its designer. |
 | Add Module | A new module named `module1`, ... Opens its code. |
-| Remove | Takes the selected item out of the project. Its files stay on disk. If it was the startup item, the first remaining item becomes the startup. |
+| Remove | Takes the selected item out of the project. Its files stay on disk. If it was the startup item, the first remaining item becomes the startup, which can be a module; the project then fails its check ("startup item `x` is not a form") until you set a form as startup. |
 | Properties | Listed, but only writes a line to the Output pane in this build. Edit the `.lrp` by hand for now (see [Projects](projects.md)). |
 
 **Run**
@@ -159,7 +159,7 @@ editor. Right-click an item for its menu:
 | View Object | Same as Shift+F7. |
 | Rename... | Renames the item and its files. Item names are identifiers: letters, digits and `_`, not starting with a digit. The old files are deleted by the next save, after the new ones are written. |
 | Remove | Same as Project > Remove. |
-| Set as Startup | Makes the item the one the project runs first. |
+| Set as Startup | Makes the item the one the project runs first. It must be a form: the IDE accepts a module here, but the project check then fails with "startup item `x` is not a form". |
 
 ## Designing a form
 

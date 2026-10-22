@@ -319,9 +319,11 @@ print(greet("a", "!"));             // hi a!
 
 The rules that differ from most languages:
 
-- **A function cannot see variables or constants of the script around it.**
+- **A function cannot see variables of the script around it.**
   It sees only its parameters, its own locals, other functions and imported
-  modules. Pass what it needs as arguments.
+  modules. Pass what it needs as arguments. A script constant is reached as
+  `global::NAME` (`const X = 42; fn f() { global::X }`); a `let` variable is
+  not reachable at all.
 - **Functions are defined at the top level** of a script (not inside blocks or
   other functions), and can be used before their definition.
 - **Arguments are passed by value.** A function that pushes onto its array
@@ -561,7 +563,7 @@ algorithm that needs more should be a loop.
 
 | Gotcha | What to do |
 |---|---|
-| a function cannot see script variables or constants | pass them as arguments |
+| a function cannot see script variables | pass them as arguments (a `const` is `global::NAME`) |
 | `trim`, `replace`, `sort`, `reverse`, `dedup`, `pad`, `crop` change in place | copy first with `to_string()` or `let b = a;`, and do not `print` their result |
 | no `join`, `sum`, `min`/`max` of an array, `zip`, `repeat`, array slicing | a small helper function or `reduce` |
 | `try` is a statement, there is no `finally` | set a variable inside the `try` and `catch` blocks |

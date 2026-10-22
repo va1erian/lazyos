@@ -1,7 +1,13 @@
 # Controls reference
 
-LazyRAD has nineteen kinds of control. You draw them on a form from the toolbox,
-set their properties in the property grid (or in the [`.lfm` file](forms.md)), and
+LazyRAD has nineteen kinds of control. Eleven have a tile in the designer's
+toolbox (`Button`, `Edit`, `Label`, `CheckBox`, `RadioGroup`, `GroupBox`,
+`ListView`, `ComboBox`, `Canvas`, `PictureBox` and `Timer`) and are drawn on a
+form from it. The other eight (`ToggleButton`, `Hyperlink`, `MultilineEdit`,
+`NumberField`, `Slider`, `ProgressBar`, `Separator` and `Panel`) have no tile:
+you add one by writing a `[[node]]` in the [`.lfm` file](forms.md) by hand, and
+the designer then shows it and edits its properties like any other. Either way
+you set properties in the property grid (or in the `.lfm`), and
 reach them from the form's script by name: `name_edit.text`, `list1.selected`,
 `game_canvas.fill_rect(...)`. This page is the overview: the list of every kind,
 the rules that apply to all of them, and how a script reads, writes and calls
@@ -13,7 +19,7 @@ and a `TextBox` is an `Edit`; see the table at the end.
 
 ## Every control at a glance
 
-The size is what a new control gets from the toolbox (width x height, in design
+The size is what a new control gets from the designer (width x height, in design
 units) and what a node without `width` or `height` in the `.lfm` is.
 
 | Kind | What it is | Size | Default event | Page |

@@ -89,7 +89,7 @@ Eight properties exist on every control, whatever its kind:
 | `enabled` | bool | true | Whether it accepts input. A `Timer` starts disabled instead. |
 | `tab_index` | int, at least 0 | 0 | The control's place in the tab order among its siblings (below). |
 
-`width` and `height` default to the size the toolbox gives that kind (a `Button`
+`width` and `height` default to the size the designer gives that kind (a `Button`
 is 100 x 28, a `Panel` 200 x 120); the table is in
 [the controls overview](controls.md). A control that
 leaves them out is that size, and a file that spells out the default drops it on
@@ -213,8 +213,9 @@ case-sensitive and unique across all the controls of the form; the form's own na
 follows the same rule. The convention is snake_case.
 
 - The designer names a new control after its kind plus a number: `button1`,
-  `edit1`, `check_box1`, `multiline_edit1`, `number_field1`, `progress_bar1`,
-  `combo_box1`, `list_view1`, `group_box1`, `picture_box1`... A new `Button`,
+  `edit1`, `check_box1`, `combo_box1`, `list_view1`, `group_box1`,
+  `picture_box1`... A control you write into the file by hand gets whatever
+  name you give it. A new `Button`,
   `Label`, `CheckBox` or `GroupBox` also starts with its name as its text.
 - A name is a variable in the script. The script's own top-level variables win
   over a control of the same name, so do not reuse one. A control named `form`

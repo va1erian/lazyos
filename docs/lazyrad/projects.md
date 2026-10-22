@@ -54,7 +54,7 @@ code = "util.rhai"
 |---|---|---|
 | `name` | yes | The project name. The file must be called `<name>.lrp`. |
 | `version` | yes | A free-form string, `"0.1.0"` for a new project. When you package the project it must be a number, `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, each part below 65536; see [Packaging](packaging.md). |
-| `startup` | yes | The `name` of the item that runs first. A new project uses its first form, `main_form`. |
+| `startup` | yes | The `name` of the form that runs first. It must be a form, not a module. A new project uses its first form, `main_form`. |
 | `items` | yes | The forms and modules, one `[[items]]` table each (below). |
 | `icon` | no | A `.ico` file, as a plain file name in the project folder. Used as the icon of an exported Windows executable. A LazyOS package does not use it: its icons are generated from the project name. |
 | `assets` | no | A list of glob patterns for extra files to ship (see "Assets and resource files" below). |
@@ -176,20 +176,29 @@ readable line too when it runs on a terminal. On a desktop host,
 | ``item file `x` is a symbolic link; project files must be regular files in the project folder`` | A listed file is a link. |
 | ``asset pattern `x` must be a relative path inside the project folder`` | An unsafe `assets` entry. |
 | ``startup item `x` is not in the project`` | `startup` names no item. Set a startup item (right-click an item in the Project Explorer, **Set as Startup**). |
+| ``startup item `x` is not a form`` | `startup` names a module. Only a form can open first. The IDE does not stop you: **Set as Startup** accepts a module, and **Remove** makes the first remaining item the startup, which can be a module. |
 | ``referenced layout file `x` does not exist`` (also `code`, `icon`) | The `.lrp` lists a file that is not in the folder. |
 | a TOML error with a line number | The `.lrp` or an `.lfm` is not valid TOML, or a key has the wrong type. |
 
-**Forms** (messages start with the control and property, `button1.text: ...`)
+**Forms**. A `.lfm` that cannot be read is a *load error*: it carries the line
+(`main_form.lfm:7: ...`) but no control prefix.
 
 | Message | What it means |
 |---|---|
-| ``unknown widget kind `X` `` | A `kind` that is not in the control catalog. |
-| `` `p` is not a property of Button `` | A property the control does not have (property names are lower case with underscores). |
-| `` `p` expects number, found text `` | A value of the wrong type. |
+| `` `Widget` is not a known widget kind `` | A `kind` that is not in the control catalog. |
+| `` `txt` is not a property of Button (node `a`) `` | A property the control does not have (property names are lower case with underscores). |
+| `` invalid `value` on `a`: expected float, found a string `` | A value of the wrong type. A value outside its range or a malformed colour fails the same way. |
+
+[Forms](forms.md#validation-and-errors) lists every load error. After a clean
+load, *validation errors* (the name, parent and `tab_index` checks) start with
+the control and, when one is involved, the property (`button1.tab_index: ...`):
+
+| Message | What it means |
+|---|---|
 | ``node name `x` is used more than once`` | Two controls with one name. |
 | `` `x` is not a valid node name `` (also `not a valid form name`) | A name that is not an identifier. |
 | ``parent `x` does not exist``, ``GroupBox `x` does not accept a Y child``, ``Button `x` cannot contain children``, `` `x` is part of a parent cycle `` | A bad `parent` link. |
-| ``tab_index 2 is also used by `other` `` | A warning: two sibling controls share a tab position. |
+| ``tab_index 2 is also used by `other` `` | Two sibling controls share an explicit tab position. The form checker calls it a warning, but the project check turns every form diagnostic into an error, so the project does not run. |
 
 **Scripts**
 

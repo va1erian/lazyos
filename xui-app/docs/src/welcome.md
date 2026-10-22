@@ -2,7 +2,7 @@
 
 Welcome to the LazyOS documentation viewer.
 
-**[Open the documentation index](/docs/os/index.md)** (or press **Home**).
+**[Open the documentation index](/docs/os/index.md)** (or click **Home** in the toolbar).
 
 ## Where to start
 

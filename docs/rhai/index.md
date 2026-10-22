@@ -70,7 +70,7 @@ rhai> msg::describe("os.lazy.notify.v1")
 rhai> :quit
 ```
 
-`msg::describe(name)` prints an interface's documentation and methods, which is
+`msg::describe(name)` returns an interface's documentation and methods as text (the REPL prints it), which is
 the quickest way to find out how to call something; the [API
 reference](api/index.md) has the same information with examples.
 

@@ -99,9 +99,14 @@ Limits worth knowing:
   string concatenation) cannot be seen; the consent screen lists what was
   found. A topic helper called with a computed argument declares the bare
   pattern, which the kernel's per-segment check refuses past its wildcard.
-* **Serving** a name (`msg::serve`) is a development feature: an installed
-  app's manifest cannot grant it, so wrap it in `try`/`catch`. An error that
-  escapes `form_load` ends the app (`init` restarts it).
+* **Serving** a name (`msg::serve`) is a development feature. No manifest
+  grants it: the kernel lets an installed app register only names that start
+  with `app.<system_name>.` (one segment after that) and only interfaces in its
+  own domain, `<system_name>.<name>.vN`, which the system interfaces a script
+  can serve (`os.lazy.echo.v1`) are not. So the call is refused in an installed
+  app; wrap it in `try`/`catch`. An error that escapes `form_load` ends the app
+  and `init` does not restart it: the desktop shows a "stopped unexpectedly"
+  notice ([Packaging](packaging.md)).
 * Methods whose request carries a channel, buffer or ring are not generated for
   scripts at all.
 * **Play** runs the project under the label the installed app would get (when
@@ -162,7 +167,12 @@ fn pause_button_click() {
   documents it was started to open work), but not through the project's
   in-memory file view, and it builds its own copy of the policy: a file picked
   in `open_file_dialog` is not granted to it. For a song shipped in the project,
-  build the path from `app.path`.
+  build the path from `app.path`. A relative path such as `"music/tune.mod"` in
+  the table above is resolved in the app's data folder, not in the project, so
+  it finds only a song you saved there. When the player was started with an
+  `.lrp` file path instead of a project folder, it is granted that one file
+  only, so `app.path + "/music/tune.mod"` is refused; start the player on the
+  folder.
 * The module's reasons are: `the file is too short`, `no M.K./4CHN signature`,
   `only four-channel modules are supported`, `the song length is invalid`,
   `the order list names an impossible pattern`, `the pattern data is truncated`.

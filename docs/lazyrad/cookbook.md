@@ -2053,8 +2053,9 @@ fn form_load() {
 `app.documents` holds the files the player was started to open, as absolute paths
 (at most 64). They and the files beside them are readable but never writable; to
 save a changed copy write to the data folder with a relative path. From the
-Terminal, `lrplay --client <project> /home/user/a.txt` passes a document
-([Packaging](packaging.md)).
+Terminal, `$P --client <project> /home/user/a.txt` passes a document, where
+`P=$(echo /apps/os.lazy.lazyrad/*/bin/lrplay.elf)` is the player of the LazyRAD
+package ([Packaging](packaging.md)).
 
 ### 33. Read a data file that ships with the project
 
@@ -2596,7 +2597,12 @@ fn set_button_click() {
 A session user cannot write `sys/**`; the call fails and the `catch` shows the
 service's reason. For a setting that belongs to the app, a file in its data folder
 (recipe 29) needs no permission at all. Per-user keys live under `user/<uid>/**`;
-the [Rhai cookbook](../rhai/cookbook.md) shows how to find your uid.
+the [Rhai cookbook](../rhai/cookbook.md) shows how to find your uid, but its
+snippet reads the account name with `os::env("USER")`, and `os::*` does not exist
+in a form script, so it must be adapted: look the account up by a name you already
+know (`sys::accounts::lookup("user", ())`), or read each session's `user` and
+`uid` from `sys::logind::sessions()` (the package must declare those interfaces;
+the `active` session is the one in front, not necessarily yours).
 
 ### 42. Show a notification toast
 
@@ -2808,8 +2814,9 @@ reopened, not started twice.
 
 ### 45. Serve a method to other programs
 
-Needs nothing when installed (the call is refused there). Goal: answer
-`os.lazy.echo.v1` calls from the Terminal while the form is open.
+A development feature: no manifest grants it, so an installed app's call is
+refused (see the end of the recipe). Goal: answer `os.lazy.echo.v1` calls from
+the Terminal while the form is open.
 
 Form (window 340 x 100):
 
@@ -2850,8 +2857,10 @@ fn form_load() {
 
 From the Terminal, `rhai -e 'msg::connect("os.lazy.echo.v1", "demo.lazyrad").echo("hi", 2)'`
 answers `hihi`. Serving a name is a development feature: an installed app owns
-only names beginning `app.<system_name>.`, so the call is refused there, and an
-error escaping `form_load` would end the app. That is why it sits in a `try`.
+only names beginning `app.<system_name>.` and may advertise only interfaces in its
+own domain (`<system_name>.<name>.vN`), which `os.lazy.echo.v1` is not, so the call
+is refused there (any name, not only `demo.lazyrad`), and an error escaping
+`form_load` would end the app. That is why it sits in a `try`.
 
 ### 46. Live system numbers from sysmond
 
@@ -3103,7 +3112,10 @@ fn deck_ended(d) {
 ```
 
 `modplay::load` reads through the sandbox but not through the project's file
-view, so a song shipped with the app is addressed from `app.path`. `levels` are
+view, so a song shipped with the app is addressed from `app.path`. A relative
+path would be looked up in the app's data folder instead, and the
+`app.path` form works only when the player was started on a project folder: given
+an `.lrp` path, it is granted just that file. `levels` are
 `0..=64` per channel. A handler passed to `on_update` or `on_end` takes exactly one
 parameter, the deck, and `on_update` runs at most every 80 ms. See
 [the MOD player](../lazyrad-modplay.md).
@@ -3568,7 +3580,7 @@ The message above is `Variable not found: total`. The rest of the usual ones:
 | `permission denied (EACCES)` | The installed app did not declare that interface or topic: see recipe 49. |
 | ``access denied for "...": path is outside the sandbox`` | The script named a file outside its data folder, project and documents. |
 | `msg::run()` refused in a form | Events arrive on their own; remove the loop. |
-| `Function not found: ...` for `sys::` or `msg::` calls on a desktop build | Those modules exist only in LazyOS's player. |
+| `Module not found: ...` for `sys::` or `msg::` calls on a desktop build | Those modules exist only in LazyOS's player. |
 
 Every one of these is an ordinary error: `try`/`catch` can handle it, and an
 uncaught one in a handler becomes a message box that names the file, line and

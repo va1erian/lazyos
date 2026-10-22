@@ -22,8 +22,9 @@ const RESERVED_SUGAR: &[&str] = &[
     "type_of",
 ];
 
-/// `os.lazy.confd.v1` -> `confd`; `os.lazy.net.nic.v1` -> `net_nic`
-/// (`alias` in `tools/midlc/midlc_rhai.py`).
+/// `os.lazy.confd.v1` -> `confd`; `os.lazy.net.nic.v1` -> `net_nic`; an alias
+/// that is a Rhai reserved word gets a trailing `_` (`os.lazy.print.v1` ->
+/// `print_`), as in `alias` of `tools/midlc/midlc_rhai.py`.
 pub fn alias(interface_name: &str) -> String {
     let mut name = interface_name;
     // `\.v\d+$`
@@ -50,6 +51,9 @@ pub fn alias(interface_name: &str) -> String {
             pending = true;
         }
     }
+    if crate::util::is_rhai_reserved(&out) {
+        out.push('_');
+    }
     out
 }
 
@@ -59,12 +63,10 @@ pub fn module(interface: &Interface) -> Option<&'static ApiModule> {
     api::module(&alias(interface.name)).filter(|m| m.interface == interface.name)
 }
 
-/// Whether a script can name the module: `sys::print` cannot be written,
-/// because `print` is a Rhai keyword (the generator checks function names for
-/// reserved words but not module aliases). Such an interface is reached with
-/// `msg::connect`.
+/// Whether a script can name the module: every generated alias is a valid
+/// Rhai identifier (the generator suffixes a reserved word with `_`).
 pub fn module_usable(interface: &Interface) -> bool {
-    module(interface).is_some_and(|m| !crate::util::is_rhai_reserved(m.alias))
+    module(interface).is_some()
 }
 
 /// Whether a script can call `method` at all: it carries no kernel object
