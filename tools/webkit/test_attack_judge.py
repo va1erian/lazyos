@@ -21,7 +21,9 @@ import attackjudge as judge  # noqa: E402
 import fhspaths  # noqa: E402
 
 PROBE_SOURCE = ROOT / "tools" / "abi" / "fixtures" / "src" / "sandboxprobe.rs"
-MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
+#: webd owns the engine processes (their labels are `app:os.lazy.webd/<name>`); LazyWeb+ keeps one helper table.
+MANIFEST = ROOT / "xui-app" / "packages" / "webd" / "manifest.toml"
+PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
 
 #: What the kernel's label trace prints for each refused probe (`kernel/src/ipc/confine.rs`,
 #: `ipc/policy.rs`): the judge's patterns must match these.
@@ -95,14 +97,15 @@ class JudgeTests(unittest.TestCase):
         for mode in ("kernel", "browser"):
             self.assertEqual(self.problems(perfect(mode), mode), [], mode)
 
-    def test_the_browser_is_judged_under_its_own_labels_and_only_the_network_process_may_save_downloads(self) -> None:
-        app = "os.lazy.lazywebplus"
+    def test_webd_is_judged_under_its_own_labels_and_only_the_network_process_may_save_downloads(self) -> None:
+        app = "os.lazy.webd"
         log = perfect("browser", app=app)
         found, _ = judge.judge(log, "browser", app)
         self.assertEqual(found, [])
-        self.assertIn("app:os.lazy.lazywebplus/networkprocess", log)
-        # Another package's labels do not satisfy the run.
-        self.assertTrue(judge.judge(log.replace("os.lazy.lazywebplus", "os.lazy.other"), "browser", app)[0])
+        self.assertIn("app:os.lazy.webd/networkprocess", log)
+        # Another package's labels (the browser's, once its children were its own) do not satisfy the run.
+        self.assertTrue(judge.judge(log.replace("os.lazy.webd", "os.lazy.lazywebplus"), "browser", app)[0])
+        self.assertTrue(judge.judge(log.replace("os.lazy.webd", "os.lazy.other"), "browser", app)[0])
         # Only the network process may write Downloads: the page process writing it is a breach.
         log = perfect("browser", app=app, tweak=lambda r, p, line: (
             line.replace("BLOCKED:1", "ALLOWED:ok") if (r, p) == ("webprocess", "write_downloads") else line))
@@ -156,8 +159,8 @@ class JudgeTests(unittest.TestCase):
         log = perfect(tweak=lambda r, p, line: (
             line.replace("ALLOWED:ok", "ALLOWED:2") if p == "read_resolv_conf" and r == "networkprocess" else line))
         self.assertTrue(any("read_resolv_conf" in f for f in self.problems(log)))
-        self.assertEqual(self.problems(log.replace("sandbox-web", "lazywebplus/webprocess")
-                                       .replace("sandbox-net", "lazywebplus/networkprocess"), "browser"), [])
+        self.assertEqual(self.problems(log.replace("sandbox-web", "webd/webprocess")
+                                       .replace("sandbox-net", "webd/networkprocess"), "browser"), [])
 
     def test_the_roles_differ(self) -> None:
         # The page process reads fonts and has no sockets; the network process the reverse.
@@ -229,7 +232,10 @@ class AgreementTests(unittest.TestCase):
         self.assertEqual(processes["networkprocess"]["interfaces"], [])
 
     def test_a_child_label_holds_no_more_than_the_app(self) -> None:
-        manifest = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
+        for path in (MANIFEST, PLUS_MANIFEST):
+            self.check_children_within_the_app(tomllib.loads(path.read_text(encoding="utf-8")))
+
+    def check_children_within_the_app(self, manifest: dict) -> None:
         app = manifest["permissions"]
 
         def covered(rule: str, rules: list[str]) -> bool:
@@ -240,13 +246,13 @@ class AgreementTests(unittest.TestCase):
                 and (path == r.split(":", 1)[1] or path.startswith(r.split(":", 1)[1].rstrip("/") + "/"))
                 for r in rules)
 
-        for name, table in manifest["processes"].items():
+        for name, table in manifest.get("processes", {}).items():
             for rule in table["files"]:
                 self.assertTrue(covered(rule, app["files"]), f"{name}: {rule}")
             self.assertLessEqual(set(table["interfaces"]), set(app["interfaces"]), name)
             self.assertLessEqual(set(table["network"]), set(app["network"]), name)
 
-    def test_the_browsers_labels_are_app_slash_process(self) -> None:
+    def test_webds_labels_are_app_slash_process(self) -> None:
         app = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))["app"]["system_name"]
         for role, label in judge.labels("browser").items():
             self.assertEqual(label, f"app:{app}/{role}")
@@ -266,13 +272,14 @@ class AgreementTests(unittest.TestCase):
         plus = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
         got = plus["processes"]["networkprocess"]
         writes = [r for r in got["files"] if r.startswith("write:")]
-        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.lazywebplus", "write:$HOME/Downloads"])
-        self.assertEqual(judge.expected("os.lazy.lazywebplus")["networkprocess"]["write_downloads"].kind, "allowed")
-        self.assertEqual(judge.expected("os.lazy.lazywebplus")["webprocess"]["write_downloads"].kind, "blocked")
-        self.assertEqual(plus["app"]["system_name"], "os.lazy.lazywebplus")
+        self.assertEqual(sorted(writes), ["write:$HOME/.apps/os.lazy.webd", "write:$HOME/Downloads"])
+        self.assertEqual(judge.expected("os.lazy.webd")["networkprocess"]["write_downloads"].kind, "allowed")
+        self.assertEqual(judge.expected("os.lazy.webd")["webprocess"]["write_downloads"].kind, "blocked")
+        self.assertEqual(plus["app"]["system_name"], "os.lazy.webd")
+        self.assertEqual(judge.APPS, ("os.lazy.webd",))
 
     def test_the_ad_blockers_updater_may_fetch_and_write_only_the_lists_folder(self) -> None:
-        plus = tomllib.loads(MANIFEST.read_text(encoding="utf-8"))
+        plus = tomllib.loads(PLUS_MANIFEST.read_text(encoding="utf-8"))
         table = plus["processes"]["listupdate"]
         self.assertEqual(table["program"], fhspaths.program("CURL"))
         self.assertEqual(table["interfaces"], [])
