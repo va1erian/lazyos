@@ -241,6 +241,9 @@ struct View {
     // UI process on this port (webkit-views group, the family of patches 0021/0027). Set false when the
     // view is made as, or becomes, a group mate (engine.cpp). See destroyView / createView.
     bool soleEver { true };
+    // The owner asked this page to load something (load, loadHtml, reload): from then on a process may be
+    // launching for it even while WebKit has no id for it yet. destroyView ends such a process.
+    bool loadRequested { false };
     // The user pressed Stop: the failure WebKit reports for it is not one.
     bool stopRequested { false };
     // The WebProcess does not answer WebKit's responsiveness pings.
@@ -346,10 +349,10 @@ struct Host {
     HostEnv* env { nullptr };
     WKContextRef context { nullptr };
     std::map<int, std::unique_ptr<View>> views;
-    // Views destroyed while a sibling still shared their process: the page was unloaded to about:blank
-    // and the proxy is kept forever (it is a related page of a live process, so it cannot be pooled for
-    // reuse). This list grows only with the multi-view/tabs case, never with a single view's
-    // create/destroy loop (which has no sibling; see destroyView).
+    // Destroyed views whose proxy cannot be pooled, kept forever (a WebPageProxy cannot be released): every
+    // full view, a view whose process a sibling still used (the page was unloaded to about:blank), group 0,
+    // and a view destroyed while its process was not known to be over. It grows with each such destroy,
+    // a full view's create/destroy loop included; only light views are reused (destroyView, poolable).
     std::vector<std::unique_ptr<View>> parked;
     // Reusable page proxies of destroyed LIGHT views that were the only page of their process and whose
     // process is over: the same client's next light view of the same class adopts one rather than making

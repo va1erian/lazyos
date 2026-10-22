@@ -828,7 +828,10 @@ each with real evidence; the rest is recorded below as still open.
   the parked proxy instead of making a new one (`engine.cpp` `poolable` / `parkForReuse` /
   `takeFromPool`; `Host.pool`, bounded by `kPoolMax`, overflow kept whole in `Host.retired`). A proxy is
   adopted only once its page has no process, and a view destroyed while its first process is still
-  launching is not pooled. **Found while building it:** reusing a proxy that ever shared a process
+  launching is not pooled. **Found by the second round of review, older than P5:** such a view's
+  launching process was never ended (`destroyView` ended a process only once WebKit gave it an id), so
+  a client looping `CreateView`, `LoadHtml`, `DestroyView` could leave 107 MiB processes running for
+  nobody; `destroyView` now ends it too (`View::loadRequested`, set by `load`, `loadHtml`, `reload`). **Found while building it:** reusing a proxy that ever shared a process
   aborts the UI process (`webkit-views group`), hence `View::soleEver`. **Found by the review, and why
   the pool is light-only:** a full view's proxy carries state a new view must not inherit and this port
   cannot reset — its in-memory store (a private window's cookies and storage would have reached the next
@@ -861,9 +864,11 @@ each with real evidence; the rest is recorded below as still open.
   (`full_views::memory_pressure_refuses_a_view_that_would_start_a_new_web_process`,
   `the_memory_gate_boundary_and_a_charge_over_the_limit`). Limits, stated: the charge is read at
   `CreateView`, but a process is charged only once its page loads, so a burst of `CreateView`s on new
-  (client, profile) pairs all pass before any is charged (bounded by the cap of 4); light views are not
-  gated (each client's light views share one process, bounded by the view count); a quota under the
-  reserve (160 MiB) refuses every new full view.
+  (client, profile) pairs all pass before any is charged (bounded by the cap of 4); a quota under the
+  reserve (160 MiB) refuses every new full view. **Light views too (found by the review):** a client's
+  light views share one process, and the client's first live light view, which starts it, is gated
+  the same way (`calls.rs` `create_view`; `memory_pressure_refuses_a_light_view_that_would_start_its_
+  clients_process`); before, a light client was bounded by its view count alone.
 
 * **The attack harness (the headline), two halves, run in QEMU.**
   * *Malicious page process* (a compromised WebProcess/NetworkProcess): `tools/webkit/attack_run.py`,

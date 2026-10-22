@@ -169,11 +169,12 @@ std::string poolText(const PoolCounts& p)
 }
 
 // A light view of `group` made and destroyed without a page (no web process starts): what the pool says after.
-PoolCounts emptyLight(int group, int scripts)
+PoolCounts emptyLight(int group, int scripts, int fontSize = 0)
 {
     Options options;
     options.group = group;
     options.scripts = scripts;
+    options.fontSize = fontSize;
     options.width = 160;
     options.height = 100;
     destroy(create(options));
@@ -181,6 +182,8 @@ PoolCounts emptyLight(int group, int scripts)
 }
 
 } // namespace
+
+std::string cycleEdges(const PoolCounts& start);
 
 std::string modeCycle()
 {
@@ -249,6 +252,68 @@ std::string modeCycle()
     if (end.reused != r.reused + kFastCycles)
         return "a fast cycle did not reuse the pooled proxy every time: " + poolText(end);
     note("CYCLE:the proxy pool stayed flat over %d create/destroy iterations", kPaintCycles + kFastCycles);
+    return cycleEdges(end);
+}
+
+// Part 4: the edges of the pool. `start` is the pool after the flat loop.
+std::string cycleEdges(const PoolCounts& start)
+{
+    // A view destroyed right after its LoadHtml: its process must end (it would run for nobody), and the proxy
+    // is pooled only when that process is known to be over (WebKit had its id and it was ended), else parked;
+    // never both, never neither. On this port the launch gives the page its id at once, so in practice the
+    // process is ended by id and the proxy pooled; a destroy before WebKit has an id ends it too and parks it.
+    // The view is made first (its first state), so the load reaches the engine before the destroy does: a
+    // destroy queued before the view exists drops the pending load and no process ever starts.
+    Options options;
+    options.group = 9;
+    options.width = 160;
+    options.height = 100;
+    const uint64_t midLoad = create(options);
+    if (!waitView(midLoad, [](const ViewFacts& f) { return f.states >= 1; }, 60000))
+        return "the view for the mid-load destroy was not made";
+    loadHtml(midLoad, page("Gone", "#f00"));
+    destroy(midLoad);
+    const PoolCounts gone = poolCounts();
+    const bool pooled = gone.pooled == start.pooled + 1 && gone.parked == start.parked;
+    const bool parked = gone.parked == start.parked + 1 && gone.pooled == start.pooled;
+    if (pooled == parked)
+        return "a view destroyed mid-load was neither pooled nor parked, or both: " + poolText(gone);
+    note("CYCLE:mid-load destroy: %s", pooled ? "process ended by id, proxy pooled" : "process ended while launching, proxy parked");
+    // Every web process announced has ended. waitProcesses evaluates under the support lock; processes()
+    // takes that lock itself, so it is read only outside a wait.
+    const auto ended = [](const Processes& p) { return p.webLaunches == p.webExits; };
+    const auto settled = [&] { return waitProcesses(ended, 30000); };
+    if (!settled() || (usleep(2000 * 1000), !ended(processes())))
+        return "a view destroyed mid-load left its web process running: " + describeProcesses();
+
+    // A view made again at once after the last one ended, before its process is gone: it paints its own page
+    // (a pooled proxy whose process is still ending is not adopted), and every process ends.
+    options.group = 10;
+    for (int i = 0; i < 2; ++i) {
+        const uint64_t v = create(options);
+        const std::string title = "Again" + std::to_string(i);
+        loadHtml(v, page(title.c_str(), kColours[i]));
+        if (!waitView(v, [&](const ViewFacts& f) { return shows(f, title.c_str(), kLetters[i], 1); }, 90000))
+            return "a view made at once after another did not paint: " + describeProcesses();
+        destroy(v);
+    }
+    if (!settled())
+        return "the views made at once left a web process running: " + describeProcesses();
+
+    // More classes than the pool holds: the oldest proxies are retired (kept, never released), nothing
+    // crashes, and a view still paints after.
+    for (int size = 1; size <= 20; ++size)
+        emptyLight(7, 0, size);
+    const PoolCounts full = poolCounts();
+    if (full.retired <= 0 || full.pooled != 16)
+        return "twenty classes did not fill the pool and retire the oldest: " + poolText(full);
+    options.group = 11;
+    const uint64_t v = create(options);
+    loadHtml(v, page("After", "#0a0"));
+    if (!waitView(v, [](const ViewFacts& f) { return shows(f, "After", 'g', 1); }, 90000))
+        return "no view painted after the pool overflowed: " + describeProcesses();
+    destroy(v);
+    note("CYCLE:edges: mid-load destroy ended its process, a quick remake painted, overflow retired:%s", poolText(full).c_str());
     return "";
 }
 

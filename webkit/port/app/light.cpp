@@ -273,6 +273,7 @@ void lightNavigationResponse(View&, WKNavigationResponseRef response, WKFramePol
 
 void View::loadHtml(const std::string& html, const std::string& baseUrl)
 {
+    loadRequested = true;
     WKURLRef base = WKURLCreateWithUTF8CString(baseUrl.empty() ? "about:blank" : baseUrl.c_str());
     const std::string normal = utf8(base);
     if (!allowedBase(normal)) {

@@ -377,7 +377,7 @@ void destroyView(int id)
         WKViewSetVisible(view->view, false);
         WKPageStopLoading(view->page);
         shared = !processMates(*view).empty();
-        const bool began = view->webProcessSeen || view->loading || view->lightLoads > 0 || view->navigations > 0;
+        const bool began = view->loadRequested || view->webProcessSeen || view->loading;
         // Its process goes with it (107 MB), unless a view that is staying uses it too; the page proxy
         // stays, hollow (see below). In a process that stays the page is unloaded instead: it must not
         // go on running (timers, requests, a busy loop) for nobody, and its heap is given back.
@@ -388,8 +388,14 @@ void destroyView(int id)
         } else if (WKPageGetProcessIdentifier(view->page) > 0) {
             WKPageTerminate(view->page);
             processSettled = true;
+        } else if (began) {
+            // A load was asked for and WebKit has no process id yet: the first process may be launching.
+            // End it too, or it would run for nobody (107 MB) behind a parked proxy; a client looping
+            // CreateView, LoadHtml, DestroyView would pile them up (found by the P5 review). The proxy is
+            // not pooled: its process is not known to be over.
+            WKPageTerminate(view->page);
         } else {
-            processSettled = !began;
+            processSettled = true;
         }
     }
     releasePaint(*view);
@@ -448,13 +454,18 @@ void View::recover(bool reload)
 
 void View::load(const std::string& address)
 {
+    loadRequested = true;
     WKURLRef wkUrl = WKURLCreateWithUTF8CString(address.c_str());
     sayHarness("NAV:%s", oneLine(address).c_str());
     WKPageLoadURL(page, wkUrl);
     WKRelease(wkUrl);
 }
 
-void View::reload() { WKPageReload(page); }
+void View::reload()
+{
+    loadRequested = true;
+    WKPageReload(page);
+}
 
 void View::stop()
 {
