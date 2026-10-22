@@ -62,6 +62,7 @@ pub fn map_mmio(table: PhysAddr, va: u64, phys: u64, pages: u64) -> bool {
 /// mapping was made, a stray leaf at the same address is left alone. Returns
 /// how many leaves were cleared.
 pub fn unmap_mmio(table: PhysAddr, va: u64, phys: u64, pages: u64) -> u64 {
+    let mut flush = super::tlb::Batch::new();
     let mut cleared = 0;
     for page in 0..pages {
         let at = va + page * FRAME_SIZE;
@@ -75,11 +76,12 @@ pub fn unmap_mmio(table: PhysAddr, va: u64, phys: u64, pages: u64) -> u64 {
             if value & pte::MMIO != 0 && value & pte::ADDR == expected {
                 // SAFETY: same entry; the single CPU cannot race this store.
                 unsafe { entry.write_volatile(0) };
-                x86_64::instructions::tlb::flush(VirtAddr::new(at));
+                flush.note(at);
                 cleared += 1;
             }
         }
     }
+    flush.finish();
     cleared
 }
 
@@ -166,7 +168,7 @@ pub fn uncache_phys_map(phys: u64) -> bool {
     // setting the cache-disable bits changes only the memory type of the page,
     // never its address or permissions.
     unsafe { entry.write_volatile(entry.read_volatile() | pte::PCD | pte::PWT) };
-    x86_64::instructions::tlb::flush(VirtAddr::new(va));
+    super::tlb::shootdown(va, 1);
     // Lines cached under the old write-back type must not be written back
     // over device registers later.
     // SAFETY: `wbinvd` writes back and invalidates the caches; ring 0 only.

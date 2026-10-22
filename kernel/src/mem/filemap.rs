@@ -38,7 +38,7 @@ use x86_64::structures::paging::PageTableFlags;
 use x86_64::{PhysAddr, VirtAddr};
 
 use super::{
-    alloc_frame, free_frame, kernel_table, leaf_entry, make_walk_writable, map_page_in, prot_flags,
+    alloc_frame, free_frame, leaf_entry, make_walk_writable, map_page_in, prot_flags,
     pte, vma, Resolve, FRAME_SIZE,
 };
 use crate::fs::openfile::MapError;
@@ -185,6 +185,8 @@ pub(super) fn shared_write_fault(table: PhysAddr, va: u64, entry: *mut u64) -> b
         *entry |= pte::WRITABLE;
         make_walk_writable(table, va);
     }
+    // Local on purpose: this loosens the entry, and another CPU's stale
+    // read-only copy only costs it a retried fault (mem/tlb.rs).
     x86_64::instructions::tlb::flush(VirtAddr::new(va));
     true
 }
@@ -193,7 +195,7 @@ pub(super) fn shared_write_fault(table: PhysAddr, va: u64, entry: *mut u64) -> b
 /// pages `indices` of it: called by a write-back before it writes them, so
 /// the next store faults and dirties the page again.
 pub fn write_protect(file: usize, indices: &[u64]) {
-    let current = kernel_table();
+    let mut flush = super::tlb::Batch::new();
     for (table, vma, mapped) in vma::all_file_mappings() {
         if vma.kind != vma::Kind::FileShared || mapped.inode_id() != file {
             continue;
@@ -210,13 +212,15 @@ pub fn write_protect(file: usize, indices: &[u64]) {
                 if value & pte::WRITABLE != 0 && value & pte::SHARED != 0 {
                     // SAFETY: as above.
                     unsafe { *entry = value & !pte::WRITABLE };
-                    if table == current {
-                        x86_64::instructions::tlb::flush(VirtAddr::new(va));
-                    }
+                    // Any CPU may be running `table`: the write-back that
+                    // follows must not race a store through a stale
+                    // writable entry (it would be lost, never re-dirtied).
+                    flush.note(va);
                 }
             }
         }
     }
+    flush.finish();
 }
 
 /// The file of identity `file` shrank: unmap, in every address space, the

@@ -110,8 +110,18 @@ pub(super) unsafe fn make_walk_writable(table: PhysAddr, va: u64) {
         phys = PhysAddr::new(entry & PTE_ADDR);
     }
     if changed {
+        // Local on purpose: parents only loosen (mem/tlb.rs).
         x86_64::instructions::tlb::flush(VirtAddr::new(va));
     }
+}
+
+/// The present 4 KiB leaf of `va` in `table`, so the suite can change an
+/// entry behind the TLB's back (a stale-entry control) or read where a page
+/// went.
+#[cfg(lazyos_tests)]
+pub fn leaf_pte_for_test(table: PhysAddr, va: u64) -> Option<*mut u64> {
+    // SAFETY: `leaf_entry` only walks present, non-huge levels of `table`.
+    unsafe { leaf_entry(table, va) }
 }
 
 /// Switch the active address space.
@@ -366,80 +376,6 @@ pub fn pte_chain(table: PhysAddr, va: u64) -> [u64; 4] {
         phys = PhysAddr::new(entry & PTE_ADDR);
     }
     chain
-}
-
-/// Drop `[start, end)` from `table`'s user mappings: clear each present leaf
-/// and return its frame to the allocator (shared COW frames just lose one
-/// reference). Page tables are left in place; [`free_user_table`] reaps them.
-/// Returns the number of leaves cleared.
-pub fn unmap_range(table: PhysAddr, start: u64, end: u64) -> usize {
-    let mut cleared = 0;
-    let mut va = start & !(FRAME_SIZE - 1);
-    let end = end.min(LOWER_HALF_END);
-    while va < end {
-        crate::arch::irq_window::poll_point();
-        // Safety: `table` is a live address space and we own its entries;
-        // `va < end <= LOWER_HALF_END`.
-        let next = unsafe { skip_absent(table, va) };
-        if next != va {
-            va = next;
-            continue;
-        }
-        // Safety: as above.
-        if let Some(entry) = unsafe { leaf_entry(table, va) } {
-            // Safety: `entry` was just returned as a present leaf in this table.
-            let value = unsafe { *entry };
-            // A device's BAR is not an allocator frame: its owner
-            // (`mem::mmio`) unmaps it. A DMA leaf is one (`free_frame`
-            // returns it to the pool), so it goes like any other.
-            if value & PTE_USER != 0 && value & pte::MMIO == 0 {
-                // Safety: same `entry`, still valid; nothing else can have
-                // unmapped it in between (single-threaded teardown).
-                unsafe { *entry = 0 };
-                free_frame(PhysAddr::new(value & PTE_ADDR));
-                cleared += 1;
-                x86_64::instructions::tlb::flush(VirtAddr::new(va));
-            }
-        }
-        va += FRAME_SIZE;
-    }
-    cleared
-}
-
-/// Move the mapping of `old_va` to `new_va` without copying the frame: the
-/// physical frame, COW bit and protection move with the PTE. Used by `mremap`
-/// to relocate a mapping (`new_va` must be unmapped). `Ok(false)` means the
-/// source page was not resident; `Err(())` means the destination page tables
-/// could not be allocated (the source was restored).
-pub fn remap_page(table: PhysAddr, old_va: u64, new_va: u64) -> Result<bool, ()> {
-    let old_page = old_va & !(FRAME_SIZE - 1);
-    let new_page = new_va & !(FRAME_SIZE - 1);
-    // Safety: `table` is a live address space and we own its entries.
-    let Some(old_entry) = (unsafe { leaf_entry(table, old_page) }) else {
-        return Ok(false);
-    };
-    // Safety: `old_entry` was just returned as a present leaf in this table.
-    let value = unsafe { *old_entry };
-    if value & PTE_USER == 0 {
-        return Ok(false);
-    }
-    // Safety: same entry, still valid; nothing else can have unmapped it in
-    // between (single-threaded remap).
-    unsafe { *old_entry = 0 };
-    x86_64::instructions::tlb::flush(VirtAddr::new(old_page));
-    let flags = PageTableFlags::from_bits_truncate(value & !PTE_ADDR);
-    if !map_page_in(
-        table,
-        VirtAddr::new(new_page),
-        PhysAddr::new(value & PTE_ADDR),
-        flags,
-    ) {
-        // Safety: the entry is still ours and was cleared just above.
-        unsafe { *old_entry = value };
-        x86_64::instructions::tlb::flush(VirtAddr::new(old_page));
-        return Err(());
-    }
-    Ok(true)
 }
 
 /// Copy one 4 KiB frame through the physical-memory mapping.

@@ -12,9 +12,10 @@ use super::*;
 /// A COW page nobody else holds any more is just private again (P6.6). Each
 /// changed PTE is flushed with `invlpg`: this is the point where a page loses
 /// (or gains) execute permission, and a stale TLB entry would keep the old
-/// right. That flush is local to the CPU, which is enough while the kernel
-/// runs on one CPU (docs/architecture/virtual-memory.md, "Executable memory"); an SMP
-/// kernel needs a shootdown here. Always returns true; the `bool` is kept for
+/// right. The flush is local as each page changes and goes to the other
+/// CPUs once, for the whole range, before the call returns (a stale entry
+/// on another CPU would keep the old right there;
+/// docs/architecture/virtual-memory.md, "Executable memory"). Always returns true; the `bool` is kept for
 /// callers that treat a refusal as `ENOMEM`.
 pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> bool {
     // Pages of a `MAP_SHARED` file mapping gain write access through the
@@ -25,6 +26,7 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
         .collect();
     let mut va = start & !(FRAME_SIZE - 1);
     let end = end.min(LOWER_HALF_END);
+    let mut flush = tlb::Batch::new();
     while va < end {
         crate::arch::irq_window::poll_point();
         // Safety: `table` is a live address space and we own its entries;
@@ -60,11 +62,12 @@ pub fn protect_range(table: PhysAddr, start: u64, end: u64, prot: vma::Prot) -> 
                         make_walk_writable(table, va);
                     }
                 }
-                x86_64::instructions::tlb::flush(VirtAddr::new(va));
+                flush.note(va);
             }
         }
         va += FRAME_SIZE;
     }
+    flush.finish();
     true
 }
 

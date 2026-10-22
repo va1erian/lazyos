@@ -8,7 +8,8 @@ interrupts off* — so we first make that invariant explicit and machine-checked
 then bring up the other CPUs **inside** it, and only afterwards relax it
 subsystem by subsystem, each relaxation behind its own soak.
 
-Status: plan only, nothing implemented. Prerequisites from
+Status: S8.0, S8.1 and S8.2 are built (as-built notes:
+[`architecture/smp.md`](architecture/smp.md)); S8.3 onward is plan. Prerequisites from
 `docs/performance-plan.md` (LAPIC/I-O-APIC/MSI, per-class run queues) have
 landed.
 
@@ -362,6 +363,20 @@ for the IRQ-stack pointer the stub needs before any read).
   `pngstats` desktop run at `--smp 4`. Under TCG the invariance half of the
   clock gate is overridden (`smp.tsc=force`); a KVM/WHPX run re-verifies the
   real gate.
+- **Status: built** ([`architecture/smp.md`](architecture/smp.md)). Differences
+  from the text above, all deliberate: the fault paths are exempt from
+  shootdown only where an entry loosens — the **COW copy** shoots down before
+  it frees (a sibling thread's stale read-only entry would keep reading the
+  old frame); the kernel-half "tripwire test" is `tools/sync/check_tlb.py`
+  (a CI ratchet on bare `invlpg`, since every runtime kernel-half change now
+  goes through `mem::tlb`); the coherence gate (`arch/smp/tscsync.rs`) is a
+  32-round two-way exchange with a 50 µs tolerance, and the AP waits for the
+  BSP's accept before it publishes `online`; shootdowns of a loop are batched
+  (`tlb::Batch`, one round trip per span, frames freed after it); the panic
+  path stops the other CPUs (`smp::stop_others`). Not yet: a refused-SIPI
+  hook for the timeout path of failed-AP tolerance (a clock-refused AP and a
+  stopped-and-restarted AP are tested), the `-smp 1/2/4` matrix beyond
+  `-smp 4`, and the must-fix list for S8.3 in the as-built doc.
 
 ### S8.3 — The kernel entry lock (ENABLED MILESTONE)
 

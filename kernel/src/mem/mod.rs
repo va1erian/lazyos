@@ -25,6 +25,7 @@ pub mod fbwindow;
 pub mod slab;
 mod table_guard;
 pub mod untouched;
+mod unmap;
 mod uspace;
 pub mod vma;
 pub mod wc;
@@ -37,6 +38,7 @@ pub use pagefault::{cow_resolve, demand_resolve, Resolve};
 pub use protect::protect_range;
 pub use resident::{missing_tables, resident_pages};
 pub use table_guard::UserTableGuard;
+pub use unmap::{remap_page, unmap_range};
 pub use uspace::*;
 
 use bootloader_api::info::{MemoryRegionKind, Optional};

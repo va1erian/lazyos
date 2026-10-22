@@ -21,15 +21,20 @@
 //! gate for TCG rigs (which refuse `invtsc`), built into test kernels only.
 
 mod ipi;
+mod prepare;
 mod trampoline;
+mod tscsync;
 
-pub use ipi::shootdown_others;
+#[cfg(lazyos_tests)]
+pub use ipi::{run_on, stop_cpu_for_test};
+pub use ipi::{shootdown_others, stop_others};
 pub(crate) use ipi::{resched_gate, shootdown_gate, stop_gate};
 
 use alloc::vec::Vec;
 use core::arch::x86_64::_rdtsc;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
+use prepare::prepare;
 use super::lapic;
 use super::msr;
 use super::percpu;
@@ -55,6 +60,9 @@ static TSC_FORCE: AtomicBool = AtomicBool::new(false);
 static CPUS: AtomicUsize = AtomicUsize::new(1);
 /// The AP page table's physical address (its PML4), 0 = not built.
 static AP_PML4: AtomicU64 = AtomicU64::new(0);
+/// APs refused for a TSC offset since boot (the suite tells a skew refusal
+/// from any other failed start by it).
+static SKEW_REFUSALS: AtomicUsize = AtomicUsize::new(0);
 /// How many APs came up (`HW:SMP:CPUS` reports it).
 static APS_ONLINE: AtomicUsize = AtomicUsize::new(0);
 
@@ -86,6 +94,12 @@ pub fn apply_config(text: &str) {
             _ => serial_println!("fs: lazyos.cfg: unknown key smp.{key} ignored"),
         }
     }
+}
+
+/// APs refused for a TSC offset so far.
+#[cfg(lazyos_tests)]
+pub fn skew_refusals() -> usize {
+    SKEW_REFUSALS.load(Ordering::Relaxed)
 }
 
 /// CPUs online (the BSP included; 1 until the APs came up).
@@ -170,110 +184,6 @@ fn platform_apic_ids() -> Option<Vec<u32>> {
     let madt = platform.madt.as_ref().ok()?;
     let ids: Vec<u32> = madt.startable.as_slice().to_vec();
     (!ids.is_empty()).then_some(ids)
-}
-
-/// Build the AP page table, copy and patch the trampoline. `None` (with the
-/// reason on serial) leaves the machine single-CPU.
-fn prepare() -> Option<u64> {
-    // The frame allocator never hands out anything below 1 MiB, so the page
-    // is the kernel's to write exactly when the boot memory map calls it
-    // usable RAM; anything else (firmware, the bootloader's own data) is
-    // refused rather than overwritten.
-    let kind = mem::trampoline_page_kind();
-    if kind != mem::LOW_PAGE_USABLE {
-        serial_println!("HW:SMP:CPUS=1 (page {TRAMPOLINE_PHYS:#x} is not usable RAM, kind {kind})");
-        CPUS.store(1, Ordering::Relaxed);
-        return None;
-    }
-    let pml4 = build_ap_page_table()?;
-    AP_PML4.store(pml4, Ordering::Relaxed);
-
-    // Copy the blob and patch the one absolute value in it: the GDTR's base.
-    let at = mem::phys_to_virt(x86_64::PhysAddr::new(TRAMPOLINE_PHYS)).as_u64() as *mut u8;
-    let start = &raw const trampoline::smp_trampoline_start;
-    let end = &raw const trampoline::smp_trampoline_end;
-    let len = (end as usize - start as usize) as u64;
-    if len > 4096 {
-        serial_println!("HW:SMP:CPUS=1 (trampoline overflows its page)");
-        CPUS.store(1, Ordering::Relaxed);
-        return None;
-    }
-    // SAFETY: `at` is the reserved page's mapped copy, `len` its own size;
-    // no other CPU is running and the source is the kernel's own text.
-    unsafe {
-        core::ptr::copy_nonoverlapping(start, at, len as usize);
-        // The patch values: the GDTR's base, and both retf transitions'
-        // (segment, offset) pairs — each target at the copy's own address.
-        let at_u = at as u64;
-        let blob_off = |label: &u8| (label as *const u8 as usize) - start as usize;
-        let prot_off = (TRAMPOLINE_PHYS as usize + blob_off(&trampoline::smp_prot)) as u16;
-        let long_off = (TRAMPOLINE_PHYS as usize + blob_off(&trampoline::smp_long_stub)) as u32;
-        let put16 = |off: u32| -> *mut u16 { (at_u + off as u64) as *mut u16 };
-        let put32 = |off: u32| -> *mut u32 { (at_u + off as u64) as *mut u32 };
-        // The GDTR's base sits at +2 (after the `u16` limit) — unaligned by
-        // construction, so the unaligned write.
-        ((at_u + trampoline::GDTR_BASE_OFF as u64) as *mut u32)
-            .write_unaligned(TRAMPOLINE_PHYS as u32 + trampoline::GDT_OFF);
-        put16(trampoline::RETF1_CS_OFF).write_volatile(0x0008);
-        put16(trampoline::RETF1_OFF_OFF).write_volatile(prot_off);
-        put32(trampoline::RETF2_CS_OFF).write_volatile(0x0020);
-        put32(trampoline::RETF2_OFF_OFF).write_volatile(long_off);
-        // And the mailbox fields every AP shares (`CR3`, the magic); the
-        // per-AP fields (`entry`, `cpu`, `stack`) are written per AP.
-        ((at_u + trampoline::MB_CR3_OFF as u64) as *mut u64)
-            .write_volatile(AP_PML4.load(Ordering::Relaxed));
-        put32(trampoline::MB_MAGIC_OFF).write_volatile(trampoline::MB_MAGIC);
-    }
-    Some(TRAMPOLINE_PHYS)
-}
-
-/// Build the AP page table: identity-mapped low 2 MiB (the trampoline's
-/// transitions run there) over the kernel half copied from the boot table.
-/// Returns the PML4's physical address.
-fn build_ap_page_table() -> Option<u64> {
-    let pml4_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
-    let pdpt_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
-    let pd_phys = mem::frames::alloc_zeroed_frame()?.as_u64();
-    // The trampoline loads `CR3` from a 32-bit register in protected mode,
-    // and walks the PDPT/PD before long mode: all three must sit below 4 GiB.
-    if pml4_phys.max(pdpt_phys).max(pd_phys) >= 1 << 32 {
-        serial_println!("HW:SMP:CPUS=1 (AP page table above 4 GiB)");
-        return None;
-    }
-    const PRESENT: u64 = 1;
-    const WRITE: u64 = 1 << 1;
-    const HUGE: u64 = 1 << 7;
-    // PML4[0] -> PDPT[0] -> PD[0] -> the 2 MiB identity huge page 0..2 MiB.
-    entry(pml4_phys, 0, pdpt_phys | PRESENT | WRITE);
-    entry(pdpt_phys, 0, pd_phys | PRESENT | WRITE);
-    entry(pd_phys, 0, PRESENT | WRITE | HUGE); // physical 0, the 2 MiB page
-                                               // The kernel half: entries 256..512 verbatim from the boot table (the
-                                               // kernel half is machine-wide; sharing the entries shares the mappings).
-    let boot = mem::boot_table().as_u64();
-    for index in 256..512_usize {
-        let value = read_entry(boot, index)?;
-        entry(pml4_phys, index, value);
-    }
-    Some(pml4_phys)
-}
-
-/// Write one PML4/PDPT/PD entry: `table_phys` is below 4 GiB (a freshly
-/// allocated frame), so the entry write goes through the physical map.
-fn entry(table_phys: u64, index: usize, value: u64) {
-    let at = mem::phys_to_virt(x86_64::PhysAddr::new(table_phys + (index as u64) * 8)).as_u64()
-        as *mut u64;
-    // SAFETY: the frame is zeroed, exclusively ours (freshly allocated),
-    // mapped through the physical map; `index` is in range.
-    unsafe { at.write_volatile(value) };
-}
-
-/// Read one entry of the boot PML4 (its physical address is what
-/// `mem::boot_table` reports; the entry sits in the physical map).
-fn read_entry(table_phys: u64, index: usize) -> Option<u64> {
-    let at = mem::phys_to_virt(x86_64::PhysAddr::new(table_phys + (index as u64) * 8)).as_u64()
-        as *const u64;
-    // SAFETY: the boot PML4 is machine-wide and mapped; the entry is in range.
-    unsafe { Some(at.read_volatile()) }
 }
 
 /// Bring the APs up, up to `count` CPUs total (the BSP included): for each
@@ -387,6 +297,8 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
         (mb(trampoline::MB_MAGIC_OFF) as *mut u32).write_volatile(trampoline::MB_MAGIC);
     }
 
+    cpu.ipi.stopped.store(false, Ordering::Release);
+    tscsync::reset(cpu);
     let started = rdtsc();
     lapic::send_init(apic_id);
     spin_for(ms_cycles * 10); // the SDM's 10 ms INIT-to-SIPI wait
@@ -397,9 +309,30 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     // The AP either publishes `online` (Release) or never comes: wait a
     // generous second of ticks, then leave it offline and carry on.
     let bound = super::clock::cycles_per_tick() * 100;
+    let mut checked = false;
     while rdtsc().wrapping_sub(started) < bound {
         if cpu.online.load(Ordering::Acquire) {
             return true;
+        }
+        // The AP is waiting for its clock to be checked: do it once, and
+        // refuse a CPU whose TSC does not read like ours.
+        if !checked && tscsync::ap_ready(cpu) {
+            checked = true;
+            match tscsync::bsp_side(cpu, started, bound) {
+                Some(skew) if skew <= tsc_tolerance() => tscsync::accept(cpu),
+                Some(skew) => {
+                    // Still in its exchange loop (it never published
+                    // `online`), so the INIT parks it for certain and the
+                    // area stays reusable.
+                    lapic::send_init(apic_id);
+                    SKEW_REFUSALS.fetch_add(1, Ordering::Relaxed);
+                    serial_println!(
+                        "HW:SMP:TSC:SKEW cpu{index} apic={apic_id:#x} {skew} cycles, refused"
+                    );
+                    return false;
+                }
+                None => break,
+            }
         }
         spin_loop();
     }
@@ -409,6 +342,13 @@ fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
     RETIRED.fetch_or(1 << index, Ordering::Relaxed);
     serial_println!("HW:SMP:CPU{index} apic={apic_id:#x} FAIL (no start)");
     false
+}
+
+/// The TSC offset an AP may show against the BSP and still be trusted: 50 us
+/// (a 10 ms tick is `cycles_per_tick`). Above it, time would visibly jump
+/// when a task changes CPU.
+fn tsc_tolerance() -> u64 {
+    super::clock::cycles_per_tick() / 200
 }
 
 /// Busy-wait `cycles` (boot code with interrupts off: no tick, no window).
@@ -480,6 +420,16 @@ extern "C" fn ap_entry() -> ! {
     // Re-fetch: the inits above read this CPU's area themselves.
     let cpu = percpu::current();
     cpu.ipi.tsc_entry.store(rdtsc(), Ordering::Relaxed);
+    // The BSP measures how far this CPU's TSC reads from its own before it
+    // lets the CPU online (a skewed one is parked from there).
+    if !tscsync::ap_side(cpu) {
+        // Refused or unvouched for: the BSP parks this CPU with INIT; until
+        // it lands (or forever, if nobody is left to) it halts here.
+        loop {
+            x86_64::instructions::interrupts::disable();
+            x86_64::instructions::hlt();
+        }
+    }
     cpu.online.store(true, Ordering::Release);
     // Idle with interrupts ON: the handlers that can reach this CPU are the
     // window-safe set (no locks, no allocation, no task switch), so a
