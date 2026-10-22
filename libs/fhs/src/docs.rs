@@ -13,6 +13,10 @@ pub const OS_DOCS: &str = "/docs/os";
 /// image build.
 pub const README: &str = "/docs/os/README.md";
 
+/// The documentation index (`docs/index.md`), the page the Docs app's Home
+/// button and its welcome page lead to. Written by the image build.
+pub const INDEX: &str = "/docs/os/index.md";
+
 /// Installed apps' documentation, one `<system_name>/` directory each: the
 /// package's `docs/*.md`, replaced as a whole on upgrade and deleted on
 /// removal. 0755 root; written only by `pkgd`.
@@ -26,6 +30,7 @@ mod tests {
     fn os_docs_nest_under_the_root() {
         assert!(OS_DOCS.starts_with(DOCS_ROOT));
         assert!(README.starts_with(OS_DOCS));
+        assert!(INDEX.starts_with(OS_DOCS));
         assert!(DOCS_APPS.starts_with(DOCS_ROOT));
     }
 }

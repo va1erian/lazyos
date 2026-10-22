@@ -1,0 +1,46 @@
+name: docs
+
+# The documentation the Docs app shows on the guest (`docs/**/*.md`): every
+# Rhai code block must compile, every relative link must point at a file, and
+# the Docs app's own link and history logic is host-tested.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "tools/docs/**"
+      - "xui-app/docs/**"
+      - "libs/rhai-lazy/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "tools/docs/**"
+      - "xui-app/docs/**"
+      - "libs/rhai-lazy/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
+      - name: Rhai snippets compile and links resolve
+        run: python tools/docs/check_snippets.py
+
+      - name: Docs app link and history logic
+        run: cargo test --manifest-path xui-app/Cargo.toml -p xui-docs --lib
