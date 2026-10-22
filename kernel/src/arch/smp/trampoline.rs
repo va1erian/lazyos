@@ -16,6 +16,24 @@
 //! kernel-half `ap_entry`. Interrupts stay off throughout; the AP's idle
 //! loop turns them on, nothing here does.
 //!
+//! **NMIs.** An NMI cannot be masked, and the platform can raise one at any
+//! CPU at any time (QEMU's `inject-nmi`, a board's NMI button; LINT1 is
+//! masked by the INIT until `ap_entry` programs it). With INIT's `IDTR` (base
+//! 0) it would run whatever the real-mode IVT at physical 0 names, and in
+//! protected or long mode triple-fault the machine. So the blob's **first
+//! instruction**
+//! loads `IDTR` with the early NMI table at `0x0E60`, laid out so one table
+//! serves all three modes: the real-mode IVT's vector 2 at `+8`, the 32-bit
+//! IDT's at `+16` and the 64-bit IDT's at `+32` do not overlap. Each points at
+//! a stub that counts the NMI (`0x0E9C`) and returns. The 32-bit stub also
+//! covers the three instructions between `CR0.PE` and the far return, when
+//! `CS` still holds the real-mode `0x0800`, which `iretd` could not reload:
+//! it resumes at `smp_prot` instead (everything those instructions did is
+//! redone there). The selectors are chosen so the 64-bit gate stays valid
+//! once `ap_entry` loads the kernel's GDT (0x08 code, 0x10 data in both
+//! tables), until it loads the kernel's IDT before leaving this page's
+//! identity mapping. What is left is the instruction before the `lidt`.
+//!
 //! Page layout (offsets from `0x8000`):
 //!
 //! | Offset | Content |
@@ -25,6 +43,10 @@
 //! | `0x0E00` | the temp GDT, five 8-byte entries |
 //! | `0x0E30` | the GDTR (`u16` limit, `u32` base patched by the BSP) |
 //! | `0x0E40` | retf patch slots: `u16` CS₁, `u16` offset₁, `u32` CS₂, `u32` offset₂ |
+//! | `0x0E50` | the early `IDTR` (`u16` limit 47, `u32` base `0x8E60`) |
+//! | `0x0E60` | the early NMI table (IVT/IDT32/IDT64 vector 2, BSP-patched) |
+//! | `0x0E98` | set once the AP is past its `lidt` (`u32`) |
+//! | `0x0E9C` | NMIs the early stubs took (`u32`) |
 //! | `0x0F00` | the mailbox: magic `u32`, then `CR3`, `ap_entry`, `Cpu` area, stack top |
 //!
 //! Mailbox fields: magic `0x5A5A_0001` (checked before the blob trusts the
@@ -41,15 +63,33 @@ extern "C" {
     pub static smp_prot: u8;
     pub static smp_long_stub: u8;
     pub static smp_trampoline_end: u8;
+    pub static smp_nmi16: u8;
+    pub static smp_nmi32: u8;
+    pub static smp_nmi64: u8;
 }
 
 /// The temp GDT's page offset (five 8-byte entries, base 0):
-/// `0x00` null · `0x08` 32-bit code (`0x00CF9A00`) · `0x10` data, base
-/// `0x8000`, limit `0xFFFF` bytes (`0x8000FFFF` / `0x00009200`) — so the
-/// same fixed offsets keep addressing the page in 32-bit mode · `0x18`
+/// `0x00` null · `0x08` 64-bit code (`0x0000FFFF` / `0x00AF9B00`) · `0x10`
 /// data, base 0, 4 GiB (`0x0000FFFF` / `0x00CF9200`, the stack's SS) ·
-/// `0x20` 64-bit code (`0x0000FFFF` / `0x00AF9B00`).
+/// `0x18` data, base `0x8000`, limit `0xFFFF` bytes (`0x8000FFFF` /
+/// `0x00009200`) — so the same fixed offsets keep addressing the page in
+/// 32-bit mode · `0x20` 32-bit code (`0x00CF9A00`). Code at 0x08 and the
+/// stack's data at 0x10 match the kernel GDT's, so a frame the early NMI
+/// stub resumes stays loadable after `ap_entry` switches tables.
 pub const GDT_OFF: u32 = 0x0E00;
+/// The selectors above.
+pub const SEL_CODE64: u16 = 0x08;
+pub const SEL_CODE32: u16 = 0x20;
+/// The early `IDTR` (limit, then base) and the table it names.
+pub const EARLY_IDTR_OFF: u32 = 0x0E50;
+pub const EARLY_IDT_OFF: u32 = 0x0E60;
+/// The table's limit: it ends with the 64-bit vector 2 (`+32..+48`).
+pub const EARLY_IDT_LIMIT: u16 = 47;
+/// NMIs the early stubs took (a `u32` the suite reads).
+pub const EARLY_NMIS_OFF: u32 = 0x0E9C;
+/// Set to 1 by the blob right after its `lidt` (the BSP clears it per AP):
+/// the suite's NMI storm starts there, never in the instruction before.
+pub const EARLY_STARTED_OFF: u32 = 0x0E98;
 /// The GDTR's page offset: a `u16` limit, then the `u32` base the BSP
 /// patches to `0x8000 + GDT_OFF`.
 pub const GDTR_OFF: u32 = 0x0E30;
@@ -77,9 +117,14 @@ global_asm!(
     .global smp_prot
     .global smp_long_stub
     .global smp_trampoline_end
+    .global smp_nmi16
+    .global smp_nmi32
+    .global smp_nmi64
 
 smp_trampoline_start:
     .code16
+    lidt cs:[0x0E50]                /* first: the early NMI table (above) */
+    mov dword ptr cs:[0x0E98], 1    /* past it (the suite's NMI storm waits) */
     cli
     xor ax, ax
     mov ds, ax                      /* IVT-safe for the first writes */
@@ -106,9 +151,9 @@ smp_trampoline_start:
 
     .code32
 smp_prot:
-    mov ax, 0x0010                  /* ds: base 0x8000, the fixed offsets live */
+    mov ax, 0x0018                  /* ds: base 0x8000, the fixed offsets live */
     mov ds, ax
-    mov ax, 0x0018                  /* ss: base 0, the 0x8D00 stack */
+    mov ax, 0x0010                  /* ss: base 0, the 0x8D00 stack */
     mov ss, ax
     mov esp, 0x00008D00
 
@@ -152,22 +197,58 @@ smp_long_stub:
 9:  hlt
     jmp 9b
 
+    /* The early NMI stubs (see the module doc): count, return. */
+    .code16
+smp_nmi16:
+    lock inc dword ptr cs:[0x0E9C]
+    .byte 0xCF                      /* a 16-bit iret (spelled out, like the
+                                       retf above) */
+
+    .code32
+smp_nmi32:
+    lock inc dword ptr ss:[0x8E9C]  /* ss: base 0 in every window */
+    cmp word ptr [esp + 4], 0x0020
+    je 1f
+    /* CS is the real-mode 0x0800 (between CR0.PE and the far return): it
+       cannot be reloaded, so resume where that return goes. */
+    push eax
+    movzx eax, word ptr ss:[0x8E42] /* smp_prot's patched offset */
+    mov [esp + 4], eax
+    mov dword ptr [esp + 8], 0x0020
+    pop eax
+1:  iretd
+
+    .code64
+smp_nmi64:
+    lock inc dword ptr [0x8E9C]     /* the identity-mapped page */
+    iretq
+
     /* The temp GDT, the GDTR and the patch slots: data at the fixed offsets
        the code references. The mailbox (0x0F00) needs no source bytes — the
        BSP fills it in the copied page. */
     .org 0x0E00
     .quad 0x0000000000000000        /* 0x00 null */
-    .quad 0x00CF9A000000FFFF        /* 0x08 32-bit code */
-    .quad 0x000092008000FFFF        /* 0x10 data, base 0x8000, 64 KiB */
-    .quad 0x00CF92000000FFFF        /* 0x18 data, base 0, 4 GiB */
-    .quad 0x00AF9B000000FFFF        /* 0x20 64-bit code */
+    .quad 0x00AF9B000000FFFF        /* 0x08 64-bit code */
+    .quad 0x00CF92000000FFFF        /* 0x10 data, base 0, 4 GiB */
+    .quad 0x000092008000FFFF        /* 0x18 data, base 0x8000, 64 KiB */
+    .quad 0x00CF9A000000FFFF        /* 0x20 32-bit code */
     .org 0x0E30
     .word 5 * 8 - 1                 /* GDTR limit */
     .long 0                         /* GDTR base: patched to 0x8000+0x0E00 */
     .org 0x0E40
     .long 0                         /* the retf slots: all BSP-patched */
     .long 0
+    .long 0
+    .org 0x0E50
+    .word 47                        /* the early IDTR: limit ... */
+    .long 0x8E60                    /* ... and base (0x8000 + 0x0E60) */
+    .org 0x0E60
+    .fill 48, 1, 0                  /* the early NMI table: BSP-patched */
+    .org 0x0E98
+    .long 0                         /* past the lidt */
+    .long 0                         /* NMIs the early stubs took */
 smp_trampoline_end:
+
     .org 0x1000                     /* the blob claims its whole page */
     "#
 );

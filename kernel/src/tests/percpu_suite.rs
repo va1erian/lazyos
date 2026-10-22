@@ -12,12 +12,12 @@ use core::sync::atomic::Ordering;
 /// state through this one load, so the self-pointer is the invariant.
 pub fn self_pointer_names_the_area() -> Result<(), String> {
     let cpu = percpu::current();
-    check!(cpu.index == 0, "boot CPU index is {}", cpu.index);
+    check!(cpu.index() == 0, "boot CPU index is {}", cpu.index());
     check!(cpu.online.load(Ordering::Acquire), "boot CPU is not online");
     check!(
-        cpu.self_ptr == cpu as *const _ as u64,
+        cpu.self_ptr.load(Ordering::Relaxed) == cpu as *const _ as u64,
         "gs:[0] is {:#x}, the area is at {:#x}",
-        cpu.self_ptr,
+        cpu.self_ptr.load(Ordering::Relaxed),
         cpu as *const _ as u64
     );
     check!(
@@ -66,13 +66,13 @@ pub fn entry_asm_offsets_match_the_layout() -> Result<(), String> {
 /// follow it.
 pub fn set_kernel_stack_targets_this_cpu() -> Result<(), String> {
     let cpu = percpu::current();
-    let top = cpu.kernel_stack.as_ptr() as u64 + 4096;
-    let boot = cpu.kernel_stack.as_ptr() as u64 + percpu::KERNEL_STACK_SIZE as u64;
+    let boot = cpu.kernel_stack_top();
+    let top = boot - percpu::KERNEL_STACK_SIZE as u64 + 4096;
     crate::arch::gdt::set_kernel_stack(top);
     check!(
-        cpu.tss().privilege_stack_table[0].as_u64() == top,
+        cpu.rsp0() == top,
         "RSP0 is {:#x}, expected {top:#x}",
-        cpu.tss().privilege_stack_table[0].as_u64()
+        cpu.rsp0()
     );
     // Restore what the boot installed (the entry paths use RSP0).
     crate::arch::gdt::set_kernel_stack(boot);
@@ -92,7 +92,7 @@ pub fn areas_are_isolated() -> Result<(), String> {
     cpu.irqoff.start.store(1234, Ordering::Relaxed);
     cpu.irqoff.nr.store(3, Ordering::Relaxed);
     cpu.irqoff.task.store(me, Ordering::Relaxed);
-    cpu.syscall.stack = 0x4000_0000;
+    let stack = cpu.syscall.stack.swap(0x4000_0000, Ordering::Relaxed);
     cpu.window.uncharged.fetch_add(4, Ordering::Relaxed);
 
     let other = percpu::area(1).expect("area 1 must exist");
@@ -111,7 +111,8 @@ pub fn areas_are_isolated() -> Result<(), String> {
         "area 1 saw an interrupts-off span"
     );
     check!(
-        other.syscall.stack == 0 && other.window.uncharged.load(Ordering::Relaxed) == 0,
+        other.syscall.stack.load(Ordering::Relaxed) == 0
+            && other.window.uncharged.load(Ordering::Relaxed) == 0,
         "area 1 saw syscall/window state"
     );
 
@@ -122,7 +123,8 @@ pub fn areas_are_isolated() -> Result<(), String> {
     cpu.irqoff.start.store(0, Ordering::Relaxed);
     cpu.irqoff.nr.store(u64::MAX, Ordering::Relaxed);
     cpu.irqoff.task.store(0, Ordering::Relaxed);
-    cpu.syscall.stack = 0;
+    cpu.syscall.stack.store(stack, Ordering::Relaxed);
+
     cpu.window.uncharged.store(0, Ordering::Relaxed);
     Ok(())
 }

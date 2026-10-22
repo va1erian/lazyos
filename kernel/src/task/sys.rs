@@ -41,6 +41,10 @@ pub unsafe fn put_frame_word(rsp: u64, index: usize, value: u64) {
 #[inline]
 pub unsafe fn kernel_stack_word(slot: isize) -> u64 {
     core::ptr::read_volatile(
-        (crate::arch::percpu::current().syscall.stack as *const u64).offset(slot),
+        (crate::arch::percpu::current()
+            .syscall
+            .stack
+            .load(core::sync::atomic::Ordering::Relaxed) as *const u64)
+            .offset(slot),
     )
 }

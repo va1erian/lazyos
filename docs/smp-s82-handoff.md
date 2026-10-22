@@ -5,6 +5,17 @@ S8.2 work (AP bring-up, IPIs, TLB shootdown), where it stopped, and what to
 do next. The plan of record is [`smp-plan.md`](smp-plan.md) §S8.2; the
 per-CPU inventory is [`architecture/smp-audit.md`](architecture/smp-audit.md).
 
+## Update 2026-10-22 (S8.3 prerequisites closed)
+
+On top of the update below: the declined review items are done — shared
+`&'static Cpu` references, concurrent shootdown senders (sender lock,
+generation-numbered mailboxes, `smp::serve_pending` in every
+interrupts-off wait), nested NMIs dropped off the IST top, an early NMI
+table for an AP's start, the dying-table check (`Cpu::cr3`,
+`smp::others_on_table`), the refused-SIPI timeout test and the panic path's
+area-based gate. [`architecture/smp.md`](architecture/smp.md) has the
+as-built rules S8.3 must keep ("Known gaps (carried into S8.3)").
+
 ## Update 2026-10-22 (after #958 merged)
 
 #958 landed S8.1 and S8.2 on `main`. Since then, on top of it: the shootdown

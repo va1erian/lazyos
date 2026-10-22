@@ -311,6 +311,12 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     // SAFETY: `rsp` is the frame `page_fault_isr` saved; CS is word 17 (after
     // the 15 registers, the error code and RIP).
     let saved_cs = unsafe { core::ptr::read_volatile((rsp + 17 * 8) as *const u64) };
+    // The suite's fault-recovering probes (test kernels only).
+    #[cfg(lazyos_tests)]
+    if crate::arch::probe::recover(rsp) {
+        return rsp;
+    }
+
     // A hypervisor-fabricated fault on the emulated `rep insw` (its CR2 and
     // error code are garbage) aborts that transfer; it must be caught before
     // the COW/demand-zero paths act on the bogus CR2.

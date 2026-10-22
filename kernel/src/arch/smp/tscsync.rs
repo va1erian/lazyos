@@ -42,6 +42,12 @@ fn read_tsc_ordered() -> u64 {
 /// refused CPU can land after the AP finished, and an AP that had marked
 /// itself online by then would be counted as running while parked.
 const ACCEPT: u64 = 4 * ROUNDS + 1;
+/// The AP took the accept and will publish `online` (its compare-exchange
+/// from [`ACCEPT`] won), or the BSP withdrew it at its deadline (its
+/// compare-exchange won): exactly one side moves the state on, so a BSP
+/// that gives up never leaves a parked CPU marked online.
+const CLAIMED: u64 = ACCEPT + 1;
+const WITHDRAWN: u64 = ACCEPT + 2;
 
 /// The AP's half, run on the AP before it publishes `online`; returns
 /// whether the BSP accepted this CPU's clock. Bounded: if the BSP gives up
@@ -85,6 +91,21 @@ pub(super) fn ap_side(cpu: &percpu::Cpu) -> bool {
         cpu.ipi.sy_state.store(base + 4, Ordering::Release);
     }
     wait_for(ACCEPT)
+        && cpu
+            .ipi
+            .sy_state
+            .compare_exchange(ACCEPT, CLAIMED, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+}
+
+/// The BSP gives up on an AP it accepted: `true` if the accept was
+/// withdrawn before the AP claimed it (the AP will not go online), `false`
+/// if the AP claimed it first (it is publishing `online` now).
+pub(super) fn withdraw(cpu: &percpu::Cpu) -> bool {
+    cpu.ipi
+        .sy_state
+        .compare_exchange(ACCEPT, WITHDRAWN, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
 }
 
 /// The BSP's verdict: this AP's clock is acceptable, it may go online.
@@ -112,6 +133,7 @@ pub(super) fn bsp_side(cpu: &percpu::Cpu, started: u64, bound: u64) -> Option<u6
             if rdtsc().wrapping_sub(started) > bound {
                 return false;
             }
+            super::shootdown::serve_pending();
             spin_loop();
         }
         true

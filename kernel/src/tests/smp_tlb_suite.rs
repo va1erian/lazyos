@@ -19,9 +19,9 @@ use core::sync::atomic::Ordering;
 use x86_64::VirtAddr;
 
 /// Where the scratch pages live in the scratch tables.
-const VA: u64 = 0x0000_0010_0000_0000;
+pub(super) const VA: u64 = 0x0000_0010_0000_0000;
 
-fn online_aps() -> Vec<usize> {
+pub(super) fn online_aps() -> Vec<usize> {
     (1..percpu::MAX_CPUS)
         .filter(|&i| percpu::area(i).is_some_and(|cpu| cpu.online.load(Ordering::Acquire)))
         .collect()
@@ -29,39 +29,43 @@ fn online_aps() -> Vec<usize> {
 
 /// The AP's jobs. They run inside the IPI handler: no lock, no allocation,
 /// and every address they touch is mapped when they run.
-fn job_enter(table: u64) -> u64 {
+pub(super) fn job_enter(table: u64) -> u64 {
     crate::mem::switch_to(x86_64::PhysAddr::new(table));
     0
 }
 
-fn job_leave(_: u64) -> u64 {
+pub(super) fn job_leave(_: u64) -> u64 {
     crate::mem::switch_to(crate::mem::boot_table());
     0
 }
 
-fn job_read(va: u64) -> u64 {
+pub(super) fn job_read(va: u64) -> u64 {
     // SAFETY: the BSP maps `va` in the table this AP runs on before asking.
     unsafe { (va as *const u64).read_volatile() }
 }
 
 /// Put a distinguishing word at the start of `frame`.
-fn tag(frame: u64, value: u64) {
+pub(super) fn tag(frame: u64, value: u64) {
     let ptr = crate::mem::phys_to_virt(x86_64::PhysAddr::new(frame)).as_mut_ptr::<u64>();
     // SAFETY: a frame this test owns, reachable through the physical map.
     unsafe { ptr.write_volatile(value) };
 }
 
-fn user_flags() -> x86_64::structures::paging::PageTableFlags {
+pub(super) fn user_flags() -> x86_64::structures::paging::PageTableFlags {
     crate::mem::prot_flags(Prot::READ | Prot::WRITE)
 }
 
-fn pte(table: x86_64::PhysAddr, va: u64) -> Result<u64, String> {
+pub(super) fn pte(table: x86_64::PhysAddr, va: u64) -> Result<u64, String> {
     raw_entry(table, va).ok_or_else(|| format!("{va:#x} is not mapped"))
 }
 
 /// Every online AP runs on `table` and has read `va` (so holds its
 /// translation); returns what they read.
-fn enter_and_read(aps: &[usize], table: x86_64::PhysAddr, va: u64) -> Result<Vec<u64>, String> {
+pub(super) fn enter_and_read(
+    aps: &[usize],
+    table: x86_64::PhysAddr,
+    va: u64,
+) -> Result<Vec<u64>, String> {
     let mut seen = Vec::new();
     for &ap in aps {
         smp::run_on(ap, job_enter, table.as_u64()).ok_or("an AP never ran the enter job")?;
@@ -70,7 +74,7 @@ fn enter_and_read(aps: &[usize], table: x86_64::PhysAddr, va: u64) -> Result<Vec
     Ok(seen)
 }
 
-fn read_all(aps: &[usize], va: u64) -> Result<Vec<u64>, String> {
+pub(super) fn read_all(aps: &[usize], va: u64) -> Result<Vec<u64>, String> {
     aps.iter()
         .map(|&ap| smp::run_on(ap, job_read, va).ok_or_else(|| "an AP never read".into()))
         .collect()
@@ -78,7 +82,7 @@ fn read_all(aps: &[usize], va: u64) -> Result<Vec<u64>, String> {
 
 /// Put every AP back on the boot table. An AP that does not answer is still
 /// on the scratch table, which must then not be freed: the caller leaks it.
-fn leave_all(aps: &[usize]) -> bool {
+pub(super) fn leave_all(aps: &[usize]) -> bool {
     aps.iter().fold(true, |ok, &ap| {
         smp::run_on(ap, job_leave, 0).is_some() && ok
     })
@@ -86,7 +90,7 @@ fn leave_all(aps: &[usize]) -> bool {
 
 /// [`leave_all`] and then free `table`, or keep it (and say so) when an AP
 /// could not be taken off it.
-fn release(aps: &[usize], table: x86_64::PhysAddr) -> Result<(), String> {
+pub(super) fn release(aps: &[usize], table: x86_64::PhysAddr) -> Result<(), String> {
     if leave_all(aps) {
         crate::mem::free_user_table(table);
         Ok(())
@@ -95,7 +99,7 @@ fn release(aps: &[usize], table: x86_64::PhysAddr) -> Result<(), String> {
     }
 }
 
-fn acks(aps: &[usize]) -> Vec<u64> {
+pub(super) fn acks(aps: &[usize]) -> Vec<u64> {
     aps.iter()
         .filter_map(|&ap| percpu::area(ap))
         .map(|cpu| cpu.ipi.sd_ack.load(Ordering::Acquire))
@@ -103,7 +107,12 @@ fn acks(aps: &[usize]) -> Vec<u64> {
 }
 
 /// Each AP acknowledged exactly `by` more shootdowns than at `before`.
-fn advanced_by(aps: &[usize], before: &[u64], by: u64, what: &str) -> Result<(), String> {
+pub(super) fn advanced_by(
+    aps: &[usize],
+    before: &[u64],
+    by: u64,
+    what: &str,
+) -> Result<(), String> {
     let now = acks(aps);
     check!(
         now.iter()

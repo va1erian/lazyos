@@ -10,8 +10,8 @@
 //! switch), so the idle loop services its mailboxes without being able to
 //! race anything. No scheduler runs on an AP yet (S8.3 is the enabled
 //! milestone); no timer is armed (the tick stays the BSP's); nothing runs
-//! user code there yet (TLB shootdowns land with the entry lock in S8.3,
-//! when a second CPU first holds user translations).
+//! user code there yet. TLB shootdowns already reach them (`shootdown`):
+//! every page-table change goes through `mem::tlb` from S8.2 on.
 //!
 //! Configuration (`lazyos.cfg`, [`PREFIX`]): the CPU count is the MADT's
 //! enabled processors, capped by `smp.cpus=N` and by `limit.cpu_max`, whose
@@ -20,24 +20,36 @@
 //! (`run_demo.py --limit cpu_max=N`). `smp.tsc=force` skips the invariance
 //! gate for TCG rigs (which refuse `invtsc`), built into test kernels only.
 
+mod bringup;
 mod ipi;
 mod prepare;
+mod shootdown;
+#[cfg(lazyos_tests)]
+mod testrig;
 mod trampoline;
 mod tscsync;
 
-pub(crate) use ipi::{resched_gate, shootdown_gate, stop_gate};
+pub use ipi::stop_others;
+pub(crate) use ipi::{resched_gate, stop_gate};
+// `serve_pending` is the rule every interrupts-off spin follows (its first
+// caller outside this module is S8.3's entry lock).
+#[allow(unused_imports)]
+pub use shootdown::serve_pending;
+pub(crate) use shootdown::shootdown_gate;
+pub use shootdown::shootdown_others;
 #[cfg(lazyos_tests)]
-pub use ipi::{run_on, stop_cpu_for_test};
-pub use ipi::{shootdown_others, stop_others};
+pub use testrig::{
+    early_hits, early_nmis, early_pause_at, finish_on, nmi_storm, refuse_sipi, retired, run_on,
+    rush_deadline, start_on, stop_all_for_test, stop_cpu_for_test, storm_sent, unretire,
+};
 
 use alloc::vec::Vec;
 use core::arch::x86_64::_rdtsc;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use super::lapic;
-use super::msr;
 use super::percpu;
-use crate::mem;
+use bringup::bring_up_one;
 use prepare::prepare;
 
 /// The `lazyos.cfg` prefix routed here by `fs::bootcfg`.
@@ -107,6 +119,24 @@ pub fn online_cpus() -> usize {
     1 + APS_ONLINE.load(Ordering::Relaxed)
 }
 
+/// The online CPUs other than this one whose `CR3` holds `table` (one bit
+/// per area index): what `mem::free_user_table` refuses to free under. 0
+/// whenever no AP is online, without reading per-CPU state.
+pub fn others_on_table(table: u64) -> u64 {
+    if !ipi::any_ap_online() {
+        return 0;
+    }
+    let me = percpu::current().index() as usize;
+    (0..percpu::MAX_CPUS)
+        .filter(|&index| index != me)
+        .filter(|&index| {
+            percpu::area(index).is_some_and(|cpu| {
+                cpu.online.load(Ordering::Acquire) && cpu.cr3.load(Ordering::Acquire) == table
+            })
+        })
+        .fold(0, |mask, index| mask | 1 << index)
+}
+
 /// The decided CPU count: what the kernel may run on (1 until [`init`]).
 pub fn cpus() -> usize {
     CPUS.load(Ordering::Relaxed)
@@ -123,7 +153,13 @@ fn invariant_tsc() -> bool {
 /// kernels also force the TSC invariance gate (TCG refuses `invtsc`).
 #[cfg(lazyos_tests)]
 pub fn bring_up_for_test(n: usize) {
-    TSC_FORCE.store(true, Ordering::Relaxed);
+    if !TSC_FORCE.swap(true, Ordering::Relaxed) {
+        // What the boot path's gate would have seen (the suite overrides it).
+        serial_println!(
+            "HW:SMP:TSC:INVARIANT={} (forced for the suite)",
+            invariant_tsc()
+        );
+    }
     CPUS.store(n.min(percpu::MAX_CPUS).max(1), Ordering::Relaxed);
     if cpus() > 1 && AP_PML4.load(Ordering::Relaxed) == 0 && prepare().is_none() {
         CPUS.store(1, Ordering::Relaxed);
@@ -146,6 +182,7 @@ pub fn init() {
     // sanity; TCG
     // refuses `invtsc`, so the gate yields to the test-rig override rather
     // than disarming every TCG-based SMP test.
+    serial_println!("HW:SMP:TSC:INVARIANT={}", invariant_tsc());
     if !invariant_tsc() && !TSC_FORCE.load(Ordering::Relaxed) {
         serial_println!("HW:SMP:TSC:NONINV staying single-CPU");
         CPUS.store(1, Ordering::Relaxed);
@@ -227,10 +264,10 @@ pub fn bring_up(count: usize) {
             break;
         };
         if bring_up_one(index, id, ms) {
-            APS_ONLINE.fetch_add(1, Ordering::Relaxed);
             serial_println!(
-                "HW:SMP:CPU{index} apic={id:#x} online (latency={})",
-                entry_latency(index)
+                "HW:SMP:CPU{index} apic={id:#x} online (latency={}, skew={} cycles)",
+                entry_latency(index),
+                percpu::area(index).map_or(0, |c| c.ipi.tsc_skew.load(Ordering::Relaxed))
             );
         }
     }
@@ -240,7 +277,7 @@ pub fn bring_up(count: usize) {
 fn apic_online(id: u32) -> bool {
     (1..percpu::MAX_CPUS)
         .filter_map(percpu::area)
-        .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id == id)
+        .any(|cpu| cpu.online.load(Ordering::Acquire) && cpu.apic_id() == id)
 }
 
 /// Areas given to an AP that timed out: it may still be running on one (a
@@ -267,81 +304,6 @@ fn entry_latency(index: usize) -> u64 {
         return 0;
     };
     rdtsc().wrapping_sub(cpu.ipi.tsc_entry.load(Ordering::Acquire))
-}
-
-/// The INIT-SIPI-SIPI sequence for one AP, and the wait for its online.
-fn bring_up_one(index: usize, apic_id: u32, ms_cycles: u64) -> bool {
-    let Some(area_addr) = percpu::prepare_ap(index) else {
-        return false;
-    };
-    let Some(cpu) = percpu::area(index) else {
-        return false;
-    };
-    cpu.apic_id = apic_id;
-    // The mailbox: per AP, written before the sequence (the AP reads it only
-    // after its SIPI; there is no concurrency until `online` publishes).
-    let mb = |off: u32| -> *mut u64 {
-        (mem::phys_to_virt(x86_64::PhysAddr::new(TRAMPOLINE_PHYS + off as u64)).as_u64())
-            as *mut u64
-    };
-    // SAFETY: the reserved trampoline page's mapped copy; the BSP is the
-    // only writer until the AP is online.
-    unsafe {
-        mb(trampoline::MB_CPU_OFF).write_volatile(area_addr);
-        mb(trampoline::MB_ENTRY_OFF).write_volatile(ap_entry as *const () as u64);
-        mb(trampoline::MB_STACK_OFF)
-            .write_volatile(cpu.kernel_stack.as_ptr() as u64 + percpu::KERNEL_STACK_SIZE as u64);
-        // `CR3` and the magic were written by `prepare` (they are the same
-        // for every AP); rewrite them anyway — the mailbox is one structure.
-        mb(trampoline::MB_CR3_OFF).write_volatile(AP_PML4.load(Ordering::Relaxed));
-        (mb(trampoline::MB_MAGIC_OFF) as *mut u32).write_volatile(trampoline::MB_MAGIC);
-    }
-
-    cpu.ipi.stopped.store(false, Ordering::Release);
-    tscsync::reset(cpu);
-    let started = rdtsc();
-    lapic::send_init(apic_id);
-    spin_for(ms_cycles * 10); // the SDM's 10 ms INIT-to-SIPI wait
-    lapic::send_sipi(apic_id, (TRAMPOLINE_PHYS >> 12) as u8);
-    spin_for(ms_cycles / 5); // 200 us between the two SIPIs
-    lapic::send_sipi(apic_id, (TRAMPOLINE_PHYS >> 12) as u8);
-
-    // The AP either publishes `online` (Release) or never comes: wait a
-    // generous second of ticks, then leave it offline and carry on.
-    let bound = super::clock::cycles_per_tick() * 100;
-    let mut checked = false;
-    while rdtsc().wrapping_sub(started) < bound {
-        if cpu.online.load(Ordering::Acquire) {
-            return true;
-        }
-        // The AP is waiting for its clock to be checked: do it once, and
-        // refuse a CPU whose TSC does not read like ours.
-        if !checked && tscsync::ap_ready(cpu) {
-            checked = true;
-            match tscsync::bsp_side(cpu, started, bound) {
-                Some(skew) if skew <= tsc_tolerance() => tscsync::accept(cpu),
-                Some(skew) => {
-                    // Still in its exchange loop (it never published
-                    // `online`), so the INIT parks it for certain and the
-                    // area stays reusable.
-                    lapic::send_init(apic_id);
-                    SKEW_REFUSALS.fetch_add(1, Ordering::Relaxed);
-                    serial_println!(
-                        "HW:SMP:TSC:SKEW cpu{index} apic={apic_id:#x} {skew} cycles, refused"
-                    );
-                    return false;
-                }
-                None => break,
-            }
-        }
-        spin_loop();
-    }
-    // Park it, and never hand its area out again: an AP that started but
-    // never published may still be running on it.
-    lapic::send_init(apic_id);
-    RETIRED.fetch_or(1 << index, Ordering::Relaxed);
-    serial_println!("HW:SMP:CPU{index} apic={apic_id:#x} FAIL (no start)");
-    false
 }
 
 /// The TSC offset an AP may show against the BSP and still be trusted: 50 us
@@ -371,72 +333,4 @@ fn spin_loop() {
 fn rdtsc() -> u64 {
     // SAFETY: reads the CPU's TSC; no memory or privilege effects.
     unsafe { _rdtsc() }
-}
-
-/// The AP's first kernel instruction: long mode, its own stack, `%gs` base
-/// already pointed at its area by the trampoline.
-extern "C" fn ap_entry() -> ! {
-    // From here on the kernel half is all this CPU needs: drop the trampoline's
-    // page table for the boot table (the machine-wide kernel half). The temp
-    // GDT at 0x8E00 is unmapped after this, which is fine: interrupts are off
-    // and no segment register is loaded until `init_cpu` below.
-    mem::switch_to(mem::boot_table());
-    // `EFER.NXE` is per-CPU MSR state; the trampoline already set it (the
-    // kernel half's NX bits fault without it), this keeps it explicit.
-    const EFER_NXE: u64 = 1 << 11;
-    let efer = msr::read(msr::IA32_EFER);
-    msr::write(msr::IA32_EFER, efer | EFER_NXE);
-    // This CPU's own GDT, TSS and stacks (its area), then `%gs` again: the
-    // selector loads in `init_cpu` reset the hidden GS base to 0.
-    let area_addr = percpu::current().self_ptr;
-    // SAFETY: this AP owns its offline area (`prepare_ap`); nothing else
-    // touches it until `online` is published below, and the AP has left the
-    // trampoline's code and tables behind.
-    unsafe {
-        super::gdt::init_cpu(&mut *(area_addr as *mut percpu::Cpu));
-    }
-    percpu::set_gs_base(area_addr);
-    // The machine-wide IDT: an AP starts with IDTR = 0.
-    if !super::idt::load_on_this_cpu() {
-        loop {
-            x86_64::instructions::hlt();
-        }
-    }
-    // Without the serial lock: if the BSP's timeout INIT stopped this CPU
-    // inside a locked print, the BSP's next print would deadlock.
-    {
-        use core::fmt::Write;
-        let index = percpu::current().index;
-        let _ = writeln!(
-            super::raw_serial::RawSerial,
-            "HW:SMP:CPU{index} entered long mode"
-        );
-    }
-    mem::wc::pat_this_cpu();
-    super::cpu::init();
-    super::linux::init();
-    lapic::init_ap_local();
-
-    // Re-fetch: the inits above read this CPU's area themselves.
-    let cpu = percpu::current();
-    cpu.ipi.tsc_entry.store(rdtsc(), Ordering::Relaxed);
-    // The BSP measures how far this CPU's TSC reads from its own before it
-    // lets the CPU online (a skewed one is parked from there).
-    if !tscsync::ap_side(cpu) {
-        // Refused or unvouched for: the BSP parks this CPU with INIT; until
-        // it lands (or forever, if nobody is left to) it halts here.
-        loop {
-            x86_64::instructions::interrupts::disable();
-            x86_64::instructions::hlt();
-        }
-    }
-    cpu.online.store(true, Ordering::Release);
-    // Idle with interrupts ON: the handlers that can reach this CPU are the
-    // window-safe set (no locks, no allocation, no task switch), so a
-    // delivered IPI cannot race anything and its mailbox is serviced
-    // promptly. No scheduler and no timer runs here until S8.3.
-    loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
-    }
 }

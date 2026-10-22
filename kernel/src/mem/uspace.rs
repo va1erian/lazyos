@@ -133,6 +133,13 @@ pub fn switch_to(table: PhysAddr) {
             x86_64::registers::control::Cr3Flags::empty(),
         );
     }
+    // Published after the write: a CPU whose published table is no longer
+    // `T` has left `T`, and (no PCID) its cached walks of `T` with it, which
+    // is what lets `free_user_table` check no other CPU still runs on a
+    // table it frees.
+    crate::arch::percpu::current()
+        .cr3
+        .store(table.as_u64(), core::sync::atomic::Ordering::Release);
 }
 
 // Copy-on-write: a software bit in the (otherwise unused) page-table entry flags
@@ -203,6 +210,17 @@ pub(super) unsafe fn count_leaves(phys: u64, level: u8) -> usize {
 /// so the caller must ensure no other task still uses `table` (e.g. threads
 /// created with `clone(CLONE_VM)`).
 pub fn free_user_table(table: PhysAddr) -> usize {
+    // The page-table frames below go back to the pool with no shootdown:
+    // sound only while no other CPU runs on `table` (an idle CPU sits on
+    // the boot table; docs/architecture/smp.md, "Dying address spaces").
+    // A CPU still on it would walk freed frames: refuse loudly.
+    let others = crate::arch::smp::others_on_table(table.as_u64());
+    assert!(
+        others == 0,
+        "mem: freeing page table {:#x} while CPUs {others:#x} still run on it",
+        table.as_u64()
+    );
+
     // Whatever user memory was charged against this space goes back to its
     // uid first (issue #265): every way a space dies (exit, a failed load, the
     // image `execve` replaced) comes through here, and a recycled PML4 frame
