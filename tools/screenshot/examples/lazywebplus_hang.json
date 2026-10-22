@@ -4,10 +4,6 @@
   "timeout": 600
  },
  {
-  "wait_for": "WEBPLUS:UP",
-  "timeout": 300.0
- },
- {
   "wait_for": "WEBPLUS:UP:PASS",
   "timeout": 300.0
  },
@@ -64,7 +60,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
   "timeout": 120
  },
  {
@@ -102,7 +98,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:GONE:",
+  "wait_for": "WEBD:NOTE:PROCESS:EXIT:web:",
   "timeout": 60
  },
  {
@@ -130,7 +126,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
   "timeout": 120,
   "occurrence": 2
  },
@@ -173,7 +169,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
   "timeout": 120,
   "occurrence": 3
  },
@@ -216,7 +212,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
   "timeout": 120,
   "occurrence": 4
  },
@@ -262,7 +258,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:WEBPROCESS:UNRESPONSIVE:",
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
   "timeout": 120,
   "occurrence": 5
  },
@@ -287,7 +283,7 @@
   "retries": 2
  },
  {
-  "wait_for": "WEBPLUS:FAIL:webprocess:stopped",
+  "wait_for": "WEBD:LOST view=",
   "timeout": 60
  },
  {
@@ -297,8 +293,40 @@
   "shot": "h06_stopped"
  },
  {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webplus/hang.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "WEBPLUS:LOAD:https://theoldnet.com/webplus/hang.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "WEBPLUS:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 6
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "h07_recovered"
+ },
+ {
   "click_at": {
-   "target": "title:hang:spinning - LazyWeb+",
+   "target": "title:hang:ready - LazyWeb+",
    "offset": [
     491,
     0

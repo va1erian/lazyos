@@ -4,9 +4,11 @@ issue #862).
 One boot of the image `run.py` builds: the page `https://theoldnet.com/webplus/hang.html`; a click on
 its button starts a loop that never ends. The window must say so (a bar), the bar's Wait must put it
 away, the toolbar's Reload must end the stuck process and load the page again in a new one, and
-after a second hang the bar's Stop must end that process and leave the page stopped. The shots are
-for a person to read: the bar over the page (`h01_bar`), after Wait (`h02_waited`), the page again
-(`h03_reloaded`), the bar once more (`h04_bar_again`) and the stopped page (`h05_stopped`).
+after a second hang the bar's Stop must end that process and leave the page stopped (webd reports the
+view lost); the next load makes a new view and the page loads in it. The engine's markers are webd's
+(`WEBD:NOTE:...`, `WEBD:LOST`). The shots are for a person to read: the bar over the page (`h01_bar`),
+after Wait (`h02_waited`), the page again (`h03_reloaded`), the cycles (`h04_cycles`), the bar once more
+(`h05_bar_again`), the stopped page (`h06_stopped`) and the page loaded again (`h07_recovered`).
 
 Regenerate the checked-in example with `python tools/webplus/hang_session.py --write`.
 """
@@ -45,7 +47,7 @@ def hang(timeout: float = 300.0) -> list[dict]:
         {"wait": 1.0},
         # The loop starts; WebKit's ping goes unanswered after six seconds and the bar comes up.
         s.page_click(ready, SPIN, timeout, titled(h.SPINNING)),
-        wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120),
+        wait(f"{j.NOTE}WEBPROCESS:UNRESPONSIVE:", 120),
         wait(f"{j.P}:HANG:SHOW", 30),
         {"wait": 1.5},
         {"shot": "h01_bar"},
@@ -57,7 +59,7 @@ def hang(timeout: float = 300.0) -> list[dict]:
         # The toolbar's Reload is still a way out: the stuck process ends and the page loads in a new one.
         {"click_at": {"window": spinning, "widget": "reload"}, "timeout": timeout,
          "until": f"{j.P}:HANG:ANSWER:reload", "retries": 2},
-        wait(f"{j.P}:WEBPROCESS:GONE:", 60),
+        wait(f"{j.NOTE}PROCESS:EXIT:web:", 60),
         wait(titled(h.READY), occurrence=2),
         {"wait": 2.0},
         {"shot": "h03_reloaded"},
@@ -65,7 +67,7 @@ def hang(timeout: float = 300.0) -> list[dict]:
         # keeps its proxy (patch 0021), and the judge counts what was kept.
         *[step for cycle in range(CYCLES) for step in (
             s.page_click(ready, SPIN, timeout, titled(h.SPINNING)),
-            wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + cycle),
+            wait(f"{j.NOTE}WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + cycle),
             wait(f"{j.P}:HANG:SHOW", 30, occurrence=2 + cycle),
             {"wait": 1.0},
             {"click_at": {"window": spinning, "widget": "hang_reload"}, "timeout": timeout,
@@ -76,16 +78,22 @@ def hang(timeout: float = 300.0) -> list[dict]:
         {"shot": "h04_cycles"},
         # Hung once more: this time the bar's Stop.
         s.page_click(ready, SPIN, timeout, titled(h.SPINNING)),
-        wait(f"{j.P}:WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + CYCLES),
+        wait(f"{j.NOTE}WEBPROCESS:UNRESPONSIVE:", 120, occurrence=2 + CYCLES),
         wait(f"{j.P}:HANG:SHOW", 30, occurrence=2 + CYCLES),
         {"wait": 1.5},
         {"shot": "h05_bar_again"},
         {"click_at": {"window": spinning, "widget": "hang_stop"}, "timeout": timeout,
          "until": f"{j.P}:HANG:ANSWER:stop", "retries": 2},
-        wait(f"{j.P}:FAIL:webprocess:stopped", 60),
+        # The process ends and webd reports the view lost; the window blanks the page.
+        wait("WEBD:LOST view=", 60),
         {"wait": 2.0},
         {"shot": "h06_stopped"},
-        {"click_at": {"target": f"title:{spinning}", "offset": list(s.CLOSE_AT_NORMAL)},
+        # The next load makes a new view with a new page process.
+        *s.navigate(h.PAGE, loaded(h.PAGE), timeout),
+        wait(titled(h.READY), occurrence=3 + CYCLES),
+        {"wait": 2.0},
+        {"shot": "h07_recovered"},
+        {"click_at": {"target": f"title:{ready}", "offset": list(s.CLOSE_AT_NORMAL)},
          "timeout": 60, "until": f"{j.P}:QUIT:", "retries": 2},
         {"wait": 9.0},
         {"quit": True},
