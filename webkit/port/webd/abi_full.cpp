@@ -83,6 +83,12 @@ bool fullConfig(const webd_view_config& local, ViewConfig& vc, bool& deltas)
         }
     }
     vc.memoryOnly = covers(local, offsetof(webd_view_config, memory_only), sizeof local.memory_only) && local.memory_only == 1;
+    // Anything but 0 is "no network": a field that is not exactly "off" fails closed.
+    vc.noNetwork = covers(local, offsetof(webd_view_config, no_network), sizeof local.no_network) && local.no_network != 0;
+    if (vc.noNetwork && (vc.features & WEBD_FEATURE_BLOCKING)) {
+        say("FULL:REFUSED:no_network with content blocking (the lists' rebuilds would drop the lock)");
+        return false;
+    }
     deltas = covers(local, offsetof(webd_view_config, deltas), sizeof local.deltas) && local.deltas == 1;
     if (covers(local, offsetof(webd_view_config, user_agent_suffix), sizeof local.user_agent_suffix) && local.user_agent_suffix
         && *local.user_agent_suffix && !cleanSuffix(local.user_agent_suffix, vc.userAgentSuffix))

@@ -360,6 +360,14 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   `https`; anything else (`file:`) loads nothing and the next page state carries an error (`FULL:BASE:REFUSED`).
   Its navigation is asked about (`webd_ui_navigate`, the base URL, kind `other`) like any other, and relative
   addresses in the page resolve against the base.
+* *No network* (`no_network = 1`, a client without the network scope): the light views' lock list
+  (`lightLockFilter`) goes on the page's own controller before the page exists, so the view waits for the lock
+  like a light view and is not made without it. The navigation policy is still the service's
+  (`webd_ui_navigate`), but the list also blocks the main frame's document loads: an allowed link or `load` to an
+  `http:` address fails with "The URL was blocked by a content blocker" (code 104) and nothing reaches the server
+  (`nonet`). With `WEBD_FEATURE_BLOCKING` it is refused (`view_lost(REFUSED)`): `blocking.cpp` rebuilds the
+  controller's lists at navigations and would drop the lock. Such a view groups only with views without network
+  (related pages script each other).
 * *User agent suffix.* At most 64 printable ASCII bytes (else `CONFIG:IGNORED:user_agent_suffix`). With
   site-specific quirks on, the page's process sends PlayStation's fixed agent for every address
   (`WebPagePlayStation.cpp`, `platformUserAgent`), so `WKPageSetApplicationNameForUserAgent` never reached a
@@ -391,7 +399,7 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   anything reaches the UI process: a view without a persistent profile (none, or `memory_only`) can never notify.
 
 ```bash
-LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify
+LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run-webd full profiles ask dialog download popup deltas blocking notify nonet
 ```
 
 | mode | what it asserts |
@@ -404,6 +412,7 @@ LAZYOS_JSC_VOLUME=<yours> python tools/webkit/port.py --only WebProcess NetworkP
 | `popup` | a script's `window.open` is `new_window(gesture 0)`, a click's `new_window(gesture 1)`, a `target=_blank` link is asked first and is `new_window(gesture 1)`; nothing loads |
 | `deltas` | a tall page and two wheel turns: a delta that moved the picture arrives, a scroll call before every post, and the picture rebuilt from the frame and the deltas equals the whole frame `refresh` sends, pixel for pixel |
 | `blocking` | a rule list compiled into the profile blocks `blocked.png` (the server never sees it, `blocked == 1`); a list never stored is `NOT_STORED`; a page the service excepts requests it; a forgotten list blocks nothing |
+| `nonet` | a control full view's page (`@import`, `<img>`, fetch, XHR, a script's picture) reaches the server; the same page in a `no_network` view (scripts on, `about:blank` base) makes no request; a denied link is asked and requests nothing; an allowed link and an allowed `load` are blocked by the lock (error, no request); an inert page still loads; `no_network` with blocking is refused |
 | `notify` | two views of one origin ask; one allowed, the other still pending, then dismissed (`denied`); the allowed page's notification is shown with its origin, title and body, and hears shown and clicked |
 
 ### The program: `webd-app`

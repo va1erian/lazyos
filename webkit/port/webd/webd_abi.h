@@ -85,6 +85,12 @@ typedef struct webd_view_config {
     // would add "/<WebKit version>"), and the view has no site-specific quirks, which on this port put WebKit's
     // fixed agent on every request whatever the page's own is (WebPagePlayStation.cpp).
     const char* user_agent_suffix;
+    // 1: the light views' network lock (the content rule list that blocks every load but data:, blob: and about:,
+    // light.cpp) is attached to this full view too: no subresource, script request or document load of the page
+    // reaches a network, whatever webd_ui_navigate answers. A full view made with it waits for the lock like a
+    // light view (refused if the lock failed). With WEBD_FEATURE_BLOCKING it is refused (view_lost(REFUSED)):
+    // the blocking lists are rebuilt on the page's controller at every navigation and could drop the lock.
+    int32_t no_network;
 } webd_view_config;
 
 // webd_view_config.features (the values are lazyos_ui.h's LZW_FEATURE_*, which abi.cpp asserts).
