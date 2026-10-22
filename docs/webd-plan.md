@@ -1,6 +1,6 @@
 # webd: one daemon that owns WebKit, and a small API for everyone else
 
-Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22**, pending the measurements recorded under "P4 as built", "Measured". Builds on W4/W5/W6 of
+Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22** (see "P4 as built": the overscan bands are missing under webd). Builds on W4/W5/W6 of
 [`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
@@ -747,10 +747,40 @@ client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `
 
 #### Measured
 
-TODO(numbers)
+One run each of `python tools/webplus/frame_run.py --perf` (2560x1440, LazyWeb+ maximized at the 1280x720
+layout times two, the stand-in server's tall page, the wheel turned for 20 s at 3 notches every 50 ms; QEMU with
+WHPX, 4 GiB), on this branch and on its parent (02f0b8317: the in-process LazyWeb+, the same WebKit build, an
+image with no webd), same machine, one after the other. Logs: `shots/p4-evidence/frame-{new,base}*` of the run
+(not committed).
+
+| | in-process (before) | client of webd (after) |
+|---|---|---|
+| paints during the 20 s | 486 (24.3/s), 481 deltas | 487 (24.4/s), 482 deltas |
+| wheel to the engine's first damage (`w2d`) | 3.6 ms average, 33.9 ms worst | 3.6 ms average, 19.2 ms worst |
+| window updates (`INFO:WINDOW`) | 491; apply 58 us, draw 634 us a draw | 491; apply 45 us, draw 844 us a draw |
+| frames drawn while scrolling (`INFO:SMOOTH`) | 60-62 a second, longest gap 20-43 ms | 58-62 a second, longest gap 22-81 ms (one second) |
+| checkerboard rows while scrolling | 0 (the engine painted 32-41 bands a second) | about 6,000 a second, 11% of the rows shown (no band painted) |
+| the engine's post stage | 762 us a paint (copy into the window's mailbox) | 511 us a paint (copy into a slot) |
+| CPU (`PERF:CPU`, looks above 20%) | `lazywebplus.elf` 22% (the UI process and the window) | no process above 20% (the work is split between webd's UI process and the client) |
+| free memory when the page loaded (`INFO:MEM`) | 3,614 MiB | 3,608 MiB (6 MiB less; the image before ships no webd at all) |
+| the program | `lazywebplus-app` 80.6 MB, package 32.4 MB | `xui-lazywebplus` 3.6 MB, package 1.75 MB (webd's own 73.8 MB program is on every desktop anyway) |
+
+What it says: the scroll's latency to the engine is unchanged (within 10%: 3.6 against 3.6 ms on average) and
+the frame rate is the same; the hop through webd does not show at this resolution. **The regression is the
+bands**: under webd the page's process paints no overscan band (patch 0030), so the picture shown ahead of the
+page checkerboards where the in-process browser showed the rows. The same engine code asks for them (the
+children have `LAZYOS_WEBKIT_OVERSCAN=1`, the band callback is installed); why the web process paints none for a
+webd view was not found in P4 (slice 3 already saw none in `webd-abi-test`). Not measured: typing latency (no
+harness measures key to paint), the Ars Technica repro of the performance plan (it needs the live site;
+`scroll_bench.py` and `pointer_bench.py` were adapted but not run), and more than one run per side.
 
 #### What P5 still needs
 
+* **The overscan bands of a webd view** (above, "Measured"): find why the page's process paints none (patch
+  0030's conditions: the drawing area's `m_overscan`, `m_layerTreeHost`, a pending `DidUpdate`), so LazyWeb+
+  scrolls without checkerboard as it did in-process. First, before anything else here.
+* **The latency criterion on the Ars Technica repro** (`scroll_bench.py`, `pointer_bench.py`, live) and a key-to-paint
+  measurement, several runs a side.
 * **A pool of parked views**, reused by the same owner and profile: every closed view leaves a parked proxy
   (section "What P1 found"), and tabs or a navigation that remakes the view would grow webd.
 * **A per-view process id and its children** (`webd_engine_view_pid`), so a client or the self-test can tell

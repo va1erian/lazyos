@@ -71,6 +71,20 @@ static void reportResponsiveness(View& v)
     v.sink->responsive(responsive);
 }
 
+// A new page process learns the view's size from its creation parameters, which patch 0030's drawing area
+// does not take as a geometry change: it works out how many rows to paint ahead of a scroll (the overscan
+// bands, LAZYOS_WEBKIT_OVERSCAN) only in updateGeometry. A view made at its final size and never resized
+// (every view of webd: the client gives the size at CreateView) would so get no band at all. One row less
+// and back is two geometry updates the process takes as they come; nothing is painted at the odd size
+// (paint.cpp paints the view's own size).
+static void nudgeGeometry(View& v)
+{
+    if (!v.view || v.width <= 0 || v.height < 2)
+        return;
+    WKViewSetSize(v.view, WKSizeMake(v.width, v.height - 1));
+    WKViewSetSize(v.view, WKSizeMake(v.width, v.height));
+}
+
 void rememberChildren(View& v)
 {
     if (!v.page)
@@ -89,6 +103,7 @@ void rememberChildren(View& v)
         // A process the owner has not heard of: whatever it was told of the last one (not answering)
         // does not hold for this one.
         reportResponsiveness(v);
+        nudgeGeometry(v);
     }
     WKWebsiteDataStoreRef store = v.profile && v.profile->store ? v.profile->store : WKContextGetWebsiteDataStore(H.context);
     const int network = store ? static_cast<int>(WKWebsiteDataStoreGetNetworkProcessIdentifier(store)) : 0;
