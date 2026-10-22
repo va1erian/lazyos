@@ -253,6 +253,24 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "webd_view",
+        interface: "os.lazy.webd.view.v1",
+        source: include_str!("webd_view.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "webd_net",
+        interface: "os.lazy.webd.net.v1",
+        source: include_str!("webd_net.rhai"),
+        topics: &[],
+    },
+    ApiModule {
+        alias: "webd_browser",
+        interface: "os.lazy.webd.browser.v1",
+        source: include_str!("webd_browser.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "webd_light",
         interface: "os.lazy.webd.light.v1",
         source: include_str!("webd_light.rhai"),

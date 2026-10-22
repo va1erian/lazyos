@@ -85,6 +85,10 @@ pub const SERVICE_NAMES: &[(&str, &str)] = &[
     // own `app.<system_name>.` namespace and advertises an interface of its own domain; an app that
     // lists the interface may resolve it. The server judges the caller's label on every request.
     ("os.lazy.webd.view.v1", "app.os.lazy.webd.view"),
+    // The scopes of a full view (idl/webd.midl) travel on the full service's endpoint, as the
+    // pointer scope travels on the display's.
+    ("os.lazy.webd.net.v1", "app.os.lazy.webd.view"),
+    ("os.lazy.webd.browser.v1", "app.os.lazy.webd.view"),
     // The light interface (HTML and CSS only: no network, no storage) is served on a name of its own so a
     // package that lists only it cannot resolve the full service.
     ("os.lazy.webd.light.v1", "app.os.lazy.webd.light"),
