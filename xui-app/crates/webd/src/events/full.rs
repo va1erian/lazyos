@@ -292,6 +292,11 @@ impl EventQueue {
         });
     }
 
+    /// `webd_ui_notify_permission_at`: decision `index` a page process starts with.
+    pub fn notify_decision_at(&self, index: usize) -> Option<(String, bool)> {
+        self.rules().notify_decision_at(index)
+    }
+
     /// `webd_ui_blocking`: a pure decision.
     pub fn blocking(&self, view: u64, url: &str) -> bool {
         self.rules().blocking(view, url)

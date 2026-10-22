@@ -247,6 +247,38 @@ fn forgetting_a_site_makes_its_next_request_ask_the_person_again() {
 }
 
 #[test]
+fn a_page_process_starts_with_the_decisions_every_profile_kept() {
+    // Why: a client tells webd its kept decisions when it makes a view (LazyWeb+'s notify.tsv, which
+    // webd forgets when it stops); a page process that starts later must already read them as
+    // `Notification.permission`, which WebKit takes from the provider at the process's start.
+    let mut fx = Fx::new("notify-start");
+    let app = origin(7);
+    let (view, _) = fx.view(app, Via::Browser, notifying(), 4, 4);
+    assert_eq!(fx.queue.notify_decision_at(0), None);
+    fx.notify_permission(app, view, SITE, ALLOW).unwrap();
+    fx.notify_permission(app, view, "https://kept.test", BLOCK)
+        .unwrap();
+    // A dismissal is no decision.
+    fx.notify_permission(app, view, "https://later.test", wire::PERMISSION_ANSWER_DISMISS)
+        .unwrap();
+    assert_eq!(
+        fx.queue.notify_decision_at(0),
+        Some(("https://example.com".into(), true))
+    );
+    assert_eq!(
+        fx.queue.notify_decision_at(1),
+        Some(("https://kept.test".into(), false))
+    );
+    assert_eq!(fx.queue.notify_decision_at(2), None);
+    fx.notify_forget(app, view, SITE).unwrap();
+    assert_eq!(
+        fx.queue.notify_decision_at(0),
+        Some(("https://kept.test".into(), false))
+    );
+    assert_eq!(fx.queue.notify_decision_at(1), None);
+}
+
+#[test]
 fn forgetting_needs_the_notifications_feature_a_good_origin_and_the_callers_own_view() {
     let mut fx = Fx::new("notify-forget-refused");
     let (app, other) = (origin(7), origin(8));

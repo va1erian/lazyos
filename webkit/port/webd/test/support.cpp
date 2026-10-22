@@ -279,4 +279,7 @@ void webd_ui_say(const char* line)
 
 int webd_ui_user_memory(uint64_t*, uint64_t*) { return 1; }
 
+// The test keeps no decisions a page process would start with (its notify mode answers each request).
+int webd_ui_notify_permission_at(size_t, char*, size_t) { return -1; }
+
 } // extern "C"

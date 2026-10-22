@@ -442,6 +442,33 @@ pub unsafe extern "C" fn webd_ui_blocking(view: u64, url: *const c_char) -> c_in
     c_int::from(sink.blocking(view, &unsafe { text(url) }))
 }
 
+/// Decision `index` of the notification decisions a page process starts with: the origin (with its NUL)
+/// into `origin` (`origin_size` bytes), 1 allowed, 0 blocked, -1 past the end, -2 one that does not fit.
+///
+/// # Safety
+/// `origin` valid for `origin_size` bytes, or NULL.
+#[no_mangle]
+pub unsafe extern "C" fn webd_ui_notify_permission_at(
+    index: usize,
+    origin: *mut c_char,
+    origin_size: usize,
+) -> c_int {
+    let Some((site, allowed)) = sink().and_then(|sink| sink.notify_decision_at(index)) else {
+        return -1;
+    };
+    let bytes = site.as_bytes();
+    if origin.is_null() || bytes.len() >= origin_size || bytes.contains(&0) {
+        return -2;
+    }
+    // SAFETY: `origin` is valid for `origin_size` bytes (the caller's contract) and `bytes.len() + 1 <=
+    // origin_size`, so the copy and the NUL stay inside it.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), origin.cast::<u8>(), bytes.len());
+        *origin.add(bytes.len()) = 0;
+    }
+    c_int::from(allowed)
+}
+
 /// # Safety
 /// `list` NULL or NUL-terminated for the call.
 #[no_mangle]

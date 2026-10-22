@@ -329,6 +329,12 @@ int webd_ui_blocking(uint64_t view, const char* url);
 void webd_ui_blocking_list(uint64_t view, const char* list, int status);
 void webd_ui_blocked(uint64_t view, int count);
 
+// P4 (LazyWeb+ on webd): the notification decisions a page process starts with (WebKit asks its provider when it
+// starts one; its record is the context's, one for every profile). Writes decision `index`'s origin, NUL-terminated,
+// into `origin` (`origin_size` bytes) and returns 1 allowed, 0 blocked, -1 past the end, -2 one that does not fit
+// (skipped). WebKit's main thread; a pure lookup that must not block.
+int webd_ui_notify_permission_at(size_t index, char* origin, size_t origin_size);
+
 #ifdef __cplusplus
 }
 #endif

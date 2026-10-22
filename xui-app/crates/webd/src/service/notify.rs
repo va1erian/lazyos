@@ -7,6 +7,8 @@
 //! reads as `Notification.permission` in another; webd therefore posts only what the view's own profile
 //! allowed (a page of another profile that calls `new Notification` gets its `close` at once).
 
+use std::collections::BTreeMap;
+
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 
 use super::calls::{live, MALFORMED};
@@ -182,6 +184,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 .entry(profile)
                 .or_default()
                 .insert(site_key(&args.origin), answer > 0);
+            self.publish_decisions();
         }
         self.engine
             .notify_permission(args.view, &args.origin, answer);
@@ -208,8 +211,25 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         if let Some(decisions) = self.permissions.get_mut(&rules.profile) {
             decisions.remove(&site_key(&args.origin));
         }
+        self.publish_decisions();
         self.engine.notify_forget(args.view, &args.origin);
         Ok(())
+    }
+
+    /// Hands the engine the decisions a page process starts with. WebKit keeps one record for the
+    /// whole context, so a site any profile allowed is allowed in it (webd still posts only what the
+    /// view's own profile allowed, `show`); one only blocked is blocked.
+    fn publish_decisions(&mut self) {
+        let mut merged: BTreeMap<String, bool> = BTreeMap::new();
+        for decisions in self.permissions.values() {
+            for (site, allowed) in decisions {
+                let entry = merged.entry(site.clone()).or_insert(false);
+                *entry |= *allowed;
+            }
+        }
+        self.queue
+            .rules()
+            .set_notify_decisions(merged.into_iter().collect());
     }
 
     /// What the shell said about webd's toasts: a click runs the page's handler and tells the client;
