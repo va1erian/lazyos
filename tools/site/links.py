@@ -30,6 +30,7 @@ class LinkResolver:
     ref: str
     pages: dict[str, str]  # repo-relative source -> site path
     generated: set[str] = field(default_factory=set)
+    aliases: dict[str, str] = field(default_factory=dict)  # a docs path that means a repository file
     broken: list[tuple[str, str]] = field(default_factory=list)  # (source, href)
     missing_generated: set[str] = field(default_factory=set)
     anchors: list[tuple[str, str, str]] = field(default_factory=list)  # source, target page, fragment
@@ -58,6 +59,8 @@ class LinkResolver:
         else:
             joined = posixpath.join(posixpath.dirname(src), path)
         rel = posixpath.normpath(joined)
+        if rel not in self.pages and not (self.root / rel).exists():
+            rel = self.aliases.get(rel, rel)
         suffix = (query_sep + query if query_sep else "") + (hash_ + fragment if hash_ else "")
 
         if rel in self.pages:

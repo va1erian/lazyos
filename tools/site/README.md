@@ -9,14 +9,23 @@ publishes it.
 
 - every `*.md` under `docs/` becomes a page, at the same path with `.html`
   (`docs/architecture/boot.md` is `architecture/boot.html`);
-- `README.md` is the home page and `CONTRIBUTING.md` a page (`[extras]` in `site.toml`);
+- the home page (`index.html`) is the first of `home` in `site.toml` that exists:
+  `docs/index.md`, the start page the Docs app opens, else `README.md`. `README.md` is
+  otherwise a page of its own (`readme.html`, "README: building and booting"), and
+  `CONTRIBUTING.md` another (`[extras]`);
 - every other file under `docs/` (logs, text captures, `docs/design/*.html`) is copied
   beside the pages, so a relative link to it keeps working;
 - a docs file that would overwrite a generated page (`contents.html`, `404.html`, another
   page, the theme) fails the build;
-- the first `# heading` is the page's title; the sidebar groups pages by directory
-  (and, for the top level, "Plans" for `*-plan.md` against everything else), with the
-  pages named in `overview` first. Both live in `site.toml`.
+- the first `# heading` is the page's title; the sidebar groups pages by directory (the
+  longest `[nav.directories]` match names the section, so `docs/rhai/api` is separate
+  from `docs/rhai`) and, for the top level, "Plans" for `*-plan.md` against everything
+  else, with the pages named in `overview` first. All of it lives in `site.toml`.
+
+The OS image embeds the root `README.md` and `THIRD_PARTY.md` as `docs/README.md` and
+`docs/THIRD_PARTY.md`, so docs link to them by those names; `[aliases]` makes such a
+link mean the root file on the site (a real file under `docs/` wins). `[titles]`
+overrides a page's title where its first heading is not the right label.
 
 Write docs for GitHub as before: relative links to other `.md` files, to files
 outside `docs/` (they link to the file on GitHub at the site's `ref`), and

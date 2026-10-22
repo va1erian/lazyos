@@ -21,23 +21,31 @@ def discover(root: Path, cfg: Config) -> list[Page]:
     disk) and the configured extras, each with its output path."""
     pages: list[Page] = []
     docs = root / "docs"
+    home = next((src for src in cfg.home if (root / src).is_file()), None)
+    if home is None:
+        raise SystemExit(f"site.toml: none of the home pages {cfg.home} exists")
     for path in sorted(docs.rglob("*.md")):
         rel = path.relative_to(root).as_posix()
-        pages.append(Page(src=rel, out=md_to_html(path.relative_to(docs).as_posix())))
+        out = HOME if rel == home else md_to_html(path.relative_to(docs).as_posix())
+        pages.append(Page(src=rel, out=out))
     for src, out in cfg.extras.items():
         if not (root / src).is_file():
             raise SystemExit(f"site.toml: extra page {src} does not exist")
-        pages.append(Page(src=src, out=out, section=cfg.extra_sections.get(src, "")))
+        pages.append(Page(src=src, out=HOME if src == home else out, section=cfg.extra_sections.get(src, "")))
+    # Compared in lower case: two outputs that differ only by case would overwrite
+    # each other on a case-insensitive checkout or when the site is unpacked there.
     outs: dict[str, str] = {name: "the generator" for name in RESERVED}
     for page in pages:
-        if page.out in outs:
-            raise SystemExit(f"{page.src} and {outs[page.out]} would both build {page.out}")
-        outs[page.out] = page.src
+        if page.out.lower() in outs:
+            raise SystemExit(f"{page.src} and {outs[page.out.lower()]} would both build {page.out}")
+        outs[page.out.lower()] = page.src
     for path in sorted(docs.rglob("*")):  # files copied beside the pages
         if path.is_file() and path.suffix != ".md":
             rel = path.relative_to(docs).as_posix()
-            if rel in outs or rel.startswith(ASSETS + "/"):
-                raise SystemExit(f"docs/{rel} is copied to the site but would overwrite {outs.get(rel, 'the theme')}")
+            if rel.lower() in outs or rel.startswith(ASSETS + "/"):
+                raise SystemExit(
+                    f"docs/{rel} is copied to the site but would overwrite {outs.get(rel.lower(), 'the theme')}"
+                )
     return pages
 
 
@@ -49,9 +57,12 @@ def section_of(page: Page, cfg: Config) -> str:
     if page.src in cfg.overview:
         return "Overview"
     parts = page.src.split("/")
-    if len(parts) > 2:  # docs/<dir>/...
-        directory = "/".join(parts[:2])
-        return cfg.directories.get(directory, parts[1].replace("-", " ").replace("_", " ").title())
+    if len(parts) > 2:  # docs/<dir>/...: the longest configured directory wins
+        for depth in range(len(parts) - 1, 1, -1):
+            named = cfg.directories.get("/".join(parts[:depth]))
+            if named:
+                return named
+        return parts[1].replace("-", " ").replace("_", " ").title()
     stem = posixpath.splitext(parts[-1])[0]
     if any(stem.endswith(s.rstrip("-")) for s in cfg.plan_suffixes):
         return "Plans"
