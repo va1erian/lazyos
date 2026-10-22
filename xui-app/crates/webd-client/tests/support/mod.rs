@@ -5,6 +5,10 @@
 
 #![allow(dead_code)]
 
+pub mod full;
+pub mod web;
+pub mod web_pages;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
@@ -13,21 +17,23 @@ use std::sync::Arc;
 use libmessenger::{Decoder, Header, Kind, Object, Parcel, VERSION};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_webd_light_v1 as wire;
-use xui_webd::engine::EngineEvents;
+use xui_webd::engine::{Engine, EngineEvents};
 use xui_webd::events::EventQueue;
+use xui_webd::fullconfig::Places;
 use xui_webd::ident::Origin;
 use xui_webd::mem::{MemFabric, Shared};
 use xui_webd::recording::RecordingEngine;
 use xui_webd::{Call, Service};
-use xui_webd_client::transport::{RawEvent, SharedMem, Transport};
+use xui_webd_client::transport::{RawEvent, ScopedTransport, SharedMem, Transport};
 use xui_webd_client::{LightConfig, LightWebView};
 
 pub const SESSION: u64 = 1;
 
-/// The service and everything a test wants to reach on its side.
-pub struct World {
-    pub service: Service<RecordingEngine, MemFabric>,
-    pub engine: RecordingEngine,
+/// The service and everything a test wants to reach on its side; `E` is the engine the tests play
+/// (the recording double, or a fake web that answers loads).
+pub struct World<E: Engine = RecordingEngine> {
+    pub service: Service<E, MemFabric>,
+    pub engine: E,
     pub fabric: MemFabric,
     pub queue: Arc<EventQueue>,
     /// The service is not running: calls fail with `-ENOENT`, sends with `-EPIPE`.
@@ -46,13 +52,26 @@ pub struct World {
     pub eagain: usize,
 }
 
-pub type SharedWorld = Rc<RefCell<World>>;
+pub type SharedWorld<E = RecordingEngine> = Rc<RefCell<World<E>>>;
 
 pub fn world() -> SharedWorld {
-    let engine = RecordingEngine::new();
+    world_with(
+        RecordingEngine::new(),
+        Arc::new(EventQueue::new()),
+        Places::default(),
+    )
+}
+
+/// A world over `engine`, whose callbacks fill `queue`, with webd's profile and Downloads folders
+/// at `places` (a `browser` view needs them).
+pub fn world_with<E: Engine + Clone>(
+    engine: E,
+    queue: Arc<EventQueue>,
+    places: Places,
+) -> SharedWorld<E> {
     let fabric = MemFabric::new();
-    let queue = Arc::new(EventQueue::new());
-    let service = Service::new(engine.clone(), fabric.clone(), queue.clone(), SESSION);
+    let service =
+        Service::new(engine.clone(), fabric.clone(), queue.clone(), SESSION).with_places(places);
     Rc::new(RefCell::new(World {
         service,
         engine,
@@ -68,7 +87,7 @@ pub fn world() -> SharedWorld {
     }))
 }
 
-impl World {
+impl<E: Engine> World<E> {
     /// The engine paints a whole frame of one colour (RGBA).
     pub fn paint(&self, view: u64, w: i32, h: i32, rgba: [u8; 4]) {
         let pixels: Vec<u8> = rgba
@@ -95,11 +114,22 @@ impl World {
     }
 }
 
-/// A client's transport: the world, as seen by the app labelled `label`.
-#[derive(Clone)]
-pub struct TestTransport {
-    pub world: SharedWorld,
+/// A client's transport: the world, as seen by the app labelled `label`, over one interface (the
+/// light one, or the full one for a `FullWebView`).
+pub struct TestTransport<E: Engine = RecordingEngine> {
+    pub world: SharedWorld<E>,
     pub origin: Origin,
+    pub interface: u64,
+}
+
+impl<E: Engine> Clone for TestTransport<E> {
+    fn clone(&self) -> Self {
+        TestTransport {
+            world: self.world.clone(),
+            origin: self.origin,
+            interface: self.interface,
+        }
+    }
 }
 
 pub fn origin(label: u32) -> Origin {
@@ -132,24 +162,43 @@ impl SharedMem for Mem {
     fn read(&self, into: &mut [u8]) {
         into.copy_from_slice(&self.shared.borrow()[..into.len()]);
     }
+
+    fn read_at(&self, offset: usize, into: &mut [u8]) {
+        into.copy_from_slice(&self.shared.borrow()[offset..offset + into.len()]);
+    }
 }
 
-impl TestTransport {
-    pub fn new(world: &SharedWorld, label: u32) -> Self {
+impl<E: Engine> TestTransport<E> {
+    pub fn new(world: &SharedWorld<E>, label: u32) -> Self {
         TestTransport {
             world: world.clone(),
             origin: origin(label),
+            interface: wire::INTERFACE_ID,
         }
     }
 
-    fn call_parcel(&self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Call {
+    /// The transport of a full view: `os.lazy.webd.view.v1`.
+    pub fn full(world: &SharedWorld<E>, label: u32) -> Self {
+        TestTransport {
+            interface: messenger_generated::os_lazy_webd_view_v1::INTERFACE_ID,
+            ..Self::new(world, label)
+        }
+    }
+
+    fn call_parcel(
+        &self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Call {
         Call {
             origin: self.origin,
             parcel: Parcel {
                 header: Header {
                     version: VERSION,
                     flags: 0,
-                    interface_id: wire::INTERFACE_ID,
+                    interface_id: interface,
                     method,
                     txn_id: 0,
                     reply_to: 0,
@@ -161,19 +210,21 @@ impl TestTransport {
             objects,
         }
     }
-}
 
-impl Transport for TestTransport {
-    type Mem = Mem;
-
-    fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>, i64> {
+    fn call_as(
+        &mut self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<Vec<u8>, i64> {
         let mut world = self.world.borrow_mut();
         if world.down {
             return Err(-2);
         }
         let reply = world
             .service
-            .handle(self.call_parcel(method, body, objects));
+            .handle(self.call_parcel(interface, method, body, objects));
         let mut decoder = Decoder::new(&reply.body);
         if let Ok(Some(field)) = decoder.next() {
             if field.kind == Kind::Error && field.id == ERROR_FIELD {
@@ -181,6 +232,27 @@ impl Transport for TestTransport {
             }
         }
         Ok(reply.body)
+    }
+}
+
+impl<E: Engine> ScopedTransport for TestTransport<E> {
+    fn call_through(
+        &mut self,
+        interface: u64,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<Object>,
+    ) -> Result<Vec<u8>, i64> {
+        self.call_as(interface, method, body, objects)
+    }
+}
+
+impl<E: Engine> Transport for TestTransport<E> {
+    type Mem = Mem;
+
+    fn call(&mut self, method: u32, body: Vec<u8>, objects: Vec<Object>) -> Result<Vec<u8>, i64> {
+        let interface = self.interface;
+        self.call_as(interface, method, body, objects)
     }
 
     fn send(&mut self, method: u32, body: Vec<u8>) -> Result<(), i64> {
@@ -193,9 +265,8 @@ impl Transport for TestTransport {
             return Err(-11);
         }
         world.sent.push((method, body.clone()));
-        world
-            .service
-            .handle(self.call_parcel(method, body, Vec::new()));
+        let call = self.call_parcel(self.interface, method, body, Vec::new());
+        world.service.handle(call);
         Ok(())
     }
 
@@ -210,7 +281,17 @@ impl Transport for TestTransport {
             return Err(code);
         }
         world.pump();
-        let fresh = world.fabric.take_events(channel);
+        // An event of another interface is read and dropped, as the real transport does (method 0
+        // is no event: the client counts it as ignored).
+        let interface = self.interface;
+        let fresh = world
+            .fabric
+            .take_tagged(channel)
+            .into_iter()
+            .map(|(tag, method, body)| match tag == interface {
+                true => (method, body),
+                false => (0, Vec::new()),
+            });
         let queue = world.pending.entry(channel).or_default();
         queue.extend(fresh);
         Ok(queue.pop_front())
