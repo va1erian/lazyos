@@ -8,7 +8,7 @@ use alloc::string::String;
 use user::trace;
 
 use pkgstore::access::Caller;
-use pkgstore::{layout, provision, tree};
+use pkgstore::{layout, provision, rules, tree};
 use user::messenger::pkgd::{Failure, Installed};
 
 use super::handlers::{
@@ -89,6 +89,12 @@ impl Pkgd {
             ),
         }
         if let Ok(manifest) = stored_manifest(&row.install_dir) {
+            // A stored manifest of another class than the row records (edited
+            // after the install) is revoked under its own label too.
+            let recorded = rules::label_for_kind(&row.system_name, &row.kind);
+            if rules::label_of(&manifest) != recorded {
+                let _ = policy::revoke(&manifest);
+            }
             for handler in &manifest.mime {
                 for verb in &handler.verbs {
                     let _ =
@@ -107,7 +113,7 @@ impl Pkgd {
                 );
             }
         }
-        policy::revoke(&row.system_name).map_err(|error| {
+        policy::revoke_row(row).map_err(|error| {
             fail(
                 EIO,
                 format!(

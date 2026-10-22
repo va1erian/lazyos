@@ -3,34 +3,27 @@
 
 use super::coherence::{abi_changed, Change};
 use super::vfs::{FsError, Id};
-use super::{abi_with, hidden, nodes, openfile};
+use super::{abi_with, hidden, openfile};
 
 /// Rename within one mount through the Linux ABI VFS. Open files follow their
 /// name, and one that the rename replaces is unlinked, not destroyed
 /// ([`openfile`]).
 pub fn abi_rename(id: Id, from: &str, to: &str) -> Result<(), FsError> {
     hidden::refuse_reserved(to)?;
-    // Two names of one file are the same file here (`/tmp/a` and
-    // `/transient/a`): comparing the text would orphan the source as if it
-    // were the file being replaced.
-    let same = nodes::abi_canonical(from) == nodes::abi_canonical(to);
-    let displaced = if same {
-        None
-    } else {
-        openfile::displace(id, to)?
-    };
-    match abi_rename_raw(id, from, to) {
-        Ok(()) => {
-            openfile::retarget(from, to);
-            Ok(())
-        }
-        Err(error) => {
-            if let Some(displaced) = displaced {
-                displaced.restore();
-            }
-            Err(error)
-        }
+    let _names = openfile::names_lock(to);
+    // Two spellings of one name (`/tmp/a` and `/transient/a`), or two hard
+    // links of one file, are no replacement: `displace` tells, by the file,
+    // and no open file follows a rename that moved nothing.
+    let displaced = openfile::displace(id, from, to)?;
+    let moved = !displaced.as_ref().is_some_and(|d| d.same_file());
+    let renamed = abi_rename_raw(id, from, to);
+    if let Some(displaced) = displaced {
+        displaced.settle(renamed.is_ok());
     }
+    if renamed.is_ok() && moved {
+        openfile::retarget(from, to);
+    }
+    renamed
 }
 
 /// Rename a name with no regard for open descriptors.

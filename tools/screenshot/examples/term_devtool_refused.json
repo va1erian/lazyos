@@ -1,0 +1,21 @@
+[
+ {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420, "note": "image: LAZYOS_DESKTOP=1 LAZYOS_DEVTOOLS=1 LAZYOS_XUI_AUTOSTART=playground LAZYOS_UI_PROBE=1 LAZYOS_LABEL_TRACE=1 LAZYOS_RESET_OS=1 (tools/playground/run.py builds it). docs/devtool-packages-plan.md 10.3: a script the Playground runs (label tool:os.lazy.playground) is refused package management and powering off, which the same calls from the Terminal (term_devtool.json) are allowed"},
+ {"wait_for": "PLAYGROUND:UP:PASS", "timeout": 240},
+ {"wait_for": "name=tree window=Messenger Playground", "timeout": 90},
+ {"wait": 1.0},
+ {"click_at": {"window": "Messenger Playground (developer tool)", "widget": "editor"}},
+ {"key_down": "ctrl"},
+ {"key": "a"},
+ {"key_up": "ctrl"},
+ {"type": "try{sys::pkgd::list();print(\"list-ok\")}catch(e){print(\"list-refused: \"+e)} try{sys::pkgd::install(\"/transient/none.lzp\");print(\"install-ok\")}catch(e){print(\"install-refused: \"+e)} try{sys::init::shutdown(0,\"x\",false);print(\"shutdown-ok\")}catch(e){print(\"shutdown-refused: \"+e)}"},
+ {"key": "f5", "until": "PLAYGROUND:RUN:1:EXIT:", "timeout": 90, "retries": 2},
+ {"wait": 2.0},
+ {"shot": "refused_run", "note": "three refusals in the output pane, the same calls the Terminal's script runs as the session's owner"},
+ {"wait_for": "INSTALL:FAIL applications may not install or remove other applications", "timeout": 30, "note": "pkgd's refusal of a labelled caller that is not a shell"},
+ {"wait": 1.0},
+ {"key_down": "ctrl"},
+ {"key": "q", "until": "PLAYGROUND:QUIT:PASS", "timeout": 60, "retries": 2},
+ {"key_up": "ctrl"},
+ {"wait": 4.0},
+ {"quit": true}
+]

@@ -14,14 +14,14 @@ import shutil
 import sys
 
 from .assets import assets_argv, assets_env, needs_build  # noqa: F401 (re-exported)
-from .display import HIDPI_MODE, check_mode, display_env  # noqa: F401 (re-exported)
+from .display import HIDPI_MODE, HIRES_SCALE, check_mode, check_scale, display_env  # noqa: F401 (re-exported)
 from . import osvolume
 from .limits import LIMIT_KEYS, cfg_limit_env, limit_env  # noqa: F401 (re-exported)
 from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-exported)
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, SOFTWARE_CUSTOM, group_switches, simple_config, software_choices, suite_argv, suite_name)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, lazywebplus_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazywebplus_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
@@ -75,7 +75,7 @@ MODES = [
 
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes", "playground"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.
@@ -102,7 +102,8 @@ def check_limits(cfg: dict) -> None:
     skipped = cfg.get("skip_build") and cfg["mode"] in SKIP_BUILD_MODES
     if limit_env(cfg.get("limits", "")) and skipped:
         raise ValueError("kernel limits need a build: they are written into lazyos.cfg")
-    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))) and skipped:
+    if (check_mode(cfg.get("display_mode", "")) or check_mode(cfg.get("display_max", ""))
+            or check_scale(cfg.get("display_scale", ""))) and skipped:
         raise ValueError("a display mode needs a build: it is written into lazyos.cfg")
     needs_build(cfg.get("assets", ""), skipped)
 
@@ -124,9 +125,9 @@ def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
-    # LazyWeb is a desktop app (docs/lazyweb.md): it brings the profile, and
+    # LazyWeb+ and LazySky are desktop apps: they bring the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
-    if any(cfg.get(name) for name in ("desktop", "lazyweb", "lazysky", "lazywebplus", "webd", "setup")):
+    if any(cfg.get(name) for name in osvolume.DESKTOP_KEYS):
         # One switch expands to the desktop recipe (issue #217): the image
         # build and `init` derive the rest from it.
         env["LAZYOS_DESKTOP"] = "1"
@@ -231,7 +232,8 @@ def build_env(cfg: dict) -> dict[str, str]:
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(cfg_limit_env(cfg))  # the browser's quota too (`limits.WEBKIT_LIMITS`)
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
-    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", "")) | assets_env(cfg.get("assets", "")))
+    env.update(display_env(cfg.get("display_mode", ""), cfg.get("display_max", ""),
+                           cfg.get("display_scale", "")) | assets_env(cfg.get("assets", "")))
     if cfg.get("linuxapps"):
         # dash, sqlite3, jq and rg (built by `tools/linuxapps/build.py`)
         # in /system/bin, on the CLI and the desktop alike.
@@ -253,10 +255,6 @@ def build_env(cfg: dict) -> dict[str, str]:
     if cfg.get("journal"):
         # An ext2 journal on the OS volume (added in place to an old image).
         env["LAZYOS_JOURNAL"] = "1"
-    if cfg.get("lazyweb"):
-        # The LazyWeb browser's core package (`tools/xui/build.py` builds it
-        # with the other apps); with the desktop, the stack and HTTPS set above.
-        env["LAZYOS_LAZYWEB"] = "1"
     if cfg.get("lazysky"):
         # The LazySky Bluesky client's core package; with the desktop and the
         # stack set above.
@@ -365,10 +363,6 @@ def build_plan(cfg: dict) -> list[dict]:
             # Also with "Skip build": run_demo starts the fake access points
             # and attaches the air card, not only the build switch.
             argv.append("--wifi-sim")
-        if cfg.get("lazyweb") and not cfg["skip_build"]:
-            # run_demo builds the browser and sets the desktop, the stack,
-            # HTTPS and LAZYOS_LAZYWEB itself.
-            argv.append("--lazyweb")
         if cfg.get("lazysky") and not cfg["skip_build"]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.
@@ -377,6 +371,9 @@ def build_plan(cfg: dict) -> list[dict]:
         if check_mode(cfg.get("display_mode", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MODE (`display.mode` in lazyos.cfg).
             argv += ["--display-mode", check_mode(cfg["display_mode"])]
+        if check_scale(cfg.get("display_scale", "")) and not cfg["skip_build"]:
+            # run_demo sets LAZYOS_DISPLAY_SCALE (`display.scale`; 1 on 2560x1440 is hi-res).
+            argv += ["--display-scale", check_scale(cfg["display_scale"])]
         if check_mode(cfg.get("display_max", "")) and not cfg["skip_build"]:
             # run_demo sets LAZYOS_DISPLAY_MAX (`display.max`, issue #717).
             argv += ["--display-max", check_mode(cfg["display_max"])]

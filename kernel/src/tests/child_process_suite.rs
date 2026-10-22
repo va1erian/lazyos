@@ -427,6 +427,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         more::blocking_wait4_on_a_sibling,
     ),
     (
+        "child_blocking_waitid_nowait_on_sibling",
+        more::blocking_waitid_nowait_on_a_sibling,
+    ),
+    (
         "child_pdeathsig_timer_sweep",
         more::pdeathsig_through_the_timer_sweep,
     ),

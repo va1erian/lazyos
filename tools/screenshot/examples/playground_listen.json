@@ -1,0 +1,304 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "3"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "time/tick"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "topics_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:peek"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:RUN:1:EXIT:0:",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "listen_peek"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "3"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "time/tick"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "topics_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:listen"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:TOPICS:UP",
+  "timeout": 90
+ },
+ {
+  "wait_for": "PLAYGROUND:LISTEN:time/tick",
+  "timeout": 60
+ },
+ {
+  "wait_for": "PLAYGROUND:EVENT:time/tick:",
+  "timeout": 60
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "events_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "listen_tick"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_topic"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "system/stats/memory"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_listen"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:LISTEN:system/stats/memory",
+  "timeout": 60
+ },
+ {
+  "wait_for": "PLAYGROUND:EVENT:system/stats/memory:",
+  "timeout": 60
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "listen_memory"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_topic"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "demo/pg/x"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_listen"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:LISTEN:demo/pg/x",
+  "timeout": 60
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_payload"
+  }
+ },
+ {
+  "type": "hello from publish"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pub_go"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:EVENT:demo/pg/x:",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "events_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "listen_published"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pin_button"
+  }
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "clear_button"
+  }
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "copy_button"
+  }
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "save_button"
+  }
+ },
+ {
+  "click_at": {
+   "window": "Messenger Topics (developer tool)",
+   "widget": "pause_button"
+  }
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "listen_controls"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

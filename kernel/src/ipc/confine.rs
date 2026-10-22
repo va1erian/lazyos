@@ -18,7 +18,13 @@
 //! * **Network.** `socket(AF_INET)` needs the label's `os.lazy.net.socket.v1`
 //!   rule, which `network = ["outbound"]` compiles to, and what it gets is a
 //!   client (no `listen`, no named local port); named `AF_UNIX` sockets are
-//!   file-like names and need a `write` rule on the path.
+//!   file-like names and need a `write` rule on the path. A *developer tool*
+//!   is not confined (its files, programs and signals are the user's), but
+//!   its `AF_INET` follows its rules too: [`may_open_inet`] refuses when the
+//!   label's rules deny the socket interface, which is what a tool without
+//!   `network` has, and allows when they do not, so a tool's own native code
+//!   cannot reach the network its manifest did not declare. (A tool with the
+//!   declaration keeps a full socket: `may_serve` is not asked of it.)
 //! * **Spawning.** A confined task creates no process and starts no program:
 //!   `fork`, `vfork`, `clone` without `CLONE_THREAD`, a native `spawnv`, the
 //!   native programs `execve` starts as children, and `execve` itself are
@@ -181,6 +187,7 @@ pub fn check_path(label_id: u32, path: &str, access: Access) -> Result<(), Denie
         label_id,
         FILE_SCOPE,
         fnv1a32(path),
+        reason::LABEL_DEFAULT_DENY,
         format_args!("file={} access={mode}", Printable(path)),
     );
     Err(Denied)
@@ -213,12 +220,17 @@ pub fn access_of_mask(mask: u8) -> Access {
     }
 }
 
-/// Audit and trace one refusal of the task in `slot`.
+/// Audit and trace one refusal of the task in `slot`, as `reason_code`: a
+/// confined label is refused by default (nothing allowed it,
+/// `reason::LABEL_DEFAULT_DENY`); a tool's socket is refused by the rule
+/// engine, whose verdict says whether a deny rule matched (`EXPLICIT_DENY`) or
+/// none did (a revoked tool: default deny).
 fn refuse(
     slot: usize,
     label_id: u32,
     interface_id: u64,
     method: u32,
+    reason_code: u32,
     what: core::fmt::Arguments<'_>,
 ) {
     let cred = credentials::of(slot);
@@ -231,7 +243,7 @@ fn refuse(
         interface_id,
         method,
         allow: false,
-        reason_code: reason::LABEL_DEFAULT_DENY,
+        reason_code,
         txn_id: 0,
     });
 }
@@ -249,6 +261,7 @@ pub fn may_spawn() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SPAWN,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("spawn=process"),
     );
     false
@@ -269,6 +282,7 @@ pub fn may_exec() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::EXEC,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("spawn=exec"),
     );
     false
@@ -308,6 +322,7 @@ pub fn check_socket_name(name: &[u8]) -> Result<(), Denied> {
                 label_id,
                 PROCESS_SCOPE,
                 what::UNIX,
+                reason::LABEL_DEFAULT_DENY,
                 format_args!("unix=unnamed-or-abstract"),
             );
             Err(Denied)
@@ -317,22 +332,46 @@ pub fn check_socket_name(name: &[u8]) -> Result<(), Denied> {
 
 /// Whether the current task may open an `AF_INET` socket: an unconfined task
 /// always, a confined one only with the socket interface in its rules (the
-/// `network = ["outbound"]` permission).
+/// `network = ["outbound"]` permission), and a developer tool as its rules
+/// judge the socket interface.
+///
+/// A tool (`tool:<id>`, `super::tool`) is not confined, but its manifest's
+/// `network` entry is the only thing that lifts the explicit deny of the
+/// socket interface from its default-allow rules (`devtool::DENY`), and the
+/// consent text promises "no network unless listed". So the same rule that
+/// refuses its Messenger calls to `os.lazy.net.socket.v1` refuses a raw
+/// `socket(AF_INET)` of its own native code (and of every child, which
+/// inherits the label): the verdict is the label's rules for the socket
+/// interface, evaluated as any Messenger call would be. A revoked tool (an
+/// empty rule list) is default-denied, so it loses sockets with everything
+/// else; the Terminal, a shell tool that declares `network`, keeps them.
 pub fn may_open_inet() -> bool {
     let slot = crate::task::current();
     let label_id = credentials::of(slot).label_id;
     if label_id == 0 {
         return true;
     }
-    let snap = snapshot(label_id);
-    if !snap.confined || snap.holds(SOCKET_INTERFACE) {
-        return true;
+    let mut why = reason::LABEL_DEFAULT_DENY;
+    if super::tool::is_tool(label_id) {
+        // The verdict's own reason: the deny rule a plain tool compiles to
+        // (`EXPLICIT_DENY`), or default deny for a revoked one.
+        let (decision, code) = acl::evaluate_label(label_id, SOCKET_INTERFACE, acl::ANY_METHOD);
+        if !decision.denied() {
+            return true;
+        }
+        why = code;
+    } else {
+        let snap = snapshot(label_id);
+        if !snap.confined || snap.holds(SOCKET_INTERFACE) {
+            return true;
+        }
     }
     refuse(
         slot,
         label_id,
         PROCESS_SCOPE,
         what::INET,
+        why,
         format_args!("net=inet"),
     );
     false
@@ -352,6 +391,7 @@ pub fn may_serve() -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SERVE,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("net=serve"),
     );
     false
@@ -370,6 +410,7 @@ pub fn may_signal(caller: usize, same_process: bool) -> bool {
         label_id,
         PROCESS_SCOPE,
         what::SIGNAL,
+        reason::LABEL_DEFAULT_DENY,
         format_args!("signal=other"),
     );
     false

@@ -144,7 +144,7 @@ def focus_terminal() -> list[dict]:
     return [
         {"wait_for": "PKGD:PROVISION:DONE", "timeout": 420},
         {"wait_for": "TERM:UP:PASS", "timeout": 240},
-        {"wait_for": "INIT:AUTOSTART:PASS app=terminal", "timeout": 60},
+        {"wait_for": "INIT:AUTOSTART:PASS app=os.lazy.terminal", "timeout": 60},
         *home(2.0),
         {"at": 3.4, "mouse_move": [400, 58]},
         {"at": 3.8, "mouse_click": "left"},

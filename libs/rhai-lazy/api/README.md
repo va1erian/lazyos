@@ -759,10 +759,11 @@ The application package manager (`docs/packages.md`, phase 3 of the
 | `remove(system_name)` | `Remove(system_name: String) -> ()` | Remove `system_name`: stop its running instances, unregister its MIME |
 | `list()` | `List() -> (apps: Array<Installed>)` | Every installed app, in install order. |
 | `installed(system_name)` | `Installed(system_name: String) -> (app: Option<Installed>)` | One installed app by `system_name`, if present. |
+| `label_name(label_id)` | `LabelName(label_id: U32) -> (label: String)` | The name of the policy label with the kernel id `label_id` |
 | `provisioned()` | `Provisioned() -> (state: ProvisionState)` | Whether this start's core package provisioning is finished, and what |
 | `develop(path, confirm)` | `Develop(path: String, confirm: Bool) -> (label: String, approved: Bool)` | Approve a development run of the package at `path` (the same source |
 | `develop_declined(path)` | `DevelopDeclined(path: String) -> ()` | The user declined the development consent for the package at `path` |
-| `install_approved(path, digest, core)` | `InstallApproved(path: String, digest: String, core: Bool) -> (app: Installed)` | `elevd`'s install of a package an administrator approved on the |
+| `install_approved(path, digest, core, devtool)` | `InstallApproved(path: String, digest: String, core: Bool, devtool: Bool) -> (app: Installed)` | `elevd`'s install of a package an administrator approved on the |
 | `install_debug(path, digest)` | `InstallDebug(path: String, digest: String) -> (app: Installed)` | `dbgd`'s install of a package a developer uploaded to a box built for |
 | `new_provision_state()` | struct `ProvisionState` | a `ProvisionState` at its zero value |
 | `new_package_info()` | struct `PackageInfo` | a `PackageInfo` at its zero value |

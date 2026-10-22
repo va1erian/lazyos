@@ -1,0 +1,249 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "4"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "rhai (run 1"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "gallery_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:load"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "serve_loaded"
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:1:START:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "serve_serving"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "4"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "rhai (run 2"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "gallery_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:load"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:2:EXIT:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "serve_answered"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "2"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "serve_live"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "stop_button"
+  }
+ },
+ {
+  "wait_for": "PLAYGROUND:RUN:1:EXIT:stopped:",
+  "timeout": 60
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "serve_stopped"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "4"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "rhai (run 1"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "gallery_row:0"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "btn:load"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:3:START:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "serve_serving_again"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

@@ -10,6 +10,9 @@
 //! * The window's loop (`xui_app::stall::pass_age_ms`): `STALL:window:<ms>` when one pass has
 //!   lasted 2 s, every 5 s while it does.
 //! * `INFO:CPU:ui=<pct>:web=<pct>:net=<pct>` every 5 s when any is 20% or more (`xui_webkit::taskstat`).
+//! * `INFO:REAPER:wakeups=<n>` at 10 s, at 30 s and whenever the launcher's reaper threads have woken
+//!   since (issue #887): one wake per engine process that ends, so a count that keeps growing in an
+//!   idle browser is a thread that polls.
 //!
 //! The thread starts with the window and ends with it (`stop`, before the run loop is left): it times
 //! the main thread only once its loop has begun to turn (`lzw_engine_running`), and every line that can
@@ -29,6 +32,8 @@ extern "C" {
     fn lzw_engine_children(web: *mut c_int, network: *mut c_int);
     /// `lazyos_ui.h`: whether WebKit's run loop has begun to turn.
     fn lzw_engine_running() -> c_int;
+    /// `lazyos_ui.h`: how many times the launcher's reaper threads have come back from waiting.
+    fn lzw_launcher_reaper_wakeups() -> std::ffi::c_ulong;
 }
 
 /// The window is closing: the heartbeat ends at its next look.
@@ -39,6 +44,7 @@ static MAIN_BUDGET: Budget = Budget::new(6, 6000);
 static WINDOW_BUDGET: Budget = Budget::new(6, 6000);
 static LAG_BUDGET: Budget = Budget::new(12, 6000);
 static CPU_BUDGET: Budget = Budget::new(12, 6000);
+static REAPER_BUDGET: Budget = Budget::new(12, 6000);
 
 /// Prints `line` when `budget` has some left.
 fn say(budget: &Budget, line: &str) {
@@ -56,6 +62,9 @@ const STUCK: Duration = Duration::from_secs(2);
 const REPEAT: Duration = Duration::from_secs(5);
 /// The CPU line is looked at every this many ticks.
 const CPU_EVERY: u32 = 5;
+/// Ticks (seconds) at which the launcher's wake count is always printed; later only when it changed.
+const REAPER_FIRST: u32 = 10;
+const REAPER_SECOND: u32 = 30;
 /// A process below this share of the CPU is not worth a line.
 const CPU_MIN_PERCENT: u64 = 20;
 
@@ -101,6 +110,7 @@ fn run() {
     let (mut main_line, mut window_line) = (Every(None), Every(None));
     let mut cpu = Cpu::default();
     let mut ticks = 0u32;
+    let mut reaper_said = None::<u64>;
     loop {
         std::thread::sleep(TICK);
         if STOP.load(Ordering::Acquire) {
@@ -144,6 +154,14 @@ fn run() {
         ticks += 1;
         if ticks % CPU_EVERY == 0 {
             cpu.report();
+        }
+        // SAFETY: no arguments; the counter is an atomic.
+        let wakeups = u64::from(unsafe { lzw_launcher_reaper_wakeups() });
+        if ticks == REAPER_FIRST || ticks == REAPER_SECOND || reaper_said.is_some_and(|said| said != wakeups) {
+            say(&REAPER_BUDGET, &format!("INFO:REAPER:wakeups={wakeups}"));
+        }
+        if ticks >= REAPER_FIRST {
+            reaper_said = Some(wakeups);
         }
     }
 }

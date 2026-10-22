@@ -32,6 +32,7 @@ def make_vars() -> dict:
         "limits": s(value=""),
         "display_mode": s(value=""),
         "display_max": s(value=""),
+        "display_scale": s(value=""),  # LAZYOS_DISPLAY_SCALE: "", auto, 1 or 2
         # run_demo --sample-port: a QMP socket for tools/webplus/sample.py (#861).
         "sample_port": s(value=""),
         "assets": s(value=""),
@@ -108,12 +109,16 @@ def make_vars() -> dict:
         # The WebKit port's console proof: WebProcess, NetworkProcess, webkit-smoke
         # (LAZYOS_WEBKIT_PORT, run_demo --webkit-port).
         "webkit_port": b(value=False),
-        # LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
+        # LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
         # run_demo --lazywebplus; implies the desktop, the stack and the big-app profile).
         "lazywebplus": b(value=False),
         # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
         # run_demo --webd; implies the desktop and the big-app profile, not the stack).
         "webd": b(value=False),
+        # The demo client of webd (LAZYOS_WEBDDEMO, run_demo --webd-demo) and the opt-out (LAZYOS_WEBD=0,
+        # run_demo --no-webd): every desktop ships webd.
+        "webd_demo": b(value=False),
+        "no_webd": b(value=False),
         # The HTTPS clients (LAZYOS_TLS, run_demo --tls; implies networking).
         "tls": b(value=False),
         # The SMB 2.1 client `smb` (LAZYOS_SMB, run_demo --smb; implies networking).
@@ -139,9 +144,6 @@ def make_vars() -> dict:
         "wifi": b(value=False),
         # An ext2 journal on the OS volume (LAZYOS_JOURNAL, run_demo --journal).
         "journal": b(value=False),
-        # The LazyWeb browser (LAZYOS_LAZYWEB, run_demo --lazyweb; implies the
-        # desktop, networking and HTTPS).
-        "lazyweb": b(value=False),
         # The LazySky Bluesky client (LAZYOS_LAZYSKY, run_demo --lazysky;
         # implies the desktop and networking).
         "lazysky": b(value=False),
@@ -151,12 +153,16 @@ def make_vars() -> dict:
         "traydemo": b(value=False),
         # LazyGolf and the NES Player (LAZYOS_GAMES, run_demo --games; desktop only).
         "games": b(value=False),
+        # The developer tools, today the Messenger Playground (LAZYOS_DEVTOOLS, run_demo --devtools;
+        # desktop only; builds rhai).
+        "devtools": b(value=False),
         # The Picture Viewer (LAZYOS_PICTURES, run_demo --pictures; desktop only).
         "pictures": b(value=False),
         "simple_usb_image": b(value=False),
         "simple_autologin": b(value=False),
         "simple_setup": b(value=False),
         "simple_hidpi": b(value=False),
+        "simple_hires": b(value=False),
         "script": s(value=SCRIPTS[0][1]),
         # The Simple tab's feature groups (`simplecfg.SIMPLE_GROUPS`).
         **{f"simple_group_{key}": b(value=False) for key, *_ in SIMPLE_GROUPS},

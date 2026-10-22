@@ -61,6 +61,10 @@ class CoreApp:
     #: extra files for the project: a glob relative to the root -> the folder
     #: inside the project they are copied to.
     project_files: tuple[tuple[str, str], ...] = ()
+    #: top-level directories of the source tree that a package may not have
+    #: (`tools/pkg/build.py` ALLOWED_DIRS) -> where they go inside it: the
+    #: Playground's `examples/` are `resources/examples/` in the archive.
+    relocate: tuple[tuple[str, str], ...] = ()
 
 
 def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
@@ -72,9 +76,10 @@ def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
 #: `DESKTOP_XUI_APPS`, `DOCUMENT_XUI_APPS` and `OPTIONAL_XUI_APPS`, minus the
 #: xui programs that stay unlabelled system programs in `/system/bin`
 #: (`docs/packages.md`, core packages): LazyShell, the Installer (`pkgd`'s
-#: trusted UI), the Terminal (its shell and every command typed in it would
-#: inherit a package label) and Devices (it reads the kernel's device
-#: inspection calls, `os.kernel.dev`, which no package permission can name).
+#: trusted UI) and Devices (it reads the kernel's device inspection calls,
+#: `os.kernel.dev`, which no package permission can name). The Terminal is a
+#: package of the developer-tool class that is the user's shell (`shell = true`,
+#: docs/devtool-packages-plan.md "T-later: Terminal"), shipped by every desktop.
 #: The LazyRAD IDE (`lazyrad-os/`, not an xui app) is a core package too, built
 #: from `target/lazyrad/` with its player beside it (`lrplay` is found next to
 #: `lazyrad` in the install directory) and shipped only in images built with
@@ -84,6 +89,8 @@ def xui_app(elf: str, short: str, optional: bool = False) -> CoreApp:
 #: runs the project under its own `dev:<system_name>` label
 #: (`docs/lazyrad-package-plan.md`, phase B).
 CORE_APPS: dict[str, CoreApp] = {
+    # The Terminal: `xui-term.elf` is the package `os.lazy.terminal`.
+    "terminal": xui_app("xui-term.elf", "terminal"),
     "sysmon": xui_app("xui-sysmon.elf", "sysmon"),
     "fabricmon": xui_app("xui-fabricmon.elf", "fabricmon"),
     "widget": xui_app("xui-widget.elf", "widget"),
@@ -103,13 +110,9 @@ CORE_APPS: dict[str, CoreApp] = {
     "nettools": xui_app("xui-nettools.elf", "nettools", optional=True),
     # Network Drives: FTP servers as folders under /mnt, through `mountd`.
     "netdrives": xui_app("xui-netdrives.elf", "netdrives", optional=True),
-    # Blitz (pure Rust), built with the other apps.
+    # Pure Rust, built with the other apps; its pages are drawn by webd.
     "docs": xui_app("xui-docs.elf", "docs", optional=True),
-    # The web browser (Blitz, pure Rust; docs/lazyweb.md). Only a
-    # `LAZYOS_LAZYWEB=1` image ships it (`build_support/lazyweb_embed.rs`,
-    # which fails that build when it is missing).
-    "lazyweb": xui_app("xui-lazyweb.elf", "lazyweb", optional=True),
-    # LazyWeb+ (docs/lazywebplus.md): LazyWeb's chrome on the same WebKit build, one static program
+    # LazyWeb+ (docs/lazywebplus.md), the web browser on WebKit, one static program
     # linked by `tools/webkit/app.py`. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
     # (`build_support/lazywebplus_embed.rs`, which fails that build when it is missing).
     "lazywebplus": CoreApp({"xui-lazywebplus.elf": "bin/lazywebplus.elf"}, optional=True,
@@ -172,6 +175,11 @@ CORE_APPS: dict[str, CoreApp] = {
     # NES: Play NES game ROMs, with sound. Shipped by `LAZYOS_GAMES=1` images
     # only, like LazyGolf.
     "nes": xui_app("xui-nes.elf", "nes", optional=True),
+    # Messenger Playground, a developer tool (docs/devtool-packages-plan.md): only a
+    # `LAZYOS_DEVTOOLS=1` image ships it (`build_support/devtools_embed.rs`, which fails that
+    # build when it is missing).
+    "playground": CoreApp({"xui-playground.elf": "bin/playground.elf"}, optional=True,
+                          relocate=(("examples", "resources/examples"),)),
     # Web View Demo (docs/webd-plan.md P2 slice 2): the client of webd's light views, driven by
     # `python tools/webd/run.py`. Only a `LAZYOS_WEBD=1` image ships it.
     "webddemo": xui_app("xui-webddemo.elf", "webddemo", optional=True),
@@ -208,6 +216,16 @@ def render_manifest(text: str, version: str, autostart: bool) -> str:
     if versions != 1 or autostarts != 1:
         raise CoreError("a core manifest must have one `version` and one `autostart` line")
     return text
+
+
+def relocate_dirs(app: CoreApp, tree: Path) -> None:
+    """Move `app`'s source directories to their place inside the package."""
+    for source, inside in app.relocate:
+        if not (tree / source).is_dir():
+            raise CoreError(f"no {source}/ directory in the package source tree")
+        target = tree / inside
+        target.parent.mkdir(parents=True, exist_ok=True)
+        (tree / source).rename(target)
 
 
 #: Where a LazyRAD app's project sits inside its package.
@@ -316,6 +334,7 @@ def build_one(short: str, programs: dict[Path, str], version: str, autostart: bo
         copy_tree(SOURCES / short, tree)
         if app is not None:
             copy_project(app, tree)
+            relocate_dirs(app, tree)
         manifest = tree / "manifest.toml"
         manifest.write_text(render_manifest(manifest.read_text(encoding="utf-8"), version, autostart),
                             encoding="utf-8", newline="\n")

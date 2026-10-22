@@ -6,25 +6,42 @@ use alloc::vec::Vec;
 
 use crate::fs::vfs::{self, FileKind, Id, Meta, SetAttr, Times, S_IFDIR, S_IFREG};
 
+/// One name in a directory. A file has as many entries as it has names
+/// (hard links); a directory has exactly one.
+pub(super) struct Entry {
+    pub(super) name: String,
+    pub(super) ino: u64,
+    /// Who pays for this name when it is not the file's first one: a hard
+    /// link costs a node of the filesystem's cap, charged to the caller who
+    /// made it (`links.rs`). `None` on the one entry the node's own charge
+    /// covers.
+    pub(super) extra: Option<u32>,
+}
+
 /// One node: a file with contents, or a directory with children.
 pub(super) struct Node {
-    pub(super) name: String,
     pub(super) kind: FileKind,
+    /// `st_nlink`: a file's names; a directory's `.`, its entry in the
+    /// parent and each child directory's `..`.
+    pub(super) links: u32,
     /// Permission bits only (type bits are added by [`Node::meta`]).
     mode: u16,
     uid: u32,
     gid: u32,
     times: Times,
     pub(super) data: Vec<u8>,
-    pub(super) children: Vec<u64>,
+    pub(super) children: Vec<Entry>,
 }
 
 impl Node {
     /// A fresh, empty node owned by `owner`, all three times stamped now.
-    pub(super) fn new(name: String, kind: FileKind, mode: u16, owner: Id) -> Node {
+    pub(super) fn new(kind: FileKind, mode: u16, owner: Id) -> Node {
         Node {
-            name,
             kind,
+            links: match kind {
+                FileKind::File => 1,
+                FileKind::Dir => 2,
+            },
             mode: mode & 0o7777,
             uid: owner.uid,
             gid: owner.gid,
@@ -52,7 +69,18 @@ impl Node {
             size: self.data.len() as u64,
             kind: self.kind,
             times: self.times,
+            nlink: self.links,
         }
+    }
+
+    /// The child entry called `name`, if any.
+    pub(super) fn entry(&self, name: &str) -> Option<&Entry> {
+        self.children.iter().find(|entry| entry.name == name)
+    }
+
+    /// The inode change time moves (a name came or went, an attribute changed).
+    pub(super) fn touch_ctime(&mut self) {
+        self.times.ctime = vfs::now();
     }
 
     /// The contents changed: `mtime` and `ctime` move.

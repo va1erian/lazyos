@@ -61,8 +61,9 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 >   `getrlimit`/`setrlimit`/`prlimit64` (the real limits; only no-op changes
 >   accepted), `sysinfo`, `times`, `getrusage`, `getgroups`/`setgroups`,
 >   `readlinkat`, `faccessat`/`faccessat2`, `dup3`, `renameat2`
->   (`RENAME_NOREPLACE`), `epoll_create`, `eventfd`, `getcpu`; `link`/
->   `symlink`/`linkat`/`symlinkat` answer `EPERM` (no filesystem stores links).
+>   (`RENAME_NOREPLACE`), `epoll_create`, `eventfd`, `getcpu`; `symlink`/
+>   `symlinkat` answer `EPERM` (no filesystem stores symbolic links); `link`/
+>   `linkat` make hard links since issue #871 (below).
 > * **no more silent stubs**: `madvise` (`DONTNEED` really zero-fills, unknown
 >   advice is `EINVAL`), `prctl` (names, dumpable, no-new-privs; the rest
 >   `EINVAL`), `set_robust_list` (walked at thread exit: owner-died + wake),
@@ -79,7 +80,7 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > file-backed `mmap` landed afterwards, issue #535, see the note at the end of
 > this section); `rt_sigtimedwait`/`sigqueue` payloads;
 > `timerfd`/`signalfd`/`inotify`; `SIGTTIN`/`SIGTTOU`
-> job-control stops; symlinks and hard links in the filesystems; record locks
+> job-control stops; symlinks in the filesystems (hard links landed in #871); record locks
 > are not dropped when *one* descriptor of the file closes (only at unlock or
 > exit); memfd seals (`F_ADD_SEALS`) and `MAP_SHARED` of regular files (round
 > 4 below). The kernel test suite for all of this is
@@ -164,6 +165,16 @@ layout (`kernel/src/fs/mounts.rs`). The sections below are kept as the
 > `dlopen`, shared-library TLS and threads run on `ld-musl-x86_64.so.1`
 > (`/lib/<name>` is served from `/system/lib`). The bench rows are `filemap`
 > and `dynlink` (`tools/abi/dynlink.py`, `LAZYOS_DYNLINK=1`).
+>
+> **Issue #535, gap 6 (hard links half): issue #871.** `link`/`linkat` make a
+> second name on ext2 and the ramfs (`EXDEV` across mounts, `EPERM` for a
+> directory or a filesystem without links, `EMLINK` at ext2's 32000,
+> `fs.protected_hardlinks`), `st_nlink` is the filesystem's count, and an open
+> file is known by its inode, so its names share one page cache and one set of
+> locks, and unlinking one of several names parks nothing. `linkat` takes
+> `AT_SYMLINK_FOLLOW` and answers `AT_EMPTY_PATH` `ENOENT`. Symbolic links are
+> the half still open. The bench row is `hardlink`; the design is in
+> [`architecture/filesystem.md`](architecture/filesystem.md) ("Hard links").
 
 > **`sched_setattr`/`sched_getattr` (314, 315): supported (W2).** The plain
 > policies (`SCHED_OTHER`, `SCHED_BATCH`, `SCHED_IDLE`) with a nice value are

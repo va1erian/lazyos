@@ -9,8 +9,9 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPT
 
 #: `simplecfg.plain_config`'s switches, in its argument order.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
-                 "hidpi", "tls", "lazyweb", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazywebplus", "games")
+                 "hidpi", "hires", "tls", "mail", "traydemo", "autologin", "setup", "pictures",
+                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazywebplus", "games",
+                 "devtools")
 
 _OPTION_TEXT = {
     "shell": "LazyShell desktop (taskbar, start menu, desktop icons)",
@@ -20,6 +21,7 @@ _OPTION_TEXT = {
              "for the owner (recreates the OS volume)",
     "devices": "Open the Devices app at boot (device owners and driver rules)",
     "hidpi": "HiDPI: 2560x1440 at 2x (a sharp 720p desktop for a 4K monitor)",
+    "hires": "Hi-res: 2560x1440 at 1x (a roomy 1440p desktop; text keeps its size)",
     "usb_image": "USB stick image too (target/lazyos-usb.img for a real PC; "
                  "write it with tools/boot/stick_gui.py)",
 }

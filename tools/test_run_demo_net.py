@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for run_demo.py's `--net` family: the stack, forwards, TLS, SMB and LazyWeb (no QEMU, no build).
+"""Tests for run_demo.py's `--net` family: the stack, forwards, TLS and SMB (no QEMU, no build).
 
 Run: python tools/test_run_demo_net.py
 """
@@ -93,42 +93,6 @@ class NetTests(unittest.TestCase):
             code, command = self.run_net("--tls")
         self.assertEqual(code, 1)
         self.assertEqual(command, [])
-
-    def run_lazyweb(self, built: bool = True) -> tuple[int, list[str]]:
-        with mock.patch.object(run_demo, "build_lazyweb", return_value=built) as browser, \
-                mock.patch.object(run_demo, "build_tls", return_value=True), \
-                mock.patch.object(run_demo, "build_xui_shell", return_value=True), \
-                mock.patch.object(run_demo, "build_xui_apps", return_value=True):
-            result = self.run_net("--lazyweb")
-        browser.assert_called_once()
-        return result
-
-    def test_lazyweb_is_a_desktop_with_the_network_and_https(self) -> None:
-        code, command = self.run_lazyweb()
-        self.assertEqual(code, 0)
-        env = self.builds[-1]
-        for name in ("LAZYOS_LAZYWEB", "LAZYOS_DESKTOP", "LAZYOS_NETD", "LAZYOS_TLS"):
-            self.assertEqual(env.get(name), "1", name)
-        self.assertEqual(env.get("LAZYOS_NETD_ARGS"), "demo=0")
-        self.assertIn("virtio-net-pci,netdev=n0", command)
-
-    def test_lazyweb_stops_when_the_browser_is_not_built(self) -> None:
-        code, command = self.run_lazyweb(built=False)
-        self.assertEqual(code, 1)
-        self.assertEqual(command, [])
-
-    def test_lazyweb_build_needs_the_browser_binary(self) -> None:
-        missing = self.dir / "xui-lazyweb.elf"
-        with mock.patch.object(run_demo.demo_builds, "LAZYWEB_ELF", missing), \
-                mock.patch.object(run_demo.demo_builds, "build_xui_apps", return_value=True), \
-                redirect_stderr(io.StringIO()) as err:
-            self.assertFalse(run_demo.demo_builds.build_lazyweb())
-        self.assertIn("xui/build.py", err.getvalue())
-        missing.write_bytes(b"\x7fELF")
-        with mock.patch.object(run_demo.demo_builds, "LAZYWEB_ELF", missing), \
-                mock.patch.object(run_demo.demo_builds, "build_xui_apps") as rebuilt:
-            self.assertTrue(run_demo.demo_builds.build_lazyweb())
-        rebuilt.assert_not_called()
 
     def test_no_net_attaches_no_card(self) -> None:
         _, command = self.run_net("--no-build")

@@ -49,18 +49,12 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazyrad",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
-    // LazyWeb: neither set has a globe; a link on an amber tile.
-    (
-        "xui-app/packages/lazyweb",
-        Art::Lucide(Lucide::Link, Tone::Amber),
-    ),
-    // WebKit: Lucide `external-link` (a page with an arrow out of it) on a cobalt tile, as
-    // LazyWeb's link on amber: both open the web, the engines are told apart by colour.
+    // WebKit: Lucide `external-link` (a page with an arrow out of it) on a cobalt tile.
     (
         "xui-app/packages/webkit",
         Art::Lucide(Lucide::ExternalLink, Tone::Cobalt),
     ),
-    // LazyWeb+: LazyWeb's link, on a rose tile (the same chrome on the real engine).
+    // LazyWeb+: neither set has a globe; a link on a rose tile.
     (
         "xui-app/packages/lazywebplus",
         Art::Lucide(Lucide::Link, Tone::Rose),
@@ -164,6 +158,14 @@ pub const PACKAGES: &[(&str, Art)] = &[
     (
         "xui-app/packages/nes",
         Art::Lucide(Lucide::Play, Tone::Clay),
+    ),
+    // The Terminal: the Global Village terminal picture, as LazyShell's
+    // launcher drew it before the Terminal was a package.
+    ("xui-app/packages/terminal", Art::Village(Icon::Terminal)),
+    // Messenger Playground: Lucide `code`, a script, on a teal tile.
+    (
+        "xui-app/packages/playground",
+        Art::Lucide(Lucide::Code, Tone::Teal),
     ),
     // Web View Demo: scaffolded with a placeholder; pick its art.
     (

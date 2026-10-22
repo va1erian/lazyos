@@ -126,7 +126,7 @@ impl Ext2 {
             self.free_inode(ino, false)
         } else {
             put16(inode, INO_LINKS, links - 1);
-            touch(inode, self.now());
+            put32(inode, INO_CTIME, self.now());
             self.write_inode(ino, inode)
         }
     }

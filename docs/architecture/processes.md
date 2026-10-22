@@ -19,7 +19,11 @@ syscall shim.
 **Identity model** (`task/process.rs`, issue #59)
 
 - `pid == scheduler slot`; slots are recycled. `pgid` and `sid` hold the pid of
-  the leader. The tree is derived by scanning for `parent == slot` (cheap at
+  the leader. A group or session outlives its leader, so slot allocation
+  (`kstack::claim_slot`) skips a slot whose number some task still has as its
+  `pgid` or `sid` (as Linux's `alloc_pid` does), and `setpgid`/`setsid` refuse
+  to found a group or session whose number another process already uses
+  (issue #880). The tree is derived by scanning for `parent == slot` (cheap at
   `MAX_TASKS = 1024`) rather than stored as child lists.
 - `finish` is the single death path: marks `Done`, records `exit_status`,
   re-parents children to the kernel task (`KERNEL_TASK`, pid 0), posts
@@ -345,7 +349,11 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   `wait4`/`waitid` honour the pid argument (one child, any, own group,
   `-pgid`; `ECHILD` when none qualifies) and report a signal death as
   `WIFSIGNALED` with the core bit (the signal is recorded with the task when
-  the signal layer ends it, `LinuxExtras::term_signal`). `vfork` is a fork.
+  the signal layer ends it, `LinuxExtras::term_signal`). `waitid` with `WNOWAIT`
+  reports a finished child and leaves it waitable (a thread can sleep until a
+  child ends and collect it later under a lock of its own, issue #887); a wait
+  that wakes to find its child collected by another thread is `ECHILD`.
+  `vfork` is a fork.
 - Futexes (`futex.rs`, `futex_queue.rs`): one waiter table keyed by (address
   space, address) with a bitset per waiter; `WAIT` (relative timeout),
   `WAIT_BITSET` (absolute, `FUTEX_CLOCK_REALTIME` honoured), `WAKE`,
@@ -499,7 +507,9 @@ share the deadline timer, CPU-time timers are charged per scheduler tick, so
 they are tick-granular; `fork` gives the child none, `execve` keeps the
 interval timers; tests `itimer_suite`, fixture `alarm`). `SCM_RIGHTS`,
 `memfd_create` and `MAP_SHARED` memfd mappings exist (issue #771, see
-"Descriptor passing and shared memory" below). `link`/`symlink` answer `EPERM` (no
-filesystem stores links). The `persist` fixture also sets and re-checks mode,
+"Descriptor passing and shared memory" below). `link`/`linkat` make hard links on
+ext2 and the ramfs, and `stat`/`fstatat`/`statx` report the real `st_nlink`
+(issue #871, [filesystem.md](filesystem.md) "Hard links"); `symlink` answers `EPERM`
+(no filesystem stores symbolic links). The `persist` fixture also sets and re-checks mode,
 owner and times across its two boots. Kernel tests for the round-3 calls:
 `kernel/src/tests/linux_compat_suite/`.

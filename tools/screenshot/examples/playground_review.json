@@ -1,0 +1,329 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "review_idle"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "search"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "print(40 + 2);"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "c"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "v"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "review_card"
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "review_cancelled"
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "key": "enter",
+  "until": "PLAYGROUND:RUN:1:EXIT:0:",
+  "timeout": 90,
+  "retries": 1
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "review_ran"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key": "f5",
+  "until": "PLAYGROUND:RUN:2:EXIT:0:",
+  "timeout": 90,
+  "retries": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "review_second_run"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "s"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "review_save_dialog"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "pg-test"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "review_saved"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "o"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "review_open_dialog"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "pg-test.rhai"
+ },
+ {
+  "key": "enter"
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "review_file_card"
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "editor"
+  }
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "a"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "type": "let typed_by_me = 1; // my own text, longer than the paste\n"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "v"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "home"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "key_down": "shift"
+ },
+ {
+  "key": "end"
+ },
+ {
+  "key_up": "shift"
+ },
+ {
+  "key": "delete"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "review_typing_deleted"
+ },
+ {
+  "key": "f5"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "review_bypass_card"
+ },
+ {
+  "key": "esc"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

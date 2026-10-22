@@ -60,6 +60,7 @@ def elevpolicy_seeds():
     return {
         "pkg_install": request("pkg.install", "/transient/demo.lzp"),
         "pkg_update_core": request("pkg.update-core", "/home/user/counter.lzp"),
+        "pkg_install_devtool": request("pkg.install-devtool", "/home/user/playground.lzp"),
         "pkg_remove": request("pkg.remove", "org.lazy.demo"),
         "conf_set": request("conf.set", "sys/ui/demo", "str", "hello"),
         "conf_set_bytes": request("conf.set", "sys/ui/demo", "bytes", "00ff"),

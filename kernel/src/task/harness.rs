@@ -472,3 +472,13 @@ pub fn with_table_locked<R>(f: impl FnOnce() -> R) -> R {
     let _table = TASKS.lock();
     f()
 }
+
+/// Give `slot` the group and session numbers `pgid` and `sid`: a state the
+/// real paths cannot reach once slot allocation avoids stale group numbers
+/// (issue #880), for the test of the defensive check in `setpgid`.
+pub fn set_group(slot: usize, pgid: usize, sid: usize) {
+    if let Some(task) = TASKS.lock()[slot].as_mut() {
+        task.pgid = pgid;
+        task.sid = sid;
+    }
+}

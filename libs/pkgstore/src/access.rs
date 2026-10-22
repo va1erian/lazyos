@@ -47,6 +47,31 @@ pub fn may_manage(caller: &Caller) -> Result<(), &'static str> {
     }
 }
 
+/// Whether `caller` may install or update a package of the developer-tool
+/// class (`[app] kind = "developer-tool"`, `docs/devtool-packages-plan.md`
+/// section 4): only a system caller, which is the boot-time install of the
+/// image's own core packages or `elevd` after an administrator approved the
+/// install on its trusted prompt. The owner of a login session may not ask
+/// `pkgd` directly, even an administrator, because a tool runs with the full
+/// authority of whoever starts it and the approval must name that. A labelled
+/// task is refused first, as in [`may_manage`]. This is in addition to
+/// [`may_manage`], not instead of it.
+pub fn may_install_developer_tool(caller: &Caller) -> Result<(), &'static str> {
+    if caller.label_id != 0 {
+        return Err("applications may not install developer tools");
+    }
+    if caller.system {
+        Ok(())
+    } else {
+        Err(DEVELOPER_TOOL_RULE)
+    }
+}
+
+/// The refusal a caller that is not a system caller gets for a developer tool.
+pub const DEVELOPER_TOOL_RULE: &str =
+    "a developer tool can only be installed after an administrator approves it; \
+     ask an administrator to install it";
+
 /// Whether `caller` may ask about packages at all (`Inspect`, `List`): anything
 /// but a sandboxed application.
 pub fn may_inspect(caller: &Caller) -> Result<(), &'static str> {
@@ -282,6 +307,44 @@ mod tests {
         };
         assert!(may_manage(&SANDBOXED).is_err());
         assert!(may_manage(&sandboxed_root).is_err());
+    }
+
+    #[test]
+    fn only_a_system_caller_installs_a_developer_tool() {
+        assert!(may_install_developer_tool(&ROOT).is_ok());
+        // A session owner is refused, whether an administrator or not, and a
+        // root login session holds no capability.
+        for session_owner in [USER, OTHER, ROOT_SESSION] {
+            let refusal = may_install_developer_tool(&session_owner).unwrap_err();
+            assert_eq!(refusal, DEVELOPER_TOOL_RULE);
+            assert!(refusal.contains("administrator"), "{refusal}");
+        }
+        assert_eq!(
+            may_install_developer_tool(&DAEMON),
+            Err(DEVELOPER_TOOL_RULE)
+        );
+        // A labelled task is refused, even one that claims to be a system
+        // caller.
+        let sandboxed_root = Caller {
+            uid: 0,
+            system: true,
+            ..SANDBOXED
+        };
+        for labelled in [SANDBOXED, sandboxed_root] {
+            let refusal = may_install_developer_tool(&labelled).unwrap_err();
+            assert!(refusal.contains("applications"), "{refusal}");
+        }
+    }
+
+    #[test]
+    fn a_developer_tool_needs_more_than_may_manage_not_less() {
+        // Everyone who may install a tool may manage packages.
+        for caller in [ROOT, USER, OTHER, ROOT_SESSION, DAEMON, SANDBOXED] {
+            if may_install_developer_tool(&caller).is_ok() {
+                assert!(may_manage(&caller).is_ok());
+            }
+        }
+        assert!(may_manage(&USER).is_ok() && may_install_developer_tool(&USER).is_err());
     }
 
     #[test]

@@ -31,7 +31,7 @@ class SimpleGroups(unittest.TestCase):
     def test_nothing_chosen_adds_nothing(self) -> None:
         cfg = desktop()
         for name in ("doom", "quake", "lazyrad", "emusic", "modplayer", "linuxapps",
-                     "traydemo", "games", "net", "tls", "lazyweb", "mail"):
+                     "traydemo", "games", "net", "tls", "mail"):
             self.assertFalse(cfg[name], name)
 
     def test_games_have_doom_and_the_lazyrad_brickbreaker(self) -> None:
@@ -56,15 +56,15 @@ class SimpleGroups(unittest.TestCase):
         self.assertTrue(cfg["net"] and cfg["tls"])
         self.assertTrue(desktop("networking", iface="CLI")["tls"])
 
-    def test_web_has_lazyweb_and_mail_over_networking(self) -> None:
+    def test_web_has_mail_and_lazysky_over_networking(self) -> None:
         cfg = desktop("web")
-        self.assertTrue(cfg["lazyweb"] and cfg["mail"] and cfg["tls"] and cfg["net"])
+        self.assertTrue(cfg["lazysky"] and cfg["mail"] and cfg["tls"] and cfg["net"])
         self.assertFalse(cfg["lazywebplus"], "LazyWeb+ is its own group (a Docker build)")
 
     def test_lazywebplus_is_its_own_group_over_networking(self) -> None:
         cfg = desktop("lazywebplus")
         self.assertTrue(cfg["lazywebplus"] and cfg["net"])
-        self.assertFalse(cfg["lazyweb"] or cfg["mail"])
+        self.assertFalse(cfg["lazysky"] or cfg["mail"])
         self.assertFalse(desktop("lazywebplus", iface="CLI")["lazywebplus"], "a browser needs the desktop")
 
 

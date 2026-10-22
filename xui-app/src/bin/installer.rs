@@ -20,6 +20,8 @@
 //! INSTALLER:PICK:PASS <path>               INSTALLER:PICK:FAIL <reason>
 //! INSTALLER:INSPECT:PASS <system_name>     INSTALLER:INSPECT:FAIL <reason>
 //! INSTALLER:CONSENT:SHOWN perms=<n> problems=<n>
+//! INSTALLER:CONSENT:TOOL risks=<n> denied=<n>   (a developer tool: warning first)
+//! INSTALLER:ELEVATE pkg.install-devtool     (a developer tool installs through elevd)
 //! INSTALLER:INSTALL:PASS <system_name>     INSTALLER:INSTALL:FAIL <reason>
 //! INSTALLER:REMOVE:PASS <system_name>      INSTALLER:REMOVE:FAIL <reason>
 //! INSTALLER:REMOVE:REFUSED <system_name>   (a core app: no confirmation)
@@ -35,9 +37,10 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
 
-use xui_app::installer::{clean, Model, Request, Screen};
+use xui_app::installer::{class_counts, clean, Model, Request, Screen};
 use xui_app::launch;
 use xui_app::platform::{argv, pkg};
+use xui_app::trace::{self, Channel};
 use xui_core::app::{App, Ui};
 use xui_core::backend::{BackendError, TimerId};
 use xui_core::Key;
@@ -50,6 +53,8 @@ mod develop;
 mod list_screen;
 #[path = "installer/msg.rs"]
 mod msg;
+#[path = "installer/notice.rs"]
+mod notice;
 #[path = "installer/picker.rs"]
 mod picker;
 #[path = "installer/simple.rs"]
@@ -57,6 +62,8 @@ mod simple;
 #[cfg(test)]
 #[path = "installer/tests.rs"]
 mod tests;
+#[path = "installer/tool.rs"]
+mod tool;
 #[path = "installer/view.rs"]
 mod view;
 #[path = "installer/wizard.rs"]
@@ -197,16 +204,34 @@ impl App for Installer {
                 if self.install_timer == Some(id) {
                     self.install_timer = None;
                     ui.kill_timer(id);
-                    if let Some(Request::Install(path)) = self.model.take_pending() {
-                        // The install rides the backend's async call lane
-                        // (issue #725): the window stays live while `pkgd`
-                        // works, and the answer returns as
-                        // `Msg::InstallDone` (an outright refusal of the
-                        // call itself reports the same way).
-                        let answer = ui.proxy();
-                        let _ = pkg::install_async(&path, move |result| {
-                            let _ = answer.send(Msg::InstallDone(result));
-                        });
+                    let expected = self
+                        .model
+                        .inspected
+                        .as_ref()
+                        .map(|package| package.system_name.clone())
+                        .unwrap_or_default();
+                    match self.model.take_pending() {
+                        Some(Request::Install(path)) => {
+                            // The install rides the backend's async call lane
+                            // (issue #725): the window stays live while `pkgd`
+                            // works, and the answer returns as
+                            // `Msg::InstallDone` (an outright refusal of the
+                            // call itself reports the same way).
+                            let answer = ui.proxy();
+                            let _ = pkg::install_async(&path, move |result| {
+                                let _ = answer.send(Msg::InstallDone(result));
+                            });
+                        }
+                        // A developer tool: `pkgd` takes it from `elevd`
+                        // alone, after an administrator approved it on the
+                        // trusted prompt. The call waits for that prompt, as
+                        // a core-app update always has; the answer returns
+                        // as the same message.
+                        Some(Request::InstallTool(path)) => {
+                            let result = tool::install(&path, &expected);
+                            let _ = ui.proxy().send(Msg::InstallDone(result));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -333,6 +358,13 @@ fn inspect(model: &mut Model, path: &str) {
                 package.permissions.len(),
                 package.problems.len()
             );
+            if package.is_developer_tool() {
+                let (risks, denied) = class_counts(&package);
+                trace::line!(
+                    Channel::Installer,
+                    "CONSENT:TOOL risks={risks} denied={denied}"
+                );
+            }
             model.inspect_ok(path.to_owned(), package);
         }
         Err(reason) => {

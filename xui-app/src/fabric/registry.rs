@@ -19,6 +19,12 @@ pub struct RegistryEntry {
     pub interfaces: Vec<u64>,
     /// Remaining lease ticks; `0` when permanent.
     pub lease_remaining: u64,
+    /// The owner's user id.
+    pub owner_uid: u64,
+    /// The owner's label id (`0`: unlabelled).
+    pub owner_label: u64,
+    /// The owner's session (`0`: the system).
+    pub owner_session: u64,
 }
 
 /// Snapshot the kernel name table through syscall 5 `list`.
@@ -43,6 +49,9 @@ fn decode_registry(parcel: &Parcel) -> Option<Vec<RegistryEntry>> {
                 owner_slot: entry.owner,
                 interfaces: entry.interfaces,
                 lease_remaining: entry.lease_remaining,
+                owner_uid: entry.owner_uid,
+                owner_label: entry.owner_label,
+                owner_session: entry.owner_session,
             })
             .collect(),
     )

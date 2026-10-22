@@ -1,10 +1,10 @@
-# LazyWeb+, LazyWeb's browser on WebKit
+# LazyWeb+, the browser on WebKit
 
-`os.lazy.lazywebplus` ("LazyWeb+" in the menu) is LazyWeb's window, menus, history and downloads on the
-WebKit engine of [`webkit-port-plan.md`](webkit-port-plan.md): JavaScript, forms, cookies, the modern web, in
-place of Blitz. It is a second browser, not a replacement: LazyWeb (Blitz, no script engine, 12 MB of
-memory, in every `LAZYOS_LAZYWEB=1` image) stays untouched and stays the browser an image ships by
-default. Issue #835.
+`os.lazy.lazywebplus` ("LazyWeb+" in the menu) is the web browser of LazyOS: a window with menus, history and
+downloads on the WebKit engine of [`webkit-port-plan.md`](webkit-port-plan.md): JavaScript, forms, cookies,
+the modern web. It began as a second browser beside LazyWeb, a smaller one on the pure-Rust Blitz engine with
+no script engine. LazyWeb and Blitz were removed (docs/webd-plan.md P3) and this is the only browser now.
+Issue #835.
 
 ```bash
 python tools/run_demo.py --lazywebplus    # desktop + networking + HTTPS + the browser (builds WebKit first: Docker)
@@ -15,20 +15,20 @@ python tools/webplus/test_judge.py        # the judge fails when it should; the 
 
 ## What it is
 
-One C++ program, WebKit's UI process (`webkit/port/app/`), with LazyWeb's window as the Rust
+One C++ program, WebKit's UI process (`webkit/port/app/`), with its window as the Rust
 static library it links (`xui-app/webplus`, crate `xui-webplus`): `lazywebplus-app`, 108 MiB stripped, which
 starts `/system/bin/webprocess` and `/system/bin/networkprocess`. The package is
 `xui-app/packages/lazywebplus` (core package, `LAZYOS_LAZYWEBPLUS=1`, which needs `LAZYOS_DESKTOP=1` and
-`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). A bare W5 browser (`os.lazy.webkit`, the same engine without LazyWeb's chrome) was removed
+`LAZYOS_NETD=1`; the OS volume defaults to 1 GiB). A bare W5 browser (`os.lazy.webkit`, the same engine without this chrome) was removed
 by webd's P1.0 ([`webd-plan.md`](webd-plan.md) 9.1); `lzw_ui_features()` tells the UI process which of the
 browser behaviours the window it links wants.
 
-The window is a fork of `xui-app/web`'s LazyWeb on the engine seam of `xui-app/crates/webkit` (`xui-webkit`:
+The window sits on the engine seam of `xui-app/crates/webkit` (`xui-webkit`:
 the `Engine` trait, the mailbox between the two threads, the generic page view, the pure ABI helpers).
 `xui-webkit` is an rlib; LazyWeb+'s window defines the per-window symbols the C++ side calls (`lzw_ui_main`, `lzw_ui_features`,
 `lzw_ui_marker_prefix`, `lzw_ui_profile_dir`, `lzw_ui_navigate`, `lzw_ui_download_start`, ...).
 
-LazyWeb's look is kept: the menu bar (File, View, History, Downloads, Help), the toolbar (Back, Forward,
+The window has a menu bar (File, View, History, Downloads, Help), the toolbar (Back, Forward,
 Reload which turns into Stop, Home, the address field, an "open in the OS" button and the throbber), the
 status bar (hover link, what the engine is doing, running downloads with a progress bar, the padlock) and the
 same keys (Ctrl+L, F5, Alt+Left, Alt+Right, Alt+Home, Ctrl+H, Ctrl+J, Ctrl+S, Ctrl+W, Esc to stop while a page
@@ -56,8 +56,8 @@ with host tests and in the recording engine; the table with the WebKit side is i
 
 ## Navigation policy: a script never starts anything
 
-LazyWeb could take it for granted that every launch it reports is the user's, because Blitz has no scripts.
-WebKit cannot. Every navigation, redirect and window request goes through `decidePolicyForNavigationAction`
+A browser without a script engine (LazyWeb, now removed) could take it for granted that every launch it
+reports is the user's. WebKit cannot. Every navigation, redirect and window request goes through `decidePolicyForNavigationAction`
 to `policy::decide(url, kind, user_gesture, from_own_page)` (`xui-app/webplus/src/policy.rs`, pure and
 host-tested), with the gesture flag from `WKNavigationActionHasUnconsumedUserGesture` (a click or a key, not
 a timer, a load event or a redirect):
@@ -223,16 +223,17 @@ locks. Drop it when the kernel can map a file shared (PR #837).
 
 ## `mimed`: which browser opens a link
 
-`mimed` keeps one app per `(type, verb)` and the last to register wins, so with LazyWeb and LazyWeb+ both
+`mimed` keeps one app per `(type, verb)` and the last to register wins, so with two browsers both
 registering `x-scheme-handler/http`, `x-scheme-handler/https` and `text/html`, the one installed last would
-open every link. There was no preference, so one was added: the confd key `user/<uid>/mimed/default/<type>`
+open every link (it was LazyWeb and LazyWeb+; LazyWeb+ is the only browser now, and the preference stays for a
+second one). There was no preference, so one was added: the confd key `user/<uid>/mimed/default/<type>`
 (a string holding an app id; `libs/deskmenu/src/defaults.rs`), written by **Settings > Default apps** (all three
 types at once) and honoured by `mimed` for the uid the kernel stamped on the `Open`, only while that app still
 holds a registration for the type, so a stale choice (an uninstalled browser) falls back to the registry.
 `confd` lets a uid touch only `user/<uid>/**`, so one account's choice never moves another's. Evidence:
-`MIME:PREFER:PASS` in `mimed`'s selftest, host tests in `deskmenu`. With both browsers installed and no choice made, `mimed`
-keeps its old rule (the app registered last wins, which is install order), so LazyWeb+ may open links until the
-user picks LazyWeb in Settings; the lookup of the choice is made only when two apps handle the type.
+`MIME:PREFER:PASS` in `mimed`'s selftest, host tests in `deskmenu`. With two browsers installed and no choice made, `mimed`
+keeps its old rule (the app registered last wins, which is install order); the lookup of the choice is made
+only when two apps handle the type.
 
 ## Blocking ads
 
@@ -358,14 +359,14 @@ the network process reads the resolver, the host table and the CA bundle, uses o
 profile folder and `$HOME/Downloads` (the `.part` file of a download is its to write; the window renames it).
 Anything the UI process passes to the children is a socket. The UI process is an ordinary app: its file and
 network entries are consent text, not enforced. A bug in the window, or in what the page process sends it, is
-still a way out, and the children run as the user. LazyWeb stays the browser LazyOS ships.
+still a way out, and the children run as the user.
 
 ## Licence
 
-`xui-webplus` and `xui-webkit` are declared `GPL-2.0-only OR GPL-3.0-or-later`. LazyWeb is `GPL-2.0-only`
-(the licence NetSurf required), but this program links OpenSSL (Apache-2.0, through WebKit's curl), which a
+`xui-webplus` and `xui-webkit` are declared `GPL-2.0-only OR GPL-3.0-or-later` (the window began as a fork of
+LazyWeb, which was `GPL-2.0-only`), but this program links OpenSSL (Apache-2.0, through WebKit's curl), which a
 GPL-2.0-only program cannot carry; offered under GPL-3.0-or-later as well, the combined work is distributed as
-GPL-3.0-or-later and the window crates stay usable in LazyWeb's own tree. `python tools/nettls/licenses.py
+GPL-3.0-or-later and the window crates stay usable in a GPL-2.0-only tree. `python tools/nettls/licenses.py
 --lazywebplus` checks the window's Cargo tree for GPLv2 compatibility with one waiver, `unicode-linebreak`
 (Apache-2.0 only, in every xui app through `xui-canvas`), and `python tools/webkit/licenses.py` checks the
 WebKit bundle's rows and that the window crates keep both licences and name no OpenSSL crate. `THIRD_PARTY.md`
@@ -464,6 +465,7 @@ process prints, after `WEBPLUS:`:
 | `CRASH:signal=<n>:base=<hex>:rip=<hex>`, `CRASH:rsp=<hex>:addr=<hex>`, `CRASH:at=<hex>` | the UI process crashed (WebKit's `CRASH` is a SIGSEGV at 0xbbadbeef or an illegal instruction, an assertion or a pure virtual call is SIGABRT: the kernel names only the signal): the signal, where it was, the fault address, and the words of the first 16 KiB of its stack (never past the stack's top, `top=`) that point into its code, for `addr2line -f -C -e <the unstripped lazywebplus-app in the build volume's webkit-port-build/bin> <at>` (the program is not position independent: the words are addresses as they are; some are stale). The handler runs on its own stack, writes by hand and is reset on entry; for SIGABRT it unblocks the signal and raises it again, so the exit status is the signal's |
 | `HEARTBEAT:UP`, `INFO:CPU:GROUPS:ui=<pgid>:web=<pid>:net=<pid>:threads=<n>` | the heartbeat thread started; once, the process groups the CPU shares are summed over (`INFO:CPU:UNAVAILABLE`: the task list could not be read) |
 | `CHILD:<name>:<pid>:GONE\|ALIVE:term=<rc>:kill=<rc>:wait=<rc>` | the end: SIGTERM, then SIGKILL of each process group (retried every 100 ms for up to 10 s), both sent by the launcher under its lock to the processes it still holds (`lzw_launcher_signal`; a process that was collected is never named) and collected by `lzw_launcher_reap` until none is left; each rc is 0 or the errno negated, `wait` is the pid it reaped (0: the kernel no longer had it). `QUIT:FAIL` and exit status 3 when one is left. `CHILD:curl:ALIVE` is the ad blocker's list updater, which the window kills at its end |
+| `INFO:REAPER:wakeups=<n>` | at 10 s, at 30 s and whenever it changed: how many times the launcher's reaper threads came back from waiting for a child (issue #887; one per engine process that ends, a polling thread would add twenty a second). `tools/webplus/reaper_judge.py` judges it in `run.py` |
 | `INFO:MAINLAG:<ms>` | WebKit's main thread ran the heartbeat's once-a-second ping 250 ms or more late |
 | `STALL:main:<ms>` | the ping has not run after 2 s (again every 5 s while it stays stuck): WebKit's main thread is busy or blocked |
 | `STALL:window:<ms>` | one pass of the window's loop has lasted 2 s (`xui_app::stall::pass_age_ms`, every 5 s while it does) |
@@ -509,7 +511,7 @@ under the launcher's lock (issue #891).
 ## Testing
 
 `tools/webplus/run.py` ([`tools/webplus/README.md`](../tools/webplus/README.md)) builds the image, serves
-LazyWeb's two stand-in sites and the pages of `tools/web/fixtures/theoldnet.com/webplus/` from the host, boots
+the two stand-in sites and the pages of `tools/webtest/fixtures/theoldnet.com/webplus/` from the host, boots
 twice and judges the serial markers, the requests the host saw, the profile on the OS volume and the pixels.
 The first boot browses, answers the three dialogs, tries the blocked launches, follows a `mailto:` link, a
 `target=_blank` link and a `window.open` button, downloads two files, opens `about:history` and
@@ -577,11 +579,11 @@ without a gesture, a post before the permission) is judged from the page's own t
 * Not tried: HiDPI, a WebProcess crash in this window (W5's *Failures* path is shared), IME, the pasteboard,
   Settings > Default apps by a session (the preference is covered by `deskmenu` host tests and `mimed`'s
   boot self-test), a real PC.
-* The harness's stand-in sites are LazyWeb's (`tools/web/sites.py`): nothing was loaded from the internet.
+* The harness's stand-in sites are `tools/webtest/sites.py`'s: nothing was loaded from the internet.
 
 ## `os.lazy.webkit` is retired
 
-LazyWeb+ is the same engine with LazyWeb's window, and its harness (`tools/webplus/run.py`) covers what W5's
+LazyWeb+ is the same engine with a fuller window, and its harness (`tools/webplus/run.py`) covers what W5's
 `app_run.py` checked (HTTPS pages with SNI, a form typed into and Back, script, the wheel, resize and
 maximize, both children reaped), so the W5 browser was removed (webd plan P1.0, [`webd-plan.md`](webd-plan.md)
 9.1): the package `os.lazy.webkit`, `LAZYOS_WEBKIT`, `run_demo.py --webkit`, the launcher's WebKit group,

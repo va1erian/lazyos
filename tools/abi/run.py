@@ -73,7 +73,11 @@ TWO_BOOT = {"persist": "WROTE"}
 
 # Fixtures that want a data disk in a single boot, and the directories they
 # must report having worked in (`ABI:<name>:ROUND:<dir>`) when one is attached.
-ONE_BOOT_WITH_DATA = {"cwd": ("/tmp", "/data"), "fsops": ("/tmp", "/", "/data")}
+ONE_BOOT_WITH_DATA = {
+    "cwd": ("/tmp", "/data"),
+    "fsops": ("/tmp", "/", "/data"),
+    "hardlink": ("/tmp", "/data"),
+}
 
 # Fixtures that need BusyBox on the image beside their `/system/bin/abi-init` (which still
 # owns the boot): `statmiss` checks that a missing path is not mistaken for a

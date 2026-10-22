@@ -7220,6 +7220,7 @@ pub mod os_lazy_init_v1 {
         pub restarts: u64,
         pub deps: alloc::string::String,
         pub health: alloc::string::String,
+        pub label: u32,
     }
 
     pub fn encode_service_status(value: &ServiceStatus) -> Result<Vec<u8>, Error> {
@@ -7230,6 +7231,7 @@ pub mod os_lazy_init_v1 {
         target.u64(4, value.restarts)?;
         target.string(5, &value.deps)?;
         target.string(6, &value.health)?;
+        target.u32(7, value.label)?;
         Ok(target.finish())
     }
 
@@ -7256,6 +7258,9 @@ pub mod os_lazy_init_v1 {
                 6 => {
                     out.health = field.as_str()?.into();
                 }
+                7 => {
+                    out.label = field.as_u32()?;
+                }
                 _ => {}
             }
         }
@@ -7268,6 +7273,12 @@ pub mod os_lazy_init_v1 {
     /// Restart count.
     /// Comma-separated dependency names.
     /// Last known health string for the service.
+    /// The kernel id of the policy label the task runs under, as the
+    /// kernel stamped it (`0`: unlabelled, and for a row that is not
+    /// running). Every process an installed app starts keeps it, so a
+    /// caller whose stamped label equals a launched app's is that app's
+    /// own code: how LazyShell names the sender of a notification whose
+    /// task is not the one `init` launched (`os.lazy.notify.v1`).
     /// One row of `init`'s built-in app registry (issue #158): the S5 start
     /// menu's enumeration unit and the resolution table `Launch` uses.
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -16290,6 +16301,8 @@ pub mod os_lazy_pkgd_v1 {
         pub resident: bool,
         pub installer: u32,
         pub machine_wide: bool,
+        pub kind: alloc::string::String,
+        pub shell: bool,
     }
 
     pub fn encode_installed(value: &Installed) -> Result<Vec<u8>, Error> {
@@ -16318,6 +16331,8 @@ pub mod os_lazy_pkgd_v1 {
         target.bool(14, value.resident)?;
         target.u32(15, value.installer)?;
         target.bool(16, value.machine_wide)?;
+        target.string(17, &value.kind)?;
+        target.bool(18, value.shell)?;
         Ok(target.finish())
     }
 
@@ -16380,6 +16395,12 @@ pub mod os_lazy_pkgd_v1 {
                 16 => {
                     out.machine_wide = field.as_bool()?;
                 }
+                17 => {
+                    out.kind = field.as_str()?.into();
+                }
+                18 => {
+                    out.shell = field.as_bool()?;
+                }
                 _ => {}
             }
         }
@@ -16408,6 +16429,19 @@ pub mod os_lazy_pkgd_v1 {
     /// Installed by a system caller (`elevd` after an administrator
     /// approved it, `dbgd`, provisioning): a machine-wide choice, so
     /// `autostart` opens it in every user's session.
+    /// The package class the manifest named when it was installed:
+    /// `developer-tool` (`[app] kind`, `docs/devtool-packages-plan.md`),
+    /// whose app runs under the label `tool:<system_name>`, or empty for
+    /// an application (`app:<system_name>`). A tool's row is used only
+    /// when it is `machine_wide` or core, which is how `pkgd` and `init`
+    /// know an administrator approved it.
+    /// The tool is the user's shell (`[app] shell = true`,
+    /// `docs/devtool-packages-plan.md` "T-later: Terminal"): a program
+    /// run under its label acts as the session's owner towards `pkgd`
+    /// and `init`, as an unlabelled program would. Only a core package
+    /// (`origin` core) is ever recorded with it; `false` for every
+    /// application and every other tool. Readers go through
+    /// `pkgstore::shellrole::row_is_shell`, never this field alone.
     /// One audit record: the payload of `system/events/pkg/<op>`, where `op`
     /// is `install`, `remove`, `denied`, `provision` (a core package
     /// installed, upgraded or re-marked at startup, or the end of a pass),
@@ -16484,6 +16518,8 @@ pub mod os_lazy_pkgd_v1 {
     pub const METHOD_LIST: u32 = 220805025;
     /// `Installed` method id.
     pub const METHOD_INSTALLED: u32 = 1755800129;
+    /// `LabelName` method id.
+    pub const METHOD_LABELNAME: u32 = 775579582;
     /// `Provisioned` method id.
     pub const METHOD_PROVISIONED: u32 = 1076218465;
     /// `Develop` method id.
@@ -16710,6 +16746,57 @@ pub mod os_lazy_pkgd_v1 {
         Ok(out)
     }
 
+    /// The name of the policy label with the kernel id `label_id`
+    /// (`app:<system_name>`, `tool:<system_name>`, ...). Reading a label's
+    /// name takes `CAP_SETUID`, which `elevd` deliberately lacks, so it asks
+    /// here to tell a developer tool's shared label from an app's before it
+    /// lets an administrator's approval stand (`libs/elevpolicy`,
+    /// `approvals`). Answered to `elevd` alone; `ENOENT` for an id the
+    /// kernel does not know.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LabelNameArgs {
+        pub label_id: u32,
+    }
+
+    pub fn encode_label_name_args(value: &LabelNameArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.label_id)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_label_name_args(body: &[u8]) -> Result<LabelNameArgs, Error> {
+        let mut out = LabelNameArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.label_id = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct LabelNameReply {
+        pub label: alloc::string::String,
+    }
+
+    pub fn encode_label_name_reply(value: &LabelNameReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.label)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_label_name_reply(body: &[u8]) -> Result<LabelNameReply, Error> {
+        let mut out = LabelNameReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.label = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
     /// Whether this start's core package provisioning is finished, and what
     /// it did (`docs/packages.md`, core packages). `pkgd` answers it while it
     /// provisions, so a client such as `init`'s autostart can wait for it
@@ -16844,12 +16931,18 @@ pub mod os_lazy_pkgd_v1 {
     /// swapped between the approval and the install. `core` says what was
     /// approved: `false` (`pkg.install`) refuses a package that would
     /// replace a core app, `true` (`pkg.update-core`) refuses one that would
-    /// not. Plain `Install` never replaces a core app for `elevd`.
+    /// not. Plain `Install` never replaces a core app for `elevd`. `devtool`
+    /// says the administrator saw the developer-tool warning
+    /// (`pkg.install-devtool`, `docs/devtool-packages-plan.md` section 4): a
+    /// developer-tool package is installed only when it is `true` and any
+    /// other package only when it is `false`, so a tool is never installed
+    /// from a prompt that did not warn about it.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct InstallApprovedArgs {
         pub path: alloc::string::String,
         pub digest: alloc::string::String,
         pub core: bool,
+        pub devtool: bool,
     }
 
     pub fn encode_install_approved_args(value: &InstallApprovedArgs) -> Result<Vec<u8>, Error> {
@@ -16857,6 +16950,7 @@ pub mod os_lazy_pkgd_v1 {
         target.string(1, &value.path)?;
         target.string(2, &value.digest)?;
         target.bool(3, value.core)?;
+        target.bool(4, value.devtool)?;
         Ok(target.finish())
     }
 
@@ -16873,6 +16967,9 @@ pub mod os_lazy_pkgd_v1 {
                 }
                 3 => {
                     out.core = field.as_bool()?;
+                }
+                4 => {
+                    out.devtool = field.as_bool()?;
                 }
                 _ => {}
             }

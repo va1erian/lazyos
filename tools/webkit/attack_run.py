@@ -66,7 +66,7 @@ APPS = {
 }
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI",
-         "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
+         "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
          "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBKIT_ATTACK",
          "LAZYOS_DESKTOP", "LAZYOS_WEBD")
 
@@ -76,7 +76,7 @@ def build_image(mode: str, app: str = "lazywebplus") -> str | None:
     _, switch, elf_name, autostart = APPS[app]
     elf = ROOT / "target" / "xui" / elf_name
     env = {k: v for k, v in os.environ.items() if k not in STALE}
-    env.update(LAZYOS_LABEL_TRACE="1", LAZYOS_RESET_OS="1")
+    env.update(LAZYOS_LABEL_TRACE="1", LAZYOS_RESET_OS="1", LAZYOS_WEBD="0")  # no webd beside the browser under attack
     if mode == "kernel":
         # The driver is the first program (`/system/bin/abi-init`), as for the ABI fixtures.
         env.update(LAZYOS_INIT=str(attack_build.OUT / "WebProcess"), LAZYOS_OS_SIZE="128M")

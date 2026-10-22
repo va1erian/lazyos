@@ -188,6 +188,7 @@ fn file_meta(ino: u64, size: u64) -> Meta {
         kind: FileKind::File,
         // Generated on open, so there is no time to report.
         times: vfs::Times::default(),
+        nlink: 1,
     }
 }
 

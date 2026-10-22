@@ -576,8 +576,8 @@ The draft opens in a pane:
 * On the left is the **exact text that will be posted**, editable, with the
   title and labels above it. An edit there is filtered again, by the same
   renderer rules, before posting.
-* On the right is a preview in a `BlitzView` (as `xui-docs` renders it, with
-  `webfonts::register()` called at start).
+* On the right is a preview in a light view of `webd` (`xui_app::lightview::LightView`, as `xui-docs` shows
+  its pages; Blitz and `webfonts` were removed in webd's P3).
 
 Redaction markers are highlighted in both. The buttons are **File issue**,
 **Copy Markdown**, **Save .md** and **Discard**. Nothing is sent before
@@ -611,7 +611,7 @@ Redaction markers are highlighted in both. The buttons are **File issue**,
 
 * The transcript is a custom virtualized view in the shape of LazySky's
   FeedView (`Feed<P>`, prefix-sum tops, `(anchor row, offset)` scrolling,
-  dehydrated rows). A whole-transcript `BlitzView` would lay the page out
+  dehydrated rows). A whole-transcript web view would lay the page out
   again on every token. If the generic part of `Feed<P>` lifts out cleanly,
   it moves to a shared crate (`xui-app/crates/feed`) used by both apps; if
   not, it is copied.

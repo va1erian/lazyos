@@ -74,6 +74,7 @@ class RunDemoCase(unittest.TestCase):
     `test_run_demo_apps.py`)."""
 
     def setUp(self) -> None:
+        self.webd_present = True  # whether webd's programs count as built
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.dir = Path(tmp.name)
@@ -105,6 +106,7 @@ class RunDemoCase(unittest.TestCase):
         with mock.patch.object(run_demo.busybox, "ensure_busybox",
                                return_value=busybox_found), \
                 mock.patch.object(run_demo, "build_rhai"), \
+                mock.patch.object(run_demo, "webd_built", lambda: self.webd_present), \
                 mock.patch.object(run_demo, "find_qemu", return_value="qemu"), \
                 mock.patch.object(run_demo, "accel_args", return_value=[]), \
                 mock.patch.object(run_demo.subprocess, "run", fake_build), \
@@ -122,17 +124,16 @@ class MainTests(RunDemoCase):
     def test_a_too_small_os_volume_is_caught_before_the_build(self) -> None:
         from lazygui.test_osvolume import make_image
         small = make_image(self.dir, 512)
-        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small), \
-                mock.patch.object(run_demo, "build_srb2kart", return_value=True), \
-                mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, _ = self.run_main("--desktop", "--srb2kart")
+        with mock.patch.object(run_demo.osvolume, "DEFAULT_IMAGE", small),                 mock.patch.object(run_demo, "build_srb2kart", return_value=True),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            # `--no-webd`: every desktop otherwise wants webd's 512M too.
+            code, _ = self.run_main("--desktop", "--no-webd", "--srb2kart")
             self.assertEqual(code, 1, "no terminal to ask: left untouched")
             self.assertEqual(self.builds, [])
-            code, _ = self.run_main("--desktop", "--srb2kart", "--yes")
+            code, _ = self.run_main("--desktop", "--no-webd", "--srb2kart", "--yes")
             self.assertEqual(code, 0)
             self.assertEqual(self.builds[-1]["LAZYOS_RESET_OS"], "1")
             self.assertEqual(self.builds[-1]["LAZYOS_OS_SIZE"], str(1024 << 20))
-            code, _ = self.run_main("--desktop")  # a 512M volume fits without SRB2Kart
+            code, _ = self.run_main("--desktop", "--no-webd")  # a 512M volume fits without SRB2Kart or webd
             self.assertEqual(code, 0)
             self.assertNotIn("LAZYOS_RESET_OS", self.builds[-1])
 
@@ -391,7 +392,7 @@ class MainTests(RunDemoCase):
             self.assertIsNotNone(block, name)
             wanted += re.findall(r'"([^"]+\.elf)"', block.group(1))
         self.assertIn("xui-writer.elf", wanted)
-        self.assertEqual(sorted(path.name for path in run_demo.DESKTOP_ELFS), sorted(wanted))
+        self.assertEqual(sorted(path.name for path in run_demo.DESKTOP_ELFS), sorted(wanted + ["xui-term.elf"]))  # the `always` tool
 
     def test_a_console_build_does_not_package_apps(self) -> None:
         code, _ = self.run_main()

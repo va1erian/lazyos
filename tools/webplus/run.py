@@ -5,12 +5,12 @@ servers, the OS volume and the screen saw (docs/lazywebplus.md).
 Needs the app built first (Docker: ``python tools/webkit/deps.py``, ``port.py`` and ``app.py``;
 then ``python tools/xui/build.py`` packages it as ``os.lazy.lazywebplus``). Then:
 
-1. a throwaway test CA and a leaf for theoldnet.com (``tools/web/certs.py``); the image is built
+1. a throwaway test CA and a leaf for theoldnet.com (``tools/webtest/certs.py``); the image is built
    with ``LAZYOS_LAZYWEBPLUS=1`` (desktop, ``netd``, the big-app limits), the CA appended to the
    system bundle (``LAZYOS_TLS_TEST_CA``) and the sites' names mapped to the host in /etc/hosts
    (``LAZYOS_TLS_TEST_HOSTS``): WebKit's curl verifies certificates exactly as in production;
-2. the host serves stand-ins for the sites on their real ports (``tools/web/sites.py``, LazyWeb's
-   harness): http://example.com/, https://theoldnet.com/ with its pictures, the cookie page, an
+2. the host serves stand-ins for the sites on their real ports (``tools/webtest/sites.py``):
+   http://example.com/, https://theoldnet.com/ with its pictures, the cookie page, an
    attachment and a slow one, WebKit's test pages and LazyWeb+'s (``fixtures/theoldnet.com/webplus``);
 3. the first boot's session (``session.py``, also ``tools/screenshot/examples/lazywebplus.json``)
    browses, answers the dialogs, clicks the links, downloads, opens the history and downloads pages
@@ -44,17 +44,18 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-for sub in ("tools/web", "tools/abi", "tools"):
+for sub in ("tools/webtest", "tools/abi", "tools"):
     sys.path.insert(0, str(ROOT / sub))
 sys.path.insert(0, str(HERE))
-# This directory's `judge` and `session` first: tools/web has modules of the same names, and
-# `certs` and `busybox` put their own directories at the front of the path.
-import judge  # noqa: E402  (LazyWeb's is tools/web/judge.py, loaded by path in ours)
+# This directory's `judge` and `session` first: `certs` and `busybox` put their own
+# directories at the front of the path.
+import judge  # noqa: E402
 import session  # noqa: E402
 import busybox  # noqa: E402
 import certs  # noqa: E402
 import denies  # noqa: E402
 import blocker  # noqa: E402  (the ad blocker's boots and judge)
+import reaper_judge  # noqa: E402  (the launcher's reaper threads sleep, issue #887)
 import sites  # noqa: E402
 from lazygui import limits  # noqa: E402
 
@@ -67,7 +68,7 @@ CURL_ELF = ROOT / "target" / "nettls" / "fetch.elf"
 HOME = "/home/user"
 APP_DIR = f"{HOME}/.apps/os.lazy.lazywebplus"
 #: Switches a previous build may have left in the caller's environment.
-STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_LAZYWEB", "LAZYOS_XUI_APPS",
+STALE = ("LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI", "LAZYOS_XUI_APPS",
          "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS",
          "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBD")
 
@@ -88,7 +89,8 @@ def build_image(extra: dict[str, str], label_trace: bool) -> str | None:
     if shell is None:
         return "no BusyBox for the shell (see tools/abi/busybox.py)"
     env = {k: v for k, v in os.environ.items() if k not in STALE}
-    env.update(LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
+    # No webd beside the browser under test (a desktop would ship it whenever it is built).
+    env.update(LAZYOS_WEBD="0", LAZYOS_DESKTOP="1", LAZYOS_LAZYWEBPLUS="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_TLS="1",
                LAZYOS_XUI_AUTOSTART="lazywebplus", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_BUSYBOX=str(shell), **extra,
@@ -220,6 +222,8 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
     ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
+    ok = report("REAPER", "the launcher's reaper threads slept: a wakeup per engine process that ended, no polling",
+                reaper_judge.judge_reaper(first)) and ok
     if ads:
         ok = report("BLOCKLIST", "the list was fetched, converted and compiled, and became ready",
                     blocker.judge_lists_first(first)) and ok

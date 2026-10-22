@@ -6,9 +6,10 @@
 //! a crash found by one replays under the other.
 //!
 //! **Model mode** (low bit clear). The script is a list of four-byte
-//! operations (mkdir, create, write, truncate, unlink, rmdir, rename, read)
-//! applied to a freshly formatted volume and to a plain `BTreeMap` model of
-//! the tree. Every result must agree with the model (success versus failure,
+//! operations (mkdir, create, write, truncate, unlink, rmdir, rename, read,
+//! and a hard link when the kind byte is 8 modulo 16) applied to a freshly
+//! formatted volume and to a plain `BTreeMap` model of the tree, where the
+//! names of one file share its contents. Every result must agree with the model (success versus failure,
 //! file contents), and at the end the whole tree must match the model, the
 //! image must pass [`fsck`], and it must still match after a remount. With bit
 //! 2 of the first byte set the volume is mounted through a tiny write-back
@@ -21,7 +22,9 @@
 //! consistency is promised for a volume that was corrupted, only safety. In
 //! model mode the repair must find nothing to do on the finished volume.
 
+use core::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
@@ -40,10 +43,22 @@ fn clock() -> i64 {
     1_700_000_000
 }
 
+#[derive(Clone)]
 enum Node {
     Dir,
-    File(Vec<u8>),
+    /// One file's contents, shared by every name of it (hard links).
+    File(Rc<RefCell<Vec<u8>>>),
 }
+
+impl Node {
+    fn file(bytes: Vec<u8>) -> Node {
+        Node::File(Rc::new(RefCell::new(bytes)))
+    }
+}
+
+/// The operation kind of a script word: 0 to 7 as always, and 8 (modulo 16)
+/// a hard link, so the checked-in seeds keep their meaning.
+const LINK: u8 = 8;
 
 type Model = BTreeMap<String, Node>;
 
@@ -119,7 +134,8 @@ fn model_mode(io: &MemIo, script: &[u8], cached: bool) {
 
 /// Apply one operation to the volume and the model; `false` on `NoSpace`.
 fn step(fs: &Ext2, model: &mut Model, op: &[u8]) -> bool {
-    let (kind, a, b, c) = (op[0] % 8, op[1], op[2], op[3]);
+    let kind = if op[0] % 16 == LINK { LINK } else { op[0] % 8 };
+    let (a, b, c) = (op[1], op[2], op[3]);
     let tag = std::format!("op {op:?}");
     let dir = path_of(a, None);
     let file = path_of(a, Some(b));
@@ -144,7 +160,7 @@ fn step(fs: &Ext2, model: &mut Model, op: &[u8]) -> bool {
                 fs.create(&file, 0o644, Owner::ROOT).map(drop),
                 ok,
                 || {
-                    model.insert(file, Node::File(Vec::new()));
+                    model.insert(file, Node::file(Vec::new()));
                 },
             )
         }
@@ -153,8 +169,8 @@ fn step(fs: &Ext2, model: &mut Model, op: &[u8]) -> bool {
             let size = usize::from(c) * 131;
             let ok = matches!(model.get(&file), Some(Node::File(_)));
             check(&tag, fs.truncate(&file, size as u64), ok, || {
-                if let Some(Node::File(bytes)) = model.get_mut(&file) {
-                    bytes.resize(size, 0);
+                if let Some(Node::File(bytes)) = model.get(&file) {
+                    bytes.borrow_mut().resize(size, 0);
                 }
             })
         }
@@ -175,9 +191,10 @@ fn step(fs: &Ext2, model: &mut Model, op: &[u8]) -> bool {
             })
         }
         6 => rename_op(fs, model, &file, &path_of(c, Some(b))),
+        LINK => link_op(fs, model, &file, &path_of(c, Some(b / 4))),
         _ => {
             let want = match model.get(&file) {
-                Some(Node::File(bytes)) => Some(bytes.clone()),
+                Some(Node::File(bytes)) => Some(bytes.borrow().clone()),
                 _ => None,
             };
             match (fs.read_file(&file), want) {
@@ -219,13 +236,14 @@ fn write_op(
     len: usize,
 ) -> Result<(), Ext2Error> {
     let payload: Vec<u8> = (0..len).map(|i| (i * 7 + offset) as u8 | 1).collect();
-    let Some(Node::File(bytes)) = model.get_mut(file) else {
+    let Some(Node::File(bytes)) = model.get(file) else {
         return match fs.write(file, offset as u64, &payload) {
             Ok(_) => panic!("write to a missing file succeeded"),
             Err(error) => Err(error),
         };
     };
     let written = fs.write(file, offset as u64, &payload)?;
+    let mut bytes = bytes.borrow_mut();
     if written > 0 {
         if bytes.len() < offset + written {
             bytes.resize(offset + written, 0);
@@ -246,12 +264,17 @@ fn rename_op(fs: &Ext2, model: &mut Model, from: &str, to: &str) -> Result<(), E
     // Renaming a path onto itself is a no-op that succeeds even when it names
     // nothing (the driver short-circuits before it looks the path up).
     let expect_ok = from == to || (source_is_file && dest_ok && dest_free_or_file);
+    // Two names of one file: POSIX makes the rename a no-op that keeps both.
+    let same_file = matches!(
+        (model.get(from), model.get(to)),
+        (Some(Node::File(a)), Some(Node::File(b))) if Rc::ptr_eq(a, b)
+    );
     check(
         &std::format!("rename {from} {to}"),
         fs.rename(from, to),
         expect_ok,
         || {
-            if from != to {
+            if from != to && !same_file {
                 let node = model.remove(from).expect("source");
                 model.insert(to.to_string(), node);
             }
@@ -259,7 +282,31 @@ fn rename_op(fs: &Ext2, model: &mut Model, from: &str, to: &str) -> Result<(), E
     )
 }
 
-/// Every model node exists with the same contents, and nothing else does.
+/// `link(from, to)`: a file gains a name in an existing directory, and the
+/// model's two names share one contents (a write through either shows in
+/// both). A missing source, a directory, or a taken name is refused.
+fn link_op(fs: &Ext2, model: &mut Model, from: &str, to: &str) -> Result<(), Ext2Error> {
+    let to_dir = to.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let source = match model.get(from) {
+        Some(node @ Node::File(_)) => Some(node.clone()),
+        _ => None,
+    };
+    let dest_ok = to_dir.is_empty() || matches!(model.get(to_dir), Some(Node::Dir));
+    let expect_ok = source.is_some() && dest_ok && !model.contains_key(to);
+    check(
+        &std::format!("link {from} {to}"),
+        fs.link(from, to),
+        expect_ok,
+        || {
+            if let Some(node) = source {
+                model.insert(to.to_string(), node);
+            }
+        },
+    )
+}
+
+/// Every model node exists with the same contents, and nothing else does;
+/// a name the model shares with others has the link count of all of them.
 fn compare_tree(fs: &Ext2, model: &Model) {
     let mut found = Model::new();
     walk(fs, "", &mut found);
@@ -268,7 +315,16 @@ fn compare_tree(fs: &Ext2, model: &Model) {
         match (node, found.get(path)) {
             (Node::Dir, Some(Node::Dir)) => {}
             (Node::File(want), Some(Node::File(got))) => {
-                assert_eq!(got, want, "contents of {path}")
+                assert_eq!(*got.borrow(), *want.borrow(), "contents of {path}");
+                let names = model
+                    .values()
+                    .filter(|other| matches!(other, Node::File(o) if Rc::ptr_eq(o, want)))
+                    .count();
+                assert_eq!(
+                    fs.lookup(path).map(|meta| meta.nlink),
+                    Ok(names as u32),
+                    "link count of {path}"
+                );
             }
             _ => panic!("{path} differs from the model"),
         }
@@ -290,7 +346,7 @@ fn walk(fs: &Ext2, dir: &str, out: &mut Model) {
                 walk(fs, &path, out);
             }
             FileKind::File => {
-                out.insert(path.clone(), Node::File(fs.read_file(&path).expect("read")));
+                out.insert(path.clone(), Node::file(fs.read_file(&path).expect("read")));
             }
         }
     }

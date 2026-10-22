@@ -24,10 +24,11 @@ typed reply; a package that fails validation reports every problem in
 | Remove | 564498461 | sync | `(system_name: String) -> ()` |
 | List | 220805025 | sync | `() -> (apps: Array<Installed>)` |
 | Installed | 1755800129 | sync | `(system_name: String) -> (app: Option<Installed>)` |
+| LabelName | 775579582 | sync | `(label_id: U32) -> (label: String)` |
 | Provisioned | 1076218465 | sync | `() -> (state: ProvisionState)` |
 | Develop | 803454394 | sync | `(path: String, confirm: Bool) -> (label: String, approved: Bool)` |
 | DevelopDeclined | 1386916580 | sync | `(path: String) -> ()` |
-| InstallApproved | 1599511615 | sync | `(path: String, digest: String, core: Bool) -> (app: Installed)` |
+| InstallApproved | 1599511615 | sync | `(path: String, digest: String, core: Bool, devtool: Bool) -> (app: Installed)` |
 | InstallDebug | 1850060999 | sync | `(path: String, digest: String) -> (app: Installed)` |
 
 ## Topics
@@ -91,6 +92,8 @@ typed reply; a package that fails validation reports every problem in
 - `resident: Bool`
 - `installer: U32`
 - `machine_wide: Bool`
+- `kind: String`
+- `shell: Bool`
 
 ## struct `PkgEvent`
 

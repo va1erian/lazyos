@@ -76,6 +76,12 @@ impl Filesystem for Ext2 {
         true
     }
 
+    /// An inode number with its generation (`i_generation`, advanced at
+    /// every allocation) is one file for the life of the volume.
+    fn stable_nodes(&self) -> bool {
+        true
+    }
+
     fn open_node(&self, path: &str) -> Result<Option<NodeId>, FsError> {
         let _gate = self.enter();
         let handle = self.volume.open_file(path)?;
@@ -228,6 +234,12 @@ impl Filesystem for Ext2 {
         Ok(meta(self.volume.mkdir(path, mode, owner_of(owner))?))
     }
 
+    fn link(&self, existing: &str, new: &str, _caller: Id) -> Result<(), FsError> {
+        self.refuse_dead()?;
+        let _gate = self.enter();
+        Ok(self.volume.link(existing, new)?)
+    }
+
     fn unlink(&self, path: &str) -> Result<(), FsError> {
         self.refuse_dead()?;
         let _gate = self.enter();
@@ -369,5 +381,6 @@ fn meta(meta: InodeMeta) -> Meta {
             mtime: meta.times.mtime,
             ctime: meta.times.ctime,
         },
+        nlink: meta.nlink,
     }
 }

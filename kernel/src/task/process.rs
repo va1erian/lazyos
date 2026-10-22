@@ -310,6 +310,13 @@ pub(crate) fn setpgid(caller: usize, pid: i64, pgid: i64) -> Result<(), GroupErr
     if new_pgid == target_pgid {
         return Ok(()); // already a member: `setpgid` is idempotent
     }
+    // Forming a group whose number another process already uses would join
+    // it, not form it (a stale group of a leader whose slot was reused:
+    // issue #880). Slot allocation keeps that from happening; this refuses
+    // it should it ever.
+    if new_pgid == target_pid && number_in_use_outside(&tasks, target, new_pgid, true) {
+        return Err(GroupError::NotPermitted);
+    }
     if new_pgid != target_pid
         && !tasks
             .iter()
@@ -324,6 +331,44 @@ pub(crate) fn setpgid(caller: usize, pid: i64, pgid: i64) -> Result<(), GroupErr
     Ok(())
 }
 
+/// Whether a task outside `slot`'s process has `number` as its process group
+/// or its session: a group or session of that number already exists, and
+/// `slot` cannot found one with the same name (Linux's `EPERM`). With
+/// `lineage_is_its_own`, descendants of `slot` do not count: they may hold
+/// the number because `slot` formed that group itself earlier and left it
+/// (`setpgid(0, 0)` back into it is legal), which no reused slot can cause.
+fn number_in_use_outside(
+    tasks: &[Option<Task>; MAX_TASKS],
+    slot: usize,
+    number: usize,
+    lineage_is_its_own: bool,
+) -> bool {
+    tasks.iter().enumerate().any(|(other, task)| {
+        task.as_ref()
+            .is_some_and(|task| task.pgid == number || task.sid == number)
+            && !same_process(tasks, other, slot)
+            && !(lineage_is_its_own && descends_from(tasks, other, slot))
+    })
+}
+
+/// Whether `slot` is a descendant of `ancestor` (parent links, bounded).
+fn descends_from(tasks: &[Option<Task>; MAX_TASKS], slot: usize, ancestor: usize) -> bool {
+    let mut at = slot;
+    for _ in 0..MAX_TASKS {
+        let Some(task) = tasks[at].as_ref() else {
+            return false;
+        };
+        at = task.parent;
+        if at == ancestor {
+            return true;
+        }
+        if at == KERNEL_TASK {
+            return false;
+        }
+    }
+    false
+}
+
 /// `setsid()`: make `caller` a session and group leader, returning the new sid.
 ///
 /// Fails with [`GroupError::NotPermitted`] while the caller is already a group
@@ -334,7 +379,7 @@ pub(crate) fn setsid(caller: usize) -> Result<usize, GroupError> {
     let Some(task) = tasks[caller].as_ref() else {
         return Err(GroupError::NoSuchProcess);
     };
-    if task.pgid == pid {
+    if task.pgid == pid || number_in_use_outside(&tasks, caller, pid, false) {
         return Err(GroupError::NotPermitted);
     }
     if let Some(task) = tasks[caller].as_mut() {

@@ -171,18 +171,22 @@ impl Client {
             .app)
     }
 
-    /// `InstallApproved(path, digest, core)`: `elevd`'s install of what an
-    /// administrator approved (only `elevd` may call it).
+    /// `InstallApproved(path, digest, core, devtool)`: `elevd`'s install of
+    /// what an administrator approved (only `elevd` may call it). `devtool`
+    /// is `pkg.install-devtool`: the administrator saw the developer-tool
+    /// warning.
     pub fn install_approved(
         &self,
         path: &str,
         digest: &str,
         core: bool,
+        devtool: bool,
     ) -> core::result::Result<Installed, Failure> {
         let body = wire::encode_install_approved_args(&wire::InstallApprovedArgs {
             path: String::from(path),
             digest: String::from(digest),
             core,
+            devtool,
         })
         .map_err(Error::Parcel)?;
         let reply = self.call(wire::METHOD_INSTALLAPPROVED, body)?;
@@ -243,6 +247,21 @@ impl Client {
         Ok(wire::decode_provisioned_reply(&reply.body)
             .map_err(Error::Parcel)?
             .state)
+    }
+
+    /// `LabelName(label_id)`: the policy label's name, for `elevd` (the only
+    /// caller `pkgd` answers), given up at the absolute PIT tick `deadline`.
+    pub fn label_name_until(
+        &self,
+        label_id: u32,
+        deadline: Option<u64>,
+    ) -> core::result::Result<String, Failure> {
+        let body = wire::encode_label_name_args(&wire::LabelNameArgs { label_id })
+            .map_err(Error::Parcel)?;
+        let reply = self.call_until(wire::METHOD_LABELNAME, body, deadline)?;
+        Ok(wire::decode_label_name_reply(&reply.body)
+            .map_err(Error::Parcel)?
+            .label)
     }
 
     /// `Installed(system_name)`.

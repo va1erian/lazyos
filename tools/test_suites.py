@@ -82,9 +82,9 @@ class DefinitionTests(unittest.TestCase):
         self.assertEqual(full[:len(base)], base)
         self.assertIn("srb2kart", suites.option_names(self.data))
         self.assertNotIn("srb2kart", full)
-        for flag in ("lazywebplus", "lazyweb", "mail", "lazysky", "games", "doom",
+        for flag in ("lazywebplus", "mail", "lazysky", "games", "doom",
                      "quake", "emusic", "linuxapps", "lazyrad", "modplayer", "pictures", "tls",
-                     "net", "big-app"):
+                     "net", "big-app", "devtools"):
             self.assertIn(flag, full)
 
     def test_resolve_adds_options_without_duplicates_and_refuses_unknown_names(self) -> None:
@@ -98,7 +98,9 @@ class DefinitionTests(unittest.TestCase):
 
     def test_os_size_is_osvolumes(self) -> None:
         full = suites.resolve("full")
-        self.assertEqual(suites.os_size_bytes(suites.resolve("base")), osvolume.required_bytes(False, False))
+        # The desktop ships webd (Docs and Mail need it), whose programs need the 1 GiB volume.
+        self.assertEqual(suites.os_size_bytes(suites.resolve("base")), osvolume.required_bytes(False, True))
+        self.assertEqual(suites.os_size_bytes(["desktop", "no-webd"]), osvolume.required_bytes(False, False))
         self.assertEqual(suites.os_size_bytes(full), osvolume.required_bytes(False, True))
         self.assertEqual(suites.os_size_bytes(suites.resolve("full", ["srb2kart"])),
                          osvolume.required_bytes(True, True))
@@ -128,7 +130,8 @@ class RunDemoTests(unittest.TestCase):
     def test_suite_turns_on_its_flags_and_their_implications(self) -> None:
         args = self.parse("--suite", "full")
         for name in ("desktop", "net", "tls", "lazywebplus", "games", "doom", "quake",
-                     "emusic", "linuxapps", "mail", "lazysky", "lazyweb", "lazyrad", "modplayer", "pictures"):
+                     "emusic", "linuxapps", "mail", "lazysky", "lazyrad", "modplayer", "pictures",
+                     "devtools"):
             self.assertTrue(getattr(args, name), name)
         self.assertFalse(args.srb2kart)
         self.assertFalse(args.jsc)

@@ -3,7 +3,7 @@
 //! copied into each damaged rectangle.
 //!
 //! Rasterizing the gradient costs tens of nanoseconds a pixel, and a page view
-//! or a canvas repaints its whole area every frame (LazyWeb scrolling), so a
+//! or a canvas repaints its whole area every frame (LazyWeb+ scrolling), so a
 //! fresh gradient under it took as long as the page itself. The cached picture
 //! is opaque and drawn 1:1, which the canvas does as a plain row copy.
 

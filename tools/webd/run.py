@@ -41,7 +41,7 @@ ROOT = HERE.parent.parent
 for sub in ("tools/abi", "tools"):
     sys.path.append(str(ROOT / sub))
 sys.path.insert(0, str(HERE))
-import judge as j  # noqa: E402  (this directory's: tools/web has one of the same name)
+import judge as j  # noqa: E402  (this directory's)
 import listener  # noqa: E402
 import session  # noqa: E402
 from lazygui import limits  # noqa: E402
@@ -72,12 +72,12 @@ def build_image(args) -> str | None:
     env.update(LAZYOS_XUI_AUTOSTART="webddemo,term", LAZYOS_UI_PROBE="1", LAZYOS_BUSYBOX=str(shell))
     if args.label_trace:
         env["LAZYOS_LABEL_TRACE"] = "1"
-    command = [PY, str(RUN_DEMO), "--webd", "--desktop", "--net", "--big-app", "--reset-os", "--yes", "--autologin", "user", "--build-only"]
+    command = [PY, str(RUN_DEMO), "--webd-demo", "--desktop", "--net", "--big-app", "--reset-os", "--yes", "--autologin", "user", "--build-only"]
     print(f"webd: {' '.join(command[1:])} (LAZYOS_XUI_AUTOSTART=webddemo,term, UI probe"
           f"{', label trace' if args.label_trace else ''})", flush=True)
     done = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
     if done.returncode != 0:
-        return "run_demo.py --webd failed:\n" + (done.stdout + done.stderr)[-4000:]
+        return "run_demo.py --webd-demo failed:\n" + (done.stdout + done.stderr)[-4000:]
     return None if IMAGE.is_file() else f"{IMAGE} was not built"
 
 

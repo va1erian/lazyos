@@ -189,6 +189,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ("compat_wait4_pid_selection", wait4_pid_selection),
     ("compat_wait4_signal_status", wait4_signal_status),
     ("compat_waitid_reports_exit", waitid_reports_exit),
+    ("compat_waitid_nowait", waitid_nowait_keeps_child),
+    ("compat_waitid_nowait_echild", waitid_nowait_no_child),
+    ("compat_waitid_nowait_soak", waitid_nowait_soak),
     ("compat_wait4_soak", wait4_soak),
     ("compat_clone_files_shares_table", clone_files_shares_table),
     (

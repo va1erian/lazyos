@@ -23,6 +23,14 @@
 //! * A `dev:<id>` label (an app run from an IDE, issue #529) owns exactly the
 //!   names, topics and interface domain of `app:<id>`; its other rules are the
 //!   ones `pkgd` loaded for it after the user approved them.
+//! * A `tool:<id>` label (a developer tool, `docs/devtool-packages-plan.md`)
+//!   owns the names and topics of `app:<id>` too, and may register any further
+//!   name that is not reserved (verdict `ALLOWED_BY_NAMESPACE`, where an
+//!   unlabelled user task gets bootstrap-allow) without the interface-domain
+//!   rule, but only while rules are loaded for it ([`super::tool::holds_rules`]:
+//!   before the load and after a revoke it is an `app:` label of the same id);
+//!   its topics are judged by its rules but for the trees [`super::tool`]
+//!   keeps back. Everything reserved stays reserved.
 //! * Everything else a labelled task does (resolve a name, call an interface,
 //!   touch another topic) is default-deny unless an allow rule for its label
 //!   was loaded ([`super::acl::load_label`]). Resolving a name is checked as a
@@ -102,12 +110,13 @@ pub fn app_name_id(name: &str) -> Option<&str> {
     (!id.is_empty() && !tail.is_empty()).then_some(id)
 }
 
-/// The app id of a label, for `app:<id>` and `dev:<id>` labels: a development
-/// run of an app (issue #529) owns the installed app's names and topics, so a
-/// project behaves under Play exactly as it will once installed.
+/// The id whose `app.<id>.*` services and `app/<id>/` topics a label owns:
+/// `app:<id>`, `dev:<id>` (a development run of an app, issue #529, owns the
+/// installed app's names and topics, so a project behaves under Play exactly as
+/// it will once installed) and `tool:<id>` (a developer tool owns its own).
 fn app_id_of(label_id: u32) -> Option<alloc::string::String> {
     labels::with(label_id, |label| match labels::parse(label) {
-        Ok((Kind::App | Kind::Dev, id)) => Some(String::from(id)),
+        Ok((Kind::App | Kind::Dev | Kind::Tool, id)) => Some(String::from(id)),
         _ => None,
     })
     .flatten()
@@ -201,6 +210,12 @@ fn name_verdict(cred: &Cred, op: NameOp, name: &str) -> Result<u32, u32> {
             }
             if cred.label_id == 0 {
                 Ok(reason::BOOTSTRAP_ALLOW)
+            } else if super::tool::holds_rules(cred.label_id) {
+                // Every reserved namespace was refused above: what is left is
+                // free for a developer tool, as it is for a user task, for as
+                // long as its rules are loaded (a revoked tool, or one whose
+                // rules were never loaded, is an app and gets no free name).
+                Ok(reason::ALLOWED_BY_NAMESPACE)
             } else {
                 Err(reason::OUTSIDE_NAMESPACE)
             }
@@ -283,7 +298,10 @@ pub fn interface_in_domain(name: &str, id: &str) -> bool {
 /// Decide the interfaces a registration advertises without auditing it:
 /// `Err((reason, offending id))`. Names, when sent, must spell out the ids
 /// one for one; a task labelled `app:<id>`/`dev:<id>` must send them, all in
-/// its own domain; `system:` tasks and unlabelled tasks are not limited.
+/// its own domain; `system:` tasks, `tool:` tasks that hold rules (they serve
+/// what the user's scripts choose, `os.lazy.echo.v1` under `demo.pirate`
+/// included) and unlabelled tasks are not limited. A tool with no rules (not
+/// loaded yet, or revoked) is judged as the `app:` label of its id.
 fn interfaces_verdict(cred: &Cred, ids: &[u64], names: &[String]) -> Result<(), (u32, u64)> {
     let first = ids.first().copied().unwrap_or(0);
     let spelled = names.len() == ids.len();
@@ -300,7 +318,9 @@ fn interfaces_verdict(cred: &Cred, ids: &[u64], names: &[String]) -> Result<(), 
     if cred.label_id == 0 || ids.is_empty() {
         return Ok(());
     }
-    if labels::kind_of(cred.label_id) == Some(Kind::System) {
+    if labels::kind_of(cred.label_id) == Some(Kind::System)
+        || super::tool::holds_rules(cred.label_id)
+    {
         return Ok(());
     }
     let Some(own) = app_id_of(cred.label_id) else {
@@ -384,6 +404,11 @@ pub fn evaluate_labelled(cred: &Cred, interface_id: u64, method: u32) -> (Decisi
 pub fn explain(label_id: u32, reason_code: u32) -> String {
     let own = app_id_of(label_id);
     let may = match own {
+        Some(id) if super::tool::holds_rules(label_id) => format!(
+            "a developer tool may publish services named app.{id}.<name> and topics \
+             under app/{id}/, and any name or topic that is not the system's or \
+             another app's"
+        ),
         Some(id) => format!(
             "it may publish services named app.{id}.<name> serving interfaces \
              named {id}.<name>.v<N>, and topics under app/{id}/"

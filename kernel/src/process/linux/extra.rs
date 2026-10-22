@@ -28,7 +28,8 @@ pub(super) fn dispatch(nr: u64, a: [u64; 6]) -> Option<u64> {
         58 => procctl::sys_fork(), // vfork: a copy-on-write fork is a valid vfork
         61 => wait::sys_wait4(a1, a2, a3, a4),
         73 => locks::sys_flock(a1, a2),
-        86 | 88 => links::sys_make_link(a1, AT_FDCWD, a2), // link / symlink
+        86 => links::sys_link(a1, a2),
+        88 => links::sys_symlink(a1, AT_FDCWD, a2),
         89 => links::sys_readlink(a1, a2, a3),
         97 => resources::sys_getrlimit(a1, a2),
         98 => resources::sys_getrusage(a1, a2),
@@ -45,8 +46,8 @@ pub(super) fn dispatch(nr: u64, a: [u64; 6]) -> Option<u64> {
         169 => err(EPERM),
         213 => epoll::sys_epoll_create(a1),
         247 => wait::sys_waitid(a1, a2, a3, a4, a5),
-        265 => links::sys_linkat(a1, a2, a3, a4),
-        266 => links::sys_make_link(a1, a2, a3), // symlinkat(target, dirfd, path)
+        265 => links::sys_linkat(a1, a2, a3, a4, a5),
+        266 => links::sys_symlink(a1, a2, a3), // symlinkat(target, dirfd, path)
         267 => links::sys_readlinkat(a1, a2, a3, a4),
         269 | 439 => pathops::sys_faccessat(a1, a2, a3),
         270 => select::sys_pselect6(a1, [a2, a3, a4], a5, a6),

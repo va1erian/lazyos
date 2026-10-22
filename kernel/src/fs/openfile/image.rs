@@ -122,14 +122,19 @@ pub(in crate::fs) fn refuse_text_write(path: &str) -> Result<(), FsError> {
     }
 }
 
-/// A native `unlink` of `path`: if it is a running program, take its name
-/// away without freeing it and report `true` (the caller deletes nothing).
+/// A native `unlink` of `path`: if it is a running program's last name, take
+/// it away without freeing the file and report `true` (the caller deletes
+/// nothing). A program file with another name (a hard link) is not parked:
+/// the caller removes this name.
 pub(in crate::fs) fn unlink_text(id: Id, path: &str) -> Result<bool, FsError> {
     match running(path) {
         // Already parked: its name is gone, and what remains is not for
         // anyone to delete while the program runs.
         Some(inode) if inode.orphan.load(Ordering::Relaxed) => Ok(true),
-        Some(inode) => orphan(id, &inode).map(|_| true),
+        // Another name keeps it: the caller removes this one (and the
+        // registry forgets it once that succeeded).
+        Some(inode) if inode.links() > 1 => Ok(false),
+        Some(inode) => orphan(id, &inode, path).map(|_| true),
         None => Ok(false),
     }
 }
@@ -152,23 +157,26 @@ pub(in crate::fs) fn rmdir_parked(
 /// A native `rename` in progress: the running program it replaces, if any.
 pub(in crate::fs) struct NativeRename(Option<Displaced>);
 
-/// Before a native `rename(_, to)` replaces `to`: if `to` is a running
+/// Before a native `rename(from, to)` replaces `to`: if `to` is a running
 /// program, move it out of the way as [`super::displace`] does.
-pub(in crate::fs) fn displace_text(id: Id, to: &str) -> Result<NativeRename, FsError> {
+pub(in crate::fs) fn displace_text(id: Id, from: &str, to: &str) -> Result<NativeRename, FsError> {
     match running(to) {
-        Some(_) => super::displace(id, to).map(NativeRename),
+        Some(_) => super::displace(id, from, to).map(NativeRename),
         None => Ok(NativeRename(None)),
     }
 }
 
 impl NativeRename {
     /// The rename ended with `result`: open files follow their names (as
-    /// after a Linux ABI rename), or the displaced program is put back.
+    /// after a Linux ABI rename, and not after one between two names of one
+    /// file, which moved nothing), and the displaced program settles.
     pub(in crate::fs) fn finish(self, from: &str, to: &str, result: &Result<(), FsError>) {
-        match (result, self.0) {
-            (Ok(()), _) => super::retarget(from, to),
-            (Err(_), Some(displaced)) => displaced.restore(),
-            (Err(_), None) => {}
+        let moved = !self.0.as_ref().is_some_and(Displaced::same_file);
+        if let Some(displaced) = self.0 {
+            displaced.settle(result.is_ok());
+        }
+        if result.is_ok() && moved {
+            super::retarget(from, to);
         }
     }
 }

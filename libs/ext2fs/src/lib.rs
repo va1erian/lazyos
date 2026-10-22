@@ -22,8 +22,9 @@
 //! kernel) takes them. It implements:
 //!
 //! * superblock and group descriptors, with the free counters kept in sync;
-//! * inode and directory operations: `lookup`, `create`, `mkdir`, `unlink`,
-//!   `rename`, `readdir`, and `stat` (through `lookup`);
+//! * inode and directory operations: `lookup`, `create`, `mkdir`, `link`
+//!   (hard links), `unlink`, `rename`, `readdir`, and `stat` (through
+//!   `lookup`, with the link count);
 //! * block allocation from the group bitmaps with per-group accounting;
 //! * reads and writes through the direct, single-, double- and triple-indirect
 //!   block maps, with sparse holes, and `truncate` (grow and shrink);
@@ -143,6 +144,11 @@ pub use repair::{Listed, RepairError, RepairReport, LISTED};
 /// (`.unlinked-<n>`): what [`Ext2::reclaim_orphans`] is handed by the kernel
 /// and by `Ext2::recover` (the image build), so both delete exactly the same names.
 pub const ORPHAN_PREFIX: &str = ".unlinked-";
+
+/// Most names [`Ext2::link`] gives one file: Linux's `EXT2_LINK_MAX`, so a
+/// volume this library wrote never holds a count Linux's driver would refuse
+/// to raise.
+pub const MAX_LINKS: u16 = 32_000;
 pub use types::{
     AttrChange, DirEntry, FileKind, FsStats, InodeMeta, Owner, Times, S_IFDIR, S_IFMT, S_IFREG,
 };

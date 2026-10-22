@@ -1,7 +1,7 @@
 //! The prompt-flood brake, the request queue, the session records and the
 //! unlabelled callers' approvals (review of #659, H4).
 
-use crate::approvals::{Approvals, Caller};
+use crate::approvals::{Approvals, Caller, LabelKind};
 use crate::backoff::{
     hold_ticks, Backoff, Hold, FIRST_HOLD_TICKS, FORGET_TICKS, MAX_HOLD_TICKS, MAX_TRACKED,
     QUIET_TICKS,
@@ -153,8 +153,11 @@ fn session_records_end_old_ids() {
 fn unlabelled_callers_get_no_standing_view() {
     let mut approvals = Approvals::new();
     let shell = Caller { label: 0, ..APP };
-    approvals.grant(shell, Class::View, 0);
-    assert!(!approvals.covers(shell, Class::View, 1));
-    approvals.grant(APP, Class::View, 0);
-    assert!(approvals.covers(APP, Class::View, 1));
+    approvals.grant(shell, LabelKind::Unlabelled, Class::View, 0);
+    assert!(!approvals.covers(shell, LabelKind::Unlabelled, Class::View, 1));
+    // Even a caller wrongly classed as labelled gets none with label 0.
+    approvals.grant(shell, LabelKind::Other, Class::View, 0);
+    assert_eq!(approvals.live(1), 0);
+    approvals.grant(APP, LabelKind::Other, Class::View, 0);
+    assert!(approvals.covers(APP, LabelKind::Other, Class::View, 1));
 }

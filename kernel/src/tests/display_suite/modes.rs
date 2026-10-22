@@ -45,6 +45,29 @@ pub fn mode_config_parses() -> Result<(), String> {
         cfg.max
     );
     check!(problems.len() == 1, "duplicate {problems:?}");
+    // `uitheme::UiScale::from_cfg` (xuid's copy of the scale rule) must give
+    // the same answer for each of these; its test is
+    // `cfg_agrees_with_the_kernel_parser`. Keys compare exactly, a bare key
+    // is malformed and not "seen", the first `display.scale=` line decides
+    // even when its value is bad.
+    let (cfg, problems) = parse_all("display.scales=1\ndisplay.scale=2\n");
+    check!(cfg.scale == Scale::Fixed(2), "scales key {:?}", cfg.scale);
+    check!(
+        problems == [format!("{:?}", Problem::Unknown("scales"))],
+        "scales {problems:?}"
+    );
+    let (cfg, problems) = parse_all("display.scale\ndisplay.scale=2\n");
+    check!(cfg.scale == Scale::Fixed(2), "bare key {:?}", cfg.scale);
+    check!(problems.len() == 1, "bare {problems:?}");
+    let (cfg, problems) = parse_all("display.scale=3\ndisplay.scale=2\n");
+    check!(cfg.scale == Scale::Auto, "bad first wins {:?}", cfg.scale);
+    check!(problems.len() == 2, "bad then duplicate {problems:?}");
+    let (cfg, _) = parse_all("display.scale=1\ndisplay.scale=2\n");
+    check!(
+        cfg.scale == Scale::Fixed(1),
+        "first scale wins {:?}",
+        cfg.scale
+    );
     Ok(())
 }
 

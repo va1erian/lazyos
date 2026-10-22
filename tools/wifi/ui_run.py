@@ -158,7 +158,7 @@ def second_boot() -> list[dict]:
 
 
 def build() -> str | None:
-    if subprocess.call([PY, "tools/xui/build.py", "--no-lazyweb"], cwd=ROOT) != 0:
+    if subprocess.call([PY, "tools/xui/build.py"], cwd=ROOT) != 0:
         return "tools/xui/build.py failed"
     env = dict(os.environ, LAZYOS_RESET_OS="1", LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="network",
                LAZYOS_NETD_ARGS="demo=0", LAZYOS_WIFI="1", LAZYOS_UI_PROBE="1", LAZYOS_LABEL_TRACE="1", **simnet.build_env())

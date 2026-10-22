@@ -18,8 +18,9 @@
 //! delay (`accountdb::ratelimit`). Every change prompts; only the elevated
 //! editor's view (`conf.elevate`, then `conf.list`/`conf.get`) stands, for
 //! five minutes, for the same uid, label and session, never for an
-//! unlabelled caller, and it ends with the session (`sessions.rs`) or a
-//! `Release`.
+//! unlabelled caller or a developer tool's label (every script of a tool
+//! shares it; `pkgd` names the label, `LabelName`), and it ends with the
+//! session (`sessions.rs`) or a `Release`.
 //!
 //! A prompt costs the asker something (review of #659, H4): after one was
 //! cancelled or timed out, that caller's requests are refused without a
@@ -31,7 +32,9 @@
 //! A package install shows the package, not its path, and installs the
 //! bytes that were shown (`package.rs`); a service restart is limited to
 //! `elevpolicy::RESTARTABLE`. Both are refused before any prompt when they
-//! do not qualify.
+//! do not qualify. A developer-tool package is installed only as
+//! `pkg.install-devtool`, asked for by an unlabelled program of a session,
+//! with the class warning leading the prompt.
 //!
 //! Serial: `ELEVD:UP:PASS`, then one `ELEVD:REQUEST op=<op> uid=<uid>
 //! label=<id> session=<id> admin=<name> outcome=<outcome> summary="<text>"`
@@ -61,14 +64,14 @@ use core::panic::PanicInfo;
 use user::trace;
 
 use accountdb::ratelimit::Limiter;
-use elevpolicy::approvals::{Approvals, Caller};
+use elevpolicy::approvals::{Approvals, Caller, LabelKind, LabelKinds};
 use elevpolicy::backoff::{Backoff, Hold};
 use elevpolicy::queue::Queue;
 use elevpolicy::{Class, Operation};
 use libmessenger::{Encoder, Parcel};
 use messenger_generated::errors::ERROR_FIELD;
 use messenger_generated::os_lazy_elevd_v1 as wire;
-use user::messenger::{self, accounts, errno, registry, services, Endpoint, Error, Message};
+use user::messenger::{self, accounts, errno, pkgd, registry, services, Endpoint, Error, Message};
 use user::sys;
 
 use approve::Verdict;
@@ -82,6 +85,8 @@ pub(crate) struct State {
     pub(crate) server: Endpoint,
     /// Standing view approvals.
     pub(crate) approvals: Approvals,
+    /// What `pkgd` said each label is (a label id keeps its name all boot).
+    pub(crate) label_kinds: LabelKinds,
     /// The wrong-password brake, per asker and per administrator name.
     pub(crate) limiter: Limiter,
     /// The prompt-flood brake: holds after unanswered prompts.
@@ -132,6 +137,7 @@ fn run() -> messenger::Result<()> {
     let mut state = State {
         server,
         approvals: Approvals::new(),
+        label_kinds: LabelKinds::new(),
         limiter: Limiter::new(),
         backoff: Backoff::new(),
         queue: Queue::new(),
@@ -225,6 +231,36 @@ fn may_prompt(state: &mut State, caller: Caller) -> Result<(), Refusal> {
     }
 }
 
+/// Ticks `elevd` waits for `pkgd` to name a label (2 s).
+const LABEL_NAME_TICKS: u64 = 200;
+
+/// What `caller`'s label is, for the standing view approval only (any other
+/// class never stands, so nobody is asked). `elevd` holds no capability and
+/// cannot read a label's name, so `pkgd` names it; a label that cannot be
+/// named is [`LabelKind::Unknown`], for which no approval stands: a developer
+/// tool's label is shared by every script the tool runs, so an approval for
+/// one script must not cover the next.
+///
+/// The question is a blocking call with a deadline, and `elevd` is one task
+/// serving every prompt, so it is asked once per label (the answer is kept in
+/// `state.label_kinds`: an id keeps its name for the whole boot) and only
+/// when the answer is needed (see `request`).
+fn label_kind(state: &mut State, caller: Caller, class: Class) -> LabelKind {
+    if class != Class::View || caller.label == 0 {
+        return LabelKind::of(caller.label, None);
+    }
+    if let Some(kind) = state.label_kinds.get(caller.label) {
+        return kind;
+    }
+    let deadline = sys::clock().saturating_add(LABEL_NAME_TICKS);
+    let name = pkgd::Client::connect()
+        .ok()
+        .and_then(|client| client.label_name_until(caller.label, Some(deadline)).ok());
+    let kind = LabelKind::of(caller.label, name.as_deref());
+    state.label_kinds.put(caller.label, kind);
+    kind
+}
+
 /// One `Request`: check, approve, perform, audit.
 fn request(
     state: &mut State,
@@ -260,7 +296,10 @@ fn request(
     // What no administrator may be asked to approve (a guarded service's
     // restart), and a package's facts in place of its path: refused or
     // settled before any prompt.
-    if let Err(why) = op.permitted() {
+    if let Err(why) = op
+        .permitted()
+        .and_then(|()| op.asker_permitted(caller.label))
+    {
         state.audit.log(&record, "refused");
         return Err(Refusal::new(errno::EPERM, why));
     }
@@ -277,7 +316,14 @@ fn request(
     };
     follow_sessions(state);
     let now = sys::clock();
-    if state.approvals.covers(caller, op.class(), now) {
+    // The label's kind is looked up only when a standing approval exists to be
+    // judged against it: a request that must prompt anyway asks `pkgd` nothing
+    // (the kind is needed again only to record a granted approval below).
+    let standing = op.class() == Class::View && state.approvals.holds(caller, now) && {
+        let kind = label_kind(state, caller, op.class());
+        state.approvals.covers(caller, kind, op.class(), now)
+    };
+    if standing {
         record.admin = String::from("(standing approval)");
     } else {
         if let Err(refusal) = may_prompt(state, caller) {
@@ -293,7 +339,12 @@ fn request(
             Verdict::Granted(admin) => {
                 record.admin = admin;
                 state.backoff.approved(caller);
-                state.approvals.grant(caller, op.class(), sys::clock());
+                // Recording the approval needs the kind (a granted prompt
+                // took a person's password, so the lookup is not a drive-by).
+                let kind = label_kind(state, caller, op.class());
+                state
+                    .approvals
+                    .grant(caller, kind, op.class(), sys::clock());
             }
             verdict => {
                 let (outcome, refusal) = verdict.refusal();

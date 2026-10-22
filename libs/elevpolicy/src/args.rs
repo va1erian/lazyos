@@ -12,7 +12,9 @@ impl Operation {
     pub fn args(&self) -> Vec<String> {
         let one = |text: &str| alloc::vec![text.to_string()];
         match self {
-            Operation::PkgInstall { path } | Operation::PkgUpdateCore { path } => one(path),
+            Operation::PkgInstall { path }
+            | Operation::PkgUpdateCore { path }
+            | Operation::PkgInstallDevtool { path } => one(path),
             Operation::PkgRemove { system_name } => one(system_name),
             Operation::ConfSet { path, value } => {
                 let (kind, text) = value_args(value);

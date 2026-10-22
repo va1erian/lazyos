@@ -46,6 +46,8 @@ pub(super) const EISDIR: u64 = 21;
 pub(super) const ENOSPC: u64 = 28;
 pub(super) const EROFS: u64 = 30;
 pub(super) const ETXTBSY: u64 = 26;
+pub(super) const EMLINK: u64 = 31;
+pub(super) const EXDEV: u64 = 18;
 pub(super) const ENAMETOOLONG: u64 = 36;
 pub(super) const ENOTEMPTY: u64 = 39;
 pub(super) const EOPNOTSUPP: u64 = 95;
@@ -72,5 +74,7 @@ pub(super) fn fs_err(error: FsError) -> u64 {
         FsError::NotSupported => ENOSYS,
         FsError::Io => EIO,
         FsError::TextBusy => ETXTBSY,
+        FsError::TooManyLinks => EMLINK,
+        FsError::CrossDevice => EXDEV,
     })
 }

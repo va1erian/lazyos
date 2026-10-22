@@ -10,6 +10,7 @@ from tkinter import filedialog, ttk
 from . import datavol, driveropts, netopts
 from .catalog import (ACCELS, CARGO, DISKS, MODES, PY, ROOT, SCRIPTS, XUI_VIEWERS, build_env,
                       build_plan, format_plan, image_build, simple_config)
+from .display import link_exclusive
 from .runner import Runner, open_path
 from .scriptenv import SCRIPT_ENV
 from .scroll import scrollable
@@ -29,6 +30,7 @@ class Launcher:
         root.minsize(880, 620)
         self.runner = Runner()
         self.v = make_vars()
+        link_exclusive(self.v)  # HiDPI and Hi-res are alternatives
         self._build()
         self._bind()
         self._on_mode()
@@ -105,6 +107,7 @@ class Launcher:
         self._check(g, "Mail app, esMail over TLS (desktop; LAZYOS_MAIL)", "mail")
         self._check(g, "Tray demo, the tray sample app (desktop; LAZYOS_TRAYDEMO)", "traydemo")
         self._check(g, "Games, LazyGolf and the NES Player (desktop; LAZYOS_GAMES)", "games")
+        self._check(g, "Developer tools, the Messenger Playground (desktop; LAZYOS_DEVTOOLS)", "devtools")
         self._check(g, "Picture Viewer, a LazyRAD app (desktop; LAZYOS_PICTURES)", "pictures")
         self._check(g, "USB stick image too (LAZYOS_USB_IMAGE)", "usb_image")
         self._check(g, "  ...with lazyos-install, to install beside Linux (LAZYOS_INSTALLER)",
@@ -119,12 +122,16 @@ class Launcher:
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
                     "webkit_port")
-        self._check(g, "LazyWeb+ browser: LazyWeb's window on WebKit, os.lazy.lazywebplus, built in "
+        self._check(g, "LazyWeb+ browser: WebKit, os.lazy.lazywebplus, built in "
                        "Docker (LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, "
                        "big-app profile, 1 GiB OS volume)", "lazywebplus")
-        self._check(g, "webd: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
-                       "(LAZYOS_WEBD; run_demo --webd; desktop, big-app profile, 1 GiB OS volume, "
-                       "no network stack)", "webd")
+        self._check(g, "webd, required: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
+                       "(LAZYOS_WEBD; run_demo --webd; every desktop ships it already, for Docs and Mail; "
+                       "this adds the big-app profile and fails the build if it cannot be built)", "webd")
+        self._check(g, "webd demo client, os.lazy.webddemo (LAZYOS_WEBDDEMO; run_demo --webd-demo; "
+                       "tools/webd/run.py drives it)", "webd_demo")
+        self._check(g, "Leave webd out of the desktop (LAZYOS_WEBD=0; run_demo --no-webd): Docs and Mail "
+                       "then say the web engine is not running", "no_webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
@@ -147,7 +154,7 @@ class Launcher:
 
         netopts.build_group(self._group(parent, "Networking (QEMU user network)"),
                             *(self.v[k] for k in ("net", "net_forwards", "net_restrict", "nics", "tls",
-                                                    "lazyweb", "smb", "dbgd",
+                                                    "smb", "dbgd",
                                                     "dbgd_control", "lazysky", "wifi",
                                                     "dbgd_mmio", "dbgd_mmio_claimed",
                                                     "dbgd_mmio_allow")))
@@ -201,6 +208,10 @@ class Launcher:
         self._field(g, "QEMU args:", "extra", 44)
         self._field(g, "Kernel limits:", "limits", 44)  # heap_max=512M fd_max=4096 ...
         self._field(g, "Display mode:", "display_mode", 12)  # 2560x1440: HiDPI, 720p at 2x
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)  # 1 on 2560x1440: hi-res, no doubling
+        ttk.Label(row, text="Display scale:", width=12).pack(side="left")
+        ttk.Combobox(row, textvariable=self.v["display_scale"], values=("", "auto", "1", "2"),
+                     width=6).pack(side="left", padx=4)
         self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
         self._field(g, "Sample port:", "sample_port", 8)  # QMP port for webplus/sample.py: CR3+RIP during a freeze (#861)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
@@ -320,7 +331,7 @@ class Launcher:
         self.v["msgrd"].set(False)
         self.v["xui_client"].set("xui_client" in switches)
         for app, switch in (("traydemo", "LAZYOS_TRAYDEMO"), ("games", "LAZYOS_GAMES"),
-                            ("pictures", "LAZYOS_PICTURES")):
+                            ("devtools", "LAZYOS_DEVTOOLS"), ("pictures", "LAZYOS_PICTURES")):
             self.v[app].set(switch in SCRIPT_ENV.get(match[0][0], {}))
         self.v["xui_app"].set("(none)" if desktop else xui or "(none)")
         self._update_plan()

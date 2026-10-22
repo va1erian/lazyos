@@ -61,6 +61,7 @@ reply, so the error field is hand-written next to these stubs.
 - `restarts: U64`
 - `deps: String`
 - `health: String`
+- `label: U32`
 
 ## struct `AppInfo`
 

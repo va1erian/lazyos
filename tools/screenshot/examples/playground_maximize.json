@@ -1,0 +1,109 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 420
+ },
+ {
+  "wait_for": "PLAYGROUND:UP:PASS",
+  "timeout": 240
+ },
+ {
+  "wait_for": "name=tree window=Messenger Playground",
+  "timeout": 90
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "max_before"
+ },
+ {
+  "move_to": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "devtool:strip",
+   "offset": [
+    100,
+    -56
+   ]
+  }
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 0.1
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "max_after"
+ },
+ {
+  "click_at": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "tree_row:1"
+  }
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "max_page"
+ },
+ {
+  "move_to": {
+   "window": "Messenger Playground (developer tool)",
+   "widget": "devtool:strip",
+   "offset": [
+    100,
+    -56
+   ]
+  }
+ },
+ {
+  "wait": 0.3
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 0.1
+ },
+ {
+  "mouse_click": "left"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "max_restored"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "q",
+  "until": "PLAYGROUND:QUIT:PASS",
+  "timeout": 60,
+  "retries": 2
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "quit": true
+ }
+]

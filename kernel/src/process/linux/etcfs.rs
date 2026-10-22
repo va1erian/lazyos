@@ -173,6 +173,7 @@ pub(super) fn meta(path: &str) -> Option<Meta> {
         size,
         kind: FileKind::File,
         times: vfs::Times::default(),
+        nlink: 1,
     })
 }
 

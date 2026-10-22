@@ -15,7 +15,7 @@ and, under `std`, `lazyos_sys::msg::Pollable` (`AsRawFd`/`AsFd`). Tests:
 `poll`, `select` and `epoll` could not watch an endpoint, so a `std` program
 could not put Messenger into an ordinary event loop (`mio`, tokio, calloop,
 a hand-written `epoll` loop), and an app with sockets *and* Messenger work
-(LazyWeb, Mail, Net Tools, `netd` clients) had to pick one primitive and poll
+(a browser, Mail, Net Tools, `netd` clients) had to pick one primitive and poll
 the other.
 
 ## The decision: an fd for an endpoint

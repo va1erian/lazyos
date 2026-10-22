@@ -194,6 +194,11 @@ What exists, and the decisions taken on the way:
   standing view, since they all share that label; each read prompts. Binding
   the view to the requesting endpoint was rejected: clients share the one
   endpoint name resolution gives them, so it would not tell them apart.
+  **Decision (devtool review):** the same goes for a developer tool's label
+  (`tool:<system_name>`, shared by every script the tool runs): `elevd` asks
+  `pkgd` (`LabelName`; it has no capability to read a label's name itself) and
+  grants or honours no standing view for a `tool:` label, or for one it could
+  not name.
 - **Prompt floods (review of #659, H4):** a prompt takes every key and
   click, so it must cost the asker something. After a prompt was cancelled
   or timed out, `elevd` refuses that caller (uid, label, session) without a
@@ -359,6 +364,20 @@ during a prompt (`input_flood`) and raises prompts back to back
   `CAP_SETUID` service still may). `elevd` refuses both mismatches before
   any prompt (`EPERM` / `EINVAL`), and `pkgd` checks again
   (`user/src/bin/pkgd/approval.rs`). Gate: `core_claim`.
+- **Developer-tool packages have an operation of their own.**
+  `pkg.install-devtool` (`docs/devtool-packages-plan.md` section 4, phase
+  T3) installs a package with `[app] kind = "developer-tool"`: asked for by
+  an unlabelled program of a session (an app or another tool is refused,
+  `Operation::asker_permitted`), approved every time by an administrator,
+  never standing, over a core app only to update a core developer tool (a
+  core package never changes class), and its prompt leads with
+  `devtool::CONSENT_TEXT` (`elevpolicy::package::tool_summary`). The plain
+  `pkg.install` and `pkg.update-core` refuse such a package before any
+  prompt, naming the operation; `pkg.install-devtool` refuses a package that
+  is not one. `InstallApproved` carries the intent (`devtool`) and `pkgd`
+  decides again (`pkgstore::toolgate`). The row it writes is machine-wide
+  with `kind = developer-tool`: that mark is the record of the approval,
+  and `pkgd` (at boot) and `init` load a tool row only with it.
 - **Text an asker chose is never misleading or cut out of sight**
   (`elevpolicy::text`, `summary`). **Decision, per field:** values that are
   stored as typed (a `conf.set` `str` value, a power policy value, a
@@ -422,8 +441,14 @@ during a prompt (`input_flood`) and raises prompts back to back
   ∩ grants, reloaded live on change (labels unloaded at logout); updates that
   add permissions wait for re-consent; **Settings → Apps → Permissions** with
   toggles, last-used times and Reset; read/write method levels in MIDL. The
-  Terminal stays unlabelled and runs as the user: what you type has your
-  authority, as on Unix.
+  Terminal runs as the user and what you type has your authority, as on Unix.
+  Since the Terminal became a package it runs under the developer-tool label
+  `tool:os.lazy.terminal` (default-allow Messenger rules minus a short deny
+  list that, for the user's shell, does not include `keyd` and `accountsd`:
+  `docs/devtool-packages-plan.md` section 10), and `pkgd` and `init` treat
+  what runs under it as the session's owner because its recorded row says
+  `shell` (only the image's own Terminal); its commands are still not confined
+  and no capability is added or taken away.
 
 ## 4. Verification
 

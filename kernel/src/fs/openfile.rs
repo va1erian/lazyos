@@ -9,6 +9,18 @@
 //! backend has nodes (ext2: the inode, resolved once at `open`,
 //! `vfs/node.rs`), otherwise through the [`Vfs`](super::vfs::Vfs) by path.
 //!
+//! # Identity: one file, one entry
+//!
+//! All open descriptions of one file share one [`Inode`], with one page
+//! cache, so a rename or unlink updates every one of them in one place, a
+//! store through one shared mapping is seen through every other, and the last
+//! one out knows it is the last. *One file* is decided by the file, not by
+//! the name it was opened by (`registry.rs`): where the filesystem's nodes are
+//! its files (ext2, ramfs), by the filesystem instance and the node, so the
+//! two names of a hard-linked file, or `/tmp/x` and `/transient/x`, open one
+//! [`Inode`]; elsewhere (the copy-up root, FAT, a user-space filesystem whose
+//! daemon numbers its nodes), where there are no links, by the path.
+//!
 //! # POSIX behaviour the path alone cannot give
 //!
 //! The VFS names files by path, so a descriptor must keep meaning "the file I
@@ -17,20 +29,18 @@
 //! * `rename` moves the name, so every open file under the old path follows it
 //!   ([`retarget`]).
 //! * `unlink` must remove the *name* while the data stays reachable until the
-//!   last close. An open file is therefore renamed to a hidden
-//!   `.unlinked-<n>` entry in its directory instead of being freed
+//!   last close. An open file whose last name goes is therefore renamed to a
+//!   hidden `.unlinked-<n>` entry in its directory instead of being freed
 //!   ([`unlink_open`]), and that entry is deleted when the last descriptor
 //!   goes ([`Drop`]). A stop between the two leaves the hidden entry behind, as
 //!   an orphaned inode would on Linux; the next mount of an unclean volume
 //!   deletes it (`Ext2::reclaim_orphans`). The name is reserved
-//!   ([`hidden`](super::hidden)), so only this module ever creates one.
+//!   ([`hidden`](super::hidden)), so only this module ever creates one. A file
+//!   that keeps another name (a hard link) is not parked: only the name goes,
+//!   and the file goes on under its other names (issue #871).
 //! * Renaming *over* an open file is an implicit unlink of it ([`displace`]).
 //! * A directory holding nothing but parked files is empty to `rmdir`
 //!   ([`rmdir`]), which first moves them to the root of the mount.
-//!
-//! All open descriptions of one file share one [`Inode`], so a rename or unlink
-//! updates every one of them in one place, and the last one out knows it is the
-//! last.
 //!
 //! # Permissions
 //!
@@ -46,17 +56,23 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use spin::Mutex;
 
-use super::vfs::{FsError, Id, Meta, Node, NodeId, StatFs};
+use super::vfs::{FsError, Id, Meta, Node, StatFs};
 
 mod image;
 mod mapping;
 mod names;
+mod registry;
+mod unlink;
 #[cfg(lazyos_tests)]
 pub use names::hold_for_test;
 #[cfg(lazyos_tests)]
 pub use names::open_files;
 pub use names::paths_under;
-pub(in crate::fs) use names::retarget;
+pub(in crate::fs) use names::{forget_name, retarget};
+pub(crate) use registry::content_changed;
+use registry::{find, release, share_inode};
+pub(super) use unlink::{displace, names_lock, unlink_open, Displaced};
+use unlink::{hidden_name, orphan};
 mod rmdir;
 use image::Role;
 pub(in crate::fs) use image::{displace_text, refuse_text_write, rmdir_parked, unlink_text};
@@ -77,9 +93,13 @@ fn canonical(path: &str) -> String {
 /// The names of an open file.
 struct Names {
     /// Absolute ABI path in [`canonical`] form, kept current across renames:
-    /// the registry's key, and what operations on the file resolve. Empty once
-    /// the name is known to belong to another file (see [`share_inode`]).
+    /// the name operations on the file resolve. Kept, as the last name the
+    /// file was known by (which mount it is on), once `current` is false.
     key: String,
+    /// `key` still names this file. False once the name was given to another
+    /// file or removed while the file kept another name (see
+    /// [`share_inode`], [`forget_name`]).
+    current: bool,
     /// The name the file is shown under (`/proc/self/fd`, the busy list of an
     /// eject): the one it was first opened by, which is `/tmp/x` while `key`
     /// says `/transient/x`. Kept current across renames; an unlinked file is
@@ -87,10 +107,25 @@ struct Names {
     shown: String,
 }
 
+/// A file's [`Names`] behind their lock.
+type NamesLock = Mutex<Names>;
+
+impl Names {
+    /// The lock a new [`Inode`] keeps its names behind (built here so the
+    /// registry does not name the lock type).
+    fn locked(key: String, shown: String) -> NamesLock {
+        Mutex::new(Names {
+            key,
+            current: true,
+            shown,
+        })
+    }
+}
+
 /// One file that has at least one open description; shared by all of them.
 struct Inode {
     /// The file's names, behind one lock.
-    names: Mutex<Names>,
+    names: NamesLock,
     /// The name was unlinked while open: `path` is the hidden entry, to be
     /// deleted with the last description.
     orphan: AtomicBool,
@@ -114,19 +149,55 @@ struct Inode {
 }
 
 impl Inode {
-    /// The registry key: [`canonical`], and the name operations resolve.
+    /// The name operations resolve, in [`canonical`] form; empty when the
+    /// registry knows no current name of the file.
     fn path(&self) -> String {
-        self.names.lock().key.clone()
+        let names = self.names.lock();
+        if names.current {
+            names.key.clone()
+        } else {
+            String::new()
+        }
     }
 
-    /// Whether the registry key is `path`.
+    /// [`Inode::path`] for an operation by name: a file the registry knows
+    /// no current name of is [`FsError::NotFound`] (an empty path would
+    /// name the root).
+    fn name(&self) -> Result<String, FsError> {
+        match self.path() {
+            path if path.is_empty() => Err(FsError::NotFound),
+            path => Ok(path),
+        }
+    }
+
+    /// Whether `path` is the file's current name.
     fn is_named(&self, path: &str) -> bool {
-        self.names.lock().key == path
+        let names = self.names.lock();
+        names.current && names.key == path
     }
 
-    /// Give the file a new registry key.
+    /// Give the file a new current name.
     fn set_key(&self, key: String) {
-        self.names.lock().key = key;
+        let mut names = self.names.lock();
+        names.key = key;
+        names.current = true;
+    }
+
+    /// The name no longer names this file (keep it as the last one known).
+    fn forget_key(&self) {
+        self.names.lock().current = false;
+    }
+
+    /// The file's link count, from its node where it has one; `1` when it
+    /// cannot be read (the file is then treated as having no other name).
+    fn links(&self) -> u32 {
+        let meta = match &self.node {
+            Some(node) => node.stat(),
+            None => self
+                .name()
+                .and_then(|path| super::abi_stat(Id::ROOT, &path)),
+        };
+        meta.map_or(1, |meta| meta.nlink)
     }
 
     /// The name to show: [`shown`](Self::shown), or the hidden name of an
@@ -144,9 +215,6 @@ impl Inode {
 /// (`MAX_TASKS * limit.fd_max`) and in practice holds a few dozen files, so a
 /// linear scan is cheap.
 static OPEN: Mutex<Vec<Arc<Inode>>> = Mutex::new(Vec::new());
-
-/// Source of unique hidden names; never reused within a boot.
-static NEXT_ORPHAN: AtomicU64 = AtomicU64::new(1);
 
 /// An open file description: what `open` returns and `dup`/`fork` share. The
 /// offset lives here (not in the descriptor slot), so duplicated descriptors
@@ -213,9 +281,30 @@ impl OpenFile {
 
     /// The current absolute path in the registry's canonical form (the hidden
     /// name once unlinked): what operations on the file resolve, and what two
-    /// names of one file have in common.
+    /// names of one file have in common. Empty when no current name is known
+    /// (the one it was opened by was removed while another name remains).
     pub fn path(&self) -> String {
         self.inode.path()
+    }
+
+    /// The last name the file was known by, in canonical form, current or
+    /// not: which mount it lives on (who holds a volume busy).
+    pub fn volume_path(&self) -> String {
+        self.inode.names.lock().key.clone()
+    }
+
+    /// What advisory locks (`flock`, `fcntl`) are keyed by: the file itself
+    /// where its node is the file ([`Node::stable`]), so every name of one
+    /// file shares its locks, and its path otherwise. The node form starts with a NUL, which no path
+    /// holds.
+    pub fn lock_key(&self) -> String {
+        match self.inode.node.as_ref().filter(|node| node.stable()) {
+            Some(node) => {
+                let id = node.id();
+                alloc::format!("\0{:x}:{}:{}", node.fs_key(), id.ino, id.generation)
+            }
+            None => self.path(),
+        }
     }
 
     /// The path to show a person or a program (`readlink` of the descriptor,
@@ -243,11 +332,18 @@ impl OpenFile {
         }
     }
 
+    /// The file's metadata. An unlinked file parked under its hidden name
+    /// counts that name out of `nlink`, so it reports `0` like an unlinked
+    /// open file on Linux.
     pub fn stat(&self) -> Result<Meta, FsError> {
-        match &self.inode.node {
+        let mut meta = match &self.inode.node {
             Some(node) => node.stat(),
-            None => super::abi_stat(Id::ROOT, &self.path()),
+            None => super::abi_stat(Id::ROOT, &self.inode.name()?),
+        }?;
+        if self.inode.orphan.load(Ordering::Relaxed) {
+            meta.nlink = meta.nlink.saturating_sub(1);
         }
+        Ok(meta)
     }
 
     /// Read at `offset`. A page a writable shared mapping may have changed
@@ -262,7 +358,7 @@ impl OpenFile {
     fn read_raw(&self, offset: u64, buf: &mut [u8]) -> Result<usize, FsError> {
         match &self.inode.node {
             Some(node) => node.read(offset, buf),
-            None => super::abi_read_at(Id::ROOT, &self.path(), offset, buf),
+            None => super::abi_read_at(Id::ROOT, &self.inode.name()?, offset, buf),
         }
     }
 
@@ -270,7 +366,7 @@ impl OpenFile {
     /// of the path is refreshed afterwards, as a write by path does.
     pub fn write_at(&self, offset: u64, data: &[u8]) -> Result<usize, FsError> {
         let Some(node) = &self.inode.node else {
-            let written = super::abi_write(Id::ROOT, &self.path(), offset, data)?;
+            let written = super::abi_write(Id::ROOT, &self.inode.name()?, offset, data)?;
             self.inode.cache.update(offset, &data[..written]);
             return Ok(written);
         };
@@ -291,7 +387,7 @@ impl OpenFile {
     /// metadata of the path is refreshed afterwards, as a write by path does.
     pub fn truncate(&self, size: u64) -> Result<(), FsError> {
         let Some(node) = &self.inode.node else {
-            super::abi_truncate(Id::ROOT, &self.path(), size)?;
+            super::abi_truncate(Id::ROOT, &self.inode.name()?, size)?;
             self.inode.truncated(size);
             return Ok(());
         };
@@ -313,7 +409,7 @@ impl OpenFile {
         self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush(),
-            None => super::abi_flush(Id::ROOT, &self.path(), false),
+            None => super::abi_flush(Id::ROOT, &self.inode.name()?, false),
         }
     }
 
@@ -322,14 +418,14 @@ impl OpenFile {
         self.writeback(0, u64::MAX / pagecache::PAGE)?;
         match &self.inode.node {
             Some(node) => node.flush_fs(),
-            None => super::abi_flush(Id::ROOT, &self.path(), true),
+            None => super::abi_flush(Id::ROOT, &self.inode.name()?, true),
         }
     }
 
     pub fn statfs(&self) -> Result<StatFs, FsError> {
         match &self.inode.node {
             Some(node) => node.statfs(),
-            None => super::abi_statfs(Id::ROOT, &self.path()),
+            None => super::abi_statfs(Id::ROOT, &self.inode.name()?),
         }
     }
 }
@@ -344,150 +440,4 @@ impl Drop for OpenFile {
             }
         }
     }
-}
-
-/// The shared [`Inode`] for `path`, registering a new one if it is not open.
-///
-/// An open inode registered under `path` is shared only if it is the same
-/// file as `node`: the name can have been given to another file behind this
-/// registry's back (the native VFS deletes and renames without it). A stale
-/// entry then loses the name, so lookups by path (`unlink`, `rename`) find
-/// the file that has it now; its descriptors keep their node.
-fn share_inode(
-    path: String,
-    shown: String,
-    node: Option<Node>,
-    role: Role,
-) -> Result<Arc<Inode>, FsError> {
-    let id = node.as_ref().map(Node::id);
-    let mut open = OPEN.lock();
-    if let Some(found) = open.iter().find(|inode| inode.is_named(&path)) {
-        if node_id(found) == id {
-            image::claim(found, role)?;
-            found.descriptions.fetch_add(1, Ordering::Relaxed);
-            return Ok(Arc::clone(found));
-        }
-        found.set_key(String::new());
-    }
-    open.try_reserve(1).map_err(|_| FsError::NoSpace)?;
-    let inode = Arc::new(Inode {
-        names: Mutex::new(Names { key: path, shown }),
-        orphan: AtomicBool::new(false),
-        node,
-        descriptions: AtomicUsize::new(1),
-        text: AtomicUsize::new(0),
-        writers: AtomicUsize::new(0),
-        cache: PageCache::new(),
-        failure_logged: AtomicBool::new(false),
-    });
-    image::claim(&inode, role)?;
-    open.push(Arc::clone(&inode));
-    Ok(inode)
-}
-
-fn node_id(inode: &Inode) -> Option<NodeId> {
-    inode.node.as_ref().map(Node::id)
-}
-
-/// Drop one description's claim on `inode`; true when it was the last, in which
-/// case the inode leaves the registry.
-fn release(inode: &Arc<Inode>, role: Role) -> bool {
-    let mut open = OPEN.lock();
-    image::unclaim(inode, role);
-    // Descriptions are counted, not inferred from the `Arc`: a transient
-    // holder (`rmdir`'s parked list, a `Displaced`) must not hide the last
-    // close from this check.
-    if inode.descriptions.fetch_sub(1, Ordering::Relaxed) > 1 {
-        return false;
-    }
-    open.retain(|entry| !Arc::ptr_eq(entry, inode));
-    true
-}
-
-/// The contents of the file at `path` changed by name (`truncate(2)`,
-/// `O_TRUNC`, a path write): an open file's cached pages past its new end go,
-/// and the tail of the last one is zeroed (`mmap` of it sees the new size).
-pub(crate) fn content_changed(path: &str, native: bool) {
-    let Some(inode) = find(path) else {
-        return;
-    };
-    // Whatever the cache is, a fill parked on the file must not insert what
-    // it read before this change.
-    inode.cache.invalidate_fills();
-    if inode.cache.is_empty() {
-        return;
-    }
-    if native {
-        // Bytes changed behind the cache: refresh its clean pages.
-        mapping::refresh(&inode);
-    } else if let Ok(size) = inode.size() {
-        inode.truncated(size);
-    }
-}
-
-/// The open inode whose current name is exactly `path`.
-fn find(path: &str) -> Option<Arc<Inode>> {
-    let path = canonical(path);
-    let open = OPEN.lock();
-    open.iter().find(|inode| inode.is_named(&path)).cloned()
-}
-
-/// `dir/.unlinked-<n>` beside `path`, so the caller's rights to unlink `path`
-/// are exactly the rights the hidden rename needs.
-fn hidden_name(path: &str) -> String {
-    let dir = path.rsplit_once('/').map_or("", |(dir, _)| dir);
-    let n = NEXT_ORPHAN.fetch_add(1, Ordering::Relaxed);
-    alloc::format!("{dir}/{}{n}", super::hidden::PREFIX)
-}
-
-/// Take `inode`'s name away without freeing it: move it to a hidden entry.
-/// Returns the hidden path.
-fn orphan(id: Id, inode: &Inode) -> Result<String, FsError> {
-    let from = inode.path();
-    let hidden = hidden_name(&from);
-    super::abi_rename_raw(id, &from, &hidden)?;
-    inode.set_key(hidden.clone());
-    inode.orphan.store(true, Ordering::Relaxed);
-    Ok(hidden)
-}
-
-/// `unlink` of `path`: if it is open, orphan it and report `true` (the caller
-/// must not delete anything); if not, `false`.
-pub(super) fn unlink_open(id: Id, path: &str) -> Result<bool, FsError> {
-    match find(path) {
-        Some(inode) => orphan(id, &inode).map(|_| true),
-        None => Ok(false),
-    }
-}
-
-/// A file pushed aside so a `rename` could replace its name.
-pub(super) struct Displaced {
-    inode: Arc<Inode>,
-    hidden: String,
-    original: String,
-}
-
-impl Displaced {
-    /// The rename failed after all: put the file back under its name.
-    pub(super) fn restore(self) {
-        if super::abi_rename_raw(Id::ROOT, &self.hidden, &self.original).is_ok() {
-            self.inode.set_key(self.original);
-            self.inode.orphan.store(false, Ordering::Relaxed);
-        }
-    }
-}
-
-/// Before `rename(_, to)` replaces `to`: if `to` is an open file, move it out of
-/// the way (it is being unlinked) so its descriptors keep their data.
-pub(super) fn displace(id: Id, to: &str) -> Result<Option<Displaced>, FsError> {
-    let Some(inode) = find(to) else {
-        return Ok(None);
-    };
-    let original = inode.path();
-    let hidden = orphan(id, &inode)?;
-    Ok(Some(Displaced {
-        inode,
-        hidden,
-        original,
-    }))
 }

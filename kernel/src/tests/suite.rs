@@ -114,6 +114,7 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     ext2_suite::CASES,
     ext2_suite::data_fds::CASES,
     ext2_suite::data_fds::filemap::CASES,
+    ext2_suite::data_fds::links::CASES,
     ext2_suite::logd_store::CASES,
     ext2_suite::pkg_tree::CASES,
     ext2_suite::block_cache::CASES,
@@ -144,9 +145,8 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     guard_report_suite::CASES,
     guard_process_suite::CASES,
     guard_window_suite::CASES,
-    // Runs the tick for ~15 s of real time: after the suites that step a
-    // fake clock near tick 1000 (`dev_suite`'s INTx deadlines), which a real
-    // `task::ticks()` past their deadlines would expire early.
+    // Runs the tick for ~15 s of real time: after the suites that step a fake clock near
+    // tick 1000 (`dev_suite`'s INTx deadlines), which real ticks would expire early.
     timer_suite::CASES,
     hardening_suite::CASES,
 ];

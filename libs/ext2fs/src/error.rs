@@ -16,6 +16,8 @@ pub enum Ext2Error {
     Invalid,
     NoSpace,
     NameTooLong,
+    /// A file already has [`MAX_LINKS`](crate::MAX_LINKS) names (`EMLINK`).
+    TooManyLinks,
     /// A valid image using something this driver deliberately does not do.
     NotSupported,
     /// The block device failed (not a read-only refusal).

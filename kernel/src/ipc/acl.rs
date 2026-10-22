@@ -23,6 +23,15 @@
 //! is empty. [`load_label`] replaces all of one label's rules at once, so
 //! revoking an application is loading an empty list. Storage is bounded per
 //! label and in total, so a policy loader cannot exhaust kernel memory.
+//!
+//! A developer tool (`tool:<id>`, [`super::tool`]) is the one label whose list
+//! is meant to be *default allow*: a few explicit denies, then a full wildcard
+//! allow (`ANY_INTERFACE`/`ANY_METHOD`). That needs no rule semantics beyond the
+//! above: the denies come first and win, the wildcard decides the rest,
+//! [`label_allowed_ids`] stops at it (the denied ids are decided, nothing after
+//! it is reachable), it never carries the confinement marker (so
+//! `super::confine` leaves the label unconfined) and the list is a handful of
+//! rules, nowhere near [`MAX_RULES_PER_LABEL`].
 
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};

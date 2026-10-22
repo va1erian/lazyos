@@ -14,7 +14,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::node::Node;
+use super::node::{Entry, Node};
 use super::{Inner, RamFs};
 use crate::fs::vfs::{FileKind, FsError, Id, Meta};
 
@@ -139,7 +139,8 @@ impl RamFs {
     }
 
     /// Create a node and link it into its parent; the caller ran
-    /// [`RamFs::check_node_room`] for `owner`.
+    /// [`RamFs::check_node_room`] for `owner`. A new directory's `..` is
+    /// one more link of the parent.
     pub(super) fn insert(
         inner: &mut Inner,
         parent: u64,
@@ -147,14 +148,41 @@ impl RamFs {
         kind: FileKind,
         mode: u16,
         owner: Id,
-    ) -> Meta {
+    ) -> Result<Meta, FsError> {
+        Self::node_mut(inner, parent)
+            .children
+            .try_reserve(1)
+            .map_err(|_| FsError::NoSpace)?;
         let ino = inner.next_ino;
         inner.next_ino += 1;
-        inner.nodes.insert(ino, Node::new(name, kind, mode, owner));
-        Self::node_mut(inner, parent).children.push(ino);
+        inner.nodes.insert(ino, Node::new(kind, mode, owner));
+        let dir = Self::node_mut(inner, parent);
+        dir.children.push(Entry {
+            name,
+            ino,
+            extra: None,
+        });
+        if kind == FileKind::Dir {
+            dir.links += 1;
+        }
         inner.live += 1;
         inner.owners.add(owner.uid, 0, 1);
-        inner.nodes[&ino].meta(ino)
+        Ok(inner.nodes[&ino].meta(ino))
+    }
+
+    /// Whether one more name (a hard link) fits, charged to `uid` like a
+    /// node: an entry costs heap as a node does, so the caps bound names too.
+    pub(super) fn charge_name(inner: &mut Inner, uid: u32) -> Result<(), FsError> {
+        Self::check_node_room(inner, uid)?;
+        inner.live += 1;
+        inner.owners.add(uid, 0, 1);
+        Ok(())
+    }
+
+    /// Give back what [`RamFs::charge_name`] took.
+    pub(super) fn release_name(inner: &mut Inner, uid: u32) {
+        inner.live -= 1;
+        inner.owners.sub(uid, 0, 1);
     }
 
     /// Account for a node that left the tree.

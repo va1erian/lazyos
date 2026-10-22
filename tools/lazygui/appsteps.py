@@ -1,5 +1,5 @@
 """The build steps of the optional apps an image can embed (LazyRAD, the MOD
-player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, LazyWeb, Mail,
+player package, the Picture Viewer, Doom, the Linux programs, the HTTPS tools, Mail,
 the Wi-Fi firmware, the stick's `lazyos-install`),
 run before `cargo build`, and the switches of the opt-in desktop apps (the tray demo, the
 Picture Viewer).
@@ -8,6 +8,10 @@ Picture Viewer).
 from __future__ import annotations
 
 import sys
+
+from .scriptenv import script_env
+from .scripts import SCRIPTS
+from . import osvolume
 
 PY = sys.executable
 
@@ -103,7 +107,7 @@ def webkit_port_step(cfg: dict) -> list[dict]:
 
 def lazywebplus_step(cfg: dict) -> list[dict]:
     """The steps that build LazyWeb+ (docs/lazywebplus.md): the bundle, the port's processes and
-    the app (LazyWeb's window as a static library and the UI process, in Docker), then the xui
+    the app (the browser's window as a static library and the UI process, in Docker), then the xui
     apps, which package it as `os.lazy.lazywebplus`."""
     if not cfg.get("lazywebplus"):
         return []
@@ -119,13 +123,18 @@ def lazywebplus_step(cfg: dict) -> list[dict]:
 def webd_step(cfg: dict) -> list[dict]:
     """The steps that build webd (docs/webd.md): the bundle, the port's processes and the daemon
     (the service as a static library and the program, in Docker), then the xui apps, which package
-    it as `os.lazy.webd` (with the demo client, when the tree has it)."""
-    if not cfg.get("webd"):
+    it as `os.lazy.webd`. Only when asked for: every desktop ships webd once it has been built (Docs and Mail
+    need it), but a launch does not start a Docker build of WebKit by itself (`run_demo --desktop` does, and
+    goes on without it when that fails)."""
+    if not osvolume.requires_webd(cfg):
         return []
-    return [{"label": "Build the WebKit dependency bundle (Docker)",
-             "argv": [PY, "tools/webkit/deps.py", "--require"]},
-            {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
-             "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]},
+    # LazyWeb+'s steps already built the bundle and the engine processes webd starts.
+    shared = [] if cfg.get("lazywebplus") else [
+        {"label": "Build the WebKit dependency bundle (Docker)",
+         "argv": [PY, "tools/webkit/deps.py", "--require"]},
+        {"label": "Build the WebKit port: WebProcess, NetworkProcess (Docker)",
+         "argv": [PY, "tools/webkit/port.py", "--require", "--only", "WebProcess", "NetworkProcess"]}]
+    return shared + [
             {"label": "Build webd: the service and the program (Docker)",
              "argv": [PY, "tools/webkit/webd.py", "--require"]},
             {"label": "Build xui apps with webd", "argv": [PY, "tools/xui/build.py"]}]
@@ -148,12 +157,6 @@ def wifi_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/firmware/fetch.py", "--switch", "wifi"]}]
 
 
-def lazyweb_step(cfg: dict) -> list[dict]:
-    """The step that builds the LazyWeb browser (with the other xui apps and
-    their core packages), when the image embeds it."""
-    if not cfg.get("lazyweb"):
-        return []
-    return [{"label": "Build xui apps with LazyWeb", "argv": [PY, "tools/xui/build.py"]}]
 def lazysky_step(cfg: dict) -> list[dict]:
     """The step that builds the LazySky client (with the other xui apps and
     their core packages), when the image embeds it."""
@@ -199,6 +202,21 @@ def wants_games(cfg: dict) -> bool:
     return bool(cfg.get("games") and cfg.get("desktop"))
 
 
+def wants_devtools(cfg: dict) -> bool:
+    """The developer tools (docs/devtool-packages-plan.md) are desktop apps like the tray demo:
+    `tools/xui/build.py` always builds them, so the only step is `rhai`, which they run scripts with."""
+    return bool(cfg.get("devtools") and cfg.get("desktop"))
+
+
+def devtools_step(cfg: dict) -> list[dict]:
+    """The step that builds `rhai` when the image ships the developer tools, ticked or asked for by
+    the chosen session script (the image build refuses `LAZYOS_DEVTOOLS=1` without the command)."""
+    if not (wants_devtools(cfg) or script_env(cfg, SCRIPTS).get("LAZYOS_DEVTOOLS")):
+        return []
+    return [{"label": "Build rhai (the developer tools' script engine)",
+             "argv": [PY, "tools/rhai/build.py"]}]
+
+
 def wants_pictures(cfg: dict) -> bool:
     """The Picture Viewer (docs/lazyrad-pictures.md) is a desktop app; its build
     step is LazyRAD's (`lazyrad_step`), which packages it with the others."""
@@ -207,34 +225,40 @@ def wants_pictures(cfg: dict) -> bool:
 
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
-    `LAZYOS_GAMES`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
+    `LAZYOS_GAMES`, `LAZYOS_DEVTOOLS`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
     `tools/jsc/build.py`; a console program, so desktop or not) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
     (the W4 console proof, `tools/webkit/port.py`). LazyWeb+, `LAZYOS_LAZYWEBPLUS`, is a
-    desktop app like LazyWeb: it brings the desktop profile (`catalog.build_env`) and the stack,
+    desktop app like LazySky: it brings the desktop profile (`catalog.build_env`) and the stack,
     and `run_demo --lazywebplus` builds it and sets the big-app profile and the OS volume size."""
     return (mail_env(cfg) | ({"LAZYOS_TRAYDEMO": "1"} if wants_traydemo(cfg) else {})
             | ({"LAZYOS_GAMES": "1"} if wants_games(cfg) else {})
+            | ({"LAZYOS_DEVTOOLS": "1"} if wants_devtools(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
             | ({"LAZYOS_LAZYWEBPLUS": "1"} if cfg.get("lazywebplus") else {})
-            | ({"LAZYOS_WEBD": "1"} if cfg.get("webd") else {}))
+            | ({"LAZYOS_WEBD": "1"} if osvolume.requires_webd(cfg) else {})
+            | ({"LAZYOS_WEBD": "0"} if cfg.get("no_webd") else {})
+            | ({"LAZYOS_WEBDDEMO": "1"} if cfg.get("webd_demo") else {}))
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail`, `--traydemo`, `--games`, `--pictures`, `--jsc` and `--webkit-port`,
+    """run_demo's `--mail`, `--traydemo`, `--games`, `--devtools`, `--pictures`, `--jsc` and `--webkit-port`,
     which set those switches themselves, and `--lazywebplus` and `--webd`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
             + (["--games"] if wants_games(cfg) and building else [])
+            + (["--devtools"] if wants_devtools(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
             + (["--jsc"] if cfg.get("jsc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
             + (["--lazywebplus"] if cfg.get("lazywebplus") and building else [])
-            + (["--webd"] if cfg.get("webd") and building else []))
+            + (["--webd"] if cfg.get("webd") and building else [])
+            + (["--webd-demo"] if cfg.get("webd_demo") and building else [])
+            + (["--no-webd"] if cfg.get("no_webd") and building else []))
 
 
 def installer_step(cfg: dict) -> list[dict]:
@@ -257,5 +281,6 @@ def app_steps(cfg: dict) -> list[dict]:
             + srb2kart_step(cfg) + emusic_step(cfg)
             + linuxapps_step(cfg)
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
-            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazyweb_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + lazywebplus_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
+            + devtools_step(cfg)
             + wifi_step(cfg) + installer_step(cfg))

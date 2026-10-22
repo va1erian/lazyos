@@ -13,7 +13,7 @@
 //! every file is unpacked to disk through `lazypkg`'s 1 MiB window, which the
 //! heap recycles. So the pass grows the heap by the largest *package* alone,
 //! whatever its files expand to. The real set's programs expand about 2.3x
-//! (LazyWeb's 6.4 MB package holds a 14.7 MB program): when a file was
+//! (the removed LazyWeb's 6.4 MB package held a 14.7 MB program): when a file was
 //! unpacked whole into a kept scratch buffer, the pass also grew by the
 //! largest *file*, 21 MB in all, two thirds of the recycle threshold.
 

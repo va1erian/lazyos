@@ -40,7 +40,7 @@ const INIT_BACKOFF_TICKS: u64 = 100;
 type Failure = (i64, &'static str);
 
 /// `init`'s table as read once for one heartbeat's requests.
-type Rows = Option<Result<Vec<(String, u64)>, i64>>;
+type Rows = Option<Result<Vec<(String, u64, u32)>, i64>>;
 
 /// The service endpoint, once registered.
 #[derive(Default)]
@@ -154,14 +154,14 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
         }
     };
     let rows = rows
-        .get_or_insert_with(services::launched)
+        .get_or_insert_with(services::launched_labelled)
         .as_ref()
         .map_err(|code| (code.abs(), "init unreachable"))?;
     let known = rows
         .iter()
-        .find(|(_, pid)| *pid == call.sender)
-        .is_some_and(|(app, _)| ctx.tray.knows(app));
-    if !known && rows.iter().any(|(_, pid)| *pid == call.sender) {
+        .find(|(_, pid, _)| *pid == call.sender)
+        .is_some_and(|(app, ..)| ctx.tray.knows(app));
+    if !known && rows.iter().any(|(_, pid, _)| *pid == call.sender) {
         // An app this shell has not seen yet: read the registry once more.
         ctx.tray.refresh_known(ctx);
     }
@@ -173,7 +173,9 @@ fn identify_owner(ctx: &Ctx, call: &Call, rows: &mut Rows) -> Result<String, Fai
         label: origin.label_id,
         pid: call.sender,
     };
-    let table = rows.iter().map(|(name, pid)| (name.as_str(), *pid));
+    let table = rows
+        .iter()
+        .map(|(name, pid, label)| (name.as_str(), *pid, *label));
     identify(sender, shell, table, |app| ctx.tray.knows(app))
         .map(|owner| owner.key())
         .map_err(deny)

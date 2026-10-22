@@ -134,6 +134,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             size: 0,
             kind: FileKind::Dir,
             times: vfs::Times::default(),
+            nlink: 1,
         });
     }
     if let Some(meta) = super::procfs::meta(path) {
@@ -149,6 +150,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
             size: 0,
             kind: FileKind::File,
             times: vfs::Times::default(),
+            nlink: 1,
         });
     }
     if let Some(target) = super::libpath::alias(path) {
@@ -172,6 +174,7 @@ pub(super) fn synthetic_meta(path: &str) -> Option<Meta> {
                 size: meta.size,
                 kind: FileKind::File,
                 times: vfs::Times::default(),
+                nlink: 1,
             });
     }
     None

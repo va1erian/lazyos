@@ -34,7 +34,7 @@ plan (§5 W3); the pins and how each digest was cross-checked are in
 |---|---|
 | zlib, brotli, libpng, libjpeg-turbo (SIMD off), libwebp (+demux, mux), FreeType (zlib, PNG, brotli; no HarfBuzz), expat, HarfBuzz (+FreeType, +ICU glue), libxml2 (ICU, no iconv), nghttp2 (library only), curl (OpenSSL, HTTP/2, brotli, libpsl, threaded resolver, HTTP and HTTPS only) | their own CMake projects, `recipes_media.py`, `recipes_text.py`, `recipes_net.py` |
 | Fontconfig, libpsl | autoconf, configured for the guest's paths (fonts, configuration and cache directories, from `libs/fhs`, see below) |
-| OpenSSL 3.5 (LTS) | `Configure linux-x86_64 no-asm no-shared`, libraries and headers only; **Apache-2.0: never linked into LazyWeb**, see Licences |
+| OpenSSL 3.5 (LTS) | `Configure linux-x86_64 no-asm no-shared`, libraries and headers only; **Apache-2.0: never linked into nettls**, see Licences |
 | SQLite | one translation unit, the amalgamation, with FTS3 and R-trees |
 | ICU 74.2 | the build of `tools/jsc/icu.py`, copied into the prefix |
 | Skia | `skiabuild/CMakeLists.txt` builds the Skia inside the WebKit tarball (`Source/ThirdParty/skia`) with WebKit's own CMake, a few macros stood in for; no GN, no depot_tools |
@@ -66,10 +66,10 @@ disagrees with the pins. Two entries are called out:
 
 - **OpenSSL is Apache-2.0, which is GPLv2-incompatible.** LGPL-2.1 WebKit may
   link it (its curl port and SubtleCrypto call the OpenSSL API directly) and the
-  GPLv3 image may ship it, but it must **never be linked into LazyWeb**
-  (GPL-2.0-only, `docs/lazyweb.md`, `AGENTS.md`) or the `nettls` stack.
-  `wkpins.NEVER_IN_LAZYWEB` names it and `licenses.py` fails if LazyWeb's
-  sources reference this bundle or depend on OpenSSL.
+  GPLv3 image may ship it, but it must **never be linked into the `nettls` stack**
+  (or any GPL-2.0-only program; `AGENTS.md`).
+  `wkpins.NEVER_IN_GPL2` names it and `licenses.py` fails when the notes and
+  documents do not say so.
 - **libpsl is MIT, but the public-suffix list built into it is MPL-2.0**
   (`MIT AND MPL-2.0`).
 

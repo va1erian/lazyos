@@ -8,7 +8,7 @@
   {"at": 1.0, "mouse_move": [90, -128], "note": "start menu: the System row (134,576)"},
   {"wait_for": "SHELL:SUBMENU:OPEN category=system", "timeout": 30},
   {"mouse_move": [204, 72], "note": "System submenu: Terminal (338,648)"},
-  {"at": 0.5, "mouse_click": "left", "until": "SHELL:LAUNCH:PASS app=terminal", "timeout": 30, "retries": 1},
+  {"at": 0.5, "mouse_click": "left", "until": "SHELL:LAUNCH:PASS app=os.lazy.terminal", "timeout": 30, "retries": 1},
   {"wait_for": "TERM:UP:PASS", "occurrence": 2, "timeout": 120, "note": "the new Terminal has the focus"},
   {"at": 7.0, "type": "rhai -e 'sys::elevd::request(\"service.restart\",[\"inputd\"])'", "note": "a session cannot kill a service: elevd restarts it once an admin approves (docs/accounts-plan.md U2)"},
   {"at": 3.0, "key": "enter", "until": "XUID:PROMPT:UP", "timeout": 60, "retries": 1},

@@ -40,6 +40,7 @@ fn painted(bounds: Rect, color: Color, calls: Rc<Cell<u32>>) -> Node {
         wants_tab: false,
         popup: false,
         clip: None,
+        kind: xui_core::backend::NodeKind::Container,
         text: String::new(),
         painter: Some(painter),
     }
@@ -92,6 +93,18 @@ fn hiding_a_node_repaints_what_its_painter_spilled() {
     // The node is 0..32 wide; the repaint reaches PAINT_SPILL past it.
     let damage = backend.take_damage(W, Rect::new(0, 0, 64, 64));
     assert_eq!(damage, Rect::new(0, 0, 32 + PAINT_SPILL, 64));
+}
+
+#[test]
+fn moving_a_node_repaints_what_it_spilled_at_its_old_place_too() {
+    use xui_core::backend::Backend;
+
+    let (backend, _, _) = rig();
+    backend.take_damage(W, Rect::new(0, 0, 64, 64));
+    // Node 1 is 0..32 wide; moved 8 px right, the damage is both places and the spill margin.
+    backend.apply_moves(W, &[(WidgetId::from_raw(1), Rect::new(8, 0, 40, 64))]);
+    let damage = backend.take_damage(W, Rect::new(0, 0, 64, 64));
+    assert_eq!(damage, Rect::new(0, 0, 40 + PAINT_SPILL, 64));
 }
 
 #[test]
@@ -158,6 +171,30 @@ fn a_node_outside_its_ancestors_clip_is_not_painted() {
     assert_eq!(row.get(), 0, "the clipped-out row did not paint");
     assert_eq!(left.get(), 2);
     assert_eq!(pixel(&backend, 58, 10), rgba(BLUE));
+}
+
+#[test]
+fn a_node_straddling_its_ancestors_clip_is_cut_at_it() {
+    let (backend, _, _) = rig();
+    // The right node (x 32..64) clips its children to its middle 36..60 by
+    // 16..48. A child as big as the node is a paragraph of a scroll view that
+    // sticks out of the viewport: its painter fills its whole rectangle, and
+    // only the pixels inside the viewport may change.
+    {
+        let mut nodes = backend.nodes.borrow_mut();
+        nodes[1].1.clip = Some(Rect::new(4, 16, 28, 48));
+        let mut child = painted(Rect::new(0, 0, 32, 64), RED, Rc::default());
+        child.parent = ParentRef::Widget(WidgetId::from_raw(2));
+        nodes.push((WidgetId::from_raw(3), child));
+    }
+    assert!(backend.composite(W, Rect::new(0, 0, 64, 64), Dest::Frame));
+    assert_eq!(pixel(&backend, 48, 30), rgba(RED), "inside the clip");
+    assert_eq!(pixel(&backend, 36, 16), rgba(RED), "the clip's first pixel");
+    assert_eq!(pixel(&backend, 48, 5), rgba(BLUE), "above the clip");
+    assert_eq!(pixel(&backend, 48, 15), rgba(BLUE), "just above the clip");
+    assert_eq!(pixel(&backend, 48, 55), rgba(BLUE), "below the clip");
+    assert_eq!(pixel(&backend, 34, 30), rgba(BLUE), "left of the clip");
+    assert_eq!(pixel(&backend, 62, 30), rgba(BLUE), "right of the clip");
 }
 
 #[test]

@@ -31,6 +31,7 @@
 
 mod backdrop;
 mod background;
+mod coalesce;
 #[cfg(target_os = "linux")]
 pub(crate) mod calls;
 #[cfg(not(target_os = "linux"))]
@@ -54,6 +55,7 @@ mod pointer;
 mod popup_focus;
 mod render;
 mod session_input;
+mod wheel;
 #[cfg(target_os = "linux")]
 mod wakeup;
 #[cfg(not(target_os = "linux"))]
@@ -261,6 +263,8 @@ struct Node {
     popup: bool,
     /// Clips this node's descendants, in its own coordinates (`set_clip`).
     clip: Option<Rect>,
+    /// What the widget is (`NodeSpec::kind`): the wheel is routed by it (`pointer.rs`).
+    kind: xui_core::backend::NodeKind,
     text: String,
     painter: Option<Painter>,
 }
@@ -405,7 +409,7 @@ impl LazyOSBackend {
     }
 
     /// The node holding the keyboard focus, if any: lets an app's shortcut
-    /// mapper (`Ui::on_key`) claim a key for one field only (LazyWeb's
+    /// mapper (`Ui::on_key`) claim a key for one field only (LazyWeb+'s
     /// address bar takes Enter; the page keeps it for its forms).
     pub fn focused(&self) -> Option<WidgetId> {
         self.focused.get()
@@ -431,5 +435,7 @@ impl LazyOSBackend {
 /// failure codes are negative and reach the user as the syscall result.
 const ENOENT: i64 = 2;
 
+#[cfg(test)]
+mod power_click;
 #[cfg(test)]
 mod test_support;

@@ -8,7 +8,7 @@ user/src/bin/mimed/selftest.rs:24:test data for MIME guessing by extension, not 
 xui-app/crates/explorer/src/testing.rs:189:fixture directory name of an in-memory test platform
 libs/ext2fs/examples/mkimage.rs:CI image fixture: fixed paths so the e2fsck/debugfs checks can assert them, independent of libs/fhs
 kernel/src/process/linux/etcfs.rs:the Linux ABI's fabricated /etc files (passwd, hosts, resolv.conf, ...), an ABI concept rather than LazyOS layout, like /proc
-kernel/src/process/linux/procfs.rs:211:the Linux ABI's synthetic /etc directory listing
+kernel/src/process/linux/procfs.rs:212:the Linux ABI's synthetic /etc directory listing
 tools/install/src/linux.rs:lazyos-install runs on the person's Linux; /proc, /sys and /etc here are that Linux's, not LazyOS layout
 tools/install/src/target_linux.rs:lazyos-install's discovery on the person's Linux (/dev, the ESP mount points), not LazyOS layout
 tools/install/src/grub.rs:the Linux distro's GRUB files (/etc/grub.d, /boot/grub), not LazyOS layout

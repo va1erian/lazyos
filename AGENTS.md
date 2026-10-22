@@ -245,6 +245,14 @@ The wire stays in physical pixels. Code laid out in pixel constants uses
 `xui_app::hidpi` (`design_bounds`, `rect`, `design_rect`). Plan and status:
 [`docs/hidpi-plan.md`](docs/hidpi-plan.md).
 
+**Hi-res** is the same 2560x1440 screen at scale 1, a roomy desktop whose text
+and widgets keep their normal pixel size: `python tools/run_demo.py --desktop
+--hires` (GUI: *Hi-res* on the Simple tab, excluding *HiDPI*; *Display scale*
+on the Advanced tab; `--hires` = `--display-mode 2560x1440 --display-scale 1`).
+`LAZYOS_DISPLAY_SCALE` writes `display.scale=` to `lazyos.cfg`, which sets the
+boot console's scale and is `xuid`'s default for `sys/ui/scale` when that key is
+unset (`UiScale::from_cfg`); a set key wins.
+
 The mouse pointer is an antialiased vector sprite (`libs/cursorgfx`) drawn at
 `sys/ui/cursor/size` x the scale, with shapes (arrow, busy, I-beam, hand, four
 resize arrows) that the compositor picks over window borders and apps set with
@@ -256,6 +264,7 @@ manifest); see [`docs/cursor-plan.md`](docs/cursor-plan.md). Sessions:
 LAZYOS_DESKTOP=1 LAZYOS_XUI_AUTOSTART=term LAZYOS_DISPLAY_MODE=2560x1440 LAZYOS_RESET_OS=1 cargo build
 python tools/screenshot/qemu_session.py --image target/lazyos.img     --out shots/hidpi --script tools/screenshot/examples/hidpi_apps.json
 python tools/screenshot/pngstats.py shots/hidpi/*.png --expect-width 2560 --expect-height 1440
+python tools/run_demo.py --desktop --hires   # 2560x1440 at 1x; session: hires_apps.json (serial: XUID:SCALE:1 setting=1 screen=2560x1440)
 LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 ```
 
@@ -264,7 +273,17 @@ LAZYOS_TEST_FILTER=display_mode python tools/test/run.py --accel none
 The desktop Terminal is `xui-app/src/bin/term.rs` and `term/` over the portable
 engine `xui-app/crates/term` (`lazyterm`: parser, grid, scrollback with reflow,
 selection, search, URL matching, settings); plan and as-built notes in
-[`docs/terminal-plan.md`](docs/terminal-plan.md). Settings are `confd` keys
+[`docs/terminal-plan.md`](docs/terminal-plan.md). It ships as the **core
+package `os.lazy.terminal`** in every desktop image: a developer tool
+(`kind = "developer-tool"`) that is **the user's shell** (`shell = true`), so
+its shell and every command typed in it run under `tool:os.lazy.terminal`
+(default-allow Messenger rules minus `devtool::DENY`) while `pkgd` and `init`
+treat them as the session's owner (`pkgctl`, `powerctl`; recorded in the
+app's row, core packages only: `pkgstore::shellrole`). Nothing else gets
+that; the Playground stays refused. Its app id is `os.lazy.terminal` (the
+bare `terminal` still launches it): a session waits for `INIT:AUTOSTART:PASS
+app=os.lazy.terminal`. The proof session is `term_devtool.json`
+(`docs/devtool-packages-plan.md` section 10). Settings are `confd` keys
 under `user/<uid>/term/*`, changed live from Preferences (`Ctrl+,`). Menu,
 find bar, close prompt and Preferences are drawn in the window (probe names
 `menu:<item>`, `find:*`, `prefs:*`). Sessions: `term_xterm.json`,
@@ -286,15 +305,17 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/te
 
 ## Docs app and the zig toolchain
 
-`xui-docs` renders Markdown on a Blitz view (`xui-blitz`, pure Rust), so
-`python tools/xui/build.py` builds it with the other apps and no zig (see
-[`docs/xui-docs.md`](docs/xui-docs.md)). zig (`pip install ziglang==0.16.0`) is
-now needed only for Mail's SQLite (`--mail`); without it the script skips Mail
-with a warning and every other app still builds. Blitz draws its own glyphs
-from font files, so an app with a `BlitzView` calls `webfonts::register()`
-(`xui-app/crates/webfonts`) at start or its pages show no text.
-`python tools/xui/test_zig.py` tests the toolchain helper. Screenshot sessions: `tools/screenshot/examples/xui_docs.json`
-(wheel scrolling) and `xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`).
+`xui-docs` turns Markdown into HTML (pulldown-cmark) and shows it in a **light view of `webd`**
+(`xui_app::lightview::LightView`, over `xui_webd_client::Pane`), so `python tools/xui/build.py` builds it
+with the other apps and no zig (see [`docs/xui-docs.md`](docs/xui-docs.md)). The OS has **one web engine,
+WebKit in webd**: there is no Blitz, no `webfonts` and no in-process HTML renderer; an app that wants to show
+HTML asks webd for a light view (a `LightView` in an xui window; one view for the life of the window, a new page
+with `set_html`, never a view per page) and declares `os.lazy.webd.light.v1` in its manifest. zig
+(`pip install ziglang==0.16.0`) is needed only for Mail's SQLite (`--mail`); without it the script skips Mail
+with a warning and every other app still builds. `python tools/xui/test_zig.py` tests the toolchain helper.
+`python tools/docs/run.py` builds an image with Docs and webd, runs `xui_docs.json` (wheel scrolling) and
+`xui_docs_open.json` (Open dialog and `/system/share/samples/testdoc.md`) and judges the markers and pictures
+(it needs webd built: `tools/webkit/webd.py`; `tools/docs/test_judge.py` is the judge's self-test).
 
 ## LazyWriter (word processor)
 
@@ -657,10 +678,10 @@ them (`webkit/README.md` says how to keep the caches).
 
 ## LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, `os.lazy.lazywebplus`)
 
-LazyWeb's browser window on the WebKit engine ([`docs/lazywebplus.md`](docs/lazywebplus.md), issue #835; W6 of
+The web browser, a window on the WebKit engine ([`docs/lazywebplus.md`](docs/lazywebplus.md), issue #835; W6 of
 the plan). WebKit's UI process in C++ (`webkit/port/app/`: the run loop and the C API on the main thread)
 with a Rust window on a second thread, joined by a C ABI (`webkit/port/app/lazyos_ui.h`):
-`xui-app/webplus` (`xui-webplus`: LazyWeb's menu bar, toolbar, status bar, history, downloads, internal
+`xui-app/webplus` (`xui-webplus`: a menu bar, toolbar, status bar, history, downloads, internal
 pages and hand-offs, driving WebKit through the `xui-webkit` seam, `xui-app/crates/webkit`: engine trait, mailbox,
 page view, host-tested against a recording engine) built on the host and linked by `python tools/webkit/app.py` into `lazywebplus-app`. The seam's C ABI grew
 (`webkit/port/app/lazyos_ui.h`, table in [`webkit/README.md`](webkit/README.md)) by a navigation policy
@@ -669,8 +690,8 @@ gesture can**), downloads to `$HOME/Downloads` through `.part` files, JavaScript
 dialogs, the link under the pointer, the pointer shape, new-window requests and a profile directory for
 cookies. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it (`run_demo.py --lazywebplus`, the launcher's Simple
 tab; needs the desktop, the network stack and the WebKit port's artifacts, a 1 GiB OS volume, 4 GiB of RAM
-and an 8G user memory quota). It registers `http`, `https` and HTML files like LazyWeb; which of the two
-`mimed` opens is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
+and an 8G user memory quota). It registers `http`, `https` and HTML files and is the default browser; which of two
+browsers `mimed` would open is the user's choice (`user/<uid>/mimed/default/<type>`, Settings > Default apps,
 `deskmenu::defaults`), install order otherwise. Its engine processes are sandboxed (#836: `docs/architecture/process-sandbox.md`; `[processes.*]` tables in the manifest, the network
 process also writing `$HOME/Downloads`; attack them with `python tools/webkit/attack_run.py --browser --app
 lazywebplus`). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
@@ -681,7 +702,10 @@ tools/webkit/licenses.py`. `python tools/webplus/run.py` builds the image, boots
 first's history and cookie) and judges the markers (`WEBPLUS:*`), the host's request log, the OS volume
 and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
 The harness boots four times: a third and a fourth boot judge the ad blocker (below), and a run needs
-`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazywebplus` brings.
+`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazywebplus` brings. The stand-in sites
+(example.com, a 90s-style theoldnet.com with pictures, cookie, download and test pages), the run's test CA
+and the picture encoders are shared in `tools/webtest/` ([`tools/webtest/README.md`](tools/webtest/README.md);
+`python tools/webtest/test_sites.py`).
 
 A page's **Notifications API** works (#839, `webkit/port/app/notify.cpp`, `xui-app/webplus/src/notify*`): a
 bar in the browser asks once per site (`notify.tsv` in the profile), and an allowed site's notifications are
@@ -731,8 +755,9 @@ portable service `xui-app/crates/webd` (`xui-webd`, host-tested against an in-me
 because `init` and the shell know an app by its first thread) with the Rust static library `xui-app/webd`
 (the real Messenger binding, an `eventfd` doorbell, the lifecycle line, a watchdog on WebKit's main thread, the
 `WEBD:*` markers). The package `xui-app/packages/webd` is resident and opens with every session of a
-`LAZYOS_WEBD=1` image (desktop, big-app profile, 1 GiB OS volume; no network stack: `run_demo.py --webd`, the
-launcher's Advanced tab). `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
+desktop image that has built it (`LAZYOS_WEBD` is `1`: required, `0`: left out, unset: shipped when
+`target/xui/xui-webd.elf` exists; no network stack; a 1 GiB OS volume; `run_demo.py --desktop` builds it, `--no-webd`
+leaves it out, `--webd-demo` adds the demo client): Docs and Mail need it, so every desktop ships it. `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
 LazyWeb+ (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
 
 ```bash
@@ -748,7 +773,7 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/we
 Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
-`webd` is in `tools/suites.toml`'s `test_only` until Mail and Docs use it (docs/webd-plan.md P3).
+The demo client `os.lazy.webddemo` ships only with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 
@@ -783,7 +808,8 @@ trusts that proxy's CA too.
 
 `xui-mail` (`os.lazy.mail`, `xui-app/mail/`) is va1erian/esmail's IMAP/SMTP
 core (a pinned git dependency, built with its `rustls` feature over
-`nettls-crypto`) behind a xui window, its reading pane a Blitz view; zig builds
+`nettls-crypto`) behind a xui window, its reading pane a light view of webd (HTML mail, scripts off, no
+network: `reader.rs`, `tools/mail/hostile.py` is the hostile message the harness plants); zig builds
 it for SQLite (`tools/xui/build.py --mail`). Passwords live only in memory (`secrets.rs`).
 See [`docs/mail.md`](docs/mail.md).
 
@@ -793,45 +819,6 @@ python tools/mail/run.py                 # mock IMAPS/SMTPS server under the tes
 python tools/mail/run.py --label-trace   # the same, listing LABEL:DENY lines
 cargo test --manifest-path xui-app/Cargo.toml -p xui-mail
 ```
-
-## LazyWeb browser (`LAZYOS_LAZYWEB=1`)
-
-LazyWeb (`os.lazy.lazyweb`, crate `lazyweb` in `xui-app/web`) is the web
-browser: Blitz (`xui-blitz`, pure Rust), built with the other apps by
-`tools/xui/build.py` into `target/xui/xui-lazyweb.elf`, over the HTTPS stack
-above (the fetcher keeps the cookie jar; `webfonts` registers the Liberation
-fonts);  a core package
-(`xui-app/packages/lazyweb`) that only `LAZYOS_LAZYWEB=1` images ship, which
-needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1` (the build refuses it otherwise).
-LazyWeb is still declared GPL-2.0-only (the licence NetSurf required; whether
-to relicense now that Blitz is MIT/Apache-2.0 is open, issue #649), so until
-that is decided link only GPLv2-compatible crates into it (no GPL-3.0, no
-Apache-2.0-only). See [`docs/lazyweb.md`](docs/lazyweb.md).
-
-```bash
-python tools/run_demo.py --lazyweb        # desktop + networking + HTTPS + the browser
-python tools/web/run.py                   # build, browse example.com then theoldnet.com, judge
-python tools/web/run.py --precheck-only   # the harness alone (console image, curl), no browser needed
-python tools/web/run.py --live            # the real sites (manual, needs internet)
-python tools/web/test_judge.py            # the judge fails when it should; fixtures and session current
-```
-
-`tools/web/run.py` serves stand-ins for both sites from the host on ports 80
-and 443 (root, or `net.ipv4.ip_unprivileged_port_start=80`): a copy of
-example.com and a 90s-style theoldnet.com with PNG, JPEG and (animated) GIF
-pictures (`tools/web/fixtures/`, drawn by `gen_fixtures.py`), with the names
-mapped to `10.0.2.2` through `LAZYOS_TLS_TEST_HOSTS` and the run's CA through
-`LAZYOS_TLS_TEST_CA`. It judges the browser's `WEB:UP:PASS`,
-`WEB:LOAD:<url>`, `WEB:TITLE:<title>` (never `WEB:FAIL:<reason>`), the
-requests the host saw (Host, SNI, every picture) and the screenshots. The
-session (`tools/screenshot/examples/lazyweb.json`, generated by
-`tools/web/session.py --write`) starts the browser through `mimed` from a
-`rhai` script (`sys::mimed::open("http://example.com/", "open")`; `mimed` maps
-a URL to `x-scheme-handler/<scheme>`, `init` launches with a URL argument), uses **Ctrl+L** for the address bar, then
-downloads a file (`WEB:DOWNLOAD:DONE:<name>:<bytes>`, saved to `~/Downloads`),
-hands a `mailto:` link to the OS (`WEB:LAUNCH:<url>:OK|FAIL`) and opens
-`about:history` (**Ctrl+H**) and `about:downloads` (**Ctrl+J**)
-([`tools/web/README.md`](tools/web/README.md)).
 
 ## LazySky Bluesky client (`LAZYOS_LAZYSKY=1`)
 
@@ -860,6 +847,43 @@ python tools/nettls/licenses.py --lazysky # GPLv2-compatible tree (no ring/aws-l
 The offscreen window tests write `xui-app/target/snapshots/lazysky-*.png`:
 Read them. Serial markers are `SKY:*` (listed in `docs/lazysky.md`); a
 password or token must never appear in any log.
+
+## Developer tools and the Messenger Playground (`LAZYOS_DEVTOOLS=1`)
+
+A **developer tool** is a package with `[app] kind = "developer-tool"`: an app
+whose calls are chosen at run time by the user or a script, so no manifest can
+list them. It runs under the label `tool:<system_name>`, whose Messenger rules
+are default allow minus `devtool::DENY` (credentials unless the tool is the
+user's shell, sockets unless `network` is declared, the dev-spawn scope unless
+`develop`), its children keep
+the label, and `xui_app::devtool` gives every tool the same title suffix,
+strip (dismissible, remembered per user and tool), risk table and review gate. It is installed only by the
+image build or by an administrator through `elevd`'s `pkg.install-devtool`.
+Design and as-built notes: [`docs/devtool-packages-plan.md`](docs/devtool-packages-plan.md).
+One switch ships every optional tool: `python tools/run_demo.py --devtools` (the
+launcher's *Developer tools*; `full` suite). A tool with `always` in
+`build_support/devtools_embed.rs` ships in every desktop image without it: the
+Terminal, which is also the only tool with `shell = true` (a recorded property
+that makes `pkgd` and `init` treat what runs under its label as the session's
+owner; only the image's own packages can have it,
+[`docs/devtool-packages-plan.md`](docs/devtool-packages-plan.md) section 10).
+
+The Messenger Playground (`os.lazy.playground`, `xui-app/src/bin/playground*`,
+portable core `xui-app/crates/playground`, examples in
+`xui-app/packages/playground/examples/`) is the first tool: browse every
+interface and topic, listen with a doorbell subscription
+(`xui_app::fabric::Subscriber`, never polled on a timer: the broker never frees
+its receive buffers), and run Rhai through a child `rhai`; see
+[`docs/messenger-playground-plan.md`](docs/messenger-playground-plan.md).
+
+```bash
+python tools/run_demo.py --devtools
+python tools/playground/run.py          # build, boot, six sessions, judge (LABEL:DENY, markers, screenshots)
+python tools/playground/test_judge.py   # the judge fails when it should
+cargo test --manifest-path xui-app/Cargo.toml -p xui-playground        # the portable core
+LAZYOS_TEST_FILTER=label_tool python tools/test/run.py --accel none    # the kernel's `tool:` label
+python tools/devtool/check_interfaces.py                                # every interface classified for tools
+```
 
 ## Rhai scripting (`rhai` command and `msg` module)
 
@@ -892,8 +916,9 @@ python tools/midlc/midlc.py --schema libs/rhai-lazy/src/msg/idl.rs --rhai-api li
 
 ## Packages and the label-policy trace
 
-Every desktop app except the Terminal, Devices, the Installer and LazyShell
-(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
+Every desktop app except Devices, the Installer and LazyShell
+(the opt-in LazyRAD IDE, `LAZYOS_LAZYRAD=1`, included, and the Terminal, a
+developer tool that is the user's shell) is a core package (`xui-app/packages/<short>/`, [`docs/packages.md`](docs/packages.md)):
 `pkgd` installs it into `/apps` at boot and the kernel confines it to the
 permissions its manifest declares. `LAZYOS_LABEL_TRACE=1` is the supported
 debug switch for that policy: an image built with it (`kernel/build.rs`, cfg
@@ -1842,6 +1867,12 @@ regressions, not kernel-internal correctness or resource leaks.
   editors, Paint, browsers, a custom painter, heavy data or threads; a Rust
   app starts from `tools/xui/new_app.py` (above). Verification goes headless
   first (offscreen renders and host tests), QEMU sessions last.
+- **A new interface that carries secrets or authority is added to
+  `devtool::DENY`** (`libs/devtool`): developer tools (`kind = "developer-tool"`,
+  `docs/devtool-packages-plan.md`) are default allow minus that list. Any other
+  new interface goes in `tools/devtool/reviewed_interfaces.txt` after deciding
+  a script the user runs may call it; `python tools/devtool/check_interfaces.py`
+  (a CI step) fails until every interface in `idl/` is in one of the two.
 - Prefer verifying with the existing scripts over ad-hoc commands so results are
   comparable across runs.
 

@@ -13,6 +13,8 @@ mod assets_embed;
 mod ca_bundle;
 #[path = "../core_packages.rs"]
 mod core_packages;
+#[path = "../devtools_embed.rs"]
+mod devtools_embed;
 #[path = "../docs_embed.rs"]
 mod docs_embed;
 #[path = "../hosts_embed.rs"]
@@ -21,8 +23,6 @@ mod hosts_embed;
 mod intelgfx_embed;
 #[path = "../lazysky_embed.rs"]
 mod lazysky_embed;
-#[path = "../lazyweb_embed.rs"]
-mod lazyweb_embed;
 #[path = "../lazywebplus_embed.rs"]
 mod lazywebplus_embed;
 #[path = "../netboot.rs"]
@@ -65,6 +65,8 @@ mod bench_tests;
 #[cfg(test)]
 mod dbgd_tests;
 #[cfg(test)]
+mod devtools_tests;
+#[cfg(test)]
 mod f3_layout_tests;
 #[cfg(test)]
 mod f4_layout_tests;
@@ -78,8 +80,6 @@ mod intelgfx_tests;
 mod layout_tests;
 #[cfg(test)]
 mod lazysky_tests;
-#[cfg(test)]
-mod lazyweb_tests;
 #[cfg(test)]
 mod lazywebplus_tests;
 #[cfg(test)]

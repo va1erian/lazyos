@@ -206,7 +206,7 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "(docs/webkit-port-plan.md W4); three static programs of tens of MB "
                              "(big-app profile) over the network stack, so this implies networking")
     parser.add_argument("--lazywebplus", action="store_true",
-                        help="LazyWeb+, LazyWeb's browser window on WebKit, os.lazy.lazywebplus "
+                        help="LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus "
                              "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
                              "stack, the big-app profile, a 1 GiB OS volume, WebProcess and "
                              "NetworkProcess in /system/bin and the app's core package; built in "
@@ -216,9 +216,18 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="webd, the daemon that serves WebKit light views to other apps, os.lazy.webd "
                              "(LAZYOS_WEBD=1; docs/webd.md): the desktop, the big-app profile, a 1 GiB OS "
                              "volume, WebProcess and NetworkProcess in /system/bin and the resident "
-                             "app's core package (opened with every session) with its demo client; "
-                             "built in Docker (tools/webkit/deps.py, port.py, webd.py) and packaged by "
-                             "tools/xui/build.py. No network stack: a light view has no network")
+                             "app's core package (opened with every session); built in Docker "
+                             "(tools/webkit/deps.py, port.py, webd.py) and packaged by tools/xui/build.py. "
+                             "No network stack: a light view has no network. Every --desktop image already "
+                             "ships webd (Docs and Mail draw their pages with it): it is built when its "
+                             "programs are missing, and the run goes on without it if that fails; this flag "
+                             "makes a failure fatal and forces the big-app profile")
+    parser.add_argument("--no-webd", action="store_true",
+                        help="leave webd out of a desktop (LAZYOS_WEBD=0): Docs and Mail then say the web "
+                             "engine is not running; no Docker build")
+    parser.add_argument("--webd-demo", action="store_true",
+                        help="webd plus its demo client os.lazy.webddemo (LAZYOS_WEBDDEMO=1), which "
+                             "tools/webd/run.py drives; implies --webd")
     parser.add_argument("--tls", action="store_true",
                         help="networking plus the HTTPS clients (LAZYOS_TLS=1): `curl`, "
                              "`wget` and `fetch` in /system/bin, one rustls program that "
@@ -273,10 +282,6 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "stop needs no repair (docs/architecture/journal.md). BLOCKS "
                              "sets the log size; default 4096 blocks (16 MiB). An existing "
                              "image gets one on the next in-place update")
-    parser.add_argument("--lazyweb", action="store_true",
-                        help="the desktop profile with the LazyWeb browser (LAZYOS_LAZYWEB=1, "
-                             "a core package; NetSurf compiled with zig by tools/xui/build.py), "
-                             "networking and the HTTPS tools (docs/lazyweb.md)")
     parser.add_argument("--lazysky", action="store_true",
                         help="the desktop profile with the LazySky Bluesky client "
                              "(LAZYOS_LAZYSKY=1, a core package) and networking "
@@ -292,6 +297,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--traydemo", action="store_true",
                         help="the desktop with the tray sample app os.lazy.traydemo "
                              "(LAZYOS_TRAYDEMO=1, docs/tray-plan.md)")
+    parser.add_argument("--devtools", action="store_true",
+                        help="the desktop with the developer tools, today the Messenger Playground "
+                             "(LAZYOS_DEVTOOLS=1, core packages that run under the label "
+                             "tool:<name>; builds the `rhai` command they run scripts with; "
+                             "docs/devtool-packages-plan.md)")
     parser.add_argument("--games", action="store_true",
                         help="the desktop with the built-in games, LazyGolf and the NES Player "
                              "(LAZYOS_GAMES=1, core packages)")
@@ -326,8 +336,13 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args = parser.parse_args(argv)
     if args.with_options and not args.suite:
         parser.error("--with needs --suite")
+    if args.devtools and args.no_rhai:
+        parser.error("--devtools needs the `rhai` command its tools run scripts with: drop --no-rhai")
     if args.suite:
         suites.apply(args, suites.resolve(args.suite, args.with_options))
+    if args.no_webd and (args.webd or args.webd_demo):
+        parser.error("--no-webd conflicts with --webd and --webd-demo")
+    args.webd = args.webd or args.webd_demo
     if args.lazywebplus or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
@@ -341,17 +356,20 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
-    # as do the desktop-only apps (Doom, LazyWeb, LazyWeb+, Mail, the Picture Viewer, the
+    # as do the desktop-only apps (Doom, LazyWeb+, Mail, the Picture Viewer, the
     # tray demo, the games) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazyweb or args.lazywebplus or args.webd or args.lazysky or args.mail
+                    or args.lazywebplus or args.webd or args.lazysky or args.mail
                     or args.pictures
-                    or args.traydemo or args.games or args.setup)
+                    or args.traydemo or args.games or args.devtools or args.setup)
+    # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
+    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails).
+    args.webd_implicit = args.desktop and not args.webd and not args.no_webd
     # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
-    args.tls = args.tls or args.lazyweb or args.mail or args.lazywebplus
+    args.tls = args.tls or args.mail or args.lazywebplus
     args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is

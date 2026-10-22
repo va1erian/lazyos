@@ -61,7 +61,7 @@ def _tool(*argv: str) -> bool:
 
 def build(extra: dict[str, str], label_trace: bool) -> str | None:
     """Build the apps, `rhai` and the image; an error message, or None."""
-    if not _tool(str(ROOT / "tools" / "xui" / "build.py"), "--no-lazyweb"):
+    if not _tool(str(ROOT / "tools" / "xui" / "build.py")):
         return "tools/xui/build.py failed"
     if not ELF.is_file():
         return f"{ELF} was not built (run `python tools/xui/build.py` and read its errors)"

@@ -231,20 +231,25 @@ impl SocketPair {
         }
     }
 
-    /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
-    /// `epoll` interests: the counter changes whenever either direction's
-    /// readiness could have changed (data, space, or a close).
     /// The keyed-wakeup keys of both direction pipes (`task::pollwait`): a
     /// pipe announces its events under its own address.
     pub fn pipe_keys(&self) -> [u64; 2] {
         [Arc::as_ptr(&self.ab) as u64, Arc::as_ptr(&self.ba) as u64]
     }
 
+    /// [`poll`](SocketPair::poll) plus a freshness counter for edge-triggered
+    /// `epoll` interests: the counter changes whenever either direction's
+    /// readiness could have changed (data, space, or a close).
+    ///
+    /// The two direction counters only ever grow, so their wrapping sum
+    /// changes whenever either does. (An XOR repeated when both rose by the
+    /// same amount between two checks, `0 ^ 0 == 1 ^ 1`, and an edge was lost,
+    /// issue #868.)
     pub fn poll_gen(&self, side: Side, events: u16) -> (u16, u64) {
         let (read, write) = self.directions(side);
         let revents = Self::eof_readable(read.poll(End::Read, events), events)
             | write.poll(End::Write, events);
-        let gen = read.read_events() ^ write.write_events();
+        let gen = read.read_events().wrapping_add(write.write_events());
         (revents, gen)
     }
 }

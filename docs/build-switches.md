@@ -27,7 +27,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 | `LAZYOS_SHELL` | `0` leaves LazyShell (taskbar, menu, icons) out of a desktop image. | `--no-shell` |
 | `LAZYOS_SERVICES` | Boot the userspace services (`messengerd`, `init`, ...) without the desktop. Implied by `LAZYOS_DESKTOP`. | - |
 | `LAZYOS_XUID` | Embed the `xuid` compositor without the rest of the desktop. Implied by `LAZYOS_DESKTOP`. | - |
-| `LAZYOS_XUI_AUTOSTART` | Comma list of core-app short names opened at login (`term`, `settings`, `writer`, ...). Unset: the session opens the Terminal only where an image says so. | - |
+| `LAZYOS_XUI_AUTOSTART` | Comma list of core-app short names opened at login (`term`, `settings`, `writer`, ...). Unset: the session opens the Terminal only where an image says so (`term` is the package `os.lazy.terminal`). | - |
 | `LAZYOS_XUI_APPS` | Platform path list (`;` on Windows, `:` elsewhere) of xui app ELFs to embed instead of the default set. | - |
 | `LAZYOS_XUI_APP` | Path to a single xui app ELF to run as the only client (single-app images). | - |
 | `LAZYOS_XUI_CLIENT` | `1`: that app runs as an `xuid` client rather than owning the framebuffer. | - |
@@ -62,19 +62,20 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_SRB2KART` | SRB2Kart: the engine package and its game data (downloaded at build time, never published); adds `512M` to the OS volume. | `tools/srb2kart/build.py` | `--srb2kart` |
 | `LAZYOS_GAMES` | LazyGolf and the NES Player core packages. | desktop | `--games` |
 | `LAZYOS_EMUSIC` | `emusic.lzp` sample package. | `tools/emusic/build.py` | `--emusic` |
-| `LAZYOS_LAZYWEB` | LazyWeb browser core package. | desktop, `LAZYOS_NETD` | `--lazyweb` |
 | `LAZYOS_LAZYSKY` | LazySky Bluesky client core package. | desktop, `LAZYOS_NETD` | `--lazysky` |
 | `LAZYOS_MAIL` | Mail (esMail over TLS). | desktop, TLS | `--mail` |
 | `LAZYOS_WIFI` | `wifid`, the RTL8822CE driver, and its fetched firmware. | `LAZYOS_NETD` | `--wifi` |
 | `LAZYOS_WIFI_SIM` | The simulated Wi-Fi radio `wlan0` (`wifisim`) and its fake access points. | `LAZYOS_NETD` | `--wifi-sim` |
 | `LAZYOS_INTELGFX` | `gpud`, the read-only Intel GPU service (Kaby Lake HD 620 and Alder Lake UHD). | - | `--intelgfx` |
+| `LAZYOS_DEVTOOLS` | Every optional developer-tool core package (the Messenger Playground; [`docs/devtool-packages-plan.md`](devtool-packages-plan.md)): they run under the label `tool:<name>`. One switch for the class. The Terminal is a developer tool too (the user's shell, `shell = true`) and ships in every desktop image with no switch (`always`). | desktop, the `rhai` command (`tools/rhai/build.py`, which `--devtools` runs) | `--devtools` |
 | `LAZYOS_TRAYDEMO` | `os.lazy.traydemo` tray sample. | desktop | `--traydemo` |
 | `LAZYOS_LINUXAPPS` | Real Linux programs (dash, sqlite3, jq, rg) in `/system/bin`. | `tools/linuxapps/build.py` | `--linuxapps` |
 | `LAZYOS_JSC` | JavaScriptCore's `jsc` shell and the C++/ICU check `cxxproof` in `/system/bin` (built in Docker; wants `--big-app`). | `tools/jsc/build.py` | `--jsc` |
 | `LAZYOS_WEBKIT_DEPS` | `depsproof`, one C++ program linking the WebKit dependency bundle (zlib to curl, Skia), in `/system/bin` (built in Docker; implies networking and `--big-app`). | `tools/webkit/deps.py` | `--webkit-deps` |
 | `LAZYOS_WEBKIT_PORT` | The WebKit port's console proof (W4): `WebProcess`, `NetworkProcess` and the headless UI process `webkit-smoke` in `/system/bin`, `fonts.conf` in `/system/etc/fonts` (built in Docker after the bundle; implies networking and `--big-app`). | `tools/webkit/port.py` | `--webkit-port` |
-| `LAZYOS_LAZYWEBPLUS` | LazyWeb+, LazyWeb's browser window on WebKit, `os.lazy.lazywebplus` ([lazywebplus.md](lazywebplus.md)): the app's core package (LazyWeb's window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py` | `--lazywebplus` |
-| `LAZYOS_WEBD` | webd, the daemon that owns WebKit for a session and serves light views to other apps, `os.lazy.webd` ([webd.md](webd.md)): a resident, windowless core package (one 75 MB static program, opened with every session) and, when its tree is present, the demo client `os.lazy.webddemo`; `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop and `--big-app`. No network stack: a light view has no network. | desktop; `tools/webkit/deps.py`, `port.py`, `webd.py` | `--webd` |
+| `LAZYOS_LAZYWEBPLUS` | LazyWeb+, the web browser on WebKit, `os.lazy.lazywebplus` ([lazywebplus.md](lazywebplus.md)): the app's core package (the browser's window and the UI process, one 108 MB static program), `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. Built in Docker after the bundle, packaged by `tools/xui/build.py`; implies the desktop, networking and `--big-app`. | desktop, `LAZYOS_NETD`; `tools/webkit/deps.py`, `port.py`, `app.py` | `--lazywebplus` |
+| `LAZYOS_WEBD` | webd, the daemon that owns WebKit for a session and serves light views to other apps, `os.lazy.webd` ([webd.md](webd.md)): a resident, windowless core package (one 75 MB static program, opened with every session); `WebProcess` and `NetworkProcess` in `/system/bin`, `fonts.conf`; the OS volume defaults to 1 GiB. **Every desktop ships it** (Docs and Mail draw their pages with it): `1` requires it (a missing program fails the build), `0` leaves it out (Docs and Mail then say the web engine is not running), unset ships it on a desktop whenever `target/xui/xui-webd.elf` exists and warns when it does not. Built in Docker after the bundle, packaged by `tools/xui/build.py`; `run_demo.py --desktop` builds it when missing (`--no-webd` leaves it out), `--webd` requires it and adds the big-app profile. No network stack: a light view has no network. | desktop; `tools/webkit/deps.py`, `port.py`, `webd.py` | `--webd`, `--no-webd` |
+| `LAZYOS_WEBDDEMO` | The demo client of webd, `os.lazy.webddemo` (`tools/webd/run.py` drives it); only with webd. | `LAZYOS_WEBD` | `--webd-demo` |
 | `LAZYOS_TLS` | `curl`, `wget`, `fetch` and the Mozilla CA bundle. | - | `--tls` |
 | `LAZYOS_FETCH` | Path to the `nettls` binary to embed (default: `target/nettls/fetch.elf`). | `LAZYOS_TLS` | - |
 | `LAZYOS_SMB` | The `smb` client and `smbfuse`. | `LAZYOS_NETD` | `--smb` |
@@ -114,7 +115,7 @@ or an option must be in the suite file's `test_only` list
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
-| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBD=1` or `LAZYOS_WEBKIT_PORT=1`, so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
+| `LAZYOS_OS_SIZE` | OS volume size (`512M` default, plus `512M` with `LAZYOS_SRB2KART=1` and `512M` with `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_WEBKIT_PORT=1` or a desktop that ships webd (every one with webd built), so `1536M` with both; `128M` minimum, `2G` etc.). Changing it on an existing image needs a reset. | - |
 | `LAZYOS_RESET_OS` | Recreate the OS volume with a new UUID instead of updating in place. CI sets it everywhere. | `--reset-os` |
 | `LAZYOS_UPDATE_DAMAGED_OS` | Update a volume anyway when the checker finds damage a crash does not leave. | - |
 | `LAZYOS_JOURNAL` | Internal JBD2 journal; `1` or a block count. | `--journal` |
@@ -132,9 +133,9 @@ or an option must be in the suite file's `test_only` list
 | Switch | Meaning | Front end |
 | --- | --- | --- |
 | `LAZYOS_LIMIT_<KEY>` | Kernel ceilings written to `lazyos.cfg`: `HEAP_MAX`, `FD_MAX`, `STACK_SIZE`, `QUOTA_USER_MEMORY`, `QUOTA_KERNEL_MEMORY`, `SHARED_BUFFER_MAX`. Sizes take `K/M/G/T`; `FD_MAX` is a count. See [architecture/limits.md](architecture/limits.md). | `--limit key=value` |
-| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--display-mode WxH` |
+| `LAZYOS_DISPLAY_MODE` | `<w>x<h>` the kernel switches the std VGA to after boot (e.g. `2560x1440`). | `--hidpi`, `--hires`, `--display-mode WxH` |
 | `LAZYOS_DISPLAY_MAX` | `<w>x<h>` cap on the logical screen of a firmware (real PC / UEFI) framebuffer; default 1920x1080. `2560x1440` on a 1440p panel gives a 1280x720 desktop at scale 2 (#717). | `--display-max WxH` |
-| `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2`: the default for `sys/ui/scale`. | - |
+| `LAZYOS_DISPLAY_SCALE` | `auto`, `1` or `2` (`display.scale` in `lazyos.cfg`): the boot console's scale and `xuid`'s default for `sys/ui/scale` while that key is unset. `1` on a 2560x1440 mode is the hi-res desktop (no doubling); unset is `auto` (2 from 2560x1440). | `--display-scale {auto,1,2}`, `--hires` (= `--display-mode 2560x1440 --display-scale 1`; excludes `--hidpi`), the GUI's Hi-res (Simple) and Display scale (Advanced) |
 | `LAZYOS_KBD_LAYOUT` | `us` (default) or `fr` (AZERTY). | - |
 | `LAZYOS_REVISION` | Source revision (a SHA-1) the kernel embeds for `uname`'s version field and Settings -> About; default `git rev-parse HEAD`, or `unknown` outside a checkout (#754). | - |
 
@@ -162,12 +163,11 @@ or an option must be in the suite file's `test_only` list
 The build refuses combinations that cannot work and says why:
 
 - `LAZYOS_DBGD=1` and `LAZYOS_SMB=1` need `LAZYOS_NETD=1`.
-- `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYSKY=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`.
 - `LAZYOS_LAZYWEBPLUS=1` needs `LAZYOS_DESKTOP=1` and `LAZYOS_NETD=1`, and `target/xui/xui-lazywebplus.elf`
   (`tools/webkit/app.py`).
 - `LAZYOS_WEBD=1` needs `LAZYOS_DESKTOP=1` (not the network stack) and `target/xui/xui-webd.elf`
-  (`tools/webkit/webd.py`).
+  (`tools/webkit/webd.py`); unset, a desktop ships it when that file exists.
 - `LAZYOS_PICTURES=1` needs `LAZYOS_DESKTOP=1`.
 - `LAZYOS_MODPLAYER=1` needs `target/pkg/modplayer.lzp` (run
   `tools/lazyrad/package.py`). The build does not require `LAZYOS_LAZYRAD=1`;

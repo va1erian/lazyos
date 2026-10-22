@@ -16,9 +16,12 @@ import portjudge  # noqa: E402
 URL = "data:text/html,<title>hello lazyos</title><p>x</p>"
 FDS = "WEBKIT:W4:FDS:held=1100:next=1103"
 MONITOR = "WEBKIT:W4:MONITOR:PASS:fd=1103:messages=3:wakeups=4:close_ms=3:invalidate_ms=1"
+CONTROL = "WEBKIT:W4:SPAWN:CONTROL:PASS"
+SPAWN = "WEBKIT:W4:SPAWN:PASS:launches=2"
 GOOD = f"""boot noise
 {FDS}
 {MONITOR}
+{CONTROL}
 WEBKIT:W4:UP
 WEBKIT:W4:LOAD:about:blank
 WEBKIT:W4:LOAD:{URL}
@@ -28,6 +31,7 @@ WEBKIT:W4:NETWORKPROCESS:UP:13
 WEBKIT:W4:PAINT:800x600:0badf00d
 WEBKIT:W4:INFO:PAINT:pixels=480000:displayCallbacks=3
 WEBKIT:W4:INFO:INK:pixels=42:bbox=8,15,15,22
+{SPAWN}
 WEBKIT:W4:PASS
 """
 
@@ -87,6 +91,19 @@ class PortJudgeTests(unittest.TestCase):
         # The monitor test's own failure.
         log = GOOD.replace(MONITOR, "WEBKIT:W4:FAIL:monitor:the monitor did not see the peer close within 5 s")
         self.assertEqual(failed(log), {monitor, "no failure lines"})
+
+    def test_the_spawn_probe_is_required(self) -> None:
+        spawn = "WEBKIT:W4:SPAWN: a program started during an engine launch inherits no IPC socket"
+        self.assertEqual(failed(GOOD.replace(SPAWN + "\n", "")), {spawn})
+        # A probe that never showed it can see a leak proves nothing.
+        self.assertEqual(failed(GOOD.replace(CONTROL + "\n", "")), {spawn})
+        # Probed at only one launch.
+        self.assertEqual(failed(GOOD.replace("launches=2", "launches=1")), {spawn})
+        # The probe child found an engine socket: a leak, even if the parent then printed PASS.
+        leak = GOOD.replace(SPAWN, "WEBKIT:W4:SPAWN:LEAK:fd=1104\n" + SPAWN)
+        self.assertEqual(failed(leak), {spawn})
+        log = GOOD.replace(SPAWN, "WEBKIT:W4:FAIL:spawn:a program started while an engine process was launching inherited an IPC socket")
+        self.assertEqual(failed(log), {spawn, "no failure lines"})
 
     def test_a_wrong_title_fails(self) -> None:
         self.assertIn("WEBKIT:W4:TITLE:hello lazyos", failed(GOOD.replace("TITLE:hello lazyos", "TITLE:oops")))

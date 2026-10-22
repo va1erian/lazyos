@@ -166,9 +166,16 @@ fn on_path(id: Id, path: &str, request: AttrRequest) -> u64 {
 /// descriptor whose name was unlinked has nothing left to change (`ENOENT`);
 /// a device node, pipe or socket keeps no attributes here (`EINVAL`).
 fn on_fd(id: Id, fd: u64, request: AttrRequest) -> u64 {
-    let status = |path: &str| match crate::fs::abi_setattr_open(id, path, request) {
-        Ok(_) => 0,
-        Err(error) => fs_err(error),
+    let status = |path: &str| {
+        // A descriptor whose name went while the file kept another has no
+        // name to change it by (an empty path would name the root).
+        if path.is_empty() {
+            return err(ENOENT);
+        }
+        match crate::fs::abi_setattr_open(id, path, request) {
+            Ok(_) => 0,
+            Err(error) => fs_err(error),
+        }
     };
     match task::fd_kind(fd as usize) {
         FdKind::Vfs => vfsfd::with_file(fd, |file| status(&file.path())),

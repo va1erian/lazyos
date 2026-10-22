@@ -318,8 +318,7 @@ pub fn run() -> ! {
     // normal boot does. Interrupts stay disabled and the scheduler never starts.
     crate::arch::init();
 
-    let mut pass = 0usize;
-    let mut fail = 0usize;
+    let (mut pass, mut fail) = (0usize, 0usize);
     // `LAZYOS_TEST_FILTER=inet cargo build` (or `tools/test/run.py` with the
     // variable set) runs only the tests whose name contains the text, for a
     // quick turn while working on one subsystem. Unset, everything runs.
@@ -329,6 +328,7 @@ pub fn run() -> ! {
             if !name.contains(filter) {
                 continue;
             }
+            crate::trace::test!("{name}:START");
             // The harness runs with interrupts off between tests; that gap is
             // not time lost to a syscall, so do not catch it up (issue #344).
             crate::arch::clock::resync();
