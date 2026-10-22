@@ -232,7 +232,7 @@ void finishCreate(uint64_t id)
     Slot* slot = find(id);
     if (!slot || slot->dead)
         return;
-    if (slot->config.light && lightLock() != LightLock::Ready) {
+    if ((slot->config.light || slot->config.noNetwork) && lightLock() != LightLock::Ready) {
         lose(*slot, WEBD_LOST_REFUSED);
         return;
     }
@@ -344,7 +344,8 @@ void webd_engine_view_create(uint64_t view, const webd_view_config* config)
             return;
         }
         addSlot(view, vc, deltas);
-        if (light)
+        // A view without network (light, or full with no_network) is made once the lock is settled.
+        if (light || vc.noNetwork)
             whenLightLockSettled([view] { finishCreate(view); });
         else
             finishCreate(view);

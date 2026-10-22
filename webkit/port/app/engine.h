@@ -181,8 +181,12 @@ struct ViewConfig {
     // A full (not light) view whose owner set `scripts`, `defaultFontSize`, `colorScheme` and `userStyle` for it
     // too (webd, fullview.cpp). Unset (LazyWeb+), a browser view is as it always was.
     bool configured { false };
-    // Appended to the user agent (WKPageSetApplicationNameForUserAgent); empty: WebKit's own.
+    // Appended to the user agent (fullview.cpp); empty: WebKit's own.
     std::string userAgentSuffix;
+    // A configured full view with the light views' network lock on its controller (no load but data:, blob:,
+    // about:). It is made only when the lock is ready, and never with LZW_FEATURE_BLOCKING (whose rebuilds of
+    // the controller's lists would drop it).
+    bool noNetwork { false };
 };
 
 // A navigation the owner was asked about and has not answered (ViewSink::kVerdictAsk): its retained listener
@@ -391,8 +395,9 @@ std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnl
 
 // ---- fullview.cpp: a full view's configuration (webd) ---------------------------------------------
 
-// Before the view exists, for a view with ViewConfig::configured: scripts, font size, user style.
-void configureFull(View& view, WKPageConfigurationRef configuration);
+// Before the view exists, for a view with ViewConfig::configured: scripts, font size, user style, the network
+// lock. False when the view must not be made (the lock is not ready, or it would be dropped).
+bool configureFull(View& view, WKPageConfigurationRef configuration);
 // After the page exists: the user agent suffix, when there is one.
 void applyUserAgentSuffix(View& view);
 // A full view's load of the owner's HTML (UTF-8) with a base URL of the about:, data:, http: or https: scheme
@@ -483,6 +488,8 @@ void prepareLightLock();
 LightLock lightLock();
 // Runs `task` on the main thread once the lock is Ready or Failed (at once, if it already is).
 void whenLightLockSettled(std::function<void()> task);
+// The lock's compiled list once it is Ready (null before): a full view with ViewConfig::noNetwork takes it too.
+WKUserContentFilterRef lightLockFilter();
 // Before the view exists: the preferences (scripts, font size, no storage, no windows) and the rule list.
 // False when the lock is not ready (the view must not be made).
 bool configureLight(View& view, WKPageConfigurationRef configuration);

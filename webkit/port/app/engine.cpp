@@ -173,7 +173,9 @@ static View* groupMate(const ViewConfig& config)
     for (auto& entry : H.views) {
         View& other = *entry.second;
         if (!other.page || other.config.group != config.group || other.config.profile != config.profile
-            || other.config.memoryOnly != config.memoryOnly || other.config.light != config.light)
+            || other.config.memoryOnly != config.memoryOnly || other.config.light != config.light
+            // A page with no network must not be related to one that has it (related pages script each other).
+            || other.config.noNetwork != config.noNetwork)
             continue;
         if (!other.crashed && !other.recovering && WKPageGetProcessIdentifier(other.page) > 0)
             return &other;
@@ -216,9 +218,10 @@ View* createView(const ViewConfig& config, ViewSink* sink)
         say("FAIL:view:the light view could not be configured");
         return nullptr;
     }
-    // A full view whose owner configured it (webd): its scripts, font size and style, before the view too.
-    if (!config.light && config.configured)
-        configureFull(view, pageConfiguration);
+    // A full view whose owner configured it (webd): its scripts, font size, style and network lock, before the
+    // view too.
+    if (!config.light && config.configured && !configureFull(view, pageConfiguration))
+        return nullptr;
     // The configuration is not released, as before: the view keeps what it needs of it.
     view.view = WKViewCreate(pageConfiguration);
     if (!view.view) {

@@ -8,7 +8,8 @@
 //    to the main frame; without scripts it cannot, and says so;
 //  * the user agent suffix: WebKit's user agent, a space and the suffix, as the page's custom one; site-specific
 //    quirks off for that view (they put a fixed user agent on every request);
-//  * the owner's own HTML (loadFullHtml) under an about:, data:, http: or https: base, never a file: one.
+//  * the owner's own HTML (loadFullHtml) under an about:, data:, http: or https: base, never a file: one;
+//  * no network (ViewConfig::noNetwork): the light views' lock list on the page's controller.
 
 #include <WebKit/WKData.h>
 #include <WebKit/WKPage.h>
@@ -53,31 +54,64 @@ std::string scriptString(const std::string& css)
     return out + "\"";
 }
 
-void addUserStyle(View& v, WKPageConfigurationRef configuration)
+// The page's user content controller: the blocking one when the view has it (blocking.cpp made it), else one
+// made here for the page (the configuration keeps it), once.
+class Controller {
+public:
+    Controller(View& v, WKPageConfigurationRef configuration)
+        : m_controller(v.controller)
+        , m_configuration(configuration)
+    {
+    }
+    ~Controller()
+    {
+        if (m_own)
+            WKRelease(m_controller);
+    }
+    WKUserContentControllerRef get()
+    {
+        if (!m_controller) {
+            m_controller = WKUserContentControllerCreate();
+            m_own = true;
+            WKPageConfigurationSetUserContentController(m_configuration, m_controller);
+        }
+        return m_controller;
+    }
+
+private:
+    WKUserContentControllerRef m_controller;
+    WKPageConfigurationRef m_configuration;
+    bool m_own { false };
+};
+
+void addUserStyle(View& v, Controller& controller)
 {
     const std::string source = "(function(){var s=document.createElement('style');s.textContent=" + scriptString(v.config.userStyle)
         + ";(document.head||document.documentElement).appendChild(s);})()";
-    // The blocking controller when the view has one (blocking.cpp made it), else one of its own.
-    WKUserContentControllerRef controller = v.controller;
-    const bool own = !controller;
-    if (own) {
-        controller = WKUserContentControllerCreate();
-        WKPageConfigurationSetUserContentController(configuration, controller);
-    }
     WKStringRef text = WKStringCreateWithUTF8CString(source.c_str());
     WKUserScriptRef script = WKUserScriptCreateWithSource(text, kWKInjectAtDocumentEnd, true);
-    WKUserContentControllerAddUserScript(controller, script);
+    WKUserContentControllerAddUserScript(controller.get(), script);
     WKRelease(script);
     WKRelease(text);
-    if (own)
-        WKRelease(controller);
 }
 
 } // namespace
 
-void configureFull(View& v, WKPageConfigurationRef configuration)
+bool configureFull(View& v, WKPageConfigurationRef configuration)
 {
     const ViewConfig& config = v.config;
+    Controller controller(v, configuration);
+    if (config.noNetwork) {
+        // The light views' lock, on this page's controller before the page exists: no request is made before it.
+        // The blocking lists rebuild the controller's filters at every navigation (blocking.cpp) and would drop
+        // it, so the two never meet; and without the lock the view is not made (fail closed).
+        WKUserContentFilterRef lock = lightLockFilter();
+        if (!lock || v.controller) {
+            say("FAIL:view:a full view without network needs the ready lock and no content blocking");
+            return false;
+        }
+        WKUserContentControllerAddUserContentFilter(controller.get(), lock);
+    }
     if (!config.scripts || config.defaultFontSize > 0 || !config.userAgentSuffix.empty()) {
         WKPreferencesRef preferences = WKPreferencesCreate();
         WKPreferencesSetJavaScriptEnabled(preferences, config.scripts);
@@ -97,10 +131,11 @@ void configureFull(View& v, WKPageConfigurationRef configuration)
         say("CONFIG:IGNORED:color_scheme");
     if (!config.userStyle.empty()) {
         if (config.scripts)
-            addUserStyle(v, configuration);
+            addUserStyle(v, controller);
         else
             say("CONFIG:IGNORED:user_style");
     }
+    return true;
 }
 
 void loadFullHtml(View& v, const std::string& html, const std::string& baseUrl)
