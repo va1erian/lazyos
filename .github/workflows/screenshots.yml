@@ -124,24 +124,6 @@ jobs:
             shots/summary.json
           if-no-files-found: error
 
-      - name: Upload screenshots to image host
-        id: host
-        # External upload is best-effort; on failure we fall back to the
-        # `screenshots` branch raw URLs in the PR comment.
-        continue-on-error: true
-        shell: bash
-        env:
-          IMGUR_CLIENT_ID: ${{ secrets.IMGUR_CLIENT_ID }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          pngs=(shots/*.png)
-          if [ ${#pngs[@]} -eq 0 ]; then
-            echo "no screenshots to upload"
-            exit 0
-          fi
-          python tools/screenshot/upload_image.py "${pngs[@]}" | tee shots/urls.tsv
-
       - name: Publish screenshots to 'screenshots' branch
         id: publish
         shell: bash
@@ -153,7 +135,7 @@ jobs:
           work=/tmp/shots-branch
           remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           rm -rf "$work"
-          # Append to the existing branch so historical PR-comment links stay
+          # Append to the existing branch so links to earlier runs stay
           # reachable (a force-push would orphan them).
           if git clone -q --depth 1 --branch screenshots "$remote" "$work" 2>/dev/null; then
             echo "appending to existing screenshots branch"

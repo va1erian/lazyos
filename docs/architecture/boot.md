@@ -105,6 +105,6 @@ spelling from `libs/fhs` (`fhs::bin`, `fhs::etc`, `fhs::share`).
 
 **Status.** Working: `python tools/run_demo.py` builds and boots the two-window
 demo; the switches above are exercised by the headless CI workflows
-(`screenshots.yml`, `xui.yml`, `kernel-tests.yml`, `abi-compat.yml`). The
+(`screenshots.yml`, run manually, `xui.yml`, `kernel-tests.yml`, `abi-compat.yml`). The
 default image carries the FAT `/boot` and the ext2 OS volume on virtio-blk; the
 launchers also attach `target/home.img` as the `/home` volume.
