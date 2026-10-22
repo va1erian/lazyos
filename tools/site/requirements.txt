@@ -1,0 +1,5 @@
+# Pinned so the site regenerates identically in CI and locally.
+markdown-it-py==4.2.0
+mdit-py-plugins==0.6.1
+linkify-it-py==2.1.0
+Pygments==2.21.0

@@ -1,8 +1,9 @@
 # Linux ABI conformance bench
 
 Tooling that measures how far LazyOS is from running prebuilt
-`x86_64-unknown-linux-musl` static binaries. See the wiki **Linux ABI Plan** and
-**Linux ABI Compatibility**.
+`x86_64-unknown-linux-musl` static binaries. See
+[`docs/linux-abi-plan.md`](../../docs/linux-abi-plan.md); the latest matrix and syscall coverage are on the
+docs site under *Hardware & ABI compatibility*.
 
 ## Pieces
 
@@ -96,5 +97,6 @@ On Windows the fixtures may not link (`cc` missing); the bench then reports them
 ## CI
 
 `.github/workflows/abi-compat.yml` builds the fixtures, runs the bench, uploads
-`docs/compat/**` and `shots/abi/**`, and publishes `Linux-ABI-Matrix` and
-`Linux-ABI-Coverage` to the wiki. Each PR gets a comment with the current matrix.
+`docs/compat/**` and `shots/abi/**` as the `abi-compat` artifact. `.github/workflows/pages.yml`
+runs after it on `main` and publishes `matrix.md` and `coverage.md` on the docs site (`tools/site/README.md`).
+Each PR gets a comment with the current matrix.
