@@ -116,6 +116,11 @@ TCG-based test):
    that had marked itself online by then would be counted while parked — it
    waits for the BSP's explicit accept.
 
+The boot path logs the invariance bit (`HW:SMP:TSC:INVARIANT=`; the suite
+logs it once, marked forced), and each accepted AP's online line carries the
+measured offset (`skew=<cycles>`). Under WHPX on the development box the bit
+is set and every AP measures 0 cycles.
+
 `monotonic_ns` keeps its single TSC stream; there is no per-AP timer yet.
 
 ## NMIs

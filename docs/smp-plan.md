@@ -382,8 +382,15 @@ for the IRQ-stack pointer the stub needs before any read).
   S8.3's entry lock must follow); nested NMIs are dropped off the IST top and
   an early NMI table covers an AP's start; free page tables are checked
   against every CPU's published `CR3`; and the failed-AP timeout path is
-  tested with a refused-SIPI hook. Not yet: the `-smp 1/2/4` matrix beyond
-  `-smp 1` and `-smp 4`.
+  tested with a refused-SIPI hook. Verified under WHPX (2026-10-22): the
+  boot path's gate sees an invariant TSC (`HW:SMP:TSC:INVARIANT=true`), all
+  three APs are accepted with a measured skew of 0 cycles over 32 rounds,
+  the suite's deliberate 1 ms offset is refused (~3.69 M cycles), and the
+  desktop `core_apps` session at `--smp 4` with `LAZYOS_LIMIT_CPU_MAX=4`
+  boots with four CPUs online, no panic, no `LABEL:DENY`, every app launched
+  (the Docs/PDF/Writer `event pair: errno -12` exits are the same at
+  `--smp 1`). The `smp_` set also passes at `-smp 2`. Not yet: a full suite
+  at `-smp 2`.
 
 ### S8.3 — The kernel entry lock (ENABLED MILESTONE)
 
