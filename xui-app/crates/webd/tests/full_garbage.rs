@@ -193,6 +193,16 @@ fn valid_request(rng: &mut Rng, fx: &mut Fx, method: u32, view: u64) -> (Vec<u8>
             view,
             bypass_blocking: rng.one_in(2),
         })),
+        wire::METHOD_RECOVER => plain(wire::encode_recover_args(&wire::RecoverArgs {
+            view,
+            reload: rng.one_in(2),
+        })),
+        wire::METHOD_NOTIFYFORGET => {
+            plain(wire::encode_notify_forget_args(&wire::NotifyForgetArgs {
+                view,
+                origin: text(rng),
+            }))
+        }
         wire::METHOD_DOWNLOAD => plain(wire::encode_download_args(&wire::DownloadArgs {
             view,
             url: text(rng),

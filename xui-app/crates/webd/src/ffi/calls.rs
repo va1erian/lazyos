@@ -35,6 +35,9 @@ extern "C" {
         len: usize,
     );
     fn webd_engine_blocking_forget(view: u64, list: *const c_char);
+    // P4.
+    fn webd_engine_recover(view: u64, reload: c_int);
+    fn webd_engine_notify_forget(view: u64, origin: *const c_char);
 }
 
 /// `webd_engine_start_host`: create the WebKit host with its children started in `children` (the
@@ -127,4 +130,13 @@ pub fn blocking_forget(view: u64, list: &str) {
     let list = c_string(list);
     // SAFETY: the C strings live across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
     unsafe { webd_engine_blocking_forget(view, list.as_ptr()) }
+}
+pub fn recover(view: u64, reload: bool) {
+    // SAFETY: plain values; the engine only queues work (webd_abi.h).
+    unsafe { webd_engine_recover(view, c_int::from(reload)) }
+}
+pub fn notify_forget(view: u64, origin: &str) {
+    let origin = c_string(origin);
+    // SAFETY: the C string lives across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
+    unsafe { webd_engine_notify_forget(view, origin.as_ptr()) }
 }

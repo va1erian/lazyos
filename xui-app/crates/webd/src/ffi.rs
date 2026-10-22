@@ -240,6 +240,12 @@ impl Engine for FfiEngine {
     fn blocking_forget(&self, view: u64, list: &str) {
         calls::blocking_forget(view, list)
     }
+    fn recover(&self, view: u64, reload: bool) {
+        calls::recover(view, reload)
+    }
+    fn notify_forget(&self, view: u64, origin: &str) {
+        calls::notify_forget(view, origin)
+    }
 }
 
 static SINK: RwLock<Option<Arc<EventQueue>>> = RwLock::new(None);

@@ -39,6 +39,8 @@ fn light_calls_on_a_full_view_and_full_calls_on_a_light_view_find_no_such_view()
     assert_eq!(fx.load_url(app, lite, "about:blank"), Err(ENOENT));
     assert_eq!(fx.reload(app, lite, false), Err(ENOENT));
     assert_eq!(fx.stop(app, lite), Err(ENOENT));
+    assert_eq!(fx.recover(app, lite, true), Err(ENOENT));
+    assert_eq!(fx.notify_forget(app, lite, "https://a.test"), Err(ENOENT));
     assert_eq!(fx.back(app, lite), Err(ENOENT));
     assert_eq!(fx.forward(app, lite), Err(ENOENT));
     assert_eq!(fx.mouse(app, lite, 1), Err(ENOENT));
@@ -87,6 +89,9 @@ fn a_full_view_of_another_client_is_unusable_and_looks_like_one_that_does_not_ex
         fx.load_url(bob, view, "about:blank"),
         fx.reload(bob, view, true),
         fx.stop(bob, view),
+        fx.recover(bob, view, true),
+        fx.recover(bob, view, false),
+        fx.notify_forget(bob, view, "https://example.com"),
         fx.back(bob, view),
         fx.forward(bob, view),
         fx.download(bob, view, "http://example.com/f"),

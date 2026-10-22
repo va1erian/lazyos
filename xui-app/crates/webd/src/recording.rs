@@ -79,6 +79,9 @@ pub enum Call {
         json: Vec<u8>,
     },
     BlockingForget(u64, String),
+    // ---- P4 ----
+    Recover(u64, bool),
+    NotifyForget(u64, String),
 }
 
 #[derive(Default)]
@@ -288,5 +291,13 @@ impl Engine for RecordingEngine {
 
     fn blocking_forget(&self, view: u64, list: &str) {
         self.push(Call::BlockingForget(view, list.to_owned()));
+    }
+
+    fn recover(&self, view: u64, reload: bool) {
+        self.push(Call::Recover(view, reload));
+    }
+
+    fn notify_forget(&self, view: u64, origin: &str) {
+        self.push(Call::NotifyForget(view, origin.to_owned()));
     }
 }

@@ -1,5 +1,5 @@
-//! The calls only the full interface has: navigation, the answers to the page's questions, downloads
-//! and content blocking. Each is about one of the caller's full views (`ENOENT` otherwise) and checks
+//! The calls only the full interface has: navigation, the answers to the page's questions, downloads,
+//! content blocking and `Recover`. Each is about one of the caller's full views (`ENOENT` otherwise) and checks
 //! what the view was made with (`EACCES` for a feature it was not given).
 
 use libmessenger::Object;
@@ -120,6 +120,11 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 }
                 self.engine.download(args.view, &args.url);
             }
+            wire::METHOD_RECOVER => {
+                let args = wire::decode_recover_args(body).map_err(bad)?;
+                self.rules_of(client, args.view)?;
+                self.engine.recover(args.view, args.reload);
+            }
             wire::METHOD_DOWNLOADCANCEL => {
                 let args = wire::decode_download_cancel_args(body).map_err(bad)?;
                 if self.rules_of(client, args.view)?.downloads.is_none() {
@@ -153,6 +158,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                     .navigation_answer(args.view, args.request, args.allow && held.loadable);
             }
             wire::METHOD_NOTIFYPERMISSION => self.notify_permission_call(client, body)?,
+            wire::METHOD_NOTIFYFORGET => self.notify_forget_call(client, body)?,
             wire::METHOD_SETBLOCKING => {
                 let args = wire::decode_set_blocking_args(body).map_err(bad)?;
                 if args.exceptions.len() > EXCEPTIONS_MAX {

@@ -27,6 +27,14 @@ fn site_key(text: &str) -> String {
     origin(text).unwrap_or_else(|| text.to_owned())
 }
 
+/// An origin a client names: not empty, bounded and safe as a C string.
+fn check_origin(origin: &str) -> Result<(), Refusal> {
+    if origin.is_empty() || origin.len() > ORIGIN_BYTES_MAX || !c_string_safe(origin) {
+        return Err(MALFORMED);
+    }
+    Ok(())
+}
+
 impl<E: Engine, F: Fabric> Service<E, F> {
     /// What the profile decided about `origin`, if anything.
     fn decision(&self, profile: &Profile, origin: &str) -> Option<bool> {
@@ -138,12 +146,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         body: &[u8],
     ) -> Result<(), Refusal> {
         let args = wire::decode_notify_permission_args(body).map_err(|_| MALFORMED)?;
-        if args.origin.is_empty()
-            || args.origin.len() > ORIGIN_BYTES_MAX
-            || !c_string_safe(&args.origin)
-        {
-            return Err(MALFORMED);
-        }
+        check_origin(&args.origin)?;
         let answer = match args.answer {
             wire::PERMISSION_ANSWER_ALLOW => 1,
             wire::PERMISSION_ANSWER_BLOCK => 0,
@@ -167,6 +170,30 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         }
         self.engine
             .notify_permission(args.view, &args.origin, answer);
+        Ok(())
+    }
+
+    /// `NotifyForget` (P4): the profile has no decision about `origin` any more, here and in the
+    /// engine (whose record is the context's), so the page's next request is asked again.
+    pub(super) fn notify_forget_call(
+        &mut self,
+        client: ClientKey,
+        body: &[u8],
+    ) -> Result<(), Refusal> {
+        let args = wire::decode_notify_forget_args(body).map_err(|_| MALFORMED)?;
+        check_origin(&args.origin)?;
+        let view = live(&mut self.views, client, true, args.view)?;
+        let rules = &view.full.as_ref().ok_or(MALFORMED)?.rules;
+        if !rules.notifications {
+            return Err(Refusal::new(
+                errno::EACCES,
+                "the view was not made with that",
+            ));
+        }
+        if let Some(decisions) = self.permissions.get_mut(&rules.profile) {
+            decisions.remove(&site_key(&args.origin));
+        }
+        self.engine.notify_forget(args.view, &args.origin);
         Ok(())
     }
 

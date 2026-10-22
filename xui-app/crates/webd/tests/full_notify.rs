@@ -8,6 +8,7 @@ mod support;
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 use support::full::{browser, FEv, Fx, Via};
 use support::origin;
+use xui_webd::engine::{EngineEvents, LOST_CRASHED};
 use xui_webd::fabric::errno::*;
 use xui_webd::limits::TOASTS_PER_VIEW;
 use xui_webd::outside::ToastNews;
@@ -196,6 +197,78 @@ fn a_view_shows_four_toasts_at_once_and_a_shell_that_refuses_is_a_close() {
         view,
         what: "toast refused"
     }));
+}
+
+#[test]
+fn forgetting_a_site_makes_its_next_request_ask_the_person_again() {
+    // Why: the person can revoke a decision (LazyWeb+'s site settings); webd's per-profile record
+    // must go with the engine's, or a page would still be answered from the old decision.
+    let mut fx = Fx::new("notify-forget");
+    let app = origin(7);
+    let (view, events) = fx.view(app, Via::Browser, notifying(), 4, 4);
+    fx.notify_permission(app, view, SITE, ALLOW).unwrap();
+    fx.notify_permission(app, view, "https://kept.test", BLOCK)
+        .unwrap();
+    fx.engine.take();
+    fx.queue.notify_permission_request(view, SITE);
+    fx.pump(0);
+    assert_eq!(fx.engine.take(), vec![permission(view, SITE, 1)]);
+    assert!(fx.news(events).is_empty());
+
+    // The spelling of the origin does not matter: the key is the normalised origin.
+    let spelled = "HTTPS://Example.com:443";
+    fx.notify_forget(app, view, spelled).unwrap();
+    assert_eq!(
+        fx.engine.take(),
+        vec![EngineCall::NotifyForget(view, spelled.into())]
+    );
+    fx.queue.notify_permission_request(view, SITE);
+    fx.queue
+        .notify_permission_request(view, "https://kept.test");
+    fx.pump(1);
+    assert_eq!(
+        fx.engine.take(),
+        vec![permission(view, "https://kept.test", 0)],
+        "only the forgotten site is not answered by webd"
+    );
+    assert_eq!(
+        fx.news(events),
+        vec![FEv::NotifyAsk(wire::NotifyPermissionRequestArgs {
+            view,
+            origin: SITE.into()
+        })]
+    );
+    // And it no longer gets a toast.
+    fx.queue.notify_show(view, 9, SITE, "Hello", "body");
+    fx.pump(2);
+    assert_eq!(fx.engine.take(), vec![EngineCall::NotifyClosed(9)]);
+    // Forgetting a site nobody decided about is not an error.
+    fx.notify_forget(app, view, "https://never.test").unwrap();
+}
+
+#[test]
+fn forgetting_needs_the_notifications_feature_a_good_origin_and_the_callers_own_view() {
+    let mut fx = Fx::new("notify-forget-refused");
+    let (app, other) = (origin(7), origin(8));
+    let (plain, _) = fx.view(app, Via::Browser, browser(), 4, 4);
+    let (view, _) = fx.view(app, Via::Browser, notifying(), 4, 4);
+    fx.engine.take();
+    assert_eq!(fx.notify_forget(app, plain, SITE), Err(EACCES));
+    assert_eq!(fx.notify_forget(other, view, SITE), Err(ENOENT));
+    assert_eq!(fx.notify_forget(app, view + 1000, SITE), Err(ENOENT));
+    let long = format!("https://{}.test", "a".repeat(300));
+    for bad in ["", "https://a\0b.test", long.as_str()] {
+        let result = fx.notify_forget(app, view, bad);
+        assert!(result.is_err(), "{bad:?}");
+    }
+    assert!(
+        fx.engine.take().is_empty(),
+        "a refused call reached the engine"
+    );
+    fx.queue.view_lost(view, LOST_CRASHED);
+    fx.pump(0);
+    assert_eq!(fx.notify_forget(app, view, SITE), Err(ENODEV));
+    assert!(fx.engine.take().is_empty());
 }
 
 #[test]

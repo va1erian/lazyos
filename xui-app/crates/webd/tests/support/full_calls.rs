@@ -178,6 +178,20 @@ impl Fx {
         self.call(from, wire::METHOD_NOTIFYPERMISSION, body)
     }
 
+    pub fn notify_forget(&mut self, from: Origin, view: u64, origin: &str) -> Outcome {
+        let args = wire::NotifyForgetArgs {
+            view,
+            origin: origin.into(),
+        };
+        let body = wire::encode_notify_forget_args(&args).unwrap();
+        self.call(from, wire::METHOD_NOTIFYFORGET, body)
+    }
+
+    pub fn recover(&mut self, from: Origin, view: u64, reload: bool) -> Outcome {
+        let body = wire::encode_recover_args(&wire::RecoverArgs { view, reload }).unwrap();
+        self.call(from, wire::METHOD_RECOVER, body)
+    }
+
     pub fn set_blocking(
         &mut self,
         from: Origin,
