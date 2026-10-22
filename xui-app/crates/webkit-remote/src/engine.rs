@@ -16,7 +16,10 @@ const DEFERRED_MAX: usize = 256;
 
 impl<T: ScopedTransport + 'static> RemoteEngine<T> {
     /// A call on the live view whose failure only matters when it lost the view.
-    fn call(&self, call: impl FnOnce(&mut xui_webd_client::FullWebView<T>) -> Result<(), xui_webd_client::Error>) {
+    fn call(
+        &self,
+        call: impl FnOnce(&mut xui_webd_client::FullWebView<T>) -> Result<(), xui_webd_client::Error>,
+    ) {
         let result = {
             let mut inner = self.inner.borrow_mut();
             if !inner.view.is_live() {
@@ -41,7 +44,8 @@ impl<T: ScopedTransport + 'static> RemoteEngine<T> {
     /// A blocker call: now, or when the view is made.
     fn deferred(
         &self,
-        job: impl FnOnce(&mut xui_webd_client::FullWebView<T>) -> Result<(), xui_webd_client::Error> + 'static,
+        job: impl FnOnce(&mut xui_webd_client::FullWebView<T>) -> Result<(), xui_webd_client::Error>
+            + 'static,
     ) {
         {
             let mut inner = self.inner.borrow_mut();
@@ -111,12 +115,7 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
 
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32) {
         if kind == MouseKind::Move {
-            self.offer_move(Move {
-                button,
-                x,
-                y,
-                mods,
-            });
+            self.offer_move(Move { button, x, y, mods });
             return;
         }
         // A click is the person's: a hand-off shortly after it is theirs (`gesture`).
@@ -128,10 +127,7 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
             WireKind::Release
         };
         let button = button.code().clamp(0, 2);
-        self.inner
-            .borrow_mut()
-            .view
-            .mouse(kind, button, x, y, mods);
+        self.inner.borrow_mut().view.mouse(kind, button, x, y, mods);
     }
 
     fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
@@ -147,10 +143,7 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
             gesture::stamp();
         }
         self.flush_move(self.now_ms(), true);
-        self.inner
-            .borrow_mut()
-            .view
-            .key(press, keysym, text, mods);
+        self.inner.borrow_mut().view.key(press, keysym, text, mods);
     }
 
     fn focus(&self, focused: bool) {

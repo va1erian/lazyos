@@ -6119,10 +6119,20 @@ name = "xui-webkit"
 version = "0.1.0"
 dependencies = [
  "lazydamage",
- "lazyos-sys",
  "xui-app",
  "xui-canvas",
  "xui-core",
+]
+
+[[package]]
+name = "xui-webkit-remote"
+version = "0.1.0"
+dependencies = [
+ "libmessenger",
+ "messenger-generated",
+ "xui-webd",
+ "xui-webd-client",
+ "xui-webkit",
 ]
 
 [[package]]
@@ -6132,12 +6142,14 @@ dependencies = [
  "fhs",
  "lazyadblock",
  "lazydownloads",
+ "lazyos-sys",
  "lazywebnotify",
  "xui-app",
  "xui-canvas",
  "xui-core",
  "xui-settings",
  "xui-webkit",
+ "xui-webkit-remote",
 ]
 
 [[package]]

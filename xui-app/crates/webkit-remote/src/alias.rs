@@ -131,6 +131,9 @@ mod tests {
         unique.dedup();
         assert_eq!(unique.len(), bases.len());
         assert_eq!(aliases.original(&bases[0]), bases[0], "forgotten");
-        assert_ne!(aliases.original(bases.last().unwrap()), *bases.last().unwrap());
+        assert_ne!(
+            aliases.original(bases.last().unwrap()),
+            *bases.last().unwrap()
+        );
     }
 }

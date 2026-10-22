@@ -238,13 +238,7 @@ impl Browser {
         self.update_buttons();
     }
 
-    fn download_ended(
-        &mut self,
-        ui: &Ui<Msg>,
-        id: u64,
-        name: Option<&str>,
-        error: Option<String>,
-    ) {
+    fn download_ended(&mut self, ui: &Ui<Msg>, id: u64, name: Option<&str>, error: Option<String>) {
         if let Some(status) = self.transfers.finished(id, name, error) {
             self.set_status(&status);
         }

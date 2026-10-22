@@ -256,18 +256,18 @@ mod tests {
         assert!(events.push(Event::Popup { url: "a".into() }));
         assert!(!events.push(Event::Popup { url: "b".into() }));
         assert!(!events.push(Event::DownloadDone {
-                id: 3,
-                name: String::new(),
-            }));
+            id: 3,
+            name: String::new(),
+        }));
         assert_eq!(
             events.take(),
             vec![
                 Event::Popup { url: "a".into() },
                 Event::Popup { url: "b".into() },
                 Event::DownloadDone {
-                id: 3,
-                name: String::new(),
-            },
+                    id: 3,
+                    name: String::new(),
+                },
             ]
         );
         assert!(events.take().is_empty());

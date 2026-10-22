@@ -111,10 +111,18 @@ mod tests {
             Some("http://example.com/".to_owned())
         );
         assert_eq!(
-            first_address(&args(&["lazywebplus-app", "--client", "attempt=1", "http://a/"])),
+            first_address(&args(&[
+                "lazywebplus-app",
+                "--client",
+                "attempt=1",
+                "http://a/"
+            ])),
             Some("http://a/".to_owned())
         );
-        assert_eq!(first_address(&args(&["lazywebplus-app", "attempt=2"])), None);
+        assert_eq!(
+            first_address(&args(&["lazywebplus-app", "attempt=2"])),
+            None
+        );
         // The program's own name is never an address.
         assert_eq!(first_address(&args(&["http://a/"])), None);
     }

@@ -189,13 +189,19 @@ mod tests {
             (wire::BLOCKING_STATUS_READY, ListStatus::Ready),
             (wire::BLOCKING_STATUS_NOT_STORED, ListStatus::NotStored),
             (wire::BLOCKING_STATUS_STALE, ListStatus::Stale),
-            (wire::BLOCKING_STATUS_COMPILE_FAILED, ListStatus::CompileFailed),
+            (
+                wire::BLOCKING_STATUS_COMPILE_FAILED,
+                ListStatus::CompileFailed,
+            ),
             (wire::BLOCKING_STATUS_UNAVAILABLE, ListStatus::Unavailable),
         ] {
             assert_eq!(list_status(wire), seam);
             assert_eq!(ListStatus::from_code(wire as i32), seam, "same numbers");
         }
-        assert_eq!(nav_kind(wire::NAVIGATION_KIND_LINK_CLICKED), NavKind::LinkClicked);
+        assert_eq!(
+            nav_kind(wire::NAVIGATION_KIND_LINK_CLICKED),
+            NavKind::LinkClicked
+        );
         assert_eq!(nav_kind(99), NavKind::Other);
         assert_eq!(
             CursorKind::from_code(wire::CURSOR_SHAPE_RESIZE_NESW as i32),

@@ -273,8 +273,13 @@ fn a_page_process_starts_with_the_decisions_every_profile_kept() {
     fx.notify_permission(app, view, "https://kept.test", BLOCK)
         .unwrap();
     // A dismissal is no decision.
-    fx.notify_permission(app, view, "https://later.test", wire::PERMISSION_ANSWER_DISMISS)
-        .unwrap();
+    fx.notify_permission(
+        app,
+        view,
+        "https://later.test",
+        wire::PERMISSION_ANSWER_DISMISS,
+    )
+    .unwrap();
     assert_eq!(
         fx.queue.notify_decision_at(0),
         Some(("https://example.com".into(), true))

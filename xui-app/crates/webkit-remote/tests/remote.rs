@@ -116,7 +116,11 @@ fn a_load_reaches_webd_and_its_page_and_picture_reach_the_mailbox() {
     assert_eq!(rig.engine.health(), Health::Waiting, "no size, no view yet");
     rig.engine.resize(64, 48);
     assert_eq!(rig.engine.health(), Health::Live);
-    assert_eq!(rig.channels.borrow().len(), 1, "the window is told the channel");
+    assert_eq!(
+        rig.channels.borrow().len(),
+        1,
+        "the window is told the channel"
+    );
     rig.pump();
     let state = rig.state();
     assert_eq!(state.title, "Index");
@@ -127,10 +131,7 @@ fn a_load_reaches_webd_and_its_page_and_picture_reach_the_mailbox() {
     assert_eq!((frame.width, frame.height), (64, 48));
     assert_eq!(frame.rgba.len(), 64 * 48 * 4);
     // No rule list yet: the page's picture is fetched too.
-    assert_eq!(
-        rig.web.web.requests(),
-        vec![url("/"), url("/blocked.png")]
-    );
+    assert_eq!(rig.web.web.requests(), vec![url("/"), url("/blocked.png")]);
 }
 
 #[test]
@@ -141,7 +142,10 @@ fn a_wheel_turn_reaches_the_window_as_a_delta_with_its_shift() {
     let _ = rig.mailbox.take_update(Vec::new());
     rig.engine.wheel(10, 10, 0, -1, 0);
     rig.pump();
-    let update = rig.mailbox.take_update(Vec::new()).expect("news of the scroll");
+    let update = rig
+        .mailbox
+        .take_update(Vec::new())
+        .expect("news of the scroll");
     assert!(update.full.is_none(), "a delta, not a whole frame");
     let delta = &update.deltas[0];
     assert_eq!(delta.size, (64, 48));
@@ -184,7 +188,9 @@ fn the_blockers_calls_wait_for_the_view_and_the_persons_choices_are_replayed() {
         .permissions()
         .contains(&(view, "https://a.test".into(), 1)));
     let news = rig.mailbox.take_events();
-    assert!(news.iter().any(|e| matches!(e, Event::BlockingList { id, .. } if id == "test")));
+    assert!(news
+        .iter()
+        .any(|e| matches!(e, Event::BlockingList { id, .. } if id == "test")));
     // The list blocks the index page's picture.
     rig.open("/");
     assert!(!rig.web.web.requests().contains(&url("/blocked.png")));
@@ -286,7 +292,10 @@ fn a_page_whose_process_ended_stays_blank_through_a_resize_and_reload_loads_it_a
     xui_webd::engine::EngineEvents::view_lost(&*queue, first, xui_webd::engine::LOST_CRASHED);
     rig.pump();
     let state = rig.state();
-    assert!(state.crashed && state.error.contains("crashed"), "{state:?}");
+    assert!(
+        state.crashed && state.error.contains("crashed"),
+        "{state:?}"
+    );
     assert_eq!(rig.engine.health(), Health::Ended);
     // A resize (a maximize) makes no new, empty view: the page stays blank and says why.
     rig.engine.resize(80, 60);
@@ -310,7 +319,10 @@ fn a_decision_forgotten_while_there_is_no_view_is_told_to_the_next_one() {
     rig.pump();
     let view = rig.view();
     assert!(
-        !rig.web.web.permissions().contains(&(view, "https://a.test".into(), 1)),
+        !rig.web
+            .web
+            .permissions()
+            .contains(&(view, "https://a.test".into(), 1)),
         "a forgotten decision is not replayed"
     );
     assert_eq!(rig.web.web.forgets(), vec![(view, "https://a.test".into())]);
@@ -323,7 +335,15 @@ fn a_pages_notification_reaches_the_window() {
     rig.pump();
     let view = rig.view();
     let queue = rig.web.world.borrow().queue.clone();
-    queue.notify_show_from(view, 5, "https://a.test", "https://a.test/p", "Hi", "There", "t");
+    queue.notify_show_from(
+        view,
+        5,
+        "https://a.test",
+        "https://a.test/p",
+        "Hi",
+        "There",
+        "t",
+    );
     rig.pump();
     let news = rig.mailbox.take_events();
     let shown = Event::NotifyShow {
@@ -354,7 +374,10 @@ fn a_long_page_of_the_browsers_own_is_given_as_html_and_told_back_by_its_address
     rig.pump();
     let state = rig.state();
     assert_eq!(state.title, "History");
-    assert_eq!(state.committed_url, page, "the window knows its page by its address");
+    assert_eq!(
+        state.committed_url, page,
+        "the window knows its page by its address"
+    );
     assert!(rig.web.web.requests().is_empty(), "nothing fetched");
 }
 

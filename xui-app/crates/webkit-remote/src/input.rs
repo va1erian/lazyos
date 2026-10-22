@@ -118,7 +118,11 @@ mod tests {
         let mut moves = Moves::default();
         assert_eq!(moves.offer(at(1), 100), Some(at(1)));
         assert_eq!(moves.offer(at(2), 101), None);
-        assert_eq!(moves.offer(at(3), 102), None, "the newest replaces the one that waited");
+        assert_eq!(
+            moves.offer(at(3), 102),
+            None,
+            "the newest replaces the one that waited"
+        );
         assert_eq!(moves.take(103, false), None, "not yet");
         assert_eq!(moves.take(100 + MOVE_INTERVAL_MS, false), Some(at(3)));
         assert_eq!(moves.take(500, false), None, "nothing waits");
