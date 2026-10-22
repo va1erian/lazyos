@@ -166,7 +166,7 @@ struct ViewConfig {
     int width { kInitialWidth };
     int height { kInitialHeight };
     // A LIGHT view (docs/webd-plan.md 3.6; light.cpp): content comes from View::loadHtml only. Everything
-    // below is read only when `light` is set, so a browser view (legacy.cpp) is as it always was. A light view
+    // below is read only when `light` is set, so a full view is as it always was. A light view
     // has a data store of its own that keeps nothing (give it no profile), scripts as `scripts` says, no
     // network of any kind (a content rule list that blocks every load but data:, blob: and about: URLs, and a
     // navigation policy that loads nothing the owner did not ask for), and the owner's features should be 0.

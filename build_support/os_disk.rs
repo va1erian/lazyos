@@ -55,10 +55,7 @@ pub fn default_size_env(webd: bool) -> u64 {
     println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     let on = |name: &str| std::env::var_os(name).is_some_and(|value| value == "1");
-    default_size(
-        on("LAZYOS_SRB2KART"),
-        on("LAZYOS_WEBKIT_PORT") || webd,
-    )
+    default_size(on("LAZYOS_SRB2KART"), on("LAZYOS_WEBKIT_PORT") || webd)
 }
 
 /// `LAZYOS_OS_SIZE`: bytes with an optional `K`, `M` or `G` suffix (binary),

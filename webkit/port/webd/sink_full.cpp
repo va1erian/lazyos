@@ -1,4 +1,4 @@
-// What a FULL view tells the service (webd_abi.h, P2 slice 3): legacy.cpp's LegacySink with the view's id on every
+// What a FULL view tells the service (webd_abi.h, P2 slice 3): the sink of the single-page host (deleted with it, P4) with the view's id on every
 // call. Main thread. Once the slot is dead (destroyed or lost) nothing is sent.
 //
 // Painting. A view made with deltas = 0 gets whole frames as a light view does (webd_ui_frame, the scroll offset

@@ -340,7 +340,7 @@ python tools/webkit/port.py --only WebProcess NetworkProcess webd-abi-test --run
 
 A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its configuration and its own calls
 (`load`, `reload`, `stop`, `back`, `forward`, `download`, `download_cancel`, `dialog_reply`,
-`navigation_answer`, `notify_*`, `blocking_*`; each does nothing to a light view), `sink_full.cpp` is its `ViewSink`: `legacy.cpp`'s `LegacySink` with the view id on every call
+`navigation_answer`, `notify_*`, `blocking_*`; each does nothing to a light view), `sink_full.cpp` is its `ViewSink`: the single-page host's sink (deleted with it, P4) with the view id on every call
 (`webd_ui_page_state` instead of `webd_ui_state`). `slots.h` is what the three files share.
 
 * *The host.* Full views need `webd_engine_start_host` with a `children_directory`
@@ -435,7 +435,7 @@ is a plain xui app (`xui-app/webplus`, `xui-lazywebplus.elf`, built by `python t
 other apps) that is a client of webd: it asks webd for full views (`xui-app/crates/webd-client`'s `FullWebView`)
 and draws the frames webd paints, over the seam `xui-app/crates/webkit`; the engine, its processes and its
 sandbox are webd's (`os.lazy.webd`, [`docs/webd.md`](../docs/webd.md)). What used to be the C ABI between the
-UI process and the window (`lazyos_ui.h`, one page, `lazywebplus-app`) is gone; `port/app/lazyos_ui.h` keeps only
+UI process and the window (`lazyos_ui.h`, one page, `lazywebplus-app`) is gone, and webd's views took over its semantics; `port/app/lazyos_ui.h` keeps only
 the constants the engine and webd share, and webd's C ABI over the engine's views is `port/webd/webd_abi.h`.
 `LAZYOS_LAZYWEBPLUS=1` ships the core package and needs webd (`LAZYOS_WEBD`, on in every desktop) and the
 network stack.
