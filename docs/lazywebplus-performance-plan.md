@@ -61,7 +61,7 @@ JavaScript-heavy variant of Google (signed in, results page) that the console UA
 | H5 | **Memory and start-up cost of the engine as built** | three static 107 MiB ELFs, each carrying 30 MB of ICU data, copied **eagerly** into frames at `exec` (`processes.md`, "Pages holding file bytes are mapped eagerly"; 4.3 s cold start in W5); `USE_SYSTEM_MALLOC` is on, so WTF's allocator is musl's (zig's bundled musl: mallocng, one global lock, an `mmap` per large block; to be confirmed in the pinned tree); no demand paging although file-backed `mmap` and a page cache now exist (#535) | `exec` time, RSS per process, `mmap`/`munmap`/fault counts per second |
 | H6 | **Build and CPU features**: `-O2`, no LTO or PGO, baseline x86-64; OpenSSL built `no-asm`; libjpeg-turbo SIMD off; QEMU started with no `-cpu` (#810) | `tools/jsc/toolenv.py` `CODEGEN`; W3 table; the launch line of `qemu_qmp.py`. (Under WHPX the guest did report AVX state, `xsave_mask=0x7`, so this is a TCG and a real-PC question) | CPUID line at boot; per-library microbench; A/B builds |
 | H7 | **Content the port asks for**: the console UA, 228 consent partners, ad and tracker scripts | M1, M2; the 3rd-party share of CPU is unknown | CPU by origin (a request log with bytes and script time) |
-| H8 | **The HTTP cache cannot store large responses** (M5), so every revisit refetches and re-decodes | `fallocate` is `ENOSYS` | the cache directory size after a visit; request count on revisit |
+| H8 | **The HTTP cache cannot store large responses** (M5), so every revisit refetches and re-decodes | `fallocate` is `ENOSYS` (P3.1: done, and not the cause: the cache stored inline; see the measured table) | the cache directory size after a visit; request count on revisit |
 
 H1 to H4 decide whether the page "spins"; H5 to H8 decide how long it takes to become usable. H1/H2 are the
 cheapest to fix and the ones whose effect is the same at any CPU speed.
@@ -158,15 +158,39 @@ answered within 250 ms, and the window thread logs no `UI:STALL` over 250 ms.
 1. **`fallocate` (285).** Implement mode 0 on ext2 (reserve blocks, or just extend) or return `EOPNOTSUPP` (what
    Linux says for a file system without it, and what WTF accepts). Then make a five-site run print **no**
    `ENOSYS`, and keep that as a harness check (`tools/webplus/perf.py` fails on any). Half a day, big for H8.
-   *Found (issue #864): not yet.* Answering `EOPNOTSUPP` (WTF accepts it) makes the cache store bodies as blobs,
-   and blobs need **hard links**: `BlobStorage::add` links each blob under two names and `synchronize()` deletes
-   every blob with `st_nlink == 1` at the next start. `link` is `EPERM` and `st_nlink` is always 1 here, so
-   the blobs vanish and a revisit refetches what the inline path used to serve (the LazyWeb+ harness's
-   cache-hit check fails). The shared-mmap body path itself is proven (`linux_filemap_cache_body_*`: create,
-   `ftruncate`, `MAP_SHARED` write, `mprotect(PROT_READ)`, `msync`, unmap, read back, remount, a soak). So the
-   order is: hard links on ext2 (issue #871, done: `Ext2::link`, VFS `link`, open-file and page-cache identity
-   by inode rather than path, no `.unlinked-*` parking while another name is left, a real `st_nlink`), then
-   `fallocate` (`EOPNOTSUPP`, issue #864, now unblocked).
+   *Done (issue #864).* `fallocate` answers `EOPNOTSUPP` (arguments judged as Linux does), and the cache stores
+   every body larger than a page as a blob: `BlobStorage::add` links each blob under two names and `synchronize()`
+   deletes every blob with `st_nlink == 1` at the next start, so this waited for **hard links** (issue #871) and
+   the shared-mmap body path (`linux_filemap_cache_body_*`: create, `ftruncate`, `fallocate`, `MAP_SHARED` write,
+   `mprotect(PROT_READ)`, `msync`, unmap, read back, remount, a soak; `..._blob_links`: the link, count and
+   remove sequence). Measuring the first five-site run found the cost of the links: each `link` took the barrier
+   of the crash-safe order (a writeback of the file's data, a device flush, under the volume lock), 69 of 20 ms or
+   more in one load, 7.3 s in all, one of 1.1 s. A file made a moment ago has no link count on the disk to be too
+   low, so `Ext2::link` skips the barrier for an inode no writeback has written since it was allocated
+   (`libs/ext2fs/src/cache/fresh.rs`, `docs/architecture/block-cache.md` "Barriers"); every other file keeps it.
+   `tools/webplus/run.py` fails (`CACHE`) on an `ENOSYS 285` in any boot, on a first boot that leaves no blob in
+   the cache and on a later boot that loses one; `tools/webplus/live_run.py` fails on an `ENOSYS 285`.
+   *Measured* (the `FS:SLOW` counts with a build of the trace before its budget of 30 lines per 10 s; a live run of Ars Technica, Wikipedia, NASA, BBC and The Verge on QEMU/WHPX, 1280x720, a cold
+   profile on a 1 GiB `/home` volume, then the same five again in a second boot):
+
+   | | `fallocate` `ENOSYS` (before) | `EOPNOTSUPP`, no fresh-inode rule | `EOPNOTSUPP` (now) |
+   |---|---|---|---|
+   | `ENOSYS 285` lines, first visit | 274 | 0 | 0 |
+   | cache after the first visit | 385 inline records | 679 records, 282 of them blobs | 681 records, 283 of them blobs |
+   | `link` calls of 20 ms or more | none (no links) | 69, 7.3 s, longest 1.1 s | 0 |
+   | `/home` block writes after the first visit | 6519 requests, 88.9 MB | 5138 requests, 84.2 MB | 3479 requests, 78.2 MB |
+   | network received, first visit / revisit | 17.6 MB / 9.0 MB | 17.6 MB / 7.3 MB | 17.6 MB / 7.9 MB |
+
+   The revisit is the cache answering in all three cases (the inline bodies were served from the cache as well, so
+   nothing here made it miss): the bytes received and the page load times (300, 4055, 502, 1314, 1041 and 4105 ms
+   before; 308, 3410, 540, 1492, 1268 and 5127 ms now) are the same within the runs' noise. What the change buys is
+   that `fallocate` no longer fails 274 times with a line written to the serial port from inside the syscall, that a
+   body is written once through a shared mapping, and, in this run, fewer requests to the volume. The `block:`
+   counters are the last ones each boot printed, and two runs on a shared host differ by more than the columns
+   above in places, so read the table for its order of magnitude. The runs' multi-second stalls are not this: a
+   single `unlink` on the home volume held it for 16.6 s in the second boot (`FS:SLOW op=unlink`, from webd's
+   `ListStore Queue` thread: its profile holds one 9 MB compiled rule list), and the same kind of stall (13 s, every
+   thread behind the VFS lock) was in the baseline's second boot before there was a trace to name it.
 2. **Demand-paged, shared executables** (done in #942: read-only segments of an ext2 program are `Kind::FileImage`,
    see `architecture/virtual-memory.md`). Map `PT_LOAD` segments from the page cache (the machinery of #535) instead of
    copying them into frames: three 107 MiB programs stop costing 320 MiB at launch, ICU's 30 MB data is paged

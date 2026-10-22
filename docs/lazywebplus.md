@@ -202,6 +202,16 @@ network process; a second run of the app finds the first one's cookie. The brows
 `$HOME/.apps/os.lazy.lazywebplus`, holds what is the client's: `history.tsv`, `notify.tsv`, the ad blocker's
 lists (`lists/`) and the `page-data-in-memory` switch.
 
+**The HTTP cache keeps a body larger than a page as a blob** (issue #864, `NetworkCache::BlobStorage`): the
+file `cache/Version <n>/Blobs/<hash>` is made with `O_EXCL`, `ftruncate` and `fallocate` (the kernel answers
+`EOPNOTSUPP`, which WTF accepts; any other answer, the old `ENOSYS`, made it delete the file and the cache then
+wrote every body inline), filled through a `MAP_SHARED` mapping, made read-only, and hard-linked into its record
+(`link`, #871: a file no writeback has written yet is linked with no barrier, `docs/architecture/block-cache.md`,
+so a body costs no flush). At the next start the cache deletes each blob whose `st_nlink` is 1, so the kernel's `link` and
+`st_nlink` are what keep the cache across a launch. `python tools/webplus/run.py` fails (`CACHE`) when a boot
+prints `ENOSYS 285`, when the first boot leaves no blob, or when a later boot loses one; the kernel cases are
+`linux_filemap_cache_body_*` (the write path, `fallocate` and the blob links).
+
 **Page data in memory** (issue #940): *File > Keep Page Data in Memory (on/off)* writes or removes
 `page-data-in-memory` in the browser's folder (`xui-app/webplus/src/memory.rs`); at the next start the view is
 made with `ephemeral`, webd's `browser` profile in memory: cookies and site data are not kept and are gone when

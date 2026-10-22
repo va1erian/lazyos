@@ -198,6 +198,32 @@ impl Ext2 {
         }
     }
 
+    /// `FS:SLOW` for a name operation that held the gate for 20 ms or more: `link` and `unlink` write back
+    /// what the file's name depends on before they go on (the barriers of `libs/ext2fs/src/links.rs`), so
+    /// a burst of them, as WebKit's blob cache makes (issue #864), shows here as the stall it is.
+    fn note_slow(&self, op: &'static str, start: u64) {
+        /// A burst of slow names is a few lines and a count, not a flood.
+        static BUDGET: tracefmt::Budget = tracefmt::Budget::new(30, 1000);
+        let end = crate::arch::clock::monotonic_ns();
+        if end - start < 20_000_000 {
+            return;
+        }
+        match BUDGET.charge(crate::task::ticks()) {
+            tracefmt::Charge::Deny => return,
+            tracefmt::Charge::AllowAfter(n) => {
+                crate::trace::line!(tracefmt::Channel::Fs, "SLOW:SUPPRESSED n={n}");
+            }
+            tracefmt::Charge::Allow => {}
+        }
+        crate::trace::event!(
+            tracefmt::Channel::Fs,
+            "SLOW",
+            op = op,
+            device = self.device,
+            us = (end - start) / 1000
+        );
+    }
+
     /// Whether the volume was flagged clean when it was mounted.
     #[cfg_attr(not(lazyos_tests), allow(dead_code))] // diagnostics/tests
     pub fn was_clean_at_mount(&self) -> bool {

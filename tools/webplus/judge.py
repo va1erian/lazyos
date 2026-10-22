@@ -401,6 +401,49 @@ def judge_profile(listing: dict[str, bytes | None], first_history: str, second_h
     return problems
 
 
+def cache_blobs(tree: str) -> dict[str, int]:
+    """The HTTP cache's blobs in an `osread tree` listing of webd's cache folder (`<d|f> <mode> <uid> <gid>
+    <size> <mtime> <hash> <path>` per node): path -> size. A body larger than a page is one file named by
+    its hash in `Blobs/`, hard-linked into its record (`NetworkCache::BlobStorage`)."""
+    blobs = {}
+    for line in tree.splitlines():
+        fields = line.split(None, 7)
+        if len(fields) == 8 and fields[0] == "f" and "/Blobs/" in fields[7]:
+            blobs[fields[7]] = int(fields[4])
+    return blobs
+
+
+ENOSYS_LINE = re.compile(r"\bENOSYS (\d+) (\w+)(?: count=(\d+))?")
+
+
+def enosys_calls(text: str) -> dict[tuple[int, str], int]:
+    """The calls the kernel found unimplemented in a serial log, by (number, name), with how many times: the
+    first line of a (process, call) counts one and each `count=<n>` line the repeats since the last
+    (`kernel/src/process/linux/enosys.rs`). Not anchored to the line's start: an image built for release
+    prefixes every serial line with a timestamp."""
+    calls: dict[tuple[int, str], int] = {}
+    for number, name, repeats in ENOSYS_LINE.findall(text):
+        key = (int(number), name)
+        calls[key] = calls.get(key, 0) + int(repeats or 1)
+    return calls
+
+
+def judge_cache(first_tree: str, last_tree: str, texts: dict[str, str]) -> list[str]:
+    """The cache stores bodies as blobs and keeps them across boots (issues #864, #871): `fallocate` answers
+    (no `ENOSYS 285` in any boot), the first boot left blobs, and every one of them is still there after the
+    later boots, whose start deletes each blob with a link count of 1 (`BlobStorage::synchronize`)."""
+    problems = [f"the {name} boot printed `ENOSYS 285 fallocate`: the cache wrote its bodies inline"
+                for name, text in texts.items() if any(number == 285 for number, _ in enosys_calls(text))]
+    first, last = cache_blobs(first_tree), cache_blobs(last_tree)
+    if not first:
+        problems.append("no blob in the HTTP cache after the first boot: bodies larger than a page were not stored "
+                        "as blobs (fallocate refused?)")
+    for path in sorted(set(first) - set(last)):
+        problems.append(f"{path} did not survive the later boots: its link count was 1 at the next start "
+                        "(link or st_nlink broken?)")
+    return problems
+
+
 def window_region(text: str, last: bool = False) -> tuple[int, int, int, int] | None:
     """The page area on the screen, from the probe lines."""
     pages = []

@@ -289,9 +289,11 @@ const EFAULT: u64 = 14;
 const EEXIST: u64 = 17;
 const EISDIR: u64 = 21;
 const EINVAL: u64 = 22;
+const EFBIG: u64 = 27;
 const ENOSPC: u64 = 28;
 const ESPIPE: u64 = 29;
 const EROFS: u64 = 30;
+const EOPNOTSUPP: u64 = 95;
 
 /// Total blocks of the test volume (see [`Data::new`]).
 const VOLUME_BLOCKS: u32 = 512;

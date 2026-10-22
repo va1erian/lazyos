@@ -169,6 +169,12 @@ def read_profile() -> dict[str, bytes | None]:
     return listing
 
 
+def read_cache() -> str:
+    """`osread tree` of webd's HTTP cache folder on the OS volume ("" when there is none)."""
+    tree = osread("tree", f"{WEBD_PROFILE_DIR}/cache")
+    return tree.decode(errors="replace") if tree is not None else ""
+
+
 def read_history() -> str:
     data = osread("cat", f"{APP_DIR}/{judge.HISTORY_FILE}")
     return data.decode(errors="replace") if data is not None else ""
@@ -208,7 +214,7 @@ def sizes() -> str:
 def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dict,
             ads: dict | None = None) -> int:
     """Judge the boots. `firsts` and `seconds`: {"ok", "text"}; `records`: (first, second) request
-    records; `profile`: {"files", "history_first", "history_second"}; `ads`: the ad blocker's two
+    records; `profile`: {"files", "history_first", "history_second", "cache_first", "cache_last"}; `ads`: the ad blocker's two
     boots, {"blocker": {"ok", "text", "record"}, "persisted": {...}} (issue #845), or None."""
     first, second = firsts["text"], seconds["text"]
     boots = [("first", firsts), ("second", seconds)]
@@ -231,6 +237,10 @@ def verdict(out: Path, firsts: dict, seconds: dict, records: tuple, profile: dic
     ok = report("PROFILE", "history, downloads and cookies on the OS volume; Clear history emptied it",
                 judge.judge_profile(profile["files"], profile["history_first"], profile["history_second"])) and ok
     ok = report("SECOND", "the second boot served the cached page and found the cookie and the history", judge.judge_second(second)) and ok
+    blobs = len(judge.cache_blobs(profile["cache_first"]))
+    ok = report("CACHE", f"fallocate answered, {blobs} bodies stored as blobs and kept across the boots",
+                judge.judge_cache(profile["cache_first"], profile["cache_last"],
+                                  {name: boot["text"] for name, boot in boots})) and ok
     if ads:
         ok = report("BLOCKLIST", "the list was fetched, converted and compiled, and became ready",
                     blocker.judge_lists_first(first)) and ok
@@ -302,7 +312,8 @@ def main(argv: list[str] | None = None) -> int:
                        (load_record(saved / "first" / "requests.json"),
                         load_record(saved / "second" / "requests.json")),
                        {"files": files, "history_first": profile["history_first"],
-                        "history_second": profile["history_second"]}, ads)
+                        "history_second": profile["history_second"], "cache_first": profile["cache_first"],
+                        "cache_last": profile["cache_last"]}, ads)
     out.mkdir(parents=True, exist_ok=True)
     problem = built()
     if problem:
@@ -332,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
         first_record = served.snapshot()
         history_first = read_history()
         files_after_first = read_profile()
+        cache_first = read_cache()
         ok_second, text_second = run_session(session.second(args.step_timeout), out / "second", args)
         second_end = served.snapshot()
         history_second = read_history()
@@ -341,6 +353,7 @@ def main(argv: list[str] | None = None) -> int:
         blocker_end = served.snapshot()
         ok_persisted, text_persisted = run_session(blocker.persisted_boot(args.step_timeout), out / "persisted", args)
         all_record = served.snapshot()
+        cache_last = read_cache()
     finally:
         served.close()
 
@@ -356,10 +369,12 @@ def main(argv: list[str] | None = None) -> int:
     save_record(out / "persisted" / "requests.json", persisted_record)
     (out / "profile.json").write_text(json.dumps({
         "files": {name: (data.hex() if data is not None else None) for name, data in files_after_first.items()},
-        "history_first": history_first, "history_second": history_second}, indent=1), encoding="utf-8")
+        "history_first": history_first, "history_second": history_second,
+        "cache_first": cache_first, "cache_last": cache_last}, indent=1), encoding="utf-8")
     return verdict(out, {"ok": ok_first, "text": text_first}, {"ok": ok_second, "text": text_second},
                    (first_record, second_record),
-                   {"files": files_after_first, "history_first": history_first, "history_second": history_second},
+                   {"files": files_after_first, "history_first": history_first, "history_second": history_second,
+                    "cache_first": cache_first, "cache_last": cache_last},
                    {"blocker": {"ok": ok_blocker, "text": text_blocker, "record": blocker_record},
                     "persisted": {"ok": ok_persisted, "text": text_persisted, "record": persisted_record}})
 

@@ -349,6 +349,48 @@ class RunTests(unittest.TestCase):
 
 
 
+class CacheTests(unittest.TestCase):
+    CACHE = "/home/user/.apps/os.lazy.webd/profiles/browser/cache/Version 17"
+    FIRST = (f"d 0755 1000 1000 4096 - - {CACHE}\n"
+             f"d 0755 1000 1000 4096 - - {CACHE}/Blobs\n"
+             f"f 0600 1000 1000 9636 1 abc {CACHE}/Blobs/0A1B\n"
+             f"f 0600 1000 1000 70000 1 def {CACHE}/Blobs/2C3D\n"
+             f"f 0600 1000 1000 900 1 123 {CACHE}/Records/0A1B-blob\n")
+    CLEAN = {"first": "WEBD:UP:PASS\n", "second": "ENOSYS 218 set_tid_address\n"}
+
+    def test_blobs_are_the_files_below_blobs_only(self) -> None:
+        self.assertEqual(j.cache_blobs(self.FIRST),
+                         {f"{self.CACHE}/Blobs/0A1B": 9636, f"{self.CACHE}/Blobs/2C3D": 70000})
+        self.assertEqual(j.cache_blobs(""), {})
+
+    def test_blobs_that_stay_are_a_pass(self) -> None:
+        later = self.FIRST + f"f 0600 1000 1000 5000 1 456 {self.CACHE}/Blobs/4E5F\n"
+        self.assertEqual(j.judge_cache(self.FIRST, later, self.CLEAN), [])
+
+    def test_a_cache_with_no_blob_means_bodies_went_inline(self) -> None:
+        problems = j.judge_cache("", "", self.CLEAN)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("no blob in the HTTP cache after the first boot", problems[0])
+
+    def test_blobs_deleted_at_the_next_start_mean_links_do_not_count(self) -> None:
+        later = f"f 0600 1000 1000 70000 1 def {self.CACHE}/Blobs/2C3D\n"
+        problems = j.judge_cache(self.FIRST, later, self.CLEAN)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Blobs/0A1B did not survive", problems[0])
+
+    def test_a_timestamped_line_of_a_release_image_still_counts(self) -> None:
+        calls = j.enosys_calls("[12.340] ENOSYS 285 fallocate\n[22.1] ENOSYS 285 fallocate count=3 comm=x\n")
+        self.assertEqual(calls, {(285, "fallocate"): 4})
+
+    def test_enosys_285_in_any_boot_is_a_failure_and_other_calls_are_not(self) -> None:
+        texts = {"first": "ENOSYS 285 fallocate\n", "second": "ENOSYS 285 fallocate count=40 comm=x\n",
+                 "blocker": "ENOSYS 1285 other\n"}
+        problems = j.judge_cache(self.FIRST, self.FIRST, texts)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("first boot printed", problems[0])
+        self.assertIn("second boot printed", problems[1])
+
+
 class DenyTests(unittest.TestCase):
     # The engine's processes are webd's children now (webd's package tables).
     PAGE = f"LABEL:DENY label=app:{denies.ENGINE_APP}/webprocess"

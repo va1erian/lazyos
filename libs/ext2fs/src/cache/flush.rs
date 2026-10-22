@@ -83,6 +83,11 @@ impl BlockCache {
         run: &[(Phase, u64, usize)],
     ) -> Result<(), IoError> {
         let first = run[0].1;
+        for &(phase, block, _) in run {
+            if phase == Phase::Inodes {
+                self.inodes_written(block);
+            }
+        }
         let result = {
             let bufs: Vec<&[u8]> = run
                 .iter()

@@ -272,7 +272,10 @@ while open reports `0`.
 
 * **ext2.** `Ext2::link` raises `i_links_count` first and puts it on the disk
   (a barrier when cached) before the entry appears, so a cut leaves a count
-  too high (a leak the repair reclaims) and never one below the names; unlink
+  too high (a leak the repair reclaims) and never one below the names, for
+  every inode that is on the disk: a file no writeback has written since it
+  was made has no count there yet and is linked with no barrier
+  ([block-cache.md](block-cache.md) "Barriers", `cache/fresh.rs`); unlink
   of one of several names drops the entry before the count. The crash tests
   cut every write, uncached, cached and journaled (`link_crash.rs`,
   `link_journal.rs`), the fuzz model shares one contents between the names of
@@ -312,7 +315,8 @@ of a file's *other* names can lag after an unlink through the Linux table;
 the kernel suite runs its cases on one task with the scheduler stopped, so
 the race the lock closes (two tasks unlinking two names at once) has no
 test of its own. Tests: `linux_link_*` and `fs_ramfs_link_*`/`fs_ramfs_dir_link_counts`
-(`tests/ext2_suite/data_fds/links/`), `confine_every_vfs_entry_point`, the
+(`tests/ext2_suite/data_fds/links/`), `linux_filemap_cache_body_blob_links` (WebKit's blob
+sequence), `confine_every_vfs_entry_point`, the
 `hardlink` ABI fixture, and `cargo test -p ext2fs link`.
 
 **Working directory** (`process/linux/cwd.rs`, `task/cwd.rs`, issue #365)

@@ -12,8 +12,6 @@ const SYS_PWRITEV: u64 = 296;
 const SYS_PREADV2: u64 = 327;
 const SYS_PWRITEV2: u64 = 328;
 
-const EOPNOTSUPP: u64 = 95;
-
 const RWF_HIPRI: u64 = 0x1;
 const RWF_DSYNC: u64 = 0x2;
 const RWF_SYNC: u64 = 0x4;

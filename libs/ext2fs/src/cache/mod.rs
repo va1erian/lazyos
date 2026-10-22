@@ -30,6 +30,7 @@ use crate::journal::Journal;
 use crate::{BlockIo, IoError, SECTOR_SIZE};
 
 mod flush;
+mod fresh;
 mod journaled;
 pub mod memory;
 mod piecewise;
@@ -120,6 +121,8 @@ pub(crate) struct BlockCache {
     touched: BTreeSet<u64>,
     /// ... and the inodes written through [`BlockCache::touch_inode`].
     touched_inodes: BTreeSet<u32>,
+    /// Inodes allocated and not written back since ([`fresh`]).
+    fresh_inodes: BTreeSet<u32>,
     /// The piecewise writeback in progress, if any.
     snapshot: Option<piecewise::Snapshot>,
     /// How far the piecewise commit that `snapshot` belongs to has come
@@ -156,6 +159,7 @@ impl BlockCache {
             tracking: 0,
             touched: BTreeSet::new(),
             touched_inodes: BTreeSet::new(),
+            fresh_inodes: BTreeSet::new(),
             snapshot: None,
             commit: None,
             stats: CacheStats::default(),

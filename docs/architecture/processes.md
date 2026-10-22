@@ -205,7 +205,7 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
 - `linux_dispatch` implements a growing subset: file I/O (`read`, `write`,
   `openat`, `close`, `stat`/`fstat`/`newfstatat`/`statx`, `getdents`/`getdents64`,
   `readv`/`writev`, `preadv`/`pwritev` (and the `*2` forms),
-  `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`, `fsync`/`fdatasync`/
+  `lseek`, `pread64`/`pwrite64`, `truncate`/`ftruncate`/`fallocate`, `fsync`/`fdatasync`/
   `syncfs`/`sync`, `statfs`/`fstatfs`, `dup`/`dup2`, `fcntl`, `ioctl`,
   `readlink`, `getcwd`/`chdir`/`fchdir` (per-task working directory, see
   [filesystem.md](filesystem.md)), `chmod`/`fchmod`/`fchmodat`, `chown`/`fchown`/`lchown`/
@@ -328,6 +328,11 @@ runnable by hand from BusyBox `sh` (see "Native programs from `sh`" below).
   its file while the path still names the inode it opened, so a later `chmod`
   shows.
 - `truncate`/`ftruncate` (any mount; the descriptor must be writable),
+  `fallocate` (judges its arguments as Linux does and answers `EOPNOTSUPP` for
+  every valid request: reserving ext2 blocks means writing them, the burst
+  callers ask for the call to avoid; WTF's `createMappedFileData` accepts that
+  answer and WebKit's HTTP cache then stores a large body as a blob, which
+  needs the hard links below, issue #864),
   `fsync`/`fdatasync` (flush the one mount holding the file), `syncfs`, and
   `sync` (every mount) reach `Filesystem::flush`; `statfs`/`fstatfs` report the
   backend's `StatFs` (ext2 from the superblock, ramfs and the overlay from their

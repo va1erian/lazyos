@@ -1,17 +1,18 @@
 //! Syscalls that act on a file's size or on the filesystem holding it rather
-//! than on the bytes: `truncate`/`ftruncate`, `fsync`/`fdatasync`/`syncfs`/
-//! `sync`, and `statfs`/`fstatfs`.
+//! than on the bytes: `truncate`/`ftruncate`, `fallocate`, `fsync`/`fdatasync`/
+//! `syncfs`/`sync`, and `statfs`/`fstatfs`.
 //!
 //! `fsync` flushes the one mount holding the file (`fs::abi_flush`), `sync`
 //! every mount, as the durability notes in `docs/architecture/filesystem.md`
 //! describe; `fdatasync` is the same call because ext2 has no cheaper form.
 
 use crate::fs::vfs::{FsError, Id, StatFs};
-use crate::task::{self, FdKind};
+use crate::ipc::pipe::End;
+use crate::task::{self, Fd, FdKind};
 use crate::user_ptr;
 
 use super::cwd::{user_path, AT_FDCWD};
-use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
+use super::errno::{err, fs_err, EBADF, EFAULT, EFBIG, EINVAL, ENODEV, ENOMEM, EOPNOTSUPP, ESPIPE};
 use super::fd::fd_meta_get;
 use super::path::synthetic_meta;
 use super::vfsfd;
@@ -50,6 +51,55 @@ pub(super) fn sys_ftruncate(fd: u64, length: u64) -> u64 {
         FdKind::Memfd => super::memfd::with_memfd(fd, |mem| super::memfd::truncate(mem, length)),
         FdKind::Closed => err(EBADF),
         _ => err(EINVAL), // not a regular file
+    }
+}
+
+/// `fallocate(fd, mode, offset, len)`: the descriptor and the arguments are judged in the order Linux's
+/// `vfs_fallocate` does (a closed descriptor `EBADF`, a negative offset or no length `EINVAL`, a descriptor not
+/// open for writing `EBADF`, a pipe `ESPIPE`, anything that is not a regular file `ENODEV`, a range past the
+/// largest file `EFBIG`), and every valid request is `EOPNOTSUPP`, what Linux answers for ext2 and for the ramfs
+/// of `/tmp`. The mode is not looked at: every mode gets that answer, so it could only change which error comes
+/// first for a descriptor that is refused anyway.
+///
+/// Reserving a range means allocating (and, on ext2, zeroing) its blocks, as large a write as the range:
+/// the burst WebKit's HTTP cache asks for the call to avoid (`WTF::FileSystem::createMappedFileData`
+/// calls it for every body and carries on with the sparse file when the answer is `EOPNOTSUPP`; any other
+/// error deletes the file and the cache stores the body inline, issue #864). The price of the honest
+/// answer is that a store through a shared mapping of a sparse file can find the volume full at
+/// write-back; the page cache keeps what it could not write.
+pub(super) fn sys_fallocate(fd: u64, _mode: u64, offset: u64, len: u64) -> u64 {
+    let entry = match task::fd_clone(fd as usize) {
+        // `fdget` comes before any argument is looked at.
+        None | Some(Fd::Closed) => return err(EBADF),
+        Some(entry) => entry,
+    };
+    if (offset as i64) < 0 || (len as i64) <= 0 {
+        return err(EINVAL);
+    }
+    if let Some(errno) = refused_for_allocation(&entry) {
+        return err(errno);
+    }
+    if offset.checked_add(len).is_none_or(|end| (end as i64) < 0) {
+        return err(EFBIG);
+    }
+    err(EOPNOTSUPP)
+}
+
+/// Why `fallocate` refuses descriptor `entry` before it looks at the file system, in Linux's order: not open
+/// for writing (a pipe's read end too) `EBADF`, a pipe `ESPIPE`, a device or anything else that is not a regular
+/// file `ENODEV`.
+fn refused_for_allocation(entry: &Fd) -> Option<u64> {
+    match entry {
+        Fd::Vfs { file } => (!file.writable()).then_some(EBADF),
+        Fd::File { file } => match file.meta() {
+            Some(meta) if meta.writable && !meta.device => None,
+            Some(meta) if meta.writable => Some(ENODEV),
+            _ => Some(EBADF),
+        },
+        Fd::Memfd { .. } => None,
+        Fd::Pipe { end: End::Read, .. } => Some(EBADF),
+        Fd::Pipe { .. } => Some(ESPIPE),
+        _ => Some(ENODEV),
     }
 }
 

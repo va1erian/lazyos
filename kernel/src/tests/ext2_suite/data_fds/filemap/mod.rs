@@ -10,7 +10,7 @@ use crate::mem::vma::Kind;
 use crate::quota::{self, Resource};
 
 mod basic;
-mod cache_body;
+pub(super) mod cache_body;
 mod coherence;
 mod frame;
 mod image;
@@ -37,6 +37,7 @@ pub(super) const SYS_MSYNC: u64 = 26;
 pub(super) const MREMAP_MAYMOVE: u64 = 1;
 pub(super) const MREMAP_FIXED: u64 = 2;
 pub(super) const ENODEV_: u64 = 19;
+pub(super) const SYS_FALLOCATE: u64 = 285;
 
 /// Where the cases map: well inside the mmap region.
 pub(super) const BASE: u64 = process::linux::MMAP_BASE + 0x800_0000;
@@ -63,6 +64,10 @@ pub(super) fn msync(addr: u64, len: u64, flags: u64) -> u64 {
 
 pub(super) fn ftruncate(fd: u64, len: u64) -> u64 {
     syscall(SYS_FTRUNCATE, fd, len, 0, 0)
+}
+
+pub(super) fn fallocate(fd: u64, mode: u64, offset: u64, len: u64) -> u64 {
+    syscall(SYS_FALLOCATE, fd, mode, offset, len)
 }
 
 /// `len` bytes that differ per page and per `seed`.
@@ -208,6 +213,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         cache_body::body_write_path,
     ),
     ("linux_filemap_cache_body_soak", cache_body::body_soak),
+    (
+        "linux_filemap_cache_body_fallocate",
+        cache_body::fallocate_answers,
+    ),
     (
         "linux_filemap_read_then_write_keeps_writable_parents",
         parents::read_then_write_keeps_writable_parents,

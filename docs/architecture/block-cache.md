@@ -117,10 +117,30 @@ the direct driver's promise exactly:
 | rename of a file (`rename_file.rs`, confd's #407 commit) | after the new name; after the old name goes, before the link count drops | a crash shows the old or the new name (or both, link count 2), never neither, never two names on one link |
 | rename of a directory (`rename.rs`) | the directory's count is raised first; after the new entry, before `..` moves; after `..` moves, before the old entry and the old parent's count go; after the old entry, before the extra count drops | the directory is reachable under one name at least, and no count is ever below its entries |
 | `mkdir` (`links.rs`) | after the parent's raised count, before the new entry | the parent's count covers the child's `..` whenever the child is reachable |
-| `link` (`links.rs`) | after the raised link count, before the new entry | a crash leaves the count too high (a leak), never below the names |
+| `link` (`links.rs`) | after the raised link count, before the new entry; **not for an inode no writeback has written since it was allocated** (below) | a crash leaves the count too high (a leak), never below the names, for every inode that is on the disk |
 | `unlink`, `rmdir` (`links.rs`, `rmdir.rs`) | after the entry goes, before the count drops or the inode is freed | same: a leak at worst, never an inode freed under a live name |
 | deleting a parked orphan (`orphans.rs`) | after the blocks, inode and bitmaps, before the name goes (its frees are not deferred: that order *is* the design) | the next mount's reclaim can always finish the delete, with no leak |
 | truncate to a size inside a block (`truncate.rs`) | after zeroing the cut tail, before the new size | a later grow never shows the bytes that were cut |
+
+A file made a moment ago needs no barrier for its second name. The cache keeps the
+set of regular-file inodes allocated and not written back since (`cache/fresh.rs`):
+the disk's slot for such an inode is dead or never used (no link count: an `unlink`
+leaves links 0 and a deletion time, and a failed `create` or `mkdir` writes its inode
+dead before it frees the number, `Ext2::abandon_inode`, so no commit puts a
+live-looking inode in a free slot), nothing durable names it, and a second
+name leaves it where its first one already was, in the "entry naming an inode whose
+initialisation was lost" class. Every path that writes an inode-table block removes
+the inodes in it first (a full writeback, a piece of a piecewise commit, an
+`fsync`'s patched slot), a piecewise commit's snapshot forgets all of them (its
+pieces write an older version of blocks at times of their own), and a journaled
+volume keeps none. Without this, WebKit's blob storage, which creates a body's file
+and links it a moment later, paid a writeback of the file's data and a device flush
+under the volume lock for every body (issue #864: 69 links of 20 ms or more, 7 s in
+all and one of 1.1 s, in one five-site page load on virtio, where the flush is free;
+`FS:SLOW op=link`). `cargo test -p ext2fs link_fresh` holds the line: a
+fresh link writes nothing, every other file still pays the barrier, and over every
+cut of the disk an inode that is on it never has fewer links than names, with fresh
+links made around durable ones and between the pieces of a commit.
 
 Uncached, `barrier` does nothing. A barrier inside an operation scope
 (`Ext2::op_scope`, taken by `rename`, the orphan delete and truncate) writes

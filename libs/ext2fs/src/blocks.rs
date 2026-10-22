@@ -36,13 +36,18 @@ impl Ext2 {
     /// Allocate an inode, committing first when only pending frees would
     /// make room (see [`Ext2::alloc_block`]).
     pub(super) fn alloc_inode(&self, is_dir: bool) -> Result<u32, Ext2Error> {
-        match self.alloc_inode_now(is_dir) {
+        let ino = match self.alloc_inode_now(is_dir) {
             Err(Ext2Error::NoSpace) if self.has_pending() => {
                 self.commit_locked()?;
                 self.alloc_inode_now(is_dir)
             }
             other => other,
+        }?;
+        // Only a regular file can be linked, so only it is worth remembering.
+        if let (false, Some(cache)) = (is_dir, &self.cache) {
+            cache.lock().mark_inode_fresh(ino);
         }
+        Ok(ino)
     }
 
     /// Allocate a data block from the first group with a free bit, updating

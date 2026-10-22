@@ -6,7 +6,8 @@ opens each address in turn, waits, and reads the serial log for the signs of the
 heavy page showed: the page's process unresponsive (webd's `WEBD:NOTE:WEBPROCESS:UNRESPONSIVE`), a view webd
 lost (`WEBD:LOST`), a process busy in the
 kernel for whole `PERF:CPU` periods (the NetworkProcess in ext2: `kernel=` over 40), a lock held for
-seconds (`LOCK:WAIT`), a stuck call (`SCHED:STUCK`) and the cache's `ENOSYS 285 fallocate`.
+seconds (`LOCK:WAIT`), a stuck call (`SCHED:STUCK`) and the cache's `ENOSYS 285 fallocate` (a finding: the HTTP
+cache then writes every body inline, issue #864; any other `ENOSYS` is listed as a note).
 
     python tools/webplus/live_run.py                              # google, wikipedia, ars technica
     python tools/webplus/live_run.py --url https://example.org/ --wait 60
@@ -101,9 +102,13 @@ def verdict(text: str) -> tuple[list[str], list[str]]:
         hang.append(line.strip())
     if "Error sending IPC message" in text:
         hang.append("WebKit lost an IPC message to a failed sendmsg (Error sending IPC message)")
-    fall = re.findall(r"ENOSYS 285 fallocate count=(\d+)", text)
-    if fall:
-        facts.append(f"fallocate answered ENOSYS {fall[-1]} times")
+    # Every unimplemented call the programs met: the first line of a (process, call), then repeat counts.
+    # `fallocate` is a finding: the HTTP cache then stores every body inline (issue #864).
+    for (number, name), times in sorted(judge.enosys_calls(text).items()):
+        if number == 285:
+            hang.append(f"fallocate answered ENOSYS {times} times: the HTTP cache wrote its bodies inline (issue #864)")
+        else:
+            facts.append(f"{name} ({number}) answered ENOSYS {times} times")
     return sorted(set(hang)), facts
 
 

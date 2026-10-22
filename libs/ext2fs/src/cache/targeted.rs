@@ -130,6 +130,7 @@ impl BlockCache {
         wanted: &[u32],
     ) -> Result<(), IoError> {
         let range = self.roles.inodes_of(block).unwrap_or(0..0);
+        self.inodes_patched(wanted);
         let size = self.block_size;
         let entry = self.roles.inode_size as usize;
         let mut image = alloc::vec![0u8; size];

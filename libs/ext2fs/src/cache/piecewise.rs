@@ -71,6 +71,9 @@ impl BlockCache {
             return false;
         }
         self.abort_snapshot();
+        // The pieces write blocks as of now, at times of their own: an inode
+        // allocated before this point may reach the disk in any of them.
+        self.fresh_inodes.clear();
         let order = self.order(io);
         for &(_, _, index) in &order {
             self.slots[index].snap = true;
@@ -157,6 +160,11 @@ impl BlockCache {
         run: &[(Phase, u64, usize)],
     ) -> Result<(), IoError> {
         let size = self.block_size;
+        for &(phase, block, _) in run {
+            if phase == Phase::Inodes {
+                self.inodes_written(block);
+            }
+        }
         let result = {
             let bufs: Vec<&[u8]> = run
                 .iter()
