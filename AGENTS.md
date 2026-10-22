@@ -773,7 +773,9 @@ python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/we
 Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.
-The demo client `os.lazy.webddemo` ships only with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
+The test clients `os.lazy.webddemo` (a light view) and `os.lazy.webdbrowse` (Web View Test: full views
+through every scope, logic in `xui_webd_client::browse`, markers `WEBDBROWSE:<STEP>:PASS|FAIL`) ship only
+with `LAZYOS_WEBDDEMO=1` (`run_demo.py --webd-demo`).
 
 ## HTTPS clients (`LAZYOS_TLS=1`: `curl`, `wget`, `fetch`)
 

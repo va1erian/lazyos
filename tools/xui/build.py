@@ -145,6 +145,9 @@ BINS = {
     # Web View Demo: the client of webd's light views (docs/webd-plan.md P2 slice 2); only a
     # `LAZYOS_WEBD=1` image ships it.
     "xui-webddemo": "xui-webddemo.elf",
+    # Web View Test: the client of webd's full views (docs/webd-plan.md P2 slice 3); only a
+    # `LAZYOS_WEBDDEMO=1` image ships it.
+    "xui-webdbrowse": "xui-webdbrowse.elf",
 }
 
 

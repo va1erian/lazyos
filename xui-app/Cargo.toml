@@ -449,3 +449,7 @@ path = "src/bin/playground.rs"
 [[bin]]
 name = "xui-webddemo"
 path = "src/bin/webddemo.rs"
+
+[[bin]]
+name = "xui-webdbrowse"
+path = "src/bin/webdbrowse.rs"
