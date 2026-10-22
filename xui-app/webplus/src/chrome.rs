@@ -67,10 +67,12 @@ pub enum Command {
     BookmarkPage,
     EditBookmark,
     ShowBookmarks,
+    /// Help > Report an issue.
+    ReportIssue,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 20] = [
+const COMMANDS: [Command; 21] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -91,6 +93,7 @@ const COMMANDS: [Command; 20] = [
     Command::BookmarkPage,
     Command::EditBookmark,
     Command::ShowBookmarks,
+    Command::ReportIssue,
 ];
 
 impl Command {
@@ -116,6 +119,7 @@ const BOOKMARKS_MENU: MenuId = MenuId::new(105);
 #[derive(Default)]
 pub struct Widgets {
     pub bookmarks: crate::bookmarks::Widgets,
+    pub report: crate::report::form::Handles,
     /// Whether a link with a menu of its own is under the pointer: a right click then belongs to
     /// the window's link menu, not the page (`context::link_items`).
     pub link_hover: Rc<Cell<bool>>,
@@ -172,6 +176,7 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
                 })
                 .bind(&widgets.page),
                 bookmarks::editor::layout(&widgets.bookmarks.editor),
+                crate::report::form::layout(&widgets.report),
             ))
             .fill(1),
         status_bar(widgets).fixed(STATUS_HEIGHT),
@@ -251,6 +256,8 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
             );
         });
         bar.submenu(HELP_MENU, "&Help", |m| {
+            item(m, Command::ReportIssue, "&Report an Issue...", Lucide::Bug);
+            m.separator();
             item(m, Command::About, "&About LazyWeb+", Lucide::Info);
         });
     })

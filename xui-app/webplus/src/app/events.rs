@@ -45,6 +45,8 @@ impl Browser {
         }
 
         if self.state.crashed && !old.crashed {
+            let why = self.state.error.clone();
+            self.note_engine(&format!("view lost: {why}"));
             self.page.clear();
             self.notifications.page_crashed();
         }

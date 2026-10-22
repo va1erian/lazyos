@@ -62,6 +62,13 @@ impl Bar {
 impl Browser {
     /// The engine says the page's process answers, or does not.
     pub(super) fn page_responsive(&mut self, ui: &Ui<Msg>, responsive: bool) {
+        if self.hang.watch.stuck() == responsive {
+            self.note_engine(if responsive {
+                "page answering again"
+            } else {
+                "page not responding"
+            });
+        }
         if self.hang.watch.responsive(responsive) {
             self.show_hang_bar(ui);
         }
@@ -78,6 +85,7 @@ impl Browser {
     /// The person pressed one of the bar's buttons.
     pub(super) fn hang_answer(&mut self, ui: &Ui<Msg>, answer: Answer) {
         crate::marker(&format!("HANG:ANSWER:{}", answer.name()));
+        self.note_engine(&format!("answered: {}", answer.name()));
         if let Some(reload) = self.hang.watch.answer(answer) {
             self.engine.recover(reload);
         }

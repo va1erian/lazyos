@@ -35,6 +35,9 @@ impl Browser {
         if self.bookmarks.editor.editing().is_some() {
             named.extend(self.bookmarks.editor.controls(ui));
         }
+        if self.report.form.is_open(ui) {
+            named.extend(self.report.form.controls(ui));
+        }
         if self.hang.visible() {
             named.extend(self.hang.controls(ui));
         }

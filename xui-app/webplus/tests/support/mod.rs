@@ -148,6 +148,8 @@ pub struct Rig {
     pub internal: Internal,
     pub blocker: Blocker,
     pub home: PathBuf,
+    /// Where the window said its controls are (`Host::probe`), by name.
+    pub rects: Rc<RefCell<std::collections::HashMap<String, xui_core::geometry::Rect>>>,
 }
 
 impl Rig {
@@ -157,6 +159,12 @@ impl Rig {
 
     pub fn history_file(&self) -> PathBuf {
         self.home.join("history.tsv")
+    }
+
+    /// The middle of the control the window named, in client pixels.
+    pub fn centre(&self, name: &str) -> (i32, i32) {
+        let r = self.rects.borrow()[name];
+        ((r.left + r.right) / 2, (r.top + r.bottom) / 2)
     }
 
     pub fn bookmarks_file(&self) -> PathBuf {
@@ -210,6 +218,9 @@ pub fn drive_full(
     let started = Rc::clone(&opened);
     let toasts = Rc::new(FakeToasts::default());
     let permissions = Permissions::open(home.join("notify.tsv"));
+    let rects: Rc<RefCell<std::collections::HashMap<String, xui_core::geometry::Rect>>> =
+        Rc::default();
+    let probe_rects = Rc::clone(&rects);
     let rig = Rig {
         toasts: Rc::clone(&toasts),
         permissions: permissions.clone(),
@@ -219,6 +230,7 @@ pub fn drive_full(
         internal: internal.clone(),
         blocker: blocker.clone(),
         home: home.clone(),
+        rects: Rc::clone(&rects),
     };
     let first = first.map(str::to_owned);
     let profile = home.clone();
@@ -241,6 +253,9 @@ pub fn drive_full(
                     host: Host {
                         launcher: Rc::new(RecordingLauncher(opened)),
                         profile: Some(profile),
+                        probe: Box::new(move |_, name, rect| {
+                            probe_rects.borrow_mut().insert(name.to_owned(), rect);
+                        }),
                         ..Host::none()
                     },
                 },

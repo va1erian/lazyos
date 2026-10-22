@@ -15,6 +15,7 @@
 //!   the browser's own commands, and what a page may do without a user gesture.
 //! - [`visits`]: the browsing history kept per user.
 //! - [`places`]: the bookmarks, a checksummed record log (`bookmarks.log`).
+//! - [`report`]: the issue report's Markdown (Help > Report an issue) and the trace it quotes.
 //! - [`sanitize`]: outside text made fit to keep, show or report.
 //! - [`downloads`]: naming and reserving downloads in the Downloads folder.
 //! - [`pages`]: the built-in `about:` pages.
@@ -46,6 +47,7 @@ pub mod notify;
 pub mod pages;
 pub mod places;
 pub mod policy;
+pub mod report;
 pub mod sanitize;
 pub mod transfers;
 pub mod visits;
@@ -72,6 +74,8 @@ pub fn named_marker(line: &str) {
 /// Prints `WEBPLUS:<line>`: a marker that names no page, address or file. The one place this
 /// crate's evidence lines are printed from (the trace ratchet counts it once).
 pub fn marker(line: &str) {
+    // Kept for a report (Help > Report an issue) before it is printed.
+    report::ring::record(line);
     // On LazyOS through the trace API (one write per line, the channel's mask); a host build, where
     // the tests run, has no console to write.
     #[cfg(all(target_os = "linux", target_env = "musl"))]

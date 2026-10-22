@@ -177,6 +177,7 @@ impl Browser {
             Command::BookmarkPage | Command::EditBookmark | Command::ShowBookmarks => {
                 self.bookmark_command(ui, command)
             }
+            Command::ReportIssue => self.open_report(ui),
             Command::OpenLinkInApp => {
                 // The person's own click, so the hand-off is allowed; the web's links stay the
                 // engine's (the menu only enables this for a scheme it does not load).

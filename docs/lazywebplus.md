@@ -142,6 +142,20 @@ cannot change its entries after it is built. Markers: `WEBPLUS:BOOKMARK:ADD|EDIT
 yet: the bookmarks bar under the toolbar, `about:bookmarks` (search, reorder, undo), Netscape HTML import and
 export, favicons, and creating folders from the window (the store supports them).
 
+**Report an issue** (Help menu; `src/report/`, the window in `src/app/report.rs`). The fallback of the plan's
+section 7, for when LazyAgent is not there: a form over the page (xui's `Dialog` has one text entry, so it is a frame
+in the layout) with What happened, What you expected and Steps, and a tick box with a one-line preview for each part
+a report may carry: the version and tab count (on by default), the page's host, the page's address without user,
+query or fragment, the last 200 lines of the window's own `Webplus` trace (every `marker()` line goes through a
+bounded in-process ring), and the engine events this run saw (a lost view with its reason, `Responsive(false)` and
+back, what the person answered the "not responding" bar), each off by default. **Copy Markdown** puts the report on
+the clipboard and **Save .md** writes `lazywebplus-report-<time>.md` into the Downloads folder (the window has no
+Save dialog; a name taken gets ` (1)`, nothing is replaced). The Markdown is built by a pure, host-tested function:
+control and bidirectional characters stripped, each typed field cut at 4,000 characters, trace lines at 300, at most
+256 KiB in all (cut with a note), the trace in a fence longer than any backtick run in it, and no page content,
+title or text. **Send to LazyAgent** is a disabled placeholder for `os.lazy.agent.report.v1`. Markers:
+`WEBPLUS:REPORT:COPY|SAVE`. Not built: the screenshot, and the omnibar's bug button.
+
 ## Downloads
 
 A response the view cannot show, or one sent as an attachment, is downloaded by webd: it names the file (the
