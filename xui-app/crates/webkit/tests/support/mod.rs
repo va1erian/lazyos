@@ -62,6 +62,7 @@ impl Browser {
                     is_shortcut: Rc::new(|_, _| false),
                     clicked: Msg::Clicked,
                     right_click: None,
+                    swallow_right: None,
                 };
                 PageView::new(ui, engine, hooks)
             })

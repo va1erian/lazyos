@@ -59,8 +59,8 @@ pub enum Command {
     ReloadUnblocked,
     /// Keep the page's data in memory from the next start, or stop (`memory.rs`).
     PageDataInMemory,
-    /// The context menu's: act on what was right-clicked.
-    OpenLink,
+    /// The link menu's: act on the link that was right-clicked.
+    OpenLinkInApp,
     CopyLink,
 }
 
@@ -81,7 +81,7 @@ const COMMANDS: [Command; 17] = [
     Command::Blocker,
     Command::ReloadUnblocked,
     Command::PageDataInMemory,
-    Command::OpenLink,
+    Command::OpenLinkInApp,
     Command::CopyLink,
 ];
 
@@ -106,6 +106,9 @@ const HELP_MENU: MenuId = MenuId::new(104);
 /// The widgets the window changes after building.
 #[derive(Default)]
 pub struct Widgets {
+    /// Whether a link with a menu of its own is under the pointer: a right click then belongs to
+    /// the window's link menu, not the page (`context::link_items`).
+    pub link_hover: Rc<Cell<bool>>,
     pub menu: Handle<xui_core::widget::Menu<Msg>>,
     pub page: Handle<PageView<Msg>>,
     pub address: Handle<Edit<Msg>>,
@@ -137,18 +140,21 @@ pub struct Widgets {
 /// The whole window. `loading` is whether a page loads (Escape means Stop only then, so the page
 /// otherwise gets it).
 pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>) -> Layout<Msg> {
+    let link_hover = Rc::clone(&widgets.link_hover);
     column().children((
         menus(widgets).fixed(MENU_HEIGHT),
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         hang_bar(widgets).fixed(HANG_HEIGHT),
         build(move |ui| {
+            let link_hover = Rc::clone(&link_hover);
             let hooks = Hooks {
                 is_shortcut: Rc::new(move |key, mods| {
                     keys::is_window_key(key, mods, loading.get())
                 }),
                 clicked: Msg::PageClicked,
                 right_click: Some(Rc::new(Msg::PageMenu)),
+                swallow_right: Some(Rc::new(move || link_hover.get())),
             };
             PageView::new(ui, engine, hooks)
         })
@@ -217,9 +223,7 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
     .bind(&widgets.menu)
 }
 
-/// The popup a right click on the page opens: the page's own commands, then
-/// the ones for the link or picture under the pointer (`app.rs` enables
-/// those only when there is one).
+/// The popup a right click on bare page opens: the page's own commands (`context.rs`).
 pub fn context_menu(ui: &Ui<Msg>) -> Menu<Msg> {
     Menu::context(ui)
         .build(|m| {
@@ -229,11 +233,19 @@ pub fn context_menu(ui: &Ui<Msg>) -> Menu<Msg> {
                 .icon(Lucide::ChevronRight);
             m.item(Command::Reload.id(), "&Reload")
                 .icon(Lucide::RefreshCw);
-            m.separator();
-            m.item(Command::OpenLink.id(), "&Open Link")
-                .icon(Lucide::ExternalLink);
+        })
+        .on_select(|id| Command::from_id(id).map(Msg::Menu))
+}
+
+/// The popup a right click on a link opens. Opening a link in a new tab goes first when tabs
+/// exist.
+pub fn link_menu(ui: &Ui<Msg>) -> Menu<Msg> {
+    Menu::context(ui)
+        .build(|m| {
             m.item(Command::CopyLink.id(), "Copy Link &Address")
                 .icon(Lucide::Link);
+            m.item(Command::OpenLinkInApp.id(), "Open Link in &Another App")
+                .icon(Lucide::ExternalLink);
         })
         .on_select(|id| Command::from_id(id).map(Msg::Menu))
 }

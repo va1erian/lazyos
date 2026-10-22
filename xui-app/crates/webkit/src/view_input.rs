@@ -112,6 +112,7 @@ pub(crate) fn handle<M: 'static>(
     engine: &dyn Engine,
     is_shortcut: &IsShortcut,
     arm: &dyn Fn(),
+    swallow_right: &dyn Fn() -> bool,
     event: &Event,
 ) {
     let Ok(state) = state.try_borrow() else {
@@ -137,6 +138,11 @@ pub(crate) fn handle<M: 'static>(
         } => {
             state.mods.set(modifier_bits(modifiers));
             ui.focus(id);
+            if button == MouseButton::Right && swallow_right() {
+                // The window's menu takes this click; the page never sees it, nor its release.
+                state.swallowed.set(true);
+                return;
+            }
             // The backend turns a quick second press into a double click in
             // place of a press; the page counts clicks itself.
             if state.held.get().is_none() {
@@ -157,6 +163,9 @@ pub(crate) fn handle<M: 'static>(
             button,
             modifiers,
         } => {
+            if button == MouseButton::Right && state.swallowed.replace(false) {
+                return;
+            }
             engine.mouse(
                 MouseKind::Up,
                 button_of(button),

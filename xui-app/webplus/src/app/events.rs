@@ -155,6 +155,8 @@ impl Browser {
         for event in self.mailbox.take_events() {
             match event {
                 Event::Hover(url) => {
+                    self.link_hover
+                        .set(crate::context::link_items(&url).is_some());
                     self.hover = url;
                     self.refresh_status();
                 }

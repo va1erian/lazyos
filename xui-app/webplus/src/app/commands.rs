@@ -8,6 +8,7 @@ use crate::address::{self, START};
 use crate::blocker::site_of;
 use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
+use crate::{context, handoff};
 use crate::hang::Answer as HangAnswer;
 use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
 
@@ -173,14 +174,13 @@ impl Browser {
             Command::Blocker => self.open(BLOCKER),
             Command::ReloadUnblocked => self.reload_unblocked(),
             Command::PageDataInMemory => self.toggle_page_data_in_memory(),
-            Command::OpenLink => {
+            Command::OpenLinkInApp => {
+                // The person's own click, so the hand-off is allowed; the web's links stay the
+                // engine's (the menu only enables this for a scheme it does not load).
                 if let Some(link) = self.context.link().map(str::to_string) {
-                    // As a click does: a page command is run (from our own pages only), anything
-                    // else is opened by the person who chose the menu item.
-                    if PageCommand::parse(&link).is_some() {
-                        self.run_command(&link);
-                    } else {
-                        self.open(&link);
+                    if context::link_items(&link).is_some_and(|items| items.open_in_app) {
+                        let status = handoff::open(self.host.launcher.as_ref(), &link, true);
+                        self.set_status(&status);
                     }
                 }
             }

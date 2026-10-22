@@ -136,6 +136,8 @@ pub struct Browser {
     message: String,
     /// The link under the pointer.
     hover: String,
+    /// Whether that link has a menu of its own (shared with the page view's right click).
+    link_hover: Rc<Cell<bool>>,
     /// A load is under way (shared with the page view: Escape means Stop only then).
     loading: Rc<Cell<bool>>,
     /// The user pressed Stop: the end of the load that follows is a stop, not a failure.
@@ -240,6 +242,7 @@ impl Browser {
             caption: APP_NAME.to_owned(),
             message: String::new(),
             hover: String::new(),
+            link_hover: Rc::clone(&widgets.link_hover),
             loading,
             stopping: false,
             editing: false,
