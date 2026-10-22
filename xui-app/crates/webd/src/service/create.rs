@@ -47,7 +47,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// Whether the user's memory charge is too low to start another web process (a margin of
     /// [`WEB_PROCESS_RESERVE_BYTES`] over the current charge would exceed the limit). `false` when the
     /// host cannot read the charge or reports no limit, so the fixed process cap is then the only gate.
-    fn memory_tight(&self) -> bool {
+    pub(super) fn memory_tight(&self) -> bool {
         match self.queue.memory_charge() {
             Some((used, limit)) if limit > 0 => {
                 used.saturating_add(WEB_PROCESS_RESERVE_BYTES) > limit

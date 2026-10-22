@@ -363,11 +363,14 @@ line, AGENTS.md):
   Reusing a proxy that ever shared a process aborts the UI process (`webkit-views group`). Proven flat over 3016
   create/destroy cycles (`webd-abi-test cycle`). A `webd_engine_view_pid(view)` would still make the self-test's
   process-id guess exact.
-* **Memory-pressure gate (P5).** A full view that would start a new web process is refused with `EDQUOT` once the
-  user's memory charge is within a web process' reserve of the quota (`service/create.rs`, `Service::memory_tight`
-  over `webd_ui_user_memory`), so the child's `exec` is not left to fail with `ENOMEM`. webd refuses the new view
+* **Memory-pressure gate (P5).** A view that would start a new web process (a full view of a new (client,
+  profile) pair, or a client's first live light view) is refused with `EDQUOT` once the user's memory charge is
+  within a web process' reserve of the quota (`service/create.rs`, `Service::memory_tight` over
+  `webd_ui_user_memory`), so the child's `exec` is not left to fail with `ENOMEM`. webd refuses the new view
   rather than evicting a background one (hidden views already get no paints); the fixed cap of 4 web processes per
-  user is the coarser bound.
+  user is the coarser bound for full views. Off when the host cannot read the charge.
+* **A view destroyed mid-launch (P5).** `destroyView` also ends a process that is still launching (a load was
+  asked for and WebKit has no process id yet), which used to run on for nobody behind the parked proxy.
 * **Attack harness (P5).** Two halves run in QEMU: the malicious client (`tools/webd/attack_run.py`,
   `os.lazy.webdattack`: reaches scopes it was not granted, floods input, exhausts the view cap) and the malicious
   page process (`tools/webkit/attack_run.py`, a compromised engine process under webd's child labels). The
