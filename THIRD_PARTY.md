@@ -109,7 +109,8 @@ renders. The rule for what is linked into it (GPLv2-compatible licences only) st
 `python tools/nettls/licenses.py --lazywebplus` passes over its Cargo tree with one
 waiver, `unicode-linebreak` (Apache-2.0 only, in every xui app through xui-canvas).
 Its crates stay declared `GPL-2.0-only OR GPL-3.0-or-later` until a maintainer relicenses
-them (docs/webd-plan.md, open question 8).
+them (docs/webd-plan.md, open question 8); the program links two crates of its own declared GPL-3.0-or-later
+(`xui-webkit-remote`, `xui-webd-client`), so it is distributed as GPL-3.0-or-later.
 
 Two rows are exceptions to the rule above, on purpose:
 

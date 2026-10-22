@@ -252,8 +252,8 @@ made:
   of its own. `WKPageClose` before the release made it worse.
 * **A persistent profile lives as long as the process**, for the same reason, and the children take
   `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
-  its environment when it starts, and one NetworkProcess serves every profile). For LazyWeb+'s one profile
-  that is right. An owner of several (webd) starts the host with `startHostWithChildren` (`profile.cpp`): the
+  its environment when it starts, and one NetworkProcess serves every profile). That suits an owner of one
+  profile (the in-process LazyWeb+ was one). An owner of several (webd, whose client LazyWeb+ now is) starts the host with `startHostWithChildren` (`profile.cpp`): the
   children's folder and an in-memory default cookie database are decided then and never changed, and each
   persistent store's NetworkProcess session opens its own `cookieStorageFile` (`NetworkSessionCurl.cpp`,
   `setCookieDatabase`), so every profile's cookies are in its own jar (`webd-abi-test profiles` proves it).

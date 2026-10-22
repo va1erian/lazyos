@@ -1,5 +1,11 @@
 # LazyWeb+ performance plan: make mainstream sites usable
 
+> **Note (2026-10-22):** since webd's phase P4 ([`webd-plan.md`](webd-plan.md), [`lazywebplus.md`](lazywebplus.md)) LazyWeb+ is a plain
+> xui app and a client of webd. This plan was written for the in-process browser: its program (`lazywebplus-app`), UI process,
+> heartbeat and `INFO:PAINT` counters no longer exist as described, and its measurements are of that design. The client-side
+> pieces (the damage plan, scroll-ahead, bands) are unchanged; the engine side is webd's. The numbers for the client are in
+> `webd-plan.md`, "P4 as built", "Measured".
+
 Status: **draft, 2026-10-13** (rebased on main at #851/#852). Scope: `os.lazy.lazywebplus` ([`lazywebplus.md`](lazywebplus.md)) on the WebKit
 port ([`webkit-port-plan.md`](webkit-port-plan.md)). Out of scope: a GPU or video path,
 WebAssembly, SMP. Method follows [`performance-plan.md`](performance-plan.md): measure first, and keep what was
