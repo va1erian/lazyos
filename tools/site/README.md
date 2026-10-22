@@ -50,7 +50,8 @@ python tools/site/test_site.py                  # the generator's own tests
 `--strict` fails on a link to a file that does not exist and on a `#fragment` (in the
 same page or another) that matches no heading of the page it points to. Images outside
 `docs/` link to GitHub's `raw` URL; bare file names such as `AGENTS.md` are not autolinked. Renaming a doc means fixing its links
-in the same pull request, and CI says which ones. Options: `--out DIR`, `--config
+in the same pull request: `--strict` is not run on pull requests, and a broken link
+fails the build on `main` after the merge. Options: `--out DIR`, `--config
 FILE`, `--base-url /path/` (only for `404.html`, default `/<repo name>/`).
 `GITHUB_REPOSITORY` and `SITE_REF` override the repository and the ref that source
 links point at (`site.toml`: `va1erian/lazyos`, `main`).
@@ -67,7 +68,8 @@ with `actions/deploy-pages`:
   taken from that workflow's newest `abi-reports` artifact (a GitHub artifact expires,
   by default after 90 days); without one the pages are absent and the build warns;
 - deploys happen only from `main`;
-- on a pull request it builds and checks the site without deploying;
+- never for a pull request: the workflow runs only after a merge to `main`, so run
+  `python tools/site/build.py --strict` before you push docs changes;
 - by hand: Actions -> pages -> Run workflow.
 
 A link to a file CI generates (`[generated]` in `site.toml`) is not an error when the
