@@ -19,6 +19,7 @@ use crate::engine::{self, Engine};
 use crate::events::pictures::Offset;
 use crate::events::{Drained, FrameNow, Once, StateNow};
 use crate::fabric::{errno, Fabric};
+use crate::ident::ClientKey;
 use crate::limits::{EVENT_TEXT_BYTES, FULL_BACKOFF_MS, PING_INTERVAL_MS};
 
 /// How an event send ended.
@@ -351,6 +352,21 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         }
     }
 
+    /// The last view of a process key ends the process: the key's group goes with it, so the table does not
+    /// grow with every site a browser visited.
+    pub(super) fn release_key_if_unused(&mut self, owner: ClientKey, key: &str) {
+        let shared = self.views.iter().any(|(_, other)| {
+            other.owner == owner
+                && other
+                    .full
+                    .as_ref()
+                    .is_some_and(|full| full.rules.process_key == key)
+        });
+        if !shared {
+            self.groups.release(owner, key);
+        }
+    }
+
     /// Remove a view: the engine forgets it (unless it already gave it up), the slots unmap, the
     /// client's endpoint closes. An unlabelled client with no view left loses its group numbers; the last view
     /// of a process key releases the key's group.
@@ -372,19 +388,8 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             .map(|full| full.rules.process_key.clone());
         // Slots unmap when the view drops.
         drop(view);
-        // The last view of a process key ends the process: the key's group goes with it, so the table
-        // does not grow with every site a browser visited.
         if let Some(key) = key {
-            let shared = self.views.iter().any(|(_, other)| {
-                other.owner == owner
-                    && other
-                        .full
-                        .as_ref()
-                        .is_some_and(|full| full.rules.process_key == key)
-            });
-            if !shared {
-                self.groups.release(owner, &key);
-            }
+            self.release_key_if_unused(owner, &key);
         }
         if self.views.count_of(owner) == 0 {
             self.groups.idle(owner);

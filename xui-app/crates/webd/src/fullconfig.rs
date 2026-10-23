@@ -241,8 +241,10 @@ pub fn setup(
     }
     // The engine shares an in-memory store only through a live group mate: keyed views of the client's own
     // profile or of a private window would each get a store of their own (no shared cookies between the tabs
-    // of one window). The browser profile on disk is named by its folder, so it is shared across groups. This
-    // also keeps keys, and so the extra processes, to the browser scope.
+    // of one window). The browser profile on disk is named by its folder, so it is shared across groups.
+    if !config.process_key.is_empty() && scope < Scope::Browser {
+        return Err(denied("a process key needs os.lazy.webd.browser.v1"));
+    }
     if !config.process_key.is_empty() && !profile.persistent() {
         return Err(invalid(
             "a process key needs the browser profile kept on disk",

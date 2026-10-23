@@ -242,14 +242,15 @@ and `reattach_slots`). The reply carries the number of the last `Frame` sent, be
 slots may still be queued and, the size being unchanged, would pass for frames of the new ones: the client ignores
 frames up to that number (and bands, which have no number, until a whole frame has been applied).
 
-* **`ViewConfig.process_key`** (field 15, any full scope) places a view in a web process of its own inside the
+* **`ViewConfig.process_key`** (field 15) places a view in a web process of its own inside the
   caller's group: views of one client with the same key share a process, other keys never do, `""` is the default
   group. The engine already groups by number, so the service gives each (client, key) its own number
   (`ident::Groups`); a key can only split the caller's own views, never join another client's. At most 64
   printable ASCII bytes and 32 keys held at once per client (`EDQUOT` past that; the process ceiling binds first
   for live views, the key bound for views the engine lost and the client has not yet destroyed). A key's group is
   released with its last view and its number is never reused, so the table is as large as the sites on screen.
-  Only for the `browser` profile kept on disk (`EINVAL` otherwise, which also keeps keys to the browser scope): the
+  Browser scope only (`EACCES` otherwise: the extra processes are a browser's), and only for the `browser` profile
+  kept on disk (`EINVAL` otherwise): the
   engine shares an in-memory store only through a live group mate, so keyed private windows (or "page data in
   memory" mode) would each get a store of their own; those views stay in one process until the engine can key a
   memory store without the group. The shared download saver counts a client's downloads under its default group,

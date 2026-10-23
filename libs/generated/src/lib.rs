@@ -21461,7 +21461,8 @@ pub mod os_lazy_webd_view_v1 {
     /// views with other keys never do (tabs of one site together, other
     /// sites apart). Opaque to webd: at most 64 printable ASCII bytes, ""
     /// is the client's default group. It can only split the caller's own
-    /// views; it never joins another client's. Only for the `browser`
+    /// views; it never joins another client's. Browser scope only
+    /// (`EACCES` otherwise), and only for the `browser`
     /// profile kept on disk (`EINVAL` otherwise: an in-memory store is
     /// shared only through a live group mate, so keyed private windows
     /// would share no cookies). At most 32 keys at once per client

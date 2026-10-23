@@ -469,7 +469,7 @@ keeps the shared ids, and the `explain` rows and `midlc --rhai-api` output are r
 
 | Addition | Id | Gate | Phase |
 |---|---|---|---|
-| `ViewConfig.process_key: String` | 15 | any full view, ignored by light views | B1 |
+| `ViewConfig.process_key: String` | 15 | browser scope, `browser` profile on disk; light views have no field | B1 (built in webd) |
 | `ViewConfig.user_agent: String` (a full agent, at most 256 bytes), `SetUserAgent(view, user_agent)` | field 16, method 46 | browser scope | B1 (built in webd) |
 | `ViewConfig.credentials: Bool` | 17 | browser scope | B3 |
 | `ViewConfig.icons: Bool` | 18 | browser scope | B2 |
@@ -477,8 +477,8 @@ keeps the shared ids, and the `explain` rows and `midlc --rhai-api` output are r
 | `DataUsage(view, request, offset)` | method 41 | browser scope, `browser` profile | B2 |
 | `ClearData(view, request, kinds, sites, since)` | method 42 | browser scope, `browser` profile | B2 |
 | `SetCookiePolicy(view, policy, exceptions)` | method 43 | browser scope | B2 |
-| `Recover` with a group flag (a new method, `RecoverGroup(view)`, so method 17 keeps its shape) | method 44 | full view | B1 |
-| `DetachSlots(view)` | method 45 | full view | B1 |
+| `Recover` with a group flag (a new method, `RecoverGroup(view)`, so method 17 keeps its shape) | method 44 | full view | B1 (webd service built; engine half unverified) |
+| `DetachSlots(view) -> (seq)` (the reply names the last frame sent, so frames queued before it can be ignored) | method 45 | full view | B1 (built in webd) |
 | `Favicon(view, page_url, width, height, rgba)` | event 126 | an `icons` view | B2 |
 | `FormSubmitted(view, origin, page_url, username, password, new_password)` | event 127 | a `credentials` view | B3 |
 | `DataCleared(view, request, ok)` | event 128 | browser scope | B2 |

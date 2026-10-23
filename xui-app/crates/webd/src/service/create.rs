@@ -153,11 +153,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         };
         let deltas = setup.rules.deltas;
         let mut view = View::new(client, args.events, args.width, args.height);
+        let key = setup.rules.process_key.clone();
         view.full = Some(Box::new(FullView::new(setup.rules)));
-        let id = self
-            .views
-            .insert(view)
-            .ok_or(Refusal::new(errno::ENOSPC, "no view id left"))?;
+        let Some(id) = self.views.insert(view) else {
+            // Nothing holds the key's group now: it goes, as it would with the key's last view.
+            self.release_key_if_unused(client, &key);
+            return Err(Refusal::new(errno::ENOSPC, "no view id left"));
+        };
         claim(pending, Object::Channel(args.events));
         // The rules are in place before the engine can ask about the view's first navigation.
         self.queue.rules().register(id, engine_rules);

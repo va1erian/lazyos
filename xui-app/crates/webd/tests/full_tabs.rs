@@ -310,10 +310,10 @@ fn recover_group_reaches_the_engine_for_the_callers_live_view_only() {
 }
 
 #[test]
-fn a_process_key_needs_the_browser_profile_on_disk() {
+fn a_process_key_needs_the_browser_scope_and_the_profile_on_disk() {
     // Why: the engine shares an in-memory store only through a live group mate, so keyed views of a private
     // window (or of an app's own profile) would each get a store of their own and share no cookies. The
-    // refusal also keeps keys, and the extra processes they start, to the browser scope.
+    // other scopes may not start the extra processes keys cause at all.
     let mut fx = Fx::new("tab-key-memory");
     let app = origin(7);
     let private = wire::ViewConfig {
@@ -341,7 +341,7 @@ fn a_process_key_needs_the_browser_profile_on_disk() {
         };
         assert_eq!(
             fx.create_view(app, via, config, 4, 4),
-            Err(EINVAL),
+            Err(EACCES),
             "{via:?}"
         );
     }

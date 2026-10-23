@@ -141,3 +141,37 @@ fn frames_queued_before_a_detach_cannot_paint_the_slots_attached_after_it() {
     view.poll();
     assert_eq!(view.picture().rgba(), &long_frame(32, 24, 11)[..]);
 }
+
+#[test]
+fn bands_painted_after_a_reattach_are_given_back_even_though_they_are_not_read() {
+    // Why: until a whole frame is applied, bands cannot be told from stale ones and are not read; but a band
+    // in a slot attached since the detach holds that slot at webd until it is released, and two lost
+    // releases would stop bands for good.
+    let web = web();
+    let mut view = web.view(7, Scope::Browser, tab("a.test"));
+    view.create(32, 24).expect("create");
+    let id = view.view_id().unwrap();
+    let queue = web.world.borrow().queue.clone();
+    queue.frame(id, &long_frame(32, 24, 0), 32, 24);
+    view.poll();
+    view.detach_slots().unwrap();
+    view.reattach_slots().unwrap();
+    let bands = |view: &mut support::full::Full| {
+        (0..4)
+            .flat_map(|_| view.poll())
+            .filter(|event| matches!(event, FullEvent::Band(_)))
+            .count()
+    };
+    for round in 0..4 {
+        let doc_y = 24 + 20 * round;
+        queue.band(id, 0, doc_y, 32, 20, &long_frame(32, 20, doc_y));
+        queue.band(id, 0, doc_y + 20, 32, 20, &long_frame(32, 20, doc_y + 20));
+        assert_eq!(bands(&mut view), 0, "round {round}: a band was read early");
+    }
+    // The whole frame ends the wait, and both band slots are free again to carry rows.
+    queue.frame(id, &long_frame(32, 24, 5), 32, 24);
+    view.poll();
+    queue.band(id, 0, 24, 32, 20, &long_frame(32, 20, 24));
+    queue.band(id, 0, 44, 32, 20, &long_frame(32, 20, 44));
+    assert_eq!(bands(&mut view), 2);
+}

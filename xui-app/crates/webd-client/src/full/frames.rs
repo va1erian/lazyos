@@ -225,11 +225,15 @@ impl<T: ScopedTransport> FullWebView<T> {
     /// Copy a band out of its slot and give the slot back. A band that does not fit its slot (a
     /// stale width) is dropped, and released: band slots are not detached by anything but `Resize`.
     fn band(&mut self, band: wire::BandArgs, out: &mut Vec<FullEvent>) {
+        let index = band.slot as usize;
         if self.bands_wait {
             self.counters.ignored += 1;
+            // A band in a slot attached since the detach is webd's to wait on, not a stale one: give it back.
+            if index >= FRAME_SLOTS && self.slots.get(index).is_some_and(Option::is_some) {
+                self.owe_release(band.slot);
+            }
             return;
         }
-        let index = band.slot as usize;
         let bytes = band.width as usize * band.height.min(BAND_ROWS) as usize * 4;
         let mem = (index >= FRAME_SLOTS)
             .then(|| self.slots.get(index).and_then(Option::as_ref))
