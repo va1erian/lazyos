@@ -11,7 +11,9 @@ use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::String;
 
-use rhai::{Dynamic, Engine, FnPtr, FuncRegistration, ImmutableString, Map, Module, NativeCallContext, INT};
+use rhai::{
+    Dynamic, Engine, FnPtr, FuncRegistration, ImmutableString, Map, Module, NativeCallContext, INT,
+};
 
 use super::bus::Wait;
 use super::runloop;

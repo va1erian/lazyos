@@ -228,9 +228,35 @@ cookies and storage nor its process (`webd-abi-test store`; found in the review 
 processes start in `profiles/` with `CURL_COOKIE_JAR_PATH=:memory:`, decided once at start
 (`webd_engine_start_host`): each persistent profile's cookies are in its own file, which WebKit's curl session
 opens per data store (`NetworkSessionCurl.cpp`), never in another's (`webd-abi-test profiles`, and the harness
-below). Views of one client and one profile share a web process; at most **4 web processes per user** for full
-views (a new (client, profile) pair past that is `EDQUOT`; a client's own profile and its private windows count as
-two).
+below). Views of one client, one profile and one **process key** share a web process (the key is
+`ViewConfig.process_key`, `""` by default; see "Tabs and the user agent" below); at most **16 web processes per
+user** for full views, and below that the gate is the user's memory charge (a new (client, profile, key) triple past
+either is `EDQUOT`; a client's own profile and its private windows count as two).
+
+**Tabs and the user agent** (the webd half of [`lazywebplus-plan.md`](lazywebplus-plan.md) B1). A browser holds a
+view per tab, so a client that makes views through `os.lazy.webd.browser.v1` may hold **64 views** (the other
+scopes 8); the per-client slot budget (512 MiB) is unchanged, which is why a tab not on screen calls
+`DetachSlots` (method 45: every slot is detached as `Resize` does, without a resize and the layout it may cost) and
+the tab coming back attaches slots again and asks for a whole frame (`xui_webd_client::FullWebView::detach_slots`
+and `reattach_slots`).
+
+* **`ViewConfig.process_key`** (field 15, any full scope) places a view in a web process of its own inside the
+  caller's group: views of one client with the same key share a process, other keys never do, `""` is the default
+  group. The engine already groups by number, so the service gives each (client, key) its own number
+  (`ident::Groups`); a key can only split the caller's own views, never join another client's. At most 64
+  printable ASCII bytes and 32 keys held at once per client (`EDQUOT` past that; the process ceiling binds first
+  for live views, the key bound for views the engine lost and the client has not yet destroyed). A key's group is
+  released with its last view and its number is never reused, so the table is as large as the sites on screen.
+* **`RecoverGroup`** (method 44) ends the web process of a view that shares it (`Recover` refuses that): no page is
+  reloaded, every view in the process is reported as ended by request (`ViewLost`, `Other`) and the client makes its
+  views again (`View::recoverGroup`, marker `WEBPROCESS:RECOVER:GROUP:<pid>:<views>`).
+* **`ViewConfig.user_agent`** (field 16, browser scope only) replaces the engine's user agent (`user_agent_suffix`
+  only appends to it); at most 256 printable ASCII bytes, not together with a suffix. **`SetUserAgent`** (method 46)
+  changes it from the next load on and `""` restores the agent the view was made with; it is allowed only for a
+  view made through the browser scope with a `user_agent` or a `user_agent_suffix`, the views whose site-specific
+  quirks (which put a fixed agent on every request) are off (`webkit/README.md`, "User agent").
+* Not built yet: the parked-view pool for full views (a closed tab still leaves a proxy), `webd_engine_view_pid`,
+  and the window's tabs (`xui-webplus`).
 
 **Navigation policy** (`policy.rs`, decided on WebKit's thread from rules the service registered,
 `events/rules.rs`): `about:`, `data:`, `blob:` always load; `http(s)` per the scheme policy (`Origins`: the listed
@@ -400,7 +426,7 @@ line, AGENTS.md):
   profile) pair, or a client's first live light view) is refused with `EDQUOT` once the user's memory charge is
   within a web process' reserve of the quota (`service/create.rs`, `Service::memory_tight` over
   `webd_ui_user_memory`), so the child's `exec` is not left to fail with `ENOMEM`. webd refuses the new view
-  rather than evicting a background one (hidden views already get no paints); the fixed cap of 4 web processes per
+  rather than evicting a background one (hidden views already get no paints); the ceiling of 16 web processes per
   user is the coarser bound for full views. Off when the host cannot read the charge.
 * **A view destroyed mid-launch (P5).** `destroyView` also ends a process that is still launching (a load was
   asked for and WebKit has no process id yet), which used to run on for nobody behind the parked proxy.

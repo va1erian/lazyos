@@ -16,6 +16,7 @@ use support::origin;
 use xui_webd::engine::EngineConfig;
 use xui_webd::fabric::errno::*;
 use xui_webd::ident::Origin;
+use xui_webd::limits::WEB_PROCESSES_PER_USER;
 use xui_webd::recording::Call;
 
 fn private() -> wire::ViewConfig {
@@ -82,15 +83,19 @@ fn a_clients_own_profile_and_private_window_count_as_two_web_processes() {
     // match, a client's own view and its private window are two web processes; a second private window
     // joins the first's.
     let mut fx = Fx::new("private-process-count");
-    let apps: Vec<Origin> = (1..=4).map(origin).collect();
+    let apps: Vec<Origin> = (1..=WEB_PROCESSES_PER_USER as u32).map(origin).collect();
     fx.view(apps[0], Via::Browser, web(), 4, 4);
     fx.view(apps[0], Via::Browser, private(), 4, 4);
     // A second private window of the client joins its first: no new process.
     fx.view(apps[0], Via::Browser, private(), 4, 4);
-    fx.view(apps[1], Via::Net, web(), 4, 4);
-    fx.view(apps[2], Via::Net, web(), 4, 4);
-    // Four processes now: the client's two, and two more.
-    assert_eq!(fx.create_view(apps[3], Via::Net, web(), 4, 4), Err(EDQUOT));
+    // The rest of the ceiling is one process for each of the other clients.
+    let others = &apps[1..WEB_PROCESSES_PER_USER - 1];
+    for app in others {
+        fx.view(*app, Via::Net, web(), 4, 4);
+    }
+    // The ceiling is reached: the client's two, and one for each of the others.
+    let last = apps[WEB_PROCESSES_PER_USER - 1];
+    assert_eq!(fx.create_view(last, Via::Net, web(), 4, 4), Err(EDQUOT));
     assert!(fx
         .create_view(apps[0], Via::Browser, private(), 4, 4)
         .is_ok());

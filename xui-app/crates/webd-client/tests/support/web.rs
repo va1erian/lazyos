@@ -12,6 +12,8 @@ use xui_webd::engine::{Engine, EngineConfig, EngineEvents};
 use xui_webd::events::{EventQueue, PageNow};
 use xui_webd::policy::Verdict;
 
+pub use super::web_pages::long_frame;
+
 /// The fake server's address.
 pub const BASE: &str = "http://web.test:18081";
 /// How tall the `/long` page is, in rows.
@@ -20,23 +22,6 @@ pub const LONG_ROWS: i32 = 3000;
 pub const NOTCH_ROWS: i32 = 40;
 /// Bytes of `/file.bin`.
 pub const FILE_BYTES: usize = 4096;
-
-/// The pixel of row `row` of the `/long` page: every row is different, so a misplaced row shows.
-pub fn long_row(row: i32) -> [u8; 4] {
-    [(row & 0xff) as u8, ((row >> 8) & 0xff) as u8, 0x40, 0xff]
-}
-
-/// The `/long` page at scroll offset `y`, `w` x `h`.
-pub fn long_frame(w: i32, h: i32, y: i32) -> Vec<u8> {
-    let mut out = Vec::with_capacity((w * h * 4) as usize);
-    for row in 0..h {
-        let pixel = long_row(y + row);
-        for _ in 0..w {
-            out.extend_from_slice(&pixel);
-        }
-    }
-    out
-}
 
 /// What the fake knows of one view.
 #[derive(Default)]
@@ -68,6 +53,9 @@ struct State {
     /// `(view, reload)` of `recover`, `(view, origin)` of `notify_forget`, `(view, origin, answer)`
     /// of `notify_permission`.
     recovers: Vec<(u64, bool)>,
+    /// `view` of `recover_group`, `(view, agent)` of `set_user_agent`.
+    group_recovers: Vec<u64>,
+    agents: Vec<(u64, String)>,
     forgets: Vec<(u64, String)>,
     permissions: Vec<(u64, String, i32)>,
 }
@@ -113,6 +101,14 @@ impl FakeWeb {
 
     pub fn recovers(&self) -> Vec<(u64, bool)> {
         self.lock().recovers.clone()
+    }
+
+    pub fn group_recovers(&self) -> Vec<u64> {
+        self.lock().group_recovers.clone()
+    }
+
+    pub fn agents(&self) -> Vec<(u64, String)> {
+        self.lock().agents.clone()
     }
 
     pub fn forgets(&self) -> Vec<(u64, String)> {
@@ -441,6 +437,14 @@ impl Engine for FakeWeb {
 
     fn recover(&self, view: u64, reload: bool) {
         self.lock().recovers.push((view, reload));
+    }
+
+    fn recover_group(&self, view: u64) {
+        self.lock().group_recovers.push(view);
+    }
+
+    fn set_user_agent(&self, view: u64, agent: &str) {
+        self.lock().agents.push((view, agent.to_owned()));
     }
 
     fn notify_forget(&self, view: u64, origin: &str) {

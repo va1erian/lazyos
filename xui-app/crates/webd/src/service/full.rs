@@ -11,7 +11,7 @@ use crate::config::{c_string_safe, Refusal};
 use crate::engine::Engine;
 use crate::events::rules::BlockSettings;
 use crate::fabric::{errno, Fabric};
-use crate::fullconfig::Rules;
+use crate::fullconfig::{self, Rules};
 use crate::ident::ClientKey;
 use crate::limits::{
     EVENT_TEXT_BYTES, EXCEPTIONS_MAX, EXCEPTION_BYTES_MAX, LIST_NAME_BYTES_MAX, RULES_BYTES_MAX,
@@ -124,6 +124,27 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 let args = wire::decode_recover_args(body).map_err(bad)?;
                 self.rules_of(client, args.view)?;
                 self.engine.recover(args.view, args.reload);
+            }
+            wire::METHOD_RECOVERGROUP => {
+                let args = wire::decode_recover_group_args(body).map_err(bad)?;
+                self.rules_of(client, args.view)?;
+                self.engine.recover_group(args.view);
+            }
+            wire::METHOD_DETACHSLOTS => {
+                let args = wire::decode_detach_slots_args(body).map_err(bad)?;
+                let view = live(&mut self.views, client, true, args.view)?;
+                // As `Resize` does, without a new size: the picture is whole again when the app attaches
+                // slots and asks for it.
+                view.slots.detach_all();
+                view.want_frame();
+            }
+            wire::METHOD_SETUSERAGENT => {
+                let args = wire::decode_set_user_agent_args(body).map_err(bad)?;
+                fullconfig::user_agent(&args.user_agent)?;
+                if !self.rules_of(client, args.view)?.agent_settable {
+                    return Err(NOT_GIVEN);
+                }
+                self.engine.set_user_agent(args.view, &args.user_agent);
             }
             wire::METHOD_DOWNLOADCANCEL => {
                 let args = wire::decode_download_cancel_args(body).map_err(bad)?;

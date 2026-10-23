@@ -37,6 +37,8 @@ extern "C" {
     fn webd_engine_blocking_forget(view: u64, list: *const c_char);
     // P4.
     fn webd_engine_recover(view: u64, reload: c_int);
+    fn webd_engine_recover_group(view: u64);
+    fn webd_engine_set_user_agent(view: u64, agent: *const c_char);
     fn webd_engine_notify_forget(view: u64, origin: *const c_char);
 }
 
@@ -134,6 +136,15 @@ pub fn blocking_forget(view: u64, list: &str) {
 pub fn recover(view: u64, reload: bool) {
     // SAFETY: plain values; the engine only queues work (webd_abi.h).
     unsafe { webd_engine_recover(view, c_int::from(reload)) }
+}
+pub fn recover_group(view: u64) {
+    // SAFETY: plain values; the engine only queues work (webd_abi.h).
+    unsafe { webd_engine_recover_group(view) }
+}
+pub fn set_user_agent(view: u64, agent: &str) {
+    let agent = c_string(agent);
+    // SAFETY: the C string lives across the call and the engine copies what it keeps (webd_abi.h: each call only queues work).
+    unsafe { webd_engine_set_user_agent(view, agent.as_ptr()) }
 }
 pub fn notify_forget(view: u64, origin: &str) {
     let origin = c_string(origin);

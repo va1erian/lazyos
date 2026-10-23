@@ -2448,6 +2448,21 @@
         "oneway": false
       },
       {
+        "name": "RecoverGroup",
+        "id": 44,
+        "oneway": false
+      },
+      {
+        "name": "DetachSlots",
+        "id": 45,
+        "oneway": false
+      },
+      {
+        "name": "SetUserAgent",
+        "id": 46,
+        "oneway": false
+      },
+      {
         "name": "Frame",
         "id": 100,
         "oneway": true

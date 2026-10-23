@@ -754,8 +754,11 @@ client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `
 * WebKit keeps one notification-permission record for the whole context, so a site allowed in the browser profile
   reads as `Notification.permission == "granted"` in another app's profile, where webd then refuses the
   notification (it posts nothing for a profile that did not allow it). Documented, not fixed.
-* **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
-  `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs do not reach the cap of 4.
+* **No tabs.** *(2026-10-23: webd's half is built, see [`webd.md`](webd.md) "Tabs and the user agent": a
+  `process_key` per site, 16 processes below the memory gate, 64 views for the browser scope, `DetachSlots`,
+  `RecoverGroup`. The text below is what the tabs work started from.)* Each tab would be a view of the same (client,
+  profile) group, sharing one web process, hidden ones `SetVisible(false)`; the web process cap counts (client,
+  profile) pairs, so tabs do not reach the cap of 4.
   Missing: the window chrome for tabs, a way to stop closed tabs leaving a parked proxy each (P5's pool covers
   light views only: a tab is a full view and a related page), and a recovery for a hung tab, since `recover` refuses a process other views share (a hung tab would
   need its group's views made again).

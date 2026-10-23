@@ -214,7 +214,7 @@ static bool sameViewClass(const ViewConfig& a, const ViewConfig& b)
         && a.light == b.light && a.noNetwork == b.noNetwork && a.storeKind == b.storeKind
         && a.features == b.features && a.configured == b.configured && a.scripts == b.scripts
         && a.colorScheme == b.colorScheme && a.defaultFontSize == b.defaultFontSize
-        && a.userStyle == b.userStyle && a.userAgentSuffix == b.userAgentSuffix;
+        && a.userStyle == b.userStyle && a.userAgentSuffix == b.userAgentSuffix && a.userAgent == b.userAgent;
 }
 
 // The pool's capacity: a client reuses the same few classes (its own profile, a private one, the
@@ -331,8 +331,8 @@ View* createView(const ViewConfig& config, ViewSink* sink)
             return nullptr;
         }
         view.page = WKViewGetPage(view.view);
-        if (!config.light && config.configured && !config.userAgentSuffix.empty())
-            applyUserAgentSuffix(view);
+        if (!config.light && config.configured && (!config.userAgentSuffix.empty() || !config.userAgent.empty()))
+            applyUserAgent(view);
     }
 
     WKViewClientV0 viewClient = { };
@@ -449,6 +449,27 @@ void View::recover(bool reload)
     recoverReload = reload;
     say("WEBPROCESS:RECOVER:%d:%s", static_cast<int>(WKPageGetProcessIdentifier(page)), reload ? "reload" : "stop");
     // The termination comes back as webProcessDidTerminate (clients.cpp), which carries on.
+    WKPageTerminate(page);
+}
+
+void View::recoverGroup()
+{
+    if (!page)
+        return;
+    const WKProcessID process = WKPageGetProcessIdentifier(page);
+    if (process <= 0)
+        return;
+    // Every view in the process hears of its end (webProcessDidTerminate): the ones that asked for nothing are
+    // marked as the initiator is, so each takes the "stopped on request" way (no reload: reloading into a process
+    // that others share aborted the UI process, see View::recover) and webd reports them with WEBD_LOST_OTHER.
+    const std::vector<View*> mates = processMates(*this);
+    for (View* mate : mates) {
+        mate->recovering = true;
+        mate->recoverReload = false;
+    }
+    recovering = true;
+    recoverReload = false;
+    say("WEBPROCESS:RECOVER:GROUP:%d:%d", static_cast<int>(process), static_cast<int>(mates.size() + 1));
     WKPageTerminate(page);
 }
 

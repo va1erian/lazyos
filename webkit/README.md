@@ -374,6 +374,13 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   (`WebPagePlayStation.cpp`, `platformUserAgent`), so `WKPageSetApplicationNameForUserAgent` never reached a
   request; and it would append `/<WebKit version>` (`UserAgentPlayStation.cpp`). A view with a suffix has the
   quirks off and WebKit's agent, a space and the suffix as its custom agent.
+* *User agent* (`webd_view_config.user_agent`, 2026-10-23). At most 256 printable ASCII bytes (else
+  `CONFIG:IGNORED:user_agent`); the service never sets it together with a suffix. The view has the quirks off for
+  the same reason and `WKPageSetCustomUserAgent` is the text itself. `webd_engine_set_user_agent` changes it from the
+  next load on (`""` restores the one the view was made with) and is ignored, with `CONFIG:IGNORED:set_user_agent`,
+  for a view made with neither an agent nor a suffix. `webd_engine_recover_group` ends a web process other views
+  share (`WEBPROCESS:RECOVER:GROUP`), marking every view in it as stopped on request. Written without a build
+  volume to run it: `webd-abi-test` has no case for either call yet.
 * *Held navigations* (`WEBD_VERDICT_ASK`): `ViewSink::navigateRequest` gets a per-view request id (from 1,
   never reused) and `main_frame` (the main frame's navigation, or a new window's: a `target=_blank` link is
   asked with `main_frame = 1` before `webd_ui_new_window`; `window.open` is not asked at all, WebKit goes

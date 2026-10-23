@@ -293,6 +293,11 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         self.views.usage()
     }
 
+    /// The process keys `client` holds a group for (for tests and traces): one per site with a view.
+    pub fn process_keys(&self, client: ClientKey) -> usize {
+        self.groups.keys_of(client)
+    }
+
     /// The group the service gave `client`, if it has one (for tests and traces).
     pub fn group_of(&self, client: ClientKey) -> Option<i32> {
         self.groups.get(client)

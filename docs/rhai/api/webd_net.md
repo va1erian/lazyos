@@ -31,6 +31,8 @@ Not callable from a script (the request carries a kernel object): `CreateView`.
 | `deltas` | `Bool` | bool |
 | `dialogs` | `Bool` | bool |
 | `notify_in_client` | `Bool` | bool |
+| `process_key` | `String` | string |
+| `user_agent` | `String` | string |
 
 ```rhai
 let value = sys::webd_net::new_view_config();

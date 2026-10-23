@@ -287,6 +287,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
             memory_only: false,
             deltas: true,
             user_agent_suffix: "LazyTest/1".into(),
+            user_agent: String::new(),
             no_network: false,
             private_store: false,
         }
@@ -322,6 +323,7 @@ fn the_engine_gets_the_config_the_scope_and_the_profile_decide() {
             memory_only: true,
             deltas: false,
             user_agent_suffix: String::new(),
+            user_agent: String::new(),
             no_network: true,
             private_store: false,
         }

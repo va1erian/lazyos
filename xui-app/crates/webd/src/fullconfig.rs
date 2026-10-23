@@ -25,7 +25,9 @@ use crate::engine::{
     FEATURE_NOTIFICATIONS, FEATURE_PAGE_UI, FEATURE_POLICY,
 };
 use crate::fabric::errno::{EACCES, EINVAL, ENOTSUP};
-use crate::limits::{ORIGINS_MAX, ORIGIN_BYTES_MAX, USER_AGENT_SUFFIX_MAX};
+use crate::limits::{
+    ORIGINS_MAX, ORIGIN_BYTES_MAX, PROCESS_KEY_BYTES_MAX, USER_AGENT_MAX, USER_AGENT_SUFFIX_MAX,
+};
 use crate::policy::{origin, Handoff, Policy, Schemes};
 
 /// The scope a `CreateView` came through: the interface of the request.
@@ -88,6 +90,11 @@ pub struct Rules {
     pub blocking: bool,
     /// Where downloads go (`downloads` and the browser profile), else none.
     pub downloads: Option<PathBuf>,
+    /// `ViewConfig.process_key`: which of the client's web processes the view shares (`""`: the default).
+    pub process_key: String,
+    /// `SetUserAgent` may change the view's agent: made through the browser scope with a user agent or a
+    /// suffix (the only views the engine takes the site quirks, which fix an agent, away from).
+    pub agent_settable: bool,
 }
 
 /// A full view's engine configuration and rules.
@@ -135,6 +142,18 @@ fn origins(list: &[String]) -> Result<Vec<String>, Refusal> {
             origin(text).ok_or(invalid("an origin is not scheme://host[:port]"))
         })
         .collect()
+}
+
+/// Printable ASCII (space to `~`), at most `max` bytes: what a user agent or a process key may be.
+fn printable(text: &str, max: usize) -> bool {
+    text.len() <= max && text.bytes().all(|b| (0x20..0x7f).contains(&b))
+}
+
+/// A `SetUserAgent` text, checked like the config's.
+pub fn user_agent(text: &str) -> Result<(), Refusal> {
+    printable(text, USER_AGENT_MAX)
+        .then_some(())
+        .ok_or(invalid("user agent is not short printable ASCII"))
 }
 
 fn path_text(path: &Path) -> Result<String, Refusal> {
@@ -204,8 +223,21 @@ pub fn setup(
         ));
     }
     let suffix = &config.user_agent_suffix;
-    if suffix.len() > USER_AGENT_SUFFIX_MAX || !suffix.bytes().all(|b| (0x20..0x7f).contains(&b)) {
+    if !printable(suffix, USER_AGENT_SUFFIX_MAX) {
         return Err(invalid("user agent suffix is not short printable ASCII"));
+    }
+    let agent = &config.user_agent;
+    user_agent(agent)?;
+    if !agent.is_empty() && scope < Scope::Browser {
+        return Err(denied("a user agent needs os.lazy.webd.browser.v1"));
+    }
+    if !agent.is_empty() && !suffix.is_empty() {
+        return Err(invalid("a user agent and a user agent suffix together"));
+    }
+    // A key names no one else's group (the service pairs it with the caller), so any printable text
+    // does; it is opaque to webd and to the engine, which sees only the number the service gives it.
+    if !printable(&config.process_key, PROCESS_KEY_BYTES_MAX) {
+        return Err(invalid("process key is not short printable ASCII"));
     }
     // A private window's store is in memory and its group's own: given the profile's folder, the engine
     // would key one memory store by it and keep it for every client's private windows for the session.
@@ -249,6 +281,7 @@ pub fn setup(
             memory_only: !profile.persistent(),
             deltas: config.deltas,
             user_agent_suffix: suffix.clone(),
+            user_agent: agent.clone(),
             no_network: schemes == Schemes::DataOnly,
             // The client's own profile and its private windows are both in memory in the client's one
             // group; only this tells the engine to keep them in different stores and web processes.
@@ -270,6 +303,8 @@ pub fn setup(
         notify_in_client: config.notifications && config.notify_in_client,
         blocking: config.blocking,
         downloads,
+        process_key: config.process_key.clone(),
+        agent_settable: scope == Scope::Browser && (!agent.is_empty() || !suffix.is_empty()),
     };
     Ok(Setup { engine, rules })
 }

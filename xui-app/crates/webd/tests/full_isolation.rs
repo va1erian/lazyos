@@ -14,6 +14,7 @@ use xui_webd::engine::{EngineEvents, LOST_CRASHED};
 use xui_webd::events::PageNow;
 use xui_webd::fabric::errno::*;
 use xui_webd::ident::Origin;
+use xui_webd::limits::WEB_PROCESSES_PER_USER;
 
 #[test]
 fn light_calls_on_a_full_view_and_full_calls_on_a_light_view_find_no_such_view() {
@@ -92,6 +93,9 @@ fn a_full_view_of_another_client_is_unusable_and_looks_like_one_that_does_not_ex
         fx.stop(bob, view),
         fx.recover(bob, view, true),
         fx.recover(bob, view, false),
+        fx.recover_group(bob, view),
+        fx.detach_slots(bob, view),
+        fx.set_user_agent(bob, view, "Agent/1"),
         fx.notify_forget(bob, view, "https://example.com"),
         fx.notify_state(bob, view, 1, 1),
         fx.back(bob, view),
@@ -172,17 +176,22 @@ fn events_go_out_as_the_interface_the_view_was_made_through() {
 }
 
 #[test]
-fn a_user_holds_four_web_processes_one_per_client_and_profile() {
+fn a_user_holds_a_ceiling_of_web_processes_one_per_client_and_profile() {
     // Why: a web process costs about 107 MiB under one user memory quota; the processes are the
-    // distinct (client, profile) pairs among a user's full views.
+    // distinct (client, profile, process key) triples among a user's full views.
     let mut fx = Fx::new("web-process-cap");
-    let apps: Vec<Origin> = (1..=6).map(origin).collect();
+    let apps: Vec<Origin> = (1..=WEB_PROCESSES_PER_USER as u32 + 2)
+        .map(origin)
+        .collect();
     let mut first = Vec::new();
-    for app in &apps[..4] {
+    for app in &apps[..WEB_PROCESSES_PER_USER] {
         first.push(fx.view(*app, Via::Net, web(), 4, 4));
     }
     let handles = fx.fabric.open_handles();
-    assert_eq!(fx.create_view(apps[4], Via::Net, web(), 4, 4), Err(EDQUOT));
+    assert_eq!(
+        fx.create_view(apps[WEB_PROCESSES_PER_USER], Via::Net, web(), 4, 4),
+        Err(EDQUOT)
+    );
     assert_eq!(
         fx.fabric.open_handles(),
         handles,
@@ -206,7 +215,10 @@ fn a_user_holds_four_web_processes_one_per_client_and_profile() {
     );
     // Light views are not counted, nor do they count a pair.
     let light_config = light::LightConfig::default();
-    assert!(fx.rig.create(apps[4], light_config, 4, 4).is_ok());
+    assert!(fx
+        .rig
+        .create(apps[WEB_PROCESSES_PER_USER], light_config, 4, 4)
+        .is_ok());
     // Another user has a cap of its own.
     let other_user = Origin {
         uid: 1001,
@@ -215,14 +227,22 @@ fn a_user_holds_four_web_processes_one_per_client_and_profile() {
     assert!(fx.create_view(other_user, Via::Net, web(), 4, 4).is_ok());
 
     // A view the engine gave up holds no process.
-    fx.queue.view_lost(first[3].0, LOST_CRASHED);
+    fx.queue
+        .view_lost(first[WEB_PROCESSES_PER_USER - 1].0, LOST_CRASHED);
     fx.pump(0);
-    assert!(fx.create_view(apps[4], Via::Net, web(), 4, 4).is_ok());
+    assert!(fx
+        .create_view(apps[WEB_PROCESSES_PER_USER], Via::Net, web(), 4, 4)
+        .is_ok());
     // ...so its owner's next view of the pair is a new process, and over the cap again.
-    assert_eq!(fx.create_view(apps[3], Via::Net, web(), 4, 4), Err(EDQUOT));
+    assert_eq!(
+        fx.create_view(apps[WEB_PROCESSES_PER_USER - 1], Via::Net, web(), 4, 4),
+        Err(EDQUOT)
+    );
     // Ending a client's last view of a pair frees the process.
     fx.destroy_view(apps[1], first[1].0).unwrap();
-    assert!(fx.create_view(apps[3], Via::Net, web(), 4, 4).is_ok());
+    assert!(fx
+        .create_view(apps[WEB_PROCESSES_PER_USER - 1], Via::Net, web(), 4, 4)
+        .is_ok());
     assert_eq!(fx.fabric.double_closes(), 0);
 }
 

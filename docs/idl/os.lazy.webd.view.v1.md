@@ -56,8 +56,11 @@ dialogs in 10 seconds per view: more are dismissed without asking). A
 notification permission request waits for `NotifyPermission`.
 
 Limits (`xui-app/crates/webd/src/limits.rs`) are the light interface's,
-plus: at most 4 web processes per user for full views (a view of a new
-app or profile past that is `EDQUOT`), at most 64 origins of at most 256
+plus: at most 16 web processes per user for full views, and a view that
+would start one while the user's memory charge cannot hold it is `EDQUOT`
+(a view of a new app, profile or `process_key` past that is `EDQUOT`); at
+most 64 views for a client with the browser scope (8 otherwise); at most
+32 `process_key`s at once per client; at most 64 origins of at most 256
 bytes, at most 64 blocking exceptions, a URL at most 8 KiB, at most 256
 downloads per profile in a session, a rule list at most 32 MiB. Failures
 reply with the standard error field (id 15).
@@ -95,6 +98,9 @@ reply with the standard error field (id 15).
 | BlockingForget | 37 | sync | `(view: U64, list: String) -> ()` |
 | NotifyForget | 38 | sync | `(view: U64, origin: String) -> ()` |
 | NotifyState | 39 | sync | `(view: U64, notification: U64, state: U32) -> ()` |
+| RecoverGroup | 44 | sync | `(view: U64) -> ()` |
+| DetachSlots | 45 | sync | `(view: U64) -> ()` |
+| SetUserAgent | 46 | sync | `(view: U64, user_agent: String) -> ()` |
 | Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
 | State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> ()` |
 | Scroll | 102 | oneway | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
@@ -150,6 +156,8 @@ object list (the index each field must hold).
 - `deltas: Bool`
 - `dialogs: Bool`
 - `notify_in_client: Bool`
+- `process_key: String`
+- `user_agent: String`
 
 ## struct `Rect`
 

@@ -56,8 +56,11 @@ dialogs in 10 seconds per view: more are dismissed without asking). A
 notification permission request waits for `NotifyPermission`.
 
 Limits (`xui-app/crates/webd/src/limits.rs`) are the light interface's,
-plus: at most 4 web processes per user for full views (a view of a new
-app or profile past that is `EDQUOT`), at most 64 origins of at most 256
+plus: at most 16 web processes per user for full views, and a view that
+would start one while the user's memory charge cannot hold it is `EDQUOT`
+(a view of a new app, profile or `process_key` past that is `EDQUOT`); at
+most 64 views for a client with the browser scope (8 otherwise); at most
+32 `process_key`s at once per client; at most 64 origins of at most 256
 bytes, at most 64 blocking exceptions, a URL at most 8 KiB, at most 256
 downloads per profile in a session, a rule list at most 32 MiB. Failures
 reply with the standard error field (id 15).
@@ -555,6 +558,76 @@ Returns `()`.
 
 ```rhai
 let result = sys::webd_view::notify_state(view, notification, state);
+```
+
+### `recover_group(view)`
+
+`RecoverGroup(view: U64) -> ()`
+
+Like `Recover` without a reload, for a view that shares its web process
+with others (tabs of one site, `ViewConfig.process_key`): the process
+of the view's group is ended and every view in it is reported as ended
+by request (`ViewLost` with reason `Other`). Each app makes its views
+again. Ids 40 to 43 are kept for the data and credential calls of
+docs/lazywebplus-plan.md section 8.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::recover_group(view);
+```
+
+### `detach_slots(view)`
+
+`DetachSlots(view: U64) -> ()`
+
+Detach every slot of the view, as `Resize` does, without resizing it
+and without costing the page a layout: a view that is not on screen
+(a background tab) gives its slot memory back to the client's quota.
+The app attaches slots again and asks for a whole frame (`Refresh`)
+when the view comes back.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::detach_slots(view);
+```
+
+### `set_user_agent(view, user_agent)`
+
+`SetUserAgent(view: U64, user_agent: String) -> ()`
+
+Change the user agent the page's requests and `navigator.userAgent`
+show, from the next load on (a tab asking for the desktop site). The
+view must have been made through `os.lazy.webd.browser.v1` with a
+`user_agent` or a `user_agent_suffix` (else `EACCES`: the engine's
+site quirks, which put a fixed agent on every request, are off for such
+a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
+restores the agent the view was made with.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `user_agent` | `String` | string |
+
+Returns `()`.
+
+```rhai
+let result = sys::webd_view::set_user_agent(view, user_agent);
 ```
 
 ### `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)`
@@ -1123,6 +1196,8 @@ How a full view is made; fixed for its life.
 | `deltas` | `Bool` | bool |
 | `dialogs` | `Bool` | bool |
 | `notify_in_client` | `Bool` | bool |
+| `process_key` | `String` | string |
+| `user_agent` | `String` | string |
 
 ```rhai
 let value = sys::webd_view::new_view_config();
@@ -1147,6 +1222,16 @@ JavaScript dialogs reach the app (else they are dismissed).
 With `notifications`: the app shows the page's notifications
 (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
 click on one brings the app's window forward.
+Places the view in a web process of its own within the caller's
+group: views of one client with the same key share a process,
+views with other keys never do (tabs of one site together, other
+sites apart). Opaque to webd: at most 64 printable ASCII bytes, ""
+is the client's default group. It can only split the caller's own
+views; it never joins another client's. At most 32 keys at once
+per client (`EDQUOT` past that: reuse a key).
+Replaces the engine's user agent entirely (`user_agent_suffix` only
+appends to it): printable ASCII, at most 256 bytes, browser scope
+only (`EACCES` otherwise), and not together with a suffix.
 A rectangle of the view, in pixels.
 
 | Name | IDL type | Script value |

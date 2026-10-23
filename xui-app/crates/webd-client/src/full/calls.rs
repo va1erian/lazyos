@@ -168,6 +168,29 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.call(wire::METHOD_RECOVER, body)
     }
 
+    /// Like [`FullWebView::recover`] without a reload, for a view whose web process other views share
+    /// (tabs of one site, [`ViewConfig::process_key`]): the process is ended and every view in it is
+    /// lost with reason `Other`. Make the views again.
+    pub fn recover_group(&mut self) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let body =
+            wire::encode_recover_group_args(&wire::RecoverGroupArgs { view }).map_err(|_| BAD)?;
+        self.call(wire::METHOD_RECOVERGROUP, body)
+    }
+
+    /// Change the user agent from the next load on; `""` restores the one the view was made with.
+    /// `EACCES` unless the view was made through the browser scope with a `user_agent` or a
+    /// `user_agent_suffix`.
+    pub fn set_user_agent(&mut self, user_agent: &str) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let args = wire::SetUserAgentArgs {
+            view,
+            user_agent: user_agent.to_owned(),
+        };
+        let body = wire::encode_set_user_agent_args(&args).map_err(|_| BAD)?;
+        self.call(wire::METHOD_SETUSERAGENT, body)
+    }
+
     /// Content blocking on or off for the view's profile, and the hosts it is off for.
     pub fn set_blocking(&mut self, enabled: bool, exceptions: &[String]) -> Result<(), Error> {
         let view = self.live_view()?;

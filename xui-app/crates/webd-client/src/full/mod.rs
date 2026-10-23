@@ -234,6 +234,27 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.attach_slots()
     }
 
+    /// Give the slot memory back without resizing the view (a background tab): webd detaches every
+    /// slot, so no frame arrives until [`FullWebView::reattach_slots`]. The picture on show stays.
+    pub fn detach_slots(&mut self) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let body = wire::encode_detach_slots_args(&wire::DetachSlotsArgs { view })
+            .map_err(|_| Error::Refused(errno::EINVAL))?;
+        self.call(wire::METHOD_DETACHSLOTS, body)?;
+        self.slots.clear();
+        self.owed.forget_slots();
+        self.base = false;
+        Ok(())
+    }
+
+    /// Attach the slots again after [`FullWebView::detach_slots`] (the view came to the front) and ask
+    /// for a whole frame.
+    pub fn reattach_slots(&mut self) -> Result<(), Error> {
+        self.attach_slots()?;
+        self.refresh();
+        Ok(())
+    }
+
     /// Allocate and attach the slots for the current size, in the plan's order. The first frame
     /// slot must attach; a later one that cannot be had (the process's shared-buffer limit, a
     /// quota) is left out and the view runs with fewer.

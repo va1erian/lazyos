@@ -40,10 +40,10 @@ mod bindings;
 pub mod bus;
 pub mod codec;
 pub mod events;
-pub mod permissions;
 #[cfg(all(feature = "lazyos", target_arch = "x86_64"))]
 pub mod gate;
 mod idl;
+pub mod permissions;
 pub mod runloop;
 pub mod schema;
 pub mod service;
@@ -247,11 +247,7 @@ pub fn install_fabric(engine: &mut Engine, fabric: &Rc<Fabric>) -> Result<(), St
 /// (a LazyRAD form's window): sources the script registers are filed under
 /// `owner`, the host calls [`Fabric::pump`] and [`Fabric::release`] with the
 /// same name, and `msg::run()` refuses.
-pub fn install_hosted(
-    engine: &mut Engine,
-    fabric: &Rc<Fabric>,
-    owner: &str,
-) -> Result<(), String> {
+pub fn install_hosted(engine: &mut Engine, fabric: &Rc<Fabric>, owner: &str) -> Result<(), String> {
     install_bound(engine, fabric, owner, true)
 }
 

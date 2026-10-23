@@ -208,6 +208,25 @@ impl Fx {
         self.call(from, wire::METHOD_RECOVER, body)
     }
 
+    pub fn recover_group(&mut self, from: Origin, view: u64) -> Outcome {
+        let body = wire::encode_recover_group_args(&wire::RecoverGroupArgs { view }).unwrap();
+        self.call(from, wire::METHOD_RECOVERGROUP, body)
+    }
+
+    pub fn detach_slots(&mut self, from: Origin, view: u64) -> Outcome {
+        let body = wire::encode_detach_slots_args(&wire::DetachSlotsArgs { view }).unwrap();
+        self.call(from, wire::METHOD_DETACHSLOTS, body)
+    }
+
+    pub fn set_user_agent(&mut self, from: Origin, view: u64, agent: &str) -> Outcome {
+        let args = wire::SetUserAgentArgs {
+            view,
+            user_agent: agent.into(),
+        };
+        let body = wire::encode_set_user_agent_args(&args).unwrap();
+        self.call(from, wire::METHOD_SETUSERAGENT, body)
+    }
+
     pub fn set_blocking(
         &mut self,
         from: Origin,
