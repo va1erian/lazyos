@@ -46,12 +46,11 @@ impl Screen {
         if count == 0 {
             return;
         }
-        // Rotate rows in-place instead of O(N) Vec::remove/Vec::insert per line.
+        // Rotate rows in-place so scrolled-out rows move to the bottom as blank rows.
         let slice = &mut self.rows[top..=bottom];
         for row in &mut slice[..count] {
             sink(row);
-            row.cells.fill(Cell::blank(attr));
-            row.wrapped = false;
+            row.clear(attr);
         }
         slice.rotate_left(count);
     }
@@ -63,12 +62,11 @@ impl Screen {
         if count == 0 {
             return;
         }
-        // Rotate rows in-place instead of O(N) Vec::drain/Vec::insert per line.
+        // Rotate rows in-place so cleared bottom rows move to top of scroll region.
         let slice = &mut self.rows[top..=bottom];
         let len = slice.len();
         for row in &mut slice[len - count..] {
-            row.cells.fill(Cell::blank(attr));
-            row.wrapped = false;
+            row.clear(attr);
         }
         slice.rotate_right(count);
     }

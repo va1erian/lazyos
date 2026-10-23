@@ -49,20 +49,12 @@ impl Gain {
 
     /// Scale one sample (any width up to 32 bits) without overflow.
     pub fn scale(self, sample: i32) -> i64 {
-        // Fast path: unity gain leaves sample untouched without multiplication/shift.
-        if self.is_unity() {
-            return i64::from(sample);
-        }
         (i64::from(sample) * i64::from(self.0)) >> 16
     }
 
     /// Scale an accumulated mix (wider than any sample) without overflow:
     /// the mix of every stream at maximum gain stays far below 2^47.
     pub fn scale_wide(self, value: i64) -> i64 {
-        // Fast path: unity gain leaves value untouched without multiplication/shift.
-        if self.is_unity() {
-            return value;
-        }
         (value * i64::from(self.0)) >> 16
     }
 }
