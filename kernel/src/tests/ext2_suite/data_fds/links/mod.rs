@@ -9,6 +9,7 @@
 use super::filemap::{self, sys6, Space, BASE, MAP_SHARED, PAGE, RW};
 use super::*;
 
+mod blob;
 mod mapping;
 mod names;
 mod open;
@@ -38,6 +39,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
         ramfs::counts_and_charges,
     ),
     ("fs_ramfs_dir_link_counts", ramfs::directory_link_counts),
+    (
+        "linux_filemap_cache_body_blob_links",
+        blob::blob_storage_cycle,
+    ),
     ("linux_link_soak_cycles", soak::link_unlink_rename_cycles),
     ("linux_link_soak_mapping", soak::mappings_through_names),
 ];

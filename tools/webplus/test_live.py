@@ -17,7 +17,9 @@ WEBD:NOTE:INFO:TIME:nav=2:start=11138:commit=11922:finish=17547:load=6409
 LOCK:WAIT lock=ext2 holder=43/fork:networkprocess thread=51/thread tgid=43 abi=linux nr=74 waiters=1 ms=627 comm=persistent
 LOCK:WAIT lock=ext2 holder=51/thread:persistent thread=43/fork tgid=43 abi=linux nr=18 waiters=1 ms=583 comm=networkprocess
 PERF:CPU tgid=43 pct=38 user=6 kernel=32 class=normal demotions=16 comm=networkprocess
+ENOSYS 285 fallocate
 ENOSYS 285 fallocate count=39 comm=background
+ENOSYS 999 unknown_call
 WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:41
 PERF:CPU tgid=43 pct=53 user=0 kernel=53 class=normal demotions=25 comm=networkprocess
 PERF:CPU tgid=43 pct=59 user=0 kernel=59 class=normal demotions=46 comm=networkprocess
@@ -41,7 +43,8 @@ class Verdict(unittest.TestCase):
         self.assertIn("networkprocess (tgid 43) spent 59% of the core in the kernel", text)
         self.assertIn("persistent waited 627 ms for ext2", text)
         self.assertIn("SCHED:STUCK", text)
-        self.assertEqual(facts, ["fallocate answered ENOSYS 39 times"])
+        self.assertIn("fallocate answered ENOSYS 40 times: the HTTP cache wrote its bodies inline (issue #864)", hang)
+        self.assertEqual(facts, ["unknown_call (999) answered ENOSYS 1 times"])
 
     def test_a_browser_program_that_aborts_is_a_finding_and_a_clean_exit_or_a_kill_is_not(self):
         abort = "PROC:EXIT tgid=39 thread=39/fork status=134 sig=6 by=- parent=30 cpu_ms=900 comm=webprocess\n"

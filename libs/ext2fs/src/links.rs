@@ -34,10 +34,24 @@ impl Ext2 {
             Ok(()) => self.meta_of(ino),
             Err(error) => {
                 // Roll the fresh inode back; the parent was not written.
-                let _ = self.free_inode(ino, false);
+                self.abandon_inode(ino, &inode, false);
                 Err(error)
             }
         }
+    }
+
+    /// Give back an inode a failed `create` or `mkdir` had written: it goes
+    /// dead in the cache (no links, a deletion time, no blocks; the
+    /// generation stays for [`Ext2::next_generation`]) before its number is
+    /// freed, as `unlink` leaves one, so no commit puts a live-looking inode
+    /// in a free slot for the next owner of the number to find
+    /// (`cache/fresh.rs` relies on a free slot never holding a link count).
+    fn abandon_inode(&self, ino: u32, inode: &[u8; INODE_CORE_SIZE], is_dir: bool) {
+        let mut dead = [0u8; INODE_CORE_SIZE];
+        put32(&mut dead, INO_GENERATION, le32(inode, INO_GENERATION));
+        put32(&mut dead, INO_DTIME, self.now());
+        let _ = self.write_inode(ino, &dead);
+        let _ = self.free_inode(ino, is_dir);
     }
 
     /// Create an empty directory owned by `owner`.
@@ -117,7 +131,7 @@ impl Ext2 {
             put16(&mut parent, INO_LINKS, parent_before);
             let _ = self.write_inode(parent_ino, &parent);
             let _ = self.free_block(block);
-            let _ = self.free_inode(ino, true);
+            self.abandon_inode(ino, &inode, true);
             return Err(error);
         }
         match self.add_entry(parent_ino, &mut parent, name, ino, FT_DIRECTORY) {
@@ -126,7 +140,7 @@ impl Ext2 {
                 put16(&mut parent, INO_LINKS, parent_before);
                 let _ = self.write_inode(parent_ino, &parent);
                 let _ = self.free_block(block);
-                let _ = self.free_inode(ino, true);
+                self.abandon_inode(ino, &inode, true);
                 Err(error)
             }
         }
@@ -137,7 +151,12 @@ impl Ext2 {
     /// Ordered for crash safety: the inode's link count rises first and is on
     /// the disk (a [`barrier`](Ext2::barrier) when cached) before the entry
     /// appears, so a power cut leaves the count too high (a leak) at worst,
-    /// never lower than the number of names. A file with [`MAX_LINKS`] names
+    /// never lower than the number of names. That is for a file whose inode
+    /// is on the disk: one that no writeback has written since it was made
+    /// ([`Ext2::inode_is_fresh`]) has no count there to be too low, and its
+    /// second name may follow at once, in the class of its first (a cache
+    /// that links each file it just made would otherwise write the file back
+    /// under the volume lock every time). A file with [`MAX_LINKS`] names
     /// already is [`Ext2Error::TooManyLinks`], as Linux's ext2 answers.
     pub fn link(&self, existing: &str, new_path: &str) -> Result<(), Ext2Error> {
         let _guard = self.lock.lock();
@@ -164,9 +183,15 @@ impl Ext2 {
         // A new name changes the inode, not its contents: `ctime` only.
         put32(&mut inode, INO_CTIME, self.now());
         self.write_inode(ino, &inode)?;
-        let added = self
-            .barrier()
-            .and_then(|()| self.add_entry(parent_ino, &mut parent, name, ino, FT_REGULAR));
+        // Asked after the write above, which can only clear freshness (a
+        // writeback it triggers), never set it.
+        let ordered = if self.inode_is_fresh(ino) {
+            Ok(())
+        } else {
+            self.barrier()
+        };
+        let added =
+            ordered.and_then(|()| self.add_entry(parent_ino, &mut parent, name, ino, FT_REGULAR));
         if let Err(error) = added {
             put16(&mut inode, INO_LINKS, links);
             let _ = self.write_inode(ino, &inode);

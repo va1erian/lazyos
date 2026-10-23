@@ -27,7 +27,7 @@ python tools/webplus/notify_session.py --write             # regenerate tools/sc
 python tools/webplus/hang_run.py                           # a page that hangs: the bar, Wait, Reload, Stop; build, boot, judge (shots/webplus-hang)
 python tools/webplus/test_hang_judge.py                    # its judge fails when it should; its session is current
 python tools/webplus/hang_session.py --write               # regenerate tools/screenshot/examples/lazywebplus_hang.json
-python tools/webplus/live_run.py --build --home-disk target/home.img --url https://www.theverge.com/ --url https://www.cnn.com/ --url https://www.nasa.gov/   # real sites, a /home disk: does the browser hang or abort? (verdict from PERF:CPU, LOCK:WAIT, WEBPROCESS:UNRESPONSIVE and a browser program ending by a crash signal in PROC:EXIT)
+python tools/webplus/live_run.py --build --home-disk target/home.img --url https://www.theverge.com/ --url https://www.cnn.com/ --url https://www.nasa.gov/   # real sites, a /home disk: does the browser hang or abort? (verdict from PERF:CPU, LOCK:WAIT, WEBPROCESS:UNRESPONSIVE and a browser program ending by a crash signal in PROC:EXIT); `ENOSYS 285` is a finding (the HTTP cache then writes every body inline, issue #864) and any other `ENOSYS` a note; `FS:SLOW op=link|unlink device=<dev> us=<n>` lines in the serial log name a name operation that held the volume 20 ms or more
 python tools/webplus/test_live.py                           # its verdict, on the lines of a real hang
 python tools/webplus/relaunch_run.py --build                 # close and start the browser from the menu six times (real sites first): every start page loads, no refused sendmsg, no NetworkProcess killed (issue #865)
 python tools/webplus/test_relaunch.py                        # its verdict, on the lines of the start-up hang
@@ -49,7 +49,7 @@ python tools/webplus/test_pointer.py && python tools/webplus/test_procs.py   # t
 |---|---|
 | `run.py` | builds the image (`LAZYOS_LAZYWEBPLUS=1`, which brings webd; the UI probe, the big-app limits, a throwaway test CA), serves the host's stand-in sites (`tools/webtest/sites.py`), runs both boots, reads the OS volume with `osread`, judges |
 | `session.py` | the two session scripts: the first boot browses, answers dialogs, clicks, downloads, closes; the second finds the history and the cookie and clears the history |
-| `judge.py`, `pixels.py` | the verdict as pure functions: serial markers (the client's and, through `engine_lines`, the engine's), the host's request log, the profile (the history on LazyWeb+'s folder, the cookie jar in webd's `browser` profile `~/.apps/os.lazy.webd/profiles/browser`), the page area of the screenshots |
+| `judge.py`, `pixels.py` | the verdict as pure functions: serial markers (the client's and, through `engine_lines`, the engine's), the host's request log, the profile (the history on LazyWeb+'s folder, the cookie jar in webd's `browser` profile `~/.apps/os.lazy.webd/profiles/browser`), the HTTP cache's `Blobs/` after the first boot and after the last (the cache keeps bodies larger than a page as hard-linked blobs, issue #864: `judge_cache` also fails on an `ENOSYS 285` in any boot), the page area of the screenshots |
 | `procs.py` | the browser's four processes by kernel `comm=` (`lazywebplus.elf`, `webd.elf`, `webprocess`, `networkprocess`) and by the engine's own `WEBPROCESS:UP:<pid>`, for the benches |
 | `reaper_judge.py` | no longer used (the launcher's reaper threads are webd's now); stays until CI stops running its test |
 | `test_judge.py` | the judge's own tests |

@@ -84,7 +84,8 @@ def relaunch_session(urls: list[str], cycles: int, wait: float, settle: float) -
 
 def verdict(text: str, cycles: int) -> list[str]:
     """What went wrong, from a serial log of `relaunch_session` (empty: nothing): `live_run`'s hang signs (an
-    unresponsive page, a refused sendmsg, a lost IPC message, a crash, a stuck call), a NetworkProcess WebKit
+    unresponsive page, a refused sendmsg, a lost IPC message, a crash, a stuck call, an `ENOSYS 285`: the HTTP cache
+    writing its bodies inline), a NetworkProcess WebKit
     ended, and a start that did not reach its start page.
 
     A fresh profile's first start downloads and compiles the ad blocker's list (about 60 000 rules), which keeps

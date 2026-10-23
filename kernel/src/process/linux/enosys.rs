@@ -1,7 +1,8 @@
 //! Reports of unimplemented Linux syscalls, rate limited (issue #857).
 //!
 //! A program that meets an unimplemented call usually meets it again and
-//! again (a `fallocate` per cache body: 45 lines in one page load), and each
+//! again (before `fallocate` was implemented: a line per cache body, 45 in one
+//! page load, issue #864), and each
 //! `ENOSYS` line was printed from inside the syscall, with interrupts off, into
 //! the serial ring the next one was waiting for. Now the first `ENOSYS` of a
 //! (process, call) prints at once, exactly as before (`tools/abi/coverage.py`

@@ -367,6 +367,7 @@ extern "C" fn linux_dispatch(nr: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u6
         264 => pathops::sys_renameat(a1, a2, a3, a4), // renameat
         268 => attr::sys_fchmodat(a1, a2, a3),    // fchmodat(dirfd, path, mode)
         280 => attr::sys_utimensat(a1, a2, a3, a4), // utimensat(dirfd, path, times, flags)
+        285 => filesys::sys_fallocate(a1, a2, a3, a4), // fallocate(fd, mode, offset, len)
         288 => socket::sys_accept(a1, a2, a3, a4), // accept4(fd, addr, addrlen, flags)
         290 => epoll::sys_eventfd2(a1, a2),       // eventfd2(initval, flags)
         291 => epoll::sys_epoll_create1(a1),      // epoll_create1(flags)

@@ -237,7 +237,10 @@ impl Filesystem for Ext2 {
     fn link(&self, existing: &str, new: &str, _caller: Id) -> Result<(), FsError> {
         self.refuse_dead()?;
         let _gate = self.enter();
-        Ok(self.volume.link(existing, new)?)
+        let start = crate::arch::clock::monotonic_ns();
+        let linked = self.volume.link(existing, new);
+        self.note_slow("link", start);
+        Ok(linked?)
     }
 
     fn unlink(&self, path: &str) -> Result<(), FsError> {
@@ -246,11 +249,14 @@ impl Filesystem for Ext2 {
         // A parked orphan (a reserved name) is deleted inode-first so a stop
         // part-way can be resumed by the next mount's reclaim.
         let name = path.trim_matches('/').rsplit('/').next().unwrap_or("");
-        if hidden::is_reserved(name) {
-            Ok(self.volume.unlink_parked(path)?)
+        let start = crate::arch::clock::monotonic_ns();
+        let unlinked = if hidden::is_reserved(name) {
+            self.volume.unlink_parked(path)
         } else {
-            Ok(self.volume.unlink(path)?)
-        }
+            self.volume.unlink(path)
+        };
+        self.note_slow("unlink", start);
+        Ok(unlinked?)
     }
 
     fn rmdir(&self, path: &str) -> Result<(), FsError> {

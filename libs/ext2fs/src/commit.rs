@@ -196,6 +196,15 @@ impl Ext2 {
         self.io.flush().map_err(io_error)
     }
 
+    /// Whether no writeback has written inode `ino` since it was allocated:
+    /// the disk holds nothing that names it (`cache/fresh.rs`). Never on an
+    /// uncached volume, where every write is on the disk at once.
+    pub(super) fn inode_is_fresh(&self, ino: u32) -> bool {
+        self.cache
+            .as_ref()
+            .is_some_and(|cache| cache.lock().inode_is_fresh(ino))
+    }
+
     /// Begin an operation whose [`Ext2::barrier`]s are narrow: the cache
     /// records the blocks written until the scope ends.
     pub(super) fn op_scope(&self) -> OpScope<'_> {
