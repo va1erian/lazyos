@@ -315,13 +315,52 @@ pub fn check_list(json: &str, max_rules: usize) -> Vec<Value> {
     rules
 }
 
+/// A cheap check, written apart from the converter's own: a selector list of plain CSS has
+/// no pseudo-class, escape or function, and balanced brackets and quotes. WebKit's parser is
+/// the real judge (`tools/webkit/blockcheck.py`); one it refuses fails the whole list.
+fn check_selector_list(list: &str) {
+    assert!(
+        list.is_ascii() && !list.is_empty() && list.len() < 70_000,
+        "{list:?}"
+    );
+    for selector in list.split(", ") {
+        assert!(!selector.trim().is_empty(), "{list:?}");
+        let (mut square, mut quote) = (0i32, None::<char>);
+        for c in selector.chars() {
+            match (quote, c) {
+                (Some(q), c) if c == q => quote = None,
+                (Some(_), c) => assert!(c != '\\' && !c.is_control(), "{selector:?}"),
+                (None, '"' | '\'') => quote = Some(c),
+                (None, '[') => square += 1,
+                (None, ']') => square -= 1,
+                (None, c) => assert!(
+                    c.is_ascii_alphanumeric() || " -_.#=^$*~|>+".contains(c),
+                    "{c:?} in {selector:?}"
+                ),
+            }
+            assert!((0..=1).contains(&square), "{selector:?}");
+        }
+        assert!(square == 0 && quote.is_none(), "{selector:?}");
+    }
+}
+
 fn check_rule(rule: &Value) {
     let trigger = rule["trigger"].as_object().expect("trigger");
     let action = rule["action"]["type"].as_str().expect("action type");
     assert!(
-        matches!(action, "block" | "ignore-previous-rules"),
+        matches!(
+            action,
+            "block" | "ignore-previous-rules" | "css-display-none"
+        ),
         "{action}"
     );
+    match rule["action"].get("selector") {
+        Some(selector) => {
+            assert_eq!(action, "css-display-none");
+            check_selector_list(selector.as_str().expect("selector string"));
+        }
+        None => assert_ne!(action, "css-display-none", "a hiding rule names a selector"),
+    }
 
     let case = trigger
         .get("url-filter-is-case-sensitive")

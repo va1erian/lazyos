@@ -7,6 +7,8 @@ pub(crate) enum Action {
     Block,
     /// Cancels earlier rules *of the same list* that match.
     IgnorePrevious,
+    /// `css-display-none`: hides the elements `Rule::selector` matches.
+    HideElements,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +22,8 @@ pub(crate) struct Rule {
     pub unless_domain: Vec<String>,
     /// Regexes on the top-level URL (a page-wide exception).
     pub if_top_url: Vec<String>,
+    /// What `HideElements` hides (a CSS selector list); `None` for every other action.
+    pub selector: Option<String>,
 }
 
 impl Rule {
@@ -65,8 +69,14 @@ impl Rule {
         s.push_str(match self.action {
             Action::Block => "block",
             Action::IgnorePrevious => "ignore-previous-rules",
+            Action::HideElements => "css-display-none",
         });
-        s.push_str("\"}}");
+        s.push('"');
+        if let Some(selector) = &self.selector {
+            s.push_str(",\"selector\":");
+            string(&mut s, selector);
+        }
+        s.push_str("}}");
         s
     }
 }
@@ -176,7 +186,18 @@ mod tests {
             if_domain: vec!["*a.com".into()],
             unless_domain: Vec::new(),
             if_top_url: Vec::new(),
+            selector: None,
         }
+    }
+
+    #[test]
+    fn a_hiding_rule_carries_its_selector() {
+        let mut r = rule();
+        r.action = Action::HideElements;
+        r.selector = Some(".ad, #x[a=\"b\"]".into());
+        assert!(r
+            .to_json()
+            .ends_with(r#""action":{"type":"css-display-none","selector":".ad, #x[a=\"b\"]"}}"#));
     }
 
     #[test]

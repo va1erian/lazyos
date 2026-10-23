@@ -162,21 +162,61 @@ example.com#@#.banner\n\
     assert_eq!(s.lines, 12);
     assert_eq!(s.comments, 3);
     assert_eq!(s.blocks, 1);
-    assert_eq!(s.dropped(DropReason::Cosmetic), 3);
+    // The hiding line and its exception cancel out, and `$elemhide` spares a site.
+    assert_eq!(s.dropped(DropReason::Cosmetic), 0);
+    assert_eq!((s.hides, s.dropped_exceptions), (0, 0));
     assert_eq!(s.dropped(DropReason::UnsupportedOption), 2);
     assert_eq!(s.dropped(DropReason::UnsupportedPattern), 1);
     assert_eq!(s.dropped(DropReason::NonAscii), 1);
     assert_eq!(s.dropped(DropReason::MixedDomains), 1);
-    assert_eq!(s.dropped_total(), 8);
+    assert_eq!(s.dropped_total(), 5);
 }
 
 #[test]
 fn nothing_convertible_is_no_list() {
     let out = convert(
-        "! only comments\nexample.com##.ad\n@@||x.example^\n",
+        "! only comments\nexample.com##.ad:hover\nexample.com#?#.ad:has(.x)\n@@||x.example^\n",
         &Options::default(),
     );
     assert!(out.lists.is_empty());
+    assert_eq!(out.stats.dropped(DropReason::Cosmetic), 2);
+}
+
+#[test]
+fn element_hiding_becomes_css_display_none_before_the_blocks() {
+    let source = "\
+||ads.example^\n\
+##.ad-slot\n\
+##.ad-label\n\
+a.example,b.example##div.promo > a[href^=\"https://x.example/\"]\n\
+a.example#@#div.promo > a[href^=\"https://x.example/\"]\n\
+c.example#@#.ad-label\n\
+@@||ads.example/ok\n";
+    let out = convert(source, &Options::default());
+    assert_eq!((out.stats.blocks, out.stats.hides), (1, 3));
+    let r = rules(source);
+    let actions: Vec<&str> = r
+        .iter()
+        .map(|x| x["action"]["type"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        actions,
+        [
+            "css-display-none",
+            "css-display-none",
+            "css-display-none",
+            "block",
+            "ignore-previous-rules"
+        ]
+    );
+    // One rule per trigger: `.ad-slot` everywhere, `.ad-label` everywhere but `c.example`.
+    assert_eq!(r[0]["action"]["selector"], json!(".ad-slot"));
+    assert_eq!(r[0]["trigger"].get("unless-domain"), None);
+    assert_eq!(r[1]["action"]["selector"], json!(".ad-label"));
+    assert_eq!(r[1]["trigger"]["unless-domain"], json!(["*c.example"]));
+    // The listed domains lose `a.example`.
+    assert_eq!(r[2]["trigger"]["if-domain"], json!(["*b.example"]));
+    assert_eq!(r[0]["trigger"]["url-filter"], json!(".*"));
 }
 
 #[test]

@@ -186,7 +186,7 @@ fn set_party(slot: &mut Option<bool>, third: bool) -> Result<(), DropReason> {
 
 /// `a.com|b.com` or `~a.com|~b.com`. `if-domain` and `unless-domain` cannot share a
 /// trigger, and a mix is dropped rather than approximated.
-fn parse_domains(value: Option<&str>) -> Result<(Vec<String>, Vec<String>), DropReason> {
+pub(crate) fn parse_domains(value: Option<&str>) -> Result<(Vec<String>, Vec<String>), DropReason> {
     let value = value.ok_or(DropReason::UnsupportedOption)?;
     let (mut included, mut excluded) = (Vec::new(), Vec::new());
     for entry in value.split('|') {
@@ -212,7 +212,7 @@ fn parse_domains(value: Option<&str>) -> Result<(Vec<String>, Vec<String>), Drop
     Ok((included, excluded))
 }
 
-fn valid_domain(d: &str) -> bool {
+pub(crate) fn valid_domain(d: &str) -> bool {
     !d.is_empty()
         && !d.starts_with('.')
         && !d.ends_with('.')

@@ -327,7 +327,8 @@ installed and no choice made, `mimed` keeps its old rule (the app registered las
 
 LazyWeb+ blocks the requests the community filter lists mark as ads (issue #845), so a page loads less: a
 blocked resource is never fetched, its script never runs and its box is never laid out. v1 ships **EasyList**,
-network blocking only (no element hiding), fetched at runtime and never part of the image.
+network blocking plus element hiding of plain CSS selectors (the empty "Advertisement" boxes a blocked ad
+slot leaves behind), fetched at runtime and never part of the image.
 
 **The mechanism is WebKit's content extensions** (Safari content-blocker rule lists): JSON compiled to a bytecode
 automaton, stored on disk, shared with the web processes and enforced before a request leaves. The pieces:
@@ -390,14 +391,41 @@ user's, out of the engine's processes' reach. Without `confd` they last for the 
 `os.lazy.confd.v1` in the app's permissions. `x-lazyweb:` commands of `about:blocker` obey the rule of the other
 internal pages: only from that page and only for a click.
 
+### Element hiding
+
+A blocked ad script leaves its slot behind: Ars Technica's `.ad-wrapper` boxes (90 to 130 px each, with an
+"Advertisement" label) stay on the page. The converter turns the `##selector` and `#@#selector` lines of a list
+into WebKit `css-display-none` rules (`xui-app/crates/adblock/src/cosmetic.rs`), placed before the blocks so a
+`$document` exception cancels them:
+
+* **Only plain CSS**: type, `#id`, `.class` and `[attr]` tests joined by space, `>`, `+` and `~`. A pseudo-class
+  (`:has`, `:not`, `:-abp-...`), an escape, a comma list, extended selectors (`#?#`), scriptlets and `#$#` are
+  dropped and counted; one selector WebKit cannot parse would fail the whole list. A selector must test an id, a
+  class or an attribute, and must not end on a bare `*`, `html` or `body`.
+* **Domains**: `a.com,b.org##...` is `if-domain`, `~a.com##...` is `unless-domain`; a mix is dropped. A wildcard
+  domain (`site.*`) is left out of a hiding line (it hides on fewer sites) and drops an exception or an exclusion
+  whole (it would hide on more).
+* **Exceptions**: `a.com#@#sel` takes `sel` off `a.com` (an `unless-domain` on a generic rule, a smaller
+  `if-domain` on a listed one); one that cannot be carved out removes the selector. `@@||site^$generichide` and
+  `$elemhide` spare the site the generic rules (and every rule) the same way.
+* Selectors with the same trigger share a rule (64 to a rule), so EasyList's 22,956 selectors are about 5,700 rules.
+
+Measured with WebKit itself (`blockcheck.py`'s container, the real EasyList of 23 Oct 2026): the list compiles in
+3.7 s with a peak resident set of 501 MB (3.0 s and 409 MB without hiding), and an `http:` page with a 300x200
+`.ad-wrapper` box and a 60x60 box paints 63,600 ink pixels with the network-only list and 3,600 (the 60x60 box)
+with the new one. The scripts of Ars's ad chain (GPT, `ads-static.conde.digital`, Amazon APS, IAS, `doubleclick`)
+were blocked by EasyList already (5 of 5 blocked loads); hiding is what removed the boxes left behind. Content
+extensions do not act on `data:` pages, so a check of hiding needs an `http:` page.
+
 ### What it does not do
 
-Element hiding (the part of a list that hides boxes: `##`, `#@#`, the `$elemhide` family; it is counted and not
-used), `$redirect`, `$removeparam`, `$csp`, scriptlets (code injected into pages: not in v1), regexes WebKit's
-parser cannot take (alternation, `{n,m}`, `\b`), non-ASCII patterns, and `$domain=` with both included and
-excluded domains. A trailing `^` matches a separator character and not the end of the address, so such a filter
-can only block *less* than Adblock Plus would. More lists (EasyPrivacy, Peter Lowe's, uBlock's), element hiding
-and a user filter editor are separate issues.
+Element hiding that is not plain CSS (above), `$redirect`, `$removeparam`, `$csp`, scriptlets (code injected
+into pages: not in v1), regexes WebKit's parser cannot take (alternation, `{n,m}`, `\b`), non-ASCII patterns, and
+`$domain=` with both included and excluded domains. A trailing `^` matches a separator character and not the end
+of the address, so such a filter can only block *less* than Adblock Plus would. Sites that are not in EasyList
+are not blocked: Ars's `planebasin.com` script (ad recovery) and its trackers (Permutive, Google Tag Manager)
+belong to other lists. More lists (EasyPrivacy, Peter Lowe's, uBlock's) and a user filter editor are separate
+issues.
 
 ### Results (issue #845; measured with the engine in the browser's process, before P4)
 

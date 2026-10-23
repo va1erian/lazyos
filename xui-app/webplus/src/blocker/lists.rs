@@ -66,12 +66,12 @@ pub struct Prepared {
 }
 
 impl Prepared {
-    /// Rules across the parts.
+    /// Rules across the parts (a hiding rule counts once per selector it hides).
     pub fn rules(&self) -> usize {
-        self.stats.blocks + self.stats.exceptions + self.stats.important
+        self.stats.blocks + self.stats.exceptions + self.stats.important + self.stats.hides
     }
 
-    /// Filters that did not become rules (element hiding included).
+    /// Filters that did not become rules (element hiding of a kind WebKit cannot say included).
     pub fn dropped(&self) -> usize {
         self.stats.dropped_total()
     }
@@ -92,7 +92,7 @@ pub fn prepare(list: &str, source: &[u8]) -> Prepared {
     let text = String::from_utf8_lossy(source);
     let converted = convert(&text, &Options::default());
     let stats = converted.stats;
-    let rules = stats.blocks + stats.exceptions + stats.important;
+    let rules = stats.blocks + stats.exceptions + stats.important + stats.hides;
     let (parts, refused) = if rules > MAX_RULES {
         (
             Vec::new(),
@@ -139,12 +139,13 @@ mod tests {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
         assert!(json.starts_with('[') && json.contains("ignore-previous-rules"));
-        assert_eq!((prepared.rules(), prepared.dropped()), (2, 1));
+        // The block, its exception and the hiding rule: nothing is dropped.
+        assert_eq!((prepared.rules(), prepared.dropped()), (3, 0));
     }
 
     #[test]
     fn a_list_with_nothing_to_block_has_no_parts() {
-        let prepared = prepare("easylist", b"! only a comment\nexample.com##.ad\n");
+        let prepared = prepare("easylist", b"! only a comment\nexample.com##.ad:hover\n");
         assert!(prepared.parts.is_empty());
         assert_eq!(prepared.rules(), 0);
     }
