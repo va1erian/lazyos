@@ -164,6 +164,19 @@ impl WebdTransport {
     }
 }
 
+/// An empty queue is not yet "nothing to read": the kernel counts no queued message for a channel whose
+/// peer closed, and only readiness says so (`POLLIN | POLLHUP` on the descriptor the window parks on).
+/// Taking that for "nothing yet" left a view of a webd that died waiting for events for good: the
+/// descriptor stayed readable, the window's loop spun on it, and the view was never made again. A
+/// channel that is ready with nothing queued is one whose peer is gone (`EPIPE`, the view's service
+/// gone); a message that arrived since the count is read by the next poll.
+fn peer_gone(channel: u64) -> Result<Option<RawEvent>, i64> {
+    match sys::msg_wait_any(&[channel], sys::EXPIRED_DEADLINE) {
+        Ok(_) if matches!(sys::msg_queued(channel), Ok(0)) => Err(-errno::EPIPE),
+        _ => Ok(None),
+    }
+}
+
 /// Tries of a call webd's full inbox refused (`EAGAIN`) before the caller is told, and the pause
 /// between them: 50 x 4 ms is at most 0.2 s on a UI thread, enough for webd to drain 64 messages.
 const QUEUE_FULL_RETRIES: u32 = 50;
@@ -201,7 +214,7 @@ impl Transport for WebdTransport {
 
     fn recv(&mut self, channel: u64) -> Result<Option<RawEvent>, i64> {
         match sys::msg_queued(channel) {
-            Ok(0) => return Ok(None),
+            Ok(0) => return peer_gone(channel),
             Ok(_) => {}
             Err(code) => return Err(code),
         }
