@@ -55,6 +55,17 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(watch.feed([row % 12], 2)), 1)
         self.assertEqual(round(watch.worst_answer_ms), 447)
 
+    def test_a_title_that_looks_like_a_fault_is_not_one(self):
+        watch = w.Watch()
+        for line in ["LAZYWEB:TITLE:Man killed by lightning", "UI:WIDGET x=1 y=2 w=3 h=4 name=page window=EXCEPTION: x - LazyWeb"]:
+            self.assertEqual(watch.feed([line], 0), [], line)
+        self.assertEqual(len(watch.feed(["proc killed by SIGSEGV"], 0)), 1)
+
+    def test_a_stopped_load_is_not_stuck(self):
+        watch = w.Watch()
+        watch.feed(["LAZYWEB:NAV:https://slow.test/", "LAZYWEB:STOPPED"], 0)
+        self.assertIsNone(watch.stuck_load(1000, 90))
+
     def test_breakage_is_a_finding(self):
         watch = w.Watch()
         for line in ["WEBD:LOST view=3 reason=other", "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:7", "LAZYWEB:HANG:SHOW",

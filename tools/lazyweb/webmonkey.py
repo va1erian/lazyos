@@ -103,11 +103,11 @@ def start(args, qemu: str, out: Path):
     """Boot the guest with a tablet and the user network; (process, qmp, serial path)."""
     net = qemu_net.netdev_args([], False, None, "virtio", 1)
     tablet = [] if args.no_tablet else ["-device", "qemu-xhci,id=tabletbus", "-device", "usb-tablet,bus=tabletbus.0"]
-    args.extra_arg = [*args.extra_arg, *tablet, *net]
+    args.guest_args = [*args.extra_arg, *tablet, *net]  # `extra_arg` stays the user's: start() runs once per boot
     args.audit = False
     args.ide_disk = False
     session_pointer.POINTER.update(screen=tuple(int(n) for n in args.screen.split("x")), tablet=not args.no_tablet)
-    return guestmonkey.start_guest(args, qemu, out)
+    return guestmonkey.start_guest(argparse.Namespace(**{**vars(args), "extra_arg": args.guest_args}), qemu, out)
 
 
 def build(args) -> None:
@@ -231,7 +231,7 @@ def run_one(args, qemu: str, seed: int, out: Path, replay: list[dict] | None, re
                 watch.reset_load()
                 if not report["found"]:
                     report.update(found=True, kind="stuck-load", detail=stuck)
-            if report["found"] and not args.keep_going:
+            if report["found"] and not (args.keep_going or repro):
                 break
             if args.probe_every > 0 and time.time() >= next_probe:
                 next_probe = time.time() + args.probe_every

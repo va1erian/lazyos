@@ -37,6 +37,9 @@ WINDOW = re.compile(rf"{P}:INFO:WINDOW:.*?max=(\d+)")
 LOAD = re.compile(rf"{P}:LOAD:(\S+)")
 NAV = re.compile(rf"{P}:NAV:(\S+)")
 TITLE = re.compile(rf"{P}:TITLE:(.*)")
+STOPPED = re.compile(rf"{P}:STOPPED")
+#: Lines that echo a page's title (`TITLE:`, the probe's `window=<title> - LazyWeb`) say nothing about the system.
+ECHOES_TITLE = re.compile(rf"^(UI:|{P}:TITLE:)")
 QUIT = re.compile(rf"{P}:QUIT:")
 LOCK_WAIT = re.compile(r"LOCK:WAIT lock=(\w+) holder=(\S+) .*? ms=(\d+) comm=(\S+)")
 
@@ -79,6 +82,8 @@ class Watch:
             self.title = m.group(1).strip()
         elif LOAD_FAIL.search(line):
             self.loading_since, self.load_fails = None, self.load_fails + 1
+        elif STOPPED.search(line):
+            self.loading_since = None
         elif QUIT.search(line):
             self.quit = True
         elif m := SMOOTH.search(line):
@@ -98,6 +103,8 @@ class Watch:
                 found.append(f"jank: the window thread spent {ms:.0f} ms on one frame (page {self.page})")
         elif (m := LOCK_WAIT.search(line)) and int(m.group(3)) >= self.lock_ms:
             found.append(f"{m.group(4)} waited {m.group(3)} ms for {m.group(1)}, held by {m.group(2)}")
+        if ECHOES_TITLE.match(line):
+            return found
         for pattern, what in FATAL:
             if pattern.search(line):
                 found.append(f"{what}: {line.strip()[:200]}")

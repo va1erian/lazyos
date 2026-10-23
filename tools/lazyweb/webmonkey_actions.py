@@ -91,7 +91,7 @@ class Driver:
     def _point(self, at) -> None:
         session_pointer.move_pointer(self.qmp, (int(at[0]), int(at[1])))
 
-    def _chord(self, keys: list[str], hold_after: float = 0.0) -> None:
+    def _chord(self, keys: list[str]) -> None:
         *mods, last = keys
         for mod in mods:
             self.qmp.key_down(mod)
