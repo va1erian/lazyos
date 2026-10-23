@@ -33,8 +33,10 @@
 #include <WebKit/WKUserContentControllerRef.h>
 #include <WebKit/WKUserContentExtensionStoreRef.h>
 
+#include <chrono>
 #include <ctype.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <sys/stat.h>
@@ -56,10 +58,23 @@ constexpr const char* kLockRules = R"([
  {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
  {"trigger":{"url-filter":"^about:"},"action":{"type":"ignore-previous-rules"}}
 ])";
-// A change to the rule text above needs a new id, or the lookup would find the list an older build compiled.
-constexpr const char* kLockId = "webd-light-lock";
+// How soon a failed lock is compiled again (a full volume stays full: no write per light view request).
+constexpr auto kLockRetry = std::chrono::seconds(2);
+
+// The list's id names its rules (a hash of the text above), so a list an older build compiled from other rules is
+// never found by the lookup: an edit to the rules cannot leave the old lock in force.
+std::string lockId()
+{
+    unsigned long long hash = 1469598103934665603ULL; // FNV-1a
+    for (const char* at = kLockRules; *at; ++at)
+        hash = (hash ^ static_cast<unsigned char>(*at)) * 1099511628211ULL;
+    char text[40];
+    snprintf(text, sizeof text, "webd-light-lock-%016llx", hash);
+    return text;
+}
 
 LightLock lockState = LightLock::Pending;
+std::chrono::steady_clock::time_point lockFailedAt;
 bool lockStarted = false;
 WKUserContentExtensionStoreRef lockStore = nullptr;
 WKUserContentFilterRef lockFilter = nullptr;
@@ -68,6 +83,8 @@ std::vector<std::function<void()>> lockWaiters;
 void settleLock(LightLock state)
 {
     lockState = state;
+    if (state == LightLock::Failed)
+        lockFailedAt = std::chrono::steady_clock::now();
     auto waiters = std::move(lockWaiters);
     lockWaiters.clear();
     for (auto& task : waiters)
@@ -143,7 +160,7 @@ static void lockLookedUp(WKUserContentFilterRef filter, WKUserContentExtensionSt
     }
     if (filter)
         WKRelease(filter);
-    WKStringRef id = WKStringCreateWithUTF8CString(kLockId);
+    WKStringRef id = WKStringCreateWithUTF8CString(lockId().c_str());
     WKStringRef rules = WKStringCreateWithUTF8CString(kLockRules);
     WKUserContentExtensionStoreCompile(lockStore, id, rules, nullptr, lockCompiled);
     WKRelease(rules);
@@ -152,9 +169,11 @@ static void lockLookedUp(WKUserContentFilterRef filter, WKUserContentExtensionSt
 
 void prepareLightLock()
 {
-    // A failed lock is tried again by the next light view (the volume may have room by then); a lock that is
-    // pending or ready is left alone.
+    // A failed lock is tried again by a light view asking later (the volume may have room by then, kLockRetry
+    // apart); a lock that is pending or ready is left alone.
     if (lockStarted && lockState != LightLock::Failed)
+        return;
+    if (lockStarted && std::chrono::steady_clock::now() - lockFailedAt < kLockRetry)
         return;
     if (lockStore) {
         WKRelease(lockStore);
@@ -185,7 +204,7 @@ void prepareLightLock()
         settleLock(LightLock::Failed);
         return;
     }
-    WKStringRef id = WKStringCreateWithUTF8CString(kLockId);
+    WKStringRef id = WKStringCreateWithUTF8CString(lockId().c_str());
     WKUserContentExtensionStoreLookup(lockStore, id, nullptr, lockLookedUp);
     WKRelease(id);
 }
@@ -211,6 +230,8 @@ bool configureLight(View& view, WKPageConfigurationRef configuration)
     // Whatever script there is gets no windows, storage or beacons (the lock stops its requests).
     WKPreferencesSetJavaScriptCanOpenWindowsAutomatically(preferences, false);
     WKPreferencesSetLocalStorageEnabled(preferences, false);
+    // No back/forward cache, as in full views (fullview.cpp): its eviction destroys a WebProcessProxy, which aborts.
+    WKPreferencesSetPageCacheEnabled(preferences, false);
     WKPreferencesSetStorageBlockingPolicy(preferences, kWKBlockAllStorage);
     WKPreferencesSetBeaconAPIEnabled(preferences, false);
     if (view.config.defaultFontSize > 0) {

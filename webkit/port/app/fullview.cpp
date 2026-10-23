@@ -113,26 +113,24 @@ bool configureFull(View& v, WKPageConfigurationRef configuration)
         WKUserContentControllerAddUserContentFilter(controller.get(), lock);
     }
     const bool ownAgent = !config.userAgentSuffix.empty() || !config.userAgent.empty();
-    {
-        WKPreferencesRef preferences = WKPreferencesCreate();
-        WKPreferencesSetJavaScriptEnabled(preferences, config.scripts);
-        // No back/forward cache: it keeps whole pages (and their web process proxy) alive, and evicting an
-        // entry destroys a WebProcessProxy, which aborts the UI process on this port (crashDueToCheckedPtr-
-        // ToDeadObject, the family of patches 0021 and 0027; seen after a heavy site's process ended and the
-        // cache dropped its oldest entry). Going back reloads the page, as it does after a process swap.
-        WKPreferencesSetPageCacheEnabled(preferences, false);
-        // With site-specific quirks the page's process sends PlayStation's fixed user agent for every address
-        // (WebPagePlayStation.cpp, platformUserAgent -> standardUserAgentForURL), whatever the page's own is: a
-        // suffix or an agent would never reach a request. A view that asks for one does without the quirks.
-        if (ownAgent)
-            WKPreferencesSetNeedsSiteSpecificQuirks(preferences, false);
-        if (config.defaultFontSize > 0) {
-            WKPreferencesSetDefaultFontSize(preferences, static_cast<uint32_t>(config.defaultFontSize));
-            WKPreferencesSetMinimumFontSize(preferences, static_cast<uint32_t>(config.defaultFontSize));
-        }
-        WKPageConfigurationSetPreferences(configuration, preferences);
-        WKRelease(preferences);
+    WKPreferencesRef preferences = WKPreferencesCreate();
+    WKPreferencesSetJavaScriptEnabled(preferences, config.scripts);
+    // No back/forward cache: it keeps whole pages (and their web process proxy) alive, and evicting an
+    // entry destroys a WebProcessProxy, which aborts the UI process on this port (crashDueToCheckedPtr-
+    // ToDeadObject, the family of patches 0021 and 0027; seen after a heavy site's process ended and the
+    // cache dropped its oldest entry). Going back reloads the page, as it does after a process swap.
+    WKPreferencesSetPageCacheEnabled(preferences, false);
+    // With site-specific quirks the page's process sends PlayStation's fixed user agent for every address
+    // (WebPagePlayStation.cpp, platformUserAgent -> standardUserAgentForURL), whatever the page's own is: a
+    // suffix or an agent would never reach a request. A view that asks for one does without the quirks.
+    if (ownAgent)
+        WKPreferencesSetNeedsSiteSpecificQuirks(preferences, false);
+    if (config.defaultFontSize > 0) {
+        WKPreferencesSetDefaultFontSize(preferences, static_cast<uint32_t>(config.defaultFontSize));
+        WKPreferencesSetMinimumFontSize(preferences, static_cast<uint32_t>(config.defaultFontSize));
     }
+    WKPageConfigurationSetPreferences(configuration, preferences);
+    WKRelease(preferences);
     if (config.colorScheme == 1)
         say("CONFIG:IGNORED:color_scheme");
     if (!config.userStyle.empty()) {
