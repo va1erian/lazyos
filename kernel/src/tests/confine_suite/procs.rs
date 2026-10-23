@@ -163,7 +163,7 @@ pub fn sockets() -> Result<(), String> {
     })
 }
 
-const PROFILE_DIR: &str = "/home/user/.apps/os.lazy.lazywebplus";
+const PROFILE_DIR: &str = "/home/user/.apps/os.lazy.lazyweb";
 
 /// Start `path` through `spawnv` (native or Linux personality) and return the
 /// pid or `-errno`; a started child is finished and reaped at once.

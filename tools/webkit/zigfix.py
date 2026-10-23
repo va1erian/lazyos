@@ -7,7 +7,7 @@ taken with `tryLock` in a loop that never yields. The guest reports one CPU (`sc
 there is one slot. On one CPU a thread that is preempted inside `malloc` still holds it, and every
 other thread that allocates then spins for its whole time slice until the holder runs again: a
 sample of the WebProcess scrolling a real page put 17% of its user time in `Thread.lock`, and the
-spinning threads kept the main thread, which answers the wheel, waiting (docs/lazywebplus-performance-plan.md,
+spinning threads kept the main thread, which answers the wheel, waiting (docs/lazyweb-performance-plan.md,
 "Scroll latency"). With `MIN_SLOTS` slots a thread that finds its slot held takes the next one, and a
 preempted holder blocks only its own. Slots are interchangeable (any thread may free into any), so
 this costs a little fragmentation and nothing else.

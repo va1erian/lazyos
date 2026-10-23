@@ -1,4 +1,4 @@
-//! The calls a tabbed browser makes of webd (docs/lazywebplus-plan.md 2.3): `process_key`,
+//! The calls a tabbed browser makes of webd (docs/lazyweb-plan.md 2.3): `process_key`,
 //! `detach_slots`, `recover_group` and `set_user_agent` of `FullWebView` against the service over the
 //! fake web.
 

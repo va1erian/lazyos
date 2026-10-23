@@ -209,7 +209,7 @@ mounted uncached, because the flusher runs on the kernel task and the kernel
 task must never wait for `usbd`. But uncached, every write held the volume's
 gate for a round trip to the stick per block (data, inode, bitmaps, directory,
 counters), so every reader and writer of `/home` waited for the stick: on a
-real PC LazyWeb+'s cache writes froze its network process, and so the page,
+real PC LazyWeb's cache writes froze its network process, and so the page,
 for 0.5 to 2.7 s at a time (issue #940).
 
 Now only *who* commits differs. The kernel task never does: the flusher skips

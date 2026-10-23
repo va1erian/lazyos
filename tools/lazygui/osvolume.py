@@ -95,13 +95,13 @@ def configured() -> bool:
 
 
 #: The configurations whose image is the desktop (`catalog.build_env` sets `LAZYOS_DESKTOP`).
-DESKTOP_KEYS = ("desktop", "lazysky", "lazywebplus", "webd", "webd_demo", "setup")
+DESKTOP_KEYS = ("desktop", "lazysky", "lazyweb", "webd", "webd_demo", "setup")
 
 
 def leaves_webd_out(cfg: dict) -> bool:
-    """Whether the launcher leaves webd out of the image (`no_webd`): never with LazyWeb+, which is a client
+    """Whether the launcher leaves webd out of the image (`no_webd`): never with LazyWeb, which is a client
     of webd and refuses `--no-webd` (the option is ignored there)."""
-    return bool(cfg.get("no_webd") and not cfg.get("lazywebplus"))
+    return bool(cfg.get("no_webd") and not cfg.get("lazyweb"))
 
 
 def wants_webd(cfg: dict) -> bool:
@@ -121,7 +121,7 @@ def requires_webd(cfg: dict) -> bool:
 def wants_webkit(cfg: dict) -> bool:
     """Whether a launcher configuration selects the browser, webd or the console proof: the same three
     programs of about 107 MiB each."""
-    return bool(cfg.get("webkit_port") or cfg.get("lazywebplus") or wants_webd(cfg))
+    return bool(cfg.get("webkit_port") or cfg.get("lazyweb") or wants_webd(cfg))
 
 
 def args_wants(args) -> tuple[bool, bool]:
@@ -130,7 +130,7 @@ def args_wants(args) -> tuple[bool, bool]:
     def on(flag: str, switch: str) -> bool:
         return bool(getattr(args, flag, False)) or os.environ.get(switch) == "1"
     return (on("srb2kart", "LAZYOS_SRB2KART"),
-            on("webkit_port", "LAZYOS_WEBKIT_PORT") or on("lazywebplus", "LAZYOS_LAZYWEBPLUS")
+            on("webkit_port", "LAZYOS_WEBKIT_PORT") or on("lazyweb", "LAZYOS_LAZYWEB")
             or on("webd", "LAZYOS_WEBD") or bool(getattr(args, "webd_implicit", False)))
 
 

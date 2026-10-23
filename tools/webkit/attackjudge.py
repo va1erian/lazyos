@@ -1,5 +1,5 @@
 """The verdict of webd's sandbox attack harness (issue #832; the engine processes belong to webd, which
-LazyWeb+ and the other web clients draw their pages with: docs/webd-plan.md).
+LazyWeb and the other web clients draw their pages with: docs/webd-plan.md).
 
 ``tools/abi/fixtures/src/sandboxprobe.rs`` runs as the WebProcess and as the NetworkProcess and
 prints one line per attempt (``ATTACK:<role>:<probe>:BLOCKED|ALLOWED:<detail>``). This module

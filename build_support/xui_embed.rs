@@ -340,18 +340,18 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
         );
         sink.add_file(&destination, app);
     }
-    // The LazyRAD IDE, LazySky, LazyWeb+ and the Picture Viewer are core packages
+    // The LazyRAD IDE, LazySky, LazyWeb and the Picture Viewer are core packages
     // shipped only on request (`LAZYOS_LAZYRAD=1`, `LAZYOS_LAZYSKY=1`,
-    // `LAZYOS_LAZYWEBPLUS=1`, `LAZYOS_PICTURES=1`, and the developer tools as a class,
+    // `LAZYOS_LAZYWEB=1`, `LAZYOS_PICTURES=1`, and the developer tools as a class,
     // `LAZYOS_DEVTOOLS=1`); asking for one without having built it is an error.
     let lazysky_elf = dir.join(crate::lazysky_embed::ELF);
     crate::os_image::rerun_if_changed(&lazysky_elf);
-    let lazywebplus_elf = dir.join(crate::webd_embed::LAZYWEBPLUS_ELF);
-    crate::os_image::rerun_if_changed(&lazywebplus_elf);
+    let lazyweb_elf = dir.join(crate::webd_embed::LAZYWEB_ELF);
+    crate::os_image::rerun_if_changed(&lazyweb_elf);
     let webd_elf = dir.join(crate::webd_embed::ELF);
     crate::os_image::rerun_if_changed(&webd_elf);
-    // LazyWeb+ first: its requirements (webd, the desktop, the network) are named before webd's own.
-    let lazywebplus_wanted = crate::webd_embed::lazywebplus_enabled(desktop);
+    // LazyWeb first: its requirements (webd, the desktop, the network) are named before webd's own.
+    let lazyweb_wanted = crate::webd_embed::lazyweb_enabled(desktop);
     let webd_wanted = crate::webd_embed::enabled(desktop);
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let devtools =
@@ -372,9 +372,9 @@ pub fn embed_xui_apps(sink: &mut dyn Sink, desktop: bool, shell: bool) {
             crate::lazysky_embed::not_built(lazysky_elf.is_file()),
         ),
         (
-            lazywebplus_wanted,
-            crate::webd_embed::LAZYWEBPLUS_PACKAGE_SHORT,
-            crate::webd_embed::lazywebplus_not_built(lazywebplus_elf.is_file()),
+            lazyweb_wanted,
+            crate::webd_embed::LAZYWEB_PACKAGE_SHORT,
+            crate::webd_embed::lazyweb_not_built(lazyweb_elf.is_file()),
         ),
         (
             webd_wanted,

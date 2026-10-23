@@ -59,23 +59,23 @@ class VerdictTests(unittest.TestCase):
         for name in ("libwpe", "glstub", "WebKit"):
             self.assertIn("webd-app", rows[name], name)
             self.assertIn("LAZYOS_WEBD=1", rows[name], name)
-            self.assertNotIn("lazywebplus-app", rows[name], name)
+            self.assertNotIn("lazyweb-app", rows[name], name)
 
-    def test_lazywebplus_crates_are_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
-        self.assertEqual(licenses.check_webplus_licence(), [])
-        for name in licenses.WEBPLUS_CRATES:
+    def test_lazyweb_crates_are_offered_under_both_licences_and_the_checked_in_tree_passes(self) -> None:
+        self.assertEqual(licenses.check_lazyweb_licence(), [])
+        for name in licenses.LAZYWEB_CRATES:
             self.assertTrue((licenses.ROOT / name).is_file(), name)
 
     def test_a_gpl2_only_crate_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            crate = root / "xui-app" / "webplus"
+            crate = root / "xui-app" / "lazyweb"
             crate.mkdir(parents=True)
             (crate / "Cargo.toml").write_text('[package]\nname = "x"\nlicense = "GPL-2.0-only"\n', encoding="utf-8")
             original = licenses.ROOT
             licenses.ROOT = root
             try:
-                problems = licenses.check_webplus_licence()
+                problems = licenses.check_lazyweb_licence()
             finally:
                 licenses.ROOT = original
         self.assertTrue(any("GPL-3.0-or-later" in p for p in problems), problems)
@@ -85,13 +85,13 @@ class VerdictTests(unittest.TestCase):
                            "GPL-2.0-only OR GPL-3.0-only"):
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                crate = root / "xui-app" / "webplus"
+                crate = root / "xui-app" / "lazyweb"
                 crate.mkdir(parents=True)
                 (crate / "Cargo.toml").write_text(f'[package]\nname = "x"\nlicense = "{expression}"\n', encoding="utf-8")
                 original = licenses.ROOT
                 licenses.ROOT = root
                 try:
-                    problems = licenses.check_webplus_licence()
+                    problems = licenses.check_lazyweb_licence()
                 finally:
                     licenses.ROOT = original
             self.assertTrue(problems, expression)
@@ -99,7 +99,7 @@ class VerdictTests(unittest.TestCase):
     def test_a_table_form_openssl_dependency_is_caught(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            crate = root / "xui-app" / "webplus"
+            crate = root / "xui-app" / "lazyweb"
             crate.mkdir(parents=True)
             (crate / "Cargo.toml").write_text(
                 '[package]\nname = "x"\nlicense = "GPL-2.0-only OR GPL-3.0-or-later"\n[dependencies.openssl]\nversion = "1"\n',
@@ -107,7 +107,7 @@ class VerdictTests(unittest.TestCase):
             original = licenses.ROOT
             licenses.ROOT = root
             try:
-                problems = licenses.check_webplus_licence()
+                problems = licenses.check_lazyweb_licence()
             finally:
                 licenses.ROOT = original
         self.assertTrue(any("OpenSSL" in p for p in problems), problems)

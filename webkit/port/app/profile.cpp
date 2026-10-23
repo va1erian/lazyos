@@ -1,5 +1,5 @@
 // Profiles: the website data stores views live in, and the environment the engine processes inherit
-// (docs/lazywebplus.md; docs/webd-plan.md 3.3).
+// (docs/lazyweb.md; docs/webd-plan.md 3.3).
 //
 // A persistent profile is a directory: WebKit keeps everything of its pages (cookies, the HTTP cache, local
 // storage, IndexedDB, ...) below it, in a data store of its own, so two directories are two stores and two
@@ -9,7 +9,7 @@
 // store's own file replaces it (NetworkStorageSessionCurl.cpp, NetworkSessionCurl.cpp). A process takes its
 // environment when it starts and one NetworkProcess serves every store, so:
 //
-//  * a host with one profile (LazyWeb+) names the first persistent profile's directory and jar, as it always did;
+//  * a host with one profile (LazyWeb) names the first persistent profile's directory and jar, as it always did;
 //  * a host of several (webd, fixChildrenEnvironment) decides it once at start: the children's folder, and an
 //    in-memory default database. Each persistent store's session then opens its own `cookieStorageFile`, an
 //    ephemeral one keeps its cookies in a SQLite database of its own in memory, and no view changes either.

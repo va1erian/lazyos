@@ -1,5 +1,5 @@
 //! The Default apps page: which web browser opens links, for the user running Settings
-//! (docs/lazywebplus.md).
+//! (docs/lazyweb.md).
 //!
 //! One list: Automatic, then each installed browser. A pick saves at once through
 //! [`defaults_ops`]; `mimed` reads the choice each time something opens a web link, so it applies

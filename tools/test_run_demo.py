@@ -263,12 +263,12 @@ class MainTests(RunDemoCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(command, [])
 
-    def test_lazywebplus_builds_it_sets_the_switch_and_brings_the_network(self) -> None:
-        with mock.patch.object(run_demo, "build_lazywebplus", return_value=True) as built,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, command = self.run_main("--lazywebplus", "--yes")
+    def test_lazyweb_builds_it_sets_the_switch_and_brings_the_network(self) -> None:
+        with mock.patch.object(run_demo, "build_lazyweb", return_value=True) as built,                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--lazyweb", "--yes")
         self.assertEqual(code, 0)
         built.assert_called_once_with()
-        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYWEBPLUS"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYWEB"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_DESKTOP"), "1")
         # The ad blocker updates its lists with `curl` (issue #845).
@@ -276,9 +276,9 @@ class MainTests(RunDemoCase):
         self.assertEqual(command[command.index("-m") + 1], "4G")
         self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
 
-    def test_a_failed_lazywebplus_build_stops_the_run(self) -> None:
-        with mock.patch.object(run_demo, "build_lazywebplus", return_value=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, command = self.run_main("--lazywebplus", "--yes")
+    def test_a_failed_lazyweb_build_stops_the_run(self) -> None:
+        with mock.patch.object(run_demo, "build_lazyweb", return_value=False),                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
+            code, command = self.run_main("--lazyweb", "--yes")
         self.assertNotEqual(code, 0)
         self.assertEqual(command, [])
 

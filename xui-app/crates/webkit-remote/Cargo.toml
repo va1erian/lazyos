@@ -1,5 +1,5 @@
 # `RemoteEngine`: the seam's `Engine` (`xui-webkit`) over webd's full views (`xui-webd-client`'s
-# `FullWebView`, idl/webd.midl), so LazyWeb+'s window drives a page that webd's WebKit paints in
+# `FullWebView`, idl/webd.midl), so LazyWeb's window drives a page that webd's WebKit paints in
 # another process (docs/webd-plan.md, phase P4). It turns the view's events into the seam's mailbox:
 # frames and deltas straight out of the shared slots, the page's state, the news.
 #
@@ -11,7 +11,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-3.0-or-later"
-description = "The seam's engine over webd's full views: LazyWeb+ as a client of webd"
+description = "The seam's engine over webd's full views: LazyWeb as a client of webd"
 
 [lib]
 name = "xui_webkit_remote"

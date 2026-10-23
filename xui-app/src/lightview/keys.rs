@@ -1,6 +1,6 @@
 //! xui keys as the page's engine wants them: X11 key symbols, and the modifier bits of
 //! `os.lazy.webd.light.v1` (`xui_webd_client::mods`). The same table `xui_webkit::keys` holds for
-//! LazyWeb+; `xui-app` cannot depend on that crate (it depends on `xui-app`).
+//! LazyWeb; `xui-app` cannot depend on that crate (it depends on `xui-app`).
 
 use xui_core::{Key, Modifiers};
 use xui_webd_client::mods;

@@ -116,7 +116,7 @@ pub enum Msg {
     /// Put the current folder back in the address bar.
     RestoreAddress,
     /// Move the keyboard to an emptied address bar (`Edit` has no public
-    /// select-all, so the old path is cleared, as LazyWeb+ does; Escape puts
+    /// select-all, so the old path is cleared, as LazyWeb does; Escape puts
     /// it back).
     FocusAddress,
     /// A key the window watches; [`keys::shortcut`] decides what it means.

@@ -225,7 +225,7 @@ With D6 + D7 nothing LazyWeb-specific is needed beyond the rev bump: the
 link on the example.com stand-in shows the hand. Add a `WEB:CURSOR:HAND` evidence
 line? No — the verdict is the screenshot (QEMU screendumps include the
 software cursor). (The LazyWeb harness this extended, `tools/web`, was removed with
-LazyWeb; LazyWeb+'s is `tools/webplus`.)
+LazyWeb; LazyWeb+'s is `tools/lazyweb`.)
 
 ### D9. Settings: Cursor group
 

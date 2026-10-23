@@ -27,7 +27,7 @@ class WebkitTests(test_run_demo.RunDemoCase):
         self.assertEqual(code, 0)
         built.assert_called_once_with()
         self.assertEqual(self.builds[-1].get("LAZYOS_WEBKIT_PORT"), "1")
-        self.assertNotIn("LAZYOS_LAZYWEBPLUS", self.builds[-1])
+        self.assertNotIn("LAZYOS_LAZYWEB", self.builds[-1])
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertEqual(command[command.index("-m") + 1], "4G")
         self.assertEqual(self.builds[-1].get("LAZYOS_LIMIT_TASK_MAX"), "1024")
@@ -114,24 +114,24 @@ class WebkitTests(test_run_demo.RunDemoCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_WEBD"), "1")
         self.assertEqual(self.builds[-1].get("LAZYOS_WEBDDEMO"), "1")
 
-    def test_lazywebplus_requires_webd_and_builds_it_through_its_own_build(self) -> None:
-        """LazyWeb+ is a client of webd (docs/webd-plan.md P4): `build_lazywebplus` builds webd's programs (and the
+    def test_lazyweb_requires_webd_and_builds_it_through_its_own_build(self) -> None:
+        """LazyWeb is a client of webd (docs/webd-plan.md P4): `build_lazyweb` builds webd's programs (and the
         xui apps), so neither the implicit desktop build nor `--webd`'s runs again, and the switch is `1`."""
         self.webd_present = False
-        with mock.patch.object(run_demo, "build_lazywebplus", return_value=True) as plus, \
+        with mock.patch.object(run_demo, "build_lazyweb", return_value=True) as plus, \
                 mock.patch.object(run_demo, "build_webd", return_value=True) as webd, \
                 mock.patch.object(run_demo, "build_xui_shell", return_value=True):
-            code, _ = self.run_main("--lazywebplus", "--yes")
+            code, _ = self.run_main("--lazyweb", "--yes")
         self.assertEqual(code, 0)
         plus.assert_called_once_with()
         webd.assert_not_called()
         self.assertEqual(self.builds[-1].get("LAZYOS_WEBD"), "1")
-        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYWEBPLUS"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYWEB"), "1")
         self.assertNotIn("LAZYOS_WEBDDEMO", self.builds[-1])
 
-    def test_no_webd_conflicts_with_lazywebplus(self) -> None:
+    def test_no_webd_conflicts_with_lazyweb(self) -> None:
         with self.assertRaises(SystemExit):
-            self.run_main("--lazywebplus", "--no-webd", "--yes")
+            self.run_main("--lazyweb", "--no-webd", "--yes")
 
     def test_the_browser_builds_what_webd_builds_and_no_plus_app(self) -> None:
         import demo_builds
@@ -139,7 +139,7 @@ class WebkitTests(test_run_demo.RunDemoCase):
         with mock.patch.object(demo_builds, "build_webkit_processes", return_value=True), \
                 mock.patch.object(demo_builds, "required", side_effect=lambda *a: built.append(a) or True), \
                 mock.patch.object(demo_builds, "build_xui_apps", return_value=True):
-            self.assertTrue(demo_builds.build_lazywebplus())
+            self.assertTrue(demo_builds.build_lazyweb())
         self.assertEqual([step[1] for step in built], ["webkit/webd.py"])
 
 

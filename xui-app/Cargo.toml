@@ -12,9 +12,9 @@ resolver = "2"
 members = [
     "docs",
     "mail",
-    # LazyWeb+, the web browser: its chrome is a client of webd (docs/lazywebplus.md), the bin
-    # `xui-lazywebplus` built by `tools/xui/build.py`.
-    "webplus",
+    # LazyWeb, the web browser: its chrome is a client of webd (docs/lazyweb.md), the bin
+    # `xui-lazyweb` built by `tools/xui/build.py`.
+    "lazyweb",
     "crates/code-editor",
     "crates/paint",
     "crates/explorer",
@@ -61,7 +61,7 @@ members = [
     "crates/app-icons",
     # `lazyicons`: the OS-wide stable icon names (docs/tray-plan.md 6.3, docs/icons.md).
     "crates/named-icons",
-    # The seam between WebKit and a window (docs/lazywebplus.md): engine trait, mailbox, page view.
+    # The seam between WebKit and a window (docs/lazyweb.md): engine trait, mailbox, page view.
     "crates/webkit",
     # `RemoteEngine`: the seam's engine over webd's full views (docs/webd-plan.md P4).
     "crates/webkit-remote",
@@ -69,10 +69,10 @@ members = [
     # rectangles (the window's, and webd's per view); pure, host-tested against a model.
     "crates/damage",
     # `lazydownloads`: download names made safe and unique in the Downloads folder, and the `.part`
-    # protocol; LazyWeb+ and webd share it.
+    # protocol; LazyWeb and webd share it.
     "crates/downloads",
     # `lazywebnotify`: a web page's notification as a toast (the site as title, the page's words cleaned)
-    # and the per-site and per-client limits; LazyWeb+ and webd share it.
+    # and the per-site and per-client limits; LazyWeb and webd share it.
     "crates/webnotify",
     # webd's service half (docs/webd-plan.md P2): light views over Messenger, the view table, the
     # quotas and the slot state machine; portable and host-tested, with the C ABI of the WebKit
@@ -87,7 +87,7 @@ members = [
     # Easing, a damped spring and tweens; the toast presenter and later window
     # animation use them (docs/notify-plan.md).
     "crates/motion",
-    # LazyWeb+'s ad blocker core (docs/lazywebplus.md, issue #845): filter lists to
+    # LazyWeb's ad blocker core (docs/lazyweb.md, issue #845): filter lists to
     # WebKit content-rule lists; portable and host-tested.
     "crates/adblock",
 ]

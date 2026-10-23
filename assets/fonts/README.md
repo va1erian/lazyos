@@ -59,7 +59,7 @@ Sans / Noto Serif (OFL); Droid remains the redistributable Apache-2.0 release.
   LazyWriter (`font::register_writer`) also registers Droid Sans Bold, Droid
   Serif and JetBrains Mono for its Sans, Serif and Mono families; with no
   italic face, its italic is slanted from the regular one by the shaper.
-- WebKit (LazyWeb+, webd) draws pages with the twelve Liberation faces from
+- WebKit (LazyWeb, webd) draws pages with the twelve Liberation faces from
   `/system/share/fonts/liberation`, which its Fontconfig file
   (`webkit/port/fonts.conf.in`) prefers for the generic families: they
   are metric-compatible with Arial, Times New Roman and Courier New, and

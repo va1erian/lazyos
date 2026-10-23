@@ -233,7 +233,7 @@ below). Views of one client, one profile and one **process key** share a web pro
 user** for full views, and below that the gate is the user's memory charge (a new (client, profile, key) triple past
 either is `EDQUOT`; a client's own profile and its private windows count as two).
 
-**Tabs and the user agent** (the webd half of [`lazywebplus-plan.md`](lazywebplus-plan.md) B1). A browser holds a
+**Tabs and the user agent** (the webd half of [`lazyweb-plan.md`](lazyweb-plan.md) B1). A browser holds a
 view per tab, so a client that makes views through `os.lazy.webd.browser.v1` may hold **64 views** (the other
 scopes 8); the per-client slot budget (512 MiB) is unchanged, which is why a tab not on screen calls
 `DetachSlots` (method 45: every slot is detached as `Resize` does, without a resize and the layout it may cost) and
@@ -266,7 +266,7 @@ frames up to that number (and bands, which have no number, until a whole frame h
   the choice on every tab therefore makes every tab with one of the two; `webkit-remote`'s `browser_config` passes
   neither yet, so it has no per-tab agent and keeps the quirks, until the window's tabs work sets one.
 * Not built yet: the parked-view pool for full views (a closed tab still leaves a proxy), `webd_engine_view_pid`,
-  and the window's tabs (`xui-webplus`).
+  and the window's tabs (`xui-lazyweb`).
 
 **Navigation policy** (`policy.rs`, decided on WebKit's thread from rules the service registered,
 `events/rules.rs`): `about:`, `data:`, `blob:` always load; `http(s)` per the scheme policy (`Origins`: the listed
@@ -281,21 +281,21 @@ client's own `Load` and a `LoadHtml` base pass the same policy, and a base is `a
 only (never `blob:`, which carries the origin of whoever made it). `Origins` limits where the page goes, not what it loads: its sub-resources come from anywhere.
 
 **Questions and news.** `Dialog` waits for `DialogReply` (more than 3 in 10 s are dismissed without asking);
-`NewWindowRequested` (nothing opens); downloads go to `$HOME/Downloads` under LazyWeb+'s naming rules
+`NewWindowRequested` (nothing opens); downloads go to `$HOME/Downloads` under LazyWeb's naming rules
 (`xui-app/crates/downloads`, `lazydownloads`: a `.part` file renamed when every byte arrived, never over another
 file; at most 32 under way per client and 256 in all, a finished one frees its place); a page's notifications are
 webd's toasts titled with the site (the host, with a port that is not the scheme's own; a host too long for the
 title keeps its end, never the leading labels a spoof would fill; the page's words are cleaned of controls and
-bidirectional overrides; `lazywebnotify`, the rules LazyWeb+ also uses), posted only for an origin the view's
+bidirectional overrides; `lazywebnotify`, the rules LazyWeb also uses), posted only for an origin the view's
 profile allowed. webd is the shell's one sender for every client, so each client has a share of the sender's
-allowance: 5 toasts on screen, a burst of 3 and one more per 2 s, and per site 3 live and a pace of LazyWeb+'s
+allowance: 5 toasts on screen, a burst of 3 and one more per 2 s, and per site 3 live and a pace of LazyWeb's
 (`limits.rs`); what is over is dropped and the page's notification is told it closed. The permission bar is
 `NotifyPermissionRequest` / `NotifyPermission`; WebKit keeps one permission record for the whole context, so a
 decision of one profile reads as `Notification.permission` in another, and is then refused at `show`. Content blocking compiles the client's rule lists into the browser profile's store
 (`BlockingCompile`), with a per-profile switch and exceptions (`SetBlocking`) and a one-shot `Reload(bypass)`. The
-ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb+).
+ad-block list's download (`listupdate`) stays with the client that owns the lists (LazyWeb).
 
-**For LazyWeb+ (P4).** `Recover(view, reload)` is the way out of a page whose process stopped answering
+**For LazyWeb (P4).** `Recover(view, reload)` is the way out of a page whose process stopped answering
 (`Responsive(false)`): the view's web process is ended, and with `reload` the page loads again in a fresh one;
 without it the page stays stopped, which the engine reports as the page ended by request (`ViewLost`, reason
 `Other`), and the client makes a new view; the engine refuses (`WEBPROCESS:RECOVER:SHARED`) while other views share
@@ -314,7 +314,7 @@ script). The app answers with `NotifyState(notification, Shown | Clicked | Close
 `click` and `close`; `ESRCH` for an id that is over or not the view's, `EACCES` for a view without the flag. webd
 posts no toast for such a view.
 
-**LazyWeb+ is a client** (P4, 2026-10-22). The browser ([`lazywebplus.md`](lazywebplus.md)) is a plain xui app
+**LazyWeb is a client** (P4, 2026-10-22). The browser ([`lazyweb.md`](lazyweb.md)) is a plain xui app
 whose page is one full view made through the browser scope, in the `browser` profile; it links no WebKit, and the
 window's loop reads the view's event channel through an endpoint descriptor the moment webd writes. It uses
 `Recover`, `NotifyForget`, `notify_in_client` and `SetBlocking`/`BlockingCompile` as described above, holds the
@@ -352,8 +352,8 @@ with a remote picture which never reached the server; a delta frame with `dy=-40
 | the engine's own wheel-to-damage (`w2d`, `INFO:PAINT`) | 2.0-2.1 ms average, 2.4-3.7 ms worst |
 
 What the numbers do not say: they are a simple local page at 800x578; the light self-test's `Refresh` was 31-34 ms
-because its pacer had just painted; and LazyWeb+'s scroll repro (Ars Technica, 2560x1440) was not run through webd
-by this harness (no live site in it; LazyWeb+ became a webd client in P4, whose numbers are in `webd-plan.md`). The
+because its pacer had just painted; and LazyWeb's scroll repro (Ars Technica, 2560x1440) was not run through webd
+by this harness (no live site in it; LazyWeb became a webd client in P4, whose numbers are in `webd-plan.md`). The
 hop costs at most one poll here.
 
 **Not exercised in QEMU** (host-tested only, or in `webd-abi-test`): `Handoff.Browser` through `mimed`, a page's
@@ -387,7 +387,7 @@ line, AGENTS.md):
 * **Files:** `write:$HOME/.apps/os.lazy.webd` (the rule store; no `/tmp` fallback was used) and the font reads of the
   page process.
 * **The NetworkProcess holds nothing** (`network = []`, `files = []`): it starts, idles and ends, as a light view
-  has no network. Its only refusals are the optional one LazyWeb+ documents (#836, `tools/webplus/denies.py`):
+  has no network. Its only refusals are the optional one LazyWeb documents (#836, `tools/lazyweb/denies.py`):
   a stat of `/etc/ssl/openssl.cnf`; the page process's are its stats of `/etc`, `/etc/localtime` and
   `/usr/share/zoneinfo` (the time zone probe). None of the fontconfig ones appeared.
 * **Full views (P2 slice 3).** The manifest adds `os.lazy.webd.view.v1` (the full views' events go out with it),

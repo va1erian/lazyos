@@ -17,7 +17,7 @@ use messenger_generated::os_lazy_webd_view_v1 as wire;
 use crate::{RemoteEngine, RETRY_MS};
 
 /// Failed tries to make the view before the page says why (at one a second: webd registers in a few
-/// seconds after login, and LazyWeb+ may open first).
+/// seconds after login, and LazyWeb may open first).
 const QUIET_TRIES: u32 = 5;
 /// How much longer than [`RETRY_MS`] a refused view waits before it is asked for again (a refusal is
 /// the configuration or a quota: it rarely changes by itself).

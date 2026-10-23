@@ -53,7 +53,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help="the guest's serial output, tailed to this console "
                              "(default: target/serial-<image>-<date>-<time>-<pid>.log)")
     parser.add_argument("--sample-port", type=int, metavar="N",
-                        help="a second QMP socket on 127.0.0.1:N for tools/webplus/sample.py "
+                        help="a second QMP socket on 127.0.0.1:N for tools/lazyweb/sample.py "
                              "(CR3 + RIP at 30 Hz during a freeze)")
     parser.add_argument("--serial-stdio", action="store_true",
                         help="the old single muxed stdio for serial and monitor "
@@ -104,7 +104,7 @@ def prune_logs(directory: Path, keep: int = KEEP_LOGS) -> list[Path]:
 
 
 def sample_args(port: int | None) -> list[str]:
-    """The second QMP socket `tools/webplus/sample.py record --port N` reads."""
+    """The second QMP socket `tools/lazyweb/sample.py record --port N` reads."""
     return ["-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off"] if port else []
 
 

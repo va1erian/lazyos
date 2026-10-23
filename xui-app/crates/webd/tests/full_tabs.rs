@@ -1,4 +1,4 @@
-//! What a browser needs of webd to hold tabs (docs/lazywebplus-plan.md 2.3, 8): a web process per
+//! What a browser needs of webd to hold tabs (docs/lazyweb-plan.md 2.3, 8): a web process per
 //! `process_key` inside the caller's own group, the larger view cap of the browser scope, the memory
 //! gate and the process ceiling counting keys, `DetachSlots` for background tabs, `RecoverGroup` for a
 //! hung site, and a user agent a tab may change.
@@ -188,7 +188,7 @@ fn the_memory_gate_refuses_a_new_site_but_not_another_tab_of_a_running_one() {
 
 #[test]
 fn a_browser_may_hold_sixty_four_views_and_the_other_scopes_eight() {
-    // Why: a view per tab (docs/lazywebplus-plan.md 2.3); the larger cap is the browser scope's.
+    // Why: a view per tab (docs/lazyweb-plan.md 2.3); the larger cap is the browser scope's.
     assert_eq!((VIEWS_PER_CLIENT, VIEWS_PER_BROWSER_CLIENT), (8, 64));
     let mut fx = Fx::new("tab-cap");
     let (browser_app, net_app) = (origin(7), origin(8));

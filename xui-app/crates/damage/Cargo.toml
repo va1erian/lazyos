@@ -1,4 +1,4 @@
-# What WebKit's updates changed between two paints (docs/lazywebplus-performance-plan.md): one scroll
+# What WebKit's updates changed between two paints (docs/lazyweb-performance-plan.md): one scroll
 # and a few rectangles, or "all of it". Pure Rust, no dependency: the window's seam (`xui-webkit`,
 # which re-exports it as `xui_webkit::damage`) and webd's service (`xui-webd`, one per view) keep
 # the same rules. Tested here and against a model of WebKit's backing store in `xui-webkit`.

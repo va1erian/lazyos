@@ -1,6 +1,6 @@
 //! An epoll instance shared across `fork` keeps the parent's interests when a child closes its copies.
 //!
-//! LazyWeb+'s window parks on an epoll set holding an eventfd doorbell, and then forks the engine's
+//! LazyWeb's window parks on an epoll set holding an eventfd doorbell, and then forks the engine's
 //! processes; each child's `exec` closes its close-on-exec copies of both. `close` used to drop every
 //! interest registered under the closed number from each epoll instance in the closer's table, and
 //! the instance is the parent's own: the first child's `exec` took the doorbell out of the parent's

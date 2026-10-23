@@ -79,29 +79,29 @@ class OsVolumeTests(unittest.TestCase):
 
     def test_the_webkit_selection_resets_a_small_volume(self) -> None:
         image = make_image(self.tmp, 512)
-        demo = demo_config(skip_build=False, lazywebplus=True)
+        demo = demo_config(skip_build=False, lazyweb=True)
         self.assertEqual(osvolume.cfg_too_small(demo, image), (512, 1024))
         self.assertTrue(osvolume.reset_wanted(demo, image))
         session = {**demo, "mode": "Scripted session"}
         with self.assertRaises(ValueError):
             osvolume.check(session, image)
-        self.assertIsNone(osvolume.cfg_too_small(demo_config(skip_build=True, lazywebplus=True), image))
+        self.assertIsNone(osvolume.cfg_too_small(demo_config(skip_build=True, lazyweb=True), image))
         with mock.patch.object(catalog, "IMAGE", str(image)):
             argv = catalog.build_plan(demo)[-1]["argv"]
             self.assertIn("--reset-os", argv)
             base = {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
                     "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
-            env = catalog.build_env({**base, "desktop": False, "lazywebplus": True})
+            env = catalog.build_env({**base, "desktop": False, "lazyweb": True})
             self.assertEqual(env["LAZYOS_OS_SIZE"], str(1024 * MIB))
         big = make_image(self.tmp, 2048)  # the same path, rewritten
-        self.assertEqual(osvolume.env({"lazywebplus": True}, big), {"LAZYOS_OS_SIZE": str(2048 * MIB)})
+        self.assertEqual(osvolume.env({"lazyweb": True}, big), {"LAZYOS_OS_SIZE": str(2048 * MIB)})
 
     def test_srb2kart_beside_the_browser_needs_both(self) -> None:
         """A 1 GiB volume filled up with both and the update died halfway."""
         image = make_image(self.tmp, 1024)
         self.assertEqual(osvolume.plan(image, True, True), (1536 * MIB, True))
         self.assertEqual(osvolume.too_small(image, True, True), (1024, 1536))
-        demo = demo_config(skip_build=False, srb2kart=True, lazywebplus=True)
+        demo = demo_config(skip_build=False, srb2kart=True, lazyweb=True)
         self.assertEqual(osvolume.cfg_too_small(demo, image), (1024, 1536))
         self.assertTrue(osvolume.reset_wanted(demo, image))
         big = make_image(self.tmp, 1536)  # the same path, rewritten
@@ -150,20 +150,20 @@ class OsVolumeTests(unittest.TestCase):
         """The button runs `cargo build` itself: it used to fail at its last step,
         `resizing is not supported, set LAZYOS_RESET_OS=1`, after the whole build."""
         image = make_image(self.tmp, 512)
-        steps, env = self.button(image, srb2kart=True, lazywebplus=True)
+        steps, env = self.button(image, srb2kart=True, lazyweb=True)
         self.assertEqual(env["LAZYOS_RESET_OS"], "1")
         self.assertEqual(env["LAZYOS_OS_SIZE"], str(1536 * MIB))
         self.assertEqual(steps[-1]["argv"][1], "build")
 
     def test_the_build_button_leaves_a_volume_that_fits(self) -> None:
         image = make_image(self.tmp, 1536)
-        _steps, env = self.button(image, srb2kart=True, lazywebplus=True)
+        _steps, env = self.button(image, srb2kart=True, lazyweb=True)
         self.assertNotIn("LAZYOS_RESET_OS", env)
         self.assertNotIn("LAZYOS_OS_SIZE", env, "the build's own default is that size")
 
     def test_the_build_button_does_not_take_skip_build_for_a_reason_not_to_build(self) -> None:
         image = make_image(self.tmp, 512)
-        _steps, env = self.button(image, skip_build=True, lazywebplus=True)
+        _steps, env = self.button(image, skip_build=True, lazyweb=True)
         self.assertEqual(env["LAZYOS_RESET_OS"], "1")
 
     def test_the_recreate_box_reaches_cargo_in_every_building_mode(self) -> None:

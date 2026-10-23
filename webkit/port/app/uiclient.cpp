@@ -1,4 +1,4 @@
-// The page's UI client and the view's pointer (docs/lazywebplus.md): the link under the pointer, the
+// The page's UI client and the view's pointer (docs/lazyweb.md): the link under the pointer, the
 // pointer shape, a request for a new window, the page's JavaScript dialogs, and (notify.cpp's
 // callback) the permission to notify.
 //
@@ -96,7 +96,7 @@ void mouseDidMoveOverElement(WKPageRef, WKHitTestResultRef hit, WKEventModifiers
 }
 
 // A page asked for a new window. None is made: the owner decides what to do with the address
-// (LazyWebPlus opens it in its one view when a user gesture started the request).
+// (LazyWeb opens it in its one view when a user gesture started the request).
 WKPageRef createNewPage(WKPageRef, WKPageConfigurationRef, WKNavigationActionRef action, WKWindowFeaturesRef, const void* clientInfo)
 {
     View& v = *viewOf(clientInfo);

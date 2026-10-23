@@ -1,6 +1,6 @@
 # lazyadblock
 
-Adblock Plus filter lists to WebKit content-rule lists, for LazyWeb+'s ad blocker
+Adblock Plus filter lists to WebKit content-rule lists, for LazyWeb's ad blocker
 (issue #845). Portable and host-tested; `convert(text, &Options::default())` returns the
 rule lists (`WKUserContentExtensionStoreCompile`'s `jsonSource`) and a `Stats`.
 

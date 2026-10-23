@@ -158,7 +158,7 @@ fn download(view, url) {
 /// `Recover(view: U64, reload: Bool) -> ()`
 ///
 /// The page's process does not answer (the app got `Responsive(false)`) and
-/// the person chose a way out (LazyWeb+, P4): the view's web process is
+/// the person chose a way out (LazyWeb, P4): the view's web process is
 /// ended. With `reload` the page loads again in a fresh process. Without it
 /// the page stays stopped: the engine reports the page as ended by request,
 /// which is `ViewLost` with reason `Other`, and the app makes a new view.
@@ -251,7 +251,7 @@ fn blocking_forget(view, list) {
 
 /// `NotifyForget(view: U64, origin: String) -> ()`
 ///
-/// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+/// Forget the profile's decision about `origin` (LazyWeb, P4): the page's
 /// `Notification.permission` is `default` again and its next request is
 /// asked again (`NotifyPermissionRequest`). A view made with
 /// `notifications` only; `origin` is checked as in `NotifyPermission`.
@@ -277,7 +277,7 @@ fn notify_state(view, notification, state) {
 /// of the view's group is ended and every view in it is reported as ended
 /// by request (`ViewLost` with reason `Other`). Each app makes its views
 /// again. Ids 40 to 43 are kept for the data and credential calls of
-/// docs/lazywebplus-plan.md section 8.
+/// docs/lazyweb-plan.md section 8.
 fn recover_group(view) {
     msg::connect("os.lazy.webd.view.v1").invoke("RecoverGroup", [view])
 }

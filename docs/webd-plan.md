@@ -3,7 +3,7 @@
 Status: P0 spike (a), P1.0 (webkit-app removal), P1 (Host/View), P2 slices 1 and 2 (webd, light views) and **P3 (Blitz and LazyWeb removed, Docs and Mail on light views)** done 2026-10-21; **P2 slice 3 (the full interface `os.lazy.webd.view.v1`, its scopes, profiles, frames with damage) done 2026-10-22** (see "P2 slice 3 as built"); **P4 (LazyWeb+ as a thin client of webd) done 2026-10-22** (see "P4 as built"); **P5 (hardening:
 the parked-view pool, memory-pressure gate, the malicious-client and page-process attack harnesses)
 done 2026-10-22** (see "P5 as built"). Builds on W4/W5/W6 of
-[`webkit-port-plan.md`](webkit-port-plan.md), [`lazywebplus.md`](lazywebplus.md) and
+[`webkit-port-plan.md`](webkit-port-plan.md), [`lazyweb.md`](lazyweb.md) and
 [`../webkit/README.md`](../webkit/README.md). Figures marked *est.* are estimates, not measurements.
 
 ## 0. The proposal in one page
@@ -29,13 +29,13 @@ Recommendations, each argued below:
 
 ## 1. Why now: what the code says
 
-* **Every browser carried its own engine host** (the situation the plan started from; P1.0 and P4 removed both). `lazywebplus-app` and `webkit-app` were each a 108 MiB static
+* **Every browser carried its own engine host** (the situation the plan started from; P1.0 and P4 removed both). `lazyweb-app` and `webkit-app` were each a 108 MiB static
   program (`webkit/README.md`); LazyOS loads a static ELF whole into RAM with no text sharing
   (`webkit-port-plan.md` section 6, "Memory for code"), so every UI process, WebProcess and NetworkProcess costs
   about 107 MiB before the first page. Then: one browser = 3 x 107 MiB, a second browser = 3 more.
 * **The engine host is single-page.** `Engine E` in `webkit/port/app/engine.h` is a process global holding one
   context, one data store, one `WKView`, one `WKPageRef`; `lzw_ui_*` / `lzw_engine_*` in `lazyos_ui.h` carry no
-  view id. No tabs, no second window (`lazywebplus.md` "Known limits").
+  view id. No tabs, no second window (`lazyweb.md` "Known limits").
 * **The seam already exists.** `xui-webkit`'s `Engine` trait is "what a window asks of the engine", the `Mailbox`
   is "what the engine tells the window", and the whole window is host-tested against a recording engine.
   A remote engine is a third implementation of the same trait.
@@ -81,7 +81,7 @@ web apps (P4); multi-user simultaneous sessions beyond what the display supports
 * Package `xui-app/packages/webd`, `[entry] resident = true`, `abi = "linux"`, `autostart = true`: `init`
   starts it with `--background` at login (section 8 for start, stop and the not-running case). Resident apps always get a tray item; webd's is useful (views per app, memory, "end all"),
   or the `resident` rule gets a `hidden` flag (small `lazypkg` change).
-* The three children keep the sandbox of `lazywebplus/manifest.toml` (`[processes.webprocess]` reads fonts only;
+* The three children keep the sandbox of `lazyweb/manifest.toml` (`[processes.webprocess]` reads fonts only;
   `networkprocess` has sockets, resolver, CA bundle and the profile folders). Profile root:
   `$HOME/.apps/os.lazy.webd/profiles/<profile>/`. The `Downloads` write grant moves here.
 * **Naming (spike P0a, resolved).** A labelled app may register only `app.<id>.<name>` and advertise only
@@ -103,9 +103,9 @@ web apps (P4); multi-user simultaneous sessions beyond what the display supports
 ### 3.2 Inside webd
 
 * **Rust half** (`xui-app/crates/webd`, portable and host-tested against an in-memory fabric and the recording
-  engine, like `xui-webplus`): the view table, quotas, profile map, policy evaluation, slot state machine, the
+  engine, like `xui-lazyweb`): the view table, quotas, profile map, policy evaluation, slot state machine, the
   Messenger service. It runs on **its own thread**: a Messenger handle belongs to the thread that made it, and the
-  notification service accepts only the process's first thread (`lazywebplus.md`, "Toasts are made on WebKit's
+  notification service accepts only the process's first thread (`lazyweb.md`, "Toasts are made on WebKit's
   main thread"). Everything that touches WebKit goes through `lzw_engine_run_on_main`; everything WebKit says
   arrives as `lzw_ui_*` calls that only queue. This is the arrangement the window already has, so it is proven.
 * **C++ half** (`webkit/port/app/`, ~2,800 lines across `engine`, `clients`, `policy`, `uiclient`, `paint`,
@@ -122,7 +122,7 @@ web apps (P4); multi-user simultaneous sessions beyond what the display supports
 ### 3.3 Profiles, processes, isolation (D4)
 
 * A profile is a `WebsiteDataStore`. Default key = the caller's label, so `app:os.lazy.mail` and
-  `app:os.lazy.lazywebplus` never see each other's cookies. A caller may name `profile = "browser"`; that needs the
+  `app:os.lazy.lazyweb` never see each other's cookies. A caller may name `profile = "browser"`; that needs the
   scope `os.lazy.webd.browser.v1` (consent: "Browse the web and keep your cookies and history"), granted to
   LazyWeb+ and later browsers, so two browsers share a session. `profile = ""` + `ephemeral` is an in-memory store
   (`WKWebsiteDataStoreCreateNonPersistentDataStore`), the Mail case.
@@ -157,7 +157,7 @@ web apps (P4); multi-user simultaneous sessions beyond what the display supports
 * **Latency.** The path gains one Messenger hop each way (service thread to WebKit's main thread already exists).
   A hop is a message, not a copy (frames are pointers into shared pages); the cost is to be measured in P0
   before anything else is built. Success criterion: scroll and typing latency in the Ars Technica repro of
-  `lazywebplus-performance-plan.md` within 10% of today.
+  `lazyweb-performance-plan.md` within 10% of today.
 * **Later (P6).** A `Subsurface` request lets the compositor read webd's slots directly and route input to webd,
   removing the client blit and the forwarding hop. Not needed for correctness; the API does not change.
 
@@ -337,11 +337,11 @@ browser moves onto webd**.
 
 | Phase | Deliverable | Exit criteria | Size *est.* |
 |---|---|---|---|
-| **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/webplus/run.py` | `webplus/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazywebplus` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
-| **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `webplus/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
+| **P1.0 remove webkit-app** (done) | Section 9.1: delete `os.lazy.webkit`, its window feature, its harness; fold what only `app_run.py` checked into `tools/lazyweb/run.py` | `lazyweb/run.py`, `notify_run.py`, `hang_run.py`, `attack_run.py --browser --app lazyweb` and `--kernel` pass (run 2026-10-21 on the merged branch); `python tools/test_suites.py`, `test_catalog*.py`, `cargo test -p build-support-tests` pass | 2-3 days |
+| **P1 multi-view engine** (done) | `Host`/`View` split in `webkit/port/app` behind a `ViewSink` and a `HostEnv`; the C ABI of `lazyos_ui.h` becomes `legacy.cpp` over view 1 (**it did not grow view ids**: webd implements the same two interfaces over Messenger in P2); `webkit/port/views` (`webkit-views`) runs a light view, two views and a cycle of twelve in the build container | `port.py --only WebProcess NetworkProcess webkit-views --run-views` passes (done, ten runs in a row); `lazyweb/run.py`, `notify_run.py`, `hang_run.py` and the attack harness judge unchanged (run on the merged branch) | 1.5-2.5 weeks |
 | **P2 webd, light first** (done: slices 1 and 2 light, 3 the full interface) | `idl/webd_light.midl` then `idl/webd.midl` (+ `explain` rows), `xui-app/crates/webd`, `webd` bin, package `xui-app/packages/webd` (resident, autostart), `LAZYOS_WEBD=1`, `run_demo.py --webd`, GUI control, `tools/webd/run.py`, a demo client | two apps with light views painting, no request in the host log, no network process (if L1 allows), `ViewLost` after killing a web process, hop latency measured; then the full interface: two profiles, cookies isolated | 2-3 weeks |
 | **P3 Blitz out** (done) | Section 9.2: Mail's pane, then Docs, then `xui-blitz`/`webfonts` from those; **LazyWeb deleted with them** (the owner's call: LazyWeb+ is the browser, so it did not wait for P4); every desktop ships webd | `tools/docs/run.py`, `tools/mail/run.py` (with a hostile message: empty request log), `tools/webd/run.py` pass; see "P3 as built" | 1 week |
-| **P4 LazyWeb+ thin client** (done) | `xui-webplus` on `RemoteEngine` (`xui-webkit-remote`); downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `webplus/run.py`, `notify_run.py`, `hang_run.py` pass against webd; the 108 MiB engine host leaves the package; see "P4 as built" | 1.5-2.5 weeks |
+| **P4 LazyWeb+ thin client** (done) | `xui-lazyweb` on `RemoteEngine` (`xui-webkit-remote`); downloads, dialogs, notification bar and blocker UI keep their code, their engine halves move; tabs possible (LazyWeb itself went in P3) | `lazyweb/run.py`, `notify_run.py`, `hang_run.py` pass against webd; the 108 MiB engine host leaves the package; see "P4 as built" | 1.5-2.5 weeks |
 | **P5 hardening** (done, see "P5 as built") | the parked-view reuse pool for light views (their create/destroy loops flat; full views and related pages still park), the user-memory-pressure gate on a new web process, the malicious-client and malicious-page-process attack harnesses run in QEMU, the reconnect protocol (host-tested + login case in QEMU); the seeded fuzzers of the slot/band model, the full request decode and the service predate P5 and were reviewed, not extended. Not done: cross-view fairness scheduler, overscan-without-nudge patch, shared-group hang recovery, tabs | the attack harnesses pass (no `LABEL:DENY` beyond the documented optional ones; the client's only denials are the two scopes it was not granted); the light-view proxy pool is flat over thousands of create/destroy cycles | 2 weeks |
 | **P6 optional** | compositor subsurface; PDF/print and snapshot API; LazyRAD `WebView` (light by default); web-app package kind | measured | open |
 
@@ -420,7 +420,7 @@ switch. As built and measured: [`webd.md`](webd.md). What it found:
 
 * **The first thread must run the service, not WebKit.** `init`'s lifecycle `Watch` is keyed by the sender's
   task slot (`row.pid == message.sender`), and a thread other than the process's first carries its own slot, so
-  it is `ESRCH` (the same fact as the notification service's, `lazywebplus.md`). webd therefore runs the
+  it is `ESRCH` (the same fact as the notification service's, `lazyweb.md`). webd therefore runs the
   service on the process's first thread and WebKit's run loop on a thread `main.cpp` makes; the engine's calls
   are queued tasks and its callbacks run on that thread, so which thread is "main" does not matter to it.
   (If WebKit had to stay on the first thread, the lifecycle channel would be a main-thread handle watched by an
@@ -659,8 +659,8 @@ The client side of the light interface and its proof; the program, package and `
 
 ### P4 as built (2026-10-22): LazyWeb+ on webd
 
-LazyWeb+ ([`lazywebplus.md`](lazywebplus.md)) is a plain xui app, the binary `xui-lazywebplus` (crate
-`xui-app/webplus`, built by `python tools/xui/build.py` into `target/xui/xui-lazywebplus.elf`). It links no
+LazyWeb+ ([`lazyweb.md`](lazyweb.md)) is a plain xui app, the binary `xui-lazyweb` (crate
+`xui-app/lazyweb`, built by `python tools/xui/build.py` into `target/xui/xui-lazyweb.elf`). It links no
 WebKit, no curl and no OpenSSL. Its page is **one full view** of webd (`os.lazy.webd.view.v1`) made through the
 browser scope (`os.lazy.webd.browser.v1`) in webd's `browser` profile
 (`$HOME/.apps/os.lazy.webd/profiles/browser`: cookies, cache, site storage, the content-blocking store).
@@ -675,15 +675,15 @@ client: at most one every 8 ms (issue #890's merging, in the client's own proces
 
 **Deleted:** the C++ engine host for LazyWeb+ (`webkit/port/app/main.cpp`, `legacy.cpp`, `legacy.h`;
 `lazyos_ui.h` now holds only the engine's shared constants), `tools/webkit/app.py` (its helpers moved to
-`tools/webkit/uilink.py`, used by `webd.py`), the `lazywebplus-app` cmake target,
-`build_support/lazywebplus_embed.rs`, `xui-webkit`'s C ABI (`ffi.rs`, `ffi_paint.rs`, `taskstat.rs`) and the
+`tools/webkit/uilink.py`, used by `webd.py`), the `lazyweb-app` cmake target,
+`build_support/lazyweb_embed.rs`, `xui-webkit`'s C ABI (`ffi.rs`, `ffi_paint.rs`, `taskstat.rs`) and the
 window's heartbeat (webd's watchdog covers WebKit's thread). The `WebProcess` and `NetworkProcess` are webd's
 (`app:os.lazy.webd/webprocess|networkprocess`). LazyWeb+'s package keeps only `[processes.listupdate]`: the
 ad-block list download with `curl` (the lists are the client's; webd compiles what it is given,
 `BlockingCompile`).
 
-**Build switch.** `LAZYOS_LAZYWEBPLUS=1` needs `LAZYOS_DESKTOP=1`, `LAZYOS_NETD=1` and webd (an unset
-`LAZYOS_WEBD` is required, `LAZYOS_WEBD=0` is an error). `run_demo.py --lazywebplus` implies the desktop, `--net`,
+**Build switch.** `LAZYOS_LAZYWEB=1` needs `LAZYOS_DESKTOP=1`, `LAZYOS_NETD=1` and webd (an unset
+`LAZYOS_WEBD` is required, `LAZYOS_WEBD=0` is an error). `run_demo.py --lazyweb` implies the desktop, `--net`,
 `--tls` (curl for the lists), the WebKit limits (`quota_user_memory=8G`), the big-app profile and webd (an error
 with `--no-webd`); it builds the WebKit processes, webd and the xui apps.
 
@@ -718,7 +718,7 @@ working).
 * *Notification identity* (open question 6): the browser posts the toast (`notify_in_client`), not webd. The shell
   raises the app that posted a toast on a click, and an app cannot raise another's window. webd's own toasts stay
   for views without the flag.
-* *Profile.* The old in-process engine's cookies, cache and site storage (`$HOME/.apps/os.lazy.lazywebplus/`)
+* *Profile.* The old in-process engine's cookies, cache and site storage (`$HOME/.apps/os.lazy.lazyweb/`)
   are **not migrated**: webd's label cannot read that folder and the client cannot write webd's. Sites need a new
   sign-in. History (`history.tsv`), the notification choices (`notify.tsv`), the ad-block lists and the settings
   are the client's and are kept; the old engine's files stay in the folder, unused.
@@ -735,7 +735,7 @@ working).
 * *Flood budget.* webd prints the engine's repeating lines (`INFO:*`, hang pings) under a budget of their own,
   120 per ten seconds, separate from the 20 per ten seconds for lines a client can cause.
 * *Licence.* The window crates keep `GPL-2.0-only OR GPL-3.0-or-later` until a maintainer relicenses (open
-  question 8; `python tools/nettls/licenses.py --lazywebplus` still checks the registry tree). The program no
+  question 8; `python tools/nettls/licenses.py --lazyweb` still checks the registry tree). The program no
   longer links WebKit or OpenSSL, but links two crates of its own declared `GPL-3.0-or-later`
   (`xui-webkit-remote`, `xui-webd-client`), so it is distributed as GPL-3.0-or-later.
 
@@ -744,8 +744,8 @@ working).
 `NotifyCancel` = 124, `NotifyGone` = 125, and `ViewConfig.notify_in_client` = 14. The C ABI
 (`webkit/port/webd/webd_abi.h`) gained `webd_engine_recover` and `webd_engine_notify_forget`.
 
-**Harnesses.** `tools/webplus/run.py`, `notify_run.py`, `hang_run.py` and the blocker boots judge LazyWeb+ as a
-client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `WEBPLUS:`.
+**Harnesses.** `tools/lazyweb/run.py`, `notify_run.py`, `hang_run.py` and the blocker boots judge LazyWeb+ as a
+client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `LAZYWEB:`.
 
 **Known limits.**
 
@@ -765,7 +765,7 @@ client of webd: the engine's markers are `WEBD:NOTE:<line>`, the client's stay `
 
 #### Measured
 
-`python tools/webplus/frame_run.py --perf` (2560x1440, LazyWeb+ maximized at the 1280x720 layout times two, the
+`python tools/lazyweb/frame_run.py --perf` (2560x1440, LazyWeb+ maximized at the 1280x720 layout times two, the
 stand-in server's tall page, the wheel turned for 20 s at 3 notches every 50 ms; QEMU with WHPX, 4 GiB) on this
 branch and on its parent (02f0b8317: the in-process LazyWeb+, the same WebKit build, an image with no webd), same
 machine, one after the other; another session's kernel tests were running on the host during the runs. One run per
@@ -779,9 +779,9 @@ side of the final build, plus one of this branch before the band fix below.
 | checkerboard rows while scrolling | 0 (32-41 bands painted a second) | 40 rows in one second, then 0 (38-40 bands a second) |
 | window updates (`INFO:WINDOW`) | 491; apply 58 us, draw 634 us a draw | 491; apply 51 us, draw 813 us a draw |
 | the engine's paint (`INFO:PAINT` total, post) | 2,338 us a paint (900 of them the probe image's check), post 762 us | 1,393 us a paint (no check), post 479 us (into a slot) |
-| CPU (`PERF:CPU`, looks above 20%) | `lazywebplus.elf` 22% (the UI process and the window) | no process above 20% (the work is split between webd's UI process and the client) |
+| CPU (`PERF:CPU`, looks above 20%) | `lazyweb.elf` 22% (the UI process and the window) | no process above 20% (the work is split between webd's UI process and the client) |
 | free memory when the page loaded (`INFO:MEM`) | 3,614 MiB | 3,607 MiB (7 MiB less; the image before ships no webd at all) |
-| the program | `lazywebplus-app` 80.6 MB, package 32.4 MB | `xui-lazywebplus` 3.6 MB, package 1.75 MB (webd's 73.8 MB program is on every desktop anyway) |
+| the program | `lazyweb-app` 80.6 MB, package 32.4 MB | `xui-lazyweb` 3.6 MB, package 1.75 MB (webd's 73.8 MB program is on every desktop anyway) |
 
 What it says: the scroll's latency to the engine is within the plan's 10% (3.9 against 3.6 ms on average, one run
 each, on a loaded host) and the frame rate is the same; the hop through webd does not show at this resolution.
@@ -810,7 +810,7 @@ harness measures key to paint), the Ars Technica repro of the performance plan (
 * **The notification permission context leak** (above): a per-profile permission record, or a patch that makes
   WebKit's record per data store.
 * **`file:` browsing** through a client-side read and `LoadHtml`.
-* **Tabs** (above). [`lazywebplus-plan.md`](lazywebplus-plan.md) B1 takes the parked-view pool, group
+* **Tabs** (above). [`lazyweb-plan.md`](lazyweb-plan.md) B1 takes the parked-view pool, group
   recovery and `webd_engine_view_pid` from this list, and adds a client-chosen `process_key` inside a group
   (one web process per site) with memory-gated limits.
 
@@ -996,13 +996,13 @@ each with real evidence; the rest is recorded below as still open.
 ### 9.1 Removing `webkit-app` (`os.lazy.webkit`, W5) first (done)
 
 **Done** in this branch. What differed from the inventory below: no check had to be folded into
-`tools/webplus/run.py` (it already covered HTTPS pages with SNI, the typed form and Back, script, the wheel,
+`tools/lazyweb/run.py` (it already covered HTTPS pages with SNI, the typed form and Back, script, the wheel,
 resize and maximize, and the reaping of both children); `--plus` is gone from `tools/webkit/app.py` (it builds
 LazyWeb+ only), so `LAZYOS_WEBKIT_APP_ID` and `LAZYOS_APP_DATA_DIR` left the C++ build and `engine.cpp` has no
 default profile (a window that asks for none gets an ephemeral store); `build_support/webkit_embed.rs` went and
-`engine_source` moved to `lazywebplus_embed.rs`; the page-view tests that drove the W5 window now run in a rig of
+`engine_source` moved to `lazyweb_embed.rs`; the page-view tests that drove the W5 window now run in a rig of
 their own (`xui-app/crates/webkit/tests/support`), and `tests/window.rs` (chrome only) was deleted; the kernel,
-`filepolicy` and `pkgstore` fixtures named `os.lazy.webkit` became `os.lazy.lazywebplus`; the sandbox attack
+`filepolicy` and `pkgstore` fixtures named `os.lazy.webkit` became `os.lazy.lazyweb`; the sandbox attack
 harness attacks LazyWeb+'s labels only, and the kernel-only driver now creates `~/Downloads` because the network
 process's table includes it. Patch `0015` still names `os.lazy.webkit` in a comment: editing an applied patch
 rebuilds all of WebKit, so it is left.
@@ -1013,7 +1013,7 @@ already had `os.lazy.webkit` keeps it in `/apps` and the menu until it is uninst
 (`--reset-os`). That is existing behaviour for every retired core app; say so in the PR rather than add a
 one-off retire step.
 
-Why first: W5 is LazyWeb+ minus chrome, `lazywebplus.md` already says the retirement was held back only for
+Why first: W5 is LazyWeb+ minus chrome, `lazyweb.md` already says the retirement was held back only for
 lack of a page-for-page harness run, and the multi-view refactor would otherwise port two windows to the new ABI.
 
 Inventory (from `git grep`; delete or shrink, nothing else depends on it):
@@ -1022,14 +1022,14 @@ Inventory (from `git grep`; delete or shrink, nothing else depends on it):
 |---|---|
 | Package and window | delete `xui-app/packages/webkit/`; in `xui-app/crates/webkit` remove the `window` feature (`app.rs`, `chrome.rs`, `window_ffi.rs`, the `[features]` entry) and keep the seam (it becomes the client's base); drop the defaults in `webkit/port/app/main.cpp` and `log.cpp` that only W5 used (the `WEBKIT:W5` prefix) |
 | Build | `tools/webkit/app.py`: drop the non-`--plus` path (the flag becomes the default and is then removed); `tools/xui/core_packages.py`, `build_support/webkit_embed.rs`, `xui_embed.rs`, `core_packages.rs`, `linuxapps_embed.rs`, `os_disk.rs`, `os_track.rs`, `build.rs`: remove `LAZYOS_WEBKIT` (keep `LAZYOS_WEBKIT_PORT` for the engine children and `webkit-smoke`); `PlatformLazyOS.cmake`: one UI target |
-| Launchers | `tools/run_demo.py`, `demo_args.py`, `demo_builds.py`, `lazygui/{appsteps,osvolume,ui,variables}.py`, catalog tests (`test_catalog_webkit.py`, `test_run_demo_webkit.py` deleted), `tools/suites.toml` (`full`), `test_suites.py`; `--webkit` removed, `--lazywebplus` kept |
-| Harness | delete `tools/webkit/app_run.py`, `app_session.py`, `appjudge.py`, `test_app_judge.py`, the `webkit.json` session; first move what only they checked (the `WEBKIT:W5:*` HTTPS/SNI/form/Back/wheel checks that `webplus/run.py` does not repeat) into `webplus/run.py`; `attack_run.py --app` keeps `lazywebplus` only (`attackjudge.py`, `attack_build.py`, `sandboxprobe.rs`, `test_attack_judge.py`) |
+| Launchers | `tools/run_demo.py`, `demo_args.py`, `demo_builds.py`, `lazygui/{appsteps,osvolume,ui,variables}.py`, catalog tests (`test_catalog_webkit.py`, `test_run_demo_webkit.py` deleted), `tools/suites.toml` (`full`), `test_suites.py`; `--webkit` removed, `--lazyweb` kept |
+| Harness | delete `tools/webkit/app_run.py`, `app_session.py`, `appjudge.py`, `test_app_judge.py`, the `webkit.json` session; first move what only they checked (the `WEBKIT:W5:*` HTTPS/SNI/form/Back/wheel checks that `lazyweb/run.py` does not repeat) into `lazyweb/run.py`; `attack_run.py --app` keeps `lazyweb` only (`attackjudge.py`, `attack_build.py`, `sandboxprobe.rs`, `test_attack_judge.py`) |
 | Labels and tests | `kernel/src/ipc/confine.rs`, `confine_suite/*`, `filepolicy/src/tests.rs`, `pkgstore/src/filerules.rs` use `os.lazy.webkit` as an example label: rename to a neutral fixture id, keep the cases |
-| Docs | `docs/webkit-port-plan.md` W5 becomes history, `webkit/README.md` "The desktop app (W5)", `docs/lazywebplus.md` "`os.lazy.webkit` is not retired", `docs/build-switches.md`, `docs/architecture/process-sandbox.md` diagram, `THIRD_PARTY.md`, `AGENTS.md` ("The WebKit browser" section) |
-| Fixtures | `tools/web/fixtures/theoldnet.com/webkit/` pages: keep (webplus uses the stand-in sites) |
+| Docs | `docs/webkit-port-plan.md` W5 becomes history, `webkit/README.md` "The desktop app (W5)", `docs/lazyweb.md` "`os.lazy.webkit` is not retired", `docs/build-switches.md`, `docs/architecture/process-sandbox.md` diagram, `THIRD_PARTY.md`, `AGENTS.md` ("The WebKit browser" section) |
+| Fixtures | `tools/web/fixtures/theoldnet.com/webkit/` pages: keep (lazyweb uses the stand-in sites) |
 
 Done when: no tracked file names `LAZYOS_WEBKIT=` (only `LAZYOS_WEBKIT_PORT`), the listed harnesses and host tests
-pass, and the `--lazywebplus` image behaves as before.
+pass, and the `--lazyweb` image behaves as before.
 
 ### 9.2 Removing Blitz (done in P3, see "P3 as built"; the text below is the plan as written)
 
@@ -1045,14 +1045,14 @@ Blitz is `xui-blitz` (a git dependency of `va1erian/xui`, pinned at one revision
 
 Mail and Docs need no full view, no profile and no network scope, so **P3 does not wait for LazyWeb+ to move**.
 
-Deleting LazyWeb also takes care of what `tools/webplus` borrows from it: `tools/web/judge.py` (loaded by
-`tools/webplus/judge.py`), `tools/web/sites.py`, `tools/web/certs.py` and `tools/web/fixtures/` are LazyWeb+'s
-harness inputs too and must move (to `tools/webplus` or a shared `tools/webtest`) before `tools/web/run.py` goes.
+Deleting LazyWeb also takes care of what `tools/lazyweb` borrows from it: `tools/web/judge.py` (loaded by
+`tools/lazyweb/judge.py`), `tools/web/sites.py`, `tools/web/certs.py` and `tools/web/fixtures/` are LazyWeb+'s
+harness inputs too and must move (to `tools/lazyweb` or a shared `tools/webtest`) before `tools/web/run.py` goes.
 
 Per-step exit criteria: Mail: `python tools/mail/run.py` judges the same card/body checks with the web view (pixels
 and `cid:` image), and a hostile message (script, remote image, `<meta refresh>`, form post) produces no request in
 the host log; Docs: `xui_docs.json` and `xui_docs_open.json` pass (markers kept); LazyWeb: `python tools/web/run.py`
-is replaced by `webplus/run.py` (its fixtures stay, `tools/web/sites.py` is shared); `lazyweb.json` session,
+is replaced by `lazyweb/run.py` (its fixtures stay, `tools/web/sites.py` is shared); `lazyweb.json` session,
 `--lazyweb`, `LAZYOS_LAZYWEB`, `xui-app/packages/lazyweb`, `docs/lazyweb.md`, the `mimed` registrations and the
 Settings > Default apps entries go; `xui-app/Cargo.lock` loses the git dependency; `webfonts` and
 `docs/xui-docs.md`'s Blitz sections are removed or rewritten.
@@ -1095,6 +1095,6 @@ Each was a fork; this is the path taken. Change one only if a spike or a measure
 | 4 | Hop latency budget | within 10% of today on the Ars Technica scroll repro; measured in P2 | P2 misses it: subsurface (P6) moves up |
 | 5 | Local files | the client reads and passes bytes with `LoadHtml(base_url)`; webd's children read no user file | a use case needs relative file loads |
 | 6 | Notification identity | webd posts the toast under its own name with the site host as title; a view made with `notify_in_client` (a browser, P4) gets the notifications instead and the app posts them under its own name, so a click raises its window | the shell grows `on_behalf_of` |
-| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user and (P5) a user-memory gate; refusal is `EDQUOT` at `CreateView` (the plan said `ViewLost(no_memory)`) | P5 measures real use. **Proposed amendment** ([`lazywebplus-plan.md`](lazywebplus-plan.md) 2.3): a client may split its own group with `ViewConfig.process_key` (one process per site), never join another's; at most 32 keys per client, the cap becomes a memory gate under a ceiling of 16 |
+| 7 | Web processes per profile | one per (client app, profile) **group** (`ViewConfig::group`, P1; **webd computes the number from the kernel-stamped client label and the profile, never from a wire field**: the engine cannot tell owners apart), hard cap of 4 processes per user and (P5) a user-memory gate; refusal is `EDQUOT` at `CreateView` (the plan said `ViewLost(no_memory)`) | P5 measures real use. **Proposed amendment** ([`lazyweb-plan.md`](lazyweb-plan.md) 2.3): a client may split its own group with `ViewConfig.process_key` (one process per site), never join another's; at most 32 keys per client, the cap becomes a memory gate under a ceiling of 16 |
 | 8 | Remove W5; relicense the client crate | W5 goes first (9.1); the client crate stays GPL-compatible until a maintainer relicenses | someone needs an MIT client |
 | 9 | Do light views of different apps share a web process | no: one per client app; HTML and image decoders are the attack surface even with scripts and network off | memory forces it and the content is trusted |

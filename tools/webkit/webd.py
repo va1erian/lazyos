@@ -14,7 +14,7 @@
 The result is ``target/webkit/bin/webd-app``, copied to ``target/xui/xui-webd.elf``, where
 ``tools/xui/core_packages.py`` finds it for the package (``xui-app/packages/webd``). Needs the port's other
 programs built first (``python tools/webkit/port.py``): webd starts ``WebProcess`` and ``NetworkProcess``,
-installed as ``/system/bin/webprocess`` and ``networkprocess`` by ``LAZYOS_WEBD=1`` images (every desktop, and the ones of ``LAZYOS_LAZYWEBPLUS=1``).
+installed as ``/system/bin/webprocess`` and ``networkprocess`` by ``LAZYOS_WEBD=1`` images (every desktop, and the ones of ``LAZYOS_LAZYWEB=1``).
 
 Usage::
 

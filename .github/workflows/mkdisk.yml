@@ -66,16 +66,16 @@ jobs:
           python tools/webkit/test_licenses.py
           python tools/webkit/test_attack_judge.py
           python tools/webkit/licenses.py
-          python tools/webplus/test_judge.py
-          python tools/webplus/test_notify_judge.py
-          python tools/webplus/test_hang_judge.py
-          python tools/webplus/test_reaper_judge.py
-          python tools/webplus/test_quit_judge.py
-          python tools/webplus/test_procs.py
-          python tools/webplus/test_pointer.py
-          python tools/webplus/test_blocker_judge.py
-          python tools/webplus/test_sample.py
-          python tools/webplus/session.py --check
+          python tools/lazyweb/test_judge.py
+          python tools/lazyweb/test_notify_judge.py
+          python tools/lazyweb/test_hang_judge.py
+          python tools/lazyweb/test_reaper_judge.py
+          python tools/lazyweb/test_quit_judge.py
+          python tools/lazyweb/test_procs.py
+          python tools/lazyweb/test_pointer.py
+          python tools/lazyweb/test_blocker_judge.py
+          python tools/lazyweb/test_sample.py
+          python tools/lazyweb/session.py --check
           python tools/webd/test_judge.py
           python tools/webd/session.py --check
 

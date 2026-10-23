@@ -1,7 +1,7 @@
 # Shared web test sites
 
-The stand-in sites and certificates the browser harnesses browse: LazyWeb+'s
-(`tools/webplus`, [docs/lazywebplus.md](../../docs/lazywebplus.md)) and, for
+The stand-in sites and certificates the browser harnesses browse: LazyWeb's
+(`tools/lazyweb`, [docs/lazyweb.md](../../docs/lazyweb.md)) and, for
 the picture encoders, LazySky's mock server (`tools/lazysky`). There is no
 runner here: each harness builds its own image, serves these sites from the
 host and judges its own evidence. This directory was `tools/web`, the harness
@@ -18,7 +18,7 @@ python tools/webtest/sites.py OUTDIR        # serve by hand (ports 80 and 443)
 | `sites.py` | the host's stand-ins, with a record of every request (scheme, Host, path, User-Agent, TLS SNI) that the judges read |
 | `certs.py` | the run's throwaway CA and leaf, and the hosts file mapping the stand-ins' names to the host |
 | `pages.py` | what the fixtures' home pages are called and which same-site files they reference |
-| `fixtures/` | `example.com/` and `theoldnet.com/` (home page, pictures, style sheet, the `webkit/` and `webplus/` test pages) |
+| `fixtures/` | `example.com/` and `theoldnet.com/` (home page, pictures, style sheet, the `webkit/` and `lazyweb/` test pages) |
 | `gen_fixtures.py`, `imgenc.py`, `jpegenc.py` | the pictures, drawn with the standard library only and checked in |
 
 ## The stand-in sites
@@ -31,7 +31,7 @@ theoldnet.com shows only a maintenance notice, so the host serves both
 |---|---|---|
 | `http://example.com/` | `127.0.0.1:80` | `fixtures/example.com/index.html` |
 | `http://theoldnet.com/...` | `127.0.0.1:80` | `301` to `https://theoldnet.com/...`, like the real site |
-| `https://theoldnet.com/`, `https://www.theoldnet.com/` | `127.0.0.1:443` | `fixtures/theoldnet.com/`: a late-90s home page (table layout, `<font>`, `<center>`, a tiled `background=` GIF, a PNG logo with alpha, a JPEG photo, an animated GIF, a rainbow rule, a CSS file, links), the pages under `webkit/` and `webplus/`, a download, a cookie page, a slow page and an echo |
+| `https://theoldnet.com/`, `https://www.theoldnet.com/` | `127.0.0.1:443` | `fixtures/theoldnet.com/`: a late-90s home page (table layout, `<font>`, `<center>`, a tiled `background=` GIF, a PNG logo with alpha, a JPEG photo, an animated GIF, a rainbow rule, a CSS file, links), the pages under `webkit/` and `lazyweb/`, a download, a cookie page, a slow page and an echo |
 
 How the guest gets there: QEMU's user network maps the gateway, `10.0.2.2`,
 to the host's loopback, so a guest connection to `10.0.2.2:443` reaches

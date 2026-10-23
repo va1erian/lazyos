@@ -54,7 +54,7 @@ installable app. You rarely need to write Rust.
 
 [LazyWriter](xui-writer.md), [Archiver](xui-archiver.md), [Paint](paint-plan.md),
 [PDF Viewer](pdf-reader-plan.md), [Video Player](video-player-plan.md),
-[NES Player](nes-player.md), [Mail](mail.md), [LazyWeb+](lazywebplus.md), [LazySky](lazysky.md) and this viewer,
+[NES Player](nes-player.md), [Mail](mail.md), [LazyWeb](lazyweb.md), [LazySky](lazysky.md) and this viewer,
 [Docs](xui-docs.md).
 
 ## How the system works

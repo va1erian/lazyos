@@ -2,9 +2,9 @@ name: webd
 
 # webd, the daemon that serves WebKit views (docs/webd.md): the host tests of its Rust crates (the service
 # with its quota, isolation, slot and full-interface fuzz tests, the client, the real-Messenger host, the
-# paint-plan and download crates it shares with LazyWeb+), the two interfaces' shared shape, and the
+# paint-plan and download crates it shares with LazyWeb), the two interfaces' shared shape, and the
 # harnesses' judges. The end-to-end runs (`python tools/webd/run.py`, `full_run.py`) need the WebKit build
-# volume and are run by hand, as LazyWeb+'s are.
+# volume and are run by hand, as LazyWeb's are.
 
 on:
   push:

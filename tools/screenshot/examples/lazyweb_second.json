@@ -1,0 +1,137 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "LAZYWEB:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "LAZYWEB:LOAD:about:start",
+  "timeout": 300.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:TheOldNet.com - Surf the Old Web",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "29_cached"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/cookie",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/cookie",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:cookie:kept",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "30_cookie_kept"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "h",
+  "until": "LAZYWEB:LOAD:about:history",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "31_history_kept"
+ },
+ {
+  "click_at": {
+   "window": "History - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    212,
+    63
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:LOAD:about:history",
+  "retries": 2
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "32_history_cleared"
+ },
+ {
+  "click_at": {
+   "target": "title:History - LazyWeb",
+   "offset": [
+    491,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "LAZYWEB:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 9.0
+ },
+ {
+  "quit": true
+ }
+]

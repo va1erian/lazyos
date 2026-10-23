@@ -8,6 +8,6 @@ Subsystem-specific guidance for AI agents, split out of [`AGENTS.md`](../../AGEN
 - [System services, packages and security](services.md): Developer tools and the Playground, Rhai, packages and the label trace, app failures, notifications, tray, accounts attacks, keyd secrets, shutdown.
 - [Desktop apps](apps.md): Terminal, Docs, Writer, Archiver, PDF, Video, Paint, About, Picture Viewer, the MOD player, Mail and LazySky.
 - [Games](games.md): LazyGolf, the NES Player, Doom, emusic, Quake and SRB2Kart.
-- [WebKit, webd and the browser](web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb+ and webd.
+- [WebKit, webd and the browser](web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb and webd.
 - [Networking, TLS, SMB and Wi-Fi](networking.md): HTTPS clients, networking in a boot, network drives, SMB, network time, Wi-Fi and the network tooling.
 - [Display, drivers and hardware](hardware.md): HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.

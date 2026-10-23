@@ -51,7 +51,7 @@ fn long_text_is_cut_with_an_ellipsis() {
 #[test]
 fn a_line_feed_in_the_body_starts_a_new_line() {
     let note = Note::new(Level::Info, "example.com", "New mail\nFrom Ada Lovelace");
-    let card = Card::new(&note, "LazyWeb+", &mono);
+    let card = Card::new(&note, "LazyWeb", &mono);
     let body: Vec<&str> = card.body.iter().map(|line| line.text.as_str()).collect();
     assert_eq!(body, ["New mail", "From Ada Lovelace"]);
     // Empty paragraphs are not lines, and a run of line feeds is one break.

@@ -81,7 +81,7 @@ fn the_pages_words_are_cleaned_and_only_a_web_page_has_a_toast() {
 
 #[test]
 fn a_site_has_three_live_toasts() {
-    // Why: one site must not fill the screen even slowly; the cap is LazyWeb+'s.
+    // Why: one site must not fill the screen even slowly; the cap is LazyWeb's.
     let mut fx = Fx::new("notify-site-limit");
     let app = origin(7);
     let (view, _) = fx.view(app, Via::Browser, notifying(), 4, 4);

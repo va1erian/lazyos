@@ -1,7 +1,7 @@
 //! The notifications on screen, and the limits that keep one site from using up the browser's
 //! allowance of toasts.
 //!
-//! The shell lets an app keep 16 toasts and post a burst of 6; LazyWeb+ shares that allowance
+//! The shell lets an app keep 16 toasts and post a burst of 6; LazyWeb shares that allowance
 //! between the sites it shows and its own downloads. So a site gets at most [`LIVE_PER_ORIGIN`]
 //! live toasts, and posts (a new one or an update) at the pace of [`BURST`] at once and one more
 //! each second; all sites together keep at most [`LIVE_TOTAL`]. What a site posts beyond that is

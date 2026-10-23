@@ -7,7 +7,7 @@
 pub const VIEWS_PER_CLIENT: usize = 8;
 
 /// The same for a client that makes views through `os.lazy.webd.browser.v1`: a browser holds a view
-/// per tab (docs/lazywebplus-plan.md 2.3). The slot budget ([`SLOT_BYTES_PER_CLIENT`]) is unchanged, so
+/// per tab (docs/lazyweb-plan.md 2.3). The slot budget ([`SLOT_BYTES_PER_CLIENT`]) is unchanged, so
 /// the extra views are cheap only while the client attaches slots to the ones on screen.
 pub const VIEWS_PER_BROWSER_CLIENT: usize = 64;
 
@@ -163,7 +163,7 @@ pub const NOTIFY_TEXT_BYTES: usize = 16 << 10;
 /// therefore get a share of it: [`TOASTS_PER_CLIENT`] on screen at once (three clients fit in the 16)
 /// and a pace of [`CLIENT_TOAST_BURST`] at once, then one every [`CLIENT_TOAST_REFILL_MS`]; no one
 /// looping `new Notification(); close()` can use up what the others need. Beyond these a site has the
-/// per-site limits of LazyWeb+ (`lazywebnotify`).
+/// per-site limits of LazyWeb (`lazywebnotify`).
 pub const TOASTS_PER_CLIENT: usize = 5;
 pub const CLIENT_TOAST_BURST: u64 = 3;
 pub const CLIENT_TOAST_REFILL_MS: u64 = 2000;

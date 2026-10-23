@@ -10,7 +10,7 @@ from .catalog import SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES, SIMPLE_OPT
 #: `simplecfg.plain_config`'s switches, in its argument order.
 SIMPLE_EXTRAS = ("lazyrad", "shell", "devices", "doom", "quake", "modplayer", "net", "linuxapps",
                  "hidpi", "hires", "tls", "mail", "traydemo", "autologin", "setup", "pictures",
-                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazywebplus", "games",
+                 "emusic", "usb_image", "wifi", "lazysky", "srb2kart", "lazyweb", "games",
                  "devtools", "usb_audio")
 
 _OPTION_TEXT = {

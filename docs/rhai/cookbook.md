@@ -434,7 +434,7 @@ sys::mimed::open("http://example.com/", "open");
 ```
 
 `mimed` maps a URL to the app registered for its scheme (`http`, `https`).
-This works when a browser is installed (LazyWeb or LazyWeb+).
+This works when a browser is installed (LazyWeb).
 
 Needs: `os.lazy.mimed.v1`.
 

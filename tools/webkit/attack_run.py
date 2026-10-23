@@ -22,12 +22,12 @@ Two modes:
 
 ``--browser``
     The real webd (``os.lazy.webd``) starts the two stand-ins as it starts the engine, for the page
-    that LazyWeb+ (``os.lazy.lazywebplus``, a client of webd, autostarted) opens: the labels are the ones
+    that LazyWeb (``os.lazy.lazyweb``, a client of webd, autostarted) opens: the labels are the ones
     webd's package manifest ``[processes.*]`` tables name (``app:os.lazy.webd/webprocess``,
     ``.../networkprocess``) and the kernel stamps at ``execve``. It needs ``target/xui/xui-webd.elf``
-    (``python tools/webkit/webd.py``) and ``target/xui/xui-lazywebplus.elf`` (``python tools/xui/build.py``)
+    (``python tools/webkit/webd.py``) and ``target/xui/xui-lazyweb.elf`` (``python tools/xui/build.py``)
     and the package manager and kernel of the child-label work. The image is built with
-    ``LAZYOS_LAZYWEBPLUS=1`` (which requires webd).
+    ``LAZYOS_LAZYWEB=1`` (which requires webd).
 
     python tools/webkit/attack_run.py                  # kernel mode: build, boot, judge
     python tools/webkit/attack_run.py --browser        # the real webd starts the stand-ins
@@ -64,14 +64,14 @@ OUT = ROOT / "shots" / "webkit-attack"
 #: starts the two engine programs under labels of its own (``app:os.lazy.webd/<name>``), and its network
 #: process alone may write the Downloads folder (``attackjudge.expected``).
 APPS = {
-    "webd": ("os.lazy.webd", "LAZYOS_LAZYWEBPLUS", "xui-lazywebplus.elf", "lazywebplus"),
+    "webd": ("os.lazy.webd", "LAZYOS_LAZYWEB", "xui-lazyweb.elf", "lazyweb"),
 }
 #: webd's own program, which the browser image needs beside the browser's.
 WEBD_ELF = "xui-webd.elf"
 #: Switches a previous build may have left in the caller's environment.
 STALE = ("LAZYOS_INIT", "LAZYOS_BUSYBOX_TEST", "LAZYOS_TLS_TEST_CA", "LAZYOS_TLS_TEST_HOSTS", "LAZYOS_CLI",
          "LAZYOS_XUI_APPS", "LAZYOS_WEBKIT_PORT", "LAZYOS_WEBKIT_DEPS", "LAZYOS_JSC",
-         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_LAZYWEBPLUS", "LAZYOS_WEBKIT_ATTACK",
+         "LAZYOS_LINUXAPPS", "LAZYOS_TLS", "LAZYOS_LAZYWEB", "LAZYOS_WEBKIT_ATTACK",
          "LAZYOS_DESKTOP", "LAZYOS_WEBD")
 
 

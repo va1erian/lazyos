@@ -30,7 +30,7 @@ use crate::policy::origin;
 /// What one client has on screen and how fast its pages may post: webd is the shell's one sender for all
 /// of them, so each client gets a share of the sender's allowance (`limits::TOASTS_PER_CLIENT`).
 pub(super) struct ClientToasts {
-    /// The client's live toasts, with the per-site limits and paces of LazyWeb+.
+    /// The client's live toasts, with the per-site limits and paces of LazyWeb.
     registry: Registry,
     /// The client's own pace, over all its sites and views.
     pace: Bucket,

@@ -13,7 +13,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-/// The person's downloads folder below `$HOME` (LazyWeb+'s and webd's).
+/// The person's downloads folder below `$HOME` (LazyWeb's and webd's).
 pub const FOLDER: &str = "Downloads";
 
 /// The longest file name kept, in bytes.
@@ -257,7 +257,7 @@ mod tests {
 
     fn temp(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("lazywebplus-dl-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("lazyweb-dl-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
     }

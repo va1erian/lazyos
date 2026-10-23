@@ -151,7 +151,7 @@ channels! {
     Webdbrowse => "WEBDBROWSE",
     Webddemo => "WEBDDEMO",
     Webkit => "WEBKIT",
-    Webplus => "WEBPLUS",
+    LazyWeb => "LAZYWEB",
     Widget => "WIDGET",
     Wifid => "WIFID",
     Wifi => "WIFI",

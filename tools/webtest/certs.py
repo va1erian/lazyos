@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "net"))
 import tlscerts  # noqa: E402
 
-#: LazyWeb+'s ad blocker harness: the list host (the browser fetches EasyList from it) and the
+#: LazyWeb's ad blocker harness: the list host (the browser fetches EasyList from it) and the
 #: two hosts of the stand-in ad network (`sites.py`).
 BLOCKER_HOSTS = ["easylist.to", "ads.adnet.test", "tracker.adnet.test"]
 

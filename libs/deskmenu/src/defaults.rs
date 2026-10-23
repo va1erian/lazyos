@@ -1,11 +1,11 @@
-//! Default apps (docs/lazywebplus.md): which of two apps that handle a type opens it, per user.
+//! Default apps (docs/lazyweb.md): which of two apps that handle a type opens it, per user.
 //!
 //! The open-with registry (`mimed`) keeps one app per `(type, verb)` and lets whichever
-//! registered last win, which is install order: LazyWeb+ registers `x-scheme-handler/https`, and
+//! registered last win, which is install order: LazyWeb registers `x-scheme-handler/https`, and
 //! so would a second browser. A user who minds says so in `confd`, in their own subtree:
 //!
 //! ```text
-//! user/<uid>/mimed/default/<mime type>      a string: the app id (`os.lazy.lazywebplus`)
+//! user/<uid>/mimed/default/<mime type>      a string: the app id (`os.lazy.lazyweb`)
 //! ```
 //!
 //! The Settings app writes the key, `mimed` reads it for the uid the kernel stamped on an `Open`
@@ -29,7 +29,7 @@ pub const WEB_TYPES: [&str; 3] = [
 
 /// The apps Settings offers as the default web browser (the ones that register [`WEB_TYPES`]), in
 /// the order it lists them.
-pub const BROWSERS: [&str; 1] = ["os.lazy.lazywebplus"];
+pub const BROWSERS: [&str; 1] = ["os.lazy.lazyweb"];
 
 /// `uid`'s key for `mime`; `None` when `mime` cannot be part of a `confd` path.
 pub fn user_key(uid: u32, mime: &str) -> Option<String> {
@@ -101,8 +101,8 @@ mod tests {
     #[test]
     fn only_a_well_formed_app_id_in_a_string_counts() {
         assert_eq!(
-            app(Some(&Value::Str("os.lazy.lazywebplus".to_string()))),
-            Some("os.lazy.lazywebplus")
+            app(Some(&Value::Str("os.lazy.lazyweb".to_string()))),
+            Some("os.lazy.lazyweb")
         );
         assert_eq!(app(Some(&Value::Str("../etc".to_string()))), None);
         assert_eq!(app(Some(&Value::Str(String::new()))), None);

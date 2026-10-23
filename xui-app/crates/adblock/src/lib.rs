@@ -1,4 +1,4 @@
-//! Adblock Plus filter lists as WebKit content-rule lists (issue #845, LazyWeb+).
+//! Adblock Plus filter lists as WebKit content-rule lists (issue #845, LazyWeb).
 //!
 //! WebKit blocks requests with *content extensions*: JSON rule lists in Safari's
 //! content-blocker format, compiled by the UI process to a bytecode DFA. This crate

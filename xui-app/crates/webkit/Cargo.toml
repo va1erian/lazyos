@@ -1,10 +1,10 @@
-# The seam between WebKit and a LazyOS window (docs/lazywebplus.md, docs/webd.md): the engine trait,
+# The seam between WebKit and a LazyOS window (docs/lazyweb.md, docs/webd.md): the engine trait,
 # the mailbox, the page view that shows the picture WebKit paints and forwards the mouse and keyboard
 # to it. WebKit runs in `webd`, another process (`xui-webkit-remote` drives it); this crate links none
 # of it and stays portable, host-tested against a recording engine.
 #
-# Licence: GPL-3.0-or-later like the rest of the tree, and also GPL-2.0-only: LazyWeb+'s window
-# (`xui-app/webplus`) keeps its GPLv2-compatible declaration until a maintainer relicenses it
+# Licence: GPL-3.0-or-later like the rest of the tree, and also GPL-2.0-only: LazyWeb's window
+# (`xui-app/lazyweb`) keeps its GPLv2-compatible declaration until a maintainer relicenses it
 # (docs/webd-plan.md, open question 8).
 [package]
 name = "xui-webkit"

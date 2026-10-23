@@ -271,15 +271,15 @@ pub fn dot_dot_and_dirfds() -> Result<(), String> {
         for path in [
             "/../../home/user/.ssh/id_rsa",
             "/system/share/fonts/../../../home/user/.ssh/id_rsa",
-            "/home/user/.apps/os.lazy.lazywebplus/../../.ssh/id_rsa",
-            "/home/user/.apps/os.lazy.lazywebplus/./../.././.ssh/id_rsa",
+            "/home/user/.apps/os.lazy.lazyweb/../../.ssh/id_rsa",
+            "/home/user/.apps/os.lazy.lazyweb/./../.././.ssh/id_rsa",
             "//home//user//.ssh//id_rsa",
         ] {
             check!(openat(path, O_RDONLY) == EPERM, "open {path}");
         }
         for path in [
             "/system/share/fonts/../fonts/liberation/LiberationSans-Regular.ttf",
-            "/home/user/.apps/org.lazy.mail/../os.lazy.lazywebplus/cookie.jar.db",
+            "/home/user/.apps/org.lazy.mail/../os.lazy.lazyweb/cookie.jar.db",
             "//system//share//fonts//liberation//LiberationSans-Regular.ttf",
         ] {
             check!(opens(path, O_RDONLY), "{path} names a granted file");

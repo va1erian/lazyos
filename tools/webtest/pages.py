@@ -1,6 +1,6 @@
 """What the harnesses' stand-in sites serve, read from `fixtures/`.
 
-`tools/webplus` (LazyWeb+), among others, browses two stand-ins for real
+`tools/lazyweb` (LazyWeb), among others, browses two stand-ins for real
 sites, served from the host by `sites.py`: example.com (plain HTTP) and a
 90s-style theoldnet.com (HTTPS, with pictures and a style sheet). This module
 says what their home pages are called and which same-site files they pull in,

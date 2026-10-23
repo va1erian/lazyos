@@ -205,9 +205,9 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "UI process webkit-smoke, built by tools/webkit/port.py in Docker "
                              "(docs/webkit-port-plan.md W4); three static programs of tens of MB "
                              "(big-app profile) over the network stack, so this implies networking")
-    parser.add_argument("--lazywebplus", action="store_true",
-                        help="LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus "
-                             "(LAZYOS_LAZYWEBPLUS=1; docs/lazywebplus.md): the desktop, the network "
+    parser.add_argument("--lazyweb", action="store_true",
+                        help="LazyWeb, the web browser on WebKit, os.lazy.lazyweb "
+                             "(LAZYOS_LAZYWEB=1; docs/lazyweb.md): the desktop, the network "
                              "stack, the big-app profile, a 1 GiB OS volume and webd (required: the "
                              "browser draws the pages webd renders, so it conflicts with --no-webd); "
                              "webd and its engine processes are built in Docker (tools/webkit/deps.py, "
@@ -343,13 +343,13 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
         suites.apply(args, suites.resolve(args.suite, args.with_options))
     if args.no_webd and (args.webd or args.webd_demo):
         parser.error("--no-webd conflicts with --webd and --webd-demo")
-    if args.no_webd and args.lazywebplus:
-        parser.error("--no-webd conflicts with --lazywebplus: the browser draws the pages webd renders")
+    if args.no_webd and args.lazyweb:
+        parser.error("--no-webd conflicts with --lazyweb: the browser draws the pages webd renders")
     args.webd = args.webd or args.webd_demo
-    if args.lazywebplus or args.webd:
+    if args.lazyweb or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
     if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
-            or args.lazywebplus or args.webd):
+            or args.lazyweb or args.webd):
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD
     # player is a LazyRAD app that wants speakers.
@@ -359,27 +359,27 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     # The Devices app and LazyRAD are desktop apps (LazyRAD is the core package
     # `os.lazy.lazyrad`, which only the desktop profile installs; the MOD player
     # brings LazyRAD): `--devices`, `--lazyrad` and `--modplayer` imply `--desktop`,
-    # as do the desktop-only apps (Doom, LazyWeb+, Mail, the Picture Viewer, the
+    # as do the desktop-only apps (Doom, LazyWeb, Mail, the Picture Viewer, the
     # tray demo, the games) and the
     # first-boot setup, which is the desktop login screen's (`--setup`).
     args.desktop = (args.desktop or args.devices or args.doom or args.quake or args.srb2kart or args.emusic
                     or args.lazyrad
-                    or args.lazywebplus or args.webd or args.lazysky or args.mail
+                    or args.lazyweb or args.webd or args.lazysky or args.mail
                     or args.pictures
                     or args.traydemo or args.games or args.devtools or args.setup)
     # Docs and Mail draw their pages with webd, which every desktop ships: asked for by no flag, built when
-    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails). LazyWeb+
-    # requires it and builds it itself (`build_lazywebplus`), so for it the build is not implicit.
-    args.webd_implicit = args.desktop and not args.webd and not args.no_webd and not args.lazywebplus
-    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb+ brings
+    # missing, and left out only by `--no-webd` (the run goes on without it when its build fails). LazyWeb
+    # requires it and builds it itself (`build_lazyweb`), so for it the build is not implicit.
+    args.webd_implicit = args.desktop and not args.webd and not args.no_webd and not args.lazyweb
+    # A browser wants HTTPS (curl too), Mail speaks TLS, and HTTPS needs a network. LazyWeb brings
     # `curl` for its ad blocker's list updates (a child under its own label, issue #845).
-    args.tls = args.tls or args.mail or args.lazywebplus
+    args.tls = args.tls or args.mail or args.lazyweb
     args.dbgd_mmio = args.dbgd_mmio or args.dbgd_mmio_claimed or bool(args.dbgd_mmio_allow)
     args.dbgd = args.dbgd or args.dbgd_control or args.dbgd_mmio
     # A Bluesky client needs a network, not the HTTPS tools: the CA bundle is
     # in every image.
     args.net = (args.net or args.tls or args.smb or args.dbgd or args.lazysky or args.wifi
-                or args.webkit_deps or args.webkit_port or args.lazywebplus)
+                or args.webkit_deps or args.webkit_port or args.lazyweb)
     args.wifi_sim = args.wifi_sim or bool(args.wifi_probe)
     # The installer travels on the stick.
     args.usb_image = args.usb_image or args.installer

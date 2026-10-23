@@ -4,7 +4,7 @@
 //! copy-on-write page, a read-faulted `PROT_READ` page) in a region nothing had touched created
 //! read-only parents, and the in-place paths that later make the leaf writable (`cow_resolve`,
 //! `mprotect`, a shared file page's first store) never looked at them: the store faulted again with
-//! the leaf writable, which no handler resolves (SIGSEGV; LazyWeb+ died at start-up about every
+//! the leaf writable, which no handler resolves (SIGSEGV; LazyWeb died at start-up about every
 //! second launch).
 //!
 //! The tests work on user tables the way the fault handlers do (no store is made from ring 0 through

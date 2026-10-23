@@ -1,4 +1,4 @@
-//! The user agent of a full view (docs/lazywebplus-plan.md, a tab asking for the desktop site):
+//! The user agent of a full view (docs/lazyweb-plan.md, a tab asking for the desktop site):
 //! `ViewConfig.user_agent` and `SetUserAgent`, and which views may use them.
 
 #![cfg(not(feature = "host"))]

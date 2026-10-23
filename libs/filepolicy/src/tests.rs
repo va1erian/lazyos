@@ -21,8 +21,8 @@ fn grammar_accepts_what_the_manifest_grammar_accepts() {
     for rule in [
         "read:/system/share/fonts",
         "read:/system/share/fonts/*",
-        "write:$HOME/.apps/os.lazy.lazywebplus",
-        "write:$HOME/.apps/os.lazy.lazywebplus/*",
+        "write:$HOME/.apps/os.lazy.lazyweb",
+        "write:$HOME/.apps/os.lazy.lazyweb/*",
         "read:/etc/ssl/certs/ca-certificates.crt",
         "read:$HOME/Pictures",
     ] {
@@ -137,12 +137,9 @@ fn write_includes_read_and_stat() {
 
 #[test]
 fn home_rules_follow_any_user_home_and_only_homes() {
-    let rules = [
-        "write:$HOME/.apps/os.lazy.lazywebplus/*",
-        "read:$HOME/Pictures",
-    ];
+    let rules = ["write:$HOME/.apps/os.lazy.lazyweb/*", "read:$HOME/Pictures"];
     for user in ["user", "admin", "x"] {
-        let own = format!("/home/{user}/.apps/os.lazy.lazywebplus/cookie.jar.db");
+        let own = format!("/home/{user}/.apps/os.lazy.lazyweb/cookie.jar.db");
         assert!(ok(&rules, &own, Access::Write), "{own}");
         let pictures = format!("/home/{user}/Pictures/a.png");
         assert!(ok(&rules, &pictures, Access::Read));
@@ -157,14 +154,10 @@ fn home_rules_follow_any_user_home_and_only_homes() {
         assert!(!ok(&rules, &other_app, Access::Read), "{other_app}");
     }
     // `$HOME` is a home, not a place anywhere.
+    assert!(!ok(&rules, "/tmp/.apps/os.lazy.lazyweb/x", Access::Read));
     assert!(!ok(
         &rules,
-        "/tmp/.apps/os.lazy.lazywebplus/x",
-        Access::Read
-    ));
-    assert!(!ok(
-        &rules,
-        "/srv/user/.apps/os.lazy.lazywebplus/x",
+        "/srv/user/.apps/os.lazy.lazyweb/x",
         Access::Read
     ));
     assert!(ok(&rules, "/home", Access::Stat));

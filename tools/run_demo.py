@@ -19,7 +19,7 @@ Examples
     python tools/run_demo.py --usb-stick target/stick.img  # a FAT USB stick, mounted at /media/<label> after login
     python tools/run_demo.py --sound         # add a virtio-sound card (host speakers)
     python tools/run_demo.py --desktop --sound   # desktop session; type `beep` in the Terminal
-    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial in a file; QMP for tools/webplus/sample.py
+    python tools/run_demo.py --serial-log s.log --sample-port 5555  # serial in a file; QMP for tools/lazyweb/sample.py
     python tools/run_demo.py --desktop --no-shell  # desktop without LazyShell (bare compositor)
     python tools/run_demo.py --desktop --autologin user  # skip the login screen (LAZYOS_AUTOLOGIN)
     python tools/run_demo.py --desktop --setup   # no account yet: create the owner at the login screen
@@ -32,7 +32,7 @@ Examples
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
-    python tools/run_demo.py --lazywebplus   # desktop + networking + webd + LazyWeb+, the web browser (a client of webd; same profile)
+    python tools/run_demo.py --lazyweb   # desktop + networking + webd + LazyWeb, the web browser (a client of webd; same profile)
     python tools/run_demo.py --desktop       # every desktop ships webd (WebKit light views for Docs and Mail); --no-webd leaves it out
     python tools/run_demo.py --webd          # webd required (a failed build stops the run), big-app profile; --webd-demo adds its demo client
     python tools/run_demo.py --tls           # networking + curl/wget/fetch over HTTPS
@@ -99,7 +99,7 @@ from demo_qemu import (  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
-    build_lazywebplus,
+    build_lazyweb,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, webd_built, webd_env, build_webkit_deps, build_webkit_port, build_wifi,
     build_xui_apps,
@@ -332,7 +332,7 @@ def main(argv: list[str]) -> int:
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
                                       (args.webkit_port, build_webkit_port, "LAZYOS_WEBKIT_PORT"),
-                                      (args.lazywebplus, build_lazywebplus, "LAZYOS_LAZYWEBPLUS"),
+                                      (args.lazyweb, build_lazyweb, "LAZYOS_LAZYWEB"),
                                       (args.webd, build_webd, "LAZYOS_WEBD"),
                                       (args.tls, build_tls, "LAZYOS_TLS"),
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),

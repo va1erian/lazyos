@@ -1,4 +1,4 @@
-// Navigation policy and downloads (docs/lazywebplus.md).
+// Navigation policy and downloads (docs/lazyweb.md).
 //
 // Every navigation asks the window (LZW_FEATURE_POLICY, ViewSink::navigate) with the kind of
 // navigation and whether a user gesture started it: a script must never be able to start another
@@ -9,7 +9,7 @@
 //
 // An owner may also hold a navigation for a question of its own (webd's `ask`, ViewSink::kVerdictAsk): the
 // listener is kept, retained, in the view until the owner answers (View::answerNavigation), and a newer
-// main-frame navigation or the view's end refuses it. LazyWeb+'s window never holds one.
+// main-frame navigation or the view's end refuses it. LazyWeb's window never holds one.
 //
 // Markers (the window prefix first; the ones that name a page only in a UI-probe image):
 //   CLICK:<url>        a link was clicked: the navigation it started (a window that prints no markers of its own)

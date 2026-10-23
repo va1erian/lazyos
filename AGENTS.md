@@ -416,6 +416,6 @@ Open the guide before changing the area; each is a section-per-subsystem file.
 - [System services, packages and security](docs/agents/services.md): Developer tools and the Playground, Rhai, packages and the label trace, app failures, notifications, tray, accounts attacks, keyd secrets, shutdown.
 - [Desktop apps](docs/agents/apps.md): Terminal, Docs, Writer, Archiver, PDF, Video, Paint, About, Picture Viewer, the MOD player, Mail and LazySky.
 - [Games](docs/agents/games.md): LazyGolf, the NES Player, Doom, emusic, Quake and SRB2Kart.
-- [WebKit, webd and the browser](docs/agents/web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb+ and webd.
+- [WebKit, webd and the browser](docs/agents/web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb and webd.
 - [Networking, TLS, SMB and Wi-Fi](docs/agents/networking.md): HTTPS clients, networking in a boot, network drives, SMB, network time, Wi-Fi and the network tooling.
 - [Display, drivers and hardware](docs/agents/hardware.md): HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.

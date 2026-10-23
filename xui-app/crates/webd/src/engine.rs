@@ -120,7 +120,7 @@ pub trait Engine {
     fn blocking_compile(&self, _view: u64, _list: &str, _json: &[u8]) {}
     fn blocking_forget(&self, _view: u64, _list: &str) {}
 
-    // ---- P4 (LazyWeb+). ----
+    // ---- P4 (LazyWeb). ----
 
     /// `webd_engine_recover`: end the view's web process; with `reload` the page loads again in a
     /// fresh one, without it the engine reports the page as ended (`LOST_OTHER`). The engine refuses

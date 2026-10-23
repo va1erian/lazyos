@@ -36,7 +36,7 @@
 //! A label is confined when its rule set carries the marker
 //! [`filepolicy::confine_id`] (what `pkgstore` compiles `files` to for
 //! sandboxed tables), or, failing closed, when it is a *process label*: its
-//! name has a `/` (`app:os.lazy.lazywebplus/webprocess`), however its rules loaded.
+//! name has a `/` (`app:os.lazy.lazyweb/webprocess`), however its rules loaded.
 //! A label that is confined holds *nothing* the manifest did not list, so a
 //! process label whose rules never loaded can do nothing.
 //!

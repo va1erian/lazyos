@@ -205,7 +205,7 @@ def judge_quit(text: str) -> list[str]:
 
 
 #: What a web process may be refused without the page breaking: the engine looks up a few optional
-#: things and falls back (carried over from LazyWeb+'s documented set, `tools/webplus/denies.py`,
+#: things and falls back (carried over from LazyWeb's documented set, `tools/lazyweb/denies.py`,
 #: because the engine and the process confinement are the same; a run of this harness with
 #: `--label-trace` is what prunes it). The demo's own label has none.
 OPTIONAL_CHILD = [

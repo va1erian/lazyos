@@ -122,16 +122,16 @@ class Launcher:
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "
                        "(LAZYOS_WEBKIT_PORT; run_demo --webkit-port; networking, big-app profile)",
                     "webkit_port")
-        self._check(g, "LazyWeb+ browser: os.lazy.lazywebplus, a client of webd (WebKit, built in "
-                       "Docker; LAZYOS_LAZYWEBPLUS; run_demo --lazywebplus; desktop, networking, webd, "
-                       "big-app profile, 1 GiB OS volume)", "lazywebplus")
+        self._check(g, "LazyWeb browser: os.lazy.lazyweb, a client of webd (WebKit, built in "
+                       "Docker; LAZYOS_LAZYWEB; run_demo --lazyweb; desktop, networking, webd, "
+                       "big-app profile, 1 GiB OS volume)", "lazyweb")
         self._check(g, "webd, required: the daemon that serves WebKit light views, os.lazy.webd, built in Docker "
                        "(LAZYOS_WEBD; run_demo --webd; every desktop ships it already, for Docs and Mail; "
                        "this adds the big-app profile and fails the build if it cannot be built)", "webd")
         self._check(g, "webd test clients, os.lazy.webddemo, os.lazy.webdbrowse and os.lazy.webdattack "
                        "(LAZYOS_WEBDDEMO; run_demo --webd-demo; tools/webd drives them)", "webd_demo")
         self._check(g, "Leave webd out of the desktop (LAZYOS_WEBD=0; run_demo --no-webd): Docs and Mail "
-                       "then say the web engine is not running; ignored with LazyWeb+, which needs webd",
+                       "then say the web engine is not running; ignored with LazyWeb, which needs webd",
                     "no_webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
@@ -214,7 +214,7 @@ class Launcher:
         ttk.Combobox(row, textvariable=self.v["display_scale"], values=("", "auto", "1", "2"),
                      width=6).pack(side="left", padx=4)
         self._field(g, "Display max:", "display_max", 12)  # real-PC logical cap, 2560x1440 for 2x (#717)
-        self._field(g, "Sample port:", "sample_port", 8)  # QMP port for webplus/sample.py: CR3+RIP during a freeze (#861)
+        self._field(g, "Sample port:", "sample_port", 8)  # QMP port for lazyweb/sample.py: CR3+RIP during a freeze (#861)
         self._field(g, "Asset dirs:", "assets", 44)  # dir;dir, each with manifest.txt (#454)
         self._field(g, "Autologin:", "autologin", 12)  # user: no login screen (#623)
         self._field(g, "Netboot key:", "netboot_key", 44)  # key.sec for manifest.sig; empty = unsigned

@@ -252,7 +252,7 @@ installed-app flow with the redirect **pasted**:
 1. The sync thread builds the consent URL (PKCE, random `state`, scope
    `https://www.googleapis.com/auth/calendar`, redirect
    `http://127.0.0.1:<random port>`) and asks `mimed` to open it in the
-   user's browser (LazyWeb+; Google's sign-in needs full JavaScript).
+   user's browser (LazyWeb; Google's sign-in needs full JavaScript).
 2. After consent the browser fails to load the redirect, but its address bar
    holds `?code=…&state=…`. LazyCal's sign-in dialog asks the user to paste
    that address; it checks `state` and exchanges the code (with the PKCE
@@ -262,7 +262,7 @@ installed-app flow with the redirect **pasted**:
    §3; access tokens live in memory only.
 
 Two later improvements remove the paste, each its own change: a netstack
-loopback interface (then the listener works as in esMail), or a LazyWeb+
+loopback interface (then the listener works as in esMail), or a LazyWeb
 hand-off that sends a navigation to `http://127.0.0.1:<port>/?code=` for a
 registered port to LazyCal. The OAuth device flow is not an option: Google
 does not allow the `calendar` scope for "TV and limited input" clients.
@@ -283,7 +283,7 @@ Until they land, the token is in memory and the user signs in once per
 session (Mail's current model). C4 does not wait for P2b; "Stay signed in"
 appears when it lands (subject to the 7-day limit above).
 
-**If Google refuses LazyWeb+** as an embedded browser (C0), the user signs
+**If Google refuses LazyWeb** as an embedded browser (C0), the user signs
 in on another machine and pastes the redirected address the same way.
 
 ### 5.3 Feeds (read-only)
@@ -578,7 +578,7 @@ its menu lists the next three events, *Open Calendar*, *New event*, *Quit*.
 
 | Phase | Builds | Done when |
 |---|---|---|
-| **C0** spikes | §13 answered in this document: Google sign-in in LazyWeb+ with the pasted redirect; whether Google emails an API-made RSVP to an external organiser; whether `Authentication-Results` reaches Mail; tz data choice and size; iCalendar parser choice (in-house vs `icalendar`/`calcard` crates) by fuzz robustness; RRULE expansion against python-dateutil | each question has an answer and a measured number |
+| **C0** spikes | §13 answered in this document: Google sign-in in LazyWeb with the pasted redirect; whether Google emails an API-made RSVP to an external organiser; whether `Authentication-Results` reaches Mail; tz data choice and size; iCalendar parser choice (in-house vs `icalendar`/`calcard` crates) by fuzz robustness; RRULE expansion against python-dateutil | each question has an answer and a measured number |
 | **C1** core | model, iCalendar read/write, RRULE/EXDATE/overrides, time zones, store with atomic files, local calendars, `cal_cli` | host tests, differential RRULE test, seeded fuzz of the parser, round-trip of a corpus of real `.ics` files (Google, Outlook, Apple, Thunderbird exports) |
 | **C2** window | §7.1–7.3 for local calendars: views, popovers, edit page, drag/resize, keyboard; package, switch, `run_demo.py --lazycal`, GUI; `.ics` import via Files | offscreen snapshots of every view in both themes and at 2x; session `lazycal.json` creates, moves and deletes events by widget name; `LAZYCAL:UP:PASS` |
 | **C3** feeds | §5.3 subscriptions, `webcal:` handler with its confirmation | harness serves a changing feed under the test CA; the session sees the change after refresh |
@@ -587,7 +587,7 @@ its menu lists the next three events, *Open Calendar*, *New event*, *Quit*.
 | **C6a** app-served names | pkgstore rule (`<id>.<name>.vN` served as `app.<id>.<name>`), the `explain` entry and `idl/lazycal.midl` through `midlc`, in one change (the unknown-interface test needs the entry when the IDL lands) | `cargo test -p pkgstore -p lazypkg`; `midlc` generates the client and server |
 | **C6b** esMail iMIP | upstream esMail: `text/calendar` alternative part in `smtp::build_message`; re-pin | esMail's own tests; the mock SMTP receives a well-formed REPLY |
 | **C6** Mail invites | §6.1, §6.4: the service, Mail's card, DKIM handling, Google and iMIP answers, CANCEL/REPLY/updates, dedupe | `tools/mail/run.py --invites`: the mock IMAP server holds Google-, Outlook- and Thunderbird-style invites (with and without DKIM results); the judge checks the card, the calendar, the iMIP reply the mock SMTP received, and the mock Google server's lookup and patch |
-| **C7** polish | search, year view, secondary zone, *Find a time* via `freeBusy`, `os.lazy.mail.send.v1` and invitations from local calendars, "Stay signed in" once keyd app secrets land, loopback or LazyWeb+ hand-off instead of the paste | per-feature sessions |
+| **C7** polish | search, year view, secondary zone, *Find a time* via `freeBusy`, `os.lazy.mail.send.v1` and invitations from local calendars, "Stay signed in" once keyd app secrets land, loopback or LazyWeb hand-off instead of the paste | per-feature sessions |
 
 C1, C6a and C6b do not depend on each other and can run in parallel once
 C0 has picked the parser. C6 needs C2 (a LazyCal binary to serve the
@@ -659,7 +659,7 @@ Hashes, not titles or addresses: event content is the user's.
   `<id>.<name>.vN` interfaces (docs/security-model.md "Namespaces"), but a
   manifest entry does not let another app resolve `app.<id>.<name>`
   (`libs/pkgstore/src/rules.rs`): no app serves another app today.
-* No cross-process user-gesture token exists; LazyWeb+'s "only a user
+* No cross-process user-gesture token exists; LazyWeb's "only a user
   gesture" rule is checked inside its own process.
 * Resident apps (`[entry] resident = true`) run once per session with a tray
   item and `init`'s Reopen/Quit lifecycle; they start at login only with
@@ -671,11 +671,11 @@ Hashes, not titles or addresses: event content is the user's.
 
 ## 13. Open questions (C0)
 
-1. **Google sign-in in LazyWeb+.** Does `accounts.google.com` accept
+1. **Google sign-in in LazyWeb.** Does `accounts.google.com` accept
    WebKit-on-LazyOS's user agent, and does the failed redirect leave the
    `code` readable in the address bar for the paste? Is copying it and
    pasting into LazyCal's dialog bearable (clipboard across the two apps,
-   the address bar's error page), or does C4 need the LazyWeb+ hand-off?
+   the address bar's error page), or does C4 need the LazyWeb hand-off?
 2. **External organisers.** When an attendee's RSVP is patched through the
    API on an event whose organiser is not on Google, does Google email the
    organiser? Until this is known, LazyCal sends an iMIP reply too.

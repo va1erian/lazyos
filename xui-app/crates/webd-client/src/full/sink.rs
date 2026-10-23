@@ -1,4 +1,4 @@
-//! A full view whose app keeps its own picture (LazyWeb+'s page view, docs/webd-plan.md P4): instead
+//! A full view whose app keeps its own picture (LazyWeb's page view, docs/webd-plan.md P4): instead
 //! of copying each frame into the view's [`Picture`](crate::picture::Picture), [`FullWebView::poll_into`]
 //! hands the slot to a [`PixelSink`], which reads only what it needs straight out of the shared
 //! pages (a whole frame once, a delta's rectangles), so a frame costs one copy, as it did when the

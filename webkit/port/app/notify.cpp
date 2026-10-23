@@ -1,4 +1,4 @@
-// The Notifications API (docs/lazywebplus.md, "Notifications"): WebKit's notification provider and
+// The Notifications API (docs/lazyweb.md, "Notifications"): WebKit's notification provider and
 // the page's permission requests, forwarded to the window (LZW_FEATURE_NOTIFICATIONS).
 //
 // WebKit has the whole machinery in the UI process (`WKNotificationManager`, the provider, the UI
