@@ -193,3 +193,21 @@ fn pmk_refuses_what_is_not_a_passphrase_or_ssid() {
     assert_eq!(pmk(&mut store, "gone", b"IEEE"), Err(Error::NotFound));
     assert_eq!(pmk(&mut store, "ok", &[b'a'; MAX_SSID]), Ok(()));
 }
+
+#[test]
+fn entry_scrubs_secret_and_pmk_on_drop() {
+    let mut entry = Entry {
+        owner: Owner::System,
+        name: alloc::string::String::from("test"),
+        secret: alloc::vec![0xAA; 16],
+        pmks: alloc::vec![(alloc::vec![1, 2, 3], [0xBB; PMK_LEN])],
+    };
+
+    entry.scrub();
+
+    assert!(entry.secret.iter().all(|&b| b == 0));
+    assert!(entry
+        .pmks
+        .iter()
+        .all(|(_, pmk)| pmk.iter().all(|&b| b == 0)));
+}

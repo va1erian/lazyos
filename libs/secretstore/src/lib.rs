@@ -137,6 +137,29 @@ struct Entry {
     pmks: Vec<(Vec<u8>, [u8; PMK_LEN])>,
 }
 
+impl Entry {
+    fn scrub(&mut self) {
+        for byte in self.secret.iter_mut() {
+            // SAFETY: `byte` is a valid, aligned, exclusive reference.
+            unsafe { core::ptr::write_volatile(byte, 0) };
+        }
+        for (_, pmk) in self.pmks.iter_mut() {
+            for byte in pmk.iter_mut() {
+                // SAFETY: `byte` is a valid, aligned, exclusive reference.
+                unsafe { core::ptr::write_volatile(byte, 0) };
+            }
+        }
+    }
+}
+
+impl Drop for Entry {
+    /// Scrub secret passphrases and derived PMK keys on the way out to prevent
+    /// sensitive credentials from lingering in uninitialized/freed heap memory.
+    fn drop(&mut self) {
+        self.scrub();
+    }
+}
+
 /// The table of named secrets.
 #[derive(Clone, Default)]
 pub struct Store {
