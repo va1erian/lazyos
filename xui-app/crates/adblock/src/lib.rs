@@ -10,7 +10,8 @@
 //! What it emits, and why (all of it from WebKit 2.54's `ContentExtensionParser.cpp`,
 //! `URLFilterParser.cpp` and `ResourceLoadInfo.cpp`):
 //!
-//! * `block` and `ignore-previous-rules` only; element hiding is not converted (v1).
+//! * `block`, `ignore-previous-rules` and `css-display-none` (element hiding of plain CSS selectors:
+//!   the `cosmetic` module).
 //! * One pattern WebKit refuses fails the *whole* list (`JSONInvalidRegex`), so
 //!   [`pattern`] emits only the URL-filter subset WebKit parses, and the tests parse
 //!   every output with an independent parser of that subset.
@@ -22,6 +23,7 @@
 //! The output is a pure function of the input: the same text gives byte-identical
 //! JSON, so a hash of the source names a compiled list in WebKit's store.
 
+mod cosmetic;
 mod filter;
 mod options;
 mod pattern;
@@ -30,6 +32,7 @@ mod stats;
 
 use std::collections::HashSet;
 
+use cosmetic::{Hiding, SiteOff};
 use filter::{parse_line, Filter, Line};
 use rules::{assemble, Action, Rule};
 pub use stats::{DropReason, Stats};
@@ -81,22 +84,38 @@ pub fn convert(source: &str, options: &Options) -> Converted {
     let mut stats = Stats::default();
     let mut built: Vec<Built> = Vec::new();
     let mut badfilters: HashSet<String> = HashSet::new();
+    let mut hidings: Vec<Hiding> = Vec::new();
+    let mut site_offs: Vec<SiteOff> = Vec::new();
 
     for raw in source.lines() {
         stats.lines += 1;
         match parse_line(raw) {
             Line::Skip => stats.comments += 1,
             Line::Cosmetic => stats.drop_filter(DropReason::Cosmetic),
+            Line::Hide(h) => match Hiding::new(&h) {
+                Ok(hiding) => hidings.push(hiding),
+                Err(reason) => {
+                    // A dropped `#@#` leaves the hiding it would cancel.
+                    if h.exception {
+                        stats.dropped_exceptions += 1;
+                    }
+                    stats.drop_filter(reason);
+                }
+            },
             Line::Network(f) => {
                 if f.options.iter().any(|o| o.name == "badfilter") {
                     badfilters.insert(f.key());
                     continue;
                 }
+                if let Some(off) = SiteOff::new(&f) {
+                    site_offs.push(off);
+                    continue;
+                }
                 match build(&f) {
                     Ok(b) => built.push(b),
                     Err(reason) => {
-                        // An element-hiding exception cancels no block: not what this counts.
-                        if f.exception && reason != DropReason::Cosmetic {
+                        // A dropped exception leaves the block (or the hiding) it would cancel.
+                        if f.exception {
                             stats.dropped_exceptions += 1;
                         }
                         stats.drop_filter(reason);
@@ -131,6 +150,12 @@ pub fn convert(source: &str, options: &Options) -> Converted {
     }
 
     stats.blocks = blocks.len();
+    // Hiding first: a page-wide exception (`$document`) comes later in every part and cancels it.
+    let blocks: Vec<String> = cosmetic::rules(hidings, &site_offs, &mut stats)
+        .iter()
+        .map(Rule::to_json)
+        .chain(blocks)
+        .collect();
     let out = assemble(blocks, exceptions, important, options.max_rules_per_list);
     for _ in 0..out.over {
         stats.drop_filter(DropReason::OverLimit);
@@ -167,6 +192,7 @@ fn build(f: &Filter<'_>) -> Result<Built, DropReason> {
             if_domain: spec.if_domain.clone(),
             unless_domain: spec.unless_domain.clone(),
             if_top_url: Vec::new(),
+            selector: None,
         });
     }
     if spec.document_exception {
@@ -181,6 +207,7 @@ fn build(f: &Filter<'_>) -> Result<Built, DropReason> {
             if_domain: Vec::new(),
             unless_domain: Vec::new(),
             if_top_url: vec![url_filter],
+            selector: None,
         });
     }
     Ok(Built {

@@ -145,11 +145,16 @@ fn an_exception_only_ever_trails_the_blocks_it_may_cancel() {
         );
         for list in &out.lists {
             let rules = check_list(&list.json, 12);
-            // Block rules, then ignore-previous-rules, then (important) blocks again:
+            // Hiding and block rules, then ignore-previous-rules, then (important) blocks again:
             // never a block, an exception, a block, an exception.
             let kinds: Vec<bool> = rules
                 .iter()
-                .map(|r| r["action"]["type"] == "block")
+                .map(|r| {
+                    matches!(
+                        r["action"]["type"].as_str(),
+                        Some("block" | "css-display-none")
+                    )
+                })
                 .collect();
             let flips = kinds.windows(2).filter(|w| w[0] != w[1]).count();
             assert!(flips <= 2, "{kinds:?}");
@@ -174,7 +179,8 @@ fn a_large_list_converts_quickly_and_whole() {
     }
     let out = convert(&source, &Options::default());
     assert!(out.lists.iter().all(|l| l.rules <= 150_000));
-    assert_eq!(out.stats.dropped_total(), 40_000);
+    assert_eq!(out.stats.dropped_total(), 0);
+    assert_eq!(out.stats.hides, 40_000);
     assert!(out.stats.blocks > 100_000);
     // The one list parses (and every rule in it is accepted by the subset parser).
     let first = &out.lists[0];

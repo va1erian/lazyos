@@ -29,15 +29,15 @@ def log(*lines: str) -> str:
 FIRST = log(
     f"{P}:BLOCK:UP",
     f"{P}:BLOCK:UPDATE:easylist:OK:bytes=1400",
-    f"{P}:BLOCK:CONVERT:easylist:rules=3:dropped=1:parts=1:t=0",
+    f"{P}:BLOCK:CONVERT:easylist:rules=4:dropped=0:parts=1:t=0",
     f"{P}:BLOCK:LIST:easylist-00-0:0",
-    f"{P}:BLOCK:READY:easylist:rules=3",
+    f"{P}:BLOCK:READY:easylist:rules=4",
 )
 
 BLOCKER = log(
     f"{P}:BLOCK:UP",
     f"{P}:BLOCK:LIST:easylist-00-0:0",
-    f"{P}:BLOCK:READY:easylist:rules=3",
+    f"{P}:BLOCK:READY:easylist:rules=4",
     f"{P}:LOAD:{b.PAGE_URL}",
     f"{P}:TITLE:{b.BLOCKED_TITLE}",
     f"{N}BLOCK:COUNT:3",
@@ -50,7 +50,7 @@ BLOCKER = log(
 )
 
 PERSISTED = log(
-    f"{P}:BLOCK:READY:easylist:rules=3",
+    f"{P}:BLOCK:READY:easylist:rules=4",
     f"{P}:LOAD:{b.PAGE_URL}",
     f"{P}:TITLE:{b.OPEN_TITLE}",
 )
@@ -98,7 +98,7 @@ class BlockerJudgeTests(unittest.TestCase):
         self.assertEqual(b.judge_blocker_servers(FIRST_RECORD, BLOCKER_RECORD, PERSISTED_RECORD), [])
 
     def test_a_list_that_never_became_ready_is_named(self) -> None:
-        text = log(f"{P}:BLOCK:UPDATE:easylist:OK:bytes=1", f"{P}:BLOCK:CONVERT:easylist:rules=3:dropped=1:parts=1:t=0",
+        text = log(f"{P}:BLOCK:UPDATE:easylist:OK:bytes=1", f"{P}:BLOCK:CONVERT:easylist:rules=4:dropped=0:parts=1:t=0",
                    f"{P}:BLOCK:FAIL:easylist:compile-failed")
         problems = b.judge_lists_first(text)
         self.assertTrue(any("never became ready" in p and "compile-failed" in p for p in problems), problems)
@@ -110,7 +110,7 @@ class BlockerJudgeTests(unittest.TestCase):
         self.assertTrue(any("not converted as expected" in p for p in problems))
 
     def test_a_later_boot_must_not_convert_again(self) -> None:
-        again = PERSISTED + f"{P}:BLOCK:CONVERT:easylist:rules=3:dropped=1:parts=1:t=0\n"
+        again = PERSISTED + f"{P}:BLOCK:CONVERT:easylist:rules=4:dropped=0:parts=1:t=0\n"
         self.assertTrue(any("converted again" in p for p in b.judge_persisted_boot(again)))
         lost = PERSISTED + f"{P}:BLOCK:RECOMPILE:easylist:not-stored\n"
         self.assertTrue(any("store did not have" in p for p in b.judge_persisted_boot(lost)))
@@ -139,7 +139,7 @@ class BlockerJudgeTests(unittest.TestCase):
         self.assertTrue(any("started another program" in p for p in b.judge_blocker_boot(text)))
 
     def test_a_kept_exception_is_required_and_a_blocked_page_is_a_failure(self) -> None:
-        blocked = log(f"{P}:BLOCK:READY:easylist:rules=3", f"{P}:TITLE:{b.BLOCKED_TITLE}")
+        blocked = log(f"{P}:BLOCK:READY:easylist:rules=4", f"{P}:TITLE:{b.BLOCKED_TITLE}")
         problems = b.judge_persisted_boot(blocked)
         self.assertTrue(any("not kept" in p for p in problems))
         self.assertTrue(any("blocked on the boot after" in p for p in problems))

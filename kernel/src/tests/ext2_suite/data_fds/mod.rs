@@ -51,6 +51,10 @@ pub(in crate::tests) const CASES: &[(&str, Test)] = &[
     ),
     ("linux_data_bad_user_buffers", io::bad_user_buffers),
     (
+        "linux_data_write_beyond_one_piece",
+        io::write_beyond_one_piece,
+    ),
+    (
         "linux_data_ftruncate_truncate",
         sizing::ftruncate_and_truncate,
     ),

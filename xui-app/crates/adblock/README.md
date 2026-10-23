@@ -24,10 +24,13 @@ FUZZ_SEED=0x<seed> cargo test ... -p lazyadblock <test>    # replay a printed fa
 | `@@...$document` | `ignore-previous-rules` on every request while the top-level URL matches |
 | `$badfilter` | removes the filter it names |
 | `/regex/` | the same regex when it is inside the subset (below); `/word/` is a path |
+| `domains##selector` (plain CSS: type, `#id`, `.class`, `[attr]`, combinators) | `css-display-none`, selectors with one trigger sharing a rule; `domains` as `if-domain` / `unless-domain` |
+| `domains#@#selector` | the selector leaves those domains (an `unless-domain` on a generic rule, a smaller `if-domain`); one that cannot be carved out removes the selector |
+| `@@||site^$generichide` / `$elemhide` | the site is left out of the generic (or of every) hiding rule |
 
 ## What is dropped (counted in `Stats`, never approximated)
 
-* element hiding (`##`, `#@#`, `#?#`, `$elemhide` and the other `hide` options): `cosmetic`;
+* element hiding other than plain CSS (pseudo-classes, escapes, comma lists, `#?#`, `#$#`, scriptlets, a wildcard domain in an exception) and the `$elemhide` family with a path or another option: `cosmetic`;
 * `$csp`, `$redirect`, `$removeparam`, `$to`, `$denyallow`, `$header`, `$replace`, wildcard
   domains, ...: `unsupported-option`; scriptlets (`##+js`) are cosmetic lines and are never run;
 * regex with `|`, `{n,m}`, `\b`, `\s`, lazy quantifiers, lookarounds, reversed class ranges:

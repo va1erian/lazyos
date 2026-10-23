@@ -18,11 +18,23 @@ pub(crate) struct Filter<'a> {
     pub options: Vec<Opt<'a>>,
 }
 
+/// Plain element hiding: `domains##selector` or `domains#@#selector`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Hide<'a> {
+    pub exception: bool,
+    /// The comma separated domain list, possibly empty (a generic rule).
+    pub domains: &'a str,
+    pub selector: &'a str,
+}
+
 pub(crate) enum Line<'a> {
     /// Blank, `!` comment or the list header.
     Skip,
-    /// Element hiding: not converted in v1.
+    /// Element hiding of a kind WebKit has no rule for: extended selectors (`#?#`), scriptlets,
+    /// style injection (`#$#`).
     Cosmetic,
+    /// Element hiding whose selector may be plain CSS; `cosmetic::Hiding::new` decides.
+    Hide(Hide<'a>),
     Network(Filter<'a>),
 }
 
@@ -32,7 +44,7 @@ pub(crate) fn parse_line(raw: &str) -> Line<'_> {
         return Line::Skip;
     }
     if is_cosmetic(line) {
-        return Line::Cosmetic;
+        return split_hide(line).map_or(Line::Cosmetic, Line::Hide);
     }
     let (exception, body) = match line.strip_prefix("@@") {
         Some(rest) => (true, rest),
@@ -43,6 +55,21 @@ pub(crate) fn parse_line(raw: &str) -> Line<'_> {
         exception,
         pattern,
         options,
+    })
+}
+
+/// The `##` and `#@#` forms of an element-hiding line (the caller knows it is one).
+fn split_hide(line: &str) -> Option<Hide<'_>> {
+    let (domains, rest) = line.split_at(line.find('#')?);
+    let (exception, selector) = match rest.strip_prefix("##") {
+        Some(selector) => (false, selector),
+        None => (true, rest.strip_prefix("#@#")?),
+    };
+    // `##+js(...)` is a scriptlet, which is code to run and never a selector.
+    (!selector.starts_with('+')).then_some(Hide {
+        exception,
+        domains,
+        selector: selector.trim(),
     })
 }
 
@@ -161,12 +188,25 @@ mod tests {
     }
 
     #[test]
+    fn plain_element_hiding_is_split_into_domains_and_selector() {
+        let hide = |line| match parse_line(line) {
+            Line::Hide(h) => (h.exception, h.domains.to_owned(), h.selector.to_owned()),
+            _ => panic!("not element hiding: {line}"),
+        };
+        assert_eq!(hide("##.ad"), (false, String::new(), ".ad".into()));
+        assert_eq!(
+            hide("~a.com,b.com##div[id=\"x\"] > p"),
+            (false, "~a.com,b.com".into(), "div[id=\"x\"] > p".into())
+        );
+        assert_eq!(
+            hide("example.com#@#.ad"),
+            (true, "example.com".into(), ".ad".into())
+        );
+    }
+
+    #[test]
     fn element_hiding_is_cosmetic() {
         for line in [
-            "##.ad",
-            "example.com##.ad",
-            "~a.com,b.com##div[id=\"x\"]",
-            "example.com#@#.ad",
             "example.com#?#div:has(> .ad)",
             "example.com##+js(abort-on-property-read, x)",
             "example.com#$#body { overflow: auto }",

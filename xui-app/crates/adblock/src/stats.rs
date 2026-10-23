@@ -71,6 +71,8 @@ pub struct Stats {
     /// Of the dropped filters, how many were exceptions (`@@`): the block they would have cancelled
     /// stays, which is the one way a drop makes a list block *more*.
     pub dropped_exceptions: usize,
+    /// Selectors of element-hiding lines that became `css-display-none` rules (several to a rule).
+    pub hides: usize,
     dropped: [usize; 6],
 }
 
@@ -94,11 +96,12 @@ impl fmt::Display for Stats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "lines={} blocks={} exceptions={} important={} duplicates={} badfiltered={}",
+            "lines={} blocks={} exceptions={} important={} hides={} duplicates={} badfiltered={}",
             self.lines,
             self.blocks,
             self.exceptions,
             self.important,
+            self.hides,
             self.duplicates,
             self.badfiltered
         )?;

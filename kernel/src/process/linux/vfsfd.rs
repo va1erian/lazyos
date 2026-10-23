@@ -15,7 +15,7 @@ use crate::fs::vfs::Meta;
 use crate::task::{self, Fd};
 use crate::user_ptr;
 
-use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
+use super::errno::{err, fs_err, EBADF, EFAULT, EFBIG, EINVAL, ENOMEM};
 
 /// Most bytes one `read` stages in kernel memory. A short read is legal, so a
 /// larger request is served in pieces; this keeps the heap use per call
@@ -23,7 +23,7 @@ use super::errno::{err, fs_err, EBADF, EFAULT, EINVAL, ENOMEM};
 /// long enough to skip the block cache (`ext2fs` `cache/range.rs`).
 const READ_CHUNK: usize = 1 << 20;
 
-/// Most bytes one `write` stages and hands to the filesystem.
+/// Most bytes one piece of a `write` stages and hands to the filesystem.
 const WRITE_MAX: usize = 1 << 20;
 
 /// `lseek` whence values.
@@ -151,7 +151,14 @@ pub(super) fn pwrite(file: &OpenFile, ptr: u64, len: u64, offset: u64) -> u64 {
     }
 }
 
-/// Write `len` user bytes at `at`; returns where they landed and how many.
+/// Most bytes one `write` call takes, as Linux's `MAX_RW_COUNT`: a longer request is a short write.
+const MAX_RW_COUNT: u64 = 0x7fff_f000;
+
+/// Write `len` user bytes at `at`; returns where they landed and how many. A regular file takes
+/// the whole request (up to [`MAX_RW_COUNT`]) as on Linux, in [`WRITE_MAX`] pieces: programs
+/// such as WebKit's rule list store write a whole file with one `write` and take a short count
+/// for success, so a clamp here would silently truncate it. Short only on an error or a full
+/// disk, with the bytes that landed.
 fn write_at(
     file: &OpenFile,
     at: Result<u64, crate::fs::vfs::FsError>,
@@ -162,13 +169,35 @@ fn write_at(
         return Err(err(EBADF));
     }
     let at = at.map_err(fs_err)?;
-    let want = (len as usize).min(WRITE_MAX);
-    if want == 0 {
-        return Ok((at, 0));
+    let total = len.min(MAX_RW_COUNT) as usize;
+    let mut done = 0usize;
+    while done < total {
+        let want = (total - done).min(WRITE_MAX);
+        // An offset that would wrap is `EFBIG`, as a write past the largest file.
+        let landed = at
+            .checked_add(done as u64)
+            .ok_or_else(|| err(EFBIG))
+            .and_then(|offset| {
+                let bytes = user_ptr::field(ptr, done as u64)
+                    .map_err(|_| err(EFAULT))
+                    .and_then(|src| stage(src, want))?;
+                file.write_at(offset, &bytes)
+                    .map(|count| (count, bytes.len()))
+                    .map_err(fs_err)
+            });
+        match landed {
+            Ok((count, asked)) => {
+                done += count;
+                if count < asked {
+                    break;
+                }
+            }
+            // What landed before the error is the answer; the error comes with the next call.
+            Err(code) if done == 0 => return Err(code),
+            Err(_) => break,
+        }
     }
-    let bytes = stage(ptr, want)?;
-    let count = file.write_at(at, &bytes).map_err(fs_err)?;
-    Ok((at, count))
+    Ok((at, done))
 }
 
 /// Copy `len` user bytes into kernel memory. A filesystem write may sleep

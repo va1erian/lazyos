@@ -328,3 +328,34 @@ pub fn bad_user_buffers() -> Result<(), String> {
     check!(path_call(SYS_UNLINK, "/data/b", 0) == 0, "unlink failed");
     data.check_clean()
 }
+
+/// One `write` longer than the staging piece lands whole, as on Linux: a program that writes a
+/// file with a single call (WebKit's content rule list store) takes a short count for success,
+/// so a clamped write truncated its 43 MB file. Sizes at, around and across the piece size, each
+/// written over the last one, and read back byte for byte.
+pub fn write_beyond_one_piece() -> Result<(), String> {
+    const PIECE: usize = 1 << 20;
+    let data = Data::new(0)?;
+    // The pooled disks hold 512 KiB: the files go to a ramfs, which is a VFS-backed descriptor too.
+    let ram = Arc::new(crate::fs::ramfs::RamFs::with_limits(24 << 20, 64));
+    drop(crate::fs::install_abi_data_for_test(ram));
+    for (round, len) in [PIECE - 1, PIECE, PIECE + 1, 2 * PIECE, 3 * PIECE + 123, 5]
+        .into_iter()
+        .enumerate()
+    {
+        let bytes: Vec<u8> = (0..len).map(|i| (i % 251) as u8 ^ round as u8).collect();
+        let fd = open("/data/big.bin", O_CREAT | O_TRUNC | O_RDWR);
+        check!(fd >= 3 && fd < 16, "round {round}: create returned {fd:#x}");
+        check!(
+            write(fd, &bytes) == len as u64,
+            "round {round}: a write of {len} bytes was cut short"
+        );
+        check!(fstat_size(fd)? == len as u64, "round {round}: size differs");
+        check!(close(fd) == 0, "round {round}: close failed");
+        check!(
+            slurp("/data/big.bin")? == bytes,
+            "round {round}: the {len} bytes read back differ"
+        );
+    }
+    data.check_clean()
+}
