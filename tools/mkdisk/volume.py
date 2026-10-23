@@ -23,6 +23,9 @@ DEFAULT_LABEL = "lazyos-data"
 # The home volume (mounted at /home; `home=LABEL=lazyhome` in lazyos.cfg).
 DEFAULT_HOME_PATH = ROOT / "target" / "home.img"
 HOME_LABEL = "lazyhome"
+# 1 GiB: the WebKit HTTP cache and downloads live here, and 64 MiB filled up
+# in one heavy browsing session. The file is sparse (truncate, no zero writes).
+HOME_SIZE = 1 << 30
 
 _UNITS = {"": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
 
@@ -84,6 +87,14 @@ def ensure_volume(path: Path, size: int = DEFAULT_SIZE, label: str = DEFAULT_LAB
         return False
     format_image(path, size, label, layout=layout)
     return True
+
+
+def note_small_volume(what: str, path: Path, size: int) -> None:
+    """Print a notice when an existing volume is below the default size."""
+    have = path.stat().st_size
+    if have < size:
+        print(f"note: {what} {path} is {format_size(have)}, below the {format_size(size)} "
+              f"default; it is not resized (--reset-home recreates it, erasing its contents).", flush=True)
 
 
 @dataclass(frozen=True)

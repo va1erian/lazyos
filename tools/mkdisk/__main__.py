@@ -33,8 +33,10 @@ def make_parser() -> argparse.ArgumentParser:
         description="Write an ext2 volume (pure Python; no mkfs.ext2 needed).")
     parser.add_argument("path", nargs="?", type=Path, default=volume.DEFAULT_PATH,
                         help=f"image to write (default: {volume.DEFAULT_PATH})")
-    parser.add_argument("--size", default=volume.format_size(volume.DEFAULT_SIZE),
-                        help="volume size, e.g. 64M, 512K, 1G (default: %(default)s)")
+    parser.add_argument("--size", default=None,
+                        help="volume size, e.g. 64M, 512K, 1G (default: "
+                             f"{volume.format_size(volume.DEFAULT_SIZE)}, or "
+                             f"{volume.format_size(volume.HOME_SIZE)} with --home-volume)")
     parser.add_argument("--label", default=None,
                         help="volume label, at most 16 ASCII bytes (default: "
                              f"{volume.DEFAULT_LABEL}, or {volume.HOME_LABEL} with --home-volume)")
@@ -69,7 +71,9 @@ def main(argv: list[str]) -> int:
     label = args.label or (volume.HOME_LABEL if args.home_volume else volume.DEFAULT_LABEL)
     try:
         plan = build_layout(args)
-        size = volume.format_image(args.path, volume.parse_size(args.size), label,
+        size_bytes = (volume.parse_size(args.size) if args.size is not None else
+                      volume.HOME_SIZE if args.home_volume else volume.DEFAULT_SIZE)
+        size = volume.format_image(args.path, size_bytes, label,
                                    args.block_size, plan)
     except (ValueError, OSError) as exc:
         print(f"mkdisk: {exc}", file=sys.stderr)
