@@ -157,16 +157,23 @@ pub fn accounting_window_buffers_are_divided() -> Result<(), String> {
             "a buffer mapped twice measured {used:?}"
         );
     }
-    // Alone it is the one mapper's, though the registry still holds the frame.
+    // Alone it is the one mapper's, though the registry still holds the frame. The registry's
+    // reference is the frame's first; `unmap_range` releases one per leaf it clears, so each
+    // unmap is given one to release.
+    check!(mem::share_frame(frame), "share_frame refused");
     mem::unmap_range(b, at, at + PAGE);
     let alone = measure_one(a);
     check!(
         alone.private == 1 && alone.pss == PAGE,
         "a buffer mapped once measured {alone:?}"
     );
-    // `unmap_range` released a reference per leaf it cleared; give the second back.
-    mem::share_frame(frame);
+    check!(mem::share_frame(frame), "share_frame refused");
     mem::unmap_range(a, at, at + PAGE);
+    check!(
+        mem::frame_refcount(frame) == 1,
+        "the registry's reference is gone"
+    );
+    mem::free_frame(frame);
     mem::free_user_table(a);
     mem::free_user_table(b);
     Ok(())

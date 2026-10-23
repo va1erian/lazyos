@@ -5,13 +5,18 @@
 //! `Reopen("/memory")`, as for the self-test): one report, as `WEBD:MEM:*` lines
 //! ([`crate::procmon`] has the format). Nothing runs between requests, so the monitor costs nothing
 //! while it is not looked at; the walk behind one visits every resident page of every process, which
-//! takes a few milliseconds.
+//! takes milliseconds (more with gigabytes of shared pages), which is why it is asked for and not
+//! repeated.
 
 use xui_app::sysinfo::procmem::{Class, ProcessMemory};
 use xui_app::sysinfo::{self, procmem, PAGE};
-use xui_app::trace::{self, Channel};
+use xui_app::trace::{self, Budget, Channel};
 
 use crate::procmon::{self, ClientLine, Proc, Usage};
+
+/// A report is a few lines and a walk over every process's pages: at most 3 per ten seconds, so a
+/// caller that asks in a loop cannot keep the service busy.
+static REPORTS: Budget = Budget::new(3, 1000);
 
 /// The `Reopen` argument that asks for a report (`init` takes one absolute path as `args`).
 pub const ARG: &str = "/memory";
@@ -36,6 +41,9 @@ fn usage(row: &ProcessMemory) -> Usage {
 /// Print webd's report: its processes as the kernel counts them, and `clients`, what each client
 /// holds in the service.
 pub fn report(clients: &[ClientLine]) {
+    if !trace::within(&REPORTS, Channel::Webd) {
+        return;
+    }
     let snapshot = match sysinfo::snapshot() {
         Ok(snapshot) => snapshot,
         Err(code) => {

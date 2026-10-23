@@ -127,7 +127,9 @@ pub struct SpaceOwner {
 /// seen. Kernel tasks (on the boot table) and finished tasks have none.
 /// Takes only the task-table lock.
 pub fn space_owners() -> Vec<SpaceOwner> {
-    let kernel = mem::kernel_table().as_u64();
+    // The boot table, not `kernel_table()`: that one is whatever table is active, which
+    // during a syscall is the caller's own.
+    let kernel = mem::boot_table().as_u64();
     let tasks = TASKS.lock();
     let mut owners: Vec<SpaceOwner> = Vec::new();
     for (slot, task) in tasks.iter().enumerate() {

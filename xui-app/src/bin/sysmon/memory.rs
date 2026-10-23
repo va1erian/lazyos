@@ -32,7 +32,6 @@ impl Memory {
                 .column_right("Shared", 80)
                 .column_right("Files", 70)
                 .column_right("Private", 80)
-                .column_right("Threads", 60)
                 .bind(&self.processes)
                 .fill(1),
         ))
@@ -48,7 +47,10 @@ impl Memory {
         rows.sort_by(|a, b| b.footprint().cmp(&a.footprint()).then(a.pid.cmp(&b.pid)));
         let cells: Vec<Vec<String>> = rows.iter().map(|row| cells(snapshot, row)).collect();
         self.processes.get().refresh_model(cells);
-        let (held, counted) = (table.footprint(), table.resident());
+        // Page tables belong to one process, so they are in the footprint and not in the sharing.
+        let held = table.footprint();
+        let counted =
+            table.resident() + table.rows.iter().map(|r| r.table_pages * 4096).sum::<u64>();
         self.heading.get().set_text(&format!(
             "Memory — {} processes hold {}",
             table.rows.len(),
@@ -92,6 +94,5 @@ fn cells(snapshot: &Snapshot, row: &ProcessMemory) -> Vec<String> {
         class(Class::Shared),
         class(Class::Mapped),
         bytes(row.private()),
-        row.threads.to_string(),
     ]
 }

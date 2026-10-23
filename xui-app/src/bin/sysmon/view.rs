@@ -1,5 +1,5 @@
-//! The `sysmon` window's widgets: the header with the Help button, the three
-//! tabs (Overview, Services, Advanced), the compact meters and the status bar.
+//! The `sysmon` window's widgets: the header with the Help button, the four
+//! tabs (Overview, Memory, Services, Advanced), the compact meters and the status bar.
 //!
 //! Everything is a standard xui widget placed by a layout, apart from the
 //! Overview's graph, bar and swatches (`paint.rs`). Resizing, HiDPI and the

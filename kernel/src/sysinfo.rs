@@ -43,8 +43,9 @@
 //!
 //! Op 5 (`procmem`) adds the memory of every process (resident, private and
 //! proportional sizes, shared pages divided between the processes that map
-//! them). It carries sizes only, so it is open to every task like the
-//! snapshot.
+//! them). It carries sizes only, never an address, and is open to every task
+//! like the snapshot; `docs/architecture/process-sandbox.md` records the
+//! side channel that leaves.
 //!
 //! The wire form is mirrored (and decoded) by `libs/lazyos-sys/src/sysinfo/`,
 //! and each field/index pair is duplicated as a compile-time-checked constant

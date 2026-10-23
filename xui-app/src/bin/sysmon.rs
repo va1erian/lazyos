@@ -61,6 +61,8 @@ use view::Widgets;
 const WINDOW: (i32, i32) = (860, 600);
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
+/// Refreshes between reads of the per-process memory on the tabs that only show a column of it.
+const MEMORY_EVERY: u32 = 5;
 
 /// The app's guide, shipped in its package's `docs/` (`docs/packages.md`).
 fn help_path() -> String {
@@ -130,6 +132,9 @@ struct Sysmon {
     reported: Reported,
     /// Whether the window shows only the meters.
     compact: bool,
+    /// The last answer of the per-process memory call, and refreshes since it was read.
+    memory: Option<ProcessTable>,
+    memory_age: u32,
     /// The last full-size window, restored when leaving compact mode.
     full_size: (i32, i32),
 }
@@ -165,11 +170,20 @@ impl Sysmon {
     /// What each process holds, when a tab shows it: the walk behind it visits
     /// every resident page, so the Services tab and the compact meters skip it.
     /// `None` also on a kernel that does not know the call.
-    fn process_memory(&self) -> Option<ProcessTable> {
+    fn process_memory(&mut self) -> Option<ProcessTable> {
         if self.compact || self.view == View::Services {
             return None;
         }
-        procmem::read().ok()
+        // The walk stalls the system for as long as it takes (milliseconds, and more with
+        // gigabytes of shared pages), so only the tab about it asks every second; the others
+        // reuse the last answer for a few refreshes.
+        let every = if self.view == View::Memory { 1 } else { MEMORY_EVERY };
+        self.memory_age += 1;
+        if self.memory.is_none() || self.memory_age >= every {
+            self.memory = procmem::read().ok();
+            self.memory_age = 0;
+        }
+        self.memory.clone()
     }
 
     /// Says once per switch whether the Services tab has both sources.
@@ -201,6 +215,9 @@ impl App for Sysmon {
         match msg {
             Msg::Tick | Msg::Refresh => {
                 self.refreshes += 1;
+                if matches!(msg, Msg::Refresh) {
+                    self.memory = None;
+                }
                 let error = self.reload(ui);
                 if matches!(msg, Msg::Refresh) {
                     println!("SYSMON:REFRESH:PASS");
@@ -214,6 +231,7 @@ impl App for Sysmon {
                     self.view = view;
                     self.reported = Reported::Nothing;
                     self.widgets.tabs.get().select(view.index());
+                    self.memory = None;
                     self.reload(ui);
                 }
                 println!("SYSMON:VIEW:{}", view.marker());
@@ -300,6 +318,8 @@ fn main() {
         });
         ui.every(REFRESH_MILLIS, Msg::Tick);
 
+        let design = hidpi::design_rect(ui);
+        let small = compact::is_compact(design.width(), design.height());
         let mut app = Sysmon {
             widgets,
             load: Load::default(),
@@ -307,13 +327,13 @@ fn main() {
             view: View::Overview,
             refreshes: 0,
             reported: Reported::Nothing,
-            compact: false,
+            compact: small,
+            memory: None,
+            memory_age: 0,
             full_size: WINDOW,
         };
         app.reload(ui);
-        let design = hidpi::design_rect(ui);
-        app.widgets
-            .set_compact(ui, compact::is_compact(design.width(), design.height()));
+        app.widgets.set_compact(ui, small);
         Ok(app)
     })
 }

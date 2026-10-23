@@ -151,7 +151,12 @@ a program, a process or a socket, followed to the VFS.
   process; its Messenger half is label-gated, its filesystem half is VFS-gated,
   the rest (`quota`, `sysinfo`, `tasks`) reads state.
 * **`tasks` (native 13) and `sysinfo` list other tasks' names and counts.**
-  Information, not control.
+  Information, not control. `sysinfo` op 5 (per-process memory) adds each
+  process's resident, private and proportional sizes by class, readable by
+  every task like the rest: a hostile confined task could watch another
+  process's footprint as a side channel (Linux keeps the equivalent, `smaps`,
+  behind ptrace access). Restricting rows to the caller's uid would hide the
+  services from the system monitor; decided open for now, recorded here.
 * **Resources.** A confined task's memory is charged to the user's quota
   (it can use all of it) and the audit ring (128 entries) is shared, so a
   confined task that is hostile can flush older records with refusals.

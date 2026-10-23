@@ -23,9 +23,9 @@ use alloc::vec::Vec;
 use x86_64::PhysAddr;
 
 use super::{errno, negative};
-use crate::mem::accounting::{self, CLASSES};
+use crate::mem::accounting::{self, Use, CLASSES};
 use crate::mem::vma;
-use crate::task;
+use crate::task::{self, SpaceOwner};
 
 /// ABI version of the block.
 pub const VERSION: u64 = 1;
@@ -34,21 +34,40 @@ pub const HEADER_WORDS: usize = 5;
 /// Words in one row.
 pub const ROW_WORDS: usize = 7 + 2 * CLASSES;
 
-/// The block for the current address spaces, as words.
+/// The block for the current address spaces, as words, with room for `capacity_rows` rows.
 pub fn words(capacity_rows: usize) -> Vec<u64> {
     let owners = task::space_owners();
     let tables: Vec<PhysAddr> = owners.iter().map(|o| PhysAddr::new(o.pml4)).collect();
-    let uses = accounting::measure(&tables);
-    let rows = owners.len().min(capacity_rows);
+    // A buffer with no room for a row only learns how many processes there are.
+    let (uses, mapped) = if capacity_rows == 0 {
+        (Vec::new(), Vec::new())
+    } else {
+        let mapped = tables.iter().map(|t| vma::mapped_bytes(*t)).collect();
+        (accounting::measure(&tables), mapped)
+    };
+    encode(&owners, &uses, &mapped, task::ticks(), capacity_rows)
+}
+
+/// Lay out the block: `owners` and their `uses` and `mapped` bytes (the latter two as long as the
+/// rows to write), at most `capacity_rows` rows.
+pub fn encode(
+    owners: &[SpaceOwner],
+    uses: &[Use],
+    mapped: &[u64],
+    ticks: u64,
+    capacity_rows: usize,
+) -> Vec<u64> {
+    let rows = owners.len().min(capacity_rows).min(uses.len());
     let mut out = Vec::with_capacity(HEADER_WORDS + rows * ROW_WORDS);
     out.extend_from_slice(&[
         VERSION,
         ROW_WORDS as u64,
         rows as u64,
         owners.len() as u64,
-        task::ticks(),
+        ticks,
     ]);
-    for ((owner, table), used) in owners.iter().zip(&tables).zip(&uses).take(rows) {
+    for index in 0..rows {
+        let (owner, used) = (&owners[index], &uses[index]);
         out.extend_from_slice(&[
             owner.pid as u64,
             owner.threads as u64,
@@ -56,7 +75,7 @@ pub fn words(capacity_rows: usize) -> Vec<u64> {
             used.private,
             used.pss,
             used.tables,
-            vma::mapped_bytes(*table),
+            mapped.get(index).copied().unwrap_or(0),
         ]);
         out.extend_from_slice(&used.class_rss);
         out.extend_from_slice(&used.class_pss);

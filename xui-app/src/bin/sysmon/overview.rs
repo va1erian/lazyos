@@ -39,7 +39,7 @@ impl Overview {
             grid([Track::Fill(4), Track::Fill(5)])
                 .gap(16)
                 .children((self.cpu_card(), self.memory_card())),
-            label("Busiest programs: their share of the processor in the last second, and the memory each holds"),
+            label("Busiest programs: their share of the processor in the last second"),
             list()
                 .column("Program", Fill)
                 .column_right("Memory", 110)

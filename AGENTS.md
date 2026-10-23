@@ -367,7 +367,7 @@ skip this because the change is small or the tests pass.
    (correctness and stress tests), the project conventions above (MIDL for every
    interface, `libs/fhs` paths, 500-line file limit, launcher and GUI wiring for
    new apps), and visual verification for graphics changes.
-3. **Kernel, drawing and webd changes get the strongest review, not the default
+3. **Kernel, drawing and webd changes get a stronger review, not the default
    one.** That means `kernel/`, anything the kernel shares with userspace
    (`libs/lazyos-sys`, `libs/ext2fs`, `libs/gpt`, memory, scheduler, syscalls,
    IPC/Messenger, VFS, drivers and the services that own hardware such as `usbd`,
@@ -377,9 +377,10 @@ skip this because the change is small or the tests pass.
    or painter, HiDPI and clip/damage code) and **webd** (`xui-app/crates/webd*`,
    `xui-app/webd`, `webkit/`, `idl/webd*.midl`, the WebKit port and its sandbox
    and label policy). For these:
-   - run `/code-review max` (at least `xhigh`; an equivalent agent: its most
-     thorough mode, with `--max-findings all`), and run it **again** after
-     fixing the findings, until a pass finds nothing real;
+   - run `/code-review high` (an equivalent agent: its `high` effort, with
+     `--max-findings all`; `max` takes about an hour, too long for a routine
+     review), and run it **again** after fixing the findings, until a pass
+     finds nothing real;
    - give the reviewer the specific risks to attack: lock order, interrupts-off
      stretches and missing `poll_point`s, `unsafe` and DMA lifetimes, user
      pointer validation, integer overflow on sizes from userspace or the wire,

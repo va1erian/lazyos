@@ -62,33 +62,70 @@ pub fn procmem_abi_contract() -> Result<(), String> {
     Ok(())
 }
 
-/// The rows written are the rows asked for, whole: a block is the header plus
-/// `rows` complete rows, no row holds more private pages than resident ones or
-/// more proportional bytes than its resident pages, and its classes add up.
-pub fn procmem_rows_are_whole() -> Result<(), String> {
-    fresh();
-    let owners = task::space_owners().len();
-    let block = read_block(((procmem::HEADER_WORDS + owners * procmem::ROW_WORDS) * 8) as u64)?;
-    let rows = block[2] as usize;
+/// The row layout, from known values: each word lands where the ABI says, a buffer with room for
+/// fewer rows than there are gets the first ones whole and the true total in the header.
+pub fn procmem_row_layout() -> Result<(), String> {
+    use crate::mem::accounting::Use;
+    use crate::task::SpaceOwner;
+    let owners = [
+        SpaceOwner {
+            pid: 7,
+            pml4: 0x1000,
+            threads: 3,
+        },
+        SpaceOwner {
+            pid: 9,
+            pml4: 0x2000,
+            threads: 1,
+        },
+    ];
+    let uses = [
+        Use {
+            rss: 10,
+            private: 4,
+            pss: 9000,
+            tables: 5,
+            class_rss: [1, 2, 3, 2, 2],
+            class_pss: [100, 200, 300, 400, 500],
+        },
+        Use {
+            rss: 1,
+            private: 1,
+            pss: 4096,
+            tables: 4,
+            ..Use::default()
+        },
+    ];
+    let words = procmem::encode(&owners, &uses, &[1 << 20, 2 << 20], 77, 8);
     check!(
-        rows == owners && block.len() == procmem::HEADER_WORDS + rows * procmem::ROW_WORDS,
-        "{rows} rows written, {owners} processes, {} words",
-        block.len()
+        words.len() == procmem::HEADER_WORDS + 2 * procmem::ROW_WORDS,
+        "{} words for two rows",
+        words.len()
     );
-    for row in block[procmem::HEADER_WORDS..].chunks(procmem::ROW_WORDS) {
-        let (resident, private, pss) = (row[2], row[3], row[4]);
-        check!(
-            private <= resident && pss <= resident * 4096,
-            "pid {}: resident {resident}, private {private}, pss {pss}",
-            row[0]
-        );
-        let classes: u64 = row[7..7 + crate::mem::accounting::CLASSES].iter().sum();
-        check!(
-            classes == resident,
-            "pid {}: the classes hold {classes} of {resident} pages",
-            row[0]
-        );
-    }
+    check!(
+        words[..procmem::HEADER_WORDS] == [procmem::VERSION, procmem::ROW_WORDS as u64, 2, 2, 77],
+        "header {:?}",
+        &words[..procmem::HEADER_WORDS]
+    );
+    let row = &words[procmem::HEADER_WORDS..procmem::HEADER_WORDS + procmem::ROW_WORDS];
+    check!(
+        row[..7] == [7, 3, 10, 4, 9000, 5, 1 << 20]
+            && row[7..12] == [1, 2, 3, 2, 2]
+            && row[12..17] == [100, 200, 300, 400, 500],
+        "first row {row:?}"
+    );
+    let one = procmem::encode(&owners, &uses, &[0, 0], 77, 1);
+    check!(
+        one[2] == 1 && one[3] == 2 && one.len() == procmem::HEADER_WORDS + procmem::ROW_WORDS,
+        "one row of two: header {:?}, {} words",
+        &one[..5],
+        one.len()
+    );
+    let none = procmem::encode(&owners, &[], &[], 77, 0);
+    check!(
+        none.len() == procmem::HEADER_WORDS && none[2] == 0 && none[3] == 2,
+        "no room for a row: {none:?}"
+    );
     Ok(())
 }
 
@@ -112,7 +149,7 @@ pub fn soak_procmem_reads_leak_nothing() -> Result<(), String> {
 
 pub(super) const CASES: &[(&str, Test)] = &[
     ("sysinfo_procmem_abi_contract", procmem_abi_contract),
-    ("sysinfo_procmem_rows_are_whole", procmem_rows_are_whole),
+    ("sysinfo_procmem_row_layout", procmem_row_layout),
     (
         "sysinfo_soak_procmem_reads_leak_nothing",
         soak_procmem_reads_leak_nothing,

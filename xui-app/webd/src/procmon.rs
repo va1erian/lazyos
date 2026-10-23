@@ -13,9 +13,9 @@
 //! prints them on request, so nothing here polls.
 //!
 //! ```text
-//! WEBD:MEM:PROC role=web pid=14 threads=12 name=webproce memory=.. private=.. resident=.. code=..
-//!     heap=.. stack=.. shared=.. files=.. tables=..
-//! WEBD:MEM:CLIENT label=app:os.lazy.docs views=2 slots=..
+//! WEBD:MEM:PROC role=web pid=14 threads=12 memory=.. private=.. resident=.. code=..
+//!     heap=.. stack=.. shared=.. files=.. tables=.. name=webproce
+//! WEBD:MEM:CLIENT views=2 slots=.. label=app:os.lazy.docs
 //! WEBD:MEM:TOTAL processes=3 memory=.. private=.. resident=.. sharing=..
 //! ```
 //!
@@ -170,12 +170,14 @@ impl Report {
     pub fn totals(&self) -> Totals {
         let sum = |pick: fn(&Usage) -> u64| self.rows.iter().map(|row| pick(&row.usage)).sum();
         let (memory, resident): (u64, u64) = (sum(|u| u.memory), sum(|u| u.resident));
+        // Page tables are in `memory` and not in `resident`, and no page is shared in them.
+        let tables: u64 = sum(|u| u.tables);
         Totals {
             processes: self.rows.len(),
             memory,
             private: sum(|u| u.private),
             resident,
-            sharing: resident.saturating_sub(memory),
+            sharing: resident.saturating_sub(memory.saturating_sub(tables)),
         }
     }
 
@@ -309,6 +311,29 @@ mod tests {
         assert_eq!((total.memory, total.resident), (1040, 2500));
         assert_eq!(total.sharing, 1460);
         assert_eq!(total.private, 200 + 150 + 125 + 45);
+    }
+
+    #[test]
+    fn page_tables_are_not_counted_as_sharing() {
+        // Two web processes map the same 10 MiB of text, 100 MiB resident each (95 MiB
+        // proportional), with 2 MiB of page tables each: 10 MiB is counted twice.
+        const MIB: u64 = 1 << 20;
+        let web = |pid| Usage {
+            pid,
+            threads: 1,
+            memory: 95 * MIB + 2 * MIB,
+            private: 90 * MIB,
+            resident: 100 * MIB,
+            tables: 2 * MIB,
+            ..Usage::default()
+        };
+        let procs = [
+            proc(5, 1, "webd-app"),
+            proc(9, 5, "webproce"),
+            proc(10, 5, "webproce"),
+        ];
+        let total = build(5, &procs, &[web(9), web(10)]).totals();
+        assert_eq!(total.sharing, 10 * MIB);
     }
 
     #[test]

@@ -76,7 +76,6 @@ lists every process, biggest first, with:
 | **Shared** | Buffers shared on purpose with other programs, such as the pictures a program hands to the display. Divided between the programs that use them. |
 | **Files** | Files the program has opened as memory (fonts, data). |
 | **Private** | Memory only this process uses: what closing it gives back (page tables included). |
-| **Threads** | How many threads run in the process. |
 
 Memory shared between processes is divided between them rather than counted in
 full for each, so the column adds up to what the programs really hold. The line

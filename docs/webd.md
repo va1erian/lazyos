@@ -52,7 +52,7 @@ The portable service takes a `Fabric` (events out, buffers in) and a `Call` per 
 |---|---|---|
 | requests | `serve.rs` | `xui_app::server::Server::register("app.os.lazy.webd.light", ...)`, `poll`, `Service::handle`, `reply` (a oneway message's reply is dropped); the kernel-stamped `SenderId` becomes the `Origin` |
 | events | `fabric.rs` | `Fabric::send` is a oneway `msg_send` on the channel the client moved in (`-EAGAIN` slow, `-EPIPE` gone); a slot is `buffer_map` of the client's buffer, checked against the size the kernel reports, unmapped and closed on drop; `LoadHtml`'s bytes are read and the handle closed |
-| lifecycle | `serve.rs` | `resident::Lifecycle::watch()`: `Quit` ends the loop, `Reopen("/selftest")` runs the built-in client |
+| lifecycle | `serve.rs` | `resident::Lifecycle::watch()`: `Quit` ends the loop, `Reopen("/selftest")` or `Reopen("/memory")` runs the built-in client |
 | engine | `xui-webd` `ffi` | `FfiEngine` over `webd_engine_*`; `webd_ui_*` feed one `EventQueue` |
 | doorbell | `doorbell.rs` | an `eventfd` (below) |
 | watchdog | `heartbeat.rs` | a task posted to WebKit's main thread every 2 s while a view exists; unanswered for 20 s means the engine is hung (below) |

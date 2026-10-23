@@ -149,7 +149,7 @@ running program that keeps another parks nothing. Tests:
 between the spaces that *map* it: the walk counts mappings per frame (a leaf whose frame has one reference is private
 at once; the rest wait for the whole walk), because the reference count also holds the page cache's and a memfd's
 reference and the shared window's leaves hold none. So the program text ten processes run is counted once in total.
-Frames that are not allocator frames (`MMIO`, `DMA` leaves, a count of zero) are not counted; scratch memory for the
+Frames that are not allocator frames (an `MMIO` leaf, a leaf whose count is zero) are not counted, and a `DMA` leaf is skipped too (the device owns it); scratch memory for the
 shared leaves is bounded (`MAX_SHARED_LEAVES`, past it a leaf is divided by its reference count). Tests:
 `mem_suite/accounting.rs` and `sysinfo_procmem_suite.rs`.
 **SMP:** the design assumes one CPU. The fault epoch (a
