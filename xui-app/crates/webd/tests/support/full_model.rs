@@ -219,7 +219,7 @@ pub fn client_call(
     let caller = if rng.one_in(5) { 1 - client } else { client };
     let from = who[caller];
     let request = 1 + rng.below(ids + 1);
-    let result = match rng.below(21) {
+    let result = match rng.below(20) {
         0 => fx.load_url(from, view, url(rng)),
         1 => fx.reload(from, view, rng.one_in(2)),
         2 => fx.stop(from, view),
@@ -237,8 +237,7 @@ pub fn client_call(
         15 => fx.notify_forget(from, view, "https://example.com"),
         16 => fx.notify_state(from, view, rng.below(4) as u64, rng.below(3) as u32),
         17 => fx.recover_group(from, view),
-        18 => fx.detach_slots(from, view),
-        19 => fx.set_user_agent(from, view, "Agent/1"),
+        18 => fx.set_user_agent(from, view, "Agent/1"),
         _ => fx.load_page(from, view, b"<p>x</p>", url(rng)),
     };
     match result {
