@@ -101,7 +101,7 @@ fn the_browser_scope_gets_the_shared_profile_on_disk_and_its_features() {
         dialogs: true,
         deltas: true,
         handoff: wire::HANDOFF_BROWSER,
-        user_agent_suffix: "LazyWebPlus/1.0".into(),
+        user_agent_suffix: "LazyWeb/1.0".into(),
         ..browser()
     };
     let ok = setup(&config, Scope::Browser, 800, 600, 2, &places()).unwrap();

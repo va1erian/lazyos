@@ -1,4 +1,4 @@
-// Content blocking (issue #845, docs/lazywebplus.md): WebKit's content-extension rule lists, compiled
+// Content blocking (issue #845, docs/lazyweb.md): WebKit's content-extension rule lists, compiled
 // into a store below the profile directory and attached to the page's user content controller.
 //
 // The owner holds the lists (the window converts a filter list to WebKit's JSON,

@@ -8,8 +8,8 @@
 //! `xui_embed::embed_xui_apps` embeds in `/system/packages` when [`enabled`] (`LAZYOS_WEBD=1`) and `pkgd`
 //! installs at boot; it opens with every session (`core_packages::autostart_shorts`, in the background).
 //! The two processes it starts, `WebProcess` and `NetworkProcess`, are system programs in `/system/bin`
-//! (`linuxapps_embed`), where an app of any label can start them. They are webd's alone: LazyWeb+
-//! (`os.lazy.lazywebplus`, `LAZYOS_LAZYWEBPLUS=1`, [`lazywebplus_enabled`]) is a plain xui app, a client of
+//! (`linuxapps_embed`), where an app of any label can start them. They are webd's alone: LazyWeb
+//! (`os.lazy.lazyweb`, `LAZYOS_LAZYWEB=1`, [`lazyweb_enabled`]) is a plain xui app, a client of
 //! webd, so its switch needs webd shipped (an unset `LAZYOS_WEBD` is `1` with it, `0` is refused).
 //!
 //! Its clients are Docs and Mail (their pages are light views, docs/webd-plan.md P3), so **a desktop image
@@ -33,10 +33,10 @@ pub const PACKAGE_SHORT: &str = "webd";
 /// The built daemon under `target/xui/`, the packager's input.
 pub const ELF: &str = "xui-webd.elf";
 
-/// LazyWeb+'s core package (`xui-app/packages/lazywebplus`) and its program, built with the other apps by
+/// LazyWeb's core package (`xui-app/packages/lazyweb`) and its program, built with the other apps by
 /// `tools/xui/build.py`.
-pub const LAZYWEBPLUS_PACKAGE_SHORT: &str = "lazywebplus";
-pub const LAZYWEBPLUS_ELF: &str = "xui-lazywebplus.elf";
+pub const LAZYWEB_PACKAGE_SHORT: &str = "lazyweb";
+pub const LAZYWEB_ELF: &str = "xui-lazyweb.elf";
 
 /// The packages that are test clients of webd and ship only with `LAZYOS_WEBDDEMO=1`: `(short id,
 /// packaged program)`. A client lives in its own tree (`xui-app/packages/<short>`) and is listed in
@@ -78,10 +78,10 @@ pub fn parse_switch(value: Option<&OsStr>) -> Switch {
     }
 }
 
-/// The switch an image is built with: `LAZYOS_WEBD`, but a LazyWeb+ image (`lazywebplus`) cannot leave it to
+/// The switch an image is built with: `LAZYOS_WEBD`, but a LazyWeb image (`lazyweb`) cannot leave it to
 /// chance, so an unset one is `1` there (a missing program then fails the build with [`not_built`]).
-pub fn effective_switch(switch: Switch, lazywebplus: bool) -> Switch {
-    if lazywebplus && switch == Switch::Auto {
+pub fn effective_switch(switch: Switch, lazyweb: bool) -> Switch {
+    if lazyweb && switch == Switch::Auto {
         Switch::On
     } else {
         switch
@@ -121,11 +121,11 @@ fn built() -> bool {
             .all(|name| dir.join("webkit").join("bin").join(name).is_file())
 }
 
-/// [`effective_switch`] of `LAZYOS_WEBD` and `LAZYOS_LAZYWEBPLUS`.
+/// [`effective_switch`] of `LAZYOS_WEBD` and `LAZYOS_LAZYWEB`.
 fn env_switch() -> Switch {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
     let switch = parse_switch(std::env::var_os("LAZYOS_WEBD").as_deref());
-    effective_switch(switch, on("LAZYOS_LAZYWEBPLUS"))
+    effective_switch(switch, on("LAZYOS_LAZYWEB"))
 }
 
 /// Whether the image ships webd ([`Switch`]), from the environment: what the build modules that size
@@ -172,33 +172,33 @@ pub fn requirements(webd: bool, desktop: bool) -> Result<(), String> {
     ))
 }
 
-/// Whether the image ships LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`). Panics when the switch is set without the profile
-/// it needs ([`lazywebplus_requirements`]).
-pub fn lazywebplus_enabled(desktop: bool) -> bool {
+/// Whether the image ships LazyWeb (`LAZYOS_LAZYWEB=1`). Panics when the switch is set without the profile
+/// it needs ([`lazyweb_requirements`]).
+pub fn lazyweb_enabled(desktop: bool) -> bool {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
-    let wanted = on("LAZYOS_LAZYWEBPLUS");
+    let wanted = on("LAZYOS_LAZYWEB");
     let webd = parse_switch(std::env::var_os("LAZYOS_WEBD").as_deref());
-    if let Err(reason) = lazywebplus_requirements(wanted, desktop, on("LAZYOS_NETD"), webd) {
+    if let Err(reason) = lazyweb_requirements(wanted, desktop, on("LAZYOS_NETD"), webd) {
         panic!("{reason}");
     }
     wanted
 }
 
-/// Whether a build with `lazywebplus` can ship it: the switch needs the desktop profile, the network stack
+/// Whether a build with `lazyweb` can ship it: the switch needs the desktop profile, the network stack
 /// (the pages come over webd's NetworkProcess) and webd, which every desktop ships unless `LAZYOS_WEBD=0`
 /// (`webd`, the switch as set: unset is fine, the browser makes it required).
-pub fn lazywebplus_requirements(
-    lazywebplus: bool,
+pub fn lazyweb_requirements(
+    lazyweb: bool,
     desktop: bool,
     netd: bool,
     webd: Switch,
 ) -> Result<(), String> {
-    if !lazywebplus {
+    if !lazyweb {
         return Ok(());
     }
     if webd == Switch::Off {
         return Err(String::from(
-            "LAZYOS_LAZYWEBPLUS=1 needs webd (LAZYOS_WEBD=0 leaves it out): the browser draws the pages \
+            "LAZYOS_LAZYWEB=1 needs webd (LAZYOS_WEBD=0 leaves it out): the browser draws the pages \
              webd renders; unset LAZYOS_WEBD or set it to 1",
         ));
     }
@@ -211,8 +211,8 @@ pub fn lazywebplus_requirements(
         .map(|(name, _)| name)
         .collect();
     Err(format!(
-        "LAZYOS_LAZYWEBPLUS=1 needs {} (a browser needs the desktop and the network stack); \
-         `python tools/run_demo.py --lazywebplus` sets them",
+        "LAZYOS_LAZYWEB=1 needs {} (a browser needs the desktop and the network stack); \
+         `python tools/run_demo.py --lazyweb` sets them",
         missing.join(" and ")
     ))
 }
@@ -238,16 +238,16 @@ pub fn client_tree_present(manifest_dir: &std::path::Path, short: &str) -> bool 
         .is_dir()
 }
 
-/// The build failure for a wanted but unbuilt LazyWeb+, naming what to run.
-pub fn lazywebplus_not_built(elf_present: bool) -> String {
+/// The build failure for a wanted but unbuilt LazyWeb, naming what to run.
+pub fn lazyweb_not_built(elf_present: bool) -> String {
     if elf_present {
         format!(
-            "LAZYOS_LAZYWEBPLUS=1 but core package {LAZYWEBPLUS_PACKAGE_SHORT} is not packaged; run \
+            "LAZYOS_LAZYWEB=1 but core package {LAZYWEB_PACKAGE_SHORT} is not packaged; run \
              `python tools/xui/core_packages.py`"
         )
     } else {
         format!(
-            "LAZYOS_LAZYWEBPLUS=1 but target/xui/{LAZYWEBPLUS_ELF} is not built; run \
+            "LAZYOS_LAZYWEB=1 but target/xui/{LAZYWEB_ELF} is not built; run \
              `python tools/xui/build.py` (it builds the browser with the other apps, webd's own \
              program is `python tools/webkit/webd.py`)"
         )

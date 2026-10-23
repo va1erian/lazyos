@@ -106,14 +106,14 @@ WEBKIT_OPTION_DEFAULT_PORT_VALUE(USE_WOFF2 PRIVATE OFF)
 
 # Enabled features (the PlayStation port's choices).
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_FULLSCREEN_API PRIVATE ON)
-# Content extensions (Safari content-blocker rule lists): LazyWeb+'s ad blocker (issue #845)
+# Content extensions (Safari content-blocker rule lists): LazyWeb's ad blocker (issue #845)
 # compiles lists through WKUserContentExtensionStore and attaches them to the page's user content
 # controller. Off by default in WebKitFeatures.cmake (only the GTK and iOS ports turn it on); with
 # it off the C API's store functions fail every call. The rules are applied in the NetworkProcess
 # and the WebProcess, so this changes config.h for all three programs.
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_CONTENT_EXTENSIONS PRIVATE ON)
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_SMOOTH_SCROLLING PRIVATE ON)
-# The Notifications API (docs/lazywebplus.md): the UI process supplies the provider
+# The Notifications API (docs/lazyweb.md): the UI process supplies the provider
 # (webkit/port/app/notify.cpp) and a window decides what a page may show. A browser that asks for
 # no LZW_FEATURE_NOTIFICATIONS gets no provider, and a page sees "denied".
 WEBKIT_OPTION_DEFAULT_PORT_VALUE(ENABLE_NOTIFICATIONS PRIVATE ON)

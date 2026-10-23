@@ -14,8 +14,8 @@ webd (webd-app)                 app:os.lazy.webd                   ordinary app 
  |- fork + execve /system/bin/webprocess      -> app:os.lazy.webd/webprocess      confined
  `- fork + execve /system/bin/networkprocess  -> app:os.lazy.webd/networkprocess  confined
 
-LazyWeb+ (xui-lazywebplus)      app:os.lazy.lazywebplus            ordinary app label
- `- fork + execve /system/bin/curl           -> app:os.lazy.lazywebplus/listupdate  confined
+LazyWeb (xui-lazyweb)      app:os.lazy.lazyweb            ordinary app label
+ `- fork + execve /system/bin/curl           -> app:os.lazy.lazyweb/listupdate  confined
 ```
 
 The engine's processes are children of **webd**, the session's WebKit daemon (`docs/webd.md`), not of the browser:

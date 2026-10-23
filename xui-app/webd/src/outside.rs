@@ -3,7 +3,7 @@
 //! notifications as webd's toasts and tells webd when one is clicked or goes away.
 //!
 //! Both are called on the service thread, the process's first: the notification service refuses a
-//! call from any other thread of an app (docs/lazywebplus.md).
+//! call from any other thread of an app (docs/lazyweb.md).
 
 use std::cell::RefCell;
 

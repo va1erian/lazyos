@@ -290,7 +290,7 @@ pub(crate) fn selftest(db: &MimeDb, apps: &mut AppRegistry) {
     }
 }
 
-/// A user's choice between two apps that handle one type (docs/lazywebplus.md): the choice wins
+/// A user's choice between two apps that handle one type (docs/lazyweb.md): the choice wins
 /// when the app handles the type, an app that does not handle it is ignored, and the key is a
 /// `confd` path in the user's own subtree. Pure, so a boot proves it without `confd`.
 fn prefers(apps: &mut AppRegistry) {

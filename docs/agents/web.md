@@ -1,6 +1,6 @@
 # WebKit, webd and the browser
 
-Companion to [`AGENTS.md`](../../AGENTS.md); covers: JavaScriptCore, the WebKit dependency bundle and port, LazyWeb+ and webd.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: JavaScriptCore, the WebKit dependency bundle and port, LazyWeb and webd.
 
 ## JavaScriptCore (`LAZYOS_JSC=1`: `jsc`, `cxxproof`)
 
@@ -81,68 +81,68 @@ python tools/webkit/test_port_judge.py
 rebuilds everything, and the build can fail half way): set `LAZYOS_JSC_VOLUME=<name>` for one of
 them (`webkit/README.md` says how to keep the caches).
 
-## LazyWeb+ (`LAZYOS_LAZYWEBPLUS=1`, `os.lazy.lazywebplus`)
+## LazyWeb (`LAZYOS_LAZYWEB=1`, `os.lazy.lazyweb`)
 
-The web browser, a **plain xui app and a client of webd** ([`docs/lazywebplus.md`](../lazywebplus.md), issue #835;
-webd plan P4, [`docs/webd-plan.md`](../webd-plan.md) "P4 as built"). The binary `xui-lazywebplus` is
-`xui-app/webplus` (`xui-webplus`: a menu bar, toolbar, status bar, history, downloads, internal pages and
-hand-offs), built by `python tools/xui/build.py` into `target/xui/xui-lazywebplus.elf`; it links no WebKit, no curl
+The web browser, a **plain xui app and a client of webd** ([`docs/lazyweb.md`](../lazyweb.md), issue #835;
+webd plan P4, [`docs/webd-plan.md`](../webd-plan.md) "P4 as built"). The binary `xui-lazyweb` is
+`xui-app/lazyweb` (`xui-lazyweb`: a menu bar, toolbar, status bar, history, downloads, internal pages and
+hand-offs), built by `python tools/xui/build.py` into `target/xui/xui-lazyweb.elf`; it links no WebKit, no curl
 and no OpenSSL. Its page is **one full view** of webd (`os.lazy.webd.view.v1`) made through the browser scope
 (`os.lazy.webd.browser.v1`) in webd's `browser` profile (`$HOME/.apps/os.lazy.webd/profiles/browser`: cookies,
 cache, site storage, the content-blocking store). `xui-app/crates/webkit-remote` (`RemoteEngine`) implements the
 `xui-webkit` seam's `Engine` (`xui-app/crates/webkit`: engine trait, mailbox, page view, host-tested against a
 recording engine) over `xui_webd_client::FullWebView`; frames go from webd's slots straight into the mailbox. The
-C++ engine host that LazyWeb+ used to be (`lazywebplus-app`, `tools/webkit/app.py`, the seam's C ABI) is gone: the
-engine, its processes and their sandbox are webd's (`app:os.lazy.webd/webprocess|networkprocess`), and LazyWeb+'s
+C++ engine host that LazyWeb used to be (`lazyweb-app`, `tools/webkit/app.py`, the seam's C ABI) is gone: the
+engine, its processes and their sandbox are webd's (`app:os.lazy.webd/webprocess|networkprocess`), and LazyWeb's
 package keeps only `[processes.listupdate]` (`curl` fetching the ad-block lists). Navigation policy is the
 client's (**a page's script can never start another program or run a browser command: only a user gesture can**,
 `policy.rs`; webd holds such navigations with `Handoff.Ask`), downloads go to `$HOME/Downloads` through `.part`
-files named by webd, JavaScript dialogs are drawn as xui dialogs. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it
-(`run_demo.py --lazywebplus`, the launcher's Simple tab): it needs the desktop, the network stack and webd (an
+files named by webd, JavaScript dialogs are drawn as xui dialogs. Only a `LAZYOS_LAZYWEB=1` image ships it
+(`run_demo.py --lazyweb`, the launcher's Simple tab): it needs the desktop, the network stack and webd (an
 unset `LAZYOS_WEBD` counts as `1`, `LAZYOS_WEBD=0` is an error), and the run sets the big-app profile, a 1 GiB OS
 volume, 4 GiB of RAM and an 8G user memory quota. It registers `http`, `https` and HTML files and is the default
 browser; which of two browsers `mimed` would open is the user's choice (`user/<uid>/mimed/default/<type>`,
 Settings > Default apps, `deskmenu::defaults`), install order otherwise. The engine's processes are sandboxed
 (#836: `docs/architecture/process-sandbox.md`); attack them with `python tools/webkit/attack_run.py --browser --app
-lazywebplus` (the compromised page-process half of webd's attack harness) and attack webd from a hostile *client*
+lazyweb` (the compromised page-process half of webd's attack harness) and attack webd from a hostile *client*
 with `python tools/webd/attack_run.py` (`os.lazy.webdattack`, which reaches for scopes it was not granted, floods
 input and exhausts the view cap: docs/webd-plan.md "P5 as built"). The bundle's SQLite is built without WAL (no file-backed `mmap`: the cookie jar never opened
 otherwise). The window crates are declared `GPL-2.0-only OR GPL-3.0-or-later` and the program is distributed as
 GPL-3.0-or-later (it links `xui-webkit-remote` and `xui-webd-client`); only link GPLv2-compatible crates into the
-window: `python tools/nettls/licenses.py --lazywebplus` and `python tools/webkit/licenses.py`. Upgrading from the
+window: `python tools/nettls/licenses.py --lazyweb` and `python tools/webkit/licenses.py`. Upgrading from the
 in-process browser keeps `history.tsv`, `notify.tsv` and the ad-block lists; the old engine's cookies, cache and
 site storage are not migrated. Known limits: `file:` URLs do not open and there are no tabs.
-`python tools/webplus/run.py` builds the image, boots it (the second boot finds the first's history and cookie)
-and judges the browser's markers (`WEBPLUS:*`), the engine's (`WEBD:NOTE:<line>`), the host's request log, the OS
+`python tools/lazyweb/run.py` builds the image, boots it (the second boot finds the first's history and cookie)
+and judges the browser's markers (`LAZYWEB:*`), the engine's (`WEBD:NOTE:<line>`), the host's request log, the OS
 volume and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
 The harness boots four times: a third and a fourth boot judge the ad blocker (below), and a run needs
-`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazywebplus` brings. The stand-in sites
+`LAZYOS_TLS=1` (`target/nettls/fetch.elf`), which `--lazyweb` brings. The stand-in sites
 (example.com, a 90s-style theoldnet.com with pictures, cookie, download and test pages), the run's test CA
 and the picture encoders are shared in `tools/webtest/` ([`tools/webtest/README.md`](../../tools/webtest/README.md);
 `python tools/webtest/test_sites.py`).
 
-A page's **Notifications API** works (#839, `xui-app/webplus/src/notify*`): webd keeps the profile's decisions
+A page's **Notifications API** works (#839, `xui-app/lazyweb/src/notify*`): webd keeps the profile's decisions
 and, for a view made with `notify_in_client`, hands the page's notifications to the browser (`NotifyShow`), which
 asks once per site with a bar (`notify.tsv` in its folder, told to webd each time a view is made), posts toasts
 titled with the site's host, never its own words, at Info, under a per-site limit, and answers `NotifyState`; a
 click raises the window (display `ActivateApp`) and runs the page's handler or reopens the page. Every call of
 the shell's notification service is made from the window's thread (the process's first). In "page data in memory"
-mode (File menu) webd refuses notifications and content blocking. `python tools/webplus/notify_run.py` is its
+mode (File menu) webd refuses notifications and content blocking. `python tools/lazyweb/notify_run.py` is its
 harness.
 
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py --only WebProcess NetworkProcess webd-app && python tools/webkit/webd.py   # Docker: webd and the engine processes
 python tools/xui/build.py                                                                         # the browser (and the other apps)
-python tools/webplus/run.py --accel auto                                                          # boot four times, judge
-python tools/webplus/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
-python tools/webplus/hang_run.py --accel auto                                                     # a page that hangs: the bar, Wait, Reload, Stop (#862)
-python tools/webplus/test_judge.py && python tools/webplus/test_notify_judge.py && python tools/webplus/test_hang_judge.py
-cargo test --manifest-path xui-app/Cargo.toml -p xui-webplus -p xui-webkit -p xui-webkit-remote
+python tools/lazyweb/run.py --accel auto                                                          # boot four times, judge
+python tools/lazyweb/notify_run.py --accel auto                                                   # web notifications, boot twice, judge
+python tools/lazyweb/hang_run.py --accel auto                                                     # a page that hangs: the bar, Wait, Reload, Stop (#862)
+python tools/lazyweb/test_judge.py && python tools/lazyweb/test_notify_judge.py && python tools/lazyweb/test_hang_judge.py
+cargo test --manifest-path xui-app/Cargo.toml -p xui-lazyweb -p xui-webkit -p xui-webkit-remote
 ```
 
-**The ad blocker** (issue #845, [`docs/lazywebplus.md`](../lazywebplus.md) "Blocking ads"): WebKit content
+**The ad blocker** (issue #845, [`docs/lazyweb.md`](../lazyweb.md) "Blocking ads"): WebKit content
 extensions (on in `OptionsLazyOS.cmake`; patches `0018` and `0019`), `xui-app/crates/adblock` (Adblock Plus lists
-to WebKit rule lists; strict: one pattern WebKit refuses fails a whole list), `xui-app/webplus/src/blocker/`
+to WebKit rule lists; strict: one pattern WebKit refuses fails a whole list), `xui-app/lazyweb/src/blocker/`
 (settings in `confd`, the list worker, `about:blocker`) and a `curl` child under
 the `listupdate` label. The rules compile into webd's `browser` profile (`BlockingCompile`, `BlockingLoad`) and the switch and the
 site exceptions reach webd as `SetBlocking`. The filter list is fetched at runtime and never committed or shipped. Check a
@@ -153,7 +153,7 @@ FILE` (the port's `webkit-smoke` in rules mode; needs the build volume of `tools
 cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock       # unit, conversion, differential, fuzz
 FUZZ_CASES=100000 cargo test --manifest-path xui-app/Cargo.toml -p lazyadblock --release
 python tools/webkit/blockcheck.py --list easylist.txt              # compile it with WebKit (Docker)
-python tools/webplus/test_blocker_judge.py                         # the harness's judge fails when it should
+python tools/lazyweb/test_blocker_judge.py                         # the harness's judge fails when it should
 ```
 
 The web harnesses bind host ports 80/81/443, and Windows lets a second process bind a port that is already
@@ -180,7 +180,7 @@ because `init` and the shell know an app by its first thread) with the Rust stat
 desktop image that has built it (`LAZYOS_WEBD` is `1`: required, `0`: left out, unset: shipped when
 `target/xui/xui-webd.elf` exists; no network stack; a 1 GiB OS volume; `run_demo.py --desktop` builds it, `--no-webd`
 leaves it out, `--webd-demo` adds the demo client): Docs and Mail need it, so every desktop ships it. `python tools/xui/new_app.py` does not apply: it has no window. Same Docker rules as
-LazyWeb+ (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
+LazyWeb (`LAZYOS_JSC_VOLUME`, never two checkouts in one volume).
 
 ```bash
 python tools/webkit/deps.py && python tools/webkit/port.py          # Docker, once
@@ -196,7 +196,7 @@ python tools/webd/full_run.py                                         # full vie
 python tools/webd/test_full_judge.py && python tools/webd/test_idl.py
 ```
 
-Tabs (the webd half of [`docs/lazywebplus-plan.md`](../lazywebplus-plan.md) B1, [`docs/webd.md`](../webd.md) "Tabs and
+Tabs (the webd half of [`docs/lazyweb-plan.md`](../lazyweb-plan.md) B1, [`docs/webd.md`](../webd.md) "Tabs and
 the user agent"): `ViewConfig.process_key` puts a client's views in one web process per key (`ident::Groups` gives each
 (client, key) its own engine group; a key's group goes with its last view), the browser scope may hold 64 views and
 16 web processes sit below the memory gate, `DetachSlots` gives a background tab's slot memory back, `RecoverGroup`

@@ -1,11 +1,11 @@
-//! `mimed`'s per-user choices of default app (docs/lazywebplus.md): when two installed apps handle
-//! a type (a second browser would open `x-scheme-handler/https` like LazyWeb+), the registry alone lets
+//! `mimed`'s per-user choices of default app (docs/lazyweb.md): when two installed apps handle
+//! a type (a second browser would open `x-scheme-handler/https` like LazyWeb), the registry alone lets
 //! whichever registered last win, which is install order. A user who has an opinion keeps it in
 //! `confd`, in their own subtree, under the key `deskmenu::defaults::user_key` builds (the one
 //! definition of it, shared with Settings, which writes it):
 //!
 //! ```text
-//! user/<uid>/mimed/default/<mime type>      value: the app id, e.g. os.lazy.lazywebplus
+//! user/<uid>/mimed/default/<mime type>      value: the app id, e.g. os.lazy.lazyweb
 //! ```
 //!
 //! `Open` reads it for the caller's uid and uses it **only** when that app still holds a

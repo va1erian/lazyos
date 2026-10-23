@@ -1,4 +1,4 @@
-//! The seam between WebKit and a window on LazyOS (docs/lazywebplus.md, docs/webd.md).
+//! The seam between WebKit and a window on LazyOS (docs/lazyweb.md, docs/webd.md).
 //!
 //! WebKit runs in `webd`, another process; this crate is everything on the xui side that a window
 //! needs whichever engine it is driven through: the engine trait the window drives ([`engine`]),
@@ -7,7 +7,7 @@
 //! wheel and keyboard ([`view`], [`keys`]), the values both sides agree on ([`abi`]) and an engine
 //! for other threads ([`relay`]).
 //!
-//! The window that uses it is LazyWeb+ (`xui-app/webplus`), over `xui-webkit-remote`'s
+//! The window that uses it is LazyWeb (`xui-app/lazyweb`), over `xui-webkit-remote`'s
 //! `RemoteEngine` (webd's full views). The logic here is portable and tested on the host against a
 //! recording [`engine`].
 

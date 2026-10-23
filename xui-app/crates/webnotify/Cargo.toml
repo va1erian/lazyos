@@ -1,8 +1,8 @@
 # What a web page's notification becomes before it reaches the shell, and the limits that keep one site or
-# one client from using up the allowance of toasts (docs/lazywebplus.md "Notifications", docs/webd.md):
+# one client from using up the allowance of toasts (docs/lazyweb.md "Notifications", docs/webd.md):
 # the toast's title is the site, a host too long for it keeps its END, the page's words are cleaned, a site
-# has a few live toasts and a slow pace. Std only, host-tested. LazyWeb+'s window (`xui-webplus`, as
-# `xui_webplus::notify::{origin, live}`) and webd's service (`xui-webd`, per client) use the same rules.
+# has a few live toasts and a slow pace. Std only, host-tested. LazyWeb's window (`xui-lazyweb`, as
+# `xui_lazyweb::notify::{origin, live}`) and webd's service (`xui-webd`, per client) use the same rules.
 [package]
 name = "lazywebnotify"
 version = "0.1.0"

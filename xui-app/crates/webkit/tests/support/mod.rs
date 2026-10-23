@@ -2,8 +2,8 @@
 //! The rig of the page view's tests: the view alone in a window, between a strip the height of a
 //! toolbar and one the height of a status bar, driven offscreen against a recording engine. It does what any window does with the
 //! mailbox (`show_frame` and `show_state`) and nothing else, so the tests judge the view, the
-//! damage rules and the mailbox, not a window's chrome (LazyWeb+'s own tests are
-//! `xui-app/webplus/tests`).
+//! damage rules and the mailbox, not a window's chrome (LazyWeb's own tests are
+//! `xui-app/lazyweb/tests`).
 
 use std::rc::Rc;
 use std::sync::Arc;

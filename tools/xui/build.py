@@ -28,7 +28,7 @@ what it could build and exits 0, so a CI job can skip the visual run.
 
 The Docs app (``xui-docs.elf``) is pure Rust (its pages are drawn by a light view
 of webd), so it builds in the same invocation as the other apps with no zig. So does
-LazyWeb+ (``xui-lazywebplus.elf``, the cargo bin of ``xui-webplus``): a client of webd
+LazyWeb (``xui-lazyweb.elf``, the cargo bin of ``xui-lazyweb``): a client of webd
 that links no WebKit.
 Mail (``xui-mail.elf``, esMail's IMAP/SMTP core, which links SQLite's C) is
 built last, in its own cargo invocation and target directory, with the zig
@@ -68,9 +68,9 @@ ZIG_TARGET_DIR = ROOT / "target" / "xui-zig"
 # The Docs app (`xui-app/docs`) is a workspace member built with the other
 # apps; its cargo bin is `xui-docs`.
 DOCS_PACKAGE = "xui-docs"
-# LazyWeb+ (`xui-app/webplus`, docs/lazywebplus.md) is a workspace member too, a client of webd;
-# its cargo package is `xui-webplus`, its bin `xui-lazywebplus`.
-WEBPLUS_PACKAGE = "xui-webplus"
+# LazyWeb (`xui-app/lazyweb`, docs/lazyweb.md) is a workspace member too, a client of webd;
+# its cargo package is `xui-lazyweb`, its bin `xui-lazyweb`.
+LAZYWEB_PACKAGE = "xui-lazyweb"
 # Mail (esMail, docs/mail.md) links SQLite's C, so it is built with zig;
 # only on request (`--mail`, or `LAZYOS_MAIL=1` in the environment), since its
 # mail core is a long build no other image needs.
@@ -131,8 +131,8 @@ BINS = {
     # Docs (Markdown, drawn by webd): a member of the same workspace, built in the
     # same invocation.
     DOCS_PACKAGE: f"{DOCS_PACKAGE}.elf",
-    # LazyWeb+: the web browser, a client of webd's full views. Only a `LAZYOS_LAZYWEBPLUS=1` image ships it.
-    "xui-lazywebplus": "xui-lazywebplus.elf",
+    # LazyWeb: the web browser, a client of webd's full views. Only a `LAZYOS_LAZYWEB=1` image ships it.
+    "xui-lazyweb": "xui-lazyweb.elf",
     # LazyGolf: Fly over a procedurally generated golf course.
     "xui-golf": "xui-golf.elf",
     # LazySky: a Bluesky client (docs/lazysky.md). Only a `LAZYOS_LAZYSKY=1`
@@ -333,9 +333,9 @@ def main() -> int:
         "--target",
         TARGET,
     ]
-    # The root package (the apps in `src/bin`) plus Docs and LazyWeb+, workspace members:
+    # The root package (the apps in `src/bin`) plus Docs and LazyWeb, workspace members:
     # `-p` replaces cargo's default of the root alone.
-    command += ["-p", "xui-app", "-p", DOCS_PACKAGE, "-p", WEBPLUS_PACKAGE]
+    command += ["-p", "xui-app", "-p", DOCS_PACKAGE, "-p", LAZYWEB_PACKAGE]
     if not args.debug:
         command.append("--release")
     build = run(command, env=build_env(), stream=True)

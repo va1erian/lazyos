@@ -29,13 +29,13 @@ class SuiteTests(unittest.TestCase):
 
     def test_full_turns_every_app_on_and_srb2kart_stays_off(self) -> None:
         cfg = self.config("full")
-        for name in ("lazyrad", "modplayer", "pictures", "lazywebplus", "mail",
+        for name in ("lazyrad", "modplayer", "pictures", "lazyweb", "mail",
                      "lazysky", "games", "doom", "quake", "emusic", "linuxapps", "tls", "net",
                      "smb", "big_app"):
             self.assertTrue(cfg[name], name)
         self.assertFalse(cfg["srb2kart"])
         env = catalog.build_env(cfg)
-        for switch in ("LAZYOS_DESKTOP", "LAZYOS_LAZYWEBPLUS", "LAZYOS_GAMES",
+        for switch in ("LAZYOS_DESKTOP", "LAZYOS_LAZYWEB", "LAZYOS_GAMES",
                        "LAZYOS_QUAKE", "LAZYOS_SMB", "LAZYOS_NETD"):
             self.assertEqual(env[switch], "1", switch)
         self.assertNotIn("LAZYOS_SRB2KART", env)
@@ -45,8 +45,8 @@ class SuiteTests(unittest.TestCase):
     def test_base_is_the_desktop_alone(self) -> None:
         cfg = self.config("base")
         self.assertTrue(cfg["desktop"])
-        self.assertFalse(cfg["lazywebplus"] or cfg["net"] or cfg["doom"])
-        self.assertNotIn("LAZYOS_LAZYWEBPLUS", catalog.build_env(cfg))
+        self.assertFalse(cfg["lazyweb"] or cfg["net"] or cfg["doom"])
+        self.assertNotIn("LAZYOS_LAZYWEB", catalog.build_env(cfg))
 
     def test_the_srb2kart_option_adds_it_and_sizes_the_volume(self) -> None:
         cfg = self.config("full", suite_srb2kart=True)
@@ -57,7 +57,7 @@ class SuiteTests(unittest.TestCase):
     def test_a_suite_is_desktop_only(self) -> None:
         cfg = self.config("full", interface="CLI")
         self.assertNotIn("suite", cfg)
-        self.assertFalse(cfg["lazywebplus"])
+        self.assertFalse(cfg["lazyweb"])
 
     def test_the_demo_passes_the_suite_to_run_demo(self) -> None:
         self.assertEqual(self.argv(self.config("full", skip_build=False))[1:3], ["tools/run_demo.py", "--suite"])

@@ -179,7 +179,7 @@ struct ViewConfig {
     // Extra CSS for every page loaded with loadHtml (empty: none).
     std::string userStyle;
     // A full (not light) view whose owner set `scripts`, `defaultFontSize`, `colorScheme` and `userStyle` for it
-    // too (webd, fullview.cpp). Unset (LazyWeb+), a browser view is as it always was.
+    // too (webd, fullview.cpp). Unset (LazyWeb), a browser view is as it always was.
     bool configured { false };
     // Appended to the user agent (fullview.cpp); empty: WebKit's own.
     std::string userAgentSuffix;
@@ -428,7 +428,7 @@ void onView(int id, std::function<void(View&)> task);
 
 // `mkdir -p`, private to the user (0700).
 bool makePrivateDirectories(const std::string& path);
-// What the children inherit for a host that has one profile (LazyWeb+): the first persistent profile's directory
+// What the children inherit for a host that has one profile (LazyWeb): the first persistent profile's directory
 // and cookie jar. Nothing once the environment is fixed.
 void exportProfileEnvironment(const std::string& profile);
 // The children start in `directory` (created) and curl's default cookie database is in memory, for every profile

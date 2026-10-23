@@ -215,7 +215,7 @@ fn a_view_shows_four_toasts_at_once_and_a_shell_that_refuses_is_a_close() {
 
 #[test]
 fn forgetting_a_site_makes_its_next_request_ask_the_person_again() {
-    // Why: the person can revoke a decision (LazyWeb+'s site settings); webd's per-profile record
+    // Why: the person can revoke a decision (LazyWeb's site settings); webd's per-profile record
     // must go with the engine's, or a page would still be answered from the old decision.
     let mut fx = Fx::new("notify-forget");
     let app = origin(7);
@@ -262,7 +262,7 @@ fn forgetting_a_site_makes_its_next_request_ask_the_person_again() {
 
 #[test]
 fn a_page_process_starts_with_the_decisions_every_profile_kept() {
-    // Why: a client tells webd its kept decisions when it makes a view (LazyWeb+'s notify.tsv, which
+    // Why: a client tells webd its kept decisions when it makes a view (LazyWeb's notify.tsv, which
     // webd forgets when it stops); a page process that starts later must already read them as
     // `Notification.permission`, which WebKit takes from the provider at the process's start.
     let mut fx = Fx::new("notify-start");

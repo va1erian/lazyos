@@ -33,7 +33,7 @@ def make_vars() -> dict:
         "display_mode": s(value=""),
         "display_max": s(value=""),
         "display_scale": s(value=""),  # LAZYOS_DISPLAY_SCALE: "", auto, 1 or 2
-        # run_demo --sample-port: a QMP socket for tools/webplus/sample.py (#861).
+        # run_demo --sample-port: a QMP socket for tools/lazyweb/sample.py (#861).
         "sample_port": s(value=""),
         "assets": s(value=""),
         # LAZYOS_AUTOLOGIN (run_demo --autologin): an account, or empty for
@@ -111,9 +111,9 @@ def make_vars() -> dict:
         # The WebKit port's console proof: WebProcess, NetworkProcess, webkit-smoke
         # (LAZYOS_WEBKIT_PORT, run_demo --webkit-port).
         "webkit_port": b(value=False),
-        # LazyWeb+, the web browser on WebKit, os.lazy.lazywebplus (LAZYOS_LAZYWEBPLUS,
-        # run_demo --lazywebplus; implies the desktop, the stack, webd and the big-app profile).
-        "lazywebplus": b(value=False),
+        # LazyWeb, the web browser on WebKit, os.lazy.lazyweb (LAZYOS_LAZYWEB,
+        # run_demo --lazyweb; implies the desktop, the stack, webd and the big-app profile).
+        "lazyweb": b(value=False),
         # webd, the daemon that serves WebKit light views, os.lazy.webd (LAZYOS_WEBD,
         # run_demo --webd; implies the desktop and the big-app profile, not the stack).
         "webd": b(value=False),

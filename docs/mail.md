@@ -47,7 +47,7 @@ journal: WAL needs shared file mappings, which LazyOS does not have yet.
   A remote-content toggle would need a full web view (`os.lazy.webd.view.v1`, a later
   interface) with a policy of its own. A clicked link comes back as `LinkClicked`
   (Mail's `Msg::Link`) and is handed to `mimed` (`MAIL:LINK:OPEN`), so `http:` and `https:`
-  links open in the web browser (LazyWeb+); a `mailto:` link opens a new message here.
+  links open in the web browser (LazyWeb); a `mailto:` link opens a new message here.
   Nothing is ever followed in the pane.
 - Mail registers `x-scheme-handler/mailto`, so a `mailto:` link in the browser,
   or `sys::mimed::open("mailto:someone@example.com?subject=Hi", "open")` from

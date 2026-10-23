@@ -249,7 +249,7 @@ void webd_engine_blocking_load(uint64_t view, const char* list);
 void webd_engine_blocking_compile(uint64_t view, const char* list, const char* json, size_t len);
 void webd_engine_blocking_forget(uint64_t view, const char* list);
 
-// P4 (LazyWeb+ is a client of webd). The view's page process does not answer and the person chose a way out:
+// P4 (LazyWeb is a client of webd). The view's page process does not answer and the person chose a way out:
 // the process is ended (View::recover). Non-zero `reload` loads the page again in a fresh process; 0 leaves the
 // page stopped, which the engine reports as the page ended by request (webd_ui_view_lost, WEBD_LOST_OTHER). A
 // process other views share is not ended (the engine says WEBPROCESS:RECOVER:SHARED and does nothing).
@@ -352,7 +352,7 @@ int webd_ui_blocking(uint64_t view, const char* url);
 void webd_ui_blocking_list(uint64_t view, const char* list, int status);
 void webd_ui_blocked(uint64_t view, int count);
 
-// P4 (LazyWeb+ on webd): the notification decisions a page process starts with (WebKit asks its provider when it
+// P4 (LazyWeb on webd): the notification decisions a page process starts with (WebKit asks its provider when it
 // starts one; its record is the context's, one for every profile). Writes decision `index`'s origin, NUL-terminated,
 // into `origin` (`origin_size` bytes) and returns 1 allowed, 0 blocked, -1 past the end, -2 one that does not fit
 // (skipped). WebKit's main thread; a pure lookup that must not block.

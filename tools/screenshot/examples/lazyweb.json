@@ -1,0 +1,647 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "LAZYWEB:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "LAZYWEB:LOAD:about:start",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "00_start"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "http://example.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:http://example.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:Example Domain",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "01_example"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:TheOldNet.com - Surf the Old Web",
+  "timeout": 300.0
+ },
+ {
+  "wait": 5.0
+ },
+ {
+  "shot": "02_theoldnet"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/cookie",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/cookie",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:cookie:none",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "03_cookie"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/script.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:DIALOG:alert",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "04_alert"
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:DIALOG:confirm",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "05_confirm"
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:DIALOG:prompt",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "lazy",
+  "delay": 0.08
+ },
+ {
+  "shot": "06_prompt"
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:TITLE:script-ok:yes:lazy",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:LAUNCH:mailto:evil@theoldnet.com?subject=script:BLOCKED",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:LAUNCH:x-lazyweb:clear-history:BLOCKED",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "07_script"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/links.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/links.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:LazyWeb links",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "08_links"
+ },
+ {
+  "click_at": {
+   "window": "LazyWeb links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:LAUNCH:mailto:lazy@theoldnet.com?subject=hello:",
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "09_mail"
+ },
+ {
+  "click_at": {
+   "window": "LazyWeb links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    125
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:POPUP:https://theoldnet.com/lazyweb/blank-target.html",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:opened:blank",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "10_blank"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "left",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/links.html",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "LazyWeb links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    215
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:POPUP:https://theoldnet.com/lazyweb/opened.html",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:opened:script",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "11_opened"
+ },
+ {
+  "key_down": "alt"
+ },
+ {
+  "key": "left",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/links.html",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "alt"
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "LazyWeb links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    305
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:DOWNLOAD:START:oldnet-kit.zip",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:DOWNLOAD:DONE:oldnet-kit.zip:307200",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "12_downloaded"
+ },
+ {
+  "click_at": {
+   "window": "LazyWeb links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    395
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:DOWNLOAD:START:slow-kit.zip",
+  "retries": 2
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "13_downloading"
+ },
+ {
+  "wait_for": "LAZYWEB:DOWNLOAD:DONE:slow-kit.zip:204800",
+  "timeout": 300.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "h",
+  "until": "LAZYWEB:LOAD:about:history",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "14_history"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "j",
+  "until": "LAZYWEB:LOAD:about:downloads",
+  "timeout": 300.0
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "15_downloads"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/tall.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/webkit/tall.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:WebKit tall",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "16_tall"
+ },
+ {
+  "move_to": {
+   "window": "WebKit tall - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    600,
+    300
+   ]
+  },
+  "timeout": 60
+ },
+ {
+  "wait": 0.5
+ },
+ {
+  "mouse_scroll": -5
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "17_scrolled"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/links.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/webkit/links.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:WebKit links",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit links - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    150,
+    50
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/webkit/form.html",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:WebKit form",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit form - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    200,
+    42
+   ]
+  },
+  "timeout": 120
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "hello lazyos",
+  "delay": 0.08
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "18_typed"
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:TITLE:echo:hello lazyos",
+  "timeout": 300.0
+ },
+ {
+  "wait": 3.0
+ },
+ {
+  "shot": "19_echo"
+ },
+ {
+  "click_at": {
+   "window": "echo:hello lazyos - LazyWeb",
+   "widget": "back"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/webkit/form.html",
+  "retries": 1
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "http://example.com:81/",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:FAIL",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "shot": "20_failed"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/webkit/slow",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:NAV:https://theoldnet.com/webkit/slow",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "click_at": {
+   "window": "WebKit form - LazyWeb",
+   "widget": "reload"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:STOPPED",
+  "retries": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "21_stopped"
+ },
+ {
+  "click_at": {
+   "target": "title:WebKit form - LazyWeb",
+   "offset": [
+    472,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "LAZYWEB:INFO:RESIZE:",
+  "retries": 2
+ },
+ {
+  "wait": 4.0
+ },
+ {
+  "shot": "22_maximized"
+ },
+ {
+  "click_at": {
+   "target": "title:WebKit form - LazyWeb",
+   "offset": [
+    630,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "LAZYWEB:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 9.0
+ },
+ {
+  "quit": true
+ }
+]

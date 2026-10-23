@@ -1,8 +1,8 @@
-// Painting the page into a bitmap for the view's owner (docs/webkit-port-plan.md; docs/lazywebplus.md).
+// Painting the page into a bitmap for the view's owner (docs/webkit-port-plan.md; docs/lazyweb.md).
 //
 // One CPU runs the page's process, this one, the window and the compositor, so nothing here overlaps
 // with anything else: every pass over the frame is paid for by whoever is scrolling
-// (docs/lazywebplus-performance-plan.md, H1). The classic drawing area reports what changed, so only
+// (docs/lazyweb-performance-plan.md, H1). The classic drawing area reports what changed, so only
 // that is painted, converted and handed on, and paints are spaced so that the page's process gets the
 // CPU back between them.
 //

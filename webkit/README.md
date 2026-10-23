@@ -2,7 +2,7 @@
 
 Stages W4 to W6 of [`docs/webkit-port-plan.md`](../docs/webkit-port-plan.md): the port
 layer of a `PORT=LazyOS` build of WebCore and the WebKit (WebKit2) layer, and the desktop
-browser on top of it (LazyWeb+). WebKit
+browser on top of it (LazyWeb). WebKit
 itself is never vendored: `tools/webkit/port.py` takes the pinned WebKitGTK
 2.54.1 tarball (the one the `jsc` build uses), patches it, adds the files below
 and builds `WebProcess`, `NetworkProcess` and a headless UI process,
@@ -18,9 +18,9 @@ python tools/webkit/port_run.py      # console image with LAZYOS_WEBKIT_PORT=1, 
 python tools/webkit/test_port_judge.py
 python tools/run_demo.py --webkit-port   # an interactive console proof image (networking, big-app profile)
 python tools/webkit/webd.py          # the service library (host) and webd-app (Docker)
-python tools/xui/build.py            # the apps, LazyWeb+ (os.lazy.lazywebplus) among them
-python tools/webplus/run.py          # desktop image, browse, judge (QEMU; tools/webplus/README.md)
-python tools/run_demo.py --lazywebplus   # the desktop with the browser (networking, big-app profile, 1 GiB volume)
+python tools/xui/build.py            # the apps, LazyWeb (os.lazy.lazyweb) among them
+python tools/lazyweb/run.py          # desktop image, browse, judge (QEMU; tools/lazyweb/README.md)
+python tools/run_demo.py --lazyweb   # the desktop with the browser (networking, big-app profile, 1 GiB volume)
 ```
 
 **Resources.** The build needs Docker with about 15 GiB of RAM (a WebCore translation unit can take
@@ -38,7 +38,7 @@ re-extract the tree and rebuild everything): `LAZYOS_JSC_VOLUME=<name>` gives a 
 In the image the programs are `/system/bin/webprocess`, `/system/bin/networkprocess` and, with
 `LAZYOS_WEBKIT_PORT=1`, `/system/bin/webkit-smoke` (program names there are lowercase, `libs/fhs`);
 the launcher's default paths are those. webd (`LAZYOS_WEBD=1`, every desktop) ships the two processes;
-`LAZYOS_LAZYWEBPLUS=1` adds the browser's core package, a client of webd (below).
+`LAZYOS_LAZYWEB=1` adds the browser's core package, a client of webd (below).
 
 `port.py` also runs `webkit-smoke` once on the build host (the programs are static
 musl executables), in a scratch directory of the work volume, and keeps its output in
@@ -165,17 +165,17 @@ LazyOS-gated (they only matter to `PORT=LazyOS`).
 | `0015-webkit-playstation-data-directories-in-the-profile` | `WebsiteDataStore`'s PlayStation answers for every data directory the embedder did not set were `/app0`; they now follow `LAZYOS_WEBKIT_PROFILE`, the user's profile directory the UI process names (and keep `/app0` without it) |
 | `0016-webkit-playstation-more-cursor-types` | the view client tells the window the I-beam, wait and resize pointers, not three |
 | `0017-webkit-networkcache-file-times-without-birthtime` | `NetworkCache::fileTimes()` is `#if HAVE(STAT_BIRTHTIME)`, `USE(SOUP)`, `OS(WINDOWS)` and nothing else, so on this port it had **no body**: clang compiled the fall-off to a trap and the first HTTP-cache *hit* (a later boot) killed a NetworkProcess thread with a general protection fault (`CallableWrapper<Storage::updateFileModificationTime::$_0>::call()` was `push rbp; mov rbp,rsp; int3`). It now reports the modification time as both times (there is no st_birthtime in musl and no GLib xattr emulation) |
-| `0018-webkit-c-api-reports-loads-blocked-by-content-rule-lists` | the C API's `contentRuleListNotification` forwarded only `notify` strings; a load a rule list *blocked* (which WebKit already tells the UI process) is now one more entry, `"lazyos:blocked"`, so LazyWeb+'s ad blocker counts blocks without a second rule per block |
+| `0018-webkit-c-api-reports-loads-blocked-by-content-rule-lists` | the C API's `contentRuleListNotification` forwarded only `notify` strings; a load a rule list *blocked* (which WebKit already tells the UI process) is now one more entry, `"lazyos:blocked"`, so LazyWeb's ad blocker counts blocks without a second rule per block |
 | `0019-webkit-network-cache-data-curl-shares-a-mapped-file` | with content extensions on, the UI process needs `NetworkCache::Data::tryCreateSharedMemory()` to hand a compiled rule list to the web processes; the curl backend defines it for Windows only. On Unix-domain-socket platforms the content rule list store maps its files with `mapFileForSharing`, which keeps the file's read-only descriptor with the map, and `tryCreateSharedMemory` wraps both (receivers get a duplicate of the read-only descriptor). Every other map closes its descriptor in `adoptMap` as upstream does: an earlier version kept it in every mapped `Data`, one descriptor per mapped HTTP cache entry in the NetworkProcess (issue #892; `python tools/webkit/cachecheck.py` counts the NetworkProcess's descriptors below the cache during and after two visits of a cache-heavy page). `API::ContentRuleList`'s members are reordered so the compiled list, whose `SharedMemory` wraps the map without owning it, is destroyed before the map |
-| `0020-webkit-c-api-says-whether-the-web-process-responds` | `WKPageIsWebProcessResponsive`: the page state client says that the answer to WebKit's 6 s ping changed, not which way; LazyWeb+'s "page not responding" bar needs the value (issue #862) |
+| `0020-webkit-c-api-says-whether-the-web-process-responds` | `WKPageIsWebProcessResponsive`: the page state client says that the answer to WebKit's 6 s ping changed, not which way; LazyWeb's "page not responding" bar needs the value (issue #862) |
 | `0021-webkit-the-proxy-of-an-ended-web-process-is-kept` | `WebProcessProxy::processDidTerminateOrFailedToLaunch` keeps a reference to the dead proxy and counts them (`lzw_proxy_kept`, `PROCESS:KEPT`): destroying it when the page is loaded again in a new process aborts the UI process (`crashDueToCheckedPtrToDeadObject`, a thread-safe CheckedPtr count that is already zero), cause not found; not tied to the embedder's calls, to the page being unresponsive, or to timing (issue #862). Covers web processes only: a replaced NetworkProcess's proxy is not kept, and nothing shows that its destruction is safe or not |
 | `0022-webkit-ipc-socket-monitor-polls` | the PlayStation path's `SocketMonitor` thread (one per IPC connection, on since `0003`) waited with `select()` on a stack `fd_set`: a descriptor of 1024 or more (a long session with a large HTTP cache: `0019` used to keep one open per mapped entry, issue #892) overflowed the set, and LazyOS's `EINVAL` for `nfds > 1024` made the loop spin without ever seeing the connection close. The loop is now `IPC::LazyOS::monitorSocket` (`port/tree/.../Platform/IPC/unix/SocketMonitorLazyOS.h`): `poll()`, a hangup or error is a close, a descriptor let go of ends the thread, one wait lasts at most 1 s (issue #867) |
 | `0023-webcore-curl-stream-scheduler-polls` | the curl port's WebSocket thread (`CurlStreamScheduler::workerThread`) used `select()` with one reused `timeval`, which `select()` counts down to zero, so after the first timeout every wait returned at once, and it never waited at all while a stream had no socket: a NetworkProcess core spun for as long as a page kept a WebSocket. It now `poll()`s the sockets for up to 20 ms every pass. The curl files are fetched (`port/upstream.txt`), so `port_tree.py` fetches before it patches and never fetches a file an applied patch changed |
 
 | `0024-webkit-update-observer-and-in-place-backing-store-scroll` | the classic drawing area told the UI process "the whole view needs display" for any update that scrolled, so every step of a scroll was copied, converted and handed on whole although the web process painted only the exposed rows. `WKPageSetUpdateCallback` (`WKPagePrivatePlayStation.h`) gives the client each update's scrolled rectangle, offset and repainted rectangles instead, and while it is set the view is not reported as needing display for those updates (`paint.cpp` and `xui-app/crates/webkit/src/damage.rs` use it). The Skia `BackingStore::scroll` allocated a bitmap the size of the scrolled area, read into it and wrote it back for every step; a raster surface's pixels are now moved in place (the old copy stays for a surface that cannot be peeked) |
 | `0025-webkit-wkpagepaint-stage-counters`, `0026-webkit-wkpagepaint-whole-call-timer` | `WKPageGetPaintStats`: the microseconds `WKPagePaint` spends in making its surface, in `endPrinting`, in the drawing area's paint, and in the snapshot and the `drawImage` inside it, and (0026) the whole call, destructors included. `paint.cpp` prints them as `INFO:WKPAINT` once a second. A call costs about 64 us, which showed that the stage times around it (wall clock on one CPU) include other tasks' time |
-| `0027-webkit-background-responsiveness-ping-keeps-the-proxy` | `BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired` pinged with a reference of its own; when the process was already gone (a second web process that exits cleanly, as one does after a page with a service worker such as The Verge) the ping ended it, the reference was the last, and the `WebProcessProxy` was destroyed inside its own timer callback, which aborts the UI process on this port (`crashDueToCheckedPtrToDeadObject`, the family of `0021`). `tools/webplus/live_run.py` with The Verge, CNN and NASA in a row did it every time (`WEBPLUS:CRASH:signal=6`, then `INIT:RESTART`). One reference is leaked per ping (the interval doubles from 20 s). The timer is kept on purpose: with no input to wait for, it is the only thing that notices a page that spins (`tools/webplus/hang_run.py` fails without it; an attempt to switch it off failed that harness) |
-| `0028-webkit-scroll-offset-callback` | `WKPageSetScrollOffsetCallback`: `WebPageProxy::pageDidScroll` (the page's process says the main frame scrolled, just before the update that repaints for it) reported with its offset, so the window can show its picture ahead of the page (`docs/lazywebplus-performance-plan.md`, "Scrolling ahead of the page"). |
+| `0027-webkit-background-responsiveness-ping-keeps-the-proxy` | `BackgroundProcessResponsivenessTimer::responsivenessCheckTimerFired` pinged with a reference of its own; when the process was already gone (a second web process that exits cleanly, as one does after a page with a service worker such as The Verge) the ping ended it, the reference was the last, and the `WebProcessProxy` was destroyed inside its own timer callback, which aborts the UI process on this port (`crashDueToCheckedPtrToDeadObject`, the family of `0021`). `tools/lazyweb/live_run.py` with The Verge, CNN and NASA in a row did it every time (`LAZYWEB:CRASH:signal=6`, then `INIT:RESTART`). One reference is leaked per ping (the interval doubles from 20 s). The timer is kept on purpose: with no input to wait for, it is the only thing that notices a page that spins (`tools/lazyweb/hang_run.py` fails without it; an attempt to switch it off failed that harness) |
+| `0028-webkit-scroll-offset-callback` | `WKPageSetScrollOffsetCallback`: `WebPageProxy::pageDidScroll` (the page's process says the main frame scrolled, just before the update that repaints for it) reported with its offset, so the window can show its picture ahead of the page (`docs/lazyweb-performance-plan.md`, "Scrolling ahead of the page"). |
 | `0029-webkit-backing-store-scroll-checks-in-64-bits` | `BackingStore::scroll` (patch 0024's in-place move) tests its rectangle with 64-bit sums: the rectangle and offset come from the web process. |
 | `0030-webkit-overscan-bands-painted-ahead-of-a-scroll` | the classic drawing area paints rows above and below the view (`LAZYOS_WEBKIT_OVERSCAN`, view heights, 0 to 3; the UI process sets 1) in chunks of 512K pixels after the view's own update, as updates of their own (`UpdateInfo::documentRect`) that the backing store does not take; `WKPageSetBandCallback` hands them to the client (`paint.cpp`, `lzw_ui_band`), so the window has the rows a scroll uncovers before the page answers (`xui-app/crates/webkit/src/bands.rs`). A band is repainted at most every 500 ms while the page changes under it |
 | `0031-webkit-scroll-repaints-painted-fixed-layers-and-a-display-rate` | `scrollContentsFastPath` repainted the whole rect of every fixed layer, and a page's full-view fixed containers that paint nothing (an overlay, a consent dialog's frame) made each scroll step a whole repaint: on LazyOS only the rects of the layers in their non-composited subtree that paint something are repainted. A display that carries no scroll waits for `LAZYOS_WEBKIT_DISPLAY_INTERVAL_MS` (33 ms) after the last one, so an animation runs at most at 30 Hz on one CPU; a scroll is never held back |
@@ -206,7 +206,7 @@ UI process without a window: one `Host` (the `WKContext`, the notification manag
 and any number of `View`s, a page each with its own state (loading, dialogs, downloads, permission
 requests, paint state, rule-list controller). Whatever a view says goes to its `ViewSink`, whatever the host
 needs of its owner is a `HostEnv`; neither names a C ABI. (`lazyos_ui.h` is only the constants they share; the in-process host that once put a
-C ABI over view 1 for LazyWeb+'s window is gone, LazyWeb+ is a client of webd.)
+C ABI over view 1 for LazyWeb's window is gone, LazyWeb is a client of webd.)
 
 A second owner implements the same two interfaces. The first is `port/views/main.cpp`, `webkit-views`, which is
 also the engine's test (docs/webd-plan.md, P1):
@@ -253,7 +253,7 @@ made:
 * **A persistent profile lives as long as the process**, for the same reason, and the children take
   `LAZYOS_WEBKIT_PROFILE` and `CURL_COOKIE_JAR_PATH` from the first persistent profile only (a process takes
   its environment when it starts, and one NetworkProcess serves every profile). That suits an owner of one
-  profile (the in-process LazyWeb+ was one). An owner of several (webd, whose client LazyWeb+ now is) starts the host with `startHostWithChildren` (`profile.cpp`): the
+  profile (the in-process LazyWeb was one). An owner of several (webd, whose client LazyWeb now is) starts the host with `startHostWithChildren` (`profile.cpp`): the
   children's folder and an in-memory default cookie database are decided then and never changed, and each
   persistent store's NetworkProcess session opens its own `cookieStorageFile` (`NetworkSessionCurl.cpp`,
   `setCookieDatabase`), so every profile's cookies are in its own jar (`webd-abi-test profiles` proves it).
@@ -398,7 +398,7 @@ A **full view** (`light = 0`) is a browser page: `abi_full.cpp` reads its config
   plan says; a plan with a rectangle or a scroll area outside the view is painted whole
   (`PAINT:PLAN:REFUSED`). A hidden view is not asked for a plan.
 * *Downloads.* Ids per view from 1. The path `webd_ui_download_start` writes must be absolute and
-  NUL-terminated within the buffer, or the download is refused. Two engine bugs this found, fixed for LazyWeb+
+  NUL-terminated within the buffer, or the download is refused. Two engine bugs this found, fixed for LazyWeb
   too: WebKit's curl download reports 0 for both totals (`NetworkDataTaskCurl.cpp`), so progress was always 0
   (the engine counts the bytes and takes the total from the response); and a cancel ends only through
   `WKDownloadCancel`'s completion, never `didFailWithError` (`DownloadProxy::cancel`), so the owner never heard
@@ -444,14 +444,14 @@ main thread hung, and nothing is waited for).
 
 ## The desktop app
 
-`os.lazy.lazywebplus` ([`docs/lazywebplus.md`](../docs/lazywebplus.md)) is no longer a WebKit program. It
-is a plain xui app (`xui-app/webplus`, `xui-lazywebplus.elf`, built by `python tools/xui/build.py` with the
+`os.lazy.lazyweb` ([`docs/lazyweb.md`](../docs/lazyweb.md)) is no longer a WebKit program. It
+is a plain xui app (`xui-app/lazyweb`, `xui-lazyweb.elf`, built by `python tools/xui/build.py` with the
 other apps) that is a client of webd: it asks webd for full views (`xui-app/crates/webd-client`'s `FullWebView`)
 and draws the frames webd paints, over the seam `xui-app/crates/webkit`; the engine, its processes and its
 sandbox are webd's (`os.lazy.webd`, [`docs/webd.md`](../docs/webd.md)). What used to be the C ABI between the
-UI process and the window (`lazyos_ui.h`, one page, `lazywebplus-app`) is gone, and webd's views took over its semantics; `port/app/lazyos_ui.h` keeps only
+UI process and the window (`lazyos_ui.h`, one page, `lazyweb-app`) is gone, and webd's views took over its semantics; `port/app/lazyos_ui.h` keeps only
 the constants the engine and webd share, and webd's C ABI over the engine's views is `port/webd/webd_abi.h`.
-`LAZYOS_LAZYWEBPLUS=1` ships the core package and needs webd (`LAZYOS_WEBD`, on in every desktop) and the
+`LAZYOS_LAZYWEB=1` ships the core package and needs webd (`LAZYOS_WEBD`, on in every desktop) and the
 network stack.
 
 Keys reach the page as X11 key symbols (libwpe's key codes); printable text goes with the key press
@@ -477,7 +477,7 @@ asks for none) the store is ephemeral.
 `xui-app/packages/webd/manifest.toml`, the kernel's gates in `docs/architecture/process-sandbox.md`):
 the page process reads only fonts and has no network, files beyond them, Messenger interface or way to start
 a program; the network process has sockets, the resolver, the CA bundle and the profile and Downloads folders.
-The launcher is unchanged (`fork`, `execv`); the label changes at the `execve`. LazyWeb+'s own manifest keeps
+The launcher is unchanged (`fork`, `execv`); the label changes at the `execve`. LazyWeb's own manifest keeps
 one helper table, `[processes.listupdate]` (the ad-block list fetch).
 
 **Quitting.** webd ends the WebProcess and the NetworkProcess itself (SIGTERM, SIGKILL after a grace period),
@@ -493,14 +493,14 @@ with the policy's `EPERM` and a `LABEL:DENY` line, as in `tools/accounts/run.py`
 boots a console image whose first program loads webd's two process tables as labels the way `pkgd`
 does and starts the probe under each; `--browser` builds a desktop image with `LAZYOS_WEBKIT_ATTACK=1`, which
 ships the stand-in as `/system/bin/webprocess` and `/system/bin/networkprocess` beside the real webd and
-LazyWeb+, so the real webd starts them and the label comes from webd's package tables. `LAZYOS_WEBKIT_ATTACK=1`
+LazyWeb, so the real webd starts them and the label comes from webd's package tables. `LAZYOS_WEBKIT_ATTACK=1`
 is a test switch: never set it for an image anyone uses. Like `LAZYOS_TLS_TEST_CA`
 it is harness-only on purpose: `attack_run.py` sets it, and there is no
 `run_demo.py` flag or launcher GUI control for it.
 
-## LazyWeb+ (`os.lazy.lazywebplus`)
+## LazyWeb (`os.lazy.lazyweb`)
 
-[`docs/lazywebplus.md`](../docs/lazywebplus.md): LazyWeb's chrome on this engine, through webd. The calls the
+[`docs/lazyweb.md`](../docs/lazyweb.md): LazyWeb's chrome on this engine, through webd. The calls the
 chrome needs from an engine that has scripts (navigation policy, downloads, JavaScript dialogs, new windows,
 the Notifications API, the engine processes' health, pointer moves merged while the main thread is busy, the
 ad blocker's rule lists, cookies and site data, a page's data in memory only) are the engine's `View` methods
@@ -511,6 +511,6 @@ shutdown that kills each process group with retries; `ProcessLauncherLazyOS.cpp`
 `lzw_launcher_event`), `notify.cpp` (`WKNotificationProvider`, needs `ENABLE_NOTIFICATIONS`, on in
 `tools/webkit/port_cmake.py`), `blocking.cpp` (`WKUserContentExtensionStore` below `<profile>/contentextensions`,
 the navigation client's `contentRuleListNotification`, patch `0018`; the chrome half is
-`xui-app/webplus/src/blocker/`), `policy.cpp`, `uiclient.cpp`, `paint.cpp`, `profile.cpp`.
+`xui-app/lazyweb/src/blocker/`), `policy.cpp`, `uiclient.cpp`, `paint.cpp`, `profile.cpp`.
 
-`python tools/webplus/run.py` is the harness (`tools/webplus/README.md`).
+`python tools/lazyweb/run.py` is the harness (`tools/lazyweb/README.md`).

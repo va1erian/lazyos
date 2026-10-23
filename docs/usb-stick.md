@@ -116,7 +116,7 @@ netboot ramdisk 208 MiB = files 72 MiB + core packages unpacked at first boot 70
 | MBR and `/boot` | 2 MiB |
 
 The 308 MiB of the first stick build of 2026-10-11 is the same sum for the
-fullest desktop (23 core packages, Doom, Quake, the LazyRAD IDE and LazyWeb+):
+fullest desktop (23 core packages, Doom, Quake, the LazyRAD IDE and LazyWeb):
 118 MiB of files (the core packages' archives 50, `/system/bin` 31, the sample
 packages 30, fonts 4, docs 2), about 128 MiB once rounded, plus 114 MiB of
 room to unpack the packages, 64 MiB free and 2 MiB of boot volume. The 104 MiB

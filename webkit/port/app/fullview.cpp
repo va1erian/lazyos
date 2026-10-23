@@ -1,5 +1,5 @@
 // A full view's own configuration (webd, docs/webd-plan.md 3.5; ViewConfig::configured): what the owner set
-// besides the features. A browser view of LazyWeb+ never comes here, so its preferences stay WebKit's.
+// besides the features. A browser view of LazyWeb never comes here, so its preferences stay WebKit's.
 //
 //  * scripts off: WKPreferences, as a light view does it; on, the preferences are not touched;
 //  * the default font size: the default and the minimum, as for a light view;

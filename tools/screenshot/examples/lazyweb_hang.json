@@ -1,0 +1,345 @@
+[
+ {
+  "wait_for": "PKGD:PROVISION:DONE",
+  "timeout": 600
+ },
+ {
+  "wait_for": "LAZYWEB:UP:PASS",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "NETD:RESOLV wrote",
+  "timeout": 300.0
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "wait_for": "LAZYWEB:LOAD:about:start",
+  "timeout": 300.0
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/hang.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/hang.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120
+ },
+ {
+  "wait_for": "LAZYWEB:HANG:SHOW",
+  "timeout": 30
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h01_bar"
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "hang_wait"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:wait",
+  "retries": 2
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h02_waited"
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "reload"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:PROCESS:EXIT:web:",
+  "timeout": 60
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 2
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "h03_reloaded"
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 2
+ },
+ {
+  "wait_for": "LAZYWEB:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 2
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 3
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 3
+ },
+ {
+  "wait_for": "LAZYWEB:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 3
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 4
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 4
+ },
+ {
+  "wait_for": "LAZYWEB:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 4
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "hang_reload"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:reload",
+  "retries": 2
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 5
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h04_cycles"
+ },
+ {
+  "click_at": {
+   "window": "hang:ready - LazyWeb",
+   "widget": "page_origin",
+   "offset": [
+    180,
+    35
+   ]
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:TITLE:hang:spinning",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:NOTE:WEBPROCESS:UNRESPONSIVE:",
+  "timeout": 120,
+  "occurrence": 5
+ },
+ {
+  "wait_for": "LAZYWEB:HANG:SHOW",
+  "timeout": 30,
+  "occurrence": 5
+ },
+ {
+  "wait": 1.5
+ },
+ {
+  "shot": "h05_bar_again"
+ },
+ {
+  "click_at": {
+   "window": "hang:spinning - LazyWeb",
+   "widget": "hang_stop"
+  },
+  "timeout": 300.0,
+  "until": "LAZYWEB:HANG:ANSWER:stop",
+  "retries": 2
+ },
+ {
+  "wait_for": "WEBD:LOST view=",
+  "timeout": 60
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "h06_stopped"
+ },
+ {
+  "key_down": "ctrl"
+ },
+ {
+  "key": "l"
+ },
+ {
+  "key_up": "ctrl"
+ },
+ {
+  "wait": 1.0
+ },
+ {
+  "type": "https://theoldnet.com/lazyweb/hang.html",
+  "delay": 0.05
+ },
+ {
+  "key": "enter",
+  "until": "LAZYWEB:LOAD:https://theoldnet.com/lazyweb/hang.html",
+  "timeout": 300.0
+ },
+ {
+  "wait_for": "LAZYWEB:TITLE:hang:ready",
+  "timeout": 300.0,
+  "occurrence": 6
+ },
+ {
+  "wait": 2.0
+ },
+ {
+  "shot": "h07_recovered"
+ },
+ {
+  "click_at": {
+   "target": "title:hang:ready - LazyWeb",
+   "offset": [
+    491,
+    0
+   ]
+  },
+  "timeout": 60,
+  "until": "LAZYWEB:QUIT:",
+  "retries": 2
+ },
+ {
+  "wait": 9.0
+ },
+ {
+  "quit": true
+ }
+]

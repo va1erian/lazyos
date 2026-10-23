@@ -1,4 +1,4 @@
-// WebKit's UI-process half (docs/webkit-port-plan.md; docs/lazywebplus.md; docs/webd-plan.md).
+// WebKit's UI-process half (docs/webkit-port-plan.md; docs/lazyweb.md; docs/webd-plan.md).
 //
 // Everything here runs on WebKit's main thread (the run loop main() starts). The owner's thread
 // calls the View methods through onView(), which only queues a task for this thread (webd's abi.cpp

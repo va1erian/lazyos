@@ -4,7 +4,7 @@
 //! This is the most a second CPU, or a scheduling policy that favoured the task, could give that task
 //! back. It is not the latency a user sees: making the WebProcess's main thread `Interactive` took its
 //! wait from 33% to 4% of a scroll and left the page's answer to the wheel where it was
-//! (docs/lazywebplus-performance-plan.md section 10), so read a wait as a cost to the task, and check
+//! (docs/lazyweb-performance-plan.md section 10), so read a wait as a cost to the task, and check
 //! that the thing you care about moves before acting on it. `PERF:wake_run` is the same for woken
 //! tasks only, over every task at once; this is per task (a thread's slot), and counts preemption,
 //! which is most of what a busy page's main thread sees.

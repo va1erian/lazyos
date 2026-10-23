@@ -1,4 +1,4 @@
-//! The seam's [`Engine`] over webd's full views (docs/webd-plan.md, phase P4): LazyWeb+'s window
+//! The seam's [`Engine`] over webd's full views (docs/webd-plan.md, phase P4): LazyWeb's window
 //! drives a page that `webd`'s WebKit paints in another process, through one
 //! [`FullWebView`](xui_webd_client::FullWebView) made through the browser scope.
 //!
@@ -81,7 +81,7 @@ pub struct Options {
     pub wake: Box<dyn Fn()>,
 }
 
-/// The configuration of LazyWeb+'s view: the `browser` profile (on disk, or in memory with
+/// The configuration of LazyWeb's view: the `browser` profile (on disk, or in memory with
 /// `memory_only`, #940), the web, the browser's own questions, frames with damage.
 pub fn browser_config(memory_only: bool) -> ViewConfig {
     ViewConfig {
@@ -100,7 +100,7 @@ pub fn browser_config(memory_only: bool) -> ViewConfig {
         deltas: true,
         dialogs: true,
         notify_in_client: true,
-        // One shared web process and webd's own agent until the window has tabs (docs/lazywebplus-plan.md
+        // One shared web process and webd's own agent until the window has tabs (docs/lazyweb-plan.md
         // 2.3): a tab sets the key to its site's host, and the agent when the person asks for another.
         process_key: String::new(),
         user_agent: String::new(),

@@ -21,7 +21,7 @@ from .login import DEFAULT_ACCOUNT, login_argv, login_env  # noqa: F401 (re-expo
 from .netboot import netboot_env  # noqa: F401 (re-exported)
 from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa: F401 (re-exported)
                         SIMPLE_OPTIONS, SOFTWARE_CUSTOM, group_switches, simple_config, software_choices, suite_argv, suite_name)
-from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazywebplus_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
+from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
 from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
@@ -125,7 +125,7 @@ def image_build(cfg: dict) -> tuple[list[dict], dict[str, str]]:
 def build_env(cfg: dict) -> dict[str, str]:
     """The LAZYOS_* environment for an image build / run."""
     env: dict[str, str] = {}
-    # LazyWeb+ and LazySky are desktop apps: they bring the profile, and
+    # LazyWeb and LazySky are desktop apps: they bring the profile, and
     # so does the first-boot setup, which is the desktop login screen's.
     if any(cfg.get(name) for name in osvolume.DESKTOP_KEYS):
         # One switch expands to the desktop recipe (issue #217): the image
@@ -412,7 +412,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)
         argv += smp_argv(cfg)  # guest vCPUs (a QEMU argument, so it works with Skip build)
-        argv += sample_argv(cfg)  # a QMP socket for tools/webplus/sample.py (#861)
+        argv += sample_argv(cfg)  # a QMP socket for tools/lazyweb/sample.py (#861)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]
         if cfg["extra"]:

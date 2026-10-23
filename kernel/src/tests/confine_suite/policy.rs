@@ -211,7 +211,7 @@ fn cycle(index: usize) -> Result<(), String> {
     check!(fd >= 0, "create {file}: {fd}");
     close(fd);
     check!(unlink(&file) == 0, "unlink {file}");
-    let dir = "/home/user/.apps/os.lazy.lazywebplus/work";
+    let dir = "/home/user/.apps/os.lazy.lazyweb/work";
     check!(mkdir(dir) == 0, "mkdir");
     check!(rmdir(dir) == 0, "rmdir");
     check!(mkdir("/home/user/evil") == EPERM, "mkdir outside");

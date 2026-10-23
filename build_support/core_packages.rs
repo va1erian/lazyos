@@ -160,9 +160,9 @@ pub fn is_core_stem(stem: &str) -> bool {
         "nettools",
         // LazySky, only with `LAZYOS_LAZYSKY=1` (`lazysky_embed`).
         "lazysky",
-        // LazyWeb+, the web browser on WebKit, only with `LAZYOS_LAZYWEBPLUS=1`
-        // (`webd_embed::lazywebplus_enabled`).
-        "lazywebplus",
+        // LazyWeb, the web browser on WebKit, only with `LAZYOS_LAZYWEB=1`
+        // (`webd_embed::lazyweb_enabled`).
+        "lazyweb",
         // webd, the daemon that serves WebKit views, on a desktop that has built it or with
         // `LAZYOS_WEBD=1` (`webd_embed`).
         "webd",

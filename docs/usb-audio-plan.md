@@ -12,7 +12,7 @@
 ## Goal and scope
 
 Plug a USB headset, a USB DAC or a USB speaker into either test box and hear
-everything LazyOS plays (`beep`, `modplay`, the NES Player, LazyWeb+) on it.
+everything LazyOS plays (`beep`, `modplay`, the NES Player, LazyWeb) on it.
 The Alder Lake box has no working sound today (its HDA controller is in DSP
 mode, class `04:01`, and nothing drives it); on the Kaby Lake box the USB
 device wins over the built-in HDA codec while it is plugged in.

@@ -20,7 +20,7 @@ BIG_APP_MEMORY = "4G"
 BIG_APP_LIMITS = ("quota_user_memory=3G", "fd_max=8192", "task_max=1024")
 
 
-#: The WebKit browser (LazyWeb+, docs/lazywebplus.md) on top of the big-app profile. The kernel used to
+#: The WebKit browser (LazyWeb, docs/lazyweb.md) on top of the big-app profile. The kernel used to
 #: charge the *length* of every mapping to the user's memory quota, and the UI process, WebProcess and
 #: NetworkProcess took what the quota let them reserve: 2989 of the profile's 3072 MiB after the
 #: first page and 3059 after seven (a second WebProcess's `exec` failed with ENOMEM), 6957 and 7027 of
@@ -48,7 +48,7 @@ def cfg_limit_env(cfg: dict) -> dict[str, str]:
     browser's quota unless they set one."""
     entries = cfg.get("limits", "")
     entries = entries.split() if isinstance(entries, str) else list(entries or ())
-    if cfg.get("lazywebplus") or cfg.get("webd"):
+    if cfg.get("lazyweb") or cfg.get("webd"):
         entries = with_defaults(entries, WEBKIT_LIMITS)
     if cfg.get("big_app"):  # after the browser's quota, which is the bigger one
         entries = with_defaults(entries, BIG_APP_LIMITS)

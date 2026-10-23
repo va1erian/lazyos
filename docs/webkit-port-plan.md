@@ -58,10 +58,10 @@ section 5.)
 Scope: what it would take to run a mainstream browser engine on LazyOS, and
 the shortest credible path to a page rendered by WebKit in a desktop window.
 LazyWeb, the Blitz browser with QuickJS, stayed the shipped browser while this
-was built; it was removed once LazyWeb+ ([lazywebplus.md](lazywebplus.md)) was
-complete, and LazyWeb+ is the browser now. Gecko and Blink are out of scope for the reasons in §2.
+was built; it was removed once LazyWeb ([lazyweb.md](lazyweb.md)) was
+complete, and LazyWeb is the browser now. Gecko and Blink are out of scope for the reasons in §2.
 
-Related: [lazywebplus.md](lazywebplus.md), [linux-abi-plan.md](linux-abi-plan.md),
+Related: [lazyweb.md](lazyweb.md), [linux-abi-plan.md](linux-abi-plan.md),
 [architecture/limits.md](architecture/limits.md),
 [doom-port-plan.md](doom-port-plan.md), [quake-port-plan.md](quake-port-plan.md),
 [tls-plan.md](tls-plan.md).
@@ -512,7 +512,7 @@ text, timings).
 ### W5. The window (built, then removed)
 
 > **Removed** (webd plan P1.0, [`webd-plan.md`](webd-plan.md) 9.1): `os.lazy.webkit`, `LAZYOS_WEBKIT`, `webkit-app`
-> and `tools/webkit/app_run.py` are gone; LazyWeb+ (W6) is the browser on this engine. What follows is the
+> and `tools/webkit/app_run.py` are gone; LazyWeb (W6) is the browser on this engine. What follows is the
 > record of how W5 was built and measured; names in it (`webkit-app`, `--webkit`, `app_run.py`) no longer exist.
 
 **The seam, decided.** There were two routes. (A) A Rust `xui-app` binary that links the WebKit
@@ -542,7 +542,7 @@ queues work).
 
 **What runs.** `os.lazy.webkit`, "WebKit" in the menu, a core package shipped only by `LAZYOS_WEBKIT=1` images
 (`run_demo.py --webkit`, the launcher's WebKit group; the build refuses it without `LAZYOS_DESKTOP=1` and
-`LAZYOS_NETD=1`, as LazyWeb+'s does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
+`LAZYOS_NETD=1`, as LazyWeb's does): a window with Back, Forward, Reload/Stop, an address field (Ctrl+L,
 Enter, Esc), the page, a status line with the load progress, and the page title in the caption. The page's
 bitmap is blitted at the page view's size; a resize (maximize) lays the page out again; the mouse (move, press,
 release, drag, double click), the wheel and the keyboard (text, arrows, Home, End, Delete, Backspace, select
@@ -709,28 +709,28 @@ not crash), pop-ups and `target=_blank` (dropped), downloads, the pasteboard bey
 context menus and cursor shapes (the arrow only), any page that needs WebGL, video or WebAssembly, the
 sandbox's tables on a real HTTP(S) load and as a minimal set (see *Security* above), a real PC, and a second window.
 
-### W6. LazyWeb+ (built)
+### W6. LazyWeb (built)
 
-`os.lazy.lazywebplus` is a menu bar, toolbar, status bar, history and downloads on this engine
-([`docs/lazywebplus.md`](lazywebplus.md), issue #835; `LAZYOS_LAZYWEBPLUS=1`, `run_demo.py --lazywebplus`).
+`os.lazy.lazyweb` is a menu bar, toolbar, status bar, history and downloads on this engine
+([`docs/lazyweb.md`](lazyweb.md), issue #835; `LAZYOS_LAZYWEB=1`, `run_demo.py --lazyweb`).
 Same route as W5 (a C++ UI process and a Rust static library) with one C++ source for both windows: the seam
-moved into `xui-webkit` (`Engine`, the mailbox, the page view, the pure ABI helpers) and `xui-app/webplus` is
+moved into `xui-webkit` (`Engine`, the mailbox, the page view, the pure ABI helpers) and `xui-app/lazyweb` is
 the window (forked from LazyWeb's) on it. The ABI grew by features, progress and the committed URL, hover and cursor,
 a navigation policy that carries a user-gesture flag, downloads, JavaScript dialogs, new windows and a profile
 directory; `lzw_ui_features()` keeps W5's window as it was. The rule a script engine adds: **a page's script
 must never start another program or run a browser command**, which is `policy::decide` in front of every
-navigation (docs/lazywebplus.md, *Navigation policy*). `mimed` had no way to choose between two browsers, so
+navigation (docs/lazyweb.md, *Navigation policy*). `mimed` had no way to choose between two browsers, so
 `user/<uid>/mimed/default/<type>` and a Settings > Default apps page were added. The harness is
-`python tools/webplus/run.py` (two boots of one image: pages, dialogs, blocked launches, downloads, profile,
-cookie and history across the second boot; `WEBPLUS:HARNESS:PASS`). Its engine processes are sandboxed like
+`python tools/lazyweb/run.py` (two boots of one image: pages, dialogs, blocked launches, downloads, profile,
+cookie and history across the second boot; `LAZYWEB:HARNESS:PASS`). Its engine processes are sandboxed like
 W5's (the manifest's `[processes.*]` tables, the network process also writing `$HOME/Downloads`;
-`attack_run.py --browser --app lazywebplus`: 60 probes as expected). *Since webd's P4 (2026-10-22) this is history:*
-LazyWeb+ is a plain xui app and a client of webd ([`webd-plan.md`](webd-plan.md), [`lazywebplus.md`](lazywebplus.md)); the
-UI process, the C ABI between it and the window and `lazywebplus-app` are gone, and the engine processes and their
+`attack_run.py --browser --app lazyweb`: 60 probes as expected). *Since webd's P4 (2026-10-22) this is history:*
+LazyWeb is a plain xui app and a client of webd ([`webd-plan.md`](webd-plan.md), [`lazyweb.md`](lazyweb.md)); the
+UI process, the C ABI between it and the window and `lazyweb-app` are gone, and the engine processes and their
 labels are webd's. The harness found that **no cookie was
 ever stored**: WebKit opens its SQLite databases in WAL mode, whose index is a mapped file, and LazyOS has no
 file-backed `mmap` (`SQLITE_IOERR_SHMMAP`), so the bundle's SQLite is built with `SQLITE_OMIT_WAL`. The W5
-browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
+browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazyweb.md.
 
 ## 6. The problems that will surface
 
@@ -803,8 +803,8 @@ browser (`os.lazy.webkit`) is **not retired** by W6: see docs/lazywebplus.md.
 UI process in `webkit/port/app`), the dependency and build scripts
 (`tools/webkit`), the Rust window (`xui-app/crates/webkit`), and the package
 `os.lazy.webkit` (`xui-app/packages/webkit`) built only by `LAZYOS_WEBKIT=1`
-(`run_demo.py --webkit`, a launcher group), and `os.lazy.lazywebplus` (`xui-app/webplus`,
-`xui-app/packages/lazywebplus`) by `LAZYOS_LAZYWEBPLUS=1` (`--lazywebplus`; since P4 a client of webd that links
+(`run_demo.py --webkit`, a launcher group), and `os.lazy.lazyweb` (`xui-app/lazyweb`,
+`xui-app/packages/lazyweb`) by `LAZYOS_LAZYWEB=1` (`--lazyweb`; since P4 a client of webd that links
 no WebKit), with WebKit fetched at a pinned revision at build time and never vendored.
 
 ## 8. Alternatives considered

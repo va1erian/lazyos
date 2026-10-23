@@ -21,7 +21,7 @@
 use super::{linuxstate, TaskState, WaitKind, MAX_TASKS};
 
 /// Processes whose threads are sampled, by the name of their first thread.
-const WATCHED: &[&[u8]] = &[b"webprocess", b"networkprocess", b"lazywebplus.elf"];
+const WATCHED: &[&[u8]] = &[b"webprocess", b"networkprocess", b"lazyweb.elf"];
 /// Samples between two reports (the forensics sample runs every 10 ticks: five seconds).
 const PERIOD: u32 = 50;
 /// Distinct (thread, syscall, wait) entries kept, and printed.

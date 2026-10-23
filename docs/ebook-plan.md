@@ -305,7 +305,7 @@ in-tree stack (`nettls/`: rustls, a pure-Rust provider, the GPLv2
 constraint), sockets through `netd` and smoltcp, the virtio-net driver at
 the bottom. `mimed` starting the browser from a URL and handing `mailto:`
 back to the OS. The harness that serves stand-in sites and judges the
-requests and the screenshots (`tools/webplus/run.py` today; the book's harness was `tools/web/run.py`, removed with LazyWeb). The chapter that crosses
+requests and the screenshots (`tools/lazyweb/run.py` today; the book's harness was `tools/web/run.py`, removed with LazyWeb). The chapter that crosses
 the whole stack, from a click to a packet capture and back to pixels.
 
 Other apps (LazyWriter and printing, the PDF Viewer, the Archiver) appear as

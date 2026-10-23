@@ -9,8 +9,8 @@ A program of the WebKit port that has a Rust half is one static-PIE musl program
    library **in the build container** (``link_program``: ``port.py --only <program>``), because
    WebKit's archives live in its work volume.
 
-This is a library; ``webd.py`` is its only user. (LazyWeb+ used to be linked this way as
-``lazywebplus-app``; it is now a plain xui app, a client of webd: ``tools/xui/build.py``.)
+This is a library; ``webd.py`` is its only user. (LazyWeb used to be linked this way as
+``lazyweb-app``; it is now a plain xui app, a client of webd: ``tools/xui/build.py``.)
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 //
 // The launcher (ProcessLauncherLazyOS.cpp) makes a SOCK_SEQPACKET socket pair for each engine process,
 // forks, and gives the child its end across the exec. Any other thread of the UI process that starts a
-// program while that is going on (LazyWeb+'s ad blocker runs `curl` from a worker thread) used to
+// program while that is going on (LazyWeb's ad blocker runs `curl` from a worker thread) used to
 // receive the client end too: it was inheritable until the parent closed it after the fork, and the
 // parent only did so after reports and the reaper thread's start. Both ends are close-on-exec now and
 // only the forked child clears the flag.

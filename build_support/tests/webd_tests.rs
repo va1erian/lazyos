@@ -1,12 +1,12 @@
 //! `LAZYOS_WEBD=1` (docs/webd.md): refused without the desktop, a clear message when the daemon is not
-//! built, and the client packages that only an image with webd carries. Also `LAZYOS_LAZYWEBPLUS=1`
-//! (docs/lazywebplus.md), a client of webd: refused without the desktop, the network stack and webd.
+//! built, and the client packages that only an image with webd carries. Also `LAZYOS_LAZYWEB=1`
+//! (docs/lazyweb.md), a client of webd: refused without the desktop, the network stack and webd.
 
 use crate::core_packages::{is_core_stem, parse_autostart};
 use crate::webd_embed::{
-    client_tree_present, effective_switch, engine_source, lazywebplus_not_built,
-    lazywebplus_requirements, not_built, parse_switch, requirements, shipped, Switch,
-    CLIENT_PACKAGES, ELF, LAZYWEBPLUS_ELF, LAZYWEBPLUS_PACKAGE_SHORT, PACKAGE_SHORT,
+    client_tree_present, effective_switch, engine_source, lazyweb_not_built, lazyweb_requirements,
+    not_built, parse_switch, requirements, shipped, Switch, CLIENT_PACKAGES, ELF, LAZYWEB_ELF,
+    LAZYWEB_PACKAGE_SHORT, PACKAGE_SHORT,
 };
 use std::ffi::OsStr;
 
@@ -87,51 +87,45 @@ fn the_clients_are_named_by_short_id_and_program() {
 }
 
 #[test]
-fn lazywebplus_unset_needs_nothing() {
+fn lazyweb_unset_needs_nothing() {
     for webd in [Switch::Off, Switch::Auto, Switch::On] {
-        assert_eq!(lazywebplus_requirements(false, false, false, webd), Ok(()));
+        assert_eq!(lazyweb_requirements(false, false, false, webd), Ok(()));
     }
 }
 
 #[test]
-fn lazywebplus_on_the_desktop_with_the_stack_ships_with_webd_left_to_it_or_forced() {
-    assert_eq!(
-        lazywebplus_requirements(true, true, true, Switch::Auto),
-        Ok(())
-    );
-    assert_eq!(
-        lazywebplus_requirements(true, true, true, Switch::On),
-        Ok(())
-    );
+fn lazyweb_on_the_desktop_with_the_stack_ships_with_webd_left_to_it_or_forced() {
+    assert_eq!(lazyweb_requirements(true, true, true, Switch::Auto), Ok(()));
+    assert_eq!(lazyweb_requirements(true, true, true, Switch::On), Ok(()));
 }
 
 #[test]
-fn lazywebplus_without_webd_is_refused_and_says_so() {
-    let reason = lazywebplus_requirements(true, true, true, Switch::Off).unwrap_err();
+fn lazyweb_without_webd_is_refused_and_says_so() {
+    let reason = lazyweb_requirements(true, true, true, Switch::Off).unwrap_err();
     assert!(
-        reason.contains("LAZYOS_LAZYWEBPLUS=1") && reason.contains("LAZYOS_WEBD=0"),
+        reason.contains("LAZYOS_LAZYWEB=1") && reason.contains("LAZYOS_WEBD=0"),
         "{reason}"
     );
 }
 
 #[test]
-fn lazywebplus_a_missing_profile_is_named() {
-    let both = lazywebplus_requirements(true, false, false, Switch::Auto).unwrap_err();
+fn lazyweb_a_missing_profile_is_named() {
+    let both = lazyweb_requirements(true, false, false, Switch::Auto).unwrap_err();
     assert!(
         both.contains("LAZYOS_DESKTOP=1 and LAZYOS_NETD=1"),
         "{both}"
     );
-    let netd = lazywebplus_requirements(true, true, false, Switch::Auto).unwrap_err();
+    let netd = lazyweb_requirements(true, true, false, Switch::Auto).unwrap_err();
     assert!(
         netd.contains("LAZYOS_NETD=1") && !netd.contains("DESKTOP=1 and"),
         "{netd}"
     );
-    let desktop = lazywebplus_requirements(true, false, true, Switch::Auto).unwrap_err();
+    let desktop = lazyweb_requirements(true, false, true, Switch::Auto).unwrap_err();
     assert!(
         desktop.contains("LAZYOS_DESKTOP=1") && !desktop.contains("NETD=1 ("),
         "{desktop}"
     );
-    assert!(both.contains("run_demo.py --lazywebplus"));
+    assert!(both.contains("run_demo.py --lazyweb"));
 }
 
 #[test]
@@ -139,25 +133,25 @@ fn the_browser_makes_an_unset_webd_switch_required_and_leaves_the_others() {
     assert_eq!(effective_switch(Switch::Auto, true), Switch::On);
     assert_eq!(effective_switch(Switch::Auto, false), Switch::Auto);
     assert_eq!(effective_switch(Switch::On, true), Switch::On);
-    // `0` stays `0`: lazywebplus_requirements refuses that combination by name.
+    // `0` stays `0`: lazyweb_requirements refuses that combination by name.
     assert_eq!(effective_switch(Switch::Off, true), Switch::Off);
     // A forced switch ships webd even where the program has not been looked for.
     assert!(shipped(effective_switch(Switch::Auto, true), true, false));
 }
 
 #[test]
-fn lazywebplus_not_built_says_what_to_run() {
-    assert!(lazywebplus_not_built(false).contains("tools/xui/build.py"));
-    assert!(!lazywebplus_not_built(false).contains("tools/webkit/app.py"));
-    assert!(lazywebplus_not_built(false).contains(LAZYWEBPLUS_ELF));
-    assert!(lazywebplus_not_built(true).contains("tools/xui/core_packages.py"));
+fn lazyweb_not_built_says_what_to_run() {
+    assert!(lazyweb_not_built(false).contains("tools/xui/build.py"));
+    assert!(!lazyweb_not_built(false).contains("tools/webkit/app.py"));
+    assert!(lazyweb_not_built(false).contains(LAZYWEB_ELF));
+    assert!(lazyweb_not_built(true).contains("tools/xui/core_packages.py"));
 }
 
 #[test]
-fn the_browser_package_is_os_lazy_lazywebplus() {
-    assert_eq!(LAZYWEBPLUS_PACKAGE_SHORT, "lazywebplus");
-    assert_eq!(LAZYWEBPLUS_ELF, "xui-lazywebplus.elf");
-    assert!(is_core_stem("lazywebplus"));
+fn the_browser_package_is_os_lazy_lazyweb() {
+    assert_eq!(LAZYWEB_PACKAGE_SHORT, "lazyweb");
+    assert_eq!(LAZYWEB_ELF, "xui-lazyweb.elf");
+    assert!(is_core_stem("lazyweb"));
 }
 
 #[test]

@@ -1,6 +1,6 @@
-# Downloads into one folder (docs/lazywebplus.md "Downloads", docs/webd-plan.md 3.5): a server's
+# Downloads into one folder (docs/lazyweb.md "Downloads", docs/webd-plan.md 3.5): a server's
 # suggested name made safe and unique, the `.part` file the engine writes and its rename once every
-# byte arrived. Std only, host-tested. LazyWeb+'s window (`xui-webplus`, as `xui_webplus::downloads`)
+# byte arrived. Std only, host-tested. LazyWeb's window (`xui-lazyweb`, as `xui_lazyweb::downloads`)
 # and webd's service (`xui-webd`) use the same rules.
 [package]
 name = "lazydownloads"

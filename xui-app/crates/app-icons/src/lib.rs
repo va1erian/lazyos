@@ -49,9 +49,9 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/lazyrad",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
-    // LazyWeb+: neither set has a globe; a link on a rose tile.
+    // LazyWeb: neither set has a globe; a link on a rose tile.
     (
-        "xui-app/packages/lazywebplus",
+        "xui-app/packages/lazyweb",
         Art::Lucide(Lucide::Link, Tone::Rose),
     ),
     // webd (docs/webd.md): Lucide `external-link` (a page with an arrow out of it) on a cobalt tile,

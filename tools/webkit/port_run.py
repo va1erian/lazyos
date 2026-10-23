@@ -52,7 +52,7 @@ def build_image(extra: dict[str, str]) -> str | None:
         return "no BusyBox for the console shell (see tools/abi/busybox.py)"
     env = dict(os.environ, LAZYOS_CLI="1", LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
                LAZYOS_WEBKIT_PORT="1", LAZYOS_RESET_OS="1", LAZYOS_BUSYBOX=str(shell), **extra)
-    for stale in ("LAZYOS_DESKTOP", "LAZYOS_TLS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS", "LAZYOS_WEBKIT_DEPS", "LAZYOS_LAZYWEBPLUS"):
+    for stale in ("LAZYOS_DESKTOP", "LAZYOS_TLS", "LAZYOS_JSC", "LAZYOS_LINUXAPPS", "LAZYOS_WEBKIT_DEPS", "LAZYOS_LAZYWEB"):
         env.pop(stale, None)
     print("webkit: cargo build (LAZYOS_WEBKIT_PORT=1, console, networking)", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)

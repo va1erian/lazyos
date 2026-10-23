@@ -7,7 +7,7 @@
 //! polled user-space driver (the data, then the inode, the bitmaps, the
 //! directory, the superblock counters), and the writer holds the volume's gate
 //! the whole time, so every other reader and writer of `/home` waited for the
-//! stick: LazyWeb+'s cache writes froze its network process (and so the page)
+//! stick: LazyWeb's cache writes froze its network process (and so the page)
 //! for 0.5-2.7 s on a real PC.
 //!
 //! So the volume is cached like any other, and only *who writes it back*

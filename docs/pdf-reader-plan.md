@@ -5,7 +5,7 @@ and the viewer MVP shipped as a core package in every desktop image. P3–P7
 are still plans. User-facing guide:
 [`xui-app/packages/pdf/docs/README.md`](../xui-app/packages/pdf/docs/README.md).
 
-LazyOS cannot show a `.pdf`. Users have them: downloaded with LazyWeb+
+LazyOS cannot show a `.pdf`. Users have them: downloaded with LazyWeb
 (`~/Downloads`), attached to mail in `xui-mail`, unpacked from an archive by
 Archiver, or copied onto the `/home` volume. The PDF Viewer (`os.lazy.pdf`,
 cargo bin `xui-pdf`) is a core desktop app that opens them, lets you read,
@@ -28,7 +28,7 @@ offscreen, a thin LazyOS binary, and a core package.
   base), so a 2x desktop is sharp, not upscaled.
 * **Navigate**: a sidebar with the document outline (bookmarks) and page
   thumbnails. Internal links (`GoTo`, named destinations) jump; external `URI`
-  links are handed to `mimed` (so `http(s)://` opens LazyWeb+, `mailto:` Mail)
+  links are handed to `mimed` (so `http(s)://` opens LazyWeb, `mailto:` Mail)
   after a confirmation that shows the full URL. Back/Forward (`Alt+Left`/
   `Alt+Right`) over the jump history.
 * **Find** (`Ctrl+F`, `F3`/`Shift+F3`): search the text layer, highlight the
@@ -250,7 +250,7 @@ traced run of `core_apps.json`.
 
 **P3. Navigation.** Outline sidebar, thumbnails (rendered at low priority),
 internal links, external links through `mimed` with confirmation, Back/Forward,
-rotate. The LazyWeb+ session gains a step that downloads a PDF and opens it from
+rotate. The LazyWeb session gains a step that downloads a PDF and opens it from
 `about:downloads`.
 
 **P4. Text.** Text layer, find with highlights, selection, copy to

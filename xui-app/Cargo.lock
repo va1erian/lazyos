@@ -5983,6 +5983,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "xui-lazyweb"
+version = "0.1.0"
+dependencies = [
+ "fhs",
+ "fuzzkit",
+ "lazyadblock",
+ "lazydownloads",
+ "lazyos-sys",
+ "lazywebnotify",
+ "xui-app",
+ "xui-canvas",
+ "xui-core",
+ "xui-settings",
+ "xui-webkit",
+ "xui-webkit-remote",
+]
+
+[[package]]
 name = "xui-mail"
 version = "0.1.0"
 dependencies = [
@@ -6133,24 +6151,6 @@ dependencies = [
  "xui-webd",
  "xui-webd-client",
  "xui-webkit",
-]
-
-[[package]]
-name = "xui-webplus"
-version = "0.1.0"
-dependencies = [
- "fhs",
- "fuzzkit",
- "lazyadblock",
- "lazydownloads",
- "lazyos-sys",
- "lazywebnotify",
- "xui-app",
- "xui-canvas",
- "xui-core",
- "xui-settings",
- "xui-webkit",
- "xui-webkit-remote",
 ]
 
 [[package]]

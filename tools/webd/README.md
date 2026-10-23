@@ -13,7 +13,7 @@ python tools/webd/test_judge.py             # the judge, the session and the lis
 python tools/webd/session.py --check        # tools/screenshot/examples/webd_light.json is current
 ```
 
-Shared options with the sibling harnesses (`tools/webplus`): `--out` (default `shots/webd`), `--accel`,
+Shared options with the sibling harnesses (`tools/lazyweb`): `--out` (default `shots/webd`), `--accel`,
 `--qemu`, `--memory` (default the big-app profile's 4G), `--step-timeout`. Exit status is non-zero on any
 failure.
 
@@ -54,7 +54,7 @@ starts at login; the demo (`os.lazy.webddemo`, `xui-app/src/bin/webddemo.rs`, lo
 | `LOSS`, `RECREATED` | `WEBD:LOST view=<first>`, `WEBDDEMO:LOST:crashed`, a second, different view, `WEBD:VIEW:DESTROY view=<first>`, `WEBDDEMO:RECREATE:PASS`, and `w04_recreated` is blue again. With `--skip-loss`, any loss fails |
 | `QUIT` | `WEBDDEMO:QUIT:PASS` and every `WEBD:VIEW:CREATE` has its `WEBD:VIEW:DESTROY` |
 | `FAILURES` | no `WEBD:...:FAIL` or `WEBDDEMO:...:FAIL` line |
-| `LABEL` | no `LABEL:DENY` for `app:os.lazy.webddemo`, `app:os.lazy.webd` or its children beyond `judge.OPTIONAL_CHILD` (the optional lookups LazyWeb+'s WebKit also makes; prune it with a run) |
+| `LABEL` | no `LABEL:DENY` for `app:os.lazy.webddemo`, `app:os.lazy.webd` or its children beyond `judge.OPTIONAL_CHILD` (the optional lookups LazyWeb's WebKit also makes; prune it with a run) |
 
 `qemu_session.py` also aborts the run at once on a kernel `PANIC`/`EXCEPTION` or a `FAIL` marker of the demo
 or webd.

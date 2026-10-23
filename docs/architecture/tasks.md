@@ -116,7 +116,7 @@ ISR that performs context switches.
   (issue #857). Freeze forensics (issue #861) are printed from the multiplexer loop:
   `PROC:EXIT` per ended process, `SCHED:STUCK` for a task runnable inside the kernel
   for 2 s, `PERF:CPU` for busy processes, `LOCK:WAIT` for a long lock wait; see
-  `tools/webplus/README.md` ("How to capture a freeze"). The test build defaults the guard off so
+  `tools/lazyweb/README.md` ("How to capture a freeze"). The test build defaults the guard off so
   the suites that check the stride shares test the scheduler core; `guard_suite`
   (`task_guard_*`) turns it on.
 - Starvation bound: within a class a peer is selected at most

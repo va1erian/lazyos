@@ -1,7 +1,7 @@
 //! Frame pacing (client mode): a window presents at most once per refresh of the screen.
 //!
 //! A frame composed between two refreshes is never seen, and its cost lands on the next one: a
-//! scrolling LazyWeb+ window presented about a hundred whole frames a second at 2560x1440 (its glide
+//! scrolling LazyWeb window presented about a hundred whole frames a second at 2560x1440 (its glide
 //! timer and the engine's updates, each drawing at once), so `xuid` composed and copied 1.8 megapixels
 //! a hundred times a second for a 60 Hz screen (`XUID:COMPOSE`). Damage that arrives sooner than one
 //! refresh interval after the last present waits in the damage map (it accumulates there) and the loop

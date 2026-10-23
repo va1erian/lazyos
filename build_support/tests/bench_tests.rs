@@ -1,4 +1,4 @@
-//! Timings of the image stages on a file set shaped like a LazyWeb+ desktop
+//! Timings of the image stages on a file set shaped like a LazyWeb desktop
 //! image (a few 100 MiB programs, a few dozen multi-MiB apps, hundreds of
 //! small documents). Ignored by default; run it with
 //!
@@ -49,7 +49,7 @@ fn shape() -> Vec<(String, u64)> {
     for name in ["webprocess", "networkprocess"] {
         files.push((format!("/system/bin/{name}"), 107 * MIB));
     }
-    files.push(("/system/share/samples/lazywebplus.lzp".into(), 43 * MIB));
+    files.push(("/system/share/samples/lazyweb.lzp".into(), 43 * MIB));
     for index in 0..60 {
         files.push((format!("/system/bin/prog{index}"), 3 * MIB));
     }

@@ -23,7 +23,7 @@
 //! W4): the `WebProcess` and `NetworkProcess` it launches, the headless UI process
 //! `webkit-smoke`, and the Fontconfig configuration they read (`webkit/port/fonts.conf.in`,
 //! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_WEBD=1` (`webd_embed`) is webd, which
-//! starts the same two, without the proof; the browser (`LAZYOS_LAZYWEBPLUS=1`) is a client of webd and
+//! starts the same two, without the proof; the browser (`LAZYOS_LAZYWEB=1`) is a client of webd and
 //! embeds none.
 
 use std::path::Path;

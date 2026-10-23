@@ -315,7 +315,7 @@ names the key, not the character a layout makes of it). Session:
   New Window, Preferences..., Close.
 - **Links**: URLs and `file://` paths detected per logical line, OSC 8 links
   as given; underlined on hover with `Ctrl`, `Ctrl+click` opens through
-  `mimed` (`sys::mimed::open` path, `docs/lazywebplus.md`); never on a plain click.
+  `mimed` (`sys::mimed::open` path, `docs/lazyweb.md`); never on a plain click.
 - **Find** (`Ctrl+Shift+F`): a small bar, matches highlighted in screen and
   history, Enter/Shift+Enter step, case toggle, plain text (regex later).
 - **Bell**: `visual` flashes the frame; `sound` plays a short tone through

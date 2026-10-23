@@ -2,7 +2,7 @@
 //
 // This header used to be the C ABI between WebKit's UI process and the one window of the
 // single-page browser (`lzw_ui_*` implemented by the window, `lzw_engine_*` by the engine). That ABI
-// is gone with the in-process host: LazyWeb+ is a client of the `webd` daemon (docs/webd-plan.md P4),
+// is gone with the in-process host: LazyWeb is a client of the `webd` daemon (docs/webd-plan.md P4),
 // whose C ABI over the engine's views is webkit/port/webd/webd_abi.h (one call per view). What stays
 // here is what the engine's sources and webd share by name:
 //

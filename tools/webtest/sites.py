@@ -1,4 +1,4 @@
-"""The host's stand-ins for the sites the browser harnesses (`tools/webplus`) browse.
+"""The host's stand-ins for the sites the browser harnesses (`tools/lazyweb`) browse.
 
 This sandbox (and CI) cannot reach example.com or theoldnet.com, so the
 harness serves both from the host and the test image's `/etc/hosts` maps
@@ -14,7 +14,7 @@ The HTTPS server presents a leaf for theoldnet.com and www.theoldnet.com
 (and the harnesses' other test hosts) issued by the run's throwaway test CA (`certs.py`), which the image trusts
 through `LAZYOS_TLS_TEST_CA`. Every request is recorded with its scheme,
 Host header, path, User-Agent and the TLS connection's SNI: that record, not
-the guest's word, is the evidence the judge reads (`tools/webplus/judge.py`).
+the guest's word, is the evidence the judge reads (`tools/lazyweb/judge.py`).
 
     python tools/webtest/sites.py OUTDIR    # serve by hand (needs ports 80 and 443)
 """
@@ -46,29 +46,29 @@ DOWNLOAD_PATH = "/files/oldnet-kit.zip"
 DOWNLOAD_NAME = "oldnet-kit.zip"
 
 
-#: The WebKit browser harness's form target (its runner, tools/webplus/run.py): answers a GET with a page whose
+#: The WebKit browser harness's form target (its runner, tools/lazyweb/run.py): answers a GET with a page whose
 #: title is `echo:<q>`, so what a browser typed into the field comes back as evidence.
 ECHO_PATH = "/webkit/echo"
 #: A page that answers after `SLOW_SECONDS`: the browser has time to stop the load (the harness
 #: presses Stop and judges that a cancelled load is not reported as a failure).
 SLOW_PATH = "/webkit/slow"
 SLOW_SECONDS = 30
-#: LazyWeb+'s harness (tools/webplus): sets the cookie `COOKIE_NAME=COOKIE_VALUE` (a day) and answers
+#: LazyWeb's harness (tools/lazyweb): sets the cookie `COOKIE_NAME=COOKIE_VALUE` (a day) and answers
 #: with a page whose title is `cookie:<the value of that cookie the request carried, or none>`:
 #: the first run's answer is `none`, a run after a restart (a persistent profile) `COOKIE_VALUE`.
-COOKIE_PATH = "/webplus/cookie"
+COOKIE_PATH = "/lazyweb/cookie"
 COOKIE_NAME = "lwp"
 COOKIE_VALUE = "kept"
-#: LazyWeb+'s notification harness (tools/webplus/notify_run.py): a static page
-#: (`fixtures/theoldnet.com/webplus/notify.html`, also served on www.theoldnet.com, which is another
+#: LazyWeb's notification harness (tools/lazyweb/notify_run.py): a static page
+#: (`fixtures/theoldnet.com/lazyweb/notify.html`, also served on www.theoldnet.com, which is another
 #: origin) with three boxes: ask for the permission on a click, post a notification with a `tag` and
 #: update it, post six in a burst. A `click` handler sets `document.title`; the page's title says
 #: what it learned (`notify:ready:<permission>:<answer without a gesture>`, `notify:perm:<answer>`,
 #: `notify:clicked:<title>`).
-NOTIFY_PATH = "/webplus/notify.html"
+NOTIFY_PATH = "/lazyweb/notify.html"
 
 
-#: LazyWeb+'s ad blocker harness (tools/webplus, issue #845): the list host the browser fetches
+#: LazyWeb's ad blocker harness (tools/lazyweb, issue #845): the list host the browser fetches
 #: EasyList from (a small list of ours stands in), and the two hosts of the "ad network" its rules
 #: name. They answer over HTTPS like the real ones.
 LIST_HOST = "easylist.to"
@@ -138,7 +138,7 @@ def download_payload() -> bytes:
     return bytes(i % 251 for i in range(300 * 1024))
 
 
-#: A slow attachment (LazyWeb+'s harness): `SLOW_DOWNLOAD_BYTES` sent in `SLOW_DOWNLOAD_STEPS` pieces
+#: A slow attachment (LazyWeb's harness): `SLOW_DOWNLOAD_BYTES` sent in `SLOW_DOWNLOAD_STEPS` pieces
 #: `SLOW_DOWNLOAD_PAUSE` seconds apart, so its progress is on screen while it runs.
 SLOW_DOWNLOAD_PATH = "/files/slow-kit.zip"
 SLOW_DOWNLOAD_NAME = "slow-kit.zip"
@@ -161,7 +161,7 @@ class Request:
     status: int
     user_agent: str = ""
     sni: str | None = None
-    #: The Cookie header the request carried (the persistence check of tools/webplus).
+    #: The Cookie header the request carried (the persistence check of tools/lazyweb).
     cookie: str = ""
     #: `If-None-Match` or `If-Modified-Since`: a conditional request (the list's update check).
     conditional: str = ""
@@ -274,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
         # The notification page is never cached: a second boot that finds it in the HTTP cache
         # (written by the first) hits a crash in WebKit's NetworkCache::Storage (a thread of the
         # NetworkProcess jumps into padding in `updateFileModificationTime`), which has nothing to
-        # do with notifications and is followed up on its own (docs/lazywebplus.md, Known limits).
+        # do with notifications and is followed up on its own (docs/lazyweb.md, Known limits).
         cache = "no-store" if urlsplit(self.path).path == NOTIFY_PATH else "max-age=604800"
         return 200, [("Content-Type", kind), ("Cache-Control", cache)], found.read_bytes()
 

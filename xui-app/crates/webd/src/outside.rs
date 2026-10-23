@@ -3,7 +3,7 @@
 //! chose for it (`mimed`, `Handoff.Browser`), and the shell's toasts for a page's notifications.
 //!
 //! Both are made from the service thread, which is the process's first thread: the shell's
-//! notification service accepts no other (docs/lazywebplus.md, "Toasts are made on WebKit's main
+//! notification service accepts no other (docs/lazyweb.md, "Toasts are made on WebKit's main
 //! thread"; webd's first thread is its service, docs/webd-plan.md "P2 slice 2").
 
 /// A toast the shell reported about.

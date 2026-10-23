@@ -149,7 +149,7 @@ no clock), `Motion` (the setting). It can move upstream unchanged.
 * **Scripts**: `sys::notify::notify("Info", "Title", "Body", (), [], (), (), ())`
   from `rhai` or a LazyRAD form (Rhai first for small apps). `Listen` carries
   a channel and is not callable from a script.
-* **LazyWeb+ web notifications** (issue #839, [`lazywebplus.md`](lazywebplus.md)): a page the person allowed
+* **LazyWeb web notifications** (issue #839, [`lazyweb.md`](lazyweb.md)): a page the person allowed
   (`Notification.requestPermission()`, a bar in the browser, kept per origin) shows a toast through
   `os.lazy.notify`. The sender is the browser: the title is the site's host (never the page's text), the page's
   `title` and `body` go in the body as two lines (a body may hold a line feed), the level is Info and the

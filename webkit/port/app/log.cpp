@@ -1,5 +1,5 @@
-// Markers and text helpers for the UI process (docs/webkit-port-plan.md and LazyWebPlus,
-// docs/lazywebplus.md). A marker is "<prefix>:<text>", the prefix being the owner's (HostEnv::say;
+// Markers and text helpers for the UI process (docs/webkit-port-plan.md and LazyWeb,
+// docs/lazyweb.md). A marker is "<prefix>:<text>", the prefix being the owner's (HostEnv::say;
 // the owner's own).
 
 #include <WebKit/WKString.h>

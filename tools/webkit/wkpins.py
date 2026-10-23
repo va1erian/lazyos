@@ -109,7 +109,7 @@ class Dep:
 DEPSPROOF_LINK = "linked into `/system/bin/depsproof` (`LAZYOS_WEBKIT_DEPS=1`, `tools/webkit`)"
 #: Libraries of the bundle that only the WebKit port's programs link (``depsproof`` does not).
 PORT_LINK = ("linked into the port's `/system/bin/webprocess` and `networkprocess` ("
-             "`LAZYOS_WEBD=1`, which every desktop image and `LAZYOS_LAZYWEBPLUS=1` carry, or "
+             "`LAZYOS_WEBD=1`, which every desktop image and `LAZYOS_LAZYWEB=1` carry, or "
              "`LAZYOS_WEBKIT_PORT=1`), `webkit-smoke` (`LAZYOS_WEBKIT_PORT=1`) and webd's "
              "`webd-app` (`LAZYOS_WEBD=1`; `tools/webkit`)")
 

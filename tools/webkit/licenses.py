@@ -150,18 +150,18 @@ def check_notices(third_party: str, readme: str) -> list[str]:
     return problems
 
 
-#: LazyWeb+'s crates: the chrome and the seam it links. The program no longer links WebKit or OpenSSL (it
+#: LazyWeb's crates: the chrome and the seam it links. The program no longer links WebKit or OpenSSL (it
 #: is a client of webd), but the dual declaration is kept until a maintainer relicenses them
-#: (docs/webd-plan.md, open question 8; docs/lazywebplus.md, THIRD_PARTY.md).
-WEBPLUS_CRATES = ["xui-app/webplus/Cargo.toml", "xui-app/crates/webkit/Cargo.toml"]
+#: (docs/webd-plan.md, open question 8; docs/lazyweb.md, THIRD_PARTY.md).
+LAZYWEB_CRATES = ["xui-app/lazyweb/Cargo.toml", "xui-app/crates/webkit/Cargo.toml"]
 
 
-def check_webplus_licence() -> list[str]:
-    """LazyWeb+'s crates stay offered under GPL-3.0-or-later as well as GPL-2.0-only (the declaration
+def check_lazyweb_licence() -> list[str]:
+    """LazyWeb's crates stay offered under GPL-3.0-or-later as well as GPL-2.0-only (the declaration
     they had when the program linked WebKit and OpenSSL, which a GPL-2.0-only program cannot carry; kept
     until a maintainer relicenses them), and never reference the bundle's OpenSSL themselves."""
     problems = []
-    for name in WEBPLUS_CRATES:
+    for name in LAZYWEB_CRATES:
         path = ROOT / name
         if not path.is_file():
             continue
@@ -231,7 +231,7 @@ def main() -> int:
     third_party = THIRD_PARTY.read_text(encoding="utf-8") if THIRD_PARTY.is_file() else ""
     problems += check_register(third_party)
     problems += check_notices(third_party, README.read_text(encoding="utf-8"))
-    problems += check_webplus_licence()
+    problems += check_lazyweb_licence()
     problems += check_webd_licence()
     print("\n".join(table(nettls)))
     if MANIFEST.is_file():

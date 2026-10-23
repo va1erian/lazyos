@@ -1,4 +1,4 @@
-//! A view made with `notify_in_client` (LazyWeb+, P4) against the service and the recording
+//! A view made with `notify_in_client` (LazyWeb, P4) against the service and the recording
 //! engine: the page's notification reaches the app as `FullEvent::NotifyShow`, its close and the end
 //! of its object follow, and `notify_state` reaches the engine.
 

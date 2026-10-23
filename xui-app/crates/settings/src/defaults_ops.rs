@@ -1,7 +1,7 @@
-//! Pure operations behind the Default apps page (docs/lazywebplus.md): which web browser opens
+//! Pure operations behind the Default apps page (docs/lazyweb.md): which web browser opens
 //! links, for the user running Settings.
 //!
-//! LazyWeb+ registers `http`, `https` and HTML files with `mimed`, and so would any other browser:
+//! LazyWeb registers `http`, `https` and HTML files with `mimed`, and so would any other browser:
 //! the registry alone lets whichever registered last win. The user's choice is three `confd` keys in
 //! their own subtree (`deskmenu::defaults::user_key`, one per type of
 //! [`WEB_TYPES`](deskmenu::defaults::WEB_TYPES)) that `mimed` reads for the caller of `Open`:
@@ -112,7 +112,7 @@ mod tests {
     fn both() -> Vec<AppChoice> {
         vec![
             app("os.lazy.files", "Files", true),
-            app("os.lazy.lazywebplus", "LazyWeb+", true),
+            app("os.lazy.lazyweb", "LazyWeb", true),
         ]
     }
 
@@ -126,7 +126,7 @@ mod tests {
         let choices = load(&store).unwrap();
         assert_eq!(
             choices.rows(),
-            [AUTOMATIC, "LazyWeb+"],
+            [AUTOMATIC, "LazyWeb"],
             "only the apps of BROWSERS are offered, whatever the registry holds"
         );
         assert_eq!(choices.selected_row(), 0);
@@ -135,7 +135,7 @@ mod tests {
     #[test]
     fn a_browser_that_is_not_installed_is_not_offered_and_a_console_program_is_not_a_browser() {
         let store = store(&[
-            app("os.lazy.lazywebplus", "LazyWeb+", false),
+            app("os.lazy.lazyweb", "LazyWeb", false),
             app("os.lazy.files", "Files", true),
         ]);
         assert_eq!(load(&store).unwrap().rows(), [AUTOMATIC]);
@@ -146,12 +146,12 @@ mod tests {
         let store = store(&both());
         let mut choices = load(&store).unwrap();
         let said = choose(&store, &mut choices, 1).unwrap();
-        assert_eq!(said, "LazyWeb+ opens web links.");
+        assert_eq!(said, "LazyWeb opens web links.");
         for mime in WEB_TYPES {
             let key = defaults::user_key(1000, mime).unwrap();
             assert_eq!(
                 store.get(&key),
-                Some(Value::Str("os.lazy.lazywebplus".into())),
+                Some(Value::Str("os.lazy.lazyweb".into())),
                 "{key}"
             );
         }

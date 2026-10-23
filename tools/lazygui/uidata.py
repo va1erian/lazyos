@@ -75,7 +75,7 @@ def advanced_cfg(ui) -> dict:
         "jsc": ui.v["jsc"].get(),
         "webkit_deps": ui.v["webkit_deps"].get(),
         "webkit_port": ui.v["webkit_port"].get(),
-        "lazywebplus": ui.v["lazywebplus"].get(),
+        "lazyweb": ui.v["lazyweb"].get(),
         "webd": ui.v["webd"].get(),
         "webd_demo": ui.v["webd_demo"].get(),
         "no_webd": ui.v["no_webd"].get(),
@@ -83,8 +83,8 @@ def advanced_cfg(ui) -> dict:
                                                           "wifi", "wifi_sim")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
-        # LazyWeb+'s ad blocker updates its lists with curl.
-        "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazywebplus"].get(),
+        # LazyWeb's ad blocker updates its lists with curl.
+        "tls": ui.v["tls"].get() or ui.v["mail"].get() or ui.v["lazyweb"].get(),
         "journal": ui.v["journal"].get(),
         **{app: ui.v[app].get() for app in ("lazysky", "mail", "traydemo", "games", "devtools",
                                                   "pictures")},

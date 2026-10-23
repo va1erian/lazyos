@@ -23,7 +23,7 @@ pub const DEFAULT_OS_SIZE: u64 = 512 << 20;
 /// What `LAZYOS_SRB2KART=1` adds to [`DEFAULT_OS_SIZE`] (its game data is about
 /// 460 MiB): too much for the default alone.
 pub const SRB2KART_EXTRA: u64 = 512 << 20;
-/// What webd (any desktop that ships it, `LAZYOS_LAZYWEBPLUS=1` included) or `LAZYOS_WEBKIT_PORT=1` add
+/// What webd (any desktop that ships it, `LAZYOS_LAZYWEB=1` included) or `LAZYOS_WEBKIT_PORT=1` add
 /// to [`DEFAULT_OS_SIZE`]: the three static WebKit programs (webd, `webprocess`,
 /// `networkprocess`) are about 107 MiB each and webd's package, which
 /// `pkgd` unpacks into `/apps`, holds them again; 768 MiB left too little room
@@ -49,7 +49,7 @@ pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
 /// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`,
 /// `LAZYOS_WEBKIT_PORT=1` (the console proof, with the same three programs) asks for a larger one
 /// (`tools/lazygui/osvolume.py` mirrors this), and so does `webd`: a desktop that ships it, which
-/// `LAZYOS_LAZYWEBPLUS=1` makes (`webd_embed::shipped_env`, which the caller asks: the installer includes this
+/// `LAZYOS_LAZYWEB=1` makes (`webd_embed::shipped_env`, which the caller asks: the installer includes this
 /// file without it).
 pub fn default_size_env(webd: bool) -> u64 {
     println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");

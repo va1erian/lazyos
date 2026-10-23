@@ -1,4 +1,4 @@
-//! `FullWebView::recover` and `notify_forget` (LazyWeb+, P4) against the service over the fake web:
+//! `FullWebView::recover` and `notify_forget` (LazyWeb, P4) against the service over the fake web:
 //! what reaches the engine, and what the service refuses.
 
 mod support;

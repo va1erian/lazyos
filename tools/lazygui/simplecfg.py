@@ -56,11 +56,11 @@ SIMPLE_GROUPS = (
                                     "them in Rhai. A developer tool runs with your own authority, like "
                                     "the Terminal; builds the rhai command it runs scripts with (Desktop only).",
      ("devtools",)),
-    ("lazywebplus", "LazyWeb+", "The web browser, on the WebKit engine: JavaScript and the "
+    ("lazyweb", "LazyWeb", "The web browser, on the WebKit engine: JavaScript and the "
                                 "modern web, with history, downloads and an ad blocker; "
                                 "webd and its two engine processes, about 108 MB each, 4 GiB of "
                                 "RAM and a 1 GiB OS volume; builds in Docker (turns Networking on).",
-     ("lazywebplus",)),
+     ("lazyweb",)),
 )
 #: The switches no group owns, still one checkbox each on the Simple tab.
 SIMPLE_OPTIONS = ("shell", "devices", "hidpi", "hires", "autologin", "setup", "usb_image",
@@ -125,7 +125,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                   pictures: bool = False, emusic: bool = False,
                   usb_image: bool = False, wifi: bool = False, lazysky: bool = False,
                   srb2kart: bool = False,
-                  lazywebplus: bool = False, games: bool = False, devtools: bool = False,
+                  lazyweb: bool = False, games: bool = False, devtools: bool = False,
                   usb_audio: bool = False) -> dict:
     """The full configuration for a Simple-mode choice.
 
@@ -155,7 +155,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
     docs/usb-audio-plan.md); ``wifi``
     the Wi-Fi driver and its firmware (either interface; it implies ``net``);
     ``lazysky`` the LazySky Bluesky client (Desktop only, docs/lazysky.md; it implies
-    ``net``); ``lazywebplus`` LazyWeb+, the web browser on WebKit (Desktop only, docs/lazywebplus.md; it
+    ``net``); ``lazyweb`` LazyWeb, the web browser on WebKit (Desktop only, docs/lazyweb.md; it
     implies ``net`` and the big-app profile).
     Machine settings
     (accelerator, memory, QEMU path) come from ``base``; every image switch is
@@ -170,9 +170,9 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
                          "exclude each other")
     desktop = interface == "Desktop"
     lazysky = desktop and lazysky
-    lazywebplus = desktop and lazywebplus
-    # LazyWeb+'s ad blocker updates its lists with `curl` (issue #845).
-    tls = tls or lazywebplus or (desktop and mail)
+    lazyweb = desktop and lazyweb
+    # LazyWeb's ad blocker updates its lists with `curl` (issue #845).
+    tls = tls or lazyweb or (desktop and mail)
     cfg = dict(base)
     cfg.update({
         "mode": "Interactive demo",
@@ -207,7 +207,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "srb2kart": desktop and srb2kart,
         "emusic": desktop and emusic,
         "modplayer": desktop and modplayer,
-        "net": net or tls or wifi or lazysky or lazywebplus,
+        "net": net or tls or wifi or lazysky or lazyweb,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
@@ -218,7 +218,7 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "tls": tls,
         "journal": False,
         "lazysky": lazysky,
-        "lazywebplus": lazywebplus,
+        "lazyweb": lazyweb,
         "mail": desktop and mail, "traydemo": desktop and traydemo,
         "games": desktop and games,
         "devtools": desktop and devtools,

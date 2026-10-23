@@ -21,9 +21,9 @@ import attackjudge as judge  # noqa: E402
 import fhspaths  # noqa: E402
 
 PROBE_SOURCE = ROOT / "tools" / "abi" / "fixtures" / "src" / "sandboxprobe.rs"
-#: webd owns the engine processes (their labels are `app:os.lazy.webd/<name>`); LazyWeb+ keeps one helper table.
+#: webd owns the engine processes (their labels are `app:os.lazy.webd/<name>`); LazyWeb keeps one helper table.
 MANIFEST = ROOT / "xui-app" / "packages" / "webd" / "manifest.toml"
-PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazywebplus" / "manifest.toml"
+PLUS_MANIFEST = ROOT / "xui-app" / "packages" / "lazyweb" / "manifest.toml"
 
 #: What the kernel's label trace prints for each refused probe (`kernel/src/ipc/confine.rs`,
 #: `ipc/policy.rs`): the judge's patterns must match these.
@@ -109,7 +109,7 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(found, [])
         self.assertIn("app:os.lazy.webd/networkprocess", log)
         # Another package's labels (the browser's, once its children were its own) do not satisfy the run.
-        self.assertTrue(judge.judge(log.replace("os.lazy.webd", "os.lazy.lazywebplus"), "browser", app)[0])
+        self.assertTrue(judge.judge(log.replace("os.lazy.webd", "os.lazy.lazyweb"), "browser", app)[0])
         self.assertTrue(judge.judge(log.replace("os.lazy.webd", "os.lazy.other"), "browser", app)[0])
         # Only the network process may write Downloads: the page process writing it is a breach.
         log = perfect("browser", app=app, tweak=lambda r, p, line: (
@@ -334,7 +334,7 @@ class AgreementTests(unittest.TestCase):
         self.assertEqual(table["interfaces"], [])
         self.assertEqual(table["network"], ["outbound"])
         writes = [r for r in table["files"] if r.startswith("write:")]
-        self.assertEqual(writes, ["write:$HOME/.apps/os.lazy.lazywebplus/lists"])
+        self.assertEqual(writes, ["write:$HOME/.apps/os.lazy.lazyweb/lists"])
         # No cookie jar, no Downloads: the profile's other folders are not its to touch.
         for rule in table["files"]:
             self.assertNotIn("Downloads", rule)

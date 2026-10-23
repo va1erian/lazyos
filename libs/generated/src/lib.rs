@@ -22173,7 +22173,7 @@ pub mod os_lazy_webd_view_v1 {
     }
 
     /// The page's process does not answer (the app got `Responsive(false)`) and
-    /// the person chose a way out (LazyWeb+, P4): the view's web process is
+    /// the person chose a way out (LazyWeb, P4): the view's web process is
     /// ended. With `reload` the page loads again in a fresh process. Without it
     /// the page stays stopped: the engine reports the page as ended by request,
     /// which is `ViewLost` with reason `Other`, and the app makes a new view.
@@ -22689,7 +22689,7 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
-    /// Forget the profile's decision about `origin` (LazyWeb+, P4): the page's
+    /// Forget the profile's decision about `origin` (LazyWeb, P4): the page's
     /// `Notification.permission` is `default` again and its next request is
     /// asked again (`NotifyPermissionRequest`). A view made with
     /// `notifications` only; `origin` is checked as in `NotifyPermission`.
@@ -22768,7 +22768,7 @@ pub mod os_lazy_webd_view_v1 {
     /// of the view's group is ended and every view in it is reported as ended
     /// by request (`ViewLost` with reason `Other`). Each app makes its views
     /// again. Ids 40 to 43 are kept for the data and credential calls of
-    /// docs/lazywebplus-plan.md section 8.
+    /// docs/lazyweb-plan.md section 8.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct RecoverGroupArgs {
         pub view: u64,

@@ -426,7 +426,7 @@ pub mod font;
 ///
 /// Two pixels per 64-bit load and store: user programs have no SIMD (the target is soft-float, and
 /// `#[target_feature]` cannot add SSE to it), and this loop was most of `xuid`'s time while a page
-/// scrolled (`tools/webplus/sample.py`), so it is written for the integer unit and compiled for speed
+/// scrolled (`tools/lazyweb/sample.py`), so it is written for the integer unit and compiled for speed
 /// whatever the crate's size profile says.
 #[optimize(speed)]
 fn blit_row(dst: &mut [u8], src: &[u8], swap: bool) {

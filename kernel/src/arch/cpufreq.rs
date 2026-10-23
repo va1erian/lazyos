@@ -1,4 +1,4 @@
-//! What clock the CPU really runs at (the boxes run LazyWeb+ far slower than QEMU's host does).
+//! What clock the CPU really runs at (the boxes run LazyWeb far slower than QEMU's host does).
 //!
 //! LazyOS never asks the CPU for a speed: no P-state request (`IA32_PERF_CTL`), no HWP request, no
 //! turbo. A real PC runs at whatever its firmware left at handoff, which can be far below what the

@@ -1,5 +1,5 @@
 # The service half of `webd` (docs/webd-plan.md, phase P2): the Messenger service that gives apps
-# WebKit views. Portable and host-tested, like `xui-webkit` and `xui-webplus`: the view table, the
+# WebKit views. Portable and host-tested, like `xui-webkit` and `xui-lazyweb`: the view table, the
 # quotas, the configuration checks, the slot state machine and the dispatch of
 # `os.lazy.webd.light.v1` run against an in-memory fabric (`mem`) and a recording engine
 # (`recording`). The `host` feature adds the C ABI of the WebKit half (`webkit/port/webd/webd_abi.h`),

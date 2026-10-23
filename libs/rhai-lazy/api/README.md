@@ -1007,7 +1007,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `set_blocking(view, enabled, exceptions)` | `SetBlocking(view: U64, enabled: Bool, exceptions: Array<String>) -> ()` | Content blocking on or off for the view's profile, and the hosts it is |
 | `blocking_load(view, list)` | `BlockingLoad(view: U64, list: String) -> ()` | Attach list `list` from the profile's store (compiled earlier). |
 | `blocking_forget(view, list)` | `BlockingForget(view: U64, list: String) -> ()` | Detach list `list` and remove it from the store. |
-| `notify_forget(view, origin)` | `NotifyForget(view: U64, origin: String) -> ()` | Forget the profile's decision about `origin` (LazyWeb+, P4): the page's |
+| `notify_forget(view, origin)` | `NotifyForget(view: U64, origin: String) -> ()` | Forget the profile's decision about `origin` (LazyWeb, P4): the page's |
 | `notify_state(view, notification, state)` | `NotifyState(view: U64, notification: U64, state: U32) -> ()` | What became of notification `notification` that `NotifyShow` gave a |
 | `recover_group(view)` | `RecoverGroup(view: U64) -> ()` | Like `Recover` without a reload, for a view that shares its web process |
 | `detach_slots(view)` | `DetachSlots(view: U64) -> (seq: U64)` | Detach every slot of the view, as `Resize` does, without resizing it |

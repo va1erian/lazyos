@@ -1,5 +1,5 @@
-//! A web page's notification as the shell's toast, shared by LazyWeb+ and webd (the review of
-//! 2026-10-22 found webd's first version had lost LazyWeb+'s safeguards).
+//! A web page's notification as the shell's toast, shared by LazyWeb and webd (the review of
+//! 2026-10-22 found webd's first version had lost LazyWeb's safeguards).
 //!
 //! * [`origin`]: whose notification it is, the toast's title (the site, never the page's words; a host
 //!   too long for the title keeps its end, which a spoofed `accounts.bank.example.com.secure-...` cannot
