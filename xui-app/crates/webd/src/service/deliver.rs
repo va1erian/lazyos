@@ -15,62 +15,17 @@ use std::collections::BTreeMap;
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 
 use super::events::Sent;
+use super::frame_args::frame_args;
 use super::{Note, Service};
 use crate::config::{clip, frame_bytes};
 use crate::engine::Engine;
-use crate::events::pictures::{DeltaNow, Offset, Update};
+use crate::events::pictures::{DeltaNow, Update};
 use crate::events::{BandNow, Once, PageNow};
 use crate::fabric::Fabric;
 use crate::limits::{
     DIALOGS_PER_WINDOW, DIALOG_WINDOW_MS, EVENT_TEXT_BYTES, HELD_PER_VIEW, HOLD_MS,
 };
 use crate::view::Held;
-
-/// The full interface's `Frame` arguments for a frame of `width` x `height` in `slot`.
-pub(super) fn frame_args(
-    view: u64,
-    slot: usize,
-    seq: u64,
-    (width, height): (u32, u32),
-    delta: Option<&DeltaNow>,
-    offset: Option<Offset>,
-) -> wire::FrameArgs {
-    let (offset_x, offset_y, at_bottom) = offset.unwrap_or((0, 0, false));
-    wire::FrameArgs {
-        view,
-        slot: slot as u32,
-        seq,
-        width,
-        height,
-        whole: delta.is_none(),
-        shift: delta
-            .and_then(|d| d.shift)
-            .map(|[x, y, width, height, dx, dy]| wire::Shift {
-                x,
-                y,
-                width,
-                height,
-                dx,
-                dy,
-            }),
-        rects: delta
-            .map(|d| {
-                d.patches
-                    .iter()
-                    .map(|p| wire::Rect {
-                        x: p.rect[0],
-                        y: p.rect[1],
-                        width: p.rect[2],
-                        height: p.rect[3],
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        offset_x,
-        offset_y,
-        at_bottom,
-    }
-}
 
 fn text(value: &str) -> String {
     clip(value, EVENT_TEXT_BYTES).to_owned()
@@ -113,16 +68,28 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 return;
             }
         }
-        for delta in update.deltas {
-            if !self.deliver_delta(id, &delta) {
+        let mut deltas = update.deltas.into_iter();
+        for delta in deltas.by_ref() {
+            let delivered = self.deliver_delta(id, &delta);
+            self.recycle_delta(delta);
+            if !delivered {
                 // The client's picture misses this one: no later delta can apply to it.
                 self.queue.lose_base(id);
                 if let Some(view) = self.views.any_mut(id) {
                     view.want_frame();
                 }
-                return;
+                break;
             }
         }
+        for delta in deltas {
+            self.recycle_delta(delta);
+        }
+    }
+
+    /// A delta's pixels, written or not, are the engine's next copies (`events/spares.rs`).
+    fn recycle_delta(&mut self, delta: DeltaNow) {
+        self.spent
+            .extend(delta.patches.into_iter().map(|patch| patch.rgba));
     }
 
     /// One delta into a free slot (only its rectangles are written, at their place); `false` when it
@@ -185,39 +152,45 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// Bands into free band slots, newest last; one without a slot is dropped (they are speculative).
     pub(super) fn deliver_bands(&mut self, id: u64, bands: Vec<BandNow>) {
         for band in bands {
-            let Some(view) = self.views.any_mut(id) else {
+            self.deliver_band(id, &band);
+            self.spent.push(band.rgba);
+        }
+    }
+
+    /// One band into a free band slot; one without a slot is dropped.
+    fn deliver_band(&mut self, id: u64, band: &BandNow) {
+        let Some(view) = self.views.any_mut(id) else {
+            return;
+        };
+        let bytes = band.rgba.len();
+        if view.lost.is_some() || u32::try_from(band.width).ok() != Some(view.width) {
+            return;
+        }
+        let Some(slot) = view.slots.acquire_band() else {
+            return;
+        };
+        match view.slots.memory_mut(slot) {
+            Some(memory) if memory.capacity() >= bytes => memory.write(&band.rgba),
+            _ => {
+                view.slots.release(slot);
                 return;
-            };
-            let bytes = band.rgba.len();
-            if view.lost.is_some() || u32::try_from(band.width).ok() != Some(view.width) {
-                continue;
             }
-            let Some(slot) = view.slots.acquire_band() else {
-                continue;
-            };
-            match view.slots.memory_mut(slot) {
-                Some(memory) if memory.capacity() >= bytes => memory.write(&band.rgba),
-                _ => {
-                    view.slots.release(slot);
-                    continue;
-                }
-            }
-            let channel = view.channel;
-            let body = wire::encode_band_args(&wire::BandArgs {
-                view: id,
-                slot: slot as u32,
-                doc_x: band.doc_x,
-                doc_y: band.doc_y,
-                width: band.width as u32,
-                height: band.height as u32,
-            });
-            let Ok(body) = body else {
-                continue;
-            };
-            if self.send(id, channel, wire::METHOD_BAND, body) == Sent::Full {
-                if let Some(view) = self.views.any_mut(id) {
-                    view.slots.release(slot);
-                }
+        }
+        let channel = view.channel;
+        let body = wire::encode_band_args(&wire::BandArgs {
+            view: id,
+            slot: slot as u32,
+            doc_x: band.doc_x,
+            doc_y: band.doc_y,
+            width: band.width as u32,
+            height: band.height as u32,
+        });
+        let Ok(body) = body else {
+            return;
+        };
+        if self.send(id, channel, wire::METHOD_BAND, body) == Sent::Full {
+            if let Some(view) = self.views.any_mut(id) {
+                view.slots.release(slot);
             }
         }
     }

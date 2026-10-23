@@ -30,10 +30,13 @@ impl EventQueue {
         shift: Option<[i32; 6]>,
         rects: &[[i32; 4]],
     ) -> bool {
+        let now = self.now_ms();
         let refused = {
-            let mut inner = self.lock();
+            let inner = &mut *self.lock();
             match inner.pictures.get_mut(&view) {
-                Some(pictures) => pictures.post_delta(rgba, width, height, shift, rects),
+                Some(pictures) => {
+                    pictures.post_delta(inner.spares.at(now), rgba, width, height, shift, rects)
+                }
                 // Not a view with deltas (or gone): nothing to apply it to.
                 None => true,
             }
@@ -47,19 +50,23 @@ impl EventQueue {
     /// `webd_ui_band`: kept only for a view with deltas, and only as wide as the frame it goes with.
     pub fn band(&self, view: u64, doc_x: i32, doc_y: i32, width: i32, height: i32, rgba: &[u8]) {
         let bytes = (width.max(0) as usize) * (height.max(0) as usize) * 4;
-        if bytes == 0 || rgba.len() < bytes || !self.lock().pictures.contains_key(&view) {
-            return;
-        }
-        self.push_band(
-            view,
-            BandNow {
-                doc_x,
-                doc_y,
-                width,
-                height,
-                rgba: rgba[..bytes].to_vec(),
-            },
-        );
+        let mut copy = {
+            let mut inner = self.lock();
+            if bytes == 0 || rgba.len() < bytes || !inner.pictures.contains_key(&view) {
+                return;
+            }
+            inner.spares.take(bytes)
+        };
+        // Copied outside the lock: the service thread may be draining.
+        copy.extend_from_slice(&rgba[..bytes]);
+        let band = BandNow {
+            doc_x,
+            doc_y,
+            width,
+            height,
+            rgba: copy,
+        };
+        self.push_band(view, band);
     }
 
     pub fn paint_resize(&self, view: u64, width: i32, height: i32) {

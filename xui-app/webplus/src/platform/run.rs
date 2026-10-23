@@ -197,6 +197,10 @@ pub(super) fn run() -> i32 {
             .expect("the LazyWeb+ window's widgets built")
     });
     backend.unbind();
+    // The history and the session queued last are written before the marker goes (`disk.rs`).
+    if !crate::disk::global().flush(SETTINGS_FLUSH) {
+        crate::marker("DISK:FAIL:flush:timeout");
+    }
     // A clean quit: the next start is not a crash (`session.rs`).
     if let Some(profile) = &quit_profile {
         crate::session::end(profile);

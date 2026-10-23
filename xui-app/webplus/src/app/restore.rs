@@ -136,12 +136,18 @@ impl Browser {
         }
     }
 
+    /// Queues the write on the disk thread (`crate::disk`): it syncs twice and renames, which on
+    /// LazyOS can wait on the volume for hundreds of milliseconds. A newer page replaces one still
+    /// waiting.
     fn write_session(&self, tab: &session::Tab) {
-        let Some(profile) = &self.restore.profile else {
+        let Some(profile) = self.restore.profile.clone() else {
             return;
         };
-        if let Err(error) = session::save(profile, &Session::single(&tab.url, &tab.title)) {
-            crate::marker(&format!("SESSION:SAVE:FAIL:{:?}", error.kind()));
-        }
+        let kept = Session::single(&tab.url, &tab.title);
+        crate::disk::global().replace("session", move || {
+            if let Err(error) = session::save(&profile, &kept) {
+                crate::marker(&format!("SESSION:SAVE:FAIL:{:?}", error.kind()));
+            }
+        });
     }
 }

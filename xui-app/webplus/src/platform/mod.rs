@@ -154,7 +154,8 @@ fn decisions(permissions: &Permissions) -> Vec<(String, NotifyAnswer)> {
 /// The history file, in the app's folder; in memory without one.
 fn visits(profile: Option<&PathBuf>) -> Visits {
     match profile {
-        Some(dir) => Visits::open(dir.join(HISTORY_FILE)),
+        // Written on the disk thread: the window's thread does no file I/O after a load.
+        Some(dir) => Visits::open(dir.join(HISTORY_FILE)).in_background(),
         None => Visits::in_memory(),
     }
 }

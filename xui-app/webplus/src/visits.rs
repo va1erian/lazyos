@@ -12,6 +12,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+mod background;
+
 /// How many visits are kept.
 pub const MAX_VISITS: usize = 1000;
 /// The longest title and address kept (a page may send a title of any length, and the network process,
@@ -41,6 +43,8 @@ pub struct Visits {
     /// Counts the changes to `entries`, so that what is built from them (the suggestions' index)
     /// is rebuilt only when they changed.
     version: u64,
+    /// The file is written by [`crate::disk`]'s thread, not the caller's (the window's).
+    background: bool,
 }
 
 /// The text of the newest [`MAX_READ`] bytes of `file` (nothing when it cannot be read); a cut-off first
@@ -79,6 +83,7 @@ impl Visits {
             file: Some(file),
             lines,
             version: 0,
+            background: false,
         }
     }
 
@@ -145,7 +150,7 @@ impl Visits {
         }
         self.entries.pop();
         self.version += 1;
-        self.rewrite()
+        self.rewrite(true)
     }
 
     /// Forgets every visit to `url` (a suggestion the person removed), on disk too: the file is
@@ -157,7 +162,7 @@ impl Visits {
         let removed = before - self.entries.len();
         if removed > 0 {
             self.version += 1;
-            self.rewrite()?;
+            self.rewrite(true)?;
         }
         Ok(removed)
     }
@@ -166,7 +171,7 @@ impl Visits {
     pub fn clear(&mut self) -> io::Result<()> {
         self.entries.clear();
         self.version += 1;
-        self.rewrite()
+        self.rewrite(true)
     }
 
     /// Appends the newest visit, or rewrites the file once it has grown
@@ -176,28 +181,33 @@ impl Visits {
             return Ok(());
         };
         if self.lines + 1 >= 2 * MAX_VISITS {
-            return self.rewrite();
+            return self.rewrite(false);
         }
-        ensure_parent(file)?;
-        let mut out = OpenOptions::new().create(true).append(true).open(file)?;
-        out.write_all(line(last).as_bytes())?;
+        let (file, text) = (file.clone(), line(last));
         self.lines += 1;
-        Ok(())
+        self.write("saved", false, move || {
+            ensure_parent(&file)?;
+            let mut out = OpenOptions::new().create(true).append(true).open(&file)?;
+            out.write_all(text.as_bytes())
+        })
     }
 
     /// Writes the whole history to the file, through a temporary file so a
-    /// crash leaves the old one.
-    fn rewrite(&mut self) -> io::Result<()> {
+    /// crash leaves the old one. `checked`: the person asked for the change and
+    /// hears whether it was written.
+    fn rewrite(&mut self, checked: bool) -> io::Result<()> {
         let Some(file) = &self.file else {
             return Ok(());
         };
-        ensure_parent(file)?;
+        let file = file.clone();
         let text: String = self.entries.iter().map(line).collect();
-        let tmp = file.with_extension("tmp");
-        fs::write(&tmp, text)?;
-        fs::rename(&tmp, file)?;
         self.lines = self.entries.len();
-        Ok(())
+        self.write("rewritten", checked, move || {
+            ensure_parent(&file)?;
+            let tmp = file.with_extension("tmp");
+            fs::write(&tmp, text)?;
+            fs::rename(&tmp, &file)
+        })
     }
 }
 

@@ -103,3 +103,46 @@ fn the_wake_rings_for_every_event_and_the_memory_source_answers() {
     assert_eq!(queue.user_memory(), Some((5, 9)));
     assert_eq!(EventQueue::new().user_memory(), None);
 }
+
+/// A frame of `side` x `side` pixels (large enough for the pool to keep), every byte `value`.
+fn square(side: i32, value: u8) -> Vec<u8> {
+    vec![value; (side * side * 4) as usize]
+}
+
+#[test]
+fn a_frame_the_service_gave_back_is_the_next_frames_buffer() {
+    let queue = EventQueue::new();
+    queue.frame(1, &square(256, 1), 256, 256);
+    let first = queue.drain().frames.remove(&1).unwrap();
+    let at = first.rgba.as_ptr();
+    queue.give_back(vec![first.rgba]);
+    queue.frame(1, &square(256, 2), 256, 256);
+    let second = queue.drain().frames.remove(&1).unwrap();
+    assert_eq!(second.rgba, square(256, 2));
+    assert_eq!(second.rgba.as_ptr(), at, "no new allocation");
+}
+
+#[test]
+fn a_view_with_deltas_reuses_frames_bands_and_patches_of_their_own_size() {
+    let queue = EventQueue::new();
+    queue.track_pictures(1);
+    queue.frame(1, &square(512, 1), 512, 512);
+    queue.band(1, 0, 512, 512, 128, &square(512, 7));
+    let mut drained = queue.drain();
+    let whole = drained.pictures.remove(&1).unwrap().whole.unwrap().0;
+    let band = drained.bands.remove(&1).unwrap().remove(0);
+    let (whole_at, band_at) = (whole.rgba.as_ptr(), band.rgba.as_ptr());
+    queue.give_back(vec![whole.rgba, band.rgba]);
+    // A band-sized rectangle takes the band's buffer, never the frame's.
+    assert!(!queue.frame_delta(1, &square(512, 3), 512, 512, None, &[[0, 0, 512, 128]]));
+    let delta = queue.drain().pictures.remove(&1).unwrap().deltas.remove(0);
+    assert_eq!(delta.patches[0].rgba.as_ptr(), band_at);
+    queue.frame(1, &square(512, 4), 512, 512);
+    let whole = queue.drain().pictures.remove(&1).unwrap().whole.unwrap().0;
+    assert_eq!(whole.rgba.as_ptr(), whole_at);
+    assert_eq!(whole.rgba, square(512, 4));
+    queue.give_back(vec![whole.rgba]);
+    assert!(queue.spare_bytes() > 0);
+    queue.drop_spares();
+    assert_eq!(queue.spare_bytes(), 0);
+}
