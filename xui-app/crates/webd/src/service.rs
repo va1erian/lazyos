@@ -129,6 +129,8 @@ pub struct Service<E: Engine, F: Fabric> {
     /// What each client has on screen and its pace, so one client's pages cannot use up the shell's
     /// allowance for webd (`service/notify.rs`).
     client_toasts: BTreeMap<ClientKey, notify::ClientToasts>,
+    /// This turn's pixel buffers, given back to the queue once at its end (`events/spares.rs`).
+    spent: Vec<Vec<u8>>,
 }
 
 impl<E: Engine, F: Fabric> Service<E, F> {
@@ -150,6 +152,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             saver: None,
             permissions: BTreeMap::new(),
             client_toasts: BTreeMap::new(),
+            spent: Vec::new(),
         }
     }
 

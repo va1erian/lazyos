@@ -89,10 +89,12 @@ pub const BANDS_KEPT: usize = 4;
 pub const DELTAS_KEPT: usize = 8;
 
 /// Pixel buffers the service gives back for the engine's next copies (`events/spares.rs`): at most
-/// this many, this many bytes in all (two whole frames at the largest size), and none kept longer than
+/// this many, this many bytes in all (a whole frame at the largest size and a few bands), none smaller
+/// than [`SPARE_MIN_BYTES`] (the allocator keeps those cheaply itself), and none kept longer than
 /// [`SPARE_IDLE_MS`] unused, so an idle webd holds none.
 pub const SPARES_KEPT: usize = 8;
-pub const SPARE_BYTES_MAX: usize = 2 * (PIXELS_MAX as usize) * 4;
+pub const SPARE_BYTES_MAX: usize = (PIXELS_MAX as usize) * 4 + (16 << 20);
+pub const SPARE_MIN_BYTES: usize = 256 << 10;
 pub const SPARE_IDLE_MS: u64 = 2000;
 
 /// A URL a client sends (`Load`, `Download`, a base URL), at most.

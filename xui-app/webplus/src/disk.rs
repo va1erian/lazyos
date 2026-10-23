@@ -12,6 +12,8 @@
 //! variable while there is nothing to write (no timer) and lives as long as the process.
 
 use std::collections::VecDeque;
+use std::io;
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -100,8 +102,8 @@ impl Disk {
                 Some((_, job)) => {
                     state.busy = true;
                     drop(state);
-                    // A job that panics loses only its own write.
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                    // Jobs report their own errors; the program is built with panic = "abort".
+                    job();
                     state = self.lock();
                     state.busy = false;
                     self.shared.1.notify_all();
@@ -115,6 +117,22 @@ impl Disk {
                 }
             }
         }
+    }
+
+    /// Runs `job` after every job queued before it and waits up to `limit` for its answer: for a
+    /// change the person asked for and must hear the outcome of (clearing the history). `TimedOut`
+    /// when the disk is too slow to answer in time (the job still runs).
+    pub fn call(
+        &self,
+        limit: Duration,
+        job: impl FnOnce() -> io::Result<()> + Send + 'static,
+    ) -> io::Result<()> {
+        let (tx, rx) = mpsc::channel();
+        self.run(move || {
+            let _ = tx.send(job());
+        });
+        rx.recv_timeout(limit)
+            .unwrap_or_else(|_| Err(io::Error::from(io::ErrorKind::TimedOut)))
     }
 
     /// Waits up to `limit` for every job queued so far (the window closed, the process exits next).
@@ -141,7 +159,6 @@ impl Disk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc;
 
     #[test]
     fn jobs_run_off_the_callers_thread_in_order() {
@@ -180,6 +197,22 @@ mod tests {
     }
 
     #[test]
+    fn a_call_waits_for_its_answer_after_what_was_queued_before() {
+        let disk = Disk::default();
+        let (tx, rx) = mpsc::channel();
+        disk.run(move || tx.send(1).unwrap());
+        let failed = disk.call(Duration::from_secs(5), || Err(io::Error::other("full")));
+        assert_eq!(failed.unwrap_err().to_string(), "full");
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![1]);
+        let (gate_tx, gate_rx) = mpsc::channel::<()>();
+        disk.run(move || gate_rx.recv().unwrap());
+        let slow = disk.call(Duration::from_millis(20), || Ok(()));
+        assert_eq!(slow.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        gate_tx.send(()).unwrap();
+        assert!(disk.flush(Duration::from_secs(5)));
+    }
+
+    #[test]
     fn a_flush_that_runs_out_of_time_says_so() {
         let disk = Disk::default();
         let (gate_tx, gate_rx) = mpsc::channel::<()>();
@@ -187,15 +220,5 @@ mod tests {
         assert!(!disk.flush(Duration::from_millis(20)));
         gate_tx.send(()).unwrap();
         assert!(disk.flush(Duration::from_secs(5)));
-    }
-
-    #[test]
-    fn a_job_that_panics_does_not_stop_the_next() {
-        let disk = Disk::default();
-        let (tx, rx) = mpsc::channel();
-        disk.run(|| panic!("a write failed badly"));
-        disk.run(move || tx.send(1).unwrap());
-        assert!(disk.flush(Duration::from_secs(5)));
-        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![1]);
     }
 }

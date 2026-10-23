@@ -48,6 +48,8 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// [`WEB_PROCESS_RESERVE_BYTES`] over the current charge would exceed the limit). `false` when the
     /// host cannot read the charge or reports no limit, so the fixed process cap is then the only gate.
     pub(super) fn memory_tight(&self) -> bool {
+        // Pixel buffers kept for reuse (`events/spares.rs`) are not a reason to refuse a view.
+        self.queue.drop_spares();
         match self.queue.memory_charge() {
             Some((used, limit)) if limit > 0 => {
                 used.saturating_add(WEB_PROCESS_RESERVE_BYTES) > limit

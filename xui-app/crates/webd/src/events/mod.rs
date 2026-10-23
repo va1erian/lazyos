@@ -347,13 +347,15 @@ impl EventQueue {
 
     /// The client lost a delta (no free slot, a full queue): deltas are refused until a whole frame.
     pub fn lose_base(&self, view: u64) {
+        let now = self.now_ms();
         let inner = &mut *self.lock();
         if let Some(pictures) = inner.pictures.get_mut(&view) {
-            pictures.lose_base(&mut inner.spares);
+            pictures.lose_base(inner.spares.at(now));
         }
     }
 
     fn push_band(&self, view: u64, band: BandNow) {
+        let now = self.now_ms();
         {
             let mut inner = self.lock();
             let bands = inner.bands.entry(view).or_default();
@@ -362,7 +364,7 @@ impl EventQueue {
                 .flatten();
             bands.push_back(band);
             if let Some(old) = old {
-                inner.spares.keep(old.rgba);
+                inner.spares.give(old.rgba, now);
             }
         }
         self.ring();
@@ -405,11 +407,12 @@ impl EngineEvents for EventQueue {
     }
 
     fn frame(&self, view: u64, rgba: &[u8], width: i32, height: i32) {
+        let now = self.now_ms();
         {
             let inner = &mut *self.lock();
             // A view with deltas keeps its whole frames in order with its deltas.
             if let Some(pictures) = inner.pictures.get_mut(&view) {
-                pictures.post_whole(&mut inner.spares, rgba, width, height);
+                pictures.post_whole(inner.spares.at(now), rgba, width, height);
             } else {
                 // A frame still waiting is overwritten; otherwise a buffer the service gave back.
                 let spares = &mut inner.spares;

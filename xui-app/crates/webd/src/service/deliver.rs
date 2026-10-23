@@ -87,10 +87,9 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     }
 
     /// A delta's pixels, written or not, are the engine's next copies (`events/spares.rs`).
-    fn recycle_delta(&self, delta: DeltaNow) {
-        for patch in delta.patches {
-            self.queue.recycle(patch.rgba);
-        }
+    fn recycle_delta(&mut self, delta: DeltaNow) {
+        self.spent
+            .extend(delta.patches.into_iter().map(|patch| patch.rgba));
     }
 
     /// One delta into a free slot (only its rectangles are written, at their place); `false` when it
@@ -154,7 +153,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn deliver_bands(&mut self, id: u64, bands: Vec<BandNow>) {
         for band in bands {
             self.deliver_band(id, &band);
-            self.queue.recycle(band.rgba);
+            self.spent.push(band.rgba);
         }
     }
 

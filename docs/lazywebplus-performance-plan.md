@@ -826,11 +826,15 @@ measure them.
   2560x1440 a frame is 14.7 MB and a band 2 MB: musl maps a block that large fresh, the copy faults
   every page in, and the free unmaps it, all on the thread that runs the page's scripts and layout.
   On the build host (glibc, one run each of 50 frames): **2.3-4.7 ms a frame fresh against 0.65-0.7 ms
-  into a buffer in use**, and a band 142 against 58-74 us. The service now gives each buffer back
-  (`EventQueue::recycle`) and the next copy takes the smallest kept buffer that fits
-  (`events/spares.rs`). At most `SPARES_KEPT` buffers and `SPARE_BYTES_MAX` bytes are kept, and none
-  longer than `SPARE_IDLE_MS` unused, so an idle webd holds none. Tests: `events/spares.rs`, and
-  `events/tests.rs` checks that the second frame, band and patch reuse the first one's allocation.
+  into a buffer in use**, and a band 142 against 58-74 us. The service now gives each turn's buffers back
+  under one lock (`EventQueue::give_back`), and the next copy takes a kept buffer of about its size
+  (`events/spares.rs`). The pool keeps only buffers of at least `SPARE_MIN_BYTES` (256 KiB; smaller
+  ones are cheap from the allocator). It reuses a buffer only for a copy of at least half its size,
+  so a band never takes a frame's buffer. It keeps at most `SPARES_KEPT` buffers and
+  `SPARE_BYTES_MAX` bytes, none longer than `SPARE_IDLE_MS` unused, and lets every one go before
+  the service reads the user's memory charge for a new view. A buffer that leaves the pool is freed
+  by the service thread after the lock, never on WebKit's thread. Tests: `events/spares.rs`, and
+  `events/tests.rs` checks that a second frame, band and patch reuse the first ones' allocations.
 * **LazyWeb+ wrote files on its window thread after every load.** It saved `session.json` (create,
   write, `fsync`, rename, `fsync` of the folder), up to once a second, and appended to
   `history.tsv`, after every finished load and every title a script set. On LazyOS an `fsync`
@@ -840,7 +844,9 @@ measure them.
   milliseconds just as the person started to scroll. Both files are now written by one thread,
   `webplus-disk` (`xui-app/webplus/src/disk.rs`). It runs jobs in order (an append, then the rewrite
   after it), lets a newer session replace one still waiting, and parks on a condition variable, not
-  a timer. A clean quit waits up to 3 s for it before the `running` marker goes. Without a thread
+  a timer. A change the person asked for (clearing the history, removing a suggestion) waits up to
+  3 s for its answer, so the window still reports a failed write. A crash between the queueing and
+  the write loses that write; before, the window stalled for it instead. A clean quit waits up to 3 s for it before the `running` marker goes. Without a thread
   (`task_max`) jobs run on the caller, as before.
 
 **Left as found:** the window's 250 ms beat (`app/webd.rs`, `BEAT_MS`) wakes an idle browser four times

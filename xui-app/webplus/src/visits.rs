@@ -12,6 +12,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+mod background;
+
 /// How many visits are kept.
 pub const MAX_VISITS: usize = 1000;
 /// The longest title and address kept (a page may send a title of any length, and the network process,
@@ -85,30 +87,6 @@ impl Visits {
         }
     }
 
-    /// Writes the file on [`crate::disk`]'s thread from now on: a call returns once the change is
-    /// in memory, and a failed write is reported there.
-    pub fn in_background(mut self) -> Visits {
-        self.background = true;
-        self
-    }
-
-    /// Runs `write` now, or queues it (in order) when the file is written in the background.
-    fn write(
-        &self,
-        what: &'static str,
-        write: impl FnOnce() -> io::Result<()> + Send + 'static,
-    ) -> io::Result<()> {
-        if !self.background {
-            return write();
-        }
-        crate::disk::global().run(move || {
-            if let Err(e) = write() {
-                eprintln!("lazywebplus: history not {what}: {e}");
-            }
-        });
-        Ok(())
-    }
-
     /// A number that changes with every change to the visits.
     pub fn version(&self) -> u64 {
         self.version
@@ -172,7 +150,7 @@ impl Visits {
         }
         self.entries.pop();
         self.version += 1;
-        self.rewrite()
+        self.rewrite(true)
     }
 
     /// Forgets every visit to `url` (a suggestion the person removed), on disk too: the file is
@@ -184,7 +162,7 @@ impl Visits {
         let removed = before - self.entries.len();
         if removed > 0 {
             self.version += 1;
-            self.rewrite()?;
+            self.rewrite(true)?;
         }
         Ok(removed)
     }
@@ -193,7 +171,7 @@ impl Visits {
     pub fn clear(&mut self) -> io::Result<()> {
         self.entries.clear();
         self.version += 1;
-        self.rewrite()
+        self.rewrite(true)
     }
 
     /// Appends the newest visit, or rewrites the file once it has grown
@@ -203,11 +181,11 @@ impl Visits {
             return Ok(());
         };
         if self.lines + 1 >= 2 * MAX_VISITS {
-            return self.rewrite();
+            return self.rewrite(false);
         }
         let (file, text) = (file.clone(), line(last));
         self.lines += 1;
-        self.write("saved", move || {
+        self.write("saved", false, move || {
             ensure_parent(&file)?;
             let mut out = OpenOptions::new().create(true).append(true).open(&file)?;
             out.write_all(text.as_bytes())
@@ -215,15 +193,16 @@ impl Visits {
     }
 
     /// Writes the whole history to the file, through a temporary file so a
-    /// crash leaves the old one.
-    fn rewrite(&mut self) -> io::Result<()> {
+    /// crash leaves the old one. `checked`: the person asked for the change and
+    /// hears whether it was written.
+    fn rewrite(&mut self, checked: bool) -> io::Result<()> {
         let Some(file) = &self.file else {
             return Ok(());
         };
         let file = file.clone();
         let text: String = self.entries.iter().map(line).collect();
         self.lines = self.entries.len();
-        self.write("rewritten", move || {
+        self.write("rewritten", checked, move || {
             ensure_parent(&file)?;
             let tmp = file.with_extension("tmp");
             fs::write(&tmp, text)?;
@@ -285,23 +264,6 @@ mod tests {
             std::env::temp_dir().join(format!("lazywebplus-visits-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir.join("sub").join("history.tsv")
-    }
-
-    #[test]
-    fn a_history_written_in_the_background_is_on_disk_after_a_flush() {
-        let file = temp("background");
-        let mut visits = Visits::open(file.clone()).in_background();
-        for n in 0..2 * MAX_VISITS {
-            visits
-                .record(&format!("http://{n}.test/"), "", n as u64)
-                .unwrap();
-        }
-        assert!(crate::disk::global().flush(std::time::Duration::from_secs(10)));
-        assert_eq!(
-            Visits::open(file).entries(),
-            visits.entries(),
-            "appends, then the rewrite"
-        );
     }
 
     #[test]

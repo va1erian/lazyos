@@ -30,11 +30,12 @@ impl EventQueue {
         shift: Option<[i32; 6]>,
         rects: &[[i32; 4]],
     ) -> bool {
+        let now = self.now_ms();
         let refused = {
             let inner = &mut *self.lock();
             match inner.pictures.get_mut(&view) {
                 Some(pictures) => {
-                    pictures.post_delta(&mut inner.spares, rgba, width, height, shift, rects)
+                    pictures.post_delta(inner.spares.at(now), rgba, width, height, shift, rects)
                 }
                 // Not a view with deltas (or gone): nothing to apply it to.
                 None => true,

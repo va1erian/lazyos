@@ -39,7 +39,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         self.now_ms = now_ms;
         let drained = self.queue.drain();
         self.deliver(drained);
-        self.queue.trim_spares();
+        self.queue.give_back(std::mem::take(&mut self.spent));
         // The first turn only starts the clock: a view made a moment ago needs no probe yet.
         let due = self
             .next_ping_ms
@@ -168,7 +168,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     ) -> bool {
         let delivered = self.put_frame(id, &frame, offset);
         // Written or dropped, the pixels' buffer is the engine's next copy (`events/spares.rs`).
-        self.queue.recycle(frame.rgba);
+        self.spent.push(frame.rgba);
         delivered
     }
 
