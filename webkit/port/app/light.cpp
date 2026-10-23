@@ -56,6 +56,7 @@ constexpr const char* kLockRules = R"([
  {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
  {"trigger":{"url-filter":"^about:"},"action":{"type":"ignore-previous-rules"}}
 ])";
+// A change to the rule text above needs a new id, or the lookup would find the list an older build compiled.
 constexpr const char* kLockId = "webd-light-lock";
 
 LightLock lockState = LightLock::Pending;
@@ -131,10 +132,35 @@ bool safeStyle(const std::string& css) { return css.find("</") == std::string::n
 
 } // namespace
 
+// The list compiled by an earlier run is on disk already: using it writes nothing, so a full disk (a restart
+// after the cache filled the volume) cannot take the light views down. Only a missing or outdated list is
+// compiled, which does write.
+static void lockLookedUp(WKUserContentFilterRef filter, WKUserContentExtensionStoreResult result, void*)
+{
+    if (result == kWKUserContentExtensionStoreSuccess && filter) {
+        lockCompiled(filter, result, nullptr);
+        return;
+    }
+    if (filter)
+        WKRelease(filter);
+    WKStringRef id = WKStringCreateWithUTF8CString(kLockId);
+    WKStringRef rules = WKStringCreateWithUTF8CString(kLockRules);
+    WKUserContentExtensionStoreCompile(lockStore, id, rules, nullptr, lockCompiled);
+    WKRelease(rules);
+    WKRelease(id);
+}
+
 void prepareLightLock()
 {
-    if (lockStarted)
+    // A failed lock is tried again by the next light view (the volume may have room by then); a lock that is
+    // pending or ready is left alone.
+    if (lockStarted && lockState != LightLock::Failed)
         return;
+    if (lockStore) {
+        WKRelease(lockStore);
+        lockStore = nullptr;
+    }
+    lockState = LightLock::Pending;
     lockStarted = true;
     // The folder is the owner's to name (webd: a folder of its own profile root, writable by its label). No
     // fallback: a predictable folder in a shared place is not one a lock may rest on, so without it the
@@ -160,9 +186,7 @@ void prepareLightLock()
         return;
     }
     WKStringRef id = WKStringCreateWithUTF8CString(kLockId);
-    WKStringRef rules = WKStringCreateWithUTF8CString(kLockRules);
-    WKUserContentExtensionStoreCompile(lockStore, id, rules, nullptr, lockCompiled);
-    WKRelease(rules);
+    WKUserContentExtensionStoreLookup(lockStore, id, nullptr, lockLookedUp);
     WKRelease(id);
 }
 

@@ -345,9 +345,10 @@ void webd_engine_view_create(uint64_t view, const webd_view_config* config)
         }
         addSlot(view, vc, deltas);
         // A view without network (light, or full with no_network) is made once the lock is settled.
-        if (light || vc.noNetwork)
+        if (light || vc.noNetwork) {
+            prepareLightLock(); // a no-op unless an earlier attempt failed
             whenLightLockSettled([view] { finishCreate(view); });
-        else
+        } else
             finishCreate(view);
     });
 }
