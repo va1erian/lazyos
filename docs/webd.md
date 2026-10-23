@@ -107,6 +107,7 @@ a label only to its holder or to `CAP_SETUID`), `none` for an unlabelled caller)
 | `WEBD:HANG:FAIL:...` | the watchdog fired |
 | `WEBD:QUIT:REQUESTED grace_ms=<n>` / `WEBD:QUIT:PASS` | `init` asked / the program ended cleanly with no engine process left (`QUIT:FAIL:status=.. engine processes left=..` otherwise) |
 | `WEBD:SELFTEST:*` | the built-in client (below) |
+| `WEBD:MEM:*` | the process monitor's report, on request (below) |
 
 ## The built-in client (`/selftest`)
 
@@ -127,6 +128,38 @@ python tools/run_demo.py --webd                                      # build and
 python tools/screenshot/qemu_session.py --image target/lazyos.img --out shots/webd \
     --script tools/screenshot/examples/webd_selftest.json            # image: LAZYOS_DESKTOP=1 LAZYOS_WEBD=1 LAZYOS_UI_PROBE=1 LAZYOS_XUI_AUTOSTART=term
 ```
+
+## The process monitor (`/memory`)
+
+Where does webd's memory go? One `webd-app` process holds the service, WebKit's run loop and the clients' pixel
+buffers; each client app gets a `webprocess` (up to 4 per user) and one `networkprocess` serves every profile,
+and they all run copies of big static programs. Adding up each process's resident pages would count the shared
+program text once for every process that runs it (it lives once in the program file's page cache, mapped by all
+of them: `docs/architecture/virtual-memory.md`, "Shared program images") and each client's buffers twice (in the
+client and in webd). So the monitor asks the kernel for **proportional** sizes (`mem::accounting`, system-stats
+op 5): a page is divided between the address spaces that map it, counted by their mappings and not by the frame's
+reference count (the page cache and a memfd hold a reference of their own, and a buffer in the shared window holds
+none). The processes' `memory` figures add up to what the engine really holds.
+
+Launching the resident app again with the path `/memory` (`rhai -e 'sys::init::launch("os.lazy.webd", "/memory", 0)'`,
+the same road as `/selftest`) prints one report, nothing else runs between requests:
+
+```
+WEBD:MEM:PROC role=service pid=5 threads=9 memory=.. private=.. resident=.. code=.. heap=.. stack=.. shared=.. files=.. tables=.. name=webd-app
+WEBD:MEM:PROC role=web pid=9 threads=12 memory=.. ... name=webproce
+WEBD:MEM:CLIENT views=2 slots=.. label=app:os.lazy.docs
+WEBD:MEM:TOTAL processes=3 memory=.. private=.. resident=.. sharing=..
+```
+
+Sizes are bytes. `memory` is the process's proportional share plus its page tables; `private` what only it holds (what
+its exit would free); `resident` every page it maps, shared ones in full; `code`, `heap`, `stack`, `shared` and `files`
+split the proportional share by what the pages are for (read-only program segments, heap and data, stacks, shared
+buffers and shared mappings, private file mappings). `sharing` in the total is how much a plain sum of the resident
+sizes would count twice. A `CLIENT` line says what each client holds in the service: its views and the bytes of its
+buffers attached to them as slots, which are the `shared` part of webd's own row. The processes are webd and what
+descends from it in the scheduler's table; the same figures for every process are in the System Monitor's Memory tab.
+Code: `xui-app/webd/src/procmon.rs` (the pure part, host-tested) and `memory.rs` (the kernel reads),
+`xui_webd::Service::client_usage` (per client).
 
 ## Building and starting
 

@@ -41,11 +41,18 @@
 //! identifies *where* memory is or *who* a task is must be a new version with
 //! an explicit capability check, not an extension of version 1.
 //!
+//! Op 5 (`procmem`) adds the memory of every process (resident, private and
+//! proportional sizes, shared pages divided between the processes that map
+//! them). It carries sizes only, so it is open to every task like the
+//! snapshot.
+//!
 //! The wire form is mirrored (and decoded) by `libs/lazyos-sys/src/sysinfo/`,
 //! and each field/index pair is duplicated as a compile-time-checked constant
 //! there.
 
 use alloc::vec::Vec;
+
+pub mod procmem;
 
 use crate::mem;
 use crate::task::{self, PriorityClass, TaskState, WaitKind};
@@ -76,6 +83,11 @@ pub mod op {
     /// whole snapshot (docs/tracing-plan.md, T2). Zero in a
     /// `LAZYOS_TRACE=0` kernel. Open to every task: the mask is no secret.
     pub const TRACE_MASK: u64 = 4;
+    /// Per-process memory (`procmem`): resident, private and proportional
+    /// sizes of every user address space, shared pages divided between the
+    /// spaces that map them. Sizes only, so open to every task like the
+    /// snapshot.
+    pub const PROC_MEM: u64 = 5;
 }
 
 /// Task state codes in a row's state word. Stable across ABI versions.
@@ -210,7 +222,7 @@ pub const SIZE: u64 = (WORDS * 8) as u64;
 const DBGD_UID: u32 = 914;
 
 /// Errno values, matching the Linux numbering the native ABI uses.
-mod errno {
+pub(crate) mod errno {
     #[cfg(lazyos_dbgd)]
     pub const EPERM: i64 = 1;
     pub const E2BIG: i64 = 7;
@@ -219,7 +231,7 @@ mod errno {
 }
 
 /// Two's-complement `-errno` in the syscall return register.
-fn negative(code: i64) -> u64 {
+pub(crate) fn negative(code: i64) -> u64 {
     (code as u64).wrapping_neg()
 }
 
@@ -229,6 +241,7 @@ pub fn dispatch(op: u64, a1: u64, a2: u64) -> u64 {
         op::SIZE => SIZE,
         op::SNAPSHOT => snapshot(a1, a2),
         op::TRACE_MASK => trace_mask(a1, a2),
+        op::PROC_MEM => procmem::dispatch(a1, a2),
         #[cfg(lazyos_dbgd)]
         op::KLOG => log_ring(a1, a2, crate::klog::snapshot_with_total),
         #[cfg(lazyos_dbgd)]

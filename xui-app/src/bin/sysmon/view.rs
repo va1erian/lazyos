@@ -8,7 +8,7 @@
 use xui_app::format::bytes;
 use xui_app::services::Services;
 use xui_app::sys::errno;
-use xui_app::sysinfo::Snapshot;
+use xui_app::sysinfo::{ProcessTable, Snapshot};
 use xui_core::Lucide;
 use xui_core::app::Ui;
 use xui_core::backend::WidgetId;
@@ -16,11 +16,12 @@ use xui_core::prelude::*;
 
 use crate::advanced::{Advanced, GAUGE, share};
 use crate::load::ProgramLoad;
+use crate::memory::Memory;
 use crate::overview::{Overview, friendly_uptime};
 use crate::{Msg, View};
 
 /// The keys the header reminds of.
-const KEYS: &str = "[o] overview  [s] services  [a] advanced  [c] compact  [F1] help";
+const KEYS: &str = "[o] overview  [m] memory  [s] services  [a] advanced  [c] compact  [F1] help";
 
 /// One line of the compact view: a name, a bar and a value.
 #[derive(Default)]
@@ -62,6 +63,7 @@ pub(crate) struct Widgets {
     help: Handle<Button<Msg>>,
     pub(crate) tabs: Handle<Tabs<Msg>>,
     pub(crate) overview: Overview,
+    pub(crate) memory: Memory,
     pub(crate) advanced: Advanced,
     services_heading: Handle<Label<Msg>>,
     services_note: Handle<Label<Msg>>,
@@ -98,6 +100,7 @@ impl Widgets {
             )),
             tabs()
                 .page("Overview", self.overview.layout())
+                .page("Memory", self.memory.layout())
                 .page("Services", self.services_page())
                 .page("Advanced", self.advanced.layout())
                 .on_change(|index| Msg::Show(View::from_index(index)))
@@ -150,9 +153,11 @@ impl Widgets {
         snapshot: &Snapshot,
         cpu: Option<u32>,
         programs: &[ProgramLoad],
+        memory: Option<&ProcessTable>,
     ) {
         self.overview.show(snapshot, cpu, programs);
-        self.advanced.show(snapshot);
+        self.advanced.show(snapshot, memory);
+        self.memory.show(snapshot, memory);
         let memory = snapshot.memory_use();
         let [cpu_meter, memory_meter, cache_meter] = &self.compact;
         let cpu = cpu.unwrap_or(0);
@@ -183,6 +188,7 @@ impl Widgets {
     /// without the tabs or the status bar) carry the errno.
     pub(crate) fn show_unavailable(&self, code: i64) {
         self.overview.show_unavailable(code);
+        self.memory.show_unavailable();
         self.advanced.show_unavailable(code);
         for meter in &self.compact {
             meter.show(0.0, format!("errno {code}"));

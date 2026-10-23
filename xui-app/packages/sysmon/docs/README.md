@@ -52,6 +52,37 @@ last second. **Running** means it is working or ready to work; **Waiting**
 means it is idle until something happens (a key press, a timer, data from the
 network or the disk). Most programs wait almost all of the time.
 
+The **Memory** column is what the program costs the computer. Programs share
+memory: every process running the same program uses one copy of its code, and
+windows and some other buffers are shared with the program that draws them.
+Memory that several programs share is divided between them, so the column
+adds up to what the programs really hold, and the code of a program that ten
+processes run is not counted ten times. A program's page tables are included.
+A dash means the figure is not available: the program is a helper thread of
+another entry (the process has the number), or the kernel is too old to
+report it.
+
+## Memory
+
+The second tab answers "which program is using my memory, and on what?". It
+lists every process, biggest first, with:
+
+| Column | What it counts |
+| --- | --- |
+| **Memory** | What the process costs the computer: its share of every page it uses, plus its page tables. This is the figure the Overview shows. |
+| **Code** | The program's own code and read-only data. Every process running the same program uses one copy, so the copy is divided between them. |
+| **Heap & data** | Memory the program allocated and wrote to: its working data. |
+| **Stacks** | The space for the program's running functions, one per thread. |
+| **Shared** | Buffers shared on purpose with other programs, such as the pictures a program hands to the display. Divided between the programs that use them. |
+| **Files** | Files the program has opened as memory (fonts, data). |
+| **Private** | Memory only this process uses: what closing it gives back (page tables included). |
+| **Threads** | How many threads run in the process. |
+
+Memory shared between processes is divided between them rather than counted in
+full for each, so the column adds up to what the programs really hold. The line
+above the table says how much more it would add up to if every process counted
+shared pages in full: the difference is the sharing.
+
 ## Services
 
 Services are the background programs LazyOS starts for you: the display, the
@@ -83,7 +114,15 @@ kernel's own counters:
   has mapped, and the running count of page allocations and frees.
 - **Tasks**: every scheduler slot in use, with its process id, scheduler
   state (`run`, `block`), scheduling class (`norm`, `intr`, `bg`, `rt`), the
-  processor time charged to it in 100 Hz ticks, its name and its parent.
+  processor time charged to it in 100 Hz ticks, its memory, its name and its
+  parent. Three memory figures are shown, for the process (a thread shows a
+  dash: it uses its process's memory):
+  - **memory**: its share, with every page divided between the processes that
+    map it (the figure the Overview shows, page tables included);
+  - **private**: memory only this process maps, which closing it would give
+    back;
+  - **resident**: every page it maps, shared pages counted in full, so adding
+    this column up counts shared code several times.
 
 The Overview's memory parts come from the same numbers: **Disk cache** is the
 block cache's frames, **System** is the kernel heap's pages, the slab frames
@@ -94,6 +133,7 @@ and the reserved frames, and **Programs** is every other page in use.
 | Key | Does |
 | --- | --- |
 | `o` | Show Overview |
+| `m` | Show Memory |
 | `s` | Show Services |
 | `a` | Show Advanced |
 | `r` | Update now |

@@ -39,9 +39,10 @@ impl Overview {
             grid([Track::Fill(4), Track::Fill(5)])
                 .gap(16)
                 .children((self.cpu_card(), self.memory_card())),
-            label("Busiest programs: their share of the processor in the last second"),
+            label("Busiest programs: their share of the processor in the last second, and the memory each holds"),
             list()
                 .column("Program", Fill)
+                .column_right("Memory", 110)
                 .column_right("Processor", 110)
                 .column("Status", 130)
                 .bind(&self.programs)
@@ -109,6 +110,7 @@ impl Overview {
             .map(|program| {
                 vec![
                     program.name.clone(),
+                    program.memory.map_or_else(|| "–".to_string(), bytes),
                     format!("{:.1}%", program.percent),
                     if program.running {
                         "Running"

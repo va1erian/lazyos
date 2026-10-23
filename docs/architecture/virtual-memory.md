@@ -143,6 +143,15 @@ program is replaced. The registry knows the file by its node, so the
 protection holds through every hard link of it (#871); unlinking one name of a
 running program that keeps another parks nothing. Tests:
 `linux_image_*` (`tests/ext2_suite/data_fds/filemap/image.rs`).
+**Per-process memory** (`mem/accounting.rs`, system-stats op 5): resident (`rss`), private (`uss`) and proportional
+(`pss`) sizes of every user address space, split by what the pages are for (`Kind::FileImage` is program code,
+`Stack`, the shared-buffer window and `Shared*` kinds, `FilePrivate`, the rest is heap and data). A page is divided
+between the spaces that *map* it: the walk counts mappings per frame (a leaf whose frame has one reference is private
+at once; the rest wait for the whole walk), because the reference count also holds the page cache's and a memfd's
+reference and the shared window's leaves hold none. So the program text ten processes run is counted once in total.
+Frames that are not allocator frames (`MMIO`, `DMA` leaves, a count of zero) are not counted; scratch memory for the
+shared leaves is bounded (`MAX_SHARED_LEAVES`, past it a leaf is divided by its reference count). Tests:
+`mem_suite/accounting.rs` and `sysinfo_procmem_suite.rs`.
 **SMP:** the design assumes one CPU. The fault epoch (a
 validation is correct only while no other task ran), the write-protection of
 other spaces' page tables without a shootdown (`filemap::write_protect`,

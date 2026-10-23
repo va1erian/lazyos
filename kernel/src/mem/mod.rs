@@ -1,6 +1,7 @@
 //! Memory management: physical frames, kernel paging, the slab allocator, and
 //! the heap.
 
+pub mod accounting;
 mod cow;
 pub mod dma;
 pub mod filemap;

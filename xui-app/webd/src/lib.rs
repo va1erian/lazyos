@@ -14,15 +14,18 @@
 //!   thread parks on together with its endpoint and lifecycle channel ([`serve`]).
 //! * [`heartbeat`]: the watchdog that notices a WebKit main thread that has stopped turning.
 //! * [`lines`]: the notes of the service as the `WEBD:*` markers a harness reads.
+//! * [`procmon`] and `memory`: the process monitor: where the memory of webd and of its engine
+//!   processes goes, shared pages divided between the processes that map them.
 //! * [`selftest`]: webd's built-in client, which runs the service through the real road in an image with
 //!   no other client (`Launch os.lazy.webd` with `/selftest`).
 //! * [`exports`]: the C functions `main.cpp` calls.
 //!
-//! The pure parts ([`lines`], [`heartbeat`]) build and test on any host; the rest is LazyOS's
+//! The pure parts ([`lines`], [`heartbeat`], [`procmon`]) build and test on any host; the rest is LazyOS's
 //! (`x86_64-unknown-linux-musl`).
 
 pub mod heartbeat;
 pub mod lines;
+pub mod procmon;
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod doorbell;
@@ -30,6 +33,8 @@ mod doorbell;
 mod exports;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod fabric;
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+mod memory;
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 mod outside;
 #[cfg(all(target_os = "linux", target_env = "musl"))]

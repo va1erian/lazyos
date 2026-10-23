@@ -5,7 +5,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use xui_app::sysinfo::{Snapshot, TaskClass, TaskRow, TaskState, WORDS, decode_words, header};
+use xui_app::sysinfo::{
+    ProcessMemory, ProcessTable, Snapshot, TaskClass, TaskRow, TaskState, VERSION, WORDS,
+    decode_words, header,
+};
 use xui_canvas::OffscreenBackend;
 use xui_canvas::snapshot::Gallery;
 use xui_core::app::{App, Ui};
@@ -58,7 +61,7 @@ fn later(snapshot: &Snapshot, seconds: u64) -> Snapshot {
 fn sample() -> Snapshot {
     let mut words = vec![0u64; WORDS];
     for (index, value) in [
-        (header::VERSION, 6),
+        (header::VERSION, VERSION),
         (header::TICKS, 360_000),
         (header::IDLE_TICKS, 300_000),
         (header::TASKS_LIVE, 4),
@@ -95,6 +98,36 @@ fn sample() -> Snapshot {
     snapshot
 }
 
+/// What the kernel says each of the sample's programs holds, in pages of 4 KiB
+/// and proportional bytes; `healthd` (pid 3) has no row, like a thread.
+fn processes() -> ProcessTable {
+    // The proportional bytes are split into code, heap and data, stacks, shared
+    // buffers and mapped files, in the kernel's order.
+    let row = |pid, resident_pages, private_pages, split: [u64; 5]| {
+        let pss: u64 = split.iter().map(|pages| pages * 4096).sum();
+        ProcessMemory {
+            pid,
+            threads: 1,
+            resident_pages,
+            private_pages,
+            pss,
+            table_pages: 12,
+            class_pages: split,
+            class_pss: split.map(|pages| pages * 4096),
+            ..ProcessMemory::default()
+        }
+    };
+    ProcessTable {
+        ticks: 360_000,
+        total: 3,
+        rows: vec![
+            row(1, 900, 300, [250, 300, 8, 0, 40]),
+            row(2, 6_000, 5_000, [300, 3_900, 16, 1_100, 90]),
+            row(4, 2_100, 400, [380, 420, 12, 70, 18]),
+        ],
+    }
+}
+
 #[test]
 fn the_dashboard_lays_out_and_renders_light_and_dark() {
     let backend = Rc::new(OffscreenBackend::new());
@@ -108,10 +141,11 @@ fn the_dashboard_lays_out_and_renders_light_and_dark() {
             let mut widgets = Widgets::new();
             ui.root(widgets.layout())?;
             let mut load = Load::default();
+            let memory = processes();
             let first = sample();
-            let (cpu, programs) = load.update(&first);
+            let (cpu, programs) = load.update(&first, Some(&memory));
             assert_eq!(cpu, None, "one snapshot has no interval yet");
-            widgets.show_snapshot(&first, cpu, &programs);
+            widgets.show_snapshot(&first, cpu, &programs, Some(&memory));
             widgets.show_status(360_000, 3, None);
             widgets.set_compact(ui, false);
             ui.relayout();
@@ -121,16 +155,22 @@ fn the_dashboard_lays_out_and_renders_light_and_dark() {
                 "the sample's live tasks"
             );
             assert_eq!(widgets.overview.programs.get().len(), 4);
+            assert_eq!(
+                widgets.memory.processes.get().len(),
+                3,
+                "one row per process the kernel reported"
+            );
             widgets.show_unavailable(5);
             assert!(
                 widgets.advanced.tasks.get().is_empty()
-                    && widgets.overview.programs.get().is_empty(),
+                    && widgets.overview.programs.get().is_empty()
+                    && widgets.memory.processes.get().is_empty(),
                 "a failed read clears the tables"
             );
             for second in 1..=40 {
                 let next = later(&first, second);
-                let (cpu, programs) = load.update(&next);
-                widgets.show_snapshot(&next, cpu, &programs);
+                let (cpu, programs) = load.update(&next, Some(&memory));
+                widgets.show_snapshot(&next, cpu, &programs, Some(&memory));
             }
             seen.borrow_mut().extend([
                 ui.bounds(widgets.tabs.get().id()),
@@ -140,7 +180,7 @@ fn the_dashboard_lays_out_and_renders_light_and_dark() {
             let tabs = widgets.tabs.clone();
             capture.set_run_hook(move || {
                 let gallery = Gallery::parse(None, Some("target/snapshots"));
-                for (tab, name) in [(0, "sysmon"), (2, "sysmon-advanced")] {
+                for (tab, name) in [(0, "sysmon"), (1, "sysmon-memory"), (3, "sysmon-advanced")] {
                     tabs.get().select(tab);
                     for (variant, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
                         ui.set_theme(theme);

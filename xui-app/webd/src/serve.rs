@@ -33,7 +33,8 @@ use crate::fabric::RealFabric;
 use crate::heartbeat::{Beat, Heartbeat};
 use crate::lines::{lines_of, Line};
 use crate::outside::System;
-use crate::{doorbell, exports, selftest};
+use crate::procmon::ClientLine;
+use crate::{doorbell, exports, memory, selftest};
 
 /// The name the light interface is registered under (`docs/webd-plan.md` section 3.1: a labelled app
 /// registers `app.<id>.<name>` for an interface of its own domain `<id>.<name>.v<N>`).
@@ -176,8 +177,21 @@ fn serve_one(server: &Server, service: &mut Svc, buf: &mut [u8]) -> usize {
     answered
 }
 
+/// The memory report's lines for the clients: what each holds in the service.
+fn client_lines(service: &Svc) -> Vec<ClientLine> {
+    service
+        .client_usage()
+        .into_iter()
+        .map(|usage| ClientLine {
+            label: client_name(usage.client),
+            views: usage.views,
+            slot_bytes: usage.slot_bytes,
+        })
+        .collect()
+}
+
 /// What `init` and the tray asked since the last look; `true` to quit.
-fn lifecycle(life: &mut Option<Lifecycle>) -> bool {
+fn lifecycle(life: &mut Option<Lifecycle>, service: &Svc) -> bool {
     let Some(life) = life.as_mut() else {
         return false;
     };
@@ -190,9 +204,12 @@ fn lifecycle(life: &mut Option<Lifecycle>) -> bool {
             }
             Wake::Reopen(args) => {
                 // webd has no window to show; a second launch with the self-test path runs the
-                // built-in client (docs/webd.md).
+                // built-in client, and one with `/memory` prints the process monitor's report
+                // (docs/webd.md).
                 if args == selftest::ARG || args == selftest::HOLD_ARG {
                     selftest::start(args == selftest::HOLD_ARG);
+                } else if args == memory::ARG {
+                    memory::report(&client_lines(service));
                 }
             }
             Wake::Tray(_) => {}
@@ -280,7 +297,7 @@ pub fn run(queue: Arc<EventQueue>) -> i32 {
         serve_requests(&servers, &mut service, &mut buf);
         service.pump(now_ms());
         flush_notes(&mut service);
-        if lifecycle(&mut life) || QUIT.load(Ordering::Acquire) {
+        if lifecycle(&mut life, &service) || QUIT.load(Ordering::Acquire) {
             break;
         }
         match watchdog.poll(

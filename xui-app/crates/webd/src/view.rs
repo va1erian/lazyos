@@ -11,6 +11,16 @@ use crate::fullconfig::Rules;
 use crate::ident::ClientKey;
 use crate::slots::Slots;
 
+/// What one client holds in webd: see [`Views::usage`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClientUsage {
+    pub client: ClientKey,
+    /// Views, lost ones included.
+    pub views: usize,
+    /// Bytes of the client's buffers attached to them as slots.
+    pub slot_bytes: u64,
+}
+
 /// A navigation the engine holds for the client's answer (`Handoff.Ask`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Held {
@@ -191,6 +201,24 @@ impl Views {
             .values()
             .filter(|view| view.owner == client)
             .count()
+    }
+
+    /// What every client holds, one entry each, in the order of their keys: the
+    /// views (lost ones included) and the slot memory they have attached. The
+    /// slots are the clients' own buffers mapped into webd, so this is where the
+    /// shared part of webd's memory comes from.
+    pub fn usage(&self) -> Vec<ClientUsage> {
+        let mut by_client: BTreeMap<ClientKey, ClientUsage> = BTreeMap::new();
+        for view in self.map.values() {
+            let entry = by_client.entry(view.owner).or_insert(ClientUsage {
+                client: view.owner,
+                views: 0,
+                slot_bytes: 0,
+            });
+            entry.views += 1;
+            entry.slot_bytes = entry.slot_bytes.saturating_add(view.slots.bytes());
+        }
+        by_client.into_values().collect()
     }
 
     /// Bytes of slot memory `client` has attached.
