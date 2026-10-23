@@ -528,7 +528,9 @@ void viewSetCursor(WKViewRef view, uint32_t cursorType, const void* clientInfo);
 // The rule list that blocks every load but data:, blob: and about: URLs is compiled once for the process
 // (WebKit's content-extension store, in a folder of its own: $LAZYOS_WEBD_RULES_DIR or
 // /tmp/webd-rules-<pid>). Call after startHost, with the run loop about to turn; a light view cannot be
-// made before it is ready (createView returns null), so an owner waits with whenLightLockSettled.
+// made before it is ready (createView returns null), so an owner waits with whenLightLockSettled. A list an earlier
+// run compiled is looked up first (no write: a full volume cannot fail it); a failed lock is tried again when this is
+// called later (at most every two seconds), so a light view asking after room was made can still be served.
 enum class LightLock { Pending, Ready, Failed };
 void prepareLightLock();
 LightLock lightLock();

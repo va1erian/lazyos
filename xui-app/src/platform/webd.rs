@@ -18,6 +18,8 @@
 //! `app.os.lazy.webd.view`, sends every call as `os.lazy.webd.view.v1` except the `CreateView` of a
 //! scope (`ScopedTransport::call_through`), and reads events of that interface.
 
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
 use libmessenger::{Object, Parcel};
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 use messenger_generated::os_lazy_webd_view_v1 as view_wire;
@@ -90,6 +92,9 @@ pub struct WebdTransport {
     buf: Vec<u8>,
     name: &'static str,
     interface: u64,
+    /// The event channel and a descriptor watching it, made at the first empty poll
+    /// ([`WebdTransport::peer_gone`]); dropped when the channel is closed.
+    hangup: Option<(u64, OwnedFd)>,
 }
 
 impl Default for WebdTransport {
@@ -105,6 +110,7 @@ impl WebdTransport {
             buf: vec![0; EVENT_BYTES],
             name: SERVICE_NAME,
             interface: wire::INTERFACE_ID,
+            hangup: None,
         }
     }
 
@@ -115,7 +121,42 @@ impl WebdTransport {
             buf: vec![0; EVENT_BYTES],
             name: FULL_SERVICE_NAME,
             interface: view_wire::INTERFACE_ID,
+            hangup: None,
         }
+    }
+
+    /// An empty queue is not yet "nothing to read": the kernel counts no queued message for a
+    /// channel whose peer closed, and only readiness says so (`POLLIN | POLLHUP` on the descriptor
+    /// the window parks on). Taking that for "nothing yet" left a view of a webd that died waiting
+    /// for events for good: the descriptor stayed readable, the window's loop spun on it, and the
+    /// view was never made again. Asked with a zero-timeout `poll` on a descriptor of our own (a
+    /// blocking `msg_wait_any` would park the UI thread until the next tick on every empty poll).
+    fn peer_gone(&mut self, channel: u64) -> Result<Option<RawEvent>, i64> {
+        let fd = match &self.hangup {
+            Some((handle, fd)) if *handle == channel => fd.as_raw_fd(),
+            _ => {
+                let Ok(raw) = lazyos_sys::msg::endpoint_fd(channel, true) else {
+                    return Ok(None);
+                };
+                // SAFETY: `endpoint_fd` just made this descriptor and nothing else owns it.
+                let owned = unsafe { OwnedFd::from_raw_fd(raw) };
+                self.hangup = Some((channel, owned));
+                raw
+            }
+        };
+        let mut watch = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: `watch` is one valid `pollfd` and the count says so; a zero timeout never parks.
+        let ready = unsafe { libc::poll(&mut watch, 1, 0) };
+        let closed = ready > 0 && watch.revents & (libc::POLLHUP | libc::POLLERR) != 0;
+        // A message that arrived since the count is read by the next poll.
+        if closed && matches!(sys::msg_queued(channel), Ok(0)) {
+            return Err(-errno::EPIPE);
+        }
+        Ok(None)
     }
 
     fn service(&self) -> Option<Service> {
@@ -201,7 +242,7 @@ impl Transport for WebdTransport {
 
     fn recv(&mut self, channel: u64) -> Result<Option<RawEvent>, i64> {
         match sys::msg_queued(channel) {
-            Ok(0) => return Ok(None),
+            Ok(0) => return self.peer_gone(channel),
             Ok(_) => {}
             Err(code) => return Err(code),
         }
@@ -239,6 +280,13 @@ impl Transport for WebdTransport {
     }
 
     fn close_channel(&mut self, handle: u64) {
+        if self
+            .hangup
+            .as_ref()
+            .is_some_and(|(held, _)| *held == handle)
+        {
+            self.hangup = None;
+        }
         let _ = sys::msg_close(handle);
     }
 }

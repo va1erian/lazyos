@@ -362,8 +362,9 @@ notifications as toasts (the engine's half passes `webd-abi-test notify`), bands
 
 ## Files
 
-`$HOME/.apps/os.lazy.webd/rules/`: the engine's network-lock rule store, compiled at every start
-(`LAZYOS_WEBD_RULES_DIR`, set by `webd_host_init`; the engine has no fallback: without the variable it prints
+`$HOME/.apps/os.lazy.webd/rules/`: the engine's network-lock rule store (a list an earlier start compiled is found by a lookup that
+writes nothing, so a full volume does not fail it; one that is missing is compiled, and a failed compile is tried
+again by a later light view, `LAZYOS_WEBD_RULES_DIR`, set by `webd_host_init`; the engine has no fallback: without the variable it prints
 `FAIL:light:...` and refuses every light view, because a predictable folder in a shared place is not one a lock
 may rest on). `$HOME/.apps/os.lazy.webd/profiles/`: where the engine's processes start; `profiles/browser/` is the
 `browser` profile (cookies, cache, storage, the content-blocking store). A finished download is renamed in
