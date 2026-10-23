@@ -238,7 +238,9 @@ view per tab, so a client that makes views through `os.lazy.webd.browser.v1` may
 scopes 8); the per-client slot budget (512 MiB) is unchanged, which is why a tab not on screen calls
 `DetachSlots` (method 45: every slot is detached as `Resize` does, without a resize and the layout it may cost) and
 the tab coming back attaches slots again and asks for a whole frame (`xui_webd_client::FullWebView::detach_slots`
-and `reattach_slots`).
+and `reattach_slots`). The reply carries the number of the last `Frame` sent, because frames painted into the old
+slots may still be queued and, the size being unchanged, would pass for frames of the new ones: the client ignores
+frames up to that number (and bands, which have no number, until a whole frame has been applied).
 
 * **`ViewConfig.process_key`** (field 15, any full scope) places a view in a web process of its own inside the
   caller's group: views of one client with the same key share a process, other keys never do, `""` is the default
@@ -259,7 +261,9 @@ and `reattach_slots`).
   only appends to it); at most 256 printable ASCII bytes, not together with a suffix. **`SetUserAgent`** (method 46)
   changes it from the next load on and `""` restores the agent the view was made with; it is allowed only for a
   view made through the browser scope with a `user_agent` or a `user_agent_suffix`, the views whose site-specific
-  quirks (which put a fixed agent on every request) are off (`webkit/README.md`, "User agent").
+  quirks (which put a fixed agent on every request) are off (`webkit/README.md`, "User agent"). A browser that wants
+  the choice on every tab therefore makes every tab with one of the two; `webkit-remote`'s `browser_config` passes
+  neither yet, so it has no per-tab agent and keeps the quirks, until the window's tabs work sets one.
 * Not built yet: the parked-view pool for full views (a closed tab still leaves a proxy), `webd_engine_view_pid`,
   and the window's tabs (`xui-webplus`).
 

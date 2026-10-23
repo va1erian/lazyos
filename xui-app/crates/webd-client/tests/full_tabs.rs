@@ -109,9 +109,17 @@ fn frames_queued_before_a_detach_cannot_paint_the_slots_attached_after_it() {
     queue.frame(id, &long_frame(32, 24, 7), 32, 24);
     queue.state(id, "Titled", false, 1, "");
     web.world.borrow_mut().pump();
+    // A backlog longer than one poll reads (256 events), so no bounded read-ahead could clear it.
+    for n in 0..600 {
+        queue.scroll(id, 0, n, false);
+        web.world.borrow_mut().pump();
+    }
     view.detach_slots().unwrap();
     view.reattach_slots().unwrap();
-    let events = view.poll();
+    let mut events = Vec::new();
+    for _ in 0..8 {
+        events.extend(view.poll());
+    }
     assert_eq!(
         view.picture().rgba(),
         &shown[..],
@@ -121,11 +129,15 @@ fn frames_queued_before_a_detach_cannot_paint_the_slots_attached_after_it() {
         !events.iter().any(|e| matches!(e, FullEvent::Frame(_))),
         "{events:?}"
     );
-    // What else was read while detaching is not lost.
+    // The other events of the backlog are not lost.
     assert!(
         events
             .iter()
             .any(|e| matches!(e, FullEvent::State(state) if state.title == "Titled")),
         "{events:?}"
     );
+    // A frame painted after the reattach is applied.
+    queue.frame(id, &long_frame(32, 24, 11), 32, 24);
+    view.poll();
+    assert_eq!(view.picture().rgba(), &long_frame(32, 24, 11)[..]);
 }

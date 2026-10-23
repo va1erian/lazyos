@@ -99,7 +99,7 @@ reply with the standard error field (id 15).
 | NotifyForget | 38 | sync | `(view: U64, origin: String) -> ()` |
 | NotifyState | 39 | sync | `(view: U64, notification: U64, state: U32) -> ()` |
 | RecoverGroup | 44 | sync | `(view: U64) -> ()` |
-| DetachSlots | 45 | sync | `(view: U64) -> ()` |
+| DetachSlots | 45 | sync | `(view: U64) -> (seq: U64)` |
 | SetUserAgent | 46 | sync | `(view: U64, user_agent: String) -> ()` |
 | Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
 | State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> ()` |

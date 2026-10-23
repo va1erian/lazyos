@@ -32,22 +32,11 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.poll_with(None)
     }
 
-    pub(super) fn poll_with(&mut self, sink: Option<&mut dyn PixelSink>) -> Vec<FullEvent> {
-        let mut out = std::mem::take(&mut self.stashed);
+    pub(super) fn poll_with(&mut self, mut sink: Option<&mut dyn PixelSink>) -> Vec<FullEvent> {
+        let mut out = Vec::new();
         self.flush_owed();
-        self.read_events(sink, &mut out);
-        out
-    }
-
-    /// Read what is queued, up to [`EVENTS_PER_POLL`] events, into `out`. `true` when that many were
-    /// read and more may wait.
-    pub(super) fn read_events(
-        &mut self,
-        mut sink: Option<&mut dyn PixelSink>,
-        out: &mut Vec<FullEvent>,
-    ) -> bool {
         let Some(events) = self.live.as_ref().map(|live| live.events) else {
-            return false;
+            return out;
         };
         for _ in 0..EVENTS_PER_POLL {
             match self.transport.recv(events) {
@@ -56,19 +45,19 @@ impl<T: ScopedTransport> FullWebView<T> {
                         Some(sink) => Some(&mut **sink),
                         None => None,
                     };
-                    self.event(method, &body, out, sink)
+                    self.event(method, &body, &mut out, sink)
                 }
-                Ok(None) => return false,
+                Ok(None) => break,
                 Err(_) => {
-                    self.lose(Lost::ServiceGone, out);
-                    return false;
+                    self.lose(Lost::ServiceGone, &mut out);
+                    break;
                 }
             }
             if self.lost.is_some() {
-                return false;
+                break;
             }
         }
-        true
+        out
     }
 
     fn event(
@@ -113,6 +102,11 @@ impl<T: ScopedTransport> FullWebView<T> {
         out: &mut Vec<FullEvent>,
         sink: Option<&mut dyn PixelSink>,
     ) {
+        // Painted before a detach, into a slot that is gone: not a slot we hold now, though it may name one.
+        if self.stale_through.is_some_and(|stale| frame.seq <= stale) {
+            self.counters.ignored += 1;
+            return;
+        }
         let size = self.size;
         let bytes = u128::from(frame.width) * u128::from(frame.height) * 4;
         let index = frame.slot as usize;
@@ -146,6 +140,9 @@ impl<T: ScopedTransport> FullWebView<T> {
             None => self.apply_delta(&frame),
         };
         info.applied = applied;
+        if applied && frame.whole {
+            self.bands_wait = false;
+        }
         if applied {
             self.last_seq = frame.seq;
             self.scroll = (frame.offset_x, frame.offset_y, frame.at_bottom);
@@ -228,6 +225,10 @@ impl<T: ScopedTransport> FullWebView<T> {
     /// Copy a band out of its slot and give the slot back. A band that does not fit its slot (a
     /// stale width) is dropped, and released: band slots are not detached by anything but `Resize`.
     fn band(&mut self, band: wire::BandArgs, out: &mut Vec<FullEvent>) {
+        if self.bands_wait {
+            self.counters.ignored += 1;
+            return;
+        }
         let index = band.slot as usize;
         let bytes = band.width as usize * band.height.min(BAND_ROWS) as usize * 4;
         let mem = (index >= FRAME_SLOTS)

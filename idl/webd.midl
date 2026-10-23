@@ -152,8 +152,11 @@ interface os.lazy.webd.view.v1 {
     /// and without costing the page a layout: a view that is not on screen
     /// (a background tab) gives its slot memory back to the client's quota.
     /// The app attaches slots again and asks for a whole frame (`Refresh`)
-    /// when the view comes back.
-    method DetachSlots(view: U64 = 1) -> () = 45;
+    /// when the view comes back. Replies with the sequence number of the last
+    /// `Frame` webd sent for the view (0 for none): frames numbered up to it
+    /// were painted into slots that are gone, and may still be queued for the
+    /// app; it ignores them rather than copy from a slot attached later.
+    method DetachSlots(view: U64 = 1) -> (seq: U64 = 1) = 45;
     /// Change the user agent the page's requests and `navigator.userAgent`
     /// show, from the next load on (a tab asking for the desktop site). The
     /// view must have been made through `os.lazy.webd.browser.v1` with a

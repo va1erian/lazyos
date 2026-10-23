@@ -4194,9 +4194,9 @@ pub static INTERFACES: &[Interface] = &[
                 name: "DetachSlots",
                 id: 45,
                 oneway: false,
-                doc: "Detach every slot of the view, as `Resize` does, without resizing it\nand without costing the page a layout: a view that is not on screen\n(a background tab) gives its slot memory back to the client's quota.\nThe app attaches slots again and asks for a whole frame (`Refresh`)\nwhen the view comes back.",
+                doc: "Detach every slot of the view, as `Resize` does, without resizing it\nand without costing the page a layout: a view that is not on screen\n(a background tab) gives its slot memory back to the client's quota.\nThe app attaches slots again and asks for a whole frame (`Refresh`)\nwhen the view comes back. Replies with the sequence number of the last\n`Frame` webd sent for the view (0 for none): frames numbered up to it\nwere painted into slots that are gone, and may still be queued for the\napp; it ignores them rather than copy from a slot attached later.",
                 params: &[Field { name: "view", id: 1, ty: Ty::U64 }],
-                returns: &[],
+                returns: &[Field { name: "seq", id: 1, ty: Ty::U64 }],
                 objects: &[],
             },
             Method {

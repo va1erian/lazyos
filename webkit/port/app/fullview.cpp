@@ -170,7 +170,7 @@ void loadFullHtml(View& v, const std::string& html, const std::string& baseUrl)
     WKRelease(base);
 }
 
-void applyUserAgent(View& v, const std::string& override)
+void applyUserAgent(View& v, const std::string& agentOverride)
 {
     // The first call is when the page is made, before any custom agent is set.
     if (v.standardAgent.empty()) {
@@ -179,7 +179,7 @@ void applyUserAgent(View& v, const std::string& override)
         if (standard)
             WKRelease(standard);
     }
-    std::string agent = override;
+    std::string agent = agentOverride;
     if (agent.empty())
         agent = v.config.userAgent;
     // WebKit's own user agent with the suffix after a space, as the custom one: WKPageSetApplicationNameForUserAgent

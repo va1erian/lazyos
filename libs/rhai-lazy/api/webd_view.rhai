@@ -282,13 +282,16 @@ fn recover_group(view) {
     msg::connect("os.lazy.webd.view.v1").invoke("RecoverGroup", [view])
 }
 
-/// `DetachSlots(view: U64) -> ()`
+/// `DetachSlots(view: U64) -> (seq: U64)`
 ///
 /// Detach every slot of the view, as `Resize` does, without resizing it
 /// and without costing the page a layout: a view that is not on screen
 /// (a background tab) gives its slot memory back to the client's quota.
 /// The app attaches slots again and asks for a whole frame (`Refresh`)
-/// when the view comes back.
+/// when the view comes back. Replies with the sequence number of the last
+/// `Frame` webd sent for the view (0 for none): frames numbered up to it
+/// were painted into slots that are gone, and may still be queued for the
+/// app; it ignores them rather than copy from a slot attached later.
 fn detach_slots(view) {
     msg::connect("os.lazy.webd.view.v1").invoke("DetachSlots", [view])
 }

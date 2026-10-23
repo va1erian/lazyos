@@ -249,6 +249,21 @@ fn detach_slots_gives_the_slot_memory_back_without_resizing_the_view() {
     fx.engine.take();
     assert_eq!(fx.detach_slots(other, view), Err(ENOENT));
     assert_eq!(held(&fx), 3 * 32 * 32 * 4, "another client detached");
+    // The reply names the last frame sent, so the app can tell the ones still queued for it.
+    let sent = |fx: &mut Fx| {
+        let body = fx.detach_slots(app, view).unwrap();
+        wire::decode_detach_slots_reply(&body).unwrap().seq
+    };
+    assert_eq!(sent(&mut fx), 0, "no frame was sent yet");
+    fx.attach_frames(app, view, 32, 32);
+    fx.rig.paint(view, 32, 32, 7);
+    fx.pump(0);
+    assert_eq!(sent(&mut fx), 1);
+    fx.attach_frames(app, view, 32, 32);
+    fx.rig.paint(view, 32, 32, 8);
+    fx.pump(1);
+    assert_eq!(sent(&mut fx), 2, "the count goes on across detaches");
+    fx.attach_frames(app, view, 32, 32);
     fx.detach_slots(app, view).unwrap();
     assert_eq!(held(&fx), 0);
     assert!(

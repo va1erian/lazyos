@@ -132,14 +132,15 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 "not enough memory for another web process",
             ));
         }
-        // The shared saver limits downloads per client, so its owner is the client's default group, one
-        // number per client whatever process keys its views have. Taken first: a keyed group made and then
-        // left behind by a refusal here would hold a key for nothing.
-        let owner = self.groups.group_for(client, "").map_err(group_refusal)?;
+        // The keyed group first: it is the one that can be refused (too many keys) and nothing is made
+        // before it. The shared saver limits downloads per client, so its owner is the client's default
+        // group, one number per client whatever process keys its views have; it fails only when every
+        // number is taken.
         let group = self
             .groups
             .group_for(client, &setup.rules.process_key)
             .map_err(group_refusal)?;
+        let owner = self.groups.group_for(client, "").map_err(group_refusal)?;
         setup.engine.group = group;
         let downloads = setup.rules.downloads.clone().map(|dir| self.saver(&dir));
         let engine_rules = ViewRules {

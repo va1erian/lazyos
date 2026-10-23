@@ -441,7 +441,9 @@ void View::recover(bool reload)
         // most runs of webkit-views group (WebPageProxy::launchProcess -> WebProcessProxy::removeWebPage ->
         // updateMediaStreamingActivity, a run-loop timer with a CheckedPtr to a dead object; the family
         // of patches 0021 and 0027), and a reload splits the group in any case. The owner recovers a group
-        // by destroying its views (the last one ends the process) and making new ones.
+        // by destroying its views (the last one ends the process) and making new ones. (View::recoverGroup ends the
+        // process without a reload; it was written without a build volume to run it, so whether termination alone
+        // is safe here is unproven: run the `group` case of webkit-views before relying on it.)
         say("WEBPROCESS:RECOVER:SHARED:%d", static_cast<int>(WKPageGetProcessIdentifier(page)));
         return;
     }

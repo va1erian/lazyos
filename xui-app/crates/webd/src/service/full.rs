@@ -134,9 +134,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 let args = wire::decode_detach_slots_args(body).map_err(bad)?;
                 let view = live(&mut self.views, client, true, args.view)?;
                 // As `Resize` does, without a new size: the picture is whole again when the app attaches
-                // slots and asks for it.
+                // slots and asks for it. Frames up to the last one sent were painted into the slots that
+                // are gone, and may still be queued for the app, which is told which they are.
                 view.slots.detach_all();
                 view.want_frame();
+                let seq = view.seq;
+                return wire::encode_detach_slots_reply(&wire::DetachSlotsReply { seq })
+                    .map_err(|_| MALFORMED);
             }
             wire::METHOD_SETUSERAGENT => {
                 let args = wire::decode_set_user_agent_args(body).map_err(bad)?;

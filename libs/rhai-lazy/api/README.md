@@ -1010,7 +1010,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `notify_forget(view, origin)` | `NotifyForget(view: U64, origin: String) -> ()` | Forget the profile's decision about `origin` (LazyWeb+, P4): the page's |
 | `notify_state(view, notification, state)` | `NotifyState(view: U64, notification: U64, state: U32) -> ()` | What became of notification `notification` that `NotifyShow` gave a |
 | `recover_group(view)` | `RecoverGroup(view: U64) -> ()` | Like `Recover` without a reload, for a view that shares its web process |
-| `detach_slots(view)` | `DetachSlots(view: U64) -> ()` | Detach every slot of the view, as `Resize` does, without resizing it |
+| `detach_slots(view)` | `DetachSlots(view: U64) -> (seq: U64)` | Detach every slot of the view, as `Resize` does, without resizing it |
 | `set_user_agent(view, user_agent)` | `SetUserAgent(view: U64, user_agent: String) -> ()` | Change the user agent the page's requests and `navigator.userAgent` |
 | `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
 | `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |

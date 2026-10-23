@@ -22794,7 +22794,10 @@ pub mod os_lazy_webd_view_v1 {
     /// and without costing the page a layout: a view that is not on screen
     /// (a background tab) gives its slot memory back to the client's quota.
     /// The app attaches slots again and asks for a whole frame (`Refresh`)
-    /// when the view comes back.
+    /// when the view comes back. Replies with the sequence number of the last
+    /// `Frame` webd sent for the view (0 for none): frames numbered up to it
+    /// were painted into slots that are gone, and may still be queued for the
+    /// app; it ignores them rather than copy from a slot attached later.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct DetachSlotsArgs {
         pub view: u64,
@@ -22812,6 +22815,28 @@ pub mod os_lazy_webd_view_v1 {
         while let Some(field) = decoder.next()? {
             if field.id == 1 {
                 out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachSlotsReply {
+        pub seq: u64,
+    }
+
+    pub fn encode_detach_slots_reply(value: &DetachSlotsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_slots_reply(body: &[u8]) -> Result<DetachSlotsReply, Error> {
+        let mut out = DetachSlotsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.seq = field.as_u64()?;
             }
         }
         Ok(out)

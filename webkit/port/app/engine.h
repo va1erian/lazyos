@@ -444,8 +444,8 @@ std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnl
 // lock. False when the view must not be made (the lock is not ready, or it would be dropped).
 bool configureFull(View& view, WKPageConfigurationRef configuration);
 // After the page exists: the user agent the view was made with (an agent, or WebKit's with a suffix), when it has one,
-// or `override` (webd_engine_set_user_agent) in its place; an empty `override` is the made-with agent again.
-void applyUserAgent(View& view, const std::string& override = std::string());
+// or `agentOverride` (webd_engine_set_user_agent) in its place; an empty `agentOverride` is the made-with agent again.
+void applyUserAgent(View& view, const std::string& agentOverride = std::string());
 // A full view's load of the owner's HTML (UTF-8) with a base URL of the about:, data:, http: or https: scheme
 // (empty is about:blank); any other loads nothing and the next state carries an error. Replaces the page.
 void loadFullHtml(View& view, const std::string& html, const std::string& baseUrl);

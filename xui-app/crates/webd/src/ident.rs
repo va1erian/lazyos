@@ -94,12 +94,17 @@ impl Groups {
         Ok(group)
     }
 
+    /// `client`'s entries, in key order: the map is ordered by client first, so this reads only them.
+    fn of(&self, client: ClientKey) -> impl Iterator<Item = (&String, &i32)> {
+        self.by_key
+            .range((client, String::new())..)
+            .take_while(move |((owner, _), _)| *owner == client)
+            .map(|((_, key), group)| (key, group))
+    }
+
     /// The non-empty keys `client` holds.
     pub fn keys_of(&self, client: ClientKey) -> usize {
-        self.by_key
-            .keys()
-            .filter(|(owner, key)| *owner == client && !key.is_empty())
-            .count()
+        self.of(client).filter(|(key, _)| !key.is_empty()).count()
     }
 
     /// The last view of `client` with process key `key` ended: a keyed group goes (the default group
@@ -113,7 +118,10 @@ impl Groups {
     /// The client has no view left: an unlabelled client's entries go.
     pub fn idle(&mut self, client: ClientKey) {
         if client.label == 0 {
-            self.by_key.retain(|(owner, _), _| *owner != client);
+            let keys: Vec<String> = self.of(client).map(|(key, _)| key.clone()).collect();
+            for key in keys {
+                self.by_key.remove(&(client, key));
+            }
         }
     }
 
