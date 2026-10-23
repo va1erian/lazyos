@@ -59,11 +59,11 @@ Examples
 The OS lives on an ext2 volume inside ``target/lazyos.img`` that ``cargo build``
 updates in place (installed apps, settings and logs survive); ``--reset-os``
 recreates it from scratch. A persistent ext2 home volume (default
-``target/home.img``, label ``lazyhome``, 64 MiB) is attached as a second
+``target/home.img``, label ``lazyhome``, 1 GiB, sparse) is attached as a second
 virtio-blk device and mounted at ``/home``. It is created on first use and never
-regenerated unless you pass ``--reset-home``. A fresh volume holds ``<user>/``
-for the demo accounts (owned by them) and nothing else, so log in as ``user``
-(password ``lazy``) or ``admin`` (password ``nimda``) to write to your own home.
+regenerated (or resized) unless you pass ``--reset-home``. A fresh volume holds
+``<user>/`` for the demo accounts and nothing else: log in as ``user`` (``lazy``)
+or ``admin`` (``nimda``) to write to your own home.
 The desktop starts at its login screen and runs everything as the account that
 logged in (issue #623); ``--autologin NAME`` logs that account straight in, and
 ``--setup`` starts a new OS volume with no account, whose login screen asks for
@@ -160,14 +160,13 @@ def prepare_data_disk(path: Path, reset: bool, assume_yes: bool) -> bool:
 
 def prepare_home_disk(path: Path, reset: bool, assume_yes: bool, empty: bool = False) -> bool:
     """Make sure the home volume exists, resetting it only when asked to.
-    `empty` (the first-boot setup): a volume with no home, since the machine
-    has no account yet and the owner's home is made when it is created."""
+    `empty` (first-boot setup): no home yet, the owner's is made at account creation."""
     plan = (lambda: mkdisk.home_volume(accounts=[])) if empty else mkdisk.home_volume
-    return prepare_volume("home disk", path, reset, assume_yes, plan, mkdisk.HOME_LABEL)
+    return prepare_volume("home disk", path, reset, assume_yes, plan, mkdisk.HOME_LABEL, mkdisk.HOME_SIZE)
 
 
 def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
-                   label: str) -> bool:
+                   label: str, size: int = mkdisk.DEFAULT_SIZE) -> bool:
     """Make sure a persistent volume exists, resetting it only when asked to.
 
     ``plan`` is a :class:`mkdisk.Layout`, or a callable returning one (so a
@@ -179,7 +178,7 @@ def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
     volume implicitly: that would destroy user data.
     """
     try:
-        return _prepare_volume(what, path, reset, assume_yes, plan, label)
+        return _prepare_volume(what, path, reset, assume_yes, plan, label, size)
     except (OSError, ValueError) as error:
         # The plan reads the accounts source and the volume is a file on disk,
         # so either can legitimately fail (missing source, unwritable target).
@@ -188,9 +187,10 @@ def prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
 
 
 def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
-                    label: str) -> bool:
+                    label: str, size: int) -> bool:
     exists = path.exists()
     if exists and not reset:
+        mkdisk.note_small_volume(what, path, size)
         return True  # nothing to create or reset: do not even read the plan
     layout = plan() if callable(plan) else plan  # only now, so a bad source cannot block a boot
     if reset and exists:
@@ -199,9 +199,9 @@ def _prepare_volume(what: str, path: Path, reset: bool, assume_yes: bool, plan,
         if not assume_yes and not confirm(question):
             print(f"{what} left untouched; aborting.", file=sys.stderr)
             return False
-        mkdisk.format_image(path, label=label, layout=layout)
+        mkdisk.format_image(path, size, label, layout=layout)
         print(f"reset {what}: {mkdisk.status(path).describe()}", flush=True)
-    elif mkdisk.ensure_volume(path, label=label, layout=layout):
+    elif mkdisk.ensure_volume(path, size, label, layout=layout):
         print(f"created {what}: {mkdisk.status(path).describe()}", flush=True)
     return True
 

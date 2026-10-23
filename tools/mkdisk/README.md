@@ -22,7 +22,8 @@ in the seeded layout (`0700`, that account's `uid:gid` from
 `run_demo.py --setup` formats it with no home, and `accountsd` has `init`
 make each account's home at boot). There
 is no `/home` and no `/tmp` inside it: `/tmp` belongs to the OS volume.
-`run_demo.py` creates it on first use (`--home-disk`, `--no-home-disk`,
+`run_demo.py` creates it on first use (1 GiB, sparse; an older, smaller
+`home.img` is kept as it is, pass `--reset-home` to recreate it) (`--home-disk`, `--no-home-disk`,
 `--reset-home`), and the launcher's **Home volume** group manages it.
 
 ## Seeded layout and ownership

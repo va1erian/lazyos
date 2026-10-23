@@ -586,7 +586,8 @@ shutdown harness reads `/logs` with it, which is root-only in the guest).
 per demo account at its root (0700, the account's uid:gid) and no `/home` or
 `/tmp`. `tools/mkdisk/` formats
 it in pure Python (Windows has no `mkfs.ext2`): `python -m tools.mkdisk PATH
---home-volume`. `tools/run_demo.py` creates it on first use and attaches it as a
+--home-volume`. `tools/run_demo.py` creates it on first use (1 GiB, sparse; an existing
+smaller image is not resized, `--reset-home` recreates it) and attaches it as a
 second `virtio-blk-pci` device; flags are `--home-disk PATH`, `--no-home-disk`
 and `--reset-home` (confirmation prompt unless `--yes`), and `--reset-os` sets
 `LAZYOS_RESET_OS=1` for the build. `qemu_shot.py`/`qemu_session.py` accept

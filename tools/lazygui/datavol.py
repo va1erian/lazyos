@@ -31,7 +31,7 @@ def seed_summary() -> str:
     except (OSError, ValueError) as exc:  # e.g. build_support/passwd is missing
         return f"Reset layout unavailable: {exc}"
     dirs = ", ".join(f"{spec.path} ({spec.mode:o})" for spec in plan.dirs)
-    return (f"Reset creates an empty volume (label {mkdisk.HOME_LABEL}, mounted at /home) "
+    return (f"Reset creates an empty volume (label {mkdisk.HOME_LABEL}, {mkdisk.format_size(mkdisk.HOME_SIZE)}, mounted at /home) "
             f"with: {dirs}. Existing data is erased.")
 
 
@@ -76,7 +76,7 @@ def reset(path: str, busy: bool) -> tuple[bool, str] | None:
             f"{mkdisk.describe(plan)}\n\nThis cannot be undone."):
         return None
     try:
-        mkdisk.format_image(target, label=mkdisk.HOME_LABEL, layout=plan)
+        mkdisk.format_image(target, mkdisk.HOME_SIZE, mkdisk.HOME_LABEL, layout=plan)
     except (OSError, ValueError) as exc:  # e.g. QEMU still has the file open
         return False, f"Reset failed: {exc}"
     return True, f"Home volume reset: {mkdisk.status(target).describe()}"

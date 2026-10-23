@@ -8,8 +8,9 @@ points the launchers use; ``python -m tools.mkdisk`` is the command line.
 
 from .layout import EMPTY, DirSpec, Layout, describe, home_volume, seeded
 from .volume import (DEFAULT_HOME_PATH, DEFAULT_LABEL, DEFAULT_PATH, DEFAULT_SIZE, HOME_LABEL,
-                     ensure_volume, format_image, format_size, parse_size, status)
+                     HOME_SIZE,
+                     ensure_volume, format_image, format_size, parse_size, note_small_volume, status)
 
 __all__ = ["DEFAULT_HOME_PATH", "DEFAULT_LABEL", "DEFAULT_PATH", "DEFAULT_SIZE", "EMPTY",
-           "HOME_LABEL", "DirSpec", "Layout", "describe", "ensure_volume", "format_image",
-           "format_size", "home_volume", "parse_size", "seeded", "status"]
+           "HOME_LABEL", "HOME_SIZE", "DirSpec", "Layout", "describe", "ensure_volume", "format_image",
+           "format_size", "home_volume", "parse_size", "seeded", "note_small_volume", "status"]

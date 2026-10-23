@@ -471,9 +471,10 @@ class ResetTests(unittest.TestCase):
     def test_reset_writes_the_home_layout(self) -> None:
         outcome = datavol.reset(str(self.path), busy=False)  # no file yet: no prompt
         self.assertTrue(outcome and outcome[0])
-        image = self.path.read_bytes()
-        self.assertIn(b"admin", image)
-        self.assertEqual(image[1024 + 120:1024 + 128], b"lazyhome")
+        self.assertGreaterEqual(self.path.stat().st_size, 1 << 30)  # sparse, not read back
+        with open(self.path, "rb") as image:
+            image.seek(1024 + 120)
+            self.assertEqual(image.read(8), b"lazyhome")
 
     def test_confirmation_lists_what_will_be_created_and_can_decline(self) -> None:
         self.path.write_bytes(b"precious")
