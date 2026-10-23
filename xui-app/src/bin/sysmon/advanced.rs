@@ -3,7 +3,7 @@
 //! classes and CPU ticks, for whoever debugs the kernel.
 
 use xui_app::format::bytes;
-use xui_app::sysinfo::{MAX_TASKS, Snapshot};
+use xui_app::sysinfo::{MAX_TASKS, ProcessMemory, ProcessTable, Snapshot};
 use xui_core::prelude::*;
 
 use crate::Msg;
@@ -101,6 +101,9 @@ impl Advanced {
                 .column("state", 90)
                 .column("class", 90)
                 .column_right("cpu ticks", 120)
+                .column_right("memory", 90)
+                .column_right("private", 90)
+                .column_right("resident", 90)
                 .column("name", Fill)
                 .bind(&self.tasks)
                 .fill(1),
@@ -108,7 +111,7 @@ impl Advanced {
     }
 
     /// Fills the gauges and the task table from `snapshot`.
-    pub(crate) fn show(&self, s: &Snapshot) {
+    pub(crate) fn show(&self, s: &Snapshot, memory: Option<&ProcessTable>) {
         let frames = share(s.frames_live, s.frames_total);
         let slab = share(s.slab_live, s.slab_peak.max(s.slab_live));
         let heap = share(s.heap_used, s.heap_total);
@@ -158,17 +161,24 @@ impl Advanced {
             ],
         );
         self.tasks_heading.get().set_text(&format!(
-            "Tasks — {} live of {MAX_TASKS} slots (100 Hz ticks)",
+            "Tasks — {} live of {MAX_TASKS} slots · memory shares shared pages between processes",
             s.tasks_live
         ));
         let rows: Vec<Vec<String>> = s
             .live_tasks()
             .map(|task| {
+                let held = memory.and_then(|table| table.of(task.pid));
+                let size = |pick: fn(&ProcessMemory) -> u64| {
+                    held.map_or_else(|| "–".to_string(), |row| bytes(pick(row)))
+                };
                 vec![
                     task.pid.to_string(),
                     task.state.label().to_string(),
                     task.class.label().to_string(),
                     format!("{} ({:.1}s)", task.cpu_ticks, task.cpu_ticks as f64 / 100.0),
+                    size(ProcessMemory::footprint),
+                    size(ProcessMemory::private),
+                    size(ProcessMemory::resident),
                     format!("{} (ppid {})", task.name(), task.ppid),
                 ]
             })

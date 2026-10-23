@@ -110,3 +110,41 @@ pub fn stats_snapshot() -> TaskStats {
     }
     snapshot
 }
+
+/// A live user address space and the tasks that run in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpaceOwner {
+    /// The process: the thread-group leader's slot, what `getpid` answers in
+    /// every thread of it.
+    pub pid: usize,
+    /// The space's PML4.
+    pub pml4: u64,
+    /// How many live tasks (threads) run in it.
+    pub threads: usize,
+}
+
+/// The user address spaces tasks are running in, one entry each, in the order
+/// seen. Kernel tasks (on the boot table) and finished tasks have none.
+/// Takes only the task-table lock.
+pub fn space_owners() -> Vec<SpaceOwner> {
+    // The boot table, not `kernel_table()`: that one is whatever table is active, which
+    // during a syscall is the caller's own.
+    let kernel = mem::boot_table().as_u64();
+    let tasks = TASKS.lock();
+    let mut owners: Vec<SpaceOwner> = Vec::new();
+    for (slot, task) in tasks.iter().enumerate() {
+        let Some(task) = task else { continue };
+        if task.state == TaskState::Done || task.pml4 == kernel || task.pml4 == 0 {
+            continue;
+        }
+        match owners.iter_mut().find(|owner| owner.pml4 == task.pml4) {
+            Some(owner) => owner.threads += 1,
+            None => owners.push(SpaceOwner {
+                pid: super::family::leader_of(&tasks, slot),
+                pml4: task.pml4,
+                threads: 1,
+            }),
+        }
+    }
+    owners
+}

@@ -134,6 +134,7 @@ pub const SUITE: &[&[(&str, Test)]] = &[
     display_suite::CASES,
     mux_suite::CASES,
     sysinfo_suite::CASES,
+    sysinfo_procmem_suite::CASES,
     #[cfg(lazyos_dbgd)]
     sysinfo_klog_suite::CASES,
     wallclock_suite::CASES,

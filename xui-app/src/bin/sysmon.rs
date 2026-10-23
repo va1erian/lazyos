@@ -1,22 +1,23 @@
 //! `sysmon`: a windowed dashboard over the native system-stats snapshot
 //! (syscall 14, issue #144).
 //!
-//! Three tabs laid out without coordinates. Overview is for anyone: how busy
+//! Four tabs laid out without coordinates. Overview is for anyone: how busy
 //! the processor is (now and over the last minute), memory split into named,
 //! coloured shares (programs, the system, the disk cache, free) and the
-//! busiest programs. Services (issue #489) lists the services `init`
+//! busiest programs. Memory lists every process with what its memory is for,
+//! shared pages divided between the processes that map them. Services (issue #489) lists the services `init`
 //! supervises with the health `healthd` retains for each. Advanced keeps the
 //! kernel's own counters (frames, slab, kernel heap) and the full task table.
 //! The Help button (or F1) opens the app's guide, `README.md` in its package
 //! docs, in the Docs app through `mimed`. A status bar carries uptime and
-//! refresh counts. A one-second timer refreshes; `o`/`s`/`a` (or a click on a
+//! refresh counts. A one-second timer refreshes; `o`/`m`/`s`/`a` (or a click on a
 //! tab) switch tabs, the tables scroll with the keyboard and the wheel, `r`
 //! refreshes immediately, `c` toggles the compact view (three meters) by
 //! asking the compositor for a size, and `q` quits.
 //!
 //! Serial evidence: `SYSMON:UP:PASS` after the first frame (or
 //! `SYSMON:UP:FAIL:<errno>` when the snapshot is unreadable),
-//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:VIEW:<overview|services|advanced>`
+//! `SYSMON:REFRESH:PASS` on `r`, `SYSMON:VIEW:<overview|memory|services|advanced>`
 //! on a tab switch, `SYSMON:HELP:PASS` once `mimed` launched the guide (or
 //! `SYSMON:HELP:FAIL:<reason>`), `SYSMON:SERVICES:PASS services=<n> ok=<n> degraded=<n> down=<n>`
 //! the first time the Services tab shows both sources after a switch to it
@@ -30,7 +31,7 @@ use std::rc::Rc;
 use xui_app::backend::LazyOSBackend;
 use xui_app::platform::launcher;
 use xui_app::services::{self, Services};
-use xui_app::sysinfo::{self, Snapshot};
+use xui_app::sysinfo::{self, ProcessTable, Snapshot, procmem};
 use xui_app::{compact, hidpi, launch};
 use xui_core::Key;
 use xui_core::app::{App, Ui};
@@ -40,6 +41,8 @@ use xui_core::backend::{Event, WidgetId};
 mod advanced;
 #[path = "sysmon/load.rs"]
 mod load;
+#[path = "sysmon/memory.rs"]
+mod memory;
 #[path = "sysmon/overview.rs"]
 mod overview;
 #[path = "sysmon/paint.rs"]
@@ -58,6 +61,8 @@ use view::Widgets;
 const WINDOW: (i32, i32) = (860, 600);
 /// How often the snapshot refreshes.
 const REFRESH_MILLIS: u32 = 1000;
+/// Refreshes between reads of the per-process memory on the tabs that only show a column of it.
+const MEMORY_EVERY: u32 = 5;
 
 /// The app's guide, shipped in its package's `docs/` (`docs/packages.md`).
 fn help_path() -> String {
@@ -68,6 +73,7 @@ fn help_path() -> String {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum View {
     Overview,
+    Memory,
     Services,
     Advanced,
 }
@@ -75,8 +81,9 @@ pub(crate) enum View {
 impl View {
     pub(crate) fn from_index(index: usize) -> View {
         match index {
-            1 => View::Services,
-            2 => View::Advanced,
+            1 => View::Memory,
+            2 => View::Services,
+            3 => View::Advanced,
             _ => View::Overview,
         }
     }
@@ -89,6 +96,7 @@ impl View {
     fn marker(self) -> &'static str {
         match self {
             View::Overview => "overview",
+            View::Memory => "memory",
             View::Services => "services",
             View::Advanced => "advanced",
         }
@@ -122,6 +130,11 @@ struct Sysmon {
     view: View,
     refreshes: u64,
     reported: Reported,
+    /// Whether the window shows only the meters.
+    compact: bool,
+    /// The last answer of the per-process memory call, and refreshes since it was read.
+    memory: Option<ProcessTable>,
+    memory_age: u32,
     /// The last full-size window, restored when leaving compact mode.
     full_size: (i32, i32),
 }
@@ -138,8 +151,10 @@ impl Sysmon {
         }
         match sysinfo::snapshot() {
             Ok(snapshot) => {
-                let (cpu, programs) = self.load.update(&snapshot);
-                self.widgets.show_snapshot(&snapshot, cpu, &programs);
+                let memory = self.process_memory();
+                let (cpu, programs) = self.load.update(&snapshot, memory.as_ref());
+                self.widgets
+                    .show_snapshot(&snapshot, cpu, &programs, memory.as_ref());
                 self.widgets
                     .show_status(snapshot.ticks, self.refreshes, None);
                 None
@@ -150,6 +165,25 @@ impl Sysmon {
                 Some(code)
             }
         }
+    }
+
+    /// What each process holds, when a tab shows it: the walk behind it visits
+    /// every resident page, so the Services tab and the compact meters skip it.
+    /// `None` also on a kernel that does not know the call.
+    fn process_memory(&mut self) -> Option<ProcessTable> {
+        if self.compact || self.view == View::Services {
+            return None;
+        }
+        // The walk stalls the system for as long as it takes (milliseconds, and more with
+        // gigabytes of shared pages), so only the tab about it asks every second; the others
+        // reuse the last answer for a few refreshes.
+        let every = if self.view == View::Memory { 1 } else { MEMORY_EVERY };
+        self.memory_age += 1;
+        if self.memory.is_none() || self.memory_age >= every {
+            self.memory = procmem::read().ok();
+            self.memory_age = 0;
+        }
+        self.memory.clone()
     }
 
     /// Says once per switch whether the Services tab has both sources.
@@ -181,6 +215,9 @@ impl App for Sysmon {
         match msg {
             Msg::Tick | Msg::Refresh => {
                 self.refreshes += 1;
+                if matches!(msg, Msg::Refresh) {
+                    self.memory = None;
+                }
                 let error = self.reload(ui);
                 if matches!(msg, Msg::Refresh) {
                     println!("SYSMON:REFRESH:PASS");
@@ -194,6 +231,7 @@ impl App for Sysmon {
                     self.view = view;
                     self.reported = Reported::Nothing;
                     self.widgets.tabs.get().select(view.index());
+                    self.memory = None;
                     self.reload(ui);
                 }
                 println!("SYSMON:VIEW:{}", view.marker());
@@ -227,6 +265,7 @@ impl App for Sysmon {
                 if !small {
                     self.full_size = (design.width(), design.height());
                 }
+                self.compact = small;
                 self.widgets.set_compact(ui, small);
                 let rect = ui.client_rect();
                 println!("SYSMON:SIZE:{}x{}", rect.width(), rect.height());
@@ -244,6 +283,7 @@ fn shortcut(key: Key) -> Option<Msg> {
         Key::Q => Msg::Quit,
         Key::C => Msg::ToggleCompact,
         Key::O => Msg::Show(View::Overview),
+        Key::M => Msg::Show(View::Memory),
         Key::S => Msg::Show(View::Services),
         Key::A => Msg::Show(View::Advanced),
         Key::F1 => Msg::Help,
@@ -278,6 +318,8 @@ fn main() {
         });
         ui.every(REFRESH_MILLIS, Msg::Tick);
 
+        let design = hidpi::design_rect(ui);
+        let small = compact::is_compact(design.width(), design.height());
         let mut app = Sysmon {
             widgets,
             load: Load::default(),
@@ -285,12 +327,13 @@ fn main() {
             view: View::Overview,
             refreshes: 0,
             reported: Reported::Nothing,
+            compact: small,
+            memory: None,
+            memory_age: 0,
             full_size: WINDOW,
         };
         app.reload(ui);
-        let design = hidpi::design_rect(ui);
-        app.widgets
-            .set_compact(ui, compact::is_compact(design.width(), design.height()));
+        app.widgets.set_compact(ui, small);
         Ok(app)
     })
 }

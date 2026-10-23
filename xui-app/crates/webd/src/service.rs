@@ -36,7 +36,7 @@ use crate::ident::{ClientKey, Groups, Origin};
 use crate::limits::QUEUE_KEPT;
 use crate::outside::{Nowhere, Outside};
 use crate::reply;
-use crate::view::Views;
+use crate::view::{ClientUsage, Views};
 
 /// Which interface a request came through: the light one, or the full one (`CreateView` also
 /// through a scope, which is what the view may reach).
@@ -280,6 +280,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     /// Views `client` holds, lost ones included.
     pub fn client_views(&self, client: ClientKey) -> usize {
         self.views.count_of(client)
+    }
+
+    /// What every client holds, one entry each: its views and the slot memory it has
+    /// attached (for the memory report: the slots are the clients' buffers mapped
+    /// into webd).
+    pub fn client_usage(&self) -> Vec<ClientUsage> {
+        self.views.usage()
     }
 
     /// The group the service gave `client`, if it has one (for tests and traces).

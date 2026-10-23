@@ -8,6 +8,7 @@
 
 use super::*;
 
+mod accounting;
 mod fault_storm;
 mod frames_and_cow;
 mod layout;
@@ -15,6 +16,7 @@ mod oom;
 mod table_parents;
 mod vma;
 
+pub(super) use accounting::*;
 pub(super) use fault_storm::*;
 pub(super) use frames_and_cow::*;
 pub(super) use layout::*;
@@ -89,4 +91,32 @@ pub(super) const CASES: &[(&str, Test)] = &[
         oom_page_table_frame_shortage,
     ),
     ("mem_soak_oom_kill_generations", soak_oom_kill_generations),
+    (
+        "mem_accounting_private_pages_count_in_full",
+        accounting_private_pages_count_in_full,
+    ),
+    (
+        "mem_accounting_shared_pages_are_divided",
+        accounting_shared_pages_are_divided,
+    ),
+    (
+        "mem_accounting_a_holder_is_not_a_mapper",
+        accounting_a_holder_is_not_a_mapper,
+    ),
+    (
+        "mem_accounting_classes_follow_the_vmas",
+        accounting_classes_follow_the_vmas,
+    ),
+    (
+        "mem_accounting_skips_device_leaves",
+        accounting_skips_device_leaves,
+    ),
+    (
+        "mem_accounting_window_buffers_are_divided",
+        accounting_window_buffers_are_divided,
+    ),
+    (
+        "mem_accounting_soak_forks_add_up",
+        accounting_soak_forks_add_up,
+    ),
 ];

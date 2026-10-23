@@ -23,9 +23,11 @@ use crate::stats;
 
 mod cpu;
 mod memory;
+pub mod procmem;
 
 pub use cpu::{cpu_percent, CpuSample};
 pub use memory::{MemoryUse, PAGE};
+pub use procmem::{ProcessMemory, ProcessTable};
 
 /// ABI version this client understands (7: 1024 rows, issue #774; 6: the trace mask; 5 the cache and
 /// slab frame counts; 4 added the idle tick counter, 3 had 256 rows, 2 had 64, issue #204).

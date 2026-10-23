@@ -295,6 +295,7 @@ mod string_io_suite;
 mod suite;
 #[cfg(lazyos_dbgd)]
 mod sysinfo_klog_suite;
+mod sysinfo_procmem_suite;
 mod sysinfo_suite;
 mod task_suite;
 mod timed_suite;

@@ -15,6 +15,8 @@ pub mod system_stats_op {
     pub const PROGRAM_LOG: u64 = 3;
     /// The trace mask, two little-endian words (16 bytes) into `a1`.
     pub const TRACE_MASK: u64 = 4;
+    /// Per-process memory sizes (`sysinfo::procmem`) into `a1`.
+    pub const PROC_MEM: u64 = 5;
 }
 
 /// The kernel's trace mask: bit `n` of the two words is the channel with
@@ -34,6 +36,21 @@ pub fn trace_mask() -> Result<[u64; 2], i64> {
     value(code)?;
     let word = |at: usize| u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
     Ok([word(0), word(8)])
+}
+
+/// Write the per-process memory block (`sysinfo::procmem`) into `buf`;
+/// returns the bytes written. Rows that do not fit are left out.
+pub fn process_memory(buf: &mut [u8]) -> Result<usize, i64> {
+    // SAFETY: the kernel writes at most `buf.len()` bytes into `buf`.
+    let code = unsafe {
+        crate::raw::syscall3(
+            nr::SYSTEM_STATS,
+            system_stats_op::PROC_MEM,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    };
+    value(code).map(|size| size as usize)
 }
 
 /// The size in bytes of the snapshot this kernel writes.
