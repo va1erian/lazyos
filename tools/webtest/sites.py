@@ -22,6 +22,7 @@ the guest's word, is the evidence the judge reads (`tools/webplus/judge.py`).
 from __future__ import annotations
 
 import html
+import os
 import socket
 import ssl
 import sys
@@ -94,7 +95,11 @@ def easylist_text() -> bytes:
         "example.com##.ad-slot",
         *(f"! padding {n}" for n in range(80)),
     ]
-    return ("\n".join(lines) + "\n").encode()
+    text = ("\n".join(lines) + "\n").encode()
+    big = os.environ.get("LAZYOS_HARNESS_EASYLIST")
+    if big:  # a real list in front of the harness's own lines, to try the blocker at full size
+        text = Path(big).read_bytes() + b"\n" + text
+    return text
 
 
 def ad_response(path: str) -> tuple[list[tuple[str, str]], bytes]:

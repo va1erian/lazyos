@@ -1,6 +1,6 @@
 """The ad blocker's part of LazyWeb+'s harness (issue #845, docs/lazywebplus.md).
 
-The image is the same one the other boots use. Its browser fetches the filter list from
+The image is the same one the other boots use. `LAZYOS_HARNESS_EASYLIST=<file>` puts a real list in front of the harness list, to try the blocker at full size (EasyList is 83,000 rules; its compiled form is 43 MB). Its browser fetches the filter list from
 `easylist.to` (the harness serves a small list of its own there, `tools/webtest/sites.py`) at its
 first start, so the **first boot** has the list fetched, converted and compiled in the
 background (the client converts it; webd compiles it into its browser profile's rule store). Two
@@ -36,9 +36,9 @@ BLOCKED_TITLE = "blocker:ad=blocked,tracker=blocked,script=blocked,allowed=loade
 OPEN_TITLE = "blocker:ad=loaded,tracker=loaded,script=loaded,allowed=loaded,logo=loaded"
 BLOCKER_PAGE = "about:blocker"
 SITE_NAME = "theoldnet.com"
-#: The harness list's own counts (`sites.easylist_text`): two blocks and an exception, one hidden element.
-LIST_RULES = 3
-LIST_DROPPED = 1
+#: The harness list's own counts (`sites.easylist_text`): two blocks, an exception and one hiding rule.
+LIST_RULES = 4
+LIST_DROPPED = 0
 #: The page's ad-network resources, by path, and the one the list lets through.
 BLOCKED_PATHS = ("/banner.gif", "/pixel.gif", "/ad.js")
 ALLOWED_PATH = sites.AD_ALLOWED_PATH
