@@ -22,6 +22,11 @@ name: xui-app
 # sessions per shard) instead of one runner booting them all in a row; each
 # shard uploads `xui-app-screenshots-<shard>`, and `publish` merges them.
 #
+# Storing the pictures on the `screenshots` branch and commenting them on the
+# pull request is opt-in: `publish` runs for a manual run, or for a pull request
+# that carries the `screenshots` label (add it, then push or re-run). The
+# captures themselves always run and stay in the workflow artifacts.
+#
 # The build/boot jobs run with a read-only token and no persisted git
 # credentials; only the separate `publish` job, which never runs repository
 # code, gets write access to push screenshots and comment.
@@ -1071,8 +1076,10 @@ jobs:
     needs: [build, capture]
     if: >-
       needs.build.outputs.available == 'true' &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        contains(github.event.pull_request.labels.*.name, 'screenshots')))
     runs-on: ubuntu-latest
     permissions:
       contents: write
