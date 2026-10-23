@@ -75,6 +75,7 @@ jobs:
           python tools/lazyweb/test_pointer.py
           python tools/lazyweb/test_blocker_judge.py
           python tools/lazyweb/test_sample.py
+          python tools/lazyweb/test_webmonkey.py
           python tools/lazyweb/session.py --check
           python tools/webd/test_judge.py
           python tools/webd/session.py --check
