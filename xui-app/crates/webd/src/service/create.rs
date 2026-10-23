@@ -30,6 +30,13 @@ use crate::limits::{
 use crate::policy::Schemes;
 use crate::view::{FullView, View};
 
+fn group_refusal(why: GroupError) -> Refusal {
+    match why {
+        GroupError::TooManyKeys => Refusal::new(errno::EDQUOT, "too many process keys"),
+        GroupError::NoNumber => Refusal::new(errno::ENOSPC, "no web process group left"),
+    }
+}
+
 impl<E: Engine, F: Fabric> Service<E, F> {
     /// The web processes `uid`'s full views hold: one per (client, profile, network lock, process key):
     /// the engine groups a view with the network lock only with views that have it too, and the
@@ -125,13 +132,14 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 "not enough memory for another web process",
             ));
         }
+        // The shared saver limits downloads per client, so its owner is the client's default group, one
+        // number per client whatever process keys its views have. Taken first: a keyed group made and then
+        // left behind by a refusal here would hold a key for nothing.
+        let owner = self.groups.group_for(client, "").map_err(group_refusal)?;
         let group = self
             .groups
             .group_for(client, &setup.rules.process_key)
-            .map_err(|why| match why {
-                GroupError::TooManyKeys => Refusal::new(errno::EDQUOT, "too many process keys"),
-                GroupError::NoNumber => Refusal::new(errno::ENOSPC, "no web process group left"),
-            })?;
+            .map_err(group_refusal)?;
         setup.engine.group = group;
         let downloads = setup.rules.downloads.clone().map(|dir| self.saver(&dir));
         let engine_rules = ViewRules {
@@ -140,7 +148,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             blocking: setup.rules.blocking,
             downloads,
             popups: setup.rules.popups,
-            owner: u64::try_from(group).unwrap_or(0),
+            owner: u64::try_from(owner).unwrap_or(0),
         };
         let deltas = setup.rules.deltas;
         let mut view = View::new(client, args.events, args.width, args.height);

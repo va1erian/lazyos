@@ -172,17 +172,20 @@ void loadFullHtml(View& v, const std::string& html, const std::string& baseUrl)
 
 void applyUserAgent(View& v, const std::string& override)
 {
-    std::string agent = override;
-    if (agent.empty())
-        agent = v.config.userAgent;
-    if (agent.empty() && !v.config.userAgentSuffix.empty()) {
-        // WebKit's own user agent with the suffix after a space, as the custom one: WKPageSetApplicationNameForUserAgent
-        // would add "/<WebKit's version>" to it (UserAgentPlayStation.cpp), which is not what the owner wrote.
+    // The first call is when the page is made, before any custom agent is set.
+    if (v.standardAgent.empty()) {
         WKStringRef standard = WKPageCopyUserAgent(v.page);
-        agent = utf8(standard) + " " + v.config.userAgentSuffix;
+        v.standardAgent = utf8(standard);
         if (standard)
             WKRelease(standard);
     }
+    std::string agent = override;
+    if (agent.empty())
+        agent = v.config.userAgent;
+    // WebKit's own user agent with the suffix after a space, as the custom one: WKPageSetApplicationNameForUserAgent
+    // would add "/<WebKit's version>" to it (UserAgentPlayStation.cpp), which is not what the owner wrote.
+    if (agent.empty() && !v.config.userAgentSuffix.empty())
+        agent = v.standardAgent + " " + v.config.userAgentSuffix;
     // An empty custom agent is WebKit's own again.
     WKStringRef custom = WKStringCreateWithUTF8CString(agent.c_str());
     WKPageSetCustomUserAgent(v.page, custom);

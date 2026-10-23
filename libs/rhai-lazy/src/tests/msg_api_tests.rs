@@ -27,9 +27,7 @@ fn run_msg(bus: &Rc<MockBus>, source: &str) -> Outcome {
 #[test]
 fn every_scriptable_interface_has_a_module_and_kernel_scopes_have_none() {
     for interface in schema::interfaces() {
-        let module = api::modules()
-            .iter()
-            .find(|m| m.interface == interface.name);
+        let module = api::modules().iter().find(|m| m.interface == interface.name);
         let kernel_scope = interface.name.contains(".topics.publish.")
             || interface.name.contains(".topics.subscribe.")
             || interface.name.contains(".names.resolve.")
@@ -48,11 +46,7 @@ fn every_module_compiles_and_evaluates() {
     let engine = Engine::new();
     let sys = api::build(&engine).expect("the generated modules compile");
     for module in api::modules() {
-        assert!(
-            sys.get_sub_module(module.alias).is_some(),
-            "sys::{}",
-            module.alias
-        );
+        assert!(sys.get_sub_module(module.alias).is_some(), "sys::{}", module.alias);
     }
 }
 
@@ -66,10 +60,7 @@ fn compiling_every_module_stays_cheap() {
     api::build(&engine).unwrap();
     let elapsed = started.elapsed();
     std::println!("sys::* compiled in {elapsed:?}");
-    assert!(
-        elapsed.as_millis() < 1_000,
-        "compiling sys::* took {elapsed:?}"
-    );
+    assert!(elapsed.as_millis() < 1_000, "compiling sys::* took {elapsed:?}");
 }
 
 #[test]
@@ -175,10 +166,7 @@ fn the_modules_are_compiled_once_per_fabric() {
         let alive: bool = engine.eval("sys::echo::ping()").unwrap();
         assert!(alive);
     }
-    assert_eq!(
-        builds, 0,
-        "installing compiled the modules; later engines reuse them"
-    );
+    assert_eq!(builds, 0, "installing compiled the modules; later engines reuse them");
 }
 
 #[test]
@@ -198,7 +186,10 @@ fn a_generated_module_runs_in_the_calling_engines_msg() {
     let mut second = Engine::new();
     crate::msg::install_hosted(&mut second, &fabric, "second").unwrap();
     second
-        .run_with_scope(&mut Scope::new(), r#"sys::confd::on_changed(|e| ())"#)
+        .run_with_scope(
+            &mut Scope::new(),
+            r#"sys::confd::on_changed(|e| ())"#,
+        )
         .unwrap();
     assert!(fabric.active("second"));
     assert!(!fabric.active("first"));

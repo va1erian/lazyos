@@ -25,7 +25,8 @@ pub struct ViewRules {
     /// The client wants `NewWindowRequested`; without, a page's `window.open` is not even queued.
     pub popups: bool,
     /// Who the view belongs to, for the shared saver's per-client limit on downloads under way (the
-    /// client's web process group: one number per client, never reused).
+    /// client's default web process group: one number per client, never reused, whatever process keys
+    /// its views have).
     pub owner: u64,
 }
 

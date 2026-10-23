@@ -119,9 +119,7 @@ fn generated(
 ) {
     for topic in module.topics {
         let rule = match function {
-            f if f == format!("on_{}", topic.helper)
-                || f == format!("subscribe_{}", topic.helper) =>
-            {
+            f if f == format!("on_{}", topic.helper) || f == format!("subscribe_{}", topic.helper) => {
                 "subscribe"
             }
             f if f == format!("publish_{}", topic.helper) => "publish",
@@ -132,9 +130,7 @@ fn generated(
         topics.insert(format!("{rule}:{}", narrow(topic.pattern, args)));
         return;
     }
-    let constant = function
-        .bytes()
-        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+    let constant = function.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
     if !constant && !function.starts_with("new_") {
         interfaces.insert(module.interface.to_string());
     }
@@ -150,21 +146,16 @@ fn add_topic(topics: &mut BTreeSet<String>, direction: &str, filter: Option<&str
 /// `#`.
 fn valid_filter(filter: &str) -> bool {
     let segments: Vec<&str> = filter.split('/').collect();
-    segments
-        .iter()
-        .enumerate()
-        .all(|(index, segment)| match *segment {
-            "+" => true,
-            "#" => index + 1 == segments.len(),
-            literal => {
-                !literal.is_empty()
-                    && literal.bytes().all(|b| {
-                        b.is_ascii_lowercase()
-                            || b.is_ascii_digit()
-                            || matches!(b, b'_' | b'.' | b'-')
-                    })
-            }
-        })
+    segments.iter().enumerate().all(|(index, segment)| match *segment {
+        "+" => true,
+        "#" => index + 1 == segments.len(),
+        literal => {
+            !literal.is_empty()
+                && literal.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+                })
+        }
+    })
 }
 
 /// The few token kinds [`derive`] looks at.
@@ -192,9 +183,7 @@ fn tokens(source: &str) -> Vec<Token> {
         } else if source[i..].starts_with("//") {
             i += source[i..].find('\n').unwrap_or(source.len() - i);
         } else if source[i..].starts_with("/*") {
-            i += source[i + 2..]
-                .find("*/")
-                .map_or(source.len() - i, |end| end + 4);
+            i += source[i + 2..].find("*/").map_or(source.len() - i, |end| end + 4);
         } else if b == b'"' || b == b'`' {
             let (text, next) = string(source, i);
             out.push(text.map_or(Token::Other, Token::Str));

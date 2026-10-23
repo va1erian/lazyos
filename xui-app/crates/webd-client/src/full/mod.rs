@@ -45,6 +45,9 @@ pub const ALL_SLOTS: usize = FRAME_SLOTS + BAND_SLOTS;
 /// of at most the view's height).
 pub const BAND_ROWS: u32 = 1024;
 
+/// Rounds of [`crate::view::EVENTS_PER_POLL`] events [`FullWebView::detach_slots`] reads at most.
+const DETACH_POLLS: usize = 4;
+
 /// What a view may reach: the interface its `CreateView` goes through.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
@@ -120,6 +123,10 @@ pub struct FullWebView<T: ScopedTransport> {
     focused: bool,
     owed: Owed,
     counters: FullCounters,
+    /// [`FullWebView::detach_slots`] gave the slots up and none is attached again yet.
+    detached: bool,
+    /// Events read while detaching (see [`FullWebView::detach_slots`]), reported by the next poll.
+    stashed: Vec<FullEvent>,
 }
 
 impl<T: ScopedTransport> FullWebView<T> {
@@ -145,6 +152,8 @@ impl<T: ScopedTransport> FullWebView<T> {
             focused: false,
             owed: Owed::default(),
             counters: FullCounters::default(),
+            detached: false,
+            stashed: Vec::new(),
         }
     }
 
@@ -236,6 +245,10 @@ impl<T: ScopedTransport> FullWebView<T> {
 
     /// Give the slot memory back without resizing the view (a background tab): webd detaches every
     /// slot, so no frame arrives until [`FullWebView::reattach_slots`]. The picture on show stays.
+    ///
+    /// Frames webd sent before it handled the call are already queued and name slots that are gone: they
+    /// are read now, with no slot to copy from, so they cannot paint a slot attached later (a zeroed
+    /// one). The other events read with them are reported by the next [`FullWebView::poll`].
     pub fn detach_slots(&mut self) -> Result<(), Error> {
         let view = self.live_view()?;
         let body = wire::encode_detach_slots_args(&wire::DetachSlotsArgs { view })
@@ -244,12 +257,24 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.slots.clear();
         self.owed.forget_slots();
         self.base = false;
+        self.detached = true;
+        let mut early = Vec::new();
+        for _ in 0..DETACH_POLLS {
+            if !self.read_events(None, &mut early) {
+                break;
+            }
+        }
+        self.stashed.extend(early);
         Ok(())
     }
 
     /// Attach the slots again after [`FullWebView::detach_slots`] (the view came to the front) and ask
-    /// for a whole frame.
+    /// for a whole frame. Nothing happens for a view whose slots are attached.
     pub fn reattach_slots(&mut self) -> Result<(), Error> {
+        self.live_view()?;
+        if !self.detached {
+            return Ok(());
+        }
         self.attach_slots()?;
         self.refresh();
         Ok(())
@@ -278,6 +303,7 @@ impl<T: ScopedTransport> FullWebView<T> {
                 Err(error) => return Err(error),
             }
         }
+        self.detached = false;
         Ok(())
     }
 
@@ -369,6 +395,8 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.owed.clear();
         self.lost = None;
         self.base = false;
+        self.detached = false;
+        self.stashed.clear();
     }
 
     pub fn view_id(&self) -> Option<u64> {

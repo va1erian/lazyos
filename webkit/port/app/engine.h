@@ -254,6 +254,9 @@ struct View {
     // `recoverReload`: load the page again in a fresh process, else leave it stopped.
     bool recovering { false };
     bool recoverReload { false };
+    // WebKit's own user agent, read once when the page is made (applyUserAgent): WKPageCopyUserAgent answers the
+    // custom agent once one is set, so a later restore built from it would stack the suffix on it.
+    std::string standardAgent;
     // The ids of this page's process as the last announcement said them (markers print them after
     // the process is reported over, which zeroes the host's), and the launch ordinals
     // (children.cpp) of the processes announced: a process with another ordinal is a new one even

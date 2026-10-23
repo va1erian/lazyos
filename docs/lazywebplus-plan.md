@@ -110,7 +110,11 @@ the other nine keep working" cannot pass.
 better, but it needs a public-suffix list the window does not have; that is a later refinement. Tabs of one host
 share a process and other hosts are isolated, which is the draft's "reuse one process for tabs of the same
 site". A page that navigates to another site stays in its process (WebKit's process swapping is off,
-`webd-plan.md` 3.3). The key is a placement hint, not a security boundary. Light views ignore the field.
+`webd-plan.md` 3.3). The key is a placement hint, not a security boundary. Light views ignore the field. **Review of 2026-10-23:** a key
+is accepted only with the `browser` profile kept on disk, because the engine shares an in-memory store only through a
+live group mate: keyed tabs of a private window would each get a store of their own. Private windows therefore stay
+in one process until the engine can key a memory store by owner and store kind without the group. Downloads are
+counted under the client's default group, not the key's group.
 
 **This amends open question 7 of the webd plan**, which says the group is "never from a wire field". The
 amendment is narrow. The label still comes from the kernel, and the key can only split the caller's **own**

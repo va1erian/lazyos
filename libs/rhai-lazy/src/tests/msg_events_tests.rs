@@ -26,9 +26,7 @@ impl Form {
         crate::msg::install_hosted(&mut engine, fabric, owner).unwrap();
         let notes = Rc::new(RefCell::new(Vec::new()));
         let sink = notes.clone();
-        engine.register_fn("note", move |x: Dynamic| {
-            sink.borrow_mut().push(x.to_string())
-        });
+        engine.register_fn("note", move |x: Dynamic| sink.borrow_mut().push(x.to_string()));
         let ast = engine.compile(script).unwrap();
         engine.run_ast_with_scope(&mut Scope::new(), &ast).unwrap();
         Form { engine, ast, notes }
@@ -36,8 +34,7 @@ impl Form {
 
     /// One window tick: what `lazyrad_runtime` does on its timer.
     fn pump(&self, fabric: &Fabric, owner: &str) -> Pumped {
-        let mut call =
-            |f: &FnPtr, args: Vec<Dynamic>| f.call::<Dynamic>(&self.engine, &self.ast, args);
+        let mut call = |f: &FnPtr, args: Vec<Dynamic>| f.call::<Dynamic>(&self.engine, &self.ast, args);
         fabric.pump(owner, &mut call)
     }
 
@@ -64,11 +61,7 @@ fn publish(fabric: &Rc<Fabric>, topic: &str, text: &str) {
 #[test]
 fn a_pump_runs_only_its_own_forms_handlers() {
     let (_bus, fabric) = setup();
-    let main = Form::new(
-        &fabric,
-        "main",
-        r#"msg::on("demo/a", |e| note(e.payload.as_string()));"#,
-    );
+    let main = Form::new(&fabric, "main", r#"msg::on("demo/a", |e| note(e.payload.as_string()));"#);
     let other = Form::new(&fabric, "other", r#"msg::on("demo/b", |e| note("b"));"#);
     publish(&fabric, "demo/a", "hello");
     publish(&fabric, "demo/b", "x");
@@ -115,11 +108,7 @@ fn generated_topic_helpers_deliver_decoded_payloads_through_the_pump() {
 #[test]
 fn one_pump_takes_a_bounded_number_of_events_per_source() {
     let (_bus, fabric) = setup();
-    let form = Form::new(
-        &fabric,
-        "main",
-        r#"msg::on("demo/a", #{ qos: "buffered", depth: 64 }, |e| ());"#,
-    );
+    let form = Form::new(&fabric, "main", r#"msg::on("demo/a", #{ qos: "buffered", depth: 64 }, |e| ());"#);
     for n in 0..PER_SOURCE + 3 {
         publish(&fabric, "demo/a", &n.to_string());
     }
@@ -145,21 +134,13 @@ fn a_failing_handler_is_reported_once_per_run_of_failures() {
 
     publish(&fabric, "demo/a", "bad");
     let again = form.pump(&fabric, "main");
-    assert_eq!(
-        (again.errors.len(), again.suppressed),
-        (0, 1),
-        "a repeat is counted, not shown"
-    );
+    assert_eq!((again.errors.len(), again.suppressed), (0, 1), "a repeat is counted, not shown");
 
     publish(&fabric, "demo/a", "fine");
     publish(&fabric, "demo/a", "bad");
     let recovered = form.pump(&fabric, "main");
     assert_eq!(form.notes(), ["ok"]);
-    assert_eq!(
-        recovered.errors.len(),
-        1,
-        "a failure after a success is shown again"
-    );
+    assert_eq!(recovered.errors.len(), 1, "a failure after a success is shown again");
 }
 
 #[test]
@@ -167,11 +148,7 @@ fn a_reliable_event_is_acked_even_when_its_handler_throws() {
     let bus = MockBus::new();
     let acks = topics_service(&bus);
     let fabric = Rc::new(Fabric::new(bus));
-    let form = Form::new(
-        &fabric,
-        "main",
-        r#"msg::on("demo/r", #{ qos: "reliable" }, |e| throw "no");"#,
-    );
+    let form = Form::new(&fabric, "main", r#"msg::on("demo/r", #{ qos: "reliable" }, |e| throw "no");"#);
     publish(&fabric, "demo/r", "x");
     assert_eq!(form.pump(&fabric, "main").errors.len(), 1);
     assert_eq!(acks.borrow().as_slice(), [1]);
@@ -211,10 +188,7 @@ fn a_form_serves_calls_from_its_window_and_releases_the_name() {
     drop(replies);
 
     assert_eq!(fabric.release("main"), 1);
-    assert_eq!(
-        bus.unregistered.borrow().as_slice(),
-        [("demo.form".to_string(), 900)]
-    );
+    assert_eq!(bus.unregistered.borrow().as_slice(), [("demo.form".to_string(), 900)]);
     assert!(!fabric.active("main"));
 }
 

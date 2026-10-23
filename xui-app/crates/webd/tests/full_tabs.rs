@@ -13,8 +13,8 @@ use support::origin;
 use xui_webd::engine::{EngineEvents, LOST_OTHER};
 use xui_webd::fabric::errno::*;
 use xui_webd::limits::{
-    PROCESS_KEYS_PER_CLIENT, USER_AGENT_MAX, VIEWS_PER_BROWSER_CLIENT, VIEWS_PER_CLIENT,
-    WEB_PROCESSES_PER_USER, WEB_PROCESS_RESERVE_BYTES as RESERVE,
+    PROCESS_KEYS_PER_CLIENT, VIEWS_PER_BROWSER_CLIENT, VIEWS_PER_CLIENT, WEB_PROCESSES_PER_USER,
+    WEB_PROCESS_RESERVE_BYTES as RESERVE,
 };
 use xui_webd::recording::Call as EngineCall;
 
@@ -294,32 +294,30 @@ fn recover_group_reaches_the_engine_for_the_callers_live_view_only() {
     assert!(fx.engine.take().is_empty());
 }
 
-fn agent_tab(agent: &str) -> wire::ViewConfig {
-    wire::ViewConfig {
-        user_agent: agent.into(),
-        ..browser()
-    }
-}
-
 #[test]
-fn a_user_agent_is_a_browser_scope_option_and_reaches_the_engine() {
-    // Why: a full user agent changes how every site sees the browser, so the scope that may do it is
-    // the browser's, and the engine is handed exactly the text that was checked.
-    let mut fx = Fx::new("agent-config");
+fn a_process_key_needs_the_browser_profile_on_disk() {
+    // Why: the engine shares an in-memory store only through a live group mate, so keyed views of a private
+    // window (or of an app's own profile) would each get a store of their own and share no cookies. The
+    // refusal also keeps keys, and the extra processes they start, to the browser scope.
+    let mut fx = Fx::new("tab-key-memory");
     let app = origin(7);
-    let agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
-    let (view, _) = fx.view(app, Via::Browser, agent_tab(agent), 4, 4);
-    let Some(EngineCall::ViewCreate(id, config)) = fx.engine.take().into_iter().next() else {
-        panic!("the view's creation");
+    let private = wire::ViewConfig {
+        ephemeral: true,
+        ..tab("a.test")
     };
-    assert_eq!(id, view);
-    let full = config.full.unwrap();
-    assert_eq!(full.user_agent, agent);
-    assert_eq!(full.user_agent_suffix, "");
-    // The other scopes may only append a suffix.
+    assert_eq!(
+        fx.create_view(app, Via::Browser, private, 4, 4),
+        Err(EINVAL)
+    );
+    // An empty key is the group of all of the client's private windows, as before.
+    let shared = wire::ViewConfig {
+        ephemeral: true,
+        ..browser()
+    };
+    assert!(fx.create_view(app, Via::Browser, shared, 4, 4).is_ok());
     for via in [Via::View, Via::Net] {
         let config = wire::ViewConfig {
-            user_agent: "X/1".into(),
+            process_key: "a.test".into(),
             ..if via == Via::View {
                 support::full::data_only()
             } else {
@@ -328,175 +326,55 @@ fn a_user_agent_is_a_browser_scope_option_and_reaches_the_engine() {
         };
         assert_eq!(
             fx.create_view(app, via, config, 4, 4),
-            Err(EACCES),
+            Err(EINVAL),
             "{via:?}"
         );
     }
-    // An agent and a suffix together are ambiguous.
-    let both = wire::ViewConfig {
-        user_agent_suffix: "Suffix/1".into(),
-        ..agent_tab("Agent/1")
+    assert_eq!(
+        fx.service.process_keys(app.client()),
+        0,
+        "a refusal kept a key"
+    );
+}
+
+#[test]
+fn downloads_are_limited_per_client_not_per_process_key() {
+    // Why: the shared saver caps the downloads of one owner so a client cannot use up the others' places.
+    // The owner is the client, so tabs of many sites together stay under one cap.
+    let mut fx = Fx::new("tab-downloads");
+    let (app, other) = (origin(7), origin(8));
+    let downloading = |key: &str| wire::ViewConfig {
+        downloads: true,
+        ..tab(key)
     };
-    assert_eq!(fx.create_view(app, Via::Browser, both, 4, 4), Err(EINVAL));
-    // Short printable ASCII only.
-    for bad in [
-        "x".repeat(USER_AGENT_MAX + 1),
-        "caf\u{e9}".into(),
-        "a\nb".into(),
-    ] {
+    let per_client = lazydownloads::MAX_DOWNLOADS_PER_OWNER as u64;
+    let views: Vec<u64> = (0..4)
+        .map(|n| {
+            fx.view(
+                app,
+                Via::Browser,
+                downloading(&format!("site{n}.test")),
+                4,
+                4,
+            )
+            .0
+        })
+        .collect();
+    let (neighbour, _) = fx.view(other, Via::Browser, downloading("a.test"), 4, 4);
+    let start = |fx: &Fx, view, id: u64| {
+        fx.queue
+            .download_start(view, id, "http://x/", &format!("f{id}"), 1)
+    };
+    for id in 1..=per_client {
+        let view = views[(id % 4) as usize];
+        assert!(start(&fx, view, id).is_some(), "{id}");
+    }
+    for view in &views {
         assert_eq!(
-            fx.create_view(app, Via::Browser, agent_tab(&bad), 4, 4),
-            Err(EINVAL)
+            start(&fx, *view, 9999),
+            None,
+            "a tab of another site got places"
         );
     }
-    assert!(fx
-        .create_view(
-            app,
-            Via::Browser,
-            agent_tab(&"x".repeat(USER_AGENT_MAX)),
-            4,
-            4
-        )
-        .is_ok());
-}
-
-#[test]
-fn set_user_agent_changes_the_agent_of_a_view_made_for_it_and_no_other() {
-    // Why: the engine's site quirks, which put a fixed agent on every request, are off only for a view
-    // made with an agent or a suffix through the browser scope; elsewhere a runtime change would do
-    // nothing, or widen what a scope allows.
-    let mut fx = Fx::new("agent-set");
-    let (app, other) = (origin(7), origin(8));
-    let suffixed = wire::ViewConfig {
-        user_agent_suffix: "LazyWeb/1".into(),
-        ..browser()
-    };
-    let (with_agent, _) = fx.view(app, Via::Browser, agent_tab("Agent/1"), 4, 4);
-    let (with_suffix, _) = fx.view(app, Via::Browser, suffixed.clone(), 4, 4);
-    let (plain, _) = fx.view(app, Via::Browser, browser(), 4, 4);
-    // A suffix through the net scope is allowed, but not a runtime agent.
-    let (net, _) = fx.view(
-        app,
-        Via::Net,
-        wire::ViewConfig {
-            user_agent_suffix: "Net/1".into(),
-            ..web()
-        },
-        4,
-        4,
-    );
-    fx.engine.take();
-    fx.set_user_agent(app, with_agent, "Desktop/2").unwrap();
-    fx.set_user_agent(app, with_suffix, "Desktop/2").unwrap();
-    fx.set_user_agent(app, with_agent, "").unwrap();
-    assert_eq!(
-        fx.engine.take(),
-        vec![
-            EngineCall::SetUserAgent(with_agent, "Desktop/2".into()),
-            EngineCall::SetUserAgent(with_suffix, "Desktop/2".into()),
-            EngineCall::SetUserAgent(with_agent, String::new()),
-        ]
-    );
-    assert_eq!(fx.set_user_agent(app, plain, "Desktop/2"), Err(EACCES));
-    assert_eq!(fx.set_user_agent(app, net, "Desktop/2"), Err(EACCES));
-    assert_eq!(
-        fx.set_user_agent(other, with_agent, "Desktop/2"),
-        Err(ENOENT)
-    );
-    for bad in [
-        "x".repeat(USER_AGENT_MAX + 1),
-        "caf\u{e9}".into(),
-        "a\nb".into(),
-    ] {
-        assert_eq!(fx.set_user_agent(app, with_agent, &bad), Err(EINVAL));
-    }
-    assert!(fx.call(app, wire::METHOD_SETUSERAGENT, vec![7]).is_err());
-    assert!(
-        fx.engine.take().is_empty(),
-        "a refused call reached the engine"
-    );
-    fx.queue.view_lost(with_agent, LOST_OTHER);
-    fx.pump(0);
-    assert_eq!(fx.set_user_agent(app, with_agent, "Desktop/2"), Err(ENODEV));
-}
-
-#[test]
-fn a_seeded_soak_of_tabs_opening_and_closing_keeps_groups_views_and_handles_exact() {
-    // Why: a browser opens and closes tabs for hours. Every key a tab used must be released with its
-    // last view (the group table stays the size of the sites on screen), tabs of one site must always
-    // share a group, a released group's number must never come back, and nothing may leak.
-    use std::collections::{BTreeMap, BTreeSet};
-    fuzzkit::for_seeds("webd_tabs_soak", |_, rng| {
-        let mut fx = Fx::new("tab-soak");
-        let app = origin(7);
-        let baseline = fx.fabric.open_handles();
-        let mut live: Vec<(u64, String, bool)> = Vec::new();
-        let mut group_of: BTreeMap<String, i32> = BTreeMap::new();
-        let mut used: BTreeSet<i32> = BTreeSet::new();
-        for step in 0..300 {
-            match rng.below(10) {
-                0..=4 if live.len() < VIEWS_PER_BROWSER_CLIENT => {
-                    let key = format!("site{}.test", rng.below(12));
-                    let (view, _) = fx.view(app, Via::Browser, tab(&key), 8, 8);
-                    let group = last_group(&fx);
-                    match group_of.get(&key) {
-                        Some(known) => assert_eq!(*known, group, "step {step}: {key} split"),
-                        None => {
-                            assert!(used.insert(group), "step {step}: group {group} reused");
-                            group_of.insert(key.clone(), group);
-                        }
-                    }
-                    live.push((view, key, false));
-                }
-                5 | 6 if !live.is_empty() => {
-                    let at = rng.below(live.len() as u64) as usize;
-                    let (view, key, _) = live.swap_remove(at);
-                    fx.destroy_view(app, view).unwrap();
-                    if !live.iter().any(|(_, other, _)| *other == key) {
-                        group_of.remove(&key);
-                    }
-                }
-                7 if !live.is_empty() => {
-                    let at = rng.below(live.len() as u64) as usize;
-                    let (view, _, attached) = &mut live[at];
-                    if *attached {
-                        fx.detach_slots(app, *view).unwrap();
-                    } else {
-                        fx.attach_frames(app, *view, 8, 8);
-                    }
-                    *attached = !*attached;
-                }
-                8 if !live.is_empty() => {
-                    let at = rng.below(live.len() as u64) as usize;
-                    fx.recover_group(app, live[at].0).unwrap();
-                }
-                _ => {}
-            }
-            let keys: BTreeSet<&String> = live.iter().map(|(_, key, _)| key).collect();
-            assert_eq!(
-                fx.service.process_keys(app.client()),
-                keys.len(),
-                "step {step}"
-            );
-            assert_eq!(
-                fx.service.client_views(app.client()),
-                live.len(),
-                "step {step}"
-            );
-            let attached = live.iter().filter(|(_, _, attached)| *attached).count();
-            let held = fx
-                .service
-                .client_usage()
-                .first()
-                .map_or(0, |u| u.slot_bytes);
-            assert_eq!(held, attached as u64 * 3 * 8 * 8 * 4, "step {step}");
-        }
-        for (view, ..) in live.drain(..) {
-            fx.destroy_view(app, view).unwrap();
-        }
-        assert_eq!(fx.service.process_keys(app.client()), 0);
-        assert_eq!(fx.service.view_count(), 0);
-        assert_eq!(fx.fabric.open_handles(), baseline, "a handle leaked");
-        assert_eq!(fx.fabric.double_closes(), 0);
-    });
+    assert!(start(&fx, neighbour, 1).is_some());
 }

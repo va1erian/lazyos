@@ -239,6 +239,15 @@ pub fn setup(
     if !printable(&config.process_key, PROCESS_KEY_BYTES_MAX) {
         return Err(invalid("process key is not short printable ASCII"));
     }
+    // The engine shares an in-memory store only through a live group mate: keyed views of the client's own
+    // profile or of a private window would each get a store of their own (no shared cookies between the tabs
+    // of one window). The browser profile on disk is named by its folder, so it is shared across groups. This
+    // also keeps keys, and so the extra processes, to the browser scope.
+    if !config.process_key.is_empty() && !profile.persistent() {
+        return Err(invalid(
+            "a process key needs the browser profile kept on disk",
+        ));
+    }
     // A private window's store is in memory and its group's own: given the profile's folder, the engine
     // would key one memory store by it and keep it for every client's private windows for the session.
     let directory = if profile.persistent() {

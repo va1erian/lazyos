@@ -247,6 +247,11 @@ and `reattach_slots`).
   printable ASCII bytes and 32 keys held at once per client (`EDQUOT` past that; the process ceiling binds first
   for live views, the key bound for views the engine lost and the client has not yet destroyed). A key's group is
   released with its last view and its number is never reused, so the table is as large as the sites on screen.
+  Only for the `browser` profile kept on disk (`EINVAL` otherwise, which also keeps keys to the browser scope): the
+  engine shares an in-memory store only through a live group mate, so keyed private windows (or "page data in
+  memory" mode) would each get a store of their own; those views stay in one process until the engine can key a
+  memory store without the group. The shared download saver counts a client's downloads under its default group,
+  so a client's cap does not multiply with its keys.
 * **`RecoverGroup`** (method 44) ends the web process of a view that shares it (`Recover` refuses that): no page is
   reloaded, every view in the process is reported as ended by request (`ViewLost`, `Other`) and the client makes its
   views again (`View::recoverGroup`, marker `WEBPROCESS:RECOVER:GROUP:<pid>:<views>`).

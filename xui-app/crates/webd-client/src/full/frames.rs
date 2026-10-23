@@ -32,11 +32,22 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.poll_with(None)
     }
 
-    pub(super) fn poll_with(&mut self, mut sink: Option<&mut dyn PixelSink>) -> Vec<FullEvent> {
-        let mut out = Vec::new();
+    pub(super) fn poll_with(&mut self, sink: Option<&mut dyn PixelSink>) -> Vec<FullEvent> {
+        let mut out = std::mem::take(&mut self.stashed);
         self.flush_owed();
+        self.read_events(sink, &mut out);
+        out
+    }
+
+    /// Read what is queued, up to [`EVENTS_PER_POLL`] events, into `out`. `true` when that many were
+    /// read and more may wait.
+    pub(super) fn read_events(
+        &mut self,
+        mut sink: Option<&mut dyn PixelSink>,
+        out: &mut Vec<FullEvent>,
+    ) -> bool {
         let Some(events) = self.live.as_ref().map(|live| live.events) else {
-            return out;
+            return false;
         };
         for _ in 0..EVENTS_PER_POLL {
             match self.transport.recv(events) {
@@ -45,19 +56,19 @@ impl<T: ScopedTransport> FullWebView<T> {
                         Some(sink) => Some(&mut **sink),
                         None => None,
                     };
-                    self.event(method, &body, &mut out, sink)
+                    self.event(method, &body, out, sink)
                 }
-                Ok(None) => break,
+                Ok(None) => return false,
                 Err(_) => {
-                    self.lose(Lost::ServiceGone, &mut out);
-                    break;
+                    self.lose(Lost::ServiceGone, out);
+                    return false;
                 }
             }
             if self.lost.is_some() {
-                break;
+                return false;
             }
         }
-        out
+        true
     }
 
     fn event(
