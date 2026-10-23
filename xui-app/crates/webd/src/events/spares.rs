@@ -10,8 +10,9 @@
 //!
 //! The rules keep that cheap and bounded. Only buffers of at least [`SPARE_MIN_BYTES`] are kept
 //! (smaller ones come from the allocator's own lists for free), and one is reused only for a copy of
-//! at least half its size, so a band never takes a frame's buffer. What is kept is bounded in count
-//! and bytes and dropped after [`SPARE_IDLE_MS`] unused. A buffer that goes is never freed on the
+//! at least four fifths of its size, so a band or a strip of rows rarely takes the buffer the next
+//! whole frame needs. What is kept is bounded in count (the smallest go first: they are the cheapest
+//! to make again) and in bytes (the oldest go first), and dropped after [`SPARE_IDLE_MS`] unused. A buffer that goes is never freed on the
 //! engine's thread or under the queue's lock: it waits in `retired` for the service to drop.
 
 use super::EventQueue;
@@ -34,7 +35,7 @@ impl Spares {
     }
 
     /// An empty buffer that holds `bytes` without growing: the smallest kept one that fits and is
-    /// not more than twice as large, or a new one.
+    /// at most a quarter larger, or a new one.
     pub fn take(&mut self, bytes: usize) -> Vec<u8> {
         if bytes < SPARE_MIN_BYTES {
             return Vec::with_capacity(bytes);
@@ -43,7 +44,9 @@ impl Spares {
             .kept
             .iter()
             .enumerate()
-            .filter(|(_, (buffer, _))| buffer.capacity() >= bytes && buffer.capacity() / 2 <= bytes)
+            .filter(|(_, (buffer, _))| {
+                buffer.capacity() >= bytes && buffer.capacity() - buffer.capacity() / 5 <= bytes
+            })
             .min_by_key(|(_, (buffer, _))| buffer.capacity())
             .map(|(at, _)| at);
         match fit {
@@ -73,8 +76,8 @@ impl Spares {
         self.give(buffer, self.now);
     }
 
-    /// Keep `buffer` (given back at `now_ms`) for a later copy. Past the bounds the buffers given
-    /// back longest ago are retired.
+    /// Keep `buffer` (given back at `now_ms`) for a later copy. Past the count the smallest kept
+    /// buffer is retired, past the bytes the one given back longest ago.
     pub fn give(&mut self, buffer: Vec<u8>, now_ms: u64) {
         let size = buffer.capacity();
         if !(SPARE_MIN_BYTES..=SPARE_BYTES_MAX).contains(&size) {
@@ -82,16 +85,25 @@ impl Spares {
             return;
         }
         self.kept.push((buffer, now_ms));
-        while self.kept.len() > SPARES_KEPT || self.bytes() > SPARE_BYTES_MAX {
-            let oldest = self
-                .kept
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, (_, at))| *at)
-                .map_or(0, |(at, _)| at);
+        while self.bytes() > SPARE_BYTES_MAX {
+            let oldest = self.position(|(_, at)| *at as usize);
             let gone = self.kept.swap_remove(oldest).0;
             self.retire(gone);
         }
+        while self.kept.len() > SPARES_KEPT {
+            let smallest = self.position(|(buffer, _)| buffer.capacity());
+            let gone = self.kept.swap_remove(smallest).0;
+            self.retire(gone);
+        }
+    }
+
+    /// Where the kept buffer with the least `key` is.
+    fn position(&self, key: impl Fn(&(Vec<u8>, u64)) -> usize) -> usize {
+        self.kept
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, kept)| key(kept))
+            .map_or(0, |(at, _)| at)
     }
 
     /// A buffer to free later, by the service (a small one is freed here: that costs nothing).
@@ -166,7 +178,11 @@ mod tests {
             "a frame's buffer is not given to a band"
         );
         assert_eq!(spares.bytes(), 4 * BIG);
-        assert!(spares.take(3 * BIG).capacity() >= 4 * BIG);
+        assert!(
+            spares.take(3 * BIG).capacity() < 4 * BIG,
+            "a quarter too large"
+        );
+        assert!(spares.take(7 * BIG / 2).capacity() >= 4 * BIG);
         assert_eq!(spares.bytes(), 0);
         assert_eq!(spares.take(0).capacity(), 0);
     }
@@ -207,6 +223,16 @@ mod tests {
             "the newest stays"
         );
         assert!(spares.kept.iter().all(|(_, at)| *at != 50));
+    }
+
+    #[test]
+    fn a_frames_buffer_outlives_a_burst_of_strips_given_back_after_it() {
+        let mut spares = Spares::default();
+        spares.give(Vec::with_capacity(16 * BIG), 0);
+        for at in 1..=(SPARES_KEPT as u64 + 4) {
+            spares.give(Vec::with_capacity(BIG), at);
+        }
+        assert!(spares.take(16 * BIG).capacity() >= 16 * BIG, "still kept");
     }
 
     #[test]

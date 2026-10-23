@@ -829,9 +829,10 @@ measure them.
   into a buffer in use**, and a band 142 against 58-74 us. The service now gives each turn's buffers back
   under one lock (`EventQueue::give_back`), and the next copy takes a kept buffer of about its size
   (`events/spares.rs`). The pool keeps only buffers of at least `SPARE_MIN_BYTES` (256 KiB; smaller
-  ones are cheap from the allocator). It reuses a buffer only for a copy of at least half its size,
-  so a band never takes a frame's buffer. It keeps at most `SPARES_KEPT` buffers and
-  `SPARE_BYTES_MAX` bytes, none longer than `SPARE_IDLE_MS` unused, and lets every one go before
+  ones are cheap from the allocator). It reuses a buffer only for a copy of at least four fifths
+  of its size, so a band or a strip of rows rarely takes the next whole frame's buffer. It keeps at
+  most `SPARES_KEPT` buffers (the smallest go first) and `SPARE_BYTES_MAX` bytes (the oldest go
+  first), none longer than `SPARE_IDLE_MS` unused, and lets every one go before
   the service reads the user's memory charge for a new view. A buffer that leaves the pool is freed
   by the service thread after the lock, never on WebKit's thread. Tests: `events/spares.rs`, and
   `events/tests.rs` checks that a second frame, band and patch reuse the first ones' allocations.

@@ -121,7 +121,8 @@ impl Disk {
 
     /// Runs `job` after every job queued before it and waits up to `limit` for its answer: for a
     /// change the person asked for and must hear the outcome of (clearing the history). `TimedOut`
-    /// when the disk is too slow to answer in time (the job still runs).
+    /// when the disk is too slow to answer in time: the job still runs, and reports a failure itself
+    /// when nobody waits for it any more.
     pub fn call(
         &self,
         limit: Duration,
@@ -129,10 +130,16 @@ impl Disk {
     ) -> io::Result<()> {
         let (tx, rx) = mpsc::channel();
         self.run(move || {
-            let _ = tx.send(job());
+            if let Err(mpsc::SendError(Err(e))) = tx.send(job()) {
+                eprintln!("lazywebplus: a write finished late and failed: {e}");
+            }
         });
-        rx.recv_timeout(limit)
-            .unwrap_or_else(|_| Err(io::Error::from(io::ErrorKind::TimedOut)))
+        rx.recv_timeout(limit).unwrap_or_else(|_| {
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the disk is busy, still writing",
+            ))
+        })
     }
 
     /// Waits up to `limit` for every job queued so far (the window closed, the process exits next).

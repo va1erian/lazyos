@@ -56,7 +56,10 @@ pub fn fits(rgba: &[u8], width: i32, height: i32, rect: [i32; 4]) -> bool {
     let [x, y, w, h] = rect.map(i64::from);
     let (width, height) = (i64::from(width), i64::from(height));
     let inside = x >= 0 && y >= 0 && w >= 0 && h >= 0 && x + w <= width && y + h <= height;
-    inside && rgba.len() as u64 >= (width.max(0) * height.max(0) * 4) as u64
+    let bytes = (width.max(0) as u64)
+        .checked_mul(height.max(0) as u64)
+        .and_then(|pixels| pixels.checked_mul(4));
+    inside && bytes.is_some_and(|bytes| rgba.len() as u64 >= bytes)
 }
 
 /// Copy the `rect` of a whole `width`-wide RGBA frame out, row by row; `None` if it does not fit
