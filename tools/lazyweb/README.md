@@ -44,6 +44,7 @@ python tools/lazyweb/test_sample.py                        # its parser and summ
 python tools/lazyweb/pointer_bench.py [--perf]             # a heavy live page under a 200 Hz pointer sweep: webd's paint meter, CPU of the web process, webd and the client (the pointer is always merged now)
 python tools/lazyweb/webmonkey.py --build --duration 1800 --seed 1   # a monkey that browses the real web (links, wheel in both directions, keys, history, idle) and watches freezes, jank, stuck loads, lost views; see its docstring
 python tools/lazyweb/test_webmonkey.py                       # its reader and actions
+python tools/lazyweb/history_repro.py --out shots/history_repro.json && python tools/lazyweb/webmonkey.py --repro shots/history_repro.json --attempts 1   # a long history (120 distinct fast pages), then wheel flings on about:history both ways: NOT REPRODUCED while the page scrolls smoothly (about 8 minutes)
 python tools/lazyweb/test_pointer.py && python tools/lazyweb/test_procs.py   # their readers
 ```
 

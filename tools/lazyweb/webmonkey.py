@@ -165,11 +165,14 @@ def run_one(args, qemu: str, seed: int, out: Path, replay: list[dict] | None, re
         print(f"webmonkey seed={seed} t={time.time() - began:5.0f}s #{index}: {finding}", flush=True)
         if not report["found"]:
             report.update(found=True, kind=repros.kind_of(finding), detail=finding)
-        key = repros.key_of(finding, watch.page)
+        # Jank belongs to the page on screen: a navigation just begun (Back to about:history while the wheel
+        # still turns on a heavy page) has not drawn a frame yet. Only a stuck load is the pending page's.
+        where = watch.page if repros.kind_of(finding) == "stuck-load" else watch.on_screen or watch.page
+        key = repros.key_of(finding, where)
         if repro is None and key not in bundled and len(bundled) < repros.MAX_BUNDLES:
             bundled.add(key)
             excerpt = serial.read_text(errors="replace").splitlines()[-80:]
-            repros.write(repros.bundle(finding, watch.page, time.time() - began, index, list(trail), facts, excerpt),
+            repros.write(repros.bundle(finding, where, time.time() - began, index, list(trail), facts, excerpt),
                          len(bundled), out)
 
     try:

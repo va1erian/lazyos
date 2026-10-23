@@ -51,7 +51,8 @@ class Watch:
     jank_ms: float = 100.0  # a window-thread frame longer than this is jank
     lock_ms: int = 500
     answer_ms: float = 400.0  # a wheel answer slower than this is jank (the engine's own meter)
-    page: str = ""
+    page: str = ""  # the newest address named: a navigation in flight, or the page it ended on
+    on_screen: str = ""  # the page that committed last (`LOAD`): what the wheel was turning and the frames drew
     title: str = ""
     loading_since: float | None = None
     findings: list[str] = field(default_factory=list)
@@ -77,7 +78,8 @@ class Watch:
         if m := NAV.search(line):
             self.page, self.loading_since = m.group(1), self.loading_since or now
         elif m := LOAD.search(line):
-            self.page, self.loading_since, self.loads = m.group(1), None, self.loads + 1
+            self.page = self.on_screen = m.group(1)
+            self.loading_since, self.loads = None, self.loads + 1
         elif m := TITLE.search(line):
             self.title = m.group(1).strip()
         elif LOAD_FAIL.search(line):
@@ -94,13 +96,13 @@ class Watch:
                 self.worst_answer_ms = max(self.worst_answer_ms, worst)
                 if worst >= self.answer_ms:
                     self.janks.append((now, worst))
-                    found.append(f"jank: the page took {worst:.0f} ms to answer the wheel (page {self.page})")
+                    found.append(f"jank: the page took {worst:.0f} ms to answer the wheel (page {self.on_screen or self.page})")
         elif m := WINDOW.search(line):
             ms = int(m.group(1)) / 1000
             self.worst_frame_ms = max(self.worst_frame_ms, ms)
             if ms >= self.jank_ms:
                 self.janks.append((now, ms))
-                found.append(f"jank: the window thread spent {ms:.0f} ms on one frame (page {self.page})")
+                found.append(f"jank: the window thread spent {ms:.0f} ms on one frame (page {self.on_screen or self.page})")
         elif (m := LOCK_WAIT.search(line)) and int(m.group(3)) >= self.lock_ms:
             found.append(f"{m.group(4)} waited {m.group(3)} ms for {m.group(1)}, held by {m.group(2)}")
         if ECHOES_TITLE.match(line):
@@ -123,7 +125,7 @@ class Watch:
             self.checker_seconds += 1
         if gap >= self.jank_ms:
             self.janks.append((now, gap))
-            return [f"jank: no frame was drawn for {gap:.0f} ms while scrolling (page {self.page})"]
+            return [f"jank: no frame was drawn for {gap:.0f} ms while scrolling (page {self.on_screen or self.page})"]
         return []
 
     def stuck_load(self, now: float, limit: float) -> str | None:

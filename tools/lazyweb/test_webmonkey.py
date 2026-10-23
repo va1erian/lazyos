@@ -34,6 +34,16 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(watch.feed([slow], 2)), 1)
         self.assertEqual(round(watch.worst_frame_ms), 250)
 
+    def test_jank_is_blamed_on_the_page_on_screen_not_on_the_one_being_opened(self):
+        # Back to about:history while the wheel still turns on a heavy page: the history has not
+        # committed, so the frames that did not come are that page's (the monkey once blamed about:history).
+        watch = w.Watch(jank_ms=100)
+        watch.feed(["LAZYWEB:LOAD:https://www.bbc.com/news", "LAZYWEB:NAV:about:history"], 0)
+        gap = "LAZYWEB:INFO:SMOOTH:wheel=12:frames=2:gapmax=735216:over33=2:shown=900:checker=0"
+        (found,) = watch.feed([gap], 1)
+        self.assertIn("(page https://www.bbc.com/news)", found)
+        self.assertEqual(watch.page, "about:history")  # a stuck load still names the page being opened
+
     def test_scroll_jank_is_a_long_gap_between_frames_not_the_draw_cost(self):
         watch = w.Watch(jank_ms=100)
         still = "LAZYWEB:INFO:SMOOTH:wheel=0:frames=22:gapmax=900000:over33=0:shown=9900:checker=0"
