@@ -49,12 +49,20 @@ impl Gain {
 
     /// Scale one sample (any width up to 32 bits) without overflow.
     pub fn scale(self, sample: i32) -> i64 {
+        // Fast path: unity gain leaves sample untouched without multiplication/shift.
+        if self.is_unity() {
+            return i64::from(sample);
+        }
         (i64::from(sample) * i64::from(self.0)) >> 16
     }
 
     /// Scale an accumulated mix (wider than any sample) without overflow:
     /// the mix of every stream at maximum gain stays far below 2^47.
     pub fn scale_wide(self, value: i64) -> i64 {
+        // Fast path: unity gain leaves value untouched without multiplication/shift.
+        if self.is_unity() {
+            return value;
+        }
         (value * i64::from(self.0)) >> 16
     }
 }
@@ -68,6 +76,12 @@ pub fn saturate(value: i64) -> i16 {
 /// byte is left alone. Unity is a no-op, so the common case costs nothing.
 pub fn scale_s16le(bytes: &mut [u8], gain: Gain) {
     if gain.is_unity() {
+        return;
+    }
+    // Fast path: silence can zero the buffer directly in bulk via memset.
+    if gain.is_silent() {
+        let chunks_len = bytes.len() / 2 * 2;
+        bytes[..chunks_len].fill(0);
         return;
     }
     for pair in bytes.as_chunks_mut::<2>().0 {

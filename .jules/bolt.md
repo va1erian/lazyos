@@ -1,0 +1,3 @@
+## 2026-03-31 - Iterator Collect vs Manual Loop for String Building
+**Learning:** Replacing `Iterator<Item = char>::collect::<String>()` with manual `String::push(c)` loop calls decreased string construction throughput in `lazyterm` (17.7 MiB/s down to 13.7 MiB/s). `FromIterator<char>` for `String` in `std` has specialized internal allocation/UTF-8 optimization that outperforms naive per-character `push` loops.
+**Action:** Trust `char_iter.collect::<String>()` over manual `for c in iter { string.push(c); }` loops when collecting characters into strings, and always measure with benchmarks before assuming manual string loops avoid allocation overhead.
