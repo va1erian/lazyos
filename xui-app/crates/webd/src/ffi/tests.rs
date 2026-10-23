@@ -52,14 +52,15 @@ pub unsafe extern "C" fn webd_engine_view_create(view: u64, config: *const WebdV
     ));
     if c.light == 0 {
         log(format!(
-            "full {view} features={} profile={} memory_only={} deltas={} suffix={} no_network={} store={}",
+            "full {view} features={} profile={} memory_only={} deltas={} suffix={} no_network={} store={} agent={}",
             c.features,
             unsafe { s(c.profile) },
             c.memory_only,
             c.deltas,
             unsafe { s(c.user_agent_suffix) },
             c.no_network,
-            c.store_kind
+            c.store_kind,
+            unsafe { s(c.user_agent) }
         ));
     }
 }
@@ -183,13 +184,15 @@ fn the_view_config_has_the_headers_layout() {
         assert_eq!(offset_of!(WebdViewConfig, user_agent_suffix), 64);
         assert_eq!(offset_of!(WebdViewConfig, no_network), 72);
         assert_eq!(offset_of!(WebdViewConfig, store_kind), 76);
-        assert_eq!(size_of::<WebdViewConfig>(), 80);
+        assert_eq!(offset_of!(WebdViewConfig, user_agent), 80);
+        assert_eq!(size_of::<WebdViewConfig>(), 88);
     }
     #[cfg(target_pointer_width = "32")]
     {
         assert_eq!(offset_of!(WebdViewConfig, features), 36);
         assert_eq!(offset_of!(WebdViewConfig, store_kind), 60);
-        assert_eq!(size_of::<WebdViewConfig>(), 64);
+        assert_eq!(offset_of!(WebdViewConfig, user_agent), 64);
+        assert_eq!(size_of::<WebdViewConfig>(), 68);
     }
 }
 
@@ -224,7 +227,7 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
         },
     );
     // A private window's store reaches the engine as its own store kind, the client's own profile as 0.
-    for (view, private_store) in [(7, true), (8, false)] {
+    for (view, private_store, user_agent) in [(7, true, ""), (8, false, "Agent/1 (x)")] {
         engine.view_create(
             view,
             &EngineConfig {
@@ -233,6 +236,7 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
                 full: Some(crate::engine::FullConfig {
                     private_store,
                     memory_only: true,
+                    user_agent: user_agent.into(),
                     ..Default::default()
                 }),
                 ..EngineConfig::default()
@@ -257,10 +261,10 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
             format!("create 5 size={size} light=1 scripts=1 320x200 group=3 scheme=1 font=18 style=p{{}}"),
             format!("create 6 size={size} light=1 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
             format!("create 7 size={size} light=0 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
-            "full 7 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=1"
+            "full 7 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=1 agent=NULL"
                 .to_string(),
             format!("create 8 size={size} light=0 scripts=0 1x1 group=0 scheme=0 font=0 style=NULL"),
-            "full 8 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=0"
+            "full 8 features=0 profile=NULL memory_only=1 deltas=0 suffix=NULL no_network=0 store=0 agent=Agent/1 (x)"
                 .to_string(),
             "html 5 <p>hi</p> base=about:blank".to_string(),
             "resize 5 640x480".to_string(),

@@ -11,6 +11,16 @@ store (the omnibar, history, bookmarks, control over stored data). B3 is the pas
 B4 is reporting an issue through LazyAgent. Targets are the Alder Lake boxes with 8 GB and 32 GB of RAM. Out of
 scope: sync across devices, extensions, and engine work beyond what these features need.
 
+**Progress (2026-10-23).** B1's webd half is started and host-tested: `ViewConfig.process_key`, the memory-gated
+ceiling of 16 web processes, 64 views for the browser scope, `DetachSlots` (45), `RecoverGroup` (44), and a user
+agent the person can change per tab (`ViewConfig.user_agent` 16, `SetUserAgent` 46), with `FullWebView` calls for
+each ([`webd.md`](webd.md) "Tabs and the user agent"). The engine's C++ half (`webd_engine_recover_group`,
+`webd_engine_set_user_agent`, `webd_view_config.user_agent`) is written but was **not built or run** (no WebKit build
+volume in that session). Not done: the parked-view pool for full views, `webd_engine_view_pid`, spike S1, the
+window's `tabs` module and strip, session restore and the discard numbers. The user agent is not in the draft: it
+is what a tab needs for "request the desktop site", and it takes field id 16, so the credentials flag moves to 17
+and icons to 18 in section 8.
+
 ## 0. Principles
 
 * **The window owns the person's data; webd owns the engine's.** Bookmarks, history, sessions, passwords,
@@ -100,7 +110,11 @@ the other nine keep working" cannot pass.
 better, but it needs a public-suffix list the window does not have; that is a later refinement. Tabs of one host
 share a process and other hosts are isolated, which is the draft's "reuse one process for tabs of the same
 site". A page that navigates to another site stays in its process (WebKit's process swapping is off,
-`webd-plan.md` 3.3). The key is a placement hint, not a security boundary. Light views ignore the field.
+`webd-plan.md` 3.3). The key is a placement hint, not a security boundary. Light views ignore the field. **Review of 2026-10-23:** a key
+is accepted only with the `browser` profile kept on disk, because the engine shares an in-memory store only through a
+live group mate: keyed tabs of a private window would each get a store of their own. Private windows therefore stay
+in one process until the engine can key a memory store by owner and store kind without the group. Downloads are
+counted under the client's default group, not the key's group.
 
 **This amends open question 7 of the webd plan**, which says the group is "never from a wire field". The
 amendment is narrow. The label still comes from the kernel, and the key can only split the caller's **own**
@@ -250,7 +264,7 @@ with three fixed roots: Bookmarks bar, Other bookmarks, Unsorted.
 
 ### 4.3 Favicons (a webd addition)
 
-webd has no favicon today. `ViewConfig.icons: Bool = 17` (browser scope only) makes webd send
+webd has no favicon today. `ViewConfig.icons: Bool = 18` (browser scope only) makes webd send
 `Favicon(view, page_url, width, height, rgba: Bytes)` (event 126) once a page's icon has loaded and been
 **decoded on the engine's side**: the web process already decodes images and is sandboxed, so untrusted icon
 bytes are never parsed in the window, which holds the vault key (section 6). The picture is scaled to at most
@@ -356,7 +370,7 @@ per app and user, too few to keep one per site, and enough for two keys.
 ### 6.2 Capture and fill (webd additions)
 
 The engine sees the form. The window holds the vault. webd carries what crosses between them, only for a view
-made with `ViewConfig.credentials: Bool = 16`, which only the browser scope may set (`EACCES` otherwise,
+made with `ViewConfig.credentials: Bool = 17`, which only the browser scope may set (`EACCES` otherwise,
 like `downloads`).
 
 - [ ] **Capture.** When a form with a password field is submitted in the main frame, webd sends
@@ -449,21 +463,22 @@ Markdown** and **Save .md** (through the Save dialog) instead of failing.
 
 ## 8. webd interface additions, in one place
 
-All are append-only in `idl/webd.midl` (methods after 39, events after 125, `ViewConfig` fields after 14). The
+All are append-only in `idl/webd.midl` (methods after 39, events after 125, `ViewConfig` fields after 14; `process_key` 15 and `user_agent` 16 are taken). The
 same fields are added to the `net` and `browser` scopes' `ViewConfig` copies. `python tools/webd/test_idl.py`
 keeps the shared ids, and the `explain` rows and `midlc --rhai-api` output are regenerated.
 
 | Addition | Id | Gate | Phase |
 |---|---|---|---|
-| `ViewConfig.process_key: String` | 15 | any full view, ignored by light views | B1 |
-| `ViewConfig.credentials: Bool` | 16 | browser scope | B3 |
-| `ViewConfig.icons: Bool` | 17 | browser scope | B2 |
+| `ViewConfig.process_key: String` | 15 | browser scope, `browser` profile on disk; light views have no field | B1 (built in webd) |
+| `ViewConfig.user_agent: String` (a full agent, at most 256 bytes), `SetUserAgent(view, user_agent)` | field 16, method 46 | browser scope | B1 (built in webd) |
+| `ViewConfig.credentials: Bool` | 17 | browser scope | B3 |
+| `ViewConfig.icons: Bool` | 18 | browser scope | B2 |
 | `FillCredentials(view, origin, username, password)` | method 40 | a `credentials` view | B3 |
 | `DataUsage(view, request, offset)` | method 41 | browser scope, `browser` profile | B2 |
 | `ClearData(view, request, kinds, sites, since)` | method 42 | browser scope, `browser` profile | B2 |
 | `SetCookiePolicy(view, policy, exceptions)` | method 43 | browser scope | B2 |
-| `Recover` with a group flag (a new method, `RecoverGroup(view)`, so method 17 keeps its shape) | method 44 | full view | B1 |
-| `DetachSlots(view)` | method 45 | full view | B1 |
+| `Recover` with a group flag (a new method, `RecoverGroup(view)`, so method 17 keeps its shape) | method 44 | full view | B1 (webd service built; engine half unverified) |
+| `DetachSlots(view) -> (seq)` (the reply names the last frame sent, so frames queued before it can be ignored) | method 45 | full view | B1 (built in webd) |
 | `Favicon(view, page_url, width, height, rgba)` | event 126 | an `icons` view | B2 |
 | `FormSubmitted(view, origin, page_url, username, password, new_password)` | event 127 | a `credentials` view | B3 |
 | `DataCleared(view, request, ok)` | event 128 | browser scope | B2 |

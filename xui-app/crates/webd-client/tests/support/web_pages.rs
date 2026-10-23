@@ -3,7 +3,24 @@
 
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 
-use super::web::{long_frame, FakeWeb, BASE};
+use super::web::{FakeWeb, BASE};
+
+/// The pixel of row `row` of the `/long` page: every row is different, so a misplaced row shows.
+fn long_row(row: i32) -> [u8; 4] {
+    [(row & 0xff) as u8, ((row >> 8) & 0xff) as u8, 0x40, 0xff]
+}
+
+/// The `/long` page at scroll offset `y`, `w` x `h`.
+pub fn long_frame(w: i32, h: i32, y: i32) -> Vec<u8> {
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    for row in 0..h {
+        let pixel = long_row(y + row);
+        for _ in 0..w {
+            out.extend_from_slice(&pixel);
+        }
+    }
+    out
+}
 
 /// Rows of the band the `/long` page paints below the view.
 pub const BAND_ROWS: i32 = 64;

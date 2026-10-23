@@ -112,13 +112,14 @@ bool configureFull(View& v, WKPageConfigurationRef configuration)
         }
         WKUserContentControllerAddUserContentFilter(controller.get(), lock);
     }
-    if (!config.scripts || config.defaultFontSize > 0 || !config.userAgentSuffix.empty()) {
+    const bool ownAgent = !config.userAgentSuffix.empty() || !config.userAgent.empty();
+    if (!config.scripts || config.defaultFontSize > 0 || ownAgent) {
         WKPreferencesRef preferences = WKPreferencesCreate();
         WKPreferencesSetJavaScriptEnabled(preferences, config.scripts);
         // With site-specific quirks the page's process sends PlayStation's fixed user agent for every address
         // (WebPagePlayStation.cpp, platformUserAgent -> standardUserAgentForURL), whatever the page's own is: a
-        // suffix would never reach a request. A view that asks for one does without the quirks.
-        if (!config.userAgentSuffix.empty())
+        // suffix or an agent would never reach a request. A view that asks for one does without the quirks.
+        if (ownAgent)
             WKPreferencesSetNeedsSiteSpecificQuirks(preferences, false);
         if (config.defaultFontSize > 0) {
             WKPreferencesSetDefaultFontSize(preferences, static_cast<uint32_t>(config.defaultFontSize));
@@ -169,14 +170,23 @@ void loadFullHtml(View& v, const std::string& html, const std::string& baseUrl)
     WKRelease(base);
 }
 
-void applyUserAgentSuffix(View& v)
+void applyUserAgent(View& v, const std::string& agentOverride)
 {
+    // The first call is when the page is made, before any custom agent is set.
+    if (v.standardAgent.empty()) {
+        WKStringRef standard = WKPageCopyUserAgent(v.page);
+        v.standardAgent = utf8(standard);
+        if (standard)
+            WKRelease(standard);
+    }
+    std::string agent = agentOverride;
+    if (agent.empty())
+        agent = v.config.userAgent;
     // WebKit's own user agent with the suffix after a space, as the custom one: WKPageSetApplicationNameForUserAgent
     // would add "/<WebKit's version>" to it (UserAgentPlayStation.cpp), which is not what the owner wrote.
-    WKStringRef standard = WKPageCopyUserAgent(v.page);
-    const std::string agent = utf8(standard) + " " + v.config.userAgentSuffix;
-    if (standard)
-        WKRelease(standard);
+    if (agent.empty() && !v.config.userAgentSuffix.empty())
+        agent = v.standardAgent + " " + v.config.userAgentSuffix;
+    // An empty custom agent is WebKit's own again.
     WKStringRef custom = WKStringCreateWithUTF8CString(agent.c_str());
     WKPageSetCustomUserAgent(v.page, custom);
     WKRelease(custom);

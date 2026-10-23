@@ -153,6 +153,13 @@ fn traffic(rng: &mut Rng) {
             11 if rng.one_in(3) => {
                 if let Some(k) = pick(rng, &mut known) {
                     let (w, h) = (rng.range(1, 6) as u32, rng.range(1, 6) as u32);
+                    // A full view's slots are also detached, without a resize, by `DetachSlots`.
+                    if k.full && rng.one_in(2) {
+                        if fx.detach_slots(who[k.client], k.view).is_ok() {
+                            k.detach_all();
+                        }
+                        continue;
+                    }
                     let result = if k.full {
                         fx.resize_view(who[k.client], k.view, w, h)
                     } else {

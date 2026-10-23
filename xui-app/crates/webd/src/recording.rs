@@ -82,6 +82,8 @@ pub enum Call {
     // ---- P4 ----
     Recover(u64, bool),
     NotifyForget(u64, String),
+    RecoverGroup(u64),
+    SetUserAgent(u64, String),
 }
 
 #[derive(Default)]
@@ -295,6 +297,14 @@ impl Engine for RecordingEngine {
 
     fn recover(&self, view: u64, reload: bool) {
         self.push(Call::Recover(view, reload));
+    }
+
+    fn recover_group(&self, view: u64) {
+        self.push(Call::RecoverGroup(view));
+    }
+
+    fn set_user_agent(&self, view: u64, agent: &str) {
+        self.push(Call::SetUserAgent(view, agent.to_owned()));
     }
 
     fn notify_forget(&self, view: u64, origin: &str) {

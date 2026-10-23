@@ -58,8 +58,11 @@
 // notification permission request waits for `NotifyPermission`.
 //
 // Limits (`xui-app/crates/webd/src/limits.rs`) are the light interface's,
-// plus: at most 4 web processes per user for full views (a view of a new
-// app or profile past that is `EDQUOT`), at most 64 origins of at most 256
+// plus: at most 16 web processes per user for full views, and a view that
+// would start one while the user's memory charge cannot hold it is `EDQUOT`
+// (a view of a new app, profile or `process_key` past that is `EDQUOT`); at
+// most 64 views for a client with the browser scope (8 otherwise); at most
+// 32 `process_key`s at once per client; at most 64 origins of at most 256
 // bytes, at most 64 blocking exceptions, a URL at most 8 KiB, at most 256
 // downloads per profile in a session, a rule list at most 32 MiB. Failures
 // reply with the standard error field (id 15).
@@ -265,6 +268,45 @@ fn notify_forget(view, origin) {
 /// `EACCES` for a view without `notify_in_client`.
 fn notify_state(view, notification, state) {
     msg::connect("os.lazy.webd.view.v1").invoke("NotifyState", [view, notification, state])
+}
+
+/// `RecoverGroup(view: U64) -> ()`
+///
+/// Like `Recover` without a reload, for a view that shares its web process
+/// with others (tabs of one site, `ViewConfig.process_key`): the process
+/// of the view's group is ended and every view in it is reported as ended
+/// by request (`ViewLost` with reason `Other`). Each app makes its views
+/// again. Ids 40 to 43 are kept for the data and credential calls of
+/// docs/lazywebplus-plan.md section 8.
+fn recover_group(view) {
+    msg::connect("os.lazy.webd.view.v1").invoke("RecoverGroup", [view])
+}
+
+/// `DetachSlots(view: U64) -> (seq: U64)`
+///
+/// Detach every slot of the view, as `Resize` does, without resizing it
+/// and without costing the page a layout: a view that is not on screen
+/// (a background tab) gives its slot memory back to the client's quota.
+/// The app attaches slots again and asks for a whole frame (`Refresh`)
+/// when the view comes back. Replies with the sequence number of the last
+/// `Frame` webd sent for the view (0 for none): frames numbered up to it
+/// were painted into slots that are gone, and may still be queued for the
+/// app; it ignores them rather than copy from a slot attached later.
+fn detach_slots(view) {
+    msg::connect("os.lazy.webd.view.v1").invoke("DetachSlots", [view])
+}
+
+/// `SetUserAgent(view: U64, user_agent: String) -> ()`
+///
+/// Change the user agent the page's requests and `navigator.userAgent`
+/// show, from the next load on (a tab asking for the desktop site). The
+/// view must have been made through `os.lazy.webd.browser.v1` with a
+/// `user_agent` or a `user_agent_suffix` (else `EACCES`: the engine's
+/// site quirks, which put a fixed agent on every request, are off for such
+/// a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
+/// restores the agent the view was made with.
+fn set_user_agent(view, user_agent) {
+    msg::connect("os.lazy.webd.view.v1").invoke("SetUserAgent", [view, user_agent])
 }
 
 /// `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway`
@@ -519,7 +561,7 @@ fn notify_gone(view, notification) {
 ///
 /// How a full view is made; fixed for its life.
 fn new_view_config() {
-    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false, notify_in_client: false }
+    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false, notify_in_client: false, process_key: "", user_agent: "" }
 }
 
 /// A `Rect` with every field at its zero value.
@@ -541,6 +583,20 @@ fn new_view_config() {
 /// With `notifications`: the app shows the page's notifications
 /// (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
 /// click on one brings the app's window forward.
+/// Places the view in a web process of its own within the caller's
+/// group: views of one client with the same key share a process,
+/// views with other keys never do (tabs of one site together, other
+/// sites apart). Opaque to webd: at most 64 printable ASCII bytes, ""
+/// is the client's default group. It can only split the caller's own
+/// views; it never joins another client's. Browser scope only
+/// (`EACCES` otherwise), and only for the `browser`
+/// profile kept on disk (`EINVAL` otherwise: an in-memory store is
+/// shared only through a live group mate, so keyed private windows
+/// would share no cookies). At most 32 keys at once per client
+/// (`EDQUOT` past that: reuse a key).
+/// Replaces the engine's user agent entirely (`user_agent_suffix` only
+/// appends to it): printable ASCII, at most 256 bytes, browser scope
+/// only (`EACCES` otherwise), and not together with a suffix.
 /// A rectangle of the view, in pixels.
 fn new_rect() {
     #{ x: 0, y: 0, width: 0, height: 0 }

@@ -183,6 +183,8 @@ struct ViewConfig {
     bool configured { false };
     // Appended to the user agent (fullview.cpp); empty: WebKit's own.
     std::string userAgentSuffix;
+    // Replaces the user agent (fullview.cpp); empty: WebKit's own, with the suffix if there is one.
+    std::string userAgent;
     // A configured full view with the light views' network lock on its controller (no load but data:, blob:,
     // about:). It is made only when the lock is ready, and never with LZW_FEATURE_BLOCKING (whose rebuilds of
     // the controller's lists would drop it).
@@ -252,6 +254,9 @@ struct View {
     // `recoverReload`: load the page again in a fresh process, else leave it stopped.
     bool recovering { false };
     bool recoverReload { false };
+    // WebKit's own user agent, read once when the page is made (applyUserAgent): WKPageCopyUserAgent answers the
+    // custom agent once one is set, so a later restore built from it would stack the suffix on it.
+    std::string standardAgent;
     // The ids of this page's process as the last announcement said them (markers print them after
     // the process is reported over, which zeroes the host's), and the launch ordinals
     // (children.cpp) of the processes announced: a process with another ordinal is a new one even
@@ -318,6 +323,9 @@ struct View {
     // Finishes held navigation `id` as the normal path would (allow) or refuses it; an id no longer held is ignored.
     void answerNavigation(uint64_t id, bool allow);
     void recover(bool reload);
+    // Ends the process other views share and marks every view in it as stopped on request (no reload): the owner
+    // makes its views again.
+    void recoverGroup();
 };
 
 // The data store a profile directory names, with the rule lists compiled into it.
@@ -435,8 +443,9 @@ std::shared_ptr<Profile> profileFor(const std::string& directory, bool memoryOnl
 // Before the view exists, for a view with ViewConfig::configured: scripts, font size, user style, the network
 // lock. False when the view must not be made (the lock is not ready, or it would be dropped).
 bool configureFull(View& view, WKPageConfigurationRef configuration);
-// After the page exists: the user agent suffix, when there is one.
-void applyUserAgentSuffix(View& view);
+// After the page exists: the user agent the view was made with (an agent, or WebKit's with a suffix), when it has one,
+// or `agentOverride` (webd_engine_set_user_agent) in its place; an empty `agentOverride` is the made-with agent again.
+void applyUserAgent(View& view, const std::string& agentOverride = std::string());
 // A full view's load of the owner's HTML (UTF-8) with a base URL of the about:, data:, http: or https: scheme
 // (empty is about:blank); any other loads nothing and the next state carries an error. Replaces the page.
 void loadFullHtml(View& view, const std::string& html, const std::string& baseUrl);

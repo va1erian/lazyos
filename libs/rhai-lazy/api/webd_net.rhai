@@ -25,5 +25,5 @@ fn connect() {
 ///
 /// `os.lazy.webd.view.v1.ViewConfig`, field for field.
 fn new_view_config() {
-    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false, notify_in_client: false }
+    #{ profile: "", ephemeral: false, scheme_policy: 0, origins: [], scripts: false, handoff: 0, downloads: false, popups: false, blocking: false, notifications: false, user_agent_suffix: "", deltas: false, dialogs: false, notify_in_client: false, process_key: "", user_agent: "" }
 }

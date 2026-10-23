@@ -59,6 +59,9 @@ pub struct FullConfig {
     pub deltas: bool,
     /// Appended to the user agent; printable ASCII, at most 64 bytes.
     pub user_agent_suffix: String,
+    /// Replaces the user agent (printable ASCII, at most 256 bytes); empty keeps WebKit's, with the
+    /// suffix if any. Never together with a suffix.
+    pub user_agent: String,
     /// No network at all (a `DataOnly` view): the light views' network lock is attached too, so a
     /// sub-resource, a fetch or a socket of the page reaches nothing, not only its navigations.
     pub no_network: bool,
@@ -123,6 +126,12 @@ pub trait Engine {
     /// fresh one, without it the engine reports the page as ended (`LOST_OTHER`). The engine refuses
     /// while other views share the process.
     fn recover(&self, _view: u64, _reload: bool) {}
+    /// `webd_engine_recover_group`: end the web process of the view's group even though other views
+    /// share it; every view in it is reported as ended by request (`LOST_OTHER`).
+    fn recover_group(&self, _view: u64) {}
+    /// `webd_engine_set_user_agent`: from the view's next load on, `agent` is its user agent; empty
+    /// restores the one the view was made with.
+    fn set_user_agent(&self, _view: u64, _agent: &str) {}
     /// `webd_engine_notify_forget`: `origin` is `default` again for the page (WebKit's record is the
     /// context's, host-wide). `view` is the one the request came through.
     fn notify_forget(&self, _view: u64, _origin: &str) {}

@@ -120,6 +120,14 @@ pub struct FullWebView<T: ScopedTransport> {
     focused: bool,
     owed: Owed,
     counters: FullCounters,
+    /// [`FullWebView::detach_slots`] gave the slots up and none is attached again yet.
+    detached: bool,
+    /// Frames numbered up to this were painted before a detach into slots that are gone, whatever
+    /// slot they name now ([`FullWebView::detach_slots`]).
+    stale_through: Option<u64>,
+    /// Bands are not read from the first detach until a whole frame has been applied: they carry no
+    /// number, so a stale one cannot be told from a new one.
+    bands_wait: bool,
 }
 
 impl<T: ScopedTransport> FullWebView<T> {
@@ -145,6 +153,9 @@ impl<T: ScopedTransport> FullWebView<T> {
             focused: false,
             owed: Owed::default(),
             counters: FullCounters::default(),
+            detached: false,
+            stale_through: None,
+            bands_wait: false,
         }
     }
 
@@ -234,6 +245,44 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.attach_slots()
     }
 
+    /// Give the slot memory back without resizing the view (a background tab): webd detaches every
+    /// slot, so no frame arrives until [`FullWebView::reattach_slots`]. The picture on show stays.
+    ///
+    /// Frames webd sent before it handled the call are still queued and name slots that are gone. The
+    /// reply carries the number of the last of them: this view ignores every frame up to it, and the
+    /// bands (which have no number) until a whole frame has been applied, so none can be copied from a
+    /// slot attached later (a zeroed one), however long the queue is.
+    pub fn detach_slots(&mut self) -> Result<(), Error> {
+        let view = self.live_view()?;
+        let body = wire::encode_detach_slots_args(&wire::DetachSlotsArgs { view })
+            .map_err(|_| Error::Refused(errno::EINVAL))?;
+        let reply = self.call_reply(wire::METHOD_DETACHSLOTS, body, Vec::new())?;
+        let sent = wire::decode_detach_slots_reply(&reply)
+            .map_err(|_| Error::Refused(errno::EINVAL))?
+            .seq;
+        if sent > 0 {
+            self.stale_through = Some(self.stale_through.map_or(sent, |old| old.max(sent)));
+        }
+        self.slots.clear();
+        self.owed.forget_slots();
+        self.base = false;
+        self.detached = true;
+        self.bands_wait = true;
+        Ok(())
+    }
+
+    /// Attach the slots again after [`FullWebView::detach_slots`] (the view came to the front) and ask
+    /// for a whole frame. Nothing happens for a view whose slots are attached.
+    pub fn reattach_slots(&mut self) -> Result<(), Error> {
+        self.live_view()?;
+        if !self.detached {
+            return Ok(());
+        }
+        self.attach_slots()?;
+        self.refresh();
+        Ok(())
+    }
+
     /// Allocate and attach the slots for the current size, in the plan's order. The first frame
     /// slot must attach; a later one that cannot be had (the process's shared-buffer limit, a
     /// quota) is left out and the view runs with fewer.
@@ -257,6 +306,7 @@ impl<T: ScopedTransport> FullWebView<T> {
                 Err(error) => return Err(error),
             }
         }
+        self.detached = false;
         Ok(())
     }
 
@@ -297,10 +347,19 @@ impl<T: ScopedTransport> FullWebView<T> {
         body: Vec<u8>,
         objects: Vec<libmessenger::Object>,
     ) -> Result<(), Error> {
-        match self.transport.call(method, body, objects) {
-            Ok(_) => Ok(()),
-            Err(code) => Err(self.failed(-code)),
-        }
+        self.call_reply(method, body, objects).map(|_| ())
+    }
+
+    /// A call with the body of its reply.
+    fn call_reply(
+        &mut self,
+        method: u32,
+        body: Vec<u8>,
+        objects: Vec<libmessenger::Object>,
+    ) -> Result<Vec<u8>, Error> {
+        self.transport
+            .call(method, body, objects)
+            .map_err(|code| self.failed(-code))
     }
 
     /// A call about something of the view's that may be gone by itself (a held navigation expires
@@ -348,6 +407,9 @@ impl<T: ScopedTransport> FullWebView<T> {
         self.owed.clear();
         self.lost = None;
         self.base = false;
+        self.detached = false;
+        self.stale_through = None;
+        self.bands_wait = false;
     }
 
     pub fn view_id(&self) -> Option<u64> {

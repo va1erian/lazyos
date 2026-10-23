@@ -97,6 +97,11 @@ typedef struct webd_view_config {
     // no directory, one group", and without this field the second would be a related page of the first and share
     // its cookies and storage. Any value but the two below is a store of its own kind (never shared with 0 or 1).
     int32_t store_kind;
+    // Replaces the user agent entirely, or NULL; at most 256 printable ASCII bytes (else ignored, CONFIG:IGNORED), appended
+    // 2026-10-23 with the tabs work. The service never sets it together with user_agent_suffix. Like the suffix it
+    // turns the view's site-specific quirks off (they put a fixed agent on every request), and it makes the view one
+    // webd_engine_set_user_agent may change later.
+    const char* user_agent;
 } webd_view_config;
 
 #define WEBD_STORE_OWN 0      // the client's own profile (default)
@@ -249,6 +254,15 @@ void webd_engine_blocking_forget(uint64_t view, const char* list);
 // page stopped, which the engine reports as the page ended by request (webd_ui_view_lost, WEBD_LOST_OTHER). A
 // process other views share is not ended (the engine says WEBPROCESS:RECOVER:SHARED and does nothing).
 void webd_engine_recover(uint64_t view, int reload);
+// Like webd_engine_recover(view, 0) for a view whose web process other views share (tabs of one site, one webd group):
+// the process is ended (View::recoverGroup), no page is reloaded, and every view that ran in it is reported as ended by
+// request (webd_ui_view_lost, WEBD_LOST_OTHER). The owner makes its views again. A view with no process is ignored.
+void webd_engine_recover_group(uint64_t view);
+// From the view's next load on `agent` (at most 256 printable ASCII bytes, else ignored) is its user agent; "" or NULL goes
+// back to the one it was made with (user_agent, else WebKit's with user_agent_suffix, else WebKit's). Ignored for a view
+// made with neither user_agent nor user_agent_suffix: WebKit's site-specific quirks are on for it and would put their fixed
+// agent on every request whatever is set here (the service allows the call for such views never).
+void webd_engine_set_user_agent(uint64_t view, const char* agent);
 // Forgets the profile's decision about `origin`: the pages of that site get Notification.permission "default"
 // again (WebKit's record is the context's, so host-wide, as for webd_engine_notify_permission). `view` is the
 // full view the request came through; an unknown or light view ignores the call.

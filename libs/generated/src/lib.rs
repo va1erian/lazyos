@@ -21348,6 +21348,8 @@ pub mod os_lazy_webd_view_v1 {
         pub deltas: bool,
         pub dialogs: bool,
         pub notify_in_client: bool,
+        pub process_key: alloc::string::String,
+        pub user_agent: alloc::string::String,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -21370,6 +21372,8 @@ pub mod os_lazy_webd_view_v1 {
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
         target.bool(14, value.notify_in_client)?;
+        target.string(15, &value.process_key)?;
+        target.string(16, &value.user_agent)?;
         Ok(target.finish())
     }
 
@@ -21423,6 +21427,12 @@ pub mod os_lazy_webd_view_v1 {
                 14 => {
                     out.notify_in_client = field.as_bool()?;
                 }
+                15 => {
+                    out.process_key = field.as_str()?.into();
+                }
+                16 => {
+                    out.user_agent = field.as_str()?.into();
+                }
                 _ => {}
             }
         }
@@ -21446,6 +21456,20 @@ pub mod os_lazy_webd_view_v1 {
     /// With `notifications`: the app shows the page's notifications
     /// (`NotifyShow`, answered with `NotifyState`) instead of webd, so a
     /// click on one brings the app's window forward.
+    /// Places the view in a web process of its own within the caller's
+    /// group: views of one client with the same key share a process,
+    /// views with other keys never do (tabs of one site together, other
+    /// sites apart). Opaque to webd: at most 64 printable ASCII bytes, ""
+    /// is the client's default group. It can only split the caller's own
+    /// views; it never joins another client's. Browser scope only
+    /// (`EACCES` otherwise), and only for the `browser`
+    /// profile kept on disk (`EINVAL` otherwise: an in-memory store is
+    /// shared only through a live group mate, so keyed private windows
+    /// would share no cookies). At most 32 keys at once per client
+    /// (`EDQUOT` past that: reuse a key).
+    /// Replaces the engine's user agent entirely (`user_agent_suffix` only
+    /// appends to it): printable ASCII, at most 256 bytes, browser scope
+    /// only (`EACCES` otherwise), and not together with a suffix.
     /// A rectangle of the view, in pixels.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct Rect {
@@ -21596,6 +21620,12 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_NOTIFYFORGET: u32 = 38;
     /// `NotifyState` method id.
     pub const METHOD_NOTIFYSTATE: u32 = 39;
+    /// `RecoverGroup` method id.
+    pub const METHOD_RECOVERGROUP: u32 = 44;
+    /// `DetachSlots` method id.
+    pub const METHOD_DETACHSLOTS: u32 = 45;
+    /// `SetUserAgent` method id.
+    pub const METHOD_SETUSERAGENT: u32 = 46;
     /// `Frame` method id.
     pub const METHOD_FRAME: u32 = 100;
     /// `State` method id.
@@ -22733,6 +22763,123 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
+    /// Like `Recover` without a reload, for a view that shares its web process
+    /// with others (tabs of one site, `ViewConfig.process_key`): the process
+    /// of the view's group is ended and every view in it is reported as ended
+    /// by request (`ViewLost` with reason `Other`). Each app makes its views
+    /// again. Ids 40 to 43 are kept for the data and credential calls of
+    /// docs/lazywebplus-plan.md section 8.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct RecoverGroupArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_recover_group_args(value: &RecoverGroupArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_recover_group_args(body: &[u8]) -> Result<RecoverGroupArgs, Error> {
+        let mut out = RecoverGroupArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Detach every slot of the view, as `Resize` does, without resizing it
+    /// and without costing the page a layout: a view that is not on screen
+    /// (a background tab) gives its slot memory back to the client's quota.
+    /// The app attaches slots again and asks for a whole frame (`Refresh`)
+    /// when the view comes back. Replies with the sequence number of the last
+    /// `Frame` webd sent for the view (0 for none): frames numbered up to it
+    /// were painted into slots that are gone, and may still be queued for the
+    /// app; it ignores them rather than copy from a slot attached later.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachSlotsArgs {
+        pub view: u64,
+    }
+
+    pub fn encode_detach_slots_args(value: &DetachSlotsArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_slots_args(body: &[u8]) -> Result<DetachSlotsArgs, Error> {
+        let mut out = DetachSlotsArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.view = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachSlotsReply {
+        pub seq: u64,
+    }
+
+    pub fn encode_detach_slots_reply(value: &DetachSlotsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.seq)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_slots_reply(body: &[u8]) -> Result<DetachSlotsReply, Error> {
+        let mut out = DetachSlotsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.seq = field.as_u64()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Change the user agent the page's requests and `navigator.userAgent`
+    /// show, from the next load on (a tab asking for the desktop site). The
+    /// view must have been made through `os.lazy.webd.browser.v1` with a
+    /// `user_agent` or a `user_agent_suffix` (else `EACCES`: the engine's
+    /// site quirks, which put a fixed agent on every request, are off for such
+    /// a view only). `user_agent` is printable ASCII, at most 256 bytes; ""
+    /// restores the agent the view was made with.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SetUserAgentArgs {
+        pub view: u64,
+        pub user_agent: alloc::string::String,
+    }
+
+    pub fn encode_set_user_agent_args(value: &SetUserAgentArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.string(2, &value.user_agent)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_set_user_agent_args(body: &[u8]) -> Result<SetUserAgentArgs, Error> {
+        let mut out = SetUserAgentArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.user_agent = field.as_str()?.into();
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Event: slot `slot` holds frame `seq`. `whole`: every pixel is new.
     /// Otherwise the app moves its picture by `shift` (when present) and then
     /// copies `rects` from the slot. `offset_x`/`offset_y` is the page's scroll
@@ -23819,6 +23966,8 @@ pub mod os_lazy_webd_net_v1 {
         pub deltas: bool,
         pub dialogs: bool,
         pub notify_in_client: bool,
+        pub process_key: alloc::string::String,
+        pub user_agent: alloc::string::String,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -23841,6 +23990,8 @@ pub mod os_lazy_webd_net_v1 {
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
         target.bool(14, value.notify_in_client)?;
+        target.string(15, &value.process_key)?;
+        target.string(16, &value.user_agent)?;
         Ok(target.finish())
     }
 
@@ -23893,6 +24044,12 @@ pub mod os_lazy_webd_net_v1 {
                 }
                 14 => {
                     out.notify_in_client = field.as_bool()?;
+                }
+                15 => {
+                    out.process_key = field.as_str()?.into();
+                }
+                16 => {
+                    out.user_agent = field.as_str()?.into();
                 }
                 _ => {}
             }
@@ -24029,6 +24186,8 @@ pub mod os_lazy_webd_browser_v1 {
         pub deltas: bool,
         pub dialogs: bool,
         pub notify_in_client: bool,
+        pub process_key: alloc::string::String,
+        pub user_agent: alloc::string::String,
     }
 
     pub fn encode_view_config(value: &ViewConfig) -> Result<Vec<u8>, Error> {
@@ -24051,6 +24210,8 @@ pub mod os_lazy_webd_browser_v1 {
         target.bool(12, value.deltas)?;
         target.bool(13, value.dialogs)?;
         target.bool(14, value.notify_in_client)?;
+        target.string(15, &value.process_key)?;
+        target.string(16, &value.user_agent)?;
         Ok(target.finish())
     }
 
@@ -24103,6 +24264,12 @@ pub mod os_lazy_webd_browser_v1 {
                 }
                 14 => {
                     out.notify_in_client = field.as_bool()?;
+                }
+                15 => {
+                    out.process_key = field.as_str()?.into();
+                }
+                16 => {
+                    out.user_agent = field.as_str()?.into();
                 }
                 _ => {}
             }

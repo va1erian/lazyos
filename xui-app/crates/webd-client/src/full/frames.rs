@@ -102,6 +102,11 @@ impl<T: ScopedTransport> FullWebView<T> {
         out: &mut Vec<FullEvent>,
         sink: Option<&mut dyn PixelSink>,
     ) {
+        // Painted before a detach, into a slot that is gone: not a slot we hold now, though it may name one.
+        if self.stale_through.is_some_and(|stale| frame.seq <= stale) {
+            self.counters.ignored += 1;
+            return;
+        }
         let size = self.size;
         let bytes = u128::from(frame.width) * u128::from(frame.height) * 4;
         let index = frame.slot as usize;
@@ -135,6 +140,9 @@ impl<T: ScopedTransport> FullWebView<T> {
             None => self.apply_delta(&frame),
         };
         info.applied = applied;
+        if applied && frame.whole {
+            self.bands_wait = false;
+        }
         if applied {
             self.last_seq = frame.seq;
             self.scroll = (frame.offset_x, frame.offset_y, frame.at_bottom);
@@ -218,6 +226,14 @@ impl<T: ScopedTransport> FullWebView<T> {
     /// stale width) is dropped, and released: band slots are not detached by anything but `Resize`.
     fn band(&mut self, band: wire::BandArgs, out: &mut Vec<FullEvent>) {
         let index = band.slot as usize;
+        if self.bands_wait {
+            self.counters.ignored += 1;
+            // A band in a slot attached since the detach is webd's to wait on, not a stale one: give it back.
+            if index >= FRAME_SLOTS && self.slots.get(index).is_some_and(Option::is_some) {
+                self.owe_release(band.slot);
+            }
+            return;
+        }
         let bytes = band.width as usize * band.height.min(BAND_ROWS) as usize * 4;
         let mem = (index >= FRAME_SLOTS)
             .then(|| self.slots.get(index).and_then(Option::as_ref))

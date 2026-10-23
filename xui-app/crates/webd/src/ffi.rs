@@ -47,6 +47,8 @@ pub struct WebdViewConfig {
     pub no_network: i32,
     /// `WEBD_STORE_OWN` (0) or `WEBD_STORE_PRIVATE` (1).
     pub store_kind: i32,
+    /// Replaces the user agent, or NULL (appended 2026-10-23, with the tabs work).
+    pub user_agent: *const c_char,
 }
 
 extern "C" {
@@ -114,6 +116,7 @@ impl Engine for FfiEngine {
         let full = config.full.clone().unwrap_or_default();
         let profile = optional(&full.profile);
         let suffix = optional(&full.user_agent_suffix);
+        let agent = optional(&full.user_agent);
         let raw = WebdViewConfig {
             struct_size: std::mem::size_of::<WebdViewConfig>() as u32,
             light: i32::from(config.full.is_none()),
@@ -131,6 +134,7 @@ impl Engine for FfiEngine {
             user_agent_suffix: ptr(&suffix),
             no_network: i32::from(full.no_network),
             store_kind: i32::from(full.private_store),
+            user_agent: ptr(&agent),
         };
         // SAFETY: `raw` and its strings live across the call; the engine reads them only within it.
         unsafe { webd_engine_view_create(view, &raw) }
@@ -245,6 +249,12 @@ impl Engine for FfiEngine {
     }
     fn recover(&self, view: u64, reload: bool) {
         calls::recover(view, reload)
+    }
+    fn recover_group(&self, view: u64) {
+        calls::recover_group(view)
+    }
+    fn set_user_agent(&self, view: u64, agent: &str) {
+        calls::set_user_agent(view, agent)
     }
     fn notify_forget(&self, view: u64, origin: &str) {
         calls::notify_forget(view, origin)

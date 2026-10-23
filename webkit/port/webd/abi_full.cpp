@@ -24,6 +24,7 @@ constexpr int kViewFeatures = WEBD_FEATURE_PAGE_UI | WEBD_FEATURE_DIALOGS | WEBD
     | WEBD_FEATURE_NOTIFICATIONS | WEBD_FEATURE_BLOCKING;
 constexpr size_t kMaxPath = 4096;
 constexpr size_t kMaxSuffix = 64;
+constexpr size_t kMaxAgent = 256;
 
 // Whether the caller's struct reaches the end of `field` (at `offset`, `size` bytes).
 bool covers(const webd_view_config& config, size_t offset, size_t size) { return config.struct_size >= offset + size; }
@@ -51,11 +52,11 @@ bool cleanProfile(const char* text, std::string& out)
     return true;
 }
 
-// A suffix that can only be text in one header line: printable ASCII, at most 64 bytes.
-bool cleanSuffix(const char* text, std::string& out)
+// Text that can only be part of one header line: printable ASCII, at most `max` bytes.
+bool cleanLine(const char* text, size_t max, std::string& out)
 {
-    const size_t length = strnlen(text, kMaxSuffix + 1);
-    if (length > kMaxSuffix)
+    const size_t length = strnlen(text, max + 1);
+    if (length > max)
         return false;
     for (size_t i = 0; i < length; ++i) {
         if (text[i] < 0x20 || text[i] > 0x7e)
@@ -64,6 +65,12 @@ bool cleanSuffix(const char* text, std::string& out)
     out.assign(text, length);
     return true;
 }
+
+// A user agent suffix: at most 64 bytes.
+bool cleanSuffix(const char* text, std::string& out) { return cleanLine(text, kMaxSuffix, out); }
+
+// A user agent: at most 256 bytes.
+bool cleanAgent(const char* text, std::string& out) { return cleanLine(text, kMaxAgent, out); }
 
 std::string text(const char* value) { return value ? value : ""; }
 
@@ -95,6 +102,10 @@ bool fullConfig(const webd_view_config& local, ViewConfig& vc, bool& deltas)
     if (covers(local, offsetof(webd_view_config, user_agent_suffix), sizeof local.user_agent_suffix) && local.user_agent_suffix
         && *local.user_agent_suffix && !cleanSuffix(local.user_agent_suffix, vc.userAgentSuffix))
         say("CONFIG:IGNORED:user_agent_suffix");
+    // Absent in an older caller's struct: WebKit's own agent, as before the field existed.
+    if (covers(local, offsetof(webd_view_config, user_agent), sizeof local.user_agent) && local.user_agent && *local.user_agent
+        && !cleanAgent(local.user_agent, vc.userAgent))
+        say("CONFIG:IGNORED:user_agent");
     return true;
 }
 
@@ -213,6 +224,29 @@ void webd_engine_blocking_forget(uint64_t view, const char* list)
 void webd_engine_recover(uint64_t view, int reload)
 {
     withFullView(view, [reload](Slot&, View& v) { v.recover(reload != 0); });
+}
+
+void webd_engine_recover_group(uint64_t view)
+{
+    withFullView(view, [](Slot&, View& v) { v.recoverGroup(); });
+}
+
+void webd_engine_set_user_agent(uint64_t view, const char* agent)
+{
+    std::string clean;
+    if (agent && *agent && !cleanAgent(agent, clean)) {
+        say("CONFIG:IGNORED:set_user_agent");
+        return;
+    }
+    withFullView(view, [clean = std::move(clean)](Slot&, View& v) {
+        // Only a view made with an agent or a suffix has the site quirks off; for any other the call would change
+        // nothing a request shows (webd_abi.h).
+        if (v.config.userAgent.empty() && v.config.userAgentSuffix.empty()) {
+            say("CONFIG:IGNORED:set_user_agent:no agent was configured");
+            return;
+        }
+        applyUserAgent(v, clean);
+    });
 }
 
 void webd_engine_notify_forget(uint64_t view, const char* origin)

@@ -37,3 +37,5 @@ object list (the index each field must hold).
 - `deltas: Bool`
 - `dialogs: Bool`
 - `notify_in_client: Bool`
+- `process_key: String`
+- `user_agent: String`

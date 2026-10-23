@@ -196,6 +196,14 @@ python tools/webd/full_run.py                                         # full vie
 python tools/webd/test_full_judge.py && python tools/webd/test_idl.py
 ```
 
+Tabs (the webd half of [`docs/lazywebplus-plan.md`](../lazywebplus-plan.md) B1, [`docs/webd.md`](../webd.md) "Tabs and
+the user agent"): `ViewConfig.process_key` puts a client's views in one web process per key (`ident::Groups` gives each
+(client, key) its own engine group; a key's group goes with its last view), the browser scope may hold 64 views and
+16 web processes sit below the memory gate, `DetachSlots` gives a background tab's slot memory back, `RecoverGroup`
+ends a shared process, and `ViewConfig.user_agent` / `SetUserAgent` (browser scope) change the agent per tab. Tests:
+`xui-app/crates/webd/tests/full_tabs.rs` and `xui-app/crates/webd-client/tests/full_tabs.rs`. The engine half in
+`webkit/port` is not covered by a `webd-abi-test` case yet.
+
 Markers (channel `Webd`): `UP:PASS`, `SERVE:app.os.lazy.webd.light`, `SERVE:app.os.lazy.webd.view`, `VIEW:CREATE client=<label> view=<id>`,
 `VIEW:DESTROY view=<id>`, `LOST view=<id> reason=<r>`, `NOTE:<text>`, `QUIT:PASS`, and the self-test's
 `SELFTEST:STEP|PASS|FAIL`. A portable crate (`xui-webd`) cannot call `xui_app::trace`: only `xui-app/webd` prints.

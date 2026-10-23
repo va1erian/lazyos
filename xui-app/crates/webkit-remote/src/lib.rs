@@ -100,6 +100,10 @@ pub fn browser_config(memory_only: bool) -> ViewConfig {
         deltas: true,
         dialogs: true,
         notify_in_client: true,
+        // One shared web process and webd's own agent until the window has tabs (docs/lazywebplus-plan.md
+        // 2.3): a tab sets the key to its site's host, and the agent when the person asks for another.
+        process_key: String::new(),
+        user_agent: String::new(),
     }
 }
 

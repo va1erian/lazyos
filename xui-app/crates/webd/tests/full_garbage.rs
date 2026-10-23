@@ -16,9 +16,9 @@ use support::origin;
 use xui_webd::fabric::Fabric;
 
 /// Every method of the full interface, plus ones nobody defined.
-const METHODS: [u32; 39] = [
+const METHODS: [u32; 42] = [
     1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 30, 31, 32, 33, 34, 35, 36,
-    37, 100, 101, 106, 111, 112, 0, 8, 9, 17, 38, 39, 99, 4242,
+    37, 100, 101, 106, 111, 112, 0, 8, 9, 17, 38, 39, 44, 45, 46, 99, 4242,
 ];
 
 fn blob(rng: &mut Rng, max: u64) -> Vec<u8> {
@@ -197,6 +197,20 @@ fn valid_request(rng: &mut Rng, fx: &mut Fx, method: u32, view: u64) -> (Vec<u8>
             view,
             reload: rng.one_in(2),
         })),
+        wire::METHOD_RECOVERGROUP => {
+            plain(wire::encode_recover_group_args(&wire::RecoverGroupArgs {
+                view,
+            }))
+        }
+        wire::METHOD_DETACHSLOTS => plain(wire::encode_detach_slots_args(&wire::DetachSlotsArgs {
+            view,
+        })),
+        wire::METHOD_SETUSERAGENT => {
+            plain(wire::encode_set_user_agent_args(&wire::SetUserAgentArgs {
+                view,
+                user_agent: text(rng),
+            }))
+        }
         wire::METHOD_NOTIFYFORGET => {
             plain(wire::encode_notify_forget_args(&wire::NotifyForgetArgs {
                 view,

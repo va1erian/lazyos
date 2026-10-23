@@ -6,6 +6,11 @@
 /// Live views one client may hold (a view the engine lost still counts until `DestroyView`).
 pub const VIEWS_PER_CLIENT: usize = 8;
 
+/// The same for a client that makes views through `os.lazy.webd.browser.v1`: a browser holds a view
+/// per tab (docs/lazywebplus-plan.md 2.3). The slot budget ([`SLOT_BYTES_PER_CLIENT`]) is unchanged, so
+/// the extra views are cheap only while the client attaches slots to the ones on screen.
+pub const VIEWS_PER_BROWSER_CLIENT: usize = 64;
+
 /// A view's width or height in pixels, at most (the engine clamps to the same).
 pub const SIZE_MAX: u32 = 8192;
 
@@ -58,11 +63,19 @@ pub const QUEUE_KEPT: usize = 1024;
 
 // ---- full views (os.lazy.webd.view.v1, P2 slice 3) ----
 
-/// Web processes one user's full views may hold at once: a view of a new (app, profile) pair past
-/// this is `EDQUOT` (docs/webd-plan.md 3.3 and open question 7; a process costs about 107 MiB on this
-/// system). Light views are not counted: each app's light views share one process and the per-client
-/// view count bounds them.
-pub const WEB_PROCESSES_PER_USER: usize = 4;
+/// Web processes one user's full views may hold at once: a view of a new (app, profile, process key)
+/// triple past this is `EDQUOT` (docs/webd-plan.md 3.3 and open question 7; a process costs about 107 MiB
+/// on this system). This is a ceiling: below it the gate is the user's memory charge
+/// ([`WEB_PROCESS_RESERVE_BYTES`]). Light views are not counted: each app's light views share one process
+/// and the per-client view count bounds them.
+pub const WEB_PROCESSES_PER_USER: usize = 16;
+
+/// `ViewConfig.process_key`, at most (printable ASCII): an opaque placement hint, a tab's site.
+pub const PROCESS_KEY_BYTES_MAX: usize = 64;
+
+/// Process keys one client may use at once (a key is released with its last view): it bounds the group
+/// table a client can make, whatever it names.
+pub const PROCESS_KEYS_PER_CLIENT: usize = 32;
 
 /// Memory a new web process is assumed to need, used as a safety margin when webd gates a
 /// `CreateView` that would start one against the user's memory charge (docs/webd-plan.md 11 item 7):
@@ -70,7 +83,7 @@ pub const WEB_PROCESSES_PER_USER: usize = 4;
 /// shared network process. webd refuses a view whose new process would push the user's charge past
 /// its quota by this margin rather than letting the child's `exec` fail with `ENOMEM` (which the old
 /// in-process browser hit, `engine.cpp`). The fixed [`WEB_PROCESSES_PER_USER`] cap still applies; this
-/// is the finer gate when the quota is lower than four processes' worth. 160 MiB leaves headroom for
+/// is the finer gate when the quota holds fewer processes than the ceiling. 160 MiB leaves headroom for
 /// the network process and the page's first heap over the 107 MiB resident of the process image.
 pub const WEB_PROCESS_RESERVE_BYTES: u64 = 160 << 20;
 
@@ -116,6 +129,10 @@ pub const LIST_NAME_BYTES_MAX: usize = 128;
 
 /// `ViewConfig.user_agent_suffix`, at most (printable ASCII).
 pub const USER_AGENT_SUFFIX_MAX: usize = 64;
+
+/// `ViewConfig.user_agent` and `SetUserAgent`'s text, at most (printable ASCII): a browser's agent is
+/// 100 to 200 bytes.
+pub const USER_AGENT_MAX: usize = 256;
 
 /// A held navigation (`Handoff.Ask`) not answered within this is refused.
 pub const HOLD_MS: u64 = 10_000;
