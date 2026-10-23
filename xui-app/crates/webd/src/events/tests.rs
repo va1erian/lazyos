@@ -103,3 +103,39 @@ fn the_wake_rings_for_every_event_and_the_memory_source_answers() {
     assert_eq!(queue.user_memory(), Some((5, 9)));
     assert_eq!(EventQueue::new().user_memory(), None);
 }
+
+#[test]
+fn a_frame_the_service_gave_back_is_the_next_frames_buffer() {
+    let queue = EventQueue::new();
+    queue.frame(1, &[1; 64], 4, 4);
+    let first = queue.drain().frames.remove(&1).unwrap();
+    let at = first.rgba.as_ptr();
+    queue.recycle(first.rgba);
+    queue.frame(1, &[2; 64], 4, 4);
+    let second = queue.drain().frames.remove(&1).unwrap();
+    assert_eq!(second.rgba, vec![2; 64]);
+    assert_eq!(second.rgba.as_ptr(), at, "no new allocation");
+}
+
+#[test]
+fn a_view_with_deltas_reuses_frames_bands_and_patches() {
+    let queue = EventQueue::new();
+    queue.track_pictures(1);
+    queue.frame(1, &[1; 64], 4, 4);
+    queue.band(1, 0, 4, 4, 2, &[7; 32]);
+    let mut drained = queue.drain();
+    let whole = drained.pictures.remove(&1).unwrap().whole.unwrap().0;
+    let band = drained.bands.remove(&1).unwrap().remove(0);
+    let (whole_at, band_at) = (whole.rgba.as_ptr(), band.rgba.as_ptr());
+    queue.recycle(whole.rgba);
+    queue.recycle(band.rgba);
+    // A one-pixel delta takes the smaller buffer (the band's), the next frame the larger.
+    assert!(!queue.frame_delta(1, &[3; 64], 4, 4, None, &[[0, 0, 1, 1]]));
+    let delta = queue.drain().pictures.remove(&1).unwrap().deltas.remove(0);
+    assert_eq!(delta.patches[0].rgba.as_ptr(), band_at);
+    queue.frame(1, &[4; 64], 4, 4);
+    let whole = queue.drain().pictures.remove(&1).unwrap().whole.unwrap().0;
+    assert_eq!((whole.rgba.as_ptr(), whole.rgba.len()), (whole_at, 64));
+    queue.trim_spares();
+    assert_eq!(queue.spare_bytes(), 0);
+}

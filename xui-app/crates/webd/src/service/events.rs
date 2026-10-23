@@ -12,7 +12,7 @@
 use messenger_generated::os_lazy_webd_light_v1 as wire;
 use messenger_generated::os_lazy_webd_view_v1 as view_wire;
 
-use super::deliver::frame_args;
+use super::frame_args::frame_args;
 use super::{Note, Service};
 use crate::config::clip;
 use crate::engine::{self, Engine};
@@ -39,6 +39,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         self.now_ms = now_ms;
         let drained = self.queue.drain();
         self.deliver(drained);
+        self.queue.trim_spares();
         // The first turn only starts the clock: a view made a moment ago needs no probe yet.
         let due = self
             .next_ping_ms
@@ -165,6 +166,13 @@ impl<E: Engine, F: Fabric> Service<E, F> {
         frame: FrameNow,
         offset: Option<Offset>,
     ) -> bool {
+        let delivered = self.put_frame(id, &frame, offset);
+        // Written or dropped, the pixels' buffer is the engine's next copy (`events/spares.rs`).
+        self.queue.recycle(frame.rgba);
+        delivered
+    }
+
+    fn put_frame(&mut self, id: u64, frame: &FrameNow, offset: Option<Offset>) -> bool {
         let Some(view) = self.views.any_mut(id) else {
             return false;
         };

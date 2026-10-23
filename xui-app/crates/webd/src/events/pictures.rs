@@ -8,6 +8,7 @@
 //! engine paints a whole frame next. A delta that arrives while a whole frame is still waiting is
 //! applied to that frame here, so the service sends one picture, not a frame and a chain.
 
+use super::spares::Spares;
 use super::FrameNow;
 use crate::limits::DELTAS_KEPT;
 
@@ -32,12 +33,6 @@ pub struct DeltaNow {
     pub offset: Option<Offset>,
 }
 
-impl DeltaNow {
-    fn bytes(&self) -> usize {
-        self.patches.iter().map(|patch| patch.rgba.len()).sum()
-    }
-}
-
 /// What the service collects for a view: a whole frame (if one was posted) and the deltas after it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Update {
@@ -56,20 +51,17 @@ pub struct Pictures {
     staged: Option<Offset>,
 }
 
-/// Copy the `rect` of a whole `width`-wide RGBA frame out, row by row; `None` if it does not fit.
-pub fn cut(rgba: &[u8], width: i32, height: i32, rect: [i32; 4]) -> Option<Vec<u8>> {
+/// Whether `rect` lies inside a whole `width` x `height` RGBA frame held in `rgba`.
+pub fn fits(rgba: &[u8], width: i32, height: i32, rect: [i32; 4]) -> bool {
     let [x, y, w, h] = rect;
-    let inside = x >= 0 && y >= 0 && w >= 0 && h >= 0 && x + w <= width && y + h <= height;
-    if !inside || rgba.len() < (width as usize) * (height as usize) * 4 {
-        return None;
-    }
-    let stride = width as usize * 4;
-    let mut out = Vec::with_capacity(w as usize * h as usize * 4);
-    for row in y..y + h {
-        let start = row as usize * stride + x as usize * 4;
-        out.extend_from_slice(&rgba[start..start + w as usize * 4]);
-    }
-    Some(out)
+    let inside = x >= 0 && y >= 0 && w >= 0 && h >= 0 && x <= width - w && y <= height - h;
+    inside && rgba.len() >= (width.max(0) as usize) * (height.max(0) as usize) * 4
+}
+
+/// Copy the `rect` of a whole `width`-wide RGBA frame out, row by row; `None` if it does not fit
+/// (the queue itself cuts into reused buffers, `Spares::cut`).
+pub fn cut(rgba: &[u8], width: i32, height: i32, rect: [i32; 4]) -> Option<Vec<u8>> {
+    fits(rgba, width, height, rect).then(|| Spares::default().cut(rgba, width as usize * 4, rect))
 }
 
 /// Move the part of `frame` inside `shift`'s area by its offset, as a client does: what leaves the
@@ -109,30 +101,44 @@ pub fn apply_patch(frame: &mut FrameNow, patch: &Patch) {
     }
 }
 
+/// Copy `rect` of the whole frame `rgba` (as wide as `frame`) over the same place in `frame`.
+fn copy_rect(frame: &mut FrameNow, rgba: &[u8], rect: [i32; 4]) {
+    let [x, y, w, h] = rect.map(|v| v.max(0) as usize);
+    let stride = frame.width as usize * 4;
+    for row in y..y + h {
+        let start = row * stride + x * 4;
+        frame.rgba[start..start + w * 4].copy_from_slice(&rgba[start..start + w * 4]);
+    }
+}
+
+/// The pixels of deltas that will not be sent, back for reuse.
+fn give_deltas(spares: &mut Spares, deltas: Vec<DeltaNow>) {
+    for patch in deltas.into_iter().flat_map(|delta| delta.patches) {
+        spares.keep(patch.rgba);
+    }
+}
+
 impl Pictures {
     pub fn stage_offset(&mut self, offset: Offset) {
         self.staged = Some(offset);
     }
 
     /// A whole frame: it replaces everything waiting and gives deltas a base again.
-    pub fn post_whole(&mut self, rgba: &[u8], width: i32, height: i32) {
+    pub fn post_whole(&mut self, spares: &mut Spares, rgba: &[u8], width: i32, height: i32) {
         let offset = self.staged.take();
-        let frame = match self.update.whole.take() {
-            Some((mut frame, _)) => {
-                frame.width = width;
-                frame.height = height;
-                frame.rgba.clear();
-                frame.rgba.extend_from_slice(rgba);
-                frame
-            }
-            None => FrameNow {
-                width,
-                height,
-                rgba: rgba.to_vec(),
-            },
+        let mut buffer = match self.update.whole.take() {
+            Some((frame, _)) => frame.rgba,
+            None => spares.take(rgba.len()),
+        };
+        buffer.clear();
+        buffer.extend_from_slice(rgba);
+        let frame = FrameNow {
+            width,
+            height,
+            rgba: buffer,
         };
         self.update.whole = Some((frame, offset));
-        self.update.deltas.clear();
+        give_deltas(spares, std::mem::take(&mut self.update.deltas));
         self.bytes = 0;
         self.base = Some((width, height));
     }
@@ -140,6 +146,7 @@ impl Pictures {
     /// A delta: `true` when it is refused (the engine paints a whole frame next).
     pub fn post_delta(
         &mut self,
+        spares: &mut Spares,
         rgba: &[u8],
         width: i32,
         height: i32,
@@ -147,59 +154,59 @@ impl Pictures {
         rects: &[[i32; 4]],
     ) -> bool {
         let offset = self.staged.take();
-        if self.base != Some((width, height)) {
+        if self.base != Some((width, height))
+            || !rects.iter().all(|rect| fits(rgba, width, height, *rect))
+        {
             self.base = None;
             return true;
-        }
-        let mut patches = Vec::with_capacity(rects.len());
-        for rect in rects {
-            match cut(rgba, width, height, *rect) {
-                Some(pixels) => patches.push(Patch {
-                    rect: *rect,
-                    rgba: pixels,
-                }),
-                None => {
-                    self.base = None;
-                    return true;
-                }
-            }
         }
         if let Some((frame, whole_offset)) = &mut self.update.whole {
             // Still waiting: the delta is applied to it, and it is still one whole picture.
             if let Some(shift) = shift {
                 apply_shift(frame, shift);
             }
-            for patch in &patches {
-                apply_patch(frame, patch);
+            for rect in rects {
+                copy_rect(frame, rgba, *rect);
             }
             if offset.is_some() {
                 *whole_offset = offset;
             }
             return false;
         }
-        let delta = DeltaNow {
+        let bytes: usize = rects
+            .iter()
+            .map(|[_, _, w, h]| (*w as usize) * (*h as usize) * 4)
+            .sum();
+        let frame_bytes = width as usize * height as usize * 4;
+        if self.update.deltas.len() >= DELTAS_KEPT || self.bytes + bytes > frame_bytes {
+            give_deltas(spares, std::mem::take(&mut self.update.deltas));
+            self.bytes = 0;
+            self.base = None;
+            return true;
+        }
+        let stride = width as usize * 4;
+        let patches = rects
+            .iter()
+            .map(|rect| Patch {
+                rect: *rect,
+                rgba: spares.cut(rgba, stride, *rect),
+            })
+            .collect();
+        self.bytes += bytes;
+        self.update.deltas.push(DeltaNow {
             width,
             height,
             shift,
             patches,
             offset,
-        };
-        let frame_bytes = width as usize * height as usize * 4;
-        if self.update.deltas.len() >= DELTAS_KEPT || self.bytes + delta.bytes() > frame_bytes {
-            self.update.deltas.clear();
-            self.bytes = 0;
-            self.base = None;
-            return true;
-        }
-        self.bytes += delta.bytes();
-        self.update.deltas.push(delta);
+        });
         false
     }
 
     /// The client lost a picture (a delta it never got): deltas are refused until a whole frame.
-    pub fn lose_base(&mut self) {
+    pub fn lose_base(&mut self, spares: &mut Spares) {
         self.base = None;
-        self.update.deltas.clear();
+        give_deltas(spares, std::mem::take(&mut self.update.deltas));
         self.bytes = 0;
     }
 
@@ -231,14 +238,15 @@ mod tests {
     #[test]
     fn a_delta_needs_a_whole_frame_of_its_size_first() {
         let mut p = Pictures::default();
+        let mut s = Spares::default();
         let rgba = frame(4, 4, |_, _| 1);
-        assert!(p.post_delta(&rgba, 4, 4, None, &[[0, 0, 1, 1]]));
-        p.post_whole(&rgba, 4, 4);
+        assert!(p.post_delta(&mut s, &rgba, 4, 4, None, &[[0, 0, 1, 1]]));
+        p.post_whole(&mut s, &rgba, 4, 4);
         p.take();
-        assert!(!p.post_delta(&rgba, 4, 4, None, &[[0, 0, 1, 1]]));
-        assert!(p.post_delta(&rgba, 5, 4, None, &[]), "another size");
+        assert!(!p.post_delta(&mut s, &rgba, 4, 4, None, &[[0, 0, 1, 1]]));
+        assert!(p.post_delta(&mut s, &rgba, 5, 4, None, &[]), "another size");
         assert!(
-            p.post_delta(&rgba, 4, 4, None, &[]),
+            p.post_delta(&mut s, &rgba, 4, 4, None, &[]),
             "refused until a whole frame"
         );
     }
@@ -246,12 +254,13 @@ mod tests {
     #[test]
     fn a_rectangle_outside_the_frame_is_refused() {
         let mut p = Pictures::default();
+        let mut s = Spares::default();
         let rgba = frame(4, 4, |_, _| 1);
-        p.post_whole(&rgba, 4, 4);
+        p.post_whole(&mut s, &rgba, 4, 4);
         p.take();
-        assert!(p.post_delta(&rgba, 4, 4, None, &[[3, 3, 2, 1]]));
+        assert!(p.post_delta(&mut s, &rgba, 4, 4, None, &[[3, 3, 2, 1]]));
         assert!(
-            p.post_delta(&rgba, 4, 4, None, &[[0, 0, 1, 1]]),
+            p.post_delta(&mut s, &rgba, 4, 4, None, &[[0, 0, 1, 1]]),
             "the base is gone"
         );
     }
@@ -259,21 +268,29 @@ mod tests {
     #[test]
     fn deltas_queue_in_order_with_their_offsets_and_are_bounded() {
         let mut p = Pictures::default();
+        let mut s = Spares::default();
         let rgba = frame(4, 4, |x, y| (x + 4 * y) as u8);
-        p.post_whole(&rgba, 4, 4);
+        p.post_whole(&mut s, &rgba, 4, 4);
         p.take();
         p.stage_offset((0, 7, false));
-        assert!(!p.post_delta(&rgba, 4, 4, Some([0, 0, 4, 4, 0, -1]), &[[0, 3, 4, 1]]));
+        assert!(!p.post_delta(
+            &mut s,
+            &rgba,
+            4,
+            4,
+            Some([0, 0, 4, 4, 0, -1]),
+            &[[0, 3, 4, 1]]
+        ));
         let update = p.take();
         assert!(update.whole.is_none());
         assert_eq!(update.deltas.len(), 1);
         assert_eq!(update.deltas[0].offset, Some((0, 7, false)));
         assert_eq!(update.deltas[0].patches[0].rgba, rgba[48..64].to_vec());
         for _ in 0..DELTAS_KEPT {
-            assert!(!p.post_delta(&rgba, 4, 4, None, &[[0, 0, 1, 1]]));
+            assert!(!p.post_delta(&mut s, &rgba, 4, 4, None, &[[0, 0, 1, 1]]));
         }
         assert!(
-            p.post_delta(&rgba, 4, 4, None, &[[0, 0, 1, 1]]),
+            p.post_delta(&mut s, &rgba, 4, 4, None, &[[0, 0, 1, 1]]),
             "too far behind"
         );
         assert!(p.take().deltas.is_empty());
@@ -282,11 +299,19 @@ mod tests {
     #[test]
     fn a_delta_on_a_waiting_whole_frame_is_applied_to_it() {
         let mut p = Pictures::default();
+        let mut s = Spares::default();
         let old = frame(4, 4, |_, y| y as u8);
-        p.post_whole(&old, 4, 4);
+        p.post_whole(&mut s, &old, 4, 4);
         // The page scrolled up by one row: rows move up, the last row is repainted.
         let new = frame(4, 4, |_, y| y as u8 + 1);
-        assert!(!p.post_delta(&new, 4, 4, Some([0, 0, 4, 4, 0, -1]), &[[0, 3, 4, 1]]));
+        assert!(!p.post_delta(
+            &mut s,
+            &new,
+            4,
+            4,
+            Some([0, 0, 4, 4, 0, -1]),
+            &[[0, 3, 4, 1]]
+        ));
         let update = p.take();
         assert!(update.deltas.is_empty());
         assert_eq!(update.whole.unwrap().0.rgba, new);

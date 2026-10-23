@@ -147,6 +147,8 @@ fn a_clean_start_offers_nothing_and_keeps_the_pages_it_shows() {
     );
     assert!(!shown(&seen));
     assert!(dir.join(session::RUNNING).is_file(), "the run is marked");
+    // Written on the disk thread, as the window's quit waits for it.
+    assert!(xui_webplus::disk::global().flush(std::time::Duration::from_secs(5)));
     let kept = session::load(&dir).expect("the session was written");
     assert_eq!(kept.page().unwrap().url, "https://one.example/");
     assert_eq!(kept.page().unwrap().title, "One");
@@ -171,6 +173,7 @@ fn page_data_in_memory_keeps_no_session_and_offers_none() {
     );
     assert_eq!(loads(&calls).len(), 1, "no restore, even for `always`");
     assert!(!shown(&seen));
+    assert!(xui_webplus::disk::global().flush(std::time::Duration::from_secs(5)));
     let kept = session::load(&dir).unwrap();
     assert_eq!(
         kept.page().unwrap().url,

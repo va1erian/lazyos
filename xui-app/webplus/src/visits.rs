@@ -41,6 +41,8 @@ pub struct Visits {
     /// Counts the changes to `entries`, so that what is built from them (the suggestions' index)
     /// is rebuilt only when they changed.
     version: u64,
+    /// The file is written by [`crate::disk`]'s thread, not the caller's (the window's).
+    background: bool,
 }
 
 /// The text of the newest [`MAX_READ`] bytes of `file` (nothing when it cannot be read); a cut-off first
@@ -79,7 +81,32 @@ impl Visits {
             file: Some(file),
             lines,
             version: 0,
+            background: false,
         }
+    }
+
+    /// Writes the file on [`crate::disk`]'s thread from now on: a call returns once the change is
+    /// in memory, and a failed write is reported there.
+    pub fn in_background(mut self) -> Visits {
+        self.background = true;
+        self
+    }
+
+    /// Runs `write` now, or queues it (in order) when the file is written in the background.
+    fn write(
+        &self,
+        what: &'static str,
+        write: impl FnOnce() -> io::Result<()> + Send + 'static,
+    ) -> io::Result<()> {
+        if !self.background {
+            return write();
+        }
+        crate::disk::global().run(move || {
+            if let Err(e) = write() {
+                eprintln!("lazywebplus: history not {what}: {e}");
+            }
+        });
+        Ok(())
     }
 
     /// A number that changes with every change to the visits.
@@ -178,11 +205,13 @@ impl Visits {
         if self.lines + 1 >= 2 * MAX_VISITS {
             return self.rewrite();
         }
-        ensure_parent(file)?;
-        let mut out = OpenOptions::new().create(true).append(true).open(file)?;
-        out.write_all(line(last).as_bytes())?;
+        let (file, text) = (file.clone(), line(last));
         self.lines += 1;
-        Ok(())
+        self.write("saved", move || {
+            ensure_parent(&file)?;
+            let mut out = OpenOptions::new().create(true).append(true).open(&file)?;
+            out.write_all(text.as_bytes())
+        })
     }
 
     /// Writes the whole history to the file, through a temporary file so a
@@ -191,13 +220,15 @@ impl Visits {
         let Some(file) = &self.file else {
             return Ok(());
         };
-        ensure_parent(file)?;
+        let file = file.clone();
         let text: String = self.entries.iter().map(line).collect();
-        let tmp = file.with_extension("tmp");
-        fs::write(&tmp, text)?;
-        fs::rename(&tmp, file)?;
         self.lines = self.entries.len();
-        Ok(())
+        self.write("rewritten", move || {
+            ensure_parent(&file)?;
+            let tmp = file.with_extension("tmp");
+            fs::write(&tmp, text)?;
+            fs::rename(&tmp, &file)
+        })
     }
 }
 
@@ -254,6 +285,23 @@ mod tests {
             std::env::temp_dir().join(format!("lazywebplus-visits-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir.join("sub").join("history.tsv")
+    }
+
+    #[test]
+    fn a_history_written_in_the_background_is_on_disk_after_a_flush() {
+        let file = temp("background");
+        let mut visits = Visits::open(file.clone()).in_background();
+        for n in 0..2 * MAX_VISITS {
+            visits
+                .record(&format!("http://{n}.test/"), "", n as u64)
+                .unwrap();
+        }
+        assert!(crate::disk::global().flush(std::time::Duration::from_secs(10)));
+        assert_eq!(
+            Visits::open(file).entries(),
+            visits.entries(),
+            "appends, then the rewrite"
+        );
     }
 
     #[test]

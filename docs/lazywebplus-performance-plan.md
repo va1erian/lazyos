@@ -811,3 +811,40 @@ the copies in the UI process roughly halved. The screenshots match the old build
 which does not scroll). Host tests: `client_window::slots::tests` (with a seeded model of frames that fail part
 way) and `backend::render::tests` (a slot composite equals the frame path's picture, a declining direct painter
 leaves the damage to the canvas).
+
+## 13. Off the page's and the window's threads (2026-10-23, webd era)
+
+Two costs read from the code of the webd design (P4), each on a thread a heavy page cannot spare.
+The guest numbers are **not measured**: no QEMU or KVM was available for this change. Run
+`python tools/webplus/scroll_bench.py --build` and `frame_run.py --perf` against the parent to
+measure them.
+
+* **webd allocated every picture fresh on WebKit's main thread.** The queue between WebKit's thread and
+  the service's (`xui-app/crates/webd/src/events`) copied each whole frame, band and delta rectangle
+  into a new `Vec`, and the service dropped it once the pixels were in the client's slot (the light
+  views' "reuse the previous frame's allocation" never happened, because `drain` took the map). At
+  2560x1440 a frame is 14.7 MB and a band 2 MB: musl maps a block that large fresh, the copy faults
+  every page in, and the free unmaps it, all on the thread that runs the page's scripts and layout.
+  On the build host (glibc, one run each of 50 frames): **2.3-4.7 ms a frame fresh against 0.65-0.7 ms
+  into a buffer in use**, and a band 142 against 58-74 us. The service now gives each buffer back
+  (`EventQueue::recycle`) and the next copy takes the smallest kept buffer that fits
+  (`events/spares.rs`). At most `SPARES_KEPT` buffers and `SPARE_BYTES_MAX` bytes are kept, and none
+  longer than `SPARE_IDLE_MS` unused, so an idle webd holds none. Tests: `events/spares.rs`, and
+  `events/tests.rs` checks that the second frame, band and patch reuse the first one's allocation.
+* **LazyWeb+ wrote files on its window thread after every load.** It saved `session.json` (create,
+  write, `fsync`, rename, `fsync` of the folder), up to once a second, and appended to
+  `history.tsv`, after every finished load and every title a script set. On LazyOS an `fsync`
+  flushes the whole volume and a rename orders itself with two flushes under the VFS lock (section
+  11: 200-750 ms seen). Any file call waits behind another program's flush, and the engine's
+  processes write their cache as a heavy page loads. So the window could stop for hundreds of
+  milliseconds just as the person started to scroll. Both files are now written by one thread,
+  `webplus-disk` (`xui-app/webplus/src/disk.rs`). It runs jobs in order (an append, then the rewrite
+  after it), lets a newer session replace one still waiting, and parks on a condition variable, not
+  a timer. A clean quit waits up to 3 s for it before the `running` marker goes. Without a thread
+  (`task_max`) jobs run on the caller, as before.
+
+**Left as found:** the window's 250 ms beat (`app/webd.rs`, `BEAT_MS`) wakes an idle browser four times
+a second to resend refused messages and retry a lost view. It could run only while one of those is
+owed. The client still allocates each delta rectangle and band it reads from a slot
+(`webkit-remote/src/sink.rs`, `webd-client/src/full/frames.rs`), because they become images the
+picture keeps.

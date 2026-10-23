@@ -37,6 +37,7 @@ pub mod bookmarks;
 pub mod chrome;
 pub mod context;
 pub mod dialogs;
+pub mod disk;
 pub mod downgrade;
 /// Naming and reserving downloads: its own crate (`lazydownloads`), shared with webd.
 pub use lazydownloads as downloads;

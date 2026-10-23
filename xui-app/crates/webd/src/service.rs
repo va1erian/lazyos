@@ -13,6 +13,7 @@ mod calls;
 mod create;
 mod deliver;
 mod events;
+mod frame_args;
 mod full;
 mod notify;
 mod notify_client;

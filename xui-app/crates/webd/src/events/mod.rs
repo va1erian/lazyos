@@ -13,10 +13,12 @@
 //! responsiveness (latest per view), the questions and news of `full` (in order), and the decisions
 //! the engine's thread makes on the spot from the rules the service registered (`rules`).
 
+mod drained;
 mod full;
 mod once;
 pub mod pictures;
 pub mod rules;
+mod spares;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Mutex, MutexGuard};
@@ -25,8 +27,10 @@ use std::time::Instant;
 use crate::config::clip;
 use crate::engine::EngineEvents;
 use crate::limits::{BANDS_KEPT, EVENT_TEXT_BYTES};
-use pictures::{Pictures, Update};
+pub use drained::Drained;
+use pictures::Pictures;
 use rules::Table;
+use spares::Spares;
 
 /// The latest page state of a view.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,39 +181,6 @@ pub enum Once {
     },
 }
 
-/// Everything queued since the last drain.
-#[derive(Debug, Default)]
-pub struct Drained {
-    pub states: BTreeMap<u64, StateNow>,
-    pub scrolls: BTreeMap<u64, (i32, i32, bool)>,
-    pub frames: BTreeMap<u64, FrameNow>,
-    pub once: Vec<Once>,
-    pub pages: BTreeMap<u64, PageNow>,
-    /// The pictures of views with deltas.
-    pub pictures: BTreeMap<u64, Update>,
-    pub bands: BTreeMap<u64, Vec<BandNow>>,
-    pub hovers: BTreeMap<u64, String>,
-    pub cursors: BTreeMap<u64, i32>,
-    pub responsive: BTreeMap<u64, bool>,
-    pub blocked: BTreeMap<u64, i32>,
-}
-
-impl Drained {
-    pub fn is_empty(&self) -> bool {
-        self.states.is_empty()
-            && self.scrolls.is_empty()
-            && self.frames.is_empty()
-            && self.once.is_empty()
-            && self.pages.is_empty()
-            && self.pictures.is_empty()
-            && self.bands.is_empty()
-            && self.hovers.is_empty()
-            && self.cursors.is_empty()
-            && self.responsive.is_empty()
-            && self.blocked.is_empty()
-    }
-}
-
 #[derive(Default)]
 struct Inner {
     states: BTreeMap<u64, StateNow>,
@@ -225,6 +196,8 @@ struct Inner {
     cursors: BTreeMap<u64, i32>,
     responsive: BTreeMap<u64, bool>,
     blocked: BTreeMap<u64, i32>,
+    /// Pixel buffers the service gave back, for the next copies (`spares`).
+    spares: Spares,
 }
 
 impl Inner {
@@ -374,8 +347,9 @@ impl EventQueue {
 
     /// The client lost a delta (no free slot, a full queue): deltas are refused until a whole frame.
     pub fn lose_base(&self, view: u64) {
-        if let Some(pictures) = self.lock().pictures.get_mut(&view) {
-            pictures.lose_base();
+        let inner = &mut *self.lock();
+        if let Some(pictures) = inner.pictures.get_mut(&view) {
+            pictures.lose_base(&mut inner.spares);
         }
     }
 
@@ -383,10 +357,13 @@ impl EventQueue {
         {
             let mut inner = self.lock();
             let bands = inner.bands.entry(view).or_default();
-            if bands.len() >= BANDS_KEPT {
-                bands.pop_front();
-            }
+            let old = (bands.len() >= BANDS_KEPT)
+                .then(|| bands.pop_front())
+                .flatten();
             bands.push_back(band);
+            if let Some(old) = old {
+                inner.spares.keep(old.rgba);
+            }
         }
         self.ring();
     }
@@ -429,24 +406,23 @@ impl EngineEvents for EventQueue {
 
     fn frame(&self, view: u64, rgba: &[u8], width: i32, height: i32) {
         {
-            let mut inner = self.lock();
+            let inner = &mut *self.lock();
             // A view with deltas keeps its whole frames in order with its deltas.
             if let Some(pictures) = inner.pictures.get_mut(&view) {
-                pictures.post_whole(rgba, width, height);
-                drop(inner);
-                self.ring();
-                return;
+                pictures.post_whole(&mut inner.spares, rgba, width, height);
+            } else {
+                // A frame still waiting is overwritten; otherwise a buffer the service gave back.
+                let spares = &mut inner.spares;
+                let slot = inner.frames.entry(view).or_insert_with(|| FrameNow {
+                    width: 0,
+                    height: 0,
+                    rgba: spares.take(rgba.len()),
+                });
+                slot.width = width;
+                slot.height = height;
+                slot.rgba.clear();
+                slot.rgba.extend_from_slice(rgba);
             }
-            // Reuse the previous frame's allocation: frames arrive at the paint rate.
-            let slot = inner.frames.entry(view).or_insert_with(|| FrameNow {
-                width: 0,
-                height: 0,
-                rgba: Vec::new(),
-            });
-            slot.width = width;
-            slot.height = height;
-            slot.rgba.clear();
-            slot.rgba.extend_from_slice(rgba);
         }
         self.ring();
     }
