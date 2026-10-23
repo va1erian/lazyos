@@ -94,7 +94,13 @@ pub fn convert(source: &str, options: &Options) -> Converted {
             Line::Cosmetic => stats.drop_filter(DropReason::Cosmetic),
             Line::Hide(h) => match Hiding::new(&h) {
                 Ok(hiding) => hidings.push(hiding),
-                Err(reason) => stats.drop_filter(reason),
+                Err(reason) => {
+                    // A dropped `#@#` leaves the hiding it would cancel.
+                    if h.exception {
+                        stats.dropped_exceptions += 1;
+                    }
+                    stats.drop_filter(reason);
+                }
             },
             Line::Network(f) => {
                 if f.options.iter().any(|o| o.name == "badfilter") {

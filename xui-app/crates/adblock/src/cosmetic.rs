@@ -157,8 +157,9 @@ type Groups = BTreeMap<(BTreeSet<String>, BTreeSet<String>), BTreeSet<String>>;
 /// `groups` with every site in `offs` spared: from the rules every site gets (`$generichide`), and
 /// from the listed ones too (`$elemhide`). Groups that become alike are merged.
 fn spare_sites(groups: Groups, offs: &[SiteOff]) -> Groups {
+    let offs: Vec<(bool, Hiding)> = offs.iter().map(|o| (o.all, o.as_exception())).collect();
     let mut out: Groups = BTreeMap::new();
-    for ((include, exclude), selectors) in groups {
+    'groups: for ((include, exclude), selectors) in groups {
         let generic = include.is_empty();
         let mut spared = Hiding {
             selector: String::new(),
@@ -166,15 +167,14 @@ fn spare_sites(groups: Groups, offs: &[SiteOff]) -> Groups {
             include,
             exclude,
         };
-        let mut alive = true;
-        for off in offs.iter().filter(|o| o.all || generic) {
-            alive = alive && except(&mut spared, &off.as_exception());
+        for (_, off) in offs.iter().filter(|(all, _)| *all || generic) {
+            if !except(&mut spared, off) {
+                continue 'groups;
+            }
         }
-        if alive {
-            out.entry((spared.include, spared.exclude))
-                .or_default()
-                .extend(selectors);
-        }
+        out.entry((spared.include, spared.exclude))
+            .or_default()
+            .extend(selectors);
     }
     out
 }
