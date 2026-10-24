@@ -61,6 +61,8 @@ use crate::process as user_process;
 
 #[cfg(lazyos_perf)]
 mod blocksample;
+#[cfg(lazyos_tests)]
+pub mod chaos;
 pub mod childbell;
 pub mod diag;
 pub(crate) mod family;

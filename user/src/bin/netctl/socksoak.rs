@@ -30,6 +30,8 @@ pub(super) const ECHO_TCP: u16 = 47_771;
 pub(super) const ECHO_UDP: u16 = 47_772;
 /// A port nothing on the host listens on.
 const CLOSED_PORT: u16 = 47_999;
+/// Naps (ticks) netd's holdings may take to settle after the last round.
+const SETTLE_NAPS: u32 = 300;
 
 /// What `netd` holds right now.
 fn netd_holdings() -> Result<Option<TaskUsage>, String> {
@@ -129,7 +131,17 @@ pub(super) fn run(client: &Rc<Client>, iterations: u32) -> Result<u32, String> {
             "a call was refused for ownership during the soak",
         ));
     }
-    let after = netd_holdings()?;
+    // netd may still be finishing the last closes (with several CPUs it
+    // runs beside this task): let its holdings settle, a few seconds at
+    // most, before they must be what they were.
+    let mut after = netd_holdings()?;
+    for _ in 0..SETTLE_NAPS {
+        if after == before {
+            break;
+        }
+        nap();
+        after = netd_holdings()?;
+    }
     if let (Some(was), Some(now)) = (before, after) {
         for (what, a, b) in [
             ("handles", was.handles, now.handles),

@@ -58,7 +58,7 @@ SCRATCH_BYTES = 16 * 1024 * 1024
 MODERN_SCRATCH_BYTES = 24 * 1024 * 1024
 
 
-def build_test_image(image: Path, soak: bool = False) -> None:
+def build_test_image(image: Path, soak: bool = False, chaos_seed: str | None = None) -> None:
     """`cargo build` with LAZYOS_TESTS=1, which rebuilds the kernel and image.
 
     `soak` adds LAZYOS_SMP_SOAK=1: the SMP suite compiles its long soaks then
@@ -66,6 +66,8 @@ def build_test_image(image: Path, soak: bool = False) -> None:
     env = dict(os.environ, LAZYOS_TESTS="1")
     if soak:
         env["LAZYOS_SMP_SOAK"] = "1"
+    # Either way, so an inherited seed never turns a plain run into a chaos one.
+    env["LAZYOS_CHAOS_SEED"] = chaos_seed or ""
     print("building test image: LAZYOS_TESTS=1 cargo build", flush=True)
     result = subprocess.run(
         ["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True
@@ -294,6 +296,12 @@ def main() -> int:
         help="build with LAZYOS_SMP_SOAK=1: the SMP suite's long soaks (docs/smp-plan.md); "
         "a no-op until they land",
     )
+    parser.add_argument(
+        "--chaos-seed",
+        metavar="N",
+        help="build with LAZYOS_CHAOS_SEED=N: preemption points reschedule at seeded random "
+        "(task::chaos, docs/smp-plan.md); a failure prints the seed that replays it",
+    )
     args = parser.parse_args()
     if args.ahci and args.ide_disk:
         # The IDE boot disk has no bootindex, so the blank AHCI scratch disk
@@ -307,7 +315,7 @@ def main() -> int:
     (out_dir / "stall.txt").unlink(missing_ok=True)
 
     if not args.no_build:
-        build_test_image(image, soak=args.soak)
+        build_test_image(image, soak=args.soak, chaos_seed=args.chaos_seed)
     elif not image.is_file():
         sys.exit(f"--no-build given but {image} does not exist")
 

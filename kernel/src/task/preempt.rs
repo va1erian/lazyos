@@ -234,6 +234,11 @@ pub fn preempt_point() {
     if super::idle::is_idle(super::current()) {
         return;
     }
+    // Test images built with a chaos seed reschedule here at random.
+    #[cfg(lazyos_tests)]
+    if super::chaos::strike() {
+        state!().need_resched.store(true, Ordering::Relaxed);
+    }
     switch_if_wanted();
 }
 

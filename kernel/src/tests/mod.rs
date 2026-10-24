@@ -346,7 +346,12 @@ pub fn run() -> ! {
                 }
                 Err(detail) => {
                     fail += 1;
-                    crate::trace::test!("{name}:FAIL:{}", detail.replace('\n', " "));
+                    let detail = detail.replace('\n', " ");
+                    match crate::task::chaos::seed() {
+                        // The seed replays the interleaving (`task::chaos`).
+                        Some(seed) => crate::trace::test!("{name}:FAIL:{detail} seed={seed:#x}"),
+                        None => crate::trace::test!("{name}:FAIL:{detail}"),
+                    }
                 }
             }
         }

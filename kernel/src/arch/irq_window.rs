@@ -74,6 +74,12 @@ pub fn poll_point() {
     if !ARMED.load(Ordering::Relaxed) || x86_64::instructions::interrupts::are_enabled() {
         return;
     }
+    // A chaos image opens a window early at random (`task::chaos`).
+    #[cfg(lazyos_tests)]
+    if super::irqoff::span_open() && crate::task::chaos::strike() {
+        open();
+        return;
+    }
     let due = super::clock::cycles_per_tick() / WINDOW_DIV;
     let now = rdtsc();
     let cpu = percpu::current();

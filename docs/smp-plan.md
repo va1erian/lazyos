@@ -482,7 +482,12 @@ S8.3 lands in four steps, each mergeable with the suite green:
   budgets scaled; `limit.cpu_max` defaults to every CPU in a `LAZYOS_SMP=1`
   kernel (`run_demo.py --smp-kernel`, the GUI's Advanced tab), whose images
   run user tasks on every CPU.
-- **S8.3d — acceptance**, the gates below.
+- **S8.3d — acceptance. Run** (the record is
+  [`architecture/smp.md`](architecture/smp.md), "Acceptance"): the gates
+  below, with chaos preemption built for them (`task::chaos`,
+  `run.py --chaos-seed`, the manual `smp-chaos` workflow) and an `smp2` leg
+  in CI's kernel tests. Two gates are left to the owner of the hardware and
+  the CI minutes: the 24 h soak on a real box and the 50-seed sweep.
 
 Scheduler changes (minimal in this stage): run queue and `decide` stay global
 under the entry lock; `CURRENT`/preempt state are already per-CPU (S8.1);

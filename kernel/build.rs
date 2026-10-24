@@ -25,6 +25,9 @@ fn main() {
     // `LAZYOS_DEV_FUZZ_SEED=<n>` replays one seed of the `dev_*` syscall fuzz
     // (`tests/dev_suite/fuzz.rs`, issue #497) instead of the built-in set.
     println!("cargo:rerun-if-env-changed=LAZYOS_DEV_FUZZ_SEED");
+    // `LAZYOS_CHAOS_SEED=<n>`: a test image whose preemption points
+    // reschedule at seeded random (`task::chaos`, docs/smp-plan.md).
+    println!("cargo:rerun-if-env-changed=LAZYOS_CHAOS_SEED");
 
     // Desktop profile (issue #217): one `LAZYOS_DESKTOP=1` switch that expands
     // to the desktop recipe — a services session (`LAZYOS_SERVICES`), the

@@ -9,6 +9,13 @@ use super::*;
 use crate::arch::{percpu, smp};
 use crate::task::idle;
 
+/// Whether the cases may hold timings to a bound: not in a chaos image
+/// (`task::chaos`), whose seeded reschedules are meant to disturb exactly
+/// that; there the numbers are reported and the behaviour still checked.
+pub fn timing_checked() -> bool {
+    crate::task::chaos::seed().is_none()
+}
+
 /// Calibrated nanoseconds since boot.
 pub fn now() -> u64 {
     crate::arch::clock::monotonic_ns()

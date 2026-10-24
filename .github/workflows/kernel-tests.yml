@@ -67,6 +67,14 @@ jobs:
           - name: dbgd
             args: ""
             dbgd: "1"
+          # The SMP kernel on two vCPUs (docs/smp-plan.md S8.3): the entry
+          # lock in every gate, the AP brought up and running the suite's
+          # scheduling cases (`smp_*`), the rest serialized under the lock.
+          # Two, not four: the runner has four, and the timing-sensitive
+          # cases fail when the guest's vCPUs crowd the host's.
+          - name: smp2
+            args: "--smp 2"
+            smp: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -89,6 +97,7 @@ jobs:
           LAZYOS_DBGD: ${{ matrix.dbgd }}
           # `dbgd` listens through the socket service.
           LAZYOS_NETD: ${{ matrix.dbgd }}
+          LAZYOS_SMP: ${{ matrix.smp }}
 
       - name: Append report to the job summary
         if: always()

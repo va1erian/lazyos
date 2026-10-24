@@ -11,7 +11,6 @@ is done; the verdict comes from the capture.
 
     python tools/net/run.py                      # build, boot, capture, verify
     python tools/net/run.py --no-build           # reuse target/lazyos.img
-    python tools/net/run.py --accel none         # force TCG
     python tools/net/run.py --services           # supervised by `init` as _net
     python tools/net/run.py --machine q35 --virtio-disk
     python tools/net/run.py --no-device          # no NIC: the driver must say so and idle
@@ -53,8 +52,7 @@ SOAK_ITERATIONS = 40
 #: `nicctl arp` client, and one per soak iteration.
 MIN_ARP_PAIRS = 1 + 1 + SOAK_ITERATIONS
 
-#: Stage N2 (`--netd`): the stack's evidence. `netd demo=1` runs `netctl`, a real
-#: `ping`, the hostile-input probe and a soak once DHCP has completed.
+#: Stage N2 (`--netd`): the stack's evidence. `netd demo=1` runs `netctl`, a real `ping`, the hostile-input probe and a soak once DHCP has completed.
 SOAK_RENEWALS = SOAK_ITERATIONS // 10
 #: DHCP exchanges: the stack's start, `netctl probe=1`'s renewal, and one renewal
 #: every tenth soak round.
@@ -191,7 +189,7 @@ def netd_done(text: str, netfix: bool = False) -> bool:
 
 
 def qemu_args(args, image: Path, pcap_path: Path, qemu: str, forwards: tuple[tuple[int, int], ...] = ()) -> list[str]:
-    extra = list(accel_args(args.accel, qemu) or [])
+    extra = list(accel_args(args.accel, qemu) or []) + (["-smp", str(args.smp)] if args.smp > 1 else [])
     if args.machine:
         extra += ["-machine", args.machine]
     if args.virtio_disk:
@@ -292,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         "virtio-blk (the only disk a q35 machine can boot)",
     )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build")
+    parser.add_argument("--smp", type=int, default=1, help="guest vCPUs (QEMU -smp); above 1 builds the SMP kernel (LAZYOS_SMP=1)")
     parser.add_argument("--services", action="store_true", help="build with LAZYOS_SERVICES=1 (init supervises netdrv)")
     parser.add_argument("--no-device", action="store_true", help="boot without a NIC: the driver must say so and idle")
     parser.add_argument("--poll", action="store_true", help="interrupts off: build with `irq=poll`, expect polling")
@@ -312,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # The Linux fixture goes into the image, so it is built first.
     netfix = args.netd and not args.no_device and (NETFIX_ELF.is_file() if args.no_build else build_netfix())
+    os.environ["LAZYOS_SMP"] = "1" if args.smp > 1 else "0"  # the image build inherits it
     image = Path(args.image) if args.no_build else build_image(args.services, args.poll, args.netd, args.irq_path)
     if not image.is_file():
         sys.exit(f"image not found: {image}")
