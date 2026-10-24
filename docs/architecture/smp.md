@@ -384,9 +384,11 @@ still applies. It has no floating-point state (the kernel is soft-float),
 so no `xsave`/`xrstor` is spent on it, and an idle stretch between two runs
 of one task is not counted as a context switch (`PERF:ctxsw`) nor as a run
 in `PERF:sched`. What it does cost is two `CR3` writes per idle round trip
-(to the boot table and back, a TLB refill without PCID); keeping the last
-table instead (a lazy switch) needs a way to move an idle CPU off a table
-about to be freed, which S8.3c's idle APs make worth building.
+(to the boot table and back, a TLB refill without PCID). The latency
+harness shows no measurable cost (WHPX, same host: Messenger throughput
+535k messages/s against `main`'s 510k, round trip 6.9 µs against 6.8 µs),
+and a lazy switch that kept the last table did not move either number, so
+the simpler rule stays: an idle CPU is on the boot table.
 
 An interrupt that stops the idle context never switches from inside its
 handler: `preempt_point` does nothing there, and the idle loop switches
