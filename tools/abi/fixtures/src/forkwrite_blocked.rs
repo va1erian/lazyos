@@ -193,7 +193,7 @@ impl Blocked {
                 std::thread::sleep(Duration::from_millis(2));
                 return Ok(());
             }
-            if started.elapsed() > Duration::from_secs(10) {
+            if started.elapsed() > Duration::from_secs(2) {
                 let seen: Vec<u64> = self
                     .done
                     .iter()
