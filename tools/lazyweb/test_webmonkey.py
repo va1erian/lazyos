@@ -126,6 +126,7 @@ class ReproTests(unittest.TestCase):
     def test_findings_have_a_kind_and_a_hang_and_its_lost_view_are_one_bug(self):
         self.assertEqual(r.kind_of("jank: no frame was drawn for 300 ms while scrolling (page x)"), "scroll-gap")
         self.assertEqual(r.kind_of("log: the page's process was reported unresponsive (WEBPROCESS:UNRESPONSIVE)"), "page-hang")
+        self.assertEqual(r.kind_of("webd.elf (tgid 28) died of signal 6"), "process-crash")
         self.assertEqual(r.key_of("webd lost the window's view (WEBD:LOST view=3)", "https://a.test/x"),
                          r.key_of("the page's process stopped answering: x", "https://a.test/y"))
         self.assertNotEqual(r.key_of("jank: no frame was drawn for 1 ms", "https://a.test/"),
