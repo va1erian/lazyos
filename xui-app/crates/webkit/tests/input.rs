@@ -9,6 +9,7 @@ use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::backend::Event;
 use xui_core::{Dip, Key, Modifiers, MouseButton, Theme};
 use xui_webkit::engine::{Button, Call, MouseKind, Recorder};
+use xui_webkit::events::CursorKind;
 use xui_webkit::mailbox::Mailbox;
 
 mod support;
@@ -188,6 +189,105 @@ fn a_lost_release_of_a_swallowed_right_press_does_not_eat_a_later_release() {
     });
     assert!(
         calls.contains(&Call::Mouse(MouseKind::Up, Button::Right, 10, 10, 0)),
+        "{calls:?}"
+    );
+}
+
+fn middle(stage: &Stage<'_, Msg>, press: bool, x: i32, y: i32) {
+    let (button, modifiers) = (MouseButton::Middle, Modifiers::NONE);
+    stage.inject(if press {
+        Event::MouseDown {
+            x,
+            y,
+            button,
+            modifiers,
+        }
+    } else {
+        Event::MouseUp {
+            x,
+            y,
+            button,
+            modifiers,
+        }
+    });
+}
+
+fn mouse_calls(calls: &[Call]) -> Vec<&Call> {
+    calls
+        .iter()
+        .filter(|c| matches!(c, Call::Mouse(..)))
+        .collect()
+}
+
+#[test]
+fn a_middle_click_on_bare_page_is_autoscroll_and_never_the_pages() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        engine.take();
+        middle(stage, true, ox + 50, oy + 40);
+        middle(stage, false, ox + 50, oy + 40);
+        // Moves go to the autoscroll, not the page.
+        stage.inject(Event::MouseMove {
+            x: ox + 50,
+            y: oy + 200,
+            modifiers: Modifiers::NONE,
+        });
+        // A second click ends it, and is not the page's either.
+        stage.click(ox + 50, oy + 200);
+        stage.inject(Event::MouseMove {
+            x: ox + 60,
+            y: oy + 210,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    let mouse = mouse_calls(&calls);
+    assert_eq!(
+        mouse,
+        vec![&Call::Mouse(MouseKind::Move, Button::None, 60, 210, 0)],
+        "only the move after the autoscroll ended: {calls:?}"
+    );
+}
+
+#[test]
+fn dragging_away_and_letting_go_ends_the_autoscroll() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        engine.take();
+        middle(stage, true, ox + 50, oy + 40);
+        stage.inject(Event::MouseMove {
+            x: ox + 50,
+            y: oy + 300,
+            modifiers: Modifiers::NONE,
+        });
+        middle(stage, false, ox + 50, oy + 300);
+        stage.inject(Event::MouseMove {
+            x: ox + 60,
+            y: oy + 310,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    assert_eq!(
+        mouse_calls(&calls),
+        vec![&Call::Mouse(MouseKind::Move, Button::None, 60, 310, 0)],
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_middle_click_on_a_link_is_the_pages() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        stage.emit(Msg::Cursor(CursorKind::Hand));
+        engine.take();
+        middle(stage, true, ox + 50, oy + 40);
+        middle(stage, false, ox + 50, oy + 40);
+    });
+    assert_eq!(
+        mouse_calls(&calls),
+        vec![
+            &Call::Mouse(MouseKind::Down, Button::Middle, 50, 40, 0),
+            &Call::Mouse(MouseKind::Up, Button::Middle, 50, 40, 0)
+        ],
         "{calls:?}"
     );
 }

@@ -58,6 +58,7 @@ pub mod sanitize;
 pub mod session;
 pub mod suggest;
 pub mod transfers;
+pub mod useragent;
 pub mod visits;
 
 #[cfg(all(target_os = "linux", target_env = "musl"))]

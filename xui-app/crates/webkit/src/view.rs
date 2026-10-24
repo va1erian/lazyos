@@ -16,6 +16,7 @@ use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
 use xui_core::{Image, Key, Modifiers, MouseButton};
 
+use crate::autoscroll::AutoScroll;
 use crate::bands::{Band, Bands};
 use crate::engine::Engine;
 use crate::events::CursorKind;
@@ -25,7 +26,7 @@ use crate::parts::Parts;
 use crate::picture;
 use crate::smooth::Smooth;
 use crate::speculate::{self, Meter, Speculation};
-use crate::view_input::{arm_glide, arm_settle, handle};
+use crate::view_input::{arm_auto, arm_glide, arm_settle, handle};
 
 /// Whether a key is one of the window's own.
 pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
@@ -78,11 +79,19 @@ pub(crate) struct State {
     pub(crate) wheel_asked: Cell<Option<(u64, i32)>>,
     /// The timer that gives up on a picture shown ahead; it runs only while one is.
     pub(crate) settle: Cell<Option<TimerId>>,
+    /// The autoscroll a middle click started (`autoscroll.rs`), and its frame timer, which runs only
+    /// while it does.
+    pub(crate) auto: RefCell<AutoScroll>,
+    pub(crate) auto_timer: Cell<Option<TimerId>>,
+    /// The next middle release belongs to a click the autoscroll took: the page never sees it.
+    pub(crate) auto_up: Cell<bool>,
+    /// The pointer shape the page last asked for: a middle click on a link is the page's.
+    pub(crate) cursor: Cell<CursorKind>,
 }
 
 impl State {
     /// How far ahead of the page the picture is shown, and the page's offset its pixels were painted at.
-    fn shown(&self) -> (i32, i32) {
+    pub(crate) fn shown(&self) -> (i32, i32) {
         let offset = self.spec.borrow().actual().unwrap_or(0);
         let top = self.glide.borrow().top(self.target());
         (top.saturating_sub(offset), offset)
@@ -95,7 +104,7 @@ impl State {
     }
 
     /// A draw of `rows` rows (`checker` of them checkerboard) that started at `started`, for the counters.
-    fn record_draw(&self, started: Instant, rows: u32, checker: u32, ahead: i32) {
+    pub(crate) fn record_draw(&self, started: Instant, rows: u32, checker: u32, ahead: i32) {
         self.smooth
             .borrow_mut()
             .drawn(speculate::now_us(), rows, checker, ahead != 0);
@@ -108,63 +117,6 @@ impl State {
         let (us, draws) = self.drawn.get();
         self.drawn
             .set((us + started.elapsed().as_micros() as u64, draws + 1));
-    }
-}
-
-/// On LazyOS the picture is written straight into the window's frame (`raster.rs`, the backend's
-/// `direct.rs`): one copy of each row instead of the canvas's passes. The canvas painter above draws the
-/// same picture for the frames something covers the view (and on other platforms).
-#[cfg(all(target_os = "linux", target_env = "musl"))]
-mod direct {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::time::Instant;
-
-    use xui_app::backend::direct::{set_painter, Target};
-    use xui_core::backend::WidgetId;
-    use xui_core::geometry::Rect;
-
-    use super::State;
-    use crate::damage::IRect;
-    use crate::raster::{raster, Pixels};
-
-    fn irect(rect: Rect) -> IRect {
-        IRect {
-            x0: rect.left,
-            y0: rect.top,
-            x1: rect.right,
-            y1: rect.bottom,
-        }
-    }
-
-    pub(super) fn install(id: WidgetId, state: &Rc<RefCell<State>>) {
-        let state = Rc::clone(state);
-        set_painter(
-            id,
-            Some(Rc::new(move |target: &mut Target<'_>| {
-                let Ok(state) = state.try_borrow() else {
-                    return false;
-                };
-                let started = Instant::now();
-                let (ahead, offset) = state.shown();
-                let view = irect(target.bounds);
-                let mut pixels = Pixels {
-                    data: target.pixels,
-                    stride: target.stride,
-                };
-                let checker = raster(
-                    &mut pixels,
-                    view,
-                    irect(target.damage),
-                    &state.picture,
-                    &state.bands.borrow(),
-                    ahead,
-                    offset,
-                );
-                state.record_draw(started, view.height().max(0) as u32, checker, ahead);
-                true
-            })),
-        );
     }
 }
 
@@ -200,16 +152,21 @@ impl<M: Clone + 'static> PageView<M> {
             }));
         }
         #[cfg(all(target_os = "linux", target_env = "musl"))]
-        direct::install(control.id(), &state);
+        crate::view_direct::install(control.id(), &state);
         {
             let (ui, id) = (ui.clone(), control.id());
             let (state, engine) = (Rc::clone(&state), Rc::clone(&engine));
-            let arm = {
+            let arm: Rc<dyn Fn()> = Rc::new({
                 let (weak, state) = (Rc::downgrade(&control), Rc::clone(&state));
                 move || {
                     arm_settle(&weak, &state);
                     arm_glide(&weak, &state);
                 }
+            });
+            let begin_auto = {
+                let (ui, weak) = (ui.clone(), Rc::downgrade(&control));
+                let (state, engine, arm) = (Rc::clone(&state), Rc::clone(&engine), Rc::clone(&arm));
+                move || arm_auto(&ui, &weak, &state, &engine, &arm)
             };
             let Hooks {
                 is_shortcut,
@@ -225,7 +182,8 @@ impl<M: Clone + 'static> PageView<M> {
                     &state,
                     engine.as_ref(),
                     &is_shortcut,
-                    &arm,
+                    arm.as_ref(),
+                    &begin_auto,
                     &swallow,
                     event,
                 );
@@ -438,6 +396,13 @@ impl<M: Clone + 'static> PageView<M> {
 
     /// The pointer shape over the page, as the page asked for it.
     pub fn set_cursor(&self, kind: CursorKind) {
+        let state = self.state.borrow();
+        state.cursor.set(kind);
+        if state.auto.borrow().is_active() {
+            // The autoscroll's pointer stays until it ends.
+            return;
+        }
+        drop(state);
         self.control
             .ui()
             .set_cursor(self.control.id(), cursor(kind));

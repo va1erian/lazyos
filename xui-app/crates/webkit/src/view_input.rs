@@ -11,6 +11,7 @@ use xui_core::widget::Control;
 use xui_core::{Key, Modifiers, MouseButton};
 
 use crate::engine::{Button, Engine, MouseKind};
+use crate::events::CursorKind;
 use crate::keys::{char_keysym, chord_keysym, keysym, modifier_bits};
 use crate::speculate;
 use crate::view::{IsShortcut, State};
@@ -21,6 +22,8 @@ const NOTCH: i32 = 120;
 const SETTLE_TICK_MS: u32 = 100;
 /// The glide's frame (`glide.rs`): about 60 a second, while the picture moves.
 const GLIDE_FRAME_MS: u32 = 16;
+/// The autoscroll's frame: the same.
+const AUTO_FRAME_MS: u32 = 16;
 
 fn button_of(button: MouseButton) -> Button {
     match button {
@@ -104,6 +107,54 @@ pub(crate) fn arm_glide<M: Clone + 'static>(
     held.glide_timer.set(timer);
 }
 
+/// Starts the autoscroll's frame timer unless it runs: each frame turns the pointer's distance from
+/// the start into wheel notches (`autoscroll.rs`); the timer stops itself once the autoscroll has.
+pub(crate) fn arm_auto<M: Clone + 'static>(
+    ui: &Ui<M>,
+    control: &Weak<Control<M>>,
+    state: &Rc<RefCell<State>>,
+    engine: &Rc<dyn Engine>,
+    arm: &Rc<dyn Fn()>,
+) {
+    let (Some(strong), Ok(held)) = (control.upgrade(), state.try_borrow()) else {
+        return;
+    };
+    if held.auto_timer.get().is_some() {
+        return;
+    }
+    let (weak, state) = (control.clone(), Rc::clone(state));
+    let (ui, engine, arm) = (ui.clone(), Rc::clone(engine), Rc::clone(arm));
+    let timer = strong.set_timer(AUTO_FRAME_MS, move || {
+        let control = weak.upgrade()?;
+        let state = state.try_borrow().ok()?;
+        let (ticks, at, active) = {
+            let mut auto = state.auto.borrow_mut();
+            let ticks = auto.step(speculate::now_us());
+            (ticks, auto.pointer(), auto.is_active())
+        };
+        if !active {
+            if let Some(timer) = state.auto_timer.take() {
+                control.kill_timer(timer);
+            }
+        } else if ticks != 0 {
+            // A notch down is a negative tick.
+            wheel(
+                &ui,
+                control.id(),
+                &state,
+                engine.as_ref(),
+                &*arm,
+                -ticks,
+                false,
+                at,
+                0,
+            );
+        }
+        None
+    });
+    held.auto_timer.set(timer);
+}
+
 /// What a mouse event does to the engine, and to the capture of the pointer.
 #[allow(clippy::too_many_arguments)] // the view's hooks and state, one call from `PageView::new`
 pub(crate) fn handle<M: 'static>(
@@ -113,6 +164,7 @@ pub(crate) fn handle<M: 'static>(
     engine: &dyn Engine,
     is_shortcut: &IsShortcut,
     arm: &dyn Fn(),
+    begin_auto: &dyn Fn(),
     swallow_right: &dyn Fn() -> bool,
     event: &Event,
 ) {
@@ -139,6 +191,21 @@ pub(crate) fn handle<M: 'static>(
         } => {
             state.mods.set(modifier_bits(modifiers));
             ui.focus(id);
+            if state.auto.borrow().is_active() {
+                // Any click ends an autoscroll, and is not the page's (nor is its release).
+                stop_auto(ui, &state);
+                state.auto_up.set(true);
+                return;
+            }
+            // A release that never came must not swallow a later press's.
+            state.auto_up.set(false);
+            if button == MouseButton::Middle
+                && state.held.get().is_none()
+                && state.cursor.get() != CursorKind::Hand
+            {
+                start_auto(ui, id, &state, (x, y), begin_auto);
+                return;
+            }
             if button == MouseButton::Right {
                 // Set on every right press, so a release that never came (a lost one) cannot
                 // drop the release of a later press the page did get.
@@ -172,6 +239,14 @@ pub(crate) fn handle<M: 'static>(
             if button == MouseButton::Right && state.swallowed.replace(false) {
                 return;
             }
+            if state.auto_up.replace(false) {
+                // The release of the click that started (or ended) an autoscroll: after a drag
+                // away from the start it ends it, otherwise the page goes on scrolling.
+                if button == MouseButton::Middle && state.auto.borrow().release_ends() {
+                    stop_auto(ui, &state);
+                }
+                return;
+            }
             engine.mouse(
                 MouseKind::Up,
                 button_of(button),
@@ -184,6 +259,9 @@ pub(crate) fn handle<M: 'static>(
                 ui.release_capture();
             }
         }
+        Event::MouseMove { x, y, .. } if state.auto.borrow().is_active() => {
+            state.auto.borrow_mut().moved(x, y);
+        }
         Event::MouseMove { x, y, modifiers } => {
             let held = state.held.get().map_or(Button::None, button_of);
             engine.mouse(MouseKind::Move, held, x, y, modifier_bits(modifiers));
@@ -195,48 +273,33 @@ pub(crate) fn handle<M: 'static>(
             y,
             modifiers,
         } => {
-            let ticks = notches(delta);
-            let before = state.target();
-            let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
-            engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
-            // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
-            // page has answered, if pictures are shown ahead (a modified wheel zooms or scrolls
-            // sideways). Otherwise the view moves with the page's answer (`View::apply`).
-            let plain = !horizontal && modifier_bits(modifiers) == 0;
-            let now_ms = speculate::now_ms();
-            if plain && !speculate::ahead() {
-                // What the wheel asks for since the page last answered (a notch down is a negative
-                // tick and a positive move of the page), to glide to that answer and only to it.
-                let asked = state
-                    .wheel_asked
-                    .get()
-                    .filter(|(at, _)| now_ms.saturating_sub(*at) <= speculate::ANSWER_MS)
-                    .map_or(0, |(_, px)| px);
-                let step =
-                    -ticks.clamp(-speculate::MAX_TICKS, speculate::MAX_TICKS) * speculate::LINE_PX;
-                state.wheel_asked.set(Some((now_ms, asked + step)));
-            }
-            let moved = plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms);
-            // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too.
-            state
-                .smooth
-                .borrow_mut()
-                .wheel(now_ms, moved || (plain && !speculate::ahead()));
-            if moved {
-                if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
-                    state.wheel_at.set(Some(Instant::now()));
-                }
-                // The picture glides there (`glide.rs`): the first frame of the slide now.
-                let now = speculate::now_us();
-                state.glide.borrow_mut().start(before, now);
-                state.glide.borrow_mut().step(state.target(), now + 4_000);
-                ui.invalidate(id);
-                arm();
-            }
+            // The wheel is the person's: it ends an autoscroll and then does its own work.
+            stop_auto(ui, &state);
+            let mods = modifier_bits(modifiers);
+            wheel(
+                ui,
+                id,
+                &state,
+                engine,
+                arm,
+                notches(delta),
+                horizontal,
+                (x, y),
+                mods,
+            );
         }
-        Event::CaptureChanged => state.held.set(None),
+        Event::CaptureChanged => {
+            state.auto.borrow_mut().stop();
+            state.held.set(None);
+        }
         Event::SetFocus => engine.focus(true),
-        Event::KillFocus => engine.focus(false),
+        Event::KillFocus => {
+            stop_auto(ui, &state);
+            engine.focus(false);
+        }
+        Event::KeyDown { key, .. } if key == Key::ESCAPE && state.auto.borrow().is_active() => {
+            stop_auto(ui, &state);
+        }
         Event::KeyDown {
             key,
             modifiers,
@@ -265,6 +328,87 @@ pub(crate) fn handle<M: 'static>(
         }
         _ => {}
     }
+}
+
+/// `ticks` notches of the wheel at `at` (a notch down is a negative tick): sent to the page, and
+/// the picture glides ahead of its answer when it can.
+#[allow(clippy::too_many_arguments)] // a wheel event and the view's hooks
+pub(crate) fn wheel<M: 'static>(
+    ui: &Ui<M>,
+    id: WidgetId,
+    state: &State,
+    engine: &dyn Engine,
+    arm: &dyn Fn(),
+    ticks: i32,
+    horizontal: bool,
+    at: (i32, i32),
+    mods: u32,
+) {
+    let before = state.target();
+    let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
+    engine.wheel(at.0, at.1, tx, ty, mods);
+    // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
+    // page has answered, if pictures are shown ahead (a modified wheel zooms or scrolls
+    // sideways). Otherwise the view moves with the page's answer (`View::apply`).
+    let plain = !horizontal && mods == 0;
+    let now_ms = speculate::now_ms();
+    if plain && !speculate::ahead() {
+        // What the wheel asks for since the page last answered (a notch down is a negative
+        // tick and a positive move of the page), to glide to that answer and only to it.
+        let asked = state
+            .wheel_asked
+            .get()
+            .filter(|(at, _)| now_ms.saturating_sub(*at) <= speculate::ANSWER_MS)
+            .map_or(0, |(_, px)| px);
+        let step = -ticks.clamp(-speculate::MAX_TICKS, speculate::MAX_TICKS) * speculate::LINE_PX;
+        state.wheel_asked.set(Some((now_ms, asked + step)));
+    }
+    let moved = plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms);
+    // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too.
+    state
+        .smooth
+        .borrow_mut()
+        .wheel(now_ms, moved || (plain && !speculate::ahead()));
+    if moved {
+        if state.spec.borrow().is_ahead() && state.wheel_at.get().is_none() {
+            state.wheel_at.set(Some(Instant::now()));
+        }
+        // The picture glides there (`glide.rs`): the first frame of the slide now.
+        let now = speculate::now_us();
+        state.glide.borrow_mut().start(before, now);
+        state.glide.borrow_mut().step(state.target(), now + 4_000);
+        ui.invalidate(id);
+        arm();
+    }
+}
+
+/// Ends an autoscroll, if one runs: the pointer is the page's again.
+pub(crate) fn stop_auto<M: 'static>(ui: &Ui<M>, state: &State) {
+    if !state.auto.borrow().is_active() {
+        return;
+    }
+    state.auto.borrow_mut().stop();
+    state.held.set(None);
+    ui.release_capture();
+}
+
+/// A middle press at (`x`, `y`) on bare page starts an autoscroll; the page never sees the click.
+fn start_auto<M: 'static>(
+    ui: &Ui<M>,
+    id: WidgetId,
+    state: &State,
+    at: (i32, i32),
+    begin: &dyn Fn(),
+) {
+    state
+        .auto
+        .borrow_mut()
+        .start(at.0, at.1, speculate::now_us());
+    state.auto_up.set(true);
+    state.held.set(Some(MouseButton::Middle));
+    ui.set_capture(id);
+    ui.set_cursor(id, xui_core::backend::Cursor::SizeVertical);
+    begin();
 }
 
 /// A key press or release as the page gets it: a key that types nothing by

@@ -13,6 +13,7 @@
 
 pub mod abi;
 pub mod address;
+mod autoscroll;
 pub mod bands;
 /// What changed between two paints: its own crate (`lazydamage`) so webd keeps the same rules per view.
 pub use lazydamage as damage;
@@ -33,4 +34,6 @@ pub mod speculate;
 #[cfg(test)]
 mod tests_raster;
 pub mod view;
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+mod view_direct;
 mod view_input;
