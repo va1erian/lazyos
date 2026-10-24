@@ -57,6 +57,7 @@ pub mod report;
 pub mod sanitize;
 pub mod session;
 pub mod suggest;
+pub mod tabs;
 pub mod transfers;
 pub mod useragent;
 pub mod visits;
