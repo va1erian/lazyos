@@ -84,8 +84,9 @@ its naked stub), never an `x86-interrupt` handler.
 
 | Site | What | Disposition |
 |---|---|---|
-| whole kernel | "interrupts off ⇒ no other kernel code runs" | replaced by the entry lock, keyed on the interrupted context's ring: ring-3 entries acquire, ring-0-origin interrupts inherit the hold; released at user return, park **and preemptive switch** (S8.3) |
-| `task/preempt.rs:72-76` | No idle task; the parked task `hlt`s | per-CPU idle task, so a CPU with nothing runnable never holds the lock (S8.3) |
+| whole kernel | "interrupts off ⇒ no other kernel code runs" | replaced by the entry lock (`sync::entry`), held by a **CPU**: ring-3 entries take it, ring-0 entries inherit it, a resume of ring 3 drops it, a context switch carries it (no release inside the switch); window-safe gates (IPIs, NMI, spurious, `#DF`, the window tick) never take it. **Done** in every gate (S8.3a, [`smp.md`](smp.md), the entry lock); the `hlt`-with-interrupts-on sites drop it in S8.3b |
+| `task/schedule.rs` `install` | A task current on one CPU is selectable by another (the global run queue only knows `Runnable`) | on-CPU mark set by `install`, cleared when its CPU installs another task, both under the entry lock (S8.3b); before it, no AP may run a task |
+| `task/preempt.rs:72-76` | No idle task; the parked task `hlt`s | per-CPU idle task on the boot table, which drops the hold around its `hlt` like `nap` and `exit_cpu` do, so a CPU with nothing runnable never holds the lock (S8.3b) |
 | `task/preempt.rs` | `NEED_RESCHED`, `PREEMPTING`, `SELECTED`, `SELECTED_AT`, `SLICE_END`, `DEFERRED`, `HANDOFF_FROM/TO` — global | per-CPU (S8.1); remote wakes send `RESCHED_VECTOR` (S8.3) |
 | `arch/event_timer.rs` | `ARMED`, `RATE` — the one-shot deadline timer programs the arming CPU's LAPIC timer | per-CPU **in S8.3** (a deadline armed before a migration would otherwise fire late; the 10 ms sweep is the backstop, never the answer) |
 | `task/lifecycle.rs:370` | "Revisit this unwrap if/when SMP" | entry lock (S8.3), audited |

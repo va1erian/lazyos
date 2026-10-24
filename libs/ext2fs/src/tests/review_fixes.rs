@@ -71,6 +71,38 @@ fn bitmap_helpers_refuse_a_bit_past_the_buffer() {
 }
 
 #[test]
+fn bitmap_find_zero_edge_cases() {
+    // 1. All bits set: returns None
+    let full = [0xFFu8; 4];
+    assert_eq!(Ext2::bitmap_find_zero(&full, 0, 32), Ok(None));
+
+    // 2. Clear bit at mid-byte offset
+    let mut buf = [0xFFu8; 4];
+    buf[1] = 0b11100111; // bit 3 (1*8 + 3 = 11) and bit 4 (12) are zero
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 0, 32), Ok(Some(11)));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 11, 32), Ok(Some(11)));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 12, 32), Ok(Some(12)));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 13, 32), Ok(None));
+
+    // 3. Clear bit is at or past `bits` bound
+    let mut buf = [0xFFu8; 2];
+    buf[1] = 0b01111111; // bit 7 of byte 1 (index 15) is zero
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 0, 15), Ok(None)); // bound is 15
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 0, 16), Ok(Some(15))); // bound is 16
+
+    // 4. Mid-byte start where start bit is non-zero
+    let buf = [0b11111111, 0b11110000]; // bits 8,9,10,11 are zero
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 10, 16), Ok(Some(10)));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 11, 16), Ok(Some(11)));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 12, 16), Ok(None));
+
+    // 5. Empty buffer or zero bits limit
+    let empty: [u8; 0] = [];
+    assert_eq!(Ext2::bitmap_find_zero(&empty, 0, 0), Ok(None));
+    assert_eq!(Ext2::bitmap_find_zero(&buf, 5, 5), Ok(None));
+}
+
+#[test]
 fn a_table_whose_entries_all_name_itself_is_released_quickly() {
     let io = formatted(2 * 1024 * 1024, 1024);
     let fs = open(&io);

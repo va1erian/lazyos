@@ -133,6 +133,26 @@ impl Browser {
         }
     }
 
+    /// Shows sites another browser's user agent from now on (`useragent.rs`): the page on show
+    /// loads again in it, and the next start remembers it.
+    pub(super) fn choose_agent(&mut self, index: usize) {
+        let Some(preset) = crate::useragent::PRESETS.get(index) else {
+            return;
+        };
+        if index == self.agent {
+            return;
+        }
+        self.agent = index;
+        self.engine.set_user_agent(preset.agent);
+        crate::marker(&format!("USERAGENT:SET:{}", preset.id));
+        let kept = match &self.host.profile {
+            Some(profile) => crate::useragent::save(profile, index).is_ok(),
+            None => false,
+        };
+        let note = if kept { "" } else { " (for this window only)" };
+        self.set_status(&format!("Sites now see {}{note}", preset.name));
+    }
+
     pub(super) fn clear_history(&mut self) {
         match self.visits.clear() {
             Ok(()) => self.set_status("History cleared"),

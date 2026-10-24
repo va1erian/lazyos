@@ -119,6 +119,12 @@ fn report(pml4: u64) -> usize {
                 0 => slot,
                 leader => leader,
             };
+            // A thread running on another CPU (S8.3c) has only a stale
+            // frame: report no RIP and no stack for it.
+            if crate::task::oncpu::elsewhere(slot) {
+                rows.push((slot, tgid, task.state, 0, 0));
+                continue;
+            }
             // The kernel stack pointer of a thread inside the kernel.
             let in_kernel = !frame_is_user(task.rsp, FRAME_RIP_INDEX);
             let stack = if in_kernel && slot != current() {

@@ -109,6 +109,11 @@ pub(super) fn run() -> i32 {
     start_blocker(&blocker, profile.as_ref(), memory_only, relay);
     let internal = Internal::default();
     let choices = prefs::load();
+    // The agent the person chose last (View > User Agent): the view is made with it.
+    let mut config = browser_config(memory_only);
+    config.user_agent = useragent::PRESETS[profile.as_deref().map_or(0, useragent::load)]
+        .agent
+        .to_owned();
     let quit_profile = profile.clone();
     let window_blocker = blocker.clone();
     let spec = PlatformSpec::new(APP_NAME).size(Dip(width as f32), Dip(height as f32));
@@ -143,7 +148,7 @@ pub(super) fn run() -> i32 {
             WebdTransport::full(),
             Arc::clone(&mailbox),
             Options {
-                config: browser_config(memory_only),
+                config,
                 slots: SlotPlan::default(),
                 navigator: navigator(internal.clone()),
                 permissions: decisions(&permissions),

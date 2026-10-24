@@ -202,6 +202,9 @@ class Launcher:
                      values=DISKS, width=8).pack(side="left", padx=4)
         self._field(g, "Memory:", "memory", 6)
         self._field(g, "CPUs (-smp):", "smp", 4)  # guest vCPUs; SMP from smp-plan S8.2
+        row = ttk.Frame(g); row.pack(fill="x", padx=6, pady=2)  # LAZYOS_SMP (smp-plan S8.3)
+        ttk.Checkbutton(row, text="SMP kernel (LAZYOS_SMP): every CPU runs tasks",
+                        variable=self.v["smp_kernel"]).pack(side="left")
         self._field(g, "Capture at:", "times", 8)
         self._field(g, "Timeout (s):", "timeout", 6)
         self._field(g, "QEMU path:", "qemu", 44, browse=self._browse_qemu)

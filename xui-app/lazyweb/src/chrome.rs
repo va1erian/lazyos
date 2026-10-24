@@ -119,6 +119,19 @@ const HISTORY_MENU: MenuId = MenuId::new(102);
 const DOWNLOADS_MENU: MenuId = MenuId::new(103);
 const HELP_MENU: MenuId = MenuId::new(104);
 const BOOKMARKS_MENU: MenuId = MenuId::new(105);
+const AGENT_MENU: MenuId = MenuId::new(106);
+/// The user agent items' ids: one per preset from here up.
+const AGENT_BASE: usize = 200;
+
+/// The View menu's radio item for user agent preset `index`.
+pub fn agent_id(index: usize) -> MenuId {
+    MenuId::new(AGENT_BASE + index)
+}
+
+/// The preset a View menu item picks, if it is one of the user agents'.
+fn agent_of(id: MenuId) -> Option<usize> {
+    (0..crate::useragent::PRESETS.len()).find(|&index| agent_id(index) == id)
+}
 
 /// The widgets the window changes after building.
 #[derive(Default)]
@@ -231,6 +244,12 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
                 "Reload Without &Blocking",
                 Lucide::Eye,
             );
+            m.separator();
+            m.submenu(AGENT_MENU, "&User Agent", |m| {
+                for (index, preset) in crate::useragent::PRESETS.iter().enumerate() {
+                    m.radio(agent_id(index), preset.name, index == 0);
+                }
+            });
         });
         bar.submenu(HISTORY_MENU, "Hi&story", |m| {
             item(m, Command::Back, "&Back", Lucide::ChevronLeft);
@@ -281,6 +300,7 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
         });
     })
     .on_select_with(|id| Command::from_id(id).map(Msg::Menu))
+    .on_toggle(|id, on| Msg::UserAgent(agent_of(id).filter(|_| on)))
     .bind(&widgets.menu)
 }
 

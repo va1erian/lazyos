@@ -132,7 +132,7 @@ pub(super) fn sys_prlimit64(pid: u64, resource: u64, new: u64, old: u64) -> u64 
 /// the number of tasks. There is no load average (zeros) and no swap.
 pub(super) fn sys_sysinfo(info: u64) -> u64 {
     let stats = crate::mem::frame_stats();
-    let procs = (1..crate::limits::task_max().min(task::MAX_TASKS))
+    let procs = (1..crate::limits::task_max().min(task::idle::TASK_SLOTS))
         .filter(|&slot| task::pml4_of(slot).is_some())
         .count() as u16;
     // struct sysinfo (x86_64): uptime, loads[3], totalram, freeram, sharedram,

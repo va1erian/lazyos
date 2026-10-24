@@ -169,7 +169,7 @@ macro_rules! entry_body {
         "#,
             $hook,
             r#"
-        call linux_dispatch
+        call linux_dispatch_gate        /* entry lock, then linux_dispatch */
         add rsp, {pad}
 "#
         )
@@ -320,6 +320,10 @@ pub fn probe_entry(nr: u64, r9: u64, stack_top: u64) -> (u64, u64) {
     let stack = syscall.stack.load(Ordering::Relaxed);
     let user_rsp = syscall.saved_user_rsp.load(Ordering::Relaxed);
     syscall.stack.store(stack_top, Ordering::Relaxed);
+    // The body takes the entry lock as a ring-3 `syscall` would, and the
+    // probe returns before the exit hook: drop the harness's hold first, so
+    // the body's take restores it (`sync::entry`).
+    crate::sync::entry::release_for_probe();
     // SAFETY: the probe is the real entry body; the state it touches is
     // restored below, and interrupts are off (no per-CPU state can change).
     unsafe {

@@ -118,6 +118,14 @@ global_asm!(
         crate::gs_exit_swap_on_user_cs!(),
         r#"
         iretq
+
+    /* Resume a saved kernel frame with no gate in front of it: an AP's first
+       switch into its idle context (`task::idle::start_ap`). The frame is
+       ring 0's, so the tail swaps nothing. */
+    .global task_resume_frame
+    task_resume_frame:
+        mov rsp, rdi
+        jmp 4b
     "#
     ),
     off_window_open = const crate::arch::percpu::OFF_WINDOW_OPEN,
@@ -129,6 +137,9 @@ extern "C" {
     /// Entry point referenced by the IDT for voluntary reschedules
     /// ([`YIELD_VECTOR`]).
     pub fn yield_isr();
+    /// Load `rsp` (a frame `task::switch` saved or `task::idle` built) and
+    /// restore it as the gates' tail does; never returns.
+    pub fn task_resume_frame(rsp: u64) -> !;
 }
 
 /// Per slot: the task is inside [`yield_now`] (switched out by its own call,

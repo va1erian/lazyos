@@ -29,7 +29,9 @@ impl Limits {
         shared_buffer_max: 16 * MIB,
         scratch_max: 32 * MIB,
         task_max: 256,
-        cpu_max: 1,
+        // Every CPU the MADT names in a `LAZYOS_SMP=1` kernel, whose APs
+        // run tasks (S8.3c); one otherwise (its APs would only idle).
+        cpu_max: if cfg!(lazyos_smp) { 64 } else { 1 },
     };
 
     /// The defaults for a machine with `ram` usable bytes and a screen whose
@@ -82,7 +84,7 @@ impl Limits {
             scratch_max: GIB.min(down(heap_max / 2)).max(base.scratch_max),
             // One slot per MiB of RAM: a task costs a 48 KiB kernel stack
             // and its page tables, so 256 on the smallest machine, the
-            // table's 1024 from 1 GiB.
+            // ceiling of task slots (`task::idle::TASK_SLOTS`) from 1 GiB.
             task_max: (ram / MIB).max(base.task_max),
             // One CPU until the SMP bring-up derives the count from the
             // MADT (`docs/smp-plan.md` S8.2); RAM says nothing about CPUs.

@@ -92,6 +92,8 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
     """The build switches the device options set: `LAZYOS_DEVD` either way,
     so a value inherited from the environment never overrides `--no-devd`."""
     env["LAZYOS_DEVD"] = "0" if args.no_devd else "1"
+    # The SMP kernel (docs/smp-plan.md S8.3): every CPU runs tasks.
+    env["LAZYOS_SMP"] = "1" if args.smp_kernel else "0"
     env["LAZYOS_IRQCHIP"] = args.irqchip
     env["LAZYOS_MSI"] = "0" if args.no_msi else "1"
     # Either way, so an inherited value never overrides `--usb-audio`.

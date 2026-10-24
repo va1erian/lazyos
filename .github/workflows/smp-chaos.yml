@@ -1,0 +1,75 @@
+name: smp-chaos
+
+# The chaos-preemption seed sweep (docs/smp-plan.md section 4, item 5; the
+# S8.3 acceptance): the SMP kernel on four vCPUs, its scheduling and SMP
+# cases built once per seed with `--chaos-seed`, so preemption points
+# reschedule and poll points open interrupt windows at seeded random. A
+# failure prints the seed (`seed=0x..`) that replays it:
+# `LAZYOS_SMP=1 python tools/test/run.py --smp 4 --chaos-seed N` with the
+# same `LAZYOS_TEST_FILTER`. Manual: under TCG a full sweep is hours of wall
+# time, not a step for every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "space-separated seeds (decimal or 0x hex)"
+        default: "1 2 3 4 5 6 7 8 9 10"
+      filter:
+        description: "LAZYOS_TEST_FILTER (the cases each seed runs)"
+        default: "smp_"
+      accel:
+        description: "auto (KVM) or tcg"
+        default: "auto"
+
+permissions:
+  contents: read
+
+env:
+  LAZYOS_RESET_OS: "1"
+  LAZYOS_SMP: "1"
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/qemu
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      - name: Sweep the seeds
+        shell: bash
+        env:
+          # Inputs reach the script as variables, never as script text.
+          LAZYOS_TEST_FILTER: ${{ inputs.filter }}
+          SEEDS: ${{ inputs.seeds }}
+          ACCEL: ${{ inputs.accel }}
+        run: |
+          case "$ACCEL" in auto|tcg|kvm|none) ;; *) echo "bad accel: $ACCEL"; exit 1;; esac
+          failed=""
+          for seed in $SEEDS; do
+            case "$seed" in ""|*[!0-9xXa-fA-F]*) echo "bad seed: $seed"; exit 1;; esac
+            echo "::group::seed $seed"
+            if ! python tools/test/run.py --smp 4 --accel "$ACCEL" --chaos-seed "$seed" --out "shots/chaos-$seed"; then
+              failed="$failed $seed"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then
+            echo "seeds that failed:$failed" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "every seed passed: $SEEDS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the serial logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smp-chaos
+          path: shots/chaos-*/**
+          if-no-files-found: warn

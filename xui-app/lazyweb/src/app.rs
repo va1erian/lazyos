@@ -105,6 +105,8 @@ pub enum Msg {
     Engine,
     /// Other threads queued work for the window's thread (`Host::jobs`).
     Jobs,
+    /// A user agent of the View menu was picked (`None`: a radio item turned off).
+    UserAgent(Option<usize>),
 }
 
 /// The window's widgets and state.
@@ -140,6 +142,8 @@ pub struct Browser {
     transfers: Transfers,
     internal: Internal,
     blocker: Blocker,
+    /// The preset of `useragent::PRESETS` the engine shows to sites.
+    agent: usize,
     /// The web page browsed last (not one of our own): what the ad blocker's "this site" means.
     site_url: Option<String>,
     /// What the shield shows now (blocked, applies, ready): touched only on a change.
@@ -258,6 +262,7 @@ impl Browser {
         });
 
         let context = Context::new(ui);
+        let agent = host.profile.as_deref().map_or(0, crate::useragent::load);
         let mut browser = Browser {
             page: widgets.page.get(),
             menu: widgets.menu.get(),
@@ -285,6 +290,7 @@ impl Browser {
             transfers,
             internal,
             blocker,
+            agent,
             site_url: None,
             shield_shown: Cell::new(None),
             host,
@@ -310,6 +316,9 @@ impl Browser {
             fast: Cell::new(None),
             shown: RefCell::new(String::new()),
         };
+        // The menu was built with the engine's own checked.
+        browser.menu.set_checked(chrome::agent_id(0), agent == 0);
+        browser.menu.set_checked(chrome::agent_id(agent), true);
         browser.start_engine(ui);
         let restored = browser.begin_session(url.is_some());
         let first = url.or(restored).unwrap_or_else(|| browser.internal.start());
@@ -431,6 +440,11 @@ impl App for Browser {
                 self.flush_session();
             }
             Msg::Jobs => (self.host.jobs)(),
+            Msg::UserAgent(choice) => {
+                if let Some(index) = choice {
+                    self.choose_agent(index);
+                }
+            }
         }
         self.update_buttons();
         self.update_star();

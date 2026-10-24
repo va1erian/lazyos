@@ -45,6 +45,9 @@ pub const VECTOR: u8 = lapic::TIMER_VECTOR + 1;
 static RATE: AtomicU64 = AtomicU64::new(0);
 /// The deadline (monotonic ns) the timer is armed for; `u64::MAX` when idle.
 static ARMED: AtomicU64 = AtomicU64::new(u64::MAX);
+/// The APIC id of the CPU whose timer this is (the boot CPU's, which ran
+/// [`init`]): an AP's earlier deadline is forwarded to it (S8.3c).
+static OWNER_APIC: AtomicU64 = AtomicU64::new(0);
 
 /// Shortest interval programmed: a deadline already due, or one closer than
 /// this, still gets an interrupt (the caller may be about to halt), just
@@ -93,6 +96,7 @@ pub fn init(madt_address: Option<u64>) {
         return;
     };
     lapic::start_oneshot(VECTOR);
+    OWNER_APIC.store(u64::from(lapic::id()), Ordering::Relaxed);
     RATE.store(rate, Ordering::Relaxed);
     crate::serial_println!(
         "timer: deadline timer: APIC one-shot, {rate} counts/s ({} ns resolution)",
@@ -134,6 +138,10 @@ pub fn program(next: Option<u64>, now: u64) {
         return;
     }
     let target = next.unwrap_or(u64::MAX);
+    if super::percpu::current().index() != 0 {
+        forward(target);
+        return;
+    }
     if ARMED.swap(target, Ordering::Relaxed) == target {
         return;
     }
@@ -143,6 +151,17 @@ pub fn program(next: Option<u64>, now: u64) {
             let ns = deadline.saturating_sub(now).max(MIN_NS);
             lapic::set_initial_count(counts_for(ns, rate));
         }
+    }
+}
+
+/// An AP's scheduler entry found a deadline: the one deadline timer is the
+/// boot CPU's (its APIC timer; an AP's is its tick, S8.3c), so a deadline
+/// earlier than the one armed is sent there as this vector, whose handler
+/// expires what is due and re-arms for the next. One IPI per earlier
+/// deadline; a later one waits for the armed interrupt or a tick.
+fn forward(target: u64) {
+    if target < ARMED.load(Ordering::Relaxed) {
+        lapic::send_fixed(OWNER_APIC.load(Ordering::Relaxed) as u32, VECTOR);
     }
 }
 

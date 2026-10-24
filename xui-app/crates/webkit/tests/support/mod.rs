@@ -28,6 +28,8 @@ pub enum Msg {
     State,
     /// The page was clicked.
     Clicked,
+    /// The page asked for this pointer shape.
+    Cursor(xui_webkit::events::CursorKind),
 }
 
 thread_local! {
@@ -144,6 +146,7 @@ impl App for Browser {
                 }
             }
             Msg::Clicked => {}
+            Msg::Cursor(kind) => self.page.set_cursor(kind),
         }
     }
 }

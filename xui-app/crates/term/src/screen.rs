@@ -42,23 +42,33 @@ impl Screen {
         attr: Attr,
         mut sink: impl FnMut(&Row),
     ) {
-        for _ in 0..n.min(bottom + 1 - top) {
-            let mut row = self.rows.remove(top);
-            sink(&row);
-            row.cells.fill(Cell::blank(attr));
-            row.wrapped = false;
-            self.rows.insert(bottom, row);
+        let count = n.min(bottom + 1 - top);
+        if count == 0 {
+            return;
         }
+        // Rotate rows in-place so scrolled-out rows move to the bottom as blank rows.
+        let slice = &mut self.rows[top..=bottom];
+        for row in &mut slice[..count] {
+            sink(row);
+            row.clear(attr);
+        }
+        slice.rotate_left(count);
     }
 
     /// Scroll rows `top..=bottom` down by `n`: the last `n` are dropped and
     /// blank rows enter at the top.
     pub fn scroll_down(&mut self, top: usize, bottom: usize, n: usize, attr: Attr) {
-        let n = n.min(bottom + 1 - top);
-        self.rows.drain(bottom + 1 - n..=bottom);
-        for _ in 0..n {
-            self.rows.insert(top, Row::new(self.cols, attr));
+        let count = n.min(bottom + 1 - top);
+        if count == 0 {
+            return;
         }
+        // Rotate rows in-place so cleared bottom rows move to top of scroll region.
+        let slice = &mut self.rows[top..=bottom];
+        let len = slice.len();
+        for row in &mut slice[len - count..] {
+            row.clear(attr);
+        }
+        slice.rotate_right(count);
     }
 
     /// ICH: open `n` blank cells at `col`, pushing the rest right.

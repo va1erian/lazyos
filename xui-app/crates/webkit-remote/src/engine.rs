@@ -31,7 +31,7 @@ impl<T: ScopedTransport + 'static> RemoteEngine<T> {
     }
 
     /// The page on show (its original address), for a reload without a view.
-    fn page(&self) -> String {
+    pub(crate) fn page(&self) -> String {
         let inner = self.inner.borrow();
         let page = if inner.state.committed_url.is_empty() {
             &inner.state.url
@@ -39,6 +39,26 @@ impl<T: ScopedTransport + 'static> RemoteEngine<T> {
             &inner.state.committed_url
         };
         inner.aliases.original(page)
+    }
+
+    /// Another user agent: the view is made again with it (the page on show is loaded in the new
+    /// one), or, when there is no view yet, the first one is made with it.
+    pub(crate) fn remake_with_agent(&self, agent: &str) {
+        let page = self.page();
+        {
+            let mut inner = self.inner.borrow_mut();
+            inner.view.set_created_user_agent(agent);
+            if !inner.view.is_live() {
+                return;
+            }
+            inner.view.destroy();
+            inner.moves.clear();
+            if !page.is_empty() {
+                inner.pending = Some(page);
+            }
+            inner.retry_at = 0;
+        }
+        self.ensure_view();
     }
 
     /// A blocker call: now, or when the view is made.
@@ -222,5 +242,23 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
         self.inner.borrow_mut().blocking = Some((enabled, exceptions.to_vec()));
         let exceptions = exceptions.to_vec();
         self.call(move |view| view.set_blocking(enabled, &exceptions));
+    }
+
+    fn set_user_agent(&self, agent: &str) {
+        if self.inner.borrow().view.config().user_agent == agent {
+            return;
+        }
+        // webd changes the agent of a view that was made with one; a view made with the engine's
+        // own (or one going back to it) is made again, and loads the page on show.
+        let in_place = {
+            let inner = self.inner.borrow();
+            inner.view.is_live() && !agent.is_empty() && !inner.view.config().user_agent.is_empty()
+        };
+        if in_place {
+            self.call(|view| view.set_user_agent(agent));
+            self.reload();
+        } else {
+            self.remake_with_agent(agent);
+        }
     }
 }

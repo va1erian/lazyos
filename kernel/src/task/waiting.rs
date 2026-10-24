@@ -174,13 +174,16 @@ pub fn wait_sleep_ns(deadline: u64) -> WakeReason {
 /// this way). `enable_and_hlt` also closes the race between the check and
 /// the sleep.
 pub fn nap() {
+    // What this task woke goes to another CPU before this one halts in it.
+    super::kick::flush_unlocked();
     crate::arch::irqoff::close();
     crate::perf::irqoff_pause();
     // An interrupt that stops this halt may run the device bottom half: a
     // napping task holds no lock (P1.2, `preempt::interrupted_quiet_context`).
     super::preempt::nap_begin();
-    x86_64::instructions::interrupts::enable_and_hlt();
-    x86_64::instructions::interrupts::disable();
+    // The halt drops the entry lock (S8.3b): another CPU may enter the
+    // kernel meanwhile, and the interrupt that ends it takes the lock back.
+    crate::sync::entry::halt();
     super::preempt::nap_end();
     crate::perf::irqoff_resume();
     crate::arch::irqoff::resume();

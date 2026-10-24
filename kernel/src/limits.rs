@@ -135,16 +135,18 @@ pub const KEYS: [Key; COUNT] = [
         bytes: true,
     },
     // Below 64 the boot services and the desktop do not fit; the table
-    // itself (`task::MAX_TASKS`) is the ceiling. A slot costs a 48 KiB kernel
-    // stack from the heap only while a task occupies it.
+    // minus the per-CPU idle slots (`task::idle::TASK_SLOTS`) is the
+    // ceiling. A slot costs a 48 KiB kernel stack from the heap only while a
+    // task occupies it.
     Key {
         name: "task_max",
         min: 64,
-        max: crate::task::MAX_TASKS as u64,
+        max: crate::task::idle::TASK_SLOTS as u64,
         bytes: false,
     },
-    // One CPU until the kernel brings the APs up (`docs/smp-plan.md` S8.2,
-    // from the MADT); 64 is the per-CPU table's capacity (`arch::percpu`).
+    // Every MADT CPU in a `LAZYOS_SMP=1` kernel (its APs run tasks,
+    // `docs/smp-plan.md` S8.3c), one otherwise; 64 is the per-CPU table's
+    // capacity (`arch::percpu`).
     Key {
         name: "cpu_max",
         min: 1,
@@ -223,8 +225,8 @@ pub fn task_max() -> usize {
 }
 
 /// CPUs the kernel may bring up (`arch::smp::init` caps the MADT's count
-/// with it). The default is 1 until S8.3 gives the APs work, so a normal boot
-/// keeps them parked; `LAZYOS_LIMIT_CPU_MAX=N` opts an image in.
+/// with it). The default is every CPU in a `LAZYOS_SMP=1` kernel, whose APs
+/// run tasks (S8.3c), and 1 otherwise; `LAZYOS_LIMIT_CPU_MAX=N` overrides.
 pub fn cpu_max() -> usize {
     get(Id::CpuMax) as usize
 }

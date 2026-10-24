@@ -18,6 +18,12 @@ impl Row {
         }
     }
 
+    /// Reset all cells to blank with `attr` and clear flags.
+    pub fn clear(&mut self, attr: Attr) {
+        self.cells.fill(Cell::blank(attr));
+        self.wrapped = false;
+    }
+
     /// Blank `from..to` (clamped) with `attr`'s background, then repair any
     /// wide character the range cut in half.
     pub fn erase(&mut self, from: usize, to: usize, attr: Attr) {

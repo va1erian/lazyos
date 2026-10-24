@@ -183,6 +183,8 @@ pub(super) fn spawn_native<I: Image + ?Sized>(
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // A CPU with nothing to do may start it now (S8.3c).
+    super::kick::place(&tasks, index);
     Ok(index)
 }
 
@@ -294,6 +296,13 @@ pub fn spawn_thread_sharing(
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // A CPU with nothing to do may start it now (S8.3c).
+    // The creator's data segment selectors, as a fork or a thread has them
+    // (not the kernel task's: kernel selectors are no user task's).
+    if current() != KERNEL_TASK {
+        super::segs::save(index);
+    }
+    super::kick::place(&tasks, index);
     Ok(index)
 }
 
@@ -407,6 +416,13 @@ pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static 
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // A CPU with nothing to do may start it now (S8.3c).
+    // The creator's data segment selectors, as a fork or a thread has them
+    // (not the kernel task's: kernel selectors are no user task's).
+    if current() != KERNEL_TASK {
+        super::segs::save(index);
+    }
+    super::kick::place(&tasks, index);
     // POSIX `fork` inherits dispositions, the calling thread's blocked mask
     // and alternate stack; pending signals do not cross the fork.
     signal::fork_inherit(parent_index, pml4, index, child_table.as_u64());

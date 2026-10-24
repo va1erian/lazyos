@@ -1,3 +1,8 @@
+//! The painter that writes the picture straight into the window's frame on LazyOS (`raster.rs`, the
+//! backend's `direct.rs`): one copy of each row instead of the canvas's passes. The canvas painter
+//! in `view.rs` draws the same picture for the frames something covers the view (and on other
+//! platforms).
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
@@ -6,9 +11,9 @@ use xui_app::backend::direct::{set_painter, Target};
 use xui_core::backend::WidgetId;
 use xui_core::geometry::Rect;
 
-use super::State;
 use crate::damage::IRect;
 use crate::raster::{raster, Pixels};
+use crate::view::State;
 
 fn irect(rect: Rect) -> IRect {
     IRect {
@@ -19,7 +24,7 @@ fn irect(rect: Rect) -> IRect {
     }
 }
 
-pub(super) fn install(id: WidgetId, state: &Rc<RefCell<State>>) {
+pub(crate) fn install(id: WidgetId, state: &Rc<RefCell<State>>) {
     let state = Rc::clone(state);
     set_painter(
         id,

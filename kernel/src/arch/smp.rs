@@ -23,6 +23,7 @@
 mod bringup;
 mod ipi;
 mod prepare;
+mod sched;
 mod shootdown;
 #[cfg(lazyos_tests)]
 mod testrig;
@@ -31,6 +32,10 @@ mod tscsync;
 
 pub use ipi::stop_others;
 pub(crate) use ipi::{resched_gate, stop_gate};
+pub(crate) use sched::kick_gate;
+#[cfg(lazyos_tests)]
+pub use sched::start_aps_for_test;
+pub use sched::{kick, start_aps};
 // `serve_pending` is the rule every interrupts-off spin follows (its first
 // caller outside this module is S8.3's entry lock).
 #[allow(unused_imports)]
@@ -58,11 +63,13 @@ pub const PREFIX: &str = "smp.";
 /// copied to; the SIPI vector is its page number, `0x08`.
 pub const TRAMPOLINE_PHYS: u64 = 0x8000;
 
-/// The three kernel IPIs, in the audit-pinned free range 0x60..0x7F (below
-/// them: MSI at 0x40..0x5F; above: the software gates 0x80/0x81).
+/// The kernel IPIs, in the audit-pinned free range 0x60..0x7F (below them:
+/// MSI at 0x40..0x5F; above: the software gates 0x80/0x81). The kick
+/// (S8.3c, `sched`) is the one that takes the entry lock and switches.
 pub const RESCHED_VECTOR: u8 = 0x60;
 pub const SHOOTDOWN_VECTOR: u8 = 0x61;
 pub const STOP_VECTOR: u8 = 0x62;
+pub const KICK_VECTOR: u8 = 0x63;
 
 /// `smp.cpus=N` from `lazyos.cfg` (0 = unset: derive from the MADT).
 static CONFIG_CPUS: AtomicU64 = AtomicU64::new(0);
@@ -171,15 +178,16 @@ pub fn bring_up_for_test(n: usize) {
 /// self-refusing: without a second APIC id, without a coherent TSC, or when
 /// the count comes out 1, this is a single-CPU boot and says so on serial.
 pub fn init() {
+    // Whether this kernel serializes its entries (`sync::entry`): the fact a
+    // multi-CPU boot log is read against.
+    serial_println!("HW:SMP:ENTRY_LOCK={}", cfg!(lazyos_smp));
     decide();
     if cpus() <= 1 {
         serial_println!("HW:SMP:CPUS=1 (no APs to bring up)");
         return;
     }
-    // The TSC invariance gate (the plan's coherence half, a skew
-    // measurement per AP, is still to come: today only the entry latency is
-    // logged): the catch-up clock needs an invariant TSC for wall-clock
-    // sanity; TCG
+    // The TSC invariance gate (the coherence half is per AP, `tscsync`):
+    // the catch-up clock needs an invariant TSC for wall-clock sanity; TCG
     // refuses `invtsc`, so the gate yields to the test-rig override rather
     // than disarming every TCG-based SMP test.
     serial_println!("HW:SMP:TSC:INVARIANT={}", invariant_tsc());

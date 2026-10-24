@@ -49,6 +49,12 @@ pub(super) fn ppid(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
 /// (Linux's `delay_group_leader`), so its slot, the process's identity, is not
 /// reused under the threads.
 pub(super) fn reapable(tasks: &[Option<Task>; MAX_TASKS], slot: usize, task: &Task) -> bool {
+    // Still current on another CPU (S8.3b): its stack is live there. That
+    // CPU tells the parent again once it has switched away (S8.3c).
+    if super::oncpu::elsewhere(slot) {
+        super::oncpu::note_refused(slot);
+        return false;
+    }
     task.linux.tgid != 0
         || !tasks
             .iter()

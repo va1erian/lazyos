@@ -285,20 +285,26 @@ impl Ext2 {
     ) -> Result<Option<u32>, Ext2Error> {
         let mut index = start;
         while index < bits {
-            // A full byte holds no clear bit: skip it whole. This is the
-            // common case on a filling volume, where every allocation scans
-            // the group's bitmap from the start.
-            if index.is_multiple_of(8) && bits - index >= 8 {
-                let byte = *buf.get((index / 8) as usize).ok_or(Ext2Error::Invalid)?;
-                if byte == 0xFF {
-                    index += 8;
-                    continue;
+            let byte_idx = (index / 8) as usize;
+            let byte = *buf.get(byte_idx).ok_or(Ext2Error::Invalid)?;
+            let bit_off = index % 8;
+            let masked_byte = if bit_off == 0 {
+                byte
+            } else {
+                byte | ((1u8 << bit_off) - 1)
+            };
+            // Fast path: if all relevant bits in this byte are set, skip to next byte boundary.
+            if masked_byte == 0xFF {
+                index = (index / 8 + 1) * 8;
+            } else {
+                // Find first clear bit within byte using bitwise trailing_zeros.
+                let first_zero = (!masked_byte).trailing_zeros();
+                let found = (index / 8) * 8 + first_zero;
+                if found < bits {
+                    return Ok(Some(found));
                 }
+                break;
             }
-            if !Self::bitmap_test(buf, index)? {
-                return Ok(Some(index));
-            }
-            index += 1;
         }
         Ok(None)
     }

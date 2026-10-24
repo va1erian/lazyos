@@ -141,6 +141,8 @@ fn spawn_linux_in<I: Image + ?Sized>(
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // A CPU with nothing to do may start it now (S8.3c).
+    super::kick::place(&tasks, index);
     register_bumps(pml4.as_u64(), started.brk, user_process::linux::MMAP_BASE);
     Ok(index)
 }

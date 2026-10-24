@@ -58,7 +58,7 @@ SCRATCH_BYTES = 16 * 1024 * 1024
 MODERN_SCRATCH_BYTES = 24 * 1024 * 1024
 
 
-def build_test_image(image: Path, soak: bool = False) -> None:
+def build_test_image(image: Path, soak: bool = False, chaos_seed: str | None = None) -> None:
     """`cargo build` with LAZYOS_TESTS=1, which rebuilds the kernel and image.
 
     `soak` adds LAZYOS_SMP_SOAK=1: the SMP suite compiles its long soaks then
@@ -66,6 +66,8 @@ def build_test_image(image: Path, soak: bool = False) -> None:
     env = dict(os.environ, LAZYOS_TESTS="1")
     if soak:
         env["LAZYOS_SMP_SOAK"] = "1"
+    # Either way, so an inherited seed never turns a plain run into a chaos one.
+    env["LAZYOS_CHAOS_SEED"] = chaos_seed or ""
     print("building test image: LAZYOS_TESTS=1 cargo build", flush=True)
     result = subprocess.run(
         ["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True
@@ -232,6 +234,13 @@ def main() -> int:
         "flight, the serial tail and the guest's RIP when the serial log is silent this "
         "long; evidence only, the run still waits for --timeout (0: off; issue #787)",
     )
+    parser.add_argument(
+        "--stall-nmi",
+        action="store_true",
+        help="with a stall report, send the guest an NMI so the kernel prints its HANG: "
+        "view (scheduler, tasks, locks) to the serial log; off by default because the "
+        "SMP suites count NMIs",
+    )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build step")
     parser.add_argument(
         "--machine",
@@ -287,6 +296,12 @@ def main() -> int:
         help="build with LAZYOS_SMP_SOAK=1: the SMP suite's long soaks (docs/smp-plan.md); "
         "a no-op until they land",
     )
+    parser.add_argument(
+        "--chaos-seed",
+        metavar="N",
+        help="build with LAZYOS_CHAOS_SEED=N: preemption points reschedule at seeded random "
+        "(task::chaos, docs/smp-plan.md); a failure prints the seed that replays it",
+    )
     args = parser.parse_args()
     if args.ahci and args.ide_disk:
         # The IDE boot disk has no bootindex, so the blank AHCI scratch disk
@@ -300,7 +315,9 @@ def main() -> int:
     (out_dir / "stall.txt").unlink(missing_ok=True)
 
     if not args.no_build:
-        build_test_image(image, soak=args.soak)
+        build_test_image(image, soak=args.soak, chaos_seed=args.chaos_seed)
+    elif args.chaos_seed or args.soak:
+        sys.exit("--chaos-seed and --soak are build switches; drop --no-build")
     elif not image.is_file():
         sys.exit(f"--no-build given but {image} does not exist")
 
@@ -399,6 +416,7 @@ def main() -> int:
         text = follow_serial(
             serial_log, proc, time.time() + args.timeout, qmp=qmp,
             stall_after=args.stall_seconds, stall_file=out_dir / "stall.txt",
+            stall_nmi=args.stall_nmi,
         )
     except Exception as exc:  # QMP connect failure: still report what booted
         print(f"warning: QMP session failed: {exc}", file=sys.stderr)

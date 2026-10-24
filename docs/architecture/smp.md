@@ -1,18 +1,22 @@
-# SMP, as built (S8.0–S8.2)
+# SMP, as built (S8.0–S8.3)
 
 What multicore support the kernel has today, how it works, and the rules a
 change must keep. The plan and its staging are [`../smp-plan.md`](../smp-plan.md);
 the inventory of every single-CPU assumption is [`smp-audit.md`](smp-audit.md).
 
-**State.** The application processors (APs) come up, check their clock, and
-idle with interrupts on, serving three IPIs. **No AP runs a task**: the
-scheduler, every syscall and every interrupt handler other than the three IPIs
-still run on the boot CPU (the BSP), so the kernel's central invariant ("only
-one CPU executes kernel code") still holds. A normal boot keeps the APs parked
-(`limit.cpu_max` defaults to 1); an image opts in with
-`LAZYOS_LIMIT_CPU_MAX=N` (`run_demo.py --limit cpu_max=N`) and QEMU `--smp N`.
+**State.** In a `LAZYOS_SMP=1` kernel (`run_demo.py --smp-kernel`) every
+CPU the firmware lists runs tasks (S8.3c, "The APs schedule"): one global run
+queue, the kernel entry lock keeping "only one CPU executes kernel code"
+true. Device interrupts still go to the boot CPU (the BSP). Any other kernel
+brings the APs up only with `LAZYOS_LIMIT_CPU_MAX=N` (`run_demo.py --limit
+cpu_max=N`), and they idle, serving the window-safe IPIs.
 S8.3's entry lock is what lets an AP run user tasks; everything below exists
-so that step is safe.
+so that step is safe. The lock itself is built (S8.3a) and in every gate of a
+`LAZYOS_SMP=1` kernel, where it checks the hold discipline on every entry;
+with only the boot CPU running tasks it is never contended outside the
+suite. S8.3b gave each CPU an idle context, made every halt drop the hold
+and marks which CPU each task is current on ("Idle, halts and on-CPU
+marks").
 
 ## Bring-up
 
@@ -254,7 +258,8 @@ it was sent cannot land either).
 only while no other CPU has the table in `CR3`: without PCID, a `CR3` write
 drops every cached walk of the old table, so a CPU that left a table holds
 nothing of it. The rule: **an idle CPU sits on the boot table** (`ap_entry`
-idles there; S8.3's per-CPU idle task must too), and a task's table is freed
+idles there, and so does each CPU's idle context, `task::idle`), and a task's
+table is freed
 only when no task of it runs. `mem::switch_to` publishes each CPU's table in
 its area (`Cpu::cr3`, after the write), and `free_user_table` panics if
 another online CPU's published table is the one it frees
@@ -262,6 +267,251 @@ another online CPU's published table is the one it frees
 *onto* a dying table is a lifecycle bug the check cannot order against; it
 catches the one S8.3 can make, a CPU left behind on a table whose tasks
 exited.
+
+## The entry lock
+
+`sync::entry` (S8.3a): one ticket lock whose holder is a **CPU**, held while
+that CPU executes kernel code, so "only one CPU executes kernel code" stays
+true once several run user tasks. `LAZYOS_SMP=1` (`cfg(lazyos_smp)`) builds
+it; without it every hook is an empty inline. The boot log says which:
+`HW:SMP:ENTRY_LOCK=true|false`.
+
+The rules, applied by every gate through `entry::enter(cs)` (the
+interrupted `CS`) and `entry::leave(cs)` (the resumed one):
+
+| Event | This CPU | Effect |
+|---|---|---|
+| entry from ring 3 | not holding | takes the lock (spins if another CPU has it) |
+| entry from ring 0 | holding | inherits the hold |
+| entry from ring 0 | not holding, halt mark set | takes the lock, clears the mark |
+| resume of ring 3 | holding | drops the lock |
+| resume of ring 0 | holding | keeps it |
+| anything else | | panic: a gate's discipline is broken |
+
+A context switch carries the hold: the scheduler runs under it, and the task
+it resumes, kernel code by construction (every switch is kernel to kernel),
+runs under it too until it resumes ring 3. Nothing is released inside the
+switch, so a leaving task's stack is never live on this CPU while its slot is
+selectable by another. The boot CPU takes the hold in `kernel_main`'s first
+lines (the boot is kernel code); it rides into the first task. Kernel
+threads, the mux included, run held.
+
+Where the hooks are: `task::schedule` (timer and yield gates: the entry
+frame's `CS`, then the returned frame's), `process::gate::syscall_dispatch`
+(`int 0x80`), `linux_dispatch_gate` and `linux_syscall_return` (the
+`syscall` pair, always ring 3), `exception_dispatch` and
+`page_fault_dispatch` (after the suite's fault probes, which an AP takes
+holding nothing), and the `irq_gate!`/`paranoid_gate!` macros, which wrap
+their target in a generated `locked` function. Gates that never take it:
+`irq_gate!(.., window_safe)` (the three IPIs, the spurious vector),
+`paranoid_gate!(.., err, unlocked)` (`#DF`), the NMI, and the
+interrupt-window tick (`window_tick`, which runs inside a syscall's window,
+i.e. on the holder, and is window-safe anyway). An AP that only idles never
+holds it.
+
+The fault gates (`exception_dispatch`, `page_fault_dispatch`, the
+`paranoid_gate!` wrappers) go through `entry::fault_gate`, which differs in
+one case: a ring-0 fault on a CPU that does not hold the lock runs its
+handler first, so a fatal fault keeps its own report (error code, `CR2`, the
+frame dump) rather than a bare panic, and a fault that is resolved anyway
+panics before it resumes kernel code that ran unheld.
+
+`python tools/sync/check_entry.py` (CI) pins all of this: every
+`iretq`/`sysretq` outside the suite sits in an audited file, each naked stub
+calls only its listed callees and each of those calls the hooks, and every
+`window_safe`/`unlocked` gate is listed with its reason. A new stub or
+opt-out fails it until it is hooked or justified.
+
+A release masks interrupts first: the stub's code between the callee's
+return and its `iretq`/`sysretq` runs unheld, and an interrupt there would
+enter as if from held kernel code (the `iretq`/`sysretq` restores the resumed
+context's own `IF`). A broken rule's panic names the interrupted RIP.
+
+The lock is a `sync::ticket::TicketLock`, the same interrupts-off ticket lock
+the shootdown sender lock uses. A waiter spins with interrupts off, so it
+serves its shootdown mailbox (`smp::serve_pending`) and halts if another CPU
+panics; after 30 s (S8.3c; 2 s before the APs scheduled) it panics itself, naming the holder CPU and the gate
+(`file:line`) it took the lock in. The lock counts its contended
+acquisitions and the longest wait (read by the suite).
+
+Without `LAZYOS_SMP=1` the gate macros emit the bare target and the
+callees' hooks are empty inlines: the kernel behaves exactly as before, and
+its boot log says `HW:SMP:ENTRY_LOCK=false`.
+
+## Idle, halts and on-CPU marks
+
+S8.3b, still with only the boot CPU running tasks.
+
+**Halting drops the hold.** Kernel code that waits for an interrupt with
+interrupts on and holds no lock goes through `sync::entry::halt`: `nap` (so
+every wait loop, the idle context and `poll_until`) and `exit_cpu`'s halt.
+The yielding lock's last resort (`relax::yield_and_halt`, where the
+contender may hold other locks) uses `sync::entry::halt_holding`, which
+keeps the hold: dropping it could let another CPU in to spin, interrupts
+off, on a lock the halted CPU holds while that CPU waits for its turn at
+the entry lock. `check_entry.py` allows `enable_and_hlt` only in those two.
+`halt` sets the CPU's
+halt mark (`Cpu::entry_halt`), drops the lock, executes `sti; hlt`, and after
+`cli` takes the lock back if it does not hold it. The mark is set before the
+release, and the release masks interrupts, so nothing interrupts the CPU
+between "not holding" and "marked"; `sti`'s shadow lands the first
+interrupt on the `hlt`. That interrupt's gate finds the CPU unheld and
+marked (the one exception to "a ring-0 entry finds the lock held"), takes
+the lock, clears the mark and may switch tasks under that hold. So a halting
+task usually resumes already holding (after its interrupt, or picked again
+after a switch); an NMI, which never takes the lock, is the case that ends
+the `hlt` unheld. A halt on a CPU that does not hold the lock panics: its
+release would hand out a turn it never had.
+
+**The idle context.** When nothing is runnable the scheduler resumes its
+CPU's idle context (`task::idle`), which loops on `nap` and a preemption
+point. Before, it resumed the task that had just parked and let it halt in
+its own wait loop: the CPU stayed on that task's stack and page table, so no
+other CPU could run it once woken, its slot could not be reclaimed once
+dead, and its table could not be freed. The idle context is a slot number,
+not a task: the top `MAX_CPUS` slots (`FIRST_IDLE_SLOT..MAX_TASKS`) are
+reserved, one per CPU, `claim_slot` stops below them and `limit.task_max` is
+capped at `TASK_SLOTS` (960). The table stays empty there, so `current()`
+always indexes the per-slot arrays (FPU areas, `NAPPING`, kernel stack tops)
+and every path that reads the current task finds an empty slot, which it
+already treats as idle: a tick is `IDLE_TICKS`, a wake preempts, no sweep or
+interval timer sees it, nothing that walks the table lists it. It runs on
+the boot table (`install` loads `mem::boot_table`), on a kernel stack that is
+never freed, and is created for the boot CPU by `register_kernel`. Until a
+CPU has one (`sched::fallback`) the old fallback, the interrupted task,
+still applies. It has no floating-point state (the kernel is soft-float),
+so no `xsave`/`xrstor` is spent on it, and an idle stretch between two runs
+of one task is not counted as a context switch (`PERF:ctxsw`) nor as a run
+in `PERF:sched`. What it does cost is two `CR3` writes per idle round trip
+(to the boot table and back, a TLB refill without PCID). The latency
+harness shows no measurable cost (WHPX, same host: Messenger throughput
+535k messages/s against `main`'s 510k, round trip 6.9 µs against 6.8 µs),
+and a lazy switch that kept the last table did not move either number, so
+the simpler rule stays: an idle CPU is on the boot table.
+
+An interrupt that stops the idle context never switches from inside its
+handler: `preempt_point` does nothing there, and the idle loop switches
+right after the handler returns. The `iretq` back to the halt turns
+interrupts on for an instant, which lets a pending interrupt of lower
+priority in first; under the I/O APIC the tick (vector `0x20`) ranks below
+every device line, and a device that re-asserts as soon as its driver acks
+starved the clock when each of its interrupts switched to the driver with
+interrupts still off (`dev_irq_prompt_storm_slow_claimant` found it). A
+tick still switches directly: its scheduler entry selects.
+
+**On-CPU marks** (`task::oncpu`). Per slot, the CPU it is current on: set by
+`set_current` (`install`, the harness) for the new task and cleared for the
+previous one, both under the lock; `claim_slot` clears it for a slot's new
+owner. Until a second CPU runs tasks (`oncpu::several_cpus`, S8.3c) nothing
+can be current elsewhere and selection skips the check. A task current on another CPU is
+running there (ring 3, a syscall, or a nap without the hold), its saved
+frame is stale and its stack live, so selection (`pick_next_best`), the
+direct handoff (`take_handoff`) and reaping (`family::reapable`, which
+`reap_matching` and the reclaim path share) all skip it. With one global
+run queue that is the whole answer to "two CPUs on one stack": a parked or
+preempted task is current nowhere and may run anywhere, a running or
+napping one is current exactly where it runs.
+
+What S8.3b leaves to S8.3c: a task that dies (or whose group is killed)
+while current on another CPU is not reapable until that CPU switches away
+from it, and nothing yet tells that CPU to (the `RESCHED` IPI) or tells a
+parent waiting in `wait4` to look again once it has.
+
+## The APs schedule
+
+S8.3c. After `task::start` the boot CPU calls `smp::start_aps`; each AP,
+woken in `ap_entry`'s halt, takes the entry lock, creates its idle context,
+starts its own periodic tick and resumes the idle context's first frame
+(`task_resume_frame`). From then on it picks from the one run queue like
+the boot CPU. `HW:SMP:SCHED=on cpus=N` and one `HW:SMP:CPUn schedules` line
+per AP say so; without `LAZYOS_SMP=1`, or without an APIC timer to tick an
+AP with, `HW:SMP:SCHED=off (reason)` and the APs stay idle.
+
+**Ticks and time.** An AP's tick is its own APIC timer, periodic at 100 Hz
+on the scheduler's timer vector (the count from the deadline timer's
+calibration, or the APIC tick's period). Only the boot CPU's tick is the
+clock: it advances `TICKS` (with the issue #344 catch-up), drains the
+i8042, runs the device bottom half and advances the guard's window; an
+AP's tick charges its current task (or idle time), runs interval timers
+and selects. The one-shot deadline timer stays the boot CPU's: an AP whose
+scheduler entry finds a deadline earlier than the one armed sends the
+deadline vector to the boot CPU, whose handler expires and re-arms
+(`event_timer::forward`), so sleeps stay exact wherever the sleeper ran. A
+minimum-slice deferral armed on an AP waits for that AP's next tick or
+preemption point instead. Idle ticks are summed over the CPUs and
+`idle_ticks()` divides by the scheduling CPUs, so `ticks() - idle_ticks()`
+stays the machine's busy time; the guard's budgets are per window of the
+machine and scale by the scheduling CPUs.
+
+**The kick** (`KICK_VECTOR`, `0x63`). A task that becomes runnable and that
+the local CPU will not run now (a wake that does not preempt it, the task a
+preemption put back, a new task) is placed (`task::kick`): on an idle CPU
+first, else on the one running the lowest class below the task's. The
+placement waits for the waking CPU's next preemption point (a syscall,
+interrupt or ring-3 fault return, a scheduler entry, a nap, the idle loop), and only a task
+still runnable and current nowhere then is placed: a Messenger call wakes
+its callee and parks the caller, whose scheduler entry runs the callee
+directly (`preempt::hand_off`), and a kick at the wake only brought another
+CPU to queue for the lock (round trips doubled before the change).
+That CPU's `need_resched` is set and it gets the kick, an ordinary locked
+gate whose handler is a preemption point (unlike `RESCHED`, which is
+window-safe and only sets the flag). A CPU already asked is skipped, and
+only a scheduling CPU is ever kicked: an AP still in `ap_entry` holds
+nothing and is unmarked, so a locked gate there would break the rule. A
+task that dies while current on another CPU (`finish_locked`) kicks that
+CPU off it; a reap refused meanwhile is noted, and once the CPU has
+switched away it rings the parent's child bell and the `wait4` queue again.
+
+**What a task carries between CPUs.** `install` loads everything the CPU
+holds for a task: its table, `RSP0` and the `syscall` stack (both per
+CPU), its FS base, its FPU image, and (S8.3c, `task::segs`) its DS, ES,
+FS and GS selectors, saved when it left a CPU and loaded where they
+differ (GS between two `swapgs`, so the per-CPU base survives). The
+selectors were never kept per task: on one CPU they stayed in the register
+file, one task seeing another's; once a task moved, `gs_suite`'s hostile
+program read a different `%gs` back. A fork or thread starts with its
+creator's. The Linux entry's per-CPU `user_context` is read only before a
+syscall's first park (`clone`, `fork`), and every return path reads the
+task's own kernel stack, so a syscall that parks on one CPU and resumes on
+another returns correctly. Code that looks at *another* task's saved frame
+skips one running elsewhere (stale): the signal sweep, a group stop (it
+stops at its boundary, its CPU kicked), a group kill (its own CPU's sweep
+ends it), the stuck sampler, the kill watchdog's report.
+
+**The kernel task stays on the boot CPU.** It runs on the boot stack, the
+device interrupts it serves land there, and the suite (which is the kernel
+task in test kernels) relies on its CPU not changing; selection on an AP
+skips it, and a wake of it on an AP asks the boot CPU unless that runs a
+higher class (the same class then competes by stride there). A deserving
+same-class wake that the minimum slice would defer is also placed on
+another CPU (the deferral stays: the placement waits for the next
+preemption point, when the CPU it found may be busy). An AP's tick inside an interrupt window counts
+for that CPU only (the window tick, like the scheduler's, leaves the clock
+to the boot CPU), and masking the APIC tick masks the APs' ticks too.
+
+**Idle halts that ignore IPIs.** The idle loop halts through
+`sync::entry::halt_while`: an interrupt that does not take the lock (a
+shootdown, a rig job, an NMI) ends the `hlt` but not the halt, which goes on
+unheld while `need_resched` is clear. An idle CPU therefore queues for the
+lock only for work: a tick, a kick or a device (gates that take it
+themselves), or a raised flag. The entry lock's watchdog is 30 s, not the
+first 2 s: an AP's tick may wait behind a long syscall (a program image
+streamed from a slow disk holds the lock for seconds, interrupt windows and
+all).
+
+**What it costs** (`tools/perf/run.py --smp 4`, `docs/perf/history.md`,
+rows "S8.3c smp1" and "S8.3c smp-entry-lock", WHPX, same host): input to
+present, IRQ wake and 1 ms sleeps are unchanged; Messenger throughput drops
+from 526k to 326k messages/s and its round trip rises from 6.9 to 11.8 µs,
+because message traffic between tasks on different CPUs takes turns at the
+one entry lock (165k contended entries during the run, `PERF:entry`). That
+is the number S8.4 and later stages are measured against. Four ring-3
+counting tasks count 7x to 11x as much on four CPUs as on one
+(`smp_sched_parallel_counting_scales`).
+
+The suite's pause (`idle::pause_aps`, test kernels only) holds the APs back:
+no task, tick stopped, a halt that no flag ends; each scheduling case lets
+them go and holds them back again, so the cases after it run as before.
 
 ## Panic
 
@@ -307,10 +557,111 @@ stale entry. The AP runs the probes as jobs in its reschedule IPI
 write would flush the entry under test. A control case changes a PTE with no
 flush and logs how many APs kept the stale translation, so the others can fail.
 
-## Known gaps (carried into S8.3)
+The entry lock's cases (`tests/smp_entry_suite.rs`, built with
+`LAZYOS_SMP=1`; without it one case checks the lock is compiled out): the
+hold rules on the boot CPU; every online CPU, the boot CPU included, running
+5000 critical sections each (200000 with `--soak`) around a deliberately
+non-atomic update, with no update lost, no two CPUs inside at once, and the
+contended count proving they really waited; an AP waiting for the lock while
+the boot CPU, holding it, sends a shootdown that the waiter must serve from
+its spin; and two queued APs getting their turns in queue order, over eight
+rounds that alternate which queues first (an unfair lock passes one round
+half the time). The cases bring the APs up themselves, so a filtered run is
+not vacuous, and every failure path drops and retakes the boot CPU's hold
+around the APs it started. Both halves were checked to fail without their
+mechanism: with the ticket wait removed a second CPU overwrites the holder
+and the release assertion fires, and with `serve_pending` removed from the
+spin the boot CPU's shootdown panics waiting for the waiter's ack. The whole
+suite running under the lock (`LAZYOS_SMP=1 python tools/test/run.py --accel
+none --smp 4`) is the check of the gates' discipline: a gate that enters or
+leaves wrongly panics the run.
 
-- `limit.cpu_max` stays 1 by default; S8.3 decides whether the MADT count
-  becomes the default.
+S8.3b's cases (`tests/smp_idle_suite.rs`): the idle slots are reserved and
+empty in the table; the only task sleeping, the CPU runs its idle context on
+the boot table with the kernel task current nowhere, and the sleep ends on
+time; a task marked current on another CPU is never selected (the idle
+context is picked instead), never handed the CPU and not reaped once
+finished, and is all three once the mark is cleared; a thread that exits
+while the kernel task sleeps leaves the CPU to the idle context, is current
+nowhere, and is reaped; 500 rounds (20000 with
+`--soak`) of a ping-pong thread and a 200 µs sleep, each switching into the
+idle context and out. With `LAZYOS_SMP=1`: an AP queued for the lock gets it
+inside one halt of the boot CPU (its turn's timestamp falls between the
+halt's start and end; with the release removed the AP's watchdog panics
+instead); a ring-0 entry into a marked halt, and a fault taken there
+(`fault_gate`), take the lock and clear the mark; and every AP taking the lock around a section until told
+to stop while the boot CPU, holding it except inside its halts, makes 300
+halts (20000 with `--soak`), naps and 100 µs sleeps in turn, each after a
+section of its own: no update lost, no overlap, every AP got in.
+
+S8.3c's cases (`tests/smp_sched_suite/`, `LAZYOS_SMP=1`; without it one
+case checks the APs are never let in). Each lets the APs schedule and holds
+them back again: worker threads run on the APs; a kicked wake runs on an
+idle AP with a median well under half a tick (without the kick it would
+wait for the AP's tick); a thread killed while napping on an AP is refused
+by a reap at once, its parent's `wait4` is woken again once the AP switched
+away, and the reap succeeds; idle ticks fold to the clock's rate with four
+CPUs ticking; a 2 ms sleep on an AP wakes on time through the forwarded
+deadline; ring-3 tasks (`gs_suite`'s hostile program) pass on the APs and
+die there when their process is killed. Stress: two ping-pong pairs, 4000
+hand-offs each (200000 with `--soak`), and a churn of 300 threads (5000)
+that exit on the APs with every kernel stack back. The ring-3 case found
+the selector bug above (a migrated task read back a different `%gs`).
+
+## Acceptance (S8.3d)
+
+The milestone gate of `docs/smp-plan.md` S8.3, as run (WHPX on the
+development box unless noted; `python tools/test/run.py`):
+
+| Gate | Result |
+|---|---|
+| Kernel suite, SMP kernel (`LAZYOS_SMP=1`) | `--smp 4`: 1773/0. `--smp 2`: 1773/0. |
+| Kernel suite, single-CPU kernel | `-smp 1`: 1758/0; at `-smp 2` (APs up, idle): 1758/0; TCG (`--accel none`): 1757/0. |
+| Kernel suite under TCG, SMP kernel, `--smp 4` | 1769/4 on a host loaded by two other QEMUs: the scaling case's ratio (a timing bound, reported rather than judged under TCG since) and three interrupt-window latency bounds (`irqwin_ticks_arrive_in_syscall`, `irqoff_charges_spans_per_syscall`, `irqwin_soak_serial_drains_stay_bounded`), which pass when the `irq` cases run alone under TCG at `--smp 4`. |
+| SMP soaks (`--smp 4 --soak`, the `smp_` cases) | 43/0: 800000 entry-lock sections over four CPUs, 20000 switches into the idle context, 20000 halts under contention (147 million AP sections), 400000 ping-pong hand-offs, 5000 threads exiting on the APs with every kernel stack back. |
+| Desktop harnesses at `--smp 4` | `core_apps.json` passes (every core app launched, pixels read); `shutdown_shell.json` shuts down cleanly, its final screenshot racing QEMU's exit as at `-smp 1`; the accounts attack harness `ACCOUNTS: PASS` (four sessions, every one `HW:SMP:SCHED=on cpus=4`); `tools/net/run.py --netd --smp 4` (which builds the SMP kernel) `NET:HARNESS:PASS`. |
+| Chaos preemption | Seeds 1-6 over the `smp_` cases at `--smp 4` (5 and 6 with the poll-point hook too): no correctness failure; seed 3 once failed two timing bounds on a host loaded by another session (timings are reported, not judged, in a chaos image since). The 50-seed sweep is the manual `smp-chaos` workflow. |
+| Perf | Four ring-3 counting tasks count 7x to 11x on four CPUs what they count on one; Messenger 326k messages/s (`--smp 4`) against 526k (`-smp 1`), round trip 11.8 µs against 6.9 µs, recorded as "S8.3c smp-entry-lock" and "S8.3c smp1" in `docs/perf/history.md`. |
+| Real hardware, 24 h soak | Not run here: it needs a box and a day (`smp.cpus=2`, `dbgd`, `HW:SMP` lines clean). |
+
+Two things the runs found and fixed: `netctl socksoak` compared netd's
+handles 600 ms after its last round, while netd, now on another CPU, was
+still closing (it lets them settle now); and the fair `YieldMutex`
+hand-off's single park, which the idle context's timing exposed (#989).
+
+**Chaos preemption** (`task::chaos`, test kernels only). Built with
+`LAZYOS_CHAOS_SEED=<n>` (`run.py --chaos-seed N`), one preemption point in
+four (every syscall and interrupt return) reschedules and one poll point in
+four inside a syscall opens an interrupt window, chosen by a per-CPU
+xorshift seeded by the seed and the CPU, so tasks lose and regain CPUs, and
+interrupts land inside long kernel work, at moments a quiet run never
+picks. Lock acquires, the plan's third site, are not hooked: a forced park
+there would change the locks under test. Every failure line carries `seed=0x..`;
+under TCG with `-icount` a seed replays its interleaving. The scheduling
+cases' timing bounds (kick latency, sleep exactness, scaling) are reported,
+not judged, in a chaos image and under TCG, whose virtual time is not real
+time: an accelerated run is the timing verdict, TCG the correctness one.
+
+**CI.** `kernel-tests` has an `smp2` leg (`LAZYOS_SMP=1`, `--smp 2`, KVM:
+two guest vCPUs, so a four-vCPU runner is not crowded into the timing
+cases' failures); `smp-chaos` (manual) sweeps seeds over a filter.
+
+## Known gaps (after S8.3)
+
+- Device interrupts and their bottom halves stay on the boot CPU, and so do
+  the deadline timer and the guard's window (S8.4 and later may spread
+  them).
+- Under the I/O APIC the tick's vector (`0x20`) ranks below every device
+  line. The idle context switches after an interrupt returns, so a storming
+  device cannot starve the clock there, but an interrupt from ring 3 that
+  switches to a driver of a higher class still does it inside the handler;
+  a device that re-asserts as soon as its driver acks can then keep the tick
+  pending. This predates S8.3; the general fix is a tick vector above the
+  device range.
+- A boot CPU waiting for an AP while holding the entry lock (`finish_on`, a
+  shootdown) is safe because the AP's side never needs the lock: the IPIs
+  are window-safe and an idle AP's halt ignores them
+  (`halt_while`). A new wait for an AP must keep that property.
 - The rules S8.3 must keep, recorded above: every interrupts-off spin calls
   `smp::serve_pending`; the idle task runs on the boot table; nothing sends
   an IPI from an NMI but the panic path.

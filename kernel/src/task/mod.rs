@@ -61,6 +61,8 @@ use crate::process as user_process;
 
 #[cfg(lazyos_perf)]
 mod blocksample;
+#[cfg(lazyos_tests)]
+pub mod chaos;
 pub mod childbell;
 pub mod diag;
 pub(crate) mod family;
@@ -105,8 +107,10 @@ pub mod harness;
 #[cfg(lazyos_tests)]
 pub mod harness_frames;
 pub mod holders;
+pub mod idle;
 pub mod itimer;
 mod kernel_task;
+pub(crate) mod kick;
 mod kstack;
 #[cfg(lazyos_tests)]
 pub mod kthread;
@@ -115,7 +119,9 @@ pub mod linuxstate;
 pub mod lockwait;
 mod memstate;
 pub mod nice;
+pub mod oncpu;
 pub mod pollwait;
+mod segs;
 // `pub(crate)`: the kernel test suite's `percpu_suite` reads the test hooks.
 #[cfg(lazyos_tests)]
 pub(crate) mod preempt;
@@ -153,7 +159,7 @@ pub use schedule::expire_due;
 #[cfg(lazyos_tests)]
 pub use schedule::itimer_tick_for_test;
 #[allow(unused_imports)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
-pub use schedule::{context_switches, scheduler_entries};
+pub use schedule::{context_switches, departures, scheduler_entries};
 #[cfg(lazyos_tests)]
 pub use schedupdate::sched_snapshot;
 pub use schedupdate::{sched_read, sched_update, SchedTarget, UpdateError};
@@ -432,6 +438,7 @@ pub fn current() -> usize {
 /// Make `slot` the CPU's current task (the scheduler's `install`, the test
 /// harness).
 pub(crate) fn set_current(slot: usize) {
+    oncpu::switch(current(), slot);
     crate::arch::percpu::current()
         .current
         .store(slot as u64, Ordering::Relaxed);
@@ -468,16 +475,6 @@ pub const NS_PER_TICK: u64 = 10_000_000;
 /// exactly the tick it always did.
 pub const fn ticks_to_ns(ticks: u64) -> u64 {
     ticks.saturating_mul(NS_PER_TICK)
-}
-
-/// Timer ticks that found the CPU idle: the current task was parked in its
-/// wait loop because nothing was runnable (see `schedule::charge_tick`).
-/// `ticks() - idle_ticks()` is the CPU time charged to tasks.
-pub static IDLE_TICKS: AtomicU64 = AtomicU64::new(0);
-
-/// [`IDLE_TICKS`] as a value.
-pub fn idle_ticks() -> u64 {
-    IDLE_TICKS.load(Ordering::Relaxed)
 }
 
 /// The current task's `clear_child_tid` address.

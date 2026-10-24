@@ -105,6 +105,12 @@ def command_for(name: str) -> str:
     return f"sh {GUEST}/attack.sh {name}"
 
 
+#: Guest vCPUs (`--smp`); above 1 the image is the SMP kernel (S8.3), whose
+#: APs run tasks: the attacks then race a policy probe against a service
+#: restart on another CPU.
+SMP = 1
+
+
 def build(apps: bool = True) -> bool:
     """`rhai`, the xui apps (unless `apps` is false: CI hands them over
     built, `target/xui` and `target/pkg`), the probe packages and the image."""
@@ -120,7 +126,8 @@ def build(apps: bool = True) -> bool:
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_XUI_AUTOSTART="term",
                LAZYOS_AUTOLOGIN="user", LAZYOS_UI_PROBE="1", LAZYOS_RESET_OS="1",
                LAZYOS_NETD="1", LAZYOS_NETD_ARGS="demo=0",
-               LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]))
+               LAZYOS_ASSETS=os.pathsep.join([str(ASSETS), str(GENERATED)]),
+               LAZYOS_SMP="1" if SMP > 1 else "0")
     if apps and subprocess.run([sys.executable, "tools/xui/build.py"], cwd=ROOT,
                                env=env).returncode:
         return False
@@ -267,7 +274,8 @@ def boot(name: str, steps: list[dict], out: Path, image: Path, accel: str,
     result = subprocess.run([sys.executable, "tools/screenshot/qemu_session.py",
                              "--image", str(image), "--accel", accel, "--out", str(session),
                              "--script", str(script), "--extra-arg=-no-shutdown", "--net"]
-                            + (["--memory", memory] if memory else []),
+                            + (["--memory", memory] if memory else [])
+                            + (["--extra-arg=-smp", f"--extra-arg={SMP}"] if SMP > 1 else []),
                             cwd=ROOT, capture_output=True, text=True)
     print(f"{name}: session {'ok' if result.returncode == 0 else 'FAILED'} "
           f"in {time.time() - started:.0f} s", flush=True)
@@ -295,7 +303,11 @@ def main() -> int:
     parser.add_argument("--accel", default="auto")
     parser.add_argument("--memory", help="guest RAM (default: the session tool's, 1G)")
     parser.add_argument("--out", type=Path, default=ROOT / "shots/accounts")
+    parser.add_argument("--smp", type=int, default=1, metavar="N",
+                        help="guest vCPUs; above 1 builds the SMP kernel (LAZYOS_SMP=1)")
     args = parser.parse_args()
+    global SMP
+    SMP = args.smp
     if not args.no_build and not build(apps=not args.prebuilt_apps):
         return 1
     if not IMAGE.is_file():

@@ -69,10 +69,10 @@ pub fn yield_does_not_tick() -> Result<(), String> {
     Ok(())
 }
 
-/// A tick that lands on a parked task is idle time, not CPU time. There is
-/// no idle task: when nothing is runnable the parked task stays current
-/// while the CPU halts, so charging it would make a quiet system read 100 %
-/// busy. Soaks both directions (blocked, then runnable again) many times so
+/// A tick that lands on a parked task is idle time, not CPU time. A CPU
+/// with nothing runnable runs its idle context now (`task::idle`), but the
+/// harness can still make a parked task current, and charging it would make
+/// a quiet system read 100 % busy. Soaks both directions (blocked, then runnable again) many times so
 /// the counters are shown to move in lock-step with the state, never both.
 pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     fresh();
@@ -94,7 +94,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
             let running = (task::cpu_ticks(me), task::idle_ticks());
             // Simulated ticks never advanced uptime: put the idle counter
             // back so it stays a share of `ticks()` for the sysinfo checks.
-            task::IDLE_TICKS.store(idle_start, core::sync::atomic::Ordering::Relaxed);
+            task::set_idle_ticks(idle_start);
             (
                 parked.0, parked.1, running.0, running.1, cpu_start, idle_start,
             )
@@ -105,7 +105,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     );
     check!(
         idle_parked == idle_start + TICKS,
-        "{TICKS} ticks on a parked task moved IDLE_TICKS {idle_start} -> {idle_parked}"
+        "{TICKS} ticks on a parked task moved the idle count {idle_start} -> {idle_parked}"
     );
     check!(
         cpu_running == cpu_parked + TICKS,
@@ -114,7 +114,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     );
     check!(
         idle_running == idle_parked,
-        "ticks on a runnable task moved IDLE_TICKS {idle_parked} -> {idle_running}"
+        "ticks on a runnable task moved the idle count {idle_parked} -> {idle_running}"
     );
     task::harness::reset();
     Ok(())

@@ -23,7 +23,7 @@ const CODE: u64 = 0x0060_0000;
 /// reclaim an exited one before its status could be read.
 const RESULT: usize = 0xF00;
 /// The result that says every round trip worked.
-const PASSED: u32 = 42;
+pub(super) const PASSED: u32 = 42;
 /// The result of a task whose `%gs` selector changed under it.
 const SELECTOR_LOST: u32 = 7;
 /// The result of a task whose GS base was not its own after a round.
@@ -76,14 +76,20 @@ fn program(sel: u16, rounds: u32, fault: bool) -> Vec<u8> {
 }
 
 /// A forked hostile task and its code page, read through the physical map.
-struct Hostile {
-    slot: usize,
+pub(super) struct Hostile {
+    pub(super) slot: usize,
     page: *const u8,
 }
 
 impl Hostile {
     /// What the task wrote at [`RESULT`] (0 until it finished).
-    fn result(&self) -> u32 {
+    /// The 64-bit word at [`RESULT`] (a counting program's count).
+    pub(super) fn count(&self) -> u64 {
+        // SAFETY: as `result`; `RESULT` is 8-aligned.
+        unsafe { (self.page.add(RESULT) as *const u64).read_volatile() }
+    }
+
+    pub(super) fn result(&self) -> u32 {
         // SAFETY: `page` is the task's code frame through the physical map,
         // alive until the task is ended; `RESULT` is inside the page and
         // 4-aligned. Volatile: ring 3 writes it.
@@ -92,7 +98,17 @@ impl Hostile {
 }
 
 /// A forked task that runs [`program`] from ring 3 when next scheduled.
-fn spawn_hostile(rounds: u32, fault: bool) -> Result<Hostile, String> {
+pub(super) fn spawn_hostile(rounds: u32, fault: bool) -> Result<Hostile, String> {
+    spawn_user(&program(
+        crate::arch::gdt::selectors().user_data,
+        rounds,
+        fault,
+    ))
+}
+
+/// A forked task that runs `code` (at most `RESULT` bytes, position
+/// independent, mapped at `CODE`) from ring 3 when next scheduled.
+pub(super) fn spawn_user(code: &[u8]) -> Result<Hostile, String> {
     let slot = task::spawn_fork().map_err(|error| format!("fork: {error}"))?;
     let pml4 = x86_64::PhysAddr::new(task::harness::pml4(slot).ok_or("the task has no table")?);
     let pages = process::map_range_kind(
@@ -104,7 +120,11 @@ fn spawn_hostile(rounds: u32, fault: bool) -> Result<Hostile, String> {
     )
     .map_err(|error| format!("map the program: {error}"))?;
     let (_, phys) = *pages.first().ok_or("no code page")?;
-    let code = program(crate::arch::gdt::selectors().user_data, rounds, fault);
+    check!(
+        code.len() <= RESULT,
+        "a {}-byte program overlaps its result",
+        code.len()
+    );
     let page = mem::phys_to_virt(x86_64::PhysAddr::new(phys)).as_mut_ptr::<u8>();
     // SAFETY: `phys` is the frame `map_range_kind` just allocated for the
     // task, reached through the physical-memory map; the program and the

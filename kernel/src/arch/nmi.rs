@@ -166,6 +166,11 @@ pub fn report(out: &mut impl Write, at: &Interrupted) -> fmt::Result {
         Cr3::read().0.start_address().as_u64()
     )?;
     write_locks(out)?;
+    // The kernel entry lock (S8.3): which CPU runs kernel code.
+    match crate::sync::entry::holder() {
+        Some(cpu) => writeln!(out, "HANG:ENTRY holder=CPU{cpu}")?,
+        None => writeln!(out, "HANG:ENTRY holder=none")?,
+    }
     crate::task::diag::write_report(out)?;
     if at.cs & 3 == 0 {
         write_stack(out, crate::task::current(), at.rsp, CPU_STACK_WORDS)?;

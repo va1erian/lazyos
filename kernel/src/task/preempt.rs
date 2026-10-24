@@ -69,11 +69,12 @@
 //! resumes right after it (inside its interrupt handler or at its syscall
 //! return) the next time it is picked.
 //!
-//! There is no dedicated idle task: the task the scheduler resumes when
-//! nothing is runnable halts in its own wait loop, and the interrupt that
-//! wakes anyone else now leaves that loop through [`preempt_point`]. An idle
-//! task would add a slot, a kernel stack and special cases in accounting and
-//! introspection for no latency gain on this single CPU.
+//! When nothing is runnable the scheduler resumes the CPU's idle context
+//! (`task::idle`, S8.3b), which halts in [`super::nap`]; the interrupt that
+//! wakes anyone leaves that halt through [`preempt_point`] (the current
+//! "task" is idle, so any runnable task beats it). Before S8.3b the task
+//! that had just parked halted in its own wait loop instead, which kept its
+//! CPU on its stack and its page table.
 
 use super::*;
 
@@ -102,29 +103,41 @@ pub(super) fn note_wake(tasks: &[Option<Task>; MAX_TASKS], woken: usize, cur: us
     let Some(new) = tasks.get(woken).and_then(|task| task.as_ref()) else {
         return false;
     };
-    let outranks = match tasks.get(cur).and_then(|task| task.as_ref()) {
-        Some(running) if running.state == TaskState::Runnable => {
-            if new.class.rank() != running.class.rank() {
-                new.class.rank() > running.class.rank()
-            } else if pick_next_best(tasks, cur) == Some(woken) {
-                // Deserving: now if `cur` had its slice, else at its end.
-                if !slice_left(cur) {
-                    true
+    let mut deferred = false;
+    let outranks = super::kick::may_run_here(woken)
+        && match tasks.get(cur).and_then(|task| task.as_ref()) {
+            Some(running) if running.state == TaskState::Runnable => {
+                if new.class.rank() != running.class.rank() {
+                    new.class.rank() > running.class.rank()
+                } else if pick_next_best(tasks, cur) == Some(woken) {
+                    // Deserving: now if `cur` had its slice, else at its end.
+                    if !slice_left(cur) {
+                        true
+                    } else {
+                        // Another CPU may run it now, else at the end of
+                        // `cur`'s slice here. Both: the placement is made at
+                        // this CPU's next preemption point, when the CPU it
+                        // found may be busy, and a deferral that finds the
+                        // task gone costs one scheduler entry.
+                        super::kick::place(tasks, woken);
+                        deferred = defer(cur);
+                        return deferred;
+                    }
                 } else {
-                    return defer(cur);
+                    false
                 }
-            } else {
-                false
             }
-        }
-        // Blocked in its wait loop, done in `exit`, or an empty slot: the CPU
-        // is idle and any runnable task should have it.
-        _ => true,
-    };
+            // Blocked in its wait loop, done in `exit`, or an empty slot:
+            // the CPU is idle and any runnable task should have it.
+            _ => true,
+        };
     if outranks {
         state!().need_resched.store(true, Ordering::Relaxed);
+    } else {
+        // Not now, not here: another CPU may run it at once (S8.3c).
+        super::kick::place(tasks, woken);
     }
-    false
+    deferred
 }
 
 /// Whether `cur` is still inside its minimum slice. A task running without a
@@ -207,6 +220,31 @@ pub fn preempt_point() {
     if crate::arch::irq_window::is_open() {
         return;
     }
+    // What this CPU woke and did not take goes elsewhere now (`task::kick`).
+    super::kick::flush_unlocked();
+    // An interrupt that stopped the idle context never switches from inside
+    // its handler: the idle loop does, right after the handler returns
+    // (`switch_if_wanted`). The `iretq` back to the halt turns interrupts on
+    // for an instant, and that lets in a pending interrupt of a lower
+    // priority first. Under the I/O APIC the tick (vector 0x20) ranks below
+    // every device line, so a device that re-asserts the moment its driver
+    // acks would otherwise starve the clock: each of its interrupts would
+    // switch to the driver with interrupts off, and the tick would never be
+    // taken (`dev_irq_prompt_storm_slow_claimant`).
+    if super::idle::is_idle(super::current()) {
+        return;
+    }
+    // Test images built with a chaos seed reschedule here at random.
+    #[cfg(lazyos_tests)]
+    if super::chaos::strike() {
+        state!().need_resched.store(true, Ordering::Relaxed);
+    }
+    switch_if_wanted();
+}
+
+/// The switch [`preempt_point`] makes, without its checks: the idle loop's
+/// own preemption point (`task::idle`), where no interrupt window is open.
+pub(super) fn switch_if_wanted() {
     let state = state!();
     if state.need_resched.load(Ordering::Relaxed) || deferred_due() {
         state.preempting.store(true, Ordering::Relaxed);
@@ -284,7 +322,7 @@ pub(super) fn take_handoff(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Opt
         .as_ref()
         .is_some_and(|task| matches!(task.state, TaskState::Blocked { .. }));
     let target = tasks[to].as_ref()?;
-    if !parked || target.state != TaskState::Runnable {
+    if !parked || target.state != TaskState::Runnable || super::oncpu::elsewhere(to) {
         return None;
     }
     let rank = target.class.rank() as usize;
@@ -297,11 +335,12 @@ pub(super) fn take_handoff(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Opt
 }
 
 /// Leave the CPU for good: the current task is finished (`Done`). Yields at
-/// once, so the next task runs now instead of at the next tick (P1.5). When
-/// nothing else is runnable the scheduler resumes this task, which halts
-/// until an interrupt makes someone runnable; that interrupt's preemption
-/// point (the CPU is idle) or the next tick switches away. Call with
-/// interrupts off and no lock held (a syscall body).
+/// once, so the next task runs now instead of at the next tick (P1.5); with
+/// nothing else runnable the CPU's idle context runs (`task::idle`), and a
+/// finished task is never selected again. Only a CPU without an idle context
+/// (`sched::fallback`) resumes this task, which then halts until an
+/// interrupt makes someone runnable. Call with interrupts off and no lock
+/// held (a syscall body).
 pub fn exit_cpu() -> ! {
     // The finished syscall's interrupts-off stretch ends here, for good
     // (`arch::irqoff`): no later switch back may reopen one.
@@ -312,8 +351,7 @@ pub fn exit_cpu() -> ! {
         // interrupts-off stretch (the latency hooks would otherwise count the
         // idle time of a CPU with nothing else to run as interrupts-off).
         crate::perf::irqoff_pause();
-        x86_64::instructions::interrupts::enable_and_hlt();
-        x86_64::instructions::interrupts::disable();
+        crate::sync::entry::halt();
     }
 }
 
@@ -325,6 +363,8 @@ pub fn exit_cpu() -> ! {
 extern "C" fn linux_syscall_return() {
     crate::dev::intx::service();
     preempt_point();
+    // Back to ring 3: drop the entry lock `linux_dispatch_gate` took.
+    crate::sync::entry::leave_user();
 }
 
 // ---------------------------------------------------------------------------

@@ -311,6 +311,11 @@ impl<R: Ring> Mixer<R> {
         } else {
             self.master
         };
+        // Fast path: when master is silent/muted, output is zeroed in bulk without per-sample scaling.
+        if master.is_silent() {
+            out.fill(0);
+            return;
+        }
         for (sample, &mixed) in out.iter_mut().zip(self.acc.iter()) {
             *sample = saturate(master.scale_wide(mixed));
         }

@@ -360,6 +360,7 @@ pub fn service() {
             Micros(cycles_to_ns(worst, per_tick))
         ));
     }
+    entry_report(per_tick);
     if let Some(top) = super::bysys::take_changed() {
         line(format_args!(
             "PERF:irqoff_by_syscall:{}\n",
@@ -417,4 +418,20 @@ impl core::fmt::Display for Micros {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}.{}", self.0 / 1000, (self.0 % 1000) / 100)
     }
+}
+
+/// The entry lock's contention since boot (S8.3), when it changed: the
+/// number each later SMP stage is measured against. `cpus` is how many CPUs
+/// run tasks.
+fn entry_report(per_tick: u64) {
+    static REPORTED: AtomicU64 = AtomicU64::new(u64::MAX);
+    let (waits, longest) = crate::sync::entry::contended();
+    if REPORTED.swap(waits, Ordering::Relaxed) == waits {
+        return;
+    }
+    line(format_args!(
+        "PERF:entry:waits={waits} longest_us={} cpus={}\n",
+        Micros(cycles_to_ns(longest, per_tick)),
+        crate::task::idle::scheduling_cpus()
+    ));
 }

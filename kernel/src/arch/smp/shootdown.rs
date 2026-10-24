@@ -23,7 +23,7 @@
 //! does nothing. The handler and a wait loop on one CPU cannot interleave
 //! harmfully either: both read the same request and store the same ack.
 
-use core::sync::atomic::{fence, AtomicU32, Ordering};
+use core::sync::atomic::{fence, Ordering};
 use x86_64::structures::idt::InterruptStackFrameValue;
 use x86_64::VirtAddr;
 
@@ -31,15 +31,14 @@ use super::{rdtsc, spin_loop, SHOOTDOWN_VECTOR};
 use crate::arch::gsgate::irq_gate;
 use crate::arch::{lapic, percpu};
 use crate::mem::tlb::FLUSH_ALL_ABOVE;
+use crate::sync::ticket::TicketLock;
 
-irq_gate!(shootdown_gate => shootdown_handler);
+irq_gate!(shootdown_gate => shootdown_handler, window_safe);
 
-/// The sender lock, a ticket lock (first come, first served: a releasing
-/// sender cannot win the next turn back over a waiter): the next ticket,
-/// the ticket being served, and the holder's area index + 1 (0: none).
-static NEXT_TICKET: AtomicU32 = AtomicU32::new(0);
-static SERVING: AtomicU32 = AtomicU32::new(0);
-static HOLDER: AtomicU32 = AtomicU32::new(0);
+/// The sender lock (`sync::ticket`: first come, first served, so a releasing
+/// sender cannot win the next turn back over a waiter, and its wait serves
+/// this CPU's own mailbox).
+static SENDERS: TicketLock = TicketLock::new();
 
 /// The doorbell: serve the mailbox (if a wait loop has not already).
 extern "C" fn shootdown_handler(_frame: &InterruptStackFrameValue) {
@@ -102,32 +101,24 @@ impl Turn {
         // Interrupts are off and an NMI never sends, so the only way this
         // CPU already holds the lock is a bug that would wait on itself.
         assert!(
-            HOLDER.load(Ordering::Relaxed) != me + 1,
+            SENDERS.holder() != me + 1,
             "shootdown: CPU{me} re-entered its own send"
         );
-        let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
-        let started = rdtsc();
         let seconds = super::online_cpus() as u64 + 1;
         let bound = crate::arch::clock::cycles_per_tick() * 100 * seconds;
-        while SERVING.load(Ordering::Acquire) != ticket {
-            serve_pending();
-            if rdtsc().wrapping_sub(started) > bound {
-                panic!(
-                    "shootdown: CPU{me} waited {seconds} s for the sender lock (held by CPU{})",
-                    HOLDER.load(Ordering::Relaxed).wrapping_sub(1)
-                );
-            }
-            spin_loop();
-        }
-        HOLDER.store(me + 1, Ordering::Relaxed);
+        SENDERS.lock(me + 1, bound, |holder| {
+            panic!(
+                "shootdown: CPU{me} waited {seconds} s for the sender lock (held by CPU{})",
+                holder.wrapping_sub(1)
+            )
+        });
         Turn
     }
 }
 
 impl Drop for Turn {
     fn drop(&mut self) {
-        HOLDER.store(0, Ordering::Relaxed);
-        SERVING.fetch_add(1, Ordering::Release);
+        SENDERS.unlock();
     }
 }
 

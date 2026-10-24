@@ -169,6 +169,12 @@ unsafe fn sweep_slot(
     slot: usize,
     active_pml4: u64,
 ) -> Option<SweepFinish> {
+    // Running on another CPU (S8.3c): its saved frame is stale and its
+    // state is that CPU's to change. Its own CPU's next scheduler entry (a
+    // tick at most) delivers.
+    if crate::task::oncpu::elsewhere(slot) {
+        return None;
+    }
     let (pml4, kind, rsp) = {
         let task = tasks[slot].as_ref()?;
         if task.state != TaskState::Runnable {

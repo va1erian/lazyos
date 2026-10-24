@@ -339,7 +339,14 @@ pub(super) fn stop_process(pml4: u64) {
             if task.pml4 != pml4 || task.state == TaskState::Done {
                 continue;
             }
-            if slot != me && !frame_is_user(task.rsp, FRAME_RIP_INDEX) {
+            // Running on another CPU (S8.3c): its saved frame says nothing,
+            // so it stops at its boundary like a thread inside the kernel,
+            // and its CPU is asked to look now.
+            let elsewhere = crate::task::oncpu::elsewhere(slot);
+            if slot != me && (elsewhere || !frame_is_user(task.rsp, FRAME_RIP_INDEX)) {
+                if elsewhere {
+                    crate::task::kick::nudge(slot);
+                }
                 inside.push(slot);
                 continue;
             }

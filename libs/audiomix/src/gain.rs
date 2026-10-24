@@ -70,6 +70,12 @@ pub fn scale_s16le(bytes: &mut [u8], gain: Gain) {
     if gain.is_unity() {
         return;
     }
+    // Fast path: silence can zero the buffer directly in bulk via memset.
+    if gain.is_silent() {
+        let chunks_len = bytes.len() / 2 * 2;
+        bytes[..chunks_len].fill(0);
+        return;
+    }
     for pair in bytes.as_chunks_mut::<2>().0 {
         let sample = i16::from_le_bytes(*pair);
         *pair = saturate(gain.scale(i32::from(sample))).to_le_bytes();

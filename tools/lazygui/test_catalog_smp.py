@@ -49,6 +49,14 @@ class SmpTests(unittest.TestCase):
             self.assertEqual(step["argv"][step["argv"].index("--smp") + 1], "4",
                              msg=mode)
 
+    def test_the_smp_kernel_is_a_build_switch(self) -> None:
+        base = {"services": False, "xuid": False, "xui_client": False, "xui_app": "(none)",
+                "shellprobe": False, "msgctl": False, "msgrd": False, "busybox": ""}
+        self.assertEqual(catalog.build_env({**base, "smp_kernel": True}).get("LAZYOS_SMP"), "1")
+        self.assertNotIn("LAZYOS_SMP", catalog.build_env(base))
+        self.assertIn("--smp-kernel", demo_argv(smp_kernel=True, smp="4"))
+        self.assertNotIn("--smp-kernel", demo_argv(smp="4"))
+
     def test_the_scripted_session_takes_it_too(self) -> None:
         plan = catalog.build_plan(demo_config(mode="Scripted session", out="shots",
                                               timeout="180", tablet=False, script=0,

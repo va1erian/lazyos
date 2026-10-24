@@ -24,7 +24,7 @@ from .simplecfg import (SIMPLE_BUILDS, SIMPLE_GROUPS, SIMPLE_INTERFACES,  # noqa
 from .appsteps import app_steps, desktop_app_argv, desktop_app_env, doom_step, emusic_step, installer_argv, jsc_step, lazyrad_step, lazysky_step, lazyweb_step, linuxapps_step, webd_step, webkit_deps_step, webkit_port_step, mail_argv, mail_env, modplayer_step, quake_step, srb2kart_step, wants_games, wants_traydemo, tls_step  # noqa: F401,E501
 from .scriptenv import script_env
 from .scripts import SCRIPTS  # noqa: F401 (re-exported)
-from .smp import smp_argv  # noqa: F401 (re-exported; tests read catalog.smp_argv)
+from .smp import smp_argv, smp_kernel_argv, smp_kernel_env  # noqa: F401 (tests read them)
 from .netplan import dbgd_argv, dbgd_env, net_flags, net_specs, qemu_net, wants_dbgd, wants_net, wants_tls, wants_wifi  # noqa: F401,E501
 from .drivers import device_flags, driver_env, session_sound  # noqa: F401 (re-exported)
 
@@ -261,6 +261,7 @@ def build_env(cfg: dict) -> dict[str, str]:
         env["LAZYOS_LAZYSKY"] = "1"
     env.update(desktop_app_env(cfg) | login_env(cfg) | script_env(cfg, SCRIPTS))  # Mail, tray demo; a script's own
     env.update(driver_env(cfg) | netboot_env(cfg))  # LAZYOS_DEVD (#497); target/netboot (netboot plan N1)
+    env.update(smp_kernel_env(cfg))  # the SMP kernel (docs/smp-plan.md S8.3)
     return env
 
 
@@ -412,6 +413,7 @@ def build_plan(cfg: dict) -> list[dict]:
         # also builds the network stack (and the network apps on a desktop).
         argv += net_flags(cfg)
         argv += smp_argv(cfg)  # guest vCPUs (a QEMU argument, so it works with Skip build)
+        argv += smp_kernel_argv(cfg)  # LAZYOS_SMP: run_demo sets (or clears) it itself
         argv += sample_argv(cfg)  # a QMP socket for tools/lazyweb/sample.py (#861)
         if cfg["qemu"]:
             argv += ["--qemu", cfg["qemu"]]

@@ -17,7 +17,7 @@ paranoid_gate!(invalid_tss_gate => invalid_tss_handler, err);
 paranoid_gate!(x87_floating_point_gate => x87_floating_point_handler);
 paranoid_gate!(simd_floating_point_gate => simd_floating_point_handler);
 paranoid_gate!(alignment_check_gate => alignment_check_handler, err);
-paranoid_gate!(double_fault_gate => double_fault_handler, err);
+paranoid_gate!(double_fault_gate => double_fault_handler, err, unlocked);
 
 /// The IDT address of a gate.
 fn addr(gate: unsafe extern "C" fn()) -> VirtAddr {

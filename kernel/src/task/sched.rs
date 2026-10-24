@@ -345,10 +345,20 @@ pub(super) fn runnable(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> bool {
 /// runnable tasks, and the order key `(pass, distance after cur)` keeps the
 /// exact choice of the full round-robin scan this replaced.
 pub(super) fn pick_next_best(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Option<usize> {
+    // An AP the suite holds back runs nothing (`idle::pause_aps`).
+    if super::idle::held_back() {
+        return None;
+    }
+    let boot_cpu = crate::arch::percpu::current().index() == 0;
     for rank in (0..PriorityClass::ALL.len()).rev() {
         let mut best: Option<(u64, usize, usize)> = None;
         for slot in runq::runnable(rank).iter() {
             if !runq::check(tasks, slot, rank) {
+                continue;
+            }
+            // Running on another CPU: its saved frame is stale (S8.3b). The
+            // kernel task runs on the boot CPU only (`task::kick`).
+            if super::oncpu::elsewhere(slot) || (slot == KERNEL_TASK && !boot_cpu) {
                 continue;
             }
             let Some(task) = tasks[slot].as_ref() else {
@@ -367,16 +377,23 @@ pub(super) fn pick_next_best(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> O
     None
 }
 
-/// The scheduler's choice: [`pick_next_best`], or the interrupted task when
-/// nothing is runnable at all so it can re-enter its wait loop instead of
-/// stalling the CPU.
+/// The scheduler's choice: [`pick_next_best`], or [`fallback`] when nothing
+/// is runnable at all.
 pub(super) fn pick_next(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> usize {
-    pick_next_best(tasks, cur).unwrap_or(cur)
+    pick_next_best(tasks, cur).unwrap_or_else(|| fallback(cur))
+}
+
+/// What a CPU runs when nothing is runnable: its idle context
+/// (`task::idle`). Before one exists (early boot, a suite that registered
+/// no kernel task) it is the interrupted task `cur`, which re-enters its
+/// wait loop instead of stalling the CPU, as the scheduler did before S8.3b.
+pub(super) fn fallback(cur: usize) -> usize {
+    super::idle::here().unwrap_or(cur)
 }
 
 /// [`pick_next`] plus stride accounting: the selected task pays one quantum
-/// (its stride) of virtual time. Only a runnable winner is charged, so a
-/// degenerate fallback to a parked `cur` does not advance its pass.
+/// (its stride) of virtual time. Only a runnable winner is charged, so the
+/// fallback (the idle context, or a parked `cur`) does not advance a pass.
 pub(super) fn select_next(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) -> usize {
     // This selection accounts for every wake so far (P1.1).
     super::preempt::clear();

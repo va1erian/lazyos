@@ -37,11 +37,47 @@ pub(crate) struct KeyEntry {
     pub(crate) last_use: u64,
 }
 
+impl KeyEntry {
+    fn scrub(&mut self) {
+        for byte in self.material.iter_mut() {
+            // SAFETY: `byte` is a valid, aligned, exclusive reference.
+            unsafe { core::ptr::write_volatile(byte, 0) };
+        }
+    }
+}
+
+impl Drop for KeyEntry {
+    /// Scrub key material on drop to prevent secret keys from lingering in memory.
+    fn drop(&mut self) {
+        self.scrub();
+    }
+}
+
 /// One password account: username, salt and Argon2id verifier.
 pub(crate) struct Account {
     pub(crate) user: String,
     pub(crate) salt: [u8; SALT_LEN],
     pub(crate) verifier: [u8; kdf::VERIFIER_LEN],
+}
+
+impl Account {
+    fn scrub(&mut self) {
+        for byte in self.salt.iter_mut() {
+            // SAFETY: `byte` is a valid, aligned, exclusive reference.
+            unsafe { core::ptr::write_volatile(byte, 0) };
+        }
+        for byte in self.verifier.iter_mut() {
+            // SAFETY: `byte` is a valid, aligned, exclusive reference.
+            unsafe { core::ptr::write_volatile(byte, 0) };
+        }
+    }
+}
+
+impl Drop for Account {
+    /// Scrub salt and verifier on drop to prevent credentials from lingering in memory.
+    fn drop(&mut self) {
+        self.scrub();
+    }
 }
 
 /// The service state: the key table, accounts, entropy pool and the reusable
@@ -219,28 +255,33 @@ impl Keyd {
             return false;
         };
         let mut candidate = [0u8; kdf::VERIFIER_LEN];
-        if self
+        let res = if self
             .kdf
             .derive(secret.as_bytes(), &salt, &mut candidate)
-            .is_err()
+            .is_ok()
         {
-            return false;
+            constant_time_eq(&candidate, &verifier)
+        } else {
+            false
+        };
+        for byte in candidate.iter_mut() {
+            // SAFETY: `byte` is a valid, aligned, exclusive reference.
+            unsafe { core::ptr::write_volatile(byte, 0) };
         }
-        constant_time_eq(&candidate, &verifier)
+        res
     }
 
     /// Wrap `plaintext` under `owner`'s key `id`.
     pub(crate) fn wrap(&mut self, id: u64, owner: u32, plaintext: &[u8]) -> Result<Vec<u8>, Error> {
-        let Some(key) = self.key(id, owner) else {
-            return Err(Error::Errno(-errno::ENOENT));
-        };
-        let material = key.material;
         // A fresh 128-bit nonce per wrap comes from the pool; reuse would leak
         // plaintext XOR and make repeated pairs detectable.
         let mut nonce = [0u8; wrap::NONCE_LEN];
         self.entropy.try_rdrand();
         self.entropy.fill(&mut nonce);
-        let blob = wrap::wrap_with_nonce(&material, &nonce, plaintext).map_err(crypto_error)?;
+        let Some(key) = self.key(id, owner) else {
+            return Err(Error::Errno(-errno::ENOENT));
+        };
+        let blob = wrap::wrap_with_nonce(&key.material, &nonce, plaintext).map_err(crypto_error)?;
         self.touch(id);
         Ok(blob)
     }
@@ -251,8 +292,7 @@ impl Keyd {
         let Some(key) = self.key(id, owner) else {
             return Err(Error::Errno(-errno::ENOENT));
         };
-        let material = key.material;
-        let plaintext = wrap::unwrap(&material, blob).map_err(crypto_error)?;
+        let plaintext = wrap::unwrap(&key.material, blob).map_err(crypto_error)?;
         self.touch(id);
         Ok(plaintext)
     }
@@ -267,8 +307,7 @@ impl Keyd {
         let Some(key) = self.key(id, owner) else {
             return Err(Error::Errno(-errno::ENOENT));
         };
-        let material = key.material;
-        let tag = hmac::hmac_sha256(&material, digest);
+        let tag = hmac::hmac_sha256(&key.material, digest);
         self.touch(id);
         Ok(tag)
     }
@@ -375,4 +414,35 @@ pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
         diff |= a ^ b;
     }
     diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_entry_drop_scrubs_material() {
+        let mut entry = KeyEntry {
+            id: 1,
+            owner: 1000,
+            kind: wire::KIND_HMAC,
+            material: [0x5A; KEY_LEN],
+            uses: 0,
+            last_use: 0,
+        };
+        entry.scrub();
+        assert_eq!(entry.material, [0u8; KEY_LEN]);
+    }
+
+    #[test]
+    fn test_account_drop_scrubs_credentials() {
+        let mut account = Account {
+            user: String::from("test"),
+            salt: [0xAA; SALT_LEN],
+            verifier: [0xBB; kdf::VERIFIER_LEN],
+        };
+        account.scrub();
+        assert_eq!(account.salt, [0u8; SALT_LEN]);
+        assert_eq!(account.verifier, [0u8; kdf::VERIFIER_LEN]);
+    }
 }

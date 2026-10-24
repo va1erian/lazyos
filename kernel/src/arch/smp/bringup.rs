@@ -200,13 +200,19 @@ extern "C" fn ap_entry() -> ! {
     // this flush, so nothing stale survives it.
     fence(Ordering::SeqCst);
     x86_64::instructions::tlb::flush_all();
-    // Idle with interrupts ON, on the boot table: the handlers that can
-    // reach this CPU are the window-safe set (no locks, no allocation, no
-    // task switch), so a delivered IPI cannot race anything and its mailbox
-    // is serviced promptly. No scheduler and no timer runs here until S8.3.
+    // Idle with interrupts ON, on the boot table, holding nothing: the
+    // handlers that can reach this CPU are the window-safe set (no locks, no
+    // allocation, no task switch), so a delivered IPI cannot race anything
+    // and its mailbox is serviced promptly. Once the scheduler runs
+    // (`sched::start_aps`, S8.3c) the CPU enters its idle context and runs
+    // tasks; the check runs with interrupts off and `sti; hlt` closes the
+    // race with the wake that follows the start.
     loop {
-        x86_64::instructions::interrupts::enable();
-        x86_64::instructions::hlt();
+        x86_64::instructions::interrupts::disable();
+        if super::sched::started() {
+            crate::task::idle::start_ap();
+        }
+        x86_64::instructions::interrupts::enable_and_hlt();
     }
 }
 

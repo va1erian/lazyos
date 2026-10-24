@@ -188,7 +188,17 @@ impl<T: ScopedTransport> FullWebView<T> {
             user_agent: user_agent.to_owned(),
         };
         let body = wire::encode_set_user_agent_args(&args).map_err(|_| BAD)?;
-        self.call(wire::METHOD_SETUSERAGENT, body)
+        self.call(wire::METHOD_SETUSERAGENT, body)?;
+        // A view made again (webd went away) is made with the agent the person last chose.
+        if !user_agent.is_empty() {
+            self.config.user_agent = user_agent.to_owned();
+        }
+        Ok(())
+    }
+
+    /// The user agent the next [`create`](FullWebView::create) asks for (`""`: the engine's own).
+    pub fn set_created_user_agent(&mut self, user_agent: &str) {
+        self.config.user_agent = user_agent.to_owned();
     }
 
     /// Content blocking on or off for the view's profile, and the hosts it is off for.

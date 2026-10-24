@@ -190,16 +190,19 @@ impl GroupNumbers {
 /// #880). A group cannot outlive all of its members, so the slot comes back.
 pub fn claim_slot(tasks: &[Option<Task>; MAX_TASKS]) -> Result<(usize, KernelStack), ClaimError> {
     let held = GroupNumbers::of(tasks);
-    let index = (1..limits::task_max().min(MAX_TASKS))
+    let index = (1..limits::task_max().min(super::idle::TASK_SLOTS))
         .find(|&slot| tasks[slot].is_none() && !held.contains(slot))
         .ok_or(ClaimError::NoSlot)?;
     let stack = KernelStack::new(index).ok_or(ClaimError::NoMemory)?;
+    // A new task is current nowhere, whatever its slot's last owner left.
+    super::oncpu::forget(index);
+    super::segs::forget(index);
     Ok((index, stack))
 }
 
 /// Slots below `limit.task_max` that are free (the kernel task's is not).
 pub fn free_slots(tasks: &[Option<Task>; MAX_TASKS]) -> usize {
-    tasks[1..limits::task_max().min(MAX_TASKS)]
+    tasks[1..limits::task_max().min(super::idle::TASK_SLOTS)]
         .iter()
         .filter(|slot| slot.is_none())
         .count()
@@ -209,7 +212,9 @@ pub fn free_slots(tasks: &[Option<Task>; MAX_TASKS]) -> usize {
 /// of the spawn soaks).
 #[cfg(lazyos_tests)]
 pub fn live_count() -> usize {
-    TOPS.iter()
+    // Tasks' stacks only: the idle contexts' live as long as their CPUs.
+    TOPS[..super::idle::TASK_SLOTS]
+        .iter()
         .filter(|top| top.load(Ordering::Acquire) != 0)
         .count()
 }

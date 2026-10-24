@@ -229,6 +229,42 @@ fn recover_and_forget_reach_webd() {
 }
 
 #[test]
+fn another_user_agent_makes_the_view_again_once_and_is_then_set_in_place() {
+    let rig = rig();
+    rig.engine.resize(64, 48);
+    rig.open("/page2");
+    let first = rig.view();
+    // A view made with the engine's own agent cannot change it: it is made again, and the page
+    // on show loads in the new one.
+    rig.engine.set_user_agent("Mozilla/5.0 (A)");
+    rig.pump();
+    assert_eq!(rig.engine.health(), Health::Live);
+    assert_ne!(rig.view(), first, "a new view");
+    assert!(
+        rig.web.web.agents().is_empty(),
+        "it was made with the agent"
+    );
+    assert_eq!(rig.state().title, "Page Two");
+    // The same agent again asks for nothing.
+    let requests = rig.web.web.requests().len();
+    rig.engine.set_user_agent("Mozilla/5.0 (A)");
+    rig.pump();
+    assert_eq!(rig.web.web.requests().len(), requests);
+    // Another one is set in the view, and the page reloaded.
+    let view = rig.view();
+    rig.engine.set_user_agent("Mozilla/5.0 (B)");
+    rig.pump();
+    assert_eq!(rig.view(), view);
+    assert_eq!(rig.web.web.agents(), vec![(view, "Mozilla/5.0 (B)".into())]);
+    assert!(rig.web.web.requests().len() > requests, "reloaded");
+    // Back to the engine's own: made again.
+    rig.engine.set_user_agent("");
+    rig.pump();
+    assert_eq!(rig.engine.health(), Health::Live);
+    assert_ne!(rig.view(), view);
+}
+
+#[test]
 fn webd_going_away_blanks_the_page_and_a_new_view_loads_it_again() {
     let rig = rig();
     rig.engine.resize(64, 48);
