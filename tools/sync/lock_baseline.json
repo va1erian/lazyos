@@ -80,7 +80,7 @@
  "kernel/src/serial/tx.rs": 2,
  "kernel/src/skia.rs": 2,
  "kernel/src/task/cpustat.rs": 3,
- "kernel/src/task/harness.rs": 2,
+ "kernel/src/task/harness/naphook.rs": 2,
  "kernel/src/task/itimer.rs": 2,
  "kernel/src/task/lockwait.rs": 2,
  "kernel/src/task/mod.rs": 3,

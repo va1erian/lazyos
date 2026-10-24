@@ -457,12 +457,17 @@ S8.3 lands in four steps, each mergeable with the suite green:
   `kernel_main`'s first lines; `smp_entry_suite` contends for the lock from
   the APs (exclusion over every CPU, FIFO turns, a waiter serving a
   shootdown).
-- **S8.3b — idle and on-CPU, still one CPU running tasks.** A per-CPU idle
-  task on the boot table (the dying-table rule, `smp.md`) replaces "the
-  parked task halts in its own wait loop"; `nap`, `exit_cpu` and the idle
-  task drop the hold around `hlt`; a task that is current on one CPU is never
-  selected by another (an on-CPU mark set by `install` and cleared when its
-  CPU installs another task, both under the lock). With a global run queue
+- **S8.3b — idle and on-CPU, still one CPU running tasks. Built**
+  ([`architecture/smp.md`](architecture/smp.md), "Idle, halts and on-CPU
+  marks"): a per-CPU idle context on the boot table (the dying-table rule)
+  replaces "the parked task halts in its own wait loop" — a reserved slot
+  number per CPU that the task table leaves empty, so no special case in
+  accounting or introspection; `sync::entry::halt` drops the hold around
+  every `hlt` with interrupts on that holds no lock (`nap`, `exit_cpu`; the
+  yielding lock's last resort keeps it; `check_entry.py` pins both) and marks the CPU so the interrupt
+  that ends the halt takes the lock; a task that is current on one CPU is
+  never selected, handed off to or reaped by another (an on-CPU mark set
+  and cleared by `set_current`, under the lock). With a global run queue
   that mark is the whole answer to "two CPUs on one stack": a parked or
   preempted task is not current anywhere, and a running or napping one is
   current exactly where it runs.

@@ -175,9 +175,9 @@ ISR that performs context switches.
 **Wakes and preemption** (docs/performance-plan.md P1)
 
 - A wake (`wake_task_with`) raises `need_resched` (`task/preempt.rs`) when
-  the woken task should run before the next tick: the current task is blocked
-  or done (the CPU is idle; the resumed parked task halts in its wait loop,
-  there is no idle task), the woken task is in a strictly higher class, or
+  the woken task should run before the next tick: the CPU is idle (it runs
+  its idle context, `task::idle`, whose slot the table leaves empty; S8.3b),
+  the woken task is in a strictly higher class, or
   (P6.2) it is in the same class and deserves the CPU: the next selection
   would pick it. `preempt_point` yields on the flag at the end of every
   device interrupt (keyboard, mouse, PIC line stubs, the deadline timer) and

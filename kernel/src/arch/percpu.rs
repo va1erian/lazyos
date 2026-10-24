@@ -78,6 +78,11 @@ pub struct Cpu {
     /// publishes it after the write), so `free_user_table` can prove no
     /// other CPU still runs on a table it frees (0: not known yet).
     pub cr3: AtomicU64,
+    /// Set while this CPU halts with interrupts on after dropping the entry
+    /// lock (`sync::entry::halt`): the one ring-0 context that runs without
+    /// the hold, so the first gate that interrupts it takes the lock (and
+    /// clears this) instead of panicking.
+    pub entry_halt: AtomicBool,
     pub preempt: PreemptState,
     pub irqoff: IrqOffSpan,
     pub window: WindowState,
@@ -118,6 +123,7 @@ impl Cpu {
         online: AtomicBool::new(false),
         current: AtomicU64::new(0),
         cr3: AtomicU64::new(0),
+        entry_halt: AtomicBool::new(false),
         preempt: PreemptState::ZERO,
         irqoff: IrqOffSpan::ZERO,
         window: WindowState::ZERO,

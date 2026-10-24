@@ -95,7 +95,10 @@ fn sync_filesystems() {
     // Everything but the kernel task and the caller should be gone by now:
     // `init` stops userspace first. A survivor may still be writing, so say so
     // (the sync itself is still safe: each write is atomic under the VFS lock).
-    let busy = task::MAX_TASKS.saturating_sub(task::free_slots() + 2);
+    // Out of the slots tasks may use (the per-CPU idle slots are never one,
+    // `task::idle`).
+    let usable = crate::limits::task_max().min(task::idle::TASK_SLOTS);
+    let busy = usable.saturating_sub(task::free_slots() + 2);
     if busy > 0 {
         crate::serial_println!("power: warning: {} other task slot(s) in use at sync", busy);
     }

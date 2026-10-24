@@ -111,6 +111,9 @@ pub fn enter(cs: u64, rip: u64) {
         (true, true) => {
             panic!("entry lock: a ring-3 entry (rip {rip:#x}) found this CPU holding it")
         }
+        // The one ring-0 context that runs unheld: a halt in `halt`. The
+        // first gate to interrupt it takes the lock for it.
+        (false, false) if take_halt_mark() => acquire(),
         (false, false) => panic!(
             "entry lock: a ring-0 entry (rip {rip:#x}, CPU{}) found this CPU not holding it",
             me() - 1
@@ -136,7 +139,7 @@ pub enum FaultEntry {
 /// once the handler returns.
 #[track_caller]
 pub fn enter_fault(cs: u64, rip: u64) -> FaultEntry {
-    if !crate::arch::fault::from_user(cs) && !held_here() {
+    if !crate::arch::fault::from_user(cs) && !held_here() && !halting_here() {
         return FaultEntry::Unheld;
     }
     enter(cs, rip);
@@ -151,6 +154,50 @@ pub fn unheld_fault_resolved(rip: u64) -> ! {
         "entry lock: a ring-0 fault (rip {rip:#x}, CPU{}) was resolved on a CPU not holding it",
         me() - 1
     )
+}
+
+/// Whether this CPU is halted in [`halt`] without the hold.
+fn halting_here() -> bool {
+    percpu::current().entry_halt.load(Ordering::Relaxed)
+}
+
+/// Consume this CPU's halt mark: true if it was halted in [`halt`], in
+/// which case the caller takes the lock on the halt's behalf.
+fn take_halt_mark() -> bool {
+    percpu::current().entry_halt.swap(false, Ordering::Relaxed)
+}
+
+/// See the parent module: halt until an interrupt with the hold dropped,
+/// then take it back. Interrupts must be off (they are again on return).
+///
+/// The mark is set before the release and the release masks interrupts, so
+/// nothing can interrupt this CPU between "not holding" and "marked". The
+/// `sti; hlt` pair is the only place interrupts come on, and `sti`'s shadow
+/// means the first one lands at the `hlt`, never before it: an interrupt
+/// gate finds the mark, takes the lock and clears the mark, and may switch
+/// tasks under that hold (the switch carries it). Whoever resumes here —
+/// this task after that interrupt, or after it was switched out and picked
+/// again — therefore usually holds already; an NMI, which never takes the
+/// lock, is the case that wakes the `hlt` with the CPU still unheld.
+#[track_caller]
+pub fn halt() {
+    debug_assert!(!x86_64::instructions::interrupts::are_enabled());
+    if !held_here() {
+        // Releasing would hand out a turn this CPU never had.
+        panic!(
+            "entry lock: a halt on CPU{} that does not hold it",
+            me() - 1
+        );
+    }
+    percpu::current().entry_halt.store(true, Ordering::Relaxed);
+    release();
+    x86_64::instructions::interrupts::enable_and_hlt();
+    x86_64::instructions::interrupts::disable();
+    if !held_here() {
+        acquire();
+    }
+    // Ours or a stale one an NMI left: this CPU holds now either way.
+    percpu::current().entry_halt.store(false, Ordering::Relaxed);
 }
 
 /// See the parent module: a resume of ring 3 releases the hold.

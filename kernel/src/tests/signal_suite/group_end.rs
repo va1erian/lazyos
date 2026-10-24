@@ -323,7 +323,7 @@ static CONTINUED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBoo
 
 /// The nap hook of a stopped task: what the user does meanwhile, `SIGCONT`.
 fn send_continue() {
-    let me = task::current();
+    let me = task::harness::nap_hook_owner();
     CONTINUED.store(true, core::sync::atomic::Ordering::Relaxed);
     let _ = signal::send_to_slot(me, me, signal::SIGCONT, SigInfo::user(me, signal::SI_USER));
 }

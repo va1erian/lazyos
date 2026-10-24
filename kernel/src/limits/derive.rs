@@ -82,7 +82,7 @@ impl Limits {
             scratch_max: GIB.min(down(heap_max / 2)).max(base.scratch_max),
             // One slot per MiB of RAM: a task costs a 48 KiB kernel stack
             // and its page tables, so 256 on the smallest machine, the
-            // table's 1024 from 1 GiB.
+            // ceiling of task slots (`task::idle::TASK_SLOTS`) from 1 GiB.
             task_max: (ram / MIB).max(base.task_max),
             // One CPU until the SMP bring-up derives the count from the
             // MADT (`docs/smp-plan.md` S8.2); RAM says nothing about CPUs.

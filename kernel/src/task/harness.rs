@@ -225,6 +225,13 @@ pub fn next_runnable() -> usize {
     super::pick_next(&tasks, super::current())
 }
 
+/// The handoff the next scheduler entry of the current task would take
+/// (`preempt::take_handoff`; consumes the record like a real entry).
+pub fn take_handoff() -> Option<usize> {
+    let tasks = TASKS.lock();
+    super::preempt::take_handoff(&tasks, super::current())
+}
+
 /// Task `index`'s stride pass (virtual time).
 pub fn pass(index: usize) -> Option<u64> {
     TASKS.lock()[index].as_ref().map(|task| task.pass)
@@ -437,26 +444,9 @@ pub fn resume_delivery(slot: usize) -> bool {
     ended.is_some()
 }
 
-/// What a task parked on a wait queue runs each time it wakes from a nap with
-/// no wake reason yet. The suite has no second task to play a peer, so this is
-/// how one acts *while* a blocking call waits: bytes that arrive later, or the
-/// `Interrupted` wake a signal brings.
-static NAP_HOOK: spin::Mutex<Option<fn()>> = spin::Mutex::new(None);
-
-/// Install (or with `None` remove) the [`NAP_HOOK`].
-pub fn set_nap_hook(hook: Option<fn()>) {
-    *NAP_HOOK.lock() = hook;
-}
-
-/// Run the [`NAP_HOOK`], if any (reporting whether there was one), with its lock released (the hook may wake
-/// the waiter, which takes queue and task-table locks).
-pub(crate) fn run_nap_hook() -> bool {
-    let hook = *NAP_HOOK.lock();
-    if let Some(hook) = hook {
-        hook();
-    }
-    hook.is_some()
-}
+mod naphook;
+pub(crate) use naphook::run_nap_hook;
+pub use naphook::{nap_hook_owner, set_nap_hook};
 
 /// Wake `index` from its wait with `Interrupted`, as a deliverable signal
 /// does (`signal::wake_blocked_thread` is for a signal's own wake; this

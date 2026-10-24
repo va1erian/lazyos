@@ -232,6 +232,13 @@ def main() -> int:
         "flight, the serial tail and the guest's RIP when the serial log is silent this "
         "long; evidence only, the run still waits for --timeout (0: off; issue #787)",
     )
+    parser.add_argument(
+        "--stall-nmi",
+        action="store_true",
+        help="with a stall report, send the guest an NMI so the kernel prints its HANG: "
+        "view (scheduler, tasks, locks) to the serial log; off by default because the "
+        "SMP suites count NMIs",
+    )
     parser.add_argument("--no-build", action="store_true", help="skip the cargo build step")
     parser.add_argument(
         "--machine",
@@ -399,6 +406,7 @@ def main() -> int:
         text = follow_serial(
             serial_log, proc, time.time() + args.timeout, qmp=qmp,
             stall_after=args.stall_seconds, stall_file=out_dir / "stall.txt",
+            stall_nmi=args.stall_nmi,
         )
     except Exception as exc:  # QMP connect failure: still report what booted
         print(f"warning: QMP session failed: {exc}", file=sys.stderr)

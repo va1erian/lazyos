@@ -6,9 +6,9 @@
 //! "signal" ends early, and a soak.
 //!
 //! The suite has no second task, so a peer that acts *during* a wait is the
-//! nap hook (`task::harness::set_nap_hook`): the waiting task runs it after
-//! every tick it sleeps through, and it delivers bytes or interrupts the wait
-//! at the tick [`later`] chose.
+//! nap hook (`task::harness::set_nap_hook`): the idle context runs it after
+//! every tick the waiting task sleeps through, and it delivers bytes or
+//! interrupts the wait at the tick [`later`] chose.
 
 use super::inet_core::*;
 use super::*;
@@ -93,7 +93,7 @@ fn act() {
         }
         ACT_INTERRUPT => {
             // What a signal does to a parked task.
-            task::harness::interrupt(task::current());
+            task::harness::interrupt(task::harness::nap_hook_owner());
         }
         _ => return,
     }

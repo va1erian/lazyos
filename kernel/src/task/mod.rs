@@ -105,6 +105,7 @@ pub mod harness;
 #[cfg(lazyos_tests)]
 pub mod harness_frames;
 pub mod holders;
+pub mod idle;
 pub mod itimer;
 mod kernel_task;
 mod kstack;
@@ -115,6 +116,7 @@ pub mod linuxstate;
 pub mod lockwait;
 mod memstate;
 pub mod nice;
+pub mod oncpu;
 pub mod pollwait;
 // `pub(crate)`: the kernel test suite's `percpu_suite` reads the test hooks.
 #[cfg(lazyos_tests)]
@@ -432,6 +434,7 @@ pub fn current() -> usize {
 /// Make `slot` the CPU's current task (the scheduler's `install`, the test
 /// harness).
 pub(crate) fn set_current(slot: usize) {
+    oncpu::switch(current(), slot);
     crate::arch::percpu::current()
         .current
         .store(slot as u64, Ordering::Relaxed);
