@@ -105,6 +105,10 @@ name = "unixstress"
 path = "src/unixstress.rs"
 
 [[bin]]
+name = "forkwrite"
+path = "src/forkwrite.rs"
+
+[[bin]]
 name = "threadreap"
 path = "src/threadreap.rs"
 

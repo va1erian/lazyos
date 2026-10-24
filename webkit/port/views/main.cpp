@@ -15,6 +15,8 @@
 //   webkit-views groupmix   the same group number but different profiles: two web processes (not shared)
 //   webkit-views cycle   twelve views made, shown and destroyed one after the other
 //   webkit-views rush    twelve views made and destroyed at once, before their pages are up
+//   webkit-views timers  no view: WTF's run loop timers stopped and destroyed in other orders than they were
+//                        started (patch 0037; a stopped timer's tree node held its old children)
 //   webkit-views churn   the cycle with two hundred views: each end of a page's process closes an IPC
 //                        connection while the other side may still be writing to it (patch 0036)
 // The first view of the pairs has every feature (the clients of a full browser view), the second none.
@@ -50,6 +52,8 @@
 #include "lazyos_ui.h"
 
 using namespace webkitapp;
+
+void runTimersTest(); // timers.cpp
 
 extern "C" const char __ehdr_start;
 
@@ -467,6 +471,10 @@ int main(int argc, char** argv)
     for (int number : { SIGABRT, SIGSEGV, SIGILL, SIGTRAP, SIGBUS })
         sigaction(number, &action, nullptr);
     WKRunLoopInitializeMain();
+    if (argc > 1 && !strcmp(argv[1], "timers")) {
+        runTimersTest();
+        _exit(0);
+    }
     const std::string profile = bothViews && !ephemeralPair ? "/tmp/webkit-views-profile" : "";
     if (!startHost(&env, profile)) {
         printf("VIEWS:FAIL:the host did not start\n");
