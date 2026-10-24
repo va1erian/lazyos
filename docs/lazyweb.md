@@ -323,6 +323,25 @@ stamped on the `Open`, only while that app still holds a registration for the ty
 uninstalled browser) falls back to the registry. `confd` lets a uid touch only `user/<uid>/**`. With two browsers
 installed and no choice made, `mimed` keeps its old rule (the app registered last wins, which is install order).
 
+## User agent
+
+View > User Agent offers the engine's own (the default) and the well-known agents of the big browsers (Chrome,
+Edge, Firefox, Safari, Safari on iPhone: `lazyweb/src/useragent.rs`) for sites that turn WebKit's own away. A
+view made with a user agent can change it with webd's `SetUserAgent`; a view made with the engine's own cannot
+(`EACCES`: the engine's site quirks are off only for a view that has one), so the first pick, and a return to the
+default, make the view again and load the page on show in it (`RemoteEngine::set_user_agent`; Back/Forward history
+of that view is lost), and every other pick is set in place and reloads. The choice is the file `user-agent` in
+the profile folder (the preset's id) and is read before the window opens; an agent carries no authority, so it
+does not need `confd`. `USERAGENT:SET:<id>` is the marker.
+
+## Autoscroll
+
+A middle click on bare page (the page's pointer is not the hand of a link) starts autoscroll: the click is not
+sent to the page, and the page scrolls by itself, faster the further the pointer is from where the click was
+(above it up, below it down; `xui-app/crates/webkit/src/autoscroll.rs`). A click, Escape, the wheel or losing the
+focus ends it, and so does letting go of the button after dragging away from the start. Each frame's distance is
+turned into wheel notches, so the picture glides as it does for a real wheel; sideways autoscroll is not done.
+
 ## Blocking ads
 
 LazyWeb blocks the requests the community filter lists mark as ads (issue #845), so a page loads less: a

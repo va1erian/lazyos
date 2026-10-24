@@ -173,6 +173,10 @@ pub trait Engine {
     /// Content blocking on or off for the browsing profile, and the sites it is off for (the
     /// user's switch and exceptions; webd decides each navigation from them).
     fn set_blocking(&self, enabled: bool, exceptions: &[String]);
+    /// The user agent the page's requests and `navigator.userAgent` show (`""`: the engine's own),
+    /// from the next load on: the page on show is loaded again. An engine without the choice
+    /// keeps its own.
+    fn set_user_agent(&self, _agent: &str) {}
 }
 
 /// One call an engine received, for tests.
@@ -202,6 +206,7 @@ pub enum Call {
     BlockingCompile(String, usize),
     BlockingForget(String),
     SetBlocking(bool, Vec<String>),
+    SetUserAgent(String),
 }
 
 /// An engine that records its calls.
@@ -295,6 +300,10 @@ impl Engine for Recorder {
     }
     fn set_blocking(&self, enabled: bool, exceptions: &[String]) {
         self.push(Call::SetBlocking(enabled, exceptions.to_vec()));
+    }
+
+    fn set_user_agent(&self, agent: &str) {
+        self.push(Call::SetUserAgent(agent.to_owned()));
     }
 }
 

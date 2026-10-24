@@ -47,6 +47,7 @@ use crate::notify::{Permissions, Reason, Toasts};
 use crate::policy::{self, Decision as Verdict};
 use crate::prefs::Prefs;
 use crate::transfers::{Toast, ToastLevel, Toaster, Transfers};
+use crate::useragent;
 use crate::visits::Visits;
 use crate::{DOWNLOADS_DIR, HISTORY_FILE, NOTIFY_FILE, SYSTEM_NAME};
 
