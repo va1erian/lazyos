@@ -210,10 +210,6 @@ fn edge_dist2_bounded(prep: &PreparedLayer, p: Pt, limit: i64) -> i64 {
     best
 }
 
-fn edge_dist2(prep: &PreparedLayer, p: Pt) -> i64 {
-    edge_dist2_bounded(prep, p, i64::MAX)
-}
-
 /// Composite `layer` over `pixels` (a `side x side` premultiplied ARGB sprite
 /// whose design square starts `margin` pixels in).
 pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, layer: &Layer) {
@@ -243,7 +239,9 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
         for i in min_i..max_i {
             let origin = (i * sub - margin_sub, j * sub - margin_sub);
             let centre = (origin.0 + sub / 2, origin.1 + sub / 2);
-            let d2 = edge_dist2(&prep, centre);
+            // Only "farther than `near`" matters past that, so the search
+            // stops at the bound instead of walking every edge.
+            let d2 = edge_dist2_bounded(&prep, centre, near + 1);
             let is_in = inside(&prep, centre);
             let (fill, dil) = if is_in && d2 > full {
                 (16, 16)

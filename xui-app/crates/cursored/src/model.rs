@@ -358,7 +358,7 @@ impl Model {
     /// Place the pointer position.
     pub fn set_hotspot(&mut self, point: (i32, i32)) {
         let to = self.snapped(point);
-        if self.def().is_some() {
+        if self.def().is_some_and(|d| d.hot != to) {
             self.checkpoint();
             if let Some(def) = self.def_mut() {
                 def.hot = to;
@@ -387,10 +387,17 @@ impl Model {
         if self.def().is_none_or(|d| layer >= d.layers.len()) {
             return false;
         }
+        let (fill, outline) = (fill & 0xff_ffff, outline & 0xff_ffff);
+        if self
+            .active_layer()
+            .is_some_and(|l| (l.fill, l.outline) == (fill, outline))
+        {
+            return true;
+        }
         self.checkpoint();
         if let Some(l) = self.def_mut().and_then(|d| d.layers.get_mut(layer)) {
-            l.fill = fill & 0xff_ffff;
-            l.outline = outline & 0xff_ffff;
+            l.fill = fill;
+            l.outline = outline;
         }
         true
     }

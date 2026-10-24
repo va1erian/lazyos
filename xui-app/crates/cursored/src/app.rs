@@ -251,6 +251,7 @@ impl App for Studio {
             Msg::Tool(tool) => {
                 let mut model = self.model.borrow_mut();
                 model.tool = tool;
+                model.selected = None;
                 model.cancel_pending();
             }
             Msg::Edited => self.sync_fields(),

@@ -104,7 +104,8 @@ impl Compositor {
 
     /// Follow `ui/cursor/theme`: draw the pointer from the new shapes, or the
     /// built-in ones, without a repaint of the scene. A theme that does not
-    /// parse is refused whole and the previous look stays.
+    /// parse is refused whole and the built-in shapes show (never the
+    /// previous account's pointer).
     pub(super) fn apply_cursor_theme(&mut self) {
         let Some(text) = self.themefeed.take_cursor_theme() else {
             return;
@@ -118,7 +119,7 @@ impl Compositor {
                     error.line,
                     error.what
                 );
-                return;
+                None
             }
             None => None,
         };

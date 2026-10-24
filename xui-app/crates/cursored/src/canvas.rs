@@ -236,8 +236,10 @@ fn builtin(canvas: &mut dyn Canvas, view: &View, (x0, y0): (i32, i32), side: i32
             .map(|image| (shape, px, image, cursorgfx::margin(px) as i32));
     }
     if let Some((_, _, image, margin)) = shown.as_ref() {
-        let (w, h) = (image.width() as i32, image.height() as i32);
-        let (x, y) = (x0 - margin, y0 - margin);
+        // Beyond the rasteriser's 256 px the image is scaled up to the grid.
+        let scale = |v: i32| v * side / px as i32;
+        let (w, h) = (scale(image.width() as i32), scale(image.height() as i32));
+        let (x, y) = (x0 - scale(*margin), y0 - scale(*margin));
         canvas.draw_image(image, Rect::new(x, y, x + w, y + h));
     }
 }
@@ -257,8 +259,17 @@ fn pending(canvas: &mut dyn Canvas, view: &View, bounds: Rect, model: &Model) {
     }
 }
 
-fn handle(ui: &Ui<Msg>, id: WidgetId, view: &Rc<RefCell<View>>, event: &Event) -> Option<Msg> {
-    let mut view = view.borrow_mut();
+fn handle(ui: &Ui<Msg>, id: WidgetId, cell: &Rc<RefCell<View>>, event: &Event) -> Option<Msg> {
+    // Focus and capture may deliver events to this handler at once, so they
+    // run while the view is not borrowed.
+    if let Event::MouseDown {
+        button: MouseButton::Left,
+        ..
+    } = *event
+    {
+        ui.focus(id);
+    }
+    let mut view = cell.borrow_mut();
     match *event {
         Event::MouseDown {
             x,
@@ -266,7 +277,6 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, view: &Rc<RefCell<View>>, event: &Event) -
             button: MouseButton::Left,
             modifiers,
         } => {
-            ui.focus(id);
             let at = view.to_design((x, y));
             let reach = view.reach();
             let mut model = view.model.borrow_mut();
@@ -275,12 +285,13 @@ fn handle(ui: &Ui<Msg>, id: WidgetId, view: &Rc<RefCell<View>>, event: &Event) -
             let drag = model.selected.is_some() && model.tool != Tool::NewPolygon;
             let armed = drag && model.tool == Tool::Select;
             drop(model);
+            drop(view);
             if drag {
+                ui.set_capture(id);
+                let mut view = cell.borrow_mut();
                 view.dragging = true;
                 view.armed = armed;
-                ui.set_capture(id);
             }
-            drop(view);
             ui.invalidate(id);
             changed.then_some(Msg::Edited)
         }

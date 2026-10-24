@@ -18,8 +18,8 @@ pub const DESIGN: i32 = 512;
 pub const MAX_LAYERS: usize = 64;
 /// Most vertices one shape may have, over all its layers. Rendering cost
 /// grows with edges times pixels and runs in the compositor, so this is kept
-/// small; a theme also has to fit confd's 4 KiB value, about 600 vertices.
-pub const MAX_VERTICES: usize = 512;
+/// small; a theme also has to fit confd's 4 KiB value.
+pub const MAX_VERTICES: usize = 256;
 /// Longest theme name.
 pub const MAX_NAME: usize = 32;
 
