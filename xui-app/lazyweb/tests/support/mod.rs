@@ -424,3 +424,31 @@ pub fn support_decode(url: &str) -> Vec<u8> {
     }
     out
 }
+
+pub fn chord(key: Key, shift: bool) -> UiEvent {
+    UiEvent::KeyDown {
+        key,
+        modifiers: Modifiers {
+            ctrl: true,
+            shift,
+            ..Modifiers::NONE
+        },
+        repeat: 1,
+        system: false,
+    }
+}
+
+pub fn loads(calls: &[Call]) -> Vec<String> {
+    calls
+        .iter()
+        .filter_map(|c| match c {
+            Call::Load(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A page loaded in the first tab, so the window has an address to show and keep.
+pub fn first_page(stage: &xui_canvas::snapshot::Stage<'_, Msg>, rig: &Rig) {
+    rig.state(stage, loaded("https://one.example/", "One", 1));
+}
