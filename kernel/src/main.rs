@@ -48,6 +48,7 @@ mod serial;
 #[allow(dead_code)]
 mod skia;
 mod surface;
+mod sync;
 mod sysinfo;
 mod task;
 #[cfg(lazyos_tests)]
@@ -92,6 +93,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // (`arch::percpu`; single-threaded boot, so publishing needs no locks).
     // `gdt::init` re-publishes after its selector loads reset the base.
     crate::arch::percpu::init();
+    // The boot is kernel code: it runs under the entry lock, and the hold
+    // rides into the first task switch (`sync::entry`).
+    crate::sync::entry::boot_hold();
     serial::init();
     serial_println!("LazyOS: kernel entered");
     boot_phase!("kernel_entered");

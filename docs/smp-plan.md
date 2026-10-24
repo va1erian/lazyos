@@ -10,8 +10,9 @@ subsystem by subsystem, each relaxation behind its own soak.
 
 Status: S8.0, S8.1 and S8.2 are built, and so are the prerequisites the S8.2
 review set for S8.3 (shared per-CPU references, concurrent shootdown senders,
-NMI hardening, the dying-table rule; as-built notes:
-[`architecture/smp.md`](architecture/smp.md)); S8.3 onward is plan. Prerequisites from
+NMI hardening, the dying-table rule) and S8.3's first step, S8.3a (the entry
+lock in every gate, uncontended while only the boot CPU runs tasks; as-built
+notes: [`architecture/smp.md`](architecture/smp.md)); S8.3b onward is plan. Prerequisites from
 `docs/performance-plan.md` (LAPIC/I-O-APIC/MSI, per-class run queues) have
 landed.
 
@@ -29,9 +30,10 @@ Goals:
 - G4. A permanent race-finding safety net (lockdep, raw-lock ratchet, chaos
   preemption, deterministic multicore TCG runs, host TSAN for shared no_std
   libs) that outlives the port and catches regressions in future code.
-- G5. One-switch disable: an image built without `LAZYOS_SMP=1` is
-  byte-for-byte today's kernel; `smp.cpus=1` in `lazyos.cfg` boots one CPU on
-  an SMP image.
+- G5. One-switch disable: an image built without `LAZYOS_SMP=1` behaves
+  exactly as today's kernel (the entry lock compiles out; the boot log gains
+  one `HW:SMP:ENTRY_LOCK=false` line); `smp.cpus=1` in `lazyos.cfg` boots one
+  CPU on an SMP image.
 
 Non-goals (this plan):
 
@@ -89,9 +91,14 @@ and S8.4+ keep it green at `-smp 2/4` with the stage's own stress cases.
 ## 4. Cross-cutting safety net (built with their first users)
 
 Status: the audit and the raw-lock ratchet landed in S8.0; the per-CPU areas
-in S8.1; the `sync::Lock` type below lands **with its first user — the entry
-lock in S8.3** — so it is never dead code, and every lock the kernel adds
-from S8.3 on is born under lockdep.
+in S8.1; the entry lock's owner tracking, spin watchdog and
+`serve_pending` spin in S8.3a. The `sync::Lock<T>` type below lands **with
+its first user — the S8.4 scheduler lock** — so it is never dead code, and
+every lock the kernel adds from S8.4 on is born under lockdep. (The plan
+first put it in S8.3, with the entry lock as that user; but the entry lock is
+taken by one context and dropped by another, across task switches, so a
+guard cannot model it, and it is always the outermost lock, so it gives
+lockdep no order to check. It is a raw CPU-owned lock, `sync::entry`.)
 
 These are the tools that make "no weird bugs later" a testable claim rather
 than a hope. They exist before any second CPU runs.
@@ -394,49 +401,88 @@ for the IRQ-stack pointer the stub needs before any read).
 
 ### S8.3 — The kernel entry lock (ENABLED MILESTONE)
 
-The keystone. One global `sync::Lock` — the **entry lock** — held by a CPU
-whenever it executes kernel code on behalf of ring 3. **Acquisition is keyed
-on the interrupted context, not on the event**: an entry whose interrupted
-CS is ring 3 (native `int 0x80`, Linux `syscall`, a device IRQ or exception
-arriving from user mode) acquires the lock; an entry arriving from ring 0
-runs **under the interrupted context's hold** (historic-BKL / paranoid-entry
-semantics) — the tick's `schedule()`, an IRQ bottom half, a page fault
-inside the kernel simply run while the hold is inherited. This distinction
-is what keeps the kernel's most common idle paths from deadlocking on
-themselves: a napping task (`task/wait.rs` naps in a loop with IRQs on) that
-had reacquired the lock on resume, then took its own tick interrupt, would
-otherwise spin forever on itself — same for `exit_cpu`'s `enable_and_hlt`
-loop and for the mux task, whose whole loop runs with IRQs on while holding
-the heap lock (`preempt.rs` documents that an interrupt hitting that loop
-must not spin on it). The lock is released when the CPU is about to leave
-kernel context — return to user mode, park the interrupted task, enter the
-idle loop — and, just as importantly, at a **preemptive switch** (IRQ
-return → `preempt_point` → `yield_now`), not only at a blocking park:
+The keystone. One global lock — the **entry lock** (`sync::entry`) — held
+by a CPU whenever it executes kernel code. **The hold belongs to the CPU,
+not to a task** (revised 2026-10-23, S8.3a; the first wording released the
+lock at every park and preemptive switch, "before `install`", which left a
+window in which a second CPU could resume the leaving task while its stack
+was still in use here):
 
-- Park/switch = release as part of the switch (after the scheduler has chosen
-  the next task on this CPU, before `install`), reacquire on resume. This
-  mirrors today precisely: a blocked syscall stops executing kernel code and
-  the scheduler runs something else; under SMP "something else" may be on
-  another CPU.
-- IPI handlers and the timer tick's window-safe portion never take it (they
-  hold no locks by contract); a tick that decides to `schedule()` runs under
-  the inherited hold.
-- IRQ bottom halves (`dev::intx::service`) run under the inherited hold in
-  IRQ context, exactly as today they run with interrupts off; the
-  quiet-context rule (`preempt.rs`) composes unchanged.
-- With `cfg(lazyos_smp)` off, the lock is a zero-cost `without_interrupts`
-  wrapper — one code shape, two behaviours, no fork.
+- A CPU **takes** the lock when it enters the kernel from ring 3 (native
+  `int 0x80`, Linux `syscall`, an IRQ or exception arriving from user mode)
+  and **drops** it when it resumes ring 3. An entry from ring 0 runs under
+  the hold it interrupted (historic-BKL / paranoid-entry semantics): the
+  tick's `schedule()`, an IRQ bottom half, a fault inside the kernel.
+- A context switch **carries** the hold. Every switch is kernel to kernel (a
+  task is only ever resumed from inside the scheduler), so the task that
+  resumes needs the hold exactly as much as the one that left; the next
+  resume of ring 3 drops it. There is no release inside the switch, hence no
+  window in which the leaving task's stack is live here and its slot
+  selectable elsewhere. Kernel threads (the mux) run held from start to end.
+- Kernel code that waits **with interrupts on** and needs no lock — `nap`,
+  `exit_cpu`'s halt loop, the idle task — drops the hold before `hlt` and
+  takes it again after `cli` (S8.3b). An interrupt that lands there finds its
+  CPU not holding and takes the lock itself; this is why the rule is keyed on
+  "does this CPU hold it" and the interrupted ring together. A purely
+  ring-keyed rule had no answer for an interrupt in the idle loop, and
+  holding the lock across the `hlt` would serialize every other CPU behind
+  an idle one.
+- IPI handlers, the NMI, the spurious vector, `#DF` and the
+  interrupt-window tick never take it (window-safe: no lock but the per-CPU
+  area). IRQ bottom halves (`dev::intx::service`) run under the hold, in IRQ
+  context, exactly as today they run with interrupts off; the quiet-context
+  rule (`preempt.rs`) composes unchanged.
+- A waiter spins with interrupts off (every gate runs with them off),
+  serving its own shootdown mailbox (`smp::serve_pending`, the S8.2 rule)
+  and halting for a panic elsewhere. Ticket order, so entries are served
+  first come, first served; a 2 s watchdog panics naming the holder CPU and
+  the gate it entered by.
+- With `cfg(lazyos_smp)` off the lock compiles to empty inlines.
+
+Each gate states what it expects, and a violation panics in every
+`LAZYOS_SMP=1` kernel: a ring-3 entry finds its CPU not holding, a ring-0
+entry finds it holding (S8.3b adds the idle sites as the declared
+exception), every exit holds. That is the reason to build the lock before
+any AP runs a task: with one CPU running tasks the lock is never contended,
+so the discipline is checked across the whole suite and the desktop with no
+behaviour change.
+
+S8.3 lands in four steps, each mergeable with the suite green:
+
+- **S8.3a — the lock in every gate. Built**
+  ([`architecture/smp.md`](architecture/smp.md), "The entry lock"): the hooks
+  in `schedule`, the `int 0x80` and `syscall` dispatchers, the exception and
+  page-fault dispatchers and the `irq_gate!`/`paranoid_gate!` macros
+  (`window_safe`/`unlocked` opt out), the boot CPU's hold from
+  `kernel_main`'s first lines; `smp_entry_suite` contends for the lock from
+  the APs (exclusion over every CPU, FIFO turns, a waiter serving a
+  shootdown).
+- **S8.3b — idle and on-CPU, still one CPU running tasks.** A per-CPU idle
+  task on the boot table (the dying-table rule, `smp.md`) replaces "the
+  parked task halts in its own wait loop"; `nap`, `exit_cpu` and the idle
+  task drop the hold around `hlt`; a task that is current on one CPU is never
+  selected by another (an on-CPU mark set by `install` and cleared when its
+  CPU installs another task, both under the lock). With a global run queue
+  that mark is the whole answer to "two CPUs on one stack": a parked or
+  preempted task is not current anywhere, and a running or napping one is
+  current exactly where it runs.
+- **S8.3c — the APs schedule.** Their LAPIC tick and per-CPU event timer,
+  `RESCHED_VECTOR` for a wake whose task should preempt another CPU (or
+  whose napping task is current there), per-CPU accumulation of quota and
+  `IDLE_TICKS`, `limit.cpu_max`'s default; `LAZYOS_SMP=1` images run user
+  tasks on every CPU.
+- **S8.3d — acceptance**, the gates below.
 
 Scheduler changes (minimal in this stage): run queue and `decide` stay global
 under the entry lock; `CURRENT`/preempt state are already per-CPU (S8.1);
-each CPU gets an **idle task** (the parked-kernel-task-per-CPU that `hlt`s,
-replacing the "no idle task" note in `preempt.rs:72-76`) so a CPU with nothing
-runnable never spins holding the lock; wakeups that should preempt a *remote*
-CPU's current task send `RESCHED_VECTOR` (today `note_wake` only sets the
-local flag — the audit's most subtle row: a wake on CPU A of a task that
-belongs on CPU B must IPI B).
+each CPU gets an **idle task** (S8.3b: the parked-kernel-task-per-CPU that
+`hlt`s, replacing the "no idle task" note in `preempt.rs`) so a CPU with
+nothing runnable never halts holding the lock; wakeups that should preempt a
+*remote* CPU's current task send `RESCHED_VECTOR` (S8.3c; today `note_wake`
+only sets the local flag — the audit's most subtle row: a wake on CPU A of a
+task that belongs on CPU B must IPI B).
 
-- `arch/event_timer.rs`'s `ARMED`/`RATE` become per-CPU **here**, not in
+- `arch/event_timer.rs`'s `ARMED`/`RATE` become per-CPU **here** (S8.3c), not in
   S8.4: the one-shot deadline timer programs the *arming CPU's* LAPIC timer,
   so with N CPUs a deadline armed by a task that resumes on another CPU
   would fire late — correctness holds (the 10 ms tick sweep is the backstop,
@@ -458,7 +504,9 @@ Also in this stage:
 - `arch/irq_window.rs`: windows remain per-CPU; the contract sentence "a
   window is safe under any other lock" is re-derived in the audit doc for the
   entry lock (a window may **not** open while a *contended* entry-lock spin is
-  in progress on that CPU — the window flag gates it).
+  in progress on that CPU: as built, the spin runs with interrupts off and
+  never reaches a poll point, and a window opens only inside a syscall,
+  i.e. on the holder).
 - Quota accounting (`kernel/src/quota.rs`) and `IDLE_TICKS`: per-CPU
   accumulation, global fold, under the entry lock — no new races.
 - Tracing: the recurring evidence lines go through the trace API, not
@@ -633,9 +681,15 @@ Everything else in the audit (registries, allocator, IPC tables, VFS) is
 - **Trampoline bugs are triple-faults** — bounded SIPI retry, failed AP left
   offline, boot continues; QEMU `-d int` reproduction steps in
   `docs/architecture/smp.md`.
-- **Deadlock: entry lock held across park** — machine-checked (§4.1); the
-  park path releases by construction, and any new sleep mechanism must go
-  through `WaitQueue`/sleeplock, which the assert covers.
+- **Deadlock on the entry lock** — a park does not release it (the CPU
+  carries the hold to the task it switches to), so it is not "held across a
+  park" in the old sense; a deadlock needs a holder that waits for another
+  CPU. The only such waits are a shootdown's acks (every waiter serves its
+  mailbox from its spin) and the panic path's `STOP` (a waiter halts for
+  it); a new cross-CPU wait under the lock must do the same, or the 2 s
+  watchdog names it. Halting with interrupts on while holding (an idle CPU)
+  would starve the others: S8.3b drops the hold around every such `hlt`.
+  The `sync::Lock` assert (§4.1) covers the finer locks of S8.4 on.
 - **Spin while the owner is descheduled** — watchdog panic with owner dump
   (§4.1); `YieldMutex`'s 200 µs park strategy is *not* ported to
   `sync::Lock` (its premise dies with one CPU) — S8.6 replaces the two
@@ -707,6 +761,18 @@ park/nap/mux/handoff paths. Findings and what changed in response:
   `tools/test/run.py` gains `--smp`/`--soak`; trace-channel decisions are
   pinned (a new `Smp` row, the existing `Lock` channel, no stray `LOCKDEP:`
   prefix).
+- **S8.3a (2026-10-23).** The hold model was revised before any code: the
+  hold belongs to the CPU and a switch carries it (the "release before
+  `install`" wording let a second CPU resume a task whose stack was live),
+  and the rule is keyed on "does this CPU hold it" as well as the ring (an
+  interrupt in the idle loop). The built lock was reviewed twice (the
+  `/code-review` skill at high effort, then a fresh-context agent given only
+  the diff and the risks): fixes were a release that masks interrupts before
+  the stub's exit tail, fault gates that keep the fault's own report when
+  the CPU does not hold, one ticket-lock type for the entry and shootdown
+  locks, `tools/sync/check_entry.py` hardened to see every exit shape, a stub
+  calling the wrong callee and unlisted opt-outs, and suite cases that cannot
+  leave an AP queued behind the suite's hold or pass vacuously when filtered.
 - **Verdict recorded:** the staged entry-lock approach is the right
   stability-first strategy for this kernel; strict single-CPU remains a
   legitimate permanent alternative, which the plan's "S8.4+ may always be

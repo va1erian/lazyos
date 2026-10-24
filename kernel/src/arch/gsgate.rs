@@ -66,9 +66,38 @@ macro_rules! gate_call {
 
 /// A gate for a maskable interrupt (or a software `int`): swap on a ring-3
 /// `CS`, entering and leaving. `$stub` is the IDT address; `$target` an
-/// `extern "C" fn(&InterruptStackFrameValue)`.
+/// `extern "C" fn(&InterruptStackFrameValue)`, run under the kernel entry
+/// lock (`sync::entry`: taken from ring 3, inherited from ring 0). A
+/// `window_safe` target (the IPIs, the spurious vector: no lock but the
+/// per-CPU area) runs without it, on whatever CPU, holding or not.
 macro_rules! irq_gate {
     ($stub:ident => $target:path) => {
+        // A single-CPU kernel calls the target itself (no lock to take).
+        #[cfg(not(lazyos_smp))]
+        $crate::arch::gsgate::irq_gate!(@emit $stub, $target);
+        #[cfg(lazyos_smp)]
+        $crate::arch::gsgate::irq_gate!(@emit $stub, $stub::locked);
+        #[cfg(lazyos_smp)]
+        mod $stub {
+            #[allow(unused_imports)]
+            use super::*;
+
+            /// The target under the entry lock. The frame resumed is the
+            /// one entered (a switch inside the target comes back to it).
+            pub(super) extern "C" fn locked(
+                frame: &x86_64::structures::idt::InterruptStackFrameValue,
+            ) {
+                let cs = frame.code_segment.0 as u64;
+                $crate::sync::entry::enter(cs, frame.instruction_pointer.as_u64());
+                $target(frame);
+                $crate::sync::entry::leave(cs);
+            }
+        }
+    };
+    ($stub:ident => $target:path, window_safe) => {
+        $crate::arch::gsgate::irq_gate!(@emit $stub, $target);
+    };
+    (@emit $stub:ident, $target:path) => {
         core::arch::global_asm!(
             concat!(
                 ".global ", stringify!($stub), "\n",
@@ -91,12 +120,61 @@ macro_rules! irq_gate {
 /// A gate for an exception or NMI: swap iff `IA32_GS_BASE` is not a
 /// kernel-half address, swap back iff it swapped (its targets resume the
 /// frame they entered on, or never return). `$target` takes the frame, and
-/// the error code when `err` is given.
+/// the error code when `err` is given; it runs under the kernel entry lock
+/// (`sync::entry`), except an `unlocked` one (`#DF`: it never returns, and
+/// may land with the lock in any state).
 macro_rules! paranoid_gate {
     ($stub:ident => $target:path) => {
+        // A single-CPU kernel calls the target itself (no lock to take).
+        #[cfg(not(lazyos_smp))]
         $crate::arch::gsgate::paranoid_gate!(@emit $stub, $target, "lea rdi, [rsp + 88]\n", "");
+        #[cfg(lazyos_smp)]
+        $crate::arch::gsgate::paranoid_gate!(
+            @emit $stub,
+            $stub::locked,
+            "lea rdi, [rsp + 88]\n",
+            ""
+        );
+        #[cfg(lazyos_smp)]
+        mod $stub {
+            #[allow(unused_imports)]
+            use super::*;
+
+            /// The target under the entry lock.
+            pub(super) extern "C" fn locked(
+                frame: &x86_64::structures::idt::InterruptStackFrameValue,
+            ) {
+                let cs = frame.code_segment.0 as u64;
+                let rip = frame.instruction_pointer.as_u64();
+                $crate::sync::entry::fault_gate(cs, rip, || $target(frame), |_| cs);
+            }
+        }
     };
     ($stub:ident => $target:path, err) => {
+        #[cfg(not(lazyos_smp))]
+        $crate::arch::gsgate::paranoid_gate!(@err $stub, $target);
+        #[cfg(lazyos_smp)]
+        $crate::arch::gsgate::paranoid_gate!(@err $stub, $stub::locked);
+        #[cfg(lazyos_smp)]
+        mod $stub {
+            #[allow(unused_imports)]
+            use super::*;
+
+            /// The target under the entry lock.
+            pub(super) extern "C" fn locked(
+                frame: &x86_64::structures::idt::InterruptStackFrameValue,
+                error: u64,
+            ) {
+                let cs = frame.code_segment.0 as u64;
+                let rip = frame.instruction_pointer.as_u64();
+                $crate::sync::entry::fault_gate(cs, rip, || $target(frame, error), |_| cs);
+            }
+        }
+    };
+    ($stub:ident => $target:path, err, unlocked) => {
+        $crate::arch::gsgate::paranoid_gate!(@err $stub, $target);
+    };
+    (@err $stub:ident, $target:path) => {
         $crate::arch::gsgate::paranoid_gate!(
             @emit $stub,
             $target,

@@ -1,4 +1,4 @@
-# SMP, as built (S8.0–S8.2)
+# SMP, as built (S8.0–S8.3a)
 
 What multicore support the kernel has today, how it works, and the rules a
 change must keep. The plan and its staging are [`../smp-plan.md`](../smp-plan.md);
@@ -12,7 +12,10 @@ one CPU executes kernel code") still holds. A normal boot keeps the APs parked
 (`limit.cpu_max` defaults to 1); an image opts in with
 `LAZYOS_LIMIT_CPU_MAX=N` (`run_demo.py --limit cpu_max=N`) and QEMU `--smp N`.
 S8.3's entry lock is what lets an AP run user tasks; everything below exists
-so that step is safe.
+so that step is safe. The lock itself is built (S8.3a) and in every gate of a
+`LAZYOS_SMP=1` kernel, where it checks the hold discipline on every entry;
+with only the boot CPU running tasks it is never contended outside the
+suite.
 
 ## Bring-up
 
@@ -263,6 +266,81 @@ another online CPU's published table is the one it frees
 catches the one S8.3 can make, a CPU left behind on a table whose tasks
 exited.
 
+## The entry lock
+
+`sync::entry` (S8.3a): one ticket lock whose holder is a **CPU**, held while
+that CPU executes kernel code, so "only one CPU executes kernel code" stays
+true once several run user tasks. `LAZYOS_SMP=1` (`cfg(lazyos_smp)`) builds
+it; without it every hook is an empty inline. The boot log says which:
+`HW:SMP:ENTRY_LOCK=true|false`.
+
+The rules, applied by every gate through `entry::enter(cs)` (the
+interrupted `CS`) and `entry::leave(cs)` (the resumed one):
+
+| Event | This CPU | Effect |
+|---|---|---|
+| entry from ring 3 | not holding | takes the lock (spins if another CPU has it) |
+| entry from ring 0 | holding | inherits the hold |
+| resume of ring 3 | holding | drops the lock |
+| resume of ring 0 | holding | keeps it |
+| anything else | | panic: a gate's discipline is broken |
+
+A context switch carries the hold: the scheduler runs under it, and the task
+it resumes, kernel code by construction (every switch is kernel to kernel),
+runs under it too until it resumes ring 3. Nothing is released inside the
+switch, so a leaving task's stack is never live on this CPU while its slot is
+selectable by another. The boot CPU takes the hold in `kernel_main`'s first
+lines (the boot is kernel code); it rides into the first task. Kernel
+threads, the mux included, run held.
+
+Where the hooks are: `task::schedule` (timer and yield gates: the entry
+frame's `CS`, then the returned frame's), `process::gate::syscall_dispatch`
+(`int 0x80`), `linux_dispatch_gate` and `linux_syscall_return` (the
+`syscall` pair, always ring 3), `exception_dispatch` and
+`page_fault_dispatch` (after the suite's fault probes, which an AP takes
+holding nothing), and the `irq_gate!`/`paranoid_gate!` macros, which wrap
+their target in a generated `locked` function. Gates that never take it:
+`irq_gate!(.., window_safe)` (the three IPIs, the spurious vector),
+`paranoid_gate!(.., err, unlocked)` (`#DF`), the NMI, and the
+interrupt-window tick (`window_tick`, which runs inside a syscall's window,
+i.e. on the holder, and is window-safe anyway). An AP that only idles never
+holds it.
+
+The fault gates (`exception_dispatch`, `page_fault_dispatch`, the
+`paranoid_gate!` wrappers) go through `entry::fault_gate`, which differs in
+one case: a ring-0 fault on a CPU that does not hold the lock runs its
+handler first, so a fatal fault keeps its own report (error code, `CR2`, the
+frame dump) rather than a bare panic, and a fault that is resolved anyway
+panics before it resumes kernel code that ran unheld.
+
+`python tools/sync/check_entry.py` (CI) pins all of this: every
+`iretq`/`sysretq` outside the suite sits in an audited file, each naked stub
+calls only its listed callees and each of those calls the hooks, and every
+`window_safe`/`unlocked` gate is listed with its reason. A new stub or
+opt-out fails it until it is hooked or justified.
+
+A release masks interrupts first: the stub's code between the callee's
+return and its `iretq`/`sysretq` runs unheld, and an interrupt there would
+enter as if from held kernel code (the `iretq`/`sysretq` restores the resumed
+context's own `IF`). A broken rule's panic names the interrupted RIP.
+
+The lock is a `sync::ticket::TicketLock`, the same interrupts-off ticket lock
+the shootdown sender lock uses. A waiter spins with interrupts off, so it
+serves its shootdown mailbox (`smp::serve_pending`) and halts if another CPU
+panics; after 2 s it panics itself, naming the holder CPU and the gate
+(`file:line`) it took the lock in. The lock counts its contended
+acquisitions and the longest wait (read by the suite).
+
+Without `LAZYOS_SMP=1` the gate macros emit the bare target and the
+callees' hooks are empty inlines: the kernel behaves exactly as before, and
+its boot log says `HW:SMP:ENTRY_LOCK=false`.
+
+What S8.3a does not do yet (S8.3b): halting with interrupts on still happens
+under the hold (`nap`, `exit_cpu`, the mux's idle), which is harmless while
+only one CPU runs tasks and would serialize the others behind an idle CPU
+once several do; there is no on-CPU mark, so nothing yet stops a second CPU
+from selecting a task that is current on the first.
+
 ## Panic
 
 `panic` calls `smp::stop_others()` first: `STOP` to every other online CPU,
@@ -307,10 +385,38 @@ stale entry. The AP runs the probes as jobs in its reschedule IPI
 write would flush the entry under test. A control case changes a PTE with no
 flush and logs how many APs kept the stale translation, so the others can fail.
 
-## Known gaps (carried into S8.3)
+The entry lock's cases (`tests/smp_entry_suite.rs`, built with
+`LAZYOS_SMP=1`; without it one case checks the lock is compiled out): the
+hold rules on the boot CPU; every online CPU, the boot CPU included, running
+5000 critical sections each (200000 with `--soak`) around a deliberately
+non-atomic update, with no update lost, no two CPUs inside at once, and the
+contended count proving they really waited; an AP waiting for the lock while
+the boot CPU, holding it, sends a shootdown that the waiter must serve from
+its spin; and two queued APs getting their turns in queue order, over eight
+rounds that alternate which queues first (an unfair lock passes one round
+half the time). The cases bring the APs up themselves, so a filtered run is
+not vacuous, and every failure path drops and retakes the boot CPU's hold
+around the APs it started. Both halves were checked to fail without their
+mechanism: with the ticket wait removed a second CPU overwrites the holder
+and the release assertion fires, and with `serve_pending` removed from the
+spin the boot CPU's shootdown panics waiting for the waiter's ack. The whole
+suite running under the lock (`LAZYOS_SMP=1 python tools/test/run.py --accel
+none --smp 4`) is the check of the gates' discipline: a gate that enters or
+leaves wrongly panics the run.
 
-- `limit.cpu_max` stays 1 by default; S8.3 decides whether the MADT count
+## Known gaps (carried into S8.3b)
+
+- `limit.cpu_max` stays 1 by default; S8.3c decides whether the MADT count
   becomes the default.
+- The entry lock is held across every `hlt` with interrupts on (`nap`,
+  `exit_cpu`, the mux's idle) and there is no on-CPU mark: both are S8.3b,
+  and both must land before an AP runs a task.
+- Today no AP takes the entry lock (outside the suite): every vector that
+  can reach an AP is window-safe (LAPIC timer masked, I/O APIC and MSI aimed
+  at the boot CPU). That is what makes the boot CPU's waits for an AP
+  (`finish_on`, a shootdown) safe while it holds the lock; routing a locked
+  vector to an AP before S8.3c would deadlock them, caught only by the 2 s
+  watchdog. The NMI's `HANG:LOCKS` report does not list the entry lock yet.
 - The rules S8.3 must keep, recorded above: every interrupts-off spin calls
   `smp::serve_pending`; the idle task runs on the boot table; nothing sends
   an IPI from an NMI but the panic path.

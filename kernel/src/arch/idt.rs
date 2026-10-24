@@ -116,7 +116,7 @@ pub(super) fn gate(stub: unsafe extern "C" fn()) -> x86_64::VirtAddr {
     x86_64::VirtAddr::new(stub as *const () as u64)
 }
 
-irq_gate!(lapic_spurious_gate => lapic_spurious_handler);
+irq_gate!(lapic_spurious_gate => lapic_spurious_handler, window_safe);
 irq_gate!(keyboard_gate => keyboard_handler);
 irq_gate!(mouse_gate => mouse_handler);
 
@@ -258,11 +258,28 @@ extern "C" {
     fn general_protection_isr();
 }
 
+/// `exception_isr`'s call: the entry lock around [`resolve_exception`]
+/// (`sync::entry`). The resumed frame is the one the fault saved (possibly
+/// rewritten), in the same layout, so its `CS` sits where the entry's did.
+#[no_mangle]
+extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
+    // `#GP` pushes an error code: RIP is word 16, CS word 17; else 15 and 16.
+    let cs_index = if vector == 13 { 17 } else { 16 };
+    // SAFETY: `rsp` is the frame `exception_isr` saved (15 registers, the
+    // optional error code, then the CPU's frame), and so is the resumed one.
+    let word = |frame: u64, index| unsafe { crate::task::sys::frame_word(frame, index) };
+    crate::sync::entry::fault_gate(
+        word(rsp, cs_index),
+        word(rsp, cs_index - 1),
+        || resolve_exception(rsp, vector),
+        |&resumed| word(resumed, cs_index),
+    )
+}
+
 /// Resolve `#DE`/`#UD`/`#GP`: a ring-3 fault enters the process's signal
 /// handler when it has one and otherwise ends the process; a ring-0 fault
 /// halts with a diagnostic. Returns the frame pointer to resume.
-#[no_mangle]
-extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
+fn resolve_exception(rsp: u64, vector: u64) -> u64 {
     let (exception, fault, name) = match vector {
         0 => (Exception::DivideError, Fault::DivideError, "divide error"),
         6 => (
@@ -297,11 +314,33 @@ extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
     crate::halt();
 }
 
+/// `page_fault_isr`'s call: the entry lock around [`resolve_page_fault`]
+/// (`sync::entry`). The resumed frame is the faulting one (possibly
+/// rewritten), so its `CS` is word 17 as on entry.
+#[no_mangle]
+extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
+    // The suite's fault-recovering probes (test kernels only), before the
+    // lock: an AP runs them in an IPI job, holding nothing, while the boot
+    // CPU holds the lock and waits for the job.
+    #[cfg(lazyos_tests)]
+    if crate::arch::probe::recover(rsp) {
+        return rsp;
+    }
+    // SAFETY: `rsp` is the frame `page_fault_isr` saved (15 registers, the
+    // error code, then RIP and CS), and so is the resumed one.
+    let word = |frame: u64, index| unsafe { crate::task::sys::frame_word(frame, index) };
+    crate::sync::entry::fault_gate(
+        word(rsp, 17),
+        word(rsp, 16),
+        || resolve_page_fault(rsp),
+        |&resumed| word(resumed, 17),
+    )
+}
+
 /// Resolve a page fault: COW copy, demand-zero page, or `SIGSEGV` into a
 /// handler. Returns the (possibly rewritten) frame pointer to resume; without
 /// a handler the diagnostic halt stays, exactly as before signals.
-#[no_mangle]
-extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
+fn resolve_page_fault(rsp: u64) -> u64 {
     // Frame: 15 general registers, then the error code, RIP, CS, RFLAGS, RSP, SS.
     // Safety: `rsp` points at the page-fault frame `page_fault_isr` saved,
     // whose fixed layout puts the CPU-pushed error code at word 15.
@@ -311,11 +350,6 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     // SAFETY: `rsp` is the frame `page_fault_isr` saved; CS is word 17 (after
     // the 15 registers, the error code and RIP).
     let saved_cs = unsafe { core::ptr::read_volatile((rsp + 17 * 8) as *const u64) };
-    // The suite's fault-recovering probes (test kernels only).
-    #[cfg(lazyos_tests)]
-    if crate::arch::probe::recover(rsp) {
-        return rsp;
-    }
 
     // A hypervisor-fabricated fault on the emulated `rep insw` (its CR2 and
     // error code are garbage) aborts that transfer; it must be caught before

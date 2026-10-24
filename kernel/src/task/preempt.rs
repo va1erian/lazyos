@@ -325,6 +325,8 @@ pub fn exit_cpu() -> ! {
 extern "C" fn linux_syscall_return() {
     crate::dev::intx::service();
     preempt_point();
+    // Back to ring 3: drop the entry lock `linux_dispatch_gate` took.
+    crate::sync::entry::leave_user();
 }
 
 // ---------------------------------------------------------------------------

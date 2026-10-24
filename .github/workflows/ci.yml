@@ -74,6 +74,8 @@ jobs:
       - run: python tools/sync/test_check_locks.py
       - run: python tools/sync/check_tlb.py
       - run: python tools/sync/test_check_tlb.py
+      - run: python tools/sync/check_entry.py
+      - run: python tools/sync/test_check_entry.py
 
   fhs:
     # Well-known paths come from libs/fhs, never string literals (F0).
