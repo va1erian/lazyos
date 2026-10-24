@@ -101,15 +101,13 @@ fn park() {
 fn yield_and_halt() {
     let enabled = interrupts::are_enabled();
     super::switch::yield_now();
+    // Let one interrupt in (the tick that wakes a parked holder or its
+    // driver), with the entry lock dropped (S8.3b), then restore the
+    // caller's interrupt state.
+    interrupts::disable();
+    crate::arch::irqoff::paused(crate::sync::entry::halt);
     if enabled {
-        x86_64::instructions::hlt();
-    } else {
-        // Let one interrupt in (the tick that wakes a parked holder or
-        // its driver), then restore the caller's interrupt state.
-        crate::arch::irqoff::paused(|| {
-            interrupts::enable_and_hlt();
-            interrupts::disable();
-        });
+        interrupts::enable();
     }
 }
 

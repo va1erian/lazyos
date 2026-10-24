@@ -273,10 +273,11 @@ pub fn derived_defaults_scale() -> Result<(), String> {
     Ok(())
 }
 
-/// `task_max` follows RAM one slot per MiB, between 256 and the table's 1024;
-/// the table size is the ceiling a config value is clamped to.
+/// `task_max` follows RAM one slot per MiB, between 256 and the task slots
+/// (the table's 1024 less one idle slot per CPU, `task::idle`); that is the
+/// ceiling a config value is clamped to.
 pub fn task_max_defaults() -> Result<(), String> {
-    let table = crate::task::MAX_TASKS as u64;
+    let table = crate::task::idle::TASK_SLOTS as u64;
     for (ram, want) in [
         (64 * MIB, 256),
         (256 * MIB, 256),

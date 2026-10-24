@@ -135,12 +135,13 @@ pub const KEYS: [Key; COUNT] = [
         bytes: true,
     },
     // Below 64 the boot services and the desktop do not fit; the table
-    // itself (`task::MAX_TASKS`) is the ceiling. A slot costs a 48 KiB kernel
-    // stack from the heap only while a task occupies it.
+    // minus the per-CPU idle slots (`task::idle::TASK_SLOTS`) is the
+    // ceiling. A slot costs a 48 KiB kernel stack from the heap only while a
+    // task occupies it.
     Key {
         name: "task_max",
         min: 64,
-        max: crate::task::MAX_TASKS as u64,
+        max: crate::task::idle::TASK_SLOTS as u64,
         bytes: false,
     },
     // One CPU until the kernel brings the APs up (`docs/smp-plan.md` S8.2,

@@ -37,6 +37,19 @@ class CheckEntry(unittest.TestCase):
                 check_entry.scan(root), {"a.rs": 1, "b.rs": 1, "c.rs": 1, "d.rs": 1}
             )
 
+    def test_a_bare_halt_fails(self):
+        tmp, root = tree(
+            {
+                "task/new.rs": "fn wait() { interrupts::enable_and_hlt(); }\n",
+                "tests/t.rs": "fn probe() { enable_and_hlt(); }\n",
+                "a.rs": "// never enable_and_hlt() here\n",
+            }
+        )
+        with tmp:
+            found = check_entry.halts(root)
+            self.assertEqual(found, {"task/new.rs": 1})
+            self.assertTrue(any("task/new.rs" in p for p in check_entry.halt_problems(found)))
+
     def test_a_new_stub_fails(self):
         tmp, root = tree({"dev/new.rs": 'global_asm!("new_isr:\\n call handler\\n iretq\\n");\n'})
         with tmp:

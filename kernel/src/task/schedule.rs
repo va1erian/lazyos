@@ -109,6 +109,8 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
         if tick && code_segment & 3 == 3 {
             task.guard.note_user_tick();
         }
+    } else if idle::is_idle(cur) {
+        idle::save_rsp(cur, current_rsp);
     }
     #[cfg(lazyos_tests)]
     runq::verify(&tasks);
@@ -190,8 +192,9 @@ pub(super) fn flag_finished(tasks: &[Option<Task>; MAX_TASKS], cur: usize) {
 /// Install `next` and return the stack pointer to resume it with, delivering
 /// the signals its own address space had to be installed for. If that
 /// delivery ends the task (no frame can be built), pick again: a finished
-/// task is never resumed into user mode. `cur` is the fallback when nothing
-/// else is runnable, exactly as in `select_next`.
+/// task is never resumed into user mode. With nothing else runnable the
+/// fallback is this CPU's idle context ([`sched::fallback`]), exactly as in
+/// `select_next`.
 fn resume(mut next: usize, cur: usize) -> u64 {
     loop {
         // The sweep's group exit (`finish_sweep`) runs after `next` was
@@ -199,14 +202,18 @@ fn resume(mut next: usize, cur: usize) -> u64 {
         // finished task into user mode.
         {
             let mut tasks = TASKS.lock();
-            if next != cur && !runnable(&tasks, next) {
+            if next != cur && !idle::is_idle(next) && !runnable(&tasks, next) {
                 next = select_next(&mut tasks, cur);
                 if !runnable(&tasks, next) {
-                    next = cur;
+                    next = sched::fallback(cur);
                 }
             }
         }
         let rsp = install(next);
+        if idle::is_idle(next) {
+            // No signals, no address space of its own.
+            return rsp;
+        }
         let Some(ended) = signal::deliver_on_resume(next) else {
             // The delivery may have stopped the task (a default stop parks
             // it): resuming it would run a task the table says is blocked.
@@ -215,41 +222,59 @@ fn resume(mut next: usize, cur: usize) -> u64 {
                 return rsp;
             }
             let other = select_next(&mut tasks, next);
-            if other == next || !runnable(&tasks, other) {
+            next = if other != next && runnable(&tasks, other) {
+                other
+            } else {
+                sched::fallback(next)
+            };
+            if next == current() {
+                // No idle context on this CPU yet: the stopped task naps in
+                // its wait loop, as before S8.3b.
                 return rsp;
             }
-            next = other;
             continue;
         };
         signal::finish_sweep(&[ended]);
         let mut tasks = TASKS.lock();
         next = select_next(&mut tasks, next);
         if !runnable(&tasks, next) {
-            next = cur;
+            next = sched::fallback(cur);
         }
     }
 }
 
 /// Make `slot` the current task: its address space, the ring-0 stack the next
-/// user trap uses, and its thread pointer. Returns its saved `rsp`.
+/// user trap uses, and its thread pointer. Returns its saved `rsp`. An idle
+/// context (`task::idle`) runs on the boot table and never enters ring 3.
 fn install(slot: usize) -> u64 {
     let prev = current();
     let (pml4, kstack_top, rsp, fs_base, prev_runnable) = {
         let tasks = TASKS.lock();
-        // INVARIANT: `slot` came from `select_next` (or is the interrupted
-        // task), so it is occupied; `tasks` was locked continuously around
-        // that selection on today's single-CPU scheduler. Revisit if SMP
-        // (platform-plan.md S8) introduces a window where another core can
-        // clear a slot without holding this same lock across the whole span.
-        #[allow(clippy::unwrap_used)]
-        let task = tasks[slot].as_ref().unwrap();
-        (
-            task.pml4,
-            task.kstack_top,
-            task.rsp,
-            task.fs_base,
-            runnable(&tasks, prev),
-        )
+        let prev_runnable = runnable(&tasks, prev);
+        if idle::is_idle(slot) {
+            (
+                mem::boot_table().as_u64(),
+                0,
+                idle::rsp(slot),
+                0,
+                prev_runnable,
+            )
+        } else {
+            // INVARIANT: `slot` came from `select_next` (or is the
+            // interrupted task), so it is occupied; `tasks` was locked
+            // continuously around that selection, and every CPU's scheduler
+            // runs under the entry lock (`sync::entry`), so no other CPU can
+            // clear the slot in between.
+            #[allow(clippy::unwrap_used)]
+            let task = tasks[slot].as_ref().unwrap();
+            (
+                task.pml4,
+                task.kstack_top,
+                task.rsp,
+                task.fs_base,
+                prev_runnable,
+            )
+        }
     };
     set_current(slot);
     crate::perf::on_run(slot, prev, prev_runnable);
@@ -292,12 +317,11 @@ pub fn expire_due() {
 /// Book one timer period to whoever consumed it: the current task when it
 /// was runnable, otherwise the idle counter.
 ///
-/// There is no idle task. When nothing is runnable, `pick_next` resumes the
-/// parked task so it can `hlt` in its wait loop, and the CPU sits there with
-/// `CURRENT` pointing at a `Blocked` slot. Charging that slot would make a
-/// sleeping task look busy and every monitor read 100 % load, so a tick that
-/// lands on a blocked task is idle time (`IDLE_TICKS`) instead. Voluntary
-/// entries consume no timer period and are not charged at all.
+/// When nothing is runnable the CPU runs its idle context (`task::idle`),
+/// whose slot the table leaves empty: a tick that lands there is idle time
+/// (`IDLE_TICKS`). So is a tick on a blocked or finished slot, which only
+/// the suite's harness makes current now. Voluntary entries consume no
+/// timer period and are not charged at all.
 pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
     match tasks[cur].as_mut() {
         // A `Done` task stays `cur` as the idle fallback (`pick_next`, the

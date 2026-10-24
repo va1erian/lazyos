@@ -27,6 +27,8 @@ class FakeQmp:
         self.calls += 1
         if self.fail:
             raise RuntimeError("gone")
+        if command == "inject-nmi":
+            return {}
         assert command == "human-monitor-command"
         assert arguments == {"command-line": "info registers -a"}
         return f"RAX=0000 {RIP}\nRIP junk"
@@ -57,7 +59,8 @@ class StallReport(unittest.TestCase):
         self.assertIn("test in flight: a", report)
         self.assertIn("some line", report)
         self.assertIn("ffff800000123456", report)
-        self.assertEqual(qmp.calls, 3)
+        self.assertEqual(qmp.calls, 4)
+        self.assertIn("NMI sent", report)
 
     def test_without_qmp_and_with_a_dead_qmp(self):
         self.assertIn("no QMP", serialwatch.stall_report("", 1.0, None))

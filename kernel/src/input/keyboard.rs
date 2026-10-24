@@ -207,17 +207,6 @@ pub fn try_read_key() -> Option<Key> {
     x86_64::instructions::interrupts::without_interrupts(|| QUEUE.lock().pop_front())
 }
 
-/// Block until a key is available (interrupts must be enabled).
-#[allow(dead_code)]
-pub fn read_key() -> Key {
-    loop {
-        if let Some(key) = try_read_key() {
-            return key;
-        }
-        x86_64::instructions::hlt();
-    }
-}
-
 fn decode_extended(code: u8) -> Option<Key> {
     Some(match code {
         0x48 => Key::Up,

@@ -285,6 +285,7 @@ mod service_suite;
 mod signal_suite;
 mod slab_suite;
 mod smp_entry_suite;
+mod smp_idle_suite;
 mod smp_ipi_suite;
 mod smp_space_suite;
 mod smp_suite;

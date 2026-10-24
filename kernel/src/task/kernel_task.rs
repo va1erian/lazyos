@@ -36,4 +36,9 @@ pub fn register_kernel() {
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, KERNEL_TASK);
+    drop(tasks);
+    // What this CPU runs when nothing is runnable, and the mark that says
+    // it runs the kernel task now (S8.3b).
+    super::idle::ensure_here();
+    set_current(current());
 }

@@ -14,7 +14,11 @@ unserialized once the APs run tasks, so this lint pins it:
 * each naked stub file calls exactly the callees STUB_CALLS names, and each
   of those callees calls the entry hooks (HOOKED);
 * every `window_safe`/`unlocked` gate (which takes no lock) is listed in
-  OPT_OUTS with the reason it may run unlocked.
+  OPT_OUTS with the reason it may run unlocked;
+* every halt with interrupts on (`enable_and_hlt`) sits in `sync::entry`
+  (HALTS): kernel code waits for an interrupt through `sync::entry::halt`,
+  which drops the hold around the `hlt` (S8.3b). A bare one would sleep
+  holding the lock and keep every other CPU out of the kernel meanwhile.
 
 The window-safe exits (the NMI's, the trampoline's early NMI stub) take no
 lock and are listed with that reason. The checks are textual: they catch a
@@ -83,6 +87,14 @@ OPT_OUT = re.compile(
     r"(?:irq_gate|paranoid_gate)!\s*\(\s*(\w+)\s*=>[^;]*?,\s*(?:window_safe|unlocked)\s*\)"
 )
 CALL = re.compile(r"\bcall\s+([A-Za-z_]\w*)")
+
+# A halt with interrupts on, and where it may be: `sync::entry::halt` and its
+# single-CPU stub.
+HALT = re.compile(r"\benable_and_hlt\s*\(")
+HALTS = {
+    "sync/entry/imp.rs": 1,  # `halt`: marks, releases, halts, re-takes
+    "sync/entry.rs": 1,  # the single-CPU stub of `halt`: nothing to release
+}
 
 
 def strip_comments(text: str) -> str:
@@ -192,8 +204,38 @@ def opt_out_problems(found: set[tuple[str, str]]) -> list[str]:
     return out
 
 
+def halts(root: Path = KERNEL) -> dict[str, int]:
+    """`enable_and_hlt` calls per file, the suite excluded."""
+    found: dict[str, int] = {}
+    for rel in kernel_files(root):
+        count = len(HALT.findall(source(root, rel) or ""))
+        if count:
+            found[rel] = count
+    return found
+
+
+def halt_problems(found: dict[str, int]) -> list[str]:
+    out = [
+        f"{rel}: {count} enable_and_hlt, {HALTS.get(rel, 0)} allowed: halt through "
+        "sync::entry::halt, which drops the entry lock around the hlt"
+        for rel, count in sorted(found.items())
+        if count > HALTS.get(rel, 0)
+    ]
+    out += [
+        f"{rel}: allows {allowed} enable_and_hlt but holds {found.get(rel, 0)}: lower HALTS"
+        for rel, allowed in HALTS.items()
+        if found.get(rel, 0) < allowed
+    ]
+    return out
+
+
 def problems(found: dict[str, int], root: Path = KERNEL) -> list[str]:
-    return exit_problems(found) + call_problems(root) + opt_out_problems(opt_outs(root))
+    return (
+        exit_problems(found)
+        + call_problems(root)
+        + opt_out_problems(opt_outs(root))
+        + halt_problems(halts(root))
+    )
 
 
 def main() -> int:

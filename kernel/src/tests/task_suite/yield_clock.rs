@@ -69,10 +69,10 @@ pub fn yield_does_not_tick() -> Result<(), String> {
     Ok(())
 }
 
-/// A tick that lands on a parked task is idle time, not CPU time. There is
-/// no idle task: when nothing is runnable the parked task stays current
-/// while the CPU halts, so charging it would make a quiet system read 100 %
-/// busy. Soaks both directions (blocked, then runnable again) many times so
+/// A tick that lands on a parked task is idle time, not CPU time. A CPU
+/// with nothing runnable runs its idle context now (`task::idle`), but the
+/// harness can still make a parked task current, and charging it would make
+/// a quiet system read 100 % busy. Soaks both directions (blocked, then runnable again) many times so
 /// the counters are shown to move in lock-step with the state, never both.
 pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     fresh();

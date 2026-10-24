@@ -63,6 +63,14 @@ def stall_report(text: str, silent_for: float, qmp: Any) -> str:
         *[f"STALL:   {line}" for line in tail],
         "STALL: guest RIP samples: " + (", ".join(sample_rips(qmp)) or "no QMP"),
     ]
+    if qmp is not None:
+        # The kernel's NMI handler prints its `HANG:` view (the scheduler's
+        # last tick, every task, the locks) to the serial log.
+        try:
+            qmp.execute("inject-nmi")
+            lines.append("STALL: NMI sent: the HANG: lines follow in the serial log")
+        except Exception as exc:
+            lines.append(f"STALL: NMI not sent ({exc})")
     return "\n".join(lines)
 
 
