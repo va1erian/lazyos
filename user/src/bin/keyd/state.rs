@@ -238,29 +238,25 @@ impl Keyd {
 
     /// Check a password against the stored verifier for `user`.
     ///
-    /// The comparison is over freshly derived verifiers, and the candidate
-    /// derivation runs even for an unknown user only when an account exists:
-    /// an unknown user returns immediately (the accounts service will add
-    /// constant-time failure later; there is no account enumeration surface in
-    /// this demo).
+    /// The comparison is over freshly derived verifiers. If `user` is not in
+    /// `self.accounts`, a dummy Argon2id derivation is performed over a dummy
+    /// salt and verifier to prevent account enumeration via timing attacks.
     pub(crate) fn verify(&mut self, user: &str, secret: &str) -> bool {
-        // Copy the account's salt and verifier out before borrowing the arena
-        // mutably: the derivation writes into the reusable block memory.
-        let Some((salt, verifier)) = self
+        let dummy_salt = [0u8; SALT_LEN];
+        let dummy_verifier = [0u8; kdf::VERIFIER_LEN];
+        let (salt, verifier, found) = self
             .accounts
             .iter()
             .find(|account| account.user == user)
-            .map(|account| (account.salt, account.verifier))
-        else {
-            return false;
-        };
+            .map(|account| (account.salt, account.verifier, true))
+            .unwrap_or((dummy_salt, dummy_verifier, false));
         let mut candidate = [0u8; kdf::VERIFIER_LEN];
         let res = if self
             .kdf
             .derive(secret.as_bytes(), &salt, &mut candidate)
             .is_ok()
         {
-            constant_time_eq(&candidate, &verifier)
+            constant_time_eq(&candidate, &verifier) && found
         } else {
             false
         };
