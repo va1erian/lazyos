@@ -19,6 +19,7 @@ members = [
     "crates/paint",
     "crates/explorer",
     "crates/settings",
+    "crates/cursored",
     "crates/confd-editor",
     "crates/testkit",
     # LazyWriter's portable core (issue #533); `src/bin/writer.rs` hosts it.
@@ -179,6 +180,7 @@ xui-videoview = { path = "crates/videoview" }
 lazyterm = { path = "crates/term" }
 # The Settings app core (sections, config seam, UI); the binary supplies confd.
 xui-settings = { path = "crates/settings" }
+xui-cursored = { path = "crates/cursored" }
 # The desktop theme schema (`GetTheme`'s `mode` names), shared with `xuid`.
 uitheme = { path = "../libs/uitheme" }
 # The Config app core (registry tree editor); the binary supplies confd.
@@ -460,3 +462,7 @@ path = "src/bin/webdbrowse.rs"
 [[bin]]
 name = "xui-webdattack"
 path = "src/bin/webdattack.rs"
+
+[[bin]]
+name = "xui-cursored"
+path = "src/bin/cursored.rs"

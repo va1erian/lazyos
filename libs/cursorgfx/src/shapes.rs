@@ -13,6 +13,11 @@ type Poly = Vec<(i32, i32)>;
 
 const LIGHT: u32 = 240;
 
+/// A grey as `0xRRGGBB`.
+fn grey(level: u32) -> u32 {
+    level << 16 | level << 8 | level
+}
+
 /// Half-cell points to a design-unit polygon.
 fn poly(half_cells: &[(i32, i32)]) -> Poly {
     half_cells.iter().map(|&(x, y)| (x * 8, y * 8)).collect()
@@ -88,7 +93,8 @@ fn rotated(points: &[(i32, i32)], c: i32, s: i32) -> Poly {
 fn solid(polys: Vec<Poly>) -> Vec<Layer> {
     vec![Layer {
         polys,
-        grey: LIGHT,
+        fill: grey(LIGHT),
+        outline: 0,
         thin: false,
     }]
 }
@@ -119,7 +125,8 @@ fn spinner(frame: u32) -> Vec<Layer> {
                 .collect();
             Layer {
                 polys: vec![dot],
-                grey: LIGHT - age * 24,
+                fill: grey(LIGHT - age * 24),
+                outline: 0,
                 thin: true,
             }
         })
@@ -151,12 +158,12 @@ pub(crate) fn layers(shape: Shape, frame: u32) -> Vec<Layer> {
     }
 }
 
-/// The pointer position in whole grid cells: the arrow's tip, the hand's
+/// The pointer position in design units: the arrow's tip, the hand's
 /// fingertip, the centre of everything else.
-pub(crate) fn hotspot(shape: Shape) -> (u32, u32) {
+pub(crate) fn hotspot(shape: Shape) -> (i32, i32) {
     match shape {
         Shape::Default | Shape::Busy => (0, 0),
-        Shape::Hand => (14, 2),
-        _ => (16, 16),
+        Shape::Hand => (14 * 16, 2 * 16),
+        _ => (256, 256),
     }
 }

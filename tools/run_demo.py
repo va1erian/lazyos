@@ -126,11 +126,11 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
-    "xui-calc.elf",
-    "xui-pdf.elf",
+    "xui-calc.elf", "xui-pdf.elf",
     "xui-volume.elf",
     "xui-video.elf",
     "xui-about.elf",
+    "xui-cursored.elf",
 )]
 # LazyGolf and the NES Player: only `--games` images (xui_embed.rs GAMES_XUI_APPS).
 GAMES_APPS = [ROOT / "target" / "xui" / n for n in ("xui-golf.elf", "xui-nes.elf")]

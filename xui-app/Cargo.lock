@@ -5849,6 +5849,7 @@ dependencies = [
  "xui-code-editor",
  "xui-confd-editor",
  "xui-core",
+ "xui-cursored",
  "xui-explorer",
  "xui-golf",
  "xui-icons",
@@ -5933,6 +5934,17 @@ source = "git+https://github.com/va1erian/xui?rev=71dc3b5903ac94dba00466a6d6a00d
 dependencies = [
  "png 0.17.16",
  "zune-jpeg",
+]
+
+[[package]]
+name = "xui-cursored"
+version = "0.1.0"
+dependencies = [
+ "confd",
+ "cursorgfx",
+ "uitheme",
+ "xui-canvas",
+ "xui-core",
 ]
 
 [[package]]

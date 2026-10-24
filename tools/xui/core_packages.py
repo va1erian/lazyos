@@ -190,6 +190,8 @@ CORE_APPS: dict[str, CoreApp] = {
     # (`python tools/webd/attack_run.py`). Lists only `os.lazy.webd.view.v1`, so the kernel refuses
     # the net and browser scopes it tries. Only a `LAZYOS_WEBDDEMO=1` image ships it.
     "webdattack": xui_app("xui-webdattack.elf", "webdattack", optional=True),
+    # Cursor Studio: Draw the mouse pointer.
+    "cursored": xui_app("xui-cursored.elf", "cursored"),
 }
 
 #: `pkgd`'s largest package file (`user/src/bin/pkgd/store.rs` MAX_PACKAGE_FILE).

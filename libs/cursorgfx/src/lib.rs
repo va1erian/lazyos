@@ -13,8 +13,12 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod format;
 mod raster;
 mod shapes;
+pub mod theme;
+
+pub use theme::{LayerDef, ShapeDef, Theme};
 
 use alloc::vec::Vec;
 
@@ -101,23 +105,39 @@ fn clamp_px(px: u32) -> u32 {
 /// `frame` selects the busy spinner's rotation (`frame % BUSY_FRAMES`) and is
 /// ignored by every other shape. `px` is clamped to 8..=256.
 pub fn render(shape: Shape, px: u32, frame: u32) -> Sprite {
+    let (hx, hy) = shapes::hotspot(shape);
+    draw(shapes::layers(shape, frame % BUSY_FRAMES), (hx, hy), px)
+}
+
+/// Like [`render`], but `theme`'s drawing of `shape` replaces the built-in
+/// one when it has one (it is then static: `frame` is ignored).
+pub fn render_themed(theme: &Theme, shape: Shape, px: u32, frame: u32) -> Sprite {
+    match &theme.shapes[shape as usize] {
+        Some(def) if def.is_valid() => draw(def.to_layers(), def.hot, px),
+        _ => render(shape, px, frame),
+    }
+}
+
+fn draw(layers: Vec<raster::Layer>, hot: (i32, i32), px: u32) -> Sprite {
     let px = clamp_px(px);
     let m = margin(px);
     let side = px + 2 * m;
-    let layers = shapes::layers(shape, frame % BUSY_FRAMES);
     let mut pixels: Vec<u32> = alloc::vec![0u32; (side * side) as usize];
     for layer in &layers {
         raster::draw_layer(&mut pixels, side, m, px, layer);
     }
-    let (hx, hy) = shapes::hotspot(shape);
+    let design = theme::DESIGN as u32;
+    let at = |v: i32| (v.clamp(0, theme::DESIGN) as u32) * px / design;
     Sprite {
         w: side,
         h: side,
-        hot_x: m + hx * px / 32,
-        hot_y: m + hy * px / 32,
+        hot_x: m + at(hot.0),
+        hot_y: m + at(hot.1),
         pixels,
     }
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod theme_tests;

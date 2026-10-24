@@ -1,0 +1,28 @@
+# Cursor Studio: a core LazyOS app, packaged by `tools/xui/build.py`
+# (scaffolded by `tools/xui/new_app.py`).
+#
+# `bin/cursored.elf` is not checked in: the build copies the built xui app
+# into a scratch copy of this tree. `version` is replaced by the workspace
+# version and `autostart` is set from `LAZYOS_XUI_AUTOSTART`.
+
+[app]
+name = "Cursor Studio"
+system_name = "os.lazy.cursored"
+author = "LazyOS"
+version = "0.1.0"
+description = "Draw the mouse pointer"
+category = "graphics"
+
+[entry]
+binary = "bin/cursored.elf"
+# A desktop app is a client of the `xuid` compositor, not the display owner.
+args = ["--client"]
+# A static musl program: `init` starts it under the Linux ABI personality.
+abi = "linux"
+autostart = false
+
+[permissions]
+# The display and input every window needs, and confd for the per-user
+# `ui/cursor/theme` key Apply writes. Checked with a run under
+# `LAZYOS_LABEL_TRACE=1` (AGENTS.md): no `LABEL:DENY`.
+interfaces = ["os.lazy.display.v1", "os.lazy.display.cursor.v1", "os.lazy.input.v1", "os.lazy.confd.v1"]

@@ -177,6 +177,11 @@ pub const PACKAGES: &[(&str, Art)] = &[
         "xui-app/packages/webdattack",
         Art::Lucide(Lucide::AppWindow, Tone::Teal),
     ),
+    // Cursor Studio: scaffolded with a placeholder; pick its art.
+    (
+        "xui-app/packages/cursored",
+        Art::Lucide(Lucide::AppWindow, Tone::Teal),
+    ),
 ];
 
 /// `art` drawn on a transparent `size` x `size` square.

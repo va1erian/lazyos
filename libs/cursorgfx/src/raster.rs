@@ -10,12 +10,14 @@ pub(crate) const SUB: u32 = 64;
 /// Subsamples per pixel side.
 const SS: i64 = 4;
 
-/// One polygon set drawn in one grey, with a dark outline outside it.
+/// One polygon set drawn in one colour, with an outline outside it.
 pub(crate) struct Layer {
     /// Polygons in design units (1/16 of a grid cell, 512 per side).
     pub polys: Vec<Vec<(i32, i32)>>,
-    /// The fill grey (0..=255); the outline is always black.
-    pub grey: u32,
+    /// The fill colour, `0xRRGGBB`.
+    pub fill: u32,
+    /// The outline colour, `0xRRGGBB`.
+    pub outline: u32,
     /// A thinner outline (the spinner's dots).
     pub thin: bool,
 }
@@ -208,10 +210,6 @@ fn edge_dist2_bounded(prep: &PreparedLayer, p: Pt, limit: i64) -> i64 {
     best
 }
 
-fn edge_dist2(prep: &PreparedLayer, p: Pt) -> i64 {
-    edge_dist2_bounded(prep, p, i64::MAX)
-}
-
 /// Composite `layer` over `pixels` (a `side x side` premultiplied ARGB sprite
 /// whose design square starts `margin` pixels in).
 pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, layer: &Layer) {
@@ -241,7 +239,9 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
         for i in min_i..max_i {
             let origin = (i * sub - margin_sub, j * sub - margin_sub);
             let centre = (origin.0 + sub / 2, origin.1 + sub / 2);
-            let d2 = edge_dist2(&prep, centre);
+            // Only "farther than `near`" matters past that, so the search
+            // stops at the bound instead of walking every edge.
+            let d2 = edge_dist2_bounded(&prep, centre, near + 1);
             let is_in = inside(&prep, centre);
             let (fill, dil) = if is_in && d2 > full {
                 (16, 16)
@@ -254,12 +254,22 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
                 continue;
             }
             let alpha = (dil * 255 / 16) as u32;
-            let rgb = (fill * layer.grey as i64 / 16) as u32;
-            let src = alpha << 24 | rgb << 16 | rgb << 8 | rgb;
+            let src = alpha << 24
+                | mix_channel(fill, dil, layer, 16) << 16
+                | mix_channel(fill, dil, layer, 8) << 8
+                | mix_channel(fill, dil, layer, 0);
             let dst = &mut pixels[(j * side as i64 + i) as usize];
             *dst = over(src, *dst);
         }
     }
+}
+
+/// One premultiplied channel of a pixel with `fill` body samples and `dil -
+/// fill` outline samples out of 16.
+fn mix_channel(fill: i64, dil: i64, layer: &Layer, shift: u32) -> u32 {
+    let body = i64::from((layer.fill >> shift) & 0xff);
+    let edge = i64::from((layer.outline >> shift) & 0xff);
+    ((fill * body + (dil - fill) * edge) / 16) as u32
 }
 
 /// `(fill, dilated)` sample counts out of 16 for the pixel at `origin`.

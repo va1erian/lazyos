@@ -152,6 +152,8 @@ const DOCUMENT_XUI_APPS: &[&str] = &[
     "xui-video.elf",
     // About LazyOS: About LazyOS, with a real-time 3D renderer.
     "xui-about.elf",
+    // Cursor Studio: Draw the mouse pointer.
+    "xui-cursored.elf",
 ];
 
 /// Desktop apps shipped when they were built, and skipped (with a build
