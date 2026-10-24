@@ -16,9 +16,11 @@ unserialized once the APs run tasks, so this lint pins it:
 * every `window_safe`/`unlocked` gate (which takes no lock) is listed in
   OPT_OUTS with the reason it may run unlocked;
 * every halt with interrupts on (`enable_and_hlt`) sits in `sync::entry`
-  (HALTS): kernel code waits for an interrupt through `sync::entry::halt`,
-  which drops the hold around the `hlt` (S8.3b). A bare one would sleep
-  holding the lock and keep every other CPU out of the kernel meanwhile.
+  (HALTS): kernel code that holds no lock waits for an interrupt through
+  `sync::entry::halt`, which drops the hold around the `hlt` (S8.3b); code
+  that may hold other locks uses `halt_holding`, which keeps it (dropping it
+  would let another CPU in to spin on one of them). A bare halt would sleep
+  holding the lock without anyone having decided that it should.
 
 The window-safe exits (the NMI's, the trampoline's early NMI stub) take no
 lock and are listed with that reason. The checks are textual: they catch a

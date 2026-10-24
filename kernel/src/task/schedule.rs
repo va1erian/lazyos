@@ -57,8 +57,9 @@ fn note_switch(slot: usize) {
     }
 }
 
-/// Context switches since boot: scheduler entries that resumed a task other
-/// than the one they interrupted (the idle-desktop rate, P6/P7).
+/// Context switches since boot: scheduler entries that left a CPU running a
+/// different task than the last one it ran, idle stretches aside (the
+/// idle-desktop rate, P6/P7).
 #[allow(dead_code)] // read by the `PERF:ctxsw` report (LAZYOS_PERF=1)
 pub fn context_switches() -> u64 {
     SWITCHES.load(Ordering::Relaxed)
@@ -194,7 +195,10 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     if !idle::is_idle(cur) {
         fpu::save(cur);
     }
-    resume(next, cur)
+    let rsp = resume(next, cur);
+    // Once per entry: `resume` may install more than one pick.
+    note_switch(current());
+    rsp
 }
 
 /// Flag every finished parentless task except `cur` for reclamation. Only
@@ -296,7 +300,6 @@ fn install(slot: usize) -> u64 {
         }
     };
     set_current(slot);
-    note_switch(slot);
     if !idle::is_idle(slot) {
         crate::perf::on_run(slot, prev, prev_runnable);
     }
