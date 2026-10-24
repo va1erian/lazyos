@@ -158,6 +158,8 @@ BINS = {
     # Web Attack Probe: the malicious client of webd's attack harness (docs/webd-plan.md P5); only a
     # `LAZYOS_WEBDDEMO=1` image ships it.
     "xui-webdattack": "xui-webdattack.elf",
+    # Cursor Studio: Draw the mouse pointer.
+    "xui-cursored": "xui-cursored.elf",
 }
 
 

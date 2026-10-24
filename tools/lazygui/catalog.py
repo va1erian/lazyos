@@ -75,7 +75,7 @@ MODES = [
 
 
 XUI_VIEWERS = ["(none)", "m0", "counter", "sysmon", "fabricmon", "client", "term",
-               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes", "playground"]
+               "editor", "paint", "files", "writer", "archiver", "settings", "devices", "calc", "pdf", "traydemo", "volume", "netstatus", "golf", "video", "about", "removable", "nes", "playground", "cursored"]
 # What the desktop opens at boot when the Devices app is asked for (issue
 # #481) and nothing else is: just Devices, since the desktop opens no app at
 # boot by default. Matches `run_demo.py --devices`.

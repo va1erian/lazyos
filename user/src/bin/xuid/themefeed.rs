@@ -60,6 +60,9 @@ pub(super) struct ThemeFeed {
     /// The cursor size read from confd and the size the compositor last took.
     cursor_size: u32,
     cursor_taken: u32,
+    /// The cursor theme text in effect and the one the compositor last took.
+    cursor_theme: Option<String>,
+    cursor_theme_taken: Option<String>,
     /// Minutes of quiet before the screen blanks (`sys/ui/screen/off_minutes`,
     /// `0`: never); `idle.rs` follows it.
     screen_off: u32,
@@ -81,6 +84,8 @@ impl ThemeFeed {
             buffer: alloc::vec![0u8; DEFAULT_BUFFER],
             cursor_size: uitheme::DEFAULT_CURSOR_SIZE,
             cursor_taken: uitheme::DEFAULT_CURSOR_SIZE,
+            cursor_theme: None,
+            cursor_theme_taken: None,
             screen_off: uitheme::DEFAULT_SCREEN_OFF_MINUTES,
         }
     }
@@ -129,6 +134,16 @@ impl ThemeFeed {
         let changed = self.cursor_size != self.cursor_taken;
         self.cursor_taken = self.cursor_size;
         changed.then_some(self.cursor_size)
+    }
+
+    /// The cursor theme text (`None`: the built-in shapes) when
+    /// `ui/cursor/theme` changed since the last call.
+    pub(super) fn take_cursor_theme(&mut self) -> Option<Option<String>> {
+        if self.cursor_theme == self.cursor_theme_taken {
+            return None;
+        }
+        self.cursor_theme_taken = self.cursor_theme.clone();
+        Some(self.cursor_theme.clone())
     }
 
     /// Whether the desktop animations are enabled (`sys/ui/anim`).
@@ -235,6 +250,15 @@ impl ThemeFeed {
         self.settings = settings;
         if let Ok(value) = client.get(uitheme::KEY_CURSOR_SIZE) {
             self.cursor_size = uitheme::cursor_size_from_value(value.as_ref());
+        }
+        // The user's own cursor theme shadows the machine's, like the keys.
+        if let Ok(machine) = client.get(uitheme::KEY_CURSOR_THEME) {
+            let own = self
+                .user
+                .and_then(|uid| uitheme::user_key(uid, uitheme::KEY_CURSOR_THEME))
+                .and_then(|path| client.get(&path).ok().flatten());
+            self.cursor_theme =
+                uitheme::cursor_theme_from_value(uitheme::overlay(machine, own).as_ref());
         }
         // The user's own delay shadows the machine's, like the theme keys.
         if let Ok(machine) = client.get(uitheme::KEY_SCREEN_OFF) {

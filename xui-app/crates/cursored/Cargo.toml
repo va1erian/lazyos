@@ -1,0 +1,18 @@
+[package]
+name = "xui-cursored"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Cursor Studio app core: the editing model, theme store seam and UI (host-testable)"
+
+[dependencies]
+xui-core = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab" }
+# The shapes, the `.lcur` format and the rasteriser xuid draws with, so the
+# preview is exactly the pointer the compositor will show.
+cursorgfx = { path = "../../../libs/cursorgfx" }
+# The `ui/cursor/theme` key and its per-user shadow, shared with xuid.
+uitheme = { path = "../../../libs/uitheme" }
+confd = { path = "../../../libs/confd" }
+
+[dev-dependencies]
+xui-canvas = { git = "https://github.com/va1erian/xui", rev = "71dc3b5903ac94dba00466a6d6a00d69251beeab", default-features = false }

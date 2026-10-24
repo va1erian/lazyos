@@ -10,12 +10,14 @@ pub(crate) const SUB: u32 = 64;
 /// Subsamples per pixel side.
 const SS: i64 = 4;
 
-/// One polygon set drawn in one grey, with a dark outline outside it.
+/// One polygon set drawn in one colour, with an outline outside it.
 pub(crate) struct Layer {
     /// Polygons in design units (1/16 of a grid cell, 512 per side).
     pub polys: Vec<Vec<(i32, i32)>>,
-    /// The fill grey (0..=255); the outline is always black.
-    pub grey: u32,
+    /// The fill colour, `0xRRGGBB`.
+    pub fill: u32,
+    /// The outline colour, `0xRRGGBB`.
+    pub outline: u32,
     /// A thinner outline (the spinner's dots).
     pub thin: bool,
 }
@@ -254,12 +256,22 @@ pub(crate) fn draw_layer(pixels: &mut [u32], side: u32, margin: u32, px: u32, la
                 continue;
             }
             let alpha = (dil * 255 / 16) as u32;
-            let rgb = (fill * layer.grey as i64 / 16) as u32;
-            let src = alpha << 24 | rgb << 16 | rgb << 8 | rgb;
+            let src = alpha << 24
+                | mix_channel(fill, dil, layer, 16) << 16
+                | mix_channel(fill, dil, layer, 8) << 8
+                | mix_channel(fill, dil, layer, 0);
             let dst = &mut pixels[(j * side as i64 + i) as usize];
             *dst = over(src, *dst);
         }
     }
+}
+
+/// One premultiplied channel of a pixel with `fill` body samples and `dil -
+/// fill` outline samples out of 16.
+fn mix_channel(fill: i64, dil: i64, layer: &Layer, shift: u32) -> u32 {
+    let body = i64::from((layer.fill >> shift) & 0xff);
+    let edge = i64::from((layer.outline >> shift) & 0xff);
+    ((fill * body + (dil - fill) * edge) / 16) as u32
 }
 
 /// `(fill, dilated)` sample counts out of 16 for the pixel at `origin`.

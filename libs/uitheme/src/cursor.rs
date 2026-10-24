@@ -6,13 +6,18 @@
 //! [`crate::ALL_KEYS`]: it does not move the palette, `xuid` handles it on its
 //! own and re-stamps the cursor without a repaint.
 
+use alloc::string::String;
 use confd::Value;
 
 /// The cursor size setting's key.
 pub const KEY_CURSOR_SIZE: &str = "sys/ui/cursor/size";
 
-/// Every cursor setting key (what Settings clears on reset).
-pub const CURSOR_KEYS: [&str; 1] = [KEY_CURSOR_SIZE];
+/// The cursor theme's key: a `.lcur` theme as text (docs/cursor-editor-plan.md),
+/// at most `confd`'s 4 KiB value; empty or absent for the built-in shapes.
+pub const KEY_CURSOR_THEME: &str = "sys/ui/cursor/theme";
+
+/// Every cursor setting key.
+pub const CURSOR_KEYS: [&str; 2] = [KEY_CURSOR_SIZE, KEY_CURSOR_THEME];
 
 /// The selectable sizes: Small, Medium, Large, Extra large.
 pub const CURSOR_SIZES: [u32; 4] = [16, 24, 32, 48];
@@ -49,6 +54,16 @@ pub fn cursor_size_from_value(value: Option<&Value>) -> u32 {
         .unwrap_or(DEFAULT_CURSOR_SIZE)
 }
 
+/// The theme text a stored value holds (`.lcur`, parsed by `cursorgfx`); a
+/// theme lives in the key itself, so no file path is ever read. Empty or
+/// absent means the built-in shapes.
+pub fn cursor_theme_from_value(value: Option<&Value>) -> Option<String> {
+    match value {
+        Some(Value::Str(text)) if !text.trim().is_empty() => Some(text.clone()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,6 +91,33 @@ mod tests {
     fn every_size_has_a_label() {
         for size in CURSOR_SIZES {
             assert_ne!(cursor_size_label(size), "Custom");
+        }
+    }
+
+    #[test]
+    fn the_theme_is_the_stored_text() {
+        let text = || {
+            Some(Value::Str(
+                "lazyos-cursor 1
+name a
+"
+                .to_string(),
+            ))
+        };
+        assert_eq!(
+            cursor_theme_from_value(text().as_ref()).as_deref(),
+            Some(
+                "lazyos-cursor 1
+name a
+"
+            )
+        );
+        for none in [
+            None,
+            Some(Value::Str("  ".to_string())),
+            Some(Value::U64(3)),
+        ] {
+            assert_eq!(cursor_theme_from_value(none.as_ref()), None);
         }
     }
 }

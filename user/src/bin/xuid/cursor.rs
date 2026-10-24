@@ -18,7 +18,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
-use cursorgfx::{Shape, Sprite, BUSY_FRAMES, SHAPE_COUNT};
+use cursorgfx::{Shape, Sprite, Theme, BUSY_FRAMES, SHAPE_COUNT};
 use user::messenger::display::{Canvas, Rect};
 use user::sys;
 
@@ -75,8 +75,11 @@ pub(super) struct CursorOverlay {
     /// The scene pixels under `shown`, row after row, sized for the largest
     /// sprite of the current size.
     saved: Vec<u8>,
-    /// Rendered sprites by [`Look::slot`], dropped when the size changes.
+    /// Rendered sprites by [`Look::slot`], dropped when the size or the
+    /// theme changes.
     cache: Vec<Option<Sprite>>,
+    /// The custom shapes (`ui/cursor/theme`); the built-in ones without.
+    theme: Option<Theme>,
 }
 
 impl CursorOverlay {
@@ -87,6 +90,7 @@ impl CursorOverlay {
             design: uitheme::DEFAULT_CURSOR_SIZE,
             saved: Vec::new(),
             cache: Vec::new(),
+            theme: None,
         };
         overlay.resize();
         overlay
@@ -107,6 +111,14 @@ impl CursorOverlay {
         EXTENT.store(extent as i32, Ordering::Relaxed);
     }
 
+    /// Draw with `theme` from the next stamp on (`None`: the built-in shapes).
+    /// Call only while the sprite is lifted, like [`Self::set_design_size`];
+    /// no sprite outgrows `max_extent`, so the save-under buffer stays.
+    pub(super) fn set_theme(&mut self, theme: Option<Theme>) {
+        self.theme = theme;
+        self.cache.iter_mut().for_each(|slot| *slot = None);
+    }
+
     /// The design size in effect.
     pub(super) fn design_size(&self) -> u32 {
         self.design
@@ -119,6 +131,12 @@ impl CursorOverlay {
             self.design = design;
             self.resize();
         }
+    }
+
+    /// Whether `shape` animates: the built-in busy spinner does, a theme's
+    /// own drawing of it is static.
+    pub(super) fn animates(&self, shape: Shape) -> bool {
+        shape.animated() && !self.theme.as_ref().is_some_and(|t| t.draws(shape))
     }
 
     /// Choose what the next stamp draws; `true` when it changed.
@@ -145,8 +163,11 @@ impl CursorOverlay {
     /// rectangle that changed.
     pub(super) fn stamp(&mut self, screen: &mut Canvas, at: (i32, i32)) -> Rect {
         let (look, px) = (self.look, self.px());
-        let sprite = self.cache[look.slot()]
-            .get_or_insert_with(|| cursorgfx::render(look.shape, px, look.frame));
+        let theme = &self.theme;
+        let sprite = self.cache[look.slot()].get_or_insert_with(|| match theme {
+            Some(theme) => cursorgfx::render_themed(theme, look.shape, px, look.frame),
+            None => cursorgfx::render(look.shape, px, look.frame),
+        });
         let rect = Rect::new(
             at.0.saturating_sub(sprite.hot_x as i32),
             at.1.saturating_sub(sprite.hot_y as i32),
@@ -338,6 +359,12 @@ pub(super) fn selftest_cursor() -> &'static str {
     overlay.lift(&mut screen);
     if !moved_on || read(&screen) != scene {
         return "XUID:CURSOR:FAIL busy frames\n";
+    }
+    // A custom theme replaces the arrow, exactly lifts, and clearing it
+    // brings the built-in arrow back.
+    if let Err(what) = super::cursor_shape::selftest_theme(&mut overlay, &mut screen, &scene, &read)
+    {
+        return what;
     }
     // Clipped at the bottom-right corner, then lifted: the scene is back.
     let clipped = overlay.stamp(&mut screen, (W - 2, H - 2));

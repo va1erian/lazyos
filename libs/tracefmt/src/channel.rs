@@ -53,6 +53,7 @@ channels! {
     Clipboard => "CLIPBOARD",
     Confd => "CONFD",
     Confded => "CONFDED",
+    Cursored => "CURSORED",
     Dev => "DEV",
     Devd => "DEVD",
     Devices => "DEVICES",

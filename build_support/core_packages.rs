@@ -201,6 +201,8 @@ pub fn is_core_stem(stem: &str) -> bool {
         // Messenger Playground, a developer tool; only `LAZYOS_DEVTOOLS=1` images ship it
         // (`devtools_embed`).
         "playground",
+        // Cursor Studio: Draw the mouse pointer.
+        "cursored",
     ];
     CORE.contains(&short_of(stem))
 }
