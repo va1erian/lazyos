@@ -42,6 +42,7 @@ KINDS = [
     (re.compile(r"^(log: )?webd lost the window's view"), "view-lost"),
     (re.compile(r"^kernel fault"), "kernel-fault"),
     (re.compile(r"^a process was killed"), "process-killed"),
+    (re.compile(r" died of signal \d+$"), "process-crash"),
     (re.compile(r"waited \d+ ms for "), "lock-wait"),
     (re.compile(r"IPC message"), "ipc-lost"),
 ]

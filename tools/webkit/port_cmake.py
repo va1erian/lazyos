@@ -256,7 +256,8 @@ def host_reference() -> bool:
 def run_views() -> bool:
     """Run ``webkit-views`` (``webkit/port/views``, docs/webd-plan.md P1) on the build host: the engine's
     views without a window, once with one light view, three times with two views (of different profiles, of none, of the same one),
-    and twice making and destroying twelve views in turn (after they painted, and at once).
+    and twice making and destroying twelve views in turn (after they painted, and at once), then two
+    hundred (``churn``: every end of a page process closes an IPC connection, patch 0036).
     Each run prints ``VIEWS:`` lines (the engine processes it launched among them) and ends with
     ``VIEWS:PASS``; a run that does not is a ``BuildError``. Only in the build container, like
     ``host_reference``; False when it did not run."""
@@ -269,7 +270,7 @@ def run_views() -> bool:
     if not (HOST_BIN / "webkit-views").is_file():
         raise BuildError("webkit-views is not built (python tools/webkit/port.py --only webkit-views)")
     wkpins.jsc_pins.WORK.mkdir(parents=True, exist_ok=True)
-    for mode in ("light", "twoeph", "two", "share", "group", "groupprof", "groupmix", "cycle", "rush"):
+    for mode in ("light", "twoeph", "two", "share", "group", "groupprof", "groupmix", "cycle", "rush", "churn"):
         with tempfile.TemporaryDirectory(prefix="webkit-views-", dir=wkpins.jsc_pins.WORK,
                                          ignore_cleanup_errors=True) as scratch:
             try:
