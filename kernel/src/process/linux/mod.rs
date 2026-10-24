@@ -227,6 +227,24 @@ pub fn dispatch_args6_for_test(nr: u64, args: [u64; 6]) -> u64 {
     result
 }
 
+/// The `syscall` stub's call (`arch::linux`): a `syscall` always comes from
+/// ring 3, so it takes the entry lock (`sync::entry`; the return hook,
+/// `task::preempt`'s `linux_syscall_return`, drops it), then dispatches. The
+/// suite's direct calls into [`linux_dispatch`] run under the harness's hold.
+#[no_mangle]
+extern "C" fn linux_dispatch_gate(
+    nr: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+    a6: u64,
+) -> u64 {
+    crate::sync::entry::enter_user();
+    linux_dispatch(nr, a1, a2, a3, a4, a5, a6)
+}
+
 /// Syscall dispatch, called from `arch::linux` (Linux ABI: nr in `rax`, args in
 /// `rdi,rsi,rdx,r10,r8,r9`, result in `rax`).
 #[no_mangle]

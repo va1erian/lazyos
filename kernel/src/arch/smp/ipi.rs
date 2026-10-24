@@ -13,8 +13,8 @@ use super::{rdtsc, spin_loop};
 use crate::arch::gsgate::irq_gate;
 use crate::arch::{lapic, percpu};
 
-irq_gate!(resched_gate => resched_handler);
-irq_gate!(stop_gate => stop_handler);
+irq_gate!(resched_gate => resched_handler, window_safe);
+irq_gate!(stop_gate => stop_handler, window_safe);
 
 /// "A wake made a task more deserving of the CPU than the current one": the
 /// next preemption point acts on the flag (S8.3 is when an AP has tasks).

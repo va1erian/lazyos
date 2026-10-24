@@ -83,6 +83,17 @@ pub static LAST_SYSCALL: AtomicU64 = AtomicU64::new(0);
 
 #[no_mangle]
 extern "C" fn syscall_dispatch(regs: *mut Regs) {
+    // The interrupted RIP and `CS`, past the seven saved registers: an
+    // `int 0x80` from ring 3 takes the entry lock (`sync::entry`).
+    // SAFETY: the stub's pushes sit right below the CPU's interrupt frame.
+    let (rip, cs) = unsafe {
+        let frame = regs as *const u64;
+        (
+            core::ptr::read_volatile(frame.add(7)),
+            core::ptr::read_volatile(frame.add(8)),
+        )
+    };
+    crate::sync::entry::enter(cs, rip);
     // Safety: the stub passes a valid pointer to saved registers.
     let regs = unsafe { &mut *regs };
     #[cfg(lazyos_tests)]
@@ -190,6 +201,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     super::linux::slow::end(probe, "native", nr, [regs.rdi, regs.rsi, regs.rdx]);
     // A task this call woke may outrank the caller (P1.1): run it now.
     task::preempt_point();
+    crate::sync::entry::leave(cs);
 }
 
 /// Test-harness entry into the native syscall surface (issue #62 pattern):

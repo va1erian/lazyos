@@ -171,15 +171,16 @@ pub fn bring_up_for_test(n: usize) {
 /// self-refusing: without a second APIC id, without a coherent TSC, or when
 /// the count comes out 1, this is a single-CPU boot and says so on serial.
 pub fn init() {
+    // Whether this kernel serializes its entries (`sync::entry`): the fact a
+    // multi-CPU boot log is read against.
+    serial_println!("HW:SMP:ENTRY_LOCK={}", cfg!(lazyos_smp));
     decide();
     if cpus() <= 1 {
         serial_println!("HW:SMP:CPUS=1 (no APs to bring up)");
         return;
     }
-    // The TSC invariance gate (the plan's coherence half, a skew
-    // measurement per AP, is still to come: today only the entry latency is
-    // logged): the catch-up clock needs an invariant TSC for wall-clock
-    // sanity; TCG
+    // The TSC invariance gate (the coherence half is per AP, `tscsync`):
+    // the catch-up clock needs an invariant TSC for wall-clock sanity; TCG
     // refuses `invtsc`, so the gate yields to the test-rig override rather
     // than disarming every TCG-based SMP test.
     serial_println!("HW:SMP:TSC:INVARIANT={}", invariant_tsc());

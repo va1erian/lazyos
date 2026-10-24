@@ -358,7 +358,14 @@ the resume RIP and RFLAGS; `arch::linux::set_full_return(rcx, r11)` (used by
 slot and makes the stub reload every register from the frame and leave
 through `iretq` instead.
 `lazyos_entry_probe` runs the same `entry_body!` macro in tests so a change
-to the push count is caught by `ENTRY_PUSHED_QWORDS`' test.
+to the push count is caught by `ENTRY_PUSHED_QWORDS`' test. The call is to
+`linux_dispatch_gate`, which takes the entry lock before `linux_dispatch`.
+
+**The entry lock (`LAZYOS_SMP=1`).** Each stub's Rust callee brackets its
+work with `sync::entry::enter(cs)` and `leave(cs)`: the interrupted frame's
+`CS`, then the resumed frame's (for the scheduler gates and the exception
+stubs, the frame the returned `rsp` names). A new stub must do the same, or
+be window-safe and say so ([`smp.md`](smp.md), "The entry lock").
 
 **Direction flag (#405).** An interrupt gate keeps the caller's `RFLAGS.DF`,
 and user code legitimately runs with it set (musl `memmove`). The kernel's

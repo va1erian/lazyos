@@ -11,12 +11,27 @@ use super::*;
 /// on both paths.
 ///
 /// Returns the `rsp` to resume (the next task's saved context).
+///
+/// The entry lock (`sync::entry`) is taken here on a tick from ring 3 and
+/// inherited from ring 0; it is released iff the frame resumed is ring 3's,
+/// so a switch between two kernel contexts carries it across.
 #[no_mangle]
 pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
+    // SAFETY: both are frames the gate saved (or `decide` returns): 15
+    // registers, then RIP and CS.
+    let (rip, cs) = unsafe {
+        (
+            sys::frame_word(current_rsp, 15),
+            sys::frame_word(current_rsp, 16),
+        )
+    };
+    crate::sync::entry::enter(cs, rip);
     let started = crate::perf::sched_enter();
     ENTRIES.fetch_add(1, Ordering::Relaxed);
     let rsp = decide(current_rsp, tick != 0);
     crate::perf::sched_exit(started);
+    // SAFETY: as above.
+    crate::sync::entry::leave(unsafe { sys::frame_word(rsp, 16) });
     rsp
 }
 
