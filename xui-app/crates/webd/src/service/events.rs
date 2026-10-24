@@ -84,6 +84,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             cursors,
             responsive,
             blocked,
+            wheels,
         } = drained;
         self.deliver_pages(pages);
         for (id, state) in states {
@@ -97,6 +98,17 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 at_bottom,
             });
             self.event_to_live(id, wire::METHOD_SCROLL, body);
+        }
+        // Before the frames: the page answered before it painted what followed, and an answer taken after a
+        // newer frame would name an offset older than the one on show (the picture would jump back).
+        for (id, (seq, x, y)) in wheels {
+            let body = view_wire::encode_wheel_done_args(&view_wire::WheelDoneArgs {
+                view: id,
+                seq,
+                x,
+                y,
+            });
+            self.event_to_live(id, view_wire::METHOD_WHEELDONE, body);
         }
         for (id, frame) in frames {
             self.deliver_frame(id, frame, None);

@@ -85,7 +85,7 @@ reply with the standard error field (id 15).
 | Download | 16 | sync | `(view: U64, url: String) -> ()` |
 | Recover | 17 | sync | `(view: U64, reload: Bool) -> ()` |
 | Mouse | 20 | oneway | `(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> ()` |
-| Wheel | 21 | oneway | `(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> ()` |
+| Wheel | 21 | oneway | `(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> ()` |
 | Key | 22 | oneway | `(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> ()` |
 | Focus | 23 | oneway | `(view: U64, focused: Bool) -> ()` |
 | DialogReply | 30 | sync | `(view: U64, dialog: U64, accepted: Bool, value: String) -> ()` |
@@ -102,7 +102,7 @@ reply with the standard error field (id 15).
 | DetachSlots | 45 | sync | `(view: U64) -> (seq: U64)` |
 | SetUserAgent | 46 | sync | `(view: U64, user_agent: String) -> ()` |
 | Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> ()` |
-| State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> ()` |
+| State | 101 | oneway | `(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> ()` |
 | Scroll | 102 | oneway | `(view: U64, x: I32, y: I32, at_bottom: Bool) -> ()` |
 | LinkClicked | 103 | oneway | `(view: U64, url: String) -> ()` |
 | ClipboardWrite | 104 | oneway | `(view: U64, text: String) -> ()` |
@@ -127,6 +127,7 @@ reply with the standard error field (id 15).
 | NotifyShow | 123 | oneway | `(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> ()` |
 | NotifyCancel | 124 | oneway | `(view: U64, notification: U64) -> ()` |
 | NotifyGone | 125 | oneway | `(view: U64, notification: U64) -> ()` |
+| WheelDone | 126 | oneway | `(view: U64, seq: U64, x: I32, y: I32) -> ()` |
 
 ## Objects
 

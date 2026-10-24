@@ -316,9 +316,11 @@ One-way: the call returns `()` once the message is queued.
 let result = sys::webd_view::mouse(view, kind, button, x, y, mods);
 ```
 
-### `wheel(view, x, y, ticks_x, ticks_y, mods)`
+### `wheel(view, x, y, ticks_x, ticks_y, mods, seq)`
 
-`Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway`
+`Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway`
+
+A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
 
 Arguments:
 
@@ -330,11 +332,12 @@ Arguments:
 | `ticks_x` | `I32` | int |
 | `ticks_y` | `I32` | int |
 | `mods` | `U32` | int |
+| `seq` | `U64` | int |
 
 One-way: the call returns `()` once the message is queued.
 
 ```rhai
-let result = sys::webd_view::wheel(view, x, y, ticks_x, ticks_y, mods);
+let result = sys::webd_view::wheel(view, x, y, ticks_x, ticks_y, mods, seq);
 ```
 
 ### `key(view, press, keysym, text, mods)`
@@ -665,14 +668,17 @@ One-way: the call returns `()` once the message is queued.
 let result = sys::webd_view::frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom);
 ```
 
-### `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)`
+### `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits)`
 
-`State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway`
+`State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> () oneway`
 
 Event: what the page says about itself. `url` is the address on show,
 `committed_url` the page on screen; `progress` in thousandths;
-`secure` when the committed page came over verified HTTPS. Texts are
-cut at 48 KiB.
+`secure` when the committed page came over verified HTTPS. `commits`
+counts the documents committed since the view was made: a reload of
+the same address counts, a script's pushState or a link to an anchor
+does not (an app tells a new document by it, not by its address).
+Texts are cut at 48 KiB.
 
 Arguments:
 
@@ -689,11 +695,12 @@ Arguments:
 | `can_forward` | `Bool` | bool |
 | `progress` | `U32` | int |
 | `secure` | `Bool` | bool |
+| `commits` | `U32` | int |
 
 One-way: the call returns `()` once the message is queued.
 
 ```rhai
-let result = sys::webd_view::state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure);
+let result = sys::webd_view::state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits);
 ```
 
 ### `scroll(view, x, y, at_bottom)`
@@ -1173,6 +1180,33 @@ One-way: the call returns `()` once the message is queued.
 
 ```rhai
 let result = sys::webd_view::notify_gone(view, notification);
+```
+
+### `wheel_done(view, seq, x, y)`
+
+`WheelDone(view: U64, seq: U64, x: I32, y: I32) -> () oneway`
+
+Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
+its main frame is scrolled to `(x, y)` now, before the frame that shows
+it arrives. The app that shows its picture ahead of the page keeps it
+ahead while turns are unanswered, and moves it to where this says the
+page went (back, when the page did not scroll: its end, a box that
+scrolled instead, a script that cancelled the wheel). A page whose
+process ended answers everything at once.
+
+Arguments:
+
+| Name | IDL type | Script value |
+|---|---|---|
+| `view` | `U64` | int |
+| `seq` | `U64` | int |
+| `x` | `I32` | int |
+| `y` | `I32` | int |
+
+One-way: the call returns `()` once the message is queued.
+
+```rhai
+let result = sys::webd_view::wheel_done(view, seq, x, y);
 ```
 
 Not callable from a script (the request carries a kernel object): `CreateView`, `AttachSlot`, `LoadHtml`, `BlockingCompile`.

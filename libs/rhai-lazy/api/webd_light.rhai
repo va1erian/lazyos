@@ -114,13 +114,15 @@ fn mouse(view, kind, button, x, y, mods) {
     msg::connect("os.lazy.webd.light.v1").invoke("Mouse", [view, kind, button, x, y, mods])
 }
 
-/// `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway`
+/// `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway`
 ///
-/// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
+/// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+/// the turns of a full view for `WheelDone` (the full interface); 0 asks
+/// for no answer, and a light view is never answered.
 ///
 /// One-way: returns `()` once the message is queued.
-fn wheel(view, x, y, ticks_x, ticks_y, mods) {
-    msg::connect("os.lazy.webd.light.v1").invoke("Wheel", [view, x, y, ticks_x, ticks_y, mods])
+fn wheel(view, x, y, ticks_x, ticks_y, mods, seq) {
+    msg::connect("os.lazy.webd.light.v1").invoke("Wheel", [view, x, y, ticks_x, ticks_y, mods, seq])
 }
 
 /// `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway`

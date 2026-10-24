@@ -61,7 +61,7 @@ standard error field (id 15, `docs/midl.md`).
 | Refresh | 7 | oneway | `(view: U64) -> ()` |
 | LoadHtml | 11 | sync | `(view: U64, html: Buffer, base_url: String) -> ()` |
 | Mouse | 20 | oneway | `(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> ()` |
-| Wheel | 21 | oneway | `(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> ()` |
+| Wheel | 21 | oneway | `(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> ()` |
 | Key | 22 | oneway | `(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> ()` |
 | Focus | 23 | oneway | `(view: U64, focused: Bool) -> ()` |
 | Frame | 100 | oneway | `(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> ()` |

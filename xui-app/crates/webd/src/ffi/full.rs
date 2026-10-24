@@ -24,6 +24,7 @@ pub struct WebdPageState {
     pub committed_url: *const c_char,
     pub secure: i32,
     pub finished: i32,
+    pub commits: i32,
 }
 
 // ---- the callbacks (WebKit's main thread) ----
@@ -87,6 +88,7 @@ pub unsafe extern "C" fn webd_ui_page_state(view: u64, state: *const WebdPageSta
             committed_url: text(s.committed_url).into_owned(),
             secure: s.secure != 0,
             finished: u32::try_from(s.finished).unwrap_or(0),
+            commits: u32::try_from(s.commits).unwrap_or(0),
         }
     };
     sink.page_state(view, page);

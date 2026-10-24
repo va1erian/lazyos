@@ -20,6 +20,8 @@ pub struct Drained {
     pub cursors: BTreeMap<u64, i32>,
     pub responsive: BTreeMap<u64, bool>,
     pub blocked: BTreeMap<u64, i32>,
+    /// The newest answer to the wheel per view: `(seq, x, y)` (`webd_ui_wheel_done`; each answers all before it).
+    pub wheels: BTreeMap<u64, (u64, i32, i32)>,
 }
 
 impl Drained {
@@ -35,5 +37,6 @@ impl Drained {
             && self.cursors.is_empty()
             && self.responsive.is_empty()
             && self.blocked.is_empty()
+            && self.wheels.is_empty()
     }
 }

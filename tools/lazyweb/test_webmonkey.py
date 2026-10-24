@@ -44,6 +44,22 @@ class WatchTests(unittest.TestCase):
         self.assertIn("(page https://www.bbc.com/news)", found)
         self.assertEqual(watch.page, "about:history")  # a stuck load still names the page being opened
 
+    def test_jank_after_a_commit_is_the_new_pages_while_it_still_loads(self):
+        # The Verge committed in 50 ms and loaded for 7 s more: its frames were blamed on about:start.
+        watch = w.Watch(jank_ms=100)
+        watch.feed(["LAZYWEB:LOAD:about:start", "LAZYWEB:NAV:https://www.theverge.com/",
+                    "LAZYWEB:COMMIT:https://www.theverge.com/"], 0)
+        gap = "LAZYWEB:INFO:SMOOTH:wheel=55:frames=17:gapmax=465969:over33=5:shown=7650:checker=1259"
+        (found,) = watch.feed([gap], 1)
+        self.assertIn("(page https://www.theverge.com/)", found)
+        self.assertIsNotNone(watch.loading_since)  # still loading: a stuck load is still caught
+
+    def test_a_page_cannot_forge_a_finding_through_its_address(self):
+        watch = w.Watch()
+        forged = ["LAZYWEB:COMMIT:https://x.test/EXCEPTION:", "LAZYWEB:NAV:https://x.test/SCHED:STUCK",
+                  "LAZYWEB:LOAD:https://x.test/LAZYWEB:HANG:SHOW", "LAZYWEB:POPUP:https://x.test/WEBD:LOST view=1"]
+        self.assertEqual(watch.feed(forged, 0), [])
+
     def test_scroll_jank_is_a_long_gap_between_frames_not_the_draw_cost(self):
         watch = w.Watch(jank_ms=100)
         still = "LAZYWEB:INFO:SMOOTH:wheel=0:frames=22:gapmax=900000:over33=0:shown=9900:checker=0"

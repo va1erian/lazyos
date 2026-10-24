@@ -68,8 +68,9 @@ impl<T: ScopedTransport> FullWebView<T> {
     }
 
     /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)` (a negative `ticks_y` scrolls
-    /// down).
-    pub fn wheel(&mut self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
+    /// down). A non-zero `seq` (rising) is answered with [`FullEvent::WheelDone`](super::FullEvent)
+    /// once the page has answered the turn.
+    pub fn wheel(&mut self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
         if let Ok(view) = self.live_view() {
             let args = wire::WheelArgs {
                 view,
@@ -78,6 +79,7 @@ impl<T: ScopedTransport> FullWebView<T> {
                 ticks_x,
                 ticks_y,
                 mods,
+                seq,
             };
             if let Ok(body) = wire::encode_wheel_args(&args) {
                 self.send(wire::METHOD_WHEEL, body);

@@ -198,7 +198,9 @@ pub(crate) fn handle<M: 'static>(
             let ticks = notches(delta);
             let before = state.target();
             let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
-            engine.wheel(x, y, tx, ty, modifier_bits(modifiers));
+            let seq = state.wheel_seq.get() + 1;
+            state.wheel_seq.set(seq);
+            engine.wheel(x, y, tx, ty, modifier_bits(modifiers), seq);
             // A plain vertical wheel scrolls the page: show the picture moved at once, not when the
             // page has answered, if pictures are shown ahead (a modified wheel zooms or scrolls
             // sideways). Otherwise the view moves with the page's answer (`View::apply`).
@@ -216,7 +218,8 @@ pub(crate) fn handle<M: 'static>(
                     -ticks.clamp(-speculate::MAX_TICKS, speculate::MAX_TICKS) * speculate::LINE_PX;
                 state.wheel_asked.set(Some((now_ms, asked + step)));
             }
-            let moved = plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms);
+            let moved =
+                plain && speculate::ahead() && state.spec.borrow_mut().wheel(ticks, now_ms, seq);
             // The scroll meter counts a notch sent with nothing shown ahead as the start of a burst too.
             state
                 .smooth

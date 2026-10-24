@@ -160,7 +160,8 @@ void webd_engine_refresh(uint64_t view);
 // Input, as the engine's View methods take it (engine.h). kind: 0 move, 1 press, 2 release; button: 0 left,
 // 1 middle, 2 right; mods: bit 0 shift, 1 control, 2 alt, 3 meta. Coordinates are view pixels.
 void webd_engine_mouse(uint64_t view, int kind, int button, int x, int y, uint32_t mods);
-void webd_engine_wheel(uint64_t view, int x, int y, int ticks_x, int ticks_y, uint32_t mods);
+// seq: a full view's number for the turn (rising; 0 for none), answered by webd_ui_wheel_done.
+void webd_engine_wheel(uint64_t view, int x, int y, int ticks_x, int ticks_y, uint32_t mods, uint64_t seq);
 // keysym is the X11 keysym the display protocol carries; text is the character it types ("" for none).
 void webd_engine_key(uint64_t view, int press, uint32_t keysym, const char* text, uint32_t mods);
 void webd_engine_focus(uint64_t view, int focused);
@@ -186,6 +187,10 @@ void webd_ui_frame(uint64_t view, const uint8_t* rgba, int width, int height);
 
 // The page is scrolled to (x, y) in document pixels; at_bottom 1 when it cannot scroll further.
 void webd_ui_scroll(uint64_t view, int x, int y, int at_bottom);
+
+// A full view's page answered every wheel turn up to `seq` and its main frame is scrolled to (x, y) now,
+// before the frame that shows it (WebKit patch 0035; every turn at once when the page's process ended).
+void webd_ui_wheel_done(uint64_t view, uint64_t seq, int x, int y);
 
 // A link was clicked, a form submitted or a meta refresh fired: nothing loaded. `url` is absolute.
 void webd_ui_link_clicked(uint64_t view, const char* url);
@@ -284,6 +289,7 @@ typedef struct webd_page_state {
     const char* committed_url; // the page on screen ("" before the first commits)
     int32_t secure;            // the committed page came over verified HTTPS
     int32_t finished;          // navigations that finished loading since the view was made
+    int32_t commits;           // documents committed since the view was made (a same-address reload too)
 } webd_page_state;
 void webd_ui_page_state(uint64_t view, const webd_page_state* state);
 

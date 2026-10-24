@@ -40,6 +40,7 @@ python tools/lazyweb/test_frame.py                           # its reader and se
 python tools/lazyweb/scroll_page.py --write                  # regenerate fixtures/theoldnet.com/lazyweb/scroll.html
 python tools/lazyweb/sample.py record --port 5555 --out s.tsv   # where the guest's CPU goes: CR3 + RIP at 30 Hz over a second QMP port
 python tools/lazyweb/sample.py report s.tsv [--cr3 HEX --elf PROGRAM]   # by process, then by function (needs binutils' addr2line)
+python tools/lazyweb/sample.py record --port 5555 --out s.tsv --pause 4096   # the guest stopped for each sample: registers and 4096 stack words of one instant (deep stacks for `cpu_profile.py --callers`; the guest runs slower, freeze probes off)
 python tools/lazyweb/test_sample.py                        # its parser and summary
 python tools/lazyweb/pointer_bench.py [--perf]             # a heavy live page under a 200 Hz pointer sweep: webd's paint meter, CPU of the web process, webd and the client (the pointer is always merged now)
 python tools/lazyweb/webmonkey.py --build --duration 1800 --seed 1   # a monkey that browses the real web (links, wheel in both directions, keys, history, idle) and watches freezes, jank, stuck loads, lost views; see its docstring
@@ -73,7 +74,8 @@ volume. Output is in `shots/lazyweb` (`first/` and `second/`: `serial.log`, `sho
 `net.pcap`; `profile.json`).
 
 Markers (`LAZYWEB:` is a channel, `libs/tracefmt`, `docs/trace/channels.md`): the client prints `UP:PASS` (its
-first frame), `NAV:<url>`, `LOAD:<url>`, `TITLE:<title>`, `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`,
+first frame), `NAV:<url>`, `COMMIT:<url>` (another address took the view: a page that may load for seconds more,
+or a script's pushState), `LOAD:<url>` (the load ended), `TITLE:<title>`, `LAUNCH:<url>:OK|FAIL|BLOCKED`, `POPUP:<url>`,
 `DIALOG:<kind>`, `DOWNLOAD:START|DONE|FAIL`, `FAIL`, `STOPPED`, `HANG:*`, `NOTIFY:*`, `BLOCK:*` (the list's life),
 `INFO:RESIZE:<w>x<h>` (a whole picture of a new size arrived), `INFO:WINDOW|SPEC|SMOOTH`, and `QUIT:PASS` (after
 its window closed, exit status 0 and its `curl` child gone; `CHILD:curl:ALIVE` otherwise). The ones that name a

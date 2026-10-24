@@ -172,11 +172,13 @@ One-way: the call returns `()` once the message is queued.
 let result = sys::webd_light::mouse(view, kind, button, x, y, mods);
 ```
 
-### `wheel(view, x, y, ticks_x, ticks_y, mods)`
+### `wheel(view, x, y, ticks_x, ticks_y, mods, seq)`
 
-`Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway`
+`Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway`
 
-A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
+A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+the turns of a full view for `WheelDone` (the full interface); 0 asks
+for no answer, and a light view is never answered.
 
 Arguments:
 
@@ -188,11 +190,12 @@ Arguments:
 | `ticks_x` | `I32` | int |
 | `ticks_y` | `I32` | int |
 | `mods` | `U32` | int |
+| `seq` | `U64` | int |
 
 One-way: the call returns `()` once the message is queued.
 
 ```rhai
-let result = sys::webd_light::wheel(view, x, y, ticks_x, ticks_y, mods);
+let result = sys::webd_light::wheel(view, x, y, ticks_x, ticks_y, mods, seq);
 ```
 
 ### `key(view, press, keysym, text, mods)`

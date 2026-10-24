@@ -27,6 +27,9 @@ pub struct FullState {
     pub progress: u32,
     /// The committed page came over verified HTTPS.
     pub secure: bool,
+    /// Documents committed since the view was made: a reload of the same address counts, a pushState
+    /// does not. A new document is this changing, whatever its address.
+    pub commits: u32,
 }
 
 /// A frame that reached the picture (or was refused: see [`FrameInfo::applied`]).
@@ -66,6 +69,13 @@ pub enum FullEvent {
         x: i32,
         y: i32,
         at_bottom: bool,
+    },
+    /// The page answered every wheel turn up to `seq` (`FullInput::wheel`'s) and is scrolled to
+    /// `(x, y)` now, before the frame that shows it.
+    WheelDone {
+        seq: u64,
+        x: i32,
+        y: i32,
     },
     Band(Band),
     /// The pointer is over a link (its address), or no longer (`""`).
@@ -194,6 +204,17 @@ pub(crate) fn decode(method: u32, body: &[u8]) -> Option<Wire> {
                     x: a.x,
                     y: a.y,
                     at_bottom: a.at_bottom,
+                },
+            )
+        }
+        wire::METHOD_WHEELDONE => {
+            let a = wire::decode_wheel_done_args(body).ok()?;
+            plain(
+                a.view,
+                FullEvent::WheelDone {
+                    seq: a.seq,
+                    x: a.x,
+                    y: a.y,
                 },
             )
         }
@@ -341,5 +362,6 @@ pub(crate) fn state(args: wire::StateArgs) -> FullState {
         can_forward: args.can_forward,
         progress: args.progress,
         secure: args.secure,
+        commits: args.commits,
     }
 }

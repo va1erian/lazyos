@@ -69,6 +69,13 @@ impl Smooth {
         }
     }
 
+    /// Another page took the view: the burst under way ends, so the gap until the new page's first frame
+    /// (its load) is not counted as one between two frames of a scroll.
+    pub fn new_page(&mut self) {
+        self.last_wheel_ms = None;
+        self.last_draw_us = None;
+    }
+
     /// The line for the last second at `now_ms`, if a second has passed and the wheel turned in it.
     pub fn line(&mut self, now_ms: u64) -> Option<String> {
         if now_ms.saturating_sub(self.since_ms) < 1000 {
@@ -139,6 +146,24 @@ mod tests {
         assert_eq!(
             line,
             "INFO:SMOOTH:wheel=2:frames=0:gapmax=0:over33=0:shown=0:checker=0"
+        );
+    }
+
+    #[test]
+    fn the_wait_for_a_new_pages_first_frame_is_not_a_scroll_gap() {
+        let mut s = Smooth::default();
+        s.line(0);
+        s.wheel(1000, true);
+        s.drawn(1_010_000, 900, 0, false);
+        s.wheel(1100, true);
+        s.new_page(); // committed: the next frame is the new page's first
+        s.drawn(1_550_000, 900, 0, false);
+        s.wheel(1600, true);
+        s.drawn(1_620_000, 900, 0, false);
+        let line = s.line(2000).unwrap();
+        assert_eq!(
+            line,
+            "INFO:SMOOTH:wheel=3:frames=2:gapmax=20000:over33=0:shown=1800:checker=0"
         );
     }
 

@@ -21678,6 +21678,8 @@ pub mod os_lazy_webd_view_v1 {
     pub const METHOD_NOTIFYCANCEL: u32 = 124;
     /// `NotifyGone` method id.
     pub const METHOD_NOTIFYGONE: u32 = 125;
+    /// `WheelDone` method id.
+    pub const METHOD_WHEELDONE: u32 = 126;
 
     /// Make a view (see `os.lazy.webd.light.v1.CreateView`). Through this
     /// interface the view has no network: `config.scheme_policy` must be
@@ -22260,6 +22262,7 @@ pub mod os_lazy_webd_view_v1 {
         Ok(out)
     }
 
+    /// A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct WheelArgs {
         pub view: u64,
@@ -22268,6 +22271,7 @@ pub mod os_lazy_webd_view_v1 {
         pub ticks_x: i32,
         pub ticks_y: i32,
         pub mods: u32,
+        pub seq: u64,
     }
 
     pub fn encode_wheel_args(value: &WheelArgs) -> Result<Vec<u8>, Error> {
@@ -22278,6 +22282,7 @@ pub mod os_lazy_webd_view_v1 {
         target.i32(4, value.ticks_x)?;
         target.i32(5, value.ticks_y)?;
         target.u32(6, value.mods)?;
+        target.u64(7, value.seq)?;
         Ok(target.finish())
     }
 
@@ -22303,6 +22308,9 @@ pub mod os_lazy_webd_view_v1 {
                 }
                 6 => {
                     out.mods = field.as_u32()?;
+                }
+                7 => {
+                    out.seq = field.as_u64()?;
                 }
                 _ => {}
             }
@@ -22984,8 +22992,11 @@ pub mod os_lazy_webd_view_v1 {
 
     /// Event: what the page says about itself. `url` is the address on show,
     /// `committed_url` the page on screen; `progress` in thousandths;
-    /// `secure` when the committed page came over verified HTTPS. Texts are
-    /// cut at 48 KiB.
+    /// `secure` when the committed page came over verified HTTPS. `commits`
+    /// counts the documents committed since the view was made: a reload of
+    /// the same address counts, a script's pushState or a link to an anchor
+    /// does not (an app tells a new document by it, not by its address).
+    /// Texts are cut at 48 KiB.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct StateArgs {
         pub view: u64,
@@ -22999,6 +23010,7 @@ pub mod os_lazy_webd_view_v1 {
         pub can_forward: bool,
         pub progress: u32,
         pub secure: bool,
+        pub commits: u32,
     }
 
     pub fn encode_state_args(value: &StateArgs) -> Result<Vec<u8>, Error> {
@@ -23014,6 +23026,7 @@ pub mod os_lazy_webd_view_v1 {
         target.bool(9, value.can_forward)?;
         target.u32(10, value.progress)?;
         target.bool(11, value.secure)?;
+        target.u32(12, value.commits)?;
         Ok(target.finish())
     }
 
@@ -23054,6 +23067,9 @@ pub mod os_lazy_webd_view_v1 {
                 }
                 11 => {
                     out.secure = field.as_bool()?;
+                }
+                12 => {
+                    out.commits = field.as_u32()?;
                 }
                 _ => {}
             }
@@ -23907,6 +23923,53 @@ pub mod os_lazy_webd_view_v1 {
                 }
                 2 => {
                     out.notification = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
+    /// its main frame is scrolled to `(x, y)` now, before the frame that shows
+    /// it arrives. The app that shows its picture ahead of the page keeps it
+    /// ahead while turns are unanswered, and moves it to where this says the
+    /// page went (back, when the page did not scroll: its end, a box that
+    /// scrolled instead, a script that cancelled the wheel). A page whose
+    /// process ended answers everything at once.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct WheelDoneArgs {
+        pub view: u64,
+        pub seq: u64,
+        pub x: i32,
+        pub y: i32,
+    }
+
+    pub fn encode_wheel_done_args(value: &WheelDoneArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.view)?;
+        target.u64(2, value.seq)?;
+        target.i32(3, value.x)?;
+        target.i32(4, value.y)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_wheel_done_args(body: &[u8]) -> Result<WheelDoneArgs, Error> {
+        let mut out = WheelDoneArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.view = field.as_u64()?;
+                }
+                2 => {
+                    out.seq = field.as_u64()?;
+                }
+                3 => {
+                    out.x = field.as_i32()?;
+                }
+                4 => {
+                    out.y = field.as_i32()?;
                 }
                 _ => {}
             }
@@ -24885,7 +24948,9 @@ pub mod os_lazy_webd_light_v1 {
         Ok(out)
     }
 
-    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+    /// the turns of a full view for `WheelDone` (the full interface); 0 asks
+    /// for no answer, and a light view is never answered.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct WheelArgs {
         pub view: u64,
@@ -24894,6 +24959,7 @@ pub mod os_lazy_webd_light_v1 {
         pub ticks_x: i32,
         pub ticks_y: i32,
         pub mods: u32,
+        pub seq: u64,
     }
 
     pub fn encode_wheel_args(value: &WheelArgs) -> Result<Vec<u8>, Error> {
@@ -24904,6 +24970,7 @@ pub mod os_lazy_webd_light_v1 {
         target.i32(4, value.ticks_x)?;
         target.i32(5, value.ticks_y)?;
         target.u32(6, value.mods)?;
+        target.u64(7, value.seq)?;
         Ok(target.finish())
     }
 
@@ -24929,6 +24996,9 @@ pub mod os_lazy_webd_light_v1 {
                 }
                 6 => {
                     out.mods = field.as_u32()?;
+                }
+                7 => {
+                    out.seq = field.as_u64()?;
                 }
                 _ => {}
             }

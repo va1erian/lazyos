@@ -131,8 +131,10 @@ pub trait Engine {
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32);
     /// A wheel step at (x, y): `ticks_x` and `ticks_y` count notches, positive
     /// scrolling up or right (xui's convention, Windows'; WebKit's own x is
-    /// positive to the left, which the C++ side flips).
-    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32);
+    /// positive to the left, which the C++ side flips). `seq` numbers the turn
+    /// (rising): the engine answers it through [`Mailbox::wheel_done`](crate::mailbox::Mailbox::wheel_done)
+    /// once the page has.
+    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64);
     /// A key. `text` is what it types (empty for a key that types nothing).
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32);
     /// The page view gained or lost the keyboard focus.
@@ -186,7 +188,7 @@ pub enum Call {
     Forward,
     Resize(i32, i32),
     Mouse(MouseKind, Button, i32, i32, u32),
-    Wheel(i32, i32, i32, i32, u32),
+    Wheel(i32, i32, i32, i32, u32, u64),
     Key(bool, u32, String, u32),
     Focus(bool),
     Download(String),
@@ -251,8 +253,8 @@ impl Engine for Recorder {
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32) {
         self.push(Call::Mouse(kind, button, x, y, mods));
     }
-    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
-        self.push(Call::Wheel(x, y, ticks_x, ticks_y, mods));
+    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
+        self.push(Call::Wheel(x, y, ticks_x, ticks_y, mods, seq));
     }
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32) {
         self.push(Call::Key(press, keysym, text.to_string(), mods));

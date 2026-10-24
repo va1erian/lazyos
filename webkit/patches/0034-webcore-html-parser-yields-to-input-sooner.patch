@@ -1,0 +1,47 @@
+WebCore: the HTML parser yields to the run loop after 30 ms, not 500 ms.
+
+The parser runs a chunk of the document (and the scripts that chunk executes) until it has used its time
+limit, then lets the run loop go on. With WebKit's 500 ms limit a heavy page (The Verge, BBC) kept the web
+process's main thread for up to half a second at a time while it loaded, and a wheel turn, a key or a click
+waited for the chunk to end: the browser monkey measured wheel answers of 400 to 490 ms on The Verge while it
+loaded and 7 to 15 ms once it had. On one CPU nothing else can answer. The limit is now 30 ms
+(LAZYOS_WEBKIT_PARSER_YIELD_MS, 1 to 500), as other engines slice their parsing; the page's own
+customHTMLTokenizerTimeDelay setting still wins when an embedder sets it.
+
+--- a/Source/WebCore/html/parser/HTMLParserScheduler.cpp
++++ b/Source/WebCore/html/parser/HTMLParserScheduler.cpp
+@@ -42,10 +42,34 @@
+
+ WTF_MAKE_TZONE_ALLOCATED_IMPL(HTMLParserScheduler);
+
++#if PLATFORM(LAZYOS)
++// LazyOS: how long the parser keeps the main thread before it lets the run loop go on. WebKit's 500 ms let a
++// heavy page's load hold a wheel turn, a key or a click for up to half a second on one CPU; 30 ms keeps input
++// within a couple of frames while a page loads, at the cost of a few more trips through the run loop.
++// LAZYOS_WEBKIT_PARSER_YIELD_MS (1 to 500) overrides it; anything else keeps the default.
++static Seconds lazyosParserTimeLimit()
++{
++    static const Seconds limit = [] {
++        if (const char* value = getenv("LAZYOS_WEBKIT_PARSER_YIELD_MS")) {
++            char* end = nullptr;
++            long ms = strtol(value, &end, 10);
++            if (end != value && !*end && ms >= 1 && ms <= 500)
++                return Seconds::fromMilliseconds(ms);
++        }
++        return 30_ms;
++    }();
++    return limit;
++}
++#endif
++
+ static Seconds NODELETE parserTimeLimit(Page* page)
+ {
+     // Always yield after exceeding this.
++#if PLATFORM(LAZYOS)
++    const auto defaultParserTimeLimit = lazyosParserTimeLimit();
++#else
+     constexpr auto defaultParserTimeLimit = 500_ms;
++#endif
+
+     // We're using the poorly named customHTMLTokenizerTimeDelay setting.
+     if (page && page->hasCustomHTMLTokenizerTimeDelay())

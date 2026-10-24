@@ -81,6 +81,36 @@ def registers(qmp) -> tuple[tuple[int, int, int] | None, int | None]:
     return parse_registers(text), int(rsp.group(1), 16) if rsp else None
 
 
+def paused_snapshot(qmp, words: int) -> tuple[tuple[int, int, int] | None, list[int] | None]:
+    """One sample with the vCPU stopped: the registers and, in user mode, `words` quadwords of the stack from
+    `RSP`, both of the same instant (`snapshot` reads them a millisecond apart and keeps few stacks). The guest
+    loses the time the monitor takes (a few milliseconds a sample), so a recording is slower than real life:
+    read where the time goes, not how much of it there is."""
+    qmp.execute("stop")
+    try:
+        parsed, rsp = registers(qmp)
+        if not parsed or parsed[0] != 3 or rsp is None:
+            return parsed, None
+        try:
+            text = str(qmp.execute("human-monitor-command", **{"command-line": f"x /{words}gx {rsp:#x}"}))
+        except RuntimeError:  # an unmapped stack page
+            return parsed, []
+        return parsed, parse_words(text)
+    finally:
+        _resume(qmp)
+
+
+def _resume(qmp, attempts: int = 3) -> None:
+    """`cont` after a paused sample, retried: a guest left stopped would refuse the session's input. A
+    failure is not raised from here, so it never hides the error the sample itself met."""
+    for _ in range(attempts):
+        try:
+            qmp.execute("cont")
+            return
+        except Exception as error:  # a busy or closing monitor
+            print(f"sample: cont failed: {error!r}", file=sys.stderr)
+
+
 def snapshot(qmp, stacks: bool) -> tuple[tuple[int, int, int] | None, list[int] | None]:
     """One sample: the registers, and with `stacks` the user stack's quadwords (an empty list when they
     could not be trusted). The guest runs between two monitor commands, and stopping it would refuse a
@@ -100,9 +130,11 @@ def snapshot(qmp, stacks: bool) -> tuple[tuple[int, int, int] | None, list[int] 
     return parsed, words if same else []
 
 
-def record(port: int, out: Path, seconds: float, interval: float = 0.03, stacks: bool = False) -> int:
+def record(port: int, out: Path, seconds: float, interval: float = 0.03, stacks: bool = False,
+           pause_words: int = 0) -> int:
     """Samples until `seconds` pass or QEMU goes away; writes `t<TAB>cpl<TAB>cr3<TAB>rip[<TAB>stack]` lines,
-    with `stacks` the user-mode stack as comma-separated hex quadwords from `RSP` up ([`snapshot`])."""
+    with `stacks` the user-mode stack as comma-separated hex quadwords from `RSP` up ([`snapshot`]); with
+    `pause_words` that many quadwords, read with the guest stopped ([`paused_snapshot`])."""
     from qemu_qmp import Qmp  # noqa: E402  (tools/screenshot, put on the path above)
 
     deadline = time.time() + seconds
@@ -119,7 +151,7 @@ def record(port: int, out: Path, seconds: float, interval: float = 0.03, stacks:
     with out.open("w", encoding="utf-8") as handle:
         while time.time() < deadline:
             try:
-                parsed, words = snapshot(qmp, stacks)
+                parsed, words = paused_snapshot(qmp, pause_words) if pause_words else snapshot(qmp, stacks)
                 failures = 0
             except (OSError, EOFError, ConnectionError) as error:  # the guest has quit
                 print(f"sample: QEMU went away after {count} samples: {error!r}", file=sys.stderr)
@@ -199,6 +231,8 @@ def main() -> int:
     rec.add_argument("--out", type=Path, required=True)
     rec.add_argument("--seconds", type=float, default=300.0)
     rec.add_argument("--stacks", action="store_true", help="keep each user-mode sample's stack")
+    rec.add_argument("--pause", type=int, default=0, metavar="WORDS",
+                     help="stop the guest for each sample and keep this many stack quadwords (deep stacks, slower guest)")
     rep = sub.add_parser("report", help="summarize a recording")
     rep.add_argument("samples", type=Path)
     rep.add_argument("--cr3", help="hex page-table base of one process")
@@ -207,7 +241,7 @@ def main() -> int:
     rep.add_argument("--top", type=int, default=15)
     args = parser.parse_args()
     if args.command == "record":
-        print(f"samples {record(args.port, args.out, args.seconds, stacks=args.stacks)}")
+        print(f"samples {record(args.port, args.out, args.seconds, stacks=args.stacks, pause_words=args.pause)}")
         return 0
     rows = load(args.samples)
     cr3 = int(args.cr3, 16) if args.cr3 else None

@@ -79,8 +79,10 @@ interface os.lazy.webd.light.v1 {
     /// `MouseKind`, `button` 0 left, 1 middle, 2 right (-1 none: a move with no
     /// button held); `mods` bit 0 shift, 1 control, 2 alt, 3 meta.
     method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
-    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`.
-    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
+    /// A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers
+    /// the turns of a full view for `WheelDone` (the full interface); 0 asks
+    /// for no answer, and a light view is never answered.
+    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6, seq: U64 = 7) -> () = 21 oneway;
     /// A key edge: `keysym` is the X11 keysym the display protocol carries,
     /// `text` the character it types (empty for none).
     method Key(view: U64 = 1, press: Bool = 2, keysym: U32 = 3, text: String = 4, mods: U32 = 5) -> () = 22 oneway;

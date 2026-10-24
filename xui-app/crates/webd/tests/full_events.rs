@@ -126,6 +126,7 @@ fn the_pages_state_and_small_news_reach_the_client_and_a_new_window_only_if_aske
         committed_url: "https://example.com/".into(),
         secure: true,
         finished: 3,
+        commits: 0,
     };
     fx.queue.page_state(view, page);
     fx.queue.hover(view, "https://example.com/link");
@@ -143,6 +144,7 @@ fn the_pages_state_and_small_news_reach_the_client_and_a_new_window_only_if_aske
         title: "T".into(),
         loading: true,
         finished: 3,
+        commits: 0,
         error: String::new(),
         url: "https://example.com/next".into(),
         committed_url: "https://example.com/".into(),

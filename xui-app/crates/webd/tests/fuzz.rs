@@ -434,6 +434,7 @@ fn valid_request(rng: &mut Rng, rig: &mut Rig, method: u32, view: u64) -> (Vec<u
             ticks_x: 3,
             ticks_y: -4,
             mods: rng.next_u32(),
+            seq: u64::from(rng.next_u32()),
         })),
         wire::METHOD_KEY => plain(wire::encode_key_args(&wire::KeyArgs {
             view,

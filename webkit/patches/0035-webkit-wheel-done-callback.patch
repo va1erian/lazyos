@@ -1,0 +1,157 @@
+WebKit: the UI process tells the client how many wheel events the page has not answered yet.
+
+LazyWeb shows its picture ahead of the page while the page is busy (the window answers the wheel at once, the
+page after its running script ends: 300 to 900 ms while a heavy page loads). It used to guess when to give the
+picture back (500 ms after the last notch, 900 ms without a move), and a page busier than that made the picture
+jump back and then forward again (issue #940). WKPageSetWheelDoneCallback says, after every wheel event is
+queued, sent, dropped or answered, how many the page's process has not answered (the coalescer's queue and the
+coalesced events in flight, each counting every event it merged), and 0 when the process ended. The page's
+process says it scrolled (PageDidScroll, WKPageSetScrollOffsetCallback) before it answers the event that
+scrolled it, on the same connection, so at each call the offset last told is where the answered events left the
+page: the window keeps its picture ahead while events are unanswered and gives back exactly what the page did not
+do (the end of the page, a box that scrolled instead, a handler that cancelled the wheel).
+
+--- a/Source/WebKit/Shared/WebWheelEventCoalescer.h
++++ b/Source/WebKit/Shared/WebWheelEventCoalescer.h
+@@ -41,6 +41,11 @@
+     std::optional<NativeWebWheelEvent> takeOldestEventBeingProcessed();
+ 
+     bool hasEventsBeingProcessed() const { return !m_eventsBeingProcessed.isEmpty(); }
++#if PLATFORM(LAZYOS)
++    // LazyOS (WKPageSetWheelDoneCallback): the native wheel events the page's process has not answered,
++    // queued or sent; a coalesced event counts every event it merged.
++    size_t pendingEventCount() const;
++#endif
+     
+     void clear();
+ 
+--- a/Source/WebKit/Shared/WebWheelEventCoalescer.cpp
++++ b/Source/WebKit/Shared/WebWheelEventCoalescer.cpp
+@@ -167,6 +167,16 @@
+     return oldestSequence->last();
+ }
+ 
++#if PLATFORM(LAZYOS)
++size_t WebWheelEventCoalescer::pendingEventCount() const
++{
++    size_t count = m_wheelEventQueue.size();
++    for (auto& sequence : m_eventsBeingProcessed)
++        count += sequence->size();
++    return count;
++}
++#endif
++
+ void WebWheelEventCoalescer::clear()
+ {
+     m_wheelEventQueue.clear();
+--- a/Source/WebKit/UIProcess/WebPageProxy.cpp
++++ b/Source/WebKit/UIProcess/WebPageProxy.cpp
+@@ -4823,8 +4823,32 @@
+ }
+ #endif
+ 
++#if PLATFORM(LAZYOS)
++using PageWheelObserver = void (*)(WebPageProxy&, size_t pending);
++static PageWheelObserver s_pageWheelObserver;
++
++// LazyOS: WKPageSetWheelDoneCallback's hook (API/C/playstation/WKPagePrivatePlayStation.cpp).
++void setPageWheelObserver(PageWheelObserver observer)
++{
++    s_pageWheelObserver = observer;
++}
++
++static void notifyPageWheelObserver(WebPageProxy& page, size_t pending)
++{
++    if (auto observer = s_pageWheelObserver)
++        observer(page, pending);
++}
++#endif
++
+ void WebPageProxy::handleNativeWheelEvent(const NativeWebWheelEvent& nativeWheelEvent)
+ {
++#if PLATFORM(LAZYOS)
++    // Told once the event is queued, sent or dropped (no process), so the client's count of unanswered
++    // events is always the coalescer's.
++    auto notify = WTF::makeScopeExit([this] {
++        notifyPageWheelObserver(*this, wheelEventCoalescer().pendingEventCount());
++    });
++#endif
+     if (!hasRunningProcess())
+         return;
+ 
+@@ -4970,6 +4994,13 @@
+ 
+ void WebPageProxy::wheelEventHandlingCompleted(bool wasHandled)
+ {
++#if PLATFORM(LAZYOS)
++    // Told after the answer is taken and the next coalesced event (if any) sent. The page's process sent
++    // PageDidScroll for this event before its answer, on the same connection: the client knows the offset.
++    auto notify = WTF::makeScopeExit([this] {
++        notifyPageWheelObserver(*this, wheelEventCoalescer().pendingEventCount());
++    });
++#endif
+     auto oldestProcessedEvent = wheelEventCoalescer().takeOldestEventBeingProcessed();
+ 
+     if (oldestProcessedEvent)
+@@ -14023,8 +14054,13 @@
+     internals().mouseEventQueue.clear();
+     internals().coalescedMouseEvents.clear();
+     internals().keyEventQueue.clear();
+-    if (m_wheelEventCoalescer)
++    if (m_wheelEventCoalescer) {
+         m_wheelEventCoalescer->clear();
++#if PLATFORM(LAZYOS)
++        // The process is gone: no event will be answered.
++        notifyPageWheelObserver(*this, 0);
++#endif
++    }
+ 
+ #if ENABLE(ATTACHMENT_ELEMENT)
+     invalidateAllAttachments();
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.h
+@@ -61,6 +61,14 @@
+ typedef void (*WKPageScrollOffsetCallback)(WKPageRef, int x, int y, void* context);
+ WK_EXPORT void WKPageSetScrollOffsetCallback(WKPageRef, WKPageScrollOffsetCallback, void* context);
+ 
++// LazyOS: how many of the wheel events given to WKPageHandleWheelEvent (one per axis that moved) the page's
++// process has not answered yet, told after each one is queued, sent, dropped or answered, and 0 when the
++// process ended. The page's process says it scrolled (WKPageSetScrollOffsetCallback) before it answers the
++// event that scrolled it, so at each call the offset last told is where the answered events left the page.
++// A client that shows its picture ahead of the page keeps it ahead while events are unanswered.
++typedef void (*WKPageWheelDoneCallback)(WKPageRef, size_t pending, void* context);
++WK_EXPORT void WKPageSetWheelDoneCallback(WKPageRef, WKPageWheelDoneCallback, void* context);
++
+ // LazyOS: where WKPagePaint's time goes, summed in microseconds since the process began, into
+ // `out[0..count)`: 0 calls, 1 the whole call, 2 making the surface and its canvas, 3 endPrinting,
+ // 4 the drawing area's paint (the backing store's), 5 of which the snapshot of the backing store's
+--- a/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
++++ b/Source/WebKit/UIProcess/API/C/playstation/WKPagePrivatePlayStation.cpp
+@@ -135,6 +135,27 @@
+ #endif
+ }
+ 
++namespace WebKit {
++using PageWheelObserver = void (*)(WebPageProxy&, size_t);
++void setPageWheelObserver(PageWheelObserver);
++}
++
++static WKPageWheelDoneCallback s_wheelDoneCallback;
++static void* s_wheelDoneCallbackContext;
++
++static void forwardWheelDone(WebKit::WebPageProxy& page, size_t pending)
++{
++    if (auto callback = s_wheelDoneCallback)
++        callback(WebKit::toAPI(&page), pending, s_wheelDoneCallbackContext);
++}
++
++void WKPageSetWheelDoneCallback(WKPageRef, WKPageWheelDoneCallback callback, void* context)
++{
++    s_wheelDoneCallback = callback;
++    s_wheelDoneCallbackContext = context;
++    WebKit::setPageWheelObserver(callback ? forwardWheelDone : nullptr);
++}
++
+ void WKPageSetUpdateCallback(WKPageRef, WKPageUpdateCallback callback, void* context)
+ {
+ #if !USE(GRAPHICS_LAYER_WC)

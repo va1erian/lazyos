@@ -76,6 +76,7 @@ fn a_view_is_unusable_by_another_client_and_looks_like_one_that_does_not_exist()
                 ticks_x: 1,
                 ticks_y: 1,
                 mods: 0,
+                seq: 0,
             })
             .unwrap(),
         ),

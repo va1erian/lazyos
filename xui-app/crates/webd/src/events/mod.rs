@@ -62,6 +62,8 @@ pub struct PageNow {
     pub committed_url: String,
     pub secure: bool,
     pub finished: u32,
+    /// Documents committed since the view was made (a same-address reload too).
+    pub commits: u32,
 }
 
 /// Rows of the page outside a view (an overscan band), RGBA, `width * 4` per row.
@@ -196,6 +198,7 @@ struct Inner {
     cursors: BTreeMap<u64, i32>,
     responsive: BTreeMap<u64, bool>,
     blocked: BTreeMap<u64, i32>,
+    wheels: BTreeMap<u64, (u64, i32, i32)>,
     /// Pixel buffers the service gave back, for the next copies (`spares`).
     spares: Spares,
 }
@@ -212,6 +215,7 @@ impl Inner {
         self.cursors.remove(&view);
         self.responsive.remove(&view);
         self.blocked.remove(&view);
+        self.wheels.remove(&view);
         if let Some(pictures) = self.pictures.get_mut(&view) {
             pictures.take();
         }
@@ -321,6 +325,7 @@ impl EventQueue {
             cursors: std::mem::take(&mut inner.cursors),
             responsive: std::mem::take(&mut inner.responsive),
             blocked: std::mem::take(&mut inner.blocked),
+            wheels: std::mem::take(&mut inner.wheels),
         }
     }
 
@@ -427,6 +432,12 @@ impl EngineEvents for EventQueue {
                 slot.rgba.extend_from_slice(rgba);
             }
         }
+        self.ring();
+    }
+
+    fn wheel_done(&self, view: u64, seq: u64, x: i32, y: i32) {
+        // Answers are cumulative: the newest one says everything the older ones did.
+        self.lock().wheels.insert(view, (seq, x, y));
         self.ring();
     }
 

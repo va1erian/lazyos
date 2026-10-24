@@ -655,6 +655,18 @@ View::~View()
         WKRelease(view);
 }
 
+void latestScroll(View& v, int& x, int& y)
+{
+    x = ps(v).latestScroll.x;
+    y = ps(v).latestScroll.y;
+}
+
+void resetScroll(View& v)
+{
+    // The new document's own PageDidScroll (a restored position, an anchor) comes after the commit.
+    ps(v).latestScroll = {};
+}
+
 void installPaintObserver(View& v)
 {
     v.sink->paintResize(v.width, v.height);

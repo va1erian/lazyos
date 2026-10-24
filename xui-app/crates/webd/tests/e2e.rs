@@ -194,6 +194,8 @@ fn input_goes_to_the_engine_with_the_modifier_bits_it_knows() {
             ticks_x: 0,
             ticks_y: -3,
             mods: 1,
+            // A light view's turns are never answered: the number does not reach the engine.
+            seq: 9,
         })
         .unwrap(),
     );
@@ -244,7 +246,8 @@ fn input_goes_to_the_engine_with_the_modifier_bits_it_knows() {
                 y: 2,
                 ticks_x: 0,
                 ticks_y: -3,
-                mods: 1
+                mods: 1,
+                seq: 0
             },
             Call::Key {
                 view,

@@ -78,8 +78,8 @@ fn clicks_and_wheel_reach_the_engine_in_page_coordinates() {
         "{calls:?}"
     );
     assert!(
-        calls.contains(&Call::Wheel(60, 70, 0, -1, 0)),
-        "a notch down is one step down: {calls:?}"
+        calls.contains(&Call::Wheel(60, 70, 0, -1, 0, 1)),
+        "a notch down is one step down, the view's first turn: {calls:?}"
     );
 }
 

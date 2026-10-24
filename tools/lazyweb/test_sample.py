@@ -52,6 +52,36 @@ class StackTests(unittest.TestCase):
         self.assertEqual(sample.snapshot(Monitor([KERNEL]), True), ((0, 0x5F04000, 0xFFFF80000007FE6E), None))
         self.assertEqual(sample.snapshot(Monitor([user]), False), ((3, 0x5F04000, 0x799488), None))
 
+    def test_a_paused_sample_reads_one_instant_and_always_lets_the_guest_go(self):
+        class Monitor:
+            def __init__(self, answers):
+                self.answers, self.commands = list(answers), []
+
+            def execute(self, command, **arguments):
+                self.commands.append(arguments.get("command-line", command).split(" ")[0])
+                if command in ("stop", "cont"):
+                    return {}
+                answer = self.answers.pop(0)
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+
+        user = USER.replace("CR0=", "RSP=00007ffffffff000 CR0=")
+        stack = "00007ffffffff000: 0x0000000000412345 0x0000000000000001\r\n"
+        monitor = Monitor([user, stack])
+        self.assertEqual(sample.paused_snapshot(monitor, 2), ((3, 0x5F04000, 0x799488), [0x412345, 1]))
+        self.assertEqual(monitor.commands, ["stop", "info", "x", "cont"], "registers and stack of one instant")
+        monitor = Monitor([KERNEL])
+        self.assertEqual(sample.paused_snapshot(monitor, 2)[1], None)
+        self.assertEqual(monitor.commands[-1], "cont")
+        monitor = Monitor([user, RuntimeError("unmapped")])
+        self.assertEqual(sample.paused_snapshot(monitor, 2)[1], [])
+        self.assertEqual(monitor.commands[-1], "cont")
+        monitor = Monitor([OSError("gone")])
+        with self.assertRaises(OSError):
+            sample.paused_snapshot(monitor, 2)
+        self.assertEqual(monitor.commands[-1], "cont", "a failed read still resumes the guest")
+
     def test_a_recording_with_and_without_stacks_loads(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:

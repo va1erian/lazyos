@@ -184,6 +184,7 @@ impl FakeWeb {
                 committed_url: url,
                 secure: false,
                 finished: page.finished,
+                commits: page.finished + u32::from(loading), // a load commits as it starts
             }
         };
         self.queue.page_state(view, page);
@@ -389,8 +390,12 @@ impl Engine for FakeWeb {
 
     fn mouse(&self, _: u64, _: i32, _: i32, _: i32, _: i32, _: u32) {}
 
-    fn wheel(&self, view: u64, _x: i32, _y: i32, _ticks_x: i32, ticks_y: i32, _mods: u32) {
+    fn wheel(&self, view: u64, _x: i32, _y: i32, _: i32, ticks_y: i32, _: u32, seq: u64) {
         self.scroll_long(view, ticks_y);
+        if seq != 0 {
+            let y = self.lock().views.get(&view).map_or(0, |page| page.y);
+            self.queue.wheel_done(view, seq, 0, y); // answered at once, as WebKit does (patch 0035)
+        }
     }
 
     fn key(&self, _: u64, _: bool, _: u32, _: &str, _: u32) {}

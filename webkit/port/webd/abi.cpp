@@ -402,9 +402,9 @@ void webd_engine_mouse(uint64_t view, int kind, int button, int x, int y, uint32
     withView(view, [=](Slot&, View& v) { v.mouse(engineKind, button, x, y, mods); });
 }
 
-void webd_engine_wheel(uint64_t view, int x, int y, int ticks_x, int ticks_y, uint32_t mods)
+void webd_engine_wheel(uint64_t view, int x, int y, int ticks_x, int ticks_y, uint32_t mods, uint64_t seq)
 {
-    withView(view, [=](Slot&, View& v) { v.wheel(x, y, ticks_x, ticks_y, mods); });
+    withView(view, [=](Slot&, View& v) { v.wheel(x, y, ticks_x, ticks_y, mods, seq); });
 }
 
 void webd_engine_key(uint64_t view, int press, uint32_t keysym, const char* text, uint32_t mods)

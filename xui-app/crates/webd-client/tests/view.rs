@@ -229,7 +229,8 @@ fn input_visibility_and_focus_reach_the_engine() {
                 y: 2,
                 ticks_x: 0,
                 ticks_y: -3,
-                mods: 1
+                mods: 1,
+                seq: 0
             },
             Call::Key {
                 view: id,

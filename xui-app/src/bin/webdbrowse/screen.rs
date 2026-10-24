@@ -223,7 +223,8 @@ impl State {
             } => {
                 let ticks = notches(delta);
                 let (tx, ty) = if horizontal { (ticks, 0) } else { (0, ticks) };
-                view.wheel(x, y, tx, ty, modifier_bits(modifiers));
+                // This view shows no picture ahead of the page: it asks for no answers (0).
+                view.wheel(x, y, tx, ty, modifier_bits(modifiers), 0);
             }
             Event::CaptureChanged => self.held = None,
             Event::SetFocus => view.focus(true),

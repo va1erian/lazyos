@@ -86,8 +86,8 @@ impl Engine for Relay {
     fn mouse(&self, kind: MouseKind, button: Button, x: i32, y: i32, mods: u32) {
         self.queue(move |e| e.mouse(kind, button, x, y, mods));
     }
-    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
-        self.queue(move |e| e.wheel(x, y, ticks_x, ticks_y, mods));
+    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
+        self.queue(move |e| e.wheel(x, y, ticks_x, ticks_y, mods, seq));
     }
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32) {
         let text = text.to_owned();
