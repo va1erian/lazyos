@@ -38,7 +38,7 @@ fn fresh() -> u64 {
 /// (`charge_tick`), but no time passed: restore the counter, or the uptime
 /// accounting other suites check would see more idle ticks than ticks.
 fn cleanup(idle: u64) {
-    task::IDLE_TICKS.store(idle, core::sync::atomic::Ordering::Relaxed);
+    task::set_idle_ticks(idle);
     task::harness::switch_current(task::KERNEL_TASK);
     for slot in 1..task::MAX_TASKS {
         if task::harness::state(slot).is_some() {

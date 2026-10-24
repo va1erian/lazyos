@@ -23,16 +23,20 @@ const MAX_REPORTS: u32 = 64;
 
 static REPORTED: AtomicU32 = AtomicU32::new(0);
 
-/// The clock and switch count at a syscall's start.
+/// The clock and the caller's departure count at a syscall's start: a call
+/// during which the caller left the CPU (it parked, or was preempted) let
+/// others run. Per task, because with several CPUs the machine-wide switch
+/// count moves whatever this call does, and an idle stretch between two runs
+/// of the caller is not a switch.
 pub(crate) struct Probe {
     started_ns: u64,
-    switches: u64,
+    departures: u64,
 }
 
 pub(crate) fn begin() -> Probe {
     Probe {
         started_ns: crate::arch::clock::monotonic_ns(),
-        switches: crate::task::context_switches(),
+        departures: crate::task::departures(crate::task::current()),
     }
 }
 
@@ -40,7 +44,7 @@ pub(crate) fn begin() -> Probe {
 /// `abi` is `"linux"` (`syscall`) or `"native"` (`int 0x80`).
 pub(crate) fn end(probe: Probe, abi: &str, nr: u64, args: [u64; 3]) {
     let elapsed = crate::arch::clock::monotonic_ns().saturating_sub(probe.started_ns);
-    if elapsed < SLOW_NS || crate::task::context_switches() != probe.switches {
+    if elapsed < SLOW_NS || crate::task::departures(crate::task::current()) != probe.departures {
         return;
     }
     if REPORTED.fetch_add(1, Ordering::Relaxed) >= MAX_REPORTS {

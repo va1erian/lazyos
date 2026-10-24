@@ -94,7 +94,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
             let running = (task::cpu_ticks(me), task::idle_ticks());
             // Simulated ticks never advanced uptime: put the idle counter
             // back so it stays a share of `ticks()` for the sysinfo checks.
-            task::IDLE_TICKS.store(idle_start, core::sync::atomic::Ordering::Relaxed);
+            task::set_idle_ticks(idle_start);
             (
                 parked.0, parked.1, running.0, running.1, cpu_start, idle_start,
             )
@@ -105,7 +105,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     );
     check!(
         idle_parked == idle_start + TICKS,
-        "{TICKS} ticks on a parked task moved IDLE_TICKS {idle_start} -> {idle_parked}"
+        "{TICKS} ticks on a parked task moved the idle count {idle_start} -> {idle_parked}"
     );
     check!(
         cpu_running == cpu_parked + TICKS,
@@ -114,7 +114,7 @@ pub fn tick_on_parked_task_is_idle() -> Result<(), String> {
     );
     check!(
         idle_running == idle_parked,
-        "ticks on a runnable task moved IDLE_TICKS {idle_parked} -> {idle_running}"
+        "ticks on a runnable task moved the idle count {idle_parked} -> {idle_running}"
     );
     task::harness::reset();
     Ok(())

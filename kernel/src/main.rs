@@ -367,6 +367,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
     task::start();
     serial_println!("LazyOS: scheduler started (Tab switches focus)");
+    // The APs take tasks too from here (S8.3c; a `LAZYOS_SMP=1` kernel).
+    arch::smp::start_aps();
     crate::arch::irq_window::arm();
     x86_64::instructions::interrupts::enable();
 

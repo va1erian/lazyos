@@ -230,6 +230,8 @@ pub(crate) fn finish_locked(
     // "nobody" is slot 0 too.
     let parent = family::notify_target(tasks, slot, parent).unwrap_or(KERNEL_TASK);
     super::runq::sync(tasks, slot);
+    // Running on another CPU: it must leave that CPU to be reaped (S8.3c).
+    super::kick::nudge(slot);
     super::yieldlock::forget_wait(slot);
     super::procexit::note_exit(tasks, slot, status);
     // Stop the dead task's devices (interrupt line, DMA) and close its

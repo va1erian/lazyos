@@ -10,6 +10,7 @@ python tools/perf/run.py --no-build         # re-measure the current image
 python tools/perf/run.py --label "P1.1"     # also append a row to docs/perf/history.md
 python tools/perf/run.py --accel none       # TCG: informative only
 python tools/perf/run.py --usb              # the moves through a USB mouse (LAZYOS_USB=1, qemu-xhci, no i8042)
+python tools/perf/run.py --smp 4            # four vCPUs and the SMP kernel (LAZYOS_SMP=1): adds PERF:entry
 ```
 
 The image is built with `LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1`.
@@ -35,6 +36,8 @@ syscall number of the longest interrupts-off stretch.
 | `report` | the kernel starts printing a report | it finished | every report |
 | `input_present_rpt` | an `input_present` sample | the same, booked only when a report ran inside it | the moves |
 | `usb_input_present` | the xHCI interrupt the kernel posted to `usbd` before it published a pointer record | the compositor's next `present` returns | `--usb`: the same moves through a `usb-mouse` |
+
+With `--smp N` (N > 1) the report also gives the kernel entry lock's contention (`PERF:entry`: how many entries waited for another CPU, the longest wait, the CPUs running tasks), the number each SMP stage after S8.3 is measured against (`docs/smp-plan.md`). The history row's accelerator column says `smpN`.
 
 `--max-msg-rt-p50-us 10` turns the run into the P6 regression gate: it fails
 when msgbench's median round trip is over 10 µs, under KVM or WHPX only (no

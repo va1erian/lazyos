@@ -148,3 +148,43 @@ pub fn space_owners() -> Vec<SpaceOwner> {
     }
     owners
 }
+
+/// The machine's idle time in millionths of a tick. A tick that finds a CPU
+/// idle (`schedule::charge_tick`) adds that CPU's share, a million over the
+/// CPUs that may run tasks then (S8.3c: every scheduling CPU ticks), so
+/// `ticks() - idle_ticks()` is busy time however many CPUs tick, and a
+/// change in their number does not re-weigh the past.
+static IDLE_SHARE: AtomicU64 = AtomicU64::new(0);
+
+/// One tick's worth of [`IDLE_SHARE`].
+const SHARE_PER_TICK: u64 = 1_000_000;
+
+/// `ticks` timer ticks found this CPU idle.
+pub(super) fn note_idle_ticks(ticks: u64) {
+    let share = SHARE_PER_TICK / super::idle::running_cpus() as u64;
+    IDLE_SHARE.fetch_add(ticks.saturating_mul(share), Ordering::Relaxed);
+}
+
+/// The machine's idle time in ticks.
+pub fn idle_ticks() -> u64 {
+    IDLE_SHARE.load(Ordering::Relaxed) / SHARE_PER_TICK
+}
+
+/// Set the idle time back to `ticks` (the suite's simulated ticks are not
+/// time that passed, and uptime accounting compares the two).
+#[cfg(lazyos_tests)]
+pub fn set_idle_ticks(ticks: u64) {
+    IDLE_SHARE.store(ticks.saturating_mul(SHARE_PER_TICK), Ordering::Relaxed);
+}
+
+/// The raw share, for a save and restore that loses nothing.
+#[cfg(lazyos_tests)]
+pub(super) fn idle_share() -> u64 {
+    IDLE_SHARE.load(Ordering::Relaxed)
+}
+
+/// Restore a share [`idle_share`] read.
+#[cfg(lazyos_tests)]
+pub(super) fn set_idle_share(share: u64) {
+    IDLE_SHARE.store(share, Ordering::Relaxed);
+}

@@ -323,6 +323,10 @@ pub(super) fn on_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize, ran: bo
     if ran {
         charge(tasks, cur);
     }
+    // Only the boot CPU's tick moves the window; an AP's charges (S8.3c).
+    if crate::arch::percpu::current().index() != 0 {
+        return;
+    }
     let position = POSITION.fetch_add(1, Ordering::Relaxed) + 1;
     if position >= WINDOW_TICKS {
         POSITION.store(0, Ordering::Relaxed);
@@ -376,24 +380,26 @@ fn charge(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
         return;
     };
     let class = task.class;
+    // The budgets are a share of the machine: with N CPUs, N times the ticks.
+    let cpus = super::idle::running_cpus() as u64;
     match class {
         PriorityClass::Interactive => {
             task.guard.interactive = task.guard.interactive.saturating_add(1);
             if task.guard.input
                 && task.guard.interactive <= INPUT_SHARE_TICKS
-                && INPUT_USED.fetch_add(1, Ordering::Relaxed) < INPUT_POOL_TICKS
+                && INPUT_USED.fetch_add(1, Ordering::Relaxed) < INPUT_POOL_TICKS * cpus
             {
                 return; // the input path's own share: not the class's
             }
             let used = CLASS_USED.fetch_add(1, Ordering::Relaxed) + 1;
-            if used > BUDGET_TICKS {
+            if used > BUDGET_TICKS * cpus {
                 demote(tasks, cur, PriorityClass::Normal, true);
             }
         }
         PriorityClass::Normal => {
             task.guard.used = task.guard.used.saturating_add(1);
             let pml4 = task.pml4;
-            let budget = u64::from(NORMAL_BUDGET_TICKS);
+            let budget = u64::from(NORMAL_BUDGET_TICKS) * cpus;
             let (used, already) = book(pml4);
             let over = used > budget;
             if already {

@@ -45,6 +45,17 @@ static SWITCHES: AtomicU64 = AtomicU64::new(0);
 static LAST_TASK: [AtomicU64; crate::arch::percpu::MAX_CPUS] =
     [const { AtomicU64::new(u64::MAX) }; crate::arch::percpu::MAX_CPUS];
 
+/// Per slot: how many times the task left a CPU (`SYS:SLOW` tells a call
+/// that let others run from one that monopolised its CPU by it).
+static DEPARTURES: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+
+/// How many times task `slot` has left a CPU since boot.
+pub fn departures(slot: usize) -> u64 {
+    DEPARTURES
+        .get(slot)
+        .map_or(0, |count| count.load(Ordering::Relaxed))
+}
+
 /// Count `slot`'s install in [`SWITCHES`] if it changes the task this CPU
 /// runs (idle stretches aside).
 fn note_switch(slot: usize) {
@@ -82,35 +93,23 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // then RIP and CS.
     let code_segment = unsafe { sys::frame_word(current_rsp, 16) };
     let quiet = preempt::interrupted_quiet_context(code_segment);
-    // Timer periods this entry stands for (more than one after an
-    // interrupts-off stretch), for the interval timers' CPU accounting.
-    let mut tick_periods = 0;
-    if tick {
-        // Periods lost to interrupts-off stretches are caught up here
-        // (issue #344); a normal entry is exactly one.
-        let periods = crate::arch::clock::periods_since_last();
-        tick_periods = periods;
-        crate::arch::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
-        // SAFETY: `tick` is set only by `timer_isr`, i.e. we are in the tick
-        // handler (PIT IRQ0 or the local APIC timer) and it is in service.
-        unsafe { crate::arch::timer::end_of_tick() };
-        // Decode i8042 bytes a long syscall collected (`input::ps2`) even if
-        // the controller has no IRQ1 pending for them any more. Before the
-        // task table lock: the keyboard path takes it.
-        crate::input::ps2::service();
-        crate::input::ps2::dispatch();
-        // Device interrupts raised while this tick's target held a lock wait
-        // no longer than one tick that lands in user code or a nap (P1.2).
-        if quiet {
-            crate::dev::intx::service_in_interrupt();
-        }
+    let boot_cpu = crate::arch::percpu::current().index() == 0;
+    // Timer periods this entry stands for, for the interval timers' CPU
+    // accounting.
+    let tick_periods = if tick {
+        tick_prologue(boot_cpu, quiet)
+    } else {
+        0
+    };
+    if !boot_cpu {
+        idle::ap_tick_policy();
     }
 
     #[cfg(lazyos_tests)]
     harness::note_entry_flags();
     let preempted = preempt::take_preempting() && !tick;
     let cur = current();
-    if tick {
+    if tick && boot_cpu {
         diag::note_tick(cur, current_rsp);
         #[cfg(lazyos_tests)]
         harness::note_tick_locks();
@@ -178,9 +177,14 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
             preempt::refund(&mut tasks, cur, at);
         }
     }
+    if next != cur && runnable(&tasks, cur) {
+        // Put back without a CPU: an idle one may take it now (S8.3c).
+        kick::place(&tasks, cur);
+    }
     if next == cur {
         drop(tasks);
         signal::finish_sweep(&sweep_finished[..sweep_count]);
+        kick::flush_unlocked();
         return current_rsp;
     }
 
@@ -194,11 +198,64 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     // idle context has none (it never touches them, nor restores any).
     if !idle::is_idle(cur) {
         fpu::save(cur);
+        segs::save(cur);
     }
     let rsp = resume(next, cur);
     // Once per entry: `resume` may install more than one pick.
     note_switch(current());
+    // What this CPU woke or put back and did not take goes elsewhere now.
+    kick::flush_unlocked();
+    if oncpu::take_refused(cur) {
+        // A reap of `cur` was refused while it ran here; it is current
+        // nowhere now, so its parent may look again (S8.3c).
+        tell_parent_again(cur);
+    }
     rsp
+}
+
+/// `slot` finished while current on this CPU and a reap was refused: the
+/// `wait4` sleepers and the parent's child bell hear of it once more (the
+/// `SIGCHLD` was posted at the death and is not repeated).
+fn tell_parent_again(slot: usize) {
+    let parent = TASKS.lock()[slot].as_ref().map(|task| task.parent);
+    if let Some(parent) = parent {
+        super::childbell::ring(parent);
+    }
+    wait::CHILD_EXIT.notify_all();
+}
+
+/// A tick's machine-wide work, before the task table is locked; returns the
+/// periods it stands for. Only the boot CPU's tick (the PIT or its APIC
+/// timer) is the clock: it catches up lost periods (issue #344), advances
+/// `TICKS`, drains the i8042 and runs the device bottom half (devices
+/// interrupt the boot CPU). An AP's tick (its own APIC timer, S8.3c) is
+/// one period of scheduling and accounting for that CPU, nothing more.
+fn tick_prologue(boot_cpu: bool, quiet: bool) -> u64 {
+    let periods = if boot_cpu {
+        crate::arch::clock::periods_since_last()
+    } else {
+        1
+    };
+    if boot_cpu {
+        crate::arch::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
+    }
+    // SAFETY: a tick entry comes only from `timer_isr`, i.e. we are in the
+    // tick handler (PIT IRQ0 or a local APIC timer) and it is in service.
+    unsafe { crate::arch::timer::end_of_tick() };
+    if boot_cpu {
+        // Decode i8042 bytes a long syscall collected (`input::ps2`) even
+        // if the controller has no IRQ1 pending for them any more. Before
+        // the task table lock: the keyboard path takes it.
+        crate::input::ps2::service();
+        crate::input::ps2::dispatch();
+        // Device interrupts raised while this tick's target held a lock
+        // wait no longer than one tick that lands in user code or a nap
+        // (P1.2).
+        if quiet {
+            crate::dev::intx::service_in_interrupt();
+        }
+    }
+    periods
 }
 
 /// Flag every finished parentless task except `cur` for reclamation. Only
@@ -300,6 +357,11 @@ fn install(slot: usize) -> u64 {
         }
     };
     set_current(slot);
+    if prev != slot {
+        if let Some(count) = DEPARTURES.get(prev) {
+            count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
     if !idle::is_idle(slot) {
         crate::perf::on_run(slot, prev, prev_runnable);
     }
@@ -309,7 +371,9 @@ fn install(slot: usize) -> u64 {
         gdt::set_kernel_stack(kstack_top);
         crate::arch::linux::set_kernel_stack(kstack_top);
     }
-    // Restore this task's user thread pointer and floating-point registers.
+    // Its data segment selectors (before the FS base: loading FS resets it),
+    // then its user thread pointer and floating-point registers.
+    segs::restore(slot);
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
     if !idle::is_idle(slot) {
         fpu::restore(slot);
@@ -346,7 +410,7 @@ pub fn expire_due() {
 ///
 /// When nothing is runnable the CPU runs its idle context (`task::idle`),
 /// whose slot the table leaves empty: a tick that lands there is idle time
-/// (`IDLE_TICKS`). So is a tick on a blocked or finished slot, which only
+/// (`note_idle_ticks`). So is a tick on a blocked or finished slot, which only
 /// the suite's harness makes current now. Voluntary entries consume no
 /// timer period and are not charged at all.
 pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
@@ -363,7 +427,7 @@ pub(crate) fn charge_tick(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
             super::guard::on_tick(tasks, cur, true);
         }
         _ => {
-            super::IDLE_TICKS.fetch_add(1, Ordering::Relaxed);
+            super::note_idle_ticks(1);
             super::guard::on_tick(tasks, cur, false);
         }
     }
@@ -385,7 +449,7 @@ fn charge_window_ticks(tasks: &mut [Option<Task>; MAX_TASKS], cur: usize) {
             crate::quota::cpu::charge_ticks(cur, ticks);
         }
         None => {
-            super::IDLE_TICKS.fetch_add(ticks, Ordering::Relaxed);
+            super::note_idle_ticks(ticks);
             return;
         }
     }

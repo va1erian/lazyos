@@ -48,6 +48,8 @@ pub(super) fn forget(slot: usize) {
     if let Some(mark) = ON_CPU.get(slot) {
         mark.store(0, Ordering::Relaxed);
     }
+    // A refused reap of the previous owner is not this task's.
+    take_refused(slot);
 }
 
 /// Whether another CPU than the boot CPU runs tasks (S8.3c sets it): until
@@ -58,6 +60,30 @@ static SEVERAL: AtomicBool = AtomicBool::new(false);
 #[cfg_attr(not(lazyos_tests), allow(dead_code))] // S8.3c's AP start
 pub fn several_cpus() {
     SEVERAL.store(true, Ordering::Relaxed);
+}
+
+/// Whether a CPU other than the boot CPU runs tasks.
+pub fn several() -> bool {
+    SEVERAL.load(Ordering::Relaxed)
+}
+
+/// Per slot: a reap was refused because the task was current on another
+/// CPU; that CPU tells the waiting parent once it switched away
+/// (`take_refused`).
+static REFUSED: super::slotmask::SlotMask = super::slotmask::SlotMask::new();
+
+/// Record that a reap of `slot` was refused for its mark.
+pub(super) fn note_refused(slot: usize) {
+    REFUSED.set(slot);
+}
+
+/// Whether a reap of `slot` was refused since it was last asked (consumed).
+pub(super) fn take_refused(slot: usize) -> bool {
+    let refused = REFUSED.contains(slot);
+    if refused {
+        REFUSED.clear(slot);
+    }
+    refused
 }
 
 /// Whether `slot` is current on another CPU: it may not be selected or

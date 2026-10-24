@@ -103,29 +103,41 @@ pub(super) fn note_wake(tasks: &[Option<Task>; MAX_TASKS], woken: usize, cur: us
     let Some(new) = tasks.get(woken).and_then(|task| task.as_ref()) else {
         return false;
     };
-    let outranks = match tasks.get(cur).and_then(|task| task.as_ref()) {
-        Some(running) if running.state == TaskState::Runnable => {
-            if new.class.rank() != running.class.rank() {
-                new.class.rank() > running.class.rank()
-            } else if pick_next_best(tasks, cur) == Some(woken) {
-                // Deserving: now if `cur` had its slice, else at its end.
-                if !slice_left(cur) {
-                    true
+    let mut deferred = false;
+    let outranks = super::kick::may_run_here(woken)
+        && match tasks.get(cur).and_then(|task| task.as_ref()) {
+            Some(running) if running.state == TaskState::Runnable => {
+                if new.class.rank() != running.class.rank() {
+                    new.class.rank() > running.class.rank()
+                } else if pick_next_best(tasks, cur) == Some(woken) {
+                    // Deserving: now if `cur` had its slice, else at its end.
+                    if !slice_left(cur) {
+                        true
+                    } else {
+                        // Another CPU may run it now, else at the end of
+                        // `cur`'s slice here. Both: the placement is made at
+                        // this CPU's next preemption point, when the CPU it
+                        // found may be busy, and a deferral that finds the
+                        // task gone costs one scheduler entry.
+                        super::kick::place(tasks, woken);
+                        deferred = defer(cur);
+                        return deferred;
+                    }
                 } else {
-                    return defer(cur);
+                    false
                 }
-            } else {
-                false
             }
-        }
-        // Blocked in its wait loop, done in `exit`, or an empty slot: the CPU
-        // is idle and any runnable task should have it.
-        _ => true,
-    };
+            // Blocked in its wait loop, done in `exit`, or an empty slot:
+            // the CPU is idle and any runnable task should have it.
+            _ => true,
+        };
     if outranks {
         state!().need_resched.store(true, Ordering::Relaxed);
+    } else {
+        // Not now, not here: another CPU may run it at once (S8.3c).
+        super::kick::place(tasks, woken);
     }
-    false
+    deferred
 }
 
 /// Whether `cur` is still inside its minimum slice. A task running without a
@@ -208,6 +220,8 @@ pub fn preempt_point() {
     if crate::arch::irq_window::is_open() {
         return;
     }
+    // What this CPU woke and did not take goes elsewhere now (`task::kick`).
+    super::kick::flush_unlocked();
     // An interrupt that stopped the idle context never switches from inside
     // its handler: the idle loop does, right after the handler returns
     // (`switch_if_wanted`). The `iretq` back to the halt turns interrupts on

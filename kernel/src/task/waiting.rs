@@ -174,6 +174,8 @@ pub fn wait_sleep_ns(deadline: u64) -> WakeReason {
 /// this way). `enable_and_hlt` also closes the race between the check and
 /// the sleep.
 pub fn nap() {
+    // What this task woke goes to another CPU before this one halts in it.
+    super::kick::flush_unlocked();
     crate::arch::irqoff::close();
     crate::perf::irqoff_pause();
     // An interrupt that stops this halt may run the device bottom half: a

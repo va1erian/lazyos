@@ -223,7 +223,7 @@ fn cpu_report_names_the_busy() -> Result<(), String> {
         task::harness::simulate_tick();
     }
     // Simulated ticks are not time that passed (`sysinfo` compares idle with uptime).
-    task::IDLE_TICKS.store(idle, core::sync::atomic::Ordering::Relaxed);
+    task::set_idle_ticks(idle);
     let quiet = captured(|| cpustat::sample_at_for_test(1500));
     check!(quiet.is_empty(), "an idle period printed: {quiet:?}");
     cleanup();

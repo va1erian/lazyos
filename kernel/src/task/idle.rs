@@ -17,7 +17,7 @@
 //! a valid index for the per-slot arrays (the FPU areas, `NAPPING`,
 //! `YIELDING`, the kernel stack tops), and every path that reads the
 //! current task out of the table finds an empty slot, which they already
-//! treat as idle: a tick is charged to `IDLE_TICKS`, a wake preempts, no
+//! treat as idle: a tick is charged as idle time, a wake preempts, no
 //! signal sweep or interval timer sees it. Nothing that walks the table
 //! lists it.
 //!
@@ -29,7 +29,7 @@
 //! restores one for it, and does not count its runs as context switches or
 //! in the `PERF:` run counts.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use x86_64::instructions::segmentation::{Segment, CS, SS};
 
 use super::{kstack::KernelStack, MAX_TASKS};
@@ -46,8 +46,18 @@ const FRAME_WORDS: u64 = 20;
 
 /// Per CPU: the saved frame of its idle context.
 static RSP: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
-/// Per CPU: whether [`ensure_here`] created its idle context.
+/// Per CPU: whether [`ensure_here`] created its idle context, i.e. whether
+/// the CPU schedules.
 static CREATED: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
+/// How many CPUs schedule (have an idle context), and the highest index of
+/// one plus one (what a scan over them stops at).
+static SCHEDULING: AtomicUsize = AtomicUsize::new(0);
+static SCHEDULING_END: AtomicUsize = AtomicUsize::new(0);
+/// Per CPU: whether its own periodic tick runs (an AP's, S8.3c).
+static AP_TICK: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
+/// The suite's pause (test kernels only set it): the APs run no task and
+/// stop their tick, so the cases after the scheduling ones find them idle.
+static PAUSED: AtomicBool = AtomicBool::new(false);
 
 /// Whether `slot` is an idle context.
 pub fn is_idle(slot: usize) -> bool {
@@ -60,6 +70,58 @@ pub fn here() -> Option<usize> {
     CREATED[cpu]
         .load(Ordering::Relaxed)
         .then_some(FIRST_IDLE_SLOT + cpu)
+}
+
+/// Whether CPU `index` schedules (it has an idle context).
+pub fn scheduling(index: usize) -> bool {
+    CREATED
+        .get(index)
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+}
+
+/// How many CPUs schedule (at least 1 once the boot CPU registered its
+/// kernel task).
+pub fn scheduling_cpus() -> usize {
+    SCHEDULING.load(Ordering::Relaxed).max(1)
+}
+
+/// How many CPUs may run tasks now: the scheduling ones, or the boot CPU
+/// alone while the suite holds the APs back. The guard's budgets and the
+/// idle count scale by it.
+pub fn running_cpus() -> usize {
+    if paused() {
+        1
+    } else {
+        scheduling_cpus()
+    }
+}
+
+/// Whether the suite holds the APs back ([`pause_aps`]).
+pub fn paused() -> bool {
+    PAUSED.load(Ordering::Relaxed)
+}
+
+/// One past the highest index of a scheduling CPU: scans stop there.
+pub fn scheduling_end() -> usize {
+    SCHEDULING_END.load(Ordering::Relaxed)
+}
+
+/// Whether this CPU must run no task now: an AP while the suite paused them.
+pub fn held_back() -> bool {
+    paused() && percpu::current().index() != 0
+}
+
+/// An AP's scheduler entry: run its tick while it may run tasks, stop it
+/// while it is held back (`set_ap_tick` reprograms only on a change).
+pub(super) fn ap_tick_policy() {
+    let cpu = percpu::current().index() as usize;
+    if cpu == 0 || !scheduling(cpu) {
+        return;
+    }
+    let want = !held_back();
+    if AP_TICK[cpu].load(Ordering::Relaxed) != want {
+        AP_TICK[cpu].store(crate::arch::timer::set_ap_tick(want), Ordering::Relaxed);
+    }
 }
 
 /// The CPU an idle slot belongs to.
@@ -112,6 +174,45 @@ pub(super) fn ensure_here() {
     core::mem::forget(stack);
     RSP[cpu].store(base, Ordering::Relaxed);
     CREATED[cpu].store(true, Ordering::Relaxed);
+    SCHEDULING.fetch_add(1, Ordering::Relaxed);
+    SCHEDULING_END.fetch_max(cpu + 1, Ordering::Relaxed);
+}
+
+/// An AP's way into scheduling (S8.3c), from `ap_entry` once the scheduler
+/// started (`arch::smp::start_aps`), with interrupts off: take the entry
+/// lock (kernel code from here on), create the idle context, make it this
+/// CPU's current task, start the CPU's tick and resume the context's first
+/// frame. From then on the AP is a scheduling CPU like the boot CPU.
+pub fn start_ap() -> ! {
+    crate::sync::entry::boot_hold();
+    ensure_here();
+    let cpu = percpu::current().index() as usize;
+    super::set_current(FIRST_IDLE_SLOT + cpu);
+    super::oncpu::several_cpus();
+    AP_TICK[cpu].store(
+        crate::arch::timer::set_ap_tick(!held_back()),
+        Ordering::Relaxed,
+    );
+    crate::serial_println!("HW:SMP:CPU{cpu} schedules");
+    // SAFETY: the frame `ensure_here` built at the top of the idle stack,
+    // never resumed before; it enters `idle_main` in ring 0 with interrupts
+    // off, and this CPU holds the entry lock it runs under.
+    unsafe { super::switch::task_resume_frame(RSP[cpu].load(Ordering::Relaxed)) }
+}
+
+/// Test hook: hold the APs back (no task, no tick) or let them go again.
+/// Each scheduling AP is kicked so its next scheduler entry applies it.
+#[cfg(lazyos_tests)]
+pub fn pause_aps(paused: bool) {
+    PAUSED.store(paused, Ordering::Relaxed);
+    for cpu in 1..MAX_CPUS {
+        if scheduling(cpu) {
+            if let Some(area) = percpu::area(cpu) {
+                area.preempt.need_resched.store(true, Ordering::Relaxed);
+            }
+            crate::arch::smp::kick(cpu);
+        }
+    }
 }
 
 /// The idle loop: halt (entry lock dropped) until an interrupt, then give
@@ -125,12 +226,34 @@ extern "C" fn idle_main() -> ! {
     loop {
         #[cfg(lazyos_tests)]
         probe::note();
-        super::nap();
+        rest();
         // The suite's stand-in for a peer acting while its task waits.
         #[cfg(lazyos_tests)]
         super::harness::run_nap_hook();
+        super::kick::flush_unlocked();
         super::preempt::switch_if_wanted();
     }
+}
+
+/// `task::nap` for the idle context: the halt lasts across interrupts that
+/// do not take the entry lock (`sync::entry::halt_while`) while nothing is
+/// asked of this CPU, so an idle CPU woken by a shootdown or a rig IPI does
+/// not queue for the lock behind a long holder. A gate that takes the lock
+/// (a tick, a kick, a device) or a raised `need_resched` ends it.
+fn rest() {
+    crate::arch::irqoff::close();
+    crate::perf::irqoff_pause();
+    super::preempt::nap_begin();
+    crate::sync::entry::halt_while(|| {
+        held_back()
+            || !percpu::current()
+                .preempt
+                .need_resched
+                .load(Ordering::Relaxed)
+    });
+    super::preempt::nap_end();
+    crate::perf::irqoff_resume();
+    crate::arch::irqoff::resume();
 }
 
 /// What the suite reads about the idle loop (`tests/smp_idle_suite.rs`):

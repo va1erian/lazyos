@@ -23,6 +23,7 @@ def advanced_cfg(ui) -> dict:
         "reset_os": ui.v["reset_os"].get(),
         "memory": ui.v["memory"].get().strip(),
         "smp": ui.v["smp"].get().strip(),
+        "smp_kernel": ui.v["smp_kernel"].get(),
         "limits": ui.v["limits"].get().strip(),
         "display_mode": ui.v["display_mode"].get().strip(),
         "display_max": ui.v["display_max"].get().strip(),

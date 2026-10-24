@@ -1,8 +1,10 @@
-"""The guest vCPU count as a launcher flag (`run_demo.py --smp`, QEMU `-smp`).
+"""The guest vCPU count as a launcher flag (`run_demo.py --smp`, QEMU `-smp`),
+and the SMP kernel as a build switch (`LAZYOS_SMP=1`, `run_demo.py
+--smp-kernel`).
 
-A QEMU argument, so it applies with "Skip build" too. The APs stay parked in
-firmware until the kernel's SMP bring-up (docs/smp-plan.md S8.2), so a count
-above 1 is safe to ask for and changes nothing until then.
+The count is a QEMU argument, so it applies with "Skip build" too. Only an
+SMP kernel runs tasks on the APs (docs/smp-plan.md S8.3); any other brings
+them up and leaves them idle, so a count above 1 is always safe to ask for.
 """
 
 from __future__ import annotations
@@ -10,6 +12,18 @@ from __future__ import annotations
 #: The per-CPU table's capacity the SMP plan fixes (`docs/smp-plan.md` S8.1);
 #: the ceiling the CPUs field and `limit.cpu_max` clamp into.
 MAX_CPUS = 64
+
+
+def smp_kernel_env(cfg: dict) -> dict[str, str]:
+    """`LAZYOS_SMP=1` for the Advanced tab's "SMP kernel" box: the image
+    build's switch (the kernel entry lock; every CPU runs tasks)."""
+    return {"LAZYOS_SMP": "1"} if cfg.get("smp_kernel") else {}
+
+
+def smp_kernel_argv(cfg: dict) -> list[str]:
+    """`--smp-kernel` for `run_demo.py`, which sets `LAZYOS_SMP` itself (and
+    clears an inherited one without the flag)."""
+    return ["--smp-kernel"] if cfg.get("smp_kernel") else []
 
 
 def smp_argv(cfg: dict) -> list[str]:

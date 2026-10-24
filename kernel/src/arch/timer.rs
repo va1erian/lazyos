@@ -23,7 +23,7 @@
 //! With the PIT as the tick, the otherwise idle APIC timer becomes the
 //! one-shot deadline timer (`event_timer`, docs/performance-plan.md P2.2).
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use spin::Once;
 
@@ -34,6 +34,12 @@ use super::{acpi_tables, clock, lapic, pic};
 
 /// Whether the APIC timer is the tick (set once at boot).
 static LAPIC_TICK: AtomicBool = AtomicBool::new(false);
+/// Whether that tick is masked ("line 0 masked": no tick), so an AP, whose
+/// own timer the mask does not reach, drops its ticks too (S8.3c).
+static TICK_MASKED: AtomicBool = AtomicBool::new(false);
+/// The APIC tick's period in divided counts, when it is the tick (the APs'
+/// own tick reuses it, `ap_tick_count`).
+static LAPIC_PERIOD: AtomicU32 = AtomicU32::new(0);
 static INFO: Once<Info> = Once::new();
 
 /// What [`init`] found and chose; the suite reads it.
@@ -77,15 +83,44 @@ pub fn info() -> Option<&'static Info> {
     INFO.get()
 }
 
-/// Acknowledge the tick interrupt at whichever controller raised it.
+/// Acknowledge the tick interrupt at whichever controller raised it: an
+/// AP's tick is always its own APIC timer (S8.3c).
 ///
 /// # Safety
 /// Call once from the tick handler, after the tick was counted.
 pub unsafe fn end_of_tick() {
-    if lapic_tick() {
+    if lapic_tick() || super::percpu::current().index() != 0 {
         lapic::eoi();
     } else {
         super::irqchip::eoi(0);
+    }
+}
+
+/// The divided APIC timer count of one 10 ms tick, for an AP's periodic
+/// tick (S8.3c): the deadline timer's calibration, or the APIC tick's own
+/// period. `None` without either (no APIC timer to tick an AP with).
+pub fn ap_tick_count() -> Option<u32> {
+    let rate = super::event_timer::rate();
+    if rate != 0 {
+        return u32::try_from(rate / HZ).ok().filter(|&count| count > 0);
+    }
+    let period = LAPIC_PERIOD.load(Ordering::Relaxed);
+    (lapic_tick() && period != 0).then_some(period)
+}
+
+/// Start (or stop, with `false`) this AP's periodic tick on the tick vector
+/// (`lapic::TIMER_VECTOR`, the scheduler's timer gate). Returns whether a
+/// tick runs.
+pub fn set_ap_tick(on: bool) -> bool {
+    match (on, ap_tick_count()) {
+        (true, Some(count)) => {
+            lapic::start_periodic(count);
+            true
+        }
+        _ => {
+            lapic::set_initial_count(0);
+            false
+        }
     }
 }
 
@@ -98,10 +133,14 @@ pub unsafe fn end_of_tick() {
 /// for the PIT through the I/O APIC (issue #616): masking its redirection
 /// entry does not withdraw a tick it already sent to the local APIC.
 pub fn stale_tick() -> bool {
+    let ap = super::percpu::current().index() != 0;
     let masked = if lapic_tick() {
-        lapic::timer_masked()
+        lapic::timer_masked() || (ap && TICK_MASKED.load(Ordering::Relaxed))
     } else {
-        super::irqchip::chip() == super::irqchip::Chip::IoApic && super::irqchip::is_masked(0)
+        // An AP's own timer is the tick there, which no line mask reaches:
+        // a masked line 0 (8259 or I/O APIC) means no tick on any CPU.
+        (ap || super::irqchip::chip() == super::irqchip::Chip::IoApic)
+            && super::irqchip::is_masked(0)
     };
     if masked {
         lapic::eoi();
@@ -115,6 +154,7 @@ pub fn set_tick_masked(masked: bool) {
     if !masked {
         clock::resync();
     }
+    TICK_MASKED.store(masked, Ordering::Relaxed);
     lapic::set_timer_masked(masked);
 }
 
@@ -265,6 +305,7 @@ fn start_lapic(
     pic::set_masked(0, true);
     clock::set_rate(calibration.tsc_hz / HZ);
     LAPIC_TICK.store(true, Ordering::Relaxed);
+    LAPIC_PERIOD.store(count, Ordering::Relaxed);
     lapic::start_periodic(count);
     crate::serial_println!(
         "timer: APIC timer {} Hz / {} -> {count} per tick, TSC {} Hz",

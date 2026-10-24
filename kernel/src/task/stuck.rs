@@ -91,12 +91,15 @@ fn sample_at(now: u64) {
                 watch[slot] = IDLE;
                 continue;
             };
-            if task.state != TaskState::Runnable || slot == me || task.kstack_top < 64 {
+            // A task current on some CPU (this one, or another under S8.3c)
+            // is running: its saved frame is stale and its stack is live.
+            let on_cpu = slot == me || super::oncpu::cpu_of(slot).is_some();
+            if task.state != TaskState::Runnable || on_cpu || task.kstack_top < 64 {
                 watch[slot] = IDLE;
                 continue;
             }
             let call = crate::arch::irqoff::task_syscall(slot);
-            // SAFETY: `task` is a live task other than the running one, so
+            // SAFETY: `task` is a live task current on no CPU, so
             // its `rsp` is the frame the scheduler saved and nothing writes
             // its kernel stack while the table is held with interrupts off.
             let (krip, saved_user) = unsafe { signal::saved_rip(task.rsp) };
