@@ -193,7 +193,7 @@ pub(crate) fn handle<M: 'static>(
             ui.focus(id);
             if state.auto.borrow().is_active() {
                 // Any click ends an autoscroll, and is not the page's (nor is its release).
-                stop_auto(ui, &state);
+                stop_auto(ui, id, &state);
                 state.auto_up.set(true);
                 return;
             }
@@ -243,7 +243,7 @@ pub(crate) fn handle<M: 'static>(
                 // The release of the click that started (or ended) an autoscroll: after a drag
                 // away from the start it ends it, otherwise the page goes on scrolling.
                 if button == MouseButton::Middle && state.auto.borrow().release_ends() {
-                    stop_auto(ui, &state);
+                    stop_auto(ui, id, &state);
                 }
                 return;
             }
@@ -274,7 +274,7 @@ pub(crate) fn handle<M: 'static>(
             modifiers,
         } => {
             // The wheel is the person's: it ends an autoscroll and then does its own work.
-            stop_auto(ui, &state);
+            stop_auto(ui, id, &state);
             let mods = modifier_bits(modifiers);
             wheel(
                 ui,
@@ -289,16 +289,18 @@ pub(crate) fn handle<M: 'static>(
             );
         }
         Event::CaptureChanged => {
-            state.auto.borrow_mut().stop();
+            if state.auto.replace(Default::default()).is_active() {
+                ui.set_cursor(id, crate::view::cursor(state.cursor.get()));
+            }
             state.held.set(None);
         }
         Event::SetFocus => engine.focus(true),
         Event::KillFocus => {
-            stop_auto(ui, &state);
+            stop_auto(ui, id, &state);
             engine.focus(false);
         }
         Event::KeyDown { key, .. } if key == Key::ESCAPE && state.auto.borrow().is_active() => {
-            stop_auto(ui, &state);
+            stop_auto(ui, id, &state);
         }
         Event::KeyDown {
             key,
@@ -383,13 +385,15 @@ pub(crate) fn wheel<M: 'static>(
 }
 
 /// Ends an autoscroll, if one runs: the pointer is the page's again.
-pub(crate) fn stop_auto<M: 'static>(ui: &Ui<M>, state: &State) {
+pub(crate) fn stop_auto<M: 'static>(ui: &Ui<M>, id: WidgetId, state: &State) {
     if !state.auto.borrow().is_active() {
         return;
     }
     state.auto.borrow_mut().stop();
     state.held.set(None);
     ui.release_capture();
+    // The page only says its pointer when it changes: give back the one it last asked for.
+    ui.set_cursor(id, crate::view::cursor(state.cursor.get()));
 }
 
 /// A middle press at (`x`, `y`) on bare page starts an autoscroll; the page never sees the click.

@@ -411,7 +411,7 @@ impl<M: Clone + 'static> PageView<M> {
 
 /// The xui pointer for a page's shape: the compositor has an arrow, a hand, an I-beam and the
 /// resize arrows (busy is a window-wide state, and a hidden pointer is not offered).
-fn cursor(kind: CursorKind) -> Cursor {
+pub(crate) fn cursor(kind: CursorKind) -> Cursor {
     match kind {
         CursorKind::Hand => Cursor::Hand,
         CursorKind::Text => Cursor::Text,

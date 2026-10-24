@@ -316,6 +316,8 @@ impl Browser {
             fast: Cell::new(None),
             shown: RefCell::new(String::new()),
         };
+        // The menu was built with the engine's own checked.
+        browser.menu.set_checked(chrome::agent_id(0), agent == 0);
         browser.menu.set_checked(chrome::agent_id(agent), true);
         browser.start_engine(ui);
         let restored = browser.begin_session(url.is_some());
