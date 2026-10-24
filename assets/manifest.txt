@@ -46,4 +46,5 @@ wallpapers/Aurora.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural
 wallpapers/Dunes.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py
 wallpapers/LazyOS-Green.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
 wallpapers/LazyOS-Night.jpg | GPL-3.0-or-later | desktop | LazyOS original, procedural: tools/wallpaper/gen.py (lettering in Droid Sans Bold)
+boot/splash.rgb | GPL-3.0-or-later | none | LazyOS original: LazyOS-Night reduced to 480x270 raw RGB by tools/wallpaper/splash.py; compiled into the kernel
 terminfo/xterm-256color.src | GPL-3.0-or-later | none | LazyOS original: the Terminal's terminfo entry, compiled by libs/terminfo into /system/share/terminfo/x/xterm-256color at build time (docs/terminal-plan.md T5)
