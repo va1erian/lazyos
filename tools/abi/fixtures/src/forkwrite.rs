@@ -3,7 +3,7 @@
 //! WebKit's UI process (webd) launches its engine processes this way: a thread that is not the
 //! process's first calls `fork` and the child `execve`s at once, while the other threads go on
 //! writing to the heap. After such launches webd aborted on a corrupt heap (the main run loop's
-//! timer tree, patches 0021, 0027 and 0036 of `webkit/`). This fixture checks that no store of the
+//! timer tree; it was WTF's, patch 0037 of `webkit/`). This fixture checks that no store of the
 //! parent is lost or lands elsewhere across `fork`, the child's copy-on-write faults and its
 //! `execve`: [`WRITERS`] threads each own an array of [`WORDS`] words and, generation after
 //! generation, check that every word still holds what they stored last and store the next value,
@@ -35,8 +35,9 @@ const WRITERS: usize = 6;
 /// 4 MiB per writer: a thousand pages each, so every fork write-protects thousands of entries.
 const WORDS: usize = 512 * 1024;
 const LAUNCHES: usize = 300;
-/// The run stops launching after this long, whatever the count (a slow guest under TCG).
-const BUDGET: Duration = Duration::from_secs(120);
+/// The run stops launching after this long, whatever the count: the bench captures every row at a
+/// fixed time (`tools/abi/run.py --at 8` in CI, under TCG).
+const BUDGET: Duration = Duration::from_secs(4);
 
 fn errno() -> i32 {
     // SAFETY: musl's errno location is valid for the calling thread.
