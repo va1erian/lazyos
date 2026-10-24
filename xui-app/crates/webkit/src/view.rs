@@ -43,7 +43,14 @@ pub struct Hooks<M> {
     /// Asked at a right press: true when the window's menu takes the click, so the page does not
     /// get it (a link menu replaces the page's own). `None` never swallows.
     pub swallow_right: Option<Rc<dyn Fn() -> bool>>,
+    /// Asked at a press of another button: the message to raise when the window takes the click
+    /// itself (a middle click or Ctrl+click on a link opens it in a tab), in which case the page
+    /// gets neither the press nor the release. `None` never takes one.
+    pub open_link: Option<OpenLink<M>>,
 }
+
+/// What the window does with a press of a button with these modifiers on the view, if anything.
+pub type OpenLink<M> = Rc<dyn Fn(MouseButton, Modifiers) -> Option<M>>;
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -59,8 +66,9 @@ pub(crate) struct State {
     pub(crate) held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
     pub(crate) mods: Cell<u32>,
-    /// A right press was kept from the page (`Hooks::swallow_right`): its release is kept too.
-    pub(crate) swallowed: Cell<bool>,
+    /// The button of a press kept from the page (`Hooks::swallow_right`, `Hooks::open_link`): its
+    /// release is kept too.
+    pub(crate) swallowed: Cell<Option<MouseButton>>,
     /// How far the picture is shown ahead of the page (`speculate.rs`).
     pub(crate) spec: RefCell<Speculation>,
     pub(crate) meter: RefCell<Meter>,
@@ -176,9 +184,19 @@ impl<M: Clone + 'static> PageView<M> {
                 clicked,
                 right_click,
                 swallow_right,
+                open_link,
             } = hooks;
             control.on_events(move |event| {
-                let swallow = || swallow_right.as_ref().is_some_and(|ask| ask());
+                let taken: Cell<Option<M>> = Cell::new(None);
+                let swallow = |button: MouseButton, mods: Modifiers| {
+                    if button == MouseButton::Right {
+                        return swallow_right.as_ref().is_some_and(|ask| ask());
+                    }
+                    let message = open_link.as_ref().and_then(|ask| ask(button, mods));
+                    let kept = message.is_some();
+                    taken.set(message);
+                    kept
+                };
                 handle(
                     &ui,
                     id,
@@ -190,6 +208,9 @@ impl<M: Clone + 'static> PageView<M> {
                     &swallow,
                     event,
                 );
+                if let Some(message) = taken.take() {
+                    return Some(message);
+                }
                 match (event, &right_click) {
                     (
                         Event::MouseDown {

@@ -438,6 +438,43 @@ fn a_long_page_of_the_browsers_own_is_given_as_html_and_told_back_by_its_address
 }
 
 #[test]
+fn a_page_made_hidden_has_no_picture_until_it_is_shown_and_then_gets_a_whole_one() {
+    let rig = rig();
+    // A tab opened in the background: hidden before its view exists.
+    rig.engine.set_visible(false);
+    rig.engine.load(&url("/"));
+    rig.engine.resize(64, 48);
+    rig.pump();
+    assert_eq!(
+        rig.state().title,
+        "Index",
+        "the page loads behind the front tab"
+    );
+    let hidden = rig.mailbox.take_update(Vec::new());
+    assert!(
+        hidden.is_none_or(|update| update.full.is_none()),
+        "no slots are attached to paint into"
+    );
+    // The tab comes to the front: slots again, and a whole frame.
+    rig.engine.set_visible(true);
+    rig.pump();
+    let frame = rig
+        .mailbox
+        .take_update(Vec::new())
+        .and_then(|update| update.full)
+        .expect("a whole frame once shown");
+    assert_eq!((frame.width, frame.height), (64, 48));
+    // Hiding a live page and showing it again works the same way.
+    rig.engine.set_visible(false);
+    rig.engine.set_visible(true);
+    rig.pump();
+    assert!(rig
+        .mailbox
+        .take_update(Vec::new())
+        .is_some_and(|u| u.full.is_some()));
+}
+
+#[test]
 fn a_transport_for_the_tests_is_a_scoped_one() {
     fn scoped<T: ScopedTransport>() {}
     scoped::<TestTransport<FakeWeb>>();

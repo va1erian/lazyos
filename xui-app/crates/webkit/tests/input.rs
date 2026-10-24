@@ -193,6 +193,33 @@ fn a_lost_release_of_a_swallowed_right_press_does_not_eat_a_later_release() {
     );
 }
 
+#[test]
+fn a_press_the_window_takes_and_its_release_never_reach_the_page() {
+    let calls = drive(|stage, engine| {
+        let (ox, oy) = page_origin(stage);
+        support::open_link(true);
+        engine.take();
+        middle(stage, true, ox + 10, oy + 10);
+        middle(stage, false, ox + 10, oy + 10);
+        // A press of another button is the page's, and so is the middle one once not taken.
+        stage.inject(Event::MouseDown {
+            x: ox + 10,
+            y: oy + 10,
+            button: MouseButton::Left,
+            modifiers: Modifiers::NONE,
+        });
+    });
+    let mouse: Vec<_> = calls
+        .iter()
+        .filter(|call| matches!(call, Call::Mouse(kind, ..) if *kind != MouseKind::Move))
+        .collect();
+    assert_eq!(
+        mouse,
+        [&Call::Mouse(MouseKind::Down, Button::Left, 10, 10, 0)],
+        "{calls:?}"
+    );
+}
+
 fn middle(stage: &Stage<'_, Msg>, press: bool, x: i32, y: i32) {
     let (button, modifiers) = (MouseButton::Middle, Modifiers::NONE);
     stage.inject(if press {

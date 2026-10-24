@@ -179,6 +179,10 @@ pub trait Engine {
     /// from the next load on: the page on show is loaded again. An engine without the choice
     /// keeps its own.
     fn set_user_agent(&self, _agent: &str) {}
+    /// The page is on show (`true`) or hidden behind another tab (`false`): a hidden page gets no
+    /// paints and an engine that shares memory with the window gives its picture buffers back; on
+    /// show again it sends a whole frame. An engine without tabs ignores it.
+    fn set_visible(&self, _visible: bool) {}
 }
 
 /// One call an engine received, for tests.
@@ -209,6 +213,7 @@ pub enum Call {
     BlockingForget(String),
     SetBlocking(bool, Vec<String>),
     SetUserAgent(String),
+    SetVisible(bool),
 }
 
 /// An engine that records its calls.
@@ -306,6 +311,10 @@ impl Engine for Recorder {
 
     fn set_user_agent(&self, agent: &str) {
         self.push(Call::SetUserAgent(agent.to_owned()));
+    }
+
+    fn set_visible(&self, visible: bool) {
+        self.push(Call::SetVisible(visible));
     }
 }
 

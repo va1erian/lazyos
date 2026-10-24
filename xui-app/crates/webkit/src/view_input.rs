@@ -165,7 +165,7 @@ pub(crate) fn handle<M: 'static>(
     is_shortcut: &IsShortcut,
     arm: &dyn Fn(),
     begin_auto: &dyn Fn(),
-    swallow_right: &dyn Fn() -> bool,
+    swallow_press: &dyn Fn(MouseButton, Modifiers) -> bool,
     event: &Event,
 ) {
     let Ok(state) = state.try_borrow() else {
@@ -199,22 +199,20 @@ pub(crate) fn handle<M: 'static>(
             }
             // A release that never came must not swallow a later press's.
             state.auto_up.set(false);
+            // Set on every press, so a release that never came (a lost one) cannot drop the
+            // release of a later press the page did get. The window's menu or tab takes this click:
+            // the page never sees it, nor its release.
+            let swallowed = swallow_press(button, modifiers);
+            state.swallowed.set(swallowed.then_some(button));
+            if swallowed {
+                return;
+            }
             if button == MouseButton::Middle
                 && state.held.get().is_none()
                 && state.cursor.get() != CursorKind::Hand
             {
                 start_auto(ui, id, &state, (x, y), begin_auto);
                 return;
-            }
-            if button == MouseButton::Right {
-                // Set on every right press, so a release that never came (a lost one) cannot
-                // drop the release of a later press the page did get.
-                let swallowed = swallow_right();
-                state.swallowed.set(swallowed);
-                if swallowed {
-                    // The window's menu takes this click; the page never sees it, nor its release.
-                    return;
-                }
             }
             // The backend turns a quick second press into a double click in
             // place of a press; the page counts clicks itself.
@@ -236,7 +234,8 @@ pub(crate) fn handle<M: 'static>(
             button,
             modifiers,
         } => {
-            if button == MouseButton::Right && state.swallowed.replace(false) {
+            if state.swallowed.get() == Some(button) {
+                state.swallowed.set(None);
                 return;
             }
             if state.auto_up.replace(false) {
