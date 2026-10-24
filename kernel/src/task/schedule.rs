@@ -37,8 +37,25 @@ pub extern "C" fn schedule(current_rsp: u64, tick: u32) -> u64 {
 
 /// Scheduler entries since boot (ticks, parks and yields).
 static ENTRIES: AtomicU64 = AtomicU64::new(0);
-/// Entries that put a different task on the CPU.
+/// Installs that put a different task on a CPU than the last task it ran:
+/// an idle stretch between two runs of the same task is not a switch, so
+/// the count means what it meant before the idle context (S8.3b).
 static SWITCHES: AtomicU64 = AtomicU64::new(0);
+/// Per CPU: the last task (never an idle context) it installed.
+static LAST_TASK: [AtomicU64; crate::arch::percpu::MAX_CPUS] =
+    [const { AtomicU64::new(u64::MAX) }; crate::arch::percpu::MAX_CPUS];
+
+/// Count `slot`'s install in [`SWITCHES`] if it changes the task this CPU
+/// runs (idle stretches aside).
+fn note_switch(slot: usize) {
+    if idle::is_idle(slot) {
+        return;
+    }
+    let cpu = crate::arch::percpu::current().index() as usize;
+    if LAST_TASK[cpu].swap(slot as u64, Ordering::Relaxed) != slot as u64 {
+        SWITCHES.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 /// Context switches since boot: scheduler entries that resumed a task other
 /// than the one they interrupted (the idle-desktop rate, P6/P7).
@@ -171,10 +188,12 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     mark_finished(&tasks, cur);
     drop(tasks);
     signal::finish_sweep(&sweep_finished[..sweep_count]);
-    SWITCHES.fetch_add(1, Ordering::Relaxed);
     // The live x87/SSE registers are `cur`'s user state (the kernel is
-    // soft-float): park them before `install` loads the next task's.
-    fpu::save(cur);
+    // soft-float): park them before `install` loads the next task's. The
+    // idle context has none (it never touches them, nor restores any).
+    if !idle::is_idle(cur) {
+        fpu::save(cur);
+    }
     resume(next, cur)
 }
 
@@ -277,7 +296,10 @@ fn install(slot: usize) -> u64 {
         }
     };
     set_current(slot);
-    crate::perf::on_run(slot, prev, prev_runnable);
+    note_switch(slot);
+    if !idle::is_idle(slot) {
+        crate::perf::on_run(slot, prev, prev_runnable);
+    }
     // Switch address space and the ring0 stack used for the next user trap.
     mem::switch_to(PhysAddr::new(pml4));
     if kstack_top != 0 {
@@ -286,7 +308,9 @@ fn install(slot: usize) -> u64 {
     }
     // Restore this task's user thread pointer and floating-point registers.
     crate::arch::msr::write(crate::arch::msr::IA32_FS_BASE, fs_base);
-    fpu::restore(slot);
+    if !idle::is_idle(slot) {
+        fpu::restore(slot);
+    }
     rsp
 }
 

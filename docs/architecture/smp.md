@@ -345,8 +345,13 @@ S8.3b, still with only the boot CPU running tasks.
 
 **Halting drops the hold.** Kernel code that waits for an interrupt with
 interrupts on and holds no lock goes through `sync::entry::halt`: `nap` (so
-every wait loop, the idle context and `poll_until`), `exit_cpu`'s halt and
-the yielding lock's last resort (`relax::yield_and_halt`). It sets the CPU's
+every wait loop, the idle context and `poll_until`) and `exit_cpu`'s halt.
+The yielding lock's last resort (`relax::yield_and_halt`, where the
+contender may hold other locks) uses `sync::entry::halt_holding`, which
+keeps the hold: dropping it could let another CPU in to spin, interrupts
+off, on a lock the halted CPU holds while that CPU waits for its turn at
+the entry lock. `check_entry.py` allows `enable_and_hlt` only in those two.
+`halt` sets the CPU's
 halt mark (`Cpu::entry_halt`), drops the lock, executes `sti; hlt`, and after
 `cli` takes the lock back if it does not hold it. The mark is set before the
 release, and the release masks interrupts, so nothing interrupts the CPU
@@ -375,7 +380,13 @@ interval timer sees it, nothing that walks the table lists it. It runs on
 the boot table (`install` loads `mem::boot_table`), on a kernel stack that is
 never freed, and is created for the boot CPU by `register_kernel`. Until a
 CPU has one (`sched::fallback`) the old fallback, the interrupted task,
-still applies.
+still applies. It has no floating-point state (the kernel is soft-float),
+so no `xsave`/`xrstor` is spent on it, and an idle stretch between two runs
+of one task is not counted as a context switch (`PERF:ctxsw`) nor as a run
+in `PERF:sched`. What it does cost is two `CR3` writes per idle round trip
+(to the boot table and back, a TLB refill without PCID); keeping the last
+table instead (a lazy switch) needs a way to move an idle CPU off a table
+about to be freed, which S8.3c's idle APs make worth building.
 
 An interrupt that stops the idle context never switches from inside its
 handler: `preempt_point` does nothing there, and the idle loop switches
@@ -389,7 +400,9 @@ tick still switches directly: its scheduler entry selects.
 
 **On-CPU marks** (`task::oncpu`). Per slot, the CPU it is current on: set by
 `set_current` (`install`, the harness) for the new task and cleared for the
-previous one, both under the lock. A task current on another CPU is
+previous one, both under the lock; `claim_slot` clears it for a slot's new
+owner. Until a second CPU runs tasks (`oncpu::several_cpus`, S8.3c) nothing
+can be current elsewhere and selection skips the check. A task current on another CPU is
 running there (ring 3, a syscall, or a nap without the hold), its saved
 frame is stale and its stack live, so selection (`pick_next_best`), the
 direct handoff (`take_handoff`) and reaping (`family::reapable`, which
@@ -471,12 +484,15 @@ empty in the table; the only task sleeping, the CPU runs its idle context on
 the boot table with the kernel task current nowhere, and the sleep ends on
 time; a task marked current on another CPU is never selected (the idle
 context is picked instead), never handed the CPU and not reaped once
-finished, and is all three once the mark is cleared; 500 rounds (20000 with
+finished, and is all three once the mark is cleared; a thread that exits
+while the kernel task sleeps leaves the CPU to the idle context, is current
+nowhere, and is reaped; 500 rounds (20000 with
 `--soak`) of a ping-pong thread and a 200 µs sleep, each switching into the
 idle context and out. With `LAZYOS_SMP=1`: an AP queued for the lock gets it
 inside one halt of the boot CPU (its turn's timestamp falls between the
-halt's start and end); a ring-0 entry into a marked halt takes the lock and
-clears the mark; and every AP taking the lock around a section until told
+halt's start and end; with the release removed the AP's watchdog panics
+instead); a ring-0 entry into a marked halt, and a fault taken there
+(`fault_gate`), take the lock and clear the mark; and every AP taking the lock around a section until told
 to stop while the boot CPU, holding it except inside its halts, makes 300
 halts (20000 with `--soak`), naps and 100 µs sleeps in turn, each after a
 section of its own: no update lost, no overlap, every AP got in.
@@ -488,6 +504,13 @@ section of its own: no update lost, no overlap, every AP got in.
 - A task that dies while current on another CPU waits for that CPU to
   switch away before it can be reaped, and a parent in `wait4` is not told
   when it does (S8.3c, with the `RESCHED` IPI on a kill).
+- Under the I/O APIC the tick's vector (`0x20`) ranks below every device
+  line. The idle context switches after an interrupt returns, so a storming
+  device cannot starve the clock there, but an interrupt from ring 3 that
+  switches to a driver of a higher class still does it inside the handler;
+  a device that re-asserts as soon as its driver acks can then keep the tick
+  pending. This predates S8.3; the general fix is a tick vector above the
+  device range.
 - Today no AP takes the entry lock (outside the suite): every vector that
   can reach an AP is window-safe (LAPIC timer masked, I/O APIC and MSI aimed
   at the boot CPU). That is what makes the boot CPU's waits for an AP

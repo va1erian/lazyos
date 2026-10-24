@@ -24,9 +24,12 @@
 //! The context itself is a kernel stack (never freed), the frame saved by
 //! the last switch out of it, and the boot page table, which is what it runs
 //! on (the dying-table rule, docs/architecture/smp.md): a CPU with nothing
-//! to do holds no user address space in `CR3`.
+//! to do holds no user address space in `CR3`. It has no floating-point
+//! state (the kernel is soft-float): the scheduler neither saves nor
+//! restores one for it, and does not count its runs as context switches or
+//! in the `PERF:` run counts.
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use x86_64::instructions::segmentation::{Segment, CS, SS};
 
 use super::{kstack::KernelStack, MAX_TASKS};
@@ -41,8 +44,10 @@ pub const FIRST_IDLE_SLOT: usize = TASK_SLOTS;
 /// RSP and SS, the layout `task::switch` restores.
 const FRAME_WORDS: u64 = 20;
 
-/// Per CPU: the saved frame of its idle context (0: not created yet).
+/// Per CPU: the saved frame of its idle context.
 static RSP: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
+/// Per CPU: whether [`ensure_here`] created its idle context.
+static CREATED: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
 
 /// Whether `slot` is an idle context.
 pub fn is_idle(slot: usize) -> bool {
@@ -52,7 +57,9 @@ pub fn is_idle(slot: usize) -> bool {
 /// This CPU's idle slot, once [`ensure_here`] created it.
 pub fn here() -> Option<usize> {
     let cpu = percpu::current().index() as usize;
-    (RSP[cpu].load(Ordering::Relaxed) != 0).then_some(FIRST_IDLE_SLOT + cpu)
+    CREATED[cpu]
+        .load(Ordering::Relaxed)
+        .then_some(FIRST_IDLE_SLOT + cpu)
 }
 
 /// The CPU an idle slot belongs to.
@@ -77,7 +84,7 @@ pub(super) fn save_rsp(slot: usize, rsp: u64) {
 /// schedule.
 pub(super) fn ensure_here() {
     let cpu = percpu::current().index() as usize;
-    if RSP[cpu].load(Ordering::Relaxed) != 0 {
+    if CREATED[cpu].load(Ordering::Relaxed) {
         return;
     }
     let slot = FIRST_IDLE_SLOT + cpu;
@@ -101,10 +108,10 @@ pub(super) fn ensure_here() {
         core::ptr::write_volatile(frame.add(18), top - 8);
         core::ptr::write_volatile(frame.add(19), u64::from(SS::get_reg().0));
     }
-    super::fpu::reset_for(slot);
     // The idle context lives as long as its CPU: the stack is never freed.
     core::mem::forget(stack);
     RSP[cpu].store(base, Ordering::Relaxed);
+    CREATED[cpu].store(true, Ordering::Relaxed);
 }
 
 /// The idle loop: halt (entry lock dropped) until an interrupt, then give

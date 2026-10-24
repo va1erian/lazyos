@@ -22,6 +22,7 @@ const COMMON: &[(&str, Test)] = &[
     ("smp_idle_runs_while_everything_sleeps", runs_while_asleep),
     ("smp_idle_oncpu_mark_guards_a_task", oncpu_mark_guards),
     ("smp_idle_switch_soak", switch_soak),
+    ("smp_idle_takes_over_from_an_exit", takes_over_from_an_exit),
 ];
 
 #[cfg(not(lazyos_smp))]
@@ -32,7 +33,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     COMMON[1],
     COMMON[2],
     COMMON[3],
+    COMMON[4],
     ("smp_idle_halt_drops_the_hold", locked::halt_drops_the_hold),
+    ("smp_idle_fault_in_a_halt_takes_it", locked::fault_in_halt),
     (
         "smp_idle_entry_into_a_halt_takes_it",
         locked::entry_into_halt,
@@ -49,6 +52,48 @@ const SOAK_ROUNDS: u64 = if option_env!("LAZYOS_SMP_SOAK").is_some() {
 } else {
     500
 };
+
+/// The idle loop's pass count when the exiting thread finished.
+static EXITED_AT: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// A thread that ends at once: finished, then off the CPU for good.
+extern "C" fn quitter() -> ! {
+    let me = task::current();
+    EXITED_AT.store(idle::probe::loops(), Ordering::Relaxed);
+    task::harness::finish(me, 0);
+    task::exit_cpu()
+}
+
+/// A thread exits while the kernel task sleeps: nothing is runnable, so the
+/// idle context takes the CPU (not the finished thread, which the old
+/// fallback halted in), the thread is current nowhere, and it is reaped.
+fn takes_over_from_an_exit() -> Result<(), String> {
+    fresh();
+    EXITED_AT.store(u64::MAX, Ordering::Relaxed);
+    let thread = task::kthread::spawn_kernel_thread("idle-quit", quitter, PriorityClass::Normal)
+        .map_err(|error| format!("spawn: {error}"))?;
+    nap_ns(30_000_000);
+    let exited = EXITED_AT.load(Ordering::Relaxed);
+    let state = task::harness::state(thread);
+    let mark = oncpu::cpu_of(thread);
+    let reaped = task::reap_child().map(|(slot, _)| slot);
+    task::harness::reset();
+    check!(exited != u64::MAX, "the thread never ran");
+    check!(
+        idle::probe::loops() > exited,
+        "the idle loop never ran after the exit"
+    );
+    check!(
+        state == Some(crate::task::TaskState::Done),
+        "the thread is {state:?}"
+    );
+    check!(
+        mark.is_none(),
+        "the finished thread is current on CPU{mark:?}"
+    );
+    check!(reaped == Some(thread), "reaped {reaped:?}, not {thread}");
+    Ok(())
+}
 
 /// Where the soak's thread parks, and its passes.
 static THREAD_QUEUE: WaitQueue = WaitQueue::new(WaitKind::Sleep);
@@ -135,16 +180,20 @@ fn runs_while_asleep() -> Result<(), String> {
 /// the CPU, and not reaped once finished.
 fn oncpu_mark_guards() -> Result<(), String> {
     fresh();
-    let result = oncpu_mark_steps();
+    let a = task::spawn_fork().map_err(|e| format!("fork: {e}"))?;
+    let result = oncpu_mark_steps(a);
+    // Whatever failed: a mark left naming another CPU would keep the slot
+    // from ever being selected or reaped again.
+    oncpu::set_for_test(a, None);
     task::harness::switch_current(task::KERNEL_TASK);
+    task::set_blocked(false);
     task::harness::reset();
     result
 }
 
-fn oncpu_mark_steps() -> Result<(), String> {
+fn oncpu_mark_steps(a: usize) -> Result<(), String> {
     let cpu = crate::arch::percpu::current().index() as usize;
     let other = cpu + 1;
-    let a = task::spawn_fork().map_err(|e| format!("fork: {e}"))?;
     task::harness::switch_current(a);
     check!(
         oncpu::cpu_of(a) == Some(cpu) && oncpu::cpu_of(task::KERNEL_TASK).is_none(),
@@ -269,214 +318,4 @@ fn soak_rounds(thread: usize) -> Result<(), String> {
 
 /// The cases that need the real entry lock (`LAZYOS_SMP=1`).
 #[cfg(lazyos_smp)]
-mod locked {
-    use super::super::smp_tlb_suite::online_aps;
-    use super::*;
-    use crate::arch::{percpu, smp};
-    use crate::sync::entry;
-    use alloc::vec::Vec;
-    use core::arch::x86_64::_rdtsc;
-    use core::sync::atomic::AtomicU32;
-
-    /// Halts the boot CPU makes while the APs hammer the lock (`--soak`:
-    /// the long run).
-    const HALTS: u64 = if option_env!("LAZYOS_SMP_SOAK").is_some() {
-        20_000
-    } else {
-        300
-    };
-
-    static GOT_AT: AtomicU64 = AtomicU64::new(0);
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    static INSIDE: AtomicU32 = AtomicU32::new(0);
-    static OVERLAPS: AtomicU64 = AtomicU64::new(0);
-    /// Set when the APs of the contention case should stop.
-    static STOP: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
-    fn rdtsc() -> u64 {
-        // SAFETY: reads the TSC; no memory or privilege effects.
-        unsafe { _rdtsc() }
-    }
-
-    fn aps() -> Vec<usize> {
-        smp::bring_up_for_test(percpu::MAX_CPUS);
-        online_aps()
-    }
-
-    /// Wait (half a calibrated second) until `tickets` are outstanding.
-    fn wait_until_queued(tickets: u32) -> Result<(), String> {
-        let bound = crate::arch::clock::cycles_per_tick() * 50;
-        let start = rdtsc();
-        while entry::outstanding() < tickets {
-            if rdtsc().wrapping_sub(start) > bound {
-                return Err(format!("{} tickets outstanding", entry::outstanding()));
-            }
-            smp::serve_pending();
-            core::hint::spin_loop();
-        }
-        Ok(())
-    }
-
-    /// An AP's turn: take the lock, note when, drop it.
-    fn job_note_turn(_: u64) -> u64 {
-        entry::acquire_for_test();
-        GOT_AT.store(rdtsc(), Ordering::Release);
-        entry::release_for_test();
-        1
-    }
-
-    /// An AP queues for the lock the boot CPU holds; the boot CPU halts
-    /// once. The AP gets the lock inside that halt (between its start and
-    /// its end), so the halt dropped the hold; the boot CPU holds again
-    /// after, with its halt mark cleared.
-    pub(super) fn halt_drops_the_hold() -> Result<(), String> {
-        let Some(&ap) = aps().first() else {
-            return Ok(());
-        };
-        fresh();
-        GOT_AT.store(0, Ordering::Release);
-        let ticket = smp::start_on(ap, job_note_turn, 0).ok_or("AP offline")?;
-        let queued = wait_until_queued(2);
-        let before = rdtsc();
-        // Ended by the next tick; the AP's turn falls inside it.
-        entry::halt();
-        let after = rdtsc();
-        let held = entry::held_here();
-        let marked = percpu::current().entry_halt.load(Ordering::Relaxed);
-        if queued.is_err() {
-            // Let the AP finish before failing, holding nothing it waits on.
-            entry::release_for_test();
-            smp::finish_on(ap, ticket, 10);
-            entry::acquire_for_test();
-        }
-        queued?;
-        let done = smp::finish_on(ap, ticket, 10);
-        check!(held, "the halt returned without the hold");
-        check!(!marked, "the halt left its CPU marked");
-        check!(done == Some(1), "the AP never got the lock: {done:?}");
-        let got = GOT_AT.load(Ordering::Acquire);
-        check!(
-            got > before && got < after,
-            "the AP got the lock at {got}, outside the halt [{before}, {after}]"
-        );
-        Ok(())
-    }
-
-    /// A ring-0 entry into a marked halt takes the lock and clears the
-    /// mark (what an interrupt landing on `hlt` does).
-    pub(super) fn entry_into_halt() -> Result<(), String> {
-        check!(entry::held_here(), "the suite runs without the boot's hold");
-        let cpu = percpu::current();
-        cpu.entry_halt.store(true, Ordering::Relaxed);
-        entry::release_for_test();
-        entry::enter(0, 0);
-        let held = entry::held_here();
-        let marked = cpu.entry_halt.swap(false, Ordering::Relaxed);
-        if !held {
-            entry::acquire_for_test();
-        }
-        check!(held, "a ring-0 entry into a halt did not take the lock");
-        check!(!marked, "the entry left the halt mark set");
-        entry::leave(0);
-        check!(entry::held_here(), "a ring-0 resume dropped the hold");
-        Ok(())
-    }
-
-    fn section() {
-        if INSIDE.fetch_add(1, Ordering::AcqRel) != 0 {
-            OVERLAPS.fetch_add(1, Ordering::Relaxed);
-        }
-        let value = COUNTER.load(Ordering::Relaxed);
-        for _ in 0..32 {
-            core::hint::spin_loop();
-        }
-        COUNTER.store(value + 1, Ordering::Relaxed);
-        INSIDE.fetch_sub(1, Ordering::AcqRel);
-    }
-
-    /// Sections under the lock until [`STOP`]; how many.
-    fn job_sections_until_stopped(_: u64) -> u64 {
-        let mut rounds = 0;
-        while !STOP.load(Ordering::Acquire) {
-            entry::acquire_for_test();
-            section();
-            entry::release_for_test();
-            rounds += 1;
-        }
-        rounds
-    }
-
-    /// Every AP takes and drops the lock around a section until told to
-    /// stop, while the boot CPU, holding it except inside its halts, makes
-    /// [`HALTS`] halts with a section before each: naps (a halt in this
-    /// task, ended by the tick) and 100 us sleeps (a halt in the idle
-    /// context, ended by the deadline timer) in turn. The APs only get in
-    /// during those halts, and each interrupt that ends one takes the lock
-    /// back against them: no update lost, no overlap, every AP got in.
-    pub(super) fn halts_under_contention() -> Result<(), String> {
-        let aps = aps();
-        if aps.is_empty() {
-            return Ok(());
-        }
-        fresh();
-        COUNTER.store(0, Ordering::Relaxed);
-        OVERLAPS.store(0, Ordering::Relaxed);
-        STOP.store(false, Ordering::Release);
-        let mut started = Vec::new();
-        for &ap in &aps {
-            if let Some(ticket) = smp::start_on(ap, job_sections_until_stopped, 0) {
-                started.push((ap, ticket));
-            }
-        }
-        let (waits_before, _) = entry::contended();
-        let loops = idle::probe::loops();
-        for halt in 0..HALTS {
-            section();
-            if halt % 2 == 0 {
-                task::nap();
-            } else {
-                super::nap_ns(100_000);
-            }
-        }
-        let idled = idle::probe::loops() - loops;
-        STOP.store(true, Ordering::Release);
-        // The APs finish their last section once they get the lock.
-        entry::release_for_test();
-        let finished: Vec<_> = started
-            .iter()
-            .map(|&(ap, ticket)| smp::finish_on(ap, ticket, 10))
-            .collect();
-        entry::acquire_for_test();
-        let ap_sections: u64 = finished.iter().flatten().sum();
-        let expected = ap_sections + HALTS;
-        let counted = COUNTER.load(Ordering::Relaxed);
-        let (waits, _) = entry::contended();
-        crate::trace::test!(
-            "smp_idle_halts_under_contention:INFO:aps={} halts={HALTS} idle_passes={idled} sections={expected} waits={}",
-            started.len(),
-            waits - waits_before
-        );
-        check!(
-            started.len() == aps.len(),
-            "only {} APs started",
-            started.len()
-        );
-        check!(
-            finished
-                .iter()
-                .all(|done| done.is_some_and(|rounds| rounds > 0)),
-            "an AP never got in or never stopped: {finished:?}"
-        );
-        check!(OVERLAPS.load(Ordering::Relaxed) == 0, "sections overlapped");
-        check!(
-            counted == expected,
-            "{counted} of {expected} updates survived"
-        );
-        check!(
-            idled >= HALTS / 4,
-            "only {idled} idle passes in {} sleeps",
-            HALTS / 2
-        );
-        Ok(())
-    }
-}
+mod locked;

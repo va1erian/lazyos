@@ -79,8 +79,7 @@ mod imp {
     pub fn leave(_cs: u64) {}
     #[inline(always)]
     pub fn halt() {
-        x86_64::instructions::interrupts::enable_and_hlt();
-        x86_64::instructions::interrupts::disable();
+        super::halt_holding();
     }
     #[inline(always)]
     pub fn enter_user() {}
@@ -133,6 +132,16 @@ pub fn fault_gate<R>(
 pub use imp::held_here;
 #[cfg(all(lazyos_smp, lazyos_tests))]
 pub use imp::{acquire_for_test, contended, outstanding, release_for_test};
+
+/// Wait for an interrupt with interrupts on **keeping** the hold: for a
+/// halt whose caller may hold other locks (the yielding lock's last resort,
+/// `task::relax`), where dropping the entry lock could let another CPU in to
+/// spin on one of them. Other CPUs wait meanwhile, so only rare fallbacks
+/// use it. Called and returns with interrupts off.
+pub fn halt_holding() {
+    x86_64::instructions::interrupts::enable_and_hlt();
+    x86_64::instructions::interrupts::disable();
+}
 
 /// Test hook for `arch::linux::probe_entry`, which runs the real `syscall`
 /// entry body from ring 0: drop the harness's hold so the body's ring-3

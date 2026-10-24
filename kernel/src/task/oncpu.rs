@@ -13,7 +13,7 @@
 //! the entry lock. It is read under the lock too (selection, the handoff,
 //! reaping), so plain relaxed atomics suffice: the lock orders them.
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use super::MAX_TASKS;
 use crate::arch::percpu;
@@ -42,9 +42,30 @@ pub(super) fn switch(prev: usize, next: usize) {
     }
 }
 
+/// A slot is handed to a new task (`kstack::claim_slot`): it is current
+/// nowhere yet, whatever its previous owner's mark said.
+pub(super) fn forget(slot: usize) {
+    if let Some(mark) = ON_CPU.get(slot) {
+        mark.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Whether another CPU than the boot CPU runs tasks (S8.3c sets it): until
+/// then nothing can be current elsewhere, and selection skips the check.
+static SEVERAL: AtomicBool = AtomicBool::new(false);
+
+/// Record that a second CPU runs tasks from now on.
+#[cfg_attr(not(lazyos_tests), allow(dead_code))] // S8.3c's AP start
+pub fn several_cpus() {
+    SEVERAL.store(true, Ordering::Relaxed);
+}
+
 /// Whether `slot` is current on another CPU: it may not be selected or
 /// handed the CPU here, and nobody may reclaim it.
 pub fn elsewhere(slot: usize) -> bool {
+    if !SEVERAL.load(Ordering::Relaxed) {
+        return false;
+    }
     ON_CPU.get(slot).is_some_and(|mark| {
         let cpu = mark.load(Ordering::Relaxed);
         cpu != 0 && cpu != me()
@@ -64,5 +85,6 @@ pub fn cpu_of(slot: usize) -> Option<usize> {
 /// running on a CPU that runs no tasks yet.
 #[cfg(lazyos_tests)]
 pub fn set_for_test(slot: usize, cpu: Option<usize>) {
+    several_cpus();
     ON_CPU[slot].store(cpu.map_or(0, |cpu| cpu as u8 + 1), Ordering::Relaxed);
 }

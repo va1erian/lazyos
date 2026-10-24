@@ -88,12 +88,12 @@ OPT_OUT = re.compile(
 )
 CALL = re.compile(r"\bcall\s+([A-Za-z_]\w*)")
 
-# A halt with interrupts on, and where it may be: `sync::entry::halt` and its
-# single-CPU stub.
+# A halt with interrupts on, and where it may be: `sync::entry::halt` and
+# `halt_holding`.
 HALT = re.compile(r"\benable_and_hlt\s*\(")
 HALTS = {
     "sync/entry/imp.rs": 1,  # `halt`: marks, releases, halts, re-takes
-    "sync/entry.rs": 1,  # the single-CPU stub of `halt`: nothing to release
+    "sync/entry.rs": 1,  # `halt_holding`: keeps the hold (callers may hold locks)
 }
 
 

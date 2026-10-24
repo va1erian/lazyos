@@ -59,6 +59,12 @@ class StallReport(unittest.TestCase):
         self.assertIn("test in flight: a", report)
         self.assertIn("some line", report)
         self.assertIn("ffff800000123456", report)
+        self.assertEqual(qmp.calls, 3)
+        self.assertNotIn("NMI", report)
+
+    def test_the_nmi_is_opt_in(self):
+        qmp = FakeQmp()
+        report = serialwatch.stall_report("TEST:a:START\n", 200.0, qmp, nmi=True)
         self.assertEqual(qmp.calls, 4)
         self.assertIn("NMI sent", report)
 

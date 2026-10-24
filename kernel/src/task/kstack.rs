@@ -194,6 +194,8 @@ pub fn claim_slot(tasks: &[Option<Task>; MAX_TASKS]) -> Result<(usize, KernelSta
         .find(|&slot| tasks[slot].is_none() && !held.contains(slot))
         .ok_or(ClaimError::NoSlot)?;
     let stack = KernelStack::new(index).ok_or(ClaimError::NoMemory)?;
+    // A new task is current nowhere, whatever its slot's last owner left.
+    super::oncpu::forget(index);
     Ok((index, stack))
 }
 

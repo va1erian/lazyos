@@ -463,8 +463,8 @@ S8.3 lands in four steps, each mergeable with the suite green:
   replaces "the parked task halts in its own wait loop" — a reserved slot
   number per CPU that the task table leaves empty, so no special case in
   accounting or introspection; `sync::entry::halt` drops the hold around
-  every `hlt` with interrupts on (`nap`, `exit_cpu`, the yielding lock's
-  last resort; `check_entry.py` pins it) and marks the CPU so the interrupt
+  every `hlt` with interrupts on that holds no lock (`nap`, `exit_cpu`; the
+  yielding lock's last resort keeps it; `check_entry.py` pins both) and marks the CPU so the interrupt
   that ends the halt takes the lock; a task that is current on one CPU is
   never selected, handed off to or reaped by another (an on-CPU mark set
   and cleared by `set_current`, under the lock). With a global run queue

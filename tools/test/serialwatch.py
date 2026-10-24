@@ -51,7 +51,7 @@ def sample_rips(qmp: Any, samples: int = 3) -> list[str]:
     return rips
 
 
-def stall_report(text: str, silent_for: float, qmp: Any) -> str:
+def stall_report(text: str, silent_for: float, qmp: Any, nmi: bool = False) -> str:
     """Evidence for a run whose serial log stopped growing: the test in
     flight, the log's tail and where the guest is executing. Symbolize a RIP
     with `addr2line -e <kernel> <rip - 0xffff800000000000>`."""
@@ -63,7 +63,7 @@ def stall_report(text: str, silent_for: float, qmp: Any) -> str:
         *[f"STALL:   {line}" for line in tail],
         "STALL: guest RIP samples: " + (", ".join(sample_rips(qmp)) or "no QMP"),
     ]
-    if qmp is not None:
+    if nmi and qmp is not None:
         # The kernel's NMI handler prints its `HANG:` view (the scheduler's
         # last tick, every task, the locks) to the serial log.
         try:
@@ -95,11 +95,14 @@ def follow_serial(
     qmp: Any = None,
     stall_after: float = 0.0,
     stall_file: Path | None = None,
+    stall_nmi: bool = False,
 ) -> str:
     """Poll the serial log (streaming TEST lines) until the summary or deadline.
 
     A log that stops growing for `stall_after` seconds (0: never) gets one
-    `stall_report` per stall, printed and appended to `stall_file`. It is
+    `stall_report` per stall, printed and appended to `stall_file` (with
+    `stall_nmi`, after an NMI that makes the kernel print its `HANG:` view;
+    off by default, because suites that count NMIs would see it). It is
     evidence only: the wait goes on until the deadline, because a slow test on
     a loaded host looks the same for a while."""
     consumed = 0
@@ -122,7 +125,7 @@ def follow_serial(
         silent = time.time() - last_growth
         if stall_after and silent >= stall_after and not reported and proc.poll() is None:
             reported = True
-            report = stall_report(text, silent, qmp)
+            report = stall_report(text, silent, qmp, nmi=stall_nmi)
             print(report, flush=True)
             if stall_file is not None:
                 with stall_file.open("a", encoding="utf-8") as handle:

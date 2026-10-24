@@ -102,10 +102,12 @@ fn yield_and_halt() {
     let enabled = interrupts::are_enabled();
     super::switch::yield_now();
     // Let one interrupt in (the tick that wakes a parked holder or its
-    // driver), with the entry lock dropped (S8.3b), then restore the
-    // caller's interrupt state.
+    // driver), then restore the caller's interrupt state. The entry lock
+    // stays held (`halt_holding`): a contender may hold other locks here,
+    // and another CPU entering meanwhile could spin on one of them while
+    // this CPU waits for the entry lock to finish its turn.
     interrupts::disable();
-    crate::arch::irqoff::paused(crate::sync::entry::halt);
+    crate::arch::irqoff::paused(crate::sync::entry::halt_holding);
     if enabled {
         interrupts::enable();
     }
