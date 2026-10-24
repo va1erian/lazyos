@@ -1,4 +1,4 @@
-# SMP, as built (S8.0–S8.3c)
+# SMP, as built (S8.0–S8.3)
 
 What multicore support the kernel has today, how it works, and the rules a
 change must keep. The plan and its staging are [`../smp-plan.md`](../smp-plan.md);
@@ -608,7 +608,45 @@ hand-offs each (200000 with `--soak`), and a churn of 300 threads (5000)
 that exit on the APs with every kernel stack back. The ring-3 case found
 the selector bug above (a migrated task read back a different `%gs`).
 
-## Known gaps (after S8.3c)
+## Acceptance (S8.3d)
+
+The milestone gate of `docs/smp-plan.md` S8.3, as run (WHPX on the
+development box unless noted; `python tools/test/run.py`):
+
+| Gate | Result |
+|---|---|
+| Kernel suite, SMP kernel (`LAZYOS_SMP=1`) | `--smp 4`: 1773/0. `--smp 2`: 1773/0. |
+| Kernel suite, single-CPU kernel | `-smp 1`: 1758/0; at `-smp 2` (APs up, idle): 1758/0; TCG (`--accel none`): 1757/0. |
+| Kernel suite under TCG, SMP kernel, `--smp 4` | 1769/4 on a host loaded by two other QEMUs: the scaling case's ratio (a timing bound, reported rather than judged under TCG since) and three interrupt-window latency bounds (`irqwin_ticks_arrive_in_syscall`, `irqoff_charges_spans_per_syscall`, `irqwin_soak_serial_drains_stay_bounded`), which pass when the `irq` cases run alone under TCG at `--smp 4`. |
+| SMP soaks (`--smp 4 --soak`, the `smp_` cases) | 43/0: 800000 entry-lock sections over four CPUs, 20000 switches into the idle context, 20000 halts under contention (147 million AP sections), 400000 ping-pong hand-offs, 5000 threads exiting on the APs with every kernel stack back. |
+| Desktop harnesses at `--smp 4` | `core_apps.json` passes (every core app launched, pixels read); `shutdown_shell.json` shuts down cleanly, its final screenshot racing QEMU's exit as at `-smp 1`; the accounts attack harness `ACCOUNTS: PASS` (four sessions, every one `HW:SMP:SCHED=on cpus=4`); `tools/net/run.py --netd --smp 4` (which builds the SMP kernel) `NET:HARNESS:PASS`. |
+| Chaos preemption | Seeds 1-6 over the `smp_` cases at `--smp 4` (5 and 6 with the poll-point hook too): no correctness failure; seed 3 once failed two timing bounds on a host loaded by another session (timings are reported, not judged, in a chaos image since). The 50-seed sweep is the manual `smp-chaos` workflow. |
+| Perf | Four ring-3 counting tasks count 7x to 11x on four CPUs what they count on one; Messenger 326k messages/s (`--smp 4`) against 526k (`-smp 1`), round trip 11.8 µs against 6.9 µs, recorded as "S8.3c smp-entry-lock" and "S8.3c smp1" in `docs/perf/history.md`. |
+| Real hardware, 24 h soak | Not run here: it needs a box and a day (`smp.cpus=2`, `dbgd`, `HW:SMP` lines clean). |
+
+Two things the runs found and fixed: `netctl socksoak` compared netd's
+handles 600 ms after its last round, while netd, now on another CPU, was
+still closing (it lets them settle now); and the fair `YieldMutex`
+hand-off's single park, which the idle context's timing exposed (#989).
+
+**Chaos preemption** (`task::chaos`, test kernels only). Built with
+`LAZYOS_CHAOS_SEED=<n>` (`run.py --chaos-seed N`), one preemption point in
+four (every syscall and interrupt return) reschedules and one poll point in
+four inside a syscall opens an interrupt window, chosen by a per-CPU
+xorshift seeded by the seed and the CPU, so tasks lose and regain CPUs, and
+interrupts land inside long kernel work, at moments a quiet run never
+picks. Lock acquires, the plan's third site, are not hooked: a forced park
+there would change the locks under test. Every failure line carries `seed=0x..`;
+under TCG with `-icount` a seed replays its interleaving. The scheduling
+cases' timing bounds (kick latency, sleep exactness, scaling) are reported,
+not judged, in a chaos image and under TCG, whose virtual time is not real
+time: an accelerated run is the timing verdict, TCG the correctness one.
+
+**CI.** `kernel-tests` has an `smp2` leg (`LAZYOS_SMP=1`, `--smp 2`, KVM:
+two guest vCPUs, so a four-vCPU runner is not crowded into the timing
+cases' failures); `smp-chaos` (manual) sweeps seeds over a filter.
+
+## Known gaps (after S8.3)
 
 - Device interrupts and their bottom halves stay on the boot CPU, and so do
   the deadline timer and the guard's window (S8.4 and later may spread

@@ -346,12 +346,20 @@ pub fn run() -> ! {
                 }
                 Err(detail) => {
                     fail += 1;
-                    crate::trace::test!("{name}:FAIL:{}", detail.replace('\n', " "));
+                    let detail = detail.replace('\n', " ");
+                    match crate::task::chaos::seed() {
+                        // The seed replays the interleaving (`task::chaos`).
+                        Some(seed) => crate::trace::test!("{name}:FAIL:{detail} seed={seed:#x}"),
+                        None => crate::trace::test!("{name}:FAIL:{detail}"),
+                    }
                 }
             }
         }
     }
     crate::trace::test!("SUMMARY:PASS={pass} FAIL={fail}");
+    // The kernel task's loop, which drains a backlog (`serial::service`), is
+    // this suite: a chatty last case left its tail and the summary queued.
+    crate::serial::flush_final();
     debug_exit(fail == 0);
     crate::halt();
 }

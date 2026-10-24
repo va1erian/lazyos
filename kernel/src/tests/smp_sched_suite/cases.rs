@@ -141,12 +141,14 @@ pub fn kick_wakes_an_idle_ap() -> Result<(), String> {
         // Without the kick the AP would only find the thread at its next
         // tick: a median under half a tick is the kick at work. The worst
         // one is left loose for a host (TCG) that stalls a vCPU.
-        check!(
-            median < tick / 2,
-            "the median kicked wake took {} us",
-            us(median)
-        );
-        check!(worst < 5 * tick, "a kicked wake took {} us", us(worst));
+        if timing_checked() {
+            check!(
+                median < tick / 2,
+                "the median kicked wake took {} us",
+                us(median)
+            );
+            check!(worst < 5 * tick, "a kicked wake took {} us", us(worst));
+        }
         task::harness::finish(thread, 0);
         KICKED.notify_all();
         Ok(())
@@ -245,11 +247,13 @@ pub fn ap_sleep_is_exact() -> Result<(), String> {
             cpus & !1 != 0,
             "the sleeper never woke on an AP ({cpus:#x})"
         );
-        check!(
-            late < 5_000_000,
-            "a 2 ms sleep woke {} us late",
-            late / 1000
-        );
+        if timing_checked() {
+            check!(
+                late < 5_000_000,
+                "a 2 ms sleep woke {} us late",
+                late / 1000
+            );
+        }
         Ok(())
     })
 }

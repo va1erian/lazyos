@@ -58,10 +58,12 @@ pub fn parallel_counting_scales() -> Result<(), String> {
             "smp_sched_parallel_counting_scales:INFO:cpus={cpus} one_cpu={alone} all_cpus={together} ratio_x100={ratio_x100}"
         );
         check!(alone > 0, "nothing counted on the boot CPU alone");
-        check!(
-            ratio_x100 >= 100 + 50 * (cpus as u64 - 1),
-            "{cpus} CPUs counted {ratio_x100}/100 times what one did"
-        );
+        if timing_checked() {
+            check!(
+                ratio_x100 >= 100 + 50 * (cpus as u64 - 1),
+                "{cpus} CPUs counted {ratio_x100}/100 times what one did"
+            );
+        }
         check!(reclaimed, "the counting tasks were never reclaimed");
         Ok(())
     })
