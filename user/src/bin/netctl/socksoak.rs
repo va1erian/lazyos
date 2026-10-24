@@ -134,9 +134,15 @@ pub(super) fn run(client: &Rc<Client>, iterations: u32) -> Result<u32, String> {
     // netd may still be finishing the last closes (with several CPUs it
     // runs beside this task): let its holdings settle, a few seconds at
     // most, before they must be what they were.
+    // Only what is compared below: the call and poll counters keep moving.
+    let held = |usage: &Option<TaskUsage>| {
+        usage
+            .as_ref()
+            .map(|u| (u.handles, u.buffers, u.buffer_bytes))
+    };
     let mut after = netd_holdings()?;
     for _ in 0..SETTLE_NAPS {
-        if after == before {
+        if held(&after) == held(&before) {
             break;
         }
         nap();

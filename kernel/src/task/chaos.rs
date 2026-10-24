@@ -25,13 +25,18 @@ const ONE_IN: u64 = 4;
 static STATE: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
 
 /// The build's chaos seed (decimal or `0x` hex), parsed once at compile time.
+/// Empty means none; anything else that is not a number fails the build, so
+/// a mistyped seed never runs as a quiet image that passes.
 const SEED: Option<u64> = match option_env!("LAZYOS_CHAOS_SEED") {
-    Some(text) => parse(text.as_bytes()),
+    Some(text) if text.is_empty() => None,
+    Some(text) => match parse(text.as_bytes()) {
+        Some(seed) => Some(seed),
+        None => panic!("LAZYOS_CHAOS_SEED is not a decimal or 0x-prefixed hex number"),
+    },
     None => None,
 };
 
-/// A decimal or `0x`-prefixed hex number; `None` for anything else (an empty
-/// value included).
+/// A decimal or `0x`-prefixed hex number; `None` for anything else.
 const fn parse(text: &[u8]) -> Option<u64> {
     let (radix, mut at) = match text {
         [b'0', b'x' | b'X', ..] => (16, 2),

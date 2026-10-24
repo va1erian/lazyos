@@ -357,6 +357,9 @@ pub fn run() -> ! {
         }
     }
     crate::trace::test!("SUMMARY:PASS={pass} FAIL={fail}");
+    // The kernel task's loop, which drains a backlog (`serial::service`), is
+    // this suite: a chatty last case left its tail and the summary queued.
+    crate::serial::flush_final();
     debug_exit(fail == 0);
     crate::halt();
 }

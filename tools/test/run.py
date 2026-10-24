@@ -316,6 +316,8 @@ def main() -> int:
 
     if not args.no_build:
         build_test_image(image, soak=args.soak, chaos_seed=args.chaos_seed)
+    elif args.chaos_seed or args.soak:
+        sys.exit("--chaos-seed and --soak are build switches; drop --no-build")
     elif not image.is_file():
         sys.exit(f"--no-build given but {image} does not exist")
 

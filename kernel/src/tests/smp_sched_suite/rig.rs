@@ -9,11 +9,13 @@ use super::*;
 use crate::arch::{percpu, smp};
 use crate::task::idle;
 
-/// Whether the cases may hold timings to a bound: not in a chaos image
-/// (`task::chaos`), whose seeded reschedules are meant to disturb exactly
-/// that; there the numbers are reported and the behaviour still checked.
+/// Whether the cases may hold timings to a bound: only under hardware
+/// acceleration (TCG's virtual time is not real time) and not in a chaos
+/// image (`task::chaos`), whose seeded reschedules are meant to disturb
+/// exactly that; otherwise the numbers are reported and the behaviour still
+/// checked.
 pub fn timing_checked() -> bool {
-    crate::task::chaos::seed().is_none()
+    super::super::deadline_suite::accelerated() && crate::task::chaos::seed().is_none()
 }
 
 /// Calibrated nanoseconds since boot.
