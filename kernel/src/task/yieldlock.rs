@@ -17,11 +17,12 @@
 //! against holds of 200 ms at most, issue #940). A lock made with
 //! [`YieldMutex::named_fair`] hands off instead: a release that leaves
 //! waiters sets `handoff`, and a task arriving while it is set is a newcomer
-//! that must queue behind the waiters (it parks once before it tries). The
-//! waiters, parked earlier, look first. Nothing waits on the flag: when no
-//! waiter is left to clear it, the next newcomer takes the lock after its one
-//! park and clears it, so a waiter that was ended costs one park, never a
-//! hang. The waiter count is kept exact by [`forget_wait`].
+//! that must queue behind the waiters (it parks while the flag stays set, at
+//! most [`HANDOFF_PARKS`] times, before it tries). The waiters, parked
+//! earlier, look first. Nothing waits on the flag for long: when no waiter is
+//! left to clear it, the next newcomer takes the lock after its parks and
+//! clears it, so a waiter that was ended costs a few parks, never a hang. The
+//! waiter count is kept exact by [`forget_wait`].
 
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
@@ -74,6 +75,10 @@ pub fn forget_wait(slot: usize) {
         }
     }
 }
+
+/// Parks a newcomer to a fair lock takes at most while a hand-off to its
+/// waiters is pending (see the module header).
+const HANDOFF_PARKS: usize = 4;
 
 /// Per slot, the lock it is waiting for (null: none) and since when
 /// (monotonic ns).
@@ -148,8 +153,18 @@ impl<T> YieldMutex<T> {
         }
         if queue_behind {
             // The lock is free but owed to the tasks already parked: let
-            // them (parked earlier, so they wake earlier) look first.
-            <super::relax::Yield as spin::RelaxStrategy>::relax();
+            // them (parked earlier, so they wake earlier) look first, for as
+            // long as the hand-off is pending, a few parks at most. One park
+            // was not enough: a waiter and the newcomer whose park deadlines
+            // fall in one expiry are woken together, and the pick between
+            // them is the scheduler's (it went to the newcomer once the
+            // idle context, S8.3b, changed which slot the pick starts from).
+            for _ in 0..HANDOFF_PARKS {
+                <super::relax::Yield as spin::RelaxStrategy>::relax();
+                if !self.info.handoff.load(Ordering::Acquire) {
+                    break;
+                }
+            }
         }
         let guard = self.inner.lock();
         if let Some(slot) = slot {
