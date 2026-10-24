@@ -45,7 +45,7 @@
 //! **Waiting.** A waiter spins with interrupts off (every gate runs with
 //! them off), so it serves its own shootdown mailbox meanwhile
 //! (`smp::serve_pending`, the S8.2 rule for every interrupts-off spin), and
-//! a wait longer than two seconds panics naming the holder. The lock is a
+//! a wait longer than 30 seconds panics naming the holder. The lock is a
 //! ticket lock (`sync::ticket`): entries are served first come, first served.
 //!
 //! With `cfg(lazyos_smp)` off every function here is an empty inline: the
@@ -82,6 +82,20 @@ mod imp {
         super::halt_holding();
     }
     #[inline(always)]
+    pub fn halt_while(_keep_halting: impl Fn() -> bool) {
+        super::halt_holding();
+    }
+    #[inline(always)]
+    pub fn holder() -> Option<u32> {
+        None
+    }
+    // Read by `PERF:entry`: a single-CPU kernel never waits.
+    #[cfg(lazyos_perf)]
+    #[inline(always)]
+    pub fn contended() -> (u64, u64) {
+        (0, 0)
+    }
+    #[inline(always)]
     pub fn enter_user() {}
     #[inline(always)]
     pub fn leave_user() {}
@@ -101,7 +115,7 @@ mod imp {
 /// ring 3. `halt`: wait for an interrupt with interrupts on, without the
 /// hold (see "Halting" above); called with interrupts off, returns with them
 /// off and the hold taken.
-pub use imp::{boot_hold, enter, enter_user, halt, leave, leave_user};
+pub use imp::{boot_hold, enter, enter_user, halt, halt_while, holder, leave, leave_user};
 use imp::{enter_fault, unheld_fault_resolved, FaultEntry};
 
 /// A fault gate's bracket: `handler` runs under the hold like any gate's
@@ -128,10 +142,12 @@ pub fn fault_gate<R>(
     resumed
 }
 // The suite's view (`tests/smp_entry_suite.rs`).
+#[cfg(any(all(lazyos_smp, lazyos_tests), lazyos_perf))]
+pub use imp::contended;
 #[allow(unused_imports)]
 pub use imp::held_here;
 #[cfg(all(lazyos_smp, lazyos_tests))]
-pub use imp::{acquire_for_test, contended, outstanding, release_for_test};
+pub use imp::{acquire_for_test, outstanding, release_for_test};
 
 /// Wait for an interrupt with interrupts on **keeping** the hold: for a
 /// halt whose caller may hold other locks (the yielding lock's last resort,

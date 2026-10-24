@@ -16,8 +16,10 @@ use crate::arch::{lapic, percpu};
 irq_gate!(resched_gate => resched_handler, window_safe);
 irq_gate!(stop_gate => stop_handler, window_safe);
 
-/// "A wake made a task more deserving of the CPU than the current one": the
-/// next preemption point acts on the flag (S8.3 is when an AP has tasks).
+/// "Look at your flag": sets this CPU's `need_resched` for its next
+/// preemption point, and wakes an AP in `ap_entry` to see the scheduler
+/// start. It never switches (window-safe); a wake that must switch another
+/// CPU now sends the kick (`KICK_VECTOR`, S8.3c).
 extern "C" fn resched_handler(_frame: &InterruptStackFrameValue) {
     percpu::current()
         .preempt

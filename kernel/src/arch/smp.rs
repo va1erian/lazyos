@@ -23,6 +23,7 @@
 mod bringup;
 mod ipi;
 mod prepare;
+mod sched;
 mod shootdown;
 #[cfg(lazyos_tests)]
 mod testrig;
@@ -31,6 +32,10 @@ mod tscsync;
 
 pub use ipi::stop_others;
 pub(crate) use ipi::{resched_gate, stop_gate};
+pub(crate) use sched::kick_gate;
+#[cfg(lazyos_tests)]
+pub use sched::start_aps_for_test;
+pub use sched::{kick, start_aps};
 // `serve_pending` is the rule every interrupts-off spin follows (its first
 // caller outside this module is S8.3's entry lock).
 #[allow(unused_imports)]
@@ -58,11 +63,13 @@ pub const PREFIX: &str = "smp.";
 /// copied to; the SIPI vector is its page number, `0x08`.
 pub const TRAMPOLINE_PHYS: u64 = 0x8000;
 
-/// The three kernel IPIs, in the audit-pinned free range 0x60..0x7F (below
-/// them: MSI at 0x40..0x5F; above: the software gates 0x80/0x81).
+/// The kernel IPIs, in the audit-pinned free range 0x60..0x7F (below them:
+/// MSI at 0x40..0x5F; above: the software gates 0x80/0x81). The kick
+/// (S8.3c, `sched`) is the one that takes the entry lock and switches.
 pub const RESCHED_VECTOR: u8 = 0x60;
 pub const SHOOTDOWN_VECTOR: u8 = 0x61;
 pub const STOP_VECTOR: u8 = 0x62;
+pub const KICK_VECTOR: u8 = 0x63;
 
 /// `smp.cpus=N` from `lazyos.cfg` (0 = unset: derive from the MADT).
 static CONFIG_CPUS: AtomicU64 = AtomicU64::new(0);

@@ -306,9 +306,9 @@ pub fn simulate_tick() -> usize {
     // A simulated tick is not time that passed: whatever idle count the
     // charge books is given back, or `sysinfo` would see more idle ticks than
     // uptime (a finished current task is an idle tick since issue #860).
-    let idle = super::IDLE_TICKS.load(core::sync::atomic::Ordering::Relaxed);
+    let idle = super::stats::idle_share();
     super::schedule::charge_tick(&mut tasks, cur);
-    super::IDLE_TICKS.store(idle, core::sync::atomic::Ordering::Relaxed);
+    super::stats::set_idle_share(idle);
     // Same flagging the real tick does (issue #133): finished parentless
     // tasks are handed to `reclaim_pending`, the current one only when the
     // tick actually switches away from it.

@@ -75,5 +75,7 @@ pub fn spawn_kernel_thread(
         guard: guard::State::new(),
     });
     super::runq::sync(&tasks, index);
+    // A CPU with nothing to do may start it now (S8.3c).
+    super::kick::place(&tasks, index);
     Ok(index)
 }

@@ -29,7 +29,9 @@ impl Limits {
         shared_buffer_max: 16 * MIB,
         scratch_max: 32 * MIB,
         task_max: 256,
-        cpu_max: 1,
+        // Every CPU the MADT names in a `LAZYOS_SMP=1` kernel, whose APs
+        // run tasks (S8.3c); one otherwise (its APs would only idle).
+        cpu_max: if cfg!(lazyos_smp) { 64 } else { 1 },
     };
 
     /// The defaults for a machine with `ram` usable bytes and a screen whose

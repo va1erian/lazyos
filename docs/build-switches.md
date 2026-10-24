@@ -23,6 +23,7 @@ grep -rhoE 'LAZYOS_[A-Z0-9_]+' build.rs build_support kernel/build.rs kernel/src
 
 | Switch | Meaning | Front end |
 | --- | --- | --- |
+| `LAZYOS_SMP` | The SMP kernel (`docs/smp-plan.md` S8.3): the kernel entry lock in every gate, and every CPU the firmware lists runs tasks (`limit.cpu_max` defaults to all of them). Without it the APs come up and idle. Pair it with QEMU `--smp N`. | `--smp-kernel` |
 | `LAZYOS_DESKTOP` | The desktop profile: services, `xuid`, LazyShell and the default core apps. Needs `python tools/xui/build.py` first. | `--desktop` |
 | `LAZYOS_SHELL` | `0` leaves LazyShell (taskbar, menu, icons) out of a desktop image. | `--no-shell` |
 | `LAZYOS_SERVICES` | Boot the userspace services (`messengerd`, `init`, ...) without the desktop. Implied by `LAZYOS_DESKTOP`. | - |

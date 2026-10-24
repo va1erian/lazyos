@@ -96,6 +96,7 @@ HALT = re.compile(r"\benable_and_hlt\s*\(")
 HALTS = {
     "sync/entry/imp.rs": 1,  # `halt`: marks, releases, halts, re-takes
     "sync/entry.rs": 1,  # `halt_holding`: keeps the hold (callers may hold locks)
+    "arch/smp/bringup.rs": 1,  # an AP before it schedules: it holds no lock at all
 }
 
 

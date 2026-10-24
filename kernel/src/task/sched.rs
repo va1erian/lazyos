@@ -345,14 +345,20 @@ pub(super) fn runnable(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> bool {
 /// runnable tasks, and the order key `(pass, distance after cur)` keeps the
 /// exact choice of the full round-robin scan this replaced.
 pub(super) fn pick_next_best(tasks: &[Option<Task>; MAX_TASKS], cur: usize) -> Option<usize> {
+    // An AP the suite holds back runs nothing (`idle::pause_aps`).
+    if super::idle::held_back() {
+        return None;
+    }
+    let boot_cpu = crate::arch::percpu::current().index() == 0;
     for rank in (0..PriorityClass::ALL.len()).rev() {
         let mut best: Option<(u64, usize, usize)> = None;
         for slot in runq::runnable(rank).iter() {
             if !runq::check(tasks, slot, rank) {
                 continue;
             }
-            // Running on another CPU: its saved frame is stale (S8.3b).
-            if super::oncpu::elsewhere(slot) {
+            // Running on another CPU: its saved frame is stale (S8.3b). The
+            // kernel task runs on the boot CPU only (`task::kick`).
+            if super::oncpu::elsewhere(slot) || (slot == KERNEL_TASK && !boot_cpu) {
                 continue;
             }
             let Some(task) = tasks[slot].as_ref() else {

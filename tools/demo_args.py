@@ -55,8 +55,13 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     parser.add_argument("--memory", default=DEFAULT_MEMORY, help="guest RAM (default: %(default)s)")
     parser.add_argument("--smp", type=smp_type, default=None, metavar="N",
-                        help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). The APs stay "
-                             "parked in firmware until the kernel's SMP bring-up (docs/smp-plan.md)")
+                        help="guest vCPUs (QEMU -smp; default: 1, QEMU's own). A kernel built "
+                             "with --smp-kernel runs tasks on all of them; any other brings the APs "
+                             "up and leaves them idle (docs/smp-plan.md)")
+    parser.add_argument("--smp-kernel", action="store_true",
+                        help="build the SMP kernel (LAZYOS_SMP=1): the kernel entry lock, and "
+                             "every CPU the firmware lists runs tasks (docs/smp-plan.md S8.3); "
+                             "pair it with --smp N under QEMU")
     add_limit_option(parser)
     parser.add_argument("--big-app", action="store_true",
                         help="room for one browser-class program: 4G of RAM and "

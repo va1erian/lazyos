@@ -11,7 +11,10 @@ use crate::arch::percpu;
 
 /// A waiter that has spun this long (calibrated seconds) panics with the
 /// holder's CPU and where it took the lock.
-pub const WATCHDOG_SECONDS: u64 = 2;
+/// Long, because a waiter may be an AP's tick behind a long syscall (a
+/// program image streamed from a slow disk holds the lock for seconds,
+/// interrupt windows and all); a deadlock still ends in a report.
+pub const WATCHDOG_SECONDS: u64 = 30;
 
 static LOCK: TicketLock = TicketLock::new();
 /// Where the holder took it (the gate), for the watchdog's report.
@@ -24,6 +27,11 @@ static LONGEST: AtomicU64 = AtomicU64::new(0);
 /// This CPU's mark as a holder.
 fn me() -> u32 {
     percpu::current().index() + 1
+}
+
+/// The CPU holding the lock, if any (the NMI's `HANG:` report; lock-free).
+pub fn holder() -> Option<u32> {
+    LOCK.holder().checked_sub(1)
 }
 
 /// Whether this CPU holds the lock.
@@ -181,6 +189,19 @@ fn take_halt_mark() -> bool {
 /// lock, is the case that wakes the `hlt` with the CPU still unheld.
 #[track_caller]
 pub fn halt() {
+    halt_while(|| false);
+}
+
+/// See the parent module: [`halt`] for the idle context, which halts again
+/// (still unheld, still marked) after an interrupt that did not take the
+/// lock — an IPI or an NMI — for as long as `keep_halting` says there is
+/// nothing for it to do. It takes the lock only for work: a gate that took
+/// it already (a tick, a kick, a device), or `keep_halting` turning false.
+/// So an idle CPU that a shootdown or a test-rig IPI wakes does not queue
+/// for the lock behind a long holder. `keep_halting` runs unheld with
+/// interrupts off: it may read only this CPU's own area.
+#[track_caller]
+pub fn halt_while(keep_halting: impl Fn() -> bool) {
     debug_assert!(!x86_64::instructions::interrupts::are_enabled());
     if !held_here() {
         // Releasing would hand out a turn this CPU never had.
@@ -189,15 +210,23 @@ pub fn halt() {
             me() - 1
         );
     }
-    percpu::current().entry_halt.store(true, Ordering::Relaxed);
+    let cpu = percpu::current();
+    cpu.entry_halt.store(true, Ordering::Relaxed);
     release();
-    x86_64::instructions::interrupts::enable_and_hlt();
-    x86_64::instructions::interrupts::disable();
-    if !held_here() {
-        acquire();
+    loop {
+        x86_64::instructions::interrupts::enable_and_hlt();
+        x86_64::instructions::interrupts::disable();
+        if held_here() {
+            break;
+        }
+        if !keep_halting() {
+            acquire();
+            break;
+        }
+        // Not consumed: nothing took the lock, so the mark still stands.
     }
     // Ours or a stale one an NMI left: this CPU holds now either way.
-    percpu::current().entry_halt.store(false, Ordering::Relaxed);
+    cpu.entry_halt.store(false, Ordering::Relaxed);
 }
 
 /// See the parent module: a resume of ring 3 releases the hold.
@@ -225,8 +254,8 @@ pub fn leave_user() {
 }
 
 /// Acquisitions that waited for another CPU since boot, and the longest
-/// wait in TSC cycles.
-#[cfg(lazyos_tests)]
+/// wait in TSC cycles (the suite, and `PERF:entry` under `LAZYOS_PERF=1`).
+#[cfg(any(lazyos_tests, lazyos_perf))]
 pub fn contended() -> (u64, u64) {
     (
         CONTENDED.load(Ordering::Relaxed),

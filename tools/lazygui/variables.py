@@ -27,8 +27,10 @@ def make_vars() -> dict:
         "data_path": s(value=DATA_IMAGE),
         "memory": s(value=DEFAULT_MEMORY),
         # Guest vCPUs (run_demo --smp, QEMU -smp); empty = QEMU's default of 1.
-        # The APs stay parked until the kernel's SMP bring-up (docs/smp-plan.md).
+        # Only an SMP kernel runs tasks on them (docs/smp-plan.md S8.3).
         "smp": s(value=""),
+        # LAZYOS_SMP=1 (run_demo --smp-kernel): every CPU runs tasks (S8.3).
+        "smp_kernel": b(value=False),
         "limits": s(value=""),
         "display_mode": s(value=""),
         "display_max": s(value=""),

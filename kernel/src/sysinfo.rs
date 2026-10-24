@@ -170,9 +170,10 @@ pub const H_HEAP_FREE: usize = 20;
 pub const H_TASK_ROW_WORDS: usize = 21;
 /// Task rows following the header ([`task::MAX_TASKS`]).
 pub const H_TASK_SLOTS: usize = 22;
-/// PIT ticks (100 Hz) that found the CPU idle: no task was runnable. Busy
-/// time is `H_TICKS - H_IDLE_TICKS`, so CPU load between two snapshots is
-/// `1 - Δidle / Δticks`. Version 4.
+/// The machine's idle time in 100 Hz ticks: each CPU's idle ticks count for
+/// its share (one over the CPUs running tasks, S8.3c), so busy time is
+/// `H_TICKS - H_IDLE_TICKS` and the machine's load between two snapshots is
+/// `1 - Δidle / Δticks` however many CPUs there are. Version 4.
 pub const H_IDLE_TICKS: usize = 23;
 /// Frames the ext2 block caches hold (file data kept for reuse, given back
 /// under memory pressure). Part of `H_FRAMES_LIVE`. Version 5.

@@ -140,9 +140,16 @@ extern "C" fn window_tick() {
         // there, and no tick for the kernel (as in `schedule`).
         return;
     }
-    let periods = super::clock::periods_since_last();
-    super::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
     let cpu = percpu::current();
+    // Only the boot CPU's tick is the clock (S8.3c, `task::schedule`); an
+    // AP's is one period of its own accounting.
+    let periods = if cpu.index() == 0 {
+        let periods = super::clock::periods_since_last();
+        super::idt::TICKS.fetch_add(periods, Ordering::Relaxed);
+        periods
+    } else {
+        1
+    };
     cpu.window
         .window_ticks
         .fetch_add(periods, Ordering::Relaxed);
@@ -150,7 +157,9 @@ extern "C" fn window_tick() {
     // SAFETY: called only from `timer_isr`, i.e. in the tick handler (PIT
     // IRQ0 or the local APIC timer) with the tick in service, once.
     unsafe { super::timer::end_of_tick() };
-    crate::input::ps2::service();
+    if cpu.index() == 0 {
+        crate::input::ps2::service();
+    }
 }
 
 /// Test hook: `ticks` more ticks were taken inside windows and are not yet

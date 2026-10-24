@@ -79,6 +79,7 @@ pub fn init() {
             .set_handler_addr(gate(super::event_timer::event_timer_gate));
         idt[super::smp::RESCHED_VECTOR].set_handler_addr(gate(super::smp::resched_gate));
         idt[super::smp::SHOOTDOWN_VECTOR].set_handler_addr(gate(super::smp::shootdown_gate));
+        idt[super::smp::KICK_VECTOR].set_handler_addr(gate(super::smp::kick_gate));
         idt[super::smp::STOP_VECTOR].set_handler_addr(gate(super::smp::stop_gate));
         idt[super::lapic::SPURIOUS_VECTOR].set_handler_addr(gate(lapic_spurious_gate));
         idt[33].set_handler_addr(gate(keyboard_gate));
@@ -271,7 +272,7 @@ extern "C" fn exception_dispatch(rsp: u64, vector: u64) -> u64 {
     crate::sync::entry::fault_gate(
         word(rsp, cs_index),
         word(rsp, cs_index - 1),
-        || resolve_exception(rsp, vector),
+        || after_user_fault(word(rsp, cs_index), resolve_exception(rsp, vector)),
         |&resumed| word(resumed, cs_index),
     )
 }
@@ -332,9 +333,20 @@ extern "C" fn page_fault_dispatch(rsp: u64) -> u64 {
     crate::sync::entry::fault_gate(
         word(rsp, 17),
         word(rsp, 16),
-        || resolve_page_fault(rsp),
+        || after_user_fault(word(rsp, 17), resolve_page_fault(rsp)),
         |&resumed| word(resumed, 17),
     )
+}
+
+/// A fault from ring 3 was resolved and returns there: like a syscall or
+/// interrupt return, it places what its handling woke (`task::kick`). A
+/// ring-0 fault may hold any lock, so nothing is done for it. Returns
+/// `resumed` unchanged.
+fn after_user_fault(cs: u64, resumed: u64) -> u64 {
+    if crate::arch::fault::from_user(cs) {
+        crate::task::kick::flush_unlocked();
+    }
+    resumed
 }
 
 /// Resolve a page fault: COW copy, demand-zero page, or `SIGSEGV` into a

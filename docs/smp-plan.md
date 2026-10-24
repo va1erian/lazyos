@@ -471,11 +471,17 @@ S8.3 lands in four steps, each mergeable with the suite green:
   that mark is the whole answer to "two CPUs on one stack": a parked or
   preempted task is not current anywhere, and a running or napping one is
   current exactly where it runs.
-- **S8.3c — the APs schedule.** Their LAPIC tick and per-CPU event timer,
-  `RESCHED_VECTOR` for a wake whose task should preempt another CPU (or
-  whose napping task is current there), per-CPU accumulation of quota and
-  `IDLE_TICKS`, `limit.cpu_max`'s default; `LAZYOS_SMP=1` images run user
-  tasks on every CPU.
+- **S8.3c — the APs schedule. Built** ([`architecture/smp.md`](architecture/smp.md),
+  "The APs schedule"): each AP's own periodic APIC tick (only the boot
+  CPU's is the clock); the deadline timer stays the boot CPU's, an AP
+  forwarding an earlier deadline to it by IPI (simpler than a per-CPU
+  timer multiplexed with the tick, and as exact); a locked `KICK_VECTOR`
+  (`0x63`) for a wake, preemption or spawn whose task should run on another
+  CPU, and for a task that dies while current elsewhere (`RESCHED` stays
+  window-safe); `IDLE_TICKS` summed over CPUs and folded, the guard's
+  budgets scaled; `limit.cpu_max` defaults to every CPU in a `LAZYOS_SMP=1`
+  kernel (`run_demo.py --smp-kernel`, the GUI's Advanced tab), whose images
+  run user tasks on every CPU.
 - **S8.3d — acceptance**, the gates below.
 
 Scheduler changes (minimal in this stage): run queue and `decide` stay global

@@ -73,6 +73,8 @@ RE_METRIC = re.compile(
 )
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
 RE_TPUT = re.compile(r"PERF:msg_tput:msgs_per_s=(\d+) calls_per_s=(\d+)")
+# The entry lock's contention (S8.3): waits for another CPU, the longest, CPUs.
+RE_ENTRY = re.compile(r"PERF:entry:waits=(\d+) longest_us=([\d.]+) cpus=(\d+)")
 #: Per-task wake/run counters (P7): `PERF:sched:tick=<t> idle=<idle>
 #: <name>#<slot>=<wakes>/<runs> ...`; the idle rate sums the per-slot counters
 #: (kernel/src/perf/wakeups.rs, tools/perf/idle.py).
@@ -97,10 +99,12 @@ KNOCK_GUEST_PORT = 7
 KNOCK_PERIOD_S = 0.05
 
 
-def build_image(usb: bool) -> Path:
+def build_image(usb: bool, smp: int) -> Path:
     # The desktop session logged straight in, as before there was a login (#623).
     env = dict(os.environ, LAZYOS_DESKTOP="1", LAZYOS_NET="1", LAZYOS_PERF="1",
                LAZYOS_AUTOLOGIN="user")
+    # More than one CPU: the SMP kernel, whose APs run tasks (docs/smp-plan.md).
+    env["LAZYOS_SMP"] = "1" if smp > 1 else "0"
     if usb:
         env["LAZYOS_USB"] = "1"
     # Always: the image embeds target/xui/*.elf as they are, so building them
@@ -109,7 +113,8 @@ def build_image(usb: bool) -> Path:
     print("building xui apps: python tools/xui/build.py", flush=True)
     subprocess.run([sys.executable, str(ROOT / "tools" / "xui" / "build.py")], cwd=ROOT, check=True)
     print("building: LAZYOS_DESKTOP=1 LAZYOS_NET=1 LAZYOS_PERF=1"
-          + (" LAZYOS_USB=1" if usb else "") + " cargo build", flush=True)
+          + (" LAZYOS_USB=1" if usb else "") + (" LAZYOS_SMP=1" if smp > 1 else "")
+          + " cargo build", flush=True)
     result = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if result.returncode != 0:
         sys.exit(f"cargo build failed:\n{result.stderr[-4000:]}")
@@ -171,10 +176,15 @@ def parse(text: str) -> dict:
     tput = None
     for match in RE_TPUT.finditer(text):
         tput = {"msgs_per_s": int(match.group(1)), "calls_per_s": int(match.group(2))}
+    entry = None
+    for match in RE_ENTRY.finditer(text):
+        entry = {"waits": int(match.group(1)), "longest_us": float(match.group(2)),
+                 "cpus": int(match.group(3))}
     return {
         "metrics": metrics,
         "irqoff_worst": worst,
         "msg_tput": tput,
+        "entry_lock": entry,
         "irqoff_by_syscall": parse_by_syscall(text),
     }
 
@@ -270,6 +280,10 @@ def write_report(payload: dict) -> Path:
     if tput:
         lines += ["", f"Messenger throughput (msgbench, one channel): {tput['msgs_per_s']} one-way "
                   f"messages/s; {tput['calls_per_s']} synchronous calls/s."]
+    entry = payload.get("entry_lock")
+    if entry:
+        lines += ["", f"Entry lock ({entry['cpus']} CPUs running tasks): {entry['waits']} waits for "
+                  f"another CPU, the longest {entry['longest_us']} us."]
     idle = payload.get("idle_ctxsw")
     if idle:
         lines += ["", f"Idle desktop: {idle['switches_per_s']} context switches/s, "
@@ -311,7 +325,8 @@ def append_history(payload: dict) -> None:
         return "/".join(f"{row[key]:.0f}" if row[key] >= 100 else f"{row[key]:.1f}" for key in keys) + f" (n={row['n']})"
 
     row = (
-        f"| {meta['label']} | `{meta['commit']}` | {meta['accel']} | "
+        f"| {meta['label']} | `{meta['commit']}` | {meta['accel']}"
+        f"{' smp' + str(meta['smp']) if meta.get('smp', 1) > 1 else ''} | "
         f"{cell('irq_wake', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('input_read', ('p50_us', 'p99_us', 'max_us'))} | "
         f"{cell('input_present', ('p50_us', 'p99_us', 'max_us'))} | "
@@ -351,6 +366,9 @@ def main() -> int:
     parser.add_argument("--pause", type=float, default=0.06, help="seconds between packets")
     parser.add_argument("--boot-timeout", type=float, default=180.0)
     parser.add_argument("--label", help="append this run to docs/perf/history.md under this label")
+    parser.add_argument("--smp", type=int, default=1, metavar="N",
+                        help="guest vCPUs; above 1 builds the SMP kernel (LAZYOS_SMP=1), whose APs "
+                             "run tasks, and adds the entry lock's contention to the report")
     parser.add_argument("--usb", action="store_true",
                         help="LAZYOS_USB=1, a qemu-xhci with a USB mouse and keyboard and no "
                              "i8042: the moves go through usbd (usb_input_present)")
@@ -361,7 +379,7 @@ def main() -> int:
                              "sets 10); only enforced under kvm or whpx, TCG numbers are informative")
     args = parser.parse_args()
 
-    image = Path(args.image) if args.no_build else build_image(args.usb)
+    image = Path(args.image) if args.no_build else build_image(args.usb, args.smp)
     qemu = find_qemu(args.qemu)
     out = (ROOT / args.out) if not Path(args.out).is_absolute() else Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -373,6 +391,8 @@ def main() -> int:
         "-netdev", f"user,id=n0,hostfwd=tcp:127.0.0.1:{knock_port}-:{KNOCK_GUEST_PORT}",
         "-device", "virtio-net-pci,netdev=n0",
     ]
+    if args.smp > 1:
+        extra += ["-smp", str(args.smp)]
     if args.usb:
         extra += ["-machine", "pc,i8042=off", "-device", "qemu-xhci,id=xhci0",
                   "-device", "usb-kbd,id=kbd,bus=xhci0.0", "-device", "usb-mouse,id=mouse,bus=xhci0.0"]
@@ -424,6 +444,7 @@ def main() -> int:
             "moves": args.moves,
             "pause_ms": int(args.pause * 1000),
             "usb": args.usb,
+            "smp": args.smp,
         },
         **parsed,
         "idle_ctxsw": idle,
@@ -436,6 +457,7 @@ def main() -> int:
         print(f"  {name:14} " + (json.dumps(row) if row else "no samples"))
     print(f"  msg_tput       {json.dumps(parsed['msg_tput'])}")
     print(f"  idle_ctxsw     {json.dumps(idle)}")
+    print(f"  entry_lock     {json.dumps(parsed['entry_lock'])}")
     print(f"report: {report.relative_to(ROOT)}")
     required = REQUIRED + (("usb_input_present",) if args.usb else ())
     missing = [name for name in required if name not in parsed["metrics"]]

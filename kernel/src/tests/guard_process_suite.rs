@@ -165,7 +165,7 @@ fn done_current_books_an_idle_tick() -> Result<(), String> {
     // Simulated ticks are not time that passed: give the idle count back,
     // or `sysinfo` would see more idle ticks than uptime.
     let idle_after = |booked: u64| {
-        task::IDLE_TICKS.fetch_sub(booked, core::sync::atomic::Ordering::Relaxed);
+        task::set_idle_ticks(task::idle_ticks().saturating_sub(booked));
     };
     for _ in 0..40 {
         task::harness::on_entry(true);
