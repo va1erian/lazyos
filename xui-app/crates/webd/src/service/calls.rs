@@ -305,6 +305,8 @@ impl<E: Engine, F: Fabric> Service<E, F> {
     pub(super) fn wheel(&mut self, client: ClientKey, full: bool, body: &[u8]) -> Reply {
         let args = wire::decode_wheel_args(body).map_err(|_| MALFORMED)?;
         live(&mut self.views, client, full, args.view)?;
+        // Only a full view's app shows its picture ahead of the page and waits for the answers.
+        let seq = if full { args.seq } else { 0 };
         self.engine.wheel(
             args.view,
             args.x,
@@ -312,6 +314,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
             args.ticks_x,
             args.ticks_y,
             args.mods & MODS,
+            seq,
         );
         Ok(Vec::new())
     }

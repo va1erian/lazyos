@@ -158,6 +158,7 @@ fn input_and_events_roundtrip() {
         ticks_x: -1,
         ticks_y: 2,
         mods: 0,
+        seq: 9,
     };
     assert_eq!(
         decode_wheel_args(&encode_wheel_args(&wheel).unwrap()).unwrap(),

@@ -35,11 +35,14 @@ SMOOTH = re.compile(rf"{P}:INFO:SMOOTH:(\S+)")
 PAINT_W2D = re.compile(rf"{NOTE}INFO:PAINT:.*?:wheel=(\d+):.*?:w2d=(\d+)/(\d+)")
 WINDOW = re.compile(rf"{P}:INFO:WINDOW:.*?max=(\d+)")
 LOAD = re.compile(rf"{P}:LOAD:(\S+)")
+#: A new page took the view (it may load for seconds more): from here the frames and the wheel are its own.
+COMMIT = re.compile(rf"{P}:COMMIT:(\S+)")
 NAV = re.compile(rf"{P}:NAV:(\S+)")
 TITLE = re.compile(rf"{P}:TITLE:(.*)")
 STOPPED = re.compile(rf"{P}:STOPPED")
-#: Lines that echo a page's title (`TITLE:`, the probe's `window=<title> - LazyWeb`) say nothing about the system.
-ECHOES_TITLE = re.compile(rf"^(UI:|{P}:TITLE:)")
+#: Lines that echo what a page chose (its title: `TITLE:`, the probe's `window=<title> - LazyWeb`; its address,
+#: which a script sets with pushState: `NAV`, `COMMIT`, `LOAD`, `POPUP`) say nothing about the system.
+ECHOES_TITLE = re.compile(rf"^(UI:|{P}:(TITLE|NAV|COMMIT|LOAD|POPUP):)")
 QUIT = re.compile(rf"{P}:QUIT:")
 LOCK_WAIT = re.compile(r"LOCK:WAIT lock=(\w+) holder=(\S+) .*? ms=(\d+) comm=(\S+)")
 
@@ -52,7 +55,7 @@ class Watch:
     lock_ms: int = 500
     answer_ms: float = 400.0  # a wheel answer slower than this is jank (the engine's own meter)
     page: str = ""  # the newest address named: a navigation in flight, or the page it ended on
-    on_screen: str = ""  # the page that committed last (`LOAD`): what the wheel was turning and the frames drew
+    on_screen: str = ""  # the page that committed last (`COMMIT`, `LOAD`): what the wheel was turning and the frames drew
     title: str = ""
     loading_since: float | None = None
     findings: list[str] = field(default_factory=list)
@@ -77,6 +80,8 @@ class Watch:
         found: list[str] = []
         if m := NAV.search(line):
             self.page, self.loading_since = m.group(1), self.loading_since or now
+        elif m := COMMIT.search(line):
+            self.on_screen = m.group(1)
         elif m := LOAD.search(line):
             self.page = self.on_screen = m.group(1)
             self.loading_since, self.loads = None, self.loads + 1

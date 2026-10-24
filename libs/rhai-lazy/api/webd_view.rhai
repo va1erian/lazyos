@@ -177,11 +177,13 @@ fn mouse(view, kind, button, x, y, mods) {
     msg::connect("os.lazy.webd.view.v1").invoke("Mouse", [view, kind, button, x, y, mods])
 }
 
-/// `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway`
+/// `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway`
+///
+/// A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
 ///
 /// One-way: returns `()` once the message is queued.
-fn wheel(view, x, y, ticks_x, ticks_y, mods) {
-    msg::connect("os.lazy.webd.view.v1").invoke("Wheel", [view, x, y, ticks_x, ticks_y, mods])
+fn wheel(view, x, y, ticks_x, ticks_y, mods, seq) {
+    msg::connect("os.lazy.webd.view.v1").invoke("Wheel", [view, x, y, ticks_x, ticks_y, mods, seq])
 }
 
 /// `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway`
@@ -322,16 +324,19 @@ fn frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y
     msg::connect("os.lazy.webd.view.v1").invoke("Frame", [view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom])
 }
 
-/// `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway`
+/// `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> () oneway`
 ///
 /// Event: what the page says about itself. `url` is the address on show,
 /// `committed_url` the page on screen; `progress` in thousandths;
-/// `secure` when the committed page came over verified HTTPS. Texts are
-/// cut at 48 KiB.
+/// `secure` when the committed page came over verified HTTPS. `commits`
+/// counts the documents committed since the view was made: a reload of
+/// the same address counts, a script's pushState or a link to an anchor
+/// does not (an app tells a new document by it, not by its address).
+/// Texts are cut at 48 KiB.
 ///
 /// One-way: returns `()` once the message is queued.
-fn state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure) {
-    msg::connect("os.lazy.webd.view.v1").invoke("State", [view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure])
+fn state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits) {
+    msg::connect("os.lazy.webd.view.v1").invoke("State", [view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits])
 }
 
 /// `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway`
@@ -552,6 +557,21 @@ fn notify_cancel(view, notification) {
 /// One-way: returns `()` once the message is queued.
 fn notify_gone(view, notification) {
     msg::connect("os.lazy.webd.view.v1").invoke("NotifyGone", [view, notification])
+}
+
+/// `WheelDone(view: U64, seq: U64, x: I32, y: I32) -> () oneway`
+///
+/// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
+/// its main frame is scrolled to `(x, y)` now, before the frame that shows
+/// it arrives. The app that shows its picture ahead of the page keeps it
+/// ahead while turns are unanswered, and moves it to where this says the
+/// page went (back, when the page did not scroll: its end, a box that
+/// scrolled instead, a script that cancelled the wheel). A page whose
+/// process ended answers everything at once.
+///
+/// One-way: returns `()` once the message is queued.
+fn wheel_done(view, seq, x, y) {
+    msg::connect("os.lazy.webd.view.v1").invoke("WheelDone", [view, seq, x, y])
 }
 
 // Not callable from a script (the request carries a channel, buffer

@@ -185,6 +185,7 @@ set(_lazyos_engine_sources
     "${LAZYOS_PORT_DIR}/app/children.cpp"
     "${LAZYOS_PORT_DIR}/app/blocking.cpp"
     "${LAZYOS_PORT_DIR}/app/paint.cpp"
+    "${LAZYOS_PORT_DIR}/app/wheel.cpp"
     "${LAZYOS_PORT_DIR}/app/light.cpp"
     "${LAZYOS_PORT_DIR}/app/log.cpp"
     "${LAZYOS_PORT_DIR}/app/profile.cpp"

@@ -153,12 +153,12 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
         self.inner.borrow_mut().view.mouse(kind, button, x, y, mods);
     }
 
-    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
+    fn wheel(&self, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
         self.flush_move(self.now_ms(), true);
         self.inner
             .borrow_mut()
             .view
-            .wheel(x, y, ticks_x, ticks_y, mods);
+            .wheel(x, y, ticks_x, ticks_y, mods, seq);
     }
 
     fn key(&self, press: bool, keysym: u32, text: &str, mods: u32) {

@@ -1,32 +1,39 @@
 //! Showing the picture ahead of the page: what the wheel asked for and the page has not done yet.
 //!
 //! The page answers a wheel notch some tens of milliseconds later (its process lays out, runs the
-//! page's scroll handlers, paints), and on a busy page hundreds. Until then the window used to show
-//! nothing new. Like the browsers of the first smartphones it now moves the picture it has at once
-//! and leaves what that uncovers as a checkerboard until the page paints it: a notch is seen in a
-//! frame, the page catches up when it can.
+//! page's scroll handlers, paints), on a busy page hundreds, and while a heavy page loads up to a
+//! second (its scripts run that long and nothing can interrupt them). The window does not wait: like
+//! the browsers of the first smartphones it moves the picture it has at once and leaves what that
+//! uncovers as a checkerboard until the page paints it (the bands painted ahead of a scroll cover most
+//! of it): a notch is seen in a frame, the page catches up when it can.
 //!
 //! The model is only numbers (no xui type, so the rules are tested on the host, `tests/speculate.rs`).
 //! `pending` is how far the picture is shown ahead, in page pixels (positive: the page scrolled
-//! down, the picture moved up). A wheel notch adds [`LINE_PX`] (the step WebKit takes for one: it
-//! reads only the sign of a line event, `Scrollbar::pixelsPerLineStep`); every update the page sends
-//! carries the main frame's scroll offset the pixels were painted at (`WKPageSetScrollOffsetCallback`,
-//! patch 0028), and a change of it is the page having done that much of what was asked: `pending`
-//! gives it back. The picture is exact again when the page has caught up.
+//! down, the picture moved up). A wheel notch adds [`LINE_PX`] (WebKit's step for one); every update
+//! the page sends carries the main frame's scroll offset the pixels were painted at
+//! (`WKPageSetScrollOffsetCallback`, patch 0028), and a change of it is the page having done that
+//! much of what was asked: `pending` gives it back. The picture is exact again when the page has
+//! caught up.
 //!
 //! The wheel does not always scroll the page by what was asked: at the end of the page, over a box
-//! that scrolls by itself, with a handler that cancels it. Then the offset never moves and the picture
-//! would stay ahead for good. A burst the page has not moved for [`PROBE_MS`] is dropped and the
-//! direction is not shown ahead again until the page moves, and whatever is left [`SETTLE_MS`] after
-//! the last wheel notch or update is dropped (the picture then jumps back to what the page shows).
-//! The offset is only ever compared with its earlier values, so a stale absolute one (a new page that
-//! started at the top) costs nothing. The ends of the page are known without waiting: nothing is shown
-//! ahead above an offset of zero, nor below the newest pixels when the engine says the page could not
-//! scroll further down from where they were painted ([`Speculation::set_at_bottom`]) and the bands
-//! below the view are no more than [`END_SLACK`] rows (the page's own margin: the engine paints a few
-//! rows past the view's edge even at the end); a page scrolled to its end would otherwise show rows past
-//! it, a checkerboard, until [`PROBE_MS`] gave them up. Bands reaching further say the page goes on (the
-//! engine's state is not told again when the page grows, only when it scrolls).
+//! that scrolls by itself, with a handler that cancels it. The page says so: every turn is numbered,
+//! and the engine answers each once the page has handled it, with where the page then is
+//! (`WheelDone`, WebKit patch 0035), before the frame that shows it. So the picture stays ahead for
+//! as long as the page is busy, and at each answer it is put where the page went plus the turns still
+//! unanswered ([`Speculation::answered`]): exactly what the page did, back to where it stayed when it
+//! did nothing (and that direction is not shown ahead again until the page moves). It used to guess
+//! instead (given up 500 ms after the last notch), and a page busier than that made the picture jump
+//! back and then forward again (issue #940). Only an answer that never comes (a page process that
+//! ended) is waited for, [`LOST_MS`].
+//!
+//! The ends of the page are known without waiting: nothing is shown ahead above an offset of zero,
+//! nor below the newest pixels when the engine says the page could not scroll further down from where
+//! they were painted ([`Speculation::set_at_bottom`]) and the bands below the view are no more than
+//! [`END_SLACK`] rows (the page's own margin: the engine paints a few rows past the view's edge even at
+//! the end). Bands reaching further say the page goes on (the engine's state is not told again when
+//! the page grows, only when it scrolls).
+
+use std::collections::VecDeque;
 
 /// Pixels a wheel notch moves the page: WebKit's line step.
 pub const LINE_PX: i32 = 40;
@@ -39,12 +46,12 @@ pub const END_SLACK: i32 = 64;
 pub const MAX_REACH: i32 = 4320;
 /// Notches one wheel event is trusted for (the engine forwards that many, as before).
 pub const MAX_TICKS: i32 = 8;
-/// A burst the page has not moved at all for this long is not a scroll the page follows.
-pub const PROBE_MS: u64 = 900;
-/// What is still ahead this long after the last wheel notch or update is dropped. More than the
-/// page's slowest answer seen on a busy page (450 ms): dropped earlier, the picture would jump back
-/// and then forward again when the answer came.
-pub const SETTLE_MS: u64 = 500;
+/// What is still ahead this long after the last notch, page move or answer is dropped: the answers
+/// were lost (the page's process ended). Far longer than a busy page takes to answer (a second, while a
+/// heavy one loads).
+pub const LOST_MS: u64 = 5_000;
+/// Unanswered turns remembered; past it the oldest are forgotten (a page that never answers).
+const MAX_UNANSWERED: usize = 1024;
 
 /// A page move this soon after a plain wheel notch is the page's answer to it: with nothing shown
 /// ahead the view glides to it rather than jumping.
@@ -52,7 +59,7 @@ pub const ANSWER_MS: u64 = 1_000;
 
 thread_local! {
     /// Whether the views of this thread show the picture ahead of the page.
-    static AHEAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static AHEAD: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
 }
 
 /// With nothing shown ahead: whether a page move of `moved` pixels (positive: down) at `now_ms` is
@@ -72,11 +79,10 @@ pub fn answer(asked: Option<(u64, i32)>, moved: i32, now_ms: u64) -> (bool, Opti
     }
 }
 
-/// Turns showing the picture ahead on or off for the views of this thread. Off by default: on a real
-/// PC with `/home` on a USB stick the page answers late often enough that a picture shown ahead had to
-/// jump back (two to thirteen times a minute, issue #940), which reads worse than a view that waits for
-/// the page; off, a notch moves the view when the page has scrolled, gliding there. The tests of the
-/// model turn it on.
+/// Turns showing the picture ahead on or off for the views of this thread. On by default: the page's
+/// answers to the wheel say how long to keep it ahead and where to put it, so it no longer jumps back
+/// and forth on a busy page (issue #940, when it guessed). Off, a notch moves the view when the page has
+/// scrolled, gliding there.
 pub fn set_ahead(on: bool) {
     AHEAD.with(|ahead| ahead.set(on));
 }
@@ -108,12 +114,16 @@ pub struct Speculation {
     at_bottom: bool,
     pending: i32,
     actual: Option<i32>,
-    /// The time of the last wheel notch or update.
+    /// The time of the last wheel notch, page move or answer.
     last_ms: u64,
-    /// When `pending` last left zero.
-    burst_ms: u64,
-    /// The page's offset changed since `pending` left zero.
-    moved: bool,
+    /// The turns the page has not answered, oldest first: their number and the page pixels they asked
+    /// for (positive: down). The page does them whatever the window showed.
+    unanswered: VecDeque<(u64, i32)>,
+    /// Where the last answer said the page was.
+    answered_at: Option<i32>,
+    /// Turns up to this number belong to a document that is gone: their answers name its offset, not
+    /// this page's, and are ignored (`forget_turns_through`).
+    forgotten: u64,
     /// The sign of a direction the page did not follow: not shown ahead until the page moves.
     blocked: i32,
     counters: Counters,
@@ -134,47 +144,125 @@ impl Speculation {
         self.counters
     }
 
-    /// A vertical wheel event of `ticks` notches (negative: down, as xui's wheel and the engine's).
-    /// Returns whether the picture moved (ahead, or back from a burst the page never followed).
-    pub fn wheel(&mut self, ticks: i32, now_ms: u64) -> bool {
-        let dropped = self.drop_stalled(now_ms);
+    /// A vertical wheel turn of `ticks` notches (negative: down, as xui's wheel and the engine's),
+    /// numbered `seq` for the page's answer. Returns whether the picture moved ahead.
+    pub fn wheel(&mut self, ticks: i32, now_ms: u64, seq: u64) -> bool {
         let step = -ticks.clamp(-MAX_TICKS, MAX_TICKS) * LINE_PX;
         if step == 0 {
-            return dropped;
+            return false;
         }
         self.last_ms = now_ms;
+        if self.unanswered.len() == MAX_UNANSWERED {
+            self.unanswered.pop_front();
+        }
+        self.unanswered.push_back((seq, step));
         if step.signum() == -self.blocked {
             self.blocked = 0;
         }
         if step.signum() == self.blocked {
             self.counters.blocked += 1;
-            return dropped;
+            return false;
         }
-        // Never above the top of the page; an offset that is not one (negative) allows nothing upward.
-        let up = MAX_AHEAD.max(self.reach_up);
-        let floor = self
-            .actual
-            .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-up, 0));
-        // Never below the end of the page: when the engine says it is pinned to the bottom and no more
-        // than a margin of rows is painted below the view, nothing further is shown ahead, instead of the
-        // usual [`MAX_AHEAD`] of checkerboard past a document that does not go on. What is already ahead
-        // stays (a notch down never moves the picture up).
-        let ceiling = if self.at_end() {
-            self.pending.max(0)
-        } else {
-            MAX_AHEAD.max(self.reach_down)
-        };
-        let next = (self.pending + step).clamp(floor, ceiling);
+        // At the end of the page what is already ahead stays (a notch down never moves the picture up).
+        let ceiling = self.ceiling(self.pending.max(0));
+        let next = self
+            .pending
+            .saturating_add(step)
+            .clamp(self.floor(), ceiling);
         if next == self.pending {
-            return dropped;
-        }
-        if self.pending == 0 {
-            self.burst_ms = now_ms;
-            self.moved = false;
+            return false;
         }
         self.pending = next;
         self.counters.shifts += 1;
         true
+    }
+
+    /// The page answered every turn up to `seq` and is scrolled to `offset` now (the frame that shows
+    /// it may still be on its way). The picture is put where the page went plus the turns still
+    /// unanswered; a page that did nothing of what it answered declined that direction. Returns
+    /// whether what is shown ahead changed.
+    pub fn answered(&mut self, seq: u64, offset: i32, now_ms: u64) -> bool {
+        if seq <= self.forgotten {
+            return false;
+        }
+        let mut done = 0i32;
+        while self
+            .unanswered
+            .front()
+            .is_some_and(|(turn, _)| *turn <= seq)
+        {
+            if let Some((_, step)) = self.unanswered.pop_front() {
+                done = done.saturating_add(step);
+            }
+        }
+        // Where the page was before these turns: the last answer, else the painted offset. With neither
+        // (a new page, no frame yet) nothing says whether it moved, and nothing is concluded.
+        let from = self.answered_at.or(self.actual);
+        match from {
+            Some(from) if from != offset => self.blocked = 0,
+            Some(_) if done != 0 => self.blocked = done.signum(),
+            _ => {}
+        }
+        self.answered_at = Some(offset);
+        self.last_ms = now_ms;
+        let (Some(actual), Some(from)) = (self.actual, from) else {
+            return false;
+        };
+        // A move the answered turns do not explain (further than they asked, or the other way: End, an
+        // anchor, a script) is the frame's to show when it comes, in one step: nothing is shown ahead of it
+        // as a checkerboard meanwhile.
+        // Measured from the last answer, or from the frames when they moved since (a key scroll they show).
+        let asked = i64::from(done);
+        let unexplained = |moved: i64| {
+            moved != 0 && (moved.abs() > asked.abs() || moved.signum() != asked.signum())
+        };
+        if unexplained(i64::from(offset) - i64::from(from))
+            && unexplained(i64::from(offset) - i64::from(actual))
+        {
+            let changed = self.pending != 0;
+            if changed {
+                self.snap();
+            }
+            return changed;
+        }
+        let mut ahead = self
+            .unanswered
+            .iter()
+            .fold(0i32, |sum, (_, step)| sum.saturating_add(*step));
+        if ahead.signum() == self.blocked {
+            ahead = 0;
+        }
+        let went = i64::from(offset) - i64::from(actual);
+        let ceiling = self.ceiling(went.clamp(0, i64::from(MAX_REACH)) as i32);
+        let next =
+            (went + i64::from(ahead)).clamp(i64::from(self.floor()), i64::from(ceiling)) as i32;
+        if next == self.pending {
+            return false;
+        }
+        if self.blocked != 0 && next.abs() < self.pending.abs() {
+            self.counters.snaps += 1;
+            self.counters.snap_px = self.counters.snap_px.max(self.pending.abs() - next.abs());
+        }
+        self.pending = next;
+        true
+    }
+
+    /// The most the picture may be shown ahead upward: never above the top of the page (an offset that
+    /// is not one, negative, allows nothing upward).
+    fn floor(&self) -> i32 {
+        let up = MAX_AHEAD.max(self.reach_up);
+        self.actual
+            .map_or(-MAX_AHEAD, |top| top.saturating_neg().clamp(-up, 0))
+    }
+
+    /// The most it may be shown ahead downward: as far as the bands reach, and at the known end of the
+    /// page no further than `at_end` (what is already ahead, or what the page itself did).
+    fn ceiling(&self, at_end: i32) -> i32 {
+        if self.at_end() {
+            at_end
+        } else {
+            MAX_AHEAD.max(self.reach_down)
+        }
     }
 
     /// An update arrived whose pixels were painted at the main frame's scroll offset `offset`.
@@ -186,8 +274,7 @@ impl Speculation {
         };
         let moved_by = offset.saturating_sub(before);
         if moved_by == 0 {
-            // An update that did not scroll (a video, an animation, a carousel) is not the page
-            // answering the wheel: it must not keep what is ahead from being given up on.
+            // An update that did not scroll (a video, an animation, a carousel) says nothing new.
             return false;
         }
         self.last_ms = now_ms;
@@ -195,9 +282,9 @@ impl Speculation {
         if self.pending == 0 {
             return false;
         }
-        self.moved = true;
         let ahead = self.pending;
-        // The page went the other way, or further than was asked: nothing to show ahead of it.
+        // The page went the other way, or further than was asked: nothing to show ahead of it (the
+        // next answer says where it is going).
         self.pending = if moved_by.signum() == ahead.signum()
             && moved_by.unsigned_abs() < ahead.unsigned_abs()
         {
@@ -205,26 +292,21 @@ impl Speculation {
         } else {
             0
         };
-        if self.pending == 0 {
-            self.moved = false;
-        }
         true
     }
 
-    /// Time passes with nothing arriving: what is ahead is dropped once the page has had its say.
+    /// Time passes with nothing arriving: what is ahead is dropped when the answers were lost.
     /// Returns whether the picture jumped back.
     pub fn tick(&mut self, now_ms: u64) -> bool {
+        if now_ms.saturating_sub(self.last_ms) < LOST_MS {
+            return false;
+        }
+        self.unanswered.clear();
         if self.pending == 0 {
             return false;
         }
-        if self.drop_stalled(now_ms) {
-            return true;
-        }
-        if now_ms.saturating_sub(self.last_ms) >= SETTLE_MS {
-            self.snap();
-            return true;
-        }
-        false
+        self.snap();
+        true
     }
 
     /// How far past the view's bottom (`down`) and top (`up`) the page's rows are at hand (the bands);
@@ -243,7 +325,7 @@ impl Speculation {
     /// Whether the page could not scroll further down from the offset of the newest update
     /// (`WKPageIsPinnedToBottomSide`, told with the offset): then no wheel notch shows the picture
     /// ahead downward (unless the bands say the page goes on: the state can be stale). What is ahead
-    /// downward is past the end of the page and is dropped at once, not after [`PROBE_MS`]: returns
+    /// downward is past the end of the page and is dropped at once, before the page answers: returns
     /// whether any was (the picture goes back).
     pub fn set_at_bottom(&mut self, at_bottom: bool) -> bool {
         self.at_bottom = at_bottom;
@@ -261,8 +343,16 @@ impl Speculation {
         self.at_bottom = false;
         self.pending = 0;
         self.actual = None;
+        self.unanswered.clear();
+        self.answered_at = None;
         self.blocked = 0;
-        self.moved = false;
+    }
+
+    /// Another document took the view (a navigation): the turns up to `seq` were the old one's, and an
+    /// answer to them, still on its way, names where the old page was. Applied to the new page it would
+    /// show it far ahead of what it painted, a checkerboard, until the next scroll.
+    pub fn forget_turns_through(&mut self, seq: u64) {
+        self.forgotten = self.forgotten.max(seq);
     }
 
     /// Whether anything is ahead, and so whether a timer is needed to drop it.
@@ -270,20 +360,10 @@ impl Speculation {
         self.pending != 0
     }
 
-    fn drop_stalled(&mut self, now_ms: u64) -> bool {
-        if self.pending != 0 && !self.moved && now_ms.saturating_sub(self.burst_ms) >= PROBE_MS {
-            self.blocked = self.pending.signum();
-            self.snap();
-            return true;
-        }
-        false
-    }
-
     fn snap(&mut self) {
         self.counters.snaps += 1;
         self.counters.snap_px = self.counters.snap_px.max(self.pending.abs());
         self.pending = 0;
-        self.moved = false;
     }
 }
 

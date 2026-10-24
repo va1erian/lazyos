@@ -56,6 +56,8 @@ pub struct Browser {
     mailbox: Arc<Mailbox>,
     spare: Vec<u8>,
     crashed: bool,
+    /// Documents committed, as LazyWeb follows them: a new one is `PageView::page_committed`.
+    commits: u32,
 }
 
 impl Browser {
@@ -99,6 +101,7 @@ impl Browser {
             mailbox,
             spare: Vec::new(),
             crashed: false,
+            commits: 0,
         })
     }
 
@@ -135,6 +138,11 @@ impl App for Browser {
                 self.crashed = state.crashed;
                 if state.crashed {
                     self.page.clear();
+                }
+                if state.commits != self.commits {
+                    self.commits = state.commits;
+                    self.page.page_committed();
+                    self.page.forget_bands();
                 }
             }
             Msg::Clicked => {}

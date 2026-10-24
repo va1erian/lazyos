@@ -55,6 +55,7 @@ impl<E: Engine, F: Fabric> Service<E, F> {
                 can_forward: page.can_forward,
                 progress: page.progress,
                 secure: page.secure,
+                commits: page.commits,
             });
             self.event_to_live(id, wire::METHOD_STATE, body);
         }

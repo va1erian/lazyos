@@ -19,6 +19,7 @@
 #include <WebKit/WKView.h>
 
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -51,6 +52,9 @@ struct ViewState {
     const char* committedUrl { "" };
     bool secure { false };
     int finished { 0 };
+    // Documents committed since the view was made (didCommitNavigation): a reload of the same address counts,
+    // a pushState or a link to an anchor does not. The owner tells a new document by it, not by its address.
+    int commits { 0 };
     // Why the page's process ended when `crashed`: "crash", "memory", "cpu" or "requested" (terminationReason).
     const char* terminated { "" };
     // Bumped by a state the owner must hear even when nothing else in it changed (a refused load).
@@ -86,6 +90,9 @@ public:
     virtual int frameDelta(const uint8_t* /*rgba*/, int /*width*/, int /*height*/, const int* /*scroll*/, const int* /*rects*/, int /*count*/) { return 1; }
     virtual void band(int /*docX*/, int /*docY*/, int /*width*/, int /*height*/, const uint8_t* /*rgba*/) { }
     virtual void scrollOffset(int /*x*/, int /*y*/, bool /*atBottom*/) { }
+    // The page answered every wheel turn up to `seq` (View::wheel's) and its main frame is scrolled to (x, y)
+    // now, before the frame that shows it (wheel.cpp, WebKit patch 0035).
+    virtual void wheelDone(uint64_t /*seq*/, int /*x*/, int /*y*/) { }
 
     // The page UI client (ViewConfig::features & LZW_FEATURE_PAGE_UI).
     virtual void hover(const char* /*url*/) { }
@@ -243,6 +250,18 @@ struct View {
     // UI process on this port (webkit-views group, the family of patches 0021/0027). Set false when the
     // view is made as, or becomes, a group mate (engine.cpp). See destroyView / createView.
     bool soleEver { true };
+    // The wheel turns the page has not answered (wheel.cpp), oldest first: the owner's number for each (0: no
+    // answer wanted), how many of WebKit's wheel events it became that are unanswered, and whether they are
+    // still being given to WebKit. `wheelGiven`: events given and not yet known answered; `wheelPending`:
+    // WebKit's own count of unanswered ones, as it last told it.
+    struct WheelTurn {
+        uint64_t seq;
+        size_t events;
+        bool giving;
+    };
+    std::deque<WheelTurn> wheelTurns;
+    size_t wheelGiven { 0 };
+    size_t wheelPending { 0 };
     // The owner asked this page to load something (load, loadHtml, reload): from then on a process may be
     // launching for it even while WebKit has no id for it yet. destroyView ends such a process.
     bool loadRequested { false };
@@ -302,6 +321,8 @@ struct View {
     std::string lightBase;
     std::string terminated;
     int stateSerial { 0 };
+    // ViewState::commits.
+    int commits { 0 };
 
     // The owner's calls, by name (the C ABI's lzw_engine_* for view 1). Main thread only.
     // A light view's only load: the owner's HTML (UTF-8) with a base URL that is about:blank or a data: URL
@@ -314,7 +335,8 @@ struct View {
     void forward();
     void resize(int width, int height);
     void mouse(int kind, int button, int x, int y, uint32_t mods);
-    void wheel(int x, int y, int ticksX, int ticksY, uint32_t mods);
+    // A wheel turn; a non-zero `seq` (rising) is answered with ViewSink::wheelDone once the page has (wheel.cpp).
+    void wheel(int x, int y, int ticksX, int ticksY, uint32_t mods, uint64_t seq);
     void key(bool press, uint32_t keysym, const std::string& text, uint32_t mods);
     void focus(bool focused);
     void download(const std::string& url);
@@ -602,5 +624,14 @@ void notePointer(View& view, bool wheel);
 void invalidatePaint(View& view);
 // The view is going: its pacer thread is ended and its bitmaps freed.
 void releasePaint(View& view);
+// The main frame's scroll offset as the page's process last told it.
+void latestScroll(View& view, int& x, int& y);
+// A new document committed: it is at its top until its process says it scrolled.
+void resetScroll(View& view);
+
+// ---- wheel.cpp -----------------------------------------------------------------------------------
+
+// Asks WebKit to say when the page answers wheel events (patch 0035), once for the process.
+void installWheelObserver(View& view);
 
 } // namespace webkitapp

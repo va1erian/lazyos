@@ -98,6 +98,8 @@ impl<T: Transport> LightWebView<T> {
                 ticks_x,
                 ticks_y,
                 mods,
+                // A light view is never answered.
+                seq: 0,
             };
             if let Ok(body) = wire::encode_wheel_args(&args) {
                 self.send(wire::METHOD_WHEEL, body);

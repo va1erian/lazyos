@@ -14,7 +14,7 @@ mod support;
 use support::{Browser, Host, Msg};
 use xui_webkit::damage::{IRect, Scroll};
 use xui_webkit::engine::{Call, Recorder};
-use xui_webkit::mailbox::{Delta, Mailbox, Patch};
+use xui_webkit::mailbox::{Delta, Mailbox, PageState, Patch};
 
 const SIZE: (i32, i32) = (800, 500);
 const BLUE: [u8; 3] = [0, 0, 255];
@@ -360,5 +360,112 @@ fn at_the_end_of_the_page_with_no_bands_what_was_shown_past_it_is_given_back() {
                 "({x},{y}) is the page's last rows, not a checkerboard"
             );
         }
+    }
+}
+
+#[test]
+fn a_new_page_is_shown_from_its_own_top_after_scrolling_the_old_one() {
+    // Smooth scrolling on: the picture glides, from a row the old page reached.
+    let shown = run_with(true, |stage, (w, h), mailbox, at| {
+        for _ in 0..3 {
+            wheel(stage, at, -1, Modifiers::default());
+        }
+        mailbox.set_scroll_offset(3 * STEP, false);
+        mailbox.post_frame(w as u32, h as u32, &rows(w, h, 3 * STEP));
+        stage.emit(Msg::Frame);
+        // A link: another document, at its top.
+        mailbox.post_state(PageState {
+            committed_url: "https://b.test/".into(),
+            commits: 1,
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+        mailbox.set_scroll_offset(0, false);
+        mailbox.post_frame(w as u32, h as u32, &solid(w, h, [0, 0, 255]));
+        stage.emit(Msg::Frame);
+    });
+    let (w, h) = shown.size;
+    for y in [0, 1, h / 2, h - 1] {
+        assert_eq!(
+            shown.at(w / 3, y),
+            [0, 0, 255],
+            "row {y} is the new page's own, not the old one's row or a checkerboard"
+        );
+    }
+}
+
+#[test]
+fn a_late_answer_from_the_old_page_does_not_move_the_new_one() {
+    let shown = run_with(true, |stage, (w, h), mailbox, at| {
+        for _ in 0..3 {
+            wheel(stage, at, -1, Modifiers::default());
+        }
+        mailbox.post_state(PageState {
+            committed_url: "https://b.test/".into(),
+            commits: 1,
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+        mailbox.set_scroll_offset(0, false);
+        mailbox.post_frame(w as u32, h as u32, &solid(w, h, [0, 0, 255]));
+        stage.emit(Msg::Frame);
+        // The old page answered turn 3 just before it went: far down, where it was.
+        mailbox.wheel_done(3, 3000);
+        stage.emit(Msg::Frame);
+    });
+    let (w, h) = shown.size;
+    for y in [0, 1, h / 2, h - 1] {
+        assert_eq!(
+            shown.at(w / 3, y),
+            [0, 0, 255],
+            "row {y} is the new page, not shown ahead of it over a checkerboard"
+        );
+    }
+}
+
+#[test]
+fn without_showing_ahead_an_answer_moves_nothing() {
+    let shown = run_mode(false, false, |stage, _, mailbox, at| {
+        wheel(stage, at, -1, Modifiers::default());
+        // The page answered (it is one notch down) before its frame came.
+        mailbox.wheel_done(1, STEP);
+        stage.emit(Msg::Frame);
+    });
+    let h = shown.size.1;
+    for y in [0, 1, h / 2, h - 1] {
+        assert_eq!(
+            shown.at(10, y),
+            row_colour(y),
+            "row {y} moved before the page's frame"
+        );
+    }
+}
+
+#[test]
+fn a_reload_of_the_same_address_starts_from_the_new_documents_top() {
+    let shown = run_with(true, |stage, (w, h), mailbox, at| {
+        for _ in 0..3 {
+            wheel(stage, at, -1, Modifiers::default());
+        }
+        // The reload commits a new document under the same (empty) address.
+        mailbox.post_state(PageState {
+            commits: 1,
+            ..PageState::default()
+        });
+        stage.emit(Msg::State);
+        mailbox.set_scroll_offset(0, false);
+        mailbox.post_frame(w as u32, h as u32, &solid(w, h, [0, 0, 255]));
+        stage.emit(Msg::Frame);
+        // The old document's answer, on its way across the reload.
+        mailbox.wheel_done(3, 3000);
+        stage.emit(Msg::Frame);
+    });
+    let (w, h) = shown.size;
+    for y in [0, 1, h / 2, h - 1] {
+        assert_eq!(
+            shown.at(w / 3, y),
+            [0, 0, 255],
+            "row {y} is the reloaded page's own"
+        );
     }
 }

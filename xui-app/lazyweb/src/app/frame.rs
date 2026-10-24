@@ -18,6 +18,8 @@ impl Browser {
                 return;
             }
             let full = update.full.is_some();
+            // Only the page's answer to the wheel, no pixels: nothing was drawn for the frame clock to count.
+            let pixels = full || !update.deltas.is_empty();
             let before = self.page.picture_size();
             let started = Instant::now();
             let applied = self.page.apply(update);
@@ -30,13 +32,16 @@ impl Browser {
                 _ => {}
             }
             let took = started.elapsed();
-            if let Some(line) = self.clock.record(
-                started + took,
-                took,
-                full,
-                self.page.picture_parts(),
-                self.page.take_draw_time(),
-            ) {
+            let recorded = pixels.then(|| {
+                self.clock.record(
+                    started + took,
+                    took,
+                    full,
+                    self.page.picture_parts(),
+                    self.page.take_draw_time(),
+                )
+            });
+            if let Some(line) = recorded.flatten() {
                 crate::marker(&line);
             }
             if let Some(line) = self.page.spec_line() {
@@ -51,7 +56,7 @@ impl Browser {
             if !applied.spare.is_empty() {
                 self.spare = applied.spare;
             }
-            self.frames += 1;
+            self.frames += u64::from(pixels);
             // The first frame, and the first after the window changed size: where the controls are.
             let page = ui.bounds(self.page.id());
             if self.announced.get() != (page.width(), page.height()) {

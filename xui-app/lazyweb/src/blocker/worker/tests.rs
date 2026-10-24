@@ -24,7 +24,7 @@ impl Engine for Recording {
     fn forward(&self) {}
     fn resize(&self, _: i32, _: i32) {}
     fn mouse(&self, _: MouseKind, _: Button, _: i32, _: i32, _: u32) {}
-    fn wheel(&self, _: i32, _: i32, _: i32, _: i32, _: u32) {}
+    fn wheel(&self, _: i32, _: i32, _: i32, _: i32, _: u32, _: u64) {}
     fn key(&self, _: bool, _: u32, _: &str, _: u32) {}
     fn focus(&self, _: bool) {}
     fn download(&self, _: &str) {}

@@ -4,7 +4,7 @@
 //! Serial evidence (the screenshot sessions wait on it; the markers that name a page are printed
 //! only in a UI-probe image, `LAZYOS_UI_PROBE=1`, so a shipped browser does not log what its user
 //! visits): `LAZYWEB:UP:PASS` after the first frame, `LAZYWEB:NAV:<url>` when the window starts
-//! a navigation, `LAZYWEB:LOAD:<url>` then `LAZYWEB:TITLE:<title>` when a load finishes,
+//! a navigation, `LAZYWEB:COMMIT:<url>` when another address takes the view, `LAZYWEB:LOAD:<url>` then `LAZYWEB:TITLE:<title>` when a load finishes,
 //! `LAZYWEB:FAIL:<reason>` when one fails, `LAZYWEB:LAUNCH:...` (`handoff.rs`) when a link goes
 //! to another app, `LAZYWEB:POPUP:<url>` for a new-window request, `LAZYWEB:DIALOG:<kind>` for
 //! a JavaScript dialog, `LAZYWEB:CURSOR:<kind>` when the page changes the pointer, and the

@@ -106,7 +106,8 @@ interface os.lazy.webd.view.v1 {
     method Recover(view: U64 = 1, reload: Bool = 2) -> () = 17;
     /// Input, as on the light interface.
     method Mouse(view: U64 = 1, kind: U32 = 2, button: I32 = 3, x: I32 = 4, y: I32 = 5, mods: U32 = 6) -> () = 20 oneway;
-    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6) -> () = 21 oneway;
+    /// A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`.
+    method Wheel(view: U64 = 1, x: I32 = 2, y: I32 = 3, ticks_x: I32 = 4, ticks_y: I32 = 5, mods: U32 = 6, seq: U64 = 7) -> () = 21 oneway;
     method Key(view: U64 = 1, press: Bool = 2, keysym: U32 = 3, text: String = 4, mods: U32 = 5) -> () = 22 oneway;
     method Focus(view: U64 = 1, focused: Bool = 2) -> () = 23 oneway;
     /// The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text.
@@ -174,9 +175,12 @@ interface os.lazy.webd.view.v1 {
     method Frame(view: U64 = 1, slot: U32 = 2, seq: U64 = 3, width: U32 = 4, height: U32 = 5, whole: Bool = 6, shift: Option<Shift> = 7, rects: Array<Rect> = 8, offset_x: I32 = 9, offset_y: I32 = 10, at_bottom: Bool = 11) -> () = 100 oneway;
     /// Event: what the page says about itself. `url` is the address on show,
     /// `committed_url` the page on screen; `progress` in thousandths;
-    /// `secure` when the committed page came over verified HTTPS. Texts are
-    /// cut at 48 KiB.
-    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5, url: String = 6, committed_url: String = 7, can_back: Bool = 8, can_forward: Bool = 9, progress: U32 = 10, secure: Bool = 11) -> () = 101 oneway;
+    /// `secure` when the committed page came over verified HTTPS. `commits`
+    /// counts the documents committed since the view was made: a reload of
+    /// the same address counts, a script's pushState or a link to an anchor
+    /// does not (an app tells a new document by it, not by its address).
+    /// Texts are cut at 48 KiB.
+    method State(view: U64 = 1, title: String = 2, loading: Bool = 3, finished: U32 = 4, error: String = 5, url: String = 6, committed_url: String = 7, can_back: Bool = 8, can_forward: Bool = 9, progress: U32 = 10, secure: Bool = 11, commits: U32 = 12) -> () = 101 oneway;
     /// Event: the page scrolled (as on the light interface).
     method Scroll(view: U64 = 1, x: I32 = 2, y: I32 = 3, at_bottom: Bool = 4) -> () = 102 oneway;
     /// Event: as on the light interface (a full view's navigation is not
@@ -234,6 +238,14 @@ interface os.lazy.webd.view.v1 {
     /// Event: the page's object for `notification` is gone (its document went
     /// away); the toast is the person's now and a click reaches no script.
     method NotifyGone(view: U64 = 1, notification: U64 = 2) -> () = 125 oneway;
+    /// Event: the page has answered every wheel turn up to `seq` (`Wheel`), and
+    /// its main frame is scrolled to `(x, y)` now, before the frame that shows
+    /// it arrives. The app that shows its picture ahead of the page keeps it
+    /// ahead while turns are unanswered, and moves it to where this says the
+    /// page went (back, when the page did not scroll: its end, a box that
+    /// scrolled instead, a script that cancelled the wheel). A page whose
+    /// process ended answers everything at once.
+    method WheelDone(view: U64 = 1, seq: U64 = 2, x: I32 = 3, y: I32 = 4) -> () = 126 oneway;
 
     /// How a full view is made; fixed for its life.
     struct ViewConfig {

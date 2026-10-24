@@ -140,7 +140,7 @@ fn a_wheel_turn_reaches_the_window_as_a_delta_with_its_shift() {
     rig.engine.resize(64, 48);
     rig.open("/long");
     let _ = rig.mailbox.take_update(Vec::new());
-    rig.engine.wheel(10, 10, 0, -1, 0);
+    rig.engine.wheel(10, 10, 0, -1, 0, 1);
     rig.pump();
     let update = rig
         .mailbox
@@ -152,6 +152,26 @@ fn a_wheel_turn_reaches_the_window_as_a_delta_with_its_shift() {
     assert!(delta.scroll.is_some_and(|s| s.dy < 0), "{:?}", delta.scroll);
     assert!(!delta.patches.is_empty());
     assert!(update.scroll_y.is_some_and(|y| y > 0));
+    // The page's answer to turn 1 comes with it: where the page went, for the picture shown ahead.
+    assert_eq!(
+        update.wheel_done,
+        Some((1, update.scroll_y.unwrap_or(-1))),
+        "the answer names the turn and the offset"
+    );
+}
+
+#[test]
+fn a_page_that_cannot_scroll_answers_where_it_stayed() {
+    let rig = rig();
+    rig.engine.resize(64, 48);
+    rig.open("/long");
+    let _ = rig.mailbox.take_update(Vec::new());
+    // Up at the top: nothing scrolls, nothing is painted, and the turn is still answered.
+    rig.engine.wheel(10, 10, 0, 1, 0, 7);
+    rig.pump();
+    let update = rig.mailbox.take_update(Vec::new()).expect("the answer");
+    assert!(update.full.is_none() && update.deltas.is_empty());
+    assert_eq!(update.wheel_done, Some((7, 0)));
 }
 
 #[test]
@@ -421,4 +441,14 @@ fn a_long_page_of_the_browsers_own_is_given_as_html_and_told_back_by_its_address
 fn a_transport_for_the_tests_is_a_scoped_one() {
     fn scoped<T: ScopedTransport>() {}
     scoped::<TestTransport<FakeWeb>>();
+}
+
+#[test]
+fn every_document_counts_as_a_commit_through_webd() {
+    let rig = rig();
+    rig.engine.resize(64, 48);
+    let first = rig.open("/long").commits;
+    let second = rig.open("/long").commits;
+    assert!(first >= 1, "the first page committed");
+    assert!(second > first, "the same address again is another document");
 }

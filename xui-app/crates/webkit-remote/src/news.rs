@@ -27,6 +27,7 @@ pub fn page_state(state: &FullState) -> PageState {
         error: state.error.clone(),
         crashed: false,
         finished: state.finished,
+        commits: state.commits,
     }
 }
 
@@ -170,6 +171,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
                 }
             }
             FullEvent::Lost(lost) => self.lost(lost),
+            FullEvent::WheelDone { seq, y, .. } => self.mailbox.wheel_done(seq, y),
             other => {
                 if let Some(news) = plain(&other) {
                     self.mailbox.post_event(news);

@@ -77,6 +77,9 @@ pub(crate) struct State {
     /// page move soon after, the same way and no larger, is that answer and is glided to; a click or
     /// a key forgets it.
     pub(crate) wheel_asked: Cell<Option<(u64, i32)>>,
+    /// The number of the last wheel turn given to the engine: the page answers by it
+    /// (`Speculation::answered`).
+    pub(crate) wheel_seq: Cell<u64>,
     /// The timer that gives up on a picture shown ahead; it runs only while one is.
     pub(crate) settle: Cell<Option<TimerId>>,
     /// The autoscroll a middle click started (`autoscroll.rs`), and its frame timer, which runs only
@@ -249,6 +252,17 @@ impl<M: Clone + 'static> PageView<M> {
             changed = true;
         }
         resync |= state.picture.is_fragmented();
+        // The page answered the wheel: the picture glides to where the page went and the turns still
+        // unanswered (ahead of the frames that show it, or back when the page did not scroll). Before the
+        // frames' offset: the page answered before it painted them, so this offset is the older one.
+        let mut answered = false;
+        if let (Some((seq, y)), true) = (update.wheel_done, speculate::ahead()) {
+            answered = state
+                .spec
+                .borrow_mut()
+                .answered(seq, y, speculate::now_ms());
+            changed |= answered;
+        }
         let mut glide_back = false;
         let mut glide_answer = false;
         if let Some(y) = scroll_y {
@@ -287,8 +301,12 @@ impl<M: Clone + 'static> PageView<M> {
         if changed {
             self.control.invalidate();
         }
-        if glide_back || glide_answer {
-            arm_glide(&Rc::downgrade(&self.control), &self.state);
+        let weak = Rc::downgrade(&self.control);
+        if glide_back || glide_answer || answered {
+            arm_glide(&weak, &self.state);
+        }
+        if answered {
+            arm_settle(&weak, &self.state);
         }
         Applied { spare, resync }
     }
@@ -313,6 +331,21 @@ impl<M: Clone + 'static> PageView<M> {
         }
         drop(kept);
         self.update_reach(&state);
+    }
+
+    /// A navigation committed: the wait for the new page's first frame is a load (`INFO:TIME`), not a
+    /// scroll that stalled.
+    pub fn page_committed(&self) {
+        let state = self.state.borrow();
+        state.smooth.borrow_mut().new_page();
+        // What was shown ahead, the turns not answered and the row the picture glides from were the old
+        // document's: kept, the new page would be drawn at the old one's row (a checkerboard) until it moved.
+        state.spec.borrow_mut().reset();
+        state
+            .spec
+            .borrow_mut()
+            .forget_turns_through(state.wheel_seq.get());
+        state.glide.borrow_mut().reset();
     }
 
     /// The page on show is another one: what was painted outside the view belongs to the old one.

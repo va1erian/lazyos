@@ -87,7 +87,8 @@ pub trait Engine {
     /// `kind` 0 move, 1 press, 2 release; `button` 0 left, 1 middle, 2 right; `mods` bit 0 shift,
     /// 1 control, 2 alt, 3 meta; coordinates are view pixels.
     fn mouse(&self, view: u64, kind: i32, button: i32, x: i32, y: i32, mods: u32);
-    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32);
+    /// `seq`: a full view's number for the turn (rising; 0 for none), answered by `wheel_done`.
+    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64);
     /// `keysym` is the X11 keysym; `text` the character it types (empty for none).
     fn key(&self, view: u64, press: bool, keysym: u32, text: &str, mods: u32);
     fn focus(&self, view: u64, focused: bool);
@@ -147,6 +148,8 @@ pub trait EngineEvents: Send + Sync {
     fn frame(&self, view: u64, rgba: &[u8], width: i32, height: i32);
     /// `webd_ui_scroll`.
     fn scroll(&self, view: u64, x: i32, y: i32, at_bottom: bool);
+    /// `webd_ui_wheel_done`: the page answered every wheel turn up to `seq` and is scrolled to `(x, y)`.
+    fn wheel_done(&self, view: u64, seq: u64, x: i32, y: i32);
     /// `webd_ui_link_clicked`: nothing loaded; `url` is absolute.
     fn link_clicked(&self, view: u64, url: &str);
     /// `webd_ui_clipboard_write`.

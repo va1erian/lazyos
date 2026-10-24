@@ -69,7 +69,20 @@ impl Browser {
             self.page.clear();
             self.notifications.page_crashed();
         }
+        // Another document took the view: the engine counts commits, so a reload of the same address
+        // counts and a script's pushState or a link to an anchor (the same document) does not, however
+        // many steps of a fast navigation one post carries.
+        if self.state.commits != old.commits {
+            self.page.page_committed();
+            self.page.forget_bands();
+        }
         if self.state.committed_url != old.committed_url {
+            // The new page owns the view from here, long before its load ends (`LOAD`): what the
+            // wheel turns and the frames draw are its own.
+            if !self.state.committed_url.is_empty() {
+                let committed = self.shown_url(&self.state.committed_url);
+                self.trace(&format!("COMMIT:{}", marker_text(&committed)));
+            }
             self.page.forget_bands();
             // Another page took over: a later failure is not the typed address's. A report that
             // also carries an error is the typed load failing, whose offer `load_failed` makes.

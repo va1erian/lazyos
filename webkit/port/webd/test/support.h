@@ -74,6 +74,10 @@ struct ViewFacts {
     int deltas { 0 }, movedDeltas { 0 }, bands { 0 }, unannounced { 0 };
     bool scrollAnnounced { false };
     int scrollX { 0 }, scrollY { 0 };
+    // The answers to the wheel (webd_ui_wheel_done): how many, the newest turn answered and where the page was.
+    int wheelDones { 0 };
+    uint64_t wheelDoneSeq { 0 };
+    int wheelDoneY { 0 };
 };
 
 // The facts of an id (made when first named). Callers hold no lock; this copies.

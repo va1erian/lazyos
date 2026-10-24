@@ -37,18 +37,19 @@ namespace {
 struct Sent {
     std::string url, title, error, committed;
     int loading { -1 }, canBack { -1 }, canForward { -1 }, progress { -1 }, secure { -1 }, finished { -1 }, serial { -1 };
+    int commits { -1 };
 
     bool same(const ViewState& s) const
     {
         return loading == s.loading && canBack == s.canBack && canForward == s.canForward && progress == s.progress
-            && secure == s.secure && finished == s.finished && serial == s.serial && url == s.url && title == s.title
+            && secure == s.secure && finished == s.finished && serial == s.serial && commits == s.commits && url == s.url && title == s.title
             && error == s.error && committed == s.committedUrl;
     }
     void take(const ViewState& s)
     {
         url = s.url, title = s.title, error = s.error, committed = s.committedUrl;
         loading = s.loading, canBack = s.canBack, canForward = s.canForward, progress = s.progress;
-        secure = s.secure, finished = s.finished, serial = s.serial;
+        secure = s.secure, finished = s.finished, serial = s.serial, commits = s.commits;
     }
 };
 
@@ -88,6 +89,7 @@ public:
         page.committed_url = s.committedUrl;
         page.secure = s.secure ? 1 : 0;
         page.finished = s.finished;
+        page.commits = s.commits;
         webd_ui_page_state(m_slot.id, &page);
     }
 
@@ -166,6 +168,12 @@ public:
         m_scrollY = y;
         m_atBottom = atBottom ? 1 : 0;
         webd_ui_scroll(m_slot.id, x, y, atBottom ? 1 : 0);
+    }
+
+    void wheelDone(uint64_t seq, int x, int y) override
+    {
+        if (!dead())
+            webd_ui_wheel_done(m_slot.id, seq, x, y);
     }
 
     // ---- the page's UI ----

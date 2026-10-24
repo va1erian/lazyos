@@ -34,6 +34,7 @@ pub enum Call {
         ticks_x: i32,
         ticks_y: i32,
         mods: u32,
+        seq: u64,
     },
     Key {
         view: u64,
@@ -181,7 +182,7 @@ impl Engine for RecordingEngine {
         });
     }
 
-    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
+    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
         self.push(Call::Wheel {
             view,
             x,
@@ -189,6 +190,7 @@ impl Engine for RecordingEngine {
             ticks_x,
             ticks_y,
             mods,
+            seq,
         });
     }
 

@@ -344,6 +344,7 @@ View* createView(const ViewConfig& config, ViewSink* sink)
     WKViewSetViewClient(view.view, &viewClient.base);
     WKViewSetSize(view.view, WKSizeMake(view.width, view.height));
     installPaintObserver(view);
+    installWheelObserver(view);
     WKViewSetActive(view.view, true);
     WKViewSetFocus(view.view, true);
     WKViewSetVisible(view.view, true);
@@ -525,17 +526,6 @@ void View::mouse(int kind, int button, int x, int y, uint32_t mods)
         : button == 2                      ? kWKEventMouseButtonRightButton
                                            : kWKEventMouseButtonNoButton;
     WKPageHandleMouseEvent(page, WKMouseEventMake(type, which, WKPointMake(x, y), 1, mods));
-}
-
-void View::wheel(int x, int y, int ticksX, int ticksY, uint32_t mods)
-{
-    notePointer(*this, true);
-    // One call per notch: the page takes the sign of each axis and scrolls a line step.
-    for (int i = 0; i < (ticksY < 0 ? -ticksY : ticksY) && i < 8; ++i)
-        WKPageHandleWheelEvent(page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(0, ticksY < 0 ? -1 : 1), WKSizeMake(0, 0), mods));
-    // xui's positive x is to the right; WebKit's is to the left (as GTK's GDK_SCROLL_LEFT is +1).
-    for (int i = 0; i < (ticksX < 0 ? -ticksX : ticksX) && i < 8; ++i)
-        WKPageHandleWheelEvent(page, WKWheelEventMake(kWKEventWheel, WKPointMake(x, y), WKSizeMake(ticksX < 0 ? 1 : -1, 0), WKSizeMake(0, 0), mods));
 }
 
 void View::key(bool press, uint32_t keysym, const std::string& typed, uint32_t mods)

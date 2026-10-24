@@ -59,10 +59,16 @@ std::string modeDeltas()
     webd_engine_load(v, (server.origin() + "/tall").c_str());
     if (!waitPage(v, "tall") || !waitView(v, [](const ViewFacts& f) { return f.frames > 0; }, 30000) || !settle(v, 800, 30000))
         return "the tall page did not show: " + describeFull(facts(v));
+    // Up at the top: the page cannot go there, and still answers the turn, where it stayed (WebKit patch 0035).
+    // Which sign is up is WebKit's, so both are turned once, each numbered.
+    uint64_t seq = 0;
+    webd_engine_wheel(v, 200, 150, 0, 1, 0, ++seq);
+    if (!waitView(v, [&](const ViewFacts& f) { return f.wheelDoneSeq == seq; }, 10000))
+        return "no answer to the first wheel turn: " + describeFull(facts(v));
     // A wheel turn down. (Which sign is "down" is WebKit's: try one, then the other.)
     int down = 0;
     for (int ticks : { -3, 3 }) {
-        webd_engine_wheel(v, 200, 150, 0, ticks, 0);
+        webd_engine_wheel(v, 200, 150, 0, ticks, 0, ++seq);
         if (waitView(v, [](const ViewFacts& f) { return f.movedDeltas > 0 && f.scrollY > 0; }, 5000)) {
             down = ticks;
             break;
@@ -70,10 +76,22 @@ std::string modeDeltas()
     }
     if (!down)
         return "no delta that moved the picture after a wheel turn: " + describeFull(facts(v));
+    // The answer to the turn that scrolled names the new offset already: the page's process said it scrolled
+    // before it answered (the order the window's picture ahead of the page relies on).
+    if (!waitView(v, [&](const ViewFacts& f) { return f.wheelDoneSeq == seq; }, 10000))
+        return "no answer to the turn that scrolled: " + describeFull(facts(v));
+    if (facts(v).wheelDoneY <= 0)
+        return "the answer to the turn that scrolled names the old offset: " + describeFull(facts(v));
     // A second turn while the first may still be painting.
-    webd_engine_wheel(v, 200, 150, 0, down, 0);
+    webd_engine_wheel(v, 200, 150, 0, down, 0, ++seq);
     if (!settle(v, 1000, 30000))
         return "the view did not stop painting";
+    // Every turn answered, the newest last, with where the page is (the offset its frames are painted at).
+    const ViewFacts answered = facts(v);
+    note("DELTAS:answers=%d:seq=%llu/%llu:y=%d:scroll=%d", answered.wheelDones, static_cast<unsigned long long>(answered.wheelDoneSeq),
+        static_cast<unsigned long long>(seq), answered.wheelDoneY, answered.scrollY);
+    if (answered.wheelDoneSeq != seq || answered.wheelDoneY != answered.scrollY || answered.violations)
+        return "the wheel's answers do not name the last turn and the page's offset: " + describeFull(answered);
     const ViewFacts rebuilt = facts(v);
     note("DELTAS:frames=%d:deltas=%d:moved=%d:bands=%d:scroll=%d,%d:unannounced=%d", rebuilt.frames, rebuilt.deltas, rebuilt.movedDeltas,
         rebuilt.bands, rebuilt.scrollX, rebuilt.scrollY, rebuilt.unannounced);

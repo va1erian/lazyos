@@ -241,6 +241,20 @@ void webd_ui_scroll(uint64_t view, int x, int y, int)
     changed.notify_all();
 }
 
+void webd_ui_wheel_done(uint64_t view, uint64_t seq, int, int y)
+{
+    std::lock_guard<std::mutex> hold(mutex);
+    ViewFacts& f = record(view);
+    told(f);
+    // An answer answers every turn before it: the numbers only ever rise.
+    if (seq <= f.wheelDoneSeq)
+        ++f.violations;
+    ++f.wheelDones;
+    f.wheelDoneSeq = seq;
+    f.wheelDoneY = y;
+    changed.notify_all();
+}
+
 void webd_ui_link_clicked(uint64_t view, const char* url)
 {
     std::lock_guard<std::mutex> hold(mutex);

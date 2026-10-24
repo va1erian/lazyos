@@ -1,7 +1,6 @@
-//! The picture shown ahead of the page (`speculate.rs`): the rules, and a seeded simulation of a
-//! page that follows the wheel late, in bursts, and not at all past its end.
+//! The picture shown ahead of the page (`speculate.rs`): the rules (`speculate_sim.rs` simulates pages).
 
-use xui_webkit::speculate::{Meter, Speculation, LINE_PX, MAX_AHEAD, PROBE_MS, SETTLE_MS};
+use xui_webkit::speculate::{Meter, Speculation, LINE_PX, LOST_MS, MAX_AHEAD};
 
 const DOWN: i32 = -1;
 const UP: i32 = 1;
@@ -10,9 +9,9 @@ const UP: i32 = 1;
 fn a_notch_shows_at_once_and_the_page_gives_it_back() {
     let mut s = Speculation::default();
     s.report(1000, 0);
-    assert!(s.wheel(DOWN, 10));
+    assert!(s.wheel(DOWN, 10, 10));
     assert_eq!(s.shift(), LINE_PX);
-    assert!(s.wheel(2 * DOWN, 20));
+    assert!(s.wheel(2 * DOWN, 20, 20));
     assert_eq!(s.shift(), 3 * LINE_PX);
     // The page did the first two notches.
     assert!(s.report(1000 + 2 * LINE_PX, 90));
@@ -31,12 +30,12 @@ fn a_notch_shows_at_once_and_the_page_gives_it_back() {
 fn up_is_the_other_way_and_the_top_is_a_floor() {
     let mut s = Speculation::default();
     s.report(2 * LINE_PX, 0);
-    assert!(s.wheel(UP, 1));
+    assert!(s.wheel(UP, 1, 1));
     assert_eq!(s.shift(), -LINE_PX);
-    assert!(s.wheel(UP, 2));
+    assert!(s.wheel(UP, 2, 2));
     assert_eq!(s.shift(), -2 * LINE_PX);
     assert!(
-        !s.wheel(UP, 3),
+        !s.wheel(UP, 3, 3),
         "the page is at its top: nothing more is shown ahead"
     );
     assert_eq!(s.shift(), -2 * LINE_PX);
@@ -48,23 +47,23 @@ fn the_end_of_the_page_is_a_ceiling_once_the_engine_says_so() {
     s.report(5000, 0);
     s.set_at_bottom(true);
     assert!(
-        !s.wheel(DOWN, 1),
+        !s.wheel(DOWN, 1, 1),
         "the page cannot scroll further down: nothing is shown past its end"
     );
     assert_eq!(s.shift(), 0);
-    assert!(s.wheel(UP, 2), "up still goes ahead");
+    assert!(s.wheel(UP, 2, 2), "up still goes ahead");
     assert_eq!(s.shift(), -LINE_PX);
     // Down again from there goes back as far as the newest pixels, no further.
-    assert!(s.wheel(4 * DOWN, 3));
+    assert!(s.wheel(4 * DOWN, 3, 3));
     assert_eq!(s.shift(), 0);
     // The page grew (a lazy load): the engine says it is not at the end any more.
     s.set_at_bottom(false);
-    assert!(s.wheel(DOWN, 4));
+    assert!(s.wheel(DOWN, 4, 4));
     assert_eq!(s.shift(), LINE_PX);
     s.reset();
     s.report(5000, 10);
     assert!(
-        s.wheel(DOWN, 11),
+        s.wheel(DOWN, 11, 11),
         "a reset forgets the end of the old picture"
     );
 }
@@ -78,13 +77,13 @@ fn rows_painted_below_the_view_outweigh_a_stale_end_of_the_page() {
     s.set_at_bottom(true);
     s.set_reach(1200, 0);
     assert!(
-        s.wheel(DOWN, 1),
+        s.wheel(DOWN, 1, 1),
         "there are rows below: the notch is shown at once"
     );
     assert_eq!(s.shift(), LINE_PX);
     s.set_reach(0, 0);
     assert!(
-        !s.wheel(DOWN, 2),
+        !s.wheel(DOWN, 2, 2),
         "no rows below and the engine says the end: nothing further"
     );
 }
@@ -99,7 +98,10 @@ fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
     s.set_reach(29, 665);
     assert!(!s.set_at_bottom(true), "nothing was ahead");
     for t in 1..30 {
-        assert!(!s.wheel(3 * DOWN, t), "notch {t} is not shown past the end");
+        assert!(
+            !s.wheel(3 * DOWN, t, t),
+            "notch {t} is not shown past the end"
+        );
     }
     assert_eq!(s.shift(), 0);
     // A page that goes on (bands a view long below it) and a stale pinned state: shown ahead as usual.
@@ -107,7 +109,7 @@ fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
     s.report(600, 0);
     s.set_reach(1200, 600);
     s.set_at_bottom(true);
-    assert!(s.wheel(3 * DOWN, 1));
+    assert!(s.wheel(3 * DOWN, 1, 1));
     assert_eq!(s.shift(), 3 * LINE_PX);
     // Not at the end: the usual allowance, and what is past the margin once the page says it ended
     // is dropped at once.
@@ -115,7 +117,7 @@ fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
     s.report(600, 0);
     s.set_reach(29, 600);
     for t in 1..10 {
-        s.wheel(3 * DOWN, t);
+        s.wheel(3 * DOWN, t, t);
     }
     assert_eq!(s.shift(), MAX_AHEAD, "not at the end: the usual allowance");
     assert!(
@@ -130,7 +132,7 @@ fn at_the_end_a_margin_of_bands_below_the_view_is_not_a_page_that_goes_on() {
 fn what_was_ahead_past_the_end_is_dropped_when_the_page_says_it_ended() {
     let mut s = Speculation::default();
     s.report(1000, 0);
-    assert!(s.wheel(4 * DOWN, 1));
+    assert!(s.wheel(4 * DOWN, 1, 1));
     assert_eq!(s.shift(), 4 * LINE_PX);
     // The page went one notch and stopped at its end: the rest is past it, gone at once.
     s.report(1000 + LINE_PX, 40);
@@ -139,7 +141,7 @@ fn what_was_ahead_past_the_end_is_dropped_when_the_page_says_it_ended() {
     assert_eq!(s.counters().snaps, 1);
     assert!(!s.set_at_bottom(true), "nothing left to drop");
     // Ahead upward is not past the end.
-    assert!(s.wheel(UP, 50));
+    assert!(s.wheel(UP, 50, 50));
     assert!(!s.set_at_bottom(true));
     assert_eq!(s.shift(), -LINE_PX);
 }
@@ -149,64 +151,201 @@ fn the_picture_is_never_shown_further_ahead_than_the_limit() {
     let mut s = Speculation::default();
     s.report(100_000, 0);
     for t in 0..200 {
-        s.wheel(DOWN * 8, t);
+        s.wheel(DOWN * 8, t, t);
         assert!(s.shift() <= MAX_AHEAD);
     }
     assert_eq!(s.shift(), MAX_AHEAD);
 }
 
 #[test]
-fn a_page_that_does_not_move_is_dropped_and_the_direction_is_not_tried_again() {
+fn a_page_that_answers_without_moving_declined_and_the_direction_is_not_tried_again() {
     let mut s = Speculation::default();
     s.report(500, 0);
-    // Nothing ever comes back (the end of the page, a box that scrolls by itself).
-    s.wheel(DOWN, 10);
-    s.wheel(DOWN, 300);
-    s.wheel(DOWN, 600);
-    assert!(s.shift() > 0);
-    s.wheel(DOWN, 10 + PROBE_MS);
+    // The end of the page, a box that scrolls by itself, a handler that cancels the wheel.
+    s.wheel(DOWN, 10, 1);
+    s.wheel(DOWN, 300, 2);
+    assert_eq!(s.shift(), 2 * LINE_PX);
+    assert!(
+        s.answered(1, 500, 2000),
+        "the page answered the first turn and stayed"
+    );
     assert_eq!(
         s.shift(),
         0,
-        "{PROBE_MS} ms of notches and the page never moved"
+        "what it did not do is given back, and the turn after it too: that way is closed"
     );
     assert_eq!(s.counters().snaps, 1);
-    assert!(!s.wheel(DOWN, 10 + PROBE_MS + 10), "not shown ahead again");
-    assert_eq!(s.counters().blocked, 2);
-    // The page moves (the user scrolled the other way, or a key): the direction is open again.
-    s.report(400, 1900);
-    assert!(s.wheel(DOWN, 1910));
+    assert!(!s.wheel(DOWN, 2010, 3), "not shown ahead again");
+    assert_eq!(s.counters().blocked, 1);
+    s.answered(3, 500, 2100);
+    assert_eq!(s.shift(), 0);
+    // The page moves (the other way, or a key): the direction is open again.
+    s.report(400, 2200);
+    assert!(s.wheel(DOWN, 2210, 4));
     assert_eq!(s.shift(), LINE_PX);
 }
 
 #[test]
-fn what_is_left_when_the_page_and_the_wheel_go_quiet_is_dropped() {
+fn a_busy_page_keeps_the_picture_ahead_until_it_answers_however_late() {
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(3 * DOWN, 10, 1);
+    s.wheel(2 * DOWN, 20, 2);
+    assert_eq!(s.shift(), 5 * LINE_PX);
+    // Its script runs for three seconds: nothing comes, nothing is given up.
+    for t in (100..3000).step_by(100) {
+        assert!(!s.tick(t));
+    }
+    assert_eq!(s.shift(), 5 * LINE_PX);
+    // It answers the first turn (its frame is still on the way): still ahead by the rest.
+    assert!(
+        !s.answered(1, 1000 + 3 * LINE_PX, 3010),
+        "where it went is what was shown"
+    );
+    assert_eq!(s.shift(), 5 * LINE_PX);
+    s.report(1000 + 3 * LINE_PX, 3020);
+    assert_eq!(s.shift(), 2 * LINE_PX);
+    s.answered(2, 1000 + 5 * LINE_PX, 3030);
+    s.report(1000 + 5 * LINE_PX, 3040);
+    assert_eq!(s.shift(), 0);
+    assert_eq!(s.counters().snaps, 0, "nothing jumped back");
+}
+
+#[test]
+fn a_page_that_did_part_of_a_turn_is_shown_where_it_stopped() {
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(3 * DOWN, 10, 1);
+    // The last 20 pixels of the page: it went 20 of the 120 asked.
+    s.answered(1, 1020, 50);
+    assert_eq!(s.shift(), 20);
+    s.report(1020, 60);
+    assert_eq!(s.shift(), 0);
+}
+
+#[test]
+fn before_anything_is_known_an_answer_closes_no_direction() {
+    // A new page: no frame yet, no answer yet.
+    let mut s = Speculation::default();
+    s.wheel(DOWN, 1, 1);
+    s.answered(1, 0, 2);
+    s.report(0, 3);
+    assert!(s.wheel(DOWN, 4, 2), "the way down is still open");
+    assert_eq!(s.counters().blocked, 0);
+    // From here the answer has something to be compared with: staying put is declining.
+    s.answered(2, 0, 5);
+    assert!(!s.wheel(DOWN, 6, 3));
+}
+
+#[test]
+fn an_answer_from_a_document_that_is_gone_is_ignored() {
+    let mut s = Speculation::default();
+    s.report(3000, 0);
+    s.wheel(DOWN, 1, 1);
+    s.wheel(DOWN, 2, 2);
+    // A link: the new page is at its top; the old page's answers are still on their way.
+    s.reset();
+    s.forget_turns_through(2);
+    s.report(0, 3);
+    assert!(
+        !s.answered(2, 3080, 4),
+        "the old page's offset is not this page's"
+    );
+    assert_eq!(s.shift(), 0);
+    // The new page's own turns are answered as usual.
+    assert!(s.wheel(DOWN, 5, 3));
+    s.answered(3, LINE_PX, 6);
+    assert_eq!(s.shift(), LINE_PX);
+}
+
+#[test]
+fn an_answer_older_than_the_frame_on_show_moves_nothing() {
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(DOWN, 1, 1);
+    s.wheel(DOWN, 2, 2);
+    // The frame that shows both turns came before the answer to the first.
+    s.report(1000 + 2 * LINE_PX, 3);
+    assert_eq!(s.shift(), 0);
+    s.answered(1, 1000 + LINE_PX, 4);
+    assert_eq!(
+        s.shift(),
+        0,
+        "turn 2, still unanswered, is what the frame already shows"
+    );
+    assert_eq!(s.counters().snaps, 0);
+}
+
+#[test]
+fn a_move_the_wheel_did_not_ask_for_is_left_to_its_frame() {
+    // End pressed while a turn was on its way: the answer names the end of the page.
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(DOWN, 1, 1);
+    assert_eq!(s.shift(), LINE_PX);
+    assert!(s.answered(1, 20_000, 2));
+    assert_eq!(
+        s.shift(),
+        0,
+        "no checkerboard ahead of the frame that shows the end"
+    );
+    s.report(20_000, 3);
+    assert_eq!(s.shift(), 0);
+    // The next turn is measured from there.
+    s.wheel(UP, 4, 2);
+    s.answered(2, 20_000 - LINE_PX, 5);
+    assert_eq!(s.shift(), -LINE_PX);
+}
+
+#[test]
+fn after_a_key_scroll_the_frames_show_the_next_turn_is_not_given_back() {
+    let mut s = Speculation::default();
+    s.report(1000, 0);
+    s.wheel(DOWN, 1, 1);
+    s.answered(1, 1000 + LINE_PX, 2);
+    s.report(1000 + LINE_PX, 3);
+    // End: the frames go to the end of the page, no turn answered that.
+    s.report(20_000, 4);
+    assert!(s.wheel(UP, 5, 2));
+    s.answered(2, 20_000 - LINE_PX, 6);
+    assert_eq!(s.shift(), -LINE_PX, "still shown where the page went");
+    assert_eq!(s.counters().snaps, 0, "nothing jumped back");
+}
+
+#[test]
+fn answers_that_never_come_are_given_up_on() {
     let mut s = Speculation::default();
     s.report(0, 0);
-    s.wheel(DOWN, 0);
-    s.wheel(DOWN, 10);
+    s.wheel(DOWN, 0, 1);
+    s.wheel(DOWN, 10, 2);
     s.report(LINE_PX, 100);
     assert_eq!(s.shift(), LINE_PX);
-    assert!(!s.tick(100 + SETTLE_MS - 1));
-    assert!(s.tick(100 + SETTLE_MS));
+    assert!(!s.tick(100 + LOST_MS - 1));
+    assert!(
+        s.tick(100 + LOST_MS),
+        "the page's process ended: nothing will answer"
+    );
     assert_eq!(s.shift(), 0);
     assert_eq!(s.counters().snaps, 1);
     assert_eq!(s.counters().snap_px, LINE_PX);
-    assert!(!s.tick(10_000), "nothing ahead: nothing to drop");
+    assert!(!s.tick(100_000), "nothing ahead: nothing to drop");
+    // A late answer for the forgotten turns does not bring them back.
+    s.answered(2, LINE_PX, 100_001);
+    assert_eq!(s.shift(), 0);
 }
 
 #[test]
 fn a_page_that_went_the_other_way_or_further_leaves_nothing_ahead() {
     let mut s = Speculation::default();
     s.report(1000, 0);
-    s.wheel(DOWN, 1);
+    s.wheel(DOWN, 1, 1);
     s.report(1000 - 300, 2);
     assert_eq!(
         s.shift(),
         0,
         "moved up while the picture was ahead going down"
     );
-    s.wheel(DOWN, 3);
+    s.wheel(DOWN, 3, 3);
     s.report(1000 - 300 + 5 * LINE_PX, 4);
     assert_eq!(
         s.shift(),
@@ -221,28 +360,29 @@ fn a_new_pages_offset_back_at_the_top_costs_nothing() {
     s.report(9000, 0);
     s.report(0, 5);
     assert_eq!(s.shift(), 0);
-    assert!(s.wheel(DOWN, 6));
+    assert!(s.wheel(DOWN, 6, 6));
     assert_eq!(s.shift(), LINE_PX);
     // Before the first update of a page nothing is known and the floor is the limit.
     s.reset();
     assert_eq!(s.shift(), 0);
-    assert!(s.wheel(UP, 7));
+    assert!(s.wheel(UP, 7, 7));
     assert_eq!(s.shift(), -LINE_PX);
 }
 
 #[test]
 fn a_wheel_event_of_nothing_is_nothing() {
     let mut s = Speculation::default();
-    assert!(!s.wheel(0, 1));
+    assert!(!s.wheel(0, 1, 1));
     assert_eq!(s.shift(), 0);
 }
 
 #[test]
-fn updates_that_do_not_scroll_do_not_keep_the_picture_ahead() {
-    // A page that moved 50 px of the 120 asked, then only repaints (a video, an ad, a carousel).
+fn updates_that_do_not_scroll_do_not_change_what_is_ahead() {
+    // A page that moved 50 px of the 120 asked, then only repaints (a video, an ad, a carousel), and
+    // answers: it went no further.
     let mut s = Speculation::default();
     s.report(1000, 0);
-    s.wheel(3 * DOWN, 10);
+    s.wheel(3 * DOWN, 10, 1);
     assert_eq!(s.shift(), 3 * LINE_PX);
     s.report(1050, 60);
     assert_eq!(s.shift(), 70);
@@ -250,139 +390,33 @@ fn updates_that_do_not_scroll_do_not_keep_the_picture_ahead() {
         s.report(1050, t);
         s.tick(t);
     }
-    assert_eq!(
-        s.shift(),
-        0,
-        "the page said its last word at 60 ms: dropped {SETTLE_MS} ms later"
-    );
-    assert_eq!(s.counters().snaps, 1);
+    assert_eq!(s.shift(), 70, "repaints are not answers");
+    s.answered(1, 1050, 2000);
+    assert_eq!(s.shift(), 0, "the answer: it stopped at 1050");
 }
 
 #[test]
 fn hostile_offsets_neither_panic_nor_leave_the_picture_adrift() {
     let mut s = Speculation::default();
     s.report(i32::MIN, 0);
-    s.wheel(DOWN, 1);
+    s.wheel(DOWN, 1, 1);
     s.report(i32::MAX, 2);
     assert!(s.shift().abs() <= MAX_AHEAD);
     s.report(i32::MIN, 3);
     assert!(s.shift().abs() <= MAX_AHEAD);
-    s.wheel(UP, 4);
+    s.wheel(UP, 4, 4);
     s.report(0, 5);
     s.report(i32::MAX, 6);
     s.report(-1, 7);
     assert!(s.shift().abs() <= MAX_AHEAD);
-}
-/// A tiny deterministic generator (no dependency for a test).
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
-    }
-}
-
-/// A page with `limit` pixels of scroll that handles each wheel notch `latency` ms after it was
-/// sent, one at a time, and reports its offset after each (as an update would).
-struct Page {
-    offset: i32,
-    limit: i32,
-    queue: Vec<(u64, i32)>,
-    follows: bool,
-    /// The page was asked for more than it had (its end, or its top): no model can know that.
-    clamped: bool,
-}
-
-impl Page {
-    fn send(&mut self, now: u64, ticks: i32, latency: u64) {
-        self.queue.push((now + latency, ticks));
-    }
-
-    /// The offsets the page reports by `now`.
-    fn run(&mut self, now: u64) -> Vec<(u64, i32)> {
-        let mut reports = Vec::new();
-        while let Some(&(due, ticks)) = self.queue.first() {
-            if due > now {
-                break;
-            }
-            self.queue.remove(0);
-            if self.follows {
-                let wanted = self.offset - ticks.clamp(-8, 8) * LINE_PX;
-                let next = wanted.clamp(0, self.limit);
-                self.clamped |= next != wanted;
-                self.offset = next;
-                reports.push((due, self.offset));
-            }
-        }
-        reports
-    }
-}
-
-#[test]
-fn simulated_pages_the_picture_never_strays_and_comes_back_to_zero() {
-    for seed in 1..=400u64 {
-        let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
-        let limit = [0, 300, 4000, 100_000][rng.below(4) as usize];
-        let mut page = Page {
-            offset: if limit == 0 {
-                0
-            } else {
-                (rng.below(limit as u64 + 1) as i32 / LINE_PX) * LINE_PX
-            },
-            limit,
-            queue: Vec::new(),
-            follows: rng.below(8) != 0,
-            clamped: false,
-        };
-        let mut s = Speculation::default();
-        s.report(page.offset, 0);
-        let latency = 20 + rng.below(400);
-        let mut now = 0u64;
-        let wheel_until = 200 + rng.below(3000);
-        while now < wheel_until + PROBE_MS + 4 * SETTLE_MS + latency + 2000 {
-            now += 1 + rng.below(40);
-            if now < wheel_until && rng.below(3) == 0 {
-                let ticks = if rng.below(5) == 0 { 1 } else { -1 } * (1 + rng.below(3) as i32);
-                page.send(now, ticks, latency);
-                s.wheel(ticks, now);
-            }
-            for (_, offset) in page.run(now) {
-                s.report(offset, now);
-            }
-            s.tick(now);
-            assert!(
-                s.shift().abs() <= MAX_AHEAD,
-                "seed {seed}: {} ahead",
-                s.shift()
-            );
-            if let Some(top) = s.actual() {
-                assert!(
-                    top + s.shift() >= 0,
-                    "seed {seed}: ahead of the top of the page"
-                );
-            }
-        }
-        assert_eq!(
-            s.shift(),
-            0,
-            "seed {seed}: still ahead after everything went quiet"
-        );
-        if page.follows && !page.clamped {
-            // A page that answered every notch in full: what was shown ahead was always given back.
-            assert_eq!(
-                s.counters().snaps,
-                0,
-                "seed {seed}: the picture jumped back on a page that followed (latency {latency}, wheel until {wheel_until}, {:?}, offset {})",
-                s.counters(),
-                page.offset
-            );
+    // Answers from webd carry offsets as hostile as frames'.
+    for (seq, offset) in [(4, i32::MAX), (5, i32::MIN), (u64::MAX, -1), (0, i32::MAX)] {
+        s.wheel(DOWN, 8, 6);
+        s.answered(seq, offset, 9);
+        assert!(s.shift().abs() <= MAX_AHEAD.max(4320));
+        // Never shown above the top of a page whose offset is one (a negative one allows nothing upward).
+        if let Some(top) = s.actual().filter(|top| *top >= 0) {
+            assert!(i64::from(top) + i64::from(s.shift()) >= 0);
         }
     }
 }
@@ -392,8 +426,8 @@ fn the_meter_reports_a_second_of_use_and_then_starts_again() {
     let mut s = Speculation::default();
     s.report(1000, 0);
     let mut meter = Meter::default();
-    s.wheel(DOWN, 10);
-    s.wheel(DOWN, 20);
+    s.wheel(DOWN, 10, 10);
+    s.wheel(DOWN, 20, 20);
     meter.drawn(900);
     meter.drawn(1500);
     assert_eq!(
@@ -412,7 +446,7 @@ fn the_meter_reports_a_second_of_use_and_then_starts_again() {
         None,
         "nothing happened in that second"
     );
-    s.wheel(UP, 2200);
+    s.wheel(UP, 2200, 2200);
     let next = meter.line(3100, s.counters(), s.shift()).unwrap();
     assert!(next.starts_with("INFO:SPEC:shifts=1:"), "{next}");
 }

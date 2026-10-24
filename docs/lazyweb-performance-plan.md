@@ -485,11 +485,16 @@ and `tools/lazyweb/cpu_profile.py` (the 30 Hz sampler's recording by function). 
 
 ## Scrolling ahead of the page (checkerboard)
 
-**Off by default since issue #940 (2026-10-21).** On the Alder Lake box with `/home` on the USB stick the
-page answered late often enough that the picture shown ahead had to jump back two to thirteen times a
-minute, which the user found worse than a view that waits; `xui_webkit::speculate::set_ahead(true)` turns
-it back on (its tests do). Off, a notch moves the view only once the page has scrolled, gliding there when
-the page's move comes within `ANSWER_MS` of the notch.
+**On again, driven by the page's answers (2026-10-24).** It was off from issue #940 (2026-10-21): on the
+Alder Lake box with `/home` on the USB stick the page answered late often enough that the picture shown ahead
+had to jump back two to thirteen times a minute, because the window guessed when to give it up (timers, below).
+The browser monkey then found the jank that remained with it off: while a heavy page loads its scripts hold
+the page's main thread for 300 to 900 ms at a time (a sampled profile: promise jobs, script evaluation and
+timer callbacks are over half of it; nothing in WebKit can interrupt a running script), and every wheel notch
+waited that long. Now WebKit says when the page has answered each turn (patch 0035, `WheelDone`), so the
+picture stays ahead for as long as the page is busy and goes exactly where the page went;
+`xui_webkit::speculate::set_ahead(false)` turns it off. Off, a notch moves the view only once the page has
+scrolled, gliding there when the page's move comes within `ANSWER_MS` of the notch.
 
 The page answers a wheel notch 70 ms later on average on Ars Technica, 480 ms at worst, so a notch used to
 be seen that late. The window now moves the picture it has at once, as the first smartphone browsers did, and
@@ -503,12 +508,20 @@ page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure number
   offset at each update and `lzw_ui_scroll_offset` sends it with the post, staged in the mailbox under the frame's
   lock so it always goes with its pixels). A change of that offset is the page having done that much: `pending`
   gives it back. Never more than 480 px ahead, and never above the page's top.
+* **The page's answers.** The window numbers every wheel turn (`Wheel.seq`). WebKit tells webd, after every wheel
+  event it is given, sends, drops or has answered, how many the page's process has not answered
+  (`WKPageSetWheelDoneCallback`, patch 0035); the page's process says it scrolled (`PageDidScroll`) before it answers
+  the event that scrolled it, on the same connection, so the offset last told at an answer is where the answered
+  turns left the page. webd keeps how many WebKit events each turn became (`webkit/port/app/wheel.cpp`) and sends
+  `WheelDone(seq, x, y)` once a turn is answered in full, before the frame that shows it. At each answer the window
+  puts the picture at that offset plus the turns still unanswered (`Speculation::answered`): ahead for as long as
+  the page is busy, back exactly as far as the page did not go.
 * **When the page does not follow** (the end of the page, a box that scrolls by itself, a handler that cancels
-  the wheel): a burst the page has not moved for 900 ms is dropped and that direction is not shown ahead until the
-  page moves; whatever is left 500 ms after the last notch or update is dropped (500: the page's slowest answer
-  seen was 450 ms, and a shorter settle made the picture jump back and then forward). Only an update that moved the
-  page's offset counts as the page answering: a video or an ad that keeps repainting must not keep a shift alive. The
-  100 ms timer that does the dropping runs only while the picture is ahead (an idle page costs no wakeups). Every
+  the wheel): its answer says it stayed, so what it did not do goes back at once, gliding, and that direction is
+  not shown ahead until the page moves. Only an answer that never comes (the page's process ended) is waited for:
+  5 s (`LOST_MS`). The 100 ms timer that does that runs only while the picture is ahead (an idle page costs no
+  wakeups). It used to guess: a burst the page had not moved for 900 ms was dropped, and whatever was left 500 ms
+  after the last notch or update; a busier page made the picture jump back and then forward (#940). Every
   number the web process sends (offsets, scrolls, rectangles) is clamped at the C ABI and combined with saturating or
   64-bit arithmetic (`tests/speculate.rs`, "hostile offsets"); patch 0029 does the same for `BackingStore::scroll`.
 * **The scroll bar stays put.** WebKit paints its 7 px scroll bar into the page's picture, so shifting the picture
@@ -522,7 +535,9 @@ page paints it. `xui-app/crates/webkit/src/speculate.rs` (the rules, pure number
   (483 ms worst); 353 shifts, no jump back; on the synthetic page 5 ms against 10 ms. The page still paints at
   the same 5-12 paints a second, so the checkerboard is what shows between: this is responsiveness, not more
   frames, and not less work for the page.
-* **Tests.** `tests/speculate.rs` (rules, a 400-seed simulation of a late, bursty page with limits, mutation-checked),
+* **Tests.** `tests/speculate.rs` (rules, answers), `tests/speculate_sim.rs` (a 400-seed simulation of a late,
+  bursty page with limits that answers every turn, some after more than a second: no jump back on a page that
+  follows), `xui-app/crates/webkit-remote/tests/remote.rs` (the answer through webd's service to the mailbox),
   `tests/scroll_ahead.rs` (the pixels: shifted picture with a checkerboard strip, exact again after the answer,
   nothing for a modified wheel or up from the top; `XUI_SNAPSHOT=<dir>` keeps the picture).
   `INFO:SPEC:shifts:snaps:snap_px:blocked:w2s=<avg>/<max us>:ahead` once a second while in use.

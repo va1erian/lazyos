@@ -60,7 +60,15 @@ extern "C" {
     fn webd_engine_set_visible(view: u64, visible: c_int);
     fn webd_engine_refresh(view: u64);
     fn webd_engine_mouse(view: u64, kind: c_int, button: c_int, x: c_int, y: c_int, mods: u32);
-    fn webd_engine_wheel(view: u64, x: c_int, y: c_int, ticks_x: c_int, ticks_y: c_int, mods: u32);
+    fn webd_engine_wheel(
+        view: u64,
+        x: c_int,
+        y: c_int,
+        ticks_x: c_int,
+        ticks_y: c_int,
+        mods: u32,
+        seq: u64,
+    );
     fn webd_engine_key(view: u64, press: c_int, keysym: u32, text: *const c_char, mods: u32);
     fn webd_engine_focus(view: u64, focused: c_int);
     fn webd_engine_run_on_main(task: extern "C" fn(*mut c_void), context: *mut c_void);
@@ -171,9 +179,9 @@ impl Engine for FfiEngine {
         unsafe { webd_engine_mouse(view, kind, button, x, y, mods) }
     }
 
-    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32) {
+    fn wheel(&self, view: u64, x: i32, y: i32, ticks_x: i32, ticks_y: i32, mods: u32, seq: u64) {
         // SAFETY: plain values.
-        unsafe { webd_engine_wheel(view, x, y, ticks_x, ticks_y, mods) }
+        unsafe { webd_engine_wheel(view, x, y, ticks_x, ticks_y, mods, seq) }
     }
 
     fn key(&self, view: u64, press: bool, keysym: u32, text: &str, mods: u32) {
@@ -333,6 +341,14 @@ pub unsafe extern "C" fn webd_ui_frame(view: u64, rgba: *const u8, width: c_int,
 pub extern "C" fn webd_ui_scroll(view: u64, x: c_int, y: c_int, at_bottom: c_int) {
     if let Some(sink) = sink() {
         sink.scroll(view, x, y, at_bottom != 0);
+    }
+}
+
+/// `webd_ui_wheel_done`.
+#[no_mangle]
+pub extern "C" fn webd_ui_wheel_done(view: u64, seq: u64, x: c_int, y: c_int) {
+    if let Some(sink) = sink() {
+        sink.wheel_done(view, seq, x, y);
     }
 }
 

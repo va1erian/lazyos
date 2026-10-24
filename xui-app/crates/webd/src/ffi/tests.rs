@@ -120,8 +120,9 @@ pub extern "C" fn webd_engine_wheel(
     tx: c_int,
     ty: c_int,
     mods: u32,
+    seq: u64,
 ) {
-    log(format!("wheel {view} {x} {y} {tx} {ty} {mods}"));
+    log(format!("wheel {view} {x} {y} {tx} {ty} {mods} {seq}"));
 }
 
 #[no_mangle]
@@ -248,7 +249,7 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
     engine.set_visible(5, false);
     engine.refresh(5);
     engine.mouse(5, 1, 2, 10, 20, 3);
-    engine.wheel(5, 1, 2, -1, 4, 0);
+    engine.wheel(5, 1, 2, -1, 4, 0, 7);
     engine.key(5, true, 0xff0d, "\n", 4);
     engine.focus(5, true);
     engine.view_destroy(5);
@@ -271,7 +272,7 @@ fn engine_calls_reach_the_c_functions_and_callbacks_reach_the_sink() {
             "visible 5 0".to_string(),
             "refresh 5".to_string(),
             "mouse 5 1 2 10 20 3".to_string(),
-            "wheel 5 1 2 -1 4 0".to_string(),
+            "wheel 5 1 2 -1 4 0 7".to_string(),
             "key 5 1 65293 \n 4".to_string(),
             "focus 5 1".to_string(),
             "destroy 5".to_string(),

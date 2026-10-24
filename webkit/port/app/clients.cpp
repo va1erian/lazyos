@@ -180,6 +180,7 @@ void postState(View& v)
     state.committedUrl = committed.c_str();
     state.secure = secure;
     state.finished = v.finished;
+    state.commits = v.commits;
     state.terminated = v.terminated.c_str();
     state.serial = v.stateSerial;
     v.sink->state(state);
@@ -271,6 +272,9 @@ void didCommitNavigation(WKPageRef, WKNavigationRef, WKTypeRef, const void* clie
     v.saveNext = false; // a page was committed: whatever was to be saved is not this
     v.commitMs = elapsedMs();
     v.committedSincePaint = true;
+    ++v.commits;
+    // The old document's offset is not the new one's (wheel.cpp tells it with every answer to the wheel).
+    resetScroll(v);
     reportResponsiveness(v);
     // After redirects the committed address is the one that counts, and it is known before the page's
     // first subresource is asked for.

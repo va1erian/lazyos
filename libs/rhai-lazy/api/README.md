@@ -997,7 +997,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `download(view, url)` | `Download(view: U64, url: String) -> ()` | Save `url` as a download (Save Page As): a view with `downloads` only. |
 | `recover(view, reload)` | `Recover(view: U64, reload: Bool) -> ()` | The page's process does not answer (the app got `Responsive(false)`) and |
 | `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as on the light interface. |
-| `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` |  |
+| `wheel(view, x, y, ticks_x, ticks_y, mods, seq)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway` | A wheel turn; a non-zero `seq` (rising) is answered by `WheelDone`. |
 | `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` |  |
 | `focus(view, focused)` | `Focus(view: U64, focused: Bool) -> () oneway` |  |
 | `dialog_reply(view, dialog, accepted, value)` | `DialogReply(view: U64, dialog: U64, accepted: Bool, value: String) -> ()` | The answer to `Dialog` `dialog`: `accepted` is OK, `value` a prompt's text. |
@@ -1013,7 +1013,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `detach_slots(view)` | `DetachSlots(view: U64) -> (seq: U64)` | Detach every slot of the view, as `Resize` does, without resizing it |
 | `set_user_agent(view, user_agent)` | `SetUserAgent(view: U64, user_agent: String) -> ()` | Change the user agent the page's requests and `navigator.userAgent` |
 | `frame(view, slot, seq, width, height, whole, shift, rects, offset_x, offset_y, at_bottom)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32, whole: Bool, shift: Option<Shift>, rects: Array<Rect>, offset_x: I32, offset_y: I32, at_bottom: Bool) -> () oneway` | Event: slot `slot` holds frame `seq`. `whole`: every pixel is new. |
-| `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
+| `state(view, title, loading, finished, error, url, committed_url, can_back, can_forward, progress, secure, commits)` | `State(view: U64, title: String, loading: Bool, finished: U32, error: String, url: String, committed_url: String, can_back: Bool, can_forward: Bool, progress: U32, secure: Bool, commits: U32) -> () oneway` | Event: what the page says about itself. `url` is the address on show, |
 | `scroll(view, x, y, at_bottom)` | `Scroll(view: U64, x: I32, y: I32, at_bottom: Bool) -> () oneway` | Event: the page scrolled (as on the light interface). |
 | `link_clicked(view, url)` | `LinkClicked(view: U64, url: String) -> () oneway` | Event: as on the light interface (a full view's navigation is not |
 | `clipboard_write(view, text)` | `ClipboardWrite(view: U64, text: String) -> () oneway` |  |
@@ -1038,6 +1038,7 @@ webd's full views (docs/webd-plan.md sections 3.3 to 3.5 and 4, phase P2
 | `notify_show(view, notification, origin, page_url, title, body, tag)` | `NotifyShow(view: U64, notification: U64, origin: String, page_url: String, title: String, body: String, tag: String) -> () oneway` | Event (a view made with `notify_in_client`): the page asked to show |
 | `notify_cancel(view, notification)` | `NotifyCancel(view: U64, notification: U64) -> () oneway` | Event: the page closed notification `notification` itself. |
 | `notify_gone(view, notification)` | `NotifyGone(view: U64, notification: U64) -> () oneway` | Event: the page's object for `notification` is gone (its document went |
+| `wheel_done(view, seq, x, y)` | `WheelDone(view: U64, seq: U64, x: I32, y: I32) -> () oneway` | Event: the page has answered every wheel turn up to `seq` (`Wheel`), and |
 | `new_view_config()` | struct `ViewConfig` | a `ViewConfig` at its zero value |
 | `new_rect()` | struct `Rect` | a `Rect` at its zero value |
 | `new_shift()` | struct `Shift` | a `Shift` at its zero value |
@@ -1093,7 +1094,7 @@ webd's light views (docs/webd-plan.md sections 3.6 and 4, phase P2): an app
 | `set_visible(view, visible)` | `SetVisible(view: U64, visible: Bool) -> () oneway` | A view that is not visible gets no paints (its page still runs). |
 | `refresh(view)` | `Refresh(view: U64) -> () oneway` | Ask for a whole frame (the app lost or discarded its picture). |
 | `mouse(view, kind, button, x, y, mods)` | `Mouse(view: U64, kind: U32, button: I32, x: I32, y: I32, mods: U32) -> () oneway` | Input, as the display protocol delivers it, in view pixels. `kind` is a |
-| `wheel(view, x, y, ticks_x, ticks_y, mods)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32) -> () oneway` | A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. |
+| `wheel(view, x, y, ticks_x, ticks_y, mods, seq)` | `Wheel(view: U64, x: I32, y: I32, ticks_x: I32, ticks_y: I32, mods: U32, seq: U64) -> () oneway` | A wheel turn of `ticks_x` / `ticks_y` notches at `(x, y)`. `seq` numbers |
 | `key(view, press, keysym, text, mods)` | `Key(view: U64, press: Bool, keysym: U32, text: String, mods: U32) -> () oneway` | A key edge: `keysym` is the X11 keysym the display protocol carries, |
 | `focus(view, focused)` | `Focus(view: U64, focused: Bool) -> () oneway` | The view gained or lost keyboard focus. |
 | `frame(view, slot, seq, width, height)` | `Frame(view: U64, slot: U32, seq: U64, width: U32, height: U32) -> () oneway` | Event: slot `slot` of `view` holds frame number `seq` (counting from 1) |

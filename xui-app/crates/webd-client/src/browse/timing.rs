@@ -59,7 +59,7 @@ impl<T: ScopedTransport> Browse<T> {
     fn turn_wheel(&mut self, ticks_y: i32, now: u64) {
         let (w, h) = self.a.as_ref().map_or((0, 0), |a| a.size());
         if let Some(a) = self.a.as_mut() {
-            a.wheel(w as i32 / 2, h as i32 / 2, 0, ticks_y, 0);
+            a.wheel(w as i32 / 2, h as i32 / 2, 0, ticks_y, 0, 0);
         }
         self.seen.frames.clear();
         self.mark = now;
