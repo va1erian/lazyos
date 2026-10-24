@@ -37,14 +37,14 @@ use std::time::Instant;
 
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 use xui_webd_client::transport::ScopedTransport;
-use xui_webd_client::{FullWebView, Scope, ViewConfig};
+use xui_webd_client::{FullWebView, Scope};
 use xui_webkit::abi::NavKind;
 use xui_webkit::engine::NotifyAnswer;
 use xui_webkit::events::Event;
 use xui_webkit::mailbox::{Mailbox, PageState};
 
 pub use life::Health;
-pub use xui_webd_client::SlotPlan;
+pub use xui_webd_client::{SlotPlan, ViewConfig};
 
 /// The shortest time between two pointer moves sent to webd.
 pub const MOVE_INTERVAL_MS: u64 = 8;

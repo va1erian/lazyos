@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use support::*;
-use xui_webkit::engine::Call;
 use xui_lazyweb::app::{Host, Msg};
 use xui_lazyweb::prefs::{Prefs, Restore};
 use xui_lazyweb::session::{self, Session};
+use xui_webkit::engine::Call;
 
 /// The names the window told the probe, in order.
 type Seen = Rc<RefCell<Vec<String>>>;
@@ -68,15 +68,22 @@ fn a_crash_offers_the_last_page_and_yes_opens_it() {
         None,
         left_by_a_crash,
         host_for(&seen, Restore::Ask),
-        move |stage, _| {
+        move |stage, rig| {
             assert!(shown(&probe), "the bar is up: {:?}", probe.borrow());
             stage.emit(Msg::Restore(true));
+            // The start page's tab is replaced by the saved one, which has an engine of its own.
+            let made = rig.engines.made.borrow();
+            assert_eq!(made.len(), 2);
+            assert_eq!(
+                loads(&made[1].engine.calls()),
+                ["https://crashed.example/page"]
+            );
+            assert_eq!(*rig.engines.gone.borrow(), [0]);
         },
     );
     let loads = loads(&calls);
-    assert_eq!(loads.len(), 2, "{loads:?}");
+    assert_eq!(loads.len(), 1, "{loads:?}");
     assert!(loads[0].starts_with("data:"), "the start page first");
-    assert_eq!(loads[1], "https://crashed.example/page");
     save(&image, "lazyweb-restore-yes.png");
 }
 

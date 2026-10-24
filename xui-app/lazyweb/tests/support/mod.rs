@@ -13,16 +13,17 @@ use std::sync::Arc;
 use xui_canvas::snapshot::{render_with, Snapshot, Stage};
 use xui_core::backend::Event as UiEvent;
 use xui_core::{Dip, Image, Key, Modifiers, Theme};
-use xui_webkit::engine::{Call, Recorder};
-use xui_webkit::events::Event;
-use xui_webkit::mailbox::{Mailbox, PageState};
-use xui_lazyweb::app::{Browser, Host, Msg, Setup};
+use xui_lazyweb::app::{Browser, Engines, Fresh, Host, Msg, Setup};
 use xui_lazyweb::blocker::Blocker;
 use xui_lazyweb::handoff::Launcher;
 use xui_lazyweb::internal::Internal;
 use xui_lazyweb::notify::{Permissions, ShellNews, Toasts};
+use xui_lazyweb::tabs::TabId;
 use xui_lazyweb::transfers::{Toast, Transfers};
 use xui_lazyweb::visits::Visits;
+use xui_webkit::engine::{Call, Recorder};
+use xui_webkit::events::Event;
+use xui_webkit::mailbox::{Mailbox, PageState};
 
 pub const SIZE: (i32, i32) = (900, 560);
 
@@ -139,7 +140,91 @@ impl FakeToasts {
     }
 }
 
+/// An engine the window made for a tab.
+pub struct Made {
+    pub tab: TabId,
+    pub key: String,
+    pub engine: Rc<Recorder>,
+    pub mailbox: Arc<Mailbox>,
+}
+
+/// The engines of the window's tabs, all recording: the first is the rig's own.
+#[derive(Default)]
+pub struct RecordedEngines {
+    first: RefCell<Option<(Rc<Recorder>, Arc<Mailbox>)>>,
+    pub made: RefCell<Vec<Made>>,
+    pub fronts: RefCell<Vec<TabId>>,
+    pub gone: RefCell<Vec<TabId>>,
+}
+
+impl Engines for RecordedEngines {
+    fn make(&self, tab: TabId, process_key: &str) -> Fresh {
+        let (engine, mailbox) = self.first.borrow_mut().take().unwrap_or_default();
+        self.made.borrow_mut().push(Made {
+            tab,
+            key: process_key.to_owned(),
+            engine: Rc::clone(&engine),
+            mailbox: Arc::clone(&mailbox),
+        });
+        Fresh { engine, mailbox }
+    }
+
+    fn front(&self, tab: TabId) {
+        self.fronts.borrow_mut().push(tab);
+    }
+
+    fn gone(&self, tab: TabId) {
+        self.gone.borrow_mut().push(tab);
+    }
+
+    fn pump(&self) -> bool {
+        false
+    }
+}
+
+impl RecordedEngines {
+    /// The calls tab `tab`'s engine received so far.
+    pub fn calls(&self, tab: TabId) -> Vec<Call> {
+        self.of(tab)
+            .map(|made| made.engine.calls())
+            .unwrap_or_default()
+    }
+
+    fn of(&self, tab: TabId) -> Option<std::cell::Ref<'_, Made>> {
+        let made = self.made.borrow();
+        let at = made.iter().position(|m| m.tab == tab)?;
+        Some(std::cell::Ref::map(made, |made| &made[at]))
+    }
+
+    /// Posts `state` as tab `tab`'s page and has the window take it, as a tab in front or behind.
+    pub fn state(&self, stage: &Stage<'_, Msg>, tab: TabId, state: PageState, front: bool) {
+        if let Some(made) = self.of(tab) {
+            made.mailbox.post_state(state);
+        }
+        stage.emit(if front {
+            Msg::State
+        } else {
+            Msg::Background(tab)
+        });
+    }
+
+    /// Posts events from tab `tab` and has the window take them.
+    pub fn events(&self, stage: &Stage<'_, Msg>, tab: TabId, events: Vec<Event>, front: bool) {
+        if let Some(made) = self.of(tab) {
+            for event in events {
+                made.mailbox.post_event(event);
+            }
+        }
+        stage.emit(if front {
+            Msg::Events
+        } else {
+            Msg::Background(tab)
+        });
+    }
+}
+
 pub struct Rig {
+    pub engines: Rc<RecordedEngines>,
     pub engine: Rc<Recorder>,
     pub toasts: Rc<FakeToasts>,
     pub permissions: Permissions,
@@ -225,6 +310,9 @@ pub fn drive_with(
     prepare(&home);
     let engine = Rc::new(Recorder::default());
     let mailbox = Arc::new(Mailbox::default());
+    let engines = Rc::new(RecordedEngines::default());
+    *engines.first.borrow_mut() = Some((Rc::clone(&engine), Arc::clone(&mailbox)));
+    let host_engines = Rc::clone(&engines);
     let opened = Rc::new(Opened::default());
     let internal = Internal::default();
     let blocker = Blocker::volatile();
@@ -237,6 +325,7 @@ pub fn drive_with(
     let rig = Rig {
         toasts: Rc::clone(&toasts),
         permissions: permissions.clone(),
+        engines: Rc::clone(&engines),
         engine: Rc::clone(&engine),
         mailbox: Arc::clone(&mailbox),
         opened: Rc::clone(&opened),
@@ -247,14 +336,11 @@ pub fn drive_with(
     };
     let first = first.map(str::to_owned);
     let profile = home.clone();
-    let (build_engine, build_mailbox) = (Rc::clone(&engine), Arc::clone(&mailbox));
     let image = render_with(
         Snapshot::new(Dip(SIZE.0 as f32), Dip(SIZE.1 as f32)).theme(Theme::light()),
         move |ui| {
             Browser::build(
                 ui,
-                build_engine,
-                build_mailbox,
                 Setup {
                     url: first,
                     visits: Visits::open(home.join("history.tsv")),
@@ -267,6 +353,7 @@ pub fn drive_with(
                         let host = Host {
                             launcher: Rc::new(RecordingLauncher(opened)),
                             profile: Some(profile),
+                            engines: host_engines,
                             probe: Box::new(move |_, name, rect| {
                                 probe_rects.borrow_mut().insert(name.to_owned(), rect);
                             }),
@@ -306,8 +393,8 @@ pub fn loading(url: &str) -> PageState {
 }
 
 pub fn page_origin(stage: &Stage<'_, Msg>) -> (i32, i32) {
-    // Below the menu bar (28) and the toolbar (38).
-    (0, Dip(66.0).to_px(stage.dpi()).0)
+    // Below the menu bar (28), the tab strip (30) and the toolbar (38).
+    (0, Dip(96.0).to_px(stage.dpi()).0)
 }
 
 pub fn key_down(key: Key) -> UiEvent {

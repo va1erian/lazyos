@@ -72,15 +72,18 @@ fn closing_the_front_tab_raises_its_right_neighbour_else_the_left() {
     let (mut tabs, ids) = tabs_of(4);
     tabs.raise(ids[1]);
     let closure = tabs.close(ids[1]).unwrap();
-    assert_eq!(closure.front, Some(ids[2]));
+    assert_eq!(closure.front.map(|r| r.id), Some(ids[2]));
     assert!(!closure.last);
     assert_eq!(tabs.active_id(), Some(ids[2]));
     // The last tab of the strip: the one before it.
     tabs.raise(ids[3]);
-    assert_eq!(tabs.close(ids[3]).unwrap().front, Some(ids[2]));
+    assert_eq!(
+        tabs.close(ids[3]).unwrap().front.map(|r| r.id),
+        Some(ids[2])
+    );
     // A tab behind the front one: the front one stays.
     let closure = tabs.close(ids[0]).unwrap();
-    assert_eq!(closure.front, None);
+    assert!(closure.front.is_none());
     assert_eq!(tabs.active_id(), Some(ids[2]));
     assert!(tabs.close(ids[0]).is_none(), "an id is closed once");
 }
@@ -217,12 +220,15 @@ fn the_oldest_used_tab_is_discarded_first() {
 #[test]
 fn a_crashed_tab_holds_no_view_and_is_not_a_candidate() {
     let (mut tabs, ids) = tabs_of(3);
-    tabs.set_crashed(ids[1]);
+    tabs.set_crashed(ids[1], true);
     assert_eq!(tabs.live_count(), 2);
     assert!(!tabs.discard(ids[1]));
     assert_eq!(tabs.discard_choice(), Some(ids[2]));
     let raised = tabs.raise(ids[1]).unwrap();
-    assert!(raised.needs_view, "Reload makes a new view");
+    assert!(
+        raised.needs_view && raised.was_crashed,
+        "Reload makes a new view"
+    );
     assert!(!tabs.get(ids[1]).unwrap().crashed);
 }
 
@@ -379,4 +385,30 @@ fn the_throttle_writes_a_whole_session_at_most_once_a_second() {
     assert_eq!(throttle.note(newer.clone(), 500), None);
     assert_eq!(throttle.due(900), None);
     assert_eq!(throttle.due(1000), Some(newer));
+}
+
+#[test]
+fn replacing_the_tabs_with_a_saved_window_never_reuses_an_id() {
+    let (mut tabs, old) = tabs_of(3);
+    let window = session::Window::new(
+        vec![
+            session::Tab {
+                url: page(7),
+                title: "Seven".into(),
+            },
+            session::Tab {
+                url: page(8),
+                title: String::new(),
+            },
+        ],
+        1,
+    );
+    tabs.replace_with(&window);
+    assert_eq!(tabs.len(), 2);
+    assert!(
+        tabs.active_id().is_none(),
+        "the window raises the one that was in front"
+    );
+    assert!(tabs.iter().all(|t| t.discarded && !old.contains(&t.id)));
+    assert_eq!(tabs.closed_count(), 0);
 }

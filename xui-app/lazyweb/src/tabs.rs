@@ -16,7 +16,7 @@
 use std::collections::VecDeque;
 
 use crate::address;
-use crate::session::{self, MAX_CLOSED};
+use crate::session::MAX_CLOSED;
 
 /// The most tabs a window holds (webd's browser scope takes 64 views).
 pub const MAX_TABS: usize = 64;
@@ -58,6 +58,8 @@ pub enum Place {
     /// Next to the active tab, after the ones already opened from it (a link opened in the
     /// background, a page's new window).
     BesideActive,
+    /// Next to this tab (a page's new window, whichever tab is in front).
+    After(TabId),
 }
 
 /// What a close did.
@@ -65,7 +67,7 @@ pub enum Place {
 pub struct Closure {
     pub closed: TabId,
     /// The tab now in front, when the closed one was (it needs a view when it was discarded).
-    pub front: Option<TabId>,
+    pub front: Option<Raised>,
     /// That was the last tab: the window closes.
     pub last: bool,
 }
@@ -78,6 +80,9 @@ pub struct Raised {
     pub previous: Option<TabId>,
     /// The tab had no view (discarded or crashed): the window makes one and loads its address.
     pub needs_view: bool,
+    /// The view had been lost: the tab shows the crashed-tab page until Reload, so the window
+    /// keeps what it has and loads nothing.
+    pub was_crashed: bool,
 }
 
 /// A tab that was closed and can come back.
@@ -172,6 +177,7 @@ impl Tabs {
                 .or(self.active)
                 .and_then(|id| self.index_of(id))
                 .map_or(self.list.len(), |i| i + 1),
+            Place::After(opener) => self.index_of(opener).map_or(self.list.len(), |i| i + 1),
         };
         let id = self.next;
         self.next += 1;
@@ -205,6 +211,7 @@ impl Tabs {
         let clock = self.clock;
         let tab = self.get_mut(id)?;
         let needs_view = !tab.is_live();
+        let was_crashed = tab.crashed;
         tab.discarded = false;
         tab.crashed = false;
         tab.used = clock;
@@ -216,6 +223,7 @@ impl Tabs {
             id,
             previous: previous.filter(|p| *p != id),
             needs_view,
+            was_crashed,
         })
     }
 
@@ -268,10 +276,7 @@ impl Tabs {
         if was_front {
             self.active = None;
             let next = self.list.get(at).or_else(|| self.list.last()).map(|t| t.id);
-            if let Some(next) = next {
-                self.raise(next);
-                front = Some(next);
-            }
+            front = next.and_then(|next| self.raise(next));
         }
         Some(Closure {
             closed: id,
@@ -335,11 +340,14 @@ impl Tabs {
         }
     }
 
-    /// The view of `id` was lost: the tab keeps its address and shows the crashed-tab page.
-    pub fn set_crashed(&mut self, id: TabId) {
+    /// The view of `id` was lost (`true`): the tab keeps its address and shows the crashed-tab
+    /// page. A new view of it (`false`) ends that.
+    pub fn set_crashed(&mut self, id: TabId, crashed: bool) {
         if let Some(tab) = self.get_mut(id) {
-            tab.crashed = true;
-            tab.loading = false;
+            tab.crashed = crashed;
+            if crashed {
+                tab.loading = false;
+            }
         }
     }
 
@@ -384,80 +392,13 @@ impl Tabs {
         candidates.into_iter().take(over).map(|t| t.id).collect()
     }
 
-    /// The window as the session file keeps it: the web pages, the one in front, the closed tabs.
-    pub fn to_window(&self) -> session::Window {
-        let kept: Vec<&Tab> = self
-            .list
-            .iter()
-            .filter(|t| address::is_network(&t.url))
-            .collect();
-        let front = self
-            .active
-            .and_then(|id| self.index_of(id))
-            .map_or(0, |here| {
-                // The first kept tab at or after the one in front, else the last before it.
-                let ahead = self.list[here..]
-                    .iter()
-                    .find(|t| address::is_network(&t.url))
-                    .and_then(|t| kept.iter().position(|k| k.id == t.id));
-                ahead.unwrap_or(kept.len().saturating_sub(1))
-            });
-        session::Window {
-            tabs: kept
-                .into_iter()
-                .map(|t| session::Tab {
-                    url: t.url.clone(),
-                    title: session::clean_title(&t.title),
-                })
-                .collect(),
-            active: front,
-            closed: self
-                .closed
-                .iter()
-                .map(|g| session::Tab {
-                    url: g.url.clone(),
-                    title: session::clean_title(&g.title),
-                })
-                .collect(),
-        }
-    }
-
-    /// The session file's contents for this window (no windows when no tab is a web page).
-    pub fn to_session(&self) -> session::Session {
-        let window = self.to_window();
-        session::Session {
-            windows: if window.tabs.is_empty() {
-                Vec::new()
-            } else {
-                vec![window]
-            },
-        }
-    }
-
-    /// The tabs of a saved window, all discarded; the one that was in front is not raised yet
-    /// (the window raises it with [`Tabs::raise`] and loads it).
-    pub fn restore(window: &session::Window) -> Tabs {
-        let mut tabs = Tabs::new();
-        for kept in window.tabs.iter().take(MAX_TABS) {
-            let id = tabs.next;
-            tabs.next += 1;
-            tabs.clock += 1;
-            let mut tab = tabs.fresh(id, &kept.url, &kept.title, tabs.clock);
-            tab.discarded = true;
-            tabs.list.push(tab);
-        }
-        for (at, gone) in window.closed.iter().take(MAX_CLOSED).enumerate() {
-            tabs.closed.push_back(Gone {
-                url: gone.url.clone(),
-                title: gone.title.clone(),
-                at: tabs.list.len() + at,
-            });
-        }
-        tabs
-    }
-
     /// The id of the tab at place `index` of the strip.
     pub fn id_at(&self, index: usize) -> Option<TabId> {
         self.list.get(index).map(|t| t.id)
     }
 }
+
+mod key;
+mod persist;
+
+pub use key::process_key;

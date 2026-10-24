@@ -19,7 +19,7 @@ use xui_core::app::{App, Ui};
 use xui_core::backend::{Result, TimerId};
 use xui_core::widget::{Button, DialogAction, Edit, HasText, Label, Menu, Placeable, ProgressBar};
 use xui_webkit::engine::Engine;
-use xui_webkit::mailbox::{Mailbox, Notice, PageState};
+use xui_webkit::mailbox::{Mailbox, PageState};
 use xui_webkit::view::PageView;
 
 mod bookmarks;
@@ -30,15 +30,18 @@ mod hang;
 mod host;
 mod navigate;
 mod notifications;
+mod pageevents;
 mod report;
 mod restore;
 mod search;
 mod shield;
 mod status;
 mod suggest;
+mod tabnews;
+mod tabs;
 mod webd;
 
-pub use host::{Host, Probe, Setup};
+pub use host::{Engines, Fresh, Host, Probe, Setup};
 
 use crate::blocker::Blocker;
 use crate::chrome::{self, Command, Widgets};
@@ -51,6 +54,9 @@ use crate::indicators::{Badge, Throbber};
 use crate::internal::Internal;
 use crate::keys::{overlay_shortcut, shortcut};
 use crate::notify::{BarAnswer, Notifications};
+use crate::strip::TabMsg;
+use crate::switch::{split_id, Switch};
+use crate::tabs::TabId;
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -101,6 +107,10 @@ pub enum Msg {
     Shell,
     /// A list of the ad blocker changed state on the worker's thread.
     BlockerChanged,
+    /// The tab strip, a tab key, or a link opened in a tab.
+    Tab(TabMsg),
+    /// A tab behind the front one has news.
+    Background(TabId),
     /// webd's view has news, or a call waits its turn (`Host::pump`).
     Engine,
     /// Other threads queued work for the window's thread (`Host::jobs`).
@@ -136,8 +146,13 @@ pub struct Browser {
     notifications: Notifications,
     /// When the window was built: the clock the notification limits run on.
     started: Instant,
+    /// The front tab's engine (`Switch`) and mailbox.
     engine: Rc<dyn Engine>,
     mailbox: Arc<Mailbox>,
+    /// The tabs and their engines.
+    tabs: tabs::Set,
+    /// Whether a link a tab can open is under the pointer (shared with the page view's hook).
+    tab_link: Rc<Cell<bool>>,
     visits: Visits,
     transfers: Transfers,
     internal: Internal,
@@ -194,13 +209,8 @@ pub struct Browser {
 }
 
 impl Browser {
-    /// Builds the window, opening `setup.url` (or the start page).
-    pub fn build(
-        ui: &mut Ui<Msg>,
-        engine: Rc<dyn Engine>,
-        mailbox: Arc<Mailbox>,
-        setup: Setup,
-    ) -> Result<Browser> {
+    /// Builds the window, opening `setup.url` (or the start page) in its first tab.
+    pub fn build(ui: &mut Ui<Msg>, setup: Setup) -> Result<Browser> {
         let Setup {
             url,
             visits,
@@ -213,6 +223,8 @@ impl Browser {
         } = setup;
         let loading = Rc::new(Cell::new(false));
         let widgets = Widgets::default();
+        let switch = Rc::new(Switch::new());
+        let engine: Rc<dyn Engine> = Rc::clone(&switch) as Rc<dyn Engine>;
         ui.root(chrome::window(
             &widgets,
             Rc::clone(&engine),
@@ -224,13 +236,7 @@ impl Browser {
         blocker.on_change(move || {
             let _ = blocker_proxy.send(Msg::BlockerChanged);
         });
-        mailbox.set_notify(move |notice| {
-            let _ = proxy.send(match notice {
-                Notice::Frame => Msg::Frame,
-                Notice::State => Msg::State,
-                Notice::Events => Msg::Events,
-            });
-        });
+        drop(proxy);
 
         let address = widgets.address.get();
         let field = address.id();
@@ -285,7 +291,9 @@ impl Browser {
             notifications: Notifications::new(permissions, toasts),
             started: Instant::now(),
             engine,
-            mailbox,
+            mailbox: Arc::new(Mailbox::default()),
+            tabs: tabs::Set::new(&widgets, switch),
+            tab_link: Rc::clone(&widgets.tab_link),
             visits,
             transfers,
             internal,
@@ -319,10 +327,10 @@ impl Browser {
         // The menu was built with the engine's own checked.
         browser.menu.set_checked(chrome::agent_id(0), agent == 0);
         browser.menu.set_checked(chrome::agent_id(agent), true);
-        browser.start_engine(ui);
         let restored = browser.begin_session(url.is_some());
-        let first = url.or(restored).unwrap_or_else(|| browser.internal.start());
-        browser.start_navigation(&first);
+        browser.start_tabs(ui, url, restored);
+        browser.start_engine(ui);
+        browser.refresh_strip();
         browser.update_buttons();
         browser.update_downloads(ui);
         browser.bar.start_hidden(ui);
@@ -429,8 +437,11 @@ impl App for Browser {
                 if let Some(answer) = self.dialogs.answer(action) {
                     self.engine
                         .dialog_reply(answer.id, answer.accepted, &answer.value);
+                    self.tab_busy(split_id(answer.id).0);
                 }
             }
+            Msg::Tab(msg) => self.tab_msg(ui, msg),
+            Msg::Background(id) => self.background_news(ui, id),
             Msg::NotifyAnswer(answer) => self.notify_answer(ui, answer),
             Msg::Hang(answer) => self.hang_answer(ui, answer),
             Msg::Restore(yes) => self.restore_answer(ui, yes),

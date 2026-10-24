@@ -11,13 +11,24 @@ store (the omnibar, history, bookmarks, control over stored data). B3 is the pas
 B4 is reporting an issue through LazyAgent. Targets are the Alder Lake boxes with 8 GB and 32 GB of RAM. Out of
 scope: sync across devices, extensions, and engine work beyond what these features need.
 
+**Progress (2026-10-24).** B1's window half is written and host-tested: `xui-app/lazyweb/src/tabs.rs` (the model,
+`tests/tabs.rs`), the strip, one `RemoteEngine` per tab with `process_key` the first address's host, only the front
+tab's slots attached (`Engine::set_visible`, `DetachSlots` on a switch), Ctrl+T/W/Shift+T/Tab/1-9, a middle or Ctrl+click
+on a hovered link opens a background tab, a gesture's `NewWindowRequested` opens a tab, a lost view shows the crashed-tab
+bar, and `session.json` keeps the tabs and the closed stack (restored tabs are discarded until focused;
+`tests/tabs_window.rs`). **Not run:** the tab boot of 2.6 in a guest, so nothing here is verified against the engine.
+**Not done:** several windows (spike S1), the memory numbers (the discard count `LIVE_TABS_MAX` = 16 is provisional and
+free memory is not read), dragging tabs, the loop waking for tabs behind the front one (`watch_fd` takes one
+descriptor: they are read on the 250 ms beat; an epoll set would need testing on LazyOS), `RecoverGroup` from the hang
+bar, and notifications that ask while their tab is behind (dismissed, the site may ask again).
+
 **Progress (2026-10-23).** B1's webd half is started and host-tested: `ViewConfig.process_key`, the memory-gated
 ceiling of 16 web processes, 64 views for the browser scope, `DetachSlots` (45), `RecoverGroup` (44), and a user
 agent the person can change per tab (`ViewConfig.user_agent` 16, `SetUserAgent` 46), with `FullWebView` calls for
 each ([`webd.md`](webd.md) "Tabs and the user agent"). The engine's C++ half (`webd_engine_recover_group`,
 `webd_engine_set_user_agent`, `webd_view_config.user_agent`) is written but was **not built or run** (no WebKit build
 volume in that session). Not done: the parked-view pool for full views, `webd_engine_view_pid`, spike S1, the
-window's `tabs` module and strip, session restore and the discard numbers. The user agent is not in the draft: it
+discard numbers. The user agent is not in the draft: it
 is what a tab needs for "request the desktop site", and it takes field id 16, so the credentials flag moves to 17
 and icons to 18 in section 8.
 
