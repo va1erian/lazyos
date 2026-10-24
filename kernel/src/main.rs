@@ -47,6 +47,7 @@ mod quota;
 mod serial;
 #[allow(dead_code)]
 mod skia;
+mod splash;
 mod surface;
 mod sync;
 mod sysinfo;

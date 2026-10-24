@@ -169,6 +169,12 @@ pub fn push_scancode(scancode: u8) {
         decode(code, shift)
     };
     if let Some(key) = key {
+        // F1 on the boot splash shows the `init` and `xuid` log panes (and
+        // hides them again). Only until a compositor binds the display.
+        if key == Key::F(1) && crate::splash::available() && !display::bound() {
+            crate::splash::toggle_logs();
+            return;
+        }
         // A bound compositor receives the raw key; otherwise route it to the
         // focused task (switching focus on Tab) as before. Function keys are
         // compositor-only: the terminal mapping would turn them into a NUL.

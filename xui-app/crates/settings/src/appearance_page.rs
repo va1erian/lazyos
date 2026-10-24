@@ -7,6 +7,7 @@
 //! this the default for everyone** publishes it as the machine default the
 //! login screen and other accounts follow, which asks an administrator.
 
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use xui_core::app::Ui;
@@ -16,7 +17,9 @@ use xui_core::arrange::{
 };
 use xui_core::backend::{Result, WidgetId};
 use xui_core::layout::Align;
-use xui_core::widget::{CheckBox, ColorPicker, ComboBox, ListView, RadioGroup};
+use xui_core::widget::{
+    CheckBox, ColorPicker, ComboBox, FileDialog, ListView, RadioGroup, StdFileSystem,
+};
 use xui_core::Color;
 
 use crate::app::{choice_list, Msg};
@@ -42,6 +45,8 @@ pub struct AppearancePage {
     pub anim: Rc<CheckBox<Msg>>,
     /// The blank-screen delay, one row per [`uitheme::SCREEN_OFF_CHOICES`].
     pub screen_off: Rc<ComboBox<Msg>>,
+    /// The picker behind "Choose picture...": any PNG or JPEG file.
+    pub picture_dialog: FileDialog<Msg>,
     _mounted: Mounted<Msg>,
 }
 
@@ -96,11 +101,18 @@ impl AppearancePage {
                             .bind(&background)
                             .size(SWATCH_W * BACKGROUNDS.len() as i32, SWATCH_H)
                             .align(Align::Start),
-                        choice_list(&rows)
-                            .on_select(Msg::Wallpaper)
-                            .bind(&wallpaper)
-                            .fill(1)
-                            .max_height(112),
+                        column()
+                            .gap(6)
+                            .children((
+                                choice_list(&rows)
+                                    .on_select(Msg::Wallpaper)
+                                    .bind(&wallpaper)
+                                    .max_height(112),
+                                button("Choose picture...")
+                                    .on_click(Msg::ChoosePicture)
+                                    .align(Align::Start),
+                            ))
+                            .fill(1),
                     )),
                 ),
                 row().gap(12).children((
@@ -129,6 +141,14 @@ impl AppearancePage {
                 )),
             )),
         )?;
+        let picture_dialog = FileDialog::open_file(ui, "Choose a desktop picture")?
+            .file_system(Rc::new(StdFileSystem))
+            .require_existing(true)
+            .filter("Pictures (.png, .jpg, .jpeg)", &["png", "jpg", "jpeg"])
+            .filter("All files", &[])
+            .on_accept(|path: PathBuf| {
+                Some(Msg::PictureChosen(path.to_string_lossy().into_owned()))
+            });
         Ok(AppearancePage {
             mode: mode.get(),
             accent: accent.get(),
@@ -136,6 +156,7 @@ impl AppearancePage {
             wallpaper: wallpaper.get(),
             anim: anim.get(),
             screen_off: screen_off.get(),
+            picture_dialog,
             _mounted: mounted,
         })
     }

@@ -8,6 +8,7 @@ use core::sync::atomic::Ordering;
 use crate::console;
 use crate::cursor;
 use crate::gfx::Color;
+use crate::splash;
 use crate::surface::{RgbaBuffer, Surface};
 use crate::task::{self, MAX_TASKS};
 use crate::text;
@@ -49,6 +50,8 @@ pub fn run() -> ! {
     // Whether a compositor owned the display on the previous iteration, so the
     // mux can repaint from scratch when it takes the screen back (issue #113).
     let mut yielded = false;
+    // The spinner step on screen, `None` until the picture is presented.
+    let mut spun: Option<usize> = None;
     loop {
         // Reclaim task slots the scheduler flagged (issue #133) before any
         // window work: interrupts off, so the drop of a dead task's buffers
@@ -124,10 +127,18 @@ pub fn run() -> ! {
             continue;
         };
         if task::NEEDS_REDRAW.swap(false, Ordering::Relaxed) {
-            render(back);
+            if splash::active() {
+                splash::paint(back);
+            } else {
+                render(back);
+            }
             present(back, 0, 0, fbw, fbh);
             // Redraw the cursor, which the presentation just covered.
             mouse_prev = None;
+            spun = None;
+        }
+        if splash::active() {
+            spin(back, &mut spun, mouse_prev);
         }
         if let Some((x, y)) = crate::input::mouse::take_moved() {
             if let Some((px, py)) = mouse_prev {
@@ -146,6 +157,24 @@ pub fn run() -> ! {
         // sleeping between frames is what bounds its CPU share, so it cannot
         // starve user tasks that busy-wait in `hlt` (native `read_char`).
         task::idle(task::ticks() + IDLE_TICKS);
+    }
+}
+
+/// Advance the boot splash's spinner when its head has moved: restore the
+/// ring's rectangle from the picture, then draw the dots over it.
+fn spin(back: &RgbaBuffer, spun: &mut Option<usize>, mouse: Option<(i32, i32)>) {
+    let phase = splash::phase(task::ticks());
+    if *spun == Some(phase) {
+        return;
+    }
+    *spun = Some(phase);
+    let (x, y, w, h) = splash::spinner_rect(back.width(), back.height());
+    present(back, x, y, w, h);
+    console::with_screen(|fb| splash::draw_spinner(fb, phase));
+    // The restore may have covered the cursor: draw it again where it is,
+    // so `mouse_prev` still names the sprite the next move must erase.
+    if let Some(pos) = mouse {
+        draw_cursor(pos);
     }
 }
 

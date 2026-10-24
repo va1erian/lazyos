@@ -46,6 +46,7 @@ mod modes;
 mod modifiers;
 mod present;
 mod slots;
+mod splash;
 mod wcswitch;
 mod wheel;
 
@@ -59,6 +60,7 @@ pub(super) use modes::*;
 pub(super) use modifiers::*;
 pub(super) use present::*;
 pub(super) use slots::*;
+pub(super) use splash::*;
 pub(super) use wcswitch::*;
 pub(super) use wheel::*;
 
@@ -79,6 +81,19 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("display_modifier_per_key_soak", modifier_per_key_soak),
     ("display_nav_and_function_keys", nav_and_function_keys),
+    (
+        "display_splash_paints_every_pixel",
+        splash_paints_every_pixel_and_keeps_the_spinner_on_screen,
+    ),
+    (
+        "display_splash_spinner_head_walks",
+        splash_spinner_head_walks_the_ring,
+    ),
+    (
+        "display_splash_f1_toggles_logs",
+        splash_f1_toggles_the_logs_only_without_a_compositor,
+    ),
+    ("display_splash_soak", splash_soak),
     ("display_ctrl_letter_is_letter", ctrl_letter_is_letter),
     ("display_key_decode_soak", key_decode_soak),
     ("display_close_buffer_releases", close_buffer_releases),
