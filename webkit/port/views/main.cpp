@@ -15,6 +15,10 @@
 //   webkit-views groupmix   the same group number but different profiles: two web processes (not shared)
 //   webkit-views cycle   twelve views made, shown and destroyed one after the other
 //   webkit-views rush    twelve views made and destroyed at once, before their pages are up
+//   webkit-views timers  no view: WTF's run loop timers stopped and destroyed in other orders than they were
+//                        started (patch 0037; a stopped timer's tree node held its old children)
+//   webkit-views churn   the cycle with two hundred views: each end of a page's process closes an IPC
+//                        connection while the other side may still be writing to it
 // The first view of the pairs has every feature (the clients of a full browser view), the second none.
 //
 // Each view loads a data: page of its own colour and title and must end up painting that colour and no
@@ -48,6 +52,8 @@
 #include "lazyos_ui.h"
 
 using namespace webkitapp;
+
+void runTimersTest(); // timers.cpp
 
 extern "C" const char __ehdr_start;
 
@@ -205,8 +211,10 @@ bool mixed = false; // the same group number, different profiles
 bool bothViews = false;
 int phase = 0;
 long started = 0, phaseStarted = 0;
-// The cycle mode: a view at a time, N in all.
+// The cycle mode: a view at a time, N in all (churn: many, for the races of a process's end).
 constexpr int kCycles = 12;
+constexpr int kChurnCycles = 200;
+int cycles = kCycles;
 bool cycling = false;
 bool rush = false; // destroy a view at once, before its page is up
 bool sameProfile = false;
@@ -254,7 +262,7 @@ void step(void*)
     if (done)
         return;
     const long now = monotonicMs();
-    if (now - started > 90000) {
+    if (now - started > 90000 + cycles * 500L) {
         char detail[512];
         snprintf(detail, sizeof detail, "timeout in phase %d: A title='%s' frames=%d seen=%s finished=%d, B title='%s' frames=%d seen=%s finished=%d err='%s'",
             phase, first.title.c_str(), first.frames, first.seen.c_str(), first.finished, second.title.c_str(), second.frames, second.seen.c_str(), second.finished, second.error.c_str());
@@ -284,7 +292,7 @@ void step(void*)
         if (rush || (cycleProbe->finished >= 1 && cycleProbe->last == cycleLetters[cycleIndex % 3])) {
             destroyView(cycleView);
             cycleProbe.reset();
-            if (++cycleIndex == kCycles) {
+            if (++cycleIndex == cycles) {
                 phase = 2;
                 phaseStarted = now;
             }
@@ -293,12 +301,12 @@ void step(void*)
     }
     if (phase == 2) {
         // Every destroyed view's WebProcess must end.
-        if (launches.webExits >= kCycles) {
-            printf("VIEWS:CYCLED:%d:web launches=%d exits=%d\n", kCycles, launches.web.load(), launches.webExits.load());
+        if (launches.webExits >= cycles) {
+            printf("VIEWS:CYCLED:%d:web launches=%d exits=%d\n", cycles, launches.web.load(), launches.webExits.load());
             finish("PASS", "");
         } else if (now - phaseStarted > 20000) {
             char detail[128];
-            snprintf(detail, sizeof detail, "only %d of %d web processes ended", launches.webExits.load(), kCycles);
+            snprintf(detail, sizeof detail, "only %d of %d web processes ended", launches.webExits.load(), cycles);
             finish("FAIL", detail);
         }
         return;
@@ -445,7 +453,10 @@ int main(int argc, char** argv)
     mixed = argc > 1 && !strcmp(argv[1], "groupmix");
     const bool ephemeralPair = argc > 1 && (!strcmp(argv[1], "twoeph") || !strcmp(argv[1], "group"));
     rush = argc > 1 && !strcmp(argv[1], "rush");
-    cycling = rush || (argc > 1 && !strcmp(argv[1], "cycle"));
+    const bool churn = argc > 1 && !strcmp(argv[1], "churn");
+    cycling = rush || churn || (argc > 1 && !strcmp(argv[1], "cycle"));
+    if (churn)
+        cycles = kChurnCycles;
     sameProfile = argc > 1 && (!strcmp(argv[1], "share") || !strcmp(argv[1], "groupprof"));
     bothViews = argc > 1 && (!strcmp(argv[1], "two") || ephemeralPair || sameProfile || mixed);
     setvbuf(stdout, nullptr, _IOLBF, 0);
@@ -460,6 +471,10 @@ int main(int argc, char** argv)
     for (int number : { SIGABRT, SIGSEGV, SIGILL, SIGTRAP, SIGBUS })
         sigaction(number, &action, nullptr);
     WKRunLoopInitializeMain();
+    if (argc > 1 && !strcmp(argv[1], "timers")) {
+        runTimersTest();
+        _exit(0);
+    }
     const std::string profile = bothViews && !ephemeralPair ? "/tmp/webkit-views-profile" : "";
     if (!startHost(&env, profile)) {
         printf("VIEWS:FAIL:the host did not start\n");

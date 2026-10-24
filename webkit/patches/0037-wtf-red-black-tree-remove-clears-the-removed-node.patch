@@ -1,0 +1,27 @@
+WTF: RedBlackTree::remove clears the links of the node it removes.
+
+A node's links to its children are CheckedPtrs, and remove() left the removed node's m_left and m_right
+as they were. A node taken out of the tree then still counted as a holder of its old children: when one
+of them was destroyed first, WTF_OVERRIDE_DELETE_FOR_CHECKED_PTR found a count above zero and turned it
+into a zeroed zombie, and destroying the removed node afterwards (or re-inserting it, which resets its
+links) decremented the zombie's zero count and crashed (crashDueToCheckedPtrToDeadObject). The generic
+RunLoop, the one this port runs, keeps its timers in such a tree: stopping timers and destroying them in
+another order is enough (one-shot timers started, stopped and destroyed newest first: an abort every
+time on the build host, `webkit-views timers`). webd aborted that way when a web process's proxy was torn down
+(~ResponsivenessTimer -> ~TimerBase, and RedBlackTree::insert's depth check from ResponsivenessTimer::start
+under WKPageGoBack), seen in the browser monkey's runs right after a process swap; it is likely what
+patches 0021 and 0027 work around. The removed node is now reset, so it holds nothing.
+
+--- a/Source/WTF/wtf/RedBlackTree.h
++++ b/Source/WTF/wtf/RedBlackTree.h
+@@ -285,6 +285,10 @@
+             }
+         } else if (y->color() == Black)
+             removeFixup(x, xParent);
+ 
++        // LazyOS: out of the tree, the node holds no CheckedPtr to its old children (one of them may be
++        // destroyed before it, and its count must not still include this node).
++        z->reset();
++
+         return z;
+     }

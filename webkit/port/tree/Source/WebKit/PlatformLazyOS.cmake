@@ -194,7 +194,11 @@ set(_lazyos_engine_sources
 
 # Two views at once with no window (webkit/port/views/, docs/webd-plan.md P1): the engine's second
 # owner, which is also the test of its views. Built on request (`port.py --only webkit-views`).
-add_executable(webkit-views "${LAZYOS_PORT_DIR}/views/main.cpp" ${_lazyos_engine_sources})
+add_executable(webkit-views "${LAZYOS_PORT_DIR}/views/main.cpp" "${LAZYOS_PORT_DIR}/views/timers.cpp" ${_lazyos_engine_sources})
+# The `timers` mode tests WTF's RunLoop itself (patch 0037), with WTF's own headers and definitions.
+set_source_files_properties("${LAZYOS_PORT_DIR}/views/timers.cpp" PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR};${CMAKE_BINARY_DIR}/WTF/Headers;${CMAKE_BINARY_DIR}/bmalloc/Headers"
+    COMPILE_DEFINITIONS "BUILDING_WITH_CMAKE=1;HAVE_CONFIG_H=1;STATICALLY_LINKED_WITH_bmalloc;STATICALLY_LINKED_WITH_WTF")
 target_include_directories(webkit-views PRIVATE "${CMAKE_BINARY_DIR}/WebKit/Headers" "${LAZYOS_PORT_DIR}/app")
 target_compile_definitions(webkit-views PRIVATE ${_lazyos_program_definitions})
 target_link_libraries(webkit-views PRIVATE WebKit)

@@ -183,6 +183,7 @@ LazyOS-gated (they only matter to `PORT=LazyOS`).
 | `0033-webcore-curl-without-alt-svc-file` | curl rewrote its alt-svc cache through a temporary file and a rename after every request, and an ext2 rename flushes the volume twice under the VFS lock; alt-svc only names protocols this curl does not speak (HTTP/3) |
 | `0034-webcore-html-parser-yields-to-input-sooner` | the HTML parser kept the main thread for up to 500 ms before letting the run loop go on, so while a heavy page loaded a wheel turn, a key or a click waited that long (400 to 490 ms on The Verge in the browser monkey, 7 to 15 ms once loaded). It yields after 30 ms (`LAZYOS_WEBKIT_PARSER_YIELD_MS`, 1 to 500); an embedder's `customHTMLTokenizerTimeDelay` still wins |
 | `0035-webkit-wheel-done-callback` | `WKPageSetWheelDoneCallback`: after every wheel event is queued, sent, dropped or answered, how many the page's process has not answered (the coalescer's queue and the coalesced events in flight), and 0 when the process ended. The page's process says it scrolled before it answers, on the same connection, so at each call the last offset told is where the answered events left the page. webd numbers each turn of a full view (`Wheel.seq`) and answers it with `WheelDone` (`webkit/port/app/wheel.cpp`); LazyWeb keeps its picture ahead of the page while turns are unanswered and puts it where the page went at each answer (`xui-app/crates/webkit/src/speculate.rs`), instead of guessing with timers (issue #940) |
+| `0037-wtf-red-black-tree-remove-clears-the-removed-node` | `RedBlackTree::remove` left the removed node's `CheckedPtr` links to its old children, and the generic `RunLoop` this port runs keeps its timers in that tree: a stopped timer still held its former children, so when one of them was destroyed first it became a zeroed zombie and destroying (or restarting) the stopped one aborted (`crashDueToCheckedPtrToDeadObject`). webd aborted that way as a web process's proxy was torn down after a process swap (`~ResponsivenessTimer`, and the tree's depth check under `WKPageGoBack`); likely what `0021` and `0027` work around. The removed node is reset; `webkit-views timers` stops and destroys timers out of order (it aborted every time before) |
 
 `OptionsLazyOS.cmake` also turns `ENABLE_CONTENT_EXTENSIONS` on (it is off in `WebKitFeatures.cmake` and only the GTK and
 iOS ports enable it), which changes `cmakeconfig.h` and so rebuilds every translation unit of the three programs.
@@ -217,15 +218,16 @@ also the engine's test (docs/webd-plan.md, P1):
 python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # Docker; builds, runs in the container
 ```
 
-It runs nine modes in the build container (the programs are static musl executables): `light` (one view with
+It runs eleven modes in the build container (the programs are static musl executables): `light` (one view with
 a non-persistent store and no features), `twoeph`, `two` and `share` (two views, with stores of their own,
 with a profile directory and without, and of one profile directory; the first, which has every client of a
 browser view, is destroyed and the second loads another page), `group` and `groupprof` (two views of one group, without and with a profile directory: one web process, which
 outlives the destruction of the first view; `group` also joins a third view, refuses a recover and rebuilds
 the group), `groupmix`
 (one group number, two profiles: two processes), `cycle` (twelve views made, shown and destroyed
-in turn) and `rush` (twelve made and destroyed at once, before their pages are up); every destroyed view's web
-process must end. Each view loads a `data:` page of its own colour and title and must paint that colour and
+in turn), `rush` (twelve made and destroyed at once, before their pages are up) and `churn` (the cycle with two
+hundred views); every destroyed view's web process must end. `timers` makes no view: WTF's run loop timers
+stopped and destroyed out of order (patch `0037`). Each view loads a `data:` page of its own colour and title and must paint that colour and
 never the other view's, and the page's updates must reach it (they find their view by the page). Findings it
 made:
 
