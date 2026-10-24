@@ -216,15 +216,16 @@ also the engine's test (docs/webd-plan.md, P1):
 python tools/webkit/port.py --only WebProcess NetworkProcess webkit-views --run-views   # Docker; builds, runs in the container
 ```
 
-It runs nine modes in the build container (the programs are static musl executables): `light` (one view with
+It runs eleven modes in the build container (the programs are static musl executables): `light` (one view with
 a non-persistent store and no features), `twoeph`, `two` and `share` (two views, with stores of their own,
 with a profile directory and without, and of one profile directory; the first, which has every client of a
 browser view, is destroyed and the second loads another page), `group` and `groupprof` (two views of one group, without and with a profile directory: one web process, which
 outlives the destruction of the first view; `group` also joins a third view, refuses a recover and rebuilds
 the group), `groupmix`
 (one group number, two profiles: two processes), `cycle` (twelve views made, shown and destroyed
-in turn) and `rush` (twelve made and destroyed at once, before their pages are up); every destroyed view's web
-process must end. Each view loads a `data:` page of its own colour and title and must paint that colour and
+in turn), `rush` (twelve made and destroyed at once, before their pages are up) and `churn` (the cycle with two
+hundred views); every destroyed view's web process must end. `timers` makes no view: WTF's run loop timers
+stopped and destroyed out of order (patch `0037`). Each view loads a `data:` page of its own colour and title and must paint that colour and
 never the other view's, and the page's updates must reach it (they find their view by the page). Findings it
 made:
 

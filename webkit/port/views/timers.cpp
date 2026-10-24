@@ -5,6 +5,8 @@
 // (crashDueToCheckedPtrToDeadObject): webd's abort after a web process's proxy was torn down. Builds on WTF
 // alone, so it runs before the engine starts.
 
+// The build's options first, as WTF's own config.h takes them, so this file sees WTF as libWTF was built.
+#include "cmakeconfig.h"
 #include <wtf/Platform.h>
 #include <wtf/ExportMacros.h>
 
