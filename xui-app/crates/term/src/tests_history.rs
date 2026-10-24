@@ -173,3 +173,45 @@ fn a_resize_keeps_the_history() {
     assert_eq!(term.scrollback_len() + term.rows(), lines);
     check(&term);
 }
+
+#[test]
+fn scroll_up_and_down_sink_order_and_row_clearing() {
+    use crate::cell::Attr;
+    use crate::screen::Screen;
+
+    let mut scr = Screen::new(10, 4);
+    for row in 0..4 {
+        scr.rows[row].cells[0].ch = char::from_digit(row as u32, 10).unwrap();
+        scr.rows[row].wrapped = true;
+    }
+
+    let mut seen = Vec::new();
+    scr.scroll_up(0, 3, 2, Attr::default(), |row| {
+        seen.push(row.cells[0].ch);
+    });
+
+    // The sink must see row 0 ('0') and row 1 ('1') in order
+    assert_eq!(seen, vec!['0', '1']);
+    // Rows 2 ('2') and 3 ('3') scrolled up to indices 0 and 1
+    assert_eq!(scr.rows[0].cells[0].ch, '2');
+    assert_eq!(scr.rows[1].cells[0].ch, '3');
+    // Cleared rows at indices 2 and 3 must be blank and unwrapped
+    assert_eq!(scr.rows[2].cells[0].ch, ' ');
+    assert!(!scr.rows[2].wrapped);
+    assert_eq!(scr.rows[3].cells[0].ch, ' ');
+    assert!(!scr.rows[3].wrapped);
+
+    // Now test scroll_down by 1
+    scr.rows[0].cells[0].ch = 'A';
+    scr.rows[1].cells[0].ch = 'B';
+    scr.rows[2].cells[0].ch = 'C';
+    scr.rows[3].cells[0].ch = 'D';
+    scr.scroll_down(0, 3, 1, Attr::default());
+
+    // Top row becomes blank and unwrapped, rows shift down
+    assert_eq!(scr.rows[0].cells[0].ch, ' ');
+    assert!(!scr.rows[0].wrapped);
+    assert_eq!(scr.rows[1].cells[0].ch, 'A');
+    assert_eq!(scr.rows[2].cells[0].ch, 'B');
+    assert_eq!(scr.rows[3].cells[0].ch, 'C');
+}

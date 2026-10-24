@@ -212,3 +212,18 @@ fn a_hostile_ring_rewrite_only_changes_its_own_samples() {
     let noise = i16::from_le_bytes([0x55, 0x55]);
     assert!(out.iter().all(|&s| s == 10 + noise));
 }
+
+#[test]
+fn silent_master_zeros_even_and_odd_output_buffers() {
+    let mut mixer = mixer();
+    let (id, ring, _) = open_attached(&mut mixer, OWNER, 48000, 2);
+    feed(&mut mixer, id, OWNER, &ring, &vec![12345; 2 * PERIOD]);
+    mixer.set_master(0, false).unwrap();
+    let mut out_even = vec![999i16; 2 * PERIOD];
+    mixer.mix(&mut out_even, 1024);
+    assert!(out_even.iter().all(|&s| s == 0));
+
+    let mut out_odd = vec![999i16; 2 * PERIOD + 1];
+    mixer.mix(&mut out_odd, 2048);
+    assert!(out_odd.iter().all(|&s| s == 0));
+}
