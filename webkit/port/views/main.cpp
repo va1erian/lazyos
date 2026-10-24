@@ -18,7 +18,7 @@
 //   webkit-views timers  no view: WTF's run loop timers stopped and destroyed in other orders than they were
 //                        started (patch 0037; a stopped timer's tree node held its old children)
 //   webkit-views churn   the cycle with two hundred views: each end of a page's process closes an IPC
-//                        connection while the other side may still be writing to it (patch 0036)
+//                        connection while the other side may still be writing to it
 // The first view of the pairs has every feature (the clients of a full browser view), the second none.
 //
 // Each view loads a data: page of its own colour and title and must end up painting that colour and no

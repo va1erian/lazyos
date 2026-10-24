@@ -257,7 +257,7 @@ def run_views() -> bool:
     """Run ``webkit-views`` (``webkit/port/views``, docs/webd-plan.md P1) on the build host: the engine's
     views without a window, once with one light view, three times with two views (of different profiles, of none, of the same one),
     and twice making and destroying twelve views in turn (after they painted, and at once), then two
-    hundred (``churn``: every end of a page process closes an IPC connection, patch 0036), and WTF's run
+    hundred (``churn``: every end of a page process closes an IPC connection), and WTF's run
     loop timers stopped and destroyed out of order (``timers``, patch 0037).
     Each run prints ``VIEWS:`` lines (the engine processes it launched among them) and ends with
     ``VIEWS:PASS``; a run that does not is a ``BuildError``. Only in the build container, like
