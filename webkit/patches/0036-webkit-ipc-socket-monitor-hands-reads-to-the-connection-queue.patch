@@ -7,10 +7,9 @@ on the queue, and the code assumes it: platformInvalidate tests m_isConnected an
 and drops m_socketMonitor, so when a page's process ended while its proxy was being shut down (a process
 swap, Back to another site, a view destroyed) both threads could close the same number, the second time a
 descriptor some other file or connection had taken by then, and both could drop the one reference to the
-monitor's WTF::Thread. The UI process's heap went bad and webd aborted later and elsewhere: the main run
-loop's timer tree deeper than 128 (RedBlackTree::insert from ResponsivenessTimer::start, under
-WKPageGoBack and WKPageHandleWheelEvent, and ~TimerBase), seen in the browser monkey's runs; patches 0021
-and 0027 work around crashes of the same shape (a CheckedPtr count already zero after a process ended).
+monitor's WTF::Thread (a double deref, or a stray close of another connection's socket). Found while
+chasing webd's aborts after a process swap in the browser monkey's runs (the timer tree that patch 0037
+fixes); with this patch alone those aborts were rarer (1 in 6 replays of one recording instead of 4 in 6).
 
 The thread now only waits for the descriptor and hands what it found to the queue with dispatchSync, so the
 reads, the close and platformInvalidate never run at once; it waits for the queue to finish before it polls
