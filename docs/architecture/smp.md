@@ -542,14 +542,16 @@ counting tasks count 7x to 11x as much on four CPUs as on one
 (`smp_sched_parallel_counting_scales`).
 
 Most of that Messenger loss was placement, not the lock itself: every round
-trip crossed CPUs. With the partner grace (S8.4a), three interleaved A/B
-runs of `main` and the change on one image each (WHPX, `--smp 4`, a host
-loaded by two other QEMUs) gave a round trip of 7.7-8.3 µs against
-9.8-13.5 µs, 418k-492k messages/s against 288k-425k, and 41k-51k
-contended entries against 162k-167k (`kicks` fell to about 1000 a run, with
-89k returns keeping a partner's wake and no misses). Input to present, IRQ
-wake and 1 ms sleeps did not move; `wake_run`'s 99th percentile rose by
-about the grace (41/28/34 µs to 74/66/77 µs), its median and mean did not.
+trip crossed CPUs. With the partner grace (S8.4a), interleaved A/B runs of
+`main` and the change, one image each (WHPX, `--smp 4`, a host loaded by
+other QEMUs), gave a round trip of 5.6-8.3 µs against 9.5-13.5 µs,
+400k-550k messages/s against 290k-440k, and 20k-70k contended entries
+against 150k-167k (75k-90k syscall returns a run keep a partner's wake, a few
+thousand kicks remain, about ten misses). Input to present, IRQ
+wake and 1 ms sleeps did not move; `wake_run`'s 99th percentile rises by
+about the grace (30-45 µs to 35-125 µs), its median falls. Rows "S8.4a A/B:
+main" and "S8.4a partner grace" in `docs/perf/history.md` are one such
+pair.
 
 The suite's pause (`idle::pause_aps`, test kernels only) holds the APs back:
 no task, tick stopped, a halt that no flag ends; each scheduling case lets
