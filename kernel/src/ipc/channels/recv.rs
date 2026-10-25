@@ -290,17 +290,21 @@ fn remove_waiter(channel_id: u64, side: usize, slot: usize) {
 /// already returned, timed out or parked elsewhere is skipped by
 /// `notify_task`, so a stale registration can never wake an unrelated wait.
 pub(super) fn wake(slots: impl IntoIterator<Item = usize>) -> Option<usize> {
-    // A partner's wake: the caller usually parks in its next call, so the
-    // woken task waits a moment for this CPU (`task::kick`, the grace).
-    task::kick::partner_wakes(|| {
-        let mut first = None;
-        for slot in slots {
-            if MESSENGER.notify_task(slot) && first.is_none() {
-                first = Some(slot);
-            }
+    let mut first = None;
+    for slot in slots {
+        if MESSENGER.notify_task(slot) && first.is_none() {
+            first = Some(slot);
         }
-        first
-    })
+    }
+    first
+}
+
+/// [`wake`] for a task's own send, call or reply: a partner's wake, whose
+/// waker usually parks in its next call, so the woken task waits a moment
+/// for this CPU (`task::kick`, the grace). Not for the kernel's posts (a
+/// device interrupt's notification) nor a channel's teardown.
+pub(super) fn wake_partner(slots: impl IntoIterator<Item = usize>) -> Option<usize> {
+    task::kick::partner_wakes(|| wake(slots))
 }
 
 /// Run `partner` (a callee a call woke, a caller a reply woke) as soon as the

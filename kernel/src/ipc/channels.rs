@@ -240,7 +240,7 @@ pub fn send_owned(handle: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     )?;
     // The message owns the moved references now; the sender's numbers are gone.
     close_moved_handles(&numbers);
-    wake(receivers.iter());
+    wake_partner(receivers.iter());
     ring(channel_id, 1 - side);
     Ok(())
 }

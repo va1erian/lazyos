@@ -96,16 +96,23 @@ fn outlast_grace(since: u64) {
 pub fn partner_wake_keeps_its_grace() -> Result<(), String> {
     with_aps(|_| {
         let thread = start_woken()?;
+        let me = task::current();
         let mut kept = 0;
         for round in 1..=ROUNDS {
+            // A vCPU stall in an earlier round must not cost this one.
+            kick::forgive(me);
             let since = now();
             partner_wake();
             // The grace starts inside the wake, between these two clocks.
             let woke = now();
             check!(kick::remembered_here(), "wake {round} was not remembered");
             kick::flush_after_syscall();
-            let fast = now().saturating_sub(since) < GRACE_NS;
-            if fast && kick::remembered_here() {
+            // A return inside the grace keeps it, always.
+            if now().saturating_sub(since) < GRACE_NS {
+                check!(
+                    kick::remembered_here(),
+                    "wake {round}: a return in the grace placed it"
+                );
                 kept += 1;
             }
             outlast_grace(woke);
@@ -118,6 +125,7 @@ pub fn partner_wake_keeps_its_grace() -> Result<(), String> {
         }
         // A wake that is not a partner's has no grace.
         QUEUE.notify_all();
+        let plain_remembered = kick::remembered_here();
         kick::flush_after_syscall();
         let plain_kept = kick::remembered_here();
         await_run(thread, ROUNDS + 1)?;
@@ -125,10 +133,14 @@ pub fn partner_wake_keeps_its_grace() -> Result<(), String> {
         crate::trace::test!(
             "smp_sched_partner_wake_keeps_its_grace:INFO:rounds={ROUNDS} kept={kept} cpus={cpus:#x}"
         );
+        check!(plain_remembered, "the plain wake was not remembered");
         check!(!plain_kept, "a syscall return kept a plain wake");
         check!(cpus & !1 != 0, "no placed wake ran on an AP ({cpus:#x})");
         if timing_checked() {
             check!(kept * 2 > ROUNDS, "only {kept} of {ROUNDS} wakes were kept");
+        } else if kept == 0 {
+            // Unaccelerated, no round was quick enough to judge the grace.
+            crate::trace::test!("smp_sched_partner_wake_keeps_its_grace:INFO:grace not exercised");
         }
         end_woken(thread);
         Ok(())
@@ -167,9 +179,11 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
             partner_wake();
             kick::flush_after_syscall();
             let kept = kick::remembered_here();
-            if waited > kick::MISS_NS {
+            denied += u64::from(!kept);
+            // Judged with a margin: the miss is timed from inside the wake
+            // to the flush, `waited` from before the wake to after the spin.
+            if timing_checked() && waited > kick::MISS_NS + 500_000 {
                 check!(!kept, "wake {round}: a waker that missed kept its grace");
-                denied += 1;
             }
             task::nap();
             await_run(thread, 2 * round)?;
@@ -199,8 +213,10 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
 pub fn grace_soak() -> Result<(), String> {
     with_aps(|_| {
         let thread = start_woken()?;
+        let me = task::current();
         let started = now();
         for round in 1..=SOAK {
+            kick::forgive(me);
             partner_wake();
             let woke = now();
             kick::flush_after_syscall();

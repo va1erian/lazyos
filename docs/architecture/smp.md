@@ -468,8 +468,9 @@ one-way sends wake the server; its closing call parks. Placed at the first
 syscall's return, the woken task ran on another CPU while its partner,
 about to park, still had kernel work: each round trip crossed CPUs, took
 turns at the entry lock and woke a halted vCPU. So the Messenger fabric's
-wakes (a send's or call's receiver, a reply's caller and its completion
-doorbell) are marked as a partner's (`kick::partner_wakes`), and while
+wakes a task makes itself (a send's or call's receiver, a reply's caller
+and its completion doorbell; not the kernel's posts of a device interrupt,
+nor a channel's teardown or a call's timeout) are marked as a partner's (`kick::partner_wakes`), and while
 everything a CPU remembers is a partner wake of a task it may run (never
 the kernel task on an AP), a syscall return
 (`syscall_return_point`) keeps it for 50 µs (`kick::GRACE_NS`) after the
@@ -480,10 +481,9 @@ new task), and every other preemption point (an interrupt return, a
 scheduler entry, a nap, the idle loop), places at once; a syscall return
 after the grace places too. A waker that goes on computing in ring 3
 leaves the placement to its CPU's next tick (or any idle CPU's tick, which
-finds the task in the run queue); a kept window that its CPU closes more
-than 1 ms after it began without having run the task itself (placing it
-then, or finding another CPU's tick took it) is a miss, and its waker gets
-no grace for a second
+finds the task in the run queue); a kept window that its CPU closes
+(switching, or placing what it kept) more than 1 ms after it began is a
+miss, wherever the task then ran, and its waker gets no grace for a second
 (`kick::MISS_NS`, `PENALTY_NS`), so a server that replies and then works
 in ring 3 costs at most one tick-long wait a second. `PERF:entry` counts
 `kicks`, `kept` returns and `missed` graces.

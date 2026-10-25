@@ -39,12 +39,14 @@
 //! after the grace or this CPU's next tick, which bounds the wait of a task
 //! whose waker went on computing in ring 3 (or any idle CPU's tick, which
 //! finds the task in the run queue). That wait is a tick, not the grace, so
-//! a kept window this CPU places more than [`MISS_NS`] after it began
-//! without having run the task itself is a miss, whether or not another
-//! CPU took the task meanwhile: its waker (a server that replies and then
-//! works in ring 3, a compositor drawing after its answer) gets no grace
-//! for [`PENALTY_NS`], its wakes are placed at once again, as before the
-//! grace, and at most one per penalty waits for a tick.
+//! a kept window this CPU closes (switching, or placing what it kept) more
+//! than [`MISS_NS`] after it began is a miss, wherever the task then ran:
+//! its waker (a server that replies and then works in ring 3, a compositor
+//! drawing after its answer) gets no grace for [`PENALTY_NS`], its wakes
+//! are placed at once again, as before the grace, and at most one per
+//! penalty waits for a tick. Only a task's own sends, calls and replies are
+//! partner wakes: the kernel's posts of a device interrupt, a channel's
+//! teardown and a call's timeout are placed at once.
 //!
 //! The kernel task (slot 0, the multiplexer and, in test kernels, the
 //! suite itself) runs on the boot CPU only: it runs on the boot stack, the
@@ -220,14 +222,9 @@ pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
     if word == u64::MAX {
         return;
     }
-    let mut ran_here = false;
     for lane in 0..4 {
         let slot = ((word >> (lane * 16)) & 0xFFFF) as usize;
-        if slot as u64 == EMPTY {
-            continue;
-        }
-        if let Some(on) = oncpu::cpu_of(slot) {
-            ran_here |= on == cpu;
+        if slot as u64 == EMPTY || oncpu::cpu_of(slot).is_some() {
             continue;
         }
         if !super::sched::runnable(tasks, slot) {
@@ -237,14 +234,15 @@ pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
             kick(target);
         }
     }
-    if keeper != u64::MAX && !ran_here {
+    if keeper != u64::MAX {
         note_miss(keeper as usize, SINCE[cpu].load(Ordering::Relaxed));
     }
 }
 
-/// A grace kept by `keeper` ended without this CPU running what it kept
-/// (it is placed now, or another CPU's tick took it): if the window begun
-/// at `since` lasted past [`MISS_NS`], deny `keeper` the grace for
+/// A grace kept by `keeper` ends: this flush runs when its CPU switches
+/// (to the kept task or another) or places what it kept, so if the window
+/// begun at `since` lasted past [`MISS_NS`] the kept task waited that long
+/// (here, or until another CPU's tick took it): deny `keeper` the grace for
 /// [`PENALTY_NS`].
 fn note_miss(keeper: usize, since: u64) {
     let now = crate::arch::clock::monotonic_ns();
