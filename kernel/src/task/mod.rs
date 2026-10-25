@@ -91,6 +91,7 @@ mod console;
 pub mod consoletty;
 pub mod cpustat;
 mod cwd;
+mod dethread;
 mod fdcharge;
 mod fdio;
 mod fdlimit;
@@ -139,6 +140,7 @@ mod waiting;
 
 pub use console::*;
 pub use cwd::{cwd, set_cwd};
+pub use dethread::dethread;
 pub use fdio::*;
 pub use fdlimit::*;
 pub use fdops::*;

@@ -45,6 +45,10 @@ pub fn fatal_pending_follows_the_kill() -> Result<(), String> {
     fresh()?;
     let (victim, cs) = kernel_child()?;
     let (bystander, _) = kernel_child()?;
+    // A thread of the victim's process, made before the kill.
+    task::harness::switch_current(victim);
+    let thread = task::spawn_thread("killwatch-thread", process::USER_STACK_TOP, 0, 0)
+        .map_err(|error| format!("thread: {error}"))?;
     for slot in [victim, bystander, task::KERNEL_TASK] {
         task::harness::switch_current(slot);
         check!(
@@ -66,15 +70,16 @@ pub fn fatal_pending_follows_the_kill() -> Result<(), String> {
         );
     }
     task::harness::switch_current(task::KERNEL_TASK);
-    // A thread of the victim's process sees it too.
-    task::harness::switch_current(victim);
-    let thread = task::spawn_thread("killwatch-thread", process::USER_STACK_TOP, 0, 0)
-        .map_err(|error| format!("thread: {error}"))?;
+    // The other thread of the victim's process sees it too, and the killed
+    // process makes no new thread (the kill could miss it).
     task::harness::switch_current(thread);
     check!(
         signal::fatal_pending(),
-        "a new thread of a killed process is not pending"
+        "a thread of a killed process is not pending"
     );
+    task::harness::switch_current(victim);
+    let late = task::spawn_thread("killwatch-late", process::USER_STACK_TOP, 0, 0);
+    check!(late.is_err(), "a killed process made thread {late:?}");
     task::harness::switch_current(task::KERNEL_TASK);
     task::harness::set_frame_cs(victim, cs);
     check!(

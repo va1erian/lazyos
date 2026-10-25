@@ -353,8 +353,12 @@ pub fn finish_sweep(finished: &[SweepFinish]) {
     for done in finished {
         // A fatal signal ends the whole thread group, not the one thread the
         // sweep happened to catch (Linux's group exit): the rest follow it.
+        // Not a thread that another thread's `execve` ended: that one goes
+        // alone.
         if let Some((pml4, _)) = slot_info(done.slot as usize) {
-            if term_signal_of(pml4, u64::from(done.status)).is_some() {
+            if term_signal_of(pml4, u64::from(done.status)).is_some()
+                && !exec_victim(pml4, done.slot as usize)
+            {
                 kill_process(pml4, u64::from(done.status));
             }
         }

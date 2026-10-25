@@ -227,8 +227,15 @@ pub fn spawn_thread_sharing(
         return Err("non-canonical user fs base");
     }
     let mut tasks = TASKS.lock();
-    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let creator = current();
+    // A creator being killed (its process, or by another thread's `execve`)
+    // makes nothing: decided under the table lock that the kill's scan also
+    // holds, so a new thread is either seen by the scan or never made.
+    let space = tasks[creator].as_ref().map_or(0, |task| task.pml4);
+    if creator != KERNEL_TASK && signal::kill_pending(space, creator) {
+        return Err("the creating thread is being killed");
+    }
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     // The creator's leader, validated: a thread left over from a program that
     // exec'd must not hand its new thread a stale leader slot.
     let leader = family::leader_of(&tasks, creator);

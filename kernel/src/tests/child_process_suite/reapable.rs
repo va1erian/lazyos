@@ -1,7 +1,7 @@
 //! When a process becomes reapable (issue #859): the parent hears of a
 //! process (`SIGCHLD`, the child bell, `wait4`) once, when its leader is gone
 //! and its last thread has left; the group's exit status reaches a leader
-//! that exited first; `exec` from the last thread; a group kill.
+//! that exited first; `exec` from the last thread keeps the pid; a group kill.
 
 use super::more::send_as_kernel;
 use super::*;
@@ -162,9 +162,9 @@ pub fn group_exit_status_reaches_a_zombie_leader() -> Result<(), String> {
     Ok(())
 }
 
-/// A non-leader thread that execs becomes its own leader (`getpid` follows)
-/// and, as the last live task of the old process, makes a zombie leader
-/// reapable: the parent is told.
+/// The last thread of a process whose leader exited first execs: the zombie
+/// leader comes along into the new image and keeps the pid (`getpid` stays),
+/// so the parent is not told at the exec, only when the new image ends.
 pub fn exec_from_the_last_thread() -> Result<(), String> {
     fresh()?;
     let (parent, _) = process_with_threads(0)?;
@@ -183,20 +183,27 @@ pub fn exec_from_the_last_thread() -> Result<(), String> {
     let table = crate::mem::new_user_table().ok_or("no table")?;
     task::set_pml4(table.as_u64());
     check!(
-        task::linuxstate::tgid() == thread,
-        "the exec'd thread is not its own leader"
+        task::linuxstate::tgid() == child,
+        "the exec changed the pid to {}",
+        task::linuxstate::tgid()
     );
     here(KERNEL_TASK);
+    check!(!sigchld_pending(parent), "SIGCHLD at the exec");
+    let (ret, _) = wait4_as(parent);
+    check!(
+        ret == 0,
+        "wait4 collected the process at its exec: {ret:#x}"
+    );
+    task::harness::finish(thread, 0);
     check!(
         sigchld_pending(parent),
-        "no SIGCHLD when the old process lost its last task"
+        "no SIGCHLD when the new image ended"
     );
     let (ret, _) = wait4_as(parent);
     check!(
         ret == child as u64,
-        "the zombie leader was not reapable: {ret:#x}"
+        "wait4 after the exit returned {ret:#x}"
     );
-    task::harness::finish(thread, 0);
     task::harness::simulate_tick();
     here(KERNEL_TASK);
     task::reclaim_pending();

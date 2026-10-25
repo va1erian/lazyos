@@ -47,6 +47,10 @@ pub(super) struct Signals {
     /// finished a second later, and whether it already did.
     pub(super) kill_at_ns: u64,
     pub(super) slow_reported: bool,
+    /// The thread whose `execve` is ending the others (0: none; see
+    /// [`execkill`](super::execkill)). Never cleared: the entry is dropped
+    /// with the old address space once the exec has moved on.
+    pub(super) exec_by: usize,
 }
 
 impl Signals {
@@ -60,6 +64,7 @@ impl Signals {
             group_signaled: false,
             kill_at_ns: 0,
             slow_reported: false,
+            exec_by: 0,
         }
     }
 }

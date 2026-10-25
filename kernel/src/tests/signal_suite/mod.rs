@@ -26,6 +26,8 @@ fn send(target: usize, sig: u8) -> Result<(), String> {
 }
 
 mod delivery;
+mod dethread;
+mod dethread_live;
 mod fpstate;
 mod group_end;
 mod hardening;
@@ -39,6 +41,8 @@ mod wait_interrupt;
 mod xstate;
 
 pub(super) use delivery::*;
+pub(super) use dethread::*;
+pub(super) use dethread_live::*;
 pub(super) use fpstate::*;
 pub(super) use group_end::*;
 pub(super) use hardening::*;
@@ -175,4 +179,21 @@ pub(super) const CASES: &[(&str, Test)] = &[
         wait_interrupted_by_linux_signals,
     ),
     ("task_signal_soak_wait_interrupted", soak_wait_interrupted),
+    (
+        "task_signal_exec_ends_the_other_threads",
+        exec_ends_the_other_threads,
+    ),
+    (
+        "task_signal_exec_from_a_thread_keeps_the_pid",
+        exec_from_a_thread_keeps_the_pid,
+    ),
+    (
+        "task_signal_exec_refused_while_dying",
+        exec_refused_while_dying,
+    ),
+    (
+        "task_signal_exec_waits_for_unwinding_threads",
+        exec_waits_for_unwinding_threads,
+    ),
+    ("task_signal_soak_exec_dethread", soak_exec_dethread),
 ];

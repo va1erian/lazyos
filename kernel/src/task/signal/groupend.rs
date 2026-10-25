@@ -110,8 +110,17 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
 /// `Done` would leak forever (audit H5). `signaled` says whether `status` is
 /// `128 + signal`. Returns how many threads were finished immediately.
 pub fn end_process(pml4: u64, status: u64, signaled: bool) -> usize {
-    let (status, mut ended) = kill_threads(pml4, status, signaled);
     let me = current();
+    // A thread of this process that another thread's `execve` is ending
+    // (its own `exit_group`, a fault on its way out) goes alone, as on Linux:
+    // the exec wins and the process lives on in the new image.
+    if me != KERNEL_TASK
+        && slot_info(me).is_some_and(|(space, _)| space == pml4)
+        && finish_exec_victim(me, status)
+    {
+        return 1;
+    }
+    let (status, mut ended) = kill_threads(pml4, status, signaled);
     let mine = me != KERNEL_TASK
         && TASKS.lock()[me]
             .as_ref()
@@ -126,6 +135,11 @@ pub fn end_process(pml4: u64, status: u64, signaled: bool) -> usize {
 /// rest of its process (see [`kill_process`]). Called at a delivery boundary
 /// on the way back to user mode, where the current task holds nothing.
 pub(super) fn exit_group(pml4: u64, status: u64) -> ! {
+    // A thread another thread's `execve` is ending goes alone: the process
+    // lives on in the new image.
+    if finish_exec_victim(current(), status) {
+        halt_forever()
+    }
     let status = kill_process(pml4, status);
     process::finish(current(), status);
     halt_forever()

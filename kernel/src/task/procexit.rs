@@ -9,9 +9,9 @@
 //! the multiplexer loop, where neither the table nor the serial ring is held.
 //!
 //! A **process** is a thread group: the tasks whose `tgid` is the same (a
-//! task's own slot for a leader). Not an address space: a `vfork` child shares
-//! its parent's, and a thread that `execve`s leaves its siblings on the old
-//! one. How a process died is what the kernel recorded for `wait4`
+//! task's own slot for a leader). Not an address space: an `execve` moves the
+//! process to a new one (its other threads end first, `task::dethread`, and a
+//! zombie leader comes along). How a process died is what the kernel recorded for `wait4`
 //! (`LinuxExtras::term_signal`), not a guess from the exit status: `exit(137)`
 //! is a status, not `SIGKILL`.
 //!

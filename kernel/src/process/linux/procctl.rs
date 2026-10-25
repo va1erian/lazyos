@@ -10,7 +10,7 @@ use crate::user_ptr;
 
 use super::cwd::{read_path, resolve_at, AT_FDCWD};
 use super::elf::load_image;
-use super::errno::{err, EINVAL, ENOMEM, ENOSYS, EPERM, ESRCH};
+use super::errno::{err, EAGAIN, EINVAL, ENOMEM, ENOSYS, EPERM, ESRCH};
 use super::fd::close_cloexec_fds;
 use super::futex::futex_wake;
 use super::uaccess::write_u32;
@@ -264,9 +264,17 @@ pub(super) fn sys_execve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) -> u64 {
     if crate::ipc::children::enter_on_exec(task::current(), &matches).is_err() {
         return err(EPERM);
     }
+    // Every other thread ends before the new image runs (Linux's
+    // `de_thread`): they would go on running the old program in the old
+    // address space. A process being killed meanwhile (or another thread's
+    // `execve` that got there first) fails this one, and the caller dies at
+    // its syscall return.
+    if task::dethread().is_err() {
+        return err(EAGAIN);
+    }
 
     // The image is committed. Record the program (`/proc/self/exe`), which
-    // also stops sharing the descriptor table with the old threads, then close
+    // also stops sharing the descriptor table the old threads had, then close
     // the descriptors std marked `O_CLOEXEC` (the child's copies of the
     // inherit-only pipe ends) before resuming.
     task::linuxstate::set_exe(&image.path);
