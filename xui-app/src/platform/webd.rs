@@ -18,6 +18,7 @@
 //! `app.os.lazy.webd.view`, sends every call as `os.lazy.webd.view.v1` except the `CreateView` of a
 //! scope (`ScopedTransport::call_through`), and reads events of that interface.
 
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 use libmessenger::{Object, Parcel};
@@ -87,6 +88,13 @@ impl Drop for Pages {
     }
 }
 
+/// The descriptor watching a channel's peer; only a LazyOS (unix) build has descriptors, so a host
+/// build of this crate (Windows tooling) never watches and treats an empty queue as nothing yet.
+#[cfg(unix)]
+type HangupFd = OwnedFd;
+#[cfg(not(unix))]
+type HangupFd = ();
+
 /// The transport: the registered name it calls and the interface of its calls and events.
 pub struct WebdTransport {
     buf: Vec<u8>,
@@ -94,7 +102,7 @@ pub struct WebdTransport {
     interface: u64,
     /// The event channel and a descriptor watching it, made at the first empty poll
     /// ([`WebdTransport::peer_gone`]); dropped when the channel is closed.
-    hangup: Option<(u64, OwnedFd)>,
+    hangup: Option<(u64, HangupFd)>,
 }
 
 impl Default for WebdTransport {
@@ -131,6 +139,12 @@ impl WebdTransport {
     /// for events for good: the descriptor stayed readable, the window's loop spun on it, and the
     /// view was never made again. Asked with a zero-timeout `poll` on a descriptor of our own (a
     /// blocking `msg_wait_any` would park the UI thread until the next tick on every empty poll).
+    #[cfg(not(unix))]
+    fn peer_gone(&mut self, _channel: u64) -> Result<Option<RawEvent>, i64> {
+        Ok(None)
+    }
+
+    #[cfg(unix)]
     fn peer_gone(&mut self, channel: u64) -> Result<Option<RawEvent>, i64> {
         let fd = match &self.hangup {
             Some((handle, fd)) if *handle == channel => fd.as_raw_fd(),
