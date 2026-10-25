@@ -37,7 +37,7 @@ syscall number of the longest interrupts-off stretch.
 | `input_present_rpt` | an `input_present` sample | the same, booked only when a report ran inside it | the moves |
 | `usb_input_present` | the xHCI interrupt the kernel posted to `usbd` before it published a pointer record | the compositor's next `present` returns | `--usb`: the same moves through a `usb-mouse` |
 
-With `--smp N` (N > 1) the report also gives the kernel entry lock's contention (`PERF:entry`: how many entries waited for another CPU, the longest wait, the CPUs running tasks), the number each SMP stage after S8.3 is measured against (`docs/smp-plan.md`). The history row's accelerator column says `smpN`.
+With `--smp N` (N > 1) the report also gives the kernel entry lock's contention (`PERF:entry`: how many entries waited for another CPU, the longest wait, the CPUs running tasks, and the wake placement's counts: kicks sent to another CPU, syscall returns that kept a Messenger partner's wake for the grace, and graces missed; `docs/architecture/smp.md`, "The partner grace"), the number each SMP stage after S8.3 is measured against (`docs/smp-plan.md`). The history row's accelerator column says `smpN`.
 
 `--max-msg-rt-p50-us 10` turns the run into the P6 regression gate: it fails
 when msgbench's median round trip is over 10 µs, under KVM or WHPX only (no

@@ -75,7 +75,8 @@ pub fn record(caller: usize, txn_id: u64) {
     }
     // The level check is what a parked loop resumes on; the wake is only
     // the shortcut. Locked separately: nothing under an ever-held lock.
-    wake_parked(caller);
+    // Usually the caller's wake for its reply: a partner's (`task::kick`).
+    crate::task::kick::partner_wakes(|| wake_parked(caller));
 }
 
 /// Whether `me`'s queue holds anything (the wait's doorbell: level, like

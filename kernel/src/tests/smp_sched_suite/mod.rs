@@ -7,6 +7,8 @@
 //! again; idle ticks fold to the machine's share. Stress: ping-pong pairs
 //! handing a token across CPUs, and a churn of short threads that exit on
 //! the APs and are reaped on the boot CPU, with every kernel stack back.
+//! The partner grace (`task::kick`): kept inside it, placed after it or at
+//! the tick, plain wakes never kept, no wake lost or run twice in a soak.
 //!
 //! The suite's own task (the kernel task) stays on the boot CPU (it is
 //! pinned there, `task::kick`). Each case lets the APs schedule and holds
@@ -32,6 +34,8 @@ fn needs_smp() -> Result<(), String> {
 #[cfg(lazyos_smp)]
 mod cases;
 #[cfg(lazyos_smp)]
+mod grace;
+#[cfg(lazyos_smp)]
 mod rig;
 #[cfg(lazyos_smp)]
 mod scaling;
@@ -51,7 +55,16 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("smp_sched_idle_ticks_fold", cases::idle_ticks_fold),
     ("smp_sched_ap_sleep_is_exact", cases::ap_sleep_is_exact),
+    (
+        "smp_sched_partner_wake_keeps_its_grace",
+        grace::partner_wake_keeps_its_grace,
+    ),
+    (
+        "smp_sched_grace_ends_at_the_tick",
+        grace::grace_ends_at_the_tick,
+    ),
     ("smp_sched_pingpong_soak", stress::pingpong_soak),
+    ("smp_sched_grace_soak", grace::grace_soak),
     ("smp_sched_thread_churn_soak", stress::thread_churn_soak),
     ("smp_sched_ring3_tasks_on_aps", stress::ring3_tasks_on_aps),
     (

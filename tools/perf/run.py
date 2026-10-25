@@ -74,7 +74,10 @@ RE_METRIC = re.compile(
 RE_WORST = re.compile(r"PERF:irqoff_worst:us=([\d.]+) syscall=(0x[0-9a-f]+)")
 RE_TPUT = re.compile(r"PERF:msg_tput:msgs_per_s=(\d+) calls_per_s=(\d+)")
 # The entry lock's contention (S8.3): waits for another CPU, the longest, CPUs.
-RE_ENTRY = re.compile(r"PERF:entry:waits=(\d+) longest_us=([\d.]+) cpus=(\d+)")
+RE_ENTRY = re.compile(
+    r"PERF:entry:waits=(\d+) longest_us=([\d.]+) cpus=(\d+)"
+    r"(?: kicks=(\d+) kept=(\d+) missed=(\d+))?"
+)
 #: Per-task wake/run counters (P7): `PERF:sched:tick=<t> idle=<idle>
 #: <name>#<slot>=<wakes>/<runs> ...`; the idle rate sums the per-slot counters
 #: (kernel/src/perf/wakeups.rs, tools/perf/idle.py).
@@ -180,6 +183,10 @@ def parse(text: str) -> dict:
     for match in RE_ENTRY.finditer(text):
         entry = {"waits": int(match.group(1)), "longest_us": float(match.group(2)),
                  "cpus": int(match.group(3))}
+        if match.group(4) is not None:
+            entry["kicks"] = int(match.group(4))
+            entry["kept"] = int(match.group(5))
+            entry["missed"] = int(match.group(6))
     return {
         "metrics": metrics,
         "irqoff_worst": worst,
@@ -284,6 +291,9 @@ def write_report(payload: dict) -> Path:
     if entry:
         lines += ["", f"Entry lock ({entry['cpus']} CPUs running tasks): {entry['waits']} waits for "
                   f"another CPU, the longest {entry['longest_us']} us."]
+        if "kicks" in entry:
+            lines[-1] += (f" Wake placement: {entry['kicks']} kicks, {entry['kept']} syscall returns "
+                          f"kept a partner's wake, {entry['missed']} graces missed.")
     idle = payload.get("idle_ctxsw")
     if idle:
         lines += ["", f"Idle desktop: {idle['switches_per_s']} context switches/s, "

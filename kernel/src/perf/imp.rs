@@ -422,15 +422,18 @@ impl core::fmt::Display for Micros {
 
 /// The entry lock's contention since boot (S8.3), when it changed: the
 /// number each later SMP stage is measured against. `cpus` is how many CPUs
-/// run tasks.
+/// run tasks; `kicks` the wakes placed on another CPU (`task::kick`) and
+/// `kept` the syscall returns that held theirs for the partner grace,
+/// `missed` the kept wakes that waited past it for a tick.
 fn entry_report(per_tick: u64) {
     static REPORTED: AtomicU64 = AtomicU64::new(u64::MAX);
     let (waits, longest) = crate::sync::entry::contended();
     if REPORTED.swap(waits, Ordering::Relaxed) == waits {
         return;
     }
+    let (kicks, kept, missed) = crate::task::kick::counts();
     line(format_args!(
-        "PERF:entry:waits={waits} longest_us={} cpus={}\n",
+        "PERF:entry:waits={waits} longest_us={} cpus={} kicks={kicks} kept={kept} missed={missed}\n",
         Micros(cycles_to_ns(longest, per_tick)),
         crate::task::idle::scheduling_cpus()
     ));

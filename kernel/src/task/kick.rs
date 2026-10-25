@@ -21,12 +21,33 @@
 //! double and the lock waited on 200000 times). Nothing is lost by waiting:
 //! a kicked CPU needs the entry lock this CPU holds until that point anyway.
 //!
+//! **A syscall's return gives a Messenger partner a grace.** A server's
+//! `REPLY` wakes its caller and returns to ring 3, and only its next
+//! syscall, `RECV`, parks; a client's one-way sends wake the server and its
+//! closing call parks. Kicked at the first syscall's return, the woken task
+//! ran on another CPU while its partner, about to park, still had work in
+//! the kernel: every round trip then crossed CPUs, took turns at the entry
+//! lock and woke a halted CPU (Messenger throughput fell from 526k to 326k
+//! messages/s at four CPUs). So when everything remembered is a partner
+//! wake ([`partner_wakes`], the Messenger fabric's), a syscall return
+//! ([`flush_after_syscall`]) keeps it for [`GRACE_NS`] after the first of
+//! it: a partner that parks within it runs the woken task here, through the
+//! hand-off or the run queue, and the placement finds it current and kicks
+//! nobody. Any other wake (a futex, a pipe, a new task), and every other
+//! preemption point, places at once, and so does the next syscall return
+//! after the grace or this CPU's next tick, which bounds the wait of a task
+//! whose waker went on computing in ring 3. That wait is a tick, not the
+//! grace, so a waker whose kept wake waited over [`MISS_NS`] (a server that
+//! replies and then works in ring 3, a compositor drawing after its answer)
+//! gets no grace for [`PENALTY_NS`]: its wakes are placed at once again, as
+//! before the grace, and at most one per penalty waits for a tick.
+//!
 //! The kernel task (slot 0, the multiplexer and, in test kernels, the
 //! suite itself) runs on the boot CPU only: it runs on the boot stack, the
 //! device interrupts it serves land there, and the suite's cases assume
 //! their CPU does not change under them.
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::{idle, oncpu, Task, KERNEL_TASK, MAX_TASKS, TASKS};
 use crate::arch::percpu::{self, MAX_CPUS};
@@ -36,6 +57,47 @@ use crate::arch::percpu::{self, MAX_CPUS};
 static PENDING: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(u64::MAX) }; MAX_CPUS];
 /// A free lane of [`PENDING`].
 const EMPTY: u64 = 0xFFFF;
+/// Per CPU: when (monotonic ns) its [`PENDING`] word last went from empty
+/// to holding a task, which starts [`GRACE_NS`].
+static SINCE: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(0) }; MAX_CPUS];
+/// How long a syscall return keeps its placements for a partner to park
+/// (see the module docs): several Messenger round trips, a fraction of the
+/// minimum slice.
+pub const GRACE_NS: u64 = 50_000;
+/// Per CPU: whether every task in [`PENDING`] came from a partner wake (the
+/// grace applies), and whether wakes made now are ([`partner_wakes`]).
+static GRACED: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
+static PARTNER: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_CPUS];
+/// Per CPU: the task whose syscall return kept [`PENDING`] for the grace
+/// (`u64::MAX`: none), whom a miss is held against.
+static KEEPER: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(u64::MAX) }; MAX_CPUS];
+/// Per task: until when (monotonic ns) its returns get no grace.
+static DENIED_UNTIL: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
+/// A kept wake placed this long after it was made is a miss: its waker did
+/// not park in the grace and the wake waited for a later entry, usually a
+/// tick.
+pub const MISS_NS: u64 = 1_000_000;
+/// How long a miss denies its waker the grace.
+pub const PENALTY_NS: u64 = 1_000_000_000;
+/// Kicks sent, and syscall returns that kept their placements for the
+/// grace (`PERF:entry`, `LAZYOS_PERF=1` only).
+#[cfg(lazyos_perf)]
+static KICKS: AtomicU64 = AtomicU64::new(0);
+#[cfg(lazyos_perf)]
+static KEPT: AtomicU64 = AtomicU64::new(0);
+#[cfg(lazyos_perf)]
+static MISSES: AtomicU64 = AtomicU64::new(0);
+
+/// Kicks sent, placements kept for the grace and graces missed since boot
+/// (`PERF:entry`).
+#[cfg(lazyos_perf)]
+pub fn counts() -> (u64, u64, u64) {
+    (
+        KICKS.load(Ordering::Relaxed),
+        KEPT.load(Ordering::Relaxed),
+        MISSES.load(Ordering::Relaxed),
+    )
+}
 
 /// This CPU's area index.
 fn me() -> usize {
@@ -118,8 +180,16 @@ fn choose(tasks: &[Option<Task>; MAX_TASKS], woken: usize) -> Option<usize> {
 /// Remember `slot` in a free lane of this CPU's [`PENDING`]; false when all
 /// four are taken. Only this CPU touches its word (with interrupts off).
 fn remember(slot: usize) -> bool {
-    let pending = &PENDING[me()];
+    let cpu = me();
+    let pending = &PENDING[cpu];
     let word = pending.load(Ordering::Relaxed);
+    let partner = PARTNER[cpu].load(Ordering::Relaxed);
+    if word == u64::MAX {
+        SINCE[cpu].store(crate::arch::clock::monotonic_ns(), Ordering::Relaxed);
+        GRACED[cpu].store(partner, Ordering::Relaxed);
+    } else if !partner {
+        GRACED[cpu].store(false, Ordering::Relaxed);
+    }
     for lane in 0..4 {
         let shift = lane * 16;
         let held = (word >> shift) & 0xFFFF;
@@ -139,10 +209,13 @@ fn remember(slot: usize) -> bool {
 /// nowhere (one that this CPU switched to, or that another CPU took, needs
 /// nothing). Call with the task table held.
 pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
-    let word = PENDING[me()].swap(u64::MAX, Ordering::Relaxed);
+    let cpu = me();
+    let word = PENDING[cpu].swap(u64::MAX, Ordering::Relaxed);
+    let keeper = KEEPER[cpu].swap(u64::MAX, Ordering::Relaxed);
     if word == u64::MAX {
         return;
     }
+    let mut kicked = false;
     for lane in 0..4 {
         let slot = ((word >> (lane * 16)) & 0xFFFF) as usize;
         if slot as u64 == EMPTY || oncpu::cpu_of(slot).is_some() {
@@ -153,7 +226,25 @@ pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
         }
         if let Some(cpu) = choose(tasks, slot) {
             kick(cpu);
+            kicked = true;
         }
+    }
+    if kicked && keeper != u64::MAX {
+        note_miss(keeper as usize, SINCE[cpu].load(Ordering::Relaxed));
+    }
+}
+
+/// A grace kept by `keeper` ended in a kick: if the wake made at `since`
+/// waited past [`MISS_NS`], deny `keeper` the grace for [`PENALTY_NS`].
+fn note_miss(keeper: usize, since: u64) {
+    let now = crate::arch::clock::monotonic_ns();
+    if now.saturating_sub(since) <= MISS_NS {
+        return;
+    }
+    if let Some(until) = DENIED_UNTIL.get(keeper) {
+        until.store(now.saturating_add(PENALTY_NS), Ordering::Relaxed);
+        #[cfg(lazyos_perf)]
+        MISSES.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -165,6 +256,57 @@ pub(crate) fn flush_unlocked() {
         return;
     }
     flush(&TASKS.lock());
+}
+
+/// [`flush_unlocked`] from a syscall's return: when only partner wakes are
+/// remembered, keep them for [`GRACE_NS`] after the first, for a partner
+/// about to park (see the module docs).
+pub(crate) fn flush_after_syscall() {
+    let cpu = me();
+    if PENDING[cpu].load(Ordering::Relaxed) == u64::MAX {
+        return;
+    }
+    let (now, since) = (
+        crate::arch::clock::monotonic_ns(),
+        SINCE[cpu].load(Ordering::Relaxed),
+    );
+    let waker = super::current();
+    let allowed = DENIED_UNTIL
+        .get(waker)
+        .is_some_and(|until| now >= until.load(Ordering::Relaxed));
+    if now.saturating_sub(since) < GRACE_NS && GRACED[cpu].load(Ordering::Relaxed) && allowed {
+        KEEPER[cpu].store(waker as u64, Ordering::Relaxed);
+        #[cfg(lazyos_perf)]
+        KEPT.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    flush_unlocked();
+}
+
+/// Run `wake` with the wakes it makes counted as a partner's: the Messenger
+/// fabric's, whose waker usually parks in its next call (see the module
+/// docs). Interrupts are off (a syscall body), so the mark stays this CPU's.
+pub(crate) fn partner_wakes<R>(wake: impl FnOnce() -> R) -> R {
+    let mark = &PARTNER[me()];
+    let outer = mark.swap(true, Ordering::Relaxed);
+    let result = wake();
+    mark.store(outer, Ordering::Relaxed);
+    result
+}
+
+/// Whether this CPU remembers a task to place (the suite's view of the
+/// grace).
+#[cfg(lazyos_tests)]
+pub fn remembered_here() -> bool {
+    PENDING[me()].load(Ordering::Relaxed) != u64::MAX
+}
+
+/// Lift a miss's penalty from `slot` (the suite, between cases).
+#[cfg(lazyos_tests)]
+pub fn forgive(slot: usize) {
+    if let Some(until) = DENIED_UNTIL.get(slot) {
+        until.store(0, Ordering::Relaxed);
+    }
 }
 
 /// `slot`'s state changed under it (it finished, or a signal waits for it)
@@ -187,6 +329,8 @@ fn kick(cpu: usize) {
         return;
     }
     if let Some(area) = percpu::area(cpu) {
+        #[cfg(lazyos_perf)]
+        KICKS.fetch_add(1, Ordering::Relaxed);
         area.preempt.need_resched.store(true, Ordering::Relaxed);
         crate::arch::smp::kick(cpu);
     }

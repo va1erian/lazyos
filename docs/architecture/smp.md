@@ -1,4 +1,4 @@
-# SMP, as built (S8.0–S8.3)
+# SMP, as built (S8.0–S8.4a)
 
 What multicore support the kernel has today, how it works, and the rules a
 change must keep. The plan and its staging are [`../smp-plan.md`](../smp-plan.md);
@@ -462,6 +462,29 @@ task that dies while current on another CPU (`finish_locked`) kicks that
 CPU off it; a reap refused meanwhile is noted, and once the CPU has
 switched away it rings the parent's child bell and the `wait4` queue again.
 
+**The partner grace** (S8.4a). A Messenger server's `REPLY` wakes its
+caller and returns to ring 3; only its next call, `RECV`, parks. A client's
+one-way sends wake the server; its closing call parks. Placed at the first
+syscall's return, the woken task ran on another CPU while its partner,
+about to park, still had kernel work: each round trip crossed CPUs, took
+turns at the entry lock and woke a halted vCPU. So the Messenger fabric's
+wakes (a send's or call's receiver, a reply's caller and its completion
+doorbell) are marked as a partner's (`kick::partner_wakes`), and while
+everything a CPU remembers is a partner wake, a syscall return
+(`syscall_return_point`) keeps it for 50 µs (`kick::GRACE_NS`) after the
+first: a partner that parks within it runs the woken task on its own CPU,
+through the hand-off or the run queue, and the placement then finds it
+current and kicks nobody. Any other wake (a futex, a pipe, a doorbell, a
+new task), and every other preemption point (an interrupt return, a
+scheduler entry, a nap, the idle loop), places at once; a syscall return
+after the grace places too. A waker that goes on computing in ring 3
+leaves the placement to its CPU's next tick (or any idle CPU's tick, which
+finds the task in the run queue); a kept wake placed more than 1 ms after
+it was made is a miss, and its waker gets no grace for a second
+(`kick::MISS_NS`, `PENALTY_NS`), so a server that replies and then works
+in ring 3 costs at most one tick-long wait a second. `PERF:entry` counts
+`kicks`, `kept` returns and `missed` graces.
+
 **What a task carries between CPUs.** `install` loads everything the CPU
 holds for a task: its table, `RSP0` and the `syscall` stack (both per
 CPU), its FS base, its FPU image, and (S8.3c, `task::segs`) its DS, ES,
@@ -508,6 +531,16 @@ one entry lock (165k contended entries during the run, `PERF:entry`). That
 is the number S8.4 and later stages are measured against. Four ring-3
 counting tasks count 7x to 11x as much on four CPUs as on one
 (`smp_sched_parallel_counting_scales`).
+
+Most of that Messenger loss was placement, not the lock itself: every round
+trip crossed CPUs. With the partner grace (S8.4a), three interleaved A/B
+runs of `main` and the change on one image each (WHPX, `--smp 4`, a host
+loaded by two other QEMUs) gave a round trip of 7.7-8.3 µs against
+9.8-13.5 µs, 418k-492k messages/s against 288k-425k, and 41k-51k
+contended entries against 162k-167k (`kicks` fell to about 1000 a run, with
+89k returns keeping a partner's wake and no misses). Input to present, IRQ
+wake and 1 ms sleeps did not move; `wake_run`'s 99th percentile rose by
+about the grace (41/28/34 µs to 74/66/77 µs), its median and mean did not.
 
 The suite's pause (`idle::pause_aps`, test kernels only) holds the APs back:
 no task, tick stopped, a halt that no flag ends; each scheduling case lets

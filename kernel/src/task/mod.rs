@@ -153,7 +153,9 @@ pub use pollwait::{
 };
 #[allow(unused_imports)] // test hook
 pub use preempt::pending as resched_pending;
-pub use preempt::{exit_cpu, hand_off, interrupted_quiet_context, preempt_point};
+pub use preempt::{
+    exit_cpu, hand_off, interrupted_quiet_context, preempt_point, syscall_return_point,
+};
 pub use sched::*;
 pub use schedule::expire_due;
 #[cfg(lazyos_tests)]
