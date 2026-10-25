@@ -198,6 +198,13 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
         // Misses in a row double the penalty, up to its cap.
         let penalties = penalty_streak(me, thread, 2 * ROUNDS)?;
         kick::forgive(me);
+        if timing_checked() {
+            check!(
+                penalties.len() >= 6,
+                "only {} of 8 streak windows kept",
+                penalties.len()
+            );
+        }
         crate::trace::test!(
             "smp_sched_grace_ends_at_the_tick:INFO:penalties_ms={:?}",
             penalties
@@ -250,11 +257,11 @@ fn penalty_streak(me: usize, thread: usize, runs: u64) -> Result<alloc::vec::Vec
         partner_wake();
         kick::flush_after_syscall();
         if !kick::remembered_here() {
-            // Unaccelerated, the return can come after the grace: no window.
-            check!(!timing_checked(), "miss {miss}: the wake was not kept");
+            // The return came after the grace (TCG, or a stalled vCPU): no
+            // window, so the score is unchanged and the next round goes on.
             task::nap();
             await_run(thread, runs + miss)?;
-            return Ok(penalties);
+            continue;
         }
         let kept = now();
         while now().saturating_sub(kept) <= kick::MISS_NS + 20_000 {

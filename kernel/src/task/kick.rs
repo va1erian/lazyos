@@ -51,9 +51,11 @@
 //! half the time or more is soon denied for a second at a time. A miss
 //! waits until the waker's CPU next enters the kernel or ticks (or an idle
 //! CPU ticks), which can be most of a 10 ms tick.
-//! Only a task's own sends, calls and replies are
-//! partner wakes: the kernel's posts of a device interrupt, a channel's
-//! teardown and a call's timeout are placed at once.
+//! Only a task's own sends, calls and replies, to a task parked
+//! on the channel, are partner wakes: the kernel's posts of a device
+//! interrupt, a channel's teardown, a call's timeout and the doorbell of a
+//! task that waits on an endpoint descriptor (poll, epoll) are placed at
+//! once, and one of them in a window ends its grace.
 //!
 //! The kernel task (slot 0, the multiplexer and, in test kernels, the
 //! suite itself) runs on the boot CPU only: it runs on the boot stack, the

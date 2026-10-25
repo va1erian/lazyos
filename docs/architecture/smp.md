@@ -468,13 +468,14 @@ one-way sends wake the server; its closing call parks. Placed at the first
 syscall's return, the woken task ran on another CPU while its partner,
 about to park, still had kernel work: each round trip crossed CPUs, took
 turns at the entry lock and woke a halted vCPU. So the Messenger fabric's
-wakes a task makes itself (a send's or call's receiver, a reply's caller
-and its completion doorbell; not the kernel's posts of a device interrupt,
-nor a channel's teardown or a call's timeout) are marked as a partner's (`kick::partner_wakes`), and while
+wakes a task makes itself (a send's or call's receiver parked on the
+channel, a reply's caller and its completion doorbell; not the kernel's
+posts of a device interrupt, a channel's teardown, a call's timeout, nor
+the doorbell of a task that waits on an endpoint descriptor with poll or
+epoll) are marked as a partner's (`kick::partner_wakes`), and while
 everything a CPU remembers is a partner wake of a task it may run (never
-the kernel task on an AP), a syscall return
-(`syscall_return_point`) keeps it for 50 µs (`kick::GRACE_NS`) after the
-first: a partner that parks within it runs the woken task on its own CPU,
+the kernel task on an AP), a syscall return (`syscall_return_point`) keeps
+it for 50 µs (`kick::GRACE_NS`) after the first: a partner that parks within it runs the woken task on its own CPU,
 through the hand-off or the run queue, and the placement then finds it
 current and kicks nobody. Any other wake (a futex, a pipe, a doorbell, a
 new task), and every other preemption point (an interrupt return, a
