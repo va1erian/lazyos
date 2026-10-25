@@ -3,12 +3,14 @@
 # from /dl into the /b volume, build rustc, rust-std and cargo for musl, copy
 # the dist tarballs to /out. build.py is the driver.
 set -euo pipefail
+# No patch at all is a valid set: the globs below then expand to nothing.
+shopt -s nullglob
 VERSION="$1"
 SRC="/b/rustc-$VERSION-src"
 # The tree is the release plus tools/selfhost/patches; a different patch set
 # unpacks it again (tar keeps the release's mtimes, so only what a patch
 # touches is rebuilt).
-PATCHES="$(cat /cfg/patches/*.patch | tr -d '\r' | sha256sum | cut -c1-64)"
+PATCHES="$(cat /dev/null /cfg/patches/*.patch | tr -d '\r' | sha256sum | cut -c1-64)"
 if [ "$(cat "$SRC/.lazyos-extracted" 2>/dev/null)" != "$PATCHES" ]; then
     rm -rf "$SRC"
     tar -C /b -xf "/dl/rustc-$VERSION-src.tar.xz"

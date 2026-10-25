@@ -136,9 +136,14 @@ through it: `bootstrap.toml` sets the target's `linker = "gcc"`. It must be
 `gcc`, not `cc`: rustc infers a C-compiler flavor from names like `gcc` and
 `clang` only, and would otherwise pass `cc` raw linker arguments.
 
-An environment variable or a cargo config file could not do this: LazyOS has
-no system-wide shell profile, cargo has no system-wide config, and a plain
-`rustc` reads neither.
+An environment variable or a cargo config file would cover cargo only (LazyOS
+has no system-wide shell profile; a `/.cargo/config.toml` would reach every
+project, since cargo reads the config of each ancestor directory). A plain
+`rustc` reads neither, so the default belongs in the target.
+
+`--upstream` stages Rust's own compiler, which lacks the patch: on LazyOS it
+links only with `-C linker=rust-lld` (or cargo's
+`CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld`).
 
 ### The sample and the check
 

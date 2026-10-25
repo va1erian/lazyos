@@ -20,8 +20,10 @@ stages); the source tree and build directory live in the Docker volume
 ``lazyos-rustc``, so a rebuild is incremental. The build is redone when the
 files that define it (``Dockerfile``, ``bootstrap.toml``, the container
 script, ``patches/``, the source pin) change. The one patch makes the musl
-target link with ``rust-lld`` by default (LazyOS has no C compiler). ``--upstream`` stages the
-release's own musl-host compiler (built by Rust's CI) in minutes.
+target link with ``rust-lld`` by default (LazyOS has no C compiler).
+``--upstream`` stages the release's own musl-host compiler (built by Rust's
+CI) in minutes; it lacks that patch, so on LazyOS it links only when told to
+(``-C linker=rust-lld``, ``CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER``).
 """
 
 from __future__ import annotations
@@ -64,7 +66,7 @@ BUILD_FILES = ("Dockerfile", "bootstrap.toml", "build-in-container.sh")
 #: The release's own musl-host tarballs (``--upstream``).
 UPSTREAM = WORK / "upstream"
 STAGED = WORK / "system"
-#: Which tarballs `STAGED` was made from (`BUILT` or `UPSTREAM`).
+#: Which tarballs and staging script `STAGED` was made from (`stage_key`).
 STAGED_FROM = WORK / "system.from"
 IMAGE = "lazyos-rustc-build"
 VOLUME = "lazyos-rustc"
@@ -137,12 +139,19 @@ def built_current() -> bool:
             and BUILT_INPUTS.is_file() and BUILT_INPUTS.read_text() == build_inputs())
 
 
+def stage_key(source: Path) -> str:
+    """What a staged tree depends on besides the tarballs' bytes: where they came
+    from and the staging script, so a change to either stages again."""
+    script_bytes = (HERE / "stage-in-container.sh").read_bytes().replace(b"\r\n", b"\n")
+    return f"{source.name} {hashlib.sha256(script_bytes).hexdigest()}"
+
+
 def stage(source: Path) -> bool:
     """Install the dist tarballs in `source` as the `STAGED` tree (kept when it is
     newer than both, so an unchanged compiler does not rewrite the image)."""
     stamp = STAGED / "bin" / "rustc"
     newest = max((source / name).stat().st_mtime for name in dist_names())
-    same = STAGED_FROM.is_file() and STAGED_FROM.read_text() == source.name
+    same = STAGED_FROM.is_file() and STAGED_FROM.read_text() == stage_key(source)
     if same and stamp.is_file() and stamp.stat().st_mtime > newest:
         log(f"{STAGED} is current")
         return True
@@ -156,7 +165,7 @@ def stage(source: Path) -> bool:
     shutil.rmtree(STAGED, ignore_errors=True)
     (tree / "system").rename(STAGED)
     tree.rmdir()
-    STAGED_FROM.write_text(source.name)
+    STAGED_FROM.write_text(stage_key(source))
     log(f"staged {STAGED}")
     return True
 
@@ -171,7 +180,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--upstream", action="store_true",
-                        help="stage the release's own musl-host compiler, build nothing")
+                        help="stage the release's own musl-host compiler, build nothing "
+                             "(without the rust-lld default linker patch)")
     parser.add_argument("--rebuild", action="store_true",
                         help="run the cross build even when its tarballs are current")
     parser.add_argument("--cpus", type=int, help="CPU cap of the build container")

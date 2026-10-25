@@ -30,8 +30,8 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
         return;
     }
     let staged = manifest_dir.join(STAGED);
-    crate::os_image::rerun_if_changed(&staged.join("bin").join("rustc"));
-    crate::os_image::rerun_if_changed(&staged.join("bin").join("cargo"));
+    // The programs `place` takes from it (rustc, cargo, rustdoc); `lib/` is watched by `add_tree`.
+    crate::os_image::rerun_if_changed(&staged.join("bin"));
     let dynlink = std::env::var("LAZYOS_DYNLINK").as_deref() == Ok("1");
     if place(sink, &staged, dynlink) {
         place_sample(sink, &manifest_dir.join(CARGO_SAMPLE));
