@@ -102,5 +102,7 @@ pub fn reset() {
     }
     channels.clear();
     drop(channels);
+    // A fresh table starts with its quota reclaim turn free.
+    super::NEXT_QUOTA_RECLAIM.store(0, Ordering::Relaxed);
     MESSENGER.notify_all();
 }

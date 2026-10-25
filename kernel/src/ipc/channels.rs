@@ -192,9 +192,10 @@ pub fn create() -> Result<(u64, u64), Error> {
 /// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
 /// tries once more, so a leak of unreachable channels costs slots only until
 /// the next create. The channel is charged to `owner`'s uid
-/// (`Resource::Channels`); a full quota is refused at once, since a reclaim
-/// walks every handle table and a uid at its cap could repeat it at will
-/// (a close already reclaims what it leaves unreachable).
+/// (`Resource::Channels`), and a full quota reclaims the same way: a uid's
+/// leaks fill its share long before the table. A reclaim walks every handle
+/// table, so a quota refusal runs one at most every [`QUOTA_RECLAIM_TICKS`];
+/// a uid at its cap cannot repeat the walk at will.
 fn insert_channel(owner: usize) -> Result<u64, Error> {
     insert_channel_with(owner, fresh_channel)
 }
@@ -209,12 +210,30 @@ fn insert_channel_with(owner: usize, build: impl Fn(u64) -> Channel) -> Result<u
         Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
             CHANNELS.lock().insert(owner, &build)
         }
+        Err(Error::ChannelQuota) if quota_reclaim_due() && reclaim::reclaim_unreachable() > 0 => {
+            CHANNELS.lock().insert(owner, &build)
+        }
         other => other,
     };
     if result == Err(Error::ChannelQuota) {
         note_channel_quota(owner);
     }
     result
+}
+
+/// Ticks between two reclaims a quota refusal may run (100 ms).
+const QUOTA_RECLAIM_TICKS: u64 = 10;
+/// The tick from which the next quota refusal may reclaim.
+static NEXT_QUOTA_RECLAIM: AtomicU64 = AtomicU64::new(0);
+
+/// Whether a quota refusal may run a reclaim now; takes the turn if so.
+fn quota_reclaim_due() -> bool {
+    let now = task::ticks();
+    if now < NEXT_QUOTA_RECLAIM.load(Ordering::Relaxed) {
+        return false;
+    }
+    NEXT_QUOTA_RECLAIM.store(now + QUOTA_RECLAIM_TICKS, Ordering::Relaxed);
+    true
 }
 
 /// Refused creates over the channel quota, a line each while it lasts.

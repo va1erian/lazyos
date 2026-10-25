@@ -10,7 +10,7 @@ use alloc::vec;
 use libmessenger::Object;
 
 /// Send `payload_end` over `via`.
-fn send_end(via: u64, payload_end: u64) -> Result<(), String> {
+pub(super) fn send_end(via: u64, payload_end: u64) -> Result<(), String> {
     let bytes = parcel_with_objects(1, "end", vec![Object::Channel(payload_end)])?;
     channels::send(via, &bytes).map_err(reason)
 }

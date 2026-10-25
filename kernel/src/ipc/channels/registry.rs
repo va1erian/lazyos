@@ -67,21 +67,21 @@ impl Registry {
     }
 
     /// Install the channel `build` makes for a fresh id, charged to the uid
-    /// of task `owner`; `RegistryFull` when every slot is taken and
-    /// `ChannelQuota` when that uid holds its share of them.
+    /// of task `owner`; `ChannelQuota` when that uid holds its share of the
+    /// slots (checked first, so a uid at its cap is told so even when the
+    /// table is full) and `RegistryFull` when every slot is taken.
     pub(super) fn insert(
         &mut self,
         owner: usize,
         build: impl FnOnce(u64) -> Channel,
     ) -> Result<u64, Error> {
-        let word = self
-            .occupied
-            .iter()
-            .position(|word| *word != u64::MAX)
-            .ok_or(Error::RegistryFull)?;
-        let index = word * 64 + self.occupied[word].trailing_ones() as usize;
         let uid = credentials::of(owner).uid;
         quota::charge(uid, Resource::Channels, 1).map_err(|_| Error::ChannelQuota)?;
+        let Some(word) = self.occupied.iter().position(|word| *word != u64::MAX) else {
+            quota::release(uid, Resource::Channels, 1);
+            return Err(Error::RegistryFull);
+        };
+        let index = word * 64 + self.occupied[word].trailing_ones() as usize;
         self.owners[index] = uid;
         let seq = NEXT_CHANNEL_SEQ.fetch_add(1, Ordering::Relaxed);
         let id = (seq << INDEX_BITS) | index as u64;

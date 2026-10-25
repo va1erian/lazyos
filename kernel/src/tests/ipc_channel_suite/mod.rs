@@ -242,5 +242,17 @@ pub(super) const CASES: &[(&str, Test)] = &[
         uncollected_outcomes_soak,
     ),
     ("ipc_channel_quota_caps_one_uid", channel_quota_caps_one_uid),
+    (
+        "ipc_channel_quota_reclaims_leaks",
+        channel_quota_reclaims_leaks,
+    ),
+    (
+        "ipc_channel_quota_returns_to_the_creator",
+        channel_quota_returns_to_the_creator,
+    ),
+    (
+        "ipc_channel_quota_connect_charges_the_client",
+        channel_quota_connect_charges_the_client,
+    ),
     ("ipc_channel_quota_soak", channel_quota_soak),
 ];

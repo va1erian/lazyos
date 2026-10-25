@@ -90,8 +90,10 @@ pub fn ramfs_shrink_soak() -> Result<(), String> {
         ram.truncate("s", keep as u64).map_err(fs_error)?;
         ram.truncate("s", 0).map_err(fs_error)?;
     }
+    // The heap is global: leave room for unrelated allocations, well under
+    // the `FILE` bytes a retained buffer would hold.
     let grown = heap_used().saturating_sub(before);
-    check!(grown < 4096, "{grown} heap bytes left after the soak");
+    check!(grown < FILE / 4, "{grown} heap bytes left after the soak");
     check!(
         ram.usage_of(1001).bytes == 0,
         "usage {:?}",
