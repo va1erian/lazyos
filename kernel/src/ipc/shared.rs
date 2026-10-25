@@ -307,6 +307,19 @@ pub fn teardown_task(slot: usize, table: u64, table_shared: bool) {
     // removal, not the reference release), so `unmap_mapping` here only tears
     // down the mapping itself and cannot double-release or leak a frame
     // reference.
+    unmap_table(&mut registry, table);
+}
+
+/// Remove every buffer mapping recorded against `table`, which is about to
+/// be freed while the handles that made them stay open: the table `execve`
+/// replaced. Their handles keep their frame references and close later
+/// without a mapping to undo, instead of unmapping through a freed (and
+/// possibly reused) page-table frame.
+pub fn forget_table(table: u64) {
+    unmap_table(&mut REGISTRY.lock(), table);
+}
+
+fn unmap_table(registry: &mut Registry, table: u64) {
     for index in 0..registry.buffers.len() {
         let buffer = &mut registry.buffers[index];
         while let Some(at) = buffer.mappings.iter().position(|m| m.table == table) {

@@ -11,7 +11,7 @@ use super::*;
 use crate::task::family::{notifications, reset_notifications};
 use crate::task::wait::WaitQueue;
 use crate::task::PriorityClass;
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// Where the suite's threads park: the siblings for good, the exec'ing
 /// thread until [`GO`] says start, and again once its exec is done.
@@ -34,6 +34,25 @@ extern "C" fn sibling() -> ! {
         GATE.wait(me, None);
         if signal::fatal_pending() {
             UNWOUND.fetch_add(1, Ordering::AcqRel);
+            signal::deliver_native();
+        }
+    }
+}
+
+/// While set, [`stubborn`] does not unwind: it is somewhere slow in the kernel.
+static HOLD: AtomicBool = AtomicBool::new(false);
+
+/// A sibling that takes its time to reach its syscall return: it runs (at
+/// background priority, yielding) until [`HOLD`] is cleared.
+extern "C" fn stubborn() -> ! {
+    let me = task::current();
+    loop {
+        if HOLD.load(Ordering::Acquire) {
+            task::switch::yield_now();
+            continue;
+        }
+        GATE.wait(me, None);
+        if signal::fatal_pending() {
             signal::deliver_native();
         }
     }
@@ -259,6 +278,55 @@ pub fn exec_waits_for_unwinding_threads() -> Result<(), String> {
     let parent = setup()?;
     exec_round(parent, 2, 1, true, 3)?;
     exec_round(parent, 1, 1, false, 4)?;
+    teardown(parent)
+}
+
+/// The process is killed while its exec waits for a slow sibling: the kill
+/// wins, the exec fails and its thread dies with the group's status, and so
+/// does the sibling once it unwinds; the parent hears of one exit.
+pub fn exec_loses_to_a_kill_while_waiting() -> Result<(), String> {
+    let parent = setup()?;
+    let round = DONE.load(Ordering::Acquire) + 1;
+    let table = crate::mem::new_user_table().ok_or("no table")?;
+    let pml4 = table.as_u64();
+    HOLD.store(true, Ordering::Release);
+    let exec = thread(execer)?;
+    let slow = task::kthread::spawn_kernel_thread("exec-slow", stubborn, PriorityClass::Background)
+        .map_err(|error| format!("spawn: {error}"))?;
+    task::harness::adopt(exec, pml4, exec, parent);
+    task::harness::adopt(slow, pml4, exec, 0);
+    reset_notifications();
+    GO.store(round, Ordering::Release);
+    check!(
+        run_until(|| signal::kill_pending(pml4, slow)),
+        "the exec never began"
+    );
+    // The sibling holds out: the exec waits.
+    let waiting = run_until(|| DONE.load(Ordering::Acquire) == round);
+    check!(!waiting, "the exec finished with a sibling alive");
+    signal::terminate_process(pml4, 7);
+    check!(
+        run_until(|| DONE.load(Ordering::Acquire) == round),
+        "the exec did not give up on the kill"
+    );
+    check!(
+        OUTCOME.load(Ordering::Acquire) == 2,
+        "exec outcome {} under a kill",
+        OUTCOME.load(Ordering::Acquire)
+    );
+    HOLD.store(false, Ordering::Release);
+    let gone = |slot: usize| !matches!(task::harness::state(slot), Some(state) if state != TaskState::Done);
+    check!(
+        run_until(|| gone(exec) && gone(slow)),
+        "the threads survived the kill"
+    );
+    let reaped = reap_as(parent);
+    check!(
+        reaped == Some((exec, 7, 0)) && notifications(parent) == 1,
+        "wait4 saw {reaped:?}, told {} times",
+        notifications(parent)
+    );
+    run_until(|| task::harness::state(slow).is_none());
     teardown(parent)
 }
 

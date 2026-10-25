@@ -77,8 +77,14 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
             if crate::task::oncpu::elsewhere(slot) {
                 // Running on another CPU (S8.3c): its saved frame says
                 // nothing. Its own CPU's sweep ends it at its boundary (the
-                // kill is pending); ask that CPU to look now.
-                crate::task::kick::nudge(slot);
+                // kill is pending); ask that CPU to look now. One that has
+                // just parked there (blocked, not yet switched away) would
+                // sleep on with the kill pending: wake it.
+                if blocked {
+                    parked.push(slot);
+                } else {
+                    crate::task::kick::nudge(slot);
+                }
             } else if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
                 if let Some(parent) = process::finish_locked(&mut tasks, slot, status) {
                     parents.push(parent);

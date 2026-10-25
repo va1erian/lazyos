@@ -36,6 +36,9 @@ pub fn begin_exec(pml4: u64, me: usize) -> Result<usize, ExecRace> {
         match state.exec_by {
             0 => {
                 state.exec_by = me;
+                // The kill watchdog names a victim that does not unwind
+                // (#858), as it would for a `SIGKILL`.
+                state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
                 Ok(())
             }
             by if by == me => Ok(()),
@@ -61,7 +64,14 @@ pub fn begin_exec(pml4: u64, me: usize) -> Result<usize, ExecRace> {
             with_thread(slot, |thread| thread.pending |= bit(SIGKILL));
             let blocked = matches!(task.state, TaskState::Blocked { .. });
             if crate::task::oncpu::elsewhere(slot) {
-                crate::task::kick::nudge(slot);
+                // Still current on another CPU: one that has just parked
+                // (blocked, not yet switched away) must be woken, or it
+                // sleeps on with the kill pending; a running one is nudged.
+                if blocked {
+                    parked.push(slot);
+                } else {
+                    crate::task::kick::nudge(slot);
+                }
             } else if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
                 if let Some(parent) = process::finish_locked(&mut tasks, slot, EXEC_KILL_STATUS) {
                     parents.push(parent);
@@ -100,17 +110,6 @@ pub fn exec_siblings_left(pml4: u64, me: usize) -> usize {
             })
         })
         .count()
-}
-
-/// Whether process `pml4` is ending as a whole: the exec that waits for its
-/// siblings must give up and let its own syscall return end it.
-pub fn exec_doomed(pml4: u64) -> bool {
-    peek(|procs, _| {
-        procs
-            .iter()
-            .find(|state| state.pml4 == pml4)
-            .is_some_and(|state| state.group_exit.is_some() || state.pending & bit(SIGKILL) != 0)
-    })
 }
 
 /// Whether thread `slot` of process `pml4` has a kill pending, its own (an

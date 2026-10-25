@@ -195,5 +195,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "task_signal_exec_waits_for_unwinding_threads",
         exec_waits_for_unwinding_threads,
     ),
+    (
+        "task_signal_exec_loses_to_a_kill_while_waiting",
+        exec_loses_to_a_kill_while_waiting,
+    ),
     ("task_signal_soak_exec_dethread", soak_exec_dethread),
 ];

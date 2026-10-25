@@ -30,9 +30,10 @@ pub fn dethread() -> Result<(), ExecRace> {
         if signal::exec_siblings_left(pml4, me) == 0 {
             return Ok(());
         }
-        // A kill of the process, or of this thread (which `begin_exec` would
-        // have refused): its syscall return ends it.
-        if signal::exec_doomed(pml4) || signal::killed(me) {
+        // A kill of the process (a group exit sets one too), or of this
+        // thread (which `begin_exec` would have refused): its syscall return
+        // ends it.
+        if signal::kill_pending(pml4, me) {
             return Err(ExecRace::Dying);
         }
         let deadline = crate::arch::clock::monotonic_ns().saturating_add(RECHECK_NS);

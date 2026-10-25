@@ -31,40 +31,29 @@ pub fn set_heap_break(value: u64) {
 /// parent hears of the process only when the new image ends. Unlike Linux
 /// the thread's own tid stays what it was (a tid is a scheduler slot).
 pub fn set_pml4(value: u64) {
-    let mut tasks = TASKS.lock();
     let me = current();
-    let old = tasks[me].as_ref().map(|task| task.pml4);
-    // Asked before the switch: the leader must share the thread's table.
-    let leader = super::family::leader_of(&tasks, me);
-    if let Some(task) = tasks[me].as_mut() {
-        task.pml4 = value;
-    }
-    // Another *live* thread still in the old address space: only when the
-    // caller skipped the de-thread (the suite does). The process's timers
-    // stay where they are for it.
-    let shared_live = old.is_some_and(|old| {
-        tasks.iter().enumerate().any(|(other, task)| {
-            other != me
-                && task
-                    .as_ref()
-                    .is_some_and(|task| task.pml4 == old && task.state != TaskState::Done)
-        })
-    });
-    if let Some(old) = old.filter(|old| *old != value) {
-        if leader != me {
-            carry_leader(&mut tasks, me, leader, old, value, shared_live);
-        }
-    }
-    let orphaned = old.filter(|old| {
-        *old != value
-            && !tasks.iter().enumerate().any(|(other, task)| {
-                other != me && task.as_ref().is_some_and(|task| task.pml4 == *old)
+    let (old, shared_live) = {
+        let tasks = TASKS.lock();
+        let old = tasks[me].as_ref().map(|task| task.pml4);
+        // Another *live* thread still in the old address space: only when
+        // the caller skipped the de-thread (the suite does). The process's
+        // timers stay where they are for it.
+        let shared_live = old.is_some_and(|old| {
+            tasks.iter().enumerate().any(|(other, task)| {
+                other != me
+                    && task
+                        .as_ref()
+                        .is_some_and(|task| task.pml4 == old && task.state != TaskState::Done)
             })
-    });
-    drop(tasks);
-    // A kill that reached the task while it loaded the new image must still
-    // end it: the old table's signal state is about to be dropped.
-    if let Some(old) = old.filter(|old| *old != value) {
+        });
+        (old.filter(|old| *old != value), shared_live)
+    };
+    // Moved while this task still names the old table: once it lets go, the
+    // reclamation of a finished sibling (on another CPU) may free the old
+    // table and forget its signal and timer state at any moment.
+    if let Some(old) = old {
+        // A kill that reached the task while it loaded the new image must
+        // still end it.
         signal::carry_kill(old, value);
         // The thread keeps its blocked mask and pending signals across the
         // exec (as on Linux), but not its alternate stack.
@@ -74,6 +63,27 @@ pub fn set_pml4(value: u64) {
         if !shared_live {
             super::itimer::exec(old, value);
         }
+    }
+    let mut tasks = TASKS.lock();
+    // Asked before the switch: the leader must share the thread's table.
+    let leader = super::family::leader_of(&tasks, me);
+    if let Some(task) = tasks[me].as_mut() {
+        task.pml4 = value;
+    }
+    if let Some(old) = old.filter(|_| leader != me) {
+        carry_leader(&mut tasks, me, leader, old, value, shared_live);
+    }
+    let orphaned = old.filter(|old| {
+        !tasks
+            .iter()
+            .enumerate()
+            .any(|(other, task)| other != me && task.as_ref().is_some_and(|task| task.pml4 == *old))
+    });
+    drop(tasks);
+    // A kill that came after the carry above (a lookup: harmless when the old
+    // state is already gone).
+    if let Some(old) = old {
+        signal::carry_kill(old, value);
     }
     if let Some(old) = orphaned {
         // Guard against freeing whatever `CR3` currently points at (only
@@ -86,6 +96,10 @@ pub fn set_pml4(value: u64) {
         // `execve` starts a fresh signal disposition table (Linux keeps SIG_IGN
         // but resets handlers; a fresh table means ignored ones reset too).
         signal::forget(old);
+        // Buffer mappings made in the old image (by this thread, or by a
+        // leader that moved with it) go with the table; their handles close
+        // later with nothing left to unmap through it.
+        crate::ipc::shared::forget_table(old);
         // The old image's shared file pages go to their files now, in the
         // exec'ing task's own context.
         mem::filemap::flush_table(PhysAddr::new(old));
