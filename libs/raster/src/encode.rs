@@ -69,10 +69,17 @@ impl PageEncoder {
         }
         let mut row = core::mem::take(&mut self.scratch);
         row.clear();
+        // Pre-reserve line capacity so `row` doesn't reallocate or re-check
+        // capacity during per-pixel pushes.
+        let line_bytes = self.header.bytes_per_line();
+        row.reserve(line_bytes);
         match self.header.color {
             ColorSpace::Srgb8 => {
+                // Direct byte pushes avoid per-pixel `extend_from_slice` function call overhead.
                 for p in rgba.as_chunks::<4>().0 {
-                    row.extend_from_slice(&p[..3]);
+                    row.push(p[0]);
+                    row.push(p[1]);
+                    row.push(p[2]);
                 }
             }
             ColorSpace::Sgray8 => row.extend(
