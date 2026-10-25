@@ -28,6 +28,12 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
   to two task windows side by side with titles; the focused window gets a green
   border and `*`. Repaints only when `NEEDS_REDRAW` is set (output, focus, task
   death), plus incremental mouse-cursor blits; sleeps `IDLE_TICKS = 2`.
+- **Boot splash** (`kernel/src/splash.rs`): on an image with a compositor
+  (`xuid_demo`) the mux paints `assets/boot/splash.rgb` (the LazyOS-Night
+  wallpaper at 480x270, from `tools/wallpaper/splash.py`) and a spinner
+  instead of the windows until `xuid` binds; `F1` (handled in
+  `input/keyboard.rs`, only while nothing is bound) swaps it for the panes
+  and back. Images without a compositor keep the panes.
 - `Tab` cycles focus in `task::on_key`; Ctrl-C becomes `SIGINT` for the focused
   process group. While `display::bound()`, the mux stops painting and resumes
   with a full repaint when the compositor exits without unbinding.

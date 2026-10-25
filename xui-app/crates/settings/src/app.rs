@@ -79,6 +79,10 @@ pub enum Msg {
     Background(u32),
     /// A desktop picture row was picked (0: none).
     Wallpaper(usize),
+    /// "Choose picture..." was clicked: show the file picker.
+    ChoosePicture,
+    /// The picker returned this file (any path; LazyShell checks it).
+    PictureChosen(String),
     /// The animations checkbox changed.
     Anim(bool),
     /// A blank-screen delay row was picked.
@@ -367,6 +371,19 @@ impl App for SettingsApp {
                     // The clicked row was not saved: select the stored one.
                     self.load_state();
                 }
+            }
+            Msg::ChoosePicture => self.pages.appearance.picture_dialog.open(),
+            Msg::PictureChosen(path) => {
+                let result = if path.starts_with('/') {
+                    wallpaper_ops::set(store, Some(&path))
+                } else {
+                    Err("a picture needs an absolute path".into())
+                };
+                self.report(
+                    result.map_err(|e| e.to_string()),
+                    "Desktop picture changed.",
+                );
+                self.load_state();
             }
             Msg::Anim(on) => self.report(
                 theme_ops::set_animations(store, on),
