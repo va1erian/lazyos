@@ -37,6 +37,16 @@ thread_local! {
     static SWALLOW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+thread_local! {
+    /// Whether the view's `open_link` hook takes a middle press (a test sets it).
+    static OPEN_LINK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes the window take (or leave to the page) the next middle presses, as a tab opened from a link.
+pub fn open_link(on: bool) {
+    OPEN_LINK.with(|s| s.set(on));
+}
+
 /// Makes the window's menu take (or leave to the page) the next right presses.
 pub fn swallow_right(on: bool) {
     SWALLOW.with(|s| s.set(on));
@@ -78,6 +88,11 @@ impl Browser {
                         clicked: Msg::Clicked,
                         right_click: None,
                         swallow_right: Some(Rc::new(|| SWALLOW.with(std::cell::Cell::get))),
+                        open_link: Some(Rc::new(|button, _| {
+                            (button == xui_core::MouseButton::Middle
+                                && OPEN_LINK.with(std::cell::Cell::get))
+                            .then_some(Msg::Clicked)
+                        })),
                     };
                     PageView::new(ui, engine, hooks)
                 })

@@ -310,6 +310,21 @@ impl Notifications {
         self.registry.gone(id);
     }
 
+    /// A tab closed: the notifications whose ids `of_tab` accepts lose their page's object (their
+    /// toasts stay, and a click on one opens the site, as for a page that is gone).
+    pub fn tab_closed(&mut self, of_tab: impl Fn(u64) -> bool) {
+        let ids: Vec<u64> = self
+            .registry
+            .all()
+            .iter()
+            .map(|n| n.id)
+            .filter(|id| of_tab(*id))
+            .collect();
+        for id in ids {
+            self.registry.gone(id);
+        }
+    }
+
     /// The page's process went away: every notification's object with it.
     pub fn page_crashed(&mut self) {
         self.registry.orphan_all();

@@ -11,7 +11,7 @@
 //! compositor is not there, `QUIT:PASS` when the window closed and nothing it started is left (the
 //! list updater's `curl`) and the window's markers (`app.rs`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -30,14 +30,14 @@ use xui_core::backend::{Backend, PlatformSpec};
 use xui_core::units::Dip;
 use xui_settings::store::{ConfigStore, Value as StoreValue};
 use xui_webkit::abi::first_address;
-use xui_webkit::engine::{Engine, NotifyAnswer};
+use xui_webkit::engine::NotifyAnswer;
 use xui_webkit::events::Event;
 use xui_webkit::gesture;
 use xui_webkit::mailbox::Mailbox;
 use xui_webkit::relay::{self, Relay};
-use xui_webkit_remote::{browser_config, Navigation, Options, RemoteEngine, SlotPlan};
+use xui_webkit_remote::{browser_config, Navigation, Options, RemoteEngine, SlotPlan, ViewConfig};
 
-use crate::app::{Browser, Host, Msg, Setup, APP_NAME};
+use crate::app::{Browser, Engines, Host, Msg, Setup, APP_NAME};
 use crate::blocker::worker::{Cmd as BlockerCmd, Exit, Runner, Worker};
 use crate::blocker::{Blocker, Persist, Settings, Volatile};
 use crate::handoff::Launcher;
@@ -52,11 +52,13 @@ use crate::visits::Visits;
 use crate::{DOWNLOADS_DIR, HISTORY_FILE, NOTIFY_FILE, SYSTEM_NAME};
 
 mod blocker;
+mod engines;
 mod hosts;
 mod main_thread;
 mod prefs;
 mod shell;
 use blocker::{settings_store, stop_children, CurlRunner};
+use engines::{Fleet, LazyEngines};
 use hosts::{LazyLauncher, LazyToaster};
 use main_thread::{on_main, on_main_detached};
 use shell::LazyShell;

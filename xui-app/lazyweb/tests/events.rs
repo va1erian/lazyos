@@ -10,11 +10,11 @@ use support::*;
 use xui_canvas::snapshot::Stage;
 use xui_core::backend::Event as UiEvent;
 use xui_core::Key;
-use xui_webkit::engine::{Call, DialogKind};
-use xui_webkit::events::Event;
 use xui_lazyweb::app::Msg;
 use xui_lazyweb::chrome::Command;
 use xui_lazyweb::pages::HISTORY;
+use xui_webkit::engine::{Call, DialogKind};
+use xui_webkit::events::Event;
 
 #[test]
 fn a_link_for_another_app_goes_to_it_only_when_a_person_started_it() {
@@ -43,10 +43,10 @@ fn a_link_for_another_app_goes_to_it_only_when_a_person_started_it() {
 #[test]
 fn a_typed_scheme_for_another_app_is_the_users_own_act() {
     let (image, calls, opened) = drive_full("typed", None, |stage, _| {
-        // Ctrl+L clears the field; a click in it (below the menu bar, 28, in the toolbar, 38)
-        // gives it the keyboard the headless stage has not given it yet.
+        // Ctrl+L clears the field; a click in it (below the menu bar, 28, and the tab strip, 30, in
+        // the toolbar, 38) gives it the keyboard the headless stage has not given it yet.
         stage.emit(Msg::FocusAddress);
-        stage.click(300, 47);
+        stage.click(300, 77);
         for c in "mailto:me@example.com".chars() {
             stage.inject(UiEvent::Char(c));
         }
@@ -169,7 +169,7 @@ fn escape_cancels_a_dialog() {
 }
 
 #[test]
-fn a_new_window_request_opens_in_the_one_view_but_a_scheme_for_another_app_does_not() {
+fn a_new_window_request_opens_a_tab_but_a_scheme_for_another_app_does_not() {
     let (_, calls) = drive("popup", None, |stage, rig| {
         rig.events(
             stage,
@@ -183,11 +183,18 @@ fn a_new_window_request_opens_in_the_one_view_but_a_scheme_for_another_app_does_
             ],
         );
         assert!(rig.opened.urls.borrow().is_empty());
+        // A second tab, in front, with its own engine; the first tab's page was left alone.
+        let made = rig.engines.made.borrow();
+        assert_eq!(made.len(), 2, "only the https window request made a tab");
+        assert!(made[1]
+            .engine
+            .calls()
+            .contains(&Call::Load("https://theoldnet.com/other.html".into())));
+        assert_eq!(*rig.engines.fronts.borrow(), [0, 1]);
     });
-    assert!(calls.contains(&Call::Load("https://theoldnet.com/other.html".into())));
     assert!(!calls
         .iter()
-        .any(|c| matches!(c, Call::Load(u) if u.starts_with("mailto"))));
+        .any(|c| matches!(c, Call::Load(u) if u.contains("theoldnet.com/other") || u.starts_with("mailto"))));
 }
 
 fn ask(stage: &Stage<'_, Msg>, rig: &Rig, id: u64, kind: DialogKind) {

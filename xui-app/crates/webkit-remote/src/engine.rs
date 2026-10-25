@@ -261,4 +261,23 @@ impl<T: ScopedTransport + 'static> Engine for RemoteEngine<T> {
             self.remake_with_agent(agent);
         }
     }
+    fn set_visible(&self, visible: bool) {
+        let live = {
+            let mut inner = self.inner.borrow_mut();
+            inner.visible = visible;
+            inner.view.set_visible(visible);
+            inner.view.is_live()
+        };
+        // A page behind another tab gives its slot memory back (webd's per-client budget is for the
+        // page on show); coming to the front it attaches them again and asks for a whole frame.
+        if live {
+            self.call(|view| {
+                if visible {
+                    view.reattach_slots()
+                } else {
+                    view.detach_slots()
+                }
+            });
+        }
+    }
 }

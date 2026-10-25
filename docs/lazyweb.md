@@ -49,9 +49,55 @@ which implements `Engine` over `xui_webd_client::FullWebView`:
 The window has a menu bar (File, View, History, Downloads, Help), the toolbar (Back, Forward, Reload which turns
 into Stop, Home, the address field, an "open in the OS" button and the throbber), the status bar (hover link,
 what the engine is doing, running downloads with a progress bar, the padlock) and the same keys (Ctrl+L, F5,
-Alt+Left, Alt+Right, Alt+Home, Ctrl+H, Ctrl+J, Ctrl+S, Ctrl+W, Esc to stop while a page loads: Enter and Esc are
-the address field's only while it has the focus, because a real engine has pages that use them). The window
+Alt+Left, Alt+Right, Alt+Home, Ctrl+H, Ctrl+J, Ctrl+S, the tab keys below, Esc to stop while a page loads: Enter and
+Esc are the address field's only while it has the focus, because a real engine has pages that use them). The window
 title is `<page title> - LazyWeb`.
+
+## Tabs
+
+A strip above the toolbar (`src/strip.rs`) has a tab for each page: a spinner while it loads, the title (the host
+while there is none), a close button, and a button for a new tab. A tab is its own view of webd (a `RemoteEngine`
+per tab, made by the platform: `src/platform/engines.rs`), placed in the web process of its first address's host
+(`ViewConfig.process_key`, [`lazyweb-plan.md`](lazyweb-plan.md) 2.3; not with "page data in memory", which webd
+refuses a key for), so tabs of one site share a process and the others are isolated. Keys: **Ctrl+T** new tab,
+**Ctrl+W** close the tab (the last one closes the window), **Ctrl+Shift+T** the last closed tab comes back (10 are
+kept), **Ctrl+Tab** and **Ctrl+Shift+Tab** cycle, **Ctrl+1..8** jump, **Ctrl+9** the last tab; the File menu has the
+same. A middle click or **Ctrl+click** on a web link opens it in a background tab next to the page (the window takes
+the click: the page sees neither the press nor the release, `Hooks::open_link` in `xui-webkit`; a `javascript:` link
+and a click with no link under the pointer are the page's), the link menu has **Open Link in New Tab**, and a
+`window.open` or `target=_blank` with a gesture opens a tab beside its opener (in front when the opener is). The new
+tab is a separate load, so the opener's `window.opener` is `null` (the plan's known loss).
+
+The model is `src/tabs.rs` (no engine, host-tested in `tests/tabs.rs`): order, the front tab, the closed stack,
+cycling, jumping and the discard choice. `src/switch.rs` is the one engine the page view and the window talk to, which
+forwards to the front tab's; a page numbers its dialogs, downloads and notifications itself, so the lists that hold
+them get the number with the tab on top (`wire_id`) and an answer goes back to the tab that asked. `Engine::set_visible`
+tells a tab it went behind another: `RemoteEngine` gives its slots back to webd (`DetachSlots`) and takes them again,
+with a whole frame, when it comes to the front, so only the front tab holds slot memory. What a tab behind the front
+one tells the window (`app/tabnews.rs`, `app/pageevents.rs`): its title, address, spinner and a lost view go to the
+strip; its downloads, windows, notifications and rule lists are handled at once; its dialogs wait in a queue (the
+tab is marked `?` in the strip) until no dialog is open and no address is being typed, then the tab comes to the
+front and the dialog shows (a switch is never started from inside another one); closing a tab ends the downloads
+it started ("Failed: its tab was closed") and leaves its notifications' toasts to open the site; its pointer, clipboard, hand-offs and commands are dropped, and a request to show notifications
+is dismissed (the site may ask again once its tab is in front).
+
+**Discarding.** A tab keeps its address and title and gives its view up (a *discarded* tab, dimmed in the strip) when
+more than `LIVE_TABS_MAX` (16, **provisional**: the plan picks it from measured page memory, 2.5) hold one: the
+oldest used goes first, never the front tab and never one with a dialog or a download. Coming to the front makes a
+new view that loads the kept address. There is no free-memory trigger yet (`sysmond`'s memory topic is not read).
+**A tab that stops** (`ViewLost`) keeps its address; coming to the front shows the crashed-tab bar ("This tab stopped
+(why)", Reload only, the hang bar's widgets) and makes no view until Reload is pressed.
+
+**Session.** `session.json` keeps every tab, the one in front and the closed stack (`"closed"`, newest first, an
+older file without it is as valid), http(s) pages only (a front tab on one of the browser's own pages is saved as the nearest web page), each closed tab
+with the place it had among the saved tabs (`"at"`, optional), atomic and at most once a second. After a crash the bar
+offers the tabs (or `session/restore` = `always` restores them); restored tabs are discarded until focused, so only
+the one that was in front loads. Markers: `TAB:NEW|SWITCH|CLOSE|REOPEN|DISCARD:<tab count>` (never an address) and
+`TAB:CRASHED:SHOW|HIDE`.
+
+Not built: several windows in one process (spike S1; `Ctrl+N`, tear-off), dragging a tab to reorder it (the model has
+`move_to`), the memory-based discard and its measured numbers, and the loop parking on more than the front tab's
+event channel (`watch_fd` takes one descriptor: tabs behind it are read on the window's 250 ms beat).
 
 ## What moved where
 
@@ -99,8 +145,8 @@ input is; webd's own `Handoff.Browser` mode is not used.
 An address the user types is opened by the window itself (`handoff.rs`), so a navigation to `mailto:` with no
 gesture (kind `Other`) is a script's, a redirect's or a bug's, and is refused. "On one of the browser's own
 pages" is an exact comparison with the page the window built (`Internal::name_for`), so a web page that looks
-like `about:history` and links to `x-lazyweb:clear-history` is not one. `window.open` and `target=_blank` load in
-the one view, and only when a gesture started the request (`LAZYWEB:POPUP:<url>`); a script that opens a window
+like `about:history` and links to `x-lazyweb:clear-history` is not one. `window.open` and `target=_blank` open a
+tab, and only when a gesture started the request (`LAZYWEB:POPUP:<url>`); a script that opens a window
 on its own gets nothing. The harness page `lazyweb/script.html` tries a `mailto:`, an `x-lazyweb:clear-history`
 and a `window.open` with no click, and the judge requires all three to be refused.
 
@@ -140,10 +186,10 @@ for 50,000 entries (`cargo test --release -p xui-lazyweb bench -- --ignored --no
 window runs and is removed at a clean quit (it holds the process id, so a window that quits never removes the
 marker a later one wrote; LazyOS cannot tell whether a process still runs, so a second LazyWeb process on the same
 profile also offers a restore, which can be dismissed); `session.json`
-(`{"version":1,"windows":[{"tabs":[{"url":...,"title":...}],"active":0}]}`) is written after each navigation to a
-web page (at most once a second, through a temporary file that is synced before the rename; never for the browser's own pages and never when the
+(`{"version":1,"windows":[{"tabs":[{"url":...,"title":...}],"active":0,"closed":[...]}]}`, see *Tabs*) is written after
+each change of the tabs and each navigation to a web page (at most once a second, through a temporary file that is synced before the rename; never for the browser's own pages and never when the
 page's data is kept in memory). A start that finds `running` shows a bar "LazyWeb did not close properly.
-Restore the last page?" (**Restore**, **Dismiss**); `confd` `user/<uid>/lazyweb/session/restore` = `always`
+Restore the last page?" (or the tab count; **Restore**, **Dismiss**); `confd` `user/<uid>/lazyweb/session/restore` = `always`
 restores without asking (an address given on the command line is never replaced). Both files are read as
 untrusted. Markers `SESSION:RESTORE:ASK|YES|NO|AUTO`, `HTTPS:ASK|ALLOW`.
 
@@ -154,8 +200,8 @@ hovered opens the window's own menu (`src/context.rs`) instead of reaching the p
 `xui-webkit`): **Copy Link Address** (the clipboard) and **Open Link in Another App** (enabled only for a scheme the
 engine does not load, such as `mailto:`, and handed to `mimed` as the person's own click, `handoff.rs`). A
 `javascript:` link and the browser's own `x-lazyweb:` commands get no link menu; a right click on bare page (or on
-one of those) opens the Back/Forward/Reload popup and goes on to the page as before. The spot for "Open in new tab"
-is marked in `link_items` and `chrome::link_menu` for when tabs exist.
+one of those) opens the Back/Forward/Reload popup and goes on to the page as before. **Open Link in New Tab** is the
+menu's first item (a web link only).
 
 **Bookmarks** (`src/places/`, the window in `src/bookmarks/` and `src/app/bookmarks.rs`). The store is an
 append-only record log, `$HOME/.apps/os.lazy.lazyweb/bookmarks.log`: a header, then records of `length`,
@@ -509,13 +555,12 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
 * **`file:` URLs do not open.** webd never loads `file:`, so a local HTML file opened from Files fails with an
   error. The plan's answer (the client reads the file and passes the bytes with `LoadHtml` and a base address,
   webd-plan open question 5) is not built.
-* **No tabs.** Each tab would be a view of the same (client, profile) group, sharing one web process, hidden ones
-  `SetVisible(false)`; the web process cap counts (client, profile) pairs, so tabs would not reach the cap of 4.
-  What is missing is the window's chrome for tabs, a way to stop each closed tab leaving a parked proxy in webd
-  (webd-plan P5 pooled light views only: a browser view is a full view, and tabs would be related pages), and a way to recover a hung tab (`Recover` refuses a process other
-  views share, so a hung tab would need its group's views made again). `window.open` and `target=_blank` open in
-  the one view. Tabs, windows, bookmarks, an omnibar, data controls, a password vault and issue reports are
-  planned in [`lazyweb-plan.md`](lazyweb-plan.md).
+* **Tabs are one window.** Several windows, tear-off and reordering a tab by dragging are not built (*Tabs*).
+  Every closed tab still leaves a parked proxy in webd until the parked-view pool for full views lands (webd-plan
+  P5 pooled light views only), the engine half of `RecoverGroup` and `set_user_agent` has not been built or run, and a
+  hung tab in a shared process asks `Recover`, which refuses a process other views share (the window does not call
+  `RecoverGroup` yet). Windows, an omnibar, data controls, a password vault and issue reports are planned in
+  [`lazyweb-plan.md`](lazyweb-plan.md).
 * **A notification permission leaks across profiles.** WebKit keeps one permission record for the whole context,
   so a site allowed in the browser profile reads as `Notification.permission == "granted"` in another app's
   profile, where webd then refuses the notification (it posts nothing for a profile that did not allow it).
@@ -524,6 +569,10 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   to an older History or Downloads page is no longer "its own": its buttons answer "Blocked: the page tried to open
   another app" (safe, but useless) until the page is opened again. A page longer than 8 KiB that WebKit loads
   again shows empty (above).
+* **A tab the engine refuses to make a view for** (webd's `EDQUOT`: too many process keys or too little memory)
+  stays blank and asks again every ten seconds (`RemoteEngine`'s `Health::Refused`). The plan's answer (2.3), to put
+  the tab in the largest existing group or to discard the oldest background tab and try once more, is not built: the
+  view is made lazily inside the engine and the `Engines` seam does not report the refusal to the window.
 * **Dialogs** are titled with the top-level site, not the frame that asked.
 * **Evidence lines** go through `xui_app::trace` (`Channel::LazyWeb`, `marker()` in `lib.rs`) except four
   `println!`s left in `app/events.rs` (`STOPPED`, `FAIL`, `DIALOG`); the ones that name a page, an address or a
@@ -555,7 +604,7 @@ The window's lines are `LAZYWEB:*` (channel `LazyWeb`): `UP:PASS` at the first f
 compositor is not there, `QUIT:PASS` when the window closed and nothing it started is left (the list updater's
 `curl`; `CHILD:curl:ALIVE` otherwise), `INFO:RESIZE:<w>x<h>` when a picture of a new size arrives, the page and
 navigation lines (`LOAD`, `TITLE`, `NAV`, `FAIL`, `POPUP`, `LAUNCH:<url>:OK|FAIL|BLOCKED`,
-`DOWNLOAD:START|DONE|FAIL`, `COMMAND:...:BLOCKED`, `STOPPED`), `HANG:SHOW`, `HANG:HIDE`, `HANG:ANSWER:wait|reload|stop`,
+`DOWNLOAD:START|DONE|FAIL`, `COMMAND:...:BLOCKED`, `STOPPED`), `HANG:SHOW`, `HANG:HIDE`, `HANG:ANSWER:wait|reload|stop`, `TAB:*`,
 `BLOCK:*` and `NOTIFY:*`. The engine's lines (`PROCESS:*`, `WEBPROCESS:*`, `NETWORKPROCESS:*`, `CHILD:web|network`,
 `INFO:PAINT`, `STALL:*`, `CRASH:*`) are webd's and arrive as `WEBD:NOTE:<line>` in webd's console output
 (`docs/webd.md`, "Markers"); webd prints the repeating ones (`INFO:*`, a hung page's pings) under a budget of its

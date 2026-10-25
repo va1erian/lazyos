@@ -47,6 +47,13 @@ impl Browser {
         for (name, rect) in named {
             (self.host.probe)(&self.caption, name, rect);
         }
+        // The tabs, from 1: `tab_1` and `tab_1_close`, and `tab_new`.
+        for n in 0..self.tabs.model.len() {
+            let (tab, close) = self.tabs.strip.rects(ui, n);
+            (self.host.probe)(&self.caption, &format!("tab_{}", n + 1), tab);
+            (self.host.probe)(&self.caption, &format!("tab_{}_close", n + 1), close);
+        }
+        (self.host.probe)(&self.caption, "tab_new", self.tabs.strip.plus(ui));
     }
 
     pub(super) fn trace(&self, line: &str) {

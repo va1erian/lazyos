@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use xui_core::app::Ui;
 use xui_core::arrange::{
-    build, button, column, edit, group, label, menu_bar, progress, row, stack, toggle_button,
-    Align, Handle, Layout, LayoutExt,
+    build, button, column, edit, label, menu_bar, progress, row, stack, toggle_button, Align,
+    Handle, Layout, LayoutExt,
 };
 use xui_core::icon::Lucide;
 use xui_core::layout::Insets;
@@ -20,25 +20,20 @@ use xui_webkit::view::{Hooks, PageView};
 
 use crate::app::Msg;
 use crate::bookmarks::{self, BookmarkMsg};
-use crate::hang::Answer as HangAnswer;
 use crate::indicators::{Badge, Throbber};
 use crate::keys;
-use crate::notify::BarAnswer;
+use crate::strip::{self, TabMsg, TabStrip};
 use crate::suggest::widget::SuggestBox;
+
+mod bars;
+use bars::{hang_bar, notify_bar, restore_bar, HANG_HEIGHT, NOTIFY_HEIGHT, RESTORE_HEIGHT};
 
 /// Heights of the menu bar, the toolbar and the status bar.
 const MENU_HEIGHT: Dip = Dip(28.0);
 const TOOLBAR_HEIGHT: Dip = Dip(38.0);
 const STATUS_HEIGHT: Dip = Dip(24.0);
-/// The bar a site's request to notify shows in, between the toolbar and the page.
-const NOTIFY_HEIGHT: Dip = Dip(64.0);
-const NOTIFY_BUTTON: Dip = Dip(84.0);
-/// The bar a page that stopped answering shows, in the same place.
-const HANG_HEIGHT: Dip = Dip(64.0);
 /// Where the suggestions start: under the address field, past the four buttons.
 const SUGGEST_LEFT: Dip = Dip(138.0);
-/// The bar offering the last page back after a crash, in the same place.
-const RESTORE_HEIGHT: Dip = Dip(64.0);
 /// The square icon buttons of the toolbar, and the download progress bar.
 const TOOL_SIDE: Dip = Dip(30.0);
 const PROGRESS_WIDTH: Dip = Dip(120.0);
@@ -74,10 +69,15 @@ pub enum Command {
     ShowBookmarks,
     /// Help > Report an issue.
     ReportIssue,
+    /// The tab commands of the File menu and the link menu.
+    NewTab,
+    CloseTab,
+    ReopenTab,
+    OpenLinkInTab,
 }
 
 /// The menu ids, one per command (and one per menu title).
-const COMMANDS: [Command; 21] = [
+const COMMANDS: [Command; 25] = [
     Command::OpenLocation,
     Command::SavePage,
     Command::Close,
@@ -99,6 +99,10 @@ const COMMANDS: [Command; 21] = [
     Command::EditBookmark,
     Command::ShowBookmarks,
     Command::ReportIssue,
+    Command::NewTab,
+    Command::CloseTab,
+    Command::ReopenTab,
+    Command::OpenLinkInTab,
 ];
 
 impl Command {
@@ -151,6 +155,11 @@ pub struct Widgets {
     /// Reload while idle, Stop while loading.
     pub reload: Handle<Button<Msg>>,
     pub throbber: Handle<Throbber>,
+    /// The tab strip above the toolbar.
+    pub strip: Handle<TabStrip>,
+    /// Whether a link a tab can open (a web address) is under the pointer: a middle click or
+    /// Ctrl+click on it is the window's (`Hooks::open_link`).
+    pub tab_link: Rc<Cell<bool>>,
     /// The ad blocker's button: its icon and tooltip say what it does for this page.
     pub shield: Handle<Button<Msg>>,
     pub status: Handle<Label<Msg>>,
@@ -181,8 +190,12 @@ pub struct Widgets {
 /// otherwise gets it).
 pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>) -> Layout<Msg> {
     let link_hover = Rc::clone(&widgets.link_hover);
+    let tab_link = Rc::clone(&widgets.tab_link);
     column().children((
         menus(widgets).fixed(MENU_HEIGHT),
+        build(TabStrip::new)
+            .bind(&widgets.strip)
+            .fixed(strip::HEIGHT),
         toolbar(widgets).fixed(TOOLBAR_HEIGHT),
         notify_bar(widgets).fixed(NOTIFY_HEIGHT),
         hang_bar(widgets).fixed(HANG_HEIGHT),
@@ -199,6 +212,11 @@ pub fn window(widgets: &Widgets, engine: Rc<dyn Engine>, loading: Rc<Cell<bool>>
                         clicked: Msg::PageClicked,
                         right_click: Some(Rc::new(Msg::PageMenu)),
                         swallow_right: Some(Rc::new(move || link_hover.get())),
+                        open_link: Some(Rc::new(move |button, mods| {
+                            let opens = button == xui_core::MouseButton::Middle
+                                || (button == xui_core::MouseButton::Left && mods.ctrl);
+                            (opens && tab_link.get()).then_some(Msg::Tab(TabMsg::OpenHovered))
+                        })),
                     };
                     PageView::new(ui, engine, hooks)
                 })
@@ -221,6 +239,10 @@ fn menus(widgets: &Widgets) -> impl LayoutExt<Msg> {
     };
     menu_bar(move |bar| {
         bar.submenu(FILE_MENU, "&File", |m| {
+            item(m, Command::NewTab, "&New Tab", Lucide::Plus);
+            item(m, Command::CloseTab, "Close &Tab", Lucide::X);
+            item(m, Command::ReopenTab, "&Reopen Closed Tab", Lucide::History);
+            m.separator();
             item(m, Command::OpenLocation, "Open &Location...", Lucide::Link);
             item(m, Command::SavePage, "&Save Page As Download", Lucide::Save);
             m.separator();
@@ -323,6 +345,8 @@ pub fn context_menu(ui: &Ui<Msg>) -> Menu<Msg> {
 pub fn link_menu(ui: &Ui<Msg>) -> Menu<Msg> {
     Menu::context(ui)
         .build(|m| {
+            m.item(Command::OpenLinkInTab.id(), "Open Link in New &Tab")
+                .icon(Lucide::Plus);
             m.item(Command::CopyLink.id(), "Copy Link &Address")
                 .icon(Lucide::Link);
             m.item(Command::OpenLinkInApp.id(), "Open Link in &Another App")
@@ -381,84 +405,6 @@ fn toolbar(widgets: &Widgets) -> Layout<Msg> {
                 .width(TOOL_SIDE),
             build(Throbber::new).bind(&widgets.throbber),
         ))
-}
-
-/// The question a page's request to show notifications asks: whose it is, and Allow, Block or
-/// "Not now" (the bar closes and the site may ask again). It is the browser's own bar, not a toast:
-/// a toast never takes the keyboard and an answer must never need one.
-fn notify_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
-    let answer = |text: &str, which, handle: &Handle<Button<Msg>>| {
-        button(text)
-            .on_click(Msg::NotifyAnswer(which))
-            .bind(handle)
-            .width(NOTIFY_BUTTON)
-    };
-    group(
-        "Notifications",
-        row()
-            .gap(8)
-            .align(Align::Center)
-            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
-            .children((
-                label("").bind(&widgets.notify_text).fill(1),
-                answer("Allow", BarAnswer::Allow, &widgets.notify_allow),
-                answer("Block", BarAnswer::Block, &widgets.notify_block),
-                answer("Not now", BarAnswer::Later, &widgets.notify_later),
-            )),
-    )
-    .bind(&widgets.notify_bar)
-}
-
-/// This page is not responding: Wait, Reload (ends the stuck process and loads the page again) or
-/// Stop (ends it). The browser's own chrome, so a page that has stopped cannot take it with it.
-fn hang_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
-    let answer = |text: &str, which, handle: &Handle<Button<Msg>>| {
-        button(text)
-            .on_click(Msg::Hang(which))
-            .bind(handle)
-            .width(NOTIFY_BUTTON)
-    };
-    group(
-        "Page not responding",
-        row()
-            .gap(8)
-            .align(Align::Center)
-            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
-            .children((
-                label("This page is not responding.")
-                    .bind(&widgets.hang_text)
-                    .fill(1),
-                answer("Wait", HangAnswer::Wait, &widgets.hang_wait),
-                answer("Reload", HangAnswer::Reload, &widgets.hang_reload),
-                answer("Stop", HangAnswer::Stop, &widgets.hang_stop),
-            )),
-    )
-    .bind(&widgets.hang_bar)
-}
-
-/// LazyWeb did not close properly: Restore brings the last page back, Dismiss keeps the start page.
-fn restore_bar(widgets: &Widgets) -> impl LayoutExt<Msg> {
-    let answer = |text: &str, yes, handle: &Handle<Button<Msg>>| {
-        button(text)
-            .on_click(Msg::Restore(yes))
-            .bind(handle)
-            .width(NOTIFY_BUTTON)
-    };
-    group(
-        "Restore",
-        row()
-            .gap(8)
-            .align(Align::Center)
-            .padding(Insets::symmetric(Dip(6.0), Dip(2.0)))
-            .children((
-                label("LazyWeb did not close properly. Restore the last page?")
-                    .bind(&widgets.restore_text)
-                    .fill(1),
-                answer("Restore", true, &widgets.restore_yes),
-                answer("Dismiss", false, &widgets.restore_no),
-            )),
-    )
-    .bind(&widgets.restore_bar)
 }
 
 /// The status text taking the rest, a download's progress, and the badge.

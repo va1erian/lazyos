@@ -1,4 +1,4 @@
-//! The window's side of its engine in webd: when to read the view's news (`Host::pump`), and what
+//! The window's side of its engines in webd: when to read the views' news (`Engines::pump`), and what
 //! the ad blocker's switches tell webd.
 //!
 //! The view's event channel wakes the window by itself (the platform parks the loop on it), so the
@@ -29,7 +29,7 @@ impl Browser {
 
     /// Reads the engine's news; keeps the fast timer only while the engine asks for it.
     pub(super) fn pump(&self, ui: &Ui<Msg>) {
-        let again = (self.host.pump)();
+        let again = self.host.engines.pump();
         match (again, self.fast.get()) {
             (true, None) => self.fast.set(Some(ui.set_timer(FAST_MS))),
             (false, Some(timer)) => {
@@ -43,6 +43,12 @@ impl Browser {
     /// Tells webd the blocker's switch and the sites it is off for: the person's exceptions, and
     /// the site shown "without blocking" once until the browser leaves it.
     pub(super) fn sync_blocking(&self) {
+        let (enabled, sites) = self.blocking_switch();
+        self.engine.set_blocking(enabled, &sites);
+    }
+
+    /// The blocker's switch and the sites it is off for, as webd is told (a new tab too).
+    pub(super) fn blocking_switch(&self) -> (bool, Vec<String>) {
         let settings = self.blocker.settings();
         let mut sites: Vec<String> = settings.exceptions.into_iter().collect();
         if let Some(once) = self.blocker.once() {
@@ -51,6 +57,6 @@ impl Browser {
             }
         }
         sites.truncate(EXCEPTIONS_MAX);
-        self.engine.set_blocking(settings.enabled, &sites);
+        (settings.enabled, sites)
     }
 }

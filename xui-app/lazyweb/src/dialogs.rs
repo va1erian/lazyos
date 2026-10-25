@@ -96,6 +96,11 @@ impl Dialogs {
         })
     }
 
+    /// The number of the question that is open.
+    pub fn open_id(&self) -> Option<u64> {
+        self.open.as_ref().map(|open| open.id)
+    }
+
     /// Whether a question is open.
     pub fn is_open(&self) -> bool {
         self.open.is_some()

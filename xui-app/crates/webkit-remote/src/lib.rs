@@ -37,14 +37,14 @@ use std::time::Instant;
 
 use messenger_generated::os_lazy_webd_view_v1 as wire;
 use xui_webd_client::transport::ScopedTransport;
-use xui_webd_client::{FullWebView, Scope, ViewConfig};
+use xui_webd_client::{FullWebView, Scope};
 use xui_webkit::abi::NavKind;
 use xui_webkit::engine::NotifyAnswer;
 use xui_webkit::events::Event;
 use xui_webkit::mailbox::{Mailbox, PageState};
 
 pub use life::Health;
-pub use xui_webd_client::SlotPlan;
+pub use xui_webd_client::{SlotPlan, ViewConfig};
 
 /// The shortest time between two pointer moves sent to webd.
 pub const MOVE_INTERVAL_MS: u64 = 8;
@@ -140,6 +140,9 @@ struct Inner<T: ScopedTransport> {
     moves: input::Moves,
     /// The event channel last told to `watch`.
     channel: Option<u64>,
+    /// The page is on show (the front tab): a view made while it is not gives its slots back at once
+    /// ([`Engine::set_visible`](xui_webkit::engine::Engine::set_visible)).
+    visible: bool,
 }
 
 /// The engine: one view of webd, its picture in the window's mailbox.
@@ -177,6 +180,7 @@ impl<T: ScopedTransport> RemoteEngine<T> {
                 aliases: alias::Aliases::default(),
                 moves: input::Moves::default(),
                 channel: None,
+                visible: true,
             }),
             mailbox,
             navigator: options.navigator,

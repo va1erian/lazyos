@@ -2,15 +2,19 @@
 //! the downloads.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use xui_core::backend::WidgetId;
 use xui_core::geometry::Rect;
+use xui_webkit::engine::{Engine, Recorder};
+use xui_webkit::mailbox::Mailbox;
 
 use crate::blocker::Blocker;
 use crate::handoff::Launcher;
 use crate::internal::Internal;
 use crate::notify::{Permissions, Toasts};
 use crate::prefs::Prefs;
+use crate::tabs::TabId;
 use crate::transfers::Transfers;
 use crate::visits::Visits;
 
@@ -32,9 +36,8 @@ pub struct Host {
     /// The profile folder (`$HOME/.apps/<SYSTEM_NAME>`), where the File menu records whether the
     /// page's data is kept in memory (`memory.rs`); `None` without a home.
     pub profile: Option<std::path::PathBuf>,
-    /// Reads what the engine (webd's view) sent into the mailbox; true when it wants to be called
-    /// again soon (a pointer move waits its turn, webd is being asked for the view again).
-    pub pump: Rc<dyn Fn() -> bool>,
+    /// Where the tabs' engines come from (webd's views), and how their news is read.
+    pub engines: Rc<dyn Engines>,
     /// Runs what other threads queued for the window's thread (the blocker's engine calls, the
     /// shell's notification calls).
     pub jobs: Rc<dyn Fn()>,
@@ -60,10 +63,48 @@ impl Host {
             launcher: Rc::new(NoLauncher),
             probe: Box::new(|_, _, _| {}),
             profile: None,
-            pump: Rc::new(|| false),
+            engines: Rc::new(Inert),
             jobs: Rc::new(|| {}),
             prefs: Prefs::default(),
         }
+    }
+}
+
+/// A tab's engine and the mailbox it posts into.
+pub struct Fresh {
+    pub engine: Rc<dyn Engine>,
+    pub mailbox: Arc<Mailbox>,
+}
+
+/// Where each tab's engine comes from: the platform makes one view of webd per tab and reads the
+/// news of all of them.
+pub trait Engines {
+    /// The engine of the new tab `tab`. `process_key` is the host its first address is on (empty
+    /// for a page of the browser's own): tabs with one key share a web process in webd.
+    fn make(&self, tab: TabId, process_key: &str) -> Fresh;
+    /// From now on `tab`'s news wakes the window's loop by itself; the others are read on the beat.
+    fn front(&self, tab: TabId);
+    /// The window let go of `tab`'s engine.
+    fn gone(&self, tab: TabId);
+    /// Reads what every engine sent into its mailbox; true when one wants to be called again soon
+    /// (a pointer move waits its turn, webd is being asked for a view again).
+    fn pump(&self) -> bool;
+}
+
+/// Engines that do nothing: a recording engine per tab and no news (`Host::none`).
+struct Inert;
+
+impl Engines for Inert {
+    fn make(&self, _tab: TabId, _process_key: &str) -> Fresh {
+        Fresh {
+            engine: Rc::new(Recorder::default()),
+            mailbox: Arc::new(Mailbox::default()),
+        }
+    }
+    fn front(&self, _tab: TabId) {}
+    fn gone(&self, _tab: TabId) {}
+    fn pump(&self) -> bool {
+        false
     }
 }
 

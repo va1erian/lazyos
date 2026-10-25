@@ -6,12 +6,14 @@ use crate::app::Msg;
 use crate::bookmarks::BookmarkMsg;
 use crate::chrome::Command;
 use crate::report::form::ReportMsg;
+use crate::strip::TabMsg;
 
 /// The window's keyboard shortcuts. Enter and Escape mean the address field only while it has
 /// the focus, and Escape means Stop only while a page loads: otherwise the page's own forms,
 /// dialogs and games get them (a real engine has pages that use Escape and Enter).
 pub fn shortcut(key: Key, mods: Modifiers, in_address: bool, loading: bool) -> Option<Msg> {
     let menu = |command| Some(Msg::Menu(command));
+    let tab = |msg| Some(Msg::Tab(msg));
     match key {
         Key::RETURN if in_address => Some(Msg::Go),
         Key::ESCAPE if in_address => Some(Msg::RestoreAddress),
@@ -26,9 +28,32 @@ pub fn shortcut(key: Key, mods: Modifiers, in_address: bool, loading: bool) -> O
         Key::J if mods.ctrl => menu(Command::ShowDownloads),
         Key::D if mods.ctrl => Some(Msg::Bookmarks(BookmarkMsg::Star)),
         Key::S if mods.ctrl => menu(Command::SavePage),
-        Key::W if mods.ctrl => menu(Command::Close),
+        Key::W if mods.ctrl => tab(TabMsg::CloseFront),
+        Key::T if mods.ctrl && mods.shift => tab(TabMsg::Reopen),
+        Key::T if mods.ctrl => tab(TabMsg::New),
+        Key::TAB if mods.ctrl && mods.shift => tab(TabMsg::Previous),
+        Key::TAB if mods.ctrl => tab(TabMsg::Next),
+        key if mods.ctrl => digit(key).map(|n| Msg::Tab(TabMsg::Jump(n))),
         _ => None,
     }
+}
+
+/// The number on a digit key, 1 to 9 (Ctrl+1..9 jump to a tab).
+fn digit(key: Key) -> Option<u8> {
+    [
+        Key::DIGIT1,
+        Key::DIGIT2,
+        Key::DIGIT3,
+        Key::DIGIT4,
+        Key::DIGIT5,
+        Key::DIGIT6,
+        Key::DIGIT7,
+        Key::DIGIT8,
+        Key::DIGIT9,
+    ]
+    .iter()
+    .position(|k| *k == key)
+    .map(|n| n as u8 + 1)
 }
 
 /// The keys of the frames over the page while one is up: Escape puts the bookmark editor or the
@@ -99,13 +124,46 @@ mod tests {
             shortcut(Key::S, ctrl(), false, false),
             Command::SavePage
         ));
-        assert!(is(shortcut(Key::W, ctrl(), false, false), Command::Close));
+        assert!(matches!(
+            shortcut(Key::W, ctrl(), false, false),
+            Some(Msg::Tab(TabMsg::CloseFront))
+        ));
         assert!(matches!(
             shortcut(Key::L, ctrl(), false, false),
             Some(Msg::FocusAddress)
         ));
         assert!(shortcut(Key::LEFT, none, false, false).is_none());
         assert!(shortcut(Key::H, none, false, false).is_none());
+    }
+
+    #[test]
+    fn the_tab_chords() {
+        let with = |key, shift| {
+            let mods = Modifiers { shift, ..ctrl() };
+            shortcut(key, mods, false, false)
+        };
+        assert!(matches!(with(Key::T, false), Some(Msg::Tab(TabMsg::New))));
+        assert!(matches!(with(Key::T, true), Some(Msg::Tab(TabMsg::Reopen))));
+        assert!(matches!(
+            with(Key::TAB, false),
+            Some(Msg::Tab(TabMsg::Next))
+        ));
+        assert!(matches!(
+            with(Key::TAB, true),
+            Some(Msg::Tab(TabMsg::Previous))
+        ));
+        assert!(matches!(
+            with(Key::DIGIT1, false),
+            Some(Msg::Tab(TabMsg::Jump(1)))
+        ));
+        assert!(matches!(
+            with(Key::DIGIT9, false),
+            Some(Msg::Tab(TabMsg::Jump(9)))
+        ));
+        // Without Ctrl they are the page's (and the address field's).
+        assert!(shortcut(Key::DIGIT1, Modifiers::NONE, false, false).is_none());
+        assert!(shortcut(Key::TAB, Modifiers::NONE, false, false).is_none());
+        assert!(is_window_key(Key::T, ctrl(), false));
     }
 
     #[test]

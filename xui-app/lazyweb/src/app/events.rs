@@ -4,22 +4,19 @@
 
 use xui_core::app::Ui;
 use xui_core::widget::HasText;
-use xui_webkit::events::Event;
 
 use super::{caption, now, Browser, Msg};
-use crate::address;
 use crate::blocker;
 use crate::dialogs;
-use crate::handoff;
 use crate::indicators::Security;
 use crate::marker_text;
-use crate::notify::Incoming;
 use crate::pages::{Command as PageCommand, DOWNLOADS};
-use crate::transfers::Started;
+use crate::switch::split_id;
+use crate::tabs::{Place, TabId};
 
 /// The kind of a lost view, read from the engine's sentence: one of a few fixed words, never any of
 /// its text.
-fn lost_kind(error: &str) -> &'static str {
+pub(super) fn lost_kind(error: &str) -> &'static str {
     let lower = error.to_ascii_lowercase();
     if lower.contains("memory") {
         "out-of-memory"
@@ -69,6 +66,15 @@ impl Browser {
             self.page.clear();
             self.notifications.page_crashed();
         }
+        if self.state.crashed != old.crashed {
+            // The model's flag follows the view's loss and a new view, and nothing else: a state
+            // the window merely kept for a tab (`show_tab`) must not set it again.
+            if let Some(front) = self.tabs.model.active_id() {
+                self.tabs.model.set_crashed(front, self.state.crashed);
+            }
+            let why = self.state.crashed.then(|| lost_kind(&self.state.error));
+            self.set_crashed_page(ui, why);
+        }
         // Another document took the view: the engine counts commits, so a reload of the same address
         // counts and a script's pushState or a link to an anchor (the same document) does not, however
         // many steps of a fast navigation one post carries.
@@ -102,15 +108,20 @@ impl Browser {
             }
             // The page that asked is gone: its dialog is answered "no", and a site that asked to
             // notify and was not answered may ask again.
-            if let Some(answer) = self.dialogs.dismiss() {
-                self.engine
-                    .dialog_reply(answer.id, answer.accepted, &answer.value);
+            // (A dialog another tab asked stays: that page has not moved.)
+            let front = self.tabs.model.active_id();
+            if self.dialogs.open_id().map(|id| split_id(id).0) == front {
+                if let Some(answer) = self.dialogs.dismiss() {
+                    self.engine
+                        .dialog_reply(answer.id, answer.accepted, &answer.value);
+                }
             }
             self.notifications
                 .page_moved(self.engine.as_ref(), &self.state.committed_url);
             self.update_notify_bar(ui);
         }
         self.load_state(&old, &shown);
+        self.front_page_changed(old.url != self.state.url || old.title != self.state.title);
         self.update_buttons();
         self.update_shield();
     }
@@ -186,7 +197,7 @@ impl Browser {
         if let Err(e) = self.visits.record(&url, &title, now()) {
             eprintln!("lazyweb: history not saved: {e}");
         }
-        self.note_session(&url, &title);
+        self.save_tabs();
         self.recorded = Some((url, title));
     }
 
@@ -194,95 +205,23 @@ impl Browser {
     pub(super) fn show_events(&mut self, ui: &Ui<Msg>) {
         // The state first: a command or a download refers to the page that is on show now.
         self.show_state(ui);
+        let tab = self.tabs.model.active_id().unwrap_or_default();
         for event in self.mailbox.take_events() {
-            match event {
-                Event::Hover(url) => {
-                    self.link_hover
-                        .set(crate::context::link_items(&url).is_some());
-                    self.hover = url;
-                    self.refresh_status();
-                }
-                Event::Cursor(kind) => self.page.set_cursor(kind),
-                Event::Launch { url, by_user } => {
-                    let status = handoff::open(self.host.launcher.as_ref(), &url, by_user);
-                    self.set_status(&status);
-                }
-                Event::Command { url } => self.run_command(&url),
-                Event::Popup { url } => self.popup(&url),
-                Event::DownloadStarted {
-                    id,
-                    url,
-                    name,
-                    total,
-                    ..
-                } => {
-                    let status = self.transfers.started(Started {
-                        id,
-                        url,
-                        name,
-                        total,
-                    });
-                    self.set_status(&status);
-                    self.downloads_changed(ui);
-                }
-                Event::DownloadProgress {
-                    id,
-                    received,
-                    total,
-                } => {
-                    self.transfers.progress(id, received, total);
-                    self.update_downloads(ui);
-                }
-                Event::DownloadDone { id, name } => self.download_ended(ui, id, Some(&name), None),
-                Event::DownloadFailed { id, reason } => {
-                    self.download_ended(ui, id, None, Some(reason));
-                }
-                Event::Clipboard(text) => ui.set_clipboard_text(&text),
-                Event::Dialog { id, kind, text, .. } => self.dialog(id, kind, &text),
-                Event::NotifyShow {
-                    id,
-                    origin,
-                    page_url,
-                    title,
-                    body,
-                    tag,
-                } => self.notify_show(&Incoming {
-                    id,
-                    origin: &origin,
-                    page_url: &page_url,
-                    title: &title,
-                    body: &body,
-                    tag: &tag,
-                }),
-                Event::NotifyCancel { id } => self.notifications.cancel(id),
-                Event::NotifyGone { id } => self.notifications.gone(id),
-                Event::NotifyPermission {
-                    origin,
-                    user_gesture,
-                } => self.notify_request(ui, &origin, user_gesture),
-                Event::NotifyPermissionGone { origin } => {
-                    self.notifications.request_gone(&origin);
-                    self.update_notify_bar(ui);
-                }
-                Event::BlockingList { id, status } => {
-                    self.trace(&format!("BLOCK:LIST:{id}:{}", status.name()));
-                    self.blocker.list_result(&id, status);
-                }
-                Event::PageResponsive(responsive) => self.page_responsive(ui, responsive),
-                Event::Blocked(count) => {
-                    // The count starts again with every commit, our own pages' included; what
-                    // `about:blocker` and the shield report is the web page browsed last.
-                    if count > 0 || address::is_network(&self.state.committed_url) {
-                        self.blocker.set_blocked(count);
-                        self.update_shield();
-                    }
-                }
-            }
+            self.page_event(ui, tab, event);
         }
         self.update_buttons();
     }
 
-    fn download_ended(&mut self, ui: &Ui<Msg>, id: u64, name: Option<&str>, error: Option<String>) {
+    pub(super) fn download_ended(
+        &mut self,
+        ui: &Ui<Msg>,
+        id: u64,
+        name: Option<&str>,
+        error: Option<String>,
+    ) {
+        let tab = split_id(id).0;
+        self.tabs.downloading(tab, -1);
+        self.tab_busy(tab);
         if let Some(status) = self.transfers.finished(id, name, error) {
             self.set_status(&status);
         }
@@ -291,22 +230,23 @@ impl Browser {
 
     /// The download list changed: the status bar follows, and so does the downloads page when it
     /// is on show.
-    fn downloads_changed(&mut self, ui: &Ui<Msg>) {
+    pub(super) fn downloads_changed(&mut self, ui: &Ui<Msg>) {
         self.update_downloads(ui);
         if self.showing(DOWNLOADS) && !self.state.loading {
             self.open(DOWNLOADS);
         }
     }
 
-    /// A page asked for a new window with a user gesture: the one view opens it.
-    fn popup(&mut self, url: &str) {
+    /// A page asked for a new window with a user gesture: a tab opens next to the page's own (in
+    /// front when that page is).
+    pub(super) fn popup(&mut self, ui: &Ui<Msg>, opener: TabId, url: &str) {
         self.trace(&format!("POPUP:{}", marker_text(url)));
         // Only what the engine would load itself: a scheme for another app earns no handoff
         // from a page's window request.
         let lower = url.trim().to_ascii_lowercase();
         if lower.starts_with("http:") || lower.starts_with("https:") || lower == "about:blank" {
-            self.editing = false;
-            self.start_navigation(url);
+            let front = self.tabs.model.active_id() == Some(opener);
+            self.new_tab(ui, url, Place::After(opener), front);
         }
     }
 
@@ -328,7 +268,7 @@ impl Browser {
     }
 
     /// A JavaScript dialog: drawn over the window; the page waits for the answer.
-    fn dialog(&mut self, id: u64, kind: xui_webkit::engine::DialogKind, text: &str) {
+    pub(super) fn dialog(&mut self, id: u64, kind: xui_webkit::engine::DialogKind, text: &str) {
         crate::marker(&format!("DIALOG:{}", kind.name()));
         let title = dialogs::title_for(&self.state.committed_url);
         if let Some(replaced) = self.dialogs.show(id, kind, &title, text) {

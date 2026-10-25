@@ -109,6 +109,10 @@ impl<T: ScopedTransport> RemoteEngine<T> {
             for job in std::mem::take(&mut inner.deferred) {
                 job(view);
             }
+            if !inner.visible {
+                // A tab opened in the background: no slots until it comes to the front.
+                let _ = view.detach_slots();
+            }
             inner.pending.take()
         };
         self.notice_channel();

@@ -143,21 +143,19 @@ pub(super) fn run() -> i32 {
             }
         })
         .map(|worker| Rc::new(worker.with_turn(main_thread::run)) as Rc<dyn Toasts>);
-        let mailbox = Arc::new(Mailbox::default());
-        let engine = Rc::new(RemoteEngine::new(
-            WebdTransport::full(),
-            Arc::clone(&mailbox),
-            Options {
+        // One engine per tab, made by the window as tabs open; the loop parks on the front tab's.
+        let fleet = Fleet::new(
+            LazyEngines {
                 config,
-                slots: SlotPlan::default(),
-                navigator: navigator(internal.clone()),
-                permissions: decisions(&permissions),
-                watch: watch(&window_backend),
-                wake: Box::new(move || {
+                keyed: !memory_only,
+                internal: internal.clone(),
+                permissions: permissions.clone(),
+                wake: Rc::new(move || {
                     let _ = proxy.send(Msg::Engine);
                 }),
             },
-        ));
+            watch(&window_backend),
+        );
         let traces = xui_app::probe::enabled();
         crate::allow_named_markers(traces);
         let focus_backend = Rc::clone(&window_backend);
@@ -185,21 +183,21 @@ pub(super) fn run() -> i32 {
                         rect.height(),
                     );
                 }),
-                pump: {
-                    let engine = Rc::clone(&engine);
-                    Rc::new(move || engine.pump())
-                },
+                engines: Rc::clone(&fleet) as Rc<dyn Engines>,
                 jobs: {
-                    let engine = Rc::clone(&engine);
+                    let fleet = Rc::clone(&fleet);
                     Rc::new(move || {
-                        jobs.run(engine.as_ref());
+                        // The ad blocker's calls run on the front tab's engine: the rule lists are
+                        // the browser profile's, shared by its views.
+                        if let Some(engine) = fleet.current() {
+                            jobs.run(engine.as_ref());
+                        }
                         main_thread::run();
                     })
                 },
             },
         };
-        Browser::build(ui, engine as Rc<dyn Engine>, mailbox, setup)
-            .expect("the LazyWeb window's widgets built")
+        Browser::build(ui, setup).expect("the LazyWeb window's widgets built")
     });
     backend.unbind();
     // The history and the session queued last are written before the marker goes (`disk.rs`).

@@ -10,6 +10,8 @@ use crate::blocker::worker::Cmd as WorkerCmd;
 use crate::chrome::Command;
 use crate::hang::Answer as HangAnswer;
 use crate::pages::{Command as PageCommand, ABOUT, BLOCKER, DOWNLOADS, HISTORY};
+use crate::strip::TabMsg;
+use crate::tabs::Place;
 use crate::{context, handoff};
 
 impl Browser {
@@ -199,6 +201,15 @@ impl Browser {
                 self.bookmark_command(ui, command)
             }
             Command::ReportIssue => self.open_report(ui),
+            Command::NewTab => self.tab_msg(ui, TabMsg::New),
+            Command::CloseTab => self.tab_msg(ui, TabMsg::CloseFront),
+            Command::ReopenTab => self.tab_msg(ui, TabMsg::Reopen),
+            Command::OpenLinkInTab => {
+                let link = self.context.link().map(str::to_string);
+                if let Some(link) = link.filter(|link| address::is_network(link)) {
+                    self.new_tab(ui, &link, Place::BesideActive, false);
+                }
+            }
             Command::OpenLinkInApp => {
                 // The person's own click, so the hand-off is allowed; the web's links stay the
                 // engine's (the menu only enables this for a scheme it does not load).

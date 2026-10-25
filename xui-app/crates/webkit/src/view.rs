@@ -14,7 +14,7 @@ use xui_core::backend::{Cursor, Event, NodeKind, NodeSpec, Result, TimerId, Widg
 use xui_core::geometry::{Rect, Size};
 use xui_core::layout::Constraints;
 use xui_core::widget::{Control, Placeable};
-use xui_core::{Image, Key, Modifiers, MouseButton};
+use xui_core::{Image, Modifiers, MouseButton};
 
 use crate::autoscroll::AutoScroll;
 use crate::bands::{Band, Bands};
@@ -28,22 +28,7 @@ use crate::smooth::Smooth;
 use crate::speculate::{self, Meter, Speculation};
 use crate::view_input::{arm_auto, arm_glide, arm_settle, handle};
 
-/// Whether a key is one of the window's own.
-pub type IsShortcut = Rc<dyn Fn(Key, Modifiers) -> bool>;
-
-/// What ties a view to the window that holds it.
-pub struct Hooks<M> {
-    /// The window's own shortcuts (Ctrl+L, F5, ...): the page never sees them.
-    pub is_shortcut: IsShortcut,
-    /// The message raised when the page is clicked.
-    pub clicked: M,
-    /// The message raised for a right click at a point of the view, when the window has a
-    /// context menu of its own (the page gets the click as well).
-    pub right_click: Option<Rc<dyn Fn(i32, i32) -> M>>,
-    /// Asked at a right press: true when the window's menu takes the click, so the page does not
-    /// get it (a link menu replaces the page's own). `None` never swallows.
-    pub swallow_right: Option<Rc<dyn Fn() -> bool>>,
-}
+pub use crate::hooks::{Hooks, IsShortcut, OpenLink};
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -59,8 +44,9 @@ pub(crate) struct State {
     pub(crate) held: Cell<Option<MouseButton>>,
     /// Modifiers of the newest event that carried them.
     pub(crate) mods: Cell<u32>,
-    /// A right press was kept from the page (`Hooks::swallow_right`): its release is kept too.
-    pub(crate) swallowed: Cell<bool>,
+    /// The button of a press kept from the page (`Hooks::swallow_right`, `Hooks::open_link`): its
+    /// release is kept too.
+    pub(crate) swallowed: Cell<Option<MouseButton>>,
     /// How far the picture is shown ahead of the page (`speculate.rs`).
     pub(crate) spec: RefCell<Speculation>,
     pub(crate) meter: RefCell<Meter>,
@@ -176,9 +162,19 @@ impl<M: Clone + 'static> PageView<M> {
                 clicked,
                 right_click,
                 swallow_right,
+                open_link,
             } = hooks;
             control.on_events(move |event| {
-                let swallow = || swallow_right.as_ref().is_some_and(|ask| ask());
+                let taken: Cell<Option<M>> = Cell::new(None);
+                let swallow = |button: MouseButton, mods: Modifiers| {
+                    if button == MouseButton::Right {
+                        return swallow_right.as_ref().is_some_and(|ask| ask());
+                    }
+                    let message = open_link.as_ref().and_then(|ask| ask(button, mods));
+                    let kept = message.is_some();
+                    taken.set(message);
+                    kept
+                };
                 handle(
                     &ui,
                     id,
@@ -190,6 +186,9 @@ impl<M: Clone + 'static> PageView<M> {
                     &swallow,
                     event,
                 );
+                if let Some(message) = taken.take() {
+                    return Some(message);
+                }
                 match (event, &right_click) {
                     (
                         Event::MouseDown {

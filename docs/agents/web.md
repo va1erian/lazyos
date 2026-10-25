@@ -111,7 +111,7 @@ otherwise). The window crates are declared `GPL-2.0-only OR GPL-3.0-or-later` an
 GPL-3.0-or-later (it links `xui-webkit-remote` and `xui-webd-client`); only link GPLv2-compatible crates into the
 window: `python tools/nettls/licenses.py --lazyweb` and `python tools/webkit/licenses.py`. Upgrading from the
 in-process browser keeps `history.tsv`, `notify.tsv` and the ad-block lists; the old engine's cookies, cache and
-site storage are not migrated. Known limits: `file:` URLs do not open and there are no tabs.
+site storage are not migrated. Tabs (`xui-app/lazyweb/src/tabs.rs`, `strip.rs`, `switch.rs`, `app/tabs.rs`, `platform/engines.rs`; [`docs/lazyweb.md`](../lazyweb.md) "Tabs"): one view of webd per tab, the front tab's slots only, Ctrl+T/W/Shift+T/Tab/1-9, a middle or Ctrl+click opens a background tab. Known limits: `file:` URLs do not open, one window, and the tab boot of the plan (2.6) has not been run.
 `python tools/lazyweb/run.py` builds the image, boots it (the second boot finds the first's history and cookie)
 and judges the browser's markers (`LAZYWEB:*`), the engine's (`WEBD:NOTE:<line>`), the host's request log, the OS
 volume and the screenshots; `--label-trace` fails on any `LABEL:DENY` beyond the nine optional ones of #836.
