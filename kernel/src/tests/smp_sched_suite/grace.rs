@@ -185,6 +185,7 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
                 "a kept wake waited {} us for the tick",
                 worst / 1000
             );
+            check!(denied > 0, "no round waited past the miss bound");
         }
         end_woken(thread);
         Ok(())
@@ -224,6 +225,15 @@ pub fn grace_soak() -> Result<(), String> {
             (now() - started) / 1_000_000
         );
         check!(cpus & !1 != 0, "no wake ran on an AP ({cpus:#x})");
+        if timing_checked() {
+            // Every third wake's waker parks inside the grace: most of
+            // those run here, not on an AP (an AP's tick may get one first).
+            check!(
+                local * 2 >= SOAK / 3,
+                "only {local} of {} parked wakes ran on the waker's CPU",
+                SOAK / 3
+            );
+        }
         end_woken(thread);
         Ok(())
     })

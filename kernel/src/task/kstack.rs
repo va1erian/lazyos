@@ -197,6 +197,7 @@ pub fn claim_slot(tasks: &[Option<Task>; MAX_TASKS]) -> Result<(usize, KernelSta
     // A new task is current nowhere, whatever its slot's last owner left.
     super::oncpu::forget(index);
     super::segs::forget(index);
+    super::kick::forget(index);
     Ok((index, stack))
 }
 
