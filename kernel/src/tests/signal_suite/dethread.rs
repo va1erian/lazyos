@@ -120,6 +120,11 @@ pub fn exec_ends_the_other_threads() -> Result<(), String> {
     let late = task::spawn_thread("exec-late", process::USER_STACK_TOP, 0, 0);
     here(leader);
     check!(late.is_err(), "a thread being killed made thread {late:?}");
+    // Nor a process: a copy of the old image would outlive the exec.
+    here(running);
+    let forked = task::spawn_fork();
+    here(leader);
+    check!(forked.is_err(), "a thread being killed forked {forked:?}");
 
     // The parked thread is back at a user frame: the sweep ends it alone.
     task::harness::set_frame_cs(parked, parked_cs);
@@ -129,10 +134,7 @@ pub fn exec_ends_the_other_threads() -> Result<(), String> {
     );
     // The running one calls `exit_group` on its way out: alone as well.
     here(running);
-    check!(
-        signal::end_process(pml4, 0, false) == 1,
-        "exit_group of a victim"
-    );
+    task::exit_thread_group(0);
     here(task::KERNEL_TASK);
     check!(
         state(parked) == Some(TaskState::Done) && state(running) == Some(TaskState::Done),
@@ -227,6 +229,48 @@ pub fn exec_from_a_thread_keeps_the_pid() -> Result<(), String> {
         state(execer),
         state(other)
     );
+    end(parent)
+}
+
+/// The CPU-aware cases: a sibling that has just parked while still current on
+/// another CPU is woken (a nudge alone would leave it asleep with the kill
+/// pending), and a finished sibling still current there keeps the exec
+/// waiting (its CPU still runs on the old table).
+pub fn exec_wakes_siblings_parked_elsewhere() -> Result<(), String> {
+    use crate::task::oncpu;
+    fresh()?;
+    let parent = task::spawn_fork().map_err(|error| format!("parent: {error}"))?;
+    let (leader, threads) = process_of(parent, 2)?;
+    let (parked, done) = (threads[0], threads[1]);
+    let pml4 = task::harness::pml4(leader).ok_or("no address space")?;
+    let other = crate::arch::percpu::current().index() as usize + 1;
+    QUEUE.park(parked, None);
+    oncpu::set_for_test(parked, Some(other));
+    task::harness::finish(done, 0);
+    oncpu::set_for_test(done, Some(other));
+    here(leader);
+    let ended = signal::begin_exec(pml4, leader).map_err(|race| format!("{race:?}"))?;
+    check!(ended == 0, "{ended} ended on the spot");
+    check!(
+        state(parked) == Some(TaskState::Runnable)
+            && task::harness::take_wake_reason(parked) == Some(WakeReason::Interrupted),
+        "the sibling parked elsewhere was not woken: {:?}",
+        state(parked)
+    );
+    oncpu::set_for_test(parked, None);
+    task::harness::finish(parked, 0);
+    check!(
+        signal::exec_siblings_left(pml4, leader) == 1,
+        "a finished sibling still current elsewhere was not waited for"
+    );
+    oncpu::set_for_test(done, None);
+    check!(
+        signal::exec_siblings_left(pml4, leader) == 0,
+        "siblings left after the CPU let go"
+    );
+    here(task::KERNEL_TASK);
+    task::harness::finish(leader, 0);
+    while reap_as(parent).is_some() {}
     end(parent)
 }
 

@@ -228,11 +228,7 @@ pub fn spawn_thread_sharing(
     }
     let mut tasks = TASKS.lock();
     let creator = current();
-    // A creator being killed (its process, or by another thread's `execve`)
-    // makes nothing: decided under the table lock that the kill's scan also
-    // holds, so a new thread is either seen by the scan or never made.
-    let space = tasks[creator].as_ref().map_or(0, |task| task.pml4);
-    if creator != KERNEL_TASK && signal::kill_pending(space, creator) {
+    if signal::creator_killed(&tasks, creator) {
         return Err("the creating thread is being killed");
     }
     let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
@@ -339,8 +335,11 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
 /// child's resume stack (`clone` provides one); `None` resumes on the parent's.
 pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
-    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent_index = current();
+    if signal::creator_killed(&tasks, parent_index) {
+        return Err("the forking thread is being killed");
+    }
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
     let fs_base = parent.fs_base;

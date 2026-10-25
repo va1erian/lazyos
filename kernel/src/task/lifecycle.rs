@@ -42,6 +42,11 @@ pub fn exit_thread_group(status: u64) -> Vec<u64> {
     let Some(pml4) = pml4 else {
         return Vec::new();
     };
+    // A thread another thread's `execve` is ending goes alone: the exec
+    // wins, as on Linux.
+    if signal::finish_exec_victim(current(), status) {
+        return Vec::new();
+    }
     let tids: Vec<u64> = TASKS
         .lock()
         .iter()

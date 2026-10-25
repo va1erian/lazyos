@@ -9,7 +9,7 @@
 //! the conventional `128 + signal` status. The parent sees `SIGCHLD` and can
 //! `wait` for the status, so the shell or supervisor carries on.
 
-use crate::task::{current, pml4_of, signal, KERNEL_TASK};
+use crate::task::{current, signal};
 
 /// The exception classes a user program can raise.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,18 +74,12 @@ pub const fn exit_status(fault: Fault) -> u64 {
     128 + fault.signal() as u64
 }
 
-/// End the process that owns the current task, as a fatal `fault`. Returns
+/// End the process that owns the current task, as a fatal `fault` (only the
+/// task itself when another thread's `execve` is ending it). Returns
 /// the number of tasks terminated (0 for the kernel task, which is never
 /// killed this way).
 pub fn kill_current(fault: Fault) -> usize {
-    let slot = current();
-    if slot == KERNEL_TASK {
-        return 0;
-    }
-    let Some(pml4) = pml4_of(slot) else {
-        return 0;
-    };
-    signal::terminate_process(pml4, exit_status(fault))
+    signal::terminate_current(exit_status(fault))
 }
 
 /// Handle an exception with saved code segment `code_segment`. Returns only

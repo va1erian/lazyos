@@ -43,12 +43,15 @@ extern "C" fn sibling() -> ! {
 static HOLD: AtomicBool = AtomicBool::new(false);
 
 /// A sibling that takes its time to reach its syscall return: it runs (at
-/// background priority, yielding) until [`HOLD`] is cleared.
+/// background priority, halting until the next interrupt) until [`HOLD`] is
+/// cleared.
 extern "C" fn stubborn() -> ! {
     let me = task::current();
     loop {
         if HOLD.load(Ordering::Acquire) {
-            task::switch::yield_now();
+            // Not a yield: with interrupts off and nothing else runnable it
+            // would come straight back, and no tick would ever pass.
+            task::nap();
             continue;
         }
         GATE.wait(me, None);
@@ -338,6 +341,7 @@ pub fn soak_exec_dethread() -> Result<(), String> {
     exec_round(parent, 2, 2, true, 1)?;
     let slots = task::free_slots();
     let frames = crate::mem::frame_stats().free;
+    let processes = signal::harness::registry_len();
     for round in 0..64u64 {
         exec_round(
             parent,
@@ -352,10 +356,16 @@ pub fn soak_exec_dethread() -> Result<(), String> {
         "task slots leaked: {slots} free before, {} after",
         task::free_slots()
     );
+    // A few frames of slack for heap growth; a table per round would be 64.
     let after = crate::mem::frame_stats().free;
     check!(
-        after + 16 >= frames,
+        after + 8 >= frames,
         "frames leaked: {frames} free before, {after} after"
+    );
+    check!(
+        signal::harness::registry_len() <= processes,
+        "signal state of {} processes left behind ({processes} before)",
+        signal::harness::registry_len()
     );
     teardown(parent)
 }

@@ -192,6 +192,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         exec_refused_while_dying,
     ),
     (
+        "task_signal_exec_wakes_siblings_parked_elsewhere",
+        exec_wakes_siblings_parked_elsewhere,
+    ),
+    (
         "task_signal_exec_waits_for_unwinding_threads",
         exec_waits_for_unwinding_threads,
     ),

@@ -113,10 +113,8 @@ pub fn exec_siblings_left(pml4: u64, me: usize) -> usize {
 }
 
 /// Whether thread `slot` of process `pml4` has a kill pending, its own (an
-/// exec ending it) or its process's. Takes no task-table lock, so a spawn can
-/// ask while it holds the table: a thread that is being killed creates no
-/// thread, or the kill could miss it and an `execve` would wait on it for
-/// good (Linux's `copy_process` refuses the same way).
+/// exec ending it) or its process's. Takes no task-table lock (see
+/// [`creator_killed`]).
 pub fn kill_pending(pml4: u64, slot: usize) -> bool {
     peek(|procs, threads| {
         threads[slot].pending & bit(SIGKILL) != 0
@@ -125,6 +123,18 @@ pub fn kill_pending(pml4: u64, slot: usize) -> bool {
                 .find(|state| state.pml4 == pml4)
                 .is_some_and(|state| state.pending & bit(SIGKILL) != 0)
     })
+}
+
+/// Whether task `slot`, about to create a thread or a process, is being
+/// killed (its process, or another thread's `execve`): it makes nothing, as
+/// Linux's `copy_process` refuses. Asked with the task table `tasks` held, the
+/// lock the kill's scan holds too, so a new task is either seen by the scan
+/// or never made.
+pub fn creator_killed(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> bool {
+    slot != KERNEL_TASK
+        && tasks[slot]
+            .as_ref()
+            .is_some_and(|task| kill_pending(task.pml4, slot))
 }
 
 /// Whether thread `slot` of process `pml4` is being ended by another

@@ -70,9 +70,9 @@ pub fn set_pml4(value: u64) {
     if let Some(task) = tasks[me].as_mut() {
         task.pml4 = value;
     }
-    if let Some(old) = old.filter(|_| leader != me) {
-        carry_leader(&mut tasks, me, leader, old, value, shared_live);
-    }
+    let carried = old
+        .filter(|_| leader != me)
+        .is_some_and(|old| carry_leader(&mut tasks, me, leader, old, value, shared_live));
     let orphaned = old.filter(|old| {
         !tasks
             .iter()
@@ -84,6 +84,13 @@ pub fn set_pml4(value: u64) {
     // state is already gone).
     if let Some(old) = old {
         signal::carry_kill(old, value);
+        // The leader that came along is dead: what it held in the Messenger
+        // fabric (channels, names, buffer handles, devices) goes now, not when
+        // the new image ends, so its peers see it close. Its buffer mappings
+        // stay recorded against the old table and go with it.
+        if carried {
+            crate::ipc::teardown_task(leader, old, true);
+        }
     }
     if let Some(old) = orphaned {
         // Guard against freeing whatever `CR3` currently points at (only
@@ -118,7 +125,7 @@ pub fn set_pml4(value: u64) {
 /// process's pid, which the exec keeps (see [`set_pml4`]). Its old status is
 /// not the process's (the de-thread killed it), so it reports the new
 /// image's exit. A live leader (no de-thread) stays, and `me` becomes the
-/// leader of a process of its own.
+/// leader of a process of its own. Returns whether the leader moved.
 fn carry_leader(
     tasks: &mut [Option<Task>; MAX_TASKS],
     me: usize,
@@ -126,7 +133,7 @@ fn carry_leader(
     old: u64,
     new: u64,
     shared_live: bool,
-) {
+) -> bool {
     let zombie = !shared_live
         && tasks[leader]
             .as_ref()
@@ -140,6 +147,7 @@ fn carry_leader(
     } else if let Some(task) = tasks[me].as_mut() {
         task.linux.tgid = 0;
     }
+    zombie
 }
 
 /// How many tasks run in the address space `pml4`.

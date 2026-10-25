@@ -12,7 +12,7 @@
 //! cannot build or restore a frame.
 
 use super::{
-    current, halt_forever, lf, linux_sigset_to_kernel, slot_info, terminate_process, UserRegs,
+    current, halt_forever, lf, linux_sigset_to_kernel, terminate_current, UserRegs,
     LINUX_FRAME_SIZE, SIGSEGV,
 };
 
@@ -157,8 +157,6 @@ pub fn restore_fpstate(user_rsp: u64) -> Option<()> {
 /// Terminate the current process as if it took an unhandled `SIGSEGV` and never
 /// return: used when a frame cannot be built or restored.
 pub fn die_with_segv() -> ! {
-    if let Some((pml4, _)) = slot_info(current()) {
-        terminate_process(pml4, 128 + SIGSEGV as u64);
-    }
+    terminate_current(128 + SIGSEGV as u64);
     halt_forever()
 }

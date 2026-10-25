@@ -37,8 +37,12 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
     // joins it, and must not read the first one's status as a signal.
     let (status, signaled) = with_signals(pml4, |state| {
         state.pending |= bit(SIGKILL);
-        if state.kill_at_ns == 0 {
+        // The first kill starts the watchdog's clock; one that follows an
+        // exec's de-thread (which started it too) starts it afresh.
+        let after_exec = state.exec_by != 0 && state.group_exit.is_none();
+        if state.kill_at_ns == 0 || after_exec {
             state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
+            state.slow_reported = false;
         }
         if state.group_exit.is_none() {
             state.group_exit = Some(status);
@@ -116,17 +120,8 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
 /// `Done` would leak forever (audit H5). `signaled` says whether `status` is
 /// `128 + signal`. Returns how many threads were finished immediately.
 pub fn end_process(pml4: u64, status: u64, signaled: bool) -> usize {
-    let me = current();
-    // A thread of this process that another thread's `execve` is ending
-    // (its own `exit_group`, a fault on its way out) goes alone, as on Linux:
-    // the exec wins and the process lives on in the new image.
-    if me != KERNEL_TASK
-        && slot_info(me).is_some_and(|(space, _)| space == pml4)
-        && finish_exec_victim(me, status)
-    {
-        return 1;
-    }
     let (status, mut ended) = kill_threads(pml4, status, signaled);
+    let me = current();
     let mine = me != KERNEL_TASK
         && TASKS.lock()[me]
             .as_ref()
@@ -149,6 +144,24 @@ pub(super) fn exit_group(pml4: u64, status: u64) -> ! {
     let status = kill_process(pml4, status);
     process::finish(current(), status);
     halt_forever()
+}
+
+/// End the current task's process for a fault of its own (`status` is
+/// `128 + signal`), or, when another thread's `execve` is ending this one,
+/// this thread alone: the exec wins, as on Linux, and the process lives on
+/// in the new image. Returns how many threads were finished at once.
+pub fn terminate_current(status: u64) -> usize {
+    let me = current();
+    if me == KERNEL_TASK {
+        return 0;
+    }
+    if finish_exec_victim(me, status) {
+        return 1;
+    }
+    match slot_info(me) {
+        Some((pml4, _)) => terminate_process(pml4, status),
+        None => 0,
+    }
 }
 
 /// Terminate the process `pml4`, recording `status` for every thread: the
