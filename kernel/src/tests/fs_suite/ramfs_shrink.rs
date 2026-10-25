@@ -100,3 +100,36 @@ pub fn ramfs_shrink_soak() -> Result<(), String> {
     ram.unlink("s").map_err(fs_error)?;
     Ok(())
 }
+
+/// A shrink to more than half keeps the allocation, and the charge says so
+/// (no copy per small step, no heap the caps miss); falling under half gives
+/// it back and the charge follows.
+pub fn ramfs_shrink_charges_what_is_held() -> Result<(), String> {
+    let ram = RamFs::with_limits(4 * FILE, 64);
+    ram.create("h", 0o644, user()).map_err(fs_error)?;
+    ram.write("h", 0, &alloc::vec![5u8; FILE])
+        .map_err(fs_error)?;
+    let mut steps = Vec::new();
+    for keep in [FILE * 3 / 4, FILE * 5 / 8, FILE / 2 + 1] {
+        ram.truncate("h", keep as u64).map_err(fs_error)?;
+        steps.push(ram.usage_of(1001).bytes);
+    }
+    ram.truncate("h", (FILE / 4) as u64).map_err(fs_error)?;
+    let quarter = ram.usage_of(1001).bytes;
+    let (tree, _) = ram.usage();
+    let mut back = [0u8; 8];
+    ram.read("h", (FILE / 4 - 8) as u64, &mut back)
+        .map_err(fs_error)?;
+    ram.unlink("h").map_err(fs_error)?;
+    check!(
+        steps.iter().all(|&held| held == FILE),
+        "small shrinks charged {steps:?}, expected the {FILE}-byte allocation"
+    );
+    check!(quarter == FILE / 4, "under half: charged {quarter}");
+    check!(
+        tree == quarter,
+        "the tree holds {tree}, the owner {quarter}"
+    );
+    check!(back == [5u8; 8], "the kept bytes changed");
+    Ok(())
+}

@@ -4,8 +4,8 @@
 //! the only thing that names an end. When that inbox belongs to the end
 //! itself (an end sent over its own channel) or to a ring of channels that
 //! carry each other's ends, no handle can ever receive the message: the ends
-//! are alive for the kernel and dead for everyone, and the registry's 64
-//! slots fill up one leaked round at a time.
+//! are alive for the kernel and dead for everyone, and the registry's slots
+//! (and their owner's channel quota) fill up one leaked round at a time.
 //!
 //! A side is live while a handle names it, a name publishes it, the kernel
 //! holds it, or a message in the inbox of a *live* side carries it (whoever

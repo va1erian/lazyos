@@ -188,11 +188,13 @@ pub fn create() -> Result<(u64, u64), Error> {
     }
 }
 
-/// Take a registry slot for a fresh channel. A full registry (or a full
-/// channel quota) first gives back the ends nobody can reach any more
-/// ([`reclaim::reclaim_unreachable`]) and tries once more, so a leak of
-/// unreachable channels costs slots only until the next create. The channel
-/// is charged to `owner`'s uid (`Resource::Channels`).
+/// Take a registry slot for a fresh channel. A full registry first gives back
+/// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
+/// tries once more, so a leak of unreachable channels costs slots only until
+/// the next create. The channel is charged to `owner`'s uid
+/// (`Resource::Channels`); a full quota is refused at once, since a reclaim
+/// walks every handle table and a uid at its cap could repeat it at will
+/// (a close already reclaims what it leaves unreachable).
 fn insert_channel(owner: usize) -> Result<u64, Error> {
     insert_channel_with(owner, fresh_channel)
 }
@@ -203,12 +205,39 @@ fn insert_channel_with(owner: usize, build: impl Fn(u64) -> Channel) -> Result<u
     // The guard is a temporary of its own statement: `reclaim` locks the
     // registry again.
     let first = CHANNELS.lock().insert(owner, &build);
-    match first {
-        Err(Error::RegistryFull | Error::ChannelQuota) if reclaim::reclaim_unreachable() > 0 => {
+    let result = match first {
+        Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
             CHANNELS.lock().insert(owner, &build)
         }
         other => other,
+    };
+    if result == Err(Error::ChannelQuota) {
+        note_channel_quota(owner);
     }
+    result
+}
+
+/// Refused creates over the channel quota, a line each while it lasts.
+static QUOTA_REFUSALS: tracefmt::Budget = tracefmt::Budget::new(20, 1000);
+
+/// Print `MSG:QUOTA:CHANNELS` for a create refused over `owner`'s channel
+/// quota: the caller only sees `ENOMEM`, so the log names the uid and what
+/// it holds. Call it with no lock held.
+fn note_channel_quota(owner: usize) {
+    match QUOTA_REFUSALS.charge(task::ticks()) {
+        tracefmt::Charge::Deny => return,
+        tracefmt::Charge::AllowAfter(n) => {
+            crate::trace::line!(tracefmt::Channel::Msg, "QUOTA:SUPPRESSED n={n}");
+        }
+        tracefmt::Charge::Allow => {}
+    }
+    let uid = credentials::of(owner).uid;
+    crate::trace::line!(
+        tracefmt::Channel::Msg,
+        "QUOTA:CHANNELS uid={uid} slot={owner} held={} limit={}",
+        quota::usage(uid, Resource::Channels),
+        quota::limit(uid, Resource::Channels)
+    );
 }
 
 /// Send a one-way message (section 7.1): enqueue and return immediately.

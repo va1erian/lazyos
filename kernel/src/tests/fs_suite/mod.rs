@@ -120,6 +120,10 @@ pub(super) const CASES: &[(&str, Test)] = &[
         ramfs_shrink_returns_the_heap,
     ),
     ("fs_ramfs_shrink_soak", ramfs_shrink_soak),
+    (
+        "fs_ramfs_shrink_charges_what_is_held",
+        ramfs_shrink_charges_what_is_held,
+    ),
     ("fs_setattr_rule_table", setattr_rule_table),
     (
         "fs_setattr_through_vfs_and_cache",

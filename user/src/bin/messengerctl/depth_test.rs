@@ -7,15 +7,11 @@ use alloc::format;
 use alloc::string::String;
 use libmessenger::Parcel;
 use messenger_generated::os_lazy_messenger_topics_v1 as generated;
-use user::messenger::{self, topics_client};
+use user::messenger::topics_client;
 
-use super::topic_tests::test_parcel;
+use super::topic_tests::{err_text, test_parcel};
 
 const TOPIC: &str = "topics/depth";
-
-fn err_text(error: messenger::Error) -> String {
-    String::from(error.message())
-}
 
 /// One raw broker call that fails on an error reply, like the client's own.
 fn call(client: &topics_client::Client, request: Parcel) -> Result<Parcel, String> {
