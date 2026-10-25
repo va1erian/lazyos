@@ -29,6 +29,7 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, sqlite3, jq, rg in /system/bin
+    python tools/run_demo.py --rustc         # + rustc, cargo, std and rust-lld (cross-compiled in Docker); big-app profile
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile
@@ -99,7 +100,7 @@ from demo_qemu import (  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
-    build_lazyweb,
+    build_lazyweb, build_rustc,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, webd_built, webd_env, build_webkit_deps, build_webkit_port, build_wifi,
     build_xui_apps,
@@ -126,10 +127,7 @@ DESKTOP_ELFS = [ROOT / "target" / "xui" / name for name in (
     "xui-term.elf", "xui-sysmon.elf", "xui-fabricmon.elf", "xui-widget.elf", "xui-counter.elf",
     "xui-editor.elf", "xui-files.elf", "xui-paint.elf", "xui-writer.elf", "xui-archiver.elf",
     "xui-settings.elf", "xui-confd.elf", "xui-installer.elf", "xui-devices.elf",
-    "xui-calc.elf", "xui-pdf.elf",
-    "xui-volume.elf",
-    "xui-video.elf",
-    "xui-about.elf",
+    "xui-calc.elf", "xui-pdf.elf", "xui-volume.elf", "xui-video.elf", "xui-about.elf",
     "xui-cursored.elf",
 )]
 # LazyGolf and the NES Player: only `--games` images (xui_embed.rs GAMES_XUI_APPS).
@@ -329,6 +327,7 @@ def main(argv: list[str]) -> int:
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
+                                      (args.rustc, build_rustc, "LAZYOS_RUSTC"),
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),
                                       (args.webkit_port, build_webkit_port, "LAZYOS_WEBKIT_PORT"),

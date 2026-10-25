@@ -38,6 +38,7 @@ installable app. You rarely need to write Rust.
 | [Packages](packages.md) | The `.lzp` format, manifests, permissions, core packages |
 | [Security model](security-model.md) | Accounts, labels, capabilities and the trusted prompt |
 | [Platform plan](platform-plan.md) | The architecture and the staged roadmap |
+| [Self-hosting plan](self-hosting-plan.md) | Compiling Rust on LazyOS, up to LazyOS building itself |
 
 ## Using LazyOS
 

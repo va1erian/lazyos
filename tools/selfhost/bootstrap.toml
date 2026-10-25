@@ -1,0 +1,46 @@
+# x.py configuration for the LazyOS rustc (tools/selfhost/README.md).
+# Host and target are the musl triple: LazyOS runs Linux musl binaries.
+change-id = "ignore"
+
+[llvm]
+download-ci-llvm = false
+targets = "X86"
+experimental-targets = ""
+static-libstdcpp = true
+link-shared = false
+ninja = true
+
+[build]
+# Outside the source tree, which a new patch set unpacks again.
+build-dir = "/b/build"
+build = "x86_64-unknown-linux-musl"
+host = ["x86_64-unknown-linux-musl"]
+target = ["x86_64-unknown-linux-musl"]
+docs = false
+# cargo and rustdoc too (SH1: `cargo test` runs rustdoc for doctests).
+# cargo-native-static builds cargo with vendored OpenSSL, curl and libgit2,
+# so it needs no shared library beyond musl's libc.
+extended = true
+tools = ["cargo", "rustdoc"]
+cargo-native-static = true
+vendor = true
+locked-deps = true
+
+[rust]
+channel = "stable"
+# rust-lld is the linker on LazyOS: there is no cc there.
+lld = true
+debuginfo-level = 0
+debuginfo-level-std = 0
+
+[target.x86_64-unknown-linux-musl]
+# rustc_driver is a dylib, so the compiler links musl dynamically.
+crt-static = false
+# The build machine links through gcc: the patched target defaults to
+# rust-lld (patches/0001), and rustc reads a C compiler only from names like
+# gcc or clang, never plain cc.
+linker = "gcc"
+musl-root = "/usr"
+
+[dist]
+compression-formats = ["xz"]

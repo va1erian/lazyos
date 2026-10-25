@@ -1,0 +1,6 @@
+# The cargo sample LazyOS ships at /system/share/samples/cargo-hello
+# (`LAZYOS_RUSTC=1`, docs/self-hosting-plan.md SH1): a workspace of a library
+# with unit tests and a program that uses it, built on LazyOS with no network.
+[workspace]
+members = ["greet", "hello"]
+resolver = "3"

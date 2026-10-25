@@ -2,7 +2,7 @@
 
 Each runs one tool script quietly and reports a failure in one line; the
 explicitly requested ones (`--lazyrad`, `--doom`, `--quake`, `--srb2kart`, `--emusic`, `--modplayer`,
-`--pictures`, `--linuxapps`, `--tls`, `--installer`, `--mail`, `--devices`, `--wifi`) return
+`--pictures`, `--linuxapps`, `--rustc`, `--tls`, `--installer`, `--mail`, `--devices`, `--wifi`) return
 False so the run stops instead of booting an image without what was asked
 for.
 """
@@ -93,6 +93,12 @@ def build_linuxapps() -> bool:
     """The Linux command-line programs (dash, sqlite3, jq, rg from pinned
     sources); a missing toolchain or download stops the run."""
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
+
+
+def build_rustc() -> bool:
+    """The Rust compiler for LazyOS, cross-compiled from the pinned release in Docker by
+    `tools/selfhost/build.py` (cached after the first build, which takes about half an hour)."""
+    return required("the Rust compiler", "selfhost/build.py", ("--require",))
 
 
 def build_jsc() -> bool:

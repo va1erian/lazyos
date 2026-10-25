@@ -223,6 +223,13 @@ programs! {
     NETWORKPROCESS = "networkprocess";
     /// `webkit-smoke`, the headless WebKit UI process of the W4 check (`LAZYOS_WEBKIT_PORT=1`).
     WEBKIT_SMOKE = "webkit-smoke";
+    /// `rustc`, the Rust compiler (`LAZYOS_RUSTC=1`, Linux ABI, docs/self-hosting-plan.md). Its
+    /// sysroot is [`SYSTEM`](crate::SYSTEM): the driver library and `rustlib` are in `/system/lib`.
+    RUSTC = "rustc";
+    /// `cargo`, Rust's build tool (`LAZYOS_RUSTC=1`, Linux ABI, docs/self-hosting-plan.md SH1).
+    CARGO = "cargo";
+    /// `rustdoc`, which `cargo test` runs for doctests (`LAZYOS_RUSTC=1`, Linux ABI).
+    RUSTDOC = "rustdoc";
     /// BusyBox, the console shell and applets (Linux ABI). The kernel resolves
     /// applet names onto it (`process/linux/path.rs`).
     BUSYBOX = "busybox";

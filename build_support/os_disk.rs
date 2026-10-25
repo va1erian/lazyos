@@ -29,6 +29,9 @@ pub const SRB2KART_EXTRA: u64 = 512 << 20;
 /// `pkgd` unpacks into `/apps`, holds them again; 768 MiB left too little room
 /// to write, with the rest of the image.
 pub const WEBKIT_EXTRA: u64 = 512 << 20;
+/// What `LAZYOS_RUSTC=1` adds to [`DEFAULT_OS_SIZE`]: the compiler's driver library, the
+/// standard library's rlibs and `rust-lld` are several hundred MiB (docs/self-hosting-plan.md).
+pub const RUSTC_EXTRA: u64 = 1 << 30;
 /// Smallest OS volume the build accepts.
 pub const MIN_OS_SIZE: u64 = 128 << 20;
 
@@ -40,13 +43,14 @@ const SIGNATURE: usize = 510;
 /// selected feature adds. The features add up (SRB2Kart's data beside the
 /// browser's programs filled a 1 GiB volume, and the update then died halfway:
 /// `tools/lazygui/osvolume.py` mirrors this).
-pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
+pub fn default_size(srb2kart: bool, webkit: bool, rustc: bool) -> u64 {
     DEFAULT_OS_SIZE
         + if srb2kart { SRB2KART_EXTRA } else { 0 }
         + if webkit { WEBKIT_EXTRA } else { 0 }
+        + if rustc { RUSTC_EXTRA } else { 0 }
 }
 
-/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`,
+/// [`default_size`] for the environment: `LAZYOS_SRB2KART=1`, `LAZYOS_RUSTC=1`,
 /// `LAZYOS_WEBKIT_PORT=1` (the console proof, with the same three programs) asks for a larger one
 /// (`tools/lazygui/osvolume.py` mirrors this), and so does `webd`: a desktop that ships it, which
 /// `LAZYOS_LAZYWEB=1` makes (`webd_embed::shipped_env`, which the caller asks: the installer includes this
@@ -54,8 +58,13 @@ pub fn default_size(srb2kart: bool, webkit: bool) -> u64 {
 pub fn default_size_env(webd: bool) -> u64 {
     println!("cargo:rerun-if-env-changed=LAZYOS_SRB2KART");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
+    println!("cargo:rerun-if-env-changed=LAZYOS_RUSTC");
     let on = |name: &str| std::env::var_os(name).is_some_and(|value| value == "1");
-    default_size(on("LAZYOS_SRB2KART"), on("LAZYOS_WEBKIT_PORT") || webd)
+    default_size(
+        on("LAZYOS_SRB2KART"),
+        on("LAZYOS_WEBKIT_PORT") || webd,
+        on("LAZYOS_RUSTC"),
+    )
 }
 
 /// `LAZYOS_OS_SIZE`: bytes with an optional `K`, `M` or `G` suffix (binary),

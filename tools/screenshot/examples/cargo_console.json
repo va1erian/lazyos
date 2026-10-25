@@ -1,0 +1,22 @@
+[
+  {"wait_for": "/ #", "timeout": 300},
+  {"at": 1.0, "type": "cargo -V; echo CARGO:$?"},
+  {"key": "enter", "until": "CARGO:0", "timeout": 300},
+  {"wait": 1.0},
+  {"type": "cd /tmp && printf 'fn main() { println!(\"plain rustc {}\", 6 * 7); }\\n' > p.rs && rustc p.rs && ./p"},
+  {"key": "enter", "until": "plain rustc 42", "timeout": 600},
+  {"wait": 1.0},
+  {"type": "cp -r /system/share/samples/cargo-hello /tmp/ && cd /tmp/cargo-hello && cargo test --offline; echo TEST:$?"},
+  {"key": "enter", "until": "TEST:0", "timeout": 1200},
+  {"wait": 2.0},
+  {"type": "time cargo run --release --offline"},
+  {"key": "enter", "until": "sum 5050 on 4 threads", "timeout": 1200},
+  {"wait": 2.0},
+  {"shot": "01_cargo_workspace"},
+  {"type": "clear; cd /tmp && cargo new --vcs none fresh && cd fresh && cargo run --offline"},
+  {"key": "enter", "until": "Hello, world!", "timeout": 900},
+  {"wait": 2.0},
+  {"shot": "02_cargo_new"},
+  {"wait": 1.0},
+  {"quit": true}
+]

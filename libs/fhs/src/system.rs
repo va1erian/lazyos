@@ -18,6 +18,13 @@ pub const SYSTEM_ETC: &str = "/system/etc";
 /// image build (`LAZYOS_DYNLINK=1`).
 pub const SYSTEM_LIB: &str = "/system/lib";
 
+/// The Rust compiler's target libraries and tools (`LAZYOS_RUSTC=1`,
+/// docs/self-hosting-plan.md): `rustc` in [`SYSTEM_BIN`] finds its sysroot,
+/// [`SYSTEM`], from the driver library beside this directory, and reads
+/// `x86_64-unknown-linux-musl/lib` (the standard library) and
+/// `x86_64-unknown-linux-musl/bin/rust-lld` (the linker) under it.
+pub const RUSTLIB: &str = "/system/lib/rustlib";
+
 /// The conventional library directories the Linux ABI answers from
 /// [`SYSTEM_LIB`] (`/lib/<name>` is `/system/lib/<name>` when no such file
 /// exists).
@@ -65,6 +72,7 @@ mod tests {
             assert!(rest.starts_with('/') && !rest[1..].contains('/'), "{dir}");
         }
         assert!(IMAGE_MANIFEST.starts_with(SYSTEM));
+        assert_eq!(RUSTLIB.strip_prefix(SYSTEM_LIB), Some("/rustlib"));
         assert!(PACKAGES_INDEX.starts_with(SYSTEM_PACKAGES));
         assert_eq!(FIRMWARE.strip_prefix(SYSTEM_SHARE), Some("/firmware"));
     }
