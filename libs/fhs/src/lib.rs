@@ -37,5 +37,5 @@ pub mod system;
 #[cfg(feature = "alloc")]
 pub use install::{app_data_dir, home_of, icon_path, install_path, APP_ICON};
 pub use system::{
-    FIRMWARE, SYSTEM, SYSTEM_BIN, SYSTEM_ETC, SYSTEM_LIB, SYSTEM_PACKAGES, SYSTEM_SHARE,
+    FIRMWARE, RUSTLIB, SYSTEM, SYSTEM_BIN, SYSTEM_ETC, SYSTEM_LIB, SYSTEM_PACKAGES, SYSTEM_SHARE,
 };

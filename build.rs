@@ -58,6 +58,8 @@ mod pictures_embed;
 mod quake_embed;
 #[path = "build_support/rhai_embed.rs"]
 mod rhai_embed;
+#[path = "build_support/rustc_embed.rs"]
+mod rustc_embed;
 #[path = "build_support/samples_embed.rs"]
 mod samples_embed;
 #[path = "build_support/srb2kart_embed.rs"]
@@ -431,7 +433,8 @@ fn main() {
     produced!(files, ca_bundle::embed, roots.map(|der| der.as_ref()));
     produced!(files, tls_embed::embed, &manifest_dir);
     produced!(files, linuxapps_embed::embed, &manifest_dir);
-    // linuxapps_embed places dash, sqlite3, jq and rg.
+    // The Rust compiler (`LAZYOS_RUSTC=1`).
+    produced!(files, rustc_embed::embed, &manifest_dir);
     // The docs tree (`docs/**/*.md`, `README.md`) at `/docs/os/...` (Docs, Editor).
     println!("cargo:rerun-if-changed=build_support/docs_embed.rs");
     produced!(files, docs_embed::embed, &manifest_dir);

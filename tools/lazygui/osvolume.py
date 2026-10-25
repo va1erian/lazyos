@@ -11,7 +11,7 @@ the very last build step. This works the size out first, shared by the GUI
 * an existing image that is too small has to be recreated (``--reset-os``).
 
 The sizes mirror `build_support/os_disk.rs` (`DEFAULT_OS_SIZE`,
-`SRB2KART_EXTRA`, `WEBKIT_EXTRA`, `OS_START_LBA`): the default plus what each
+`SRB2KART_EXTRA`, `WEBKIT_EXTRA`, `RUSTC_EXTRA`, `OS_START_LBA`): the default plus what each
 selected feature adds, since SRB2Kart's data beside the browser's programs does
 not fit the volume either one alone needs.
 """
@@ -27,10 +27,11 @@ MIB = 1 << 20
 SECTOR = 512
 #: Where the OS volume starts in the MBR disk (`os_disk::OS_START_LBA`).
 OS_START_LBA = 131_072
-#: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_EXTRA` and `WEBKIT_EXTRA`.
+#: `os_disk::DEFAULT_OS_SIZE`, `SRB2KART_EXTRA`, `WEBKIT_EXTRA` and `RUSTC_EXTRA`.
 DEFAULT_SIZE = 512 * MIB
 SRB2KART_EXTRA = 512 * MIB
 WEBKIT_EXTRA = 512 * MIB
+RUSTC_EXTRA = 1024 * MIB
 #: One feature alone (`SRB2KART_OS_SIZE`, `WEBKIT_OS_SIZE`).
 SRB2KART_SIZE = DEFAULT_SIZE + SRB2KART_EXTRA
 WEBKIT_SIZE = DEFAULT_SIZE + WEBKIT_EXTRA
@@ -39,11 +40,11 @@ _TABLE = 0x1BE
 _ENTRY = 16
 
 
-def required_bytes(srb2kart: bool, webkit: bool = False) -> int:
+def required_bytes(srb2kart: bool, webkit: bool = False, rustc: bool = False) -> int:
     """The OS volume size a selection needs when none is configured (the default
     plus what each selected feature adds, as `os_disk::default_size`)."""
     return (DEFAULT_SIZE + (SRB2KART_EXTRA if srb2kart else 0)
-            + (WEBKIT_EXTRA if webkit else 0))
+            + (WEBKIT_EXTRA if webkit else 0) + (RUSTC_EXTRA if rustc else 0))
 
 
 def existing_bytes(image: Path) -> int | None:
@@ -65,13 +66,14 @@ def existing_bytes(image: Path) -> int | None:
     return None
 
 
-def plan(image: Path, srb2kart: bool, webkit: bool = False) -> tuple[int | None, bool]:
+def plan(image: Path, srb2kart: bool, webkit: bool = False,
+         rustc: bool = False) -> tuple[int | None, bool]:
     """``(size to ask for, whether the volume must be recreated)``.
 
     The size is ``None`` when the default is right (no image yet, or one of
     exactly the needed size).
     """
-    need = required_bytes(srb2kart, webkit)
+    need = required_bytes(srb2kart, webkit, rustc)
     have = existing_bytes(image)
     if have is None or have == need:
         return None, False
@@ -80,13 +82,14 @@ def plan(image: Path, srb2kart: bool, webkit: bool = False) -> tuple[int | None,
     return need, True
 
 
-def too_small(image: Path, srb2kart: bool, webkit: bool = False) -> tuple[int, int] | None:
+def too_small(image: Path, srb2kart: bool, webkit: bool = False,
+              rustc: bool = False) -> tuple[int, int] | None:
     """``(have MiB, need MiB)`` when ``image``'s OS volume cannot hold the
     selection and must be recreated, else ``None``."""
-    _size, reset = plan(image, srb2kart, webkit)
+    _size, reset = plan(image, srb2kart, webkit, rustc)
     if not reset:
         return None
-    return (existing_bytes(image) or 0) // MIB, required_bytes(srb2kart, webkit) // MIB
+    return (existing_bytes(image) or 0) // MIB, required_bytes(srb2kart, webkit, rustc) // MIB
 
 
 def configured() -> bool:
@@ -124,14 +127,15 @@ def wants_webkit(cfg: dict) -> bool:
     return bool(cfg.get("webkit_port") or cfg.get("lazyweb") or wants_webd(cfg))
 
 
-def args_wants(args) -> tuple[bool, bool]:
-    """``(srb2kart, webkit)`` for `run_demo.py`'s parsed flags, or the same
+def args_wants(args) -> tuple[bool, bool, bool]:
+    """``(srb2kart, webkit, rustc)`` for `run_demo.py`'s parsed flags, or the same
     switches already in the environment."""
     def on(flag: str, switch: str) -> bool:
         return bool(getattr(args, flag, False)) or os.environ.get(switch) == "1"
     return (on("srb2kart", "LAZYOS_SRB2KART"),
             on("webkit_port", "LAZYOS_WEBKIT_PORT") or on("lazyweb", "LAZYOS_LAZYWEB")
-            or on("webd", "LAZYOS_WEBD") or bool(getattr(args, "webd_implicit", False)))
+            or on("webd", "LAZYOS_WEBD") or bool(getattr(args, "webd_implicit", False)),
+            on("rustc", "LAZYOS_RUSTC"))
 
 
 def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
@@ -139,7 +143,7 @@ def cfg_too_small(cfg: dict, image: str | Path) -> tuple[int, int] | None:
     when the existing image cannot hold the selection, else ``None``."""
     if configured() or cfg.get("skip_build"):
         return None
-    return too_small(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
+    return too_small(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg), bool(cfg.get("rustc")))
 
 
 def check(cfg: dict, image: str | Path) -> None:
@@ -161,7 +165,7 @@ def env(cfg: dict, image: str | Path) -> dict[str, str]:
     or the caller set one."""
     if configured():
         return {}
-    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg))
+    size, _reset = plan(Path(image), bool(cfg.get("srb2kart")), wants_webkit(cfg), bool(cfg.get("rustc")))
     return {"LAZYOS_OS_SIZE": str(size)} if size else {}
 
 

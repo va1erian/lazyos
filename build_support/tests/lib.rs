@@ -37,6 +37,8 @@ mod os_manifest;
 mod os_recover;
 #[path = "../pictures_embed.rs"]
 mod pictures_embed;
+#[path = "../rustc_embed.rs"]
+mod rustc_embed;
 #[path = "../samples_embed.rs"]
 mod samples_embed;
 #[path = "../srb2kart_embed.rs"]
@@ -88,6 +90,8 @@ mod owners_tests;
 mod pictures_tests;
 #[cfg(test)]
 mod recover_tests;
+#[cfg(test)]
+mod rustc_tests;
 #[cfg(test)]
 mod samples_tests;
 #[cfg(test)]

@@ -76,6 +76,14 @@ def linuxapps_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/linuxapps/build.py", "--require"]}]
 
 
+def rustc_step(cfg: dict) -> list[dict]:
+    """The step that cross-compiles the Rust compiler (in Docker), when embedded."""
+    if not cfg.get("rustc"):
+        return []
+    return [{"label": "Build rustc for LazyOS (Docker; an hour the first time)",
+             "argv": [PY, "tools/selfhost/build.py", "--require"]}]
+
+
 def jsc_step(cfg: dict) -> list[dict]:
     """The step that builds JavaScriptCore's `jsc` (in Docker), when embedded."""
     if not cfg.get("jsc"):
@@ -226,7 +234,8 @@ def wants_pictures(cfg: dict) -> bool:
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
     `LAZYOS_GAMES`, `LAZYOS_DEVTOOLS`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
-    `tools/jsc/build.py`; a console program, so desktop or not) and
+    `tools/jsc/build.py`; a console program, so desktop or not), `LAZYOS_RUSTC` (the Rust compiler,
+    `tools/selfhost/build.py`, a console program too) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
     (the W4 console proof, `tools/webkit/port.py`). LazyWeb, `LAZYOS_LAZYWEB`, is a
     desktop app like LazySky: it brings the desktop profile (`catalog.build_env`) and the stack,
@@ -237,6 +246,7 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_DEVTOOLS": "1"} if wants_devtools(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
+            | ({"LAZYOS_RUSTC": "1"} if cfg.get("rustc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
             | ({"LAZYOS_LAZYWEB": "1"} if cfg.get("lazyweb") else {})
@@ -246,7 +256,7 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
 
 
 def desktop_app_argv(cfg: dict) -> list[str]:
-    """run_demo's `--mail`, `--traydemo`, `--games`, `--devtools`, `--pictures`, `--jsc` and `--webkit-port`,
+    """run_demo's `--mail`, `--traydemo`, `--games`, `--devtools`, `--pictures`, `--jsc`, `--rustc` and `--webkit-port`,
     which set those switches themselves, and `--lazyweb` and `--webd`."""
     building = not cfg.get("skip_build")
     return (mail_argv(cfg) + (["--traydemo"] if wants_traydemo(cfg) and building else [])
@@ -254,6 +264,7 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--devtools"] if wants_devtools(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
             + (["--jsc"] if cfg.get("jsc") and building else [])
+            + (["--rustc"] if cfg.get("rustc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
             + (["--lazyweb"] if cfg.get("lazyweb") and building else [])
@@ -280,7 +291,7 @@ def app_steps(cfg: dict) -> list[dict]:
     """Every optional app the image embeds, built before `cargo build`."""
     return (lazyrad_step(cfg) + modplayer_step(cfg) + doom_step(cfg) + quake_step(cfg)
             + srb2kart_step(cfg) + emusic_step(cfg)
-            + linuxapps_step(cfg)
+            + linuxapps_step(cfg) + rustc_step(cfg)
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
             + lazyweb_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + devtools_step(cfg)

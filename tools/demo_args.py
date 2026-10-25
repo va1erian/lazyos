@@ -193,6 +193,11 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--rustc", action="store_true",
+                        help="embed the Rust compiler (LAZYOS_RUSTC=1, docs/self-hosting-plan.md): "
+                             "rustc in /system/bin, its standard library and rust-lld under "
+                             "/system/lib, cross-compiled by tools/selfhost/build.py in Docker; "
+                             "about 1 GiB more OS volume and the big-app profile")
     parser.add_argument("--jsc", action="store_true",
                         help="embed JavaScriptCore's jsc (C-loop) and jsc-jit (JIT) shells and the C++/ICU check cxxproof in "
                              "/system/bin (LAZYOS_JSC=1), built by tools/jsc/build.py (Docker: "
@@ -353,7 +358,7 @@ def parse_args(parser: argparse.ArgumentParser, argv: list[str]):
     args.webd = args.webd or args.webd_demo
     if args.lazyweb or args.webd:
         args.limit = with_defaults(args.limit, WEBKIT_LIMITS)
-    if (args.big_app or args.jsc or args.webkit_deps or args.webkit_port
+    if (args.big_app or args.jsc or args.rustc or args.webkit_deps or args.webkit_port
             or args.lazyweb or args.webd):
         args.memory, args.limit = big_app(args.memory, DEFAULT_MEMORY, args.limit)
     # Samples are only embedded with the runtime that plays them, and the MOD

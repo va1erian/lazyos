@@ -115,6 +115,8 @@ class Launcher:
         self._check(g, "Netboot payload too (target/netboot; LAZYOS_NETBOOT; sign with the key below)",
                     "netboot")
         self._check(g, "Linux programs dash/sqlite3/jq/rg (LAZYOS_LINUXAPPS)", "linuxapps")
+        self._check(g, "Rust compiler rustc, cross-compiled in Docker (LAZYOS_RUSTC; run_demo --rustc; "
+                       "1 GiB more OS volume)", "rustc")
         self._check(g, "JavaScriptCore jsc shell, built in Docker (LAZYOS_JSC; run_demo --jsc; "
                        "big-app profile)", "jsc")
         self._check(g, "WebKit dependency bundle: depsproof, built in Docker (LAZYOS_WEBKIT_DEPS; "

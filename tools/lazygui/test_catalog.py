@@ -24,6 +24,7 @@ from lazygui.test_catalog_apps import (  # noqa: E402,F401
 )
 from lazygui.test_catalog_dbgd import DbgdTests  # noqa: E402,F401
 from lazygui.test_catalog_jsc import JscTests  # noqa: E402,F401
+from lazygui.test_catalog_rustc import RustcTests  # noqa: E402,F401
 from lazygui.test_catalog_webkit import WebkitDepsTests, WebkitPortTests  # noqa: E402,F401
 from lazygui.test_catalog_lazyweb import LazyWebTests  # noqa: E402,F401
 from lazygui.test_catalog_webd import WebdTests  # noqa: E402,F401
