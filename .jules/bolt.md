@@ -1,3 +1,0 @@
-## 2026-03-30 - Bounding Box Clipping in Low-Level Glyph Rasterization
-**Learning:** Checking clip boundaries per pixel inside font/glyph rendering loops adds unnecessary branch evaluation and repeated coordinate conversion overhead. Calculating the bounding box intersection (`max`/`min`) before looping allows bounding `row` and `col` ranges directly, eliminating per-pixel clip checks and hoisting row offset calculation (`row * gw`) out of the inner loop.
-**Action:** For pixel blending or raster loops, intersect source bounding boxes with destination clip rectangles upfront to restrict loop bounds and hoist row multiplications.

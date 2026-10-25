@@ -57,14 +57,14 @@ fn draw_glyph(
     let origin_x = pen + glyph.left;
     let origin_y = baseline_y + glyph.top;
 
-    // Fast path: calculate intersection of glyph bounding box with clip rect.
-    let y_start = origin_y.max(clip.y0);
+    // Calculate intersection of glyph bounding box with clip rect, clamped to screen bounds (>= 0).
+    let y_start = origin_y.max(clip.y0).max(0);
     let y_end = (origin_y + gh as i32).min(clip.y1);
     if y_start >= y_end {
         return;
     }
 
-    let x_start = origin_x.max(clip.x0);
+    let x_start = origin_x.max(clip.x0).max(0);
     let x_end = (origin_x + gw as i32).min(clip.x1);
     if x_start >= x_end {
         return;
@@ -85,7 +85,7 @@ fn draw_glyph(
             if alpha == 0 {
                 continue;
             }
-            // `col_start..col_end` guarantees `x` is strictly within `clip.x0..clip.x1`.
+            // `x_start >= 0` guarantees `origin_x + col as i32 >= 0` without negative wrap.
             let x = (origin_x + col as i32) as usize;
             surface.blend_pixel(x, y, color, alpha);
         }
