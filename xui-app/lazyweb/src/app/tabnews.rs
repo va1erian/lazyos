@@ -88,6 +88,7 @@ impl Browser {
                 loading: tab.loading,
                 crashed: tab.crashed,
                 discarded: tab.discarded,
+                asking: self.tabs.waiting.iter().any(|w| w.tab == tab.id),
             })
             .collect();
         self.tabs.strip.set(items, self.tabs.model.active_id());
@@ -103,7 +104,6 @@ impl Browser {
         let title = self.state.title.clone();
         self.tabs.model.note(front, &url, &title);
         self.tabs.model.set_loading(front, self.state.loading);
-        self.tabs.model.set_crashed(front, self.state.crashed);
         self.refresh_strip();
         if changed_text {
             self.save_tabs();

@@ -67,6 +67,11 @@ impl Browser {
             self.notifications.page_crashed();
         }
         if self.state.crashed != old.crashed {
+            // The model's flag follows the view's loss and a new view, and nothing else: a state
+            // the window merely kept for a tab (`show_tab`) must not set it again.
+            if let Some(front) = self.tabs.model.active_id() {
+                self.tabs.model.set_crashed(front, self.state.crashed);
+            }
             let why = self.state.crashed.then(|| lost_kind(&self.state.error));
             self.set_crashed_page(ui, why);
         }

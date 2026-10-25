@@ -6,6 +6,12 @@ use crate::session::{self, MAX_CLOSED};
 
 impl Tabs {
     /// The window as the session file keeps it: the web pages, the one in front, the closed tabs.
+    ///
+    /// The session format holds web pages only (`session::Session::parse` drops anything else), so
+    /// a tab on one of the browser's own pages (the start page, `about:`) is left out; when that
+    /// is the front tab, `active` is the **nearest** kept tab (the one after it on a tie), so the
+    /// next start brings back the page the person was closest to rather than the first one. A
+    /// closed tab's place is counted among the kept tabs for the same reason.
     pub fn to_window(&self) -> session::Window {
         let kept: Vec<&Tab> = self
             .list
@@ -15,14 +21,7 @@ impl Tabs {
         let front = self
             .active
             .and_then(|id| self.index_of(id))
-            .map_or(0, |here| {
-                // The first kept tab at or after the one in front, else the last before it.
-                let ahead = self.list[here..]
-                    .iter()
-                    .find(|t| address::is_network(&t.url))
-                    .and_then(|t| kept.iter().position(|k| k.id == t.id));
-                ahead.unwrap_or(kept.len().saturating_sub(1))
-            });
+            .map_or(0, |here| self.nearest_kept(here));
         session::Window {
             tabs: kept
                 .into_iter()
@@ -40,7 +39,32 @@ impl Tabs {
                     title: session::clean_title(&g.title),
                 })
                 .collect(),
+            closed_at: self.closed.iter().map(|g| self.kept_before(g.at)).collect(),
         }
+    }
+
+    /// How many web pages are among the first `at` tabs.
+    fn kept_before(&self, at: usize) -> usize {
+        self.list
+            .iter()
+            .take(at)
+            .filter(|t| address::is_network(&t.url))
+            .count()
+    }
+
+    /// The place among the web pages of the one nearest to the tab at `here` (itself, when it is
+    /// one; else the closer neighbour, the later on a tie); 0 when there are none.
+    fn nearest_kept(&self, here: usize) -> usize {
+        let kept = |at: usize| address::is_network(&self.list[at].url);
+        let after = (here..self.list.len()).find(|at| kept(*at));
+        let before = (0..here).rev().find(|at| kept(*at));
+        let near = match (before, after) {
+            (Some(b), Some(a)) if here - b < a - here => b,
+            (_, Some(a)) => a,
+            (Some(b), None) => b,
+            (None, None) => return 0,
+        };
+        self.kept_before(near)
     }
 
     /// The session file's contents for this window (no windows when no tab is a web page).
@@ -78,11 +102,13 @@ impl Tabs {
             tab.discarded = true;
             self.list.push(tab);
         }
-        for (at, gone) in window.closed.iter().take(MAX_CLOSED).enumerate() {
+        for (n, gone) in window.closed.iter().take(MAX_CLOSED).enumerate() {
+            // Where it was, as far as the file knew; else the end. A reopen clamps it again.
+            let at = window.closed_at.get(n).copied().unwrap_or(usize::MAX);
             self.closed.push_back(Gone {
                 url: gone.url.clone(),
                 title: gone.title.clone(),
-                at: self.list.len() + at,
+                at: at.min(self.list.len()),
             });
         }
     }

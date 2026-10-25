@@ -282,6 +282,15 @@ impl Transfers {
         (t.row.state == DownloadState::Running).then_some(t.id)
     }
 
+    /// The ids of the downloads that run.
+    pub fn running_ids(&self) -> Vec<u64> {
+        self.list
+            .iter()
+            .filter(|t| t.row.state == DownloadState::Running)
+            .map(|t| t.id)
+            .collect()
+    }
+
     /// Whether any download runs.
     pub fn any_running(&self) -> bool {
         self.list
@@ -322,8 +331,7 @@ mod tests {
     use std::fs;
 
     fn rig(name: &str) -> (Transfers, PathBuf) {
-        let dir =
-            std::env::temp_dir().join(format!("lazyweb-tr-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lazyweb-tr-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         (Transfers::new(dir.clone(), None), dir)

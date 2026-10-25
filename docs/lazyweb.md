@@ -75,8 +75,10 @@ them get the number with the tab on top (`wire_id`) and an answer goes back to t
 tells a tab it went behind another: `RemoteEngine` gives its slots back to webd (`DetachSlots`) and takes them again,
 with a whole frame, when it comes to the front, so only the front tab holds slot memory. What a tab behind the front
 one tells the window (`app/tabnews.rs`, `app/pageevents.rs`): its title, address, spinner and a lost view go to the
-strip; its downloads, dialogs (the tab is brought to the front first), windows, notifications and rule lists are
-handled at once; its pointer, clipboard, hand-offs and commands are dropped, and a request to show notifications
+strip; its downloads, windows, notifications and rule lists are handled at once; its dialogs wait in a queue (the
+tab is marked `?` in the strip) until no dialog is open and no address is being typed, then the tab comes to the
+front and the dialog shows (a switch is never started from inside another one); closing a tab ends the downloads
+it started ("Failed: its tab was closed") and leaves its notifications' toasts to open the site; its pointer, clipboard, hand-offs and commands are dropped, and a request to show notifications
 is dismissed (the site may ask again once its tab is in front).
 
 **Discarding.** A tab keeps its address and title and gives its view up (a *discarded* tab, dimmed in the strip) when
@@ -87,7 +89,8 @@ new view that loads the kept address. There is no free-memory trigger yet (`sysm
 (why)", Reload only, the hang bar's widgets) and makes no view until Reload is pressed.
 
 **Session.** `session.json` keeps every tab, the one in front and the closed stack (`"closed"`, newest first, an
-older file without it is as valid), http(s) pages only, atomic and at most once a second. After a crash the bar
+older file without it is as valid), http(s) pages only (a front tab on one of the browser's own pages is saved as the nearest web page), each closed tab
+with the place it had among the saved tabs (`"at"`, optional), atomic and at most once a second. After a crash the bar
 offers the tabs (or `session/restore` = `always` restores them); restored tabs are discarded until focused, so only
 the one that was in front loads. Markers: `TAB:NEW|SWITCH|CLOSE|REOPEN|DISCARD:<tab count>` (never an address) and
 `TAB:CRASHED:SHOW|HIDE`.
@@ -566,6 +569,10 @@ An existing OS volume that had the in-process browser keeps its files in `$HOME/
   to an older History or Downloads page is no longer "its own": its buttons answer "Blocked: the page tried to open
   another app" (safe, but useless) until the page is opened again. A page longer than 8 KiB that WebKit loads
   again shows empty (above).
+* **A tab the engine refuses to make a view for** (webd's `EDQUOT`: too many process keys or too little memory)
+  stays blank and asks again every ten seconds (`RemoteEngine`'s `Health::Refused`). The plan's answer (2.3), to put
+  the tab in the largest existing group or to discard the oldest background tab and try once more, is not built: the
+  view is made lazily inside the engine and the `Engines` seam does not report the refusal to the window.
 * **Dialogs** are titled with the top-level site, not the frame that asked.
 * **Evidence lines** go through `xui_app::trace` (`Channel::LazyWeb`, `marker()` in `lib.rs`) except four
   `println!`s left in `app/events.rs` (`STOPPED`, `FAIL`, `DIALOG`); the ones that name a page, an address or a

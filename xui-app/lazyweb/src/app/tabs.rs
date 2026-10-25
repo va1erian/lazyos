@@ -7,13 +7,14 @@
 //! Serial evidence: `LAZYWEB:TAB:NEW`, `TAB:SWITCH`, `TAB:CLOSE`, `TAB:REOPEN`, `TAB:DISCARD`, each
 //! with the number of tabs and never an address.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use xui_core::app::Ui;
 use xui_core::widget::Placeable;
+use xui_webkit::engine::DialogKind;
 use xui_webkit::mailbox::{Mailbox, Notice, PageState};
 
 use super::{Browser, Msg};
@@ -37,6 +38,16 @@ pub(super) struct Slot {
     pub stuck: bool,
 }
 
+/// A dialog a tab behind the front one asked, kept until the person is free to see it
+/// (`pageevents.rs`): its page waits for the answer meanwhile.
+pub(super) struct Waiting {
+    pub tab: TabId,
+    /// The dialog's wire id ([`crate::switch::wire_id`]).
+    pub id: u64,
+    pub kind: DialogKind,
+    pub text: String,
+}
+
 /// The tabs, their engines, and the strip that shows them.
 pub(super) struct Set {
     pub model: Tabs,
@@ -47,6 +58,11 @@ pub(super) struct Set {
     pub strip: Rc<TabStrip>,
     /// Downloads running, by the tab that started them (a tab with one is not discarded).
     downloads: BTreeMap<TabId, u32>,
+    /// Dialogs of tabs behind the front one, oldest first.
+    pub waiting: VecDeque<Waiting>,
+    /// Downloads ended because their tab closed: the downloads list is shown again at the next
+    /// change of the tabs (the front tab may not be the one to load it yet while it closes).
+    downloads_ended: bool,
 }
 
 impl Set {
@@ -58,6 +74,8 @@ impl Set {
             slots: BTreeMap::new(),
             strip: widgets.strip.get(),
             downloads: BTreeMap::new(),
+            waiting: VecDeque::new(),
+            downloads_ended: false,
         }
     }
 
@@ -153,7 +171,8 @@ impl Browser {
         }
     }
 
-    /// Lets go of tab `id`'s engine; its view ends with it.
+    /// Lets go of tab `id`'s engine; its view ends with it, and so do the downloads and
+    /// notifications it numbered (no event will ever end them: they would sit "running" for good).
     fn drop_slot(&mut self, id: TabId) {
         if let Some(answer) = self
             .dialogs
@@ -164,6 +183,20 @@ impl Browser {
             self.engine
                 .dialog_reply(answer.id, answer.accepted, &answer.value);
         }
+        let of_tab = |wire: u64| crate::switch::split_id(wire).0 == id;
+        self.tabs.waiting.retain(|waiting| waiting.tab != id);
+        for wire in self
+            .transfers
+            .running_ids()
+            .into_iter()
+            .filter(|w| of_tab(*w))
+        {
+            let _ = self
+                .transfers
+                .finished(wire, None, Some(String::from("its tab was closed")));
+            self.tabs.downloads_ended = true;
+        }
+        self.notifications.tab_closed(of_tab);
         self.tabs.slots.remove(&id);
         self.tabs.downloads.remove(&id);
         self.tabs.switch.remove(id);
@@ -357,8 +390,13 @@ impl Browser {
             .model
             .id_at(window.active)
             .or_else(|| self.tabs.model.id_at(0));
-        if let Some(raised) = front.and_then(|id| self.tabs.model.raise(id)) {
-            self.follow(ui, raised);
+        match front.and_then(|id| self.tabs.model.raise(id)) {
+            Some(raised) => self.follow(ui, raised),
+            None => {
+                // A window with no tab to bring back would leave this one with none at all.
+                let start = self.internal.start();
+                self.first_tab(ui, &start);
+            }
         }
         self.tabs_changed(ui);
     }
@@ -366,6 +404,9 @@ impl Browser {
     /// The tabs changed: lets the oldest used behind the front one give their views up past
     /// [`LIVE_TABS_MAX`], then shows the strip and keeps the session.
     fn tabs_changed(&mut self, ui: &Ui<Msg>) {
+        if std::mem::take(&mut self.tabs.downloads_ended) {
+            self.downloads_changed(ui);
+        }
         for id in self.tabs.model.excess(LIVE_TABS_MAX) {
             if self.tabs.model.discard(id) {
                 self.drop_slot(id);

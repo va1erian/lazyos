@@ -412,3 +412,79 @@ fn replacing_the_tabs_with_a_saved_window_never_reuses_an_id() {
     assert!(tabs.iter().all(|t| t.discarded && !old.contains(&t.id)));
     assert_eq!(tabs.closed_count(), 0);
 }
+
+#[test]
+fn the_front_tab_on_an_own_page_is_kept_as_the_nearest_web_page() {
+    let mut tabs = Tabs::with_first("https://a.example/");
+    let first = tabs.open("data:text/html,one", Place::End).unwrap();
+    let second = tabs.open("about:blank", Place::End).unwrap();
+    tabs.open("https://b.example/", Place::End).unwrap();
+    tabs.open("https://c.example/", Place::End).unwrap();
+    // [a, own, own, b, c]: the first own page is nearest to a, the second to b.
+    tabs.raise(first);
+    assert_eq!(tabs.to_window().active, 0);
+    tabs.raise(second);
+    assert_eq!(tabs.to_window().active, 1);
+    // Equally far from both: the one after it.
+    let mut tie = Tabs::with_first("https://a.example/");
+    let middle = tie.open("data:text/html,x", Place::End).unwrap();
+    tie.open("https://b.example/", Place::End).unwrap();
+    tie.raise(middle);
+    assert_eq!(tie.to_window().active, 1);
+}
+
+#[test]
+fn a_closed_tab_comes_back_where_it_was_after_a_restart() {
+    let (mut tabs, ids) = tabs_of(4);
+    tabs.close(ids[1]).unwrap();
+    tabs.close(ids[3]).unwrap();
+    let window = tabs.to_window();
+    assert_eq!(
+        window.closed_at,
+        [2, 1],
+        "newest first, among the kept tabs"
+    );
+    // Through the file and back.
+    let text = session::Session {
+        windows: vec![window],
+    }
+    .to_json();
+    let saved = session::Session::parse(&text).unwrap();
+    let mut restored = Tabs::restore(&saved.windows[0]);
+    restored.reopen().unwrap();
+    restored.reopen().unwrap();
+    assert_eq!(urls(&restored), (0..4).map(page).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_closed_tabs_place_does_not_count_the_own_pages_that_are_not_saved() {
+    let mut tabs = Tabs::with_first("data:text/html,start");
+    let a = tabs.open("https://a.example/", Place::End).unwrap();
+    tabs.open("https://b.example/", Place::End).unwrap();
+    tabs.close(a).unwrap();
+    let window = tabs.to_window();
+    assert_eq!(window.closed_at, [0]);
+    let mut restored = Tabs::restore(&window);
+    restored.reopen().unwrap();
+    assert_eq!(
+        urls(&restored),
+        ["https://a.example/", "https://b.example/"]
+    );
+}
+
+#[test]
+fn a_session_file_without_places_brings_closed_tabs_back_at_the_end() {
+    let text = r#"{"version":1,"windows":[{"tabs":[{"url":"https://a.example/","title":""},{"url":"https://b.example/","title":""}],"active":0,"closed":[{"url":"https://old.example/","title":""}]}]}"#;
+    let saved = session::Session::parse(text).unwrap();
+    let mut tabs = Tabs::restore(&saved.windows[0]);
+    tabs.reopen().unwrap();
+    assert_eq!(tabs.iter().last().unwrap().url, "https://old.example/");
+}
+
+#[test]
+fn a_saved_window_with_no_tab_leaves_no_tab() {
+    let (mut tabs, _) = tabs_of(3);
+    tabs.replace_with(&session::Window::new(Vec::new(), 0));
+    assert!(tabs.is_empty());
+    assert_eq!(tabs.active_id(), None);
+}

@@ -457,6 +457,7 @@ impl App for Browser {
                 }
             }
         }
+        self.surface_dialog(ui);
         self.update_buttons();
         self.update_star();
     }

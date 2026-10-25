@@ -1,8 +1,10 @@
 //! What one event of a page does to the window, whichever tab it came from. The front tab's page has
 //! the person's hands on it; a tab behind it has not, so its pointer, clipboard, hand-offs and
 //! commands are dropped, a notification request is dismissed, and the rest (downloads, dialogs,
-//! windows, notifications, rule lists) is what the person must see at once. A dialog brings its
-//! tab to the front first: the page waits for an answer.
+//! windows, notifications, rule lists) is what the person must see at once. A dialog of a tab
+//! behind the front one brings that tab to the front, but only when the person is free for it (no
+//! dialog open, no address being typed); until then it waits in a queue, its tab marked in the
+//! strip, and the page waits for an answer.
 //!
 //! The numbers a page gives its dialogs, downloads and notifications are per view, so the lists
 //! that hold them (`dialogs`, `transfers`, `notify`) get them with the tab on top ([`wire_id`]),
@@ -19,6 +21,8 @@ use crate::notify::Incoming;
 use crate::switch::wire_id;
 use crate::tabs::TabId;
 use crate::transfers::Started;
+
+use super::tabs::Waiting;
 
 impl Browser {
     /// Applies `event`, which tab `tab`'s page reported.
@@ -78,10 +82,21 @@ impl Browser {
                 self.download_ended(ui, wire_id(tab, id), None, Some(reason));
             }
             Event::Dialog { id, kind, text, .. } => {
-                if !front {
-                    self.switch_to(ui, tab);
+                let id = wire_id(tab, id);
+                if front {
+                    self.dialog(id, kind, &text);
+                } else {
+                    // Never a switch from here: this may run inside one (`adopt` reads the news of
+                    // the tab it leaves), and a dialog open for the front tab is not to be stolen.
+                    self.tabs.waiting.push_back(Waiting {
+                        tab,
+                        id,
+                        kind,
+                        text,
+                    });
+                    self.set_status("A page in another tab is asking something");
+                    self.refresh_strip();
                 }
-                self.dialog(wire_id(tab, id), kind, &text);
                 self.tab_busy(tab);
             }
             Event::NotifyShow {
@@ -139,12 +154,29 @@ impl Browser {
         }
     }
 
-    /// Whether tab `tab` has a dialog open or a download running, which keeps its view.
+    /// Shows the oldest dialog a tab behind asked, once nothing holds the person: no dialog is
+    /// open and no address is being typed. Called after every message, so the moment the front
+    /// dialog is answered or the address bar is left, the next one comes.
+    pub(super) fn surface_dialog(&mut self, ui: &Ui<Msg>) {
+        if self.dialogs.is_open() || self.editing {
+            return;
+        }
+        let Some(next) = self.tabs.waiting.pop_front() else {
+            return;
+        };
+        self.switch_to(ui, next.tab);
+        self.dialog(next.id, next.kind, &next.text);
+        self.tab_busy(next.tab);
+        self.refresh_strip();
+    }
+
+    /// Whether tab `tab` has a dialog open or waiting or a download running, which keeps its view.
     pub(super) fn tab_busy(&mut self, tab: TabId) {
         let dialog = self
             .dialogs
             .open_id()
-            .is_some_and(|id| crate::switch::split_id(id).0 == tab);
+            .is_some_and(|id| crate::switch::split_id(id).0 == tab)
+            || self.tabs.waiting.iter().any(|w| w.tab == tab);
         let busy = dialog || self.tabs.running_downloads(tab) > 0;
         self.tabs.model.set_busy(tab, busy);
     }

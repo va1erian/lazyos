@@ -44,6 +44,9 @@ pub struct Window {
     pub active: usize,
     /// The tabs closed last, newest first (Ctrl+Shift+T brings them back).
     pub closed: Vec<Tab>,
+    /// Where each closed tab was among `tabs`, parallel to `closed`; `usize::MAX`, or no entry (a
+    /// file from before positions were kept), brings it back at the end.
+    pub closed_at: Vec<usize>,
 }
 
 impl Window {
@@ -53,6 +56,7 @@ impl Window {
             tabs,
             active,
             closed: Vec::new(),
+            closed_at: Vec::new(),
         }
     }
 }
@@ -90,9 +94,9 @@ impl Session {
             .map(|w| {
                 format!(
                     "{{\"tabs\":[{}],\"active\":{},\"closed\":[{}]}}",
-                    tabs_json(&w.tabs),
+                    tabs_json(&w.tabs, &[]),
                     w.active,
-                    tabs_json(&w.closed)
+                    tabs_json(&w.closed, &w.closed_at)
                 )
             })
             .collect();
@@ -114,16 +118,17 @@ impl Session {
                 .filter(|n| *n >= 0.0 && n.fract() == 0.0)
                 .map_or(0, |n| n as usize);
             let (tabs, active) = parse_tabs(window.get("tabs")?.as_array()?, MAX_TABS, active);
-            let closed = window
+            let (closed, closed_at) = window
                 .get("closed")
                 .and_then(json::Value::as_array)
-                .map_or_else(Vec::new, |list| parse_tabs(list, MAX_CLOSED, 0).0);
+                .map_or_else(Default::default, parse_closed);
             if !tabs.is_empty() {
                 let active = active.min(tabs.len() - 1);
                 windows.push(Window {
                     tabs,
                     active,
                     closed,
+                    closed_at,
                 });
             }
         }
@@ -131,36 +136,65 @@ impl Session {
     }
 }
 
+/// The tab `value` describes, when it is a web page.
+fn web_tab(value: &json::Value) -> Option<Tab> {
+    let url = value.get("url").and_then(json::Value::as_str).filter(|u| {
+        u.len() <= MAX_URL && address::is_network(u) && !u.chars().any(char::is_control)
+    })?;
+    let title = value
+        .get("title")
+        .and_then(json::Value::as_str)
+        .unwrap_or("");
+    Some(Tab {
+        url: url.to_owned(),
+        title: clean_title(title),
+    })
+}
+
 /// The tabs of `list` that are web pages (of its first `limit`), and the number of the one that was
 /// at `active` once the dropped ones before it are not counted.
 fn parse_tabs(list: &[json::Value], limit: usize, mut active: usize) -> (Vec<Tab>, usize) {
     let mut tabs = Vec::new();
     for (at, tab) in list.iter().take(limit).enumerate() {
-        let url = tab.get("url").and_then(json::Value::as_str);
-        let Some(url) = url.filter(|u| {
-            u.len() <= MAX_URL && address::is_network(u) && !u.chars().any(char::is_control)
-        }) else {
-            if at < active {
-                active = active.saturating_sub(1);
-            }
-            continue;
-        };
-        let title = tab.get("title").and_then(json::Value::as_str).unwrap_or("");
-        tabs.push(Tab {
-            url: url.to_owned(),
-            title: clean_title(title),
-        });
+        match web_tab(tab) {
+            Some(tab) => tabs.push(tab),
+            None if at < active => active = active.saturating_sub(1),
+            None => {}
+        }
     }
     (tabs, active)
 }
 
-/// `tabs` as the comma-separated objects of a JSON array.
-fn tabs_json(tabs: &[Tab]) -> String {
+/// The closed tabs of `list` that are web pages and where each was (`at`, when the file says).
+fn parse_closed(list: &[json::Value]) -> (Vec<Tab>, Vec<usize>) {
+    let mut tabs = Vec::new();
+    let mut places = Vec::new();
+    for value in list.iter().take(MAX_CLOSED) {
+        let Some(tab) = web_tab(value) else { continue };
+        let at = value
+            .get("at")
+            .and_then(json::Value::as_number)
+            .filter(|n| *n >= 0.0 && n.fract() == 0.0 && *n <= MAX_TABS as f64)
+            .map_or(usize::MAX, |n| n as usize);
+        tabs.push(tab);
+        places.push(at);
+    }
+    (tabs, places)
+}
+
+/// `tabs` as the comma-separated objects of a JSON array; `places` (parallel, `usize::MAX` for
+/// none) adds where each was.
+fn tabs_json(tabs: &[Tab], places: &[usize]) -> String {
     let items: Vec<String> = tabs
         .iter()
-        .map(|t| {
+        .enumerate()
+        .map(|(n, t)| {
+            let at = places
+                .get(n)
+                .filter(|at| **at <= MAX_TABS)
+                .map_or_else(String::new, |at| format!(",\"at\":{at}"));
             format!(
-                "{{\"url\":{},\"title\":{}}}",
+                "{{\"url\":{},\"title\":{}{at}}}",
                 quote(&t.url),
                 quote(&t.title)
             )

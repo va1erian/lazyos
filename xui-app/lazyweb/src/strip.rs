@@ -73,6 +73,8 @@ pub struct Item {
     pub crashed: bool,
     /// No view is held: the title is dimmed.
     pub discarded: bool,
+    /// The page asked something (a dialog) and waits until the tab comes to the front.
+    pub asking: bool,
 }
 
 /// What a point of the strip is on.
@@ -253,6 +255,8 @@ impl TabStrip {
                         let per = (TEXT.to_px(dpi).value() * 11 / 20).max(1);
                         let title = if item.crashed {
                             format!("! {}", item.title)
+                        } else if item.asking {
+                            format!("? {}", item.title)
                         } else {
                             item.title.clone()
                         };
