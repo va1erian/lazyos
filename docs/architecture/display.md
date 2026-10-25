@@ -345,6 +345,18 @@ compositor demo. Target toolkit design: [xui-plan.md](../xui-plan.md).
     under the pointer (panel, topmost window content, desktop) decides with
     the shape its owner set. The busy spinner advances a frame every 100 ms
     from the main loop's idle wake, only while the effective shape is busy.
+  - **Cursor themes** ([`cursor-editor-plan.md`](../cursor-editor-plan.md)):
+    the shapes can be replaced by a `.lcur` theme (`cursorgfx::format`),
+    stored as text in the confd key `ui/cursor/theme` (the user's
+    `user/<uid>/ui/...` copy shadows `sys/ui/cursor/theme`; at most confd's
+    4 KiB value; empty means built-in). `themefeed.rs` reads it with the other
+    `ui` keys and `Compositor::apply_cursor_theme` parses it (a file that does
+    not parse is refused whole: `XUID:CURSOR:THEME:REFUSED line=N ...`, the
+    old look stays), swaps it into the overlay (lift, clear the sprite cache,
+    stamp; no scene repaint) and traces `XUID:CURSOR:THEME:APPLIED name=...`.
+    A slot a theme leaves out keeps the built-in drawing; a theme's drawing is
+    static, so a custom Busy does not tick. Cursor Studio (`cursored`, core
+    package `os.lazy.cursored`) edits and applies themes.
   - **`SetCursor`** (`os.lazy.display.cursor.v1`, `idl/display_cursor.midl`,
     method 1): `surface`, `shape`. A separate interface rather than a method
     of `display.v1`, because it is also the *ACL scope* the parcel travels on

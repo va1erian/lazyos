@@ -51,4 +51,5 @@ SCRIPTS = [
     ("xui_about.json", "XUI app: About LazyOS", ("desktop",), "about"),
     ("xui_nes.json", "XUI app: NES (play the sample ROM, with sound)", ("desktop", "sound"), "term"),
     ("xui_playground.json", "XUI app: Messenger Playground (developer tool)", ("desktop",), "playground"),
+    ("xui_cursored.json", "XUI app: Cursor Studio", ("desktop",), "cursored"),
 ]
