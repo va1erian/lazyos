@@ -97,7 +97,7 @@ def build_linuxapps() -> bool:
 
 def build_rustc() -> bool:
     """The Rust compiler for LazyOS, cross-compiled from the pinned release in Docker by
-    `tools/selfhost/build.py` (cached after the first build, which takes about an hour)."""
+    `tools/selfhost/build.py` (cached after the first build, which takes about half an hour)."""
     return required("the Rust compiler", "selfhost/build.py", ("--require",))
 
 

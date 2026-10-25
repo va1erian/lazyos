@@ -38,7 +38,7 @@ way Rust's own CI builds its dist compilers.
 | `build.py` | The driver: downloads the source release (pinned by SHA-256), builds the image, runs the cross build (cached: its tarballs in `target/selfhost/out`, its tree in the Docker volume `lazyos-rustc`), stages `target/selfhost/system`. `--upstream` stages the release's own musl-host compiler instead, in minutes; `--cpus N` caps the build container. |
 
 ```bash
-python tools/selfhost/build.py              # cross build (about an hour the first time), then stage
+python tools/selfhost/build.py              # cross build (half an hour the first time), then stage
 python tools/selfhost/build.py --upstream   # the official musl-host build instead
 python tools/run_demo.py --rustc            # build it if needed, embed it, boot
 ```

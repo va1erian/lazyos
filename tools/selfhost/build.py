@@ -15,15 +15,18 @@ Usage::
     python tools/selfhost/build.py --upstream   # stage the official dist build instead
     python tools/selfhost/build.py --cpus 12    # cap the build container
 
-The first build takes about an hour on 24 cores (LLVM, then two compiler
+The first build took 29 minutes on 24 cores (LLVM, then two compiler
 stages); the source tree and build directory live in the Docker volume
-``lazyos-rustc``, so a rebuild is incremental. ``--upstream`` stages the
+``lazyos-rustc``, so a rebuild is incremental. The build is redone when the
+files that define it (``Dockerfile``, ``bootstrap.toml``, the container
+script, the source pin) change. ``--upstream`` stages the
 release's own musl-host compiler (built by Rust's CI) in minutes.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -51,6 +54,10 @@ WORK = ROOT / "target" / "selfhost"
 DOWNLOADS = WORK / "dl"
 #: The cross build's dist tarballs.
 BUILT = WORK / "out"
+#: The digest of the build's inputs that produced `BUILT`'s tarballs.
+BUILT_INPUTS = BUILT / "inputs.sha256"
+#: The files that define the cross build: a change to one redoes it.
+BUILD_FILES = ("Dockerfile", "bootstrap.toml", "build-in-container.sh")
 #: The release's own musl-host tarballs (``--upstream``).
 UPSTREAM = WORK / "upstream"
 STAGED = WORK / "system"
@@ -64,8 +71,8 @@ def log(message: str) -> None:
     print(f"selfhost: {message}", file=sys.stderr)
 
 
-def fetch_pinned(name: str) -> Path | None:
-    dest = DOWNLOADS / name
+def fetch_pinned(name: str, into: Path = DOWNLOADS) -> Path | None:
+    dest = into / name
     return dest if fetch.download(f"{DIST}/{name}", dest, PINS[name], log=log) else None
 
 
@@ -73,7 +80,7 @@ def dist_names() -> list[str]:
     return [f"rustc-{VERSION}-{TRIPLE}.tar.xz", f"rust-std-{VERSION}-{TRIPLE}.tar.xz"]
 
 
-def docker(*args: str, mounts: dict[Path, str] = {}, cpus: int | None = None) -> bool:
+def docker(*args: str, mounts: dict[Path, str], cpus: int | None = None) -> bool:
     """Run ``docker run`` of the build image with `mounts` (host path -> container
     path; a path ending in ``:ro`` is read-only) and the volume at ``/b``."""
     argv = ["docker", "run", "--rm", "-v", f"{VOLUME}:/b"]
@@ -103,9 +110,27 @@ def cross_build(cpus: int | None) -> bool:
     if source is None:
         return False
     BUILT.mkdir(parents=True, exist_ok=True)
-    log(f"building rustc {VERSION} for {TRIPLE} (about an hour the first time)")
-    return docker(*script("build-in-container.sh"), VERSION, cpus=cpus, mounts={
-        DOWNLOADS: "/dl:ro", HERE: "/cfg:ro", BUILT: "/out"})
+    log(f"building rustc {VERSION} for {TRIPLE} (half an hour the first time)")
+    if not docker(*script("build-in-container.sh"), VERSION, cpus=cpus, mounts={
+            DOWNLOADS: "/dl:ro", HERE: "/cfg:ro", BUILT: "/out"}):
+        return False
+    BUILT_INPUTS.write_text(build_inputs())
+    return True
+
+
+def build_inputs() -> str:
+    """The digest of what defines the cross build: its files and the source pin."""
+    digest = hashlib.sha256(PINS[f"rustc-{VERSION}-src.tar.xz"].encode())
+    for name in BUILD_FILES:
+        text = (HERE / name).read_bytes().replace(b"\r\n", b"\n")
+        digest.update(name.encode() + b"\0" + text)
+    return digest.hexdigest()
+
+
+def built_current() -> bool:
+    """Whether `BUILT` holds tarballs made from the current build inputs."""
+    return (all((BUILT / name).is_file() for name in dist_names())
+            and BUILT_INPUTS.is_file() and BUILT_INPUTS.read_text() == build_inputs())
 
 
 def stage(source: Path) -> bool:
@@ -133,12 +158,9 @@ def stage(source: Path) -> bool:
 
 
 def upstream_tarballs() -> bool:
+    """The release's tarballs, downloaded (or cached) into `UPSTREAM`."""
     UPSTREAM.mkdir(parents=True, exist_ok=True)
-    for name in dist_names():
-        if fetch_pinned(name) is None:
-            return False
-        shutil.copyfile(DOWNLOADS / name, UPSTREAM / name)
-    return True
+    return all(fetch_pinned(name, UPSTREAM) is not None for name in dist_names())
 
 
 def main() -> int:
@@ -147,7 +169,7 @@ def main() -> int:
     parser.add_argument("--upstream", action="store_true",
                         help="stage the release's own musl-host compiler, build nothing")
     parser.add_argument("--rebuild", action="store_true",
-                        help="run the cross build even when its tarballs exist")
+                        help="run the cross build even when its tarballs are current")
     parser.add_argument("--cpus", type=int, help="CPU cap of the build container")
     parser.add_argument("--require", action="store_true",
                         help="exit 1 when Docker or a download is unavailable")
@@ -158,8 +180,7 @@ def main() -> int:
     if args.upstream:
         ok = upstream_tarballs() and stage(UPSTREAM)
     else:
-        built = all((BUILT / name).is_file() for name in dist_names())
-        ok = (built and not args.rebuild) or cross_build(args.cpus)
+        ok = (built_current() and not args.rebuild) or cross_build(args.cpus)
         ok = ok and stage(BUILT)
     if not ok:
         log("failed")

@@ -80,7 +80,7 @@ def rustc_step(cfg: dict) -> list[dict]:
     """The step that cross-compiles the Rust compiler (in Docker), when embedded."""
     if not cfg.get("rustc"):
         return []
-    return [{"label": "Build rustc for LazyOS (Docker; an hour the first time)",
+    return [{"label": "Build rustc for LazyOS (Docker; half an hour the first time)",
              "argv": [PY, "tools/selfhost/build.py", "--require"]}]
 
 
