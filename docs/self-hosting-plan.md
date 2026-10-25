@@ -5,9 +5,10 @@ LazyOS machine, and in the end the kernel, its services and the compiler
 itself are built there. This plan restarts that work from the toolchain end:
 first a working `rustc` on LazyOS, then the pieces a real build needs around it.
 
-Status: **SH0 is built.** `tools/selfhost/build.py` cross-compiles rustc 1.99.1
-in Docker, `LAZYOS_RUSTC=1` (`run_demo.py --rustc`) puts it in the image, and a
-LazyOS console compiles and runs a `std` program with it. SH1 onward is plan.
+Status: **SH0 and SH1 are built.** `tools/selfhost/build.py` cross-compiles
+rustc, cargo and rustdoc 1.99.1 in Docker, `LAZYOS_RUSTC=1` (`run_demo.py
+--rustc`) puts them in the image, and a LazyOS console builds, tests and runs a
+cargo workspace with them. SH2 onward is plan.
 
 ## 1. Why the compiler is a Linux musl compiler
 
@@ -16,8 +17,8 @@ implements the Linux syscall ABI (route B of [`rust-std.md`](rust-std.md),
 [`linux-abi-plan.md`](linux-abi-plan.md)) and loads dynamically linked musl
 programs through musl's own `ld-musl-x86_64.so.1` (issue #535). So a rustc
 whose *host* triple is `x86_64-unknown-linux-musl` is a rustc for LazyOS, and
-the programs it makes for that target run on LazyOS too. No Rust source is
-patched and no new target triple is needed. A native target
+the programs it makes for that target run on LazyOS too. No new target triple
+is needed; one small patch changes the musl target's default linker (SH1). A native target
 (`x86_64-unknown-lazyos`, route A) stays possible later; nothing here depends
 on it.
 
@@ -33,8 +34,9 @@ way Rust's own CI builds its dist compilers.
 |---|---|
 | `Dockerfile` | The build machine: Alpine 3.24, whose native triple is already musl, with g++, cmake, ninja and python. |
 | `bootstrap.toml` | x.py's configuration: host and target `x86_64-unknown-linux-musl`, in-tree LLVM 23 built for X86 only with a static libstdc++, `rust.lld = true` (so `rust-lld` ships), no debug info, `crt-static = false` (the compiler loads `librustc_driver` as a shared object). |
-| `build-in-container.sh` | Unpacks the pinned source and runs `x.py dist rustc rust-std`. |
-| `stage-in-container.sh` | Installs the two dist tarballs as a `/system` tree, strips the host programs, drops what a compile on LazyOS never runs (rustdoc, the debugger scripts, the wasm tools) and adds musl's loader and `libgcc_s.so.1`. |
+| `build-in-container.sh` | Unpacks the pinned source, applies `patches/`, and runs `x.py dist rustc rust-std cargo` (the build directory, `/b/build`, is outside the source tree, so a new patch rebuilds only what it touches). |
+| `stage-in-container.sh` | Installs the dist tarballs as a `/system` tree, strips the host programs, drops what a compile on LazyOS never runs (the debugger scripts, the wasm tools), adds musl's loader, `libgcc_s.so.1` and `libz.so.1`, and fails when a program's `DT_NEEDED` library is missing. |
+| `patches/` | Changes to the Rust source, one file each (SH1's default linker). |
 | `build.py` | The driver: downloads the source release (pinned by SHA-256), builds the image, runs the cross build (cached: its tarballs in `target/selfhost/out`, its tree in the Docker volume `lazyos-rustc`), stages `target/selfhost/system`. `--upstream` stages the release's own musl-host compiler instead, in minutes; `--cpus N` caps the build container. |
 
 ```bash
@@ -64,7 +66,8 @@ tree is several hundred MiB, so the switch adds 1 GiB to the default OS volume
 
 ### Compiling on LazyOS
 
-There is no `cc` on LazyOS, so rustc calls `rust-lld` directly:
+There is no `cc` on LazyOS, so rustc calls `rust-lld` directly. SH0's
+compiler needed the flags below; since SH1 they are its default:
 
 ```sh
 rustc -C linker=/system/lib/rustlib/x86_64-unknown-linux-musl/bin/rust-lld \
@@ -111,15 +114,92 @@ returns `ENOSYS`, which rustc's runtime tolerates. Threads, futexes, `mmap` of
 the 200+ MiB driver library, `posix_spawn` of the linker, `/proc/self/exe` and
 the temporary directory all worked as they are.
 
-## 3. What follows
+## 3. SH1: cargo and a default linker (built)
 
-Each stage ends in a console or session check like SH0's, and kernel gaps it
+### Cargo
+
+`bootstrap.toml` builds cargo and rustdoc too (`extended = true`,
+`tools = ["cargo", "rustdoc"]`). `cargo-native-static = true` builds cargo
+with vendored OpenSSL, curl and libgit2, so it needs nothing beyond musl's
+libc. `rustdoc` ships because `cargo test` runs it for doctests. Both go in
+`/system/bin` (`fhs::bin::CARGO`, `fhs::bin::RUSTDOC`).
+
+### A default linker
+
+Plain `rustc hello.rs` and `cargo build` now link without flags. The patch
+`tools/selfhost/patches/0001-musl-links-with-rust-lld.patch` makes the
+`x86_64-unknown-linux-musl` target default to `rust-lld` with the `ld.lld`
+flavor, as `x86_64-unknown-none` does. rustc puts the sysroot's tool directory
+(`/system/lib/rustlib/x86_64-unknown-linux-musl/bin`) on the linker's `PATH`,
+so the bare name is found. The build machine has a C compiler and links
+through it: `bootstrap.toml` sets the target's `linker = "gcc"`. It must be
+`gcc`, not `cc`: rustc infers a C-compiler flavor from names like `gcc` and
+`clang` only, and would otherwise pass `cc` raw linker arguments.
+
+An environment variable or a cargo config file could not do this: LazyOS has
+no system-wide shell profile, cargo has no system-wide config, and a plain
+`rustc` reads neither.
+
+### The sample and the check
+
+`tools/selfhost/cargo-hello` ships at `/system/share/samples/cargo-hello`
+(`fhs::share::CARGO_SAMPLE`): a workspace of a library (`greet`, with two
+unit tests, a doctest and a sum computed on scoped threads) and a program
+(`hello`) that uses it through a path dependency. Its `Cargo.lock` is
+committed, so it builds with `--offline`.
+
+`tools/screenshot/examples/cargo_console.json` checks, each step gated on its
+success:
+
+1. `cargo -V`;
+2. `rustc p.rs && ./p` with no linker flags (`plain rustc 42`);
+3. a copy of the sample, then `cargo test --offline` (exit 0: unit tests and
+   the doctest);
+4. `cargo run --release --offline`
+   (`Hello, LazyOS from cargo: sum 5050 on 4 threads, 9 distinct words`);
+5. `cargo new --vcs none fresh && cd fresh && cargo run --offline`
+   (`Hello, world!`).
+
+```bash
+python tools/selfhost/build.py
+LAZYOS_CLI=1 LAZYOS_RUSTC=1 LAZYOS_LIMIT_QUOTA_USER_MEMORY=3G cargo build
+python tools/screenshot/qemu_session.py --image target/lazyos.img --memory 4G \
+    --out shots/cargo --script tools/screenshot/examples/cargo_console.json
+```
+
+### Results (2026-10-25, WHPX, 4 GiB guest)
+
+| Step on LazyOS | Time |
+|---|---|
+| `cargo test` from clean (2 crates, test profile, then the doctest) | 11.8 s to build, doctests 3.4 s |
+| `cargo run --release` from clean | 8.4 s |
+| `cargo new` + `cargo run` | 2.9 s |
+
+The staged tree is 399 MiB (cargo 36 MB, rustdoc 12 MB). The cross build of all
+three took 32 minutes from clean on 12 of 24 cores; adding rustdoc to a built
+tree took 2.5 minutes.
+
+### Found: `execve` leaves the other threads running
+
+`cargo run` replaces cargo with the program by `execve` while cargo still has
+helper threads. Linux ends every other thread of the process first. LazyOS's
+`sys_execve` (`kernel/src/process/linux/procctl.rs`) switches only the calling
+thread to the new image; the others keep running the old program in the old
+address space. Each `cargo run` leaves one such thread, which the console
+multiplexer shows as a stray `thread` pane, and which holds a task slot. Running
+the program directly, `cargo build`, `cargo test` and `rustdoc --test` leave
+none. The fix is the kernel's own task (Linux's de-thread step, with
+correctness and stress tests); until then the session passes but the leak is
+visible in its screenshots.
+
+## 4. What follows
+
+Each stage ends in a console or session check like SH0's and SH1's, and kernel gaps it
 finds get their own correctness and stress tests (AGENTS.md).
 
-- **SH1: a default linker and cargo.** Ship a target spec default (or a
-  `/system/etc` rustc config) so a plain `rustc hello.rs` links with
-  `rust-lld`; cross-build cargo (`extended = true`, `tools = ["cargo"]`) and
-  build a multi-crate workspace offline from vendored sources.
+- **SH1.5: crates.io.** Fetch dependencies over the network (cargo's HTTPS
+  through the vendored OpenSSL and the image's CA bundle), or from a vendored
+  directory for offline images.
 - **SH2: proc macros.** Proc-macro crates are shared objects rustc `dlopen`s;
   the dynamic loader path exists (#535), so `serde_derive` is the test.
 - **SH3: LazyOS's own crates.** Add the `x86_64-unknown-none` standard library

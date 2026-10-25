@@ -112,6 +112,12 @@ pub const MODPLAYER_LZP: &str = "/system/share/samples/modplayer.lzp";
 /// image build (`assets/licenses`).
 pub const LUCIDE_LICENSE: &str = "/system/share/licenses/LICENSE-Lucide.txt";
 
+/// The cargo sample workspace (`tools/selfhost/cargo-hello`, a library with
+/// unit tests and a program using it), copied somewhere writable and built
+/// with `cargo` on LazyOS. Written by the image build (`LAZYOS_RUSTC=1`
+/// images, docs/self-hosting-plan.md SH1).
+pub const CARGO_SAMPLE: &str = "/system/share/samples/cargo-hello";
+
 /// The `lazyrad` sample projects (`LAZYRAD_SAMPLES`), one directory each.
 /// Written by the image build (`LAZYOS_LAZYRAD=1` images).
 pub const LAZYRAD_SAMPLES: &str = "/system/share/lazyrad";

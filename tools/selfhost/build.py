@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Cross-compile rustc for LazyOS and stage it for the image (`LAZYOS_RUSTC=1`).
+"""Cross-compile rustc and cargo for LazyOS and stage them for the image (`LAZYOS_RUSTC=1`).
 
 LazyOS runs Linux ``x86_64-unknown-linux-musl`` programs, so a rustc for that
 host triple is a rustc for LazyOS (docs/self-hosting-plan.md). This builds one
 from the pinned source release in Docker (``Dockerfile``, an Alpine build
 machine; ``bootstrap.toml``: LLVM X86 only, ``rust-lld``, no debug info) and
-stages ``rustc`` + ``rust-std`` as a ``/system``-shaped tree in
+stages ``rustc``, ``rust-std`` and ``cargo`` as a ``/system``-shaped tree in
 ``target/selfhost/system``, which ``build_support/rustc_embed.rs`` places.
 
 Usage::
@@ -19,7 +19,8 @@ The first build took 29 minutes on 24 cores (LLVM, then two compiler
 stages); the source tree and build directory live in the Docker volume
 ``lazyos-rustc``, so a rebuild is incremental. The build is redone when the
 files that define it (``Dockerfile``, ``bootstrap.toml``, the container
-script, the source pin) change. ``--upstream`` stages the
+script, ``patches/``, the source pin) change. The one patch makes the musl
+target link with ``rust-lld`` by default (LazyOS has no C compiler). ``--upstream`` stages the
 release's own musl-host compiler (built by Rust's CI) in minutes.
 """
 
@@ -49,6 +50,8 @@ PINS = {
         "034e2cfea9551483c8cedbf89e52d045b89dcf860ab73aae618c89b1a87b0f18",
     f"rust-std-{VERSION}-{TRIPLE}.tar.xz":
         "1dd241eaeb19ff3b5180461c77bdee93d6cafc669eda9de834e7c06b0ec3ca95",
+    f"cargo-{VERSION}-{TRIPLE}.tar.xz":
+        "f70f6f9b251a2d9cbb0f5792c612fde478e06cfa76abb639aceaada2c6453b1f",
 }
 WORK = ROOT / "target" / "selfhost"
 DOWNLOADS = WORK / "dl"
@@ -77,7 +80,7 @@ def fetch_pinned(name: str, into: Path = DOWNLOADS) -> Path | None:
 
 
 def dist_names() -> list[str]:
-    return [f"rustc-{VERSION}-{TRIPLE}.tar.xz", f"rust-std-{VERSION}-{TRIPLE}.tar.xz"]
+    return [f"{component}-{VERSION}-{TRIPLE}.tar.xz" for component in ("rustc", "rust-std", "cargo")]
 
 
 def docker(*args: str, mounts: dict[Path, str], cpus: int | None = None) -> bool:
@@ -105,7 +108,7 @@ def build_image() -> bool:
 
 
 def cross_build(cpus: int | None) -> bool:
-    """x.py dist rustc rust-std in the build container, into `BUILT`."""
+    """x.py dist rustc rust-std cargo in the build container, into `BUILT`."""
     source = fetch_pinned(f"rustc-{VERSION}-src.tar.xz")
     if source is None:
         return False
@@ -119,11 +122,12 @@ def cross_build(cpus: int | None) -> bool:
 
 
 def build_inputs() -> str:
-    """The digest of what defines the cross build: its files and the source pin."""
+    """The digest of what defines the cross build: its files, patches and the source pin."""
     digest = hashlib.sha256(PINS[f"rustc-{VERSION}-src.tar.xz"].encode())
-    for name in BUILD_FILES:
-        text = (HERE / name).read_bytes().replace(b"\r\n", b"\n")
-        digest.update(name.encode() + b"\0" + text)
+    files = [HERE / name for name in BUILD_FILES] + sorted((HERE / "patches").glob("*.patch"))
+    for path in files:
+        text = path.read_bytes().replace(b"\r\n", b"\n")
+        digest.update(path.name.encode() + b"\0" + text)
     return digest.hexdigest()
 
 

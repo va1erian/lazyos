@@ -1,0 +1,18 @@
+LazyOS (docs/self-hosting-plan.md SH1): there is no C compiler on LazyOS to
+drive the link, so the musl target links with the compiler's own rust-lld,
+as x86_64-unknown-none does. rustc puts the sysroot's tool directory on the
+linker's PATH, so the bare name is found. `-C linker=gcc` (bootstrap.toml)
+still links through a C compiler on a machine that has one.
+
+--- a/compiler/rustc_target/src/spec/targets/x86_64_unknown_linux_musl.rs
++++ b/compiler/rustc_target/src/spec/targets/x86_64_unknown_linux_musl.rs
+@@ -19,6 +19,9 @@
+     base.supports_xray = true;
+     // FIXME(compiler-team#422): musl targets should be dynamically linked by default.
+     base.crt_static_default = true;
++    // LazyOS: no C compiler drives the link; rust-lld does (tools/selfhost/patches).
++    base.linker = Some("rust-lld".into());
++    base.linker_flavor = LinkerFlavor::Gnu(Cc::No, Lld::Yes);
+
+     Target {
+         llvm_target: "x86_64-unknown-linux-musl".into(),

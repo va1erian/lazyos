@@ -5,7 +5,9 @@
 //! `bin/rustc`, and in `lib/` the driver library, `rustlib/` (the standard library and
 //! `rust-lld`), musl's dynamic linker and `libgcc_s`. Placed at `/system`, the compiler's
 //! sysroot is `/system` itself: rustc finds it from where its driver library was loaded.
-//! It is hundreds of MB, so it wants a larger OS volume (`LAZYOS_OS_SIZE`).
+//! It is hundreds of MB, so it wants a larger OS volume (`LAZYOS_OS_SIZE`). `bin/cargo` and
+//! `bin/rustdoc`, when staged, go to `/system/bin` too, and the cargo sample workspace `tools/selfhost/cargo-hello`
+//! to [`fhs::share::CARGO_SAMPLE`].
 
 use std::path::Path;
 
@@ -13,6 +15,9 @@ use crate::os_image::Sink;
 
 /// Where `tools/selfhost/build.py stage` writes the tree.
 const STAGED: &str = "target/selfhost/system";
+
+/// The cargo sample workspace, in the source tree.
+const CARGO_SAMPLE: &str = "tools/selfhost/cargo-hello";
 
 /// The dynamic linker, which `LAZYOS_DYNLINK=1` also places (the same musl program).
 const LOADER: &str = "ld-musl-x86_64.so.1";
@@ -26,8 +31,10 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     }
     let staged = manifest_dir.join(STAGED);
     crate::os_image::rerun_if_changed(&staged.join("bin").join("rustc"));
+    crate::os_image::rerun_if_changed(&staged.join("bin").join("cargo"));
     let dynlink = std::env::var("LAZYOS_DYNLINK").as_deref() == Ok("1");
     if place(sink, &staged, dynlink) {
+        place_sample(sink, &manifest_dir.join(CARGO_SAMPLE));
         println!("cargo:warning=LAZYOS_RUSTC embedded: {}", staged.display());
     } else {
         println!(
@@ -37,7 +44,8 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     }
 }
 
-/// Place the tree `staged`: `bin/rustc` at [`fhs::bin::RUSTC`], everything under `lib/` at the
+/// Place the tree `staged`: `bin/rustc` at [`fhs::bin::RUSTC`], `bin/cargo` and `bin/rustdoc`
+/// (when built) at [`fhs::bin::CARGO`] and [`fhs::bin::RUSTDOC`], everything under `lib/` at the
 /// same path under [`fhs::SYSTEM_LIB`], without the loader when `dynlink` places it already.
 /// False (nothing placed) when there is no `bin/rustc`.
 pub fn place(sink: &mut dyn Sink, staged: &Path, dynlink: bool) -> bool {
@@ -46,10 +54,24 @@ pub fn place(sink: &mut dyn Sink, staged: &Path, dynlink: bool) -> bool {
         return false;
     }
     sink.add_file(fhs::bin::RUSTC, rustc);
+    for (name, image_path) in [("cargo", fhs::bin::CARGO), ("rustdoc", fhs::bin::RUSTDOC)] {
+        let tool = staged.join("bin").join(name);
+        if tool.is_file() {
+            sink.add_file(image_path, tool);
+        }
+    }
     add_tree(sink, &staged.join("lib"), fhs::SYSTEM_LIB, &|name| {
         !(dynlink && name == LOADER)
     });
     true
+}
+
+/// Place the cargo sample workspace `dir` at [`fhs::share::CARGO_SAMPLE`], without the
+/// `target/` a build on the host leaves in it.
+pub fn place_sample(sink: &mut dyn Sink, dir: &Path) {
+    add_tree(sink, dir, fhs::share::CARGO_SAMPLE, &|name| {
+        name != "target"
+    });
 }
 
 /// Store every regular file under `dir`, recursively, at the same relative path under

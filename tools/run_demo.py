@@ -29,7 +29,7 @@ Examples
     python tools/run_demo.py --desktop --net # networking + the Network and Net Tools apps
     python tools/run_demo.py --net --net-forward 2323:2323   # also forward host 2323 (`nc -l 2323`)
     python tools/run_demo.py --linuxapps     # + dash, sqlite3, jq, rg in /system/bin
-    python tools/run_demo.py --rustc         # + rustc, its std and rust-lld (cross-compiled in Docker); big-app profile
+    python tools/run_demo.py --rustc         # + rustc, cargo, std and rust-lld (cross-compiled in Docker); big-app profile
     python tools/run_demo.py --jsc           # + jsc (JavaScriptCore) and cxxproof; big-app profile
     python tools/run_demo.py --webkit-deps   # + depsproof (the WebKit dependency bundle); networking, big-app profile
     python tools/run_demo.py --webkit-port   # + the WebKit port's console proof (webkit-smoke); networking, big-app profile

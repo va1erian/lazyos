@@ -194,9 +194,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
     parser.add_argument("--rustc", action="store_true",
-                        help="embed the Rust compiler (LAZYOS_RUSTC=1, docs/self-hosting-plan.md): "
-                             "rustc in /system/bin, its standard library and rust-lld under "
-                             "/system/lib, cross-compiled by tools/selfhost/build.py in Docker; "
+                        help="embed the Rust toolchain (LAZYOS_RUSTC=1, docs/self-hosting-plan.md): "
+                             "rustc, cargo and rustdoc in /system/bin, the standard library and "
+                             "rust-lld under /system/lib, a cargo sample workspace, cross-compiled "
+                             "by tools/selfhost/build.py in Docker; "
                              "about 1 GiB more OS volume and the big-app profile")
     parser.add_argument("--jsc", action="store_true",
                         help="embed JavaScriptCore's jsc (C-loop) and jsc-jit (JIT) shells and the C++/ICU check cxxproof in "
