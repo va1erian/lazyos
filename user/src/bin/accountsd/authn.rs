@@ -78,6 +78,9 @@ pub(crate) fn check(
         .as_ref()
         .ok()
         .is_some_and(|db| db.user(name).is_some_and(|user| user.secret.is_some()));
+    // `verify` is called unconditionally even if `known` is false so keyd
+    // performs dummy KDF derivation for unknown users, preventing timing
+    // side-channels that expose account existence.
     let verified = verify(state, name, secret);
     let ok = known && verified;
     if ok {
