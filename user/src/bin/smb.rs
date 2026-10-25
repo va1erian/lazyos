@@ -189,7 +189,9 @@ fn run() -> Result<usize, String> {
     let (mut client, logon) = link::open(&target)?;
     // The password is no longer needed: overwrite it rather than leave it
     // in a freed block of the heap.
-    secret.into_bytes().fill(0);
+    let mut bytes = secret.into_bytes();
+    bytes.fill(0);
+    core::hint::black_box(&mut bytes);
     trace::print!(trace::Channel::Smb, "DIALECT {:#06x}", logon.dialect);
     trace::print!(
         trace::Channel::Smb,

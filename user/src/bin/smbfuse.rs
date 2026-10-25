@@ -250,7 +250,9 @@ fn detach(point: &str, secret: &str) -> Result<(), Failed> {
         Personality::Native,
         SpawnCred::Inherit,
     );
-    env.into_bytes().fill(0);
+    let mut env_bytes = env.into_bytes();
+    env_bytes.fill(0);
+    core::hint::black_box(&mut env_bytes);
     let pid = spawned.map_err(|e| {
         (
             Failure::Mount,
