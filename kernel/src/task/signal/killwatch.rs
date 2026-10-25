@@ -106,13 +106,20 @@ fn calls(rsp: u64) -> ([u64; CALLS], usize) {
 /// (a process with no live thread has finished: nothing to say).
 fn report(pml4: u64) -> usize {
     let mut rows: Vec<(usize, usize, TaskState, u64, u64)> = Vec::new();
+    // An `execve` waiting for its other threads to end is not stuck: they are.
+    let execing = peek(|procs, _| {
+        procs
+            .iter()
+            .find(|state| state.pml4 == pml4 && state.group_exit.is_none())
+            .map_or(0, |state| state.exec_by)
+    });
     {
         let tasks = TASKS.lock();
         for slot in 1..MAX_TASKS {
             let Some(task) = tasks[slot].as_ref() else {
                 continue;
             };
-            if task.pml4 != pml4 || task.state == TaskState::Done {
+            if task.pml4 != pml4 || task.state == TaskState::Done || slot == execing {
                 continue;
             }
             let tgid = match task.linux.tgid {

@@ -91,6 +91,15 @@ pub fn set_pml4(value: u64) {
         if carried {
             crate::ipc::teardown_task(leader, old, true);
         }
+        // Nothing runs in the old image any more: the buffer mappings made in
+        // it (by this thread, or by a leader that moved with it) go now, not
+        // when the old table is freed. Their handles stay open, and one that
+        // this thread maps again from the new image gets a fresh address
+        // instead of the old image's. Only the suite execs with a live
+        // sibling left behind.
+        if !shared_live {
+            crate::ipc::shared::forget_table(old);
+        }
     }
     if let Some(old) = orphaned {
         // Guard against freeing whatever `CR3` currently points at (only
@@ -103,10 +112,6 @@ pub fn set_pml4(value: u64) {
         // `execve` starts a fresh signal disposition table (Linux keeps SIG_IGN
         // but resets handlers; a fresh table means ignored ones reset too).
         signal::forget(old);
-        // Buffer mappings made in the old image (by this thread, or by a
-        // leader that moved with it) go with the table; their handles close
-        // later with nothing left to unmap through it.
-        crate::ipc::shared::forget_table(old);
         // The old image's shared file pages go to their files now, in the
         // exec'ing task's own context.
         mem::filemap::flush_table(PhysAddr::new(old));
