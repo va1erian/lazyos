@@ -57,21 +57,37 @@ fn draw_glyph(
     let origin_x = pen + glyph.left;
     let origin_y = baseline_y + glyph.top;
 
-    for row in 0..gh {
-        let y = origin_y + row as i32;
-        if y < clip.y0 || y >= clip.y1 {
-            continue;
-        }
-        for col in 0..gw {
-            let alpha = coverage[row * gw + col];
+    // Calculate intersection of glyph bounding box with clip rect, clamped to screen bounds (>= 0).
+    let y_start = origin_y.max(clip.y0).max(0);
+    let y_end = (origin_y + gh as i32).min(clip.y1);
+    if y_start >= y_end {
+        return;
+    }
+
+    let x_start = origin_x.max(clip.x0).max(0);
+    let x_end = (origin_x + gw as i32).min(clip.x1);
+    if x_start >= x_end {
+        return;
+    }
+
+    // Convert clipped screen coordinates to glyph-relative local bitmap indices.
+    let row_start = (y_start - origin_y) as usize;
+    let row_end = (y_end - origin_y) as usize;
+    let col_start = (x_start - origin_x) as usize;
+    let col_end = (x_end - origin_x) as usize;
+
+    for row in row_start..row_end {
+        let y = (origin_y + row as i32) as usize;
+        // Precompute row offset into coverage bitmap outside column loop.
+        let row_off = row * gw;
+        for col in col_start..col_end {
+            let alpha = coverage[row_off + col];
             if alpha == 0 {
                 continue;
             }
-            let x = origin_x + col as i32;
-            if x < clip.x0 || x >= clip.x1 {
-                continue;
-            }
-            surface.blend_pixel(x as usize, y as usize, color, alpha);
+            // `x_start >= 0` guarantees `origin_x + col as i32 >= 0` without negative wrap.
+            let x = (origin_x + col as i32) as usize;
+            surface.blend_pixel(x, y, color, alpha);
         }
     }
 }
