@@ -17,6 +17,8 @@ pub enum Error {
     BadParcel,
     /// The kernel channel registry is full.
     RegistryFull,
+    /// The caller's user holds its share of the channel registry.
+    ChannelQuota,
     /// The peer's inbox is at its depth or byte limit.
     QueueFull,
     /// The channel already has [`super::MAX_OUTSTANDING`] pending transactions.
@@ -72,6 +74,7 @@ impl Error {
             Error::BadTask => "no task exists in that slot",
             Error::BadParcel => "the parcel is malformed or exceeds a Messenger size limit",
             Error::RegistryFull => "the kernel channel registry is full",
+            Error::ChannelQuota => "this user holds too many Messenger channels",
             Error::QueueFull => "the peer's message queue is full",
             Error::TooManyOutstanding => "this channel has too many outstanding transactions",
             Error::Quota => "this sender has too many outstanding transactions",

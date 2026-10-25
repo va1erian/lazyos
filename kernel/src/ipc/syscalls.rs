@@ -459,7 +459,7 @@ fn channel_errno(error: channels::Error) -> i64 {
     match error {
         InvalidHandle | WrongKind | NoTransaction => errno::ENOENT,
         MissingRight => errno::EACCES,
-        NoFreeHandle | RegistryFull => errno::ENOMEM,
+        NoFreeHandle | RegistryFull | ChannelQuota => errno::ENOMEM,
         BadTask | BadParcel => errno::EINVAL,
         QueueFull | TooManyOutstanding | Quota | QuotaExceeded => errno::EAGAIN,
         Deadlock => errno::EDEADLK,

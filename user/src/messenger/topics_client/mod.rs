@@ -120,10 +120,12 @@ impl Qos {
     }
 
     /// Decode `(code, depth)` from the wire, or `None` for an unknown code.
+    /// The depth is any client's number, so it is clamped here
+    /// ([`Qos::depth`]): the broker queues at most [`Qos::MAX_DEPTH`].
     pub fn from_parts(code: u32, depth: u32) -> Option<Qos> {
         match code {
             generated::QOS_LATEST => Some(Qos::Latest),
-            generated::QOS_BUFFERED => Some(Qos::Buffered(depth)),
+            generated::QOS_BUFFERED => Some(Qos::Buffered(Qos::Buffered(depth).depth())),
             generated::QOS_CONFLATE => Some(Qos::Conflate),
             generated::QOS_RELIABLE => Some(Qos::Reliable),
             _ => None,

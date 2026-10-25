@@ -327,7 +327,7 @@ pub fn register(
     registry.entries.push(Entry {
         name: String::from(name),
         kind,
-        rights,
+        rights: rights & !handles::rights::CONTROL,
         object_id,
         owner_slot,
         interfaces: interfaces.to_vec(),
@@ -341,7 +341,7 @@ pub fn register(
 ///
 /// This is the capability transfer at the heart of discovery: the caller's
 /// table gains a fresh number for an object it never had; the returned handle
-/// carries the rights the owner published. `messengerd` uses the same entry
+/// carries the published rights less `CONTROL`. `messengerd` uses the same entry
 /// point with the requesting task's slot as `target_slot` (its
 /// `CAP_IPC_CONTROL` capability is checked by the syscall edge), so a client
 /// receives the handle without ever naming another process's number.

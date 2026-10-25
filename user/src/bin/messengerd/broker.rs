@@ -430,8 +430,9 @@ fn enqueue(sub: &mut Subscription, event: topics_client::Event) {
             }
             sub.queue.push_back(event);
         }
-        topics_client::Qos::Buffered(depth) => {
-            let depth = depth.max(1) as usize;
+        topics_client::Qos::Buffered(_) => {
+            // Clamped again here: a subscription's depth bounds broker memory.
+            let depth = sub.qos.depth() as usize;
             while sub.queue.len() >= depth {
                 sub.queue.pop_front();
                 sub.drops += 1;

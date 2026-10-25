@@ -17,7 +17,8 @@
 //! `LAZYOS_MESSENGERD=1` and `LAZYOS_MESSENGERCTL=1`) the tool also runs a
 //! boot-time topic conformance self-test and prints machine-parseable serial
 //! markers (`TOPIC:FANOUT:PASS`, `TOPIC:WILDCARD:PASS`, `TOPIC:RETAINED:PASS`,
-//! `TOPIC:DROP:PASS`, `TOPIC:QOS:PASS`, `TOPIC:UNSUB:PASS`), so a headless
+//! `TOPIC:DROP:PASS`, `TOPIC:QOS:PASS`, `TOPIC:UNSUB:PASS`,
+//! `TOPIC:DEPTH:PASS`), so a headless
 //! `qemu_session.py` run proves the pub/sub path end to end. The interactive
 //! commands `topics` and `tail <filter> [count]` inspect and stream (issue
 //! #92).
@@ -47,6 +48,8 @@ extern crate alloc;
 mod clients;
 #[path = "messengerctl/commands.rs"]
 mod commands;
+#[path = "messengerctl/depth_test.rs"]
+mod depth_test;
 #[path = "messengerctl/names.rs"]
 mod names;
 #[path = "messengerctl/object_tests.rs"]

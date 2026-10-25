@@ -327,7 +327,8 @@ and `timed`'s `confd` watch use it instead of polling every few ticks.
 
 Headless verification: boot with `LAZYOS_MESSENGERD=1 LAZYOS_MESSENGERCTL=1`;
 `messengerctl` runs a topic conformance self-test (`TOPIC:FANOUT|WILDCARD|
-RETAINED|DROP|QOS|UNSUB:PASS` on the serial log), then `MESSAGE:OBJECTS:PASS`
+RETAINED|DROP|QOS|UNSUB|DEPTH:PASS` on the serial log; `DEPTH` hand-encodes a
+`u32::MAX` buffered depth and checks the broker clamps it), then `MESSAGE:OBJECTS:PASS`
 once it has checked that a received message owns its objects until a decoder
 claims them and closes the rest when it drops
 (`user/src/bin/messengerctl/object_tests.rs`). `messengerctl topics` lists

@@ -97,6 +97,7 @@ mod echo_and_calls;
 mod indexed;
 mod leaks;
 mod poll;
+mod quota;
 mod release;
 mod reply_auth;
 mod resilience;
@@ -107,6 +108,7 @@ pub(super) use echo_and_calls::*;
 pub(super) use indexed::*;
 pub(super) use leaks::*;
 pub(super) use poll::*;
+pub(super) use quota::*;
 pub(super) use release::*;
 pub(super) use reply_auth::*;
 pub(super) use resilience::*;
@@ -239,4 +241,6 @@ pub(super) const CASES: &[(&str, Test)] = &[
         "ipc_channel_uncollected_outcomes_soak",
         uncollected_outcomes_soak,
     ),
+    ("ipc_channel_quota_caps_one_uid", channel_quota_caps_one_uid),
+    ("ipc_channel_quota_soak", channel_quota_soak),
 ];

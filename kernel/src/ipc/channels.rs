@@ -113,8 +113,10 @@ pub use txn::expire_deadlines;
 use txn::*;
 pub use types::*;
 
-/// Largest number of live channels.
-pub const MAX_CHANNELS: usize = 64;
+/// Largest number of live channels. A regular uid may hold a quarter of
+/// them (`Resource::Channels`), as many as the whole system had before that
+/// quota existed.
+pub const MAX_CHANNELS: usize = 256;
 /// Largest number of messages parked in one endpoint's inbox.
 pub const MAX_QUEUE_DEPTH: usize = 64;
 /// Largest number of parcel bytes parked in one endpoint's inbox.
@@ -168,7 +170,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = insert_channel()?;
+    let channel_id = insert_channel(task::current())?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {
@@ -186,23 +188,24 @@ pub fn create() -> Result<(u64, u64), Error> {
     }
 }
 
-/// Take a registry slot for a fresh channel. A full registry first gives back
-/// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
-/// tries once more, so a leak of unreachable channels costs slots only until
-/// the next create.
-fn insert_channel() -> Result<u64, Error> {
-    insert_channel_with(fresh_channel)
+/// Take a registry slot for a fresh channel. A full registry (or a full
+/// channel quota) first gives back the ends nobody can reach any more
+/// ([`reclaim::reclaim_unreachable`]) and tries once more, so a leak of
+/// unreachable channels costs slots only until the next create. The channel
+/// is charged to `owner`'s uid (`Resource::Channels`).
+fn insert_channel(owner: usize) -> Result<u64, Error> {
+    insert_channel_with(owner, fresh_channel)
 }
 
 /// [`insert_channel`] for a channel `build` makes (an interrupt channel marks
 /// one side as the kernel's).
-fn insert_channel_with(build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
+fn insert_channel_with(owner: usize, build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
     // The guard is a temporary of its own statement: `reclaim` locks the
     // registry again.
-    let first = CHANNELS.lock().insert(&build);
+    let first = CHANNELS.lock().insert(owner, &build);
     match first {
-        Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
-            CHANNELS.lock().insert(&build)
+        Err(Error::RegistryFull | Error::ChannelQuota) if reclaim::reclaim_unreachable() > 0 => {
+            CHANNELS.lock().insert(owner, &build)
         }
         other => other,
     }

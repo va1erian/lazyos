@@ -25,6 +25,7 @@ pub(crate) fn topic_selftest() {
     marker("TOPIC:DROP", selftest_drop(&client));
     marker("TOPIC:QOS", selftest_qos(&client));
     marker("TOPIC:UNSUB", selftest_unsubscribe(&client));
+    marker("TOPIC:DEPTH", super::depth_test::selftest_depth(&client));
     marker("TOPIC:SECURITY", selftest_security());
 }
 

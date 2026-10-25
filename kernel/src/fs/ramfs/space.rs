@@ -89,6 +89,21 @@ impl Owners {
     }
 }
 
+/// Cut `data` to `len` bytes and release the rest of its allocation. The
+/// copy into an exact-size buffer is fallible (`Vec::shrink_to` would abort
+/// on a failed reallocation); without the room the file is left unchanged.
+fn shrink_data(data: &mut Vec<u8>, len: usize) -> Result<(), FsError> {
+    if len == 0 {
+        *data = Vec::new();
+        return Ok(());
+    }
+    let mut kept = Vec::new();
+    kept.try_reserve_exact(len).map_err(|_| FsError::NoSpace)?;
+    kept.extend_from_slice(&data[..len]);
+    *data = kept;
+    Ok(())
+}
+
 impl RamFs {
     /// What `uid` owns in this filesystem.
     #[cfg(lazyos_tests)]
@@ -101,6 +116,11 @@ impl RamFs {
     /// `try_reserve_exact`, so running out of heap is `ENOSPC` rather than an
     /// allocation-failure abort. The accounting only moves once the
     /// allocation succeeded.
+    ///
+    /// The caps count a file's length, so its allocation never outgrows it:
+    /// a shrink gives the heap back too ([`shrink_data`]). Otherwise growing
+    /// a file, truncating it and growing the next one would hold heap the
+    /// caps no longer see.
     pub(super) fn resize_file(inner: &mut Inner, ino: u64, new_len: usize) -> Result<(), FsError> {
         let (old_len, owner) = {
             let node = &inner.nodes[&ino];
@@ -119,8 +139,10 @@ impl RamFs {
             node.data
                 .try_reserve_exact(new_len - old_len)
                 .map_err(|_| FsError::NoSpace)?;
+            node.data.resize(new_len, 0); // zero-fills a sparse gap
+        } else if new_len < old_len {
+            shrink_data(&mut node.data, new_len)?;
         }
-        node.data.resize(new_len, 0); // zero-fills a sparse gap
         inner.bytes = total + new_len;
         if new_len > old_len {
             inner.owners.add(owner, new_len - old_len, 0);

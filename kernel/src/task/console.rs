@@ -37,8 +37,9 @@ pub(super) fn root_of(tasks: &[Option<Task>; MAX_TASKS], slot: usize) -> usize {
 
 /// Copy `bytes` into `out`, applying just enough terminal control for an
 /// interactive shell: `\r`, backspace, erase-to-end-of-line, cursor-left, and
-/// dropping other CSI sequences.
-pub(super) fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
+/// dropping other CSI sequences. The counts come from any program's output,
+/// so every one is bounded: nothing here may loop on a number it was handed.
+pub(crate) fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
     let mut i = 0;
     while i < bytes.len() {
         let byte = bytes[i];
@@ -52,11 +53,7 @@ pub(super) fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
                 let count = parse_count(&bytes[start..i]);
                 match bytes[i] {
                     b'K' => truncate_line(out),
-                    b'D' => {
-                        for _ in 0..count {
-                            out.pop();
-                        }
-                    }
+                    b'D' => out.truncate(out.len().saturating_sub(count)),
                     b'J' if count == 2 => out.clear(),
                     _ => {}
                 }
@@ -75,13 +72,17 @@ pub(super) fn strip_ansi(bytes: &[u8], out: &mut Vec<u8>) {
     }
 }
 
+/// The largest CSI parameter honoured; a longer run of digits saturates here
+/// instead of overflowing.
+const MAX_COUNT: usize = 1 << 20;
+
 /// Parse a CSI parameter (defaults to 1 when empty).
-pub(super) fn parse_count(digits: &[u8]) -> usize {
+pub(crate) fn parse_count(digits: &[u8]) -> usize {
     let mut value = 0usize;
     let mut any = false;
     for &d in digits {
         if d.is_ascii_digit() {
-            value = value * 10 + (d - b'0') as usize;
+            value = (value * 10 + (d - b'0') as usize).min(MAX_COUNT);
             any = true;
         }
     }
