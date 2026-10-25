@@ -486,10 +486,12 @@ finds the task in the run queue). A kept window that its CPU closes
 (`kick::MISS_NS`, four graces) is a miss, wherever the task then ran: its
 waker (a server that replies and then works in ring 3, one with a backlog,
 a compositor drawing after its answer) gets no grace for 20 ms, doubling
-with each miss in a row up to a second (`PENALTY_MIN_NS`,
-`PENALTY_MAX_NS`), and a window closed in time ends the streak. One stall
-of a vCPU the host preempted costs a partner pair the grace for a moment;
-a waker that never parks in time keeps it about one wake a second.
+with each miss up to a second (`PENALTY_MIN_NS`, `PENALTY_MAX_NS`) while
+misses outweigh windows closed in time (a miss scores two, an in-time
+window takes one off). One stall of a vCPU the host preempted costs a
+partner pair the grace for a moment; a waker that misses half the time or
+more is soon denied for a second at a time. A miss itself can last most of
+a tick: it ends when the waker's CPU next enters the kernel or ticks.
 `PERF:entry` counts `kicks`, `kept` returns and `missed` graces.
 
 **What a task carries between CPUs.** `install` loads everything the CPU

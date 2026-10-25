@@ -428,10 +428,15 @@ impl core::fmt::Display for Micros {
 fn entry_report(per_tick: u64) {
     static REPORTED: AtomicU64 = AtomicU64::new(u64::MAX);
     let (waits, longest) = crate::sync::entry::contended();
-    if REPORTED.swap(waits, Ordering::Relaxed) == waits {
+    let (kicks, kept, missed) = crate::task::kick::counts();
+    // Any of the counts moving is news: a sum changes when one does.
+    let sum = waits
+        .wrapping_add(kicks)
+        .wrapping_add(kept)
+        .wrapping_add(missed);
+    if REPORTED.swap(sum, Ordering::Relaxed) == sum {
         return;
     }
-    let (kicks, kept, missed) = crate::task::kick::counts();
     line(format_args!(
         "PERF:entry:waits={waits} longest_us={} cpus={} kicks={kicks} kept={kept} missed={missed}\n",
         Micros(cycles_to_ns(longest, per_tick)),

@@ -44,11 +44,13 @@
 //! replies and then works in ring 3, a server with a backlog, a compositor
 //! drawing after its answer) gets no grace for a while, and its wakes are
 //! placed at once, as before the grace. The penalty starts at
-//! [`PENALTY_MIN_NS`] and doubles with each miss in a row up to
-//! [`PENALTY_MAX_NS`]; a window closed in time ends the streak. So one
-//! stall (a vCPU the host preempted) costs a partner pair the grace for a
-//! moment, and a waker that never parks in time is denied nearly always:
-//! once the streak is long, one wake in a second waits past the bound.
+//! [`PENALTY_MIN_NS`] and doubles with each miss up to [`PENALTY_MAX_NS`]
+//! while misses outweigh windows closed in time (a miss scores two, a
+//! window in time takes one off). So one stall (a vCPU the host preempted)
+//! costs a partner pair the grace for a moment, and a waker that misses
+//! half the time or more is soon denied for a second at a time. A miss
+//! waits until the waker's CPU next enters the kernel or ticks (or an idle
+//! CPU ticks), which can be most of a 10 ms tick.
 //! Only a task's own sends, calls and replies are
 //! partner wakes: the kernel's posts of a device interrupt, a channel's
 //! teardown and a call's timeout are placed at once.
@@ -82,8 +84,8 @@ static PARTNER: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_
 /// Per CPU: the task whose syscall return kept [`PENDING`] for the grace
 /// (`u64::MAX`: none), whom a miss is held against.
 static KEEPER: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(u64::MAX) }; MAX_CPUS];
-/// Per task: until when (monotonic ns) its returns get no grace, and how
-/// many of its kept windows in a row were misses.
+/// Per task: until when (monotonic ns) its returns get no grace, and its
+/// miss score (two per miss, less one per window closed in time).
 static DENIED_UNTIL: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
 static STREAK: [AtomicU8; MAX_TASKS] = [const { AtomicU8::new(0) }; MAX_TASKS];
 /// A kept window closed this long after it began is a miss: its waker did
@@ -251,21 +253,24 @@ pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
 /// (to the kept task or another) or places what it kept, so if the window
 /// begun at `since` lasted past [`MISS_NS`] the kept task waited that long
 /// (here, or until another CPU's tick took it): a miss, and `keeper` gets
-/// no grace for a penalty that doubles with each miss in a row. A window
-/// closed in time ends the streak.
+/// no grace for a penalty that doubles with each miss its score keeps. A
+/// window closed in time takes one off the score; a miss adds two.
 fn window_closed(keeper: usize, since: u64) {
     let (Some(until), Some(streak)) = (DENIED_UNTIL.get(keeper), STREAK.get(keeper)) else {
         return;
     };
     let now = crate::arch::clock::monotonic_ns();
+    let score = streak.load(Ordering::Relaxed);
     if now.saturating_sub(since) <= MISS_NS {
-        streak.store(0, Ordering::Relaxed);
+        // In time: the score decays by one, so a waker that misses as
+        // often as it parks in time still climbs (two up, one down).
+        streak.store(score.saturating_sub(1), Ordering::Relaxed);
         return;
     }
-    let misses = streak.load(Ordering::Relaxed).saturating_add(1).min(16);
-    streak.store(misses, Ordering::Relaxed);
+    let score = score.saturating_add(2).min(32);
+    streak.store(score, Ordering::Relaxed);
     let penalty = PENALTY_MIN_NS
-        .saturating_mul(1 << (misses - 1))
+        .saturating_mul(1 << (score / 2 - 1))
         .min(PENALTY_MAX_NS);
     until.store(now.saturating_add(penalty), Ordering::Relaxed);
     #[cfg(lazyos_perf)]

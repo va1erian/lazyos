@@ -175,7 +175,10 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
                 "wake {round}: still kept after 20 ticks"
             );
             await_run(thread, 2 * round - 1)?;
-            // A wait past the miss bound costs the waker its grace.
+            // A wait past the miss bound costs the waker its grace, while
+            // the penalty lasts (a slow AP can outlast the first one; the
+            // margin keeps it from running out between here and the return).
+            let penalised = kick::denied_for(me) > 1_000_000;
             partner_wake();
             check!(
                 kick::remembered_here(),
@@ -186,7 +189,7 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
             denied += u64::from(!kept);
             // Judged with a margin: the miss is timed from inside the wake
             // to the flush, `waited` from before the wake to after the spin.
-            if timing_checked() && waited > kick::MISS_NS + 500_000 {
+            if penalised {
                 check!(!kept, "wake {round}: a waker that missed kept its grace");
             }
             task::nap();

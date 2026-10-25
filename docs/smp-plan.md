@@ -567,7 +567,7 @@ half of "prefer the waker's CPU": a Messenger partner's wake is kept at the
 waker's syscall return for 50 µs, so a server that replies and parks in
 `recv` (or a client whose sends end in a call) runs its partner on its own
 CPU instead of kicking it to another one; a waker that misses gets no grace
-for a second. It recovered most of S8.3c's Messenger loss at four CPUs
+for a while (20 ms, doubling with misses up to a second). It recovered most of S8.3c's Messenger loss at four CPUs
 (round trip 11.8 to about 8 µs, contended entries down 70%,
 `docs/architecture/smp.md`, "The partner grace") with no change at `-smp 1`,
 where nothing is placed.
