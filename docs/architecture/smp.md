@@ -481,12 +481,16 @@ new task), and every other preemption point (an interrupt return, a
 scheduler entry, a nap, the idle loop), places at once; a syscall return
 after the grace places too. A waker that goes on computing in ring 3
 leaves the placement to its CPU's next tick (or any idle CPU's tick, which
-finds the task in the run queue); a kept window that its CPU closes
-(switching, or placing what it kept) more than 1 ms after it began is a
-miss, wherever the task then ran, and its waker gets no grace for a second
-(`kick::MISS_NS`, `PENALTY_NS`), so a server that replies and then works
-in ring 3 costs at most one tick-long wait a second. `PERF:entry` counts
-`kicks`, `kept` returns and `missed` graces.
+finds the task in the run queue). A kept window that its CPU closes
+(switching, or placing what it kept) more than 200 µs after it began
+(`kick::MISS_NS`, four graces) is a miss, wherever the task then ran: its
+waker (a server that replies and then works in ring 3, one with a backlog,
+a compositor drawing after its answer) gets no grace for 20 ms, doubling
+with each miss in a row up to a second (`PENALTY_MIN_NS`,
+`PENALTY_MAX_NS`), and a window closed in time ends the streak. One stall
+of a vCPU the host preempted costs a partner pair the grace for a moment;
+a waker that never parks in time keeps it about one wake a second.
+`PERF:entry` counts `kicks`, `kept` returns and `missed` graces.
 
 **What a task carries between CPUs.** `install` loads everything the CPU
 holds for a task: its table, `RSP0` and the `syscall` stack (both per

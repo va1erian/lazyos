@@ -38,13 +38,18 @@
 //! preemption point, places at once, and so does the next syscall return
 //! after the grace or this CPU's next tick, which bounds the wait of a task
 //! whose waker went on computing in ring 3 (or any idle CPU's tick, which
-//! finds the task in the run queue). That wait is a tick, not the grace, so
-//! a kept window this CPU closes (switching, or placing what it kept) more
-//! than [`MISS_NS`] after it began is a miss, wherever the task then ran:
-//! its waker (a server that replies and then works in ring 3, a compositor
-//! drawing after its answer) gets no grace for [`PENALTY_NS`], its wakes
-//! are placed at once again, as before the grace, and at most one per
-//! penalty waits for a tick. Only a task's own sends, calls and replies are
+//! finds the task in the run queue). So a kept window this CPU closes
+//! (switching, or placing what it kept) more than [`MISS_NS`] after it
+//! began is a miss, wherever the task then ran: its waker (a server that
+//! replies and then works in ring 3, a server with a backlog, a compositor
+//! drawing after its answer) gets no grace for a while, and its wakes are
+//! placed at once, as before the grace. The penalty starts at
+//! [`PENALTY_MIN_NS`] and doubles with each miss in a row up to
+//! [`PENALTY_MAX_NS`]; a window closed in time ends the streak. So one
+//! stall (a vCPU the host preempted) costs a partner pair the grace for a
+//! moment, and a waker that never parks in time is denied nearly always:
+//! once the streak is long, one wake in a second waits past the bound.
+//! Only a task's own sends, calls and replies are
 //! partner wakes: the kernel's posts of a device interrupt, a channel's
 //! teardown and a call's timeout are placed at once.
 //!
@@ -53,7 +58,7 @@
 //! device interrupts it serves land there, and the suite's cases assume
 //! their CPU does not change under them.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 use super::{idle, oncpu, Task, KERNEL_TASK, MAX_TASKS, TASKS};
 use crate::arch::percpu::{self, MAX_CPUS};
@@ -77,14 +82,17 @@ static PARTNER: [AtomicBool; MAX_CPUS] = [const { AtomicBool::new(false) }; MAX_
 /// Per CPU: the task whose syscall return kept [`PENDING`] for the grace
 /// (`u64::MAX`: none), whom a miss is held against.
 static KEEPER: [AtomicU64; MAX_CPUS] = [const { AtomicU64::new(u64::MAX) }; MAX_CPUS];
-/// Per task: until when (monotonic ns) its returns get no grace.
+/// Per task: until when (monotonic ns) its returns get no grace, and how
+/// many of its kept windows in a row were misses.
 static DENIED_UNTIL: [AtomicU64; MAX_TASKS] = [const { AtomicU64::new(0) }; MAX_TASKS];
-/// A kept wake placed this long after it was made is a miss: its waker did
-/// not park in the grace and the wake waited for a later entry, usually a
-/// tick.
-pub const MISS_NS: u64 = 1_000_000;
-/// How long a miss denies its waker the grace.
-pub const PENALTY_NS: u64 = 1_000_000_000;
+static STREAK: [AtomicU8; MAX_TASKS] = [const { AtomicU8::new(0) }; MAX_TASKS];
+/// A kept window closed this long after it began is a miss: its waker did
+/// not park in the grace, and what it kept waited for a later entry (a
+/// tick) or for the waker's next call.
+pub const MISS_NS: u64 = 4 * GRACE_NS;
+/// The first miss's penalty, and the longest a streak of them reaches.
+pub const PENALTY_MIN_NS: u64 = 20_000_000;
+pub const PENALTY_MAX_NS: u64 = 1_000_000_000;
 /// Kicks sent, and syscall returns that kept their placements for the
 /// grace (`PERF:entry`, `LAZYOS_PERF=1` only).
 #[cfg(lazyos_perf)]
@@ -235,25 +243,33 @@ pub(super) fn flush(tasks: &[Option<Task>; MAX_TASKS]) {
         }
     }
     if keeper != u64::MAX {
-        note_miss(keeper as usize, SINCE[cpu].load(Ordering::Relaxed));
+        window_closed(keeper as usize, SINCE[cpu].load(Ordering::Relaxed));
     }
 }
 
 /// A grace kept by `keeper` ends: this flush runs when its CPU switches
 /// (to the kept task or another) or places what it kept, so if the window
 /// begun at `since` lasted past [`MISS_NS`] the kept task waited that long
-/// (here, or until another CPU's tick took it): deny `keeper` the grace for
-/// [`PENALTY_NS`].
-fn note_miss(keeper: usize, since: u64) {
+/// (here, or until another CPU's tick took it): a miss, and `keeper` gets
+/// no grace for a penalty that doubles with each miss in a row. A window
+/// closed in time ends the streak.
+fn window_closed(keeper: usize, since: u64) {
+    let (Some(until), Some(streak)) = (DENIED_UNTIL.get(keeper), STREAK.get(keeper)) else {
+        return;
+    };
     let now = crate::arch::clock::monotonic_ns();
     if now.saturating_sub(since) <= MISS_NS {
+        streak.store(0, Ordering::Relaxed);
         return;
     }
-    if let Some(until) = DENIED_UNTIL.get(keeper) {
-        until.store(now.saturating_add(PENALTY_NS), Ordering::Relaxed);
-        #[cfg(lazyos_perf)]
-        MISSES.fetch_add(1, Ordering::Relaxed);
-    }
+    let misses = streak.load(Ordering::Relaxed).saturating_add(1).min(16);
+    streak.store(misses, Ordering::Relaxed);
+    let penalty = PENALTY_MIN_NS
+        .saturating_mul(1 << (misses - 1))
+        .min(PENALTY_MAX_NS);
+    until.store(now.saturating_add(penalty), Ordering::Relaxed);
+    #[cfg(lazyos_perf)]
+    MISSES.fetch_add(1, Ordering::Relaxed);
 }
 
 /// [`flush`] from a preemption point: interrupts off, no lock held. Takes
@@ -315,8 +331,9 @@ pub(crate) fn partner_wakes<R>(wake: impl FnOnce() -> R) -> R {
 
 /// A new task in `slot` owes nothing for its last owner's misses.
 pub(super) fn forget(slot: usize) {
-    if let Some(until) = DENIED_UNTIL.get(slot) {
+    if let (Some(until), Some(streak)) = (DENIED_UNTIL.get(slot), STREAK.get(slot)) {
         until.store(0, Ordering::Relaxed);
+        streak.store(0, Ordering::Relaxed);
     }
 }
 
@@ -327,12 +344,30 @@ pub fn remembered_here() -> bool {
     PENDING[me()].load(Ordering::Relaxed) != u64::MAX
 }
 
-/// Lift a miss's penalty from `slot` (the suite, between cases).
+/// Lift a miss's penalty and streak from `slot` (the suite, between
+/// rounds).
 #[cfg(lazyos_tests)]
 pub fn forgive(slot: usize) {
+    forget(slot);
+}
+
+/// Lift `slot`'s denial but keep its streak (the suite: the next window is
+/// kept, and a miss there extends the streak).
+#[cfg(lazyos_tests)]
+pub fn lift_denial(slot: usize) {
     if let Some(until) = DENIED_UNTIL.get(slot) {
         until.store(0, Ordering::Relaxed);
     }
+}
+
+/// How long `slot` is denied the grace from now, in ns (the suite).
+#[cfg(lazyos_tests)]
+pub fn denied_for(slot: usize) -> u64 {
+    DENIED_UNTIL.get(slot).map_or(0, |until| {
+        until
+            .load(Ordering::Relaxed)
+            .saturating_sub(crate::arch::clock::monotonic_ns())
+    })
 }
 
 /// `slot`'s state changed under it (it finished, or a signal waits for it)

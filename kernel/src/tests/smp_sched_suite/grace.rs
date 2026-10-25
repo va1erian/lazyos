@@ -177,6 +177,10 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
             await_run(thread, 2 * round - 1)?;
             // A wait past the miss bound costs the waker its grace.
             partner_wake();
+            check!(
+                kick::remembered_here(),
+                "wake {round}: the second wake was not remembered"
+            );
             kick::flush_after_syscall();
             let kept = kick::remembered_here();
             denied += u64::from(!kept);
@@ -188,7 +192,32 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
             task::nap();
             await_run(thread, 2 * round)?;
         }
+        // Misses in a row double the penalty, up to its cap.
+        let penalties = penalty_streak(me, thread, 2 * ROUNDS)?;
         kick::forgive(me);
+        crate::trace::test!(
+            "smp_sched_grace_ends_at_the_tick:INFO:penalties_ms={:?}",
+            penalties
+                .iter()
+                .map(|ns| ns / 1_000_000)
+                .collect::<alloc::vec::Vec<_>>()
+        );
+        for (misses, &penalty) in penalties.iter().enumerate() {
+            let full = (kick::PENALTY_MIN_NS << misses).min(kick::PENALTY_MAX_NS);
+            check!(
+                penalty <= full,
+                "miss {}: a penalty of {penalty} ns",
+                misses + 1
+            );
+            // Less what the nap after the miss took (a tick at most).
+            if timing_checked() {
+                check!(
+                    penalty + 2 * tick_ns >= full,
+                    "miss {}: a penalty of {penalty} ns, {full} expected",
+                    misses + 1
+                );
+            }
+        }
         crate::trace::test!(
             "smp_sched_grace_ends_at_the_tick:INFO:rounds={ROUNDS} worst_us={} denied={denied}",
             worst / 1000
@@ -204,6 +233,35 @@ pub fn grace_ends_at_the_tick() -> Result<(), String> {
         end_woken(thread);
         Ok(())
     })
+}
+
+/// Let eight of `me`'s kept windows in a row close late (a wake kept at a
+/// return, a spin past the miss bound, then a nap that places it): the
+/// penalty left after each, in ns. `runs` is the thread's run count so far.
+fn penalty_streak(me: usize, thread: usize, runs: u64) -> Result<alloc::vec::Vec<u64>, String> {
+    kick::forgive(me);
+    let mut penalties = alloc::vec::Vec::new();
+    for miss in 1..=8 {
+        // Lift the denial but not the streak, so this window is kept.
+        kick::lift_denial(me);
+        partner_wake();
+        kick::flush_after_syscall();
+        if !kick::remembered_here() {
+            // Unaccelerated, the return can come after the grace: no window.
+            check!(!timing_checked(), "miss {miss}: the wake was not kept");
+            task::nap();
+            await_run(thread, runs + miss)?;
+            return Ok(penalties);
+        }
+        let kept = now();
+        while now().saturating_sub(kept) <= kick::MISS_NS + 20_000 {
+            core::hint::spin_loop();
+        }
+        task::nap();
+        penalties.push(kick::denied_for(me));
+        await_run(thread, runs + miss)?;
+    }
+    Ok(penalties)
 }
 
 /// [`SOAK`] partner wakes, each ended one of three ways in turn: the waker
