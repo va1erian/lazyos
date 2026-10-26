@@ -95,6 +95,18 @@ def build_linuxapps() -> bool:
     return required("the Linux programs", "linuxapps/build.py", ("--require",))
 
 
+def build_lazyvm() -> bool:
+    """LazyVM's staging tree (`--lazyvm`), which LazyVM's own tools write: nothing is built
+    here, but a missing stage stops the run before the image build fails on it."""
+    chosen = os.environ.get("LAZYOS_LAZYVM_STAGE") or str(Path("target") / "lazyvm" / "stage")
+    stage = ROOT / chosen
+    if (stage / "bin" / "lazyvm").is_file():
+        return True
+    print(f"error: no LazyVM stage at {stage} (stage LazyVM there, or set "
+          "LAZYOS_LAZYVM_STAGE; docs/agents/lazyvm.md)", file=sys.stderr)
+    return False
+
+
 def build_rustc() -> bool:
     """The Rust compiler for LazyOS, cross-compiled from the pinned release in Docker by
     `tools/selfhost/build.py` (cached after the first build, which takes about half an hour)."""

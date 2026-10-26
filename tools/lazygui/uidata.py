@@ -74,6 +74,7 @@ def advanced_cfg(ui) -> dict:
         "nics": ui.v["nics"].get().strip(),
         "linuxapps": ui.v["linuxapps"].get(),
         "jsc": ui.v["jsc"].get(),
+        "lazyvm": ui.v["lazyvm"].get(),
         "rustc": ui.v["rustc"].get(),
         "webkit_deps": ui.v["webkit_deps"].get(),
         "webkit_port": ui.v["webkit_port"].get(),

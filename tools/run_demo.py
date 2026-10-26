@@ -100,7 +100,7 @@ from demo_qemu import (  # noqa: E402
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
     build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
-    build_lazyweb, build_rustc,
+    build_lazyweb, build_lazyvm, build_rustc,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, webd_built, webd_env, build_webkit_deps, build_webkit_port, build_wifi,
     build_xui_apps,
@@ -327,6 +327,7 @@ def main(argv: list[str]) -> int:
                                       (args.modplayer, build_modplayer, "LAZYOS_MODPLAYER"),
                                       (args.pictures, build_pictures, "LAZYOS_PICTURES"),
                                       (args.linuxapps, build_linuxapps, "LAZYOS_LINUXAPPS"),
+                                      (args.lazyvm, build_lazyvm, "LAZYOS_LAZYVM"),
                                       (args.rustc, build_rustc, "LAZYOS_RUSTC"),
                                       (args.jsc, build_jsc, "LAZYOS_JSC"),
                                       (args.webkit_deps, build_webkit_deps, "LAZYOS_WEBKIT_DEPS"),

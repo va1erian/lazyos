@@ -25,10 +25,16 @@
 //! filled in from `libs/fhs`, at `fhs::etc::FONTS_CONF`). `LAZYOS_WEBD=1` (`webd_embed`) is webd, which
 //! starts the same two, without the proof; the browser (`LAZYOS_LAZYWEB=1`) is a client of webd and
 //! embeds none.
+//!
+//! `LAZYOS_LAZYVM=1` (`lazyvm`, `build_support/lazyvm_embed.rs`) is LazyVM's staging tree, its
+//! static VM program among it, at `fhs::LAZYVM`.
 
 use std::path::Path;
 
 use crate::os_image::Sink;
+
+#[path = "lazyvm_embed.rs"]
+pub mod lazyvm;
 
 /// Where `tools/linuxapps/build.py` writes the programs.
 const BUILT: &str = "target/linuxapps/bin";
@@ -100,6 +106,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBKIT_PORT");
     println!("cargo:rerun-if-env-changed=LAZYOS_WEBD");
     println!("cargo:rerun-if-env-changed=LAZYOS_DYNLINK");
+    lazyvm::embed(sink, manifest_dir);
     if switch_on("LAZYOS_DYNLINK") {
         let built = manifest_dir.join(DYNLINK_BUILT);
         embed_programs(
@@ -202,7 +209,7 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
 /// Store every `.ttf` of `dir` under `fhs::share::FONTS_LIBERATION` (a desktop image already
 /// has them there; the later entry replaces the earlier).
 fn embed_fonts(sink: &mut dyn Sink, dir: &Path) {
-    crate::os_image::rerun_if_changed(&dir);
+    crate::os_image::rerun_if_changed(dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
         println!("cargo:warning=WebKit: no fonts in {}", dir.display());
         return;
@@ -227,7 +234,7 @@ fn embed_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str) {
 
 /// [`embed_tree`] for `switch`, which warns that `builder` has not run when `dir` is missing.
 fn embed_dir(sink: &mut dyn Sink, dir: &Path, image_dir: &str, switch: &str, builder: &str) {
-    crate::os_image::rerun_if_changed(&dir);
+    crate::os_image::rerun_if_changed(dir);
     let Ok(entries) = std::fs::read_dir(dir) else {
         println!(
             "cargo:warning={switch}: {} not built, nothing added at {image_dir} (run {builder})",
