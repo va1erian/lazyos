@@ -67,19 +67,18 @@ fn rows(input: &[u8], header: &Header, pixels: &mut Vec<u8>) -> Result<usize, De
     let mut at = 0;
     let mut row = 0u32;
     let mut line = Vec::with_capacity(line_len);
-    let byte = |at: &mut usize| -> Result<u8, DecodeError> {
-        let b = *input.get(*at).ok_or(DecodeError::Truncated)?;
-        *at += 1;
-        Ok(b)
-    };
     while row < header.height {
-        let repeat = u32::from(byte(&mut at)?) + 1;
+        // Direct slice indexing avoids closure overhead in the hot loop.
+        let repeat_byte = *input.get(at).ok_or(DecodeError::Truncated)?;
+        at += 1;
+        let repeat = u32::from(repeat_byte) + 1;
         if repeat > header.height - row {
             return Err(DecodeError::Overrun);
         }
         line.clear();
         while line.len() < line_len {
-            let control = byte(&mut at)?;
+            let control = *input.get(at).ok_or(DecodeError::Truncated)?;
+            at += 1;
             let (count, literal) = if control < 128 {
                 (usize::from(control) + 1, false)
             } else {
@@ -95,11 +94,14 @@ fn rows(input: &[u8], header: &Header, pixels: &mut Vec<u8>) -> Result<usize, De
             if literal {
                 line.extend_from_slice(data);
             } else {
+                // Reserve vector capacity in advance to prevent incremental reallocations.
+                line.reserve(len);
                 for _ in 0..count {
                     line.extend_from_slice(data);
                 }
             }
         }
+        pixels.reserve(line_len * repeat as usize);
         for _ in 0..repeat {
             pixels.extend_from_slice(&line);
         }
