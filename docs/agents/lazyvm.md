@@ -112,4 +112,16 @@ LazyVM's `AGENTS.md`, which is the master; LazyVM's `tools/check_rules.py
 - New dependencies must have a permissive license (MIT, Apache-2.0, BSD, Zlib,
   ISC), be recorded in `THIRD_PARTY.md`, and pass `python tools/licenses.py`.
   Never add `ring`, `aws-lc` or a GPL crate outside `crates/lazyvm-lazyos`.
+
+**5. Review and merge.**
+- Before every push, run the CI basics (`AGENTS.md`, "Before you push"). A
+  failing gate is fixed at its cause, never skipped, ignored or loosened.
+- Before opening a PR, or marking one ready, review the committed branch in
+  a fresh context: the `/code-review` skill (`high` effort for the VM core,
+  the class-file parser, the verifier, natives and anything parsing untrusted
+  input), or a separate reviewer agent given the diff and not your
+  conclusions. Fix every real finding, re-run until a pass finds nothing
+  real, and note in the PR which review ran and what changed.
+- A PR may be merged (auto-merge included) only when the full CI suite is
+  green.
 <!-- lazyvm-rules:end -->
