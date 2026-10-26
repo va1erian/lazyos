@@ -11,3 +11,4 @@ Subsystem-specific guidance for AI agents, split out of [`AGENTS.md`](../../AGEN
 - [WebKit, webd and the browser](web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb and webd.
 - [Networking, TLS, SMB and Wi-Fi](networking.md): HTTPS clients, networking in a boot, network drives, SMB, network time, Wi-Fi and the network tooling.
 - [Display, drivers and hardware](hardware.md): HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.
+- [LazyVM (Java 8 bytecode VM)](lazyvm.md): The LazyOS side of LazyVM: build switch, test hook, display grant, `midlc` Java backend, packaging, and the clean-room rules (no JDK or other class-library source may be read or copied) that bind all LazyVM work.
