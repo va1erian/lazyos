@@ -15,6 +15,47 @@ program run through the Linux ABI, like `xui-app`: windows through xuid's
 [`architecture/call-completion.md`](../architecture/call-completion.md),
 [`architecture/endpoint-fd.md`](../architecture/endpoint-fd.md)).
 
+## The build switch (`LAZYOS_LAZYVM=1`)
+
+`LAZYOS_LAZYVM=1` (`run_demo.py --lazyvm`) copies LazyVM's staging tree, as
+it is, to `fhs::LAZYVM` (`/system/lazyvm`): `bin/lazyvm` (the static VM,
+executable like everything under the stage's `bin/`), the class library
+(`lib/lazyrt.jar` or the class tree `lib/lazyrt/`) and `tests/` (classes or
+jars). The stage is `target/lazyvm/stage`, or the directory
+`LAZYOS_LAZYVM_STAGE` names; LazyVM's own tools write it. With the switch on,
+a missing stage (or one without `bin/lazyvm`) fails the build with a message;
+off, nothing is read. Code: `build_support/lazyvm_embed.rs`, tests
+`cargo test -p build-support-tests lazyvm`.
+
+## Running LazyVM tests
+
+`tools/lazyvm/run.py` runs command lines inside a real LazyOS boot under
+QEMU and writes what each printed (LOS-01):
+
+```bash
+python tools/lazyvm/run.py --commands cmds.txt --out results [--no-build] [--accel none] [--timeout 120]
+```
+
+`cmds.txt` has one command per line, with LazyOS paths (`/system/lazyvm/bin/lazyvm
+-Xbootclasspath:/system/lazyvm/lib/lazyrt -cp /system/lazyvm/tests s1.Hello`),
+split like a POSIX shell (`shlex`; blank lines and `#` comments skipped). The
+tool builds the `lazyvm` ABI fixture (`tools/abi/fixtures/src/lazyvm.rs`) and
+an image (`target/lazyvm/lazyos-lazyvm.img`, a fresh 256 MiB OS volume) whose
+boot is that fixture, with the stage and the command list
+(`LAZYOS_LAZYVM_COMMANDS`, at `fhs::LAZYVM_COMMANDS`). The fixture runs the
+commands in order through the Linux ABI, stdin closed, and sends each one's
+stdout and stderr hex-encoded over the serial log, so the bytes arrive
+exactly (no CR/LF translation; nothing is normalized). For command `N`
+(from 1) the tool writes `results/N.stdout` and `results/N.stderr`
+(separate) and `results/N.exit`: the status in decimal, 128 + the signal for
+a killed program, 124 when `--timeout` (per command, default 120 s) ran out
+and it was killed, 127 when it could not start. It exits 0 when every
+command ran, whatever their statuses, and 1 with a message when the build,
+the boot or the harness failed (serial log in `results/qemu/serial.log`).
+The command list is part of the image, so `--no-build` boots the last image
+as it is and fails if it was built for other commands. Self-test:
+`python tools/lazyvm/test_judge.py`.
+
 Work in this repo for LazyVM follows this repo's `AGENTS.md` (build switch,
 core package, both front ends, evidence by pixels and serial markers) **and**
 the shared LazyVM rules below. The block is an identical copy of the one in
