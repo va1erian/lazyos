@@ -286,8 +286,9 @@ pub fn send_fixed(dest: u32, vector: u8) {
     send(dest, ICR_LEVEL_ASSERT | u32::from(vector));
 }
 
-/// An NMI to one APIC (the suite's NMI cases; no kernel path sends one).
-#[cfg(lazyos_tests)]
+/// An NMI to one APIC (the suite's NMI cases, and the entry lock's
+/// watchdog, which asks the holder for its hang report).
+#[cfg(any(lazyos_tests, lazyos_smp))]
 pub fn send_nmi(dest: u32) {
     send(dest, ICR_LEVEL_ASSERT | DELIVERY_NMI);
 }

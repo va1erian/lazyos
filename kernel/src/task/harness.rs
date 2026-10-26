@@ -32,6 +32,9 @@ pub fn take_critical_stats() -> (u64, u64) {
 /// a preempted holder that a syscall could then spin on forever (issue #382).
 static TICKS_IN_KERNEL: AtomicU64 = AtomicU64::new(0);
 static PREEMPTED_HOLDERS: AtomicU64 = AtomicU64::new(0);
+/// Ticks that interrupted a holder of the task table itself: the scheduler
+/// would spin on it next, forever (`diag::tick_finds_table_held`).
+static TABLE_HOLDERS: AtomicU64 = AtomicU64::new(0);
 
 /// Called by the scheduler on every timer tick (test builds only).
 pub fn note_tick_locks() {
@@ -42,6 +45,17 @@ pub fn note_tick_locks() {
     if crate::mem::heap_locked() || crate::console::locked() {
         PREEMPTED_HOLDERS.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+/// A tick found the task table held by the context it interrupted.
+pub fn note_table_held_tick() {
+    TABLE_HOLDERS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Ticks since the last call that found the task table held by the context
+/// they interrupted; resets the count.
+pub fn take_table_holder_ticks() -> u64 {
+    TABLE_HOLDERS.swap(0, Ordering::Relaxed)
 }
 
 /// `(ticks_in_kernel, preempted_holders)` since the last call; resets both.

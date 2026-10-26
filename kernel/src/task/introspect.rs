@@ -105,9 +105,25 @@ impl TaskSnapshot {
     /// Take one snapshot of the task table. A single lock acquisition, so the
     /// view is fully consistent (unlike `FabricStats`, which samples several
     /// subsystems in turn).
+    ///
+    /// The table is held with interrupts masked whatever the caller's `IF`
+    /// (the #382 rule): the kernel task's `PERF:` reports call this from its
+    /// interrupts-on loop, and a tick that found the table held there spun
+    /// in `schedule` on it forever, the entry lock and all.
     pub fn snapshot() -> TaskSnapshot {
+        let rows = x86_64::instructions::interrupts::without_interrupts(Self::rows);
+        TaskSnapshot {
+            version: TASK_SNAPSHOT_VERSION,
+            rows,
+        }
+    }
+
+    /// One row per slot, read under the table lock.
+    fn rows() -> Vec<TaskRow> {
+        #[cfg(lazyos_tests)]
+        super::harness::note_critical_section();
         let tasks = TASKS.lock();
-        let rows = tasks
+        tasks
             .iter()
             .enumerate()
             .map(|(index, slot)| match slot {
@@ -141,11 +157,7 @@ impl TaskSnapshot {
                 row.pid = slot as u64;
                 row
             })
-            .collect();
-        TaskSnapshot {
-            version: TASK_SNAPSHOT_VERSION,
-            rows,
-        }
+            .collect()
     }
 
     /// Encode as little-endian words in field order (the syscall wire form).

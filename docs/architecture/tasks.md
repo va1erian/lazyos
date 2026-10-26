@@ -261,6 +261,15 @@ ISR that performs context switches.
   (`console::with_framebuffer`) and the heap (`mem::heap`'s `IrqSafeHeap`
   wrapper around `LockedHeap`) follow this rule;
   `preempt_lock_suite` soaks the heap and console under real PIT ticks.
+  The task table is the worst case: the tick's own `schedule` takes it, so
+  a tick that finds it held by the context it interrupted spins there
+  forever (with `LAZYOS_SMP=1`, holding the entry lock until another CPU's
+  watchdog panics). `TaskSnapshot::snapshot`, which the mux's `PERF:`
+  reports call, masks interrupts for that reason. The scheduler checks for
+  it (`diag::tick_finds_table_held`): a kernel panics naming the
+  interrupted `rip`, a test kernel counts and skips the tick
+  (`harness::take_table_holder_ticks`), and
+  `smp_entry_tick_never_finds_table_held` soaks snapshots under the PIT.
 - The same holds inside a syscall that sleeps: a busy-wait must re-mask
   interrupts after each `hlt` before it touches a lock again. `task::nap`
   (`enable_and_hlt` then `cli`) and `task::poll_until` do this; native

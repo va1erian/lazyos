@@ -11,11 +11,90 @@
 //! a gate takes the lock in. The cross-CPU cases are vacuous with one CPU
 //! online; in a kernel built without `LAZYOS_SMP=1` the lock is compiled out
 //! and one case checks that it is.
+//!
+//! One case holds in either kernel: no tick may find the task table held by
+//! the context it interrupted (`smp_entry_tick_never_finds_table_held`).
 
 use super::*;
 
 #[cfg(not(lazyos_smp))]
-pub(super) const CASES: &[(&str, Test)] = &[("smp_entry_lock_compiled_out", compiled_out)];
+pub(super) const CASES: &[(&str, Test)] = &[
+    ("smp_entry_lock_compiled_out", compiled_out),
+    (
+        "smp_entry_snapshot_masks_interrupts",
+        snapshot_masks_interrupts,
+    ),
+    (
+        "smp_entry_tick_never_finds_table_held",
+        tick_never_finds_table_held,
+    ),
+];
+
+/// A task snapshot holds the table with interrupts off even when its caller
+/// runs with them on (the kernel task's `PERF:` reports), and the caller's
+/// `IF` comes back.
+fn snapshot_masks_interrupts() -> Result<(), String> {
+    use super::preempt_lock_suite::with_irqs_on;
+    use crate::task::{harness, introspect::TaskSnapshot};
+    with_irqs_on(None, || {
+        let _ = harness::take_critical_stats();
+        let rows = TaskSnapshot::snapshot().rows.len();
+        let (checks, unmasked) = harness::take_critical_stats();
+        check!(rows == task::MAX_TASKS, "{rows} rows, not one per slot");
+        check!(checks == 1, "{checks} table sections, not one");
+        check!(unmasked == 0, "the table was held with interrupts on");
+        check!(
+            x86_64::instructions::interrupts::are_enabled(),
+            "the caller's IF=1 did not come back"
+        );
+        check!(
+            !crate::task::diag::table_locked(),
+            "the table is still held"
+        );
+        Ok(())
+    })
+}
+
+/// Soak with the real PIT, as the kernel task's `PERF:` reports run: task
+/// snapshots with `IF=1`. A tick that lands while one holds the task table
+/// spins in `schedule` on it forever, holding the entry lock (the SMP perf
+/// desktop boot hang: `entry lock: CPU2 waited 30 s; held by CPU0`, CPU0 in
+/// `schedule` on the table its own `PERF:sched` report held). The test
+/// harness counts and skips such a tick instead, so this fails, not hangs.
+fn tick_never_finds_table_held() -> Result<(), String> {
+    use super::preempt_lock_suite::{
+        kernel_task_only, with_irqs_on, SOAK_MAX_ROUNDS, SOAK_TICKS, TIMER_LINE,
+    };
+    use crate::task::{harness, introspect::TaskSnapshot};
+    kernel_task_only();
+    let _ = harness::take_tick_lock_stats();
+    let _ = harness::take_table_holder_ticks();
+    let start = task::ticks();
+    let mut rounds = 0u64;
+    with_irqs_on(Some(TIMER_LINE), || {
+        while task::ticks() < start + SOAK_TICKS && rounds < SOAK_MAX_ROUNDS {
+            core::hint::black_box(TaskSnapshot::snapshot());
+            rounds += 1;
+        }
+        Ok(())
+    })?;
+    let (in_kernel, _) = harness::take_tick_lock_stats();
+    let held = harness::take_table_holder_ticks();
+    let elapsed = task::ticks() - start;
+    check!(
+        elapsed >= SOAK_TICKS,
+        "only {elapsed} ticks in {rounds} rounds: the PIT did not run"
+    );
+    check!(
+        in_kernel >= SOAK_TICKS / 2,
+        "only {in_kernel} of {elapsed} ticks interrupted the snapshots"
+    );
+    check!(
+        held == 0,
+        "{held} of {in_kernel} ticks found the task table held ({rounds} snapshots)"
+    );
+    Ok(())
+}
 
 /// Without `LAZYOS_SMP=1` the lock is an empty inline, and every CPU "holds"
 /// it.
@@ -48,6 +127,14 @@ mod imp {
             waiter_serves_shootdowns,
         ),
         ("smp_entry_lock_turns_are_fifo", turns_are_fifo),
+        (
+            "smp_entry_snapshot_masks_interrupts",
+            super::snapshot_masks_interrupts,
+        ),
+        (
+            "smp_entry_tick_never_finds_table_held",
+            super::tick_never_finds_table_held,
+        ),
     ];
 
     /// Critical sections per CPU in the exclusion case (`--soak` builds

@@ -72,6 +72,7 @@ fn watchdog(mine: u32, holder: u32) -> ! {
             mine - 1
         );
     }
+    report_holder(holder);
     let site = SITE.load(Ordering::Relaxed);
     // SAFETY: `SITE` only ever holds null or a `&'static Location` stored
     // by `acquire`.
@@ -89,6 +90,41 @@ fn watchdog(mine: u32, holder: u32) -> ! {
             holder.wrapping_sub(1)
         ),
     }
+}
+
+/// Ask the holder for its `HANG:` report (an NMI lands through any
+/// interrupts-off spin) and wait until it is printed (at most 2 s) before
+/// the panic stops it: the report names the loop that kept the lock, which
+/// the panic's own line (where the lock was taken) cannot. Only the first
+/// waiter asks (two reports at once would interleave on the raw serial
+/// port); every waiter waits, so no panic writes over the report.
+fn report_holder(holder: u32) {
+    static BASE: AtomicU64 = AtomicU64::new(u64::MAX);
+    if BASE
+        .compare_exchange(
+            u64::MAX,
+            crate::arch::nmi::reports_done(),
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        )
+        .is_ok()
+    {
+        if let Some(cpu) = percpu::area(holder as usize - 1) {
+            crate::arch::lapic::send_nmi(cpu.apic_id());
+        }
+    }
+    let start = rdtsc();
+    let bound = crate::arch::clock::cycles_per_tick() * 200;
+    while crate::arch::nmi::reports_done() <= BASE.load(Ordering::Acquire)
+        && rdtsc().wrapping_sub(start) < bound
+    {
+        core::hint::spin_loop();
+    }
+}
+
+fn rdtsc() -> u64 {
+    // SAFETY: `rdtsc` only reads the time-stamp counter.
+    unsafe { core::arch::x86_64::_rdtsc() }
 }
 
 /// Drop this CPU's hold. Interrupts go off first: the gate's code after the
