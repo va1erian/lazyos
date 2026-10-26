@@ -79,3 +79,49 @@ fn the_stage_defaults_under_target_and_follows_the_override() {
     let absolute = std::env::temp_dir().join("stage");
     assert_eq!(stage_dir(root, Some(absolute.clone().into())), absolute);
 }
+
+/// Make a link at `link` to `target`, or `None` where the host does not allow it (Windows
+/// without developer mode).
+fn link_file(target: &Path, link: &Path) -> Option<()> {
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_file(target, link);
+    made.ok()
+}
+
+#[test]
+fn a_link_in_the_stage_is_followed_and_a_broken_one_fails_the_build() {
+    let dir = staged("links", &["bin/lazyvm", "real/lazyrt.jar"]);
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+    let Some(()) = link_file(&dir.join("real/lazyrt.jar"), &dir.join("lib/lazyrt.jar")) else {
+        eprintln!("skipped: this host cannot make symbolic links");
+        return;
+    };
+    let files = placed(&dir);
+    let jar = format!("{}/lib/lazyrt.jar", fhs::LAZYVM);
+    assert!(files
+        .iter()
+        .any(|(path, mode)| *path == jar && *mode == 0o644));
+    link_file(&dir.join("gone"), &dir.join("lib/broken")).unwrap();
+    let error = place(&mut OsFiles::default(), &dir).unwrap_err();
+    assert!(error.contains("broken"), "{error}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_name_that_is_not_utf8_fails_the_build_naming_it() {
+    let dir = staged("names", &["bin/lazyvm"]);
+    #[cfg(unix)]
+    let name: std::ffi::OsString = std::os::unix::ffi::OsStrExt::from_bytes(b"bad\xff").into();
+    #[cfg(windows)]
+    let name: std::ffi::OsString = std::os::windows::ffi::OsStringExt::from_wide(&[0x62, 0xD800]);
+    std::fs::create_dir_all(dir.join("tests")).unwrap();
+    if std::fs::write(dir.join("tests").join(&name), b"x").is_err() {
+        eprintln!("skipped: this filesystem refuses the name");
+        return;
+    }
+    let error = place(&mut OsFiles::default(), &dir).unwrap_err();
+    assert!(error.contains("not UTF-8"), "{error}");
+    let _ = std::fs::remove_dir_all(dir);
+}

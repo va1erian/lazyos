@@ -419,4 +419,4 @@ Open the guide before changing the area; each is a section-per-subsystem file.
 - [WebKit, webd and the browser](docs/agents/web.md): JavaScriptCore, the WebKit dependency bundle and port, LazyWeb and webd.
 - [Networking, TLS, SMB and Wi-Fi](docs/agents/networking.md): HTTPS clients, networking in a boot, network drives, SMB, network time, Wi-Fi and the network tooling.
 - [Display, drivers and hardware](docs/agents/hardware.md): HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.
-- [LazyVM (Java 8 bytecode VM)](docs/agents/lazyvm.md): The LazyOS side of LazyVM: build switch, test hook, display grant, `midlc` Java backend, packaging, and the clean-room rules (no JDK or other class-library source may be read or copied) that bind all LazyVM work.
+- [LazyVM (Java 8 bytecode VM)](docs/agents/lazyvm.md): The LazyOS side of LazyVM: the `LAZYOS_LAZYVM` build switch, running LazyVM tests in a LazyOS boot (the display grant, `midlc` Java backend and packaging come later, LOS-02 to LOS-04), and the clean-room rules (no JDK or other class-library source may be read or copied) that bind all LazyVM work.

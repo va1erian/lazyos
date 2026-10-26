@@ -54,8 +54,12 @@ pub fn stage_dir(manifest_dir: &Path, chosen: Option<std::ffi::OsString>) -> Pat
     }
 }
 
-/// Place every regular file of `stage` at the same relative path under [`fhs::LAZYVM`]. An
-/// error names what is missing: no stage, or a stage without `bin/lazyvm`.
+/// How deep the stage may nest; a directory link back up would otherwise never end.
+const MAX_DEPTH: usize = 32;
+
+/// Place every file of `stage` at the same relative path under [`fhs::LAZYVM`], following
+/// links. An error names what is wrong: no stage, a stage without `bin/lazyvm`, or an entry
+/// that cannot be placed (a broken link, a name that is not UTF-8, a tree too deep).
 pub fn place(sink: &mut dyn Sink, stage: &Path) -> Result<(), String> {
     if !stage.is_dir() {
         return Err(format!(
@@ -66,36 +70,47 @@ pub fn place(sink: &mut dyn Sink, stage: &Path) -> Result<(), String> {
     if !stage.join("bin").join("lazyvm").is_file() {
         return Err(format!("{} has no bin/lazyvm", stage.display()));
     }
-    add_tree(sink, stage, fhs::LAZYVM, false);
-    Ok(())
+    add_tree(sink, stage, fhs::LAZYVM, false, 0)
 }
 
-/// Store the regular files under `dir`, recursively, at the same relative path under
-/// `image_dir`; `program` (set below the stage's top-level `bin/`) makes them 0755.
-fn add_tree(sink: &mut dyn Sink, dir: &Path, image_dir: &str, program: bool) {
+/// Store the files under `dir`, recursively, at the same relative path under `image_dir`;
+/// `program` (set below the stage's top-level `bin/`) makes them 0755. A link is followed
+/// (`fs::metadata`), so the image holds what it points at.
+fn add_tree(
+    sink: &mut dyn Sink,
+    dir: &Path,
+    image_dir: &str,
+    program: bool,
+    depth: usize,
+) -> Result<(), String> {
+    if depth > MAX_DEPTH {
+        return Err(format!("{} nests deeper than {MAX_DEPTH}", dir.display()));
+    }
     crate::os_image::rerun_if_changed(dir);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<_> = entries.flatten().collect();
+    let unreadable = |e: std::io::Error| format!("{}: {e}", dir.display());
+    let mut entries = std::fs::read_dir(dir)
+        .and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
+        .map_err(unreadable)?;
     entries.sort_by_key(|entry| entry.file_name());
-    let top = image_dir == fhs::LAZYVM;
+    let top = depth == 0;
     for entry in entries {
+        let source = entry.path();
         let name = entry.file_name();
-        let Some(name) = name.to_str() else { continue };
+        let name = name
+            .to_str()
+            .ok_or_else(|| format!("{}: the name is not UTF-8", source.display()))?;
         let path = format!("{image_dir}/{name}");
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => add_tree(
-                sink,
-                &entry.path(),
-                &path,
-                program || (top && name == "bin"),
-            ),
-            Ok(kind) if kind.is_file() => {
-                let mode = if program { 0o755 } else { 0o644 };
-                sink.add(&path, Source::Path(entry.path()), mode);
-            }
-            _ => {}
+        let kind = std::fs::metadata(&source)
+            .map_err(|e| format!("{}: {e} (a broken link?)", source.display()))?;
+        if kind.is_dir() {
+            let below_bin = program || (top && name == "bin");
+            add_tree(sink, &source, &path, below_bin, depth + 1)?;
+        } else if kind.is_file() {
+            let mode = if program { 0o755 } else { 0o644 };
+            sink.add(&path, Source::Path(source), mode);
+        } else {
+            return Err(format!("{}: not a file or a directory", source.display()));
         }
     }
+    Ok(())
 }

@@ -5,26 +5,57 @@
 //! under `fhs::LAZYVM` and the list at `fhs::LAZYVM_COMMANDS`: one command per
 //! line, `<timeout seconds> <argv[0] hex> <argv[1] hex> ...` (hex, so no
 //! argument needs quoting). Each command runs in order with stdin closed, its
-//! stdout and stderr on separate pipes; one that outlives its timeout is
-//! killed. The lines, parsed by `tools/lazyvm/judge.py`:
+//! stdout and stderr on separate pipes, in a process group of its own; the
+//! group is killed when the program outlives its timeout, and when its pipes
+//! stay open [`GRACE`] after it exited (a grandchild holding them). Output is
+//! sent while it is read, at most [`CAP`] bytes a stream. The lines, parsed by
+//! `tools/lazyvm/judge.py`:
 //!
 //! - `LAZYVM:INIT:<count>` once the list is read;
 //! - `LAZYVM:CMD:<n>:<line hex>`, the list's line, so the host can tell an
 //!   image built for another list;
 //! - `LAZYVM:DATA:<n>:<out|err>:<seq>:<hex>`, the output in chunks;
 //! - `LAZYVM:SPAWN:<n>:<reason>` when the program cannot start (exit 127);
-//! - `LAZYVM:END:<n>:<exit>:<stdout bytes>:<stderr bytes>:<timed out 0|1>`,
-//!   where a signal is reported as 128 + its number, a timeout as 124;
+//! - `LAZYVM:END:<n>:<exit>:<stdout bytes>:<stderr bytes>:<timed out 0|1>:<truncated 0|1>`,
+//!   where a signal is reported as 128 + its number, a timeout as 124 and an
+//!   exit status that never came (a failed `wait`, or none [`GRACE`] after the
+//!   kill) as 125; truncated is 1 when a stream passed [`CAP`];
 //! - `LAZYVM:DONE` after the last, or `LAZYVM:FAIL:<reason>`.
 
 use std::io::Read;
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
 /// Output bytes per `DATA` line (twice as many hex digits).
 const CHUNK: usize = 256;
+/// The most output of one stream the host is sent; the rest is read and dropped.
+const CAP: usize = 8 << 20;
+/// How long the pipes may stay open after the exit, and the exit may take after a kill.
+const GRACE: Duration = Duration::from_secs(5);
+const SIGKILL: i32 = 9;
+
+extern "C" {
+    fn kill(pid: i32, sig: i32) -> i32;
+}
+
+/// What the reader and waiter threads tell the main one.
+enum Event {
+    Data(usize, Vec<u8>),
+    Eof(usize),
+    Exit(Option<ExitStatus>),
+}
+
+/// One output stream's progress.
+#[derive(Default)]
+struct Stream {
+    sent: usize,
+    seq: usize,
+    truncated: bool,
+    closed: bool,
+}
 
 fn main() {
     let list = match std::fs::read_to_string(fhs::LAZYVM_COMMANDS) {
@@ -73,72 +104,121 @@ fn run(n: usize, timeout: Duration, argv: &[Vec<u8>]) {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn();
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
             println!("LAZYVM:SPAWN:{n}:{error}");
-            println!("LAZYVM:END:{n}:127:0:0:0");
+            println!("LAZYVM:END:{n}:127:0:0:0:0");
             return;
         }
     };
-    let (out, err, timed_out) = collect(&mut child, timeout);
-    let code = match child.wait() {
+    let pid = child.id() as i32;
+    let (events, received) = mpsc::channel();
+    reader(
+        child.stdout.take().map(|s| Box::new(s) as _),
+        0,
+        events.clone(),
+    );
+    reader(
+        child.stderr.take().map(|s| Box::new(s) as _),
+        1,
+        events.clone(),
+    );
+    thread::spawn(move || {
+        let _ = events.send(Event::Exit(child.wait().ok()));
+    });
+    let mut streams = [Stream::default(), Stream::default()];
+    let (status, timed_out) = follow(n, pid, timeout, &received, &mut streams);
+    let code = match status {
         _ if timed_out => 124,
-        Ok(status) => exit_code(status),
-        Err(_) => 125,
+        Some(Some(status)) => exit_code(status),
+        _ => 125,
     };
-    report(n, "out", &out);
-    report(n, "err", &err);
+    let truncated = streams.iter().any(|stream| stream.truncated);
     println!(
-        "LAZYVM:END:{n}:{code}:{}:{}:{}",
-        out.len(),
-        err.len(),
-        u8::from(timed_out)
+        "LAZYVM:END:{n}:{code}:{}:{}:{}:{}",
+        streams[0].sent,
+        streams[1].sent,
+        u8::from(timed_out),
+        u8::from(truncated)
     );
 }
 
-/// Read the child's stdout and stderr to their ends, killing it when `timeout`
-/// passes first; `(stdout, stderr, timed out)`.
-fn collect(child: &mut Child, timeout: Duration) -> (Vec<u8>, Vec<u8>, bool) {
-    let (done, finished) = mpsc::channel();
-    let readers = [
-        reader(
-            child.stdout.take().map(|s| Box::new(s) as _),
-            0,
-            done.clone(),
-        ),
-        reader(child.stderr.take().map(|s| Box::new(s) as _), 1, done),
-    ];
-    let deadline = Instant::now() + timeout;
-    let mut timed_out = false;
-    for _ in 0..readers.len() {
+/// Send the output as it comes until the program exited and both pipes closed. The
+/// group is killed at `timeout`, or [`GRACE`] after the exit while a pipe is open; one
+/// [`GRACE`] after that kill the threads are left behind. `(exit, timed out)`.
+fn follow(
+    n: usize,
+    pid: i32,
+    timeout: Duration,
+    received: &mpsc::Receiver<Event>,
+    streams: &mut [Stream; 2],
+) -> (Option<Option<ExitStatus>>, bool) {
+    let mut deadline = Instant::now() + timeout;
+    let (mut status, mut timed_out, mut killed) = (None, false, false);
+    while status.is_none() || streams.iter().any(|stream| !stream.closed) {
         let left = deadline.saturating_duration_since(Instant::now());
-        if finished.recv_timeout(left).is_err() {
-            timed_out = true;
-            // A killed child closes its pipes, so the readers end too.
-            let _ = child.kill();
-            break;
+        match received.recv_timeout(left) {
+            Ok(Event::Data(which, bytes)) => send(n, which, &mut streams[which], &bytes),
+            Ok(Event::Eof(which)) => streams[which].closed = true,
+            Ok(Event::Exit(exit)) => {
+                status = Some(exit);
+                deadline = deadline.min(Instant::now() + GRACE);
+            }
+            Err(RecvTimeoutError::Timeout) if !killed => {
+                timed_out = status.is_none();
+                kill_group(pid);
+                killed = true;
+                deadline = Instant::now() + GRACE;
+            }
+            Err(_) => break,
         }
     }
-    let [out, err] = readers.map(|reader| reader.join().unwrap_or_default());
-    (out, err, timed_out)
+    (status, timed_out)
 }
 
-/// A thread reading `pipe` to its end, which sends `which` on `done` then.
-fn reader(
-    pipe: Option<Box<dyn Read + Send>>,
-    which: u8,
-    done: mpsc::Sender<u8>,
-) -> thread::JoinHandle<Vec<u8>> {
-    thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(mut pipe) = pipe {
-            let _ = pipe.read_to_end(&mut bytes);
+/// Kill the program's process group (it leads it), or the program alone if that fails.
+fn kill_group(pid: i32) {
+    // SAFETY: `kill` takes no pointers; a stale id at worst fails with ESRCH.
+    unsafe {
+        if kill(-pid, SIGKILL) != 0 {
+            kill(pid, SIGKILL);
         }
-        let _ = done.send(which);
-        bytes
-    })
+    }
+}
+
+/// A thread sending what `pipe` reads as `Data`, then `Eof`.
+fn reader(pipe: Option<Box<dyn Read + Send>>, which: usize, events: Sender<Event>) {
+    thread::spawn(move || {
+        let mut buffer = vec![0; CHUNK * 16];
+        if let Some(mut pipe) = pipe {
+            while let Ok(read @ 1..) = pipe.read(&mut buffer) {
+                if events
+                    .send(Event::Data(which, buffer[..read].to_vec()))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+        let _ = events.send(Event::Eof(which));
+    });
+}
+
+/// Print `bytes` as `DATA` lines of `stream`, up to [`CAP`] in all.
+fn send(n: usize, which: usize, stream: &mut Stream, bytes: &[u8]) {
+    let room = CAP - stream.sent;
+    if bytes.len() > room {
+        stream.truncated = true;
+    }
+    let name = ["out", "err"][which];
+    for chunk in bytes[..bytes.len().min(room)].chunks(CHUNK) {
+        println!("LAZYVM:DATA:{n}:{name}:{}:{}", stream.seq, hex(chunk));
+        stream.seq += 1;
+        stream.sent += chunk.len();
+    }
 }
 
 /// The shell's convention: the exit code, or 128 + the signal that ended it.
@@ -148,13 +228,6 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
         .code()
         .or_else(|| status.signal().map(|signal| 128 + signal))
         .unwrap_or(125)
-}
-
-/// Print `bytes` as `DATA` lines.
-fn report(n: usize, stream: &str, bytes: &[u8]) {
-    for (seq, chunk) in bytes.chunks(CHUNK).enumerate() {
-        println!("LAZYVM:DATA:{n}:{stream}:{seq}:{}", hex(chunk));
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {

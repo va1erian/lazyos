@@ -11,14 +11,18 @@ LazyVM's test tool stages its VM, class library and tests (``LAZYOS_LAZYVM_STAGE
 /system/lazyvm/tests s1.Hello``); words split as a POSIX shell would (``shlex``), blank lines
 and ``#`` comments are skipped. The tool
 
-1. writes the hex command list the ``lazyvm`` ABI fixture reads (``DIR/commands.list``);
+1. removes the ``N.stdout``, ``N.stderr`` and ``N.exit`` files a previous run left in ``DIR``
+   and writes the hex command list the ``lazyvm`` ABI fixture reads (``DIR/commands.list``);
 2. unless ``--no-build``, builds that fixture and an image with it as ``/system/bin/abi-init``,
-   ``LAZYOS_LAZYVM=1`` and the list (``LAZYOS_LAZYVM_COMMANDS``), copied to ``IMG``;
-3. boots ``IMG`` headless; the fixture runs each command in order, stdin closed, and sends
-   its output hex-encoded over the serial log (``tools/lazyvm/judge.py``);
-4. writes ``DIR/N.stdout``, ``DIR/N.stderr`` (separate, byte exact) and ``DIR/N.exit`` (the
-   status in decimal: 128 + the signal for a killed program, 124 after ``--timeout``, 127 when
-   it could not start) for command ``N`` (from 1).
+   ``LAZYOS_LAZYVM=1`` and the list (``LAZYOS_LAZYVM_COMMANDS``) on a fresh OS volume, and
+   copies it to ``IMG``. The image build always writes ``target/lazyos.img``; the tool moves a
+   developer's image there aside first and puts it back afterwards;
+3. boots ``IMG`` headless (``boot.py``); the fixture runs each command in order, stdin closed,
+   and streams its output hex-encoded over the serial log (``judge.py``);
+4. writes ``DIR/N.stdout``, ``DIR/N.stderr`` (separate, byte exact, each at most 8 MiB) and
+   ``DIR/N.exit`` (the status in decimal: 128 + the signal for a killed program, 124 after
+   ``--timeout``, 125 when no exit status came back, 127 when it could not start) for command
+   ``N`` (from 1).
 
 It exits 0 when every command ran, whatever their own statuses, and 1 with a message when the
 build, the boot or the harness failed. ``--no-build`` boots ``IMG`` as it is: it must have
@@ -28,8 +32,8 @@ been built for the same command list (the tool checks and says so).
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -39,22 +43,49 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
+import boot  # noqa: E402
 import judge  # noqa: E402
 
 IMAGE = ROOT / "target" / "lazyvm" / "lazyos-lazyvm.img"
 FIXTURE = ROOT / "target" / "abi" / "fixtures" / "lazyvm.elf"
-#: Seconds the boot may take to reach the fixture, and the slack past a command's own timeout.
-BOOT_SECONDS = 300
-SLACK_SECONDS = 60
+#: What the image build writes, whatever it is asked for.
+BUILT = ROOT / "target" / "lazyos.img"
+#: A developer's image, kept here while the tool's own build has `BUILT`.
+SAVED = ROOT / "target" / "lazyvm" / "lazyos.img.saved"
+#: The caller's `LAZYOS_*` variables the build keeps: the stage, the volume size, the limits.
+KEPT = re.compile(r"LAZYOS_(LAZYVM_STAGE|OS_SIZE|LIMIT_\w+)$")
+RESULT = re.compile(r"\d+\.(stdout|stderr|exit)$")
 
 
 def read_commands(path: Path) -> list[list[str]]:
-    """The argument vectors of the command file."""
+    """The argument vectors of the command file; `ValueError` names a line that does not split."""
     commands = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip() and not line.lstrip().startswith("#"):
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        try:
             commands.append(shlex.split(line))
+        except ValueError as error:
+            raise ValueError(f"{path}:{number}: {error}: {line}") from None
     return commands
+
+
+def build_env(environ: dict[str, str], listing: Path) -> dict[str, str]:
+    """The image build's environment: the caller's, without the `LAZYOS_*` switches that
+    would add to or change this boot, plus the fixture, LazyVM and a fresh small volume."""
+    env = {key: value for key, value in environ.items()
+           if not key.startswith("LAZYOS_") or KEPT.match(key)}
+    env.setdefault("LAZYOS_OS_SIZE", "256M")
+    env.update({"LAZYOS_RESET_OS": "1", "LAZYOS_INIT": str(FIXTURE), "LAZYOS_LAZYVM": "1",
+                "LAZYOS_LAZYVM_COMMANDS": str(listing)})
+    return env
+
+
+def clear_results(out: Path) -> None:
+    """Remove the result files of an earlier run, so none is mistaken for this one's."""
+    for path in out.iterdir():
+        if path.is_file() and RESULT.fullmatch(path.name):
+            path.unlink()
 
 
 def build_fixture() -> bool:
@@ -76,49 +107,24 @@ def build_fixture() -> bool:
 
 
 def build_image(listing: Path, image: Path) -> bool:
-    """Build an image whose boot is the fixture over `listing`, and copy it to `image`."""
-    env = dict(os.environ)
-    # A fresh, small volume per run, as the ABI bench builds; never a developer's image updated
-    # in place, and no other fixture or program shadowing `abi-init`.
-    env.setdefault("LAZYOS_OS_SIZE", "256M")
-    env["LAZYOS_RESET_OS"] = "1"
-    for key in ("LAZYOS_BUSYBOX_TEST", "LAZYOS_LINUXAPPS", "LAZYOS_DYNLINK"):
-        env.pop(key, None)
-    env.update({"LAZYOS_INIT": str(FIXTURE), "LAZYOS_LAZYVM": "1",
-                "LAZYOS_LAZYVM_COMMANDS": str(listing)})
-    done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
-    if done.returncode != 0:
-        return fail(f"the image build failed:\n{done.stderr[-2500:]}")
-    image.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ROOT / "target" / "lazyos.img", image)
-    return True
-
-
-def session(count: int, timeout: int) -> list[dict]:
-    """The QEMU session: wait for the fixture, each command's end, then the last line."""
-    steps = [{"wait_for": "LAZYVM:INIT:", "timeout": BOOT_SECONDS}]
-    steps += [{"wait_for": f"LAZYVM:END:{n}:", "timeout": timeout + SLACK_SECONDS}
-              for n in range(1, count + 1)]
-    return steps + [{"wait_for": "LAZYVM:DONE", "timeout": SLACK_SECONDS}, {"quit": True}]
-
-
-def boot(args: argparse.Namespace, count: int, qemu_dir: Path) -> str:
-    """Boot the image through `qemu_session.py`; the serial log."""
-    qemu_dir.mkdir(parents=True, exist_ok=True)
-    script = qemu_dir / "session.json"
-    script.write_text(json.dumps(session(count, args.timeout)))
-    log = qemu_dir / "serial.log"
-    log.unlink(missing_ok=True)
-    command = [sys.executable, str(ROOT / "tools" / "screenshot" / "qemu_session.py"),
-               "--image", str(args.image), "--out", str(qemu_dir), "--script", str(script),
-               "--memory", args.memory, "--accel", args.accel,
-               "--fail-on", r"LAZYVM:FAIL:", "--fail-on", r"ABI:INIT:FAIL"]
-    if args.qemu:
-        command += ["--qemu", args.qemu]
-    done = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
-    if done.returncode != 0:
-        print(done.stdout[-3000:], done.stderr[-2000:], sep="\n", file=sys.stderr)
-    return log.read_text(encoding="utf-8", errors="replace") if log.is_file() else ""
+    """Build an image whose boot is the fixture over `listing` and copy it to `image`. The
+    build writes `BUILT`; a developer's image there is set aside and restored."""
+    SAVED.parent.mkdir(parents=True, exist_ok=True)
+    saved = BUILT.is_file()
+    if saved:
+        os.replace(BUILT, SAVED)
+    try:
+        env = build_env(dict(os.environ), listing)
+        done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True,
+                              text=True)
+        if done.returncode != 0:
+            return fail(f"the image build failed:\n{done.stderr[-2500:]}")
+        image.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(BUILT, image)
+        return True
+    finally:
+        if saved:
+            os.replace(SAVED, BUILT)
 
 
 def write_results(run: judge.Run, lines: list[str], out: Path) -> list[str]:
@@ -137,10 +143,11 @@ def write_results(run: judge.Run, lines: list[str], out: Path) -> list[str]:
             problems.append(f"command {n} in the image is another one (rebuild without "
                             "--no-build)")
             continue
-        if result.spawn_error:
-            print(f"lazyvm: command {n} did not start: {result.spawn_error}", file=sys.stderr)
-        if result.timed_out:
-            print(f"lazyvm: command {n} was killed after its timeout", file=sys.stderr)
+        for note, shown in ((f"did not start: {result.spawn_error}", result.spawn_error),
+                            ("was killed after its timeout", result.timed_out),
+                            ("printed more than 8 MiB; the rest was dropped", result.truncated)):
+            if shown:
+                print(f"lazyvm: command {n} {note}", file=sys.stderr)
         (out / f"{n}.stdout").write_bytes(result.stdout)
         (out / f"{n}.stderr").write_bytes(result.stderr)
         (out / f"{n}.exit").write_bytes(f"{result.exit}\n".encode())
@@ -154,6 +161,13 @@ def fail(message: str) -> bool:
     return False
 
 
+def positive(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -162,15 +176,19 @@ def main() -> int:
     parser.add_argument("--image", type=Path, default=IMAGE, help=f"default {IMAGE}")
     parser.add_argument("--no-build", action="store_true", help="boot --image as it is")
     parser.add_argument("--accel", default="auto", choices=["auto", "none", "tcg", "whpx", "kvm"])
-    parser.add_argument("--timeout", type=int, default=120, help="seconds per command")
+    parser.add_argument("--timeout", type=positive, default=120, help="seconds per command (>= 1)")
     parser.add_argument("--memory", default="1G", help="guest RAM (default 1G)")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
     args = parser.parse_args()
 
-    commands = read_commands(args.commands)
+    try:
+        commands = read_commands(args.commands)
+    except (OSError, ValueError) as error:
+        return int(not fail(str(error)))
     if not commands:
         return int(not fail(f"{args.commands} holds no command"))
     args.out.mkdir(parents=True, exist_ok=True)
+    clear_results(args.out)
     lines = [judge.encode(args.timeout, argv) for argv in commands]
     listing = args.out / "commands.list"
     listing.write_text("".join(f"{line}\n" for line in lines), encoding="ascii")
@@ -178,12 +196,14 @@ def main() -> int:
         return 1
     if not args.image.is_file():
         return int(not fail(f"no image at {args.image} (run without --no-build)"))
-    serial = boot(args, len(lines), args.out / "qemu")
-    problems = write_results(judge.parse(serial), lines, args.out)
+    qemu_dir = args.out / "qemu"
+    serial, failure = boot.boot(args.image, args.timeout, qemu_dir, args.accel, args.memory,
+                                args.qemu)
+    problems = ([failure] if failure else []) + write_results(judge.parse(serial), lines, args.out)
     for problem in problems:
         fail(problem)
     if problems:
-        fail(f"serial log: {args.out / 'qemu' / 'serial.log'}")
+        fail(f"serial log: {qemu_dir / 'serial.log'}")
         return 1
     print(f"lazyvm: {len(lines)} commands ran; results in {args.out}")
     return 0
