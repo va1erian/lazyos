@@ -16,10 +16,12 @@
 //!   image built for another list;
 //! - `LAZYVM:DATA:<n>:<out|err>:<seq>:<hex>`, the output in chunks;
 //! - `LAZYVM:SPAWN:<n>:<reason>` when the program cannot start (exit 127);
-//! - `LAZYVM:END:<n>:<exit>:<stdout bytes>:<stderr bytes>:<timed out 0|1>:<truncated 0|1>`,
+//! - `LAZYVM:END:<n>:<exit>:<stdout bytes>:<stderr bytes>:<timed out 0|1>:<truncated 0|1>:<incomplete 0|1>`,
 //!   where a signal is reported as 128 + its number, a timeout as 124 and an
 //!   exit status that never came (a failed `wait`, or none [`GRACE`] after the
-//!   kill) as 125; truncated is 1 when a stream passed [`CAP`];
+//!   kill) as 125; truncated is 1 when a stream passed [`CAP`], incomplete is 1
+//!   when a pipe was still open when the fixture stopped waiting (output may be
+//!   missing);
 //! - `LAZYVM:DONE` after the last, or `LAZYVM:FAIL:<reason>`.
 
 use std::io::Read;
@@ -36,8 +38,11 @@ const CAP: usize = 8 << 20;
 /// Reads the readers may queue before they wait for the main thread: what a slow serial
 /// port holds back stays bounded, and the deadline is checked between any two of them.
 const QUEUE: usize = 16;
-/// How long the pipes may stay open after the exit, and the exit may take after a kill.
+/// How long the pipes may stay open after the exit, and how long the output may pause
+/// after a kill before the rest is given up.
 const GRACE: Duration = Duration::from_secs(5);
+/// The longest the output may keep coming after a kill (a writer outside the group).
+const DRAIN: Duration = Duration::from_secs(60);
 const SIGKILL: i32 = 9;
 
 extern "C" {
@@ -115,7 +120,7 @@ fn run(n: usize, timeout: Duration, argv: &[Vec<u8>]) {
         Ok(child) => child,
         Err(error) => {
             println!("LAZYVM:SPAWN:{n}:{error}");
-            println!("LAZYVM:END:{n}:127:0:0:0:0");
+            println!("LAZYVM:END:{n}:127:0:0:0:0:0");
             return;
         }
     };
@@ -135,7 +140,7 @@ fn run(n: usize, timeout: Duration, argv: &[Vec<u8>]) {
         let _ = events.send(Event::Exit(child.wait().ok()));
     });
     let mut streams = [Stream::default(), Stream::default()];
-    let (status, timed_out) = follow(n, pid, timeout, &received, &mut streams);
+    let (status, timed_out, incomplete) = follow(n, pid, timeout, &received, &mut streams);
     let code = match status {
         _ if timed_out => 124,
         Some(Some(status)) => exit_code(status),
@@ -143,52 +148,59 @@ fn run(n: usize, timeout: Duration, argv: &[Vec<u8>]) {
     };
     let truncated = streams.iter().any(|stream| stream.truncated);
     println!(
-        "LAZYVM:END:{n}:{code}:{}:{}:{}:{}",
+        "LAZYVM:END:{n}:{code}:{}:{}:{}:{}:{}",
         streams[0].sent,
         streams[1].sent,
         u8::from(timed_out),
-        u8::from(truncated)
+        u8::from(truncated),
+        u8::from(incomplete)
     );
 }
 
-/// Send the output as it comes until the program exited and both pipes closed. The
-/// group is killed at `timeout`, or [`GRACE`] after the exit while a pipe is open; one
-/// [`GRACE`] after that kill the threads are left behind. `(exit, timed out)`.
+/// Send the output as it comes until the program exited and both pipes closed;
+/// `(exit, timed out, incomplete)`. The group is killed at `timeout`, or [`GRACE`] after
+/// the exit while a pipe is still open (a grandchild holding it). Killing loses nothing:
+/// what is queued is still sent, and the wait ends only once nothing arrived for
+/// [`GRACE`] after the kill, or [`DRAIN`] after it at the latest. Incomplete is true when
+/// a pipe was still open then, so output may be missing.
 fn follow(
     n: usize,
     pid: i32,
     timeout: Duration,
     received: &mpsc::Receiver<Event>,
     streams: &mut [Stream; 2],
-) -> (Option<Option<ExitStatus>>, bool) {
-    let mut deadline = Instant::now() + timeout;
-    let (mut status, mut timed_out, mut killed) = (None, false, false);
+) -> (Option<Option<ExitStatus>>, bool, bool) {
+    let mut kill_at = Instant::now() + timeout;
+    let (mut status, mut timed_out, mut killed_at) = (None, false, None);
     while status.is_none() || streams.iter().any(|stream| !stream.closed) {
-        // Checked on every turn: a stream that never pauses must not hold the deadline off.
+        // Checked on every turn: a stream that never pauses must not hold the kill off.
         let now = Instant::now();
-        if now >= deadline {
-            if killed {
-                break;
-            }
+        if killed_at.is_none() && now >= kill_at {
             timed_out = status.is_none();
             kill_group(pid);
-            killed = true;
-            deadline = now + GRACE;
-            continue;
+            killed_at = Some(now);
         }
-        match received.recv_timeout(deadline - now) {
+        let wait = match killed_at {
+            Some(at) if now >= at + DRAIN => break,
+            Some(at) => GRACE.min(at + DRAIN - now),
+            None => kill_at - now,
+        };
+        match received.recv_timeout(wait) {
             Ok(Event::Data(which, bytes)) => send(n, which, &mut streams[which], &bytes),
             Ok(Event::Truncated(which)) => streams[which].truncated = true,
             Ok(Event::Eof(which)) => streams[which].closed = true,
             Ok(Event::Exit(exit)) => {
                 status = Some(exit);
-                deadline = deadline.min(Instant::now() + GRACE);
+                kill_at = kill_at.min(Instant::now() + GRACE);
             }
+            // Nothing for `GRACE` after the kill: the queue is empty and nobody writes.
+            Err(RecvTimeoutError::Timeout) if killed_at.is_some() => break,
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
-    (status, timed_out)
+    let incomplete = streams.iter().any(|stream| !stream.closed);
+    (status, timed_out, incomplete)
 }
 
 /// Kill the program's process group (it leads it), or the program alone if that fails.

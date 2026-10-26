@@ -133,23 +133,29 @@ def put_back(built: Path, saved: Path) -> str | None:
 
 def build_image(listing: Path, image: Path) -> bool:
     """Build an image whose boot is the fixture over `listing` and copy it to `image`. The
-    build writes `BUILT`; a developer's image there is set aside and restored."""
+    build writes `BUILT`; a developer's image there is set aside and restored, and a run
+    that could not restore it fails, saying where it is."""
     refused = set_aside(BUILT, SAVED)
     if refused:
         return fail(refused)
     try:
-        env = build_env(dict(os.environ), listing)
-        done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True,
-                              text=True)
-        if done.returncode != 0:
-            return fail(f"the image build failed:\n{done.stderr[-2500:]}")
-        image.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(BUILT, image)
-        return True
+        built = run_build(listing, image)
     finally:
         left = put_back(BUILT, SAVED)
-        if left:
-            fail(left)
+    if left:
+        return fail(left)
+    return built
+
+
+def run_build(listing: Path, image: Path) -> bool:
+    """`cargo build` with the fixture and `listing`, then copy the result to `image`."""
+    env = build_env(dict(os.environ), listing)
+    done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
+    if done.returncode != 0:
+        return fail(f"the image build failed:\n{done.stderr[-2500:]}")
+    image.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(BUILT, image)
+    return True
 
 
 def image_refused(image: Path) -> str | None:
@@ -181,7 +187,9 @@ def write_results(run: judge.Run, lines: list[str], out: Path) -> list[str]:
             continue
         for note, shown in ((f"did not start: {result.spawn_error}", result.spawn_error),
                             ("was killed after its timeout", result.timed_out),
-                            ("printed more than 8 MiB; the rest was dropped", result.truncated)):
+                            ("printed more than 8 MiB; the rest was dropped", result.truncated),
+                            ("kept a pipe open past the wait; output may be missing",
+                             result.incomplete)):
             if shown:
                 print(f"lazyvm: command {n} {note}", file=sys.stderr)
         (out / f"{n}.stdout").write_bytes(result.stdout)

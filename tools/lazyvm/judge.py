@@ -24,6 +24,8 @@ class Result:
     timed_out: bool = False
     #: A stream passed the fixture's cap (`CAP`, 8 MiB): the rest was dropped.
     truncated: bool = False
+    #: A pipe was still open when the fixture stopped waiting: output may be missing.
+    incomplete: bool = False
     spawn_error: str = ""
     #: The stdout and stderr lengths the END line announced.
     sent: tuple[int, int] | None = None
@@ -82,10 +84,11 @@ def take(run: Run, kind: str, rest: str) -> None:
             stream, seq, data = rest.split(":")
             result.chunks[stream].append((int(seq), bytes.fromhex(data)))
         else:
-            code, out_len, err_len, timed_out, truncated = rest.split(":")
+            code, out_len, err_len, timed_out, truncated, incomplete = rest.split(":")
             result.exit = int(code)
             result.timed_out = timed_out == "1"
             result.truncated = truncated == "1"
+            result.incomplete = incomplete == "1"
             result.sent = (int(out_len), int(err_len))
 
 

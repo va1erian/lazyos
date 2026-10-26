@@ -40,7 +40,7 @@ class ParseTests(unittest.TestCase):
         out = b"line one\n\ttab\r\nno newline"
         log = serial("LAZYVM:INIT:1", f"LAZYVM:CMD:1:{LINE.encode().hex()}",
                      data(1, "out", 1, out[10:]), data(1, "out", 0, out[:10]),
-                     data(1, "err", 0, b"boom\n"), f"LAZYVM:END:1:1:{len(out)}:5:0:0",
+                     data(1, "err", 0, b"boom\n"), f"LAZYVM:END:1:1:{len(out)}:5:0:0:0",
                      "LAZYVM:DONE")
         run_ = judge.parse(log)
         self.assertEqual(run_.errors, [])
@@ -51,7 +51,7 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(result.line, LINE.encode())
 
     def test_a_lost_chunk_or_a_missing_end_is_an_error(self) -> None:
-        lost = judge.parse(serial(data(1, "out", 1, b"x"), "LAZYVM:END:1:0:2:0:0:0"))
+        lost = judge.parse(serial(data(1, "out", 1, b"x"), "LAZYVM:END:1:0:2:0:0:0:0"))
         self.assertTrue(any("chunks" in error for error in lost.errors))
         self.assertTrue(any("bytes" in error for error in lost.errors))
         cut = judge.parse(serial(data(1, "out", 0, b"x")))
@@ -62,9 +62,10 @@ class ParseTests(unittest.TestCase):
         self.assertTrue(parsed.errors)
 
     def test_timeouts_and_failures_are_read(self) -> None:
-        parsed = judge.parse(serial("LAZYVM:END:1:124:0:0:1:1", "LAZYVM:FAIL:cannot read"))
+        parsed = judge.parse(serial("LAZYVM:END:1:124:0:0:1:1:1", "LAZYVM:FAIL:cannot read"))
         self.assertTrue(parsed.results[1].timed_out)
         self.assertTrue(parsed.results[1].truncated)
+        self.assertTrue(parsed.results[1].incomplete)
         self.assertEqual(parsed.failure, "cannot read")
 
 
@@ -74,7 +75,7 @@ class ResultFileTests(unittest.TestCase):
 
     def test_each_command_gets_its_three_files(self) -> None:
         parsed = judge.parse(serial("LAZYVM:INIT:1", f"LAZYVM:CMD:1:{LINE.encode().hex()}",
-                                    data(1, "out", 0, b"hi\n"), "LAZYVM:END:1:3:3:0:0:0",
+                                    data(1, "out", 0, b"hi\n"), "LAZYVM:END:1:3:3:0:0:0:0",
                                     "LAZYVM:DONE"))
         self.assertEqual(run.write_results(parsed, [LINE], self.dir), [])
         self.assertEqual((self.dir / "1.stdout").read_bytes(), b"hi\n")
@@ -84,7 +85,7 @@ class ResultFileTests(unittest.TestCase):
     def test_an_image_built_for_other_commands_is_refused(self) -> None:
         other = judge.encode(120, ["/system/lazyvm/bin/lazyvm", "Other"])
         parsed = judge.parse(serial("LAZYVM:INIT:1", f"LAZYVM:CMD:1:{other.encode().hex()}",
-                                    "LAZYVM:END:1:0:0:0:0:0", "LAZYVM:DONE"))
+                                    "LAZYVM:END:1:0:0:0:0:0:0", "LAZYVM:DONE"))
         problems = run.write_results(parsed, [LINE], self.dir)
         self.assertTrue(any("another one" in problem for problem in problems))
         self.assertFalse((self.dir / "1.exit").exists())
@@ -162,6 +163,29 @@ class DeveloperImageTests(unittest.TestCase):
             left = run.put_back(self.built, self.saved)
         self.assertIn(str(self.saved), left)
         self.assertEqual(self.saved.read_bytes(), b"mine")
+
+    def test_a_run_that_could_not_put_the_image_back_fails(self) -> None:
+        self.built.write_bytes(b"mine")
+        with mock.patch.object(run, "BUILT", self.built), \
+                mock.patch.object(run, "SAVED", self.saved), \
+                mock.patch.object(run, "run_build", return_value=True), \
+                mock.patch.object(run, "put_back", return_value="it is at saved.img"), \
+                mock.patch.object(run, "fail", wraps=run.fail) as failed:
+            self.assertFalse(run.build_image(Path("list"), self.dir / "out.img"))
+        failed.assert_called_with("it is at saved.img")
+
+    def test_a_good_build_puts_the_image_back_and_succeeds(self) -> None:
+        self.built.write_bytes(b"mine")
+
+        def build(_listing: Path, _image: Path) -> bool:
+            self.built.write_bytes(b"test build")
+            return True
+
+        with mock.patch.object(run, "BUILT", self.built), \
+                mock.patch.object(run, "SAVED", self.saved), \
+                mock.patch.object(run, "run_build", build):
+            self.assertTrue(run.build_image(Path("list"), self.dir / "out.img"))
+        self.assertEqual(self.built.read_bytes(), b"mine")
 
     def test_no_image_means_nothing_to_set_aside(self) -> None:
         self.assertIsNone(run.set_aside(self.built, self.saved))

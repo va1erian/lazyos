@@ -51,9 +51,10 @@ at `fhs::LAZYVM_COMMANDS`) on a fresh 256 MiB OS volume, and copies it to
 `target/lazyvm/lazyos-lazyvm.img`. The image build always writes
 `target/lazyos.img`, so the tool moves a developer's image there to
 `target/lazyvm/lazyos.img.saved` for the build and puts it back afterwards
-(`--image` may not name either path). If it cannot put it back, it says where
-the image is, and later runs refuse to start until that file is moved back. Only the stage, `LAZYOS_OS_SIZE` and
-`LAZYOS_LIMIT_*` of the caller's `LAZYOS_*` variables reach that build.
+(`--image` may not name either path). If it cannot put it back, the run fails
+saying where the image is, and later runs refuse to start until that file is
+moved back. Only the stage, `LAZYOS_OS_SIZE` and `LAZYOS_LIMIT_*` of the
+caller's `LAZYOS_*` variables reach that build.
 
 The fixture runs the commands in order through the Linux ABI, stdin closed,
 each in a process group of its own, and streams each one's stdout and stderr
@@ -72,7 +73,10 @@ status in decimal:
 | 127 | it could not start |
 
 The group is also killed when the pipes stay open 5 s after the program
-exited (a grandchild holding them). Result files of an earlier run in
+exited (a grandchild holding them). A kill never drops output already read:
+the fixture keeps sending until nothing has arrived for 5 s (60 s at most),
+and if a pipe was still open then, the tool warns that the command's output
+may be incomplete. Result files of an earlier run in
 `results/` are removed first. The host waits on progress, not a fixed
 allowance: the boot has 300 s to reach the fixture, a command its timeout
 plus the fixture's grace, and the run fails after 60 s with no marker line
