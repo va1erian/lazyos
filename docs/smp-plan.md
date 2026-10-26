@@ -562,6 +562,18 @@ here; S8.4+ are performance work that may always be declined.
 
 ### S8.4 — Scheduler fine-graining
 
+**S8.4a (done): the partner grace.** Before the run queues, the placement
+half of "prefer the waker's CPU": a Messenger partner's wake is kept at the
+waker's syscall return for 50 µs, so a server that replies and parks in
+`recv` (or a client whose sends end in a call) runs its partner on its own
+CPU instead of kicking it to another one; a waker whose kept wakes wait
+past 200 µs loses the grace for 20 ms, doubling with misses up to a second.
+At four CPUs it recovered the S8.3c Messenger loss (round trip about 6.4 µs
+against main's 10.5, contended entries down 85%; `docs/architecture/smp.md`,
+"The partner grace"). A single-CPU kernel places nothing, so the grace never
+applies there; its only cost is masking interrupts around a Messenger
+wake.
+
 Replace "global runq under the entry lock" with per-CPU run queues + a
 `sched::Lock`-protected migration path:
 

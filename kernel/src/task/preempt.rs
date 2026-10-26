@@ -213,6 +213,18 @@ fn deferred_due() -> bool {
 /// could have preempted (interrupt return, syscall return): see the module
 /// docs.
 pub fn preempt_point() {
+    point(super::kick::flush_unlocked);
+}
+
+/// [`preempt_point`] at a syscall's return to ring 3: what the call woke
+/// and did not take gets a short grace before it is placed elsewhere, for
+/// a partner about to park in its next call (`task::kick`, the grace).
+pub fn syscall_return_point() {
+    point(super::kick::flush_after_syscall);
+}
+
+/// [`preempt_point`]'s body, placing what this CPU woke with `place`.
+fn point(place: fn()) {
     // An interrupt taken inside an interrupt window (`arch::irq_window`)
     // stopped a syscall that may hold any lock: switching there could hand
     // the CPU to a task that spins on one forever. The syscall's own return
@@ -220,8 +232,8 @@ pub fn preempt_point() {
     if crate::arch::irq_window::is_open() {
         return;
     }
-    // What this CPU woke and did not take goes elsewhere now (`task::kick`).
-    super::kick::flush_unlocked();
+    // What this CPU woke and did not take goes elsewhere (`task::kick`).
+    place();
     // An interrupt that stopped the idle context never switches from inside
     // its handler: the idle loop does, right after the handler returns
     // (`switch_if_wanted`). The `iretq` back to the halt turns interrupts on
@@ -362,7 +374,7 @@ pub fn exit_cpu() -> ! {
 #[no_mangle]
 extern "C" fn linux_syscall_return() {
     crate::dev::intx::service();
-    preempt_point();
+    syscall_return_point();
     // Back to ring 3: drop the entry lock `linux_dispatch_gate` took.
     crate::sync::entry::leave_user();
 }

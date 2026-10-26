@@ -200,7 +200,7 @@ extern "C" fn syscall_dispatch(regs: *mut Regs) {
     crate::perf::syscall_exit();
     super::linux::slow::end(probe, "native", nr, [regs.rdi, regs.rsi, regs.rdx]);
     // A task this call woke may outrank the caller (P1.1): run it now.
-    task::preempt_point();
+    task::syscall_return_point();
     crate::sync::entry::leave(cs);
 }
 

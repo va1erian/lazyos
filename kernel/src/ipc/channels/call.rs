@@ -148,7 +148,7 @@ pub fn begin_call_owned(
     // `messengerd` round trip depends on it. The caller is about to park in
     // `await_reply`: the callee runs in its place (P6.2).
     ring(channel_id, peer);
-    hand_off_to(wake(receivers.iter()));
+    hand_off_to(wake_partner(receivers.iter()));
     // The caller stays runnable: `call` parks in `await_reply` (in the same
     // interrupts-off syscall, so no reply can slip in before the first wait),
     // and the two-step syscall form (`OP_CALL_BEGIN`, `OP_CALL_AWAIT`) must
@@ -279,10 +279,11 @@ pub fn reply_owned(txn_id: u64, parcel_bytes: Vec<u8>) -> Result<(), Error> {
     // The completion queue learns of the end beside the wake: a loop that
     // parked in `wait` with `WAIT_CALLS` instead of `await_reply` resumes
     // from the doorbell and takes the reply through its own later click.
-    completion::record(caller, txn_id);
+    // Both wakes are the replier's partner's (`task::kick`, the grace).
+    task::kick::partner_wakes(|| completion::record(caller, txn_id));
     // Only the caller waits for this outcome (in `await_reply`, or still
     // parked by `begin_call`); it runs as soon as the replier parks (P6.2).
-    hand_off_to(wake([caller]));
+    hand_off_to(wake_partner([caller]));
     match refusal {
         Some(error) => Err(error),
         None => Ok(()),

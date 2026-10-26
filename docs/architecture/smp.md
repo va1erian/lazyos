@@ -1,4 +1,4 @@
-# SMP, as built (S8.0–S8.3)
+# SMP, as built (S8.0–S8.4a)
 
 What multicore support the kernel has today, how it works, and the rules a
 change must keep. The plan and its staging are [`../smp-plan.md`](../smp-plan.md);
@@ -464,6 +464,39 @@ task that dies while current on another CPU (`finish_locked`) kicks that
 CPU off it; a reap refused meanwhile is noted, and once the CPU has
 switched away it rings the parent's child bell and the `wait4` queue again.
 
+**The partner grace** (S8.4a). A Messenger server's `REPLY` wakes its
+caller and returns to ring 3; only its next call, `RECV`, parks. A client's
+one-way sends wake the server; its closing call parks. Placed at the first
+syscall's return, the woken task ran on another CPU while its partner,
+about to park, still had kernel work: each round trip crossed CPUs, took
+turns at the entry lock and woke a halted vCPU. So the Messenger fabric's
+wakes a task makes itself (a send's or call's receiver parked on the
+channel, a reply's caller and its completion doorbell; not the kernel's
+posts of a device interrupt, a channel's teardown, a call's timeout, nor
+the doorbell of a task that waits on an endpoint descriptor with poll or
+epoll) are marked as a partner's (`kick::partner_wakes`), and while
+everything a CPU remembers is a partner wake of a task it may run (never
+the kernel task on an AP), a syscall return (`syscall_return_point`) keeps
+it for 50 µs (`kick::GRACE_NS`) after the first: a partner that parks within it runs the woken task on its own CPU,
+through the hand-off or the run queue, and the placement then finds it
+current and kicks nobody. Any other wake (a futex, a pipe, a doorbell, a
+new task), and every other preemption point (an interrupt return, a
+scheduler entry, a nap, the idle loop), places at once; a syscall return
+after the grace places too. A waker that goes on computing in ring 3
+leaves the placement to its CPU's next tick (or any idle CPU's tick, which
+finds the task in the run queue). A kept window that its CPU closes
+(switching, or placing what it kept) more than 200 µs after it began
+(`kick::MISS_NS`, four graces) is a miss, wherever the task then ran: its
+waker (a server that replies and then works in ring 3, one with a backlog,
+a compositor drawing after its answer) gets no grace for 20 ms, doubling
+with each miss up to a second (`PENALTY_MIN_NS`, `PENALTY_MAX_NS`) while
+misses outweigh windows closed in time (a miss scores two, an in-time
+window takes one off). One stall of a vCPU the host preempted costs a
+partner pair the grace for a moment; a waker that misses half the time or
+more is soon denied for a second at a time. A miss itself can last most of
+a tick: it ends when the waker's CPU next enters the kernel or ticks.
+`PERF:entry` counts `kicks`, `kept` returns and `missed` graces.
+
 **What a task carries between CPUs.** `install` loads everything the CPU
 holds for a task: its table, `RSP0` and the `syscall` stack (both per
 CPU), its FS base, its FPU image, and (S8.3c, `task::segs`) its DS, ES,
@@ -510,6 +543,21 @@ one entry lock (165k contended entries during the run, `PERF:entry`). That
 is the number S8.4 and later stages are measured against. Four ring-3
 counting tasks count 7x to 11x as much on four CPUs as on one
 (`smp_sched_parallel_counting_scales`).
+
+Most of that Messenger loss was placement, not the lock itself: every round
+trip crossed CPUs. With the partner grace (S8.4a), interleaved runs of two
+images built with a fresh OS volume each, `main`'s kernel and the change
+(WHPX, `--smp 4`, a host loaded by other QEMUs; a run whose 1 ms sleeps
+showed the host stalling is left out), gave a round trip of 6.0-6.5 µs
+against 10.1-10.9 µs, 540k-570k messages/s against 390k-420k, and 18k-26k
+contended entries against 166k-170k (88k syscall returns a run keep a
+partner's wake, about 500 kicks remain, about ten misses). Input to present,
+IRQ wake, interrupts-off stretches and 1 ms sleeps are at parity;
+`wake_run`'s median falls (5.1-5.5 to 4.1-4.7 µs) and its 99th percentile
+rises by about the grace (35-51 to 66-69 µs). Rows "S8.4a A/B: main kernel"
+and "S8.4a partner grace" in `docs/perf/history.md` are one such pair. (Two
+of about a dozen boots of `main`'s image hung there: a native syscall held
+the entry lock for 30 s right after the compositor started.)
 
 The suite's pause (`idle::pause_aps`, test kernels only) holds the APs back:
 no task, tick stopped, a halt that no flag ends; each scheduling case lets
