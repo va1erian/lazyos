@@ -25,7 +25,7 @@
 use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,6 +33,9 @@ use std::time::{Duration, Instant};
 const CHUNK: usize = 256;
 /// The most output of one stream the host is sent; the rest is read and dropped.
 const CAP: usize = 8 << 20;
+/// Reads the readers may queue before they wait for the main thread: what a slow serial
+/// port holds back stays bounded, and the deadline is checked between any two of them.
+const QUEUE: usize = 16;
 /// How long the pipes may stay open after the exit, and the exit may take after a kill.
 const GRACE: Duration = Duration::from_secs(5);
 const SIGKILL: i32 = 9;
@@ -44,6 +47,8 @@ extern "C" {
 /// What the reader and waiter threads tell the main one.
 enum Event {
     Data(usize, Vec<u8>),
+    /// The stream passed [`CAP`]; the reader drops the rest.
+    Truncated(usize),
     Eof(usize),
     Exit(Option<ExitStatus>),
 }
@@ -115,7 +120,7 @@ fn run(n: usize, timeout: Duration, argv: &[Vec<u8>]) {
         }
     };
     let pid = child.id() as i32;
-    let (events, received) = mpsc::channel();
+    let (events, received) = mpsc::sync_channel(QUEUE);
     reader(
         child.stdout.take().map(|s| Box::new(s) as _),
         0,
@@ -159,21 +164,28 @@ fn follow(
     let mut deadline = Instant::now() + timeout;
     let (mut status, mut timed_out, mut killed) = (None, false, false);
     while status.is_none() || streams.iter().any(|stream| !stream.closed) {
-        let left = deadline.saturating_duration_since(Instant::now());
-        match received.recv_timeout(left) {
+        // Checked on every turn: a stream that never pauses must not hold the deadline off.
+        let now = Instant::now();
+        if now >= deadline {
+            if killed {
+                break;
+            }
+            timed_out = status.is_none();
+            kill_group(pid);
+            killed = true;
+            deadline = now + GRACE;
+            continue;
+        }
+        match received.recv_timeout(deadline - now) {
             Ok(Event::Data(which, bytes)) => send(n, which, &mut streams[which], &bytes),
+            Ok(Event::Truncated(which)) => streams[which].truncated = true,
             Ok(Event::Eof(which)) => streams[which].closed = true,
             Ok(Event::Exit(exit)) => {
                 status = Some(exit);
                 deadline = deadline.min(Instant::now() + GRACE);
             }
-            Err(RecvTimeoutError::Timeout) if !killed => {
-                timed_out = status.is_none();
-                kill_group(pid);
-                killed = true;
-                deadline = Instant::now() + GRACE;
-            }
-            Err(_) => break,
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
     (status, timed_out)
@@ -189,17 +201,31 @@ fn kill_group(pid: i32) {
     }
 }
 
-/// A thread sending what `pipe` reads as `Data`, then `Eof`.
-fn reader(pipe: Option<Box<dyn Read + Send>>, which: usize, events: Sender<Event>) {
+/// A thread sending what `pipe` reads as `Data`, at most [`CAP`] bytes, then one
+/// `Truncated` if there was more (read on and dropped, so the program never blocks on a
+/// full pipe), then `Eof`. A send fails once the main thread stopped listening.
+fn reader(pipe: Option<Box<dyn Read + Send>>, which: usize, events: SyncSender<Event>) {
     thread::spawn(move || {
         let mut buffer = vec![0; CHUNK * 16];
+        let (mut sent, mut truncated) = (0, false);
         if let Some(mut pipe) = pipe {
             while let Ok(read @ 1..) = pipe.read(&mut buffer) {
-                if events
-                    .send(Event::Data(which, buffer[..read].to_vec()))
-                    .is_err()
-                {
-                    return;
+                if truncated {
+                    continue;
+                }
+                let take = read.min(CAP - sent);
+                if take > 0 {
+                    let data = Event::Data(which, buffer[..take].to_vec());
+                    if events.send(data).is_err() {
+                        return;
+                    }
+                    sent += take;
+                }
+                if take < read {
+                    truncated = true;
+                    if events.send(Event::Truncated(which)).is_err() {
+                        return;
+                    }
                 }
             }
         }
@@ -207,14 +233,10 @@ fn reader(pipe: Option<Box<dyn Read + Send>>, which: usize, events: Sender<Event
     });
 }
 
-/// Print `bytes` as `DATA` lines of `stream`, up to [`CAP`] in all.
+/// Print `bytes` as `DATA` lines of `stream` (the reader keeps it within [`CAP`]).
 fn send(n: usize, which: usize, stream: &mut Stream, bytes: &[u8]) {
-    let room = CAP - stream.sent;
-    if bytes.len() > room {
-        stream.truncated = true;
-    }
     let name = ["out", "err"][which];
-    for chunk in bytes[..bytes.len().min(room)].chunks(CHUNK) {
+    for chunk in bytes.chunks(CHUNK) {
         println!("LAZYVM:DATA:{n}:{name}:{}:{}", stream.seq, hex(chunk));
         stream.seq += 1;
         stream.sent += chunk.len();

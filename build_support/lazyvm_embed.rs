@@ -11,6 +11,7 @@
 //! `LAZYOS_LAZYVM_COMMANDS=<file>` (written by `tools/lazyvm/run.py`) adds the command list
 //! the `lazyvm` ABI fixture runs at [`fhs::LAZYVM_COMMANDS`].
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::os_image::{Sink, Source};
@@ -54,12 +55,10 @@ pub fn stage_dir(manifest_dir: &Path, chosen: Option<std::ffi::OsString>) -> Pat
     }
 }
 
-/// How deep the stage may nest; a directory link back up would otherwise never end.
-const MAX_DEPTH: usize = 32;
-
 /// Place every file of `stage` at the same relative path under [`fhs::LAZYVM`], following
 /// links. An error names what is wrong: no stage, a stage without `bin/lazyvm`, or an entry
-/// that cannot be placed (a broken link, a name that is not UTF-8, a tree too deep).
+/// that cannot be placed (a broken link, a name that is not UTF-8, a directory reached a
+/// second time through a link).
 pub fn place(sink: &mut dyn Sink, stage: &Path) -> Result<(), String> {
     if !stage.is_dir() {
         return Err(format!(
@@ -70,21 +69,29 @@ pub fn place(sink: &mut dyn Sink, stage: &Path) -> Result<(), String> {
     if !stage.join("bin").join("lazyvm").is_file() {
         return Err(format!("{} has no bin/lazyvm", stage.display()));
     }
-    add_tree(sink, stage, fhs::LAZYVM, false, 0)
+    let mut seen = HashSet::new();
+    add_tree(sink, stage, fhs::LAZYVM, false, &mut seen)
 }
 
 /// Store the files under `dir`, recursively, at the same relative path under `image_dir`;
 /// `program` (set below the stage's top-level `bin/`) makes them 0755. A link is followed
-/// (`fs::metadata`), so the image holds what it points at.
+/// (`fs::metadata`), so the image holds what it points at. `seen` holds every directory
+/// walked so far, by its real path: a directory met twice (a link cycle, or two links to
+/// one tree) is an error, so the walk ends after visiting each real directory once.
 fn add_tree(
     sink: &mut dyn Sink,
     dir: &Path,
     image_dir: &str,
     program: bool,
-    depth: usize,
+    seen: &mut HashSet<PathBuf>,
 ) -> Result<(), String> {
-    if depth > MAX_DEPTH {
-        return Err(format!("{} nests deeper than {MAX_DEPTH}", dir.display()));
+    let real = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !seen.insert(real.clone()) {
+        return Err(format!(
+            "{}: the directory {} is reached a second time (a link cycle, or two links to it)",
+            dir.display(),
+            real.display()
+        ));
     }
     crate::os_image::rerun_if_changed(dir);
     let unreadable = |e: std::io::Error| format!("{}: {e}", dir.display());
@@ -92,7 +99,7 @@ fn add_tree(
         .and_then(|entries| entries.collect::<Result<Vec<_>, _>>())
         .map_err(unreadable)?;
     entries.sort_by_key(|entry| entry.file_name());
-    let top = depth == 0;
+    let top = image_dir == fhs::LAZYVM;
     for entry in entries {
         let source = entry.path();
         let name = entry.file_name();
@@ -104,7 +111,7 @@ fn add_tree(
             .map_err(|e| format!("{}: {e} (a broken link?)", source.display()))?;
         if kind.is_dir() {
             let below_bin = program || (top && name == "bin");
-            add_tree(sink, &source, &path, below_bin, depth + 1)?;
+            add_tree(sink, &source, &path, below_bin, seen)?;
         } else if kind.is_file() {
             let mode = if program { 0o755 } else { 0o644 };
             sink.add(&path, Source::Path(source), mode);

@@ -125,3 +125,53 @@ fn a_name_that_is_not_utf8_fails_the_build_naming_it() {
     assert!(error.contains("not UTF-8"), "{error}");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Make a directory link at `link` to `target` (a junction on Windows, which needs no
+/// privilege), or `None` where the host does not allow it.
+fn link_dir(target: &Path, link: &Path) -> Option<()> {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link).ok();
+    #[cfg(windows)]
+    {
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .ok()?;
+        made.status.success().then_some(())
+    }
+}
+
+#[test]
+fn a_branching_link_cycle_fails_at_once_naming_the_directory() {
+    let dir = staged("cycle", &["bin/lazyvm", "tests/loop/A.class"]);
+    let looped = dir.join("tests").join("loop");
+    for name in ["a", "b"] {
+        if link_dir(&looped, &looped.join(name)).is_none() {
+            eprintln!("skipped: this host cannot make directory links");
+            return;
+        }
+    }
+    let error = place(&mut OsFiles::default(), &dir).unwrap_err();
+    assert!(error.contains("reached a second time"), "{error}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_linked_directory_is_walked_as_if_it_were_there() {
+    let dir = staged("dirlink", &["bin/lazyvm"]);
+    let outside = staged("dirlink-target", &["java/lang/Object.class"]);
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+    if link_dir(&outside, &dir.join("lib").join("lazyrt")).is_none() {
+        eprintln!("skipped: this host cannot make directory links");
+        return;
+    }
+    let files = placed(&dir);
+    let object = format!("{}/lib/lazyrt/java/lang/Object.class", fhs::LAZYVM);
+    assert!(files
+        .iter()
+        .any(|(path, mode)| *path == object && *mode == 0o644));
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(outside);
+}

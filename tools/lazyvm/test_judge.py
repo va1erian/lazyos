@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import boot  # noqa: E402
@@ -127,6 +128,51 @@ class ResultFileTests(unittest.TestCase):
         self.assertEqual(env["LAZYOS_LIMIT_TASK_MAX"], "64")
         self.assertEqual((env["LAZYOS_LAZYVM"], env["LAZYOS_RESET_OS"]), ("1", "1"))
         self.assertEqual(env["LAZYOS_LAZYVM_COMMANDS"], "list")
+
+
+class DeveloperImageTests(unittest.TestCase):
+    """The image a developer has at `target/lazyos.img` survives every run."""
+
+    def setUp(self) -> None:
+        self.dir = Path(tempfile.mkdtemp())
+        self.built, self.saved = self.dir / "lazyos.img", self.dir / "lazyvm" / "saved.img"
+
+    def test_it_is_set_aside_and_put_back(self) -> None:
+        self.built.write_bytes(b"mine")
+        self.assertIsNone(run.set_aside(self.built, self.saved))
+        self.assertFalse(self.built.exists())
+        self.built.write_bytes(b"test build")
+        self.assertIsNone(run.put_back(self.built, self.saved))
+        self.assertEqual(self.built.read_bytes(), b"mine")
+        self.assertFalse(self.saved.exists())
+
+    def test_a_saved_image_left_by_an_earlier_run_is_never_overwritten(self) -> None:
+        self.saved.parent.mkdir(parents=True)
+        self.saved.write_bytes(b"mine, from the run that died")
+        self.built.write_bytes(b"that run's test build")
+        refused = run.set_aside(self.built, self.saved)
+        self.assertIn(str(self.saved), refused)
+        self.assertEqual(self.saved.read_bytes(), b"mine, from the run that died")
+        self.assertEqual(self.built.read_bytes(), b"that run's test build")
+
+    def test_a_failed_put_back_says_where_the_image_is(self) -> None:
+        self.saved.parent.mkdir(parents=True)
+        self.saved.write_bytes(b"mine")
+        with mock.patch.object(run.os, "replace", side_effect=PermissionError("in use")):
+            left = run.put_back(self.built, self.saved)
+        self.assertIn(str(self.saved), left)
+        self.assertEqual(self.saved.read_bytes(), b"mine")
+
+    def test_no_image_means_nothing_to_set_aside(self) -> None:
+        self.assertIsNone(run.set_aside(self.built, self.saved))
+        self.assertIsNone(run.put_back(self.built, self.saved))
+        self.assertFalse(self.saved.exists())
+
+    def test_the_build_output_and_the_saved_image_are_refused_as_image(self) -> None:
+        self.assertIsNotNone(run.image_refused(run.BUILT))
+        self.assertIsNotNone(run.image_refused(run.ROOT / "target" / "." / "lazyos.img"))
+        self.assertIsNotNone(run.image_refused(run.SAVED))
+        self.assertIsNone(run.image_refused(run.IMAGE))
 
 
 class WatchTests(unittest.TestCase):

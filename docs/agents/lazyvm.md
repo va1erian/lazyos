@@ -25,8 +25,9 @@ executable like everything under the stage's `bin/`), the class library
 jars). The stage is `target/lazyvm/stage`, or the directory
 `LAZYOS_LAZYVM_STAGE` names; LazyVM's own tools write it. With the switch on,
 a missing stage (or one without `bin/lazyvm`) fails the build with a message;
-off, nothing is read. Links in the stage are followed; a broken link or a
-name that is not UTF-8 also fails the build, naming the file. A top-level
+off, nothing is read. Links in the stage are followed; a broken link, a
+name that is not UTF-8, or a directory reached twice (a link cycle, or two
+links to one tree) also fails the build, naming the path. A top-level
 `commands` file in the stage is replaced by `LAZYOS_LAZYVM_COMMANDS` when that
 is set. Code: `build_support/lazyvm_embed.rs`, tests
 `cargo test -p build-support-tests lazyvm`.
@@ -48,8 +49,10 @@ ABI fixture (`tools/abi/fixtures/src/lazyvm.rs`) and an image whose boot is
 that fixture, with the stage and the command list (`LAZYOS_LAZYVM_COMMANDS`,
 at `fhs::LAZYVM_COMMANDS`) on a fresh 256 MiB OS volume, and copies it to
 `target/lazyvm/lazyos-lazyvm.img`. The image build always writes
-`target/lazyos.img`, so the tool moves a developer's image there aside for
-the build and puts it back afterwards. Only the stage, `LAZYOS_OS_SIZE` and
+`target/lazyos.img`, so the tool moves a developer's image there to
+`target/lazyvm/lazyos.img.saved` for the build and puts it back afterwards
+(`--image` may not name either path). If it cannot put it back, it says where
+the image is, and later runs refuse to start until that file is moved back. Only the stage, `LAZYOS_OS_SIZE` and
 `LAZYOS_LIMIT_*` of the caller's `LAZYOS_*` variables reach that build.
 
 The fixture runs the commands in order through the Linux ABI, stdin closed,

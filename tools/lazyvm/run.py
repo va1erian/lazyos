@@ -15,8 +15,10 @@ and ``#`` comments are skipped. The tool
    and writes the hex command list the ``lazyvm`` ABI fixture reads (``DIR/commands.list``);
 2. unless ``--no-build``, builds that fixture and an image with it as ``/system/bin/abi-init``,
    ``LAZYOS_LAZYVM=1`` and the list (``LAZYOS_LAZYVM_COMMANDS``) on a fresh OS volume, and
-   copies it to ``IMG``. The image build always writes ``target/lazyos.img``; the tool moves a
-   developer's image there aside first and puts it back afterwards;
+   copies it to ``IMG`` (never ``target/lazyos.img``). The image build always writes
+   ``target/lazyos.img``; the tool moves a developer's image there to
+   ``target/lazyvm/lazyos.img.saved`` first and puts it back afterwards. If a run could not
+   put it back, it says where it is, and the next run refuses to start until it is moved;
 3. boots ``IMG`` headless (``boot.py``); the fixture runs each command in order, stdin closed,
    and streams its output hex-encoded over the serial log (``judge.py``);
 4. writes ``DIR/N.stdout``, ``DIR/N.stderr`` (separate, byte exact, each at most 8 MiB) and
@@ -106,13 +108,35 @@ def build_fixture() -> bool:
     return True
 
 
+def set_aside(built: Path, saved: Path) -> str | None:
+    """Move a developer's image at `built` to `saved`; why not, if it must not be done. An
+    image already at `saved` is one an earlier run did not put back: never overwrite it."""
+    if saved.exists():
+        return (f"{saved} holds an image an earlier run did not put back; move it back to "
+                f"{built} (or delete it if it is not wanted) and run again")
+    if built.is_file():
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(built, saved)
+    return None
+
+
+def put_back(built: Path, saved: Path) -> str | None:
+    """Return the image `set_aside` moved to `saved` to `built`; where it was left, if not."""
+    if not saved.exists():
+        return None
+    try:
+        os.replace(saved, built)
+    except OSError as error:
+        return f"could not put the developer image back ({error}); it is at {saved}"
+    return None
+
+
 def build_image(listing: Path, image: Path) -> bool:
     """Build an image whose boot is the fixture over `listing` and copy it to `image`. The
     build writes `BUILT`; a developer's image there is set aside and restored."""
-    SAVED.parent.mkdir(parents=True, exist_ok=True)
-    saved = BUILT.is_file()
-    if saved:
-        os.replace(BUILT, SAVED)
+    refused = set_aside(BUILT, SAVED)
+    if refused:
+        return fail(refused)
     try:
         env = build_env(dict(os.environ), listing)
         done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True,
@@ -123,8 +147,20 @@ def build_image(listing: Path, image: Path) -> bool:
         shutil.copyfile(BUILT, image)
         return True
     finally:
-        if saved:
-            os.replace(SAVED, BUILT)
+        left = put_back(BUILT, SAVED)
+        if left:
+            fail(left)
+
+
+def image_refused(image: Path) -> str | None:
+    """Why `--image` cannot be built to: the build's own output, or where it keeps a
+    developer's image."""
+    same = lambda path: os.path.normcase(str(path.resolve()))  # noqa: E731
+    for reserved in (BUILT, SAVED):
+        if same(image) == same(reserved):
+            return (f"--image {image} is where the image build itself writes or keeps a "
+                    f"developer's image; choose another path (default {IMAGE})")
+    return None
 
 
 def write_results(run: judge.Run, lines: list[str], out: Path) -> list[str]:
@@ -192,8 +228,12 @@ def main() -> int:
     lines = [judge.encode(args.timeout, argv) for argv in commands]
     listing = args.out / "commands.list"
     listing.write_text("".join(f"{line}\n" for line in lines), encoding="ascii")
-    if not args.no_build and not (build_fixture() and build_image(listing.resolve(), args.image)):
-        return 1
+    if not args.no_build:
+        refused = image_refused(args.image)
+        if refused:
+            return int(not fail(refused))
+        if not (build_fixture() and build_image(listing.resolve(), args.image)):
+            return 1
     if not args.image.is_file():
         return int(not fail(f"no image at {args.image} (run without --no-build)"))
     qemu_dir = args.out / "qemu"
