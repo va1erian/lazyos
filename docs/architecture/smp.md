@@ -332,8 +332,8 @@ the shootdown sender lock uses. A waiter spins with interrupts off, so it
 serves its shootdown mailbox (`smp::serve_pending`) and halts if another CPU
 panics; after 30 s (S8.3c; 2 s before the APs scheduled) it panics itself, naming the holder CPU and the gate
 (`file:line`) it took the lock in. Before that it sends the holder an NMI
-and waits 200 ms, so the holder's `HANG:` report (its `rip`, the locks held,
-its stack) says what kept the lock; only the first waiter sends one. The lock counts its contended
+and waits (at most 2 s) for its `HANG:` report (its `rip`, the locks held,
+its stack), which says what kept the lock; only the first waiter sends one. The lock counts its contended
 acquisitions and the longest wait (read by the suite).
 
 Without `LAZYOS_SMP=1` the gate macros emit the bare target and the

@@ -33,27 +33,23 @@ pub fn take_critical_stats() -> (u64, u64) {
 static TICKS_IN_KERNEL: AtomicU64 = AtomicU64::new(0);
 static PREEMPTED_HOLDERS: AtomicU64 = AtomicU64::new(0);
 /// Ticks that interrupted a holder of the task table itself: the scheduler
-/// would spin on it next, forever, with the entry lock held (the SMP perf
-/// boot hang). Counted and skipped here instead, so a case fails, not hangs.
+/// would spin on it next, forever (`diag::tick_finds_table_held`).
 static TABLE_HOLDERS: AtomicU64 = AtomicU64::new(0);
 
-/// Called by the scheduler on every timer tick (test builds only). True when
-/// the interrupted context holds the task table: the tick must not take it.
-/// The scheduler holds the entry lock here, so no other CPU runs kernel code
-/// that could hold the table.
-pub fn note_tick_locks() -> bool {
+/// Called by the scheduler on every timer tick (test builds only).
+pub fn note_tick_locks() {
     if !super::diag::last_tick_in_kernel() {
-        return false;
+        return;
     }
     TICKS_IN_KERNEL.fetch_add(1, Ordering::Relaxed);
     if crate::mem::heap_locked() || crate::console::locked() {
         PREEMPTED_HOLDERS.fetch_add(1, Ordering::Relaxed);
     }
-    let table_held = super::TASKS.is_locked();
-    if table_held {
-        TABLE_HOLDERS.fetch_add(1, Ordering::Relaxed);
-    }
-    table_held
+}
+
+/// A tick found the task table held by the context it interrupted.
+pub fn note_table_held_tick() {
+    TABLE_HOLDERS.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Ticks since the last call that found the task table held by the context

@@ -104,7 +104,6 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     if !boot_cpu {
         idle::ap_tick_policy();
     }
-
     #[cfg(lazyos_tests)]
     harness::note_entry_flags();
     let preempted = preempt::take_preempting() && !tick;
@@ -112,9 +111,10 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     if tick && boot_cpu {
         diag::note_tick(cur, current_rsp);
         #[cfg(lazyos_tests)]
-        if harness::note_tick_locks() {
-            return current_rsp;
-        }
+        harness::note_tick_locks();
+    }
+    if tick && diag::tick_finds_table_held(code_segment, current_rsp) {
+        return current_rsp;
     }
     if tick {
         // Interval timers (setitimer/POSIX timers) fire before the table is

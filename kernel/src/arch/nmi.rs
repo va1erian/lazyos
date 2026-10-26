@@ -144,6 +144,17 @@ extern "C" fn nmi_handler(frame: &InterruptStackFrameValue) {
     // A report that fails half-way (it cannot: `RawSerial` never errors)
     // still leaves the lines already printed.
     let _ = report(&mut RawSerial, &at);
+    REPORTS.fetch_add(1, Ordering::Release);
+}
+
+/// Hang reports printed to the end since boot (all CPUs).
+static REPORTS: AtomicU64 = AtomicU64::new(0);
+
+/// Hang reports printed to the end since boot: a CPU that asked another for
+/// one (the entry lock's watchdog) waits for this to move before panicking.
+#[cfg_attr(not(lazyos_smp), allow(dead_code))]
+pub fn reports_done() -> u64 {
+    REPORTS.load(Ordering::Acquire)
 }
 
 /// Print the whole report for the context `at` (the NMI's interrupted one).

@@ -56,6 +56,38 @@ pub fn table_locked() -> bool {
     TASKS.is_locked()
 }
 
+/// Whether a tick that interrupted the kernel context saved at `rsp` (its
+/// code segment `cs`) finds the task table held. That context is the holder
+/// (this CPU holds the entry lock, so no other CPU runs kernel code), and
+/// the scheduler would spin on the table forever: a kernel path took it
+/// with interrupts on, against the #382 rule. Test kernels count the tick
+/// and skip it (`harness::take_table_holder_ticks`), so a case fails
+/// instead of hanging; any other kernel panics with the interrupted `rip`.
+pub fn tick_finds_table_held(cs: u64, rsp: u64) -> bool {
+    if cs & 3 != 0 || !TASKS.is_locked() {
+        return false;
+    }
+    #[cfg(lazyos_tests)]
+    {
+        let _ = rsp;
+        super::harness::note_table_held_tick();
+        true
+    }
+    #[cfg(not(lazyos_tests))]
+    table_held_at_tick(rsp)
+}
+
+#[cfg(not(lazyos_tests))]
+#[cold]
+fn table_held_at_tick(rsp: u64) -> ! {
+    // SAFETY: the scheduler gate saved this frame: 15 registers, then RIP.
+    let rip = unsafe { frame_word(rsp, RIP) };
+    panic!(
+        "tick: CPU{} interrupted rip {rip:#x} holding the task table (taken with interrupts on)",
+        crate::arch::percpu::current().index()
+    )
+}
+
 /// Print the scheduler's view: the last tick's interrupted context and one
 /// line per task (plus its kernel stack when it was saved in ring 0).
 pub fn write_report(out: &mut impl Write) -> fmt::Result {

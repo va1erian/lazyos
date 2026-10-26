@@ -120,6 +120,8 @@ impl TaskSnapshot {
 
     /// One row per slot, read under the table lock.
     fn rows() -> Vec<TaskRow> {
+        #[cfg(lazyos_tests)]
+        super::harness::note_critical_section();
         let tasks = TASKS.lock();
         tasks
             .iter()

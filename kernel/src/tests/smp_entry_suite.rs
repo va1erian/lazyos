@@ -21,10 +21,39 @@ use super::*;
 pub(super) const CASES: &[(&str, Test)] = &[
     ("smp_entry_lock_compiled_out", compiled_out),
     (
+        "smp_entry_snapshot_masks_interrupts",
+        snapshot_masks_interrupts,
+    ),
+    (
         "smp_entry_tick_never_finds_table_held",
         tick_never_finds_table_held,
     ),
 ];
+
+/// A task snapshot holds the table with interrupts off even when its caller
+/// runs with them on (the kernel task's `PERF:` reports), and the caller's
+/// `IF` comes back.
+fn snapshot_masks_interrupts() -> Result<(), String> {
+    use super::preempt_lock_suite::with_irqs_on;
+    use crate::task::{harness, introspect::TaskSnapshot};
+    with_irqs_on(None, || {
+        let _ = harness::take_critical_stats();
+        let rows = TaskSnapshot::snapshot().rows.len();
+        let (checks, unmasked) = harness::take_critical_stats();
+        check!(rows == task::MAX_TASKS, "{rows} rows, not one per slot");
+        check!(checks == 1, "{checks} table sections, not one");
+        check!(unmasked == 0, "the table was held with interrupts on");
+        check!(
+            x86_64::instructions::interrupts::are_enabled(),
+            "the caller's IF=1 did not come back"
+        );
+        check!(
+            !crate::task::diag::table_locked(),
+            "the table is still held"
+        );
+        Ok(())
+    })
+}
 
 /// Soak with the real PIT, as the kernel task's `PERF:` reports run: task
 /// snapshots with `IF=1`. A tick that lands while one holds the task table
@@ -98,6 +127,10 @@ mod imp {
             waiter_serves_shootdowns,
         ),
         ("smp_entry_lock_turns_are_fifo", turns_are_fifo),
+        (
+            "smp_entry_snapshot_masks_interrupts",
+            super::snapshot_masks_interrupts,
+        ),
         (
             "smp_entry_tick_never_finds_table_held",
             super::tick_never_finds_table_held,
