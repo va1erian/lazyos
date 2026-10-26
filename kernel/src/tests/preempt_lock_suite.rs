@@ -21,15 +21,15 @@ use crate::arch::nmi::{self, Interrupted};
 use crate::task::harness;
 
 /// The PIT's PIC line.
-const TIMER_LINE: u8 = 0;
+pub(in crate::tests) const TIMER_LINE: u8 = 0;
 /// Real timer ticks the soak runs through (one second at 100 Hz).
-const SOAK_TICKS: u64 = 100;
+pub(in crate::tests) const SOAK_TICKS: u64 = 100;
 /// Iteration cap, so a dead PIT fails the soak instead of hanging it.
-const SOAK_MAX_ROUNDS: u64 = 50_000_000;
+pub(in crate::tests) const SOAK_MAX_ROUNDS: u64 = 50_000_000;
 
 /// A lone runnable kernel task, so a real tick's `schedule` has nowhere to
 /// switch to and simply resumes the test.
-fn kernel_task_only() {
+pub(in crate::tests) fn kernel_task_only() {
     task::register_kernel();
     task::harness::reset();
     task::harness::switch_current(task::KERNEL_TASK);
@@ -38,7 +38,10 @@ fn kernel_task_only() {
 
 /// Run `f` with interrupts on and only `line` unmasked at the PIC (none when
 /// `line` is `None`), restoring every mask and `IF=0` afterwards.
-fn with_irqs_on(line: Option<u8>, f: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
+pub(in crate::tests) fn with_irqs_on(
+    line: Option<u8>,
+    f: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
     let saved: [bool; 16] = core::array::from_fn(|l| irqchip::is_masked(l as u8));
     for l in 0..16u8 {
         irqchip::set_masked(l, Some(l) != line);

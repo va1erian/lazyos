@@ -112,7 +112,9 @@ fn decide(current_rsp: u64, tick: bool) -> u64 {
     if tick && boot_cpu {
         diag::note_tick(cur, current_rsp);
         #[cfg(lazyos_tests)]
-        harness::note_tick_locks();
+        if harness::note_tick_locks() {
+            return current_rsp;
+        }
     }
     if tick {
         // Interval timers (setitimer/POSIX timers) fire before the table is
