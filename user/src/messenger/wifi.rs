@@ -109,12 +109,12 @@ const SECRET_REPLY: usize = 1024;
 fn call_secret(endpoint: &Endpoint, mut request: Parcel, deadline: Option<u64>) -> Result<Parcel> {
     let mut bytes = Vec::with_capacity(request.body.len() + 256);
     let encoded = request.encode(&mut bytes).map_err(Error::Parcel);
-    request.body.fill(0);
+    wipe_bytes(&mut request.body);
     let result = encoded.and_then(|()| {
         let mut buf = [0u8; SECRET_REPLY];
         endpoint.call_bytes_with(&bytes, &mut buf, deadline)
     });
-    bytes.fill(0);
+    wipe_bytes(&mut bytes);
     let reply = result?;
     match error_field(&reply)? {
         Some(code) => Err(Error::Errno(-code)),
@@ -122,10 +122,18 @@ fn call_secret(endpoint: &Endpoint, mut request: Parcel, deadline: Option<u64>) 
     }
 }
 
+/// Scrub `bytes` with volatile writes so compiler optimizations cannot eliminate the zeroing.
+pub fn wipe_bytes(bytes: &mut [u8]) {
+    for byte in bytes.iter_mut() {
+        // SAFETY: `byte` is a valid, aligned, exclusive reference.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
+}
+
 /// Wipe a secret held in a `String` and drop it.
-fn wipe(text: String) {
+pub fn wipe(text: String) {
     let mut bytes = text.into_bytes();
-    bytes.fill(0);
+    wipe_bytes(&mut bytes);
 }
 
 /// A radio, as its one client sees it.
@@ -286,7 +294,7 @@ impl Radio {
             addr: addr.to_vec(),
         };
         let body = hw::encode_set_key_args(&args).map_err(Error::Parcel);
-        args.key.fill(0);
+        wipe_bytes(&mut args.key);
         let request = parcel(hw::INTERFACE_ID, hw::METHOD_SETKEY, body?, Vec::new());
         let deadline = Some(crate::sys::clock() + self.timeout);
         call_secret(&self.endpoint, request, deadline).map(|_| ())

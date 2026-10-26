@@ -410,7 +410,10 @@ fn passphrase(ssid: &str) -> core::result::Result<String, String> {
     }
     sys::write_str("\n");
     let text = core::str::from_utf8(&line[..len]).map(String::from);
-    line.fill(0);
+    for byte in line.iter_mut() {
+        // SAFETY: `byte` is a valid, aligned, exclusive reference.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
     text.map_err(|_| String::from("the passphrase is not valid UTF-8"))
 }
 

@@ -197,8 +197,7 @@ fn add_network(
 ) -> Result<String> {
     let result = add_checked(daemon, caller, wire, passphrase.as_deref());
     if let Some(text) = passphrase.take() {
-        let mut bytes = text.into_bytes();
-        bytes.fill(0);
+        wifi::wipe(text);
     }
     let profile = result?;
     sys::write_str(&alloc::format!(
