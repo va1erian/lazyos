@@ -113,7 +113,8 @@ fn a_link_in_the_stage_is_followed_and_a_broken_one_fails_the_build() {
 fn a_name_that_is_not_utf8_fails_the_build_naming_it() {
     let dir = staged("names", &["bin/lazyvm"]);
     #[cfg(unix)]
-    let name: std::ffi::OsString = std::os::unix::ffi::OsStrExt::from_bytes(b"bad\xff").into();
+    let name: std::ffi::OsString =
+        <std::ffi::OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(b"bad\xff").to_os_string();
     #[cfg(windows)]
     let name: std::ffi::OsString = std::os::windows::ffi::OsStringExt::from_wide(&[0x62, 0xD800]);
     std::fs::create_dir_all(dir.join("tests")).unwrap();
