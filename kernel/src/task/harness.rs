@@ -444,7 +444,9 @@ pub fn resume_delivery(slot: usize) -> bool {
     ended.is_some()
 }
 
+mod adopt;
 mod naphook;
+pub use adopt::{adopt, recorded_leader};
 pub(crate) use naphook::run_nap_hook;
 pub use naphook::{nap_hook_owner, set_nap_hook};
 

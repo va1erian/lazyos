@@ -37,8 +37,12 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
     // joins it, and must not read the first one's status as a signal.
     let (status, signaled) = with_signals(pml4, |state| {
         state.pending |= bit(SIGKILL);
-        if state.kill_at_ns == 0 {
+        // The first kill starts the watchdog's clock; one that follows an
+        // exec's de-thread (which started it too) starts it afresh.
+        let after_exec = state.exec_by != 0 && state.group_exit.is_none();
+        if state.kill_at_ns == 0 || after_exec {
             state.kill_at_ns = crate::arch::clock::monotonic_ns().max(1);
+            state.slow_reported = false;
         }
         if state.group_exit.is_none() {
             state.group_exit = Some(status);
@@ -77,8 +81,14 @@ fn kill_threads(pml4: u64, status: u64, signaled: bool) -> (u64, usize) {
             if crate::task::oncpu::elsewhere(slot) {
                 // Running on another CPU (S8.3c): its saved frame says
                 // nothing. Its own CPU's sweep ends it at its boundary (the
-                // kill is pending); ask that CPU to look now.
-                crate::task::kick::nudge(slot);
+                // kill is pending); ask that CPU to look now. One that has
+                // just parked there (blocked, not yet switched away) would
+                // sleep on with the kill pending: wake it.
+                if blocked {
+                    parked.push(slot);
+                } else {
+                    crate::task::kick::nudge(slot);
+                }
             } else if frame_is_user(task.rsp, FRAME_RIP_INDEX) {
                 if let Some(parent) = process::finish_locked(&mut tasks, slot, status) {
                     parents.push(parent);
@@ -126,9 +136,32 @@ pub fn end_process(pml4: u64, status: u64, signaled: bool) -> usize {
 /// rest of its process (see [`kill_process`]). Called at a delivery boundary
 /// on the way back to user mode, where the current task holds nothing.
 pub(super) fn exit_group(pml4: u64, status: u64) -> ! {
+    // A thread another thread's `execve` is ending goes alone: the process
+    // lives on in the new image.
+    if finish_exec_victim(current(), status) {
+        halt_forever()
+    }
     let status = kill_process(pml4, status);
     process::finish(current(), status);
     halt_forever()
+}
+
+/// End the current task's process for a fault of its own (`status` is
+/// `128 + signal`), or, when another thread's `execve` is ending this one,
+/// this thread alone: the exec wins, as on Linux, and the process lives on
+/// in the new image. Returns how many threads were finished at once.
+pub fn terminate_current(status: u64) -> usize {
+    let me = current();
+    if me == KERNEL_TASK {
+        return 0;
+    }
+    if finish_exec_victim(me, status) {
+        return 1;
+    }
+    match slot_info(me) {
+        Some((pml4, _)) => terminate_process(pml4, status),
+        None => 0,
+    }
 }
 
 /// Terminate the process `pml4`, recording `status` for every thread: the

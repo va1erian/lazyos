@@ -121,6 +121,18 @@ impl WaitQueue {
         if super::signal::frame_deferred(task) {
             return WakeReason::Interrupted;
         }
+        self.wait_killable_ns(task, deadline)
+    }
+
+    /// [`WaitQueue::wait_ns`] that only a kill (or the queue, or the
+    /// deadline) ends: a deferred handler frame waits for the caller's
+    /// syscall return. For a wait the caller must sit out whatever ordinary
+    /// signals arrive (`execve`'s wait for its other threads, as Linux's
+    /// killable sleep); returning early there would make it spin.
+    pub fn wait_killable_ns(&self, task: usize, deadline: Option<u64>) -> WakeReason {
+        if super::signal::killed(task) {
+            return WakeReason::Interrupted;
+        }
         self.park_ns(task, deadline);
         // Enter the scheduler through the voluntary gate: the saved context is
         // a regular interrupt frame, so resuming later lands right here with

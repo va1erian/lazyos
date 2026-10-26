@@ -36,6 +36,23 @@ syscall shim.
   threads are finished only at a user frame, the rest are woken to unwind
   and die at their syscall return, so a thread parked inside the kernel
   holding the filesystem's lock is never marked `Done` (core audit H5).
+- `execve` ends every other thread of the process before the new image runs
+  (`task::dethread`, `signal/execkill.rs`; Linux's `de_thread`), by the same
+  rule: each sibling gets `SIGKILL` in its *own* pending set, is finished at
+  once at a user frame and otherwise woken to unwind, and the exec'ing thread
+  waits on the child-exit queue until none is left. It is not a group exit:
+  no `group_exit` status, nothing for `wait4`. A victim that reaches a fatal
+  boundary (its syscall return, the sweep, its own `exit_group` or a fault)
+  ends alone while the process's `exec_by` names another thread; a kill of
+  the whole process during the wait wins and fails the `execve` (`EAGAIN`,
+  and the caller dies at its return), as does a second thread's `execve`.
+  The old table is freed by whichever of the exec and the reclamation of the
+  last finished sibling lets go of it last. The process keeps its pid: when a
+  thread other than the leader execs, the zombie leader moves to the new
+  address space with it (`set_pml4`) and keeps the pid, parent, group and
+  session, so `getpid` and the parent's `wait4` see one process whose exit
+  is the new image's. Unlike Linux the exec'ing thread keeps its own tid
+  (tids are scheduler slots).
 
 **ELF loading** (`process/loader.rs`, `elfhdr.rs`, `image.rs`)
 

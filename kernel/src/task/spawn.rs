@@ -227,8 +227,11 @@ pub fn spawn_thread_sharing(
         return Err("non-canonical user fs base");
     }
     let mut tasks = TASKS.lock();
-    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let creator = current();
+    if signal::creator_killed(&tasks, creator) {
+        return Err("the creating thread is being killed");
+    }
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     // The creator's leader, validated: a thread left over from a program that
     // exec'd must not hand its new thread a stale leader slot.
     let leader = family::leader_of(&tasks, creator);
@@ -332,8 +335,11 @@ pub fn spawn_fork() -> Result<usize, &'static str> {
 /// child's resume stack (`clone` provides one); `None` resumes on the parent's.
 pub(super) fn spawn_fork_inner(user_rsp: Option<u64>) -> Result<usize, &'static str> {
     let mut tasks = TASKS.lock();
-    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent_index = current();
+    if signal::creator_killed(&tasks, parent_index) {
+        return Err("the forking thread is being killed");
+    }
+    let (index, stack) = kstack::claim_slot(&tasks).map_err(kstack::ClaimError::message)?;
     let parent = tasks[parent_index].as_ref().ok_or("no parent task")?;
     let pml4 = parent.pml4;
     let fs_base = parent.fs_base;

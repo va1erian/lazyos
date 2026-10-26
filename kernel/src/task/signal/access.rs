@@ -194,13 +194,10 @@ pub fn killed(slot: usize) -> bool {
         return false;
     };
     // A lookup, not `with_signals`: every wait asks, and must not create
-    // registry entries for processes that never used signals.
-    peek(|procs, _| {
-        procs
-            .iter()
-            .find(|state| state.pml4 == pml4)
-            .is_some_and(|state| state.pending & bit(SIGKILL) != 0)
-    })
+    // registry entries for processes that never used signals. The thread's
+    // own set holds a kill only when another thread's `execve` ends it
+    // (`execkill`).
+    kill_pending(pml4, slot)
 }
 
 /// Whether the timer sweep left a handler for thread `slot` undelivered
