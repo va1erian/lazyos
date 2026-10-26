@@ -113,8 +113,10 @@ pub use txn::expire_deadlines;
 use txn::*;
 pub use types::*;
 
-/// Largest number of live channels.
-pub const MAX_CHANNELS: usize = 64;
+/// Largest number of live channels. A regular uid may hold a quarter of
+/// them (`Resource::Channels`), as many as the whole system had before that
+/// quota existed.
+pub const MAX_CHANNELS: usize = 256;
 /// Largest number of messages parked in one endpoint's inbox.
 pub const MAX_QUEUE_DEPTH: usize = 64;
 /// Largest number of parcel bytes parked in one endpoint's inbox.
@@ -168,7 +170,7 @@ pub mod harness;
 /// Callers that drive both sides themselves (tests, bootstrap) can use the
 /// pair directly.
 pub fn create() -> Result<(u64, u64), Error> {
-    let channel_id = insert_channel()?;
+    let channel_id = insert_channel(task::current())?;
     let first = match handles::open(HandleKind::Channel, rights::ALL, object_id(channel_id, 0)) {
         Ok(handle) => handle,
         Err(error) => {
@@ -189,23 +191,72 @@ pub fn create() -> Result<(u64, u64), Error> {
 /// Take a registry slot for a fresh channel. A full registry first gives back
 /// the ends nobody can reach any more ([`reclaim::reclaim_unreachable`]) and
 /// tries once more, so a leak of unreachable channels costs slots only until
-/// the next create.
-fn insert_channel() -> Result<u64, Error> {
-    insert_channel_with(fresh_channel)
+/// the next create. The channel is charged to `owner`'s uid
+/// (`Resource::Channels`), and a full quota reclaims the same way: a uid's
+/// leaks fill its share long before the table. A reclaim walks every handle
+/// table, so a quota refusal runs one at most every [`QUOTA_RECLAIM_TICKS`];
+/// a uid at its cap cannot repeat the walk at will.
+fn insert_channel(owner: usize) -> Result<u64, Error> {
+    insert_channel_with(owner, fresh_channel)
 }
 
 /// [`insert_channel`] for a channel `build` makes (an interrupt channel marks
 /// one side as the kernel's).
-fn insert_channel_with(build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
+fn insert_channel_with(owner: usize, build: impl Fn(u64) -> Channel) -> Result<u64, Error> {
     // The guard is a temporary of its own statement: `reclaim` locks the
     // registry again.
-    let first = CHANNELS.lock().insert(&build);
-    match first {
+    let first = CHANNELS.lock().insert(owner, &build);
+    let result = match first {
         Err(Error::RegistryFull) if reclaim::reclaim_unreachable() > 0 => {
-            CHANNELS.lock().insert(&build)
+            CHANNELS.lock().insert(owner, &build)
+        }
+        Err(Error::ChannelQuota) if quota_reclaim_due() && reclaim::reclaim_unreachable() > 0 => {
+            CHANNELS.lock().insert(owner, &build)
         }
         other => other,
+    };
+    if result == Err(Error::ChannelQuota) {
+        note_channel_quota(owner);
     }
+    result
+}
+
+/// Ticks between two reclaims a quota refusal may run (100 ms).
+const QUOTA_RECLAIM_TICKS: u64 = 10;
+/// The tick from which the next quota refusal may reclaim.
+static NEXT_QUOTA_RECLAIM: AtomicU64 = AtomicU64::new(0);
+
+/// Whether a quota refusal may run a reclaim now; takes the turn if so.
+fn quota_reclaim_due() -> bool {
+    let now = task::ticks();
+    if now < NEXT_QUOTA_RECLAIM.load(Ordering::Relaxed) {
+        return false;
+    }
+    NEXT_QUOTA_RECLAIM.store(now + QUOTA_RECLAIM_TICKS, Ordering::Relaxed);
+    true
+}
+
+/// Refused creates over the channel quota, a line each while it lasts.
+static QUOTA_REFUSALS: tracefmt::Budget = tracefmt::Budget::new(20, 1000);
+
+/// Print `MSG:QUOTA:CHANNELS` for a create refused over `owner`'s channel
+/// quota: the caller only sees `ENOMEM`, so the log names the uid and what
+/// it holds. Call it with no lock held.
+fn note_channel_quota(owner: usize) {
+    match QUOTA_REFUSALS.charge(task::ticks()) {
+        tracefmt::Charge::Deny => return,
+        tracefmt::Charge::AllowAfter(n) => {
+            crate::trace::line!(tracefmt::Channel::Msg, "QUOTA:SUPPRESSED n={n}");
+        }
+        tracefmt::Charge::Allow => {}
+    }
+    let uid = credentials::of(owner).uid;
+    crate::trace::line!(
+        tracefmt::Channel::Msg,
+        "QUOTA:CHANNELS uid={uid} slot={owner} held={} limit={}",
+        quota::usage(uid, Resource::Channels),
+        quota::limit(uid, Resource::Channels)
+    );
 }
 
 /// Send a one-way message (section 7.1): enqueue and return immediately.

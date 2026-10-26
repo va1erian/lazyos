@@ -25,11 +25,14 @@ pub enum Resource {
     DeviceClaims,
     /// Bytes of contiguous DMA pool memory held by the uid (issue #241).
     DmaMemory,
+    /// Live Messenger channels the uid's tasks created (a slot each in the
+    /// kernel's channel table).
+    Channels,
 }
 
 impl Resource {
     /// Number of resources; sizes every per-resource array and the ABI block.
-    pub const COUNT: usize = 9;
+    pub const COUNT: usize = 10;
     /// Every resource, in discriminant order (the ABI order).
     pub const ALL: [Resource; Resource::COUNT] = [
         Resource::KernelMemory,
@@ -41,6 +44,7 @@ impl Resource {
         Resource::CpuTicks,
         Resource::DeviceClaims,
         Resource::DmaMemory,
+        Resource::Channels,
     ];
 
     /// Index into the per-resource arrays.
@@ -60,6 +64,7 @@ impl Resource {
             Resource::CpuTicks => "CPU",
             Resource::DeviceClaims => "device claims",
             Resource::DmaMemory => "DMA memory",
+            Resource::Channels => "Messenger channels",
         }
     }
 
@@ -75,6 +80,7 @@ impl Resource {
             Resource::QueueDepth => "messages",
             Resource::CpuTicks => "ticks",
             Resource::DeviceClaims => "claims",
+            Resource::Channels => "channels",
         }
     }
 }
@@ -92,7 +98,9 @@ impl Resource {
 ///   capped" until CPU shares get a real policy; past it the uid's tasks are
 ///   deprioritised, see `quota::cpu`);
 /// * 8 device claims;
-/// * DMA memory: half the DMA pool, at least 8 MiB.
+/// * DMA memory: half the DMA pool, at least 8 MiB;
+/// * a quarter of the kernel's channel table, so one user cannot take every
+///   channel slot from the others.
 pub fn default_limits_regular() -> [u64; Resource::COUNT] {
     use crate::limits::{self, Id};
     let pool = limits::dma_pool_bytes(limits::ram_bytes());
@@ -106,6 +114,7 @@ pub fn default_limits_regular() -> [u64; Resource::COUNT] {
         1 << 32,
         8,
         (pool / 2).max(8 << 20),
+        (crate::ipc::channels::MAX_CHANNELS / 4) as u64,
     ]
 }
 

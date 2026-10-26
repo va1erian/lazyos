@@ -76,7 +76,11 @@ Ops: 1-7 `CALL`, `REPLY`, `SEND`, `RECV`, `CANCEL`, `CLOSE_ENDPOINT`,
   the handle is dropped and the side closes only if no other handle names it
   (teardown semantics), instead of ending the side for every holder. A receiver
   that was handed someone else's endpoint must release, not close (networking
-  plan N2: `netdrv` was closing `netd`'s service endpoint).
+  plan N2: `netdrv` was closing `netd`'s service endpoint). Ending the side
+  for every holder needs the handle's `CONTROL` right: name resolution hands
+  out the published rights less `CONTROL`, so a client's plain close of a
+  resolved handle is a release too, and cannot hang up the service on every
+  other client.
 - `RECV` takes a flags word too. `RECV_SENDER_ID` (1) also writes the sender's
   credentials to `parcel_ptr`: `uid, gid, label_id, session, caps` as
   little-endian `u64` words (40 bytes), stamped from the sender's credentials

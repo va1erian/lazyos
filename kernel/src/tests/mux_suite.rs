@@ -69,8 +69,30 @@ pub fn wrap_keeps_every_byte() -> Result<(), String> {
     Ok(())
 }
 
+/// A program's escape counts are bounded: a count past `usize` saturates
+/// instead of overflowing, and a huge cursor-left empties the line at once
+/// instead of looping once per unit (audit #2).
+pub fn escape_counts_are_bounded() -> Result<(), String> {
+    use crate::task::{parse_count, strip_ansi};
+    check!(parse_count(b"") == 1, "empty count");
+    check!(parse_count(b"12") == 12, "plain count");
+    let huge = parse_count(b"99999999999999999999999999");
+    check!(huge > 1000 && huge < usize::MAX, "huge count {huge}");
+    let mut out = alloc::vec::Vec::new();
+    strip_ansi(b"hello\x1b[2Dxy", &mut out);
+    check!(out == b"helxy", "cursor-left: {:?}", out);
+    // Unbounded, this overflowed (a panic) or popped ~1e19 times.
+    strip_ansi(b"\x1b[99999999999999999999999Dz", &mut out);
+    check!(out == b"z", "huge cursor-left: {:?}", out);
+    Ok(())
+}
+
 pub(super) const CASES: &[(&str, Test)] = &[
     ("mux_layout_widths", layout_widths),
     ("mux_layout_bounds", layout_bounds),
     ("mux_wrap_keeps_every_byte", wrap_keeps_every_byte),
+    (
+        "console_escape_counts_are_bounded",
+        escape_counts_are_bounded,
+    ),
 ];

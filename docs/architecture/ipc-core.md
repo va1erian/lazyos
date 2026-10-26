@@ -32,7 +32,7 @@ userspace never names another task's handles.
 
 | Limit | Value |
 |---|---|
-| `MAX_CHANNELS` | 64 |
+| `MAX_CHANNELS` | 256 (a regular uid may hold a quarter: `Resource::Channels`, charged to the uid of the task the channel is created for, the client for `connect`) |
 | `MAX_QUEUE_DEPTH` / `MAX_QUEUE_BYTES` per endpoint | 64 / 1 MiB |
 | `MAX_OUTSTANDING` per channel / `MAX_PENDING_PER_SENDER` | 64 / 16 (a sender's pending calls **and** its ended ones nobody has collected yet: a reply waits, up to a parcel long, until its caller awaits it, and its bytes are charged to the caller's user queue quota meanwhile; a reply over that quota fails the call with a timeout and the replier with `QuotaExceeded`) |
 
@@ -41,7 +41,7 @@ userspace never names another task's handles.
   `call`, `reply`, `cancel`, `close_endpoint`, `try_recv`/`recv`, `stats`.
 - **Registry and ids** (P6.3, `channels/registry.rs`): channels live in a
   fixed table of `MAX_CHANNELS` slots. A channel id is a never-repeating
-  sequence number above the slot index (low 6 bits), and a transaction id
+  sequence number above the slot index (low 8 bits), and a transaction id
   carries its channel's slot the same way, so finding a channel or a
   transaction is one index and one comparison; a stale id never matches a
   reused slot. Endpoint waiter lists are slot bitsets (no allocation).

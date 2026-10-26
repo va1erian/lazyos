@@ -8,7 +8,7 @@
 
 use crate::{nr, value};
 
-/// Words in the buffer the call is given: room for 32 resources, where the kernel has 9.
+/// Words in the buffer the call is given: room for 32 resources, where the kernel has 10.
 pub const WORDS_MAX: usize = 64;
 
 /// `Resource::UserMemory`'s index in the wire order.
@@ -25,7 +25,7 @@ pub struct Charge {
 /// resource zero.
 pub fn stats() -> Result<[u64; WORDS_MAX], i64> {
     let mut words = [0u64; WORDS_MAX];
-    // SAFETY: the kernel writes `quota::STATS_WORDS` (`Resource::COUNT * 2`, 18 today) words,
+    // SAFETY: the kernel writes `quota::STATS_WORDS` (`Resource::COUNT * 2`, 20 today) words,
     // far fewer than `WORDS_MAX`.
     let code = unsafe { crate::raw::syscall1(nr::QUOTA, words.as_mut_ptr() as u64) };
     value(code)?;

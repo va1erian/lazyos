@@ -89,6 +89,44 @@ impl Owners {
     }
 }
 
+/// Bytes copied between interrupt windows when a shrink moves a file.
+const COPY_CHUNK: usize = 1 << 20;
+
+/// The allocation a file of `new_len` bytes keeps when it held `held`: its
+/// length when it grows (an exact reservation) or falls under half of what
+/// it holds (the rest goes back to the heap), else the same allocation. The
+/// hysteresis keeps a file shrunk in small steps from being copied each time.
+fn held_after(held: usize, new_len: usize) -> usize {
+    if new_len > held || new_len.saturating_mul(2) < held {
+        new_len
+    } else {
+        held
+    }
+}
+
+/// Cut `data` to `len` bytes and give the rest of its allocation back. The
+/// copy into an exact-size buffer is fallible (`Vec::shrink_to` would abort
+/// on a failed reallocation): without the room the file is cut in place and
+/// keeps its allocation (and its charge). The copy runs in chunks with
+/// interrupt windows between them: the caller holds the ramfs lock, which a
+/// window does not need.
+fn shrink_data(data: &mut Vec<u8>, len: usize) {
+    if len == 0 {
+        *data = Vec::new();
+        return;
+    }
+    let mut kept = Vec::new();
+    if kept.try_reserve_exact(len).is_err() {
+        data.truncate(len);
+        return;
+    }
+    for chunk in data[..len].chunks(COPY_CHUNK) {
+        kept.extend_from_slice(chunk);
+        crate::arch::irq_window::poll_point();
+    }
+    *data = kept;
+}
+
 impl RamFs {
     /// What `uid` owns in this filesystem.
     #[cfg(lazyos_tests)]
@@ -101,31 +139,43 @@ impl RamFs {
     /// `try_reserve_exact`, so running out of heap is `ENOSPC` rather than an
     /// allocation-failure abort. The accounting only moves once the
     /// allocation succeeded.
+    ///
+    /// The caps count a file's allocation (`Vec::capacity`), not its length:
+    /// a truncated file that kept its buffer would otherwise hold heap the
+    /// caps no longer see, and growing one file to the cap, truncating it and
+    /// growing the next would exhaust the kernel heap. A shrink gives the
+    /// heap back once the file falls under half of it ([`held_after`]).
     pub(super) fn resize_file(inner: &mut Inner, ino: u64, new_len: usize) -> Result<(), FsError> {
-        let (old_len, owner) = {
+        let (old_len, old_held, owner) = {
             let node = &inner.nodes[&ino];
-            (node.data.len(), node.owner())
+            (node.data.len(), node.data.capacity(), node.owner())
         };
-        let total = inner.bytes - old_len;
-        match total.checked_add(new_len) {
+        let new_held = held_after(old_held, new_len);
+        let total = inner.bytes - old_held;
+        match total.checked_add(new_held) {
             Some(next) if next <= inner.max_bytes => {}
             _ => return Err(FsError::NoSpace),
         }
-        if new_len > old_len {
-            inner.owners.admit(owner, new_len - old_len, 0)?;
+        if new_held > old_held {
+            inner.owners.admit(owner, new_held - old_held, 0)?;
         }
         let node = Self::node_mut(inner, ino);
         if new_len > old_len {
             node.data
                 .try_reserve_exact(new_len - old_len)
                 .map_err(|_| FsError::NoSpace)?;
-        }
-        node.data.resize(new_len, 0); // zero-fills a sparse gap
-        inner.bytes = total + new_len;
-        if new_len > old_len {
-            inner.owners.add(owner, new_len - old_len, 0);
+            node.data.resize(new_len, 0); // zero-fills a sparse gap
+        } else if new_held < old_held {
+            shrink_data(&mut node.data, new_len);
         } else {
-            inner.owners.sub(owner, old_len - new_len, 0);
+            node.data.truncate(new_len);
+        }
+        let held = node.data.capacity();
+        inner.bytes = total + held;
+        if held > old_held {
+            inner.owners.add(owner, held - old_held, 0);
+        } else {
+            inner.owners.sub(owner, old_held - held, 0);
         }
         Ok(())
     }
@@ -187,9 +237,11 @@ impl RamFs {
 
     /// Account for a node that left the tree.
     pub(super) fn forget_node(inner: &mut Inner, removed: &Node) {
-        inner.bytes -= removed.data.len();
+        inner.bytes -= removed.data.capacity();
         inner.live -= 1;
-        inner.owners.sub(removed.owner(), removed.data.len(), 1);
+        inner
+            .owners
+            .sub(removed.owner(), removed.data.capacity(), 1);
     }
 
     /// Move node `ino`'s charge to `new_owner` ahead of a `chown`. The
@@ -199,7 +251,7 @@ impl RamFs {
     pub(super) fn move_charge(inner: &mut Inner, ino: u64, new_owner: u32) -> Result<(), FsError> {
         let (old_owner, bytes) = {
             let node = &inner.nodes[&ino];
-            (node.owner(), node.data.len())
+            (node.owner(), node.data.capacity())
         };
         if old_owner == new_owner {
             return Ok(());

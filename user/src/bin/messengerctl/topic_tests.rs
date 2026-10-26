@@ -7,7 +7,7 @@ use libmessenger::{Decoder, Encoder, Header, Kind, Parcel, VERSION};
 use user::messenger::{self, topics_client};
 
 /// Friendly text for a Messenger API error.
-fn err_text(error: messenger::Error) -> String {
+pub(crate) fn err_text(error: messenger::Error) -> String {
     String::from(error.message())
 }
 

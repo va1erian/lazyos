@@ -217,7 +217,8 @@ pub(super) fn sys_mremap(
     }
     if vma.reserve {
         quota::release_for_slot(task::current(), Resource::UserMemory, dropped.charged);
-    } else if new_len < old_len && !matches!(vma.kind, Kind::Shared | Kind::FileImage) {
+    } else if new_len < old_len && !matches!(vma.kind, Kind::Shared | Kind::FileImage | Kind::Stack)
+    {
         quota::release_for_slot(task::current(), Resource::UserMemory, old_len - new_len);
     }
     if !fixed_elsewhere {

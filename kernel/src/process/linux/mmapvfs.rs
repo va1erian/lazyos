@@ -43,8 +43,9 @@ pub(super) struct Gone {
 }
 
 /// The quota `vma` holds in `table`, counted before its pages are unmapped.
+/// Stacks hold none: the loaders map them uncharged.
 pub(super) fn held(table: PhysAddr, vma: &vma::Vma) -> u64 {
-    if matches!(vma.kind, Kind::Shared | Kind::FileImage) {
+    if matches!(vma.kind, Kind::Shared | Kind::FileImage | Kind::Stack) {
         0
     } else if vma.reserve {
         crate::mem::resident_pages(table, vma.start, vma.end) * PAGE

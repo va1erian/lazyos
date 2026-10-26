@@ -45,7 +45,8 @@ pub const DEFAULT_MAX_NODES: usize = 4096;
 struct Inner {
     next_ino: u64,
     nodes: BTreeMap<u64, Node>,
-    /// Sum of every file's `data.len()`, so the overlay can enforce a byte cap
+    /// Sum of every file's `data.capacity()` (the heap it holds, see
+    /// `space::resize_file`), so the overlay can enforce a byte cap
     /// without walking the tree.
     bytes: usize,
     /// Number of live nodes (including the root), for the overlay's node cap.

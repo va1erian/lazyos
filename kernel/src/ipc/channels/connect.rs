@@ -39,7 +39,9 @@ pub fn connect(
     }
     let parcel = validate_parcel(&notice)?;
     let (method, parcel_flags) = (parcel.header.method, parcel.header.flags);
-    let channel_id = insert_channel()?;
+    // The client's channel, charged to the client (`messengerd` may be the
+    // one asking on its behalf).
+    let channel_id = insert_channel(client)?;
     let undo_channel = || {
         CHANNELS.lock().remove(channel_id);
     };

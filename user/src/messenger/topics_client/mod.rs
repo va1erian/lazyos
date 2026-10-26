@@ -101,18 +101,22 @@ impl Qos {
         }
     }
 
+    /// A `Buffered` depth as the broker uses it: at least one, at most
+    /// [`Qos::MAX_DEPTH`].
+    pub const fn clamp_depth(depth: u32) -> u32 {
+        if depth == 0 {
+            1
+        } else if depth > Self::MAX_DEPTH {
+            Self::MAX_DEPTH
+        } else {
+            depth
+        }
+    }
+
     /// The effective queue depth (clamped to at least one).
     pub const fn depth(self) -> u32 {
         match self {
-            Qos::Buffered(depth) => {
-                if depth == 0 {
-                    1
-                } else if depth > Self::MAX_DEPTH {
-                    Self::MAX_DEPTH
-                } else {
-                    depth
-                }
-            }
+            Qos::Buffered(depth) => Self::clamp_depth(depth),
             Qos::Reliable => Self::RELIABLE_DEPTH,
             Qos::Conflate => Self::CONFLATE_WINDOW,
             Qos::Latest => 1,
@@ -120,10 +124,12 @@ impl Qos {
     }
 
     /// Decode `(code, depth)` from the wire, or `None` for an unknown code.
+    /// The depth is any client's number, so it is clamped here
+    /// ([`Qos::clamp_depth`]): the broker queues at most [`Qos::MAX_DEPTH`].
     pub fn from_parts(code: u32, depth: u32) -> Option<Qos> {
         match code {
             generated::QOS_LATEST => Some(Qos::Latest),
-            generated::QOS_BUFFERED => Some(Qos::Buffered(depth)),
+            generated::QOS_BUFFERED => Some(Qos::Buffered(Qos::clamp_depth(depth))),
             generated::QOS_CONFLATE => Some(Qos::Conflate),
             generated::QOS_RELIABLE => Some(Qos::Reliable),
             _ => None,

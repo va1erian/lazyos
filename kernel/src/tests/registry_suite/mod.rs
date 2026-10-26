@@ -173,10 +173,12 @@ fn dispatch(op: u64, args: &MsgArgs) -> (u64, MsgResult) {
 }
 
 mod acl_and_proxy;
+mod close_rights;
 mod connect_op;
 mod register_and_resolve;
 
 pub(super) use acl_and_proxy::*;
+pub(super) use close_rights::*;
 pub(super) use connect_op::*;
 pub(super) use register_and_resolve::*;
 
@@ -200,4 +202,9 @@ pub(super) const CASES: &[(&str, Test)] = &[
     ),
     ("ipc_registry_syscall_roundtrip", syscall_roundtrip),
     ("ipc_registry_syscall_connect", syscall_connect),
+    (
+        "ipc_registry_resolved_close_keeps_the_service",
+        resolved_close_keeps_the_service,
+    ),
+    ("ipc_registry_resolved_close_soak", resolved_close_soak),
 ];

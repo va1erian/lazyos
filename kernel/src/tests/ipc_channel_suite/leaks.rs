@@ -10,7 +10,7 @@ use alloc::vec;
 use libmessenger::Object;
 
 /// Send `payload_end` over `via`.
-fn send_end(via: u64, payload_end: u64) -> Result<(), String> {
+pub(super) fn send_end(via: u64, payload_end: u64) -> Result<(), String> {
     let bytes = parcel_with_objects(1, "end", vec![Object::Channel(payload_end)])?;
     channels::send(via, &bytes).map_err(reason)
 }
@@ -241,7 +241,8 @@ pub fn uncollected_outcomes_soak() -> Result<(), String> {
 pub fn full_registry_reclaims_and_spares_kernel_sides() -> Result<(), String> {
     fresh()?;
     let (_, irq) = channels::create_irq_channel().map_err(reason)?;
-    for round in 0..200u32 {
+    // Three tables' worth, so the registry fills and reclaims several times.
+    for round in 0..(channels::MAX_CHANNELS as u32 * 3) {
         let (a0, a1) = channels::create()
             .map_err(|error| format!("round {round}: create: {}", error.message()))?;
         send_end(a0, a1)?;

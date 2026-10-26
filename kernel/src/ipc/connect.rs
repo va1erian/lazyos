@@ -30,7 +30,7 @@ pub fn connect(client: usize, name: &str) -> Result<u64, Error> {
     channels::connect(object_id, client, rights, notice).map_err(|error| match error {
         // The name's endpoint is gone or no longer served.
         ChannelError::InvalidHandle | ChannelError::PeerDied => Error::UnknownName,
-        ChannelError::RegistryFull => Error::RegistryFull,
+        ChannelError::RegistryFull | ChannelError::ChannelQuota => Error::RegistryFull,
         _ => Error::NoResources,
     })
 }

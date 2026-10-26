@@ -302,9 +302,11 @@ pub(super) fn sys_brk(addr: u64) -> u64 {
         }
         crate::mem::vma::insert(table, current, new, Prot::READ | Prot::WRITE, Kind::Heap);
     } else if new < current {
-        crate::mem::vma::remove(table, new, current);
-        crate::mem::unmap_range(table, new, current);
-        quota::release_for_slot(task::current(), Resource::UserMemory, current - new);
+        // Give back what the range still holds, not `current - new`: a
+        // `munmap` inside the heap already returned its part, and releasing
+        // it twice would drain the space's other charges.
+        let gone = unmap_vmas(table, new, current, true);
+        quota::release_for_slot(task::current(), Resource::UserMemory, gone.charged);
     }
     task::set_brk(new);
     new

@@ -39,7 +39,7 @@ pub const IRQ_SIDE: usize = 1;
 /// and the task's handle to its receiving side ([`IRQ_SIDE`]), which carries
 /// `CALL` (receive and wait) and nothing else.
 pub fn create_irq_channel() -> Result<(u64, u64), Error> {
-    let channel_id = insert_channel_with(|id| {
+    let channel_id = insert_channel_with(crate::task::current(), |id| {
         let mut channel = fresh_channel(id);
         channel.endpoints[KERNEL_SIDE].kernel_held = true;
         channel

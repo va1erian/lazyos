@@ -76,8 +76,16 @@ pub fn forget_task(slot: usize) {
 ///
 /// Messages already queued for the surviving side stay deliverable; once that
 /// inbox drains, `recv`/`try_recv` report `PeerDied` too.
+///
+/// Ending the side for everyone takes `CONTROL`. Name resolution hands out
+/// handles without it (every client aliases the service's side), so such a
+/// close only releases the caller's own handle: one client cannot hang up a
+/// service on all the others.
 pub fn close_endpoint(handle: u64) -> Result<(), Error> {
-    close_endpoint_for(task::current(), handle, false)
+    let slot = task::current();
+    let control = handles::get_for_task(slot, handle)
+        .is_ok_and(|entry| entry.rights & handles::rights::CONTROL != 0);
+    close_endpoint_for(slot, handle, !control)
 }
 
 /// Release the caller's handle to an endpoint, closing the side only if no
