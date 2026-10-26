@@ -230,6 +230,7 @@ def source_tree(dep: wkpins.Dep) -> Path:
             base.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(archive) as zf:
                 zf.extractall(base)
+            toolenv.one_time(tree)
             mark.write_text("ok\n")
     else:
         tree = toolenv.extract(archive, dep.source, base)

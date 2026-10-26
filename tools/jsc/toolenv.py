@@ -16,6 +16,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pins
@@ -114,8 +115,25 @@ def extract(archive: Path, source: pins.Source, into: Path) -> Path:
     # or changed patch, `port_tree.py`) then rebuilds every object: with the archive's old times, a file a
     # removed patch had changed looked older than its object and kept the patched build.
     run(["tar", "-m", "-xf", str(archive), "-C", str(into)], into, f"extracting {archive.name}")
+    one_time(tree)
     mark.write_text("ok\n")
     return tree
+
+
+def one_time(tree: Path) -> None:
+    """Give every file in `tree` the same time.
+
+    `tar -m` stamps files in archive order, so an autotools tree can end up with `aclocal.m4` or
+    `Makefile.in` a moment older than the `configure.ac` it came from, and `make` then reruns the
+    maintainer's exact automake (fontconfig: `aclocal-1.17: command not found`). Equal times are up
+    to date for `make` and still newer than any object built from an earlier extraction.
+    """
+    now = time.time()
+    for root, dirs, files in os.walk(tree):
+        for name in files + dirs:
+            path = os.path.join(root, name)
+            if not os.path.islink(path):
+                os.utime(path, (now, now))
 
 
 def apply_patches(tree: Path, group: str) -> list[str]:
