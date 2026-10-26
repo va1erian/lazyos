@@ -53,14 +53,15 @@ def _glstub(_tree: Path, jobs: int) -> None:
     work.mkdir(parents=True)
     run([sys.executable, str(GLSTUB / "gen_stub.py"), str(angle), str(work)], work, "glstub generate")
     wrap = toolenv.wrappers()
+    into = buildkit.staged_prefix()
+    (into / "lib" / "pkgconfig").mkdir(parents=True, exist_ok=True)
     for name, lib in (("egl_stub", "libEGL.a"), ("gles_stub", "libGLESv2.a")):
         run([wrap["zcc"], *toolenv.CODEGEN, f"-I{angle}", "-c", str(work / f"{name}.c"), "-o", str(work / f"{name}.o")],
             work, f"glstub compile {name}")
-        run([wrap["zar"], "rcs", str(PREFIX / "lib" / lib), str(work / f"{name}.o")], work, f"glstub archive {lib}")
+        run([wrap["zar"], "rcs", str(into / "lib" / lib), str(work / f"{name}.o")], work, f"glstub archive {lib}")
     for directory in HEADER_DIRS:
-        shutil.copytree(angle / directory, PREFIX / "include" / directory, dirs_exist_ok=True)
-    pc = PREFIX / "lib" / "pkgconfig"
-    pc.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(angle / directory, into / "include" / directory, dirs_exist_ok=True)
+    pc = into / "lib" / "pkgconfig"
     (pc / "egl.pc").write_text(PKGCONFIG.format(prefix=PREFIX, name="egl", lib="EGL",
                                                   description="EGL stand-in (no display)"))
     (pc / "glesv2.pc").write_text(PKGCONFIG.format(prefix=PREFIX, name="glesv2", lib="GLESv2",
@@ -70,7 +71,8 @@ def _glstub(_tree: Path, jobs: int) -> None:
 def _libwpe(tree: Path, jobs: int) -> None:
     buildkit.cmake_build("libwpe", tree, LIBWPE, jobs)
     # libwpe names only its shared library `libwpe-1.0`, but wpe-1.0.pc asks for -lwpe-1.0.
-    shutil.copy(PREFIX / "lib" / "libwpe.a", PREFIX / "lib" / "libwpe-1.0.a")
+    lib = buildkit.staged_prefix() / "lib"
+    shutil.copy(lib / "libwpe.a", lib / "libwpe-1.0.a")
 
 
 register(Lib("glstub", [], {"gen": _digest()}, _glstub, own_tree=True,
