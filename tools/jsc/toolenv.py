@@ -115,12 +115,12 @@ def extract(archive: Path, source: pins.Source, into: Path) -> Path:
     # or changed patch, `port_tree.py`) then rebuilds every object: with the archive's old times, a file a
     # removed patch had changed looked older than its object and kept the patched build.
     run(["tar", "-m", "-xf", str(archive), "-C", str(into)], into, f"extracting {archive.name}")
-    _one_time(tree)
+    one_time(tree)
     mark.write_text("ok\n")
     return tree
 
 
-def _one_time(tree: Path) -> None:
+def one_time(tree: Path) -> None:
     """Give every file in `tree` the same time.
 
     `tar -m` stamps files in archive order, so an autotools tree can end up with `aclocal.m4` or

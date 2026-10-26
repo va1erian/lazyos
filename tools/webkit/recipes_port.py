@@ -75,7 +75,8 @@ def _libwpe(tree: Path, jobs: int) -> None:
     shutil.copy(lib / "libwpe.a", lib / "libwpe-1.0.a")
 
 
-register(Lib("glstub", [], {"gen": _digest()}, _glstub, own_tree=True,
+# "staged": glstub once wrote into the prefix past its stage, so a stamp from then lists no files.
+register(Lib("glstub", [], {"gen": _digest(), "staged": True}, _glstub, own_tree=True,
              extra={"version": "Khronos headers of WebKitGTK 2.54.1 ThirdParty/ANGLE",
                     "source_sha": wkpins.jsc_pins.WEBKIT.sha256,
                     "info": {"license": "MIT", "why": "link-time stand-in for EGL and GLESv2"}}))
