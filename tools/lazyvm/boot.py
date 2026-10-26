@@ -23,7 +23,9 @@ BOOT_SECONDS = 300
 #: Seconds without a marker line after which a run that is not inside a command's
 #: timeout has stalled.
 IDLE_SECONDS = 60
-#: The fixture's grace after a program exits or is killed, twice (`GRACE` in lazyvm.rs).
+#: Slack for the fixture's own waits after a program exits or is killed (`GRACE` in
+#: lazyvm.rs). A longer drain (`DRAIN`) keeps sending DATA lines, which count as
+#: progress, so `IDLE_SECONDS` never cuts it short.
 GUEST_GRACE = 10
 POLL = 0.2
 
