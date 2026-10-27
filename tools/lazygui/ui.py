@@ -119,6 +119,7 @@ class Launcher:
                        "1 GiB more OS volume)", "rustc")
         self._check(g, "JavaScriptCore jsc shell, built in Docker (LAZYOS_JSC; run_demo --jsc; "
                        "big-app profile)", "jsc")
+        self._check(g, "LazyVM stage at /system/lazyvm (LAZYOS_LAZYVM; run_demo --lazyvm)", "lazyvm")
         self._check(g, "WebKit dependency bundle: depsproof, built in Docker (LAZYOS_WEBKIT_DEPS; "
                        "run_demo --webkit-deps; implies networking and the big-app profile)", "webkit_deps")
         self._check(g, "WebKit port proof: WebProcess, NetworkProcess, webkit-smoke, built in Docker "

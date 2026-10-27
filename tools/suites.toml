@@ -50,7 +50,7 @@ flags = ["srb2kart"]
 [test_only]
 description = "Switches for tests, harnesses and development only."
 flags = [
-    "jsc", "webkit-deps", "webkit-port", "rustc",
+    "jsc", "webkit-deps", "webkit-port", "rustc", "lazyvm",
     "traydemo", "wifi", "wifi-sim", "intelgfx",
     # Every desktop (so `base`) already ships webd, for Docs and Mail (docs/webd-plan.md P3): `webd` only makes
     # that required, `no-webd` leaves it out and `webd-demo` adds its test clients (webddemo, webdbrowse, webdattack).

@@ -42,6 +42,15 @@ pub const SYSTEM_SHARE: &str = "/system/share";
 /// downloads (`LAZYOS_WIFI=1` images).
 pub const FIRMWARE: &str = "/system/share/firmware";
 
+/// LazyVM, the Java 8 bytecode VM (`LAZYOS_LAZYVM=1`, docs/agents/lazyvm.md): the image
+/// build copies LazyVM's staging tree here as it is, so its programs are under `bin/`
+/// (`bin/lazyvm`, executable), its class library under `lib/` and its tests under `tests/`.
+pub const LAZYVM: &str = "/system/lazyvm";
+
+/// The command list `tools/lazyvm/run.py` hands the boot (`LAZYOS_LAZYVM_COMMANDS`): one
+/// command per line, which the `lazyvm` ABI fixture runs in order.
+pub const LAZYVM_COMMANDS: &str = "/system/lazyvm/commands";
+
 /// Core packages: one `<system_name>.lzp` per app the image ships, which
 /// `pkgd` installs into `/apps` at startup (`pkgstore::provision`).
 pub const SYSTEM_PACKAGES: &str = "/system/packages";
@@ -75,5 +84,7 @@ mod tests {
         assert_eq!(RUSTLIB.strip_prefix(SYSTEM_LIB), Some("/rustlib"));
         assert!(PACKAGES_INDEX.starts_with(SYSTEM_PACKAGES));
         assert_eq!(FIRMWARE.strip_prefix(SYSTEM_SHARE), Some("/firmware"));
+        assert_eq!(LAZYVM.strip_prefix(SYSTEM), Some("/lazyvm"));
+        assert_eq!(LAZYVM_COMMANDS.strip_prefix(LAZYVM), Some("/commands"));
     }
 }

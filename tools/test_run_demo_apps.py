@@ -200,5 +200,25 @@ class NetbootTests(RunDemoCase):
         self.assertNotIn("LAZYOS_NETBOOT", self.builds[-1])
 
 
+class LazyVmTests(RunDemoCase):
+    """`--lazyvm`: LazyVM's stage at /system/lazyvm (docs/agents/lazyvm.md)."""
+
+    def test_lazyvm_sets_the_switch_when_the_stage_is_there(self) -> None:
+        stage = self.dir / "stage"
+        (stage / "bin").mkdir(parents=True)
+        (stage / "bin" / "lazyvm").write_bytes(b"elf")
+        with mock.patch.dict(run_demo.os.environ, {"LAZYOS_LAZYVM_STAGE": str(stage)}):
+            self.assertEqual(self.run_main("--lazyvm")[0], 0)
+        self.assertEqual(self.builds[-1].get("LAZYOS_LAZYVM"), "1")
+        self.run_main()
+        self.assertNotIn("LAZYOS_LAZYVM", self.builds[-1])
+
+    def test_a_missing_stage_stops_the_run(self) -> None:
+        with mock.patch.dict(run_demo.os.environ, {"LAZYOS_LAZYVM_STAGE": str(self.dir / "no")}):
+            code, command = self.run_main("--lazyvm")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(command, [])
+
+
 if __name__ == "__main__":
     unittest.main()

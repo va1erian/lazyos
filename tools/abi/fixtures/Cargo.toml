@@ -165,6 +165,12 @@ path = "src/linuxapps.rs"
 name = "jsc"
 path = "src/jsc.rs"
 
+# Runs the command list of `tools/lazyvm/run.py` on an image built with
+# `LAZYOS_LAZYVM=1`: run by that tool, not by the ABI bench.
+[[bin]]
+name = "lazyvm"
+path = "src/lazyvm.rs"
+
 # Needs a network (the echo servers of `tools/net/run.py`): run by `netd demo=1`
 # as `linux:/system/bin/netfix`, never by the ABI bench (`tools/abi/run.py`).
 [[bin]]
@@ -191,6 +197,8 @@ name = "sandboxprobe"
 path = "src/sandboxprobe.rs"
 
 [dependencies]
+# Well-known paths (`lazyvm`'s command list).
+fhs = { path = "../../../libs/fhs" }
 # The native Messenger calls and the endpoint descriptor (`msgpoll`, issue
 # #667); `no_std` + `alloc` underneath, so the other fixtures are unaffected.
 lazyos-sys = { path = "../../../libs/lazyos-sys", features = ["parcel", "std"] }

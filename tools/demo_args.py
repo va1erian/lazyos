@@ -193,6 +193,10 @@ def make_parser(description: str, default_image: Path) -> argparse.ArgumentParse
                         help="embed real Linux programs in /system/bin "
                              "(LAZYOS_LINUXAPPS=1): dash, sqlite3, jq and rg, "
                              "built from pinned sources by tools/linuxapps/build.py")
+    parser.add_argument("--lazyvm", action="store_true",
+                        help="embed LazyVM's staging tree at /system/lazyvm (LAZYOS_LAZYVM=1): "
+                             "the VM, its class library and tests, from target/lazyvm/stage or "
+                             "LAZYOS_LAZYVM_STAGE; tests run with tools/lazyvm/run.py")
     parser.add_argument("--rustc", action="store_true",
                         help="embed the Rust toolchain (LAZYOS_RUSTC=1, docs/self-hosting-plan.md): "
                              "rustc, cargo and rustdoc in /system/bin, the standard library and "

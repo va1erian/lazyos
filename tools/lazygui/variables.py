@@ -108,6 +108,8 @@ def make_vars() -> dict:
         "linuxapps": b(value=False),
         # JavaScriptCore's jsc (LAZYOS_JSC, run_demo --jsc; built in Docker).
         "jsc": b(value=False),
+        # LazyVM's stage (LAZYOS_LAZYVM, run_demo --lazyvm; staged by LazyVM's tools).
+        "lazyvm": b(value=False),
         # The Rust compiler (LAZYOS_RUSTC, run_demo --rustc; cross-compiled in Docker).
         "rustc": b(value=False),
         # The WebKit dependency bundle's proof (LAZYOS_WEBKIT_DEPS, run_demo --webkit-deps).

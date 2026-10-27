@@ -234,7 +234,7 @@ def wants_pictures(cfg: dict) -> bool:
 def desktop_app_env(cfg: dict) -> dict[str, str]:
     """The opt-in desktop apps' switches: `LAZYOS_MAIL`, `LAZYOS_TRAYDEMO`,
     `LAZYOS_GAMES`, `LAZYOS_DEVTOOLS`, `LAZYOS_PICTURES`, `LAZYOS_JSC` (jsc and cxxproof, built in Docker by
-    `tools/jsc/build.py`; a console program, so desktop or not), `LAZYOS_RUSTC` (the Rust compiler,
+    `tools/jsc/build.py`; a console program, so desktop or not), `LAZYOS_LAZYVM` (LazyVM's stage, written by LazyVM), `LAZYOS_RUSTC` (the Rust compiler,
     `tools/selfhost/build.py`, a console program too) and
     `LAZYOS_WEBKIT_DEPS` (depsproof, `tools/webkit/deps.py`) and `LAZYOS_WEBKIT_PORT`
     (the W4 console proof, `tools/webkit/port.py`). LazyWeb, `LAZYOS_LAZYWEB`, is a
@@ -246,6 +246,7 @@ def desktop_app_env(cfg: dict) -> dict[str, str]:
             | ({"LAZYOS_DEVTOOLS": "1"} if wants_devtools(cfg) else {})
             | ({"LAZYOS_PICTURES": "1"} if wants_pictures(cfg) else {})
             | ({"LAZYOS_JSC": "1"} if cfg.get("jsc") else {})
+            | ({"LAZYOS_LAZYVM": "1"} if cfg.get("lazyvm") else {})
             | ({"LAZYOS_RUSTC": "1"} if cfg.get("rustc") else {})
             | ({"LAZYOS_WEBKIT_DEPS": "1"} if cfg.get("webkit_deps") else {})
             | ({"LAZYOS_WEBKIT_PORT": "1"} if cfg.get("webkit_port") else {})
@@ -264,6 +265,7 @@ def desktop_app_argv(cfg: dict) -> list[str]:
             + (["--devtools"] if wants_devtools(cfg) and building else [])
             + (["--pictures"] if wants_pictures(cfg) and building else [])
             + (["--jsc"] if cfg.get("jsc") and building else [])
+            + (["--lazyvm"] if cfg.get("lazyvm") and building else [])
             + (["--rustc"] if cfg.get("rustc") and building else [])
             + (["--webkit-deps"] if cfg.get("webkit_deps") and building else [])
             + (["--webkit-port"] if cfg.get("webkit_port") and building else [])
