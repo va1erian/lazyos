@@ -148,34 +148,58 @@ impl Framebuffer {
     unsafe fn convert_row(&self, source: &[u8], layout: Layout, packing: Packing, dest: *mut u8) {
         let bpp = self.info.bytes_per_pixel;
         let pixels = source.as_chunks::<4>().0;
-        for (index, pixel) in pixels.iter().enumerate() {
-            let (r, g, b) = layout.channels(pixel);
-            // SAFETY: the caller guarantees pixel `index` is inside the row.
-            let p = unsafe { dest.add(index * bpp) };
-            match packing {
-                Packing::Rgb4 | Packing::Bgr4 => {
-                    let bytes = if packing == Packing::Bgr4 {
-                        [b, g, r, 0xFF]
-                    } else {
-                        [r, g, b, 0xFF]
-                    };
+        // Hoist `match packing` outside the pixel loop so row conversion
+        // does not branch on packing for every pixel.
+        match packing {
+            Packing::Rgb4 => {
+                for (index, pixel) in pixels.iter().enumerate() {
+                    let (r, g, b) = layout.channels(pixel);
+                    // SAFETY: the caller guarantees pixel `index` is inside the row.
+                    let p = unsafe { dest.add(index * 4) };
                     // SAFETY: a whole 4-byte pixel at `p`; unaligned is fine.
-                    unsafe { p.cast::<u32>().write_unaligned(u32::from_le_bytes(bytes)) };
+                    unsafe { p.cast::<u32>().write_unaligned(u32::from_le_bytes([r, g, b, 0xFF])) };
                 }
-                Packing::Rgb3 | Packing::Bgr3 => {
-                    let (c0, c2) = if packing == Packing::Bgr3 {
-                        (b, r)
-                    } else {
-                        (r, b)
-                    };
+            }
+            Packing::Bgr4 => {
+                for (index, pixel) in pixels.iter().enumerate() {
+                    let (r, g, b) = layout.channels(pixel);
+                    // SAFETY: the caller guarantees pixel `index` is inside the row.
+                    let p = unsafe { dest.add(index * 4) };
+                    // SAFETY: a whole 4-byte pixel at `p`; unaligned is fine.
+                    unsafe { p.cast::<u32>().write_unaligned(u32::from_le_bytes([b, g, r, 0xFF])) };
+                }
+            }
+            Packing::Rgb3 => {
+                for (index, pixel) in pixels.iter().enumerate() {
+                    let (r, g, b) = layout.channels(pixel);
+                    // SAFETY: the caller guarantees pixel `index` is inside the row.
+                    let p = unsafe { dest.add(index * 3) };
                     // SAFETY: a whole 3-byte pixel at `p`.
                     unsafe {
-                        p.write(c0);
+                        p.write(r);
                         p.add(1).write(g);
-                        p.add(2).write(c2);
+                        p.add(2).write(b);
                     }
                 }
-                Packing::Other => {
+            }
+            Packing::Bgr3 => {
+                for (index, pixel) in pixels.iter().enumerate() {
+                    let (r, g, b) = layout.channels(pixel);
+                    // SAFETY: the caller guarantees pixel `index` is inside the row.
+                    let p = unsafe { dest.add(index * 3) };
+                    // SAFETY: a whole 3-byte pixel at `p`.
+                    unsafe {
+                        p.write(b);
+                        p.add(1).write(g);
+                        p.add(2).write(r);
+                    }
+                }
+            }
+            Packing::Other => {
+                for (index, pixel) in pixels.iter().enumerate() {
+                    let (r, g, b) = layout.channels(pixel);
+                    // SAFETY: the caller guarantees pixel `index` is inside the row.
+                    let p = unsafe { dest.add(index * bpp) };
                     let encoded = self.encode(r, g, b);
                     // SAFETY: a whole `bpp`-byte pixel at `p`.
                     unsafe { self.store(p, encoded) };
