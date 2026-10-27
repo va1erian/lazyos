@@ -34,3 +34,4 @@ sha1 = { version = "=0.10.6", default-features = false, features = ["force-soft"
 # section 3.6; a chip does it in hardware). `MIT OR Apache-2.0`, taken under
 # MIT; the same `aes`/`cipher` 0.8/0.4 generation as above.
 ccm = { version = "=0.5.0", default-features = false }
+subtle = { version = "=2.6.1", default-features = false }

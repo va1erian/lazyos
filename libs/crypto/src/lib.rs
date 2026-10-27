@@ -79,3 +79,29 @@ impl core::fmt::Display for Error {
         formatter.write_str(self.message())
     }
 }
+
+/// Constant-time byte comparison for verifiers and secret tokens (no early exit).
+///
+/// Delegates to the vetted `subtle` crate to prevent
+/// compiler optimizations (such as short-circuiting or loop unrolling) from introducing
+/// timing side-channel leaks.
+pub fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+    if left.len() != right.len() {
+        return false;
+    }
+    left.ct_eq(right).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(constant_time_eq(b"", b""));
+    }
+}
