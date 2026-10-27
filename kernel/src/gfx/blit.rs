@@ -157,7 +157,10 @@ impl Framebuffer {
                     // SAFETY: the caller guarantees pixel `index` is inside the row.
                     let p = unsafe { dest.add(index * 4) };
                     // SAFETY: a whole 4-byte pixel at `p`; unaligned is fine.
-                    unsafe { p.cast::<u32>().write_unaligned(u32::from_le_bytes([r, g, b, 0xFF])) };
+                    unsafe {
+                        p.cast::<u32>()
+                            .write_unaligned(u32::from_le_bytes([r, g, b, 0xFF]))
+                    };
                 }
             }
             Packing::Bgr4 => {
@@ -166,7 +169,10 @@ impl Framebuffer {
                     // SAFETY: the caller guarantees pixel `index` is inside the row.
                     let p = unsafe { dest.add(index * 4) };
                     // SAFETY: a whole 4-byte pixel at `p`; unaligned is fine.
-                    unsafe { p.cast::<u32>().write_unaligned(u32::from_le_bytes([b, g, r, 0xFF])) };
+                    unsafe {
+                        p.cast::<u32>()
+                            .write_unaligned(u32::from_le_bytes([b, g, r, 0xFF]))
+                    };
                 }
             }
             Packing::Rgb3 => {
