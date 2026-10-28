@@ -411,12 +411,20 @@ pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     for (a, b) in left.iter().zip(right) {
         diff |= a ^ b;
     }
-    diff == 0
+    core::hint::black_box(diff) == 0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq(b"hello", b"hello"));
+        assert!(!constant_time_eq(b"hello", b"world"));
+        assert!(!constant_time_eq(b"hello", b"hell"));
+        assert!(constant_time_eq(b"", b""));
+    }
 
     #[test]
     fn test_key_entry_drop_scrubs_material() {
