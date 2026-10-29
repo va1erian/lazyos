@@ -75,16 +75,15 @@ SOCK_TCP_FLOWS = 2 + SOCK_SOAK_ITERATIONS
 SOCK_UDP_PAIRS = 1 + SOCK_SOAK_ITERATIONS
 #: Demo clients `netd` runs in all (`DEMO_CLIENTS` in `user/src/bin/netd.rs`).
 NETD_DEMO_CLIENTS = 13
-#: Stage N5: the Linux fixture `netfix` (`tools/abi/fixtures/src/netfix.rs`,
-#: `std::net` over the kernel's `AF_INET` shim) runs as one more demo client when
-#: the image has it. It adds TCP flows to the echo port (the 200 000-byte echo,
-#: the timed connect, the address check, the TCP-and-endpoint `epoll` check of
-#: issue #667), 22 datagram echoes, and a listener on guest port 47774 the
-#: harness connects into through a second port forward. `NETFIX_REQUIRED` are
-#: the markers a run with it must show.
+#: Stage N5: the Linux fixture `netfix` (`tools/abi/fixtures/src/netfix.rs`, `std::net`
+#: over the kernel's `AF_INET` shim) runs as one more demo client when the image has
+#: it. It adds TCP flows to the echo port (the 200 000-byte echo, the timed connect,
+#: the address check, the TCP-and-endpoint `epoll` check of issue #667), 22 datagram
+#: echoes, a listener on guest port 47774 the harness connects into through a port
+#: forward, and loopback (issue #1019), none of which may reach the capture.
 NETFIX_ELF = ROOT / "target" / "abi" / "fixtures" / "netfix.elf"
 NETFIX_TCP_FLOWS = 4
-NETFIX_REQUIRED = ("ABI:netfix:PASS", "NETFIX:msgpoll:PASS")
+NETFIX_REQUIRED = ("ABI:netfix:PASS", "NETFIX:msgpoll:PASS", "NETFIX:loopback:PASS")
 NETFIX_UDP_PAIRS = 22
 NETFIX_LISTEN_PORT = 47774
 NETFIX_INBOUND_BYTES = 100_000
@@ -264,6 +263,7 @@ def judge_sockets(frames, guest_mac: bytes, text: str, tcp_streams, udp_datagram
         if not problems:
             count, problems = sockets_pcap.check_inbound_flow(frames, guest_ip, gateway, NETFIX_LISTEN_PORT, netfix.payload)
         report("NETFIX", f"a Linux program accepted a connection and echoed {count} bytes", problems)
+        report("LOOPBACK", "nothing the guest sent itself reached the wire", sockets_pcap.check_loopback_off_wire(frames, guest_ip))
     return ok
 
 

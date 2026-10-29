@@ -17,7 +17,9 @@ say when it is done; the verdict is here:
   * DNS: a well-formed A query for the name looked up left the guest for the
     resolver, and its answer, when the host network produced one, is reported;
   * a flow into the guest (the harness connecting through a port forward):
-    handshake, the bytes the harness sent, and the same bytes echoed back.
+    handshake, the bytes the harness sent, and the same bytes echoed back;
+  * loopback (issue #1019): no packet to or from 127/8, and none from the
+    guest's address to itself, ever reaches the wire.
 
     python tools/net/sockets_pcap.py shots/net/net.pcap --echo-port 47771 ...
 
@@ -333,6 +335,21 @@ def check_inbound_flow(frames: list[Frame], guest_ip: bytes, gateway_ip: bytes, 
     if any(not s.checksum_ok for s in flow.segments):
         problems.append("a segment of the inbound connection has a wrong checksum")
     return len(incoming), problems
+
+
+def check_loopback_off_wire(frames: list[Frame], guest_ip: bytes) -> list[str]:
+    """What the guest sends itself stays inside it: no IPv4 packet on the wire
+    is to or from 127/8, or from the guest's own address to itself."""
+    problems = []
+    for frame in frames:
+        packet = pcap.parse_ipv4(frame.data)
+        if packet is None:
+            continue
+        if packet.src[0] == 127 or packet.dst[0] == 127:
+            problems.append(f"frame {frame.index}: a loopback address on the wire")
+        elif packet.src == guest_ip and packet.dst == guest_ip:
+            problems.append(f"frame {frame.index}: the guest's packet to itself on the wire")
+    return problems
 
 
 # ---- FTP (stage N4) --------------------------------------------------------------

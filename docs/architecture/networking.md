@@ -34,6 +34,7 @@ static musl program using only `std::net` talks through the same stack.
 | `idl/net.midl` (second interface) | `os.lazy.net.stack.v1`, compiled into `docs/idl/os.lazy.net.stack.v1.md` |
 | `user/src/bin/netd.rs`, `netd/` | The stack service: `ports.rs` (one port per `os.lazy.net.nic/<ifname>` in the registry: discovery, interface per card, rings, loss), `nic.rs` (one card's driver client and rings), `config.rs` (`confd` keys per interface), `service.rs` (`stack.v1`, parked `Ping` calls), `lists.rs` (`Interfaces`, `Addresses`, `Routes`, `Stats`), `publish.rs` (address topics, `system/net/interfaces`) |
 | `libs/netstack/src/net/` (WP1) | `Net`: several interfaces under one socket table (routes and metrics, replicas of wildcard sockets, pings and lookups across interfaces); `testmulti.rs` the multi-interface test networks |
+| `libs/netstack/src/net/loopback.rs`, `stack/local.rs` | Loopback (issue #1019): the `lo` stack over a looped device, which destinations are this machine, where a socket's replicas go; `net/tests/loopback.rs` its tests |
 | `tools/net/multi_run.py`, `multi_judge.py` | `run.py --nics 2`: two cards, a capture each, judged from frames; `test_multi_judge.py` its self-test |
 | `user/src/messenger/netstack.rs` | Blocking client of `stack.v1` |
 | `user/src/bin/netctl.rs`, `netctl/`, `ping.rs` | `netctl` (show, `sockets`, `renew`, `probe=1`, `soak=<n>`, `sockprobe=1`, `socksoak=<n>`) and the native `ping` (names resolve) |
@@ -748,13 +749,74 @@ whose driver went away is covered by the host tests (interfaces removed under
 open sockets) and the code in `netd/ports.rs`, and awaits a guest that
 completes the eject.
 
+## Loopback (issue #1019)
+
+A program can talk to its own machine: a connection or datagram to 127.0.0.1, or
+to an address one of the cards holds, reaches a listener or socket on this
+machine bound to that address or to `0.0.0.0`, and never reaches a wire. This
+holds for the Linux `AF_INET` shim and for Messenger clients alike, because it
+lives in `Net`, below both.
+
+**How it works.** `Net` keeps one more `Stack`, `lo`, that is never listed among
+the interfaces (no `Interfaces` row, no route, no topic). Its device is a
+`RingDevice::loopback`: no rings, an IP medium (no Ethernet header and no ARP,
+which smoltcp would allow only once a second), and a private queue of at most
+512 packets in which whatever it transmits is received back, in order. `lo`
+holds 127.0.0.1/8 and, as /32s, the current address of every card (up to seven;
+smoltcp is built with eight addresses per interface), refreshed whenever `lo` is
+used. So a loopback connection is real smoltcp TCP on both ends (windows, FIN,
+RST) and everything above `Net` (`netd`'s parked calls, the kernel pump, the
+application's ring pair, `poll`/`epoll`, `SO_RCVTIMEO`/`SO_SNDTIMEO`,
+`EINPROGRESS`/`SO_ERROR`) is unchanged.
+
+* **Where traffic goes.** A destination that is 127.0.0.1 or a card's address
+  is carried by `lo` (`Net::carrier`), whatever the socket is bound to; anything
+  else is routed as before. A socket bound to 127.0.0.1 cannot reach the
+  network (`ENETUNREACH`).
+* **Replicas.** A listener or bound datagram socket on any address gets a
+  replica on `lo` beside those on the cards; one bound to a card's address gets
+  the card's and one on `lo` that answers on that address alone; one bound to
+  127.0.0.1 gets only `lo`'s. Address filters are smoltcp's own listen
+  endpoints, so a socket bound to 127.0.0.1 is not reached through the card's
+  address, nor the other way round. Ports stay one namespace across all of
+  them, as before.
+* **Refusal.** A SYN to a local port with no listener is answered by `lo`'s RST
+  in the same poll, so `connect` fails with `ECONNREFUSED` at once.
+* **Polling.** `Net::poll` runs `lo` up to 16 rounds, until no packet is in
+  flight; `poll_delay_ms` is zero while one is, so `netd`'s single wait never
+  sleeps on a packet it sent itself.
+* **Limits.** Only 127.0.0.1 of 127/8 is served (binding or connecting to
+  `127.0.0.2` is `EINVAL`); `::1` waits for `AF_INET6`. A card that goes away takes the
+  sockets bound to its address with it (their `lo` replicas too). A card whose
+  address changes leaves `lo` replicas bound to the old address answering on
+  nothing until they are reopened. `ping 127.0.0.1` (native ICMP) is not
+  routed to `lo`.
+
+**Evidence.** Host: `cargo test -p netstack loopback` (`net/tests/loopback.rs`):
+300 KB and 200 KB both ways over 127.0.0.1 and a close, getsockname/getpeername on
+every end; the card's own address to a wildcard listener with nothing on the
+card's wire; an immediate refusal for both; `lo` with no card at all; bound
+addresses kept apart (127.0.0.1-only and card-only listeners, `127.0.0.2`
+refused, a 127.0.0.1-bound socket cannot reach the network); datagrams both ways
+to 127.0.0.1 and the card's address; a card that leaves; and a stress run of 300
+connect/echo/close rounds alternating both addresses with refusals in between,
+ending with no socket, closing stream or queued packet left. End to end (`python
+tools/net/run.py --netd`): `netfix`'s `loopback` check, a static musl `std::net`
+program, binds 127.0.0.1 and `0.0.0.0`, connects to itself over 127.0.0.1 and
+over its DHCP address, echoes 100 000 bytes through non-blocking sockets and
+closes both ways, is refused at once on a closed port, sees a 200 ms read
+timeout expire, and sends a datagram to 127.0.0.1 and back
+(`NETFIX:loopback:PASS` is required); the capture must hold no packet to or from
+127/8 and none from the guest to itself (`NET:PCAP:LOOPBACK`,
+`sockets_pcap.check_loopback_off_wire`, with its self-test in
+`test_sockets_pcap.py`).
+
 ## Not done
 
-BusyBox `nc`/`wget`/`ftpget` as clients of the shim (no BusyBox in the local build; the CI bench has one), `/etc/resolv.conf` and `/etc/hosts` for musl's resolver, sockets used from a second thread (the shim gives a thread a descriptor table of its own: `thread::spawn` after `socket` cannot share it), `sendmsg`/`recvmsg`/`select`/`ppoll`, `MSG_DONTWAIT`/`MSG_PEEK`; per-profile tightening of the
+BusyBox `nc`/`wget`/`ftpget` as clients of the shim (no BusyBox in the local build; the CI bench has one), `sendmsg`/`recvmsg`/`select`/`ppoll`, `MSG_DONTWAIT`/`MSG_PEEK`; per-profile tightening of the
 socket rules and a policy loader (the ACL refuses nothing today, so `Renew` and
 `Reattach` are callable by anyone); `CAP_NET_BIND` (nobody binds a port below
-1024) and `CAP_NET_RAW`; loopback (a socket cannot connect to this machine's own
-address); IPv6; a shared-ring data plane (bytes travel in parcels, one copy each
+1024) and `CAP_NET_RAW`; IPv6; a shared-ring data plane (bytes travel in parcels, one copy each
 way); `Poll` over many sockets in one call; a request-size limit that answers
 instead of dropping (a request over about 20 KiB is consumed by the kernel and
 cannot be read, so the sender waits for its own deadline); a parked `Ping` or

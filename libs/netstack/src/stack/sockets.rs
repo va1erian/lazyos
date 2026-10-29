@@ -138,6 +138,10 @@ pub struct SocketCounters {
 pub(super) struct StreamState {
     /// The port `Bind` chose, before `Connect` or `Listen` uses it.
     pub bound_port: Option<u16>,
+    /// The address `Bind` named, if not any; the listener or connection
+    /// then uses only that one (on the loopback interface, which holds
+    /// several).
+    pub bound_addr: Option<[u8; 4]>,
     pub connecting: bool,
     pub established: bool,
     /// The peer's FIN was seen (or the stream ended in order).
@@ -157,6 +161,8 @@ pub(super) enum Inner {
     },
     Listener {
         port: u16,
+        /// The one address it answers on; `None`: any of the interface's.
+        addr: Option<[u8; 4]>,
         backlog: Vec<SocketHandle>,
     },
     Udp {

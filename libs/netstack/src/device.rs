@@ -10,8 +10,15 @@
 //! A device can be *detached*: it then moves nothing and the stack above it
 //! keeps its state (addresses, timers), so losing and regaining the NIC driver
 //! does not lose the lease.
+//!
+//! A *loopback* device ([`RingDevice::loopback`]) has no rings: every frame it
+//! transmits is queued in private memory and received back, so the stack over
+//! it talks to itself (the `lo` interface of `Net`). Nothing outside this
+//! process can write to that queue.
 
 use alloc::boxed::Box;
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 
 use framering::{Consumer, FrameBuf, PopError, Producer, PushError, MAX_FRAME};
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -35,6 +42,10 @@ struct Rings {
     tx: Producer,
 }
 
+/// Frames a loopback device holds at once. Past it a frame is dropped and
+/// counted, as on a full transmit ring; TCP sends it again.
+pub const LOOP_FRAMES: usize = 512;
+
 pub struct RingDevice {
     rings: Option<Rings>,
     /// Private copy of the frame being handed to smoltcp.
@@ -47,6 +58,8 @@ pub struct RingDevice {
     /// [`RingDevice::take_tx_notify`] call.
     tx_pending: bool,
     poisoned: bool,
+    /// The frames a loopback device sent and has yet to receive.
+    looped: Option<VecDeque<Vec<u8>>>,
 }
 
 impl RingDevice {
@@ -61,7 +74,26 @@ impl RingDevice {
             stats: DeviceStats::default(),
             tx_pending: false,
             poisoned: false,
+            looped: None,
         }
+    }
+
+    /// A loopback device: what it sends, it receives (in order).
+    pub fn loopback(max_frame: usize) -> RingDevice {
+        let mut device = RingDevice::detached(max_frame);
+        device.looped = Some(VecDeque::new());
+        device
+    }
+
+    /// Whether this is a loopback device.
+    pub fn is_loopback(&self) -> bool {
+        self.looped.is_some()
+    }
+
+    /// Frames a loopback device sent and has not received back yet (always
+    /// zero for a ring device).
+    pub fn looped_frames(&self) -> usize {
+        self.looped.as_ref().map_or(0, VecDeque::len)
     }
 
     /// A device attached to `rx` (consumed) and `tx` (produced).
@@ -86,7 +118,7 @@ impl RingDevice {
     }
 
     pub fn is_attached(&self) -> bool {
-        self.rings.is_some()
+        self.rings.is_some() || self.looped.is_some()
     }
 
     pub fn stats(&self) -> &DeviceStats {
@@ -171,14 +203,57 @@ impl RingDevice {
             }
         }
     }
+
+    /// `receive` for a loopback device. The frame is taken first: its reply
+    /// goes into the queue it just left, so a full queue cannot stall it.
+    fn receive_looped(&mut self) -> Option<(RingRx<'_>, RingTx<'_>)> {
+        let RingDevice {
+            looped,
+            tx_frame,
+            stats,
+            tx_pending,
+            poisoned,
+            ..
+        } = self;
+        let queue = looped.as_mut()?;
+        let frame = queue.pop_front()?;
+        stats.rx_frames += 1;
+        stats.rx_bytes += frame.len() as u64;
+        Some((
+            RingRx {
+                frame: Frame::Owned(frame),
+            },
+            RingTx {
+                tx: Sink::Loop(queue),
+                buf: tx_frame,
+                stats,
+                pending: tx_pending,
+                poisoned,
+            },
+        ))
+    }
+}
+
+/// The frame a receive token hands to smoltcp.
+enum Frame<'a> {
+    /// The private copy of a ring slot.
+    Copied(&'a [u8]),
+    /// A frame a loopback device queued.
+    Owned(Vec<u8>),
 }
 
 pub struct RingRx<'a> {
-    frame: &'a [u8],
+    frame: Frame<'a>,
+}
+
+/// Where a transmitted frame goes.
+enum Sink<'a> {
+    Ring(&'a mut Producer),
+    Loop(&'a mut VecDeque<Vec<u8>>),
 }
 
 pub struct RingTx<'a> {
-    tx: &'a mut Producer,
+    tx: Sink<'a>,
     buf: &'a mut FrameBuf,
     stats: &'a mut DeviceStats,
     pending: &'a mut bool,
@@ -187,7 +262,10 @@ pub struct RingTx<'a> {
 
 impl RxToken for RingRx<'_> {
     fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R {
-        f(self.frame)
+        match &self.frame {
+            Frame::Copied(frame) => f(frame),
+            Frame::Owned(frame) => f(frame),
+        }
     }
 }
 
@@ -197,7 +275,15 @@ impl TxToken for RingTx<'_> {
         // the excess is simply not sent.
         let len = len.min(self.buf.len());
         let result = f(&mut self.buf[..len]);
-        match self.tx.push(&self.buf[..len]) {
+        let pushed = match self.tx {
+            Sink::Ring(tx) => tx.push(&self.buf[..len]),
+            Sink::Loop(queue) if queue.len() < LOOP_FRAMES => {
+                queue.push_back(self.buf[..len].to_vec());
+                Ok(())
+            }
+            Sink::Loop(_) => Err(PushError::Full),
+        };
+        match pushed {
             Ok(()) => {
                 self.stats.tx_frames += 1;
                 self.stats.tx_bytes += len as u64;
@@ -218,6 +304,9 @@ impl Device for RingDevice {
     type TxToken<'a> = RingTx<'a>;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(RingRx<'_>, RingTx<'_>)> {
+        if self.looped.is_some() {
+            return self.receive_looped();
+        }
         // A reply needs room in the transmit ring: without it the frame stays
         // in the receive ring until there is, rather than being processed and
         // its answer lost silently.
@@ -237,10 +326,10 @@ impl Device for RingDevice {
         let rings = rings.as_mut()?;
         Some((
             RingRx {
-                frame: &rx_frame[..n],
+                frame: Frame::Copied(&rx_frame[..n]),
             },
             RingTx {
-                tx: &mut rings.tx,
+                tx: Sink::Ring(&mut rings.tx),
                 buf: tx_frame,
                 stats,
                 pending: tx_pending,
@@ -250,6 +339,15 @@ impl Device for RingDevice {
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<RingTx<'_>> {
+        if let Some(queue) = self.looped.as_mut() {
+            return Some(RingTx {
+                tx: Sink::Loop(queue),
+                buf: &mut self.tx_frame,
+                stats: &mut self.stats,
+                pending: &mut self.tx_pending,
+                poisoned: &mut self.poisoned,
+            });
+        }
         if !self.tx_ready() {
             return None;
         }
@@ -263,7 +361,7 @@ impl Device for RingDevice {
         } = self;
         let rings = rings.as_mut()?;
         Some(RingTx {
-            tx: &mut rings.tx,
+            tx: Sink::Ring(&mut rings.tx),
             buf: tx_frame,
             stats,
             pending: tx_pending,
@@ -273,7 +371,11 @@ impl Device for RingDevice {
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut caps = DeviceCapabilities::default();
-        caps.medium = Medium::Ethernet;
+        caps.medium = if self.looped.is_some() {
+            Medium::Ip
+        } else {
+            Medium::Ethernet
+        };
         caps.max_transmission_unit = self.max_frame;
         caps.max_burst_size = None;
         caps

@@ -19,12 +19,16 @@ fuzz = ["framering/fuzz"]
 framering = { path = "../framering" }
 # smoltcp 0.14 without its defaults: no `std`, no logging, no IPv6, no raw-socket
 # or TUN/TAP phys. `alloc` backs the socket set; `auto-icmp-echo-reply` makes
-# the interface answer echo requests addressed to it. TCP and UDP are compiled
+# the interface answer echo requests addressed to it; `medium-ip` is the
+# loopback interface's (no ARP). TCP and UDP are compiled
 # in so hostile segments and datagrams exercise the real code paths (and so the
-# socket layer of docs/networking-plan.md N3 needs no stack change).
+# socket layer of docs/networking-plan.md N3 needs no stack change). Eight
+# addresses per interface let the loopback interface hold 127.0.0.1 and the
+# cards' own addresses (`stack/local.rs`).
 smoltcp = { version = "0.14", default-features = false, features = [
     "alloc",
     "medium-ethernet",
+    "medium-ip",
     "proto-ipv4",
     "proto-dhcpv4",
     "socket-dhcpv4",
@@ -36,6 +40,7 @@ smoltcp = { version = "0.14", default-features = false, features = [
     "dns-max-server-count-3",
     "dns-max-result-count-4",
     "auto-icmp-echo-reply",
+    "iface-max-addr-count-8",
 ] }
 
 [dev-dependencies]

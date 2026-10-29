@@ -42,8 +42,11 @@ pub(super) enum Shape {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Bound {
     pub port: u16,
-    /// The slot of the interface whose address was named; `None`: any.
+    /// The slot of the interface whose address was named (`LOOPBACK` for
+    /// 127.0.0.1); `None`: any.
     pub only: Option<usize>,
+    /// The address named, all zeros for any.
+    pub addr: [u8; 4],
 }
 
 pub(super) struct VSock {

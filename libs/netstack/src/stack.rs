@@ -80,6 +80,7 @@ pub struct Counters {
 }
 
 mod dns;
+mod local;
 mod observe;
 mod ping;
 mod route;
@@ -90,6 +91,7 @@ mod udp;
 
 use dns::{dns_socket, Lookup};
 pub use dns::{valid_host_name, LookupOutcome, LookupResult, ResolveError, MAX_LOOKUPS};
+pub use local::{LOOPBACK_ADDR, MAX_LOCAL_ADDRS};
 use ping::{icmp_socket, Pending};
 pub use ping::{PingError, PingOutcome, PingResult};
 pub use route::RouteClass;
@@ -148,8 +150,20 @@ impl Stack {
     /// numbers and transaction ids (the caller draws it from the kernel
     /// CSPRNG); `now_ms` is the stack clock, milliseconds since any fixed
     /// moment.
-    pub fn new(mut device: RingDevice, mac: [u8; 6], seed: u64, now_ms: i64, mode: &Mode) -> Stack {
-        let mut config = Config::new(HardwareAddress::Ethernet(EthernetAddress(mac)));
+    pub fn new(device: RingDevice, mac: [u8; 6], seed: u64, now_ms: i64, mode: &Mode) -> Stack {
+        let hardware = HardwareAddress::Ethernet(EthernetAddress(mac));
+        Stack::with_hardware(device, hardware, seed, now_ms, mode)
+    }
+
+    /// [`Stack::new`] for any medium (the loopback stack has no MAC).
+    fn with_hardware(
+        mut device: RingDevice,
+        hardware: HardwareAddress,
+        seed: u64,
+        now_ms: i64,
+        mode: &Mode,
+    ) -> Stack {
+        let mut config = Config::new(hardware);
         config.random_seed = seed;
         let iface = Interface::new(config, &mut device, Instant::from_millis(now_ms));
         let mut sockets = SocketSet::new(Vec::new());
@@ -248,6 +262,9 @@ impl Stack {
     /// Use another hardware address (the NIC driver came back reporting a
     /// different one). Existing neighbour entries stay; they age out.
     pub fn set_mac(&mut self, mac: [u8; 6]) {
+        if self.is_loopback() {
+            return;
+        }
         self.iface
             .set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(mac)));
     }
@@ -255,6 +272,7 @@ impl Stack {
     pub fn mac(&self) -> [u8; 6] {
         match self.iface.hardware_addr() {
             HardwareAddress::Ethernet(EthernetAddress(mac)) => mac,
+            HardwareAddress::Ip => [0; 6],
         }
     }
 

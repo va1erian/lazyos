@@ -3,9 +3,9 @@
 
 use alloc::vec::Vec;
 
-use crate::stack::RouteClass;
+use crate::stack::{RouteClass, LOOPBACK_ADDR};
 
-use super::Net;
+use super::{Net, LOOPBACK};
 
 /// One route, as the `Routes` call lists it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,8 +112,17 @@ impl Net {
         routes
     }
 
-    /// The slot whose interface holds `addr`.
+    /// The slot whose interface holds `addr`: a card's, or `LOOPBACK` for
+    /// the loopback address.
     pub(super) fn slot_with_addr(&self, addr: [u8; 4]) -> Option<usize> {
+        if addr == LOOPBACK_ADDR {
+            return Some(LOOPBACK);
+        }
+        self.card_with_addr(addr)
+    }
+
+    /// The slot of the card that holds `addr`.
+    pub(super) fn card_with_addr(&self, addr: [u8; 4]) -> Option<usize> {
         self.units()
             .find(|(_, unit)| unit.stack.state().addr == Some(addr))
             .map(|(slot, _)| slot)

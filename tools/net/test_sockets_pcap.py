@@ -241,5 +241,20 @@ class Inbound(unittest.TestCase):
         self.assertTrue(any("no connection" in p for p in problems), problems)
 
 
+class Loopback(unittest.TestCase):
+    def test_ordinary_traffic_passes(self):
+        frames = frames_of(echo_flow(40000, b"abc") + [udp_frame(True, 40001, 47772, b"x")])
+        self.assertEqual(sp.check_loopback_off_wire(frames, GUEST_IP), [])
+
+    def test_a_loopback_address_on_the_wire_fails(self):
+        for src, dst in ((bytes([127, 0, 0, 1]), GATEWAY_IP), (GUEST_IP, bytes([127, 0, 0, 1]))):
+            frames = frames_of([udp_frame(True, 40001, 9000, b"x", src_ip=src, dst_ip=dst)])
+            self.assertEqual(len(sp.check_loopback_off_wire(frames, GUEST_IP)), 1)
+
+    def test_the_guest_talking_to_itself_on_the_wire_fails(self):
+        frames = frames_of([udp_frame(True, 40001, 9000, b"x", src_ip=GUEST_IP, dst_ip=GUEST_IP)])
+        self.assertIn("to itself", sp.check_loopback_off_wire(frames, GUEST_IP)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

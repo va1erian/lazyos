@@ -8,10 +8,10 @@
 use alloc::vec::Vec;
 
 use smoltcp::socket::udp::{self, UdpMetadata};
-use smoltcp::wire::{IpAddress, IpEndpoint, IpListenEndpoint, Ipv4Address};
+use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address};
 
 use super::sockets::{Inner, Kind, SockAddr, SockError, MAX_CHUNK, UDP_PAYLOAD};
-use super::tcp::sock_addr;
+use super::tcp::{listen_endpoint, sock_addr};
 use super::Stack;
 
 fn metadata(addr: SockAddr) -> UdpMetadata {
@@ -44,26 +44,29 @@ impl Stack {
             .socks
             .pick_port(&self.sockets, Kind::Datagram)
             .ok_or(SockError::AddrInUse)?;
-        self.udp_listen(handle, port)
+        self.udp_listen(handle, port, None)
     }
 
     fn udp_listen(
         &mut self,
         handle: smoltcp::iface::SocketHandle,
         port: u16,
+        addr: Option<[u8; 4]>,
     ) -> Result<(), SockError> {
         self.sockets
             .get_mut::<udp::Socket>(handle)
-            .bind(IpListenEndpoint { addr: None, port })
+            .bind(listen_endpoint(addr, port))
             .map_err(|_| SockError::InvalidState)
     }
 
-    /// `Bind` on a datagram socket; `port` is already checked (`None`: pick).
+    /// `Bind` on a datagram socket; `port` is already checked (`None`: pick),
+    /// `addr` (`None`: any) is one of the interface's.
     pub(super) fn udp_bind(
         &mut self,
         id: u32,
         owner: u64,
         port: Option<u16>,
+        addr: Option<[u8; 4]>,
     ) -> Result<(), SockError> {
         let (handle, _) = self.udp_parts(id, owner)?;
         if self.sockets.get::<udp::Socket>(handle).is_open() {
@@ -76,7 +79,7 @@ impl Stack {
                 .pick_port(&self.sockets, Kind::Datagram)
                 .ok_or(SockError::AddrInUse)?,
         };
-        self.udp_listen(handle, port)
+        self.udp_listen(handle, port, addr)
     }
 
     /// `Connect` on a datagram socket: remember the default peer.
