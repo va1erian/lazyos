@@ -21,6 +21,12 @@
 //! * **Interfaces come and go.** [`Net::add_interface`] and
 //!   [`Net::remove_interface`] at any time; a connection on a removed
 //!   interface is reset, a wildcard socket just loses its replica there.
+//! * **Loopback.** One more stack, `lo` (slot [`LOOPBACK`], never listed among
+//!   the interfaces), receives what it sends and holds 127.0.0.1 and every
+//!   card's address. Traffic to any of those goes through it and never
+//!   reaches a card; a socket that serves a card serves `lo` too (a
+//!   listener from its first local connection on), on its one address when
+//!   bound to one (`loopback.rs`).
 //!
 //! The service glue (`netd`) owns everything that touches the machine; nothing
 //! here takes a syscall.
@@ -30,6 +36,7 @@ use alloc::vec::Vec;
 
 use crate::stack::{Counters, SocketCounters, Stack};
 
+mod loopback;
 mod ops;
 mod ops_dgram;
 mod ops_stream;
@@ -48,6 +55,10 @@ use table::Table;
 
 /// Interfaces at once.
 pub const MAX_INTERFACES: usize = 8;
+
+/// The slot of the loopback stack in a replica: no card's slot ever reaches
+/// it.
+pub const LOOPBACK: usize = usize::MAX;
 
 /// What the interface is; it sets the default-route metric.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +125,13 @@ impl Unit {
 
 pub struct Net {
     units: Vec<Option<Unit>>,
+    /// The loopback stack.
+    lo: Stack,
+    /// The card addresses `lo` was last given (`loopback.rs`).
+    lo_addrs: loopback::LocalAddrs,
+    /// The card addresses the last poll saw, to reset connections on `lo`
+    /// that used one that went away.
+    lo_seen: loopback::LocalAddrs,
     table: Table,
     probes: Probes,
     /// The table-level counters (`opened`, `closed`, `reclaimed`, `accepted`
@@ -139,6 +157,10 @@ impl Net {
     pub fn new(seed: u64) -> Net {
         Net {
             units: Vec::new(),
+            // Its own seed, so its sequence numbers are not a card's.
+            lo: Stack::loopback(seed.rotate_left(32) ^ 0x6c6f, 0),
+            lo_addrs: loopback::LocalAddrs::default(),
+            lo_seen: loopback::LocalAddrs::default(),
             table: Table::new(seed),
             probes: Probes::new(),
             sockets: SocketCounters::default(),
@@ -190,11 +212,12 @@ impl Net {
     /// vanish, its pings and lookups end as timed out. Returns its name.
     pub fn remove_interface(&mut self, slot: usize) -> Option<String> {
         let unit = self.units.get_mut(slot)?.take()?;
+        let addr = unit.stack.state().addr;
         self.generation += 1;
         self.retired.sockets =
             stats::add_sockets(&self.retired.sockets, &unit.stack.socket_counters());
         self.retired.stack = stats::add_counters(&self.retired.stack, unit.stack.counters());
-        self.forget_unit(slot);
+        self.forget_unit(slot, addr);
         Some(unit.name)
     }
 
@@ -285,13 +308,19 @@ impl Net {
         for (_, unit) in self.units_mut() {
             unit.stack.poll(now_ms);
         }
+        self.poll_loopback(now_ms);
     }
 
     /// Milliseconds until some interface needs a `poll` even if nothing
     /// arrives.
     pub fn poll_delay_ms(&mut self, now_ms: i64) -> Option<u64> {
-        self.units_mut()
+        let cards = self
+            .units_mut()
             .filter_map(|(_, unit)| unit.stack.poll_delay_ms(now_ms))
+            .min();
+        [cards, self.loopback_delay_ms(now_ms)]
+            .into_iter()
+            .flatten()
             .min()
     }
 }

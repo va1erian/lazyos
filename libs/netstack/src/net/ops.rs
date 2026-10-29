@@ -5,10 +5,11 @@
 
 use alloc::vec::Vec;
 
+use crate::stack::LOOPBACK_ADDR;
 use crate::stack::{ready, Kind, SockAddr, SockError, Stack, EPHEMERAL_FIRST, PRIVILEGED_PORTS};
 
 use super::table::{Bound, Replica, Shape, VSock};
-use super::{Net, Unit};
+use super::{Net, LOOPBACK};
 
 impl Net {
     /// Open sockets, all owners.
@@ -54,7 +55,8 @@ impl Net {
             Some(port) => port,
             None => self.pick_port(kind).ok_or(SockError::AddrInUse)?,
         };
-        self.table.entry(id, owner)?.bound = Some(Bound { port, only });
+        let addr = local.addr;
+        self.table.entry(id, owner)?.bound = Some(Bound { port, only, addr });
         if kind == Kind::Datagram {
             if let Err(error) = self.datagram_spread(id, owner) {
                 self.table.entry(id, owner)?.bound = None;
@@ -91,8 +93,8 @@ impl Net {
             Shape::Fresh | Shape::Lost => Vec::new(),
         };
         for replica in replicas {
-            if let Some(unit) = self.unit_mut(replica.unit) {
-                let _ = unit.stack.socket_close(replica.sid, sock.owner, now_ms);
+            if let Ok(stack) = self.stack(replica.unit) {
+                let _ = stack.socket_close(replica.sid, sock.owner, now_ms);
             }
         }
     }
@@ -124,7 +126,13 @@ impl Net {
                 .stack(replica.unit)?
                 .socket_local_addr(replica.sid, owner),
             Shape::Spread { replicas, .. } => {
+                // `lo` speaks for the socket only when it is its one home: a
+                // socket on any address is not 127.0.0.1's.
+                let only_lo = bound.is_some_and(|b| b.only == Some(LOOPBACK));
                 for replica in replicas {
+                    if replica.unit == LOOPBACK && !only_lo {
+                        continue;
+                    }
                     if let Ok(addr) = self
                         .stack(replica.unit)?
                         .socket_local_addr(replica.sid, owner)
@@ -144,10 +152,13 @@ impl Net {
     fn bound_addr(&self, bound: Option<Bound>) -> Result<SockAddr, SockError> {
         let bound = bound.ok_or(SockError::InvalidState)?;
         let slot = bound.only.or_else(|| self.primary());
-        let addr = slot
-            .and_then(|slot| self.unit(slot))
-            .and_then(|unit| unit.stack.state().addr)
-            .unwrap_or([0; 4]);
+        let addr = match slot {
+            Some(LOOPBACK) => Some(LOOPBACK_ADDR),
+            slot => slot
+                .and_then(|slot| self.unit(slot))
+                .and_then(|unit| unit.stack.state().addr),
+        }
+        .unwrap_or([0; 4]);
         Ok(SockAddr {
             addr,
             port: bound.port,
@@ -202,9 +213,12 @@ impl Net {
         })
     }
 
-    /// The stack of interface `slot`; an interface that is gone is
-    /// unreachable.
+    /// The stack of interface `slot` (`LOOPBACK`: `lo`); an interface that is
+    /// gone is unreachable.
     pub(super) fn stack(&mut self, slot: usize) -> Result<&mut Stack, SockError> {
+        if slot == LOOPBACK {
+            return Ok(self.lo_mut());
+        }
         self.unit_mut(slot)
             .map(|unit| &mut unit.stack)
             .ok_or(SockError::Unreachable)
@@ -214,6 +228,7 @@ impl Net {
     /// its own ephemeral port), holds `port` for `kind`.
     fn port_taken(&self, kind: Kind, port: u16) -> bool {
         self.table.port_taken(kind, port)
+            || self.lo.socket_port_in_use(kind, port)
             || self
                 .units()
                 .any(|(_, unit)| unit.stack.socket_port_in_use(kind, port))
@@ -244,28 +259,40 @@ impl Net {
         None
     }
 
-    /// Make a socket on interface `slot` that serves `port` on any address:
-    /// a listener when `backlog` is above zero, else a datagram socket.
+    /// Make a socket on interface `slot` that serves `port` on `at` (`None`:
+    /// any of its addresses): a listener when `backlog` is above zero, else a
+    /// datagram socket.
     pub(super) fn open_replica(
-        units: &mut [Option<Unit>],
-        slot: usize,
+        &mut self,
+        (slot, at): (usize, Option<[u8; 4]>),
         owner: u64,
         port: u16,
         backlog: u32,
     ) -> Result<Replica, SockError> {
-        let stack = &mut units
-            .get_mut(slot)
-            .and_then(Option::as_mut)
-            .ok_or(SockError::Unreachable)?
-            .stack;
+        let stack = self.stack(slot)?;
+        Net::open_replica_on(stack, slot, at, owner, port, backlog)
+    }
+
+    /// [`Net::open_replica`] on a stack in hand.
+    fn open_replica_on(
+        stack: &mut Stack,
+        slot: usize,
+        at: Option<[u8; 4]>,
+        owner: u64,
+        port: u16,
+        backlog: u32,
+    ) -> Result<Replica, SockError> {
         let kind = if backlog > 0 {
             Kind::Stream
         } else {
             Kind::Datagram
         };
         let sid = stack.socket_open(owner, kind)?;
-        let any = SockAddr { addr: [0; 4], port };
-        let made = stack.socket_bind(sid, owner, any).and_then(|()| {
+        let local = SockAddr {
+            addr: at.unwrap_or([0; 4]),
+            port,
+        };
+        let made = stack.socket_bind(sid, owner, local).and_then(|()| {
             if backlog > 0 {
                 stack.socket_listen(sid, owner, backlog)
             } else {
@@ -294,7 +321,15 @@ impl Net {
             if bound.only.is_some() {
                 continue;
             }
-            if let Ok(replica) = Net::open_replica(units, slot, sock.owner, bound.port, *backlog) {
+            let Some(stack) = units
+                .get_mut(slot)
+                .and_then(Option::as_mut)
+                .map(|unit| &mut unit.stack)
+            else {
+                return;
+            };
+            let made = Net::open_replica_on(stack, slot, None, sock.owner, bound.port, *backlog);
+            if let Ok(replica) = made {
                 replicas.push(replica);
             }
         }
@@ -303,10 +338,14 @@ impl Net {
     /// An interface went away: connections on it are lost, wildcard sockets
     /// lose their replica there, sockets tied to its address are lost, and its
     /// pings and lookups end.
-    pub(super) fn forget_unit(&mut self, slot: usize) {
+    pub(super) fn forget_unit(&mut self, slot: usize, addr: Option<[u8; 4]>) {
         self.forget_probes(slot);
+        self.forget_on_lo(Some(slot), addr);
         for sock in self.table.iter_mut() {
-            if sock.bound.is_some_and(|bound| bound.only == Some(slot)) {
+            // A connection on `lo` was reset above and stays its owner's to
+            // close; anything else tied to the card's address is lost.
+            let on_lo = matches!(sock.shape, Shape::Pinned(r) if r.unit == LOOPBACK);
+            if sock.bound.is_some_and(|bound| bound.only == Some(slot)) && !on_lo {
                 sock.shape = Shape::Lost;
                 continue;
             }

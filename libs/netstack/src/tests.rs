@@ -8,6 +8,7 @@ use crate::config::{Mode, StaticConfig};
 use crate::stack::{DhcpState, Source};
 use crate::testnet::*;
 
+mod device_loop;
 mod dns;
 mod ping;
 mod sockets;

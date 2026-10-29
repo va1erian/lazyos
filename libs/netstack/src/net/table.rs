@@ -42,8 +42,11 @@ pub(super) enum Shape {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Bound {
     pub port: u16,
-    /// The slot of the interface whose address was named; `None`: any.
+    /// The slot of the interface whose address was named (`LOOPBACK` for
+    /// 127.0.0.1); `None`: any.
     pub only: Option<usize>,
+    /// The address named, all zeros for any.
+    pub addr: [u8; 4],
 }
 
 pub(super) struct VSock {
@@ -98,6 +101,10 @@ impl Table {
     /// Every open id, for the tests.
     pub fn ids(&self) -> Vec<u32> {
         self.slots.iter().flatten().map(|s| s.id).collect()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &VSock> {
+        self.slots.iter().flatten()
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut VSock> {

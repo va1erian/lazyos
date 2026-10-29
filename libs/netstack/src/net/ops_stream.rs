@@ -5,17 +5,26 @@
 use alloc::vec::Vec;
 
 use crate::config::is_usable_unicast;
-use crate::stack::{ready, Kind, Received, SockAddr, SockError, MAX_BACKLOG, MAX_CHUNK};
+use crate::stack::{ready, Kind, Received, SockAddr, SockError, LOOPBACK_ADDR};
+use crate::stack::{MAX_BACKLOG, MAX_CHUNK};
 
 use super::table::{Bound, Replica, Shape};
-use super::Net;
+use super::{Net, LOOPBACK};
+
+/// Whether a peer address can be connected to or sent to: a unicast host or
+/// the loopback address.
+pub(super) fn valid_peer(peer: SockAddr) -> bool {
+    peer.port != 0
+        && (peer.addr == LOOPBACK_ADDR || is_usable_unicast(peer.addr))
+        && peer.addr != [255; 4]
+}
 
 impl Net {
     /// `Connect`: for a stream, pick the interface that routes `peer` and
     /// start the handshake there (poll [`Net::socket_connect_status`]); for a
     /// datagram socket, fix its default peer.
     pub fn socket_connect(&mut self, id: u32, owner: u64, peer: SockAddr) -> Result<(), SockError> {
-        if peer.port == 0 || !is_usable_unicast(peer.addr) || peer.addr == [255; 4] {
+        if !valid_peer(peer) {
             return Err(SockError::BadAddress);
         }
         let entry = self.table.entry(id, owner)?;
@@ -27,19 +36,33 @@ impl Net {
             Shape::Lost => return Err(SockError::Unreachable),
             Shape::Pinned(_) | Shape::Spread { .. } => return Err(SockError::InvalidState),
         };
-        let slot = match bound.and_then(|b| b.only) {
-            Some(slot) => self
-                .unit(slot)
-                .filter(|unit| unit.usable())
-                .map(|_| slot)
-                .ok_or(SockError::Unreachable)?,
-            None => self.route_for(peer.addr).ok_or(SockError::Unreachable)?,
+        let slot = self.carrier(peer.addr, bound)?;
+        if slot == LOOPBACK {
+            self.serve_locally(peer);
+        }
+        // A card takes the port on its one address; `lo` holds several, and
+        // the connection leaves from the one the socket was bound to (if `lo`
+        // holds it). An unbound connection on `lo` takes a port nothing in
+        // `Net` holds: `lo` alone cannot tell, since a listener is placed
+        // there lazily.
+        let local = match bound {
+            Some(bound) => Some(SockAddr {
+                addr: match slot {
+                    LOOPBACK if self.is_local(bound.addr) => bound.addr,
+                    _ => [0; 4],
+                },
+                port: bound.port,
+            }),
+            None if slot == LOOPBACK => Some(SockAddr {
+                addr: [0; 4],
+                port: self.pick_port(Kind::Stream).ok_or(SockError::AddrInUse)?,
+            }),
+            None => None,
         };
         let stack = self.stack(slot)?;
         let sid = stack.socket_open(owner, Kind::Stream)?;
-        let any = |port| SockAddr { addr: [0; 4], port };
-        let started = match bound {
-            Some(bound) => stack.socket_bind(sid, owner, any(bound.port)),
+        let started = match local {
+            Some(local) => stack.socket_bind(sid, owner, local),
             None => Ok(()),
         }
         .and_then(|()| stack.socket_connect(sid, owner, peer));
@@ -82,13 +105,11 @@ impl Net {
             None => self.pick_port(Kind::Stream).ok_or(SockError::AddrInUse)?,
         };
         let only = bound.and_then(|b| b.only);
-        let slots: Vec<usize> = match only {
-            Some(slot) => alloc::vec![slot],
-            None => self.units().map(|(slot, _)| slot).collect(),
-        };
+        let addr = bound.map_or([0; 4], |b| b.addr);
+        let bound = Bound { port, only, addr };
         let mut replicas = Vec::new();
-        for slot in slots {
-            match Net::open_replica(&mut self.units, slot, owner, port, backlog) {
+        for place in self.placements(bound, true) {
+            match self.open_replica(place, owner, port, backlog) {
                 Ok(replica) => replicas.push(replica),
                 Err(error) => {
                     self.close_replicas(&replicas, owner);
@@ -97,7 +118,7 @@ impl Net {
             }
         }
         let entry = self.table.entry(id, owner)?;
-        entry.bound = Some(Bound { port, only });
+        entry.bound = Some(bound);
         entry.shape = Shape::Spread { replicas, backlog };
         Ok(())
     }

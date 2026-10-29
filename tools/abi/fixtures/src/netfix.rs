@@ -13,11 +13,14 @@
 //! `listen` (accept a connection the harness opens and echo it), and the
 //! stage T1 name checks of [`netfix_names`] (`resolv_conf`, `hosts`, `trust`,
 //! `dns`): musl's own `getaddrinfo` over `/etc/resolv.conf` and `/etc/hosts`,
-//! and [`netfix_msgpoll`] (`msgpoll`, issue #667): a `TcpStream` and a
-//! Messenger endpoint in one `epoll_wait`.
+//! [`netfix_msgpoll`] (`msgpoll`, issue #667): a `TcpStream` and a
+//! Messenger endpoint in one `epoll_wait`, and [`netfix_loopback`]
+//! (`loopback`, issue #1019): listening and connecting to itself over
+//! 127.0.0.1 and the machine's own address.
 //! The final line is `ABI:netfix:PASS`/`FAIL` as for every fixture.
 
 mod common;
+mod netfix_loopback;
 mod netfix_msgpoll;
 mod netfix_names;
 
@@ -223,6 +226,7 @@ fn main() {
         Err(why) => check("dns", Err(why), &mut failures),
     }
     check("msgpoll", netfix_msgpoll::msgpoll(addr(ECHO_TCP)), &mut failures);
+    check("loopback", netfix_loopback::loopback(addr(ECHO_UDP), &pattern(100_000, 5)), &mut failures);
     check("listen", listen(), &mut failures);
     common::report("netfix", failures.is_empty(), &failures.join("; "));
 }

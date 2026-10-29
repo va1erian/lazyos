@@ -64,6 +64,7 @@ impl Net {
         let wire = self.units().fold(self.retired.sockets, |sum, (_, unit)| {
             add_sockets(&sum, &unit.stack.socket_counters())
         });
+        let wire = add_sockets(&wire, &self.lo.socket_counters());
         SocketCounters {
             opened: self.sockets.opened,
             closed: self.sockets.closed,
@@ -77,6 +78,7 @@ impl Net {
     pub fn socket_closing(&self) -> usize {
         self.units()
             .map(|(_, unit)| unit.stack.socket_closing())
-            .sum()
+            .sum::<usize>()
+            + self.lo.socket_closing()
     }
 }

@@ -5,11 +5,11 @@
 
 use alloc::vec::Vec;
 
-use crate::config::is_usable_unicast;
 use crate::stack::{Kind, SockAddr, SockError, MAX_CHUNK, UDP_PAYLOAD};
 
+use super::ops_stream::valid_peer;
 use super::table::{Bound, Replica, Shape};
-use super::Net;
+use super::{Net, LOOPBACK};
 
 impl Net {
     /// Give a fresh datagram socket its replicas (picking an ephemeral port
@@ -28,13 +28,11 @@ impl Net {
             None => self.pick_port(Kind::Datagram).ok_or(SockError::AddrInUse)?,
         };
         let only = bound.and_then(|b| b.only);
-        let slots: Vec<usize> = match only {
-            Some(slot) => alloc::vec![slot],
-            None => self.units().map(|(slot, _)| slot).collect(),
-        };
+        let addr = bound.map_or([0; 4], |b| b.addr);
+        let bound = Bound { port, only, addr };
         let mut replicas = Vec::new();
-        for slot in slots {
-            match Net::open_replica(&mut self.units, slot, owner, port, 0) {
+        for place in self.placements(bound, false) {
+            match self.open_replica(place, owner, port, 0) {
                 Ok(replica) => replicas.push(replica),
                 Err(error) => {
                     self.close_replicas(&replicas, owner);
@@ -43,7 +41,7 @@ impl Net {
             }
         }
         let entry = self.table.entry(id, owner)?;
-        entry.bound = Some(Bound { port, only });
+        entry.bound = Some(bound);
         entry.shape = Shape::Spread {
             replicas,
             backlog: 0,
@@ -62,12 +60,17 @@ impl Net {
         let entry = self.table.entry(id, owner)?;
         let (bound, shape) = (entry.bound, entry.shape.clone());
         let slot = match bound.and_then(|b| b.only) {
+            _ if self.is_local(peer.addr) => LOOPBACK,
+            Some(LOOPBACK) => return Err(SockError::Unreachable),
             Some(slot) => slot,
             None => self.route_for(peer.addr).ok_or(SockError::Unreachable)?,
         };
         let (keep, others) = match shape {
             Shape::Fresh => (None, Vec::new()),
-            Shape::Pinned(replica) => (Some(replica), Vec::new()),
+            // A connected socket that now needs another interface (a local
+            // peer after a remote one, or the reverse) moves there.
+            Shape::Pinned(replica) if replica.unit == slot => (Some(replica), Vec::new()),
+            Shape::Pinned(replica) => (None, alloc::vec![replica]),
             Shape::Spread { replicas, .. } => {
                 let keep = replicas.iter().copied().find(|r| r.unit == slot);
                 let others = replicas.into_iter().filter(|r| r.unit != slot).collect();
@@ -79,7 +82,10 @@ impl Net {
             Some(replica) => replica,
             None => match bound {
                 // A bound port is held in every interface of the socket.
-                Some(bound) => Net::open_replica(&mut self.units, slot, owner, bound.port, 0)?,
+                Some(bound) => {
+                    let at = (slot == LOOPBACK && bound.addr != [0; 4]).then_some(bound.addr);
+                    self.open_replica((slot, at), owner, bound.port, 0)?
+                }
                 None => Replica {
                     unit: slot,
                     sid: self.stack(slot)?.socket_open(owner, Kind::Datagram)?,
@@ -112,7 +118,7 @@ impl Net {
         if data.len() > UDP_PAYLOAD {
             return Err(SockError::MessageSize);
         }
-        if to.port == 0 || !is_usable_unicast(to.addr) || to.addr == [255; 4] {
+        if !valid_peer(to) {
             return Err(SockError::BadAddress);
         }
         if self.table.entry(id, owner)?.kind != Kind::Datagram {
@@ -122,9 +128,12 @@ impl Net {
         let replica = match self.table.entry(id, owner)?.shape.clone() {
             Shape::Pinned(replica) => replica,
             Shape::Spread { replicas, .. } => {
-                let slot = self
-                    .route_among(to.addr, |slot| replicas.iter().any(|r| r.unit == slot))
-                    .ok_or(SockError::Unreachable)?;
+                let slot = if self.is_local(to.addr) {
+                    LOOPBACK
+                } else {
+                    self.route_among(to.addr, |slot| replicas.iter().any(|r| r.unit == slot))
+                        .ok_or(SockError::Unreachable)?
+                };
                 replicas
                     .into_iter()
                     .find(|r| r.unit == slot)

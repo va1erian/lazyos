@@ -28,6 +28,14 @@ fn endpoint(addr: SockAddr) -> IpEndpoint {
     IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::from(addr.addr)), addr.port)
 }
 
+/// What a socket bound to `addr` (`None`: any) and `port` listens on.
+pub(super) fn listen_endpoint(addr: Option<[u8; 4]>, port: u16) -> IpListenEndpoint {
+    IpListenEndpoint {
+        addr: addr.map(|addr| IpAddress::Ipv4(Ipv4Address::from(addr))),
+        port,
+    }
+}
+
 pub(super) fn sock_addr(ep: IpEndpoint) -> SockAddr {
     let IpAddress::Ipv4(addr) = ep.addr;
     SockAddr {
@@ -54,6 +62,9 @@ impl Stack {
     /// Check a destination is somewhere we can send: a unicast host, and
     /// either on-link or behind the gateway.
     pub(super) fn route_check(&self, dst: [u8; 4]) -> Result<(), SockError> {
+        if self.is_loopback() {
+            return self.local_check(dst);
+        }
         if !is_usable_unicast(dst) || dst == [255; 4] {
             return Err(SockError::BadAddress);
         }
@@ -73,8 +84,11 @@ impl Stack {
 
     /// `Bind`: choose the local port (and check the address is ours or any).
     pub fn socket_bind(&mut self, id: u32, owner: u64, local: SockAddr) -> Result<(), SockError> {
-        if local.addr != [0; 4] && Some(local.addr) != self.state.addr {
-            return Err(SockError::BadAddress);
+        let bound_addr = (local.addr != [0; 4]).then_some(local.addr);
+        if let Some(addr) = bound_addr {
+            if Some(addr) != self.state.addr && self.local_check(addr).is_err() {
+                return Err(SockError::BadAddress);
+            }
         }
         let kind = self.socks.entry(id, owner)?.kind();
         let port = self.socks.check_port(&self.sockets, kind, local.port)?;
@@ -95,10 +109,11 @@ impl Stack {
                     unreachable!()
                 };
                 state.bound_port = Some(port);
+                state.bound_addr = bound_addr;
                 Ok(())
             }
             Inner::Listener { .. } => Err(SockError::InvalidState),
-            Inner::Udp { .. } => self.udp_bind(id, owner, port),
+            Inner::Udp { .. } => self.udp_bind(id, owner, port, bound_addr),
         }
     }
 
@@ -110,12 +125,12 @@ impl Stack {
         }
         self.route_check(peer.addr)?;
         let entry = self.socks.entry(id, owner)?;
-        let (handle, bound) = match &entry.inner {
+        let (handle, bound, bound_addr) = match &entry.inner {
             Inner::Tcp { handle, state } => {
                 if state.connecting || state.established || state.refused {
                     return Err(SockError::InvalidState);
                 }
-                (*handle, state.bound_port)
+                (*handle, state.bound_port, state.bound_addr)
             }
             Inner::Udp { .. } => return self.udp_connect(id, owner, peer),
             Inner::Listener { .. } => return Err(SockError::InvalidState),
@@ -129,7 +144,11 @@ impl Stack {
         };
         let socket = self.sockets.get_mut::<tcp::Socket>(handle);
         socket
-            .connect(self.iface.context(), endpoint(peer), local)
+            .connect(
+                self.iface.context(),
+                endpoint(peer),
+                listen_endpoint(bound_addr, local),
+            )
             .map_err(|_| SockError::InvalidState)?;
         let Inner::Tcp { state, .. } = &mut self.socks.entry(id, owner)?.inner else {
             unreachable!()
@@ -166,12 +185,12 @@ impl Stack {
             return Err(SockError::BadAddress);
         }
         let entry = self.socks.entry(id, owner)?;
-        let (handle, bound) = match &entry.inner {
+        let (handle, bound, addr) = match &entry.inner {
             Inner::Tcp { handle, state } => {
                 if state.connecting || state.established || state.refused {
                     return Err(SockError::InvalidState);
                 }
-                (*handle, state.bound_port)
+                (*handle, state.bound_port, state.bound_addr)
             }
             _ => return Err(SockError::InvalidState),
         };
@@ -182,7 +201,7 @@ impl Stack {
                 .pick_port(&self.sockets, Kind::Stream)
                 .ok_or(SockError::AddrInUse)?,
         };
-        let listen_on = IpListenEndpoint { addr: None, port };
+        let listen_on = listen_endpoint(addr, port);
         self.sockets
             .get_mut::<tcp::Socket>(handle)
             .listen(listen_on)
@@ -195,6 +214,7 @@ impl Stack {
         }
         self.socks.entry(id, owner)?.inner = Inner::Listener {
             port,
+            addr,
             backlog: handles,
         };
         Ok(())
@@ -220,10 +240,15 @@ impl Stack {
         new_owner: u64,
     ) -> Result<Option<(u32, SockAddr)>, SockError> {
         let entry = self.socks.entry(id, owner)?;
-        let Inner::Listener { port, backlog } = &entry.inner else {
+        let Inner::Listener {
+            port,
+            addr,
+            backlog,
+        } = &entry.inner
+        else {
             return Err(SockError::InvalidState);
         };
-        let port = *port;
+        let (port, addr) = (*port, *addr);
         let Some((at, handle)) = backlog
             .iter()
             .copied()
@@ -241,7 +266,7 @@ impl Stack {
             .map(sock_addr)
             .ok_or(SockError::InvalidState)?;
         let mut fresh = new_tcp_socket();
-        let _ = fresh.listen(IpListenEndpoint { addr: None, port });
+        let _ = fresh.listen(listen_endpoint(addr, port));
         let replacement = self.sockets.add(fresh);
         let Inner::Listener { backlog, .. } = &mut self.socks.entry(id, owner)?.inner else {
             unreachable!()
@@ -370,48 +395,6 @@ impl Stack {
             self.sockets.get_mut::<tcp::Socket>(*handle).close();
         }
         Ok(())
-    }
-
-    /// `LocalAddr`: our address and the socket's port.
-    pub fn socket_local_addr(&mut self, id: u32, owner: u64) -> Result<SockAddr, SockError> {
-        let addr = self.state.addr.unwrap_or([0; 4]);
-        let entry = self.socks.entry(id, owner)?;
-        let port = match &entry.inner {
-            Inner::Tcp { handle, state } => {
-                match self.sockets.get::<tcp::Socket>(*handle).local_endpoint() {
-                    Some(ep) => return Ok(sock_addr(ep)),
-                    None => state.bound_port.ok_or(SockError::InvalidState)?,
-                }
-            }
-            Inner::Listener { port, .. } => *port,
-            Inner::Udp { handle, .. } => {
-                let port = self
-                    .sockets
-                    .get::<udp_socket::Socket>(*handle)
-                    .endpoint()
-                    .port;
-                if port == 0 {
-                    return Err(SockError::InvalidState);
-                }
-                port
-            }
-        };
-        Ok(SockAddr { addr, port })
-    }
-
-    /// `PeerAddr`: who the socket is connected to.
-    pub fn socket_peer_addr(&mut self, id: u32, owner: u64) -> Result<SockAddr, SockError> {
-        let entry = self.socks.entry(id, owner)?;
-        match &entry.inner {
-            Inner::Tcp { handle, .. } => self
-                .sockets
-                .get::<tcp::Socket>(*handle)
-                .remote_endpoint()
-                .map(sock_addr)
-                .ok_or(SockError::NotConnected),
-            Inner::Udp { peer, .. } => peer.ok_or(SockError::NotConnected),
-            Inner::Listener { .. } => Err(SockError::NotConnected),
-        }
     }
 
     /// `Poll`: the readiness bits of a socket right now.

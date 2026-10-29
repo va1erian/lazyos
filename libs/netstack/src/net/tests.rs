@@ -8,6 +8,8 @@ use crate::net::IfKind::{Wired, Wireless};
 use crate::stack::{LookupOutcome, PingOutcome};
 use crate::testmulti::MultiLan;
 
+mod loopback;
+mod loopback_life;
 mod sockets;
 
 fn answered(lan: &mut MultiLan, seq: u16) -> Option<PingOutcome> {

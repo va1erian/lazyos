@@ -242,8 +242,9 @@ fn destinations_nothing_routes_are_refused() {
         pair.net.socket_connect(id, ME, at([10, 0, 0, 2], 8080)),
         Err(SockError::Unreachable)
     );
+    // 127.0.0.1 is `lo` (`loopback.rs`); the rest of 127/8 is nowhere.
     assert_eq!(
-        pair.net.socket_connect(id, ME, at([127, 0, 0, 1], 8080)),
+        pair.net.socket_connect(id, ME, at([127, 0, 0, 2], 8080)),
         Err(SockError::BadAddress)
     );
     assert_eq!(

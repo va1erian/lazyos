@@ -203,7 +203,8 @@ pub(super) fn run(client: &Client) -> Result<u32, String> {
     for to in [
         Addr::new(GATEWAY, 0),
         Addr::new([0, 0, 0, 0], 80),
-        Addr::new([127, 0, 0, 1], 80),
+        // 127.0.0.1 is this machine (loopback); the rest of 127/8 is not.
+        Addr::new([127, 0, 0, 2], 80),
         Addr::new([224, 0, 0, 1], 80),
         Addr::new([255, 255, 255, 255], 80),
     ] {
