@@ -96,9 +96,12 @@ impl AppSecrets {
         secret: &[u8],
     ) -> Result<(), Error> {
         // Putting what is already kept writes nothing: an app looping on
-        // `Put` must not keep keyd on disk I/O.
-        if self.store.get(uid, app, name) == Ok(secret) {
-            return Ok(());
+        // `Put` must not keep keyd on disk I/O. Constant-time comparison
+        // prevents timing leaks during candidate checks.
+        if let Ok(existing) = self.store.get(uid, app, name) {
+            if crate::state::constant_time_eq(existing, secret) {
+                return Ok(());
+            }
         }
         self.change(entropy, |store| {
             store.put(uid, app, name, secret).map(|()| true)
