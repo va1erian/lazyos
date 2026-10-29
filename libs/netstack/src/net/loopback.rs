@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 
 use crate::stack::{Kind, SockAddr, SockError, Stack, LOOPBACK_ADDR, MAX_LOCAL_ADDRS};
 
-use super::table::{Bound, Replica, Shape, VSock};
+use super::table::{Bound, Shape, VSock};
 use super::{Net, LOOPBACK, MAX_INTERFACES};
 
 /// Rounds of `lo` per [`Net::poll`]: a handshake takes three, a burst of
@@ -191,28 +191,36 @@ impl Net {
     }
 
     /// A card (`slot`, if it left) no longer holds `addr`: what `lo` held
-    /// for it goes too. Sockets bound to that card lose their replicas on
-    /// `lo`, and connections on `lo` that used the address are reset, as on
-    /// the card itself.
+    /// for it goes too. A socket bound to that card or address loses its
+    /// replica on `lo`; a connection on `lo` that used the address is reset
+    /// (a RST at the next poll, then `Reset` to its owner, who closes it as
+    /// usual), as on the card itself.
     pub(super) fn forget_on_lo(&mut self, slot: Option<usize>, addr: Option<[u8; 4]>) {
         let Net { table, lo, .. } = self;
         for sock in table.iter_mut() {
-            let bound_there = slot.is_some() && sock.bound.is_some_and(|bound| bound.only == slot);
-            let on_lo: Vec<Replica> = match &sock.shape {
-                Shape::Spread { replicas, .. } if bound_there => replicas.clone(),
-                Shape::Pinned(replica) if replica.unit == LOOPBACK => alloc::vec![*replica],
-                _ => continue,
-            };
-            for replica in on_lo.into_iter().filter(|r| r.unit == LOOPBACK) {
-                let used =
-                    |end: Result<SockAddr, SockError>| end.is_ok_and(|e| Some(e.addr) == addr);
-                let gone = bound_there
-                    || used(lo.socket_local_addr(replica.sid, sock.owner))
-                    || used(lo.socket_peer_addr(replica.sid, sock.owner));
-                if gone {
-                    let _ = lo.socket_abort(replica.sid, sock.owner);
-                    sock.shape = Shape::Lost;
+            let bound_there = sock.bound.is_some_and(|b| {
+                (slot.is_some() && b.only == slot)
+                    || (b.only != Some(LOOPBACK) && addr == Some(b.addr))
+            });
+            match &mut sock.shape {
+                Shape::Spread { replicas, .. } if bound_there => {
+                    for replica in replicas.iter().filter(|r| r.unit == LOOPBACK) {
+                        let _ = lo.socket_close(replica.sid, sock.owner, 0);
+                    }
+                    replicas.retain(|r| r.unit != LOOPBACK);
                 }
+                Shape::Pinned(replica) if replica.unit == LOOPBACK => {
+                    let used =
+                        |end: Result<SockAddr, SockError>| end.is_ok_and(|e| Some(e.addr) == addr);
+                    let (sid, owner) = (replica.sid, sock.owner);
+                    if bound_there
+                        || used(lo.socket_local_addr(sid, owner))
+                        || used(lo.socket_peer_addr(sid, owner))
+                    {
+                        let _ = lo.socket_reset(sid, owner);
+                    }
+                }
+                _ => {}
             }
         }
     }

@@ -799,10 +799,12 @@ application's ring pair, `poll`/`epoll`, `SO_RCVTIMEO`/`SO_SNDTIMEO`,
   `127.0.0.2` is `EINVAL`); `::1` waits for `AF_INET6`. `lo` holds the
   addresses of the first seven cards that have one (smoltcp allows eight per
   interface); an eighth card's own address is not local. A card that goes away
-  takes the sockets bound to its address with it, and the connections on `lo`
-  that used that address are reset. A card whose address changes leaves `lo`
-  replicas bound to the old address answering on nothing until they are
-  reopened. `ping 127.0.0.1` (native ICMP) is not routed to `lo`.
+  takes the sockets bound to its address with it; when a card's address goes
+  (removal, or a lease that ends or changes) the connections on `lo` that used
+  it are reset at the next poll and sockets bound to it lose their replica on
+  `lo`. A connection already waiting in a listener's backlog on `lo` for that
+  address is not reset; it times out. `ping 127.0.0.1` (native ICMP) is not
+  routed to `lo`.
 
 **Evidence.** Host: `cargo test -p netstack loopback` (`net/tests/loopback.rs`):
 300 KB and 200 KB both ways over 127.0.0.1 and a close, getsockname/getpeername on
@@ -811,9 +813,11 @@ card's wire; an immediate refusal for both; `lo` with no card at all; bound
 addresses kept apart (127.0.0.1-only and card-only listeners, `127.0.0.2`
 refused, a 127.0.0.1-bound socket cannot reach the network); datagrams both ways
 to 127.0.0.1 and the card's address; a connected datagram socket moving between
-`lo` and a card; a card that leaves (its loopback connections reset, the
-listener bound to it gone, wildcard listeners kept); a wildcard socket reporting
-`0.0.0.0`, not 127.0.0.1; eight cards; and a stress run of 300
+`lo` and a card; a card that leaves and a lease that ends (loopback
+connections that used the address reset, the listener bound to it gone,
+wildcard listeners kept); a listener placed on `lo` late keeping its port; a
+wildcard socket reporting `0.0.0.0`, not 127.0.0.1; eight cards; the loopback
+device's order and back-pressure (`tests/device_loop.rs`); and a stress run of 300
 connect/echo/close rounds alternating both addresses with refusals in between,
 ending with no socket, closing stream or queued packet left. End to end (`python
 tools/net/run.py --netd`): `netfix`'s `loopback` check, a static musl `std::net`

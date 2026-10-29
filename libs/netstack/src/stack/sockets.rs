@@ -366,6 +366,12 @@ impl Sockets {
             }))
     }
 
+    /// The next ephemeral port candidate, for the tests.
+    #[cfg(test)]
+    pub(in crate::stack) fn peek_ephemeral(&self) -> u16 {
+        self.next_ephemeral
+    }
+
     /// An ephemeral port no socket of `kind` holds.
     pub(super) fn pick_port(&mut self, sockets: &SocketSet<'static>, kind: Kind) -> Option<u16> {
         for _ in 0..(u16::MAX - EPHEMERAL_FIRST) {

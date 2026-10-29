@@ -81,13 +81,21 @@ impl Stack {
         set_addrs(&mut self.iface, &wanted);
     }
 
-    /// Close `id` with a reset rather than a FIN (its address is gone, so a
-    /// FIN could never be answered).
-    pub fn socket_abort(&mut self, id: u32, owner: u64) -> Result<(), SockError> {
+    /// Reset stream `id` (its address is gone, so it could never finish):
+    /// smoltcp sends the RST at the next poll, which then reports the reset
+    /// to the owner, who closes the socket as after any reset.
+    pub fn socket_reset(&mut self, id: u32, owner: u64) -> Result<(), SockError> {
         if let Inner::Tcp { handle, .. } = &self.socks.entry(id, owner)?.inner {
             self.sockets.get_mut::<tcp::Socket>(*handle).abort();
         }
-        self.socket_close(id, owner, 0)
+        Ok(())
+    }
+
+    /// The port this stack would pick next for an unbound socket, for the
+    /// tests.
+    #[cfg(test)]
+    pub(crate) fn peek_ephemeral(&self) -> u16 {
+        self.socks.peek_ephemeral()
     }
 
     /// Whether `addr` is one this loopback stack answers for.

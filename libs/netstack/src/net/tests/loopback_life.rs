@@ -25,6 +25,7 @@ fn a_card_that_leaves_takes_what_lo_held_for_its_address() {
     assert_eq!(status, Ok(true));
     let slot = pair.net.units().next().unwrap().0;
     pair.net.remove_interface(slot);
+    pair.step(10);
     // The connection over the card's address is reset at both ends, the
     // listener bound to it is gone; the wildcard listener stays.
     assert_eq!(
@@ -145,22 +146,19 @@ fn a_lease_that_ends_resets_the_loopback_connections_that_used_it() {
 #[test]
 fn a_listener_placed_on_lo_late_still_gets_its_port() {
     let mut pair = MultiPair::new(&[Wired]);
-    // Many unbound loopback connections take ports first; none may take the
-    // port of a listener that has no `lo` replica yet.
-    let server = listener(&mut pair, at([0; 4], 0));
-    let port = pair.net.socket_local_addr(server, SERVER).unwrap().port;
-    let target = listener(&mut pair, at([0; 4], 8500));
-    let mut held = std::vec::Vec::new();
-    for _ in 0..6 {
-        let (id, status) = connect(&mut pair, at(LOOPBACK_ADDR, 8500));
-        assert_eq!(status, Ok(true));
-        let local = pair.net.socket_local_addr(id, CLIENT).unwrap();
-        assert_ne!(local.port, port, "a client took the listener's port");
-        held.push(id);
-        accept(&mut pair, target);
-    }
+    // A listener on the very port `lo` would hand the next unbound client,
+    // with no replica on `lo` yet.
+    let port = pair.net.loopback().peek_ephemeral();
+    let late = listener(&mut pair, at([0; 4], port));
+    let other = listener(&mut pair, at([0; 4], 8500));
+    let (client, status) = connect(&mut pair, at(LOOPBACK_ADDR, 8500));
+    assert_eq!(status, Ok(true));
+    accept(&mut pair, other);
+    let local = pair.net.socket_local_addr(client, CLIENT).unwrap();
+    assert_ne!(local.port, port, "a client took the listener's port");
     let (_, status) = connect(&mut pair, at(LOOPBACK_ADDR, port));
     assert_eq!(status, Ok(true));
+    accept(&mut pair, late);
 }
 
 #[test]

@@ -342,7 +342,10 @@ impl Net {
         self.forget_probes(slot);
         self.forget_on_lo(Some(slot), addr);
         for sock in self.table.iter_mut() {
-            if sock.bound.is_some_and(|bound| bound.only == Some(slot)) {
+            // A connection on `lo` was reset above and stays its owner's to
+            // close; anything else tied to the card's address is lost.
+            let on_lo = matches!(sock.shape, Shape::Pinned(r) if r.unit == LOOPBACK);
+            if sock.bound.is_some_and(|bound| bound.only == Some(slot)) && !on_lo {
                 sock.shape = Shape::Lost;
                 continue;
             }
