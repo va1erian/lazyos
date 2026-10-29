@@ -773,24 +773,36 @@ application's ring pair, `poll`/`epoll`, `SO_RCVTIMEO`/`SO_SNDTIMEO`,
   is carried by `lo` (`Net::carrier`), whatever the socket is bound to; anything
   else is routed as before. A socket bound to 127.0.0.1 cannot reach the
   network (`ENETUNREACH`).
-* **Replicas.** A listener or bound datagram socket on any address gets a
-  replica on `lo` beside those on the cards; one bound to a card's address gets
-  the card's and one on `lo` that answers on that address alone; one bound to
-  127.0.0.1 gets only `lo`'s. Address filters are smoltcp's own listen
-  endpoints, so a socket bound to 127.0.0.1 is not reached through the card's
-  address, nor the other way round. Ports stay one namespace across all of
-  them, as before.
+* **Replicas.** A socket that serves a card serves `lo` too: on any address if
+  it is bound to any, on that address alone if it is bound to a card's; one
+  bound to 127.0.0.1 lives on `lo` alone. Address filters are smoltcp's own
+  listen endpoints, so a socket bound to 127.0.0.1 is not reached through the
+  card's address, nor the other way round. A datagram socket gets its `lo`
+  replica when it binds; a listener when the first local connection to its port
+  comes (`Net::serve_locally`), because a replica holds a whole backlog of
+  256 KiB buffers and most listeners never see a local client. Ports stay one
+  namespace across all of them, as before. A connected datagram socket moves
+  between `lo` and a card when it connects to the other kind of peer.
 * **Refusal.** A SYN to a local port with no listener is answered by `lo`'s RST
   in the same poll, so `connect` fails with `ECONNREFUSED` at once.
 * **Polling.** `Net::poll` runs `lo` up to 16 rounds, until no packet is in
-  flight; `poll_delay_ms` is zero while one is, so `netd`'s single wait never
-  sleeps on a packet it sent itself.
+  flight, and skips it while nothing is open on it; `poll_delay_ms` is zero
+  while a packet is in flight, so `netd`'s single wait never sleeps on a packet
+  it sent itself.
+* **Security.** Loopback makes every service listening on `0.0.0.0` reachable
+  from this machine's own programs, as on any Unix; nothing here adds a check
+  beyond what a remote peer meets. A local service that trusts its callers must
+  authenticate them, and a client that fetches on behalf of untrusted content
+  (a browser) must not let that content name 127.0.0.1 or this machine's
+  addresses.
 * **Limits.** Only 127.0.0.1 of 127/8 is served (binding or connecting to
-  `127.0.0.2` is `EINVAL`); `::1` waits for `AF_INET6`. A card that goes away takes the
-  sockets bound to its address with it (their `lo` replicas too). A card whose
-  address changes leaves `lo` replicas bound to the old address answering on
-  nothing until they are reopened. `ping 127.0.0.1` (native ICMP) is not
-  routed to `lo`.
+  `127.0.0.2` is `EINVAL`); `::1` waits for `AF_INET6`. `lo` holds the
+  addresses of the first seven cards that have one (smoltcp allows eight per
+  interface); an eighth card's own address is not local. A card that goes away
+  takes the sockets bound to its address with it, and the connections on `lo`
+  that used that address are reset. A card whose address changes leaves `lo`
+  replicas bound to the old address answering on nothing until they are
+  reopened. `ping 127.0.0.1` (native ICMP) is not routed to `lo`.
 
 **Evidence.** Host: `cargo test -p netstack loopback` (`net/tests/loopback.rs`):
 300 KB and 200 KB both ways over 127.0.0.1 and a close, getsockname/getpeername on
@@ -798,7 +810,10 @@ every end; the card's own address to a wildcard listener with nothing on the
 card's wire; an immediate refusal for both; `lo` with no card at all; bound
 addresses kept apart (127.0.0.1-only and card-only listeners, `127.0.0.2`
 refused, a 127.0.0.1-bound socket cannot reach the network); datagrams both ways
-to 127.0.0.1 and the card's address; a card that leaves; and a stress run of 300
+to 127.0.0.1 and the card's address; a connected datagram socket moving between
+`lo` and a card; a card that leaves (its loopback connections reset, the
+listener bound to it gone, wildcard listeners kept); a wildcard socket reporting
+`0.0.0.0`, not 127.0.0.1; eight cards; and a stress run of 300
 connect/echo/close rounds alternating both addresses with refusals in between,
 ending with no socket, closing stream or queued packet left. End to end (`python
 tools/net/run.py --netd`): `netfix`'s `loopback` check, a static musl `std::net`

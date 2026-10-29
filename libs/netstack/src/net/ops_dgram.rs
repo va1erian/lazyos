@@ -31,7 +31,7 @@ impl Net {
         let addr = bound.map_or([0; 4], |b| b.addr);
         let bound = Bound { port, only, addr };
         let mut replicas = Vec::new();
-        for place in self.placements(Some(bound)) {
+        for place in self.placements(bound, false) {
             match self.open_replica(place, owner, port, 0) {
                 Ok(replica) => replicas.push(replica),
                 Err(error) => {
@@ -67,7 +67,10 @@ impl Net {
         };
         let (keep, others) = match shape {
             Shape::Fresh => (None, Vec::new()),
-            Shape::Pinned(replica) => (Some(replica), Vec::new()),
+            // A connected socket that now needs another interface (a local
+            // peer after a remote one, or the reverse) moves there.
+            Shape::Pinned(replica) if replica.unit == slot => (Some(replica), Vec::new()),
+            Shape::Pinned(replica) => (None, alloc::vec![replica]),
             Shape::Spread { replicas, .. } => {
                 let keep = replicas.iter().copied().find(|r| r.unit == slot);
                 let others = replicas.into_iter().filter(|r| r.unit != slot).collect();

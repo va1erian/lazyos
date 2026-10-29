@@ -10,13 +10,14 @@
 
 use alloc::vec::Vec;
 
-use crate::stack::{SockError, Stack, LOOPBACK_ADDR, MAX_LOCAL_ADDRS};
+use crate::stack::{Kind, SockAddr, SockError, Stack, LOOPBACK_ADDR, MAX_LOCAL_ADDRS};
 
-use super::table::Bound;
+use super::table::{Bound, Replica, Shape, VSock};
 use super::{Net, LOOPBACK, MAX_INTERFACES};
 
-/// Rounds of `lo` per [`Net::poll`]: a connection takes about six (ARP both
-/// ways, then the handshake), each round bounded by the stack's budgets.
+/// Rounds of `lo` per [`Net::poll`]: a handshake takes three, a burst of
+/// data and its acknowledgements a few more; each round is bounded by the
+/// stack's budgets.
 const LOOPBACK_ROUNDS: usize = 16;
 
 /// The card addresses `lo` holds, without allocating to compare them.
@@ -42,27 +43,34 @@ impl Net {
         &self.lo
     }
 
-    /// Whether `dst` is this machine: the loopback address or a card's own.
+    /// The card addresses `lo` answers for: those of the first cards that
+    /// hold one, as many as fit beside 127.0.0.1.
+    fn local_addrs(&self) -> LocalAddrs {
+        let mut held = LocalAddrs::default();
+        for (_, unit) in self.units() {
+            if held.count == MAX_LOCAL_ADDRS - 1 {
+                break;
+            }
+            if let Some(addr) = unit.stack.state().addr {
+                held.addrs[held.count] = addr;
+                held.count += 1;
+            }
+        }
+        held
+    }
+
+    /// Whether `dst` is this machine: the loopback address or an address `lo`
+    /// holds for a card.
     pub(super) fn is_local(&self, dst: [u8; 4]) -> bool {
-        dst == LOOPBACK_ADDR || self.card_with_addr(dst).is_some()
+        dst == LOOPBACK_ADDR || self.local_addrs().as_slice().contains(&dst)
     }
 
     /// The stack `lo`, holding the cards' current addresses.
     pub(super) fn lo_mut(&mut self) -> &mut Stack {
-        let mut now = LocalAddrs::default();
-        for (_, unit) in self.units() {
-            let Some(addr) = unit.stack.state().addr else {
-                continue;
-            };
-            // `lo` holds 127.0.0.1 and at most this many more.
-            if now.count < MAX_LOCAL_ADDRS - 1 {
-                now.addrs[now.count] = addr;
-                now.count += 1;
-            }
-        }
-        if now != self.lo_addrs {
-            self.lo.set_local_addrs(now.as_slice());
-            self.lo_addrs = now;
+        let held = self.local_addrs();
+        if held != self.lo_addrs {
+            self.lo.set_local_addrs(held.as_slice());
+            self.lo_addrs = held;
         }
         &mut self.lo
     }
@@ -71,6 +79,11 @@ impl Net {
     /// limit: the rest waits for the next poll, which `poll_delay_ms` asks
     /// for at once).
     pub(super) fn poll_loopback(&mut self, now_ms: i64) {
+        // An idle `lo` (nothing open, closing or in flight) has nothing to do.
+        let lo = &self.lo;
+        if lo.socket_open_count() == 0 && lo.socket_closing() == 0 && lo.looped_frames() == 0 {
+            return;
+        }
         let lo = self.lo_mut();
         for _ in 0..LOOPBACK_ROUNDS {
             lo.poll(now_ms);
@@ -106,19 +119,84 @@ impl Net {
         }
     }
 
-    /// Where a listener or a bound datagram socket needs replicas: every
-    /// card and `lo` when bound to any address; the card and `lo` (on that
-    /// address alone) when bound to a card's address; `lo` alone when bound
-    /// to the loopback address.
-    pub(super) fn placements(&self, bound: Option<Bound>) -> Vec<Placement> {
-        let only = bound.and_then(|b| b.only);
-        let addr = bound.map(|b| b.addr).filter(|a| *a != [0; 4]);
-        let mut slots: Vec<Placement> = match only {
-            None => self.units().map(|(slot, _)| (slot, None)).collect(),
-            Some(LOOPBACK) => Vec::new(),
+    /// Where a listener or a bound datagram socket needs replicas: the
+    /// cards it serves, and for a datagram socket `lo` too (on its one
+    /// address when bound to one). A listener gets its `lo` replica when a
+    /// local connection first comes ([`Net::serve_locally`]): a replica holds
+    /// a whole backlog of 256 KiB buffers, and most listeners never see one.
+    /// A socket bound to 127.0.0.1 lives on `lo` alone.
+    pub(super) fn placements(&self, bound: Bound, stream: bool) -> Vec<Placement> {
+        let addr = (bound.addr != [0; 4]).then_some(bound.addr);
+        if bound.only == Some(LOOPBACK) {
+            return alloc::vec![(LOOPBACK, addr)];
+        }
+        let mut slots: Vec<Placement> = match bound.only {
             Some(slot) => alloc::vec![(slot, None)],
+            None => self.units().map(|(slot, _)| (slot, None)).collect(),
         };
-        slots.push((LOOPBACK, addr));
+        if !stream && addr.is_none_or(|addr| self.is_local(addr)) {
+            slots.push((LOOPBACK, addr));
+        }
         slots
+    }
+
+    /// Before a connection to `to` over `lo`: give the listener on that port,
+    /// if it serves `to`'s address and has no replica on `lo` yet, one there.
+    /// A listener that cannot get one (its owner's quota) simply refuses.
+    pub(super) fn serve_locally(&mut self, to: SockAddr) {
+        let wanted = self.table.iter_mut().find_map(|sock| {
+            let (Shape::Spread { replicas, backlog }, Some(bound)) = (&sock.shape, sock.bound)
+            else {
+                return None;
+            };
+            let at = match bound.only {
+                None => None,
+                Some(slot) if slot != LOOPBACK && bound.addr == to.addr => Some(bound.addr),
+                Some(_) => return None,
+            };
+            let serves = sock.kind == Kind::Stream && *backlog > 0 && bound.port == to.port;
+            let placed = replicas.iter().any(|r| r.unit == LOOPBACK);
+            (serves && !placed).then_some((sock.id, sock.owner, *backlog, at))
+        });
+        let Some((id, owner, backlog, at)) = wanted else {
+            return;
+        };
+        let Ok(replica) = self.open_replica((LOOPBACK, at), owner, to.port, backlog) else {
+            return;
+        };
+        if let Ok(VSock {
+            shape: Shape::Spread { replicas, .. },
+            ..
+        }) = self.table.entry(id, owner)
+        {
+            replicas.push(replica);
+        }
+    }
+
+    /// A card left holding `addr`: what `lo` held for it goes too. Sockets
+    /// bound to that address lose their replicas on `lo`; connections on
+    /// `lo` that used it are reset, as on the card itself (closed with no
+    /// time to linger, so the next reap aborts them).
+    pub(super) fn forget_on_lo(&mut self, slot: usize, addr: Option<[u8; 4]>) {
+        let Net { table, lo, .. } = self;
+        for sock in table.iter_mut() {
+            let bound_there = sock.bound.is_some_and(|bound| bound.only == Some(slot));
+            let on_lo: Vec<Replica> = match &sock.shape {
+                Shape::Spread { replicas, .. } if bound_there => replicas.clone(),
+                Shape::Pinned(replica) if replica.unit == LOOPBACK => alloc::vec![*replica],
+                _ => continue,
+            };
+            for replica in on_lo.into_iter().filter(|r| r.unit == LOOPBACK) {
+                let used =
+                    |end: Result<SockAddr, SockError>| end.is_ok_and(|e| Some(e.addr) == addr);
+                let gone = bound_there
+                    || used(lo.socket_local_addr(replica.sid, sock.owner))
+                    || used(lo.socket_peer_addr(replica.sid, sock.owner));
+                if gone {
+                    let _ = lo.socket_close(replica.sid, sock.owner, 0);
+                    sock.shape = Shape::Lost;
+                }
+            }
+        }
     }
 }

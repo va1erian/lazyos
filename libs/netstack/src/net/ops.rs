@@ -126,7 +126,13 @@ impl Net {
                 .stack(replica.unit)?
                 .socket_local_addr(replica.sid, owner),
             Shape::Spread { replicas, .. } => {
+                // `lo` speaks for the socket only when it is its one home: a
+                // socket on any address is not 127.0.0.1's.
+                let only_lo = bound.is_some_and(|b| b.only == Some(LOOPBACK));
                 for replica in replicas {
+                    if replica.unit == LOOPBACK && !only_lo {
+                        continue;
+                    }
                     if let Ok(addr) = self
                         .stack(replica.unit)?
                         .socket_local_addr(replica.sid, owner)
@@ -332,20 +338,11 @@ impl Net {
     /// An interface went away: connections on it are lost, wildcard sockets
     /// lose their replica there, sockets tied to its address are lost, and its
     /// pings and lookups end.
-    pub(super) fn forget_unit(&mut self, slot: usize) {
+    pub(super) fn forget_unit(&mut self, slot: usize, addr: Option<[u8; 4]>) {
         self.forget_probes(slot);
-        let Net { table, lo, .. } = self;
-        for sock in table.iter_mut() {
+        self.forget_on_lo(slot, addr);
+        for sock in self.table.iter_mut() {
             if sock.bound.is_some_and(|bound| bound.only == Some(slot)) {
-                // What it holds on `lo` used the address that left.
-                let on_lo: &[Replica] = match &sock.shape {
-                    Shape::Spread { replicas, .. } => replicas,
-                    Shape::Pinned(replica) => core::slice::from_ref(replica),
-                    Shape::Fresh | Shape::Lost => &[],
-                };
-                for replica in on_lo.iter().filter(|r| r.unit == LOOPBACK) {
-                    let _ = lo.socket_close(replica.sid, sock.owner, 0);
-                }
                 sock.shape = Shape::Lost;
                 continue;
             }

@@ -22,8 +22,8 @@ use crate::config::{Mode, StaticConfig};
 use crate::device::RingDevice;
 use framering::MAX_FRAME;
 
-/// The loopback address. The rest of 127/8 is not served: smoltcp answers
-/// ARP for its own addresses only.
+/// The loopback address. The rest of 127/8 is not served: `lo` holds this
+/// one address of it (smoltcp matches destinations exactly).
 pub const LOOPBACK_ADDR: [u8; 4] = [127, 0, 0, 1];
 
 /// Addresses smoltcp lets one interface hold (`iface-max-addr-count-8`):

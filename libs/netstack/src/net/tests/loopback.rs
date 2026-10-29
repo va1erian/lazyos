@@ -285,15 +285,101 @@ fn datagrams_to_127_0_0_1_and_the_cards_address_reach_a_bound_socket() {
 }
 
 #[test]
-fn a_card_that_leaves_takes_the_sockets_bound_to_its_address_off_lo() {
+fn a_card_that_leaves_takes_what_lo_held_for_its_address() {
     let mut pair = MultiPair::new(&[Wired]);
+    let me = MultiPair::net_ip(0);
     let open_on_lo = pair.net.loopback().socket_open_count();
-    let server = listener(&mut pair, at(MultiPair::net_ip(0), 8100));
-    assert_eq!(pair.net.loopback().socket_open_count(), open_on_lo + 1);
+    // Listeners get their `lo` replica only when a local connection comes.
+    let bound = listener(&mut pair, at(me, 8100));
+    let any = listener(&mut pair, at([0; 4], 8101));
+    assert_eq!(pair.net.loopback().socket_open_count(), open_on_lo);
+    let (client, status) = connect(&mut pair, at(me, 8101));
+    assert_eq!(status, Ok(true));
+    let (conn, _) = accept(&mut pair, any);
+    let (_, status) = connect(&mut pair, at(me, 8100));
+    assert_eq!(status, Ok(true));
     let slot = pair.net.units().next().unwrap().0;
     pair.net.remove_interface(slot);
-    assert_eq!(pair.net.loopback().socket_open_count(), open_on_lo);
-    pair.net.socket_close(server, SERVER, pair.now).unwrap();
+    // The connection over the card's address is reset at both ends, the
+    // listener bound to it is gone; the wildcard listener stays.
+    assert_eq!(
+        pair.net.socket_recv(client, CLIENT, 16),
+        Err(SockError::Reset)
+    );
+    assert_eq!(
+        pair.net.socket_recv(conn, SERVER, 16),
+        Err(SockError::Reset)
+    );
+    assert_eq!(
+        pair.net.socket_accept(bound, SERVER),
+        Err(SockError::InvalidState)
+    );
+    for (id, owner) in [(client, CLIENT), (conn, SERVER), (bound, SERVER)] {
+        pair.net.socket_close(id, owner, pair.now).unwrap();
+    }
+    let (_, status) = connect(&mut pair, at(LOOPBACK_ADDR, 8101));
+    assert_eq!(status, Ok(true));
+}
+
+#[test]
+fn a_connected_datagram_socket_moves_between_lo_and_a_card() {
+    let mut pair = MultiPair::new(&[Wired]);
+    let server = pair.net.socket_open(SERVER, Kind::Datagram).unwrap();
+    pair.net
+        .socket_bind(server, SERVER, at(LOOPBACK_ADDR, 9100))
+        .unwrap();
+    let client = pair.net.socket_open(CLIENT, Kind::Datagram).unwrap();
+    let remote = at(MultiPair::peer_ip(0), 53);
+    for peer in [
+        at(LOOPBACK_ADDR, 9100),
+        remote,
+        at(LOOPBACK_ADDR, 9100),
+        remote,
+    ] {
+        pair.net.socket_connect(client, CLIENT, peer).unwrap();
+        assert_eq!(pair.net.socket_peer_addr(client, CLIENT), Ok(peer));
+    }
+    pair.net
+        .socket_connect(client, CLIENT, at(LOOPBACK_ADDR, 9100))
+        .unwrap();
+    pair.net.socket_send(client, CLIENT, b"here").unwrap();
+    let mut got = None;
+    pair.run_until(200, |p| {
+        got = p.net.socket_recvfrom(server, SERVER, 64).unwrap();
+        got.is_some()
+    });
+    assert_eq!(got.expect("the datagram").0, b"here");
+}
+
+#[test]
+fn a_socket_on_any_address_does_not_report_127_0_0_1() {
+    let mut pair = MultiPair::new(&[]);
+    let udp = pair.net.socket_open(SERVER, Kind::Datagram).unwrap();
+    pair.net.socket_bind(udp, SERVER, at([0; 4], 9200)).unwrap();
+    assert_eq!(
+        pair.net.socket_local_addr(udp, SERVER),
+        Ok(at([0; 4], 9200))
+    );
+    let tcp = listener(&mut pair, at([0; 4], 9201));
+    // Its `lo` replica, made by this connection, does not change that.
+    assert_eq!(connect(&mut pair, at(LOOPBACK_ADDR, 9201)).1, Ok(true));
+    assert_eq!(
+        pair.net.socket_local_addr(tcp, SERVER),
+        Ok(at([0; 4], 9201))
+    );
+}
+
+#[test]
+fn eight_cards_still_bind_and_the_first_seven_are_local() {
+    let mut pair = MultiPair::new(&[Wired; 8]);
+    for n in 0..8 {
+        let id = listener(&mut pair, at(MultiPair::net_ip(n), 8300 + n as u16));
+        assert!(pair.net.socket_local_addr(id, SERVER).is_ok(), "card {n}");
+    }
+    for n in 0..7 {
+        let (_, status) = connect(&mut pair, at(MultiPair::net_ip(n), 8300 + n as u16));
+        assert_eq!(status, Ok(true), "card {n}");
+    }
 }
 
 #[test]

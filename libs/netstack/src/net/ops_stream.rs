@@ -37,6 +37,9 @@ impl Net {
             Shape::Pinned(_) | Shape::Spread { .. } => return Err(SockError::InvalidState),
         };
         let slot = self.carrier(peer.addr, bound)?;
+        if slot == LOOPBACK {
+            self.serve_locally(peer);
+        }
         let stack = self.stack(slot)?;
         let sid = stack.socket_open(owner, Kind::Stream)?;
         // A card takes the port on its one address; `lo` holds several, and
@@ -92,7 +95,7 @@ impl Net {
         let addr = bound.map_or([0; 4], |b| b.addr);
         let bound = Bound { port, only, addr };
         let mut replicas = Vec::new();
-        for place in self.placements(Some(bound)) {
+        for place in self.placements(bound, true) {
             match self.open_replica(place, owner, port, backlog) {
                 Ok(replica) => replicas.push(replica),
                 Err(error) => {

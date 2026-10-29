@@ -24,9 +24,9 @@
 //! * **Loopback.** One more stack, `lo` (slot [`LOOPBACK`], never listed among
 //!   the interfaces), receives what it sends and holds 127.0.0.1 and every
 //!   card's address. Traffic to any of those goes through it and never
-//!   reaches a card; a wildcard socket has a replica there too, and a socket
-//!   bound to one address a replica that answers on that address alone
-//!   (`loopback.rs`).
+//!   reaches a card; a socket that serves a card serves `lo` too (a
+//!   listener from its first local connection on), on its one address when
+//!   bound to one (`loopback.rs`).
 //!
 //! The service glue (`netd`) owns everything that touches the machine; nothing
 //! here takes a syscall.
@@ -208,11 +208,12 @@ impl Net {
     /// vanish, its pings and lookups end as timed out. Returns its name.
     pub fn remove_interface(&mut self, slot: usize) -> Option<String> {
         let unit = self.units.get_mut(slot)?.take()?;
+        let addr = unit.stack.state().addr;
         self.generation += 1;
         self.retired.sockets =
             stats::add_sockets(&self.retired.sockets, &unit.stack.socket_counters());
         self.retired.stack = stats::add_counters(&self.retired.stack, unit.stack.counters());
-        self.forget_unit(slot);
+        self.forget_unit(slot, addr);
         Some(unit.name)
     }
 
