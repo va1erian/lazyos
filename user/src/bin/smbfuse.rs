@@ -250,7 +250,10 @@ fn detach(point: &str, secret: &str) -> Result<(), Failed> {
         Personality::Native,
         SpawnCred::Inherit,
     );
-    env.into_bytes().fill(0);
+    for byte in env.into_bytes().iter_mut() {
+        // SAFETY: `byte` is a valid, aligned, exclusive reference.
+        unsafe { core::ptr::write_volatile(byte, 0) };
+    }
     let pid = spawned.map_err(|e| {
         (
             Failure::Mount,

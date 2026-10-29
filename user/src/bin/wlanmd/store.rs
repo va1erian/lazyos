@@ -254,7 +254,7 @@ impl Store {
         match keyd.wifi_pmk(scope, id, ssid, uid) {
             Ok(mut bytes) => {
                 let pmk = <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| PmkError::Unavailable);
-                bytes.fill(0);
+                user::messenger::wifi::wipe_bytes(&mut bytes);
                 pmk.map(Key::new)
             }
             Err(error) => match error.errno().map(|code| -code) {
