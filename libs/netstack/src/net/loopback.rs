@@ -79,6 +79,7 @@ impl Net {
     /// limit: the rest waits for the next poll, which `poll_delay_ms` asks
     /// for at once).
     pub(super) fn poll_loopback(&mut self, now_ms: i64) {
+        self.reset_departed();
         // An idle `lo` (nothing open, closing or in flight) has nothing to do.
         let lo = &self.lo;
         if lo.socket_open_count() == 0 && lo.socket_closing() == 0 && lo.looped_frames() == 0 {
@@ -144,7 +145,7 @@ impl Net {
     /// if it serves `to`'s address and has no replica on `lo` yet, one there.
     /// A listener that cannot get one (its owner's quota) simply refuses.
     pub(super) fn serve_locally(&mut self, to: SockAddr) {
-        let wanted = self.table.iter_mut().find_map(|sock| {
+        let wanted = self.table.iter().find_map(|sock| {
             let (Shape::Spread { replicas, backlog }, Some(bound)) = (&sock.shape, sock.bound)
             else {
                 return None;
@@ -173,14 +174,30 @@ impl Net {
         }
     }
 
-    /// A card left holding `addr`: what `lo` held for it goes too. Sockets
-    /// bound to that address lose their replicas on `lo`; connections on
-    /// `lo` that used it are reset, as on the card itself (closed with no
-    /// time to linger, so the next reap aborts them).
-    pub(super) fn forget_on_lo(&mut self, slot: usize, addr: Option<[u8; 4]>) {
+    /// Reset the connections on `lo` that used a card address no card holds
+    /// any longer (a lease that ended or changed): no packet to or from it can
+    /// arrive, so they would otherwise wait for their timeout.
+    fn reset_departed(&mut self) {
+        let held = self.local_addrs();
+        if held == self.lo_seen {
+            return;
+        }
+        let departed = core::mem::replace(&mut self.lo_seen, held);
+        for addr in departed.as_slice() {
+            if !held.as_slice().contains(addr) {
+                self.forget_on_lo(None, Some(*addr));
+            }
+        }
+    }
+
+    /// A card (`slot`, if it left) no longer holds `addr`: what `lo` held
+    /// for it goes too. Sockets bound to that card lose their replicas on
+    /// `lo`, and connections on `lo` that used the address are reset, as on
+    /// the card itself.
+    pub(super) fn forget_on_lo(&mut self, slot: Option<usize>, addr: Option<[u8; 4]>) {
         let Net { table, lo, .. } = self;
         for sock in table.iter_mut() {
-            let bound_there = sock.bound.is_some_and(|bound| bound.only == Some(slot));
+            let bound_there = slot.is_some() && sock.bound.is_some_and(|bound| bound.only == slot);
             let on_lo: Vec<Replica> = match &sock.shape {
                 Shape::Spread { replicas, .. } if bound_there => replicas.clone(),
                 Shape::Pinned(replica) if replica.unit == LOOPBACK => alloc::vec![*replica],
@@ -193,7 +210,7 @@ impl Net {
                     || used(lo.socket_local_addr(replica.sid, sock.owner))
                     || used(lo.socket_peer_addr(replica.sid, sock.owner));
                 if gone {
-                    let _ = lo.socket_close(replica.sid, sock.owner, 0);
+                    let _ = lo.socket_abort(replica.sid, sock.owner);
                     sock.shape = Shape::Lost;
                 }
             }

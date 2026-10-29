@@ -81,6 +81,15 @@ impl Stack {
         set_addrs(&mut self.iface, &wanted);
     }
 
+    /// Close `id` with a reset rather than a FIN (its address is gone, so a
+    /// FIN could never be answered).
+    pub fn socket_abort(&mut self, id: u32, owner: u64) -> Result<(), SockError> {
+        if let Inner::Tcp { handle, .. } = &self.socks.entry(id, owner)?.inner {
+            self.sockets.get_mut::<tcp::Socket>(*handle).abort();
+        }
+        self.socket_close(id, owner, 0)
+    }
+
     /// Whether `addr` is one this loopback stack answers for.
     pub(super) fn local_check(&self, addr: [u8; 4]) -> Result<(), SockError> {
         if self.is_loopback() && self.iface.has_ip_addr(Ipv4Address::from(addr)) {
@@ -105,13 +114,18 @@ impl Stack {
                 }
             }
             Inner::Listener { port, addr, .. } => (*addr, *port),
-            Inner::Udp { handle, .. } => {
+            Inner::Udp { handle, peer } => {
                 let ep = self.sockets.get::<udp_socket::Socket>(*handle).endpoint();
                 if ep.port == 0 {
                     return Err(SockError::InvalidState);
                 }
                 let addr = ep.addr.map(|IpAddress::Ipv4(addr)| addr.octets());
-                (addr, ep.port)
+                // On `lo` a datagram leaves from the address its peer is:
+                // smoltcp picks the one whose /32 holds the destination.
+                let from_peer = peer
+                    .map(|p| p.addr)
+                    .filter(|a| self.is_loopback() && self.local_check(*a).is_ok());
+                (addr.or(from_peer), ep.port)
             }
         };
         Ok(SockAddr {

@@ -40,16 +40,29 @@ impl Net {
         if slot == LOOPBACK {
             self.serve_locally(peer);
         }
+        // A card takes the port on its one address; `lo` holds several, and
+        // the connection leaves from the one the socket was bound to. An
+        // unbound connection on `lo` takes a port nothing in `Net` holds: `lo`
+        // alone cannot tell, since a listener is placed there lazily.
+        let local = match bound {
+            Some(bound) if slot == LOOPBACK => Some(SockAddr {
+                addr: bound.addr,
+                port: bound.port,
+            }),
+            Some(bound) => Some(SockAddr {
+                addr: [0; 4],
+                port: bound.port,
+            }),
+            None if slot == LOOPBACK => Some(SockAddr {
+                addr: [0; 4],
+                port: self.pick_port(Kind::Stream).ok_or(SockError::AddrInUse)?,
+            }),
+            None => None,
+        };
         let stack = self.stack(slot)?;
         let sid = stack.socket_open(owner, Kind::Stream)?;
-        // A card takes the port on its one address; `lo` holds several, and
-        // the connection leaves from the one the socket was bound to.
-        let local = |bound: Bound| SockAddr {
-            addr: if slot == LOOPBACK { bound.addr } else { [0; 4] },
-            port: bound.port,
-        };
-        let started = match bound {
-            Some(bound) => stack.socket_bind(sid, owner, local(bound)),
+        let started = match local {
+            Some(local) => stack.socket_bind(sid, owner, local),
             None => Ok(()),
         }
         .and_then(|()| stack.socket_connect(sid, owner, peer));

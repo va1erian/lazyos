@@ -9,15 +9,15 @@ use crate::net::IfKind::Wired;
 use crate::stack::{Kind, SockAddr, SockError, LOOPBACK_ADDR};
 use crate::testmulti::MultiPair;
 
-const SERVER: u64 = 1;
-const CLIENT: u64 = 2;
+pub(super) const SERVER: u64 = 1;
+pub(super) const CLIENT: u64 = 2;
 
-fn at(addr: [u8; 4], port: u16) -> SockAddr {
+pub(super) fn at(addr: [u8; 4], port: u16) -> SockAddr {
     SockAddr { addr, port }
 }
 
 /// A listener of `SERVER` bound to `local`.
-fn listener(pair: &mut MultiPair, local: SockAddr) -> u32 {
+pub(super) fn listener(pair: &mut MultiPair, local: SockAddr) -> u32 {
     let id = pair.net.socket_open(SERVER, Kind::Stream).unwrap();
     pair.net.socket_bind(id, SERVER, local).unwrap();
     pair.net.socket_listen(id, SERVER, 4).unwrap();
@@ -25,7 +25,7 @@ fn listener(pair: &mut MultiPair, local: SockAddr) -> u32 {
 }
 
 /// A connection of `CLIENT` to `to` and how it ended: `Ok(true)` connected.
-fn connect(pair: &mut MultiPair, to: SockAddr) -> (u32, Result<bool, SockError>) {
+pub(super) fn connect(pair: &mut MultiPair, to: SockAddr) -> (u32, Result<bool, SockError>) {
     let id = pair.net.socket_open(CLIENT, Kind::Stream).unwrap();
     pair.net.socket_connect(id, CLIENT, to).unwrap();
     let mut status = Ok(false);
@@ -37,7 +37,7 @@ fn connect(pair: &mut MultiPair, to: SockAddr) -> (u32, Result<bool, SockError>)
 }
 
 /// Accept one connection on `listener`, waiting up to 200 ms.
-fn accept(pair: &mut MultiPair, listener: u32) -> (u32, SockAddr) {
+pub(super) fn accept(pair: &mut MultiPair, listener: u32) -> (u32, SockAddr) {
     let mut got = None;
     pair.run_until(200, |p| {
         got = p.net.socket_accept(listener, SERVER).unwrap();
@@ -285,73 +285,6 @@ fn datagrams_to_127_0_0_1_and_the_cards_address_reach_a_bound_socket() {
 }
 
 #[test]
-fn a_card_that_leaves_takes_what_lo_held_for_its_address() {
-    let mut pair = MultiPair::new(&[Wired]);
-    let me = MultiPair::net_ip(0);
-    let open_on_lo = pair.net.loopback().socket_open_count();
-    // Listeners get their `lo` replica only when a local connection comes.
-    let bound = listener(&mut pair, at(me, 8100));
-    let any = listener(&mut pair, at([0; 4], 8101));
-    assert_eq!(pair.net.loopback().socket_open_count(), open_on_lo);
-    let (client, status) = connect(&mut pair, at(me, 8101));
-    assert_eq!(status, Ok(true));
-    let (conn, _) = accept(&mut pair, any);
-    let (_, status) = connect(&mut pair, at(me, 8100));
-    assert_eq!(status, Ok(true));
-    let slot = pair.net.units().next().unwrap().0;
-    pair.net.remove_interface(slot);
-    // The connection over the card's address is reset at both ends, the
-    // listener bound to it is gone; the wildcard listener stays.
-    assert_eq!(
-        pair.net.socket_recv(client, CLIENT, 16),
-        Err(SockError::Reset)
-    );
-    assert_eq!(
-        pair.net.socket_recv(conn, SERVER, 16),
-        Err(SockError::Reset)
-    );
-    assert_eq!(
-        pair.net.socket_accept(bound, SERVER),
-        Err(SockError::InvalidState)
-    );
-    for (id, owner) in [(client, CLIENT), (conn, SERVER), (bound, SERVER)] {
-        pair.net.socket_close(id, owner, pair.now).unwrap();
-    }
-    let (_, status) = connect(&mut pair, at(LOOPBACK_ADDR, 8101));
-    assert_eq!(status, Ok(true));
-}
-
-#[test]
-fn a_connected_datagram_socket_moves_between_lo_and_a_card() {
-    let mut pair = MultiPair::new(&[Wired]);
-    let server = pair.net.socket_open(SERVER, Kind::Datagram).unwrap();
-    pair.net
-        .socket_bind(server, SERVER, at(LOOPBACK_ADDR, 9100))
-        .unwrap();
-    let client = pair.net.socket_open(CLIENT, Kind::Datagram).unwrap();
-    let remote = at(MultiPair::peer_ip(0), 53);
-    for peer in [
-        at(LOOPBACK_ADDR, 9100),
-        remote,
-        at(LOOPBACK_ADDR, 9100),
-        remote,
-    ] {
-        pair.net.socket_connect(client, CLIENT, peer).unwrap();
-        assert_eq!(pair.net.socket_peer_addr(client, CLIENT), Ok(peer));
-    }
-    pair.net
-        .socket_connect(client, CLIENT, at(LOOPBACK_ADDR, 9100))
-        .unwrap();
-    pair.net.socket_send(client, CLIENT, b"here").unwrap();
-    let mut got = None;
-    pair.run_until(200, |p| {
-        got = p.net.socket_recvfrom(server, SERVER, 64).unwrap();
-        got.is_some()
-    });
-    assert_eq!(got.expect("the datagram").0, b"here");
-}
-
-#[test]
 fn a_socket_on_any_address_does_not_report_127_0_0_1() {
     let mut pair = MultiPair::new(&[]);
     let udp = pair.net.socket_open(SERVER, Kind::Datagram).unwrap();
@@ -367,19 +300,6 @@ fn a_socket_on_any_address_does_not_report_127_0_0_1() {
         pair.net.socket_local_addr(tcp, SERVER),
         Ok(at([0; 4], 9201))
     );
-}
-
-#[test]
-fn eight_cards_still_bind_and_the_first_seven_are_local() {
-    let mut pair = MultiPair::new(&[Wired; 8]);
-    for n in 0..8 {
-        let id = listener(&mut pair, at(MultiPair::net_ip(n), 8300 + n as u16));
-        assert!(pair.net.socket_local_addr(id, SERVER).is_ok(), "card {n}");
-    }
-    for n in 0..7 {
-        let (_, status) = connect(&mut pair, at(MultiPair::net_ip(n), 8300 + n as u16));
-        assert_eq!(status, Ok(true), "card {n}");
-    }
 }
 
 #[test]

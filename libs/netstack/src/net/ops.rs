@@ -340,7 +340,7 @@ impl Net {
     /// pings and lookups end.
     pub(super) fn forget_unit(&mut self, slot: usize, addr: Option<[u8; 4]>) {
         self.forget_probes(slot);
-        self.forget_on_lo(slot, addr);
+        self.forget_on_lo(Some(slot), addr);
         for sock in self.table.iter_mut() {
             if sock.bound.is_some_and(|bound| bound.only == Some(slot)) {
                 sock.shape = Shape::Lost;

@@ -340,6 +340,11 @@ impl Device for RingDevice {
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<RingTx<'_>> {
         if let Some(queue) = self.looped.as_mut() {
+            // Full: smoltcp keeps the segment and sends it later, as on a
+            // full ring, rather than building it to be dropped.
+            if queue.len() >= LOOP_FRAMES {
+                return None;
+            }
             return Some(RingTx {
                 tx: Sink::Loop(queue),
                 buf: &mut self.tx_frame,

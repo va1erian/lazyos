@@ -1,8 +1,9 @@
 //! `netfix`'s `loopback` check (issue #1019): a Linux program that listens and
 //! connects to itself. A stream to 127.0.0.1 and one to the machine's own
 //! address reach listeners on this machine, echo bytes both ways through
-//! `poll`-driven non-blocking sockets, and close in order; a connect to a local
-//! port nobody listens on is refused at once; a read timeout expires; a
+//! non-blocking sockets, and close in order; a connect to a local port nobody
+//! listens on is refused at once (`connect_timeout`: a non-blocking connect,
+//! `poll` and `SO_ERROR`); a read timeout (`SO_RCVTIMEO`) expires; a
 //! datagram to 127.0.0.1 reaches a socket bound there. None of it may reach
 //! the wire: `tools/net/run.py` checks the capture holds no such frame.
 

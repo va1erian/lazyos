@@ -118,11 +118,6 @@ impl Net {
         if addr == LOOPBACK_ADDR {
             return Some(LOOPBACK);
         }
-        self.card_with_addr(addr)
-    }
-
-    /// The slot of the card that holds `addr`.
-    pub(super) fn card_with_addr(&self, addr: [u8; 4]) -> Option<usize> {
         self.units()
             .find(|(_, unit)| unit.stack.state().addr == Some(addr))
             .map(|(slot, _)| slot)

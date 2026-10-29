@@ -129,6 +129,9 @@ pub struct Net {
     lo: Stack,
     /// The card addresses `lo` was last given (`loopback.rs`).
     lo_addrs: loopback::LocalAddrs,
+    /// The card addresses the last poll saw, to reset connections on `lo`
+    /// that used one that went away.
+    lo_seen: loopback::LocalAddrs,
     table: Table,
     probes: Probes,
     /// The table-level counters (`opened`, `closed`, `reclaimed`, `accepted`
@@ -157,6 +160,7 @@ impl Net {
             // Its own seed, so its sequence numbers are not a card's.
             lo: Stack::loopback(seed.rotate_left(32) ^ 0x6c6f, 0),
             lo_addrs: loopback::LocalAddrs::default(),
+            lo_seen: loopback::LocalAddrs::default(),
             table: Table::new(seed),
             probes: Probes::new(),
             sockets: SocketCounters::default(),

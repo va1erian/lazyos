@@ -103,6 +103,10 @@ impl Table {
         self.slots.iter().flatten().map(|s| s.id).collect()
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &VSock> {
+        self.slots.iter().flatten()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut VSock> {
         self.slots.iter_mut().flatten()
     }
