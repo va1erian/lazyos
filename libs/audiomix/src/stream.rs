@@ -270,8 +270,13 @@ impl<R: Ring> Stream<R> {
     /// `scratch.samples`, splitting the copy where the ring wraps.
     fn read_frames(&self, count: usize, scratch: &mut Scratch) {
         let bytes = count * self.frame_bytes;
-        scratch.bytes.clear();
-        scratch.bytes.resize(bytes, 0);
+        // Fast path: avoid zero-filling scratch.bytes in steady state when ring
+        // is present, since ring.read overwrites head and tail completely.
+        if scratch.bytes.len() < bytes {
+            scratch.bytes.resize(bytes, 0);
+        } else {
+            scratch.bytes.truncate(bytes);
+        }
         if let Some(ring) = &self.ring {
             let start = (self.consumed % self.ring_frames) as usize;
             let first = count.min(self.ring_frames as usize - start);
@@ -279,8 +284,13 @@ impl<R: Ring> Stream<R> {
             let (head, tail) = scratch.bytes.split_at_mut(split);
             ring.read(start * self.frame_bytes, head);
             ring.read(0, tail);
+        } else {
+            scratch.bytes.fill(0);
         }
+        let pair_count = bytes / 2;
         scratch.samples.clear();
+        // Reserve capacity to prevent reallocations during extension.
+        scratch.samples.reserve(pair_count);
         scratch.samples.extend(
             scratch
                 .bytes
