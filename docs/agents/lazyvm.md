@@ -41,6 +41,13 @@ QEMU and writes what each printed (LOS-01):
 python tools/lazyvm/run.py --commands cmds.txt --out results [--no-build] [--accel none] [--timeout 120] [--net]
 ```
 
+`--net` is for programs that use sockets. The fixture as init leaves the boot with no
+stack, so there `netd` owns the boot (`LAZYOS_NETD=1`, args `fixture=1`) and starts the
+fixture in the place of its `netfix` once it has an address, with a virtio-net card under
+QEMU's user networking. `run.py` also runs the host peers of `tools/net/hostpeers.py`: the
+echo server the guest reaches at `10.0.2.2:47771`, and a client that keeps connecting into
+the guest's port 47773 until it has been served.
+
 `cmds.txt` has one command per line, with LazyOS paths (`/system/lazyvm/bin/lazyvm
 -Xbootclasspath:/system/lazyvm/lib/lazyrt -cp /system/lazyvm/tests s1.Hello`),
 split like a POSIX shell (`shlex`; blank lines and `#` comments skipped; an
@@ -93,13 +100,6 @@ LazyVM's `AGENTS.md`, which is the master; LazyVM's `tools/check_rules.py
 --lazyos <path>` compares them.
 
 <!-- lazyvm-rules:begin -->
-
-`--net` is for programs that use sockets. The fixture as init leaves the boot with no
-stack, so there `netd` owns the boot (`LAZYOS_NETD=1`, args `fixture=1`) and starts the
-fixture in the place of its `netfix` once it has an address, with a virtio-net card under
-QEMU's user networking. `run.py` also runs the host peers of `tools/net/hostpeers.py`: the
-echo server the guest reaches at `10.0.2.2:47771`, and a client that keeps connecting into
-the guest's port 47773 until it has been served.
 ## Shared rules for LazyVM work
 
 **1. What you may read and copy (clean room).**
@@ -149,6 +149,8 @@ the guest's port 47773 until it has been served.
 - New dependencies must have a permissive license (MIT, Apache-2.0, BSD, Zlib,
   ISC), be recorded in `THIRD_PARTY.md`, and pass `python tools/licenses.py`.
   Never add `ring`, `aws-lc` or a GPL crate outside `crates/lazyvm-lazyos`.
+- The release VM binary (stripped, gzipped) plus `lazyrt.jar` stays under
+  4,000,000 bytes on every platform (`python tools/size.py`, decisions.md D14).
 
 **5. Review and merge.**
 - Before every push, run the CI basics (`AGENTS.md`, "Before you push"). A
