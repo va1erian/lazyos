@@ -38,7 +38,7 @@ is set. Code: `build_support/lazyvm_embed.rs`, tests
 QEMU and writes what each printed (LOS-01):
 
 ```bash
-python tools/lazyvm/run.py --commands cmds.txt --out results [--no-build] [--accel none] [--timeout 120]
+python tools/lazyvm/run.py --commands cmds.txt --out results [--no-build] [--accel none] [--timeout 120] [--net]
 ```
 
 `cmds.txt` has one command per line, with LazyOS paths (`/system/lazyvm/bin/lazyvm
@@ -93,6 +93,13 @@ LazyVM's `AGENTS.md`, which is the master; LazyVM's `tools/check_rules.py
 --lazyos <path>` compares them.
 
 <!-- lazyvm-rules:begin -->
+
+`--net` is for programs that use sockets. The fixture as init leaves the boot with no
+stack, so there `netd` owns the boot (`LAZYOS_NETD=1`, args `fixture=1`) and starts the
+fixture in the place of its `netfix` once it has an address, with a virtio-net card under
+QEMU's user networking. `run.py` also runs the host peers of `tools/net/hostpeers.py`: the
+echo server the guest reaches at `10.0.2.2:47771`, and a client that keeps connecting into
+the guest's port 47773 until it has been served.
 ## Shared rules for LazyVM work
 
 **1. What you may read and copy (clean room).**

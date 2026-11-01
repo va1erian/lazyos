@@ -40,6 +40,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -47,6 +48,10 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 import boot  # noqa: E402
 import judge  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools" / "net"))
+sys.path.insert(0, str(ROOT / "tools" / "screenshot"))
+import hostpeers  # noqa: E402
+from qemu_qmp import free_port  # noqa: E402
 
 IMAGE = ROOT / "target" / "lazyvm" / "lazyos-lazyvm.img"
 FIXTURE = ROOT / "target" / "abi" / "fixtures" / "lazyvm.elf"
@@ -72,7 +77,7 @@ def read_commands(path: Path) -> list[list[str]]:
     return commands
 
 
-def build_env(environ: dict[str, str], listing: Path) -> dict[str, str]:
+def build_env(environ: dict[str, str], listing: Path, net: bool = False) -> dict[str, str]:
     """The image build's environment: the caller's, without the `LAZYOS_*` switches that
     would add to or change this boot, plus the fixture, LazyVM and a fresh small volume."""
     env = {key: value for key, value in environ.items()
@@ -80,6 +85,12 @@ def build_env(environ: dict[str, str], listing: Path) -> dict[str, str]:
     env.setdefault("LAZYOS_OS_SIZE", "256M")
     env.update({"LAZYOS_RESET_OS": "1", "LAZYOS_INIT": str(FIXTURE), "LAZYOS_LAZYVM": "1",
                 "LAZYOS_LAZYVM_COMMANDS": str(listing)})
+    if net:
+        # `netd` owns this boot and starts the fixture once it has an address, in the
+        # place of its own `netfix`: the fixture as init would leave no stack to talk to.
+        del env["LAZYOS_INIT"]
+        env.update({"LAZYOS_NET": "1", "LAZYOS_NETD": "1", "LAZYOS_NETD_ARGS": "fixture=1",
+                    "LAZYOS_NETFIX": str(FIXTURE)})
     return env
 
 
@@ -131,7 +142,7 @@ def put_back(built: Path, saved: Path) -> str | None:
     return None
 
 
-def build_image(listing: Path, image: Path) -> bool:
+def build_image(listing: Path, image: Path, net: bool = False) -> bool:
     """Build an image whose boot is the fixture over `listing` and copy it to `image`. The
     build writes `BUILT`; a developer's image there is set aside and restored, and a run
     that could not restore it fails, saying where it is."""
@@ -139,7 +150,7 @@ def build_image(listing: Path, image: Path) -> bool:
     if refused:
         return fail(refused)
     try:
-        built = run_build(listing, image)
+        built = run_build(listing, image, net)
     finally:
         left = put_back(BUILT, SAVED)
     if left:
@@ -147,9 +158,9 @@ def build_image(listing: Path, image: Path) -> bool:
     return built
 
 
-def run_build(listing: Path, image: Path) -> bool:
+def run_build(listing: Path, image: Path, net: bool = False) -> bool:
     """`cargo build` with the fixture and `listing`, then copy the result to `image`."""
-    env = build_env(dict(os.environ), listing)
+    env = build_env(dict(os.environ), listing, net)
     done = subprocess.run(["cargo", "build"], cwd=ROOT, env=env, capture_output=True, text=True)
     if done.returncode != 0:
         return fail(f"the image build failed:\n{done.stderr[-2500:]}")
@@ -200,6 +211,37 @@ def write_results(run: judge.Run, lines: list[str], out: Path) -> list[str]:
     return problems
 
 
+class HostPeers:
+    """The host's side of a `--net` boot: the echo servers, and a client that keeps
+    connecting into the guest's listener until it has been served, since the guest's test
+    runs whenever its turn comes."""
+
+    def __init__(self) -> None:
+        self.forward = free_port()
+        self.servers = hostpeers.EchoServers()
+        self.stopping = threading.Event()
+        self.thread = threading.Thread(target=self.probe, daemon=True)
+        self.thread.start()
+
+    def qemu_args(self) -> list[str]:
+        rule = f"hostfwd=tcp:127.0.0.1:{self.forward}-:{hostpeers.GUEST_LISTEN_PORT}"
+        return ["-netdev", f"user,id=n0,{rule}", "-device", "virtio-net-pci,netdev=n0"]
+
+    def probe(self) -> None:
+        payload = hostpeers.pattern(64 * 1024)
+        while not self.stopping.is_set():
+            probe = hostpeers.InboundProbe(self.forward, payload)
+            probe.start()
+            probe.done.wait()
+            if probe.echoed == payload:
+                return
+            self.stopping.wait(0.5)
+
+    def stop(self) -> None:
+        self.stopping.set()
+        self.servers.close()
+
+
 def fail(message: str) -> bool:
     print(f"lazyvm: {message}", file=sys.stderr)
     return False
@@ -223,6 +265,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=positive, default=120, help="seconds per command (>= 1)")
     parser.add_argument("--memory", default="1G", help="guest RAM (default 1G)")
     parser.add_argument("--qemu", help="path to qemu-system-x86_64")
+    parser.add_argument("--net", action="store_true",
+                        help="boot with netd and a card, and the host peers of tools/net/hostpeers.py")
     args = parser.parse_args()
 
     try:
@@ -240,13 +284,18 @@ def main() -> int:
         refused = image_refused(args.image)
         if refused:
             return int(not fail(refused))
-        if not (build_fixture() and build_image(listing.resolve(), args.image)):
+        if not (build_fixture() and build_image(listing.resolve(), args.image, args.net)):
             return 1
     if not args.image.is_file():
         return int(not fail(f"no image at {args.image} (run without --no-build)"))
     qemu_dir = args.out / "qemu"
-    serial, failure = boot.boot(args.image, args.timeout, qemu_dir, args.accel, args.memory,
-                                args.qemu)
+    peers = HostPeers() if args.net else None
+    try:
+        serial, failure = boot.boot(args.image, args.timeout, qemu_dir, args.accel, args.memory,
+                                    args.qemu, peers.qemu_args() if peers else None)
+    finally:
+        if peers:
+            peers.stop()
     problems = ([failure] if failure else []) + write_results(judge.parse(serial), lines, args.out)
     for problem in problems:
         fail(problem)

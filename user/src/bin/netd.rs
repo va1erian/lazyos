@@ -137,6 +137,9 @@ const DEMO_CLIENTS: [(bool, &str, &[&str]); 14] = [
 
 struct Args {
     demo: bool,
+    /// Runs only the `netfix` fixture, the last client: `tools/lazyvm/run.py --net`
+    /// puts its own program there to get a network without the evidence clients.
+    fixture: bool,
 }
 
 impl Args {
@@ -146,6 +149,7 @@ impl Args {
         let text = core::str::from_utf8(&buffer[..len]).unwrap_or("");
         Args {
             demo: text.split_whitespace().any(|part| part == "demo=1"),
+            fixture: text.split_whitespace().any(|part| part == "fixture=1"),
         }
     }
 }
@@ -197,7 +201,11 @@ fn run(args: &Args) -> Result<(), alloc::string::String> {
     let mut netd = Netd::new(Net::new(seed()?));
     let mut next_refresh = sys::clock() + config::REFRESH_TICKS;
     let started = sys::clock();
-    let mut next_demo = if args.demo { 0 } else { DEMO_CLIENTS.len() };
+    let mut next_demo = match (args.demo, args.fixture) {
+        (true, _) => 0,
+        (false, true) => DEMO_CLIENTS.len() - 1,
+        (false, false) => DEMO_CLIENTS.len(),
+    };
     let mut demo_child: Option<u64> = None;
     let mut resolv = resolvfile::ResolvFile::new();
     // One receive buffer for the life of the service (per-call buffers of the

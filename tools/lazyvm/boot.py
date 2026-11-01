@@ -80,14 +80,14 @@ class Watch:
 
 
 def boot(image: Path, timeout: int, out_dir: Path, accel: str, memory: str,
-         qemu: str | None) -> tuple[str, str | None]:
+         qemu: str | None, extra: list[str] | None = None) -> tuple[str, str | None]:
     """Run QEMU until the watch is satisfied; `(serial log, failure or None)`."""
     out_dir.mkdir(parents=True, exist_ok=True)
     log = out_dir / "serial.log"
     log.unlink(missing_ok=True)
     binary = find_qemu(qemu)
     command = build_qemu_command(binary, str(image), free_port(), log, memory,
-                                 accel_args(accel, binary))
+                                 list(accel_args(accel, binary) or []) + (extra or []))
     stderr = out_dir / "qemu.stderr"
     with stderr.open("wb") as sink:
         proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=sink)

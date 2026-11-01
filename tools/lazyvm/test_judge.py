@@ -177,7 +177,7 @@ class DeveloperImageTests(unittest.TestCase):
     def test_a_good_build_puts_the_image_back_and_succeeds(self) -> None:
         self.built.write_bytes(b"mine")
 
-        def build(_listing: Path, _image: Path) -> bool:
+        def build(_listing: Path, _image: Path, _net: bool = False) -> bool:
             self.built.write_bytes(b"test build")
             return True
 
