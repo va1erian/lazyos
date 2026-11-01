@@ -5,8 +5,8 @@ shim and several cards later): the NIC interface is real MIDL (`idl/net.midl`),
 `libs/framering`, `libs/virtio-net` and `libs/nicdrv` exist with host tests and
 fuzzing, the queue cap is resolved, and `netdrv` brings up a virtio-net card in
 QEMU with a packet-capture-judged harness; `netd` (smoltcp) serves DHCP,
-TCP/UDP/DNS and the tools below, and a machine can have several cards. Not
-built: loopback, IPv6, a firewall, service daemons, remote Messenger. See
+TCP/UDP/DNS and the tools below, and a machine can have several cards. Loopback
+(issue #1019) is built. Not built: IPv6, a firewall, service daemons, remote Messenger. See
 §10.1 for the state of each stage and §13 for what the plan got wrong. What is built is described in
 [architecture/networking.md](architecture/networking.md).
 Scope: the shortest credible path from "no network" to basic tools working
@@ -80,9 +80,10 @@ These are the parts `netd` must own; none is a blocker for the goal.
   `netd` emulates a backlog by keeping a small pool of listening sockets per
   bound port and re-arming on accept.
 - **No ephemeral port allocation, no loopback routing, one device per
-  `Interface`.** `netd` allocates ports, and serves `127.0.0.1` with a second
-  `Interface` over smoltcp's `phy::Loopback` (or short-circuits in the socket
-  layer).
+  `Interface`.** `netd` allocates ports. Loopback is built (issue #1019): `Net`
+  keeps a second, unlisted `Stack` over a looped device that carries 127.0.0.1
+  and the cards' own addresses (see
+  [architecture/networking.md](architecture/networking.md#loopback-issue-1019)).
 - **TCP without SACK and timestamps**, IPv4 options ignored. Fine on a LAN and
   through QEMU user networking; lossy WAN throughput will be modest.
 - **Caller supplies time and randomness.** Time comes from the 100 Hz tick

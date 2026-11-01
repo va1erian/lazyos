@@ -334,7 +334,7 @@ An app cannot read what a diagnosis needs:
   and admits uid 0 and 914.
 * Registry `List` and init are HIGH grants.
 
-`dbgd` is not the answer either: netd has no loopback, and dbgd is a
+`dbgd` is not the answer either: it is a
 network service behind a PSK. So **diagd** collects, redacts (§7) and
 serves a curated read-only view. It runs as a new system uid, unlabelled,
 with no capability, and `init` starts it in desktop images. Its collectors
@@ -966,8 +966,9 @@ No marker carries message text, log content, a key or a token.
     `conf.list` and `conf.get` for five minutes.
   * elevd serialises one request per caller. Arguments are capped at 4 of
     1024 bytes each.
-* **Network.** There is no loopback in netd, so dbgd cannot be reached from
-  the box.
+* **Network.** dbgd listens on the network card; netd now has a loopback
+  (issue #1019), but dbgd is a PSK-protected network service and is not the
+  intended way to read the box from inside.
 * **Fireworks.**
   * `stream: true` gives data-only SSE ending with `[DONE]`, with usage in a
     last chunk by default.
