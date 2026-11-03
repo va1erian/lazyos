@@ -62,8 +62,17 @@ use sources::Sources;
 /// Ticks (100 Hz) between looks for a controller while none is bound. `init`
 /// starts `btd` after `usbd` served the controller, so a boot never waits
 /// here; only a dongle plugged in later does (Messenger has no registry
-/// watch to park on instead).
+/// watch to park on instead). This is the one remaining timed look.
 const WAIT_TICKS: u64 = 100;
+/// Starts over (a new `Host`, a fresh attachment) this many times in a row
+/// after a link or host failure, then exits non-zero so `init` restarts `btd`
+/// with its own back-off.
+const MAX_RESTARTS: u32 = 3;
+/// Ticks (100 Hz) of back-off before the first start-over, then doubled.
+const RESTART_TICKS: u64 = 50;
+/// A link that lasted this long (ms) was healthy: the next failure starts the
+/// count over.
+const HEALTHY_MS: u64 = 60_000;
 /// The longest park with nothing due; a doorbell wakes it earlier.
 const IDLE_TICKS: u64 = 6000;
 /// Frames handled between looks at the host's queues, so a flood of events
@@ -179,10 +188,14 @@ fn act(effect: Effect, sources: &mut Sources, api: &mut Api) -> bool {
 fn seed_entropy(host: &mut Host) {
     let mut seed = [0u8; 32];
     match sys::random(&mut seed) {
-        Ok(()) => host.seed_entropy(&seed),
+        // The timestamp is only mixed in on top of real entropy: on its own
+        // it would mark the host seeded with a guessable value.
+        Ok(()) => {
+            host.seed_entropy(&seed);
+            host.seed_entropy(&sys::monotonic_ms().to_le_bytes());
+        }
         Err(errno) => trace::line!(Channel::Bt, "ENTROPY:FAIL errno={errno}"),
     }
-    host.seed_entropy(&sys::monotonic_ms().to_le_bytes());
 }
 
 /// Everything the host has to say, to the controller and the world.
@@ -273,6 +286,11 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources, api: &mut Api) -
             Ok(still) => alive = still && alive,
             Err(failure) => return failure,
         }
+        if !alive {
+            // The host gave up (a command never completed): carry on and it
+            // would never recover, so the caller starts over.
+            return Failure::HostFailed;
+        }
         if let Err(failure) = link.flush() {
             return failure;
         }
@@ -303,6 +321,7 @@ pub extern "C" fn _start() -> ! {
     api.register();
     // Times the controller reset itself during this bring-up (see `serve`).
     let mut reenumerations = 0;
+    let mut restarts = 0u32;
     loop {
         let mut link = open(&mut api);
         trace::span(Channel::Bt, "attached");
@@ -311,15 +330,32 @@ pub extern "C" fn _start() -> ! {
             args().trace_reports,
             cfg!(lazyos_bt_crash_test) && attempt() == 1,
         );
+        let started = sys::monotonic_ms();
         let failure = serve(&mut link, &mut sources, &mut api, &mut reenumerations);
         // Whatever the devices held is released with their sources.
         sources.close_all();
         match failure {
             Failure::Gone => trace::line!(Channel::Bt, "CTRL:GONE the controller was unplugged"),
             Failure::Broken(why) => trace::fail!(Channel::Bt, "LINK", "{why}"),
+            Failure::HostFailed => trace::line!(Channel::Bt, "CTRL:RESTART the host gave up"),
         }
         let attached_to = link.object();
         link.close();
+        if !matches!(failure, Failure::Gone) {
+            // The controller is still there: detach (above), back off and
+            // attach to a new host; `usbd` keeps the name. Bounded, then
+            // exit so `init` restarts the whole service.
+            if sys::monotonic_ms().saturating_sub(started) >= HEALTHY_MS {
+                restarts = 0;
+            }
+            if restarts >= MAX_RESTARTS {
+                trace::fail!(Channel::Bt, "LINK", "giving up after {restarts} restarts");
+                sys::exit(1);
+            }
+            api.idle(RESTART_TICKS << restarts);
+            restarts += 1;
+            continue;
+        }
         // A controller that fails at once every time must not spin: wait for
         // `usbd` to withdraw it before looking again. A controller that left
         // and came back within one look is a new registration, which also

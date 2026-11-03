@@ -53,11 +53,23 @@ impl Device {
         setup: SetupPacket,
         data: &[u8],
     ) -> Result<(), Error> {
+        self.control_out_data_within(hc, setup, data, None)
+    }
+
+    /// [`Device::control_out_data`] giving up after `ticks` (`None`: the
+    /// controller's default wait).
+    pub(in super::super) fn control_out_data_within(
+        &mut self,
+        hc: &mut Hc,
+        setup: SetupPacket,
+        data: &[u8],
+        ticks: Option<u64>,
+    ) -> Result<(), Error> {
         if data.len() != usize::from(setup.length) || data.len() > DATA_BYTES || setup.is_in() {
             return Err(Error::Descriptor("request data length"));
         }
         self.mem.write(DATA, data);
-        self.control(hc, &setup)
+        self.control_within(hc, &setup, ticks)
     }
 
     /// The device's product string, printable ASCII only, empty when it has

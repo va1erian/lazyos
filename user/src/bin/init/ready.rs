@@ -42,9 +42,11 @@ const ANNOUNCES: &[&str] = &[
     "usbd",
 ];
 
-/// Rows whose `Ready` is for their dependents only: the boot is not held up
-/// for them (`settled`), since a USB scan is no reason to delay the desktop.
-const DEPENDENTS_ONLY: &[&str] = &["usbd"];
+/// Rows the boot is not held up for (`settled`): `usbd`'s `Ready` is for its
+/// dependents only, since a USB scan is no reason to delay the desktop, and
+/// `btd` starts behind that scan, so it must not hold the boot through it
+/// either. A Bluetooth stack is optional hardware, never a boot gate.
+const DEPENDENTS_ONLY: &[&str] = &["usbd", "btd"];
 
 /// How long a listed row may take to announce itself (100 Hz): 5 s.
 pub(super) const READY_TIMEOUT_TICKS: u64 = 500;
@@ -109,9 +111,24 @@ pub(super) fn next_deadline(services: &[Service]) -> Option<u64> {
 
 /// Whether the boot services are up: every manifest row is ready, or has
 /// settled for good (`Stopped`, `Failed`). The desktop's apps wait for this.
+/// A `Pending` row one of whose dependencies stopped for good (`usbd` exits 0
+/// on a machine without xHCI) will never start, so it has settled too.
 pub(super) fn settled(services: &[Service]) -> bool {
     services
         .iter()
         .filter(|row| !row.launched && !DEPENDENTS_ONLY.contains(&row.name))
-        .all(|row| is_ready(row) || matches!(row.phase, Phase::Stopped | Phase::Failed))
+        .all(|row| {
+            is_ready(row)
+                || matches!(row.phase, Phase::Stopped | Phase::Failed)
+                || (row.phase == Phase::Pending && starves(services, row))
+        })
+}
+
+/// Whether one of `row`'s dependencies is gone for good, so `row` never starts.
+fn starves(services: &[Service], row: &Service) -> bool {
+    row.deps.iter().any(|dep| {
+        services.iter().any(|service| {
+            service.name == *dep && matches!(service.phase, Phase::Stopped | Phase::Failed)
+        })
+    })
 }

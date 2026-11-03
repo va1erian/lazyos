@@ -12,6 +12,7 @@
 
 use std::cell::RefCell;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -107,6 +108,11 @@ fn run(rx: Receiver<Cmd>, sink: BtSink) {
     mark_worker();
     let mut link = Link::default();
     while let Ok(cmd) = rx.recv() {
+        // `btd` restarted (the listener ended): start over with this request,
+        // not the one after it.
+        if link.listener_ended() {
+            link.connect(&sink);
+        }
         if matches!(cmd, Cmd::Refresh) {
             link.connect(&sink);
             continue;
@@ -149,11 +155,24 @@ fn run(rx: Receiver<Cmd>, sink: BtSink) {
 struct Link {
     service: Option<Service>,
     subscribed: bool,
+    /// Set while the event thread runs; it clears it when its channel closes.
+    listening: Arc<AtomicBool>,
 }
 
 impl Link {
+    /// The event thread was started and has ended since.
+    fn listener_ended(&self) -> bool {
+        self.subscribed && !self.listening.load(Ordering::Acquire)
+    }
+
     /// (Re)connect, subscribe once and send a snapshot.
     fn connect(&mut self, sink: &BtSink) {
+        if self.listener_ended() {
+            // The service behind the handle is gone with its listener: drop
+            // the handle and subscribe again.
+            self.service = None;
+            self.subscribed = false;
+        }
         if self.service.is_none() {
             self.subscribed = false;
             match Service::try_connect(NAME) {
@@ -172,9 +191,13 @@ impl Link {
             return;
         };
         if !self.subscribed {
-            match spawn_listener(sink) {
+            self.listening.store(true, Ordering::Release);
+            match spawn_listener(sink, Arc::clone(&self.listening)) {
                 Ok(()) => self.subscribed = true,
-                Err(error) => sink(BtEvent::Failed(explain(&error))),
+                Err(error) => {
+                    self.listening.store(false, Ordering::Release);
+                    sink(BtEvent::Failed(explain(&error)));
+                }
             }
         }
         match snapshot(service) {
@@ -262,7 +285,7 @@ fn snapshot(service: &Service) -> Result<BtEvent, CallError> {
 /// event channel until `btd` goes away. It makes the channel itself because
 /// Messenger handles belong to the thread that made them (a Linux-ABI thread
 /// has its own table), so the end it reads must be created here.
-fn spawn_listener(sink: &BtSink) -> Result<(), CallError> {
+fn spawn_listener(sink: &BtSink, listening: Arc<AtomicBool>) -> Result<(), CallError> {
     let sink = Arc::clone(sink);
     thread::Builder::new()
         .name("settings-bt-events".into())
@@ -279,6 +302,8 @@ fn spawn_listener(sink: &BtSink) -> Result<(), CallError> {
                 }
                 Err(error) => sink(BtEvent::Failed(explain(&error))),
             }
+            // Before the next request looks: the command thread starts over.
+            listening.store(false, Ordering::Release);
         })
         .map(drop)
         .map_err(|_| CallError {

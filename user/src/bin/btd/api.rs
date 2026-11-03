@@ -10,6 +10,10 @@
 //! sends them to the subscribers, who each handed over an event channel. A
 //! subscriber whose channel closed is dropped; one whose channel is full
 //! misses the event (the `List` and `Status` calls are always the truth).
+//! A task has one subscription (a new one replaces its older), and a closed
+//! subscriber is found by sending it the current pairing state before a
+//! `Subscribe` is refused for lack of room, so opening and closing a client
+//! never uses up the slots.
 //!
 //! Serial: `BT:API:SERVE`, `BT:API:DENY method=<n> uid=<uid>` (a refusal, rate
 //! limited), `BT:API:<call> addr=xx:xx:xx:xx:AA:BB` for the calls that change
@@ -41,10 +45,16 @@ fn err(code: i64) -> MsgError {
     MsgError::Errno(-code)
 }
 
+/// One `Subscribe`: the task that made it and the channel it handed over.
+struct Subscriber {
+    owner: u64,
+    events: Endpoint,
+}
+
 pub(super) struct Api {
     /// The published and the serving end, while the name is registered.
     ends: Option<(Endpoint, Endpoint)>,
-    subscribers: Vec<Endpoint>,
+    subscribers: Vec<Subscriber>,
     buffer: Vec<u8>,
 }
 
@@ -169,7 +179,10 @@ impl Api {
             .map_err(MsgError::Parcel),
             wire::METHOD_SUBSCRIBE => {
                 let args = message.decode(wire::decode_subscribe_args)?;
-                self.subscribe(Endpoint::from_raw(args.events))?;
+                let state = host
+                    .as_deref()
+                    .map_or(PairingState::IDLE, Host::pairing_state);
+                self.subscribe(message.sender, Endpoint::from_raw(args.events), &state)?;
                 Ok(Vec::new())
             }
             _ => {
@@ -180,12 +193,25 @@ impl Api {
         Ok(api::parcel(method, reply, Vec::new()))
     }
 
-    fn subscribe(&mut self, events: Endpoint) -> Result<()> {
+    fn subscribe(&mut self, owner: u64, events: Endpoint, state: &PairingState) -> Result<()> {
+        // One subscription per task: a client that resubscribes (Settings
+        // after a restart of its listener) replaces its stale channel.
+        self.subscribers.retain(|old| {
+            let same = old.owner == owner;
+            if same {
+                let _ = old.events.close();
+            }
+            !same
+        });
+        if self.subscribers.len() >= api::MAX_SUBSCRIBERS {
+            // Closed subscribers are only noticed by a send: find them now.
+            self.broadcast(None, Some(state));
+        }
         if self.subscribers.len() >= api::MAX_SUBSCRIBERS {
             let _ = events.close();
             return Err(err(errno::EBUSY));
         }
-        self.subscribers.push(events);
+        self.subscribers.push(Subscriber { owner, events });
         Ok(())
     }
 
@@ -211,10 +237,15 @@ impl Api {
             return;
         };
         self.subscribers
-            .retain(|events| match events.send(&parcel) {
+            .retain(|sub| match sub.events.send(&parcel) {
                 Ok(()) => true,
-                // A full channel misses the event; anything else is a closed one.
-                Err(error) => error.errno() == Some(-errno::EAGAIN),
+                // A full channel misses the event; anything else is a closed
+                // one, whose handle is released.
+                Err(error) if error.errno() == Some(-errno::EAGAIN) => true,
+                Err(_) => {
+                    let _ = sub.events.close();
+                    false
+                }
             });
     }
 }

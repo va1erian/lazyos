@@ -58,6 +58,9 @@ const BUFFER_BYTES: usize = super::pipe::PIPE_BYTES - PIPE_TRBS * 16;
 const DEPTH: usize = 8;
 /// Failed transfers in a row after which the controller is given up.
 const MAX_ERRORS: u32 = 3;
+/// Commands in a row that endpoint 0 failed to take after which the
+/// controller is given up (each costs `bt_out::COMMAND_TICKS`).
+pub(super) const MAX_EP0_FAILURES: u32 = 3;
 
 /// An IN endpoint (interrupt or bulk) with several chunk transfers queued
 /// and the reassembly of packets out of the chunks.
@@ -193,7 +196,10 @@ impl Sink {
                 super::bt_link::Pushed::Full => {}
             }
         }
-        if !self.backlog.push(frame) {
+        // A full backlog keeps the events: they are small and carry command
+        // completions (`btd` never recovers from a lost one), so an event
+        // makes room by evicting the oldest ACL frame instead of being lost.
+        if !self.backlog.push(frame, kind == PACKET_EVENT) {
             self.stats.dropped += 1;
         }
     }
@@ -242,6 +248,8 @@ pub(super) struct BtFn {
     info: wire::Device,
     pub(super) sink: Sink,
     next_ring: u32,
+    /// HCI commands in a row endpoint 0 did not take.
+    pub(super) ep0_failures: u32,
     /// Where a command frame from `btd` is copied before it is looked at.
     pub(super) scratch: Box<FrameBuf>,
 }
@@ -320,6 +328,7 @@ impl BtFn {
                 stats: wire::Stats::default(),
             },
             next_ring: 1,
+            ep0_failures: 0,
             scratch: Box::new([0; MAX_FRAME]),
         };
         trace::span(trace::Channel::Usbd, "bt-bound");
@@ -399,6 +408,11 @@ impl BtFn {
         pipe.refill(hc, device)?;
         sink.finish();
         Ok(())
+    }
+
+    /// Endpoint 0 keeps failing: the controller is wedged and is detached.
+    pub(super) fn wedged(&self) -> bool {
+        self.ep0_failures >= MAX_EP0_FAILURES
     }
 
     pub(super) fn describe(&self) -> wire::Device {

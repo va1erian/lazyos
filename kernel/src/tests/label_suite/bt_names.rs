@@ -10,7 +10,7 @@
 use super::*;
 use crate::ipc::acl::reason;
 use crate::ipc::credentials::{CAP_ALL, CAP_DEV_CLAIM, CAP_INPUT_SOURCE, CAP_IPC_CONTROL};
-use btpolicy::names::{API_NAME, TRANSPORT_NAME};
+use btpolicy::names::{API_NAME, API_NAME_V1, TRANSPORT_NAME, TRANSPORT_NAME_V1};
 
 const EACCES: i64 = 13;
 
@@ -44,6 +44,19 @@ pub fn only_owners_register() -> Result<(), String> {
             "_usb was refused its name"
         );
         check!(register_as(bt, API_NAME)? == 0, "_bt was refused its name");
+        // The interface names the script runtime falls back to are theirs too.
+        check!(
+            register_as(usb, TRANSPORT_NAME_V1)? == 0,
+            "_usb was refused its versioned name"
+        );
+        check!(
+            register_as(bt, API_NAME_V1)? == 0,
+            "_bt was refused its versioned name"
+        );
+        check!(
+            register_as(usb, API_NAME_V1)? == failed(EACCES),
+            "_usb took btd's versioned name"
+        );
         check!(
             register_as(bt, "os.lazy.usb.bt/1")? == failed(EACCES),
             "_bt took a transport name"
@@ -54,7 +67,14 @@ pub fn only_owners_register() -> Result<(), String> {
         );
         let user = task_with(1000, 0, "", 7)?;
         let user_id = credentials::of(user).label_id;
-        for name in [TRANSPORT_NAME, API_NAME, "os.lazy.usb.bt/2", "os.lazy.bt/y"] {
+        for name in [
+            TRANSPORT_NAME,
+            API_NAME,
+            TRANSPORT_NAME_V1,
+            API_NAME_V1,
+            "os.lazy.usb.bt/2",
+            "os.lazy.bt/y",
+        ] {
             check!(
                 register_as(user, name)? == failed(EACCES),
                 "a session user took {name:?}"
@@ -64,7 +84,7 @@ pub fn only_owners_register() -> Result<(), String> {
         for caps in [CAP_ALL, CAP_IPC_CONTROL, CAP_DEV_CLAIM, CAP_INPUT_SOURCE] {
             for uid in [0, 1000, netpolicy::NET_UID] {
                 let strong = task_with(uid, caps, "", 0)?;
-                for name in ["os.lazy.usb.bt/3", "os.lazy.bt/z"] {
+                for name in ["os.lazy.usb.bt/3", "os.lazy.bt/z", API_NAME_V1] {
                     check!(
                         register_as(strong, name)? == failed(EACCES),
                         "uid {uid} with caps {caps:#x} took {name}"
@@ -91,7 +111,7 @@ pub fn only_owners_register() -> Result<(), String> {
             "os.lazy.btX should follow the generic rules"
         );
         check!(
-            registry::list().len() == 3,
+            registry::list().len() == 5,
             "a refused register touched the table ({} names)",
             registry::list().len()
         );
@@ -118,7 +138,7 @@ pub fn soak_owners_and_impostors() -> Result<(), String> {
         for index in 0..SOAK_CYCLES {
             let transport = format!("{TRANSPORT_NAME}/{}", index % 3);
             let impostor = impostors[index % impostors.len()];
-            for name in [transport.as_str(), API_NAME] {
+            for name in [transport.as_str(), API_NAME, API_NAME_V1] {
                 check!(
                     register_as(impostor, name)? == failed(EACCES),
                     "cycle {index}: an impostor got {name}"

@@ -27,6 +27,10 @@ pub(super) enum Failure {
     Gone,
     /// A ring broke its protocol, or the outbox overflowed.
     Broken(&'static str),
+    /// The host stack gave up on the controller (`Effect::Failed`): a lost
+    /// command completion or a failed bring-up. The controller itself is
+    /// still there.
+    HostFailed,
 }
 
 /// What one frame from the controller is.

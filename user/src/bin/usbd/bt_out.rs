@@ -29,6 +29,10 @@ const BATCH: usize = 16;
 /// wedged) must not hold every other USB device for long: one wait, then the
 /// pass ends (`pump_out`).
 const ACL_TICKS: u64 = 5;
+/// Ticks (100 Hz) an HCI command may take on endpoint 0. A controller takes
+/// one in milliseconds; the wait holds every other USB device, so a wedged
+/// dongle costs [`super::bt::MAX_EP0_FAILURES`] of these, then it is detached.
+const COMMAND_TICKS: u64 = 100;
 /// Late events of an abandoned transfer skipped while waiting for ours.
 const STALE_EVENTS: usize = 4;
 
@@ -58,6 +62,7 @@ impl BtFn {
             bulk_out,
             sink,
             scratch,
+            ep0_failures,
             ..
         } = self;
         let Some(link) = sink.link.as_mut() else {
@@ -88,10 +93,19 @@ impl BtFn {
                         index: u16::from(*interface),
                         length: packet.len() as u16,
                     };
-                    if device.control_out_data(hc, setup, packet).is_ok() {
+                    if device
+                        .control_out_data_within(hc, setup, packet, Some(COMMAND_TICKS))
+                        .is_ok()
+                    {
                         stats.commands += 1;
+                        *ep0_failures = 0;
                     } else {
+                        // Endpoint 0 is not answering: end the pass rather
+                        // than wait on each queued command in turn, and give
+                        // the device up if it keeps happening.
                         stats.errors += 1;
+                        *ep0_failures += 1;
+                        break;
                     }
                 }
                 Ok(Outbound::Acl(packet)) => {
