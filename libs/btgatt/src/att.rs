@@ -249,7 +249,7 @@ fn parse_find_info(mut c: Cursor<'_>, lo: u16, hi: u16) -> Result<Response, Erro
 /// The entry length octet: it must hold a handle (or two) and divide the data.
 fn entry_len(c: &mut Cursor<'_>, min: usize) -> Result<usize, Error> {
     let len = usize::from(c.u8()?);
-    if len < min || c.0.is_empty() || c.0.len() % len != 0 {
+    if len < min || c.0.is_empty() || !c.0.len().is_multiple_of(len) {
         return Err(Error::Malformed);
     }
     Ok(len)
@@ -294,8 +294,14 @@ fn parse_by_group(mut c: Cursor<'_>, lo: u16, hi: u16) -> Result<Response, Error
 /// What an unsolicited PDU from the server is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Incoming {
-    Notification { handle: u16, value: Vec<u8> },
-    Indication { handle: u16, value: Vec<u8> },
+    Notification {
+        handle: u16,
+        value: Vec<u8>,
+    },
+    Indication {
+        handle: u16,
+        value: Vec<u8>,
+    },
     /// A request from the server (we are a client only): answer "not
     /// supported". Carries the request opcode.
     Request(u8),

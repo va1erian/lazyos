@@ -4,6 +4,8 @@
 //! --at [armedN+|hidN+|mhidN+]MS:ACTION
 //!   type=TEXT         the keyboard types TEXT (letters, digits, space, enter),
 //!                     one character every 40 ms
+//!   itype=TEXT        the intruder (an LE keyboard with a key the host never
+//!                     issued) types TEXT
 //!   key=0x04          the keyboard presses and releases one usage
 //!   hold=0x04         the keyboard presses a usage and keeps holding it
 //!   release           the keyboard releases everything
@@ -39,7 +41,13 @@ pub enum Action {
     Hold(u8),
     Release,
     Wake,
-    Move { dx: i8, dy: i8, buttons: u8 },
+    Move {
+        dx: i8,
+        dy: i8,
+        buttons: u8,
+    },
+    /// The intruder (`--le-intruder`) presses and releases a key.
+    IntruderKey(u8),
     DropKeyboard(u8),
     DropMouse(u8),
 }
@@ -117,6 +125,15 @@ pub fn parse(spec: &str) -> Result<Vec<Step>, String> {
             })
             .collect::<Result<_, _>>()?,
         "key" => vec![step(at_ms, Action::Key(number(value)?))],
+        "itype" => value
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                usage(c)
+                    .map(|u| step(at_ms + i as u64 * CHAR_GAP_MS, Action::IntruderKey(u)))
+                    .ok_or_else(|| format!("cannot type {c:?}"))
+            })
+            .collect::<Result<_, _>>()?,
         "hold" => vec![step(at_ms, Action::Hold(number(value)?))],
         "release" => vec![step(at_ms, Action::Release)],
         "wake" => vec![step(at_ms, Action::Wake)],

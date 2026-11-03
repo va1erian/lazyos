@@ -81,7 +81,11 @@ fn enable_writes_each_cccd_and_the_boot_protocol_command() {
     let step = hogp.enable(0, &[0x2C, 0x33], Some(0x29));
     let events = run(&mut hogp, &mut server, step);
     assert_eq!(events, [HogpEvent::Ready]);
-    assert_eq!(server.commands, [(0x29, vec![0])], "boot protocol, no response");
+    assert_eq!(
+        server.commands,
+        [(0x29, vec![0])],
+        "boot protocol, no response"
+    );
     assert_eq!(server.writes, [(0x2C, vec![1, 0]), (0x33, vec![1, 0])]);
 }
 
@@ -96,9 +100,7 @@ fn enable_with_nothing_to_subscribe_is_ready_at_once() {
 #[test]
 fn a_device_without_the_hid_service_is_refused() {
     let mut server = keyboard(&[1]);
-    server
-        .attrs
-        .retain(|a| a.handle < 0x20 && a.handle != 0x20);
+    server.attrs.retain(|a| a.handle < 0x20 && a.handle != 0x20);
     let mut hogp = Hogp::new(247);
     let first = hogp.discover(0);
     let events = run(&mut hogp, &mut server, first);

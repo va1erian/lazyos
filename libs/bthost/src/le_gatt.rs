@@ -15,14 +15,14 @@ use alloc::vec::Vec;
 use btbond::bond::hid_flag;
 use btbond::bond::MAX_REPORT_HANDLES;
 use btbond::{Bond, Gatt, InputClass, Ltk, ReportHandle};
-use bthci::opcode::status;
-use bthid::decode::{Decoder, Plan};
 use btgatt::hogp::{kind, HidService};
 use btgatt::{Error as GattError, Hogp, HogpEvent, Step, CID_ATT};
+use bthci::opcode::status;
+use bthid::decode::{Decoder, Plan};
 
 use crate::effect::{Effect, SourceKind};
 use crate::host::{red, Host};
-use crate::le::Fresh;
+use crate::le_link::Fresh;
 use crate::link::Hid;
 
 /// The ATT MTU the host offers (a Report Map then takes few reads).
@@ -74,7 +74,10 @@ impl Host {
     }
 
     fn le_set_gatt(&mut self, handle: u16, hogp: Hogp) {
-        if let Some(le) = self.link_idx(handle).and_then(|i| self.links[i].le.as_mut()) {
+        if let Some(le) = self
+            .link_idx(handle)
+            .and_then(|i| self.links[i].le.as_mut())
+        {
             le.gatt = Some(hogp);
         }
     }
@@ -130,9 +133,10 @@ impl Host {
                 HogpEvent::Discovered(service) => self.le_admit(now, handle, service),
                 HogpEvent::Ready => {}
                 HogpEvent::Unsolicited { .. } => self.unsolicited(handle),
-                HogpEvent::Notification { handle: value, value: bytes } => {
-                    self.on_notification(now, handle, value, &bytes)
-                }
+                HogpEvent::Notification {
+                    handle: value,
+                    value: bytes,
+                } => self.on_notification(now, handle, value, &bytes),
                 HogpEvent::Failed(error) => self.gatt_failed(handle, error),
             }
         }
@@ -158,7 +162,11 @@ impl Host {
             red(addr),
             gatt_reason(error)
         ));
-        if self.links[idx].le.as_ref().is_some_and(|le| le.fresh.is_some()) {
+        if self.links[idx]
+            .le
+            .as_ref()
+            .is_some_and(|le| le.fresh.is_some())
+        {
             self.le_deny(addr);
         }
         self.release_hid(handle);
@@ -261,13 +269,23 @@ impl Host {
     }
 
     /// Register the sources a plan calls for (the same lines as BR/EDR).
-    pub(crate) fn open_sources(&mut self, handle: u16, addr: bthci::BdAddr, plan: Plan, auth: bool) {
+    pub(crate) fn open_sources(
+        &mut self,
+        handle: u16,
+        addr: bthci::BdAddr,
+        plan: Plan,
+        auth: bool,
+    ) {
         if plan.keyboard {
             self.effect(Effect::OpenSource {
                 handle,
                 kind: SourceKind::Keyboard,
             });
-            self.note(format!("HID:KBD addr={} auth={}", red(addr), u8::from(auth)));
+            self.note(format!(
+                "HID:KBD addr={} auth={}",
+                red(addr),
+                u8::from(auth)
+            ));
         }
         if plan.pointer {
             let source = if plan.absolute {
@@ -322,7 +340,11 @@ fn subscriptions(plan: Plan, gatt: &Gatt) -> (Vec<u16>, Vec<ReportHandle>, Optio
         _ => false,
     };
     let listened: Vec<ReportHandle> = gatt.reports.iter().filter(|r| wanted(r)).copied().collect();
-    let cccds = listened.iter().map(|r| r.cccd).filter(|&c| c != 0).collect();
+    let cccds = listened
+        .iter()
+        .map(|r| r.cccd)
+        .filter(|&c| c != 0)
+        .collect();
     let mode = (boot && gatt.protocol_mode != 0).then_some(gatt.protocol_mode);
     (cccds, listened, mode)
 }

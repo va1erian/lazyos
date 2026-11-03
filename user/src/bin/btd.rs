@@ -22,7 +22,9 @@
 //! device can connect), `BT:CTRL:PASS` (brought up) or `BT:CTRL:FAIL`,
 //! `BT:CONN`, `BT:ENCRYPT`, `BT:HID:KBD|MOUSE`, `BT:RECONNECT ms=`,
 //! `BT:PAIR:*`, `BT:REFUSE reason=`, `BT:CTRL:GONE`. Addresses appear as the
-//! last two octets only and no key ever does.
+//! last two octets only and no key ever does. LE devices (B4) use the same
+//! lines (`BT:CONN ... role=le`, `BT:PAIR:START`, `BT:ENCRYPT`, `BT:HID:*`,
+//! `BT:RECONNECT`), plus `BT:GATT:FAIL`.
 
 #![no_std]
 #![no_main]
@@ -153,6 +155,19 @@ fn act(effect: Effect, sources: &mut Sources) -> bool {
     true
 }
 
+/// Seed the host's pairing entropy from the kernel (`random`, syscall 26).
+/// LE Secure Connections makes P-256 keys and passkeys from it
+/// (docs/bluetooth-plan.md decision 8); if the kernel gives none the host
+/// stays unseeded and refuses to pair rather than make guessable keys.
+fn seed_entropy(host: &mut Host) {
+    let mut seed = [0u8; 32];
+    match sys::random(&mut seed) {
+        Ok(()) => host.seed_entropy(&seed),
+        Err(errno) => trace::line!(Channel::Bt, "ENTROPY:FAIL errno={errno}"),
+    }
+    host.seed_entropy(&sys::monotonic_ms().to_le_bytes());
+}
+
 /// Everything the host has to say, to the controller and the world.
 fn drain(
     host: &mut Host,
@@ -184,6 +199,7 @@ fn drain(
 /// Run the host against an attached controller until it goes away.
 fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
     let mut host = Host::new(args(), load_bonds(), sys::monotonic_ms());
+    seed_entropy(&mut host);
     let mut alive = true;
     loop {
         let now = sys::monotonic_ms();

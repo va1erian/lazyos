@@ -11,9 +11,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use bthci::BdAddr;
-use btsim::hid::keyboard_report;
 use btsim::{
-    BrPeer, Controller, HciIn, PasskeyBehavior, PeerId, ReconnectStyle, SimConfig, SimController,
+    BrPeer, Controller, HciIn, LePeer, PasskeyBehavior, PeerId, ReconnectStyle, SimConfig,
+    SimController,
 };
 
 use crate::script::{Action, Base, Step};
@@ -34,6 +34,24 @@ pub struct Options {
     pub passkey: PasskeyBehavior,
     pub state: Option<PathBuf>,
     pub steps: Vec<Step>,
+    pub le: LeOptions,
+}
+
+/// The LE peers (docs/bluetooth-plan.md B4). An LE keyboard or mouse takes
+/// the place of the BR/EDR one in the same script slot.
+#[derive(Default)]
+pub struct LeOptions {
+    pub keyboard: Option<[u8; 6]>,
+    pub mouse: Option<[u8; 6]>,
+    /// The keyboard says it has no input: Just Works, which the host must
+    /// refuse for a keyboard.
+    pub keyboard_just_works: bool,
+    /// Bonded devices advertise with a fresh resolvable private address.
+    pub rpa: bool,
+    /// An extra keyboard that holds a key the host never issued and types.
+    pub intruder: Option<[u8; 6]>,
+    /// The peers send a notification before the link is encrypted.
+    pub early_notify: bool,
 }
 
 type Bond = Option<([u8; 16], u8)>;
@@ -42,6 +60,7 @@ pub struct World {
     sim: SimController,
     keyboard: Option<PeerId>,
     mouse: Option<PeerId>,
+    intruder: Option<PeerId>,
     steps: Vec<Step>,
     /// When page scan went on, each time (the host is armed).
     armed: Vec<u64>,
@@ -110,16 +129,50 @@ impl World {
             }
             sim.add_br_peer(peer)
         };
-        let keyboard = options
-            .keyboard
-            .map(|a| add(&mut sim, BrPeer::keyboard(a), false));
-        let mouse = options
-            .mouse
-            .map(|a| add(&mut sim, BrPeer::mouse(a), options.mouse_waits_to_be_paged));
+        let le = &options.le;
+        let add_le = |sim: &mut SimController, mut peer: LePeer, forged: bool| {
+            let remembered = stored
+                .iter()
+                .find(|(addr, _)| *addr == address_text(peer.addr))
+                .and_then(|(_, bond)| *bond);
+            peer.passkey = options.passkey;
+            peer.use_rpa = le.rpa;
+            peer.early_notify = le.early_notify;
+            let id = sim.add_le_peer(peer);
+            match remembered {
+                Some(bond) => sim.set_bond(id, Some(bond)),
+                None if forged => sim.set_bond(id, Some(([0x5A; 16], 1))),
+                None if options.pairable => sim.enter_pairing_mode(id, 0),
+                None => {}
+            }
+            id
+        };
+        let keyboard = match le.keyboard {
+            Some(a) => {
+                let mut peer = LePeer::keyboard(a);
+                if le.keyboard_just_works {
+                    peer.io = btsim::IoCapability::NoInputNoOutput;
+                }
+                Some(add_le(&mut sim, peer, false))
+            }
+            None => options
+                .keyboard
+                .map(|a| add(&mut sim, BrPeer::keyboard(a), false)),
+        };
+        let mouse = match le.mouse {
+            Some(a) => Some(add_le(&mut sim, LePeer::mouse(a), false)),
+            None => options
+                .mouse
+                .map(|a| add(&mut sim, BrPeer::mouse(a), options.mouse_waits_to_be_paged)),
+        };
+        let intruder = le
+            .intruder
+            .map(|a| add_le(&mut sim, LePeer::keyboard(a), true));
         let mut world = World {
             sim,
             keyboard,
             mouse,
+            intruder,
             steps: options.steps,
             armed: Vec::new(),
             scanning: false,
@@ -136,10 +189,7 @@ impl World {
         [self.keyboard, self.mouse]
             .into_iter()
             .flatten()
-            .map(|id| {
-                let peer = self.sim.br(id);
-                (address_text(peer.addr), peer.link_key)
-            })
+            .map(|id| (address_text(self.sim.peer_addr(id)), self.sim.bond_of(id)))
             .collect()
     }
 
@@ -175,7 +225,7 @@ impl World {
     /// Note the moments the peers' HID channels became open.
     fn note_hid(&mut self, now: u64) {
         for (slot, peer) in [self.keyboard, self.mouse].into_iter().enumerate() {
-            let open = peer.is_some_and(|id| self.sim.br(id).hid_channels_open() == (true, true));
+            let open = peer.is_some_and(|id| self.sim.input_ready(id));
             if open && !self.hid_open[slot] {
                 self.hid_opens[slot].push(now);
                 println!(
@@ -227,16 +277,12 @@ impl World {
     fn perform(&mut self, now: u64, action: &Action) {
         match (action, self.keyboard, self.mouse) {
             (Action::Key(usage), Some(kbd), _) => self.sim.press_key(kbd, now, *usage),
-            (Action::Hold(usage), Some(kbd), _) => {
-                self.sim.wake(kbd, now);
-                let boot = self.sim.br(kbd).boot_protocol;
-                self.sim
-                    .send_reports(kbd, vec![keyboard_report(0, *usage, boot)]);
-            }
-            (Action::Release, Some(kbd), _) => {
-                let boot = self.sim.br(kbd).boot_protocol;
-                self.sim
-                    .send_reports(kbd, vec![keyboard_report(0, 0, boot)]);
+            (Action::Hold(usage), Some(kbd), _) => self.sim.key_report(kbd, now, *usage),
+            (Action::Release, Some(kbd), _) => self.sim.key_report(kbd, now, 0),
+            (Action::IntruderKey(usage), _, _) if self.intruder.is_some() => {
+                if let Some(id) = self.intruder {
+                    self.sim.press_key(id, now, *usage);
+                }
             }
             (Action::Wake, kbd, mouse) => {
                 for peer in [kbd, mouse].into_iter().flatten() {
@@ -296,6 +342,7 @@ mod tests {
             passkey: PasskeyBehavior::Correct,
             state: Some(state),
             steps: Vec::new(),
+            le: LeOptions::default(),
         }
     }
 

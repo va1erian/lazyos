@@ -20,7 +20,7 @@ use btsmp::{Central, Config as SmpConfig, DeviceAddr, Input, Notice, Step};
 use lazyos_crypto::rng::Entropy;
 
 use crate::host::{red, Host};
-use crate::le::{Fresh, PendingKey};
+use crate::le_link::{Fresh, PendingKey};
 
 /// The L2CAP fixed channel of SMP.
 const CID_SMP: u16 = 6;
@@ -68,7 +68,13 @@ impl Host {
         let link = &mut self.links[idx];
         let Some(le) = link.le.as_mut() else { return };
         le.waits_addr = false;
-        let kind = |t: u8| if t == 0 { AddrType::Public } else { AddrType::Random };
+        let kind = |t: u8| {
+            if t == 0 {
+                AddrType::Public
+            } else {
+                AddrType::Random
+            }
+        };
         let cfg = SmpConfig::new(
             DeviceAddr {
                 kind: AddrType::Public,
@@ -155,7 +161,10 @@ impl Host {
         let addr = self.links[idx].addr;
         self.links[idx].passkey = Some(passkey);
         if self.cfg.trace_reports {
-            self.note(format!("PAIR:PASSKEY value={passkey:06} addr={}", red(addr)));
+            self.note(format!(
+                "PAIR:PASSKEY value={passkey:06} addr={}",
+                red(addr)
+            ));
             // The harness plays the user: tell the simulated controller what
             // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`).
             self.cmd(Command::Unknown {
@@ -189,7 +198,14 @@ impl Host {
 
     /// Ask the controller to encrypt the link with `ltk`. From here, data
     /// from the peer waits for the `Encryption_Change`.
-    pub(crate) fn le_encrypt_with(&mut self, now: u64, handle: u16, ltk: [u8; 16], ediv: u16, rand: u64) {
+    pub(crate) fn le_encrypt_with(
+        &mut self,
+        now: u64,
+        handle: u16,
+        ltk: [u8; 16],
+        ediv: u16,
+        rand: u64,
+    ) {
         let Some(idx) = self.link_idx(handle) else {
             return;
         };
@@ -282,7 +298,10 @@ impl Host {
         }
         let link = &mut self.links[idx];
         link.encrypted = true;
-        let bonded = link.le.as_ref().is_some_and(|le| le.smp.is_none() && le.fresh.is_none());
+        let bonded = link
+            .le
+            .as_ref()
+            .is_some_and(|le| le.smp.is_none() && le.fresh.is_none());
         self.note(format!("ENCRYPT addr={}", red(addr)));
         // SMP first: the key distribution that follows is believed only
         // once SMP has seen the link encrypted.
@@ -298,14 +317,21 @@ impl Host {
             return;
         };
         let addr = self.links[idx].addr;
-        self.note(format!("ENCRYPT:FAIL addr={} status={code:#04x}", red(addr)));
+        self.note(format!(
+            "ENCRYPT:FAIL addr={} status={code:#04x}",
+            red(addr)
+        ));
         if code == status::SUCCESS && !enabled {
             // Encryption dropped under a live link: nothing it says counts.
             self.links[idx].encrypted = false;
             self.release_hid(handle);
             return self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         }
-        if self.links[idx].le.as_ref().is_some_and(|le| le.smp.is_some()) {
+        if self.links[idx]
+            .le
+            .as_ref()
+            .is_some_and(|le| le.smp.is_some())
+        {
             self.smp_input(now, handle, Input::Encryption { ok: false });
             return self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         }
@@ -360,7 +386,11 @@ impl Host {
         };
         let smp_due = le.smp_deadline.is_some_and(|t| t <= now);
         let enc_due = le.enc_deadline.is_some_and(|t| t <= now);
-        let att_due = le.gatt.as_ref().and_then(|g| g.deadline()).is_some_and(|t| t <= now);
+        let att_due = le
+            .gatt
+            .as_ref()
+            .and_then(|g| g.deadline())
+            .is_some_and(|t| t <= now);
         if smp_due {
             le.smp_deadline = None;
             self.smp_input(now, handle, Input::Tick);
@@ -384,7 +414,6 @@ impl Host {
         self.note(format!("ENCRYPT:FAIL addr={} status=timeout", red(addr)));
         self.disconnect(handle, status::CONNECTION_TERMINATED_BY_LOCAL_HOST);
     }
-
 }
 
 /// A fixed word for why SMP ended (never the peer's text).

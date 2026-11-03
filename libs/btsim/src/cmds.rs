@@ -3,8 +3,8 @@
 use bthci::opcode::status;
 use bthci::{ret, BdAddr, Command, Event};
 
-use crate::ctrl::{Peer, 
-    Auth, SimController, Task, Violation, DEFAULT_EVENT_MASK, DEFAULT_LE_EVENT_MASK,
+use crate::ctrl::{
+    Auth, Peer, SimController, Task, Violation, DEFAULT_EVENT_MASK, DEFAULT_LE_EVENT_MASK,
 };
 
 const LE_BUFFER: ret::BufferSize = ret::BufferSize {

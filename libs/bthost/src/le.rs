@@ -24,16 +24,15 @@ use alloc::boxed::Box;
 use alloc::format;
 use alloc::vec::Vec;
 
-use btbond::{AddrKind, Bond, ReportHandle};
+use btbond::{AddrKind, Bond};
 use bthci::event::{AdvReport, LeConnection};
 use bthci::opcode::status;
 use bthci::{BdAddr, Command};
-use btgatt::Hogp;
 use btl2cap::LinkKind;
 use btsmp::func::rpa_matches;
-use btsmp::Central;
 
 use crate::host::{red, Host};
+use crate::le_link::{is_hid_adv, LeLink};
 use crate::link::{Link, MAX_LINKS};
 
 /// A direct connect attempt that finds nothing is cancelled after this long.
@@ -98,97 +97,6 @@ impl LeState {
     }
 }
 
-/// Key material from a pairing, held until the device has shown it is an
-/// acceptable HID device.
-pub(crate) struct PendingKey {
-    pub ltk: [u8; 16],
-    pub key_size: u8,
-    pub authenticated: bool,
-}
-
-/// The identity a pairing produced, before GATT discovery.
-pub(crate) struct Fresh {
-    pub key: PendingKey,
-    pub irk: Option<[u8; 16]>,
-    pub kind: AddrKind,
-}
-
-/// What an LE link has beyond a [`Link`].
-pub(crate) struct LeLink {
-    /// The address type the controller reported (0 public, 1 random).
-    pub addr_type: u8,
-    /// The address used on the air (a resolvable private address, perhaps).
-    pub conn_addr: BdAddr,
-    pub smp: Option<Central>,
-    pub smp_deadline: Option<u64>,
-    /// Pairing waits for the controller's address (`Read_BD_ADDR`).
-    pub waits_addr: bool,
-    pub pending_key: Option<PendingKey>,
-    pub fresh: Option<Fresh>,
-    pub enc_deadline: Option<u64>,
-    /// Data held across the encryption procedure is being replayed: only SMP
-    /// may legitimately race the event, ATT in it was sent before the link
-    /// was encrypted and is dropped.
-    pub replaying: bool,
-    pub gatt: Option<Hogp>,
-    /// The input reports being listened to, to find a report id by handle.
-    pub reports: Vec<ReportHandle>,
-}
-
-impl LeLink {
-    pub fn new(addr_type: u8, conn_addr: BdAddr) -> LeLink {
-        LeLink {
-            addr_type,
-            conn_addr,
-            smp: None,
-            smp_deadline: None,
-            waits_addr: false,
-            pending_key: None,
-            fresh: None,
-            enc_deadline: None,
-            replaying: false,
-            gatt: None,
-            reports: Vec::new(),
-        }
-    }
-
-    pub fn deadline(&self) -> Option<u64> {
-        [
-            self.smp_deadline,
-            self.enc_deadline,
-            self.gatt.as_ref().and_then(Hogp::deadline),
-        ]
-        .into_iter()
-        .flatten()
-        .min()
-    }
-}
-
-/// An LE advertisement that offers HID: the HID appearance category, or the
-/// HID service among the 16-bit service UUIDs.
-pub(crate) fn is_hid_adv(data: &[u8]) -> bool {
-    let mut rest = data;
-    while let Some((&len, tail)) = rest.split_first() {
-        let len = usize::from(len);
-        if len == 0 || len > tail.len() {
-            return false;
-        }
-        let (field, next) = tail.split_at(len);
-        rest = next;
-        let (kind, value) = (field[0], &field[1..]);
-        let hit = match kind {
-            // Appearance: category 0x0F (Human Interface Device).
-            0x19 => value.len() >= 2 && u16::from_le_bytes([value[0], value[1]]) >> 6 == 0x0F,
-            0x02 | 0x03 => value.chunks_exact(2).any(|u| u == [0x12, 0x18]),
-            _ => false,
-        };
-        if hit {
-            return true;
-        }
-    }
-    false
-}
-
 /// Whether `addr` is a resolvable private address (random, top bits `01`).
 fn is_rpa(addr: BdAddr) -> bool {
     addr.0[5] & 0xC0 == 0x40
@@ -237,8 +145,7 @@ impl Host {
     /// Pairing over LE is on: a window is open and the policy names LE.
     pub(crate) fn le_pairing_active(&self, now: u64) -> bool {
         self.window_open(now)
-            && (self.cfg.pair == crate::config::PairPolicy::Any
-                || !self.cfg.le_targets.is_empty())
+            && (self.cfg.pair == crate::config::PairPolicy::Any || !self.cfg.le_targets.is_empty())
     }
 
     /// Whether `addr` may pair over LE now.
@@ -473,14 +380,19 @@ impl Host {
         if pairing {
             link.setup_deadline = now.saturating_add(PAIRING_SETUP_MS);
         }
+        // `rpa=1`: the device came under a resolvable private address that
+        // its IRK resolved to the bond (a fresh address each connection).
         self.note(format!(
-            "CONN addr={} handle={:#06x} role=le",
+            "CONN addr={} handle={:#06x} role=le rpa={}",
             red(identity),
-            c.handle
+            c.handle,
+            u8::from(identity != c.peer)
         ));
         self.links.push(link);
         match bond {
-            Some((_, Some(ltk))) => self.le_encrypt_with(now, c.handle, ltk.key, ltk.ediv, ltk.rand),
+            Some((_, Some(ltk))) => {
+                self.le_encrypt_with(now, c.handle, ltk.key, ltk.ediv, ltk.rand)
+            }
             Some((_, None)) => self.le_drop(c.handle),
             None => self.le_begin_pairing(now, c.handle),
         }
@@ -496,7 +408,9 @@ impl Host {
     }
 
     pub(crate) fn set_replaying(&mut self, handle: u16, on: bool) {
-        let le = self.link_idx(handle).and_then(|i| self.links[i].le.as_mut());
+        let le = self
+            .link_idx(handle)
+            .and_then(|i| self.links[i].le.as_mut());
         if let Some(le) = le {
             le.replaying = on;
         }

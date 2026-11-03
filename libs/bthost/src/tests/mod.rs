@@ -7,10 +7,10 @@
 //! held when it closes).
 
 mod config;
-mod le_hostile;
 mod hostile;
 mod le;
 mod le_flows;
+mod le_hostile;
 mod pairing;
 mod reconnect;
 mod refusal;

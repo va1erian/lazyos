@@ -80,15 +80,30 @@ impl GattServer {
         add(0x11, chr, decl(0x12, 0x12, 0x2A19), false);
         add(0x12, 0x2A19, vec![90], false);
         add(0x13, cccd, vec![0, 0], true);
-        add(0x20, primary, known::SERVICE_HID.to_le_bytes().to_vec(), false);
+        add(
+            0x20,
+            primary,
+            known::SERVICE_HID.to_le_bytes().to_vec(),
+            false,
+        );
         add(0x22, chr, decl(0x02, 0x23, known::HID_INFORMATION), false);
         // bcdHID 1.11, country 0, flags: normally connectable.
-        add(0x23, known::HID_INFORMATION, vec![0x11, 0x01, 0, 0x02], false);
+        add(
+            0x23,
+            known::HID_INFORMATION,
+            vec![0x11, 0x01, 0, 0x02],
+            false,
+        );
         add(0x24, chr, decl(0x02, MAP, known::REPORT_MAP), false);
         add(MAP, known::REPORT_MAP, kind.descriptor().to_vec(), false);
         add(0x26, chr, decl(0x04, 0x27, 0x2A4C), false);
         add(0x27, 0x2A4C, vec![0], true);
-        add(0x28, chr, decl(0x06, PROTOCOL_MODE, known::PROTOCOL_MODE), false);
+        add(
+            0x28,
+            chr,
+            decl(0x06, PROTOCOL_MODE, known::PROTOCOL_MODE),
+            false,
+        );
         add(PROTOCOL_MODE, known::PROTOCOL_MODE, vec![1], true);
         let id = match kind {
             HidKind::Keyboard => KEYBOARD_REPORT_ID,
@@ -130,7 +145,8 @@ impl GattServer {
 
     /// Whether the client switched notifications on for the CCCD `cccd`.
     pub fn notifying(&self, cccd: u16) -> bool {
-        self.find(cccd).is_some_and(|a| a.value.first().is_some_and(|v| v & 1 != 0))
+        self.find(cccd)
+            .is_some_and(|a| a.value.first().is_some_and(|v| v & 1 != 0))
     }
 
     /// The device was switched to the boot protocol with Protocol Mode.
@@ -146,7 +162,8 @@ impl GattServer {
         } else {
             (INPUT_REPORT, INPUT_CCCD)
         };
-        self.notifying(cccd).then(|| notification_pdu(value, report))
+        self.notifying(cccd)
+            .then(|| notification_pdu(value, report))
     }
 
     fn group_end(&self, start: u16) -> u16 {
@@ -185,7 +202,8 @@ impl GattServer {
         let command = opcode & op::COMMAND_FLAG != 0;
         if !encrypted {
             self.refused_unencrypted += 1;
-            return (!command).then(|| error_pdu(opcode, 0, err::INSUFFICIENT_ENCRYPTION));
+            let handle = Self::u16_at(p, 1).unwrap_or(0);
+            return (!command).then(|| error_pdu(opcode, handle, err::INSUFFICIENT_ENCRYPTION));
         }
         self.respond(opcode, p)
     }
@@ -243,7 +261,11 @@ impl GattServer {
             op::READ_REQ | op::READ_BLOB_REQ => {
                 let handle = Self::u16_at(p, 1)?;
                 let blob = opcode == op::READ_BLOB_REQ;
-                let offset = if blob { usize::from(Self::u16_at(p, 3)?) } else { 0 };
+                let offset = if blob {
+                    usize::from(Self::u16_at(p, 3)?)
+                } else {
+                    0
+                };
                 let Some(a) = self.find(handle) else {
                     return Some(error_pdu(opcode, handle, err::INVALID_HANDLE));
                 };

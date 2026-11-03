@@ -79,6 +79,8 @@ pub enum Violation {
 
 /// A simulated remote device.
 #[non_exhaustive]
+// A test model: the LE peer is large, there are a handful of them.
+#[allow(clippy::large_enum_variant)]
 pub enum Peer {
     Br(BrPeer),
     Le(LePeer),
@@ -106,70 +108,7 @@ pub(crate) struct LeCreate {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PeerId(pub usize);
 
-pub(crate) enum Task {
-    Emit(Event),
-    EmitAcl(Vec<u8>),
-    Connected {
-        peer: usize,
-        peer_initiated: bool,
-    },
-    ConnectFailed {
-        addr: BdAddr,
-        status: u8,
-    },
-    PeerPage {
-        peer: usize,
-    },
-    AcceptTimeout {
-        peer: usize,
-    },
-    AuthStart {
-        handle: u16,
-        by_peer: bool,
-    },
-    PasskeyTyped {
-        handle: u16,
-    },
-    /// `status` 0 is success; `key_type` is the HCI link key type then.
-    PairingResult {
-        handle: u16,
-        status: u8,
-        key_type: u8,
-    },
-    Encrypt {
-        handle: u16,
-        on: bool,
-    },
-    Disconnected {
-        handle: u16,
-        reason: u8,
-    },
-    AclDone {
-        handle: u16,
-    },
-    PeerChannels {
-        handle: u16,
-    },
-    /// One advertising event of an LE peer.
-    LeAdv {
-        peer: usize,
-    },
-    /// The link layer connects the host to an advertising LE peer.
-    LeConnected {
-        peer: usize,
-        address_type: u8,
-        addr: BdAddr,
-    },
-    /// The peer's greeting after the link came up.
-    LeGreet {
-        handle: u16,
-    },
-    /// The encryption procedure the host started with `LE_Start_Encryption`.
-    LeEncrypt {
-        handle: u16,
-        ltk: [u8; 16],
-    },
-}
+pub(crate) use crate::task::Task;
 
 struct Scheduled {
     due: u64,

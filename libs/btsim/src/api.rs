@@ -35,7 +35,10 @@ impl SimController {
         self.wake(id, now_ms);
         if self.is_le(id) {
             for u in [usage, 0] {
-                let (report, boot) = (hid::keyboard_report(0, u, false), hid::keyboard_report(0, u, true));
+                let (report, boot) = (
+                    hid::keyboard_report(0, u, false),
+                    hid::keyboard_report(0, u, true),
+                );
                 self.le_send(id, without_id(&report).to_vec(), boot);
             }
             return;
@@ -49,6 +52,21 @@ impl SimController {
                 hid::keyboard_report(0, 0, boot),
             ],
         );
+    }
+
+    /// Send one keyboard report with `usage` held (0: everything released)
+    /// and keep it held: the caller releases it (or the link drops).
+    pub fn key_report(&mut self, id: PeerId, now_ms: u64, usage: u8) {
+        self.wake(id, now_ms);
+        if self.is_le(id) {
+            let (report, boot) = (
+                hid::keyboard_report(0, usage, false),
+                hid::keyboard_report(0, usage, true),
+            );
+            return self.le_send(id, without_id(&report).to_vec(), boot);
+        }
+        let boot = self.br_at(id.0).boot_protocol;
+        self.send_reports(id, vec![hid::keyboard_report(0, usage, boot)]);
     }
 
     /// Move a mouse peer by `(dx, dy)` with `buttons` held.

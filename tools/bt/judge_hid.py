@@ -37,7 +37,7 @@ from pathlib import Path
 #: The peers the harness runs (`tools/bt/modes.py`): the last two octets are
 #: what a trace may carry.
 KBD, MOUSE, INTRUDER = "00:01", "00:02", "00:09"
-FULL_ADDRESS = re.compile(r"C0:FF:EE:00:00:0[0-9]", re.IGNORECASE)
+FULL_ADDRESS = re.compile(r"C0:FF:EE:00:0[01]:0[0-9]", re.IGNORECASE)
 
 #: A bond save is tried twice (`btd` retries a failed one: the kernel's first
 #: `fsync` of a new file after boot has answered EINVAL); only the second

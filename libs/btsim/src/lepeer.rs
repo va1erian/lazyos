@@ -109,12 +109,22 @@ impl LePeer {
 
     /// A keyboard: KeyboardOnly IO, so pairing uses Passkey Entry.
     pub fn keyboard(addr_msb: [u8; 6]) -> LePeer {
-        LePeer::new(addr_msb, HidKind::Keyboard, "Sim LE Keyboard", IoCapability::KeyboardOnly)
+        LePeer::new(
+            addr_msb,
+            HidKind::Keyboard,
+            "Sim LE Keyboard",
+            IoCapability::KeyboardOnly,
+        )
     }
 
     /// A mouse: NoInputNoOutput, so pairing is Just Works.
     pub fn mouse(addr_msb: [u8; 6]) -> LePeer {
-        LePeer::new(addr_msb, HidKind::Mouse, "Sim LE Mouse", IoCapability::NoInputNoOutput)
+        LePeer::new(
+            addr_msb,
+            HidKind::Mouse,
+            "Sim LE Mouse",
+            IoCapability::NoInputNoOutput,
+        )
     }
 
     /// Enter pairing mode. Like most devices, this drops the old bond.
@@ -176,7 +186,10 @@ impl LePeer {
         self.adv = if self.use_rpa && self.bond.is_some() {
             self.rpa_counter += 1;
             let n = self.rpa_counter.to_le_bytes();
-            (1, BdAddr(func::make_rpa(&self.irk, [n[0] ^ 0x5A, n[1], n[2]])))
+            (
+                1,
+                BdAddr(func::make_rpa(&self.irk, [n[0] ^ 0x5A, n[1], n[2]])),
+            )
         } else {
             (0, self.addr)
         };
@@ -186,7 +199,11 @@ impl LePeer {
     pub(crate) fn adv_data(&self) -> Vec<u8> {
         let mut d = vec![2, 0x01, 0x06];
         if self.hid_adv {
-            let appearance: u16 = if self.kind == HidKind::Keyboard { 0x03C1 } else { 0x03C2 };
+            let appearance: u16 = if self.kind == HidKind::Keyboard {
+                0x03C1
+            } else {
+                0x03C2
+            };
             d.extend([3, 0x19]);
             d.extend(appearance.to_le_bytes());
             d.extend([3, 0x03, 0x12, 0x18]);
@@ -262,7 +279,9 @@ impl LePeer {
         for action in actions {
             match action {
                 Action::Send { pdu, .. } => out.push(pdu),
-                Action::Event(Event::Data { cid, data, .. }) => out.extend(self.on_data(cid, &data)),
+                Action::Event(Event::Data { cid, data, .. }) => {
+                    out.extend(self.on_data(cid, &data))
+                }
                 Action::Event(_) => {}
             }
         }
@@ -293,7 +312,10 @@ impl LePeer {
         if is_request && !self.pairing_mode {
             // A bonded or unwilling device does not re-pair on request.
             self.pairing_refused += 1;
-            return self.send_on(CID_SMP, &Pdu::PairingFailed(Reason::PAIRING_NOT_SUPPORTED).encode());
+            return self.send_on(
+                CID_SMP,
+                &Pdu::PairingFailed(Reason::PAIRING_NOT_SUPPORTED).encode(),
+            );
         }
         let Some(smp) = self.conn.as_mut().and_then(|c| c.smp.as_mut()) else {
             return Vec::new();
@@ -375,14 +397,17 @@ impl LePeer {
     /// Send queued reports if the host subscribed and the link is encrypted.
     pub(crate) fn flush(&mut self) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
-        loop {
-            let Some(c) = &self.conn else { break };
+        while let Some(c) = &self.conn {
             if !c.encrypted || !self.subscribed() {
                 break;
             }
-            let Some((report, boot)) = self.pending.pop_front() else { break };
+            let Some((report, boot)) = self.pending.pop_front() else {
+                break;
+            };
             let bytes = if c.gatt.boot_protocol() { boot } else { report };
-            let Some(pdu) = c.gatt.notification(&bytes) else { break };
+            let Some(pdu) = c.gatt.notification(&bytes) else {
+                break;
+            };
             out.extend(self.send_att(pdu));
         }
         out

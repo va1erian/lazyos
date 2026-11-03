@@ -14,13 +14,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import judge_hid  # noqa: E402
+import modes_le  # noqa: E402
 
 KBD_ADDR = "C0:FF:EE:00:00:01"
 MOUSE_ADDR = "C0:FF:EE:00:00:02"
 #: A keyboard the host never paired with (`--refuse`).
 INTRUDER_ADDR = "C0:FF:EE:00:00:09"
 #: The pairing window the harness image opens (`LAZYOS_BT_PAIR`).
-PAIR_LIST = f"{KBD_ADDR},{MOUSE_ADDR}"
+PAIR_LIST = f"{KBD_ADDR},{MOUSE_ADDR},{modes_le.LE_PAIR_LIST}"
 
 #: What the keyboard types once paired, and what it types during the boot of
 #: the reboot test and after the kill.
@@ -49,6 +50,8 @@ def mouse_moves(trigger: str) -> list[str]:
 
 def fakebt_args(mode: str, state: Path, boot: int = 1) -> list[str]:
     """The `fakebt` arguments of one boot of `mode`."""
+    if mode in modes_le.LE_MODES:
+        return modes_le.fakebt_args(mode, state, boot, PAIR_TEXT, BOOT_TEXT)
     peers = ["--keyboard", KBD_ADDR, "--mouse", MOUSE_ADDR, "--state", str(state)]
     steps: list[str] = []
     if mode == "pair":
@@ -77,6 +80,8 @@ def session_steps(mode: str, timeout: float, boot: int = 1) -> list[dict]:
     """The QEMU session: wait for the evidence, let the last lines out, quit."""
     wait = lambda marker, **more: {"wait_for": marker, "timeout": timeout, **more}  # noqa: E731
     settle = [{"wait": 4.0}, {"quit": True}]
+    if mode in modes_le.LE_MODES:
+        return modes_le.session_steps(mode, timeout, boot, PAIR_TEXT, BOOT_TEXT, last_key)
     if mode == "pair" or (mode == "reboot" and boot == 1):
         steps = [wait("BT:HID:KBD"), wait("BT:HID:MOUSE"), wait(last_key(PAIR_TEXT))]
         return steps + settle

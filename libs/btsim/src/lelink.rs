@@ -15,7 +15,7 @@ const ADV_INTERVAL_MS: u64 = 30;
 /// How long a touched device keeps advertising.
 const ADV_WINDOW_MS: u64 = 10_000;
 /// How long a device in pairing mode advertises.
-const PAIRING_ADV_MS: u64 = 60_000;
+const PAIRING_ADV_MS: u64 = 600_000;
 /// ADV_IND: connectable and scannable undirected advertising.
 const ADV_IND: u8 = 0;
 /// Subevent bits of the LE event mask (bit n = subevent n + 1).
@@ -79,7 +79,9 @@ impl SimController {
     /// The harness-only passkey hook (`bthci::opcode::HARNESS_SHOW_PASSKEY`):
     /// the user reads the passkey off the host's screen and types it.
     pub(crate) fn show_passkey(&mut self, op: u16, params: &[u8]) {
-        let Some(shown) = params.get(..4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        let Some(shown) = params
+            .get(..4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         else {
             return self.complete(op, vec![status::INVALID_PARAMETERS]);
         };
@@ -134,7 +136,10 @@ impl SimController {
                 data,
                 rssi: -50,
             };
-            self.emit_le(LE_ADVERTISING_REPORT_BIT, Event::LeAdvertisingReport(vec![report]));
+            self.emit_le(
+                LE_ADVERTISING_REPORT_BIT,
+                Event::LeAdvertisingReport(vec![report]),
+            );
         }
         self.after(ADV_INTERVAL_MS, Task::LeAdv { peer });
     }
@@ -169,10 +174,7 @@ impl SimController {
         } else {
             AddrType::Random
         };
-        let own = DeviceAddr {
-            kind,
-            addr: addr.0,
-        };
+        let own = DeviceAddr { kind, addr: addr.0 };
         let central = DeviceAddr {
             kind: AddrType::Public,
             addr: self.cfg.bd_addr.0,
@@ -189,7 +191,10 @@ impl SimController {
             supervision_timeout: SUPERVISION,
             clock_accuracy: 0,
         };
-        self.emit_le(LE_CONNECTION_COMPLETE_BIT, Event::LeConnectionComplete(conn));
+        self.emit_le(
+            LE_CONNECTION_COMPLETE_BIT,
+            Event::LeConnectionComplete(conn),
+        );
         let delay = self.le_at(peer).greet_delay_ms;
         self.after(delay, Task::LeGreet { handle });
     }
@@ -205,7 +210,9 @@ impl SimController {
     }
 
     pub(crate) fn le_greet(&mut self, handle: u16) {
-        let Some(ci) = self.conn_index(handle) else { return };
+        let Some(ci) = self.conn_index(handle) else {
+            return;
+        };
         let peer = self.conns[ci].peer;
         let pdus = self.le_at(peer).greeting();
         self.peer_sends(handle, pdus);
@@ -214,7 +221,9 @@ impl SimController {
     // ---- encryption --------------------------------------------------------
 
     pub(crate) fn le_encrypt(&mut self, handle: u16, ltk: [u8; 16]) {
-        let Some(ci) = self.conn_index(handle) else { return };
+        let Some(ci) = self.conn_index(handle) else {
+            return;
+        };
         let peer = self.conns[ci].peer;
         if !self.le_at(peer).accept_ltk(&ltk) {
             // The peripheral's host has no such key.
@@ -298,7 +307,9 @@ impl SimController {
             Command::LeStartEncryption { handle, ltk, .. } => {
                 self.le_start_encryption(op, *handle, *ltk)
             }
-            Command::Unknown { opcode, params } if *opcode == bthci::opcode::HARNESS_SHOW_PASSKEY => {
+            Command::Unknown { opcode, params }
+                if *opcode == bthci::opcode::HARNESS_SHOW_PASSKEY =>
+            {
                 self.show_passkey(op, params)
             }
             _ => return false,

@@ -20,7 +20,7 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `kernel/src/input/sources.rs`, `rawsys.rs` | Input sources: register/publish/close, kernel-stamped device ids, class checks, a token bucket per slot, release on close and on task death |
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
 | `libs/btusb/`, `libs/btpolicy/`, `user/src/bin/usbd/bt*.rs`, `tools/bt/` | Bluetooth controllers (`LAZYOS_BT=1`, [bluetooth-plan.md](../bluetooth-plan.md) B2): packet framing, the `_bt` uid, the function and its `os.lazy.usb.bt` server, the fake dongle and harness |
-| `libs/bthost/`, `libs/btsdp/`, `libs/bthid/`, `user/src/bin/btd.rs`, `user/src/bin/btd/` | The Bluetooth host (B3): `btd`'s logic and its I/O shell, the SDP client, HIDP and report decoding |
+| `libs/bthost/`, `libs/btsdp/`, `libs/bthid/`, `libs/btgatt/`, `libs/btsmp/`, `user/src/bin/btd.rs`, `user/src/bin/btd/` | The Bluetooth host (B3, B4): `btd`'s logic and its I/O shell, the SDP client, HIDP and report decoding, the ATT/GATT client and HOGP discovery, LE Secure Connections |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
 | `libs/usbaudio/`, `user/src/bin/usbd/audio*.rs` | USB audio (`LAZYOS_USB_AUDIO=1`, [usb-audio-plan.md](../usb-audio-plan.md)): UAC 1.0/2.0 descriptors, alternate and rate choice, the isochronous OUT ring and explicit feedback, the `os.lazy.usb.audio.v1` server `sndd usb=1` drives; harness `tools/sound/usb_run.py` |
 
@@ -203,12 +203,60 @@ Evidence: `BT:BOND:LOAD`, `BT:READY ms=`, `BT:CTRL:PASS`, `BT:CONN`,
 two octets; no key is ever printed. A harness build (`LAZYOS_BT_TRACE=1`) adds
 `BT:KEY` (one line per key edge), `BT:REPORT` and the passkey.
 
+### LE HID over GATT (B4)
+
+The same host, `libs/bthost`, runs LE links beside BR/EDR ones (`le.rs`,
+`le_sec.rs`, `le_gatt.rs`); `libs/btgatt` is the ATT client (one request at a
+time, the 30 s ATT timeout as a deadline, notifications, bounded discovery
+loops) and the HID over GATT discovery (service `0x1812`: Report Map including
+long reads, Report characteristics with their Report Reference and CCCD,
+Protocol Mode, HID Information, the Boot Keyboard/Mouse Input reports as the
+boot-protocol fallback; Battery and GAP are skipped).
+
+- **Radio.** One thing at a time: the accept-list auto-connect that the fast
+  path armed (bonded devices at their identity address), or a passive scan
+  with a direct connect. The host scans while a pairing window names LE
+  (`pair=any`, or `pair=le:AA:..` in a harness build) and while a bonded
+  device with an IRK is not connected: it resolves each connectable
+  advertisement itself (`btsmp::func::rpa_matches`), so a device that comes
+  back under a fresh resolvable private address is recognised (`BT:CONN ...
+  rpa=1`). A pairing candidate must advertise a HID appearance or the HID
+  UUID and be at an allowed address; one that is refused or fails is not
+  connected again in that window.
+- **Who may type** (decision 6). An LE link is made only for a bonded device
+  (known address or IRK match) or a pairing candidate; any other connection the
+  controller reports is dropped (`BT:REFUSE reason=unbonded`). A bonded link
+  starts encryption with the stored LTK (`LE_Start_Encryption`) before it
+  asks the device anything; ATT data is read only on an encrypted link, ATT
+  that arrives held across the start of encryption is dropped, and a
+  notification counts only after the host's own CCCD write was answered
+  (`BT:REFUSE reason=att-unencrypted|notification-unsolicited`). SMP data
+  that races the `Encryption_Change` is held and replayed after the event is
+  handled, so `btsmp` sees `Encryption { ok }` first.
+- **Pairing.** LE Secure Connections only (legacy is refused, plan Risk 3);
+  Just Works for a device without input, Passkey Entry for a keyboard (shown
+  in a `trace=1` harness build; the simulated keyboard learns it through a
+  vendor HCI opcode that a normal build never sends). The key is bonded only
+  after GATT discovery shows what the device is: a keyboard report with an
+  unauthenticated key is dropped, an older bond for it forgotten, and
+  `BT:REFUSE reason=keyboard-unauthenticated` traced. The bond (LTK, IRK,
+  report map, GATT handles) is stored under the identity address.
+- **Reconnect.** No discovery: the stored Report Map picks the decoder, the
+  stored CCCD handles are written, the source is registered; `BT:RECONNECT
+  ms=` is link up to first report. Pairing entropy comes from the kernel's
+  `random` syscall (an unseeded host refuses to pair).
+
+The simulated LE keyboard and mouse (`libs/btsim`: `LePeer`, a GATT server, the
+responder side of SMP with the real crypto) and `fakebt`'s `--le-*` options drive
+`--le-pair`, `--le-reboot`, `--le-rpa` and `--le-refuse`.
+
 QEMU has no Bluetooth emulation, so the harness is `tools/bt/run.py`: QEMU
 with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt`, a host
 program serving a fake dongle over usbredir through `libs/btsim`'s controller,
 which also plays a BR/EDR keyboard and mouse that pair, bond, reconnect and
 type on a script. `--unplug` pulls the dongle out after the bring-up; `--pair`,
-`--reboot`, `--refuse` and `--kill` are the HID tests ([tools/bt/README.md](../../tools/bt/README.md)).
+`--reboot`, `--refuse` and `--kill` are the BR/EDR HID tests, `--le-pair`,
+`--le-reboot`, `--le-rpa` and `--le-refuse` the LE ones ([tools/bt/README.md](../../tools/bt/README.md)).
 
 ## Security
 

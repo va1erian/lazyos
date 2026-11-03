@@ -20,7 +20,11 @@ fn paired(target: [u8; 6], rpa: bool) -> (Rig, PeerId) {
 
 /// The requests the peer's GATT server saw on its current link.
 fn requests(rig: &Rig, id: PeerId) -> Vec<u8> {
-    rig.sim.le(id).gatt().map(|g| g.requests.clone()).unwrap_or_default()
+    rig.sim
+        .le(id)
+        .gatt()
+        .map(|g| g.requests.clone())
+        .unwrap_or_default()
 }
 
 const READ_BY_GROUP: u8 = 0x10;
@@ -49,7 +53,12 @@ fn a_reconnect_encrypts_with_the_stored_key_and_skips_discovery() {
         "stored handles only, CCCD writes: {seen:02x?}"
     );
     let line = rig.trace_line("RECONNECT ms=").expect("BT:RECONNECT");
-    let ms: u64 = line["RECONNECT ms=".len()..].split(' ').next().unwrap().parse().unwrap();
+    let ms: u64 = line["RECONNECT ms=".len()..]
+        .split(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
     assert!(ms < 500, "link up to first report: {ms} ms");
 }
 
@@ -64,9 +73,14 @@ fn after_a_reboot_the_bonded_mouse_is_connected_from_the_accept_list() {
     assert!(!rig.traced("PAIR:START"));
     // The fast path armed the controller with the bond before anything else.
     assert_eq!(rig.sim.accept_list(), [(0, addr(LE_MOUSE))]);
-    let ready: u64 = rig.trace_line("READY ms=").unwrap()["READY ms=".len()..].parse().unwrap();
+    let ready: u64 = rig.trace_line("READY ms=").unwrap()["READY ms=".len()..]
+        .parse()
+        .unwrap();
     assert!(ready - rig.started_at < 60, "ready at {ready}");
-    assert!(rig.pointer_events.iter().any(|e| matches!(e, HidEvent::Pointer(_))));
+    assert!(rig
+        .pointer_events
+        .iter()
+        .any(|e| matches!(e, HidEvent::Pointer(_))));
     assert!(rig.traced("RECONNECT ms="));
 }
 
@@ -90,7 +104,11 @@ fn a_device_that_changes_its_address_is_recognised_by_its_irk() {
         let at = 10_000 + round * 5_000;
         rig.sim.press_key(kbd, at, KEY_A + round as u8);
         rig.run_for(2_000);
-        assert!(rig.host.is_typing(addr(LE_KBD)), "round {round} {:#?}", rig.traces);
+        assert!(
+            rig.host.is_typing(addr(LE_KBD)),
+            "round {round} {:#?}",
+            rig.traces
+        );
         seen.push(rig.sim.le(kbd).adv_address());
         rig.sim.drop_link(kbd, rig.now, 0x13);
         rig.run_for(3_000);
@@ -102,9 +120,16 @@ fn a_device_that_changes_its_address_is_recognised_by_its_irk() {
         seen.iter().all(|a| a.0[5] & 0xC0 == 0x40),
         "resolvable private addresses: {seen:?}"
     );
-    assert!(seen[0] != seen[1] && seen[1] != seen[2], "a fresh address each time");
+    assert!(
+        seen[0] != seen[1] && seen[1] != seen[2],
+        "a fresh address each time"
+    );
     // The bond stayed under the identity address.
-    assert!(rig.host.store().find(addr(LE_KBD), AddrKind::LePublic).is_some());
+    assert!(rig
+        .host
+        .store()
+        .find(addr(LE_KBD), AddrKind::LePublic)
+        .is_some());
 }
 
 #[test]
@@ -149,7 +174,10 @@ fn a_notification_before_encryption_while_pairing_is_ignored_too() {
     let mut rig = Rig::fresh(sim, le_pair_with(&[LE_KBD]));
     rig.run_for(5_000);
     assert!(rig.host.is_typing(addr(LE_KBD)), "{:#?}", rig.traces);
-    assert!(rig.typed().is_empty(), "the early key never reached the source");
+    assert!(
+        rig.typed().is_empty(),
+        "the early key never reached the source"
+    );
     assert!(rig.traced("REFUSE reason=att-unencrypted"));
 }
 
@@ -217,7 +245,10 @@ fn hostile_att_and_smp_on_a_live_link_change_nothing() {
     };
     for payload in [
         &[0x1B, 0x2B][..],
-        &[0x1B, 0x2B, 0x00, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+        &[
+            0x1B, 0x2B, 0x00, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+            20, 21,
+        ],
         &[0x0B],
         &[0x01, 0x0A, 0, 0, 0x0A],
         &[0xFF; 30],

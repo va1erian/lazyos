@@ -305,5 +305,136 @@ class HidJudge(unittest.TestCase):
         self.assertFails(hid.judge_kill(held, "zq"), "still held")
 
 
+
+# ---- the LE verdicts (judge_le.py, phase B4) ---------------------------------
+
+import judge_le as le  # noqa: E402
+
+
+def le_pairing(tail: str, kind: str) -> str:
+    auth, cls, hidline = (1, "keyboard", "KBD") if kind == "kbd" else (0, "pointer", "MOUSE")
+    passkey = f"BT:PAIR:PASSKEY value=553610 addr=xx:xx:xx:xx:{tail}\n" if kind == "kbd" else ""
+    return (
+        f"BT:CONN addr=xx:xx:xx:xx:{tail} handle=0x0040 role=le rpa=0\n"
+        f"BT:PAIR:START addr=xx:xx:xx:xx:{tail}\n{passkey}BT:ENCRYPT addr=xx:xx:xx:xx:{tail}\n"
+        f"BT:BOND:SAVE bytes=420\n"
+        f"BT:PAIR:PASS addr=xx:xx:xx:xx:{tail} auth={auth} class={cls}\n"
+        f"BT:HID:{hidline} addr=xx:xx:xx:xx:{tail}" + (f" auth={auth}" if kind == "kbd" else "") + "\n"
+    )
+
+
+def le_reconnecting(tail: str, kind: str, rpa: int = 0) -> str:
+    hidline = "KBD" if kind == "kbd" else "MOUSE"
+    auth = " auth=1" if kind == "kbd" else ""
+    return (
+        f"BT:CONN addr=xx:xx:xx:xx:{tail} handle=0x0040 role=le rpa={rpa}\n"
+        f"BT:ENCRYPT addr=xx:xx:xx:xx:{tail}\nBT:HID:{hidline} addr=xx:xx:xx:xx:{tail}{auth}\n"
+        f"BT:RECONNECT ms=80 addr=xx:xx:xx:xx:{tail}\n"
+    )
+
+
+LE_PAIR = BOOT.format(n=0, file=" file=missing") + le_pairing("01:01", "kbd") + le_pairing("01:02", "mouse") \
+    + keys("hello") + POINTER
+LE_REBOOT = BOOT.format(n=2, file="") + le_reconnecting("01:01", "kbd") + le_reconnecting("01:02", "mouse") \
+    + keys("lazy") + POINTER
+LE_RPA = BOOT.format(n=2, file="") + le_reconnecting("01:01", "kbd", 1) + le_reconnecting("01:02", "mouse", 1) \
+    + keys("lazy") + POINTER + le_reconnecting("01:01", "kbd", 1) + keys("go")
+LE_REFUSE = BOOT.format(n=0, file=" file=missing") + (
+    "BT:CONN addr=xx:xx:xx:xx:01:03 handle=0x0040 role=le rpa=0\nBT:PAIR:START addr=xx:xx:xx:xx:01:03\n"
+    "BT:ENCRYPT addr=xx:xx:xx:xx:01:03\n"
+    "BT:REFUSE reason=keyboard-unauthenticated addr=xx:xx:xx:xx:01:03\n"
+)
+
+
+class LeJudge(unittest.TestCase):
+    def assertFails(self, failures, why):
+        self.assertNotEqual(failures, [], "the judge passed a bad log")
+        self.assertTrue(any(why in f for f in failures), f"{why!r} not in {failures}")
+
+    def reboot(self, second, first=LE_PAIR, rpa=False, text="lazy"):
+        return le.judge_reboot(first, second, "hello", text, rpa=rpa)
+
+    def test_good_logs_pass(self):
+        self.assertEqual(le.judge_pair(LE_PAIR, "hello"), [])
+        self.assertEqual(self.reboot(LE_REBOOT), [])
+        self.assertEqual(self.reboot(LE_RPA, rpa=True, text="lazygo"), [])
+        self.assertEqual(le.judge_refuse(LE_REFUSE), [])
+
+    def test_the_timings_are_reported(self):
+        self.assertEqual(
+            le.reboot_timings(LE_REBOOT),
+            {"ready_ms": 9000, "reconnect_kbd_ms": 80, "reconnect_mouse_ms": 80},
+        )
+
+    # -- pair
+
+    def test_pair_needs_the_le_lines_in_order(self):
+        for gone in ("role=le", "BT:PAIR:START addr=xx:xx:xx:xx:01:01", "BT:ENCRYPT addr=xx:xx:xx:xx:01:02",
+                     "BT:HID:MOUSE", "BT:PAIR:PASS addr=xx:xx:xx:xx:01:01"):
+            self.assertFails(le.judge_pair(LE_PAIR.replace(gone, "BT:NOPE"), "hello"), "")
+
+    def test_the_source_may_not_come_before_the_encryption(self):
+        early = LE_PAIR.replace("BT:ENCRYPT addr=xx:xx:xx:xx:01:02\n", "", 1) + "BT:ENCRYPT addr=xx:xx:xx:xx:01:02\n"
+        self.assertFails(le.judge_pair(early, "hello"), "too early")
+
+    def test_a_keyboard_needs_an_authenticated_key_and_a_passkey(self):
+        weak = LE_PAIR.replace("BT:HID:KBD addr=xx:xx:xx:xx:01:01 auth=1", "BT:HID:KBD addr=xx:xx:xx:xx:01:01 auth=0")
+        self.assertFails(le.judge_pair(weak, "hello"), "authenticated")
+        self.assertFails(le.judge_pair(LE_PAIR.replace("BT:PAIR:PASSKEY", "BT:PAIR:NOKEY"), "hello"), "PASSKEY")
+        self.assertFails(le.judge_pair(LE_PAIR.replace("auth=1 class=keyboard", "auth=0 class=keyboard"), "hello"), "PAIR:PASS")
+
+    def test_pair_checks_the_bond_store_and_the_failures(self):
+        self.assertFails(le.judge_pair(LE_PAIR.replace("n=0 file=missing", "n=2"), "hello"), "empty bond store")
+        self.assertFails(le.judge_pair(LE_PAIR.replace("BT:BOND:SAVE bytes=420", "BT:NOSAVE"), "hello"), "bond saves")
+        for bad in ("BT:GATT:FAIL addr=xx:xx:xx:xx:01:01 reason=timeout\n", "BT:PAIR:FAIL addr=xx:xx:xx:xx:01:01 reason=smp-timeout\n",
+                    "BT:ENCRYPT:FAIL addr=xx:xx:xx:xx:01:01 status=0x06\n"):
+            self.assertFails(le.judge_pair(LE_PAIR + bad, "hello"), "appears")
+
+    def test_pair_connects_under_the_identity_address(self):
+        self.assertFails(le.judge_pair(LE_PAIR.replace("rpa=0", "rpa=1", 1), "hello"), "connect once")
+
+    def test_pair_checks_the_text_and_the_mouse(self):
+        self.assertFails(le.judge_pair(LE_PAIR.replace("BT:KEY usage=0xb down", "BT:KEY usage=0xc down"), "hello"), "published")
+        self.assertFails(le.judge_pair(LE_PAIR.replace(POINTER, ""), "hello"), "no pointer state")
+        self.assertFails(le.judge_pair(LE_PAIR + "BT:CONN addr=C0:FF:EE:00:01:01\n", "hello"), "full Bluetooth address")
+
+    # -- reboot and rpa
+
+    def test_reboot_needs_the_bonds_read_first_and_no_pairing(self):
+        self.assertFails(self.reboot(LE_REBOOT.replace("n=2", "n=0 file=missing")), "bond file was lost")
+        for line in ("BT:PAIR:START addr=xx:xx:xx:xx:01:01\n", "BT:REFUSE reason=unbonded addr=xx:xx:xx:xx:01:01\n"):
+            self.assertFails(self.reboot(LE_REBOOT + line), "boot 2")
+
+    def test_reboot_needs_the_reconnect_the_text_and_the_pairing_boot(self):
+        self.assertFails(self.reboot(LE_REBOOT.replace("BT:RECONNECT ms=80 addr=xx:xx:xx:xx:01:01\n", "")), "RECONNECT")
+        self.assertFails(self.reboot(LE_REBOOT.replace(keys("lazy"), keys("lazx"))), "published")
+        self.assertFails(self.reboot(LE_REBOOT, LE_PAIR.replace("BT:HID:KBD", "BT:NOHID")), "boot 1")
+
+    def test_reboot_connects_under_the_identity_address(self):
+        self.assertFails(self.reboot(LE_REBOOT.replace("rpa=0", "rpa=1", 1)), "identity address")
+
+    def test_rpa_needs_every_connection_resolved_and_the_second_one(self):
+        self.assertFails(self.reboot(LE_RPA.replace("rpa=1", "rpa=0", 1), rpa=True, text="lazygo"), "resolvable private")
+        once = LE_RPA.replace(le_reconnecting("01:01", "kbd", 1) + keys("go"), keys("go"))
+        self.assertFails(self.reboot(once, rpa=True, text="lazygo"), "2 connection")
+        self.assertFails(self.reboot(LE_RPA.replace(keys("go"), keys("gx")), rpa=True, text="lazygo"), "published")
+
+    # -- refuse
+
+    def test_refuse_must_refuse_once_and_register_nothing(self):
+        self.assertFails(le.judge_refuse(LE_REFUSE.replace("keyboard-unauthenticated", "other")), "not refused")
+        self.assertFails(le.judge_refuse(LE_REFUSE + "BT:HID:KBD addr=xx:xx:xx:xx:01:03 auth=0\n"), "got further")
+        self.assertFails(le.judge_refuse(LE_REFUSE + "BT:PAIR:PASS addr=xx:xx:xx:xx:01:03 auth=0 class=keyboard\n"), "got further")
+        self.assertFails(le.judge_refuse(LE_REFUSE + "BT:BOND:SAVE bytes=400\n"), "got further")
+        again = le_pairing("01:03", "mouse").split("BT:PAIR:PASS")[0]
+        self.assertFails(le.judge_refuse(LE_REFUSE + again), "connections")
+        self.assertFails(le.judge_refuse(LE_REFUSE.replace("BT:READY ms=9000\n", "")), "never became ready")
+
+    def test_refuse_fails_a_stranger_that_got_in_and_stray_input(self):
+        stranger = "BT:CONN addr=xx:xx:xx:xx:01:09 handle=0x0041 role=le rpa=0\n"
+        self.assertFails(le.judge_refuse(LE_REFUSE + stranger), "stranger")
+        self.assertFails(le.judge_refuse(LE_REFUSE + "INPUTD:KEY code=0x4 sym=0x61 mods=0x40 down\n"), "inputd saw")
+
+
 if __name__ == "__main__":
     unittest.main()

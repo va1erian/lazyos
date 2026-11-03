@@ -6,7 +6,7 @@ use bthci::{BdAddr, Boundary};
 use bthid::decode::Decoder;
 use btsdp::Client;
 
-use crate::le::LeLink;
+use crate::le_link::LeLink;
 
 /// Links the host tracks (the controller and `btl2cap` bound it too).
 pub const MAX_LINKS: usize = 8;

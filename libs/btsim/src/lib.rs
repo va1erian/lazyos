@@ -42,7 +42,9 @@ mod link;
 pub mod peer;
 pub mod sdp;
 mod smp_peer;
+mod task;
 
+pub use btsmp::pdu::IoCapability;
 pub use ctrl::{Peer, PeerId, SimConfig, SimController, Violation};
 pub use gatt::GattServer;
 pub use hid::HidKind;

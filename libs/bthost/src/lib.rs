@@ -35,6 +35,7 @@ pub mod effect;
 mod host;
 mod le;
 mod le_gatt;
+mod le_link;
 mod le_sec;
 mod link;
 mod paging;

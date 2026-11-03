@@ -18,11 +18,16 @@ two peers; `usbd` binds the controller's interface 0 and serves it as
     python tools/bt/run.py --reboot           # pair, power off, boot the same image: it types at boot
     python tools/bt/run.py --refuse           # an unbonded peer pages the host and types: refused
     python tools/bt/run.py --kill             # btd dies holding a key: nothing stuck, it reattaches
+    python tools/bt/run.py --le-pair          # B4: an LE keyboard (passkey) and mouse pair, type, move
+    python tools/bt/run.py --le-reboot        # pair over LE, power off, boot the same image: it types at boot
+    python tools/bt/run.py --le-rpa           # as --le-reboot, the devices change address each connection
+    python tools/bt/run.py --le-refuse        # a Just Works LE keyboard is refused, a stranger never connected
     python tools/bt/run.py --no-build         # reuse target/lazyos.img
     python tools/bt/run.py --accel none       # force TCG
     python tools/bt/test_judge.py             # the judges fail when they should
 
-The HID modes judge `inputd`'s keys against `btd`'s (`judge_hid.py`); the
+The HID modes judge `inputd`'s keys against `btd`'s (`judge_hid.py`, and
+`judge_le.py` for the LE modes, whose peers are `modes_le.py`'s); the
 transport modes judge the bring-up (`judge.py`). Every boot runs on a copy of
 the image (`<out>/disk.img`), so the bonds one run leaves never leak into
 another, while `--reboot` boots the same copy twice. Exit status is non-zero on
@@ -45,6 +50,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import btdemo  # noqa: E402
 import judge_hid  # noqa: E402
 import modes  # noqa: E402
+import modes_le  # noqa: E402
 
 #: The dongle is pulled this long after the first HCI command arrived, when
 #: the guest has long finished its bring-up.
@@ -110,14 +116,14 @@ def run_transport(args) -> bool:
 
 
 def run_hid(args, mode: str) -> bool:
-    """`--pair`, `--reboot`, `--refuse`, `--kill`: boots on a copy of the image."""
+    """The HID modes (BR/EDR and LE): boots on a copy of the image."""
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     image = out / "disk.img"
     shutil.copyfile(args.image, image)
     state = out / "peers.state"
     state.unlink(missing_ok=True)
-    boots = 2 if mode == "reboot" else 1
+    boots = 2 if mode == "reboot" or mode in modes_le.TWO_BOOTS else 1
     logs = []
     ok = True
     for number in range(1, boots + 1):
@@ -128,11 +134,14 @@ def run_hid(args, mode: str) -> bool:
         if not logs[-1].exists():
             print("FAIL: no serial log")
             return False
-    judge = [sys.executable, str(Path(__file__).parent / "judge_hid.py"), mode, *map(str, logs)]
-    text = {"pair": modes.PAIR_TEXT, "reboot": modes.BOOT_TEXT, "kill": modes.RESTART_TEXT}.get(mode)
+    script = "judge_le.py" if mode in modes_le.LE_MODES else "judge_hid.py"
+    judge = [sys.executable, str(Path(__file__).parent / script), mode, *map(str, logs)]
+    text = {"pair": modes.PAIR_TEXT, "reboot": modes.BOOT_TEXT, "kill": modes.RESTART_TEXT,
+            "le-pair": modes.PAIR_TEXT, "le-reboot": modes.BOOT_TEXT,
+            "le-rpa": modes.BOOT_TEXT + modes_le.RPA_TEXT_AFTER}.get(mode)
     if text:
         judge += ["--text", text]
-    if mode == "reboot":
+    if mode == "reboot" or mode in modes_le.TWO_BOOTS:
         judge += ["--pair-text", modes.PAIR_TEXT]
     return subprocess.run(judge).returncode == 0 and ok
 
@@ -147,12 +156,13 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=600.0, help="overall seconds")
     parser.add_argument("--unplug", action="store_true", help="the dongle is pulled out after the bring-up")
     parser.add_argument("--hotplug", action="store_true", help="the dongle appears well after boot")
-    for mode in ("pair", "reboot", "refuse", "kill"):
+    hid_modes = ("pair", "reboot", "refuse", "kill", *modes_le.LE_MODES)
+    for mode in hid_modes:
         parser.add_argument(f"--{mode}", action="store_true", help=f"the HID {mode} test (see above)")
     args = parser.parse_args()
-    chosen = [m for m in ("pair", "reboot", "refuse", "kill") if getattr(args, m)]
+    chosen = [m for m in hid_modes if getattr(args, m.replace("-", "_"))]
     if len(chosen) > 1 or (chosen and (args.unplug or args.hotplug)):
-        parser.error("choose one of --pair, --reboot, --refuse, --kill, or the transport options")
+        parser.error("choose one of the HID modes (--pair ... --le-refuse), or the transport options")
     if not args.no_build:
         build(crash=bool(chosen and chosen[0] == "kill"))
     ok = run_hid(args, chosen[0]) if chosen else run_transport(args)

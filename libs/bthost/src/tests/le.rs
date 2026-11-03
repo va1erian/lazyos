@@ -220,7 +220,15 @@ fn smp_data_that_beats_the_encryption_event_is_held_and_then_believed() {
         rig.encryption_late = late;
         rig.run_for(5_000);
         rig.assert_clean();
-        assert!(rig.host.is_typing(addr(LE_KBD)), "late={late} {:#?}", rig.traces);
-        assert!(rig.host.store().find(addr(LE_KBD), AddrKind::LePublic).is_some());
+        assert!(
+            rig.host.is_typing(addr(LE_KBD)),
+            "late={late} {:#?}",
+            rig.traces
+        );
+        assert!(rig
+            .host
+            .store()
+            .find(addr(LE_KBD), AddrKind::LePublic)
+            .is_some());
     }
 }

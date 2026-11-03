@@ -135,7 +135,11 @@ fn many_reconnects_leave_nothing_behind() {
         assert!(rig.sources.is_empty(), "round {round}");
         rig.sim.press_key(kbd, rig.now, KEY_A + (round % 20) as u8);
         rig.run_for(1_500);
-        assert!(rig.host.is_typing(addr(LE_KBD)), "round {round}: {:#?}", rig.traces);
+        assert!(
+            rig.host.is_typing(addr(LE_KBD)),
+            "round {round}: {:#?}",
+            rig.traces
+        );
         assert_eq!(rig.sources.len(), 1, "round {round}");
         assert!(rig.host.acl_tx.len() <= MAX_ACL_QUEUE);
     }

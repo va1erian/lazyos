@@ -37,29 +37,71 @@ fn decl(props: u8, value: u16, uuid: u16) -> Vec<u8> {
 /// 1), an output report, boot keyboard input, and a Report Map of `map`.
 pub fn keyboard(map: &[u8]) -> Server {
     let mut a = Vec::new();
-    let mut add = |handle, uuid, value: Vec<u8>| a.push(Attr { handle, uuid, value });
-    add(0x01, s(known::PRIMARY_SERVICE), 0x1800u16.to_le_bytes().to_vec());
+    let mut add = |handle, uuid, value: Vec<u8>| {
+        a.push(Attr {
+            handle,
+            uuid,
+            value,
+        })
+    };
+    add(
+        0x01,
+        s(known::PRIMARY_SERVICE),
+        0x1800u16.to_le_bytes().to_vec(),
+    );
     add(0x02, s(known::CHARACTERISTIC), decl(0x02, 0x03, 0x2A00));
     add(0x03, s(0x2A00), b"Sim".to_vec());
-    add(0x10, s(known::PRIMARY_SERVICE), 0x180Fu16.to_le_bytes().to_vec());
+    add(
+        0x10,
+        s(known::PRIMARY_SERVICE),
+        0x180Fu16.to_le_bytes().to_vec(),
+    );
     add(0x11, s(known::CHARACTERISTIC), decl(0x12, 0x12, 0x2A19));
     add(0x12, s(0x2A19), vec![90]);
     add(0x13, s(known::CCCD), vec![0, 0]);
-    add(0x20, s(known::PRIMARY_SERVICE), known::SERVICE_HID.to_le_bytes().to_vec());
-    add(0x22, s(known::CHARACTERISTIC), decl(0x02, 0x23, known::HID_INFORMATION));
+    add(
+        0x20,
+        s(known::PRIMARY_SERVICE),
+        known::SERVICE_HID.to_le_bytes().to_vec(),
+    );
+    add(
+        0x22,
+        s(known::CHARACTERISTIC),
+        decl(0x02, 0x23, known::HID_INFORMATION),
+    );
     add(0x23, s(known::HID_INFORMATION), vec![0x11, 0x01, 0, 0x02]);
-    add(0x24, s(known::CHARACTERISTIC), decl(0x02, 0x25, known::REPORT_MAP));
+    add(
+        0x24,
+        s(known::CHARACTERISTIC),
+        decl(0x02, 0x25, known::REPORT_MAP),
+    );
     add(0x25, s(known::REPORT_MAP), map.to_vec());
-    add(0x28, s(known::CHARACTERISTIC), decl(0x06, 0x29, known::PROTOCOL_MODE));
+    add(
+        0x28,
+        s(known::CHARACTERISTIC),
+        decl(0x06, 0x29, known::PROTOCOL_MODE),
+    );
     add(0x29, s(known::PROTOCOL_MODE), vec![1]);
-    add(0x2A, s(known::CHARACTERISTIC), decl(0x12, 0x2B, known::REPORT));
+    add(
+        0x2A,
+        s(known::CHARACTERISTIC),
+        decl(0x12, 0x2B, known::REPORT),
+    );
     add(0x2B, s(known::REPORT), vec![0; 8]);
     add(0x2C, s(known::CCCD), vec![0, 0]);
     add(0x2D, s(known::REPORT_REFERENCE), vec![1, 1]);
-    add(0x2E, s(known::CHARACTERISTIC), decl(0x0E, 0x2F, known::REPORT));
+    add(
+        0x2E,
+        s(known::CHARACTERISTIC),
+        decl(0x0E, 0x2F, known::REPORT),
+    );
     add(0x2F, s(known::REPORT), vec![0]);
     add(0x30, s(known::REPORT_REFERENCE), vec![1, 2]);
-    add(0x31, s(known::CHARACTERISTIC), decl(0x12, 0x32, known::BOOT_KEYBOARD_INPUT));
+    add(
+        0x31,
+        s(known::CHARACTERISTIC),
+        decl(0x12, 0x32, known::BOOT_KEYBOARD_INPUT),
+    );
     add(0x32, s(known::BOOT_KEYBOARD_INPUT), vec![0; 8]);
     add(0x33, s(known::CCCD), vec![0, 0]);
     Server {

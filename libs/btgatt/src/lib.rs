@@ -38,6 +38,7 @@ pub mod client;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;
 pub mod hogp;
+mod service;
 #[cfg(test)]
 mod tests;
 pub mod uuid;

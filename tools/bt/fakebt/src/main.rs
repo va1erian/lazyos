@@ -17,6 +17,9 @@
 //!        [--connect-after-ms N] [--unplug-after-ms N]
 //!        [--keyboard AA:BB:CC:DD:EE:FF] [--mouse AA:BB:CC:DD:EE:FF]
 //!        [--pairable] [--forged-bond] [--mouse-waits]
+//!        [--le-keyboard AA:BB:CC:DD:EE:FF] [--le-mouse AA:BB:CC:DD:EE:FF]
+//!        [--le-jw-keyboard] [--le-rpa] [--le-early-notify]
+//!        [--le-intruder AA:BB:CC:DD:EE:FF]
 //!        [--passkey correct|wrong|never] [--state FILE] [--at SPEC]...
 //! ```
 //!
@@ -25,7 +28,14 @@
 //! test); `--forged-bond` gives a peer without a bond a key the guest never
 //! issued, so it pages the guest like a stranger would; `--mouse-waits` makes
 //! the mouse wait to be paged (HIDNormallyConnectable) instead of paging the
-//! host. `--at` is a step of `script.rs`.
+//! host. `--le-keyboard` and `--le-mouse` play an LE HOGP keyboard (Passkey
+//! Entry) and mouse (Just Works) in the keyboard and mouse script slots
+//! instead of the BR/EDR ones; `--le-jw-keyboard` makes the LE keyboard a
+//! Just Works one (the host must refuse it), `--le-rpa` makes bonded LE
+//! devices advertise under a fresh resolvable private address each time,
+//! `--le-early-notify` has them send a notification before the link is
+//! encrypted, and `--le-intruder` adds a keyboard with a key the host never
+//! issued (`itype=` types on it). `--at` is a step of `script.rs`.
 
 mod controller;
 mod device;
@@ -75,6 +85,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
             passkey: PasskeyBehavior::Correct,
             state: None,
             steps: Vec::new(),
+            le: world::LeOptions::default(),
         },
     };
     let mut args = args;
@@ -93,6 +104,12 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
             }
             "--keyboard" => parsed.world.keyboard = Some(parse_address(&value()?)?),
             "--mouse" => parsed.world.mouse = Some(parse_address(&value()?)?),
+            "--le-keyboard" => parsed.world.le.keyboard = Some(parse_address(&value()?)?),
+            "--le-mouse" => parsed.world.le.mouse = Some(parse_address(&value()?)?),
+            "--le-intruder" => parsed.world.le.intruder = Some(parse_address(&value()?)?),
+            "--le-jw-keyboard" => parsed.world.le.keyboard_just_works = true,
+            "--le-rpa" => parsed.world.le.rpa = true,
+            "--le-early-notify" => parsed.world.le.early_notify = true,
             "--pairable" => parsed.world.pairable = true,
             "--forged-bond" => parsed.world.forged_bond = true,
             "--mouse-waits" => parsed.world.mouse_waits_to_be_paged = true,
