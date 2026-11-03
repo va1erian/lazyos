@@ -172,6 +172,7 @@ mode 0700 owned by `_bt`, the same reason the account database has
 | A bonded address grants nothing without the bond's key on an encrypted link: the HID PSMs are refused until then | `libs/btl2cap` `set_allowed` driven by `bthost/chan.rs` (`reason=psm`) |
 | LE ATT is read only on an encrypted link, ATT held across the start of encryption is dropped, a notification counts only after the host's own CCCD write was answered | `bthost/le_gatt.rs` (`att-unencrypted`, `notification-unsolicited`) |
 | SMP data that races `Encryption_Change` is replayed after it; a peer's early L2CAP request is held up to 500 ms for the event, then handled | `bthost/le_sec.rs`, `bthost/link.rs` (`ENCRYPT_GRACE_MS`, `DEFER_MS`) |
+| A BR/EDR link opens no HID PSM until `Read_Encryption_Key_Size` answers 16 (KNOB, CVE-2019-9506); a shorter key is refused and dropped, its fresh bond with it | `bthost/knob.rs` (`BT:REFUSE reason=key-size`) |
 | A keyboard needs an authenticated key | `bthost/chan.rs`, `bthost/le_gatt.rs` |
 | Hostile input is bounded: 8 links, bounded deferred data, reassembly, discovery results (32), pending commands, ACL queue; hostile parsers are fuzzed | `bthost/link.rs`, `libs/bt*` parsers, `fuzz/fuzz_targets/bt*.rs` |
 | Keys never leave `btd`: no interface returns one, no trace carries one, `Debug` hides them | `btbond`, `btd/api.rs`, `user::trace` |

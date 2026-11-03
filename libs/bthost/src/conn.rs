@@ -68,7 +68,10 @@ impl Host {
             return false;
         };
         let link = &mut self.links[idx];
-        if link.encrypted || !link.key_offered || link.closing {
+        // Held while the key is offered but not yet in use, and while the
+        // key size is being read: the PSMs open only after that answer.
+        let waiting = link.key_size_pending || (!link.encrypted && link.key_offered);
+        if !waiting || link.closing {
             return false;
         }
         if link.deferred.len() >= MAX_DEFERRED
@@ -181,6 +184,15 @@ impl Host {
         // Whatever the device held is let go before the sources close.
         self.release_hid(handle);
         let link = self.links.remove(idx);
+        // A bond made on this link that never learned what the device is
+        // (SDP unfinished) would be refused again at every boot.
+        if link.fresh_bond && self.store.remove(link.addr, AddrKind::BrEdr) {
+            self.save_bonds();
+            self.note(format!(
+                "PAIR:FAIL addr={} reason=bond-dropped",
+                red(link.addr)
+            ));
+        }
         let actions = self.l2.link_down(handle);
         self.apply(now, actions);
         if let Some(bufs) = &mut self.bufs {
@@ -257,6 +269,7 @@ impl Host {
             // Encryption dropped under a live HID link: nothing it says can
             // be trusted any more.
             self.links[idx].encrypted = false;
+            self.links[idx].key_size_pending = false;
             self.l2.set_allowed(handle, &[]);
             self.release_hid(handle);
             self.disconnect(handle, status::AUTHENTICATION_FAILURE);
@@ -280,11 +293,10 @@ impl Host {
             return;
         }
         self.note(format!("ENCRYPT addr={}", red(addr)));
-        self.l2
-            .set_allowed(handle, &[bthid::PSM_CONTROL, bthid::PSM_INTERRUPT]);
-        // What the peer sent ahead of the event is admissible now.
-        self.replay_deferred(now, handle);
-        self.after_encrypted(now, handle);
+        // The peer may have negotiated a short key: nothing opens until the
+        // controller says how long it is (`knob.rs`).
+        self.links[idx].key_size_pending = true;
+        self.cmd(Command::ReadEncryptionKeySize { handle });
     }
 
     /// Deadlines of the links: a silent peer is asked to authenticate, a

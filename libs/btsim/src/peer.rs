@@ -76,6 +76,9 @@ pub struct BrPeer {
     pub sdp_requests: u32,
     /// Incoming L2CAP connections the peer's own policy refused.
     pub refused: u32,
+    /// Open the HID channels as soon as the link is encrypted, even when the
+    /// host paged it (and so while the host is still running SDP).
+    pub eager_channels: bool,
 }
 
 impl BrPeer {
@@ -98,6 +101,7 @@ impl BrPeer {
             unplugged: false,
             sdp_requests: 0,
             refused: 0,
+            eager_channels: false,
         }
     }
 
@@ -185,10 +189,11 @@ impl BrPeer {
 
     /// The L2CAP PDUs to send after a link the peer opened is encrypted.
     pub(crate) fn start_channels(&mut self, now: u64) -> Vec<Vec<u8>> {
+        let eager = self.eager_channels;
         let Some(c) = &mut self.conn else {
             return Vec::new();
         };
-        if !c.peer_initiated {
+        if !c.peer_initiated && !eager {
             return Vec::new();
         }
         let Ok((_, actions)) = c.l2.connect(now, c.handle, PSM_HID_CONTROL) else {

@@ -52,6 +52,13 @@ pub struct LePeer {
     /// Once bonded, advertise with a fresh resolvable private address each
     /// time (the default of every phone-class device, rare in keyboards).
     pub use_rpa: bool,
+    /// With `use_rpa`, advertise from a resolvable private address even
+    /// before any bond (a phone-class device that pairs from an RPA and
+    /// then distributes its identity address).
+    pub rpa_unbonded: bool,
+    /// Distribute this identity address instead of the device's own (an
+    /// impostor claiming another device's identity).
+    pub claimed_identity: Option<BdAddr>,
     /// Misbehave: send an input notification the moment the link is up,
     /// before any encryption.
     pub early_notify: bool,
@@ -91,6 +98,8 @@ impl LePeer {
             passkey: PasskeyBehavior::Correct,
             pairing_mode: false,
             use_rpa: false,
+            rpa_unbonded: false,
+            claimed_identity: None,
             early_notify: false,
             hid_adv: true,
             greet_delay_ms: 3,
@@ -183,7 +192,7 @@ impl LePeer {
         if !fresh {
             return;
         }
-        self.adv = if self.use_rpa && self.bond.is_some() {
+        self.adv = if self.use_rpa && (self.bond.is_some() || self.rpa_unbonded) {
             self.rpa_counter += 1;
             let n = self.rpa_counter.to_le_bytes();
             (
@@ -223,7 +232,7 @@ impl LePeer {
         self.adv_until = None;
         let identity = DeviceAddr {
             kind: AddrType::Public,
-            addr: self.addr.0,
+            addr: self.claimed_identity.unwrap_or(self.addr).0,
         };
         let smp = SmpPeer::new(self.io, own, central, identity, self.irk, &self.addr.0);
         self.conn = Some(LeConn {

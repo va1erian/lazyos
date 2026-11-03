@@ -75,6 +75,11 @@ impl Host {
             return Err(CtlError::Busy);
         }
         let seconds = u64::from(seconds.clamp(1, MAX_DISCOVERY_S));
+        if self.ctl.discovery_until.is_none() {
+            // A new discovery starts a new list: last time's advertisers must
+            // not take up the room this one's devices need.
+            self.clear_found();
+        }
         self.ctl.discovery_until = Some(now.saturating_add(seconds * 1000));
         self.ctl_start_inquiry();
         self.le_pump(now);
@@ -258,11 +263,62 @@ impl Host {
 
     // ---- the list ------------------------------------------------------------------
 
+    /// Whether a list entry must stay: a bonded device, a live link, or the
+    /// device the user is pairing.
+    fn found_pinned(&self, addr: BdAddr) -> bool {
+        self.store.iter().any(|b| b.addr == addr)
+            || self.link_idx_by_addr(addr).is_some()
+            || self.ctl.target.is_some_and(|t| t.addr == addr)
+    }
+
+    /// Drop the entries a new discovery has no use for (anything not pinned).
+    fn clear_found(&mut self) {
+        let stale: Vec<BdAddr> = self
+            .ctl
+            .found
+            .iter()
+            .map(|f| f.addr)
+            .filter(|a| !self.found_pinned(*a))
+            .collect();
+        for addr in stale {
+            self.remove_found(addr);
+        }
+    }
+
+    /// Make room in a full list: the weakest unpinned entry goes (the oldest
+    /// among equals). Fresh results then always get in, so a crowd of
+    /// advertisers cannot lock a real device out; `false` only when every
+    /// entry is pinned.
+    fn evict_found(&mut self) -> bool {
+        let victim = self
+            .ctl
+            .found
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !self.found_pinned(f.addr))
+            .min_by_key(|(i, f)| (f.rssi.unwrap_or(i8::MIN), *i))
+            .map(|(_, f)| f.addr);
+        let Some(addr) = victim else {
+            return false;
+        };
+        self.stats.overflow += 1;
+        self.remove_found(addr);
+        true
+    }
+
+    pub(crate) fn remove_found(&mut self, addr: BdAddr) {
+        let info = self.device_info(addr);
+        self.ctl.found.retain(|f| f.addr != addr);
+        if let Some(info) = info {
+            self.effect(Effect::Device(DeviceChange::Removed, info));
+        }
+    }
+
     /// Add or update a result, and tell subscribers what is new or changed.
     fn record(&mut self, new: Found) {
         let addr = new.addr;
         let Some(old) = self.ctl.found.iter_mut().find(|f| f.addr == addr) else {
-            if self.ctl.found.len() >= MAX_FOUND {
+            if self.ctl.found.len() >= MAX_FOUND && !self.evict_found() {
                 self.stats.overflow += 1;
                 return;
             }

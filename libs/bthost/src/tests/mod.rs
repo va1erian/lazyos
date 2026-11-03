@@ -8,18 +8,25 @@
 
 mod config;
 mod ctl;
+mod ctl_found;
 mod ctl_harness;
 mod ctl_hostile;
 mod firmware;
 mod fw_images;
 mod fw_rig;
 mod hostile;
+mod knob;
 mod le;
 mod le_flows;
 mod le_hostile;
+mod le_identity;
+mod le_rpa;
+mod le_stale;
+mod lost_completion;
 mod pairing;
 mod reconnect;
 mod refusal;
+mod sdp_first;
 mod store;
 
 use std::collections::BTreeSet;

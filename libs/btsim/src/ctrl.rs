@@ -42,6 +42,9 @@ pub struct SimConfig {
     /// An LE keyboard's owner types the passkey this long after the host
     /// shows it (the harness's `HARNESS_SHOW_PASSKEY`); 0: at once.
     pub passkey_delay_ms: u64,
+    /// Encryption key size `Read_Encryption_Key_Size` reports for a BR/EDR
+    /// link (16 for Secure Simple Pairing; less models a KNOB downgrade).
+    pub br_key_size: u8,
 }
 
 impl Default for SimConfig {
@@ -59,6 +62,7 @@ impl Default for SimConfig {
             acl_beats_encryption: false,
             extended_inquiry: true,
             passkey_delay_ms: 0,
+            br_key_size: 16,
         }
     }
 }

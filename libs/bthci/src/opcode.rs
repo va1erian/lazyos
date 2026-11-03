@@ -8,6 +8,7 @@ pub const fn opcode(ogf: u16, ocf: u16) -> u16 {
 pub const OGF_LINK: u16 = 0x01;
 pub const OGF_BASEBAND: u16 = 0x03;
 pub const OGF_INFO: u16 = 0x04;
+pub const OGF_STATUS: u16 = 0x05;
 pub const OGF_LE: u16 = 0x08;
 
 pub const CREATE_CONNECTION: u16 = opcode(OGF_LINK, 0x05);
@@ -35,6 +36,8 @@ pub const WRITE_SIMPLE_PAIRING_MODE: u16 = opcode(OGF_BASEBAND, 0x56);
 pub const READ_LOCAL_VERSION: u16 = opcode(OGF_INFO, 0x01);
 pub const READ_BUFFER_SIZE: u16 = opcode(OGF_INFO, 0x05);
 pub const READ_BD_ADDR: u16 = opcode(OGF_INFO, 0x09);
+
+pub const READ_ENCRYPTION_KEY_SIZE: u16 = opcode(OGF_STATUS, 0x08);
 
 pub const LE_SET_EVENT_MASK: u16 = opcode(OGF_LE, 0x01);
 pub const LE_READ_BUFFER_SIZE: u16 = opcode(OGF_LE, 0x02);

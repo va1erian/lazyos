@@ -40,5 +40,7 @@ pub enum Effect {
     /// One evidence line, without the `BT:` prefix.
     Trace(String),
     /// The controller is unusable (bring-up failed, or it stopped answering).
+    /// Emitted once; the host is inert from then on (`Host::is_failed`) and
+    /// the shell must create a new one to try again.
     Failed(String),
 }

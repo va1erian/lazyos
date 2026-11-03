@@ -333,13 +333,14 @@ impl SimController {
         };
         self.conns[ci].encrypted = on;
         let (peer, by_peer) = (self.conns[ci].peer, self.conns[ci].by_peer);
+        let eager = self.br_at(peer).eager_channels;
         self.br_at(peer).set_encrypted(on);
         self.emit(Event::EncryptionChange {
             status: 0,
             handle,
             enabled: on,
         });
-        if on && by_peer {
+        if on && (by_peer || eager) {
             self.after(1, Task::PeerChannels { handle });
         }
     }

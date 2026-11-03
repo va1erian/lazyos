@@ -125,6 +125,12 @@ impl SimController {
         self.credits = 1;
     }
 
+    /// Change the key size `Read_Encryption_Key_Size` reports from now on
+    /// (a peer that negotiates the link key down, CVE-2019-9506).
+    pub fn set_br_key_size(&mut self, size: u8) {
+        self.cfg.br_key_size = size;
+    }
+
     /// The link drops without the host asking (out of range, battery out):
     /// the host sees a Disconnection Complete with `reason`.
     pub fn drop_link(&mut self, id: PeerId, now_ms: u64, reason: u8) {

@@ -136,6 +136,9 @@ impl Host {
     /// An HCI event packet (`code, length, parameters`) from the controller.
     pub fn on_event(&mut self, now: u64, packet: &[u8]) {
         self.clock = now;
+        if self.failed {
+            return;
+        }
         if self.fw.is_some() {
             return self.fw_event(now, packet);
         }
@@ -155,6 +158,9 @@ impl Host {
     /// An HCI ACL data packet from the controller.
     pub fn on_acl(&mut self, now: u64, packet: &[u8]) {
         self.clock = now;
+        if self.failed {
+            return;
+        }
         if self.fw.is_some() {
             return;
         }
@@ -173,6 +179,9 @@ impl Host {
     /// Time has reached (or passed) [`Host::next_deadline`].
     pub fn on_tick(&mut self, now: u64) {
         self.clock = now;
+        if self.failed {
+            return;
+        }
         if self.fw.is_some() {
             return self.fw_tick(now);
         }
@@ -196,6 +205,9 @@ impl Host {
 
     /// The next HCI command packet, if the controller has a credit for it.
     pub fn poll_command(&mut self, now: u64) -> Option<Vec<u8>> {
+        if self.failed {
+            return None;
+        }
         if self.fw.is_some() {
             return self.fw_poll_command();
         }
@@ -206,10 +218,23 @@ impl Host {
 
     /// The next HCI ACL packet, if a controller buffer is free for it.
     pub fn poll_acl(&mut self) -> Option<Vec<u8>> {
+        if self.failed {
+            return None;
+        }
         let handle = self.acl_tx.front()?.0;
         self.bufs.as_mut()?.acquire(handle).ok()?;
         let (handle, boundary, data) = self.acl_tx.pop_front()?;
         acl::encode(handle, boundary, &data).ok()
+    }
+
+    /// Whether the controller was given up on (`Effect::Failed` was emitted):
+    /// a command went unanswered, the command queue overflowed, or bring-up
+    /// failed. A failed host is inert: it takes no more input, hands out no
+    /// more packets and has no deadline, and only [`Host::poll_effect`] still
+    /// drains what was queued. The shell must drop it and build a new `Host`
+    /// (reset the controller, reload the bonds) to recover.
+    pub fn is_failed(&self) -> bool {
+        self.failed
     }
 
     pub fn poll_effect(&mut self) -> Option<Effect> {
@@ -435,6 +460,13 @@ impl Host {
                 if *opcode == bthci::opcode::LE_CREATE_CONNECTION =>
             {
                 self.le_create_accepted()
+            }
+            Event::CommandComplete {
+                opcode,
+                return_params,
+                ..
+            } if *opcode == bthci::opcode::READ_ENCRYPTION_KEY_SIZE => {
+                self.on_key_size(now, return_params)
             }
             Event::CommandComplete {
                 opcode,

@@ -11,10 +11,18 @@ use crate::ctl_types::*;
 use crate::host::Host;
 
 impl Host {
-    /// Whether a `Pair` call is waiting on `addr`.
+    /// Whether a `Pair` call is waiting on `addr`: the address it named, or
+    /// the identity address that device turned out to have.
     fn ctl_waits_on(&self, addr: BdAddr) -> bool {
         let state = self.ctl.pairing;
-        state.phase.active() && state.addr == Some(addr)
+        state.phase.active() && (state.addr == Some(addr) || self.ctl.identity_alias == Some(addr))
+    }
+
+    /// SMP revealed that the device paired from `old` has identity `new`.
+    pub(crate) fn ctl_identity_known(&mut self, old: BdAddr, new: BdAddr) {
+        if old != new && self.ctl_waits_on(old) {
+            self.ctl.identity_alias = Some(new);
+        }
     }
 
     /// The passkey the keyboard's owner must type.

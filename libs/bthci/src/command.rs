@@ -89,6 +89,11 @@ pub enum Command {
         handle: u16,
         reason: u8,
     },
+    /// Status parameters group: the negotiated encryption key size of a
+    /// link (KNOB: it can be as short as one octet).
+    ReadEncryptionKeySize {
+        handle: u16,
+    },
     LeSetScanParameters {
         active: bool,
         interval: u16,
@@ -172,6 +177,7 @@ impl Command {
             UserPasskeyRequestReply { .. } => op::USER_PASSKEY_REQUEST_REPLY,
             UserPasskeyRequestNegativeReply { .. } => op::USER_PASSKEY_REQUEST_NEGATIVE_REPLY,
             Disconnect { .. } => op::DISCONNECT,
+            ReadEncryptionKeySize { .. } => op::READ_ENCRYPTION_KEY_SIZE,
             LeSetScanParameters { .. } => op::LE_SET_SCAN_PARAMETERS,
             LeSetScanEnable { .. } => op::LE_SET_SCAN_ENABLE,
             LeCreateConnection { .. } => op::LE_CREATE_CONNECTION,
@@ -241,9 +247,9 @@ impl Command {
                 p.extend_from_slice(&addr.0);
                 p.push(*reason);
             }
-            AuthenticationRequested { handle } | LeLongTermKeyRequestNegativeReply { handle } => {
-                put_u16(p, *handle)
-            }
+            AuthenticationRequested { handle }
+            | ReadEncryptionKeySize { handle }
+            | LeLongTermKeyRequestNegativeReply { handle } => put_u16(p, *handle),
             SetConnectionEncryption { handle, enable } => {
                 put_u16(p, *handle);
                 p.push(u8::from(*enable));
@@ -401,6 +407,7 @@ impl Command {
                 reason: r.u8()?,
             },
             op::AUTHENTICATION_REQUESTED => AuthenticationRequested { handle: r.u16()? },
+            op::READ_ENCRYPTION_KEY_SIZE => ReadEncryptionKeySize { handle: r.u16()? },
             op::LE_LONG_TERM_KEY_REQUEST_NEGATIVE_REPLY => {
                 LeLongTermKeyRequestNegativeReply { handle: r.u16()? }
             }

@@ -201,6 +201,9 @@ impl Host {
     pub(crate) fn on_command_refused(&mut self, now: u64, op: u16, code: u8) {
         self.le_command_refused(now, op);
         self.ctl_command_refused(now, op);
+        if op == opcode::READ_ENCRYPTION_KEY_SIZE {
+            self.key_size_unavailable();
+        }
         if op != opcode::CREATE_CONNECTION {
             return;
         }

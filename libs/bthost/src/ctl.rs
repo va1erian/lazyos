@@ -75,6 +75,11 @@ pub(crate) struct Ctl {
     pub name_inflight: Option<(BdAddr, u64)>,
     pub pairing: PairingState,
     pub target: Option<Target>,
+    /// The identity address the device the caller named turned out to have
+    /// (it paired from a resolvable private address, then distributed its
+    /// identity): the link and the bond carry it, the caller knows the
+    /// other, so both name the same pairing.
+    pub identity_alias: Option<BdAddr>,
     /// Inquiry scan is on (the host can be found).
     pub discoverable: bool,
     /// Harness builds: a passkey shown before the controller's version was
@@ -93,6 +98,7 @@ impl Ctl {
             name_inflight: None,
             pairing: PairingState::IDLE,
             target: None,
+            identity_alias: None,
             discoverable: false,
             harness_passkey: None,
         }
@@ -194,6 +200,7 @@ impl Host {
         }
         self.stop_discovery(now);
         self.ctl.target = Some(Target { addr, transport });
+        self.ctl.identity_alias = None;
         self.window_until = Some(now.saturating_add(UI_WINDOW_MS));
         self.le.denied.retain(|a| *a != addr);
         self.set_pairing(PairingState {
@@ -280,6 +287,7 @@ impl Host {
     /// The window closes: back to bonded devices only.
     pub(crate) fn end_pairing_window(&mut self, now: u64) {
         let target = self.ctl.target.take();
+        self.ctl.identity_alias = None;
         self.window_until = None;
         self.set_discoverable(false);
         if let Some(target) = target {

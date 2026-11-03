@@ -270,12 +270,26 @@ impl Host {
         // recognised again: there is nothing to bond.
         let unidentifiable = bond.peer_identity.is_none()
             && conn.is_some_and(|c| c.0[5] & 0xC0 != 0xC0 && kind == AddrKind::LeRandom);
+        let old = self.links[idx].addr;
         if unidentifiable || self.link_idx_by_addr(addr).is_some_and(|i| i != idx) {
-            let old = self.links[idx].addr;
             self.note(format!("PAIR:FAIL addr={} reason=no-identity", red(old)));
             self.le_deny(old);
             return self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         }
+        if !self.identity_may_replace(old, addr) {
+            // The peer claims the identity of a device already bonded: taking
+            // it would overwrite that device's key (and, on the Just Works
+            // keyboard path, delete its bond).
+            self.refuse("identity-in-use", old);
+            self.note(format!(
+                "PAIR:FAIL addr={} reason=identity-in-use",
+                red(old)
+            ));
+            self.ctl_failed(old, crate::ctl_types::FailReason::Rejected);
+            self.le_deny(old);
+            return self.disconnect(handle, status::AUTHENTICATION_FAILURE);
+        }
+        self.ctl_identity_known(old, addr);
         let link = &mut self.links[idx];
         link.addr = addr;
         link.authenticated = bond.authenticated;
@@ -284,6 +298,12 @@ impl Host {
             key_size: bond.key_size,
             authenticated: bond.authenticated,
         };
+        if old != addr {
+            // The scan listed the private address; the device is known by its
+            // identity from here on.
+            self.remove_found(old);
+        }
+        let link = &mut self.links[idx];
         if let Some(le) = link.le.as_mut() {
             le.smp = None;
             le.smp_deadline = None;
@@ -372,7 +392,11 @@ impl Host {
         let link = &self.links[idx];
         let stale = link.pairing && code == status::PIN_OR_KEY_MISSING && link.reconnect;
         if stale {
-            let kind = self.store.iter().find(|b| b.addr == addr).map(|b| b.kind);
+            let kind = self
+                .store
+                .iter()
+                .find(|b| b.addr == addr && b.kind.is_le())
+                .map(|b| b.kind);
             if let Some(kind) = kind {
                 self.store.remove(addr, kind);
                 self.save_bonds();
@@ -384,27 +408,6 @@ impl Host {
         } else {
             self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         }
-    }
-
-    /// The controller asks for the key of a link (the peripheral role; the
-    /// host is always the central here, but a controller may still ask): the
-    /// stored LTK, only if the EDIV and Rand are the ones it was issued under.
-    pub(crate) fn on_ltk_request(&mut self, handle: u16, random: u64, ediv: u16) {
-        let Some(idx) = self.link_idx(handle) else {
-            return self.cmd(Command::LeLongTermKeyRequestNegativeReply { handle });
-        };
-        let addr = self.links[idx].addr;
-        let key = self
-            .store
-            .iter()
-            .find(|b| b.addr == addr && b.kind.is_le())
-            .and_then(|b| b.ltk.as_ref())
-            .filter(|k| k.rand == random && k.ediv == ediv)
-            .map(|k| k.key);
-        self.cmd(match key {
-            Some(ltk) => Command::LeLongTermKeyRequestReply { handle, ltk },
-            None => Command::LeLongTermKeyRequestNegativeReply { handle },
-        });
     }
 
     /// Deadlines of an LE link: SMP's 30 s timeout, the encryption wait, the

@@ -214,7 +214,9 @@ impl Host {
         };
         if plan.keyboard && !fresh.key.authenticated {
             // Plan Security: a Just Works key may not type. The bond that
-            // would have been made is never made, and an older one goes.
+            // would have been made is never made, and an older one of this
+            // very device goes (`on_smp_done` let no other device's identity
+            // get here).
             self.refuse("keyboard-unauthenticated", addr);
             if self.store.remove(addr, fresh.kind) {
                 self.save_bonds();

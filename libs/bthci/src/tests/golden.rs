@@ -42,6 +42,25 @@ fn commands_without_parameters() {
 }
 
 #[test]
+fn read_encryption_key_size_codec() {
+    assert_eq!(op::READ_ENCRYPTION_KEY_SIZE, 0x1408);
+    command(
+        &[0x08, 0x14, 0x02, 0x40, 0x00],
+        Command::ReadEncryptionKeySize { handle: 0x40 },
+    );
+    assert!(Command::parse(&[0x08, 0x14, 0x01, 0x40]).is_err());
+    let rp = crate::ret::EncryptionKeySize {
+        status: 0,
+        handle: 0x40,
+        key_size: 7,
+    };
+    let bytes = crate::ret::encode_encryption_key_size(rp);
+    assert_eq!(bytes, [0, 0x40, 0, 7]);
+    assert_eq!(crate::ret::parse_encryption_key_size(&bytes), Ok(rp));
+    assert!(crate::ret::parse_encryption_key_size(&bytes[..3]).is_err());
+}
+
+#[test]
 fn commands_with_parameters() {
     command(
         &[

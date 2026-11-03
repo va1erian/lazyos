@@ -26,6 +26,30 @@ pub struct BufferSize {
     pub acl_num: u16,
 }
 
+/// Read_Encryption_Key_Size: status, connection handle, key size in octets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EncryptionKeySize {
+    pub status: u8,
+    pub handle: u16,
+    pub key_size: u8,
+}
+
+pub fn parse_encryption_key_size(rp: &[u8]) -> Result<EncryptionKeySize, Error> {
+    let mut r = Reader::new(rp);
+    Ok(EncryptionKeySize {
+        status: r.u8()?,
+        handle: r.u16()?,
+        key_size: r.u8()?,
+    })
+}
+
+pub fn encode_encryption_key_size(v: EncryptionKeySize) -> alloc::vec::Vec<u8> {
+    let mut out = alloc::vec![v.status];
+    out.extend_from_slice(&v.handle.to_le_bytes());
+    out.push(v.key_size);
+    out
+}
+
 pub fn parse_bd_addr(rp: &[u8]) -> Result<BdAddr, Error> {
     let mut r = Reader::new(rp);
     r.u8()?;

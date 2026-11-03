@@ -287,7 +287,13 @@ impl Host {
                 self.apply(now, actions);
             }
         }
-        self.connect_channel(now, handle, PSM_CONTROL);
+        // A device that opened its channels while SDP ran has control open
+        // already; it is registered now that the record is known.
+        if self.links[idx].control.is_some() {
+            self.try_ready(handle);
+        } else {
+            self.connect_channel(now, handle, PSM_CONTROL);
+        }
     }
 
     /// Decision 6 at the door: a keyboard half only for an authenticated key.
@@ -330,6 +336,11 @@ impl Host {
         if link.hid.is_some() || link.control.is_none() || link.interrupt.is_none() {
             return;
         }
+        // A device that opens its channels while SDP still runs is not yet
+        // known (empty descriptor, class 0): `sdp_done` calls back.
+        if link.sdp.is_some() {
+            return;
+        }
         let (addr, control, ok) = (
             link.addr,
             link.control,
@@ -342,6 +353,11 @@ impl Host {
         };
         let Some(plan) = self.plan_for(&bond) else {
             self.refuse("no-input-class", addr);
+            // A bond that never learned its descriptor is of no use: drop it
+            // rather than refuse the device again at every boot.
+            if bond.report_descriptor.is_empty() {
+                return self.abandon_bond(handle, true);
+            }
             return self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         };
         if plan.needs_boot_protocol() {

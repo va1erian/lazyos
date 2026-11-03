@@ -36,6 +36,11 @@ pub const DEFER_MS: u64 = 500;
 pub const MAX_DEFERRED: usize = 16;
 pub const MAX_DEFERRED_BYTES: usize = 2_048;
 
+/// The shortest encryption key a HID link may use. A peer can negotiate down
+/// to one octet (CVE-2019-9506, KNOB); a keyboard's keystrokes and a mouse's
+/// clicks need the full SSP strength.
+pub const MIN_HID_KEY_SIZE: u8 = 16;
+
 /// The live HID state of a link once its sources are registered.
 pub(crate) struct Hid {
     pub decoder: Decoder,
@@ -62,6 +67,9 @@ pub(crate) struct Link {
     /// Authentication completed with the key in the bond store.
     pub authenticated: bool,
     pub encrypted: bool,
+    /// BR/EDR: encryption is on but the controller has not yet said how many
+    /// octets of key it uses (KNOB), so the HID PSMs stay closed.
+    pub key_size_pending: bool,
     /// The host answered the peer's link key request with the bond's key.
     pub key_offered: bool,
     /// ACL fragments held until the link is encrypted (see [`DEFER_MS`]).
@@ -100,6 +108,7 @@ impl Link {
             passkey: None,
             authenticated: false,
             encrypted: false,
+            key_size_pending: false,
             key_offered: false,
             deferred: Vec::new(),
             deferred_bytes: 0,
