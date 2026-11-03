@@ -47,6 +47,8 @@ pub(super) struct Controller {
     skipped: Vec<Location>,
     /// The controller reported a fatal error and is no longer driven.
     dead: bool,
+    /// The next root port the boot scan looks at (past the last: done).
+    scan_next: u8,
 }
 
 impl Controller {
@@ -56,6 +58,7 @@ impl Controller {
             nodes: Vec::new(),
             skipped: Vec::new(),
             dead: false,
+            scan_next: 0,
         }
     }
 
@@ -77,13 +80,29 @@ impl Controller {
         self.nodes.len()
     }
 
-    /// Look at every root port once (a device present at boot is handled
-    /// like one plugged in later).
-    pub(super) fn scan(&mut self, settings: &Settings) {
+    /// Start the boot scan: switch the ports on. The ports are then looked at
+    /// one at a time by [`Controller::scan_step`], so the main loop can serve
+    /// `btd` between two devices instead of after the slowest of them.
+    pub(super) fn scan_begin(&mut self) {
         port::power_on(&mut self.hc);
-        for root in 1..=self.hc.info.ports {
-            self.root_changed(root, settings);
+        self.scan_next = 1;
+    }
+
+    /// Whether the boot scan has root ports left.
+    pub(super) fn scan_pending(&self) -> bool {
+        self.scan_next != 0 && self.scan_next <= self.hc.info.ports
+    }
+
+    /// Look at the next root port (a device present at boot is handled like
+    /// one plugged in later); whether ports remain.
+    pub(super) fn scan_step(&mut self, settings: &Settings) -> bool {
+        if !self.scan_pending() {
+            return false;
         }
+        let root = self.scan_next;
+        self.scan_next += 1;
+        self.root_changed(root, settings);
+        self.scan_next <= self.hc.info.ports
     }
 
     /// Handle every pending event; returns whether there was any.

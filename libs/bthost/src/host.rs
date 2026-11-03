@@ -310,6 +310,12 @@ impl Host {
     // ---- controller bring-up ----------------------------------------------------
 
     pub(crate) fn init_step(&mut self, now: u64, input: Input<'_>) {
+        // Boot-latency span (docs/bluetooth-plan.md B6): `HCI_Reset` is done.
+        if let Input::Event(Event::CommandComplete { opcode, .. }) = input {
+            if *opcode == bthci::opcode::RESET {
+                self.note(format!("SPAN step=reset-done ms={now}"));
+            }
+        }
         let was_armed = self.init.is_armed();
         let step = self.init.step(now, input);
         self.init_deadline = step.deadline_ms;
@@ -330,6 +336,7 @@ impl Host {
             Phase::Complete if !self.ctrl_reported => {
                 self.ctrl_reported = true;
                 self.report_controller();
+                self.harness_replay_passkeys();
             }
             Phase::Failed(error) => self.fail(format!("bring-up failed: {error:?}")),
             _ => {}

@@ -324,20 +324,20 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         path: fhs::bin::USBD,
         args: USBD_ARGS,
         restart: Restart::OnFailure,
-        deps: &["inputd"],
+        deps: &[],
     },
-    // The Bluetooth host service (docs/bluetooth-plan.md decision 3): a boot
-    // service, as `_bt` with only `CAP_INPUT_SOURCE`. It waits for `usbd` to
-    // serve the controller on its own (as `sndd-usb` waits for its card), so
-    // it has no start dependency to serialise behind, and `Always` starts it
-    // again after a crash: a dead host stack must not cost the keyboard.
+    // The Bluetooth host service (docs/bluetooth-plan.md decision 3), as `_bt`
+    // with only `CAP_INPUT_SOURCE`. It starts once `usbd` served the
+    // controller (or found none: its `Ready`) and `inputd` reads the bus, so
+    // no key is lost; `usbd` itself starts in the first wave (B6). `Always`:
+    // a dead host stack must not cost the keyboard.
     #[cfg(lazyos_bt)]
     ServiceSpec {
         name: "btd",
         path: fhs::bin::BTD,
         args: BTD_ARGS,
         restart: Restart::Always,
-        deps: &[],
+        deps: &["usbd", "inputd"],
     },
     // The USB audio card (docs/usb-audio-plan.md): `sndd` driving the
     // speaker, headset or DAC `usbd` binds. It claims nothing and waits for

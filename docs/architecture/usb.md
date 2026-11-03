@@ -79,7 +79,9 @@ same driver (`class.rs` binds them to `msc.rs`): [usb-storage.md](usb-storage.md
 ## Hot-plug and memory
 
 A port-status-change event attaches a new device or detaches one that went
-away; the boot scan uses the same path. Detach releases everything the device
+away; the boot scan uses the same path, one root port per pass of the main
+loop (`usbd/boot.rs`), so the Messenger names (`os.lazy.usb.bt`) are served
+and answered between two devices, not after the slowest one. Detach releases everything the device
 held (keys and buttons, so nothing stays stuck), runs Disable Slot, and drops
 the slot's queued transfer events.
 
@@ -129,7 +131,9 @@ sends. One controller at a time; SuperSpeed controllers (1024-byte bulk
 packets) are skipped.
 
 `usbd` serves the controller as `os.lazy.usb.bt` (`idl/usb_bt.midl`) while it
-is bound and withdraws the name (after a `Notify` with `Gone`) when it is
+is bound, registered on the pass after the bind (the other ports of the boot
+scan follow), and tells `init` (`Ready`) at that moment, or when the scan ends
+with none: that is what starts `btd`. It withdraws the name (after a `Notify` with `Gone`) when it is
 unplugged. Only `_bt` (uid 916, `libs/btpolicy`) and root may call it. Packets
 never travel in a message body: `btd` creates one shared buffer holding the
 `Commands` ring (frames from `btd`: an H4 indicator byte and an HCI command or
@@ -154,7 +158,14 @@ and ACL packets, the time) and carries out what it asks: commands and ACL to the
 rings (`link.rs`), input sources to the kernel (`sources.rs`, syscall 25, the
 same record mapping as `usbd`), the bond file (`disk.rs`, over
 `bthost::store::Fs`) and evidence lines. It sleeps on the transport doorbell
-until `Host::next_deadline`; nothing polls on a timer.
+until `Host::next_deadline`; nothing polls on a timer. `init` starts it once
+`usbd` is ready (above) and `inputd` serves, so it finds the controller on its
+first look; only a dongle plugged in later makes it look once a second (there
+is no registry watch to park on). `usbd` itself starts in the first wave, with
+no dependency on `inputd`: it publishes to the bus directly, and `inputd`
+reads the table of sources when it attaches. A key pressed while no `inputd`
+reads the bus, or before the greeter takes focus, goes nowhere: the bus keeps
+a ring per reader and `inputd` queues for a focused session only.
 
 - **Bring-up and the fast path.** `Reset`, buffer sizes, event masks, Secure
   Simple Pairing and page scan come first (`BT:READY ms=` since boot when the
@@ -257,6 +268,11 @@ which also plays a BR/EDR keyboard and mouse that pair, bond, reconnect and
 type on a script. `--unplug` pulls the dongle out after the bring-up; `--pair`,
 `--reboot`, `--refuse` and `--kill` are the BR/EDR HID tests, `--le-pair`,
 `--le-reboot`, `--le-rpa` and `--le-refuse` the LE ones ([tools/bt/README.md](../../tools/bt/README.md)).
+`--boot-typing` and `--le-boot-typing` are `--reboot` and `--le-reboot` with
+the boot's spans (`INIT:SPAN`, `USBD:SPAN`, `BT:SPAN`, `BT:READY`,
+`BT:RECONNECT`: kernel start to first report) tabulated and held to the
+boot-latency budgets ([perf/bluetooth-boot.md](../perf/bluetooth-boot.md));
+`--boot-typing --desktop` boots a desktop image and reads the greeter.
 
 ## Security
 

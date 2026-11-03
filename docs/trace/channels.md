@@ -22,7 +22,7 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `AUDIO` | `Audio` | `audio` | other, user, xui-app | tools/sound | programs |
 | `AUDIOD` | `Audiod` | `audiod` | user | sessions, tools/sound | programs |
 | `BEEP` | `Beep` | `beep` | user | sessions, tools/sound | programs |
-| `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot, tools/install | programs |
+| `BOOT` | `Boot` | `boot` | kernel, kernel suite, user | tools/accounts, tools/bench, tools/boot, tools/bt, tools/install | programs |
 | `BT` | `Bt` | `bt` | other, user, xui-app | tools/bt | programs |
 | `CALC` | `Calc` | `calc` | xui-app | sessions, tools/screenshot | programs |
 | `CLIP` | `Clip` | `clip` | user | tools/services | programs |
@@ -48,9 +48,9 @@ channel, *Judged by* the harnesses and session scripts that mention it, and
 | `FTPFUSE` | `Ftpfuse` | `ftpfuse` | user | tools/fuse | programs |
 | `GOLF` | `Golf` | `golf` | xui-app | sessions | programs |
 | `GPU` | `Gpu` | `gpu` | user | - | programs |
-| `GREETER` | `Greeter` | `greeter` | user, xui-app | sessions, tools/tray | programs |
+| `GREETER` | `Greeter` | `greeter` | user, xui-app | sessions, tools/bt, tools/tray | programs |
 | `HEALTH` | `Health` | `health` | user | tools/fuse | programs |
-| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/crash, tools/dbg, tools/docs, tools/install, tools/lazysky, tools/lazyweb, tools/net, tools/playground, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
+| `INIT` | `Init` | `init` | kernel, kernel suite, other, user | sessions, tools/abi, tools/accounts, tools/boot, tools/bt, tools/crash, tools/dbg, tools/docs, tools/install, tools/lazysky, tools/lazyweb, tools/net, tools/playground, tools/print, tools/screenshot, tools/services, tools/shutdown, tools/storage, tools/tray, tools/usb, tools/xui | programs |
 | `INPUTD` | `Inputd` | `inputd` | user | sessions, tools/bt, tools/input, tools/perf, tools/usb | programs |
 | `INSTALLER` | `Installer` | `installer` | xui-app | sessions | programs |
 | `KEYD` | `Keyd` | `keyd` | user | tools/keyd | programs |

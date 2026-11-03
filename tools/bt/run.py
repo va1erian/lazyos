@@ -16,6 +16,8 @@ two peers; `usbd` binds the controller's interface 0 and serves it as
     python tools/bt/run.py --hotplug          # plug the dongle in 20 s after boot
     python tools/bt/run.py --pair             # pair the mouse and the keyboard, type, move
     python tools/bt/run.py --reboot           # pair, power off, boot the same image: it types at boot
+    python tools/bt/run.py --boot-typing      # B6: as --reboot, plus the boot's spans and their budgets
+    python tools/bt/run.py --le-boot-typing   # B6: as --le-reboot, plus the spans and budgets
     python tools/bt/run.py --refuse           # an unbonded peer pages the host and types: refused
     python tools/bt/run.py --kill             # btd dies holding a key: nothing stuck, it reattaches
     python tools/bt/run.py --le-pair          # B4: an LE keyboard (passkey) and mouse pair, type, move
@@ -39,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -48,9 +51,11 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import btdemo  # noqa: E402
+import desktop  # noqa: E402
 import judge_hid  # noqa: E402
 import modes  # noqa: E402
 import modes_le  # noqa: E402
+import spans  # noqa: E402
 
 #: The dongle is pulled this long after the first HCI command arrived, when
 #: the guest has long finished its bring-up.
@@ -60,10 +65,25 @@ UNPLUG_AFTER_MS = 2000
 HOTPLUG_AFTER_MS = 20_000
 
 
-def build(crash: bool) -> None:
-    env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_BT_TRACE="1", LAZYOS_BT_PAIR=modes.PAIR_LIST,
+#: B6: a bonded peer that types from the moment the controller is up is what
+#: the reboot modes already play (its keys wait for the link on the second
+#: boot); these judge that boot's spans against the budgets as well.
+BOOT_TYPING = {"boot-typing": "reboot", "le-boot-typing": "le-reboot"}
+
+
+def hardware_accel(args) -> bool:
+    """Whether the guest runs on WHPX/KVM (the budgets of `spans.py` apply)."""
+    if args.accel == "none":
+        return False
+    sys.path.insert(0, str(ROOT / "tools/screenshot"))
+    import qemu_qmp
+    return qemu_qmp.resolve_accel(args.accel, qemu_qmp.find_qemu()) != "none"
+
+
+def build(crash: bool, desktop: bool = False, reset: bool = True, in_place: bool = False) -> None:
+    env = dict(os.environ, LAZYOS_SERVICES="1", **({"LAZYOS_DESKTOP": "1"} if desktop else {}), **({"LAZYOS_RESET_OS": "1"} if reset else {}), **({"LAZYOS_UPDATE_DAMAGED_OS": "1"} if in_place else {}), LAZYOS_BT_TRACE="1", LAZYOS_BT_PAIR=modes.PAIR_LIST,
                LAZYOS_BT_CRASH_TEST="1" if crash else "0", **btdemo.build_env())
-    print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_BT=1 LAZYOS_BT_TRACE=1"
+    print("building: " + ("LAZYOS_DESKTOP=1 " if desktop else "") + "LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_BT=1 LAZYOS_BT_TRACE=1"
           + (" LAZYOS_BT_CRASH_TEST=1" if crash else "") + " cargo build", flush=True)
     if subprocess.run(["cargo", "build"], cwd=ROOT, env=env).returncode != 0:
         sys.exit("cargo build failed")
@@ -117,6 +137,8 @@ def run_transport(args) -> bool:
 
 def run_hid(args, mode: str) -> bool:
     """The HID modes (BR/EDR and LE): boots on a copy of the image."""
+    typing = mode in BOOT_TYPING
+    mode = BOOT_TYPING.get(mode, mode)
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     image = out / "disk.img"
@@ -143,7 +165,12 @@ def run_hid(args, mode: str) -> bool:
         judge += ["--text", text]
     if mode == "reboot" or mode in modes_le.TWO_BOOTS:
         judge += ["--pair-text", modes.PAIR_TEXT]
-    return subprocess.run(judge).returncode == 0 and ok
+    passed = subprocess.run(judge).returncode == 0 and ok
+    if typing:
+        relaxed = not hardware_accel(args)
+        passed = not spans.report(logs[-1].read_text(errors="replace"), relaxed) and passed
+        print("BT:JUDGE:" + ("PASS" if passed else "FAIL") + " boot-typing")
+    return passed
 
 
 def main() -> int:
@@ -155,14 +182,21 @@ def main() -> int:
     parser.add_argument("--memory", help="guest RAM, passed to the session tool")
     parser.add_argument("--timeout", type=float, default=600.0, help="overall seconds")
     parser.add_argument("--unplug", action="store_true", help="the dongle is pulled out after the bring-up")
+    parser.add_argument("--desktop", action="store_true", help="B6: with --boot-typing, boot a desktop image and look at the greeter (desktop.py)")
     parser.add_argument("--hotplug", action="store_true", help="the dongle appears well after boot")
-    hid_modes = ("pair", "reboot", "refuse", "kill", *modes_le.LE_MODES)
+    hid_modes = ("pair", "reboot", "refuse", "kill", *modes_le.LE_MODES, *BOOT_TYPING)
     for mode in hid_modes:
         parser.add_argument(f"--{mode}", action="store_true", help=f"the HID {mode} test (see above)")
     args = parser.parse_args()
     chosen = [m for m in hid_modes if getattr(args, m.replace("-", "_"))]
     if len(chosen) > 1 or (chosen and (args.unplug or args.hotplug)):
         parser.error("choose one of the HID modes (--pair ... --le-refuse), or the transport options")
+    if args.desktop:
+        if chosen != ["boot-typing"]:
+            parser.error("--desktop goes with --boot-typing")
+        ok = desktop.run(args, ROOT, build, boot, spans.report, hardware_accel(args))
+        print("bt harness: " + ("PASS" if ok else "FAIL"))
+        return 0 if ok else 1
     if not args.no_build:
         build(crash=bool(chosen and chosen[0] == "kill"))
     ok = run_hid(args, chosen[0]) if chosen else run_transport(args)

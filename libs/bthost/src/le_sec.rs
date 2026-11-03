@@ -168,22 +168,39 @@ impl Host {
                 "PAIR:PASSKEY value={passkey:06} addr={}",
                 red(addr)
             ));
-            // The harness plays the user: tell the simulated controller what
-            // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only
-            // to `btsim`, which reports the SIG's testing company id: on a
-            // real radio a harness-built image must never send a vendor
-            // opcode that means something else there, nor the passkey.
-            let simulated = self
-                .init
-                .info()
-                .version
-                .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER);
-            if simulated {
-                self.cmd(Command::Unknown {
-                    opcode: opcode::HARNESS_SHOW_PASSKEY,
-                    params: passkey.to_le_bytes().to_vec(),
-                });
-            }
+            self.harness_show_passkey(passkey);
+        }
+    }
+
+    /// The harness plays the user: tell the simulated controller what the
+    /// screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only to `btsim`,
+    /// which reports the SIG's testing company id: on a real radio a
+    /// harness-built image must never send a vendor opcode that means
+    /// something else there, nor the passkey. The id is known once bring-up
+    /// has read the version, which is after the fast path (B6): a passkey
+    /// shown earlier is sent by [`Host::harness_replay_passkeys`].
+    fn harness_show_passkey(&mut self, passkey: u32) {
+        let simulated = self
+            .init
+            .info()
+            .version
+            .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER);
+        if simulated {
+            self.cmd(Command::Unknown {
+                opcode: opcode::HARNESS_SHOW_PASSKEY,
+                params: passkey.to_le_bytes().to_vec(),
+            });
+        }
+    }
+
+    /// Bring-up has read the version: send the passkeys shown before it.
+    pub(crate) fn harness_replay_passkeys(&mut self) {
+        if !self.cfg.trace_reports {
+            return;
+        }
+        let shown: Vec<u32> = self.links.iter().filter_map(|l| l.passkey).collect();
+        for passkey in shown {
+            self.harness_show_passkey(passkey);
         }
     }
 

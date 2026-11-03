@@ -445,7 +445,7 @@ impl Host {
         }
         if first && reconnect {
             self.note(format!(
-                "RECONNECT ms={} addr={}",
+                "RECONNECT ms={} addr={} link_at={up_at} report_at={now}",
                 now.saturating_sub(up_at),
                 red(addr)
             ));

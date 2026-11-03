@@ -37,7 +37,14 @@ const ANNOUNCES: &[&str] = &[
     "audiod",
     "devd",
     "mountd",
+    // `usbd` says so once the Bluetooth controller is served or its first
+    // scan found none, which is when `btd` can attach (`DEPENDENTS_ONLY`).
+    "usbd",
 ];
+
+/// Rows whose `Ready` is for their dependents only: the boot is not held up
+/// for them (`settled`), since a USB scan is no reason to delay the desktop.
+const DEPENDENTS_ONLY: &[&str] = &["usbd"];
 
 /// How long a listed row may take to announce itself (100 Hz): 5 s.
 pub(super) const READY_TIMEOUT_TICKS: u64 = 500;
@@ -105,6 +112,6 @@ pub(super) fn next_deadline(services: &[Service]) -> Option<u64> {
 pub(super) fn settled(services: &[Service]) -> bool {
     services
         .iter()
-        .filter(|row| !row.launched)
+        .filter(|row| !row.launched && !DEPENDENTS_ONLY.contains(&row.name))
         .all(|row| is_ready(row) || matches!(row.phase, Phase::Stopped | Phase::Failed))
 }

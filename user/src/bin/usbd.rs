@@ -25,7 +25,9 @@
 //! (a device), `USBD:DESC:*` (its descriptors, hex), `USBD:HUB` (a hub),
 //! `USBD:HID:KBD` / `USBD:HID:MOUSE` / `USBD:HID:TABLET` (configured and
 //! publishing), `USBD:READY`, `USBD:DETACH` (unplugged: keys and buttons
-//! released, slot disabled, children first); with `trace=1`, one `USBD:KEY`
+//! released, slot disabled, children first); `USBD:SPAN step=<name> ms=<n>`
+//! (boot latency, docs/bluetooth-plan.md B6: `start`, `controller-up`,
+//! `bt-bound`, `bt-published`, `ready-sent-*`, `scan-done`); with `trace=1`, one `USBD:KEY`
 //! line per key edge; `USBD:AUDIO:*` for a USB speaker, headset or DAC
 //! (`usbd/audio.rs`, `LAZYOS_USB_AUDIO=1`), whose stream `sndd usb=1`
 //! drives over `os.lazy.usb.audio.v1`; `USBD:BT:*` for a Bluetooth controller
@@ -52,6 +54,8 @@ mod audio;
 mod audio_ring;
 #[path = "usbd/audio_service.rs"]
 mod audio_service;
+#[path = "usbd/boot.rs"]
+mod boot;
 #[path = "usbd/bt.rs"]
 mod bt;
 #[path = "usbd/bt_link.rs"]
@@ -137,6 +141,7 @@ pub(crate) struct Settings {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     sys::write_str("usbd: USB driver\n");
+    trace::span(trace::Channel::Usbd, "start");
     // The identity the kernel stamped on this task: `_usb` with only
     // `CAP_DEV_CLAIM | CAP_INPUT_SOURCE | CAP_BLOCK_PROVIDER` under `init`.
     match sys::cred_get(None) {
@@ -207,6 +212,9 @@ fn run() -> Result<(), Error> {
         match Hc::open(row, index) {
             Ok(hc) => {
                 report(&hc, row);
+                if controllers.is_empty() {
+                    trace::span(trace::Channel::Usbd, "controller-up");
+                }
                 controllers.push(Controller::new(hc));
             }
             Err(error) => {
@@ -228,18 +236,7 @@ fn run() -> Result<(), Error> {
         // After the claims: the probe skips the classes this task owns.
         user::dev::inspect::cross_class_probe("usb");
     }
-    for controller in &mut controllers {
-        controller.scan(&settings);
-    }
-    // The kernel's late `/home` mount stops waiting for a stick once every
-    // stick present at boot was looked at.
-    let _ = sys::storage_scanned();
-    let devices: usize = controllers.iter().map(Controller::devices).sum();
-    trace::line!(
-        trace::Channel::Usbd,
-        "READY devices={devices} controllers={}",
-        controllers.len()
-    );
+    let mut scan = boot::Scan::begin(&mut controllers);
     let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
     let mut dump = Dump::new();
     let mut audio = audio_service::Server::new();
@@ -261,6 +258,9 @@ fn run() -> Result<(), Error> {
         // here and `btd`'s `Kick` wakes the park below.
         bt.sync(&mut controllers);
         busy |= bt.serve(&mut controllers);
+        // The boot scan: one root port per pass, so the two lines above
+        // answer `btd` between devices.
+        busy |= scan.step(&mut controllers, &settings, bt.endpoint().is_some());
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
         dump.write(&mut controllers, busy);
