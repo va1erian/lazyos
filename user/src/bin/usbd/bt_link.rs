@@ -34,6 +34,9 @@ pub(super) struct Link {
     commands: Consumer,
     /// The `Commands` ring was full when last looked at.
     was_full: bool,
+    /// `btd` has frames waiting for room and asked (with a `Kick`) to be
+    /// told when there is some: the ring may have filled after the last look.
+    space_wanted: bool,
 }
 
 /// The state of the `Events` ring after a push.
@@ -102,6 +105,7 @@ impl Link {
             events: events.producer(),
             commands: commands.consumer(),
             was_full: false,
+            space_wanted: false,
         })
     }
 
@@ -130,10 +134,15 @@ impl Link {
         matches!(self.commands.pending(), Ok(n) if n > 0)
     }
 
-    /// Whether the `Commands` ring was full and has room now: `btd` may be
-    /// waiting for it.
+    /// `btd` kicked: it has a backlog and waits for room.
+    pub(super) fn want_space(&mut self) {
+        self.space_wanted = true;
+    }
+
+    /// Whether the `Commands` ring was full (or `btd` said it is waiting) and
+    /// has room now: `btd` must be told.
     pub(super) fn took_space(&mut self) -> bool {
-        core::mem::take(&mut self.was_full)
+        core::mem::take(&mut self.was_full) | core::mem::take(&mut self.space_wanted)
     }
 
     pub(super) fn push(&mut self, frame: &[u8]) -> Pushed {
@@ -166,7 +175,7 @@ impl Link {
             Ok(()) => true,
             // A full inbox only loses this (coalesced) notice.
             Err(error) => {
-                !matches!(error.errno(), Some(code) if code == -errno::EPIPE || code == -9)
+                !matches!(error.errno(), Some(code) if code == -errno::EPIPE || code == -errno::EBADF)
             }
         }
     }

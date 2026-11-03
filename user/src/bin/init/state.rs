@@ -317,15 +317,15 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         deps: &[],
     },
     // The USB HID driver (docs/usb-hid-plan.md U2), present only on
-    // `LAZYOS_USB=1` images. A machine without an xHCI controller makes it
-    // exit cleanly, so `OnFailure` restarts it only after a crash.
+    // `LAZYOS_USB=1` images; after `inputd`, so a key typed at boot has a
+    // reader. No xHCI controller: a clean exit, `OnFailure` restarts crashes.
     #[cfg(lazyos_usb)]
     ServiceSpec {
         name: "usbd",
         path: fhs::bin::USBD,
         args: USBD_ARGS,
         restart: Restart::OnFailure,
-        deps: &[],
+        deps: &["inputd"],
     },
     // The Bluetooth host service (docs/bluetooth-plan.md decision 3), as `_bt`
     // with only `CAP_INPUT_SOURCE`. It starts once `usbd` served the

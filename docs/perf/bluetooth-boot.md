@@ -31,7 +31,8 @@ the harness image (boot evidence profile, no desktop).
 Before, `usbd` waited for `inputd` (behind `confd` and `messengerd`) and `btd`
 looked for the registry name once a second, so attaching cost 1 to 2 s on
 whichever second the look missed (`btd` running at 89 ms, attached at 1090 and
-2080). After: `usbd` starts in the first wave, serves the name the pass after
+2080). After: `usbd` starts right after `inputd` (B6 first dropped that
+dependency; the review put it back so early wired keys have a reader), serves the name the pass after
 the bind and tells `init`, which starts `btd` once `inputd` serves too; `btd`
 attaches 2 ms after it starts. What is left on the path is the USB reset and
 debounce (about 160 ms from controller to bound, the specification's

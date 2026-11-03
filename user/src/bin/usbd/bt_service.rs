@@ -23,8 +23,13 @@ use super::bus::Controller;
 
 /// Requests served per loop pass at most.
 const BATCH: usize = 16;
-/// Ticks before registering the name again after the registry refused it.
+/// Ticks before registering the name again after the registry refused it;
+/// each further refusal doubles the wait, up to [`REGISTER_RETRY_MAX`].
 const REGISTER_RETRY_TICKS: u64 = 100;
+const REGISTER_RETRY_MAX: u64 = 3000;
+/// `BT:FAIL register` lines allowed in a window: a refusal that never ends
+/// (the name reserved to another identity) must not fill the log.
+static REFUSED: tracefmt::Budget = tracefmt::Budget::new(4, 60_000);
 
 pub(super) struct Server {
     /// The published and the serving end, while the name is registered.
@@ -32,6 +37,8 @@ pub(super) struct Server {
     buffer: Vec<u8>,
     /// No register attempt before this tick (the last one was refused).
     retry_at: u64,
+    /// The wait after the next refusal (doubles, see [`REGISTER_RETRY_MAX`]).
+    retry_ticks: u64,
     /// The bind (`BtFn::generation`) the registered name serves.
     serving: u64,
 }
@@ -48,6 +55,7 @@ impl Server {
             ends: None,
             buffer: vec![0u8; messenger::DEFAULT_BUFFER],
             retry_at: 0,
+            retry_ticks: REGISTER_RETRY_TICKS,
             serving: 0,
         }
     }
@@ -74,7 +82,7 @@ impl Server {
                 if sys::clock() < self.retry_at {
                     return;
                 }
-                self.retry_at = sys::clock() + REGISTER_RETRY_TICKS;
+                self.retry_at = sys::clock() + self.retry_ticks;
                 let Ok((published, server)) = messenger::create_pair() else {
                     return;
                 };
@@ -87,9 +95,17 @@ impl Server {
                         // Not refused: a controller that leaves and returns
                         // soon is registered again at once.
                         self.retry_at = 0;
+                        self.retry_ticks = REGISTER_RETRY_TICKS;
                     }
                     Err(error) => {
-                        trace::line!(trace::Channel::Usbd, "BT:FAIL register {}", error.message());
+                        self.retry_ticks = (self.retry_ticks * 2).min(REGISTER_RETRY_MAX);
+                        if trace::within(&REFUSED, trace::Channel::Usbd) {
+                            trace::line!(
+                                trace::Channel::Usbd,
+                                "BT:FAIL register {}",
+                                error.message()
+                            );
+                        }
                         let _ = published.close();
                         let _ = server.close();
                     }
@@ -191,8 +207,17 @@ fn dispatch(bt: &mut BtFn, message: &Message) -> Result<Parcel> {
             Vec::new()
         }
         // The frames move in `BtFn::serve`, which runs after this request:
-        // the doorbell only has to wake the loop.
-        wire::METHOD_KICK => Vec::new(),
+        // the doorbell wakes the loop, and says `btd` waits for room (it
+        // kicks with a backlog), so the next drain answers with `Space`.
+        wire::METHOD_KICK => {
+            let args = wire::decode_kick_args(body).map_err(MsgError::Parcel)?;
+            if let Some(link) = bt.sink.link.as_mut() {
+                if link.owner == message.sender && link.ring == args.ring {
+                    link.want_space();
+                }
+            }
+            Vec::new()
+        }
         _ => return Err(err(errno::EINVAL)),
     };
     Ok(api::parcel(method, reply, Vec::new()))

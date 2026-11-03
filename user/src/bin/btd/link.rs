@@ -41,6 +41,8 @@ pub(super) struct Link {
     frame: Box<FrameBuf>,
     /// Frames the `Commands` ring had no room for.
     outbox: VecDeque<Vec<u8>>,
+    /// A `Kick` asked `usbd` for `Space` since the outbox last emptied.
+    asked_space: bool,
     /// The registration this link was made to (see [`transport_object`]).
     object: Option<u64>,
 }
@@ -75,6 +77,7 @@ impl Link {
                 attachment,
                 frame: Box::new([0; framering::MAX_FRAME]),
                 outbox: VecDeque::new(),
+                asked_space: false,
                 object,
             }),
             Err(_) => {
@@ -101,11 +104,6 @@ impl Link {
 
     pub(super) fn ring(&self) -> u32 {
         self.attachment.ring
-    }
-
-    /// Whether frames wait for room in the `Commands` ring.
-    pub(super) fn backlogged(&self) -> bool {
-        !self.outbox.is_empty()
     }
 
     pub(super) fn send_command(&mut self, packet: &[u8]) -> Result<(), Failure> {
@@ -140,7 +138,15 @@ impl Link {
                 Err(_) => return Err(Failure::Broken("the command ring is broken")),
             }
         }
-        if pushed && self.attachment.commands.take_notify() {
+        let wake = pushed && self.attachment.commands.take_notify();
+        // Frames left over wait for room. The ring may have filled after
+        // `usbd` last looked, so it would not know to say when there is
+        // some: a `Kick` asks it to (`Space`), once per fill (again after
+        // any progress), and no timer has to.
+        let leftover = !self.outbox.is_empty();
+        let ask = leftover && (pushed || !self.asked_space);
+        self.asked_space = leftover;
+        if wake || ask {
             let _ = self.client.kick(self.attachment.ring);
         }
         Ok(())

@@ -23,8 +23,12 @@ use super::pipe::Pipe;
 /// Frames taken from the ring per serve pass: the rest wait for the next, so
 /// a flood cannot hold the controllers' event rings unserved.
 const BATCH: usize = 16;
-/// Ticks (100 Hz) an ACL transfer may take before it is given up.
-const ACL_TICKS: u64 = 100;
+/// Ticks (100 Hz) an ACL transfer may take before it is given up. A bulk-OUT
+/// packet the controller accepts completes in a millisecond or two; it is
+/// waited for here in the main loop, so a radio that NAKs it (buffers full,
+/// wedged) must not hold every other USB device for long: one wait, then the
+/// pass ends (`pump_out`).
+const ACL_TICKS: u64 = 5;
 /// Late events of an abandoned transfer skipped while waiting for ours.
 const STALE_EVENTS: usize = 4;
 
@@ -94,7 +98,10 @@ impl BtFn {
                     if send_acl(hc, device, bulk_out, packet) {
                         stats.acl_out += 1;
                     } else {
+                        // The radio is not taking data: leave the rest for a
+                        // later pass rather than wait on each in turn.
                         stats.errors += 1;
+                        break;
                     }
                 }
                 Err(_) => stats.refused += 1,

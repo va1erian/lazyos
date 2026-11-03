@@ -78,8 +78,10 @@ pub(super) const INPUTD_ARGS: &str = if BOOT_EVIDENCE || cfg!(lazyos_bt_trace) {
 /// (`LAZYOS_BT_TRACE=1`, `tools/bt/run.py`) pass any: `trace=1` echoes key
 /// edges and the pairing passkey on serial, which would put typed text on the
 /// console, and `pair=` opens a bounded pairing window for the addresses in
-/// `LAZYOS_BT_PAIR` (or `any`) until B5's real interface exists. A normal
-/// build starts `btd` with nothing, so nobody can pair with it.
+/// `LAZYOS_BT_PAIR` (or `any`) so the harness pairs without the interface. A
+/// normal build starts `btd` with nothing: pairing is `os.lazy.bt.v1`'s
+/// (Settings, `btctl`). `Service::from_manifest` keeps every word of this
+/// in every boot profile, so nothing but harness switches may go here.
 #[cfg(lazyos_bt)]
 pub(super) const BTD_ARGS: &str = if cfg!(lazyos_bt_trace) {
     concat!("trace=1 pair=", env!("LAZYOS_BT_PAIR"))

@@ -26,7 +26,8 @@
 > request can beat the `Encryption_Change` (separate USB endpoints), so the
 > host holds data from a link it has offered its key to for up to 500 ms.
 > B6 (boot latency, [perf/bluetooth-boot.md](perf/bluetooth-boot.md)):
-> `usbd` starts in the first wave and scans one root port per loop pass, so
+> `usbd` starts right after `inputd` (so a wired keyboard's first keys have a
+> reader) and scans one root port per loop pass, so
 > `os.lazy.usb.bt` is served between devices and `init` is told (`Ready`) at
 > once; `init` starts `btd` after `usbd` and `inputd`, so it finds the name on
 > its first look (a dongle plugged in later is still looked for once a second:

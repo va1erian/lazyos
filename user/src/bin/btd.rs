@@ -66,9 +66,6 @@ use sources::Sources;
 const WAIT_TICKS: u64 = 100;
 /// The longest park with nothing due; a doorbell wakes it earlier.
 const IDLE_TICKS: u64 = 6000;
-/// Milliseconds to wait for room when the command ring is full: the only
-/// timed wake that is not a deadline, and only while `usbd` is not reading.
-const BACKLOG_RETRY_MS: u64 = 10;
 /// Frames handled between looks at the host's queues, so a flood of events
 /// cannot starve the commands that answer them.
 const BATCH: usize = 32;
@@ -282,12 +279,9 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources, api: &mut Api) -
         if handled == BATCH || asked {
             continue;
         }
-        // Sleep until the host's next deadline, or the doorbell.
-        let mut due = host.next_deadline();
-        if link.backlogged() {
-            let retry = now + BACKLOG_RETRY_MS;
-            due = Some(due.map_or(retry, |d| d.min(retry)));
-        }
+        // Sleep until the host's next deadline, or the doorbell (a backlog
+        // waits for `usbd`'s `Space`, which `Link::flush` asked for).
+        let due = host.next_deadline();
         let ticks = match (alive, due) {
             (true, Some(due)) => deadline_ticks(now, due),
             _ => sys::clock() + IDLE_TICKS,

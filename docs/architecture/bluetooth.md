@@ -55,8 +55,8 @@ pairing, more than one controller, a keyboard before the kernel's drivers run
 
 ## A keystroke at boot
 
-1. **`usbd` binds the radio.** It starts in the first wave of `init` (no
-   dependency on `inputd`) and scans one root port per loop pass. `class.rs`
+1. **`usbd` binds the radio.** It starts right after `inputd` (so a key
+   typed at boot on a wired keyboard has a reader) and scans one root port per loop pass. `class.rs`
    binds interface 0 to `bt.rs`; interface 1 (isochronous voice) is left
    alone. It registers `os.lazy.usb.bt` on the pass after the bind and sends
    `Ready` to `init` then, or when its scan finds nothing: that is what
