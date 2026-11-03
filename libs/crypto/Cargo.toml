@@ -34,3 +34,8 @@ sha1 = { version = "=0.10.6", default-features = false, features = ["force-soft"
 # section 3.6; a chip does it in hardware). `MIT OR Apache-2.0`, taken under
 # MIT; the same `aes`/`cipher` 0.8/0.4 generation as above.
 ccm = { version = "=0.5.0", default-features = false }
+# P-256 ECDH for Bluetooth LE Secure Connections (docs/bluetooth-plan.md B4).
+# `MIT OR Apache-2.0`, taken under MIT. Only the arithmetic and ECDH features:
+# no ECDSA, no PKCS#8, no PEM.
+p256 = { version = "=0.13.2", default-features = false, features = ["ecdh"] }
+zeroize = { version = "=1.9.0", default-features = false }

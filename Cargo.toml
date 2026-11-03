@@ -161,6 +161,10 @@ members = [
     # `no_std` + `alloc`, host-tested and fuzzed.
     "libs/ieee80211",
     "libs/eapol",
+    # Bluetooth LE SMP: PDUs, f4/f5/f6/g2/ah and the LE Secure Connections
+    # central state machine (docs/bluetooth-plan.md B4): pure `no_std` +
+    # `alloc`, host-tested and fuzzed.
+    "libs/btsmp",
     # The RTL8822CE Wi-Fi chip logic (docs/wifi-rtw88-plan.md).
     "libs/rtw88",
     # Device firmware files by vendor-relative name (wifi-prerequisites-plan 3.8).

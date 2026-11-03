@@ -1,0 +1,23 @@
+[package]
+name = "btsmp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Bluetooth LE Security Manager Protocol: PDU codecs, f4/f5/f6/g2/ah and the LE Secure Connections central (host) pairing state machine"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btsmp"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/btsmp.rs`). Needs `std`.
+fuzz = []
+
+[dependencies]
+lazyos-crypto = { path = "../crypto" }
+zeroize = { version = "=1.9.0", default-features = false }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

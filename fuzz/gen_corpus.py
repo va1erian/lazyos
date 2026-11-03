@@ -20,6 +20,7 @@ from pathlib import Path
 
 # The seed builders, one module per family of targets beside this script.
 from seeds_audio import usbaudio_seeds
+from seeds_bluetooth import seeds as btsmp_seeds
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
 )
@@ -73,6 +74,7 @@ TARGETS = {
     "messenger": messenger_seeds,
     "ieee80211": ieee80211_seeds,
     "eapol": eapol_seeds,
+    "btsmp": btsmp_seeds,
     "sntp": sntp_seeds,
 }
 

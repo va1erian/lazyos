@@ -149,6 +149,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "btsmp"
+version = "0.1.0"
+dependencies = [
+ "lazyos-crypto",
+ "zeroize",
+]
+
+[[package]]
 name = "byteorder"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -392,6 +400,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "devtool"
+version = "0.1.0"
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -452,6 +464,7 @@ version = "0.1.0"
 dependencies = [
  "accountdb",
  "confd",
+ "devtool",
  "secretstore",
  "sntp",
  "timezone",
@@ -519,10 +532,6 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
 name = "framering"
-version = "0.1.0"
-
-[[package]]
-name = "intelgfx"
 version = "0.1.0"
 
 [[package]]
@@ -654,6 +663,10 @@ name = "inputmap"
 version = "0.1.0"
 
 [[package]]
+name = "intelgfx"
+version = "0.1.0"
+
+[[package]]
 name = "ipp"
 version = "0.1.0"
 
@@ -712,9 +725,11 @@ dependencies = [
  "cmac",
  "hkdf",
  "hmac",
+ "p256",
  "pbkdf2",
  "sha1",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -725,15 +740,16 @@ dependencies = [
  "accountwire",
  "acpi",
  "ahci",
+ "btsmp",
  "dbgwire",
  "eapol",
  "elevpolicy",
  "ext2fs",
  "framering",
- "intelgfx",
  "gpt",
  "ieee80211",
  "inputmap",
+ "intelgfx",
  "ipp",
  "lazyagent-core",
  "lazypkg",
@@ -750,6 +766,7 @@ dependencies = [
  "raster",
  "smbwire",
  "sntp",
+ "usbaudio",
  "usbhid",
  "usbmsc",
  "virtio-net",
@@ -760,6 +777,7 @@ name = "lazypkg"
 version = "0.1.0"
 dependencies = [
  "crc",
+ "devtool",
  "fhs",
  "lazyos-crypto",
  "miniz_oxide",
@@ -1053,6 +1071,7 @@ dependencies = [
 name = "pkgstore"
 version = "0.1.0"
 dependencies = [
+ "devtool",
  "fhs",
  "filepolicy",
  "lazyos-crypto",
@@ -1581,6 +1600,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "usbaudio"
+version = "0.1.0"
+
+[[package]]
 name = "usbhid"
 version = "0.1.0"
 
@@ -1736,9 +1759,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.1"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 dependencies = [
  "zeroize_derive",
 ]
