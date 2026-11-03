@@ -28,9 +28,14 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+mod bringup;
 mod chan;
 pub mod config;
 mod conn;
+mod ctl;
+mod ctl_pair;
+pub mod ctl_types;
+mod discover;
 pub mod effect;
 mod firmware;
 mod host;
@@ -46,6 +51,7 @@ pub mod store;
 mod tests;
 
 pub use config::{Config, PairPolicy};
+pub use ctl::{MAX_DISCOVERY_S, UI_WINDOW_MS};
 pub use effect::{Effect, SourceKind};
 pub use firmware::{UsbIds, MAX_REENUMERATIONS};
 pub use host::{Host, Stats};

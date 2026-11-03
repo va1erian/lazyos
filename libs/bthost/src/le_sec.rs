@@ -118,8 +118,8 @@ impl Host {
         for notice in step.notices {
             match notice {
                 Notice::DisplayPasskey(passkey) => self.show_passkey(handle, passkey),
-                // A number to compare needs a person; B5's interface.
-                Notice::ConfirmNumber(_) => declined = true,
+                // A number to compare needs a person: the caller of `pair`.
+                Notice::ConfirmNumber(number) => declined |= !self.show_number(handle, number),
                 Notice::StartEncryption {
                     ltk,
                     key_size,
@@ -157,65 +157,51 @@ impl Host {
         self.smp_apply(now, handle, step);
     }
 
+    /// Hand a number to compare to the caller of `pair`; false when nobody
+    /// can answer it.
+    fn show_number(&mut self, handle: u16, number: u32) -> bool {
+        match self.link_idx(handle).map(|i| self.links[i].addr) {
+            Some(addr) => self.ctl_number(addr, number),
+            None => false,
+        }
+    }
+
     fn show_passkey(&mut self, handle: u16, passkey: u32) {
         let Some(idx) = self.link_idx(handle) else {
             return;
         };
         let addr = self.links[idx].addr;
         self.links[idx].passkey = Some(passkey);
+        self.ctl_passkey(addr, passkey);
         if self.cfg.trace_reports {
             self.note(format!(
                 "PAIR:PASSKEY value={passkey:06} addr={}",
                 red(addr)
             ));
-            if self.simulated_controller() {
-                self.harness_show_passkey(passkey);
-            }
-            // Otherwise the version may not be read yet (it is the last
-            // command of bring-up, and LE pairing starts before it): the
-            // link keeps the passkey and `harness_flush_passkeys` sends it
-            // once the version names the simulator.
+            self.ctl.harness_passkey = Some(passkey);
+            self.send_harness_passkey();
         }
-    }
-
-    /// The controller is `btsim`, which reports the SIG's testing company id.
-    /// Only then may the harness opcode go out: on a real radio a
-    /// harness-built image must never send a vendor opcode that means
-    /// something else there, nor the passkey.
-    fn simulated_controller(&self) -> bool {
-        self.init
-            .info()
-            .version
-            .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER)
     }
 
     /// The harness plays the user: tell the simulated controller what the
-    /// screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`).
-    fn harness_show_passkey(&mut self, passkey: u32) {
-        self.cmd(Command::Unknown {
-            opcode: opcode::HARNESS_SHOW_PASSKEY,
-            params: passkey.to_le_bytes().to_vec(),
-        });
-    }
-
-    /// Called once bring-up has read the version: send the passkeys of LE
-    /// pairings that started before it was known.
-    pub(crate) fn harness_flush_passkeys(&mut self) {
-        if !self.cfg.trace_reports || !self.simulated_controller() {
+    /// screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only to `btsim`,
+    /// which reports the SIG's testing company id: on a real radio a
+    /// harness-built image must never send a vendor opcode that means
+    /// something else there, nor the passkey. A pairing that starts before
+    /// the controller's version is known (the slow path of the bring-up is
+    /// still running) waits for it; the host calls this again once it is.
+    pub(crate) fn send_harness_passkey(&mut self) {
+        let Some(version) = self.init.info().version else {
             return;
-        }
-        let pending: Vec<u32> = self
-            .links
-            .iter()
-            .filter(|l| {
-                l.le.as_ref()
-                    .and_then(|le| le.smp.as_ref())
-                    .is_some_and(|smp| smp.is_active())
-            })
-            .filter_map(|l| l.passkey)
-            .collect();
-        for passkey in pending {
-            self.harness_show_passkey(passkey);
+        };
+        let Some(passkey) = self.ctl.harness_passkey.take() else {
+            return;
+        };
+        if version.manufacturer == SIMULATOR_MANUFACTURER {
+            self.cmd(Command::Unknown {
+                opcode: opcode::HARNESS_SHOW_PASSKEY,
+                params: passkey.to_le_bytes().to_vec(),
+            });
         }
     }
 
@@ -325,6 +311,7 @@ impl Host {
             le.smp = None;
             le.smp_deadline = None;
         }
+        self.ctl_failed(addr, crate::ctl_pair::smp_fail_reason(&error));
         self.le_deny(addr);
         self.disconnect(handle, status::AUTHENTICATION_FAILURE);
     }

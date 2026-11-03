@@ -140,6 +140,7 @@ fn making_the_theme_the_default_does_not_stand_the_window_still() {
                     Rc::new(GatedStore(build)),
                     Rc::new(MemSystem::default()),
                     Rc::new(MemAccounts::default()),
+                    Rc::new(xui_settings::MemBluetooth::default()),
                 )
             },
             move |stage| {
@@ -216,6 +217,7 @@ fn menu_draft_survives_the_worker_save() {
                     store,
                     Rc::new(MemSystem::default()),
                     Rc::new(MemAccounts::default()),
+                    Rc::new(xui_settings::MemBluetooth::default()),
                 )
             },
             move |stage| {

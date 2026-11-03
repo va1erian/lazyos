@@ -221,6 +221,22 @@ impl Attachment {
         }
     }
 
+    /// [`Attachment::wait`], also ending when `other` has a message or its
+    /// peer closed (a service that shares the loop). Nothing is received from
+    /// `other`: the caller takes what is ready.
+    pub fn wait_with(&mut self, other: Option<Endpoint>, deadline: u64) -> Result<Option<u32>> {
+        let Some(other) = other else {
+            return self.wait(deadline);
+        };
+        match super::wait::wait_any(&[self.notify, other], 0, Some(deadline)) {
+            // The notify endpoint is ready: read it (it returns at once).
+            Ok(ready) if ready & 1 != 0 => self.wait(deadline),
+            Ok(_) => Ok(Some(0)),
+            Err(Error::Errno(code)) if code == -super::errno::ETIMEDOUT => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Release the shared buffer and the notify endpoint. Call
     /// [`Client::detach`] first to release `usbd`'s side.
     pub fn close(self) {

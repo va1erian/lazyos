@@ -97,6 +97,11 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
              `run_demo.py --bt` sets both)"
         );
         add(sink, fhs::bin::BTD, "btd");
+        // `btctl`: a Rhai script (it runs on `rhai`, which the image carries
+        // when it is available: `tools/rhai/build.py`).
+        let btctl = manifest_dir.join("tools/bt/btctl.rhai");
+        crate::os_image::rerun_if_changed(&btctl);
+        sink.add_file(fhs::bin::BTCTL, btctl);
     }
     if usb || netd {
         // `mountd`: the network mounts' service, and the USB volumes' automount.

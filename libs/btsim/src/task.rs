@@ -8,6 +8,8 @@ pub(crate) enum Task {
         generation: u32,
     },
     Emit(Event),
+    /// An event of the inquiry procedure; dropped when it is cancelled.
+    Inquiry(Event),
     EmitAcl(Vec<u8>),
     Connected {
         peer: usize,
@@ -49,6 +51,10 @@ pub(crate) enum Task {
     },
     PeerChannels {
         handle: u16,
+    },
+    /// The LE keyboard's owner types the passkey that was shown.
+    LeTypePasskey {
+        shown: u32,
     },
     /// One advertising event of an LE peer.
     LeAdv {

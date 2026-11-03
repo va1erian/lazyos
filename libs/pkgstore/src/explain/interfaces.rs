@@ -62,6 +62,11 @@ pub const INTERFACES: &[(&str, &str, &str)] = &[
         "Drive a USB speaker or headset directly, which only the sound driver may do",
     ),
     (
+        "os.lazy.bt.v1",
+        HIGH,
+        "Pair and forget Bluetooth keyboards and mice, which decides what may type on this computer",
+    ),
+    (
         "os.lazy.usb.bt.v1",
         HIGH,
         "Drive the Bluetooth radio directly, which only the Bluetooth service may do",

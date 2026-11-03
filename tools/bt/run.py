@@ -29,6 +29,8 @@ two peers; `usbd` binds the controller's interface 0 and serves it as
     python tools/bt/run.py --fw intel-tlv     # ... an AX211 (TLV version answer, both signature blocks)
     python tools/bt/run.py --fw intel-reboot   # ... that leaves the bus with the boot reset and returns running the image
     python tools/bt/run.py --fw realtek       # ... a Realtek ROM that takes a patch
+    python tools/bt/run.py --ui-pair          # B5: Settings -> Bluetooth scans and pairs the LE keyboard by clicking
+    python tools/bt/run.py --btctl            # B5: the same from the Terminal with `btctl`
     python tools/bt/run.py --no-build         # reuse target/lazyos.img
     python tools/bt/run.py --accel none       # force TCG
     python tools/bt/test_judge.py             # the judges fail when they should
@@ -62,6 +64,7 @@ import modes  # noqa: E402
 import modes_fw  # noqa: E402
 import modes_le  # noqa: E402
 import spans  # noqa: E402
+import modes_ui  # noqa: E402
 
 #: The dongle is pulled this long after the first HCI command arrived, when
 #: the guest has long finished its bring-up.
@@ -108,7 +111,20 @@ def transport_steps(unplug: bool, timeout: float) -> list[dict]:
     return steps + [{"wait": 2.0}, {"quit": True}]
 
 
-def boot(args, out: Path, image: Path, steps: list[dict], fakebt: list[str], **fake) -> bool:
+def build_desktop(mode: str) -> None:
+    """The desktop image of a B5 mode, built the way `run_demo.py --desktop --bt` does (the
+    xui apps, the core packages, `rhai` for `btctl`), with the harness switches of `modes_ui`."""
+    env = dict(os.environ, **modes_ui.image_env(mode))
+    command = [sys.executable, str(ROOT / "tools/run_demo.py"), "--desktop", "--bt", "--no-webd",
+               "--autologin", "user", "--build-only", "--yes"]
+    print("building: " + " ".join(f"{k}={v}" for k, v in modes_ui.image_env(mode).items()) + " "
+          + " ".join(command[1:]), flush=True)
+    if subprocess.run(command, cwd=ROOT, env=env).returncode != 0:
+        sys.exit("the desktop build failed")
+
+
+def boot(args, out: Path, image: Path, steps: list[dict], fakebt: list[str], session: list[str] = (),
+         **fake) -> bool:
     """One QEMU boot with a fresh `fakebt`; whether the session itself passed."""
     out.mkdir(parents=True, exist_ok=True)
     script = out / "session.json"
@@ -119,7 +135,7 @@ def boot(args, out: Path, image: Path, steps: list[dict], fakebt: list[str], **f
         "--image", str(image), "--out", str(out), "--script", str(script),
         "--accel", args.accel, "--timeout", str(args.timeout),
         "--fail-on", r"USBD:(FATAL|PANIC)|BT:PANIC",
-    ] + (["--memory", args.memory] if args.memory else []) + [f"--extra-arg={arg}" for arg in dongle]
+    ] + list(session) + (["--memory", args.memory] if args.memory else []) + [f"--extra-arg={arg}" for arg in dongle]
     print("booting: " + " ".join(dongle), flush=True)
     try:
         session = subprocess.run(command, cwd=ROOT)
@@ -200,6 +216,26 @@ def run_fw(args, kind: str) -> bool:
     return subprocess.run(judge).returncode == 0 and ok
 
 
+def run_ui(args, mode: str) -> bool:
+    """The pairing-interface modes (desktop image, one boot)."""
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    image = out / "disk.img"
+    shutil.copyfile(args.image, image)
+    state = out / "peers.state"
+    state.unlink(missing_ok=True)
+    steps = modes_ui.session_steps(mode, args.timeout)
+    ok = boot(args, out, image, steps, modes_ui.fakebt_args(state), session=["--tablet"])
+    log = out / "serial.log"
+    if not log.exists():
+        print("FAIL: no serial log")
+        return False
+    judge = [sys.executable, str(Path(__file__).parent / "judge_ui.py"), mode, str(log), "--text", modes_ui.TEXT]
+    if mode in modes_ui.UI_MODES:
+        judge += ["--shots", str(out)]
+    return subprocess.run(judge).returncode == 0 and ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true")
@@ -213,14 +249,21 @@ def main() -> int:
     parser.add_argument("--hotplug", action="store_true", help="the dongle appears well after boot")
     parser.add_argument("--fw", choices=sorted(modes_fw.KINDS), help="a radio that needs firmware (B7), then --pair")
     hid_modes = ("pair", "reboot", "refuse", "kill", *modes_le.LE_MODES, *BOOT_TYPING)
-    for mode in hid_modes:
+    ui_modes = (*modes_ui.UI_MODES, *modes_ui.SHELL_MODES)
+    for mode in (*hid_modes, *ui_modes):
         parser.add_argument(f"--{mode}", action="store_true", help=f"the HID {mode} test (see above)")
     args = parser.parse_args()
-    chosen = [m for m in hid_modes if getattr(args, m.replace("-", "_"))]
+    chosen = [m for m in (*hid_modes, *ui_modes) if getattr(args, m.replace("-", "_"))]
     if args.fw and (chosen or args.unplug or args.hotplug):
         parser.error("--fw is a mode of its own")
     if len(chosen) > 1 or (chosen and (args.unplug or args.hotplug)):
         parser.error("choose one of the HID modes (--pair ... --le-refuse), or the transport options")
+    if chosen and chosen[0] in ui_modes:
+        if not args.no_build:
+            build_desktop(chosen[0])
+        ok = run_ui(args, chosen[0])
+        print("bt harness: " + ("PASS" if ok else "FAIL"))
+        return 0 if ok else 1
     if args.desktop:
         if chosen != ["boot-typing"]:
             parser.error("--desktop goes with --boot-typing")

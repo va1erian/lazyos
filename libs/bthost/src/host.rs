@@ -1,5 +1,5 @@
-//! The host: state, the entry points the I/O shell calls, and the controller
-//! bring-up glue. The pairing, channel and paging logic live in `conn.rs`,
+//! The host: state and the entry points the I/O shell calls; the controller
+//! bring-up glue is `bringup.rs`. The pairing, channel and paging logic live in `conn.rs`,
 //! `chan.rs`, `pair.rs` and `paging.rs`.
 //!
 //! The shell's loop is: feed what arrived (`on_event`, `on_acl`), call
@@ -23,6 +23,7 @@ use btl2cap::{Config as L2Config, L2cap};
 use lazyos_crypto::rng::Entropy;
 
 use crate::config::Config;
+use crate::ctl::Ctl;
 use crate::effect::Effect;
 use crate::firmware::Firmware;
 use crate::le::LeState;
@@ -66,7 +67,11 @@ pub struct Host {
     pub(crate) stats: Stats,
     pub(crate) le: LeState,
     pub(crate) entropy: Entropy,
-    ctrl_reported: bool,
+    /// Discovery, the pairing a caller asked for (`ctl.rs`).
+    pub(crate) ctl: Ctl,
+    /// The time of the latest entry point, for hooks that have no `now`.
+    pub(crate) clock: u64,
+    pub(crate) ctrl_reported: bool,
     failed: bool,
     /// The firmware phase while it runs (`firmware.rs`), and the
     /// re-enumerations this bring-up has been through so far.
@@ -117,6 +122,8 @@ impl Host {
             stats: Stats::default(),
             le: LeState::new(),
             entropy: Entropy::new(),
+            ctl: Ctl::new(),
+            clock: now,
             ctrl_reported: false,
             failed: false,
             fw: None,
@@ -128,6 +135,7 @@ impl Host {
 
     /// An HCI event packet (`code, length, parameters`) from the controller.
     pub fn on_event(&mut self, now: u64, packet: &[u8]) {
+        self.clock = now;
         if self.fw.is_some() {
             return self.fw_event(now, packet);
         }
@@ -146,6 +154,7 @@ impl Host {
 
     /// An HCI ACL data packet from the controller.
     pub fn on_acl(&mut self, now: u64, packet: &[u8]) {
+        self.clock = now;
         if self.fw.is_some() {
             return;
         }
@@ -163,9 +172,11 @@ impl Host {
 
     /// Time has reached (or passed) [`Host::next_deadline`].
     pub fn on_tick(&mut self, now: u64) {
+        self.clock = now;
         if self.fw.is_some() {
             return self.fw_tick(now);
         }
+        self.ctl_tick(now);
         if matches!(self.init.phase(), Phase::FastPath | Phase::SlowPath) {
             self.init_step(now, Input::Tick);
         }
@@ -218,8 +229,9 @@ impl Host {
             queue,
             self.l2.next_deadline(),
             self.links.iter().filter_map(Link::deadline).min(),
-            self.pager.deadline(),
+            self.pager_deadline(),
             self.le.deadline(),
+            self.ctl_deadline(),
             self.window_until.filter(|_| self.le.scanning),
         ]
         .into_iter()
@@ -268,7 +280,14 @@ impl Host {
     }
 
     pub(crate) fn effect(&mut self, effect: Effect) {
+        let source = match &effect {
+            Effect::OpenSource { handle, .. } | Effect::CloseSources { handle } => Some(*handle),
+            _ => None,
+        };
         self.effects.push_back(effect);
+        if let Some(handle) = source {
+            self.ctl_link_state(handle);
+        }
     }
 
     pub(crate) fn fail(&mut self, why: alloc::string::String) {
@@ -332,69 +351,6 @@ impl Host {
         self.pager_tick(now);
     }
 
-    // ---- controller bring-up ----------------------------------------------------
-
-    pub(crate) fn init_step(&mut self, now: u64, input: Input<'_>) {
-        // Boot-latency span (docs/bluetooth-plan.md B6): `HCI_Reset` is done.
-        if let Input::Event(Event::CommandComplete { opcode, .. }) = input {
-            if *opcode == bthci::opcode::RESET {
-                self.note(format!("SPAN step=reset-done ms={now}"));
-            }
-        }
-        let was_armed = self.init.is_armed();
-        let step = self.init.step(now, input);
-        self.init_deadline = step.deadline_ms;
-        if let Some(command) = step.send {
-            self.cmd(command);
-        }
-        if self.bufs.is_none() && self.init.info().acl.acl_len != 0 {
-            let size = self.init.info().acl;
-            self.bufs = Some(AclBuffers::new(size.acl_len, size.acl_num));
-        }
-        if !was_armed && self.init.is_armed() {
-            self.on_armed(now);
-        }
-        if self.init.info().bd_addr.is_some() {
-            self.le_address_ready(now);
-        }
-        match self.init.phase() {
-            Phase::Complete if !self.ctrl_reported => {
-                self.ctrl_reported = true;
-                self.fw_reenumerations = 0;
-                self.report_controller();
-                self.harness_flush_passkeys();
-            }
-            Phase::Failed(error) => self.fail(format!("bring-up failed: {error:?}")),
-            _ => {}
-        }
-    }
-
-    /// The fast path is done: say so, open the pairing window and start the
-    /// pages that wait for the host (plan decision 5).
-    fn on_armed(&mut self, now: u64) {
-        self.armed_at = Some(now);
-        self.note(format!("READY ms={now}"));
-        self.open_pairing_window(now);
-        self.pager_arm(now);
-        self.le_armed(now);
-    }
-
-    fn report_controller(&mut self) {
-        let info = self.init.info().clone();
-        let (hci, lmp, vendor) = info.version.map_or((0, 0, 0), |v| {
-            (v.hci_version, v.lmp_version, v.manufacturer)
-        });
-        let addr = info
-            .bd_addr
-            .map_or(alloc::string::String::from("unknown"), |a| {
-                let b = a.to_msb();
-                format!("**:**:**:**:{:02X}:{:02X}", b[4], b[5])
-            });
-        self.note(format!(
-            "CTRL:PASS:hci={hci} lmp={lmp} vendor={vendor:#06x} addr={addr}"
-        ));
-    }
-
     /// Dispatch a parsed HCI event (`conn.rs`, `pair.rs`).
     fn dispatch(&mut self, now: u64, event: Event) {
         match event {
@@ -436,7 +392,10 @@ impl Host {
                 io_capability,
                 ..
             } => self.on_io_capability_response(addr, io_capability),
-            Event::UserConfirmationRequest { addr, .. } => self.on_user_confirmation(addr),
+            Event::UserConfirmationRequest {
+                addr,
+                numeric_value,
+            } => self.on_user_confirmation(addr, numeric_value),
             Event::UserPasskeyRequest { addr } => self.on_user_passkey_request(addr),
             Event::UserPasskeyNotification { addr, passkey } => {
                 self.on_user_passkey_notification(addr, passkey)
@@ -448,6 +407,7 @@ impl Host {
             | Event::LeEnhancedConnectionComplete { conn: c, .. } => self.on_le_connection(now, c),
             Event::LeAdvertisingReport(reports) => {
                 for report in &reports {
+                    self.ctl_on_adv(report);
                     self.le_on_adv(now, report);
                 }
                 self.le_pump(now);
@@ -457,12 +417,14 @@ impl Host {
                 random,
                 ediv,
             } => self.on_ltk_request(handle, random, ediv),
+            Event::Unknown { .. } => self.ctl_on_event(now, &event),
             _ => {}
         }
     }
 
     fn on_command_result(&mut self, now: u64, event: &Event) {
         self.init_step(now, Input::Event(event));
+        self.ctl_on_command(now, event);
         match event {
             Event::CommandStatus {
                 status: code,

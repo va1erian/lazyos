@@ -11,6 +11,7 @@ use bthci::{BdAddr, Boundary, Command};
 use btl2cap::LinkKind;
 
 use crate::config::PairPolicy;
+use crate::ctl_types::FailReason;
 use crate::host::{red, Host};
 use crate::link::{
     Link, AUTH_GRACE_MS, DEFER_MS, ENCRYPT_GRACE_MS, MAX_DEFERRED, MAX_DEFERRED_BYTES, MAX_LINKS,
@@ -32,11 +33,12 @@ impl Host {
     /// it (or everyone).
     pub(crate) fn pairing_allowed(&self, now: u64, addr: BdAddr) -> bool {
         self.window_open(now)
-            && match &self.cfg.pair {
-                PairPolicy::Off => false,
-                PairPolicy::Any => true,
-                PairPolicy::Targets(targets) => targets.contains(&addr),
-            }
+            && (self.ctl_allows(now, addr)
+                || match &self.cfg.pair {
+                    PairPolicy::Off => false,
+                    PairPolicy::Any => true,
+                    PairPolicy::Targets(targets) => targets.contains(&addr),
+                })
     }
 
     pub(crate) fn open_pairing_window(&mut self, now: u64) {
@@ -189,6 +191,7 @@ impl Host {
             "CONN:DOWN addr={} handle={handle:#06x} reason={reason:#04x}",
             red(link.addr)
         ));
+        self.ctl_link_lost(link.addr);
         // A device that waits to be paged is paged again, a few times.
         self.pager_relink(now, link.addr);
         if link.le.is_some() {
@@ -228,6 +231,7 @@ impl Host {
             self.note(format!("PAIR:STALE addr={}", red(addr)));
             self.cmd(Command::AuthenticationRequested { handle });
         } else {
+            self.ctl_failed(addr, FailReason::AuthFailed);
             self.disconnect(handle, status::AUTHENTICATION_FAILURE);
         }
     }
@@ -245,6 +249,7 @@ impl Host {
                 "ENCRYPT:FAIL addr={} status={code:#04x}",
                 red(addr)
             ));
+            self.ctl_failed(addr, FailReason::AuthFailed);
             self.disconnect(handle, status::AUTHENTICATION_FAILURE);
             return;
         }

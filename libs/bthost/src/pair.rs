@@ -6,7 +6,8 @@
 //! unauthenticated), and a keyboard (KeyboardOnly) with Passkey Entry (key
 //! type 5 or 8, authenticated): the host shows the passkey, the user types it
 //! on the keyboard. Numeric comparison with a display-capable peer needs a
-//! person to say yes and waits for B5's interface; until then it is refused.
+//! person to say yes: the caller of `pair` (`ctl.rs`) answers it through
+//! `confirm_number`; without such a call it is refused.
 //!
 //! Only key types 4, 5, 7 and 8 are bonds. Secure Connections host support
 //! is not enabled (`Write_Secure_Connections_Host_Support` is not sent), so
@@ -144,13 +145,20 @@ impl Host {
     /// Just Works asks the host to confirm without a number to compare; it is
     /// answered yes for a peer that has no input and no output (a mouse) on a
     /// link allowed to pair. A peer that can show a number needs the user.
-    pub(crate) fn on_user_confirmation(&mut self, addr: BdAddr) {
+    pub(crate) fn on_user_confirmation(&mut self, addr: BdAddr, number: u32) {
         let yes = self.link_idx_by_addr(addr).is_some_and(|i| {
             let link = &self.links[i];
             link.pairing && link.peer_io == Some(IO_NO_INPUT_NO_OUTPUT)
         });
         if yes {
             self.cmd(Command::UserConfirmationRequestReply { addr });
+        } else if self
+            .link_idx_by_addr(addr)
+            .is_some_and(|i| self.links[i].pairing)
+            && self.ctl_number(addr, number)
+        {
+            // Numeric Comparison: a caller of `os.lazy.bt.v1` shows the
+            // number and answers with `confirm_number`.
         } else {
             self.refuse("confirmation", addr);
             self.cmd(Command::UserConfirmationRequestNegativeReply { addr });
@@ -168,6 +176,7 @@ impl Host {
     pub(crate) fn on_user_passkey_notification(&mut self, addr: BdAddr, passkey: u32) {
         if let Some(idx) = self.link_idx_by_addr(addr) {
             self.links[idx].passkey = Some(passkey);
+            self.ctl_passkey(addr, passkey);
             if self.cfg.trace_reports {
                 self.note(format!(
                     "PAIR:PASSKEY value={passkey:06} addr={}",
@@ -180,6 +189,7 @@ impl Host {
     pub(crate) fn on_simple_pairing_complete(&mut self, code: u8, addr: BdAddr) {
         if code != status::SUCCESS {
             self.note(format!("PAIR:FAIL addr={} status={code:#04x}", red(addr)));
+            self.ctl_failed(addr, crate::ctl_pair::ssp_fail_reason(code));
         }
     }
 

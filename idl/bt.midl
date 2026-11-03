@@ -1,0 +1,139 @@
+/// Bluetooth devices: list them, find new ones, pair and forget
+/// (docs/bluetooth-plan.md, phase B5). `btd` serves it as `os.lazy.bt`; its
+/// clients are the Settings pane and `btctl`.
+///
+/// **Who may call.** The kernel stamps the caller's uid, label and session
+/// (a request body cannot name one). `List` is open to any user of the login
+/// session; every other method (`Status`, `Subscribe`, `StartDiscovery`,
+/// `StopDiscovery`, `Pair`, `ConfirmNumber`, `CancelPairing`, `Forget`) is
+/// for the session user or `elevd` (`btpolicy::may_use_api`), because a
+/// passkey is for the person at the machine and a pair or forget changes
+/// which devices may type into every session. Anybody else, including root,
+/// gets `EACCES`. The interface is in `devtool::DENY`: a developer tool's
+/// script cannot call it.
+///
+/// **No silent pairing.** A device is paired only after `Pair` named it, in
+/// a window of at most a minute. Outside the window the host is not
+/// discoverable and admits bonded devices only. A keyboard must pair with an
+/// authenticated key: the host shows a passkey (`Phase.ShowPasskey`) for the
+/// user to type on the keyboard, or a number to compare
+/// (`Phase.ConfirmNumber`, answered with `ConfirmNumber`). A mouse pairs
+/// without either (Just Works). One pairing runs at a time (`EBUSY`).
+///
+/// **No method ever returns a key.** Link keys, long term keys and identity
+/// resolving keys stay in `btd` and its 0600 bond file. `Device` carries what
+/// a list needs: the address, the name, the kind and the state.
+///
+/// **Events.** `Subscribe` hands `btd` an event channel; `DeviceEvent` and
+/// `PairingEvent` are sent on it. A client that is slow loses events (the
+/// channel is bounded), so on any doubt it calls `List` and `Status`, which
+/// are always the truth. A pairing event for a passkey is sent to the
+/// subscribers only.
+///
+/// Failures of calls are returned as the shared structured error field:
+/// `EACCES` (not allowed), `ENODEV` (no controller), `EBUSY` (a pairing is
+/// running, or too many subscribers), `ENOENT` (no such device), `EINVAL`
+/// (not an address, or not the device being paired).
+interface os.lazy.bt.v1 {
+    /// How a device is reached.
+    enum Transport { BrEdr, Le }
+
+    /// What a device types with, from its class of device, appearance or
+    /// HID record; `Unknown` until the host has learned it.
+    enum InputClass { Unknown, Keyboard, Pointer }
+
+    /// One device: found by a scan, or bonded.
+    struct Device {
+        /// `AA:BB:CC:DD:EE:FF`, upper case. The name later calls use.
+        address: String = 1,
+        /// The name the device advertises or answered a name request with;
+        /// empty when not known. Printable text only.
+        name: String = 2,
+        transport: Transport = 3,
+        input: InputClass = 4,
+        /// The signal strength of the last scan result, in dBm.
+        rssi: Option<I32> = 5,
+        /// A bond exists: the device may connect by itself.
+        bonded: Bool = 6,
+        /// The device is connected and registered as an input source.
+        connected: Bool = 7
+    }
+
+    /// Where a pairing is.
+    enum Phase { Idle, Connecting, ShowPasskey, ConfirmNumber, Paired, Failed }
+
+    /// Why a pairing failed (`Phase.Failed`).
+    enum FailReason {
+        None,
+        /// The device did not answer in time.
+        Timeout,
+        /// `CancelPairing` (or the window closed).
+        Cancelled,
+        /// The device or the user said no, or the numbers differed.
+        Rejected,
+        /// The device failed to authenticate.
+        AuthFailed,
+        /// The device cannot be paired safely: for example a keyboard that
+        /// could not prove the passkey.
+        Unsupported,
+        /// The link dropped during the pairing.
+        LinkLost
+    }
+
+    /// The pairing in progress, or the last one's outcome.
+    struct Pairing {
+        phase: Phase = 1,
+        /// The device being paired; empty in `Idle`.
+        address: String = 2,
+        /// Phase `ShowPasskey`: the six digits to type on the keyboard.
+        passkey: U32 = 3,
+        /// Phase `ConfirmNumber`: the six digits both screens must show.
+        number: U32 = 4,
+        /// Phase `Failed`.
+        reason: FailReason = 5
+    }
+
+    /// What happened to a device.
+    enum DeviceEventKind {
+        /// A scan found it.
+        Found,
+        /// Its name, state or signal changed.
+        Changed,
+        /// It was forgotten (or a scan result expired without a bond).
+        Removed
+    }
+
+    /// Known devices: the bonded ones and what the last scan found.
+    method List() -> (devices: Array<Device> = 1, controller: Bool = 2, discovering: Bool = 3) = 1;
+    /// The pairing in progress, or the outcome of the last one. For clients
+    /// that cannot receive events (`btctl`).
+    method Status() -> (pairing: Pairing = 1) = 2;
+    /// Scan for `seconds` (1 to 60): Inquiry on BR/EDR and a scan for LE
+    /// devices that advertise as a keyboard or mouse. Results arrive as
+    /// `DeviceEvent`s. A scan already running is extended. The host is not
+    /// discoverable by it.
+    method StartDiscovery(seconds: U32 = 1) -> () = 3;
+    method StopDiscovery() -> () = 4;
+    /// Pair with a device a scan found: opens the pairing window (60
+    /// seconds) for that address and no other. `PairingEvent`s follow.
+    /// `EBUSY` while another pairing runs, `ENOENT` for an address no scan
+    /// has seen.
+    method Pair(address: String = 1) -> () = 5;
+    /// Answer `Phase.ConfirmNumber`: `accept` when the number matches the one
+    /// the device shows. `EINVAL` when `address` is not the device being
+    /// paired or no number waits.
+    method ConfirmNumber(address: String = 1, accept: Bool = 2) -> () = 6;
+    /// Give up the pairing in progress and close the window. Not an error
+    /// when none runs.
+    method CancelPairing() -> () = 7;
+    /// Remove the bond, drop the link and close the device's input source.
+    /// `ENOENT` for an unknown address.
+    method Forget(address: String = 1) -> () = 8;
+    /// Receive `DeviceEvent` and `PairingEvent` on `events`. Closing the
+    /// channel unsubscribes. At most four subscribers (`EBUSY`).
+    method Subscribe(events: Channel<os.lazy.bt.v1> = 1) -> () = 9;
+    /// Event, `btd` to a subscriber.
+    method DeviceEvent(kind: DeviceEventKind = 1, device: Device = 2) -> () = 10 oneway;
+    /// Event, `btd` to a subscriber: the pairing moved on.
+    method PairingEvent(pairing: Pairing = 1) -> () = 11 oneway;
+}

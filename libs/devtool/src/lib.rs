@@ -211,6 +211,14 @@ pub const DENY: &[Deny] = &[
         when: DenyWhen::Always,
         reason: "the Bluetooth radio, which carries the machine's keyboard and mouse",
     },
+    // Pairing decides which devices may type into every session, and shows the passkey.
+    // The user's own shell (the Terminal, `btctl`) acts as the session user, whom `btd` answers
+    // (`btpolicy::may_use_api`); every other tool keeps the denial.
+    Deny {
+        interface: "os.lazy.bt.v1",
+        when: DenyWhen::UnlessShell,
+        reason: "pairing and forgetting Bluetooth devices, which decides what may type into every session",
+    },
 ];
 
 /// Interface names in [`DENY`] that are kernel ACL scopes: nothing serves

@@ -369,6 +369,11 @@ pub mod usb_audio;
 /// the blocking client `btd` uses.
 pub mod usb_bt;
 
+/// The Bluetooth device list, discovery and pairing `btd` serves to the person
+/// at the machine (docs/bluetooth-plan.md B5): the generated `os.lazy.bt.v1`
+/// stubs, its service name, an event decoder and a blocking client.
+pub mod bt;
+
 /// The network mount service `mountd` (docs/smb-plan.md §3.4): the generated
 /// `os.lazy.mount.v1` stubs and its service name.
 pub mod mount;

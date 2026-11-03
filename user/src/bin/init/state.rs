@@ -206,11 +206,12 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     // kernel `input.raw` capability. It turns the raw HID-coded key edges into
     // layout-aware key events, modifier/lock state and key repeat, so it starts
     // with `confd` (the layout is `sys/input/layout`). `trace=1` echoes decoded
-    // events to serial as boot evidence; the desktop profile stays quiet.
+    // events to serial as boot evidence; the desktop profile stays quiet
+    // (except in a Bluetooth harness image: `INPUTD_ARGS`).
     ServiceSpec {
         name: "inputd",
         path: fhs::bin::INPUTD,
-        args: if BOOT_EVIDENCE { "trace=1" } else { "" },
+        args: INPUTD_ARGS,
         restart: Restart::Always,
         deps: &["confd"],
     },

@@ -44,6 +44,9 @@ pub struct Options {
 /// the place of the BR/EDR one in the same script slot.
 #[derive(Default)]
 pub struct LeOptions {
+    /// The LE keyboard's owner types the passkey this long after the host
+    /// shows it (0: at once), so a screenshot can read the dialog.
+    pub passkey_delay_ms: u64,
     pub keyboard: Option<[u8; 6]>,
     pub mouse: Option<[u8; 6]>,
     /// The keyboard says it has no input: Just Works, which the host must
@@ -112,6 +115,7 @@ impl World {
     pub fn new(options: Options) -> World {
         let mut sim = SimController::new(SimConfig {
             bd_addr: BdAddr::from_msb(options.address),
+            passkey_delay_ms: options.le.passkey_delay_ms,
             ..SimConfig::default()
         });
         if let Some((part, faults)) = options.radio {

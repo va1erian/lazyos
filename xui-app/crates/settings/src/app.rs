@@ -11,10 +11,10 @@
 //! Every change is written to the [`ConfigStore`] (confd on LazyOS), where
 //! `xuid` and `inputd` pick it up live, and the status line reports the
 //! outcome. A machine setting (`sys/**`) asks an administrator on each write,
-//! so the pages that edit one write on an explicit action, once: the
-//! keyboard layout on **Use this layout**, the menu on **Save**, the time
-//! zone on **Use this zone**, the machine theme on **Make this the default
-//! for everyone** (one approval per key that differs). The clock, the zone and the About facts go through [`System`].
+//! so the pages that edit one write on an explicit action, once (Use this
+//! layout, Save, Use this zone, Make this the default for everyone: one
+//! approval per key that differs). The clock, the zone and the About facts go
+//! through [`System`]; Bluetooth through [`Bluetooth`], which never waits.
 //! The window itself follows the theme it edits ([`theme_ops::xui_theme_for`]).
 
 use std::rc::Rc;
@@ -33,6 +33,8 @@ use crate::about_page::AboutPage;
 use crate::accounts::Accounts;
 use crate::accounts_page::{AccountsMsg, AccountsPage};
 use crate::appearance_page::AppearancePage;
+use crate::bluetooth::Bluetooth;
+use crate::bluetooth_page::{BluetoothPage, BtMsg};
 use crate::defaults_page::{DefaultsMsg, DefaultsPage};
 use crate::hidden_page::{HiddenMsg, HiddenPage};
 use crate::keyboard_page::{self, KeyboardMsg, KeyboardPage};
@@ -47,6 +49,7 @@ use crate::user_theme::{self, UserTheme};
 use crate::wallpaper_ops;
 use crate::windows_page::WindowsPage;
 
+mod bluetooth;
 mod elevated;
 pub use elevated::Done;
 
@@ -100,6 +103,7 @@ pub enum Msg {
     Defaults(DefaultsMsg),
     Time(TimeMsg),
     Accounts(AccountsMsg),
+    Bt(BtMsg),
     AboutRefresh,
     /// A change that ran on a worker thread finished.
     Done(Done),
@@ -123,6 +127,7 @@ struct Pages {
     time: TimePage,
     about: AboutPage,
     accounts: AccountsPage,
+    bluetooth: BluetoothPage,
 }
 
 /// The Settings app.
@@ -133,6 +138,7 @@ pub struct SettingsApp {
     machine: Rc<dyn ConfigStore>,
     system: Rc<dyn System>,
     accounts: Rc<dyn Accounts>,
+    bluetooth: Rc<dyn Bluetooth>,
     /// The page title: the selected section's name.
     title: Rc<Label<Msg>>,
     /// One container per section, in [`Section::ALL`] order.
@@ -156,6 +162,7 @@ impl SettingsApp {
         store: Rc<dyn ConfigStore>,
         system: Rc<dyn System>,
         accounts: Rc<dyn Accounts>,
+        bluetooth: Rc<dyn Bluetooth>,
     ) -> Result<SettingsApp> {
         ui.on_close(|| Some(Msg::Close));
         let (sidebar, title, status) = (Handle::new(), Handle::new(), Handle::new());
@@ -221,6 +228,7 @@ impl SettingsApp {
             time: TimePage::build(ui, page(Section::Time))?,
             about: AboutPage::build(ui, page(Section::About))?,
             accounts: AccountsPage::build(ui, page(Section::Accounts))?,
+            bluetooth: BluetoothPage::build(ui, page(Section::Bluetooth))?,
         };
 
         let mut app = SettingsApp {
@@ -230,6 +238,7 @@ impl SettingsApp {
             machine: store,
             system,
             accounts,
+            bluetooth,
             title: title.get(),
             frames,
             pages,
@@ -259,6 +268,7 @@ impl SettingsApp {
         }
         let p = &mut self.pages;
         match section {
+            Section::Bluetooth => p.bluetooth.show(self.bluetooth.as_ref(), ui.proxy()),
             Section::Time => p.time.load(self.store.as_ref(), self.system.as_ref()),
             Section::About => p.about.load(self.system.as_ref()),
             Section::Hidden => p.hidden.load(self.store.as_ref()),
@@ -451,6 +461,7 @@ impl App for SettingsApp {
                 &self.status,
                 self.pages.accounts.update(msg, self.accounts.as_ref()),
             ),
+            Msg::Bt(msg) => self.bluetooth_update(ui, msg),
             Msg::Menu(msg) => {
                 let text = self.menu_update(ui, msg, store);
                 say(&self.status, text);

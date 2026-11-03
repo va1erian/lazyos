@@ -12,6 +12,10 @@
 //! sleeps on the transport's doorbell until the host's next deadline: nothing
 //! here polls on a timer (docs/bluetooth-plan.md decision 11).
 //!
+//! `btd` also serves `os.lazy.bt.v1` (B5: the device list, discovery, pairing
+//! and forget, `btd/api.rs`) for as long as it runs; the loop sleeps on the
+//! transport's doorbell and the service's endpoint together.
+//!
 //! The bond file is read before the controller is brought up
 //! (`BT:BOND:LOAD n=`). Boot arguments (`trace=1`, `pair=...`) are passed by
 //! `init` only in harness builds (`LAZYOS_BT_TRACE=1`); a normal build gets
@@ -21,7 +25,9 @@
 //! `BT:LINK` (attached), `BT:READY ms=` (the fast path is done: a bonded
 //! device can connect), `BT:CTRL:PASS` (brought up) or `BT:CTRL:FAIL`,
 //! `BT:CONN`, `BT:ENCRYPT`, `BT:HID:KBD|MOUSE`, `BT:RECONNECT ms=`,
-//! `BT:PAIR:*`, `BT:REFUSE reason=`, `BT:CTRL:GONE`. Addresses appear as the
+//! `BT:PAIR:*`, `BT:REFUSE reason=`, `BT:CTRL:GONE`, and for the interface
+//! `BT:API:SERVE`, `BT:API:PAIR`, `BT:API:FORGET`, `BT:API:CANCEL`,
+//! `BT:API:DENY`. Addresses appear as the
 //! last two octets only and no key ever does. LE devices (B4) use the same
 //! lines (`BT:CONN ... role=le`, `BT:PAIR:START`, `BT:ENCRYPT`, `BT:HID:*`,
 //! `BT:RECONNECT`), plus `BT:GATT:FAIL`.
@@ -38,6 +44,8 @@ use bthost::{Config, Effect, Host};
 use user::sys;
 use user::trace::{self, Channel};
 
+#[path = "btd/api.rs"]
+mod api;
 #[path = "btd/disk.rs"]
 mod disk;
 #[path = "btd/firmware.rs"]
@@ -47,6 +55,7 @@ mod link;
 #[path = "btd/sources.rs"]
 mod sources;
 
+use api::Api;
 use link::{deadline_ticks, Failure, Frame, Link};
 use sources::Sources;
 
@@ -102,7 +111,7 @@ fn load_bonds() -> btbond::BondStore {
 }
 
 /// Wait for `usbd` to bind a controller, then attach the rings.
-fn open() -> Link {
+fn open(api: &mut Api) -> Link {
     let mut logged = false;
     loop {
         match Link::open() {
@@ -115,7 +124,7 @@ fn open() -> Link {
             }
             Err(why) => trace::line!(Channel::Bt, "LINK:FAIL {why}"),
         }
-        sys::wait(sys::clock() + WAIT_TICKS);
+        api.idle(WAIT_TICKS);
     }
 }
 
@@ -141,8 +150,12 @@ static REFUSALS: tracefmt::Budget = tracefmt::Budget::new(16, 6000);
 
 /// Carry out what the host decided; returns false once it gave up on the
 /// controller.
-fn act(effect: Effect, sources: &mut Sources) -> bool {
+fn act(effect: Effect, sources: &mut Sources, api: &mut Api) -> bool {
     match effect {
+        // The passkey a pairing shows travels to the subscribers and no
+        // further: it is never traced.
+        Effect::Device(change, info) => api.broadcast(Some((change, &info)), None),
+        Effect::Pairing(state) => api.broadcast(None, Some(&state)),
         Effect::OpenSource { handle, kind } => sources.open(handle, kind),
         Effect::Input { handle, event } => sources.publish(handle, event),
         Effect::CloseSources { handle } => sources.close(handle),
@@ -180,6 +193,7 @@ fn drain(
     host: &mut Host,
     link: &mut Link,
     sources: &mut Sources,
+    api: &mut Api,
     now: u64,
 ) -> Result<bool, Failure> {
     let mut alive = true;
@@ -199,7 +213,7 @@ fn drain(
                 host.on_firmware_file(sys::monotonic_ms(), firmware::read(name));
                 continue;
             }
-            alive &= act(effect, sources);
+            alive &= act(effect, sources, api);
         }
         if !progress {
             return Ok(alive);
@@ -211,19 +225,24 @@ fn drain(
 /// `reenumerations` is the count of times the controller reset itself during
 /// this bring-up, kept in `btd`'s memory across the re-attachments (the host
 /// stops after a few, `bthost::MAX_REENUMERATIONS`).
-fn serve(link: &mut Link, sources: &mut Sources, reenumerations: &mut u32) -> Failure {
+fn serve(
+    link: &mut Link,
+    sources: &mut Sources,
+    api: &mut Api,
+    reenumerations: &mut u32,
+) -> Failure {
     let ids = link.usb_ids();
     let bonds = load_bonds();
     trace::span(Channel::Bt, "bonds-loaded");
     let mut host = Host::new_for(args(), bonds, sys::monotonic_ms(), ids, *reenumerations);
     seed_entropy(&mut host);
-    let failure = run(&mut host, link, sources);
+    let failure = run(&mut host, link, sources, api);
     if matches!(failure, Failure::Gone) {
         // A download in progress hears of the departure (it may be the
         // expected re-enumeration) and says what it makes of it.
         host.on_detached(sys::monotonic_ms());
         while let Some(effect) = host.poll_effect() {
-            act(effect, sources);
+            act(effect, sources, api);
         }
     }
     *reenumerations = host.firmware_attempts();
@@ -231,7 +250,7 @@ fn serve(link: &mut Link, sources: &mut Sources, reenumerations: &mut u32) -> Fa
 }
 
 /// The loop of [`serve`]: feed the host, carry out what it asks, sleep.
-fn run(host: &mut Host, link: &mut Link, sources: &mut Sources) -> Failure {
+fn run(host: &mut Host, link: &mut Link, sources: &mut Sources, api: &mut Api) -> Failure {
     let mut alive = true;
     loop {
         let now = sys::monotonic_ms();
@@ -248,14 +267,19 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources) -> Failure {
         if host.next_deadline().is_some_and(|due| due <= now) {
             host.on_tick(now);
         }
-        match drain(host, link, sources, now) {
+        let asked = api.serve(Some(&mut *host), now);
+        if asked {
+            // A call may have queued work (a page, a scan): start it now.
+            host.on_tick(now);
+        }
+        match drain(host, link, sources, api, now) {
             Ok(still) => alive = still && alive,
             Err(failure) => return failure,
         }
         if let Err(failure) = link.flush() {
             return failure;
         }
-        if handled == BATCH {
+        if handled == BATCH || asked {
             continue;
         }
         // Sleep until the host's next deadline, or the doorbell.
@@ -268,7 +292,7 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources) -> Failure {
             (true, Some(due)) => deadline_ticks(now, due),
             _ => sys::clock() + IDLE_TICKS,
         };
-        if let Err(failure) = link.sleep(ticks) {
+        if let Err(failure) = link.sleep(ticks, api.endpoint()) {
             return failure;
         }
     }
@@ -281,17 +305,19 @@ pub extern "C" fn _start() -> ! {
         Ok(cred) => trace::line!(Channel::Bt, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Bt, "CRED unavailable (errno {errno})"),
     }
+    let mut api = Api::new();
+    api.register();
     // Times the controller reset itself during this bring-up (see `serve`).
     let mut reenumerations = 0;
     loop {
-        let mut link = open();
+        let mut link = open(&mut api);
         trace::span(Channel::Bt, "attached");
         trace::line!(Channel::Bt, "LINK ring={}", link.ring());
         let mut sources = Sources::new(
             args().trace_reports,
             cfg!(lazyos_bt_crash_test) && attempt() == 1,
         );
-        let failure = serve(&mut link, &mut sources, &mut reenumerations);
+        let failure = serve(&mut link, &mut sources, &mut api, &mut reenumerations);
         // Whatever the devices held is released with their sources.
         sources.close_all();
         match failure {
@@ -305,7 +331,7 @@ pub extern "C" fn _start() -> ! {
         // and came back within one look is a new registration, which also
         // ends the wait.
         while attached_to.is_some() && link::transport_object() == attached_to {
-            sys::wait(sys::clock() + WAIT_TICKS);
+            api.idle(WAIT_TICKS);
         }
     }
 }

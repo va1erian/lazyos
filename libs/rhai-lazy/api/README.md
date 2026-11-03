@@ -34,6 +34,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::accounts`](#sysaccounts) | `os.lazy.accounts.v1` |
 | [`sys::audio`](#sysaudio) | `os.lazy.audio.v1` |
 | [`sys::audio_mixer`](#sysaudio_mixer) | `os.lazy.audio.mixer.v1` |
+| [`sys::bt`](#sysbt) | `os.lazy.bt.v1` |
 | [`sys::clipboard`](#sysclipboard) | `os.lazy.clipboard.v1` |
 | [`sys::confd`](#sysconfd) | `os.lazy.confd.v1` |
 | [`sys::devd`](#sysdevd) | `os.lazy.devd.v1` |
@@ -150,6 +151,35 @@ The system mixer's control interface (docs/audio-plan.md stage A2).
 
 - `OUTPUT_KIND` = the `OutputKind` variants; `OUTPUT_KIND_OTHER`, `OUTPUT_KIND_VIRTIO`, `OUTPUT_KIND_HDA`, `OUTPUT_KIND_USB`, `OUTPUT_KIND_HDMI`
 - `STREAM_STATE` = the `StreamState` variants; `STREAM_STATE_IDLE`, `STREAM_STATE_RUNNING`, `STREAM_STATE_STOPPED`, `STREAM_STATE_DRAINING`, `STREAM_STATE_DRAINED`
+
+## `sys::bt`
+
+Interface `os.lazy.bt.v1`, source [`bt.rhai`](bt.rhai).
+
+Bluetooth devices: list them, find new ones, pair and forget
+
+| Function | IDL | About |
+|---|---|---|
+| `list()` | `List() -> (devices: Array<Device>, controller: Bool, discovering: Bool)` | A scan found it. |
+| `status()` | `Status() -> (pairing: Pairing)` | The pairing in progress, or the outcome of the last one. For clients |
+| `start_discovery(seconds)` | `StartDiscovery(seconds: U32) -> ()` | Scan for `seconds` (1 to 60): Inquiry on BR/EDR and a scan for LE |
+| `stop_discovery()` | `StopDiscovery() -> ()` |  |
+| `pair(address)` | `Pair(address: String) -> ()` | Pair with a device a scan found: opens the pairing window (60 |
+| `confirm_number(address, accept)` | `ConfirmNumber(address: String, accept: Bool) -> ()` | Answer `Phase.ConfirmNumber`: `accept` when the number matches the one |
+| `cancel_pairing()` | `CancelPairing() -> ()` | Give up the pairing in progress and close the window. Not an error |
+| `forget(address)` | `Forget(address: String) -> ()` | Remove the bond, drop the link and close the device's input source. |
+| `device_event(kind, device)` | `DeviceEvent(kind: DeviceEventKind, device: Device) -> () oneway` | Event, `btd` to a subscriber. |
+| `pairing_event(pairing)` | `PairingEvent(pairing: Pairing) -> () oneway` | Event, `btd` to a subscriber: the pairing moved on. |
+| `new_device()` | struct `Device` | a `Device` at its zero value |
+| `new_pairing()` | struct `Pairing` | a `Pairing` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `Subscribe`.
+
+- `TRANSPORT` = the `Transport` variants; `TRANSPORT_BR_EDR`, `TRANSPORT_LE`
+- `INPUT_CLASS` = the `InputClass` variants; `INPUT_CLASS_UNKNOWN`, `INPUT_CLASS_KEYBOARD`, `INPUT_CLASS_POINTER`
+- `PHASE` = the `Phase` variants; `PHASE_IDLE`, `PHASE_CONNECTING`, `PHASE_SHOW_PASSKEY`, `PHASE_CONFIRM_NUMBER`, `PHASE_PAIRED`, `PHASE_FAILED`
+- `FAIL_REASON` = the `FailReason` variants; `FAIL_REASON_NONE`, `FAIL_REASON_TIMEOUT`, `FAIL_REASON_CANCELLED`, `FAIL_REASON_REJECTED`, `FAIL_REASON_AUTH_FAILED`, `FAIL_REASON_UNSUPPORTED`, `FAIL_REASON_LINK_LOST`
+- `DEVICE_EVENT_KIND` = the `DeviceEventKind` variants; `DEVICE_EVENT_KIND_FOUND`, `DEVICE_EVENT_KIND_CHANGED`, `DEVICE_EVENT_KIND_REMOVED`
 
 ## `sys::clipboard`
 

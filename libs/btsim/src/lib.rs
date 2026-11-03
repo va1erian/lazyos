@@ -36,6 +36,7 @@ mod cmds;
 mod ctrl;
 mod gatt;
 pub mod hid;
+mod inquiry;
 mod lelink;
 mod lepeer;
 mod link;

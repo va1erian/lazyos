@@ -73,6 +73,9 @@ programs! {
     /// `btd`, the Bluetooth host service (`LAZYOS_BT=1` images,
     /// docs/bluetooth-plan.md).
     BTD = "btd";
+    /// `btctl`, the Bluetooth shell command: a Rhai script run by
+    /// [`RHAI`] through its `#!` line (`LAZYOS_BT=1` images).
+    BTCTL = "btctl";
     /// `netd`, the network stack service.
     NETD = "netd";
     /// `sysmond`, the system monitor service.

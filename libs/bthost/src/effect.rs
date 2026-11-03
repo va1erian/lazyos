@@ -6,6 +6,8 @@ use alloc::vec::Vec;
 
 use bthid::decode::Event;
 
+use crate::ctl_types::{DeviceChange, DeviceInfo, PairingState};
+
 /// The input source class a device registers (`lazyos_sys::source_class`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceKind {
@@ -30,6 +32,11 @@ pub enum Effect {
     /// tree) and answer with `Host::on_firmware_file`; `None` if it cannot
     /// be read. `required` is the loader's own concern; it is for the trace.
     LoadFirmware { name: String, required: bool },
+    /// A device appeared, changed or went (`os.lazy.bt.v1` `DeviceEvent`).
+    Device(DeviceChange, DeviceInfo),
+    /// The pairing moved on (`os.lazy.bt.v1` `PairingEvent`). It can carry a
+    /// passkey: the shell sends it to subscribers and never traces it.
+    Pairing(PairingState),
     /// One evidence line, without the `BT:` prefix.
     Trace(String),
     /// The controller is unusable (bring-up failed, or it stopped answering).

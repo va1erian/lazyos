@@ -145,17 +145,20 @@ impl Host {
     /// Pairing over LE is on: a window is open and the policy names LE.
     pub(crate) fn le_pairing_active(&self, now: u64) -> bool {
         self.window_open(now)
-            && (self.cfg.pair == crate::config::PairPolicy::Any || !self.cfg.le_targets.is_empty())
+            && (self.cfg.pair == crate::config::PairPolicy::Any
+                || !self.cfg.le_targets.is_empty()
+                || self.ctl_le_active(now))
     }
 
     /// Whether `addr` may pair over LE now.
     pub(crate) fn le_pairing_allowed(&self, now: u64, addr: BdAddr) -> bool {
         self.window_open(now)
             && !self.le.denied.contains(&addr)
-            && match self.cfg.pair {
-                crate::config::PairPolicy::Any => true,
-                _ => self.cfg.le_targets.contains(&addr),
-            }
+            && (self.ctl_allows(now, addr)
+                || match self.cfg.pair {
+                    crate::config::PairPolicy::Any => true,
+                    _ => self.cfg.le_targets.contains(&addr),
+                })
     }
 
     /// Do not connect to `addr` again for pairing in this window.
@@ -185,7 +188,8 @@ impl Host {
         if self.le.init == Initiator::Direct && self.le.target.is_none() {
             return;
         }
-        let scan = self.le_pairing_active(now) || self.le_irk_bonds_unlinked();
+        let scan =
+            self.le_pairing_active(now) || self.le_irk_bonds_unlinked() || self.ctl_wants_le_scan();
         if let Some((ty, addr)) = self.le.target {
             return self.le_connect_target(now, ty, addr);
         }
@@ -340,6 +344,9 @@ impl Host {
                     self.le_deny(addr);
                 }
                 self.note(format!("CONN:FAIL addr=le status={:#04x}", c.status));
+                if let Some((_, addr, _)) = direct {
+                    self.ctl_failed(addr, crate::ctl_types::FailReason::Timeout);
+                }
             }
             return self.le_pump(now);
         }

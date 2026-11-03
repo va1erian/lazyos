@@ -36,6 +36,12 @@ pub struct SimConfig {
     /// encryption procedure reaches the host before the Encryption Change
     /// event (they travel on different USB endpoints).
     pub acl_beats_encryption: bool,
+    /// Accept `Write_Inquiry_Mode(2)` (extended inquiry results carrying the
+    /// name); false: names need a Remote_Name_Request.
+    pub extended_inquiry: bool,
+    /// An LE keyboard's owner types the passkey this long after the host
+    /// shows it (the harness's `HARNESS_SHOW_PASSKEY`); 0: at once.
+    pub passkey_delay_ms: u64,
 }
 
 impl Default for SimConfig {
@@ -51,6 +57,8 @@ impl Default for SimConfig {
             page_ms: 20,
             seed: 0x5EED,
             acl_beats_encryption: false,
+            extended_inquiry: true,
+            passkey_delay_ms: 0,
         }
     }
 }
@@ -161,6 +169,8 @@ pub struct SimController {
     pub(crate) accept_list: Vec<(u8, BdAddr)>,
     pub(crate) le_create: Option<LeCreate>,
     pub(crate) le_scanning: bool,
+    pub(crate) inquiry_running: bool,
+    pub(crate) inquiry_mode: bthci::inquiry::Mode,
     pub(crate) violations: Vec<Violation>,
     pub(crate) log: Vec<Command>,
     pub(crate) radio: Option<crate::radio::Radio>,
@@ -190,6 +200,8 @@ impl SimController {
             accept_list: Vec::new(),
             le_create: None,
             le_scanning: false,
+            inquiry_running: false,
+            inquiry_mode: bthci::inquiry::Mode::Standard,
             violations: Vec::new(),
             log: Vec::new(),
             radio: None,
@@ -345,6 +357,11 @@ impl SimController {
 
     pub fn link_handle(&self, id: PeerId) -> Option<u16> {
         self.conns.iter().find(|c| c.peer == id.0).map(|c| c.handle)
+    }
+
+    /// Drop the scheduled tasks `keep` refuses (a cancelled procedure).
+    pub(crate) fn drop_tasks(&mut self, keep: impl Fn(&Task) -> bool) {
+        self.timeline.retain(|s| keep(&s.task));
     }
 
     /// Run everything due by `now`, in order.

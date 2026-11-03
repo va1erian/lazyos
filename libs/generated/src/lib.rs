@@ -2046,6 +2046,504 @@ pub mod os_lazy_audio_mixer_v1 {
     ];
 }
 
+/// `os.lazy.bt.v1` (interface id `0x35c643664b9f4cae`).
+#[rustfmt::skip]
+pub mod os_lazy_bt_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x35c643664b9f4cae;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.bt.v1";
+
+    /// `Transport::BrEdr` wire value.
+    pub const TRANSPORT_BR_EDR: u32 = 0;
+    /// `Transport::Le` wire value.
+    pub const TRANSPORT_LE: u32 = 1;
+
+    /// `InputClass::Unknown` wire value.
+    pub const INPUT_CLASS_UNKNOWN: u32 = 0;
+    /// `InputClass::Keyboard` wire value.
+    pub const INPUT_CLASS_KEYBOARD: u32 = 1;
+    /// `InputClass::Pointer` wire value.
+    pub const INPUT_CLASS_POINTER: u32 = 2;
+
+    /// `Phase::Idle` wire value.
+    pub const PHASE_IDLE: u32 = 0;
+    /// `Phase::Connecting` wire value.
+    pub const PHASE_CONNECTING: u32 = 1;
+    /// `Phase::ShowPasskey` wire value.
+    pub const PHASE_SHOW_PASSKEY: u32 = 2;
+    /// `Phase::ConfirmNumber` wire value.
+    pub const PHASE_CONFIRM_NUMBER: u32 = 3;
+    /// `Phase::Paired` wire value.
+    pub const PHASE_PAIRED: u32 = 4;
+    /// `Phase::Failed` wire value.
+    pub const PHASE_FAILED: u32 = 5;
+
+    /// `FailReason::None` wire value.
+    pub const FAIL_REASON_NONE: u32 = 0;
+    /// `FailReason::Timeout` wire value.
+    pub const FAIL_REASON_TIMEOUT: u32 = 1;
+    /// `FailReason::Cancelled` wire value.
+    pub const FAIL_REASON_CANCELLED: u32 = 2;
+    /// `FailReason::Rejected` wire value.
+    pub const FAIL_REASON_REJECTED: u32 = 3;
+    /// `FailReason::AuthFailed` wire value.
+    pub const FAIL_REASON_AUTH_FAILED: u32 = 4;
+    /// `FailReason::Unsupported` wire value.
+    pub const FAIL_REASON_UNSUPPORTED: u32 = 5;
+    /// `FailReason::LinkLost` wire value.
+    pub const FAIL_REASON_LINK_LOST: u32 = 6;
+
+    /// `DeviceEventKind::Found` wire value.
+    pub const DEVICE_EVENT_KIND_FOUND: u32 = 0;
+    /// `DeviceEventKind::Changed` wire value.
+    pub const DEVICE_EVENT_KIND_CHANGED: u32 = 1;
+    /// `DeviceEventKind::Removed` wire value.
+    pub const DEVICE_EVENT_KIND_REMOVED: u32 = 2;
+
+    /// One device: found by a scan, or bonded.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Device {
+        pub address: alloc::string::String,
+        pub name: alloc::string::String,
+        pub transport: u32,
+        pub input: u32,
+        pub rssi: core::option::Option<i32>,
+        pub bonded: bool,
+        pub connected: bool,
+    }
+
+    pub fn encode_device(value: &Device) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.address)?;
+        target.string(2, &value.name)?;
+        target.u32(3, value.transport)?;
+        target.u32(4, value.input)?;
+        match &value.rssi {
+            Some(item) => {
+                let mut nested = Encoder::new();
+                nested.i32(1, *item)?;
+                target.option(5, Some(&nested))?;
+            }
+            None => {
+                target.option(5, None)?;
+            }
+        }
+        target.bool(6, value.bonded)?;
+        target.bool(7, value.connected)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_device(body: &[u8]) -> Result<Device, Error> {
+        let mut out = Device::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.address = field.as_str()?.into();
+                }
+                2 => {
+                    out.name = field.as_str()?.into();
+                }
+                3 => {
+                    out.transport = field.as_u32()?;
+                }
+                4 => {
+                    out.input = field.as_u32()?;
+                }
+                5 => {
+                    if field.payload.is_empty() {
+                        out.rssi = None;
+                    } else {
+                        let mut nested = field.nested(0)?;
+                        let item = nested.next()?.ok_or(Error::BadValue)?;
+                        out.rssi = Some(item.as_i32()?);
+                    }
+                }
+                6 => {
+                    out.bonded = field.as_bool()?;
+                }
+                7 => {
+                    out.connected = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The device did not answer in time.
+    /// `CancelPairing` (or the window closed).
+    /// The device or the user said no, or the numbers differed.
+    /// The device failed to authenticate.
+    /// The device cannot be paired safely: for example a keyboard that
+    /// could not prove the passkey.
+    /// The link dropped during the pairing.
+    /// The pairing in progress, or the last one's outcome.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Pairing {
+        pub phase: u32,
+        pub address: alloc::string::String,
+        pub passkey: u32,
+        pub number: u32,
+        pub reason: u32,
+    }
+
+    pub fn encode_pairing(value: &Pairing) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.phase)?;
+        target.string(2, &value.address)?;
+        target.u32(3, value.passkey)?;
+        target.u32(4, value.number)?;
+        target.u32(5, value.reason)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pairing(body: &[u8]) -> Result<Pairing, Error> {
+        let mut out = Pairing::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.phase = field.as_u32()?;
+                }
+                2 => {
+                    out.address = field.as_str()?.into();
+                }
+                3 => {
+                    out.passkey = field.as_u32()?;
+                }
+                4 => {
+                    out.number = field.as_u32()?;
+                }
+                5 => {
+                    out.reason = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `List` method id.
+    pub const METHOD_LIST: u32 = 1;
+    /// `Status` method id.
+    pub const METHOD_STATUS: u32 = 2;
+    /// `StartDiscovery` method id.
+    pub const METHOD_STARTDISCOVERY: u32 = 3;
+    /// `StopDiscovery` method id.
+    pub const METHOD_STOPDISCOVERY: u32 = 4;
+    /// `Pair` method id.
+    pub const METHOD_PAIR: u32 = 5;
+    /// `ConfirmNumber` method id.
+    pub const METHOD_CONFIRMNUMBER: u32 = 6;
+    /// `CancelPairing` method id.
+    pub const METHOD_CANCELPAIRING: u32 = 7;
+    /// `Forget` method id.
+    pub const METHOD_FORGET: u32 = 8;
+    /// `Subscribe` method id.
+    pub const METHOD_SUBSCRIBE: u32 = 9;
+    /// `DeviceEvent` method id.
+    pub const METHOD_DEVICEEVENT: u32 = 10;
+    /// `PairingEvent` method id.
+    pub const METHOD_PAIRINGEVENT: u32 = 11;
+
+    /// A scan found it.
+    /// Its name, state or signal changed.
+    /// It was forgotten (or a scan result expired without a bond).
+    /// Known devices: the bonded ones and what the last scan found.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListReply {
+        pub devices: alloc::vec::Vec<Device>,
+        pub controller: bool,
+        pub discovering: bool,
+    }
+
+    pub fn encode_list_reply(value: &ListReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        let mut nested = Encoder::new();
+        for item in &value.devices {
+            nested.raw(Kind::Struct, 1, &encode_device(item)?)?;
+        }
+        target.array(1, &nested)?;
+        target.bool(2, value.controller)?;
+        target.bool(3, value.discovering)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_list_reply(body: &[u8]) -> Result<ListReply, Error> {
+        let mut out = ListReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    let mut nested = field.nested(0)?;
+                    while let Some(item) = nested.next()? {
+                        out.devices.push(decode_device(item.payload)?);
+                    }
+                }
+                2 => {
+                    out.controller = field.as_bool()?;
+                }
+                3 => {
+                    out.discovering = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The pairing in progress, or the outcome of the last one. For clients
+    /// that cannot receive events (`btctl`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatusReply {
+        pub pairing: Pairing,
+    }
+
+    pub fn encode_status_reply(value: &StatusReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_pairing(&value.pairing)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_status_reply(body: &[u8]) -> Result<StatusReply, Error> {
+        let mut out = StatusReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pairing = decode_pairing(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Scan for `seconds` (1 to 60): Inquiry on BR/EDR and a scan for LE
+    /// devices that advertise as a keyboard or mouse. Results arrive as
+    /// `DeviceEvent`s. A scan already running is extended. The host is not
+    /// discoverable by it.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StartDiscoveryArgs {
+        pub seconds: u32,
+    }
+
+    pub fn encode_start_discovery_args(value: &StartDiscoveryArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.seconds)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_start_discovery_args(body: &[u8]) -> Result<StartDiscoveryArgs, Error> {
+        let mut out = StartDiscoveryArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.seconds = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Pair with a device a scan found: opens the pairing window (60
+    /// seconds) for that address and no other. `PairingEvent`s follow.
+    /// `EBUSY` while another pairing runs, `ENOENT` for an address no scan
+    /// has seen.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PairArgs {
+        pub address: alloc::string::String,
+    }
+
+    pub fn encode_pair_args(value: &PairArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.address)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pair_args(body: &[u8]) -> Result<PairArgs, Error> {
+        let mut out = PairArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.address = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Answer `Phase.ConfirmNumber`: `accept` when the number matches the one
+    /// the device shows. `EINVAL` when `address` is not the device being
+    /// paired or no number waits.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ConfirmNumberArgs {
+        pub address: alloc::string::String,
+        pub accept: bool,
+    }
+
+    pub fn encode_confirm_number_args(value: &ConfirmNumberArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.address)?;
+        target.bool(2, value.accept)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_confirm_number_args(body: &[u8]) -> Result<ConfirmNumberArgs, Error> {
+        let mut out = ConfirmNumberArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.address = field.as_str()?.into();
+                }
+                2 => {
+                    out.accept = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Remove the bond, drop the link and close the device's input source.
+    /// `ENOENT` for an unknown address.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ForgetArgs {
+        pub address: alloc::string::String,
+    }
+
+    pub fn encode_forget_args(value: &ForgetArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.string(1, &value.address)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_forget_args(body: &[u8]) -> Result<ForgetArgs, Error> {
+        let mut out = ForgetArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.address = field.as_str()?.into();
+            }
+        }
+        Ok(out)
+    }
+
+    /// Receive `DeviceEvent` and `PairingEvent` on `events`. Closing the
+    /// channel unsubscribes. At most four subscribers (`EBUSY`).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SubscribeArgs {
+        pub events: u64,
+    }
+
+    /// The body and the object list of `Subscribe`.
+    pub fn encode_subscribe_args(value: &SubscribeArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.channel(1, value.events, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `Subscribe` from its body and the objects the kernel installed
+    /// (`SUBSCRIBE_OBJECTS`, each claimed by its field).
+    pub fn decode_subscribe_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<SubscribeArgs, Error> {
+        if objects.len() != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = SubscribeArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.events = field.claim_channel(objects, next)?;
+            }
+        }
+        if *next != 1 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    /// The objects a `Subscribe` request carries, in object-list order:
+    /// `events`, `objects[0]`, a channel the receiver sends `os.lazy.bt.v1` on.
+    pub const SUBSCRIBE_OBJECTS: &[objects::Kind] = &[objects::Kind::Channel];
+
+    /// Event, `btd` to a subscriber.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DeviceEventArgs {
+        pub kind: u32,
+        pub device: Device,
+    }
+
+    pub fn encode_device_event_args(value: &DeviceEventArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.kind)?;
+        target.raw(Kind::Struct, 2, &encode_device(&value.device)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_device_event_args(body: &[u8]) -> Result<DeviceEventArgs, Error> {
+        let mut out = DeviceEventArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.kind = field.as_u32()?;
+                }
+                2 => {
+                    out.device = decode_device(field.payload)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, `btd` to a subscriber: the pairing moved on.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct PairingEventArgs {
+        pub pairing: Pairing,
+    }
+
+    pub fn encode_pairing_event_args(value: &PairingEventArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_pairing(&value.pairing)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_pairing_event_args(body: &[u8]) -> Result<PairingEventArgs, Error> {
+        let mut out = PairingEventArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.pairing = decode_pairing(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_SUBSCRIBE, SUBSCRIBE_OBJECTS),
+    ];
+}
+
 /// `os.lazy.clipboard.v1` (interface id `0x5a8da8f22670b758`).
 #[rustfmt::skip]
 pub mod os_lazy_clipboard_v1 {
@@ -27838,6 +28336,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     objects::ObjectDecl {
         interface: 0x2c352157f6ab1380,
         method: 1,
+        kinds: &[objects::Kind::Channel],
+    },
+    // os.lazy.bt.v1.Subscribe
+    objects::ObjectDecl {
+        interface: 0x35c643664b9f4cae,
+        method: 9,
         kinds: &[objects::Kind::Channel],
     },
     // os.lazy.webd.view.v1.CreateView

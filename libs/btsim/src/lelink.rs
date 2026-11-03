@@ -86,6 +86,14 @@ impl SimController {
             return self.complete(op, vec![status::INVALID_PARAMETERS]);
         };
         self.complete(op, vec![0]);
+        match self.cfg.passkey_delay_ms {
+            0 => self.le_type_passkey(shown),
+            delay => self.after(delay, Task::LeTypePasskey { shown }),
+        }
+    }
+
+    /// The owner of every connected LE peer types `shown`.
+    pub(crate) fn le_type_passkey(&mut self, shown: u32) {
         let waiting: Vec<(usize, u16)> = (0..self.peers.len())
             .filter_map(|i| match &self.peers[i] {
                 Peer::Le(p) => p.handle().map(|h| (i, h)),

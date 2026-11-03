@@ -12,6 +12,7 @@ pub mod accounts;
 pub mod appsecret;
 pub mod argv;
 pub mod audio;
+pub mod bluetooth;
 pub mod clipboard;
 pub mod confd_store;
 pub mod dirs;
