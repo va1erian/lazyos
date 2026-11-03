@@ -6,6 +6,8 @@
 
 use user::sys::Cred as SysCred;
 
+use super::state::BOOT_EVIDENCE;
+
 /// The `sndd` driver's identity (docs/driver-plan.md D3): a dedicated system
 /// uid holding only `CAP_DEV_CLAIM`, so a compromised driver has the device it
 /// claimed and nothing else: no `CAP_SETUID`, no path to uid 0.
@@ -62,6 +64,15 @@ pub(super) const BT_CRED: SysCred = SysCred::new(
     0,
     0,
 );
+
+/// `inputd`'s arguments: `trace=1` on boot-evidence boots, and in a Bluetooth
+/// harness image (`LAZYOS_BT_TRACE=1`) whose pairing-interface modes boot a
+/// desktop and judge what reached `inputd` (`Service::from_manifest` keeps it).
+pub(super) const INPUTD_ARGS: &str = if BOOT_EVIDENCE || cfg!(lazyos_bt_trace) {
+    "trace=1"
+} else {
+    ""
+};
 
 /// `btd`'s arguments. Only the Bluetooth harness's images
 /// (`LAZYOS_BT_TRACE=1`, `tools/bt/run.py`) pass any: `trace=1` echoes key

@@ -15,7 +15,7 @@
 //! limited), `BT:API:<call> addr=xx:xx:xx:xx:AA:BB` for the calls that change
 //! state. Addresses are redacted as everywhere in `btd`'s traces.
 
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 

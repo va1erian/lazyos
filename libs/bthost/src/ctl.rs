@@ -77,6 +77,9 @@ pub(crate) struct Ctl {
     pub target: Option<Target>,
     /// Inquiry scan is on (the host can be found).
     pub discoverable: bool,
+    /// Harness builds: a passkey shown before the controller's version was
+    /// known, to tell a simulated controller once it is (`le_sec.rs`).
+    pub harness_passkey: Option<u32>,
 }
 
 impl Ctl {
@@ -91,6 +94,7 @@ impl Ctl {
             pairing: PairingState::IDLE,
             target: None,
             discoverable: false,
+            harness_passkey: None,
         }
     }
 }

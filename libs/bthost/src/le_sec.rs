@@ -178,22 +178,30 @@ impl Host {
                 "PAIR:PASSKEY value={passkey:06} addr={}",
                 red(addr)
             ));
-            // The harness plays the user: tell the simulated controller what
-            // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only
-            // to `btsim`, which reports the SIG's testing company id: on a
-            // real radio a harness-built image must never send a vendor
-            // opcode that means something else there, nor the passkey.
-            let simulated = self
-                .init
-                .info()
-                .version
-                .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER);
-            if simulated {
-                self.cmd(Command::Unknown {
-                    opcode: opcode::HARNESS_SHOW_PASSKEY,
-                    params: passkey.to_le_bytes().to_vec(),
-                });
-            }
+            self.ctl.harness_passkey = Some(passkey);
+            self.send_harness_passkey();
+        }
+    }
+
+    /// The harness plays the user: tell the simulated controller what the
+    /// screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only to `btsim`,
+    /// which reports the SIG's testing company id: on a real radio a
+    /// harness-built image must never send a vendor opcode that means
+    /// something else there, nor the passkey. A pairing that starts before
+    /// the controller's version is known (the slow path of the bring-up is
+    /// still running) waits for it; the host calls this again once it is.
+    pub(crate) fn send_harness_passkey(&mut self) {
+        let Some(version) = self.init.info().version else {
+            return;
+        };
+        let Some(passkey) = self.ctl.harness_passkey.take() else {
+            return;
+        };
+        if version.manufacturer == SIMULATOR_MANUFACTURER {
+            self.cmd(Command::Unknown {
+                opcode: opcode::HARNESS_SHOW_PASSKEY,
+                params: passkey.to_le_bytes().to_vec(),
+            });
         }
     }
 

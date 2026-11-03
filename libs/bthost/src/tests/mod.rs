@@ -8,6 +8,7 @@
 
 mod config;
 mod ctl;
+mod ctl_harness;
 mod ctl_hostile;
 mod hostile;
 mod le;
