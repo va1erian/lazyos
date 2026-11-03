@@ -48,12 +48,12 @@ jobs:
       # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
       # CI=1 makes the corpus replay tests insist that seeds exist.
       - name: Libraries (host, includes the seeded fuzz tests)
-        run: cargo test -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster -p passwd -p accountdb -p elevpolicy -p accountwire -p pkgstore -p ieee80211 -p eapol --features ipp/std
+        run: cargo test -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p messenger-generated -p ipp -p raster -p passwd -p accountdb -p elevpolicy -p accountwire -p pkgstore -p ieee80211 -p eapol -p btsmp -p lazyos-crypto --features ipp/std
         env:
           FUZZ_CASES: "2000"
 
       - name: Lints
-        run: cargo clippy -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster -p ieee80211 -p eapol --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz,ieee80211/fuzz,eapol/fuzz -- -D warnings
+        run: cargo clippy -p framering -p virtio-net -p nicdrv -p e1000 -p rtl8168 -p devmatch -p netstack -p ftpwire -p netpolicy -p virtio -p fuzzkit -p ipp -p raster -p ieee80211 -p eapol -p btsmp -p lazyos-crypto --all-targets --features framering/fuzz,virtio-net/fuzz,nicdrv/fuzz,netstack/fuzz,ipp/std,ipp/fuzz,raster/fuzz,ieee80211/fuzz,eapol/fuzz,btsmp/fuzz -- -D warnings
 
       - name: Fuzz seed corpus is current
         run: python fuzz/gen_corpus.py --check
@@ -126,7 +126,7 @@ jobs:
         # is the only cargo-fuzz job in CI, so it lives with the others, as does
         # nvme (the kernel NVMe driver's hostile-controller target) and gpt
         # (the partition tables the kernel and lazyos-install read).
-        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, gpt, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol, bthci, btl2cap, btbond]
+        target: [framering, framering_header, virtio_net, nicdrv, netstack, ext2fs, nvme, ahci, gpt, ipp, pwgraster, passwd, accountdb, elevpolicy, accountwire, pkgstore_rules, smbwire, ieee80211, eapol, bthci, btl2cap, btbond, btsmp]
     steps:
       - uses: actions/checkout@v4
 

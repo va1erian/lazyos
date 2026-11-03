@@ -16,6 +16,7 @@
 //! | Wi-Fi: PRF, EAPOL MIC | HMAC-SHA1 (RFC 2104) | `hmac`, `sha1` |
 //! | Wi-Fi: AKM 6 MIC | AES-CMAC (RFC 4493) | `cmac`, `aes` |
 //! | Wi-Fi: GTK delivery | AES key wrap (RFC 3394) | `aes-kw`, `aes` |
+//! | Bluetooth LE SC: P-256 ECDH | NIST P-256 (SEC 1) | `p256` |
 //!
 //! All are pure Rust and build for `x86_64-unknown-none` and the host;
 //! the `force-soft` backend on `sha2` and `sha1` is required by the pinned
@@ -34,9 +35,11 @@
 
 extern crate alloc;
 
+pub mod aes;
 pub mod hex;
 pub mod hmac;
 pub mod kdf;
+pub mod p256;
 pub mod rng;
 pub mod sha256;
 pub mod wifi;
