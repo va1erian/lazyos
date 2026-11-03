@@ -210,21 +210,20 @@ mod tests {
 
     #[test]
     fn the_rule_counts_are_the_deny_list_plus_one_allow() {
-        // Ten denies and the allow-all for a plain tool (the Playground's
-        // `PKGD:POLICY:PASS ... rules=11`); `network` removes three, `develop`
-        // one.
-        assert_eq!(devtool::DENY.len(), 10);
-        assert_eq!(compile(&tool("")).unwrap().len(), 11);
+        // Twelve denies and the allow-all for a plain tool; `network` removes
+        // three, `develop` one.
+        assert_eq!(devtool::DENY.len(), 12);
+        assert_eq!(compile(&tool("")).unwrap().len(), 13);
         assert_eq!(
             compile(&tool("network = [\"outbound\"]\n")).unwrap().len(),
-            8
+            10
         );
-        assert_eq!(compile(&tool("develop = true\n")).unwrap().len(), 10);
+        assert_eq!(compile(&tool("develop = true\n")).unwrap().len(), 12);
         assert_eq!(
             compile(&tool("network = [\"outbound\"]\ndevelop = true\n"))
                 .unwrap()
                 .len(),
-            7
+            9
         );
     }
 

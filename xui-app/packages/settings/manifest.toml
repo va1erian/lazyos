@@ -9,7 +9,7 @@ name = "Settings"
 system_name = "os.lazy.settings"
 author = "LazyOS"
 version = "0.1.0"
-description = "Appearance, windows, keyboard, menu, hidden apps, time and accounts"
+description = "Appearance, windows, keyboard, menu, hidden apps, time, accounts and Bluetooth"
 category = "system"
 
 [entry]
@@ -34,4 +34,7 @@ interfaces = [
     # administrator approves through elevd (U2).
     "os.lazy.accounts.v1",
     "os.lazy.elevd.v1",
+    # The Bluetooth page (docs/bluetooth-plan.md B5): devices, scanning and
+    # pairing through `btd`, which answers the person at the machine only.
+    "os.lazy.bt.v1",
 ]
