@@ -25,6 +25,7 @@ python tools/bt/run.py --le-pair      # B4: an LE keyboard (passkey) and mouse p
 python tools/bt/run.py --le-reboot    # B4: pair over LE, power off, boot the same image: it types at boot
 python tools/bt/run.py --le-rpa       # B4: as --le-reboot, the devices change address on every connection
 python tools/bt/run.py --le-refuse    # B4: a Just Works LE keyboard is refused; a stranger is never connected
+python tools/bt/run.py --fw intel     # B7: an Intel radio in its bootloader; btd downloads firmware, then --pair (also intel-tlv, intel-recovery, intel-reboot, realtek)
 python tools/bt/test_judge.py         # the judges fail when they should
 cargo test -p fakebt -p btusb -p btpolicy -p bthost -p btsdp -p bthid -p btgatt -p btsim -p btsmp
 python tools/run_demo.py --bt         # an interactive boot with the fake dongle plugged in
@@ -75,3 +76,22 @@ type, key, hold, release, wake, move, drop; bonds persist with `--state`.
 The LE peers are `--le-keyboard`, `--le-mouse` (in the keyboard and mouse
 slots), `--le-jw-keyboard`, `--le-rpa`, `--le-early-notify` and
 `--le-intruder` (`itype=` types on it).
+
+## Radios that need firmware (B7)
+
+`--fw KIND` makes `fakebt` play a vendor radio (`--radio intel-ax201|intel-ax211|rtl8822cu|rtl8761bu`,
+`libs/btsim/src/radio.rs`) with the real part's USB ids, so `btd` picks the Intel or
+Realtek loader of `libs/btfw`, reads the file the radio's own version answer names
+from the image's firmware tree (the real linux-firmware files:
+`run.py` fetches them with `tools/firmware/fetch.py --switch bt`, and the
+`LAZYOS_BT=1` image build places them), downloads them, and then pairs and types
+as `--pair` does. `modes_fw.py` holds the kinds and `judge_fw.py` the verdict:
+`BT:FW:VENDOR`, the files asked for in order and read, `BT:FW:DONE` before
+`BT:CTRL:PASS`, the re-enumerations the kind expects (`intel-recovery`: the
+bootloader rejects the first image, `btd` sends the recovery reset, the dongle
+leaves the bus and returns, `usbd` unbinds and rebinds it; `intel-reboot`: the
+boot reset takes it off the bus and it returns running the image) and one bind
+per enumeration. The simulated bootloader verifies no signature. `fakebt`'s
+`--fw-reject N`, `--fw-reboot` and `--fw-refuse-fragment N` inject the faults; the
+procedure for the real machines is in
+[docs/agents/hardware.md](../../docs/agents/hardware.md), "Bluetooth controllers".

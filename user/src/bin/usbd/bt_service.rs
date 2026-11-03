@@ -32,6 +32,8 @@ pub(super) struct Server {
     buffer: Vec<u8>,
     /// No register attempt before this tick (the last one was refused).
     retry_at: u64,
+    /// The bind (`BtFn::generation`) the registered name serves.
+    serving: u64,
 }
 
 type Result<T> = core::result::Result<T, MsgError>;
@@ -46,6 +48,7 @@ impl Server {
             ends: None,
             buffer: vec![0u8; messenger::DEFAULT_BUFFER],
             retry_at: 0,
+            serving: 0,
         }
     }
 
@@ -55,10 +58,19 @@ impl Server {
     }
 
     /// Register or withdraw the name to match whether a controller is bound.
+    /// A controller replaced by another since the last pass (it left and came
+    /// back before anyone looked) is a new registration: the old endpoint
+    /// closes, so `btd` sees its peer die and attaches to the new one.
     pub(super) fn sync(&mut self, controllers: &mut [Controller]) {
-        let bound = controllers.iter_mut().any(|c| c.bt().is_some());
+        let bound = controllers
+            .iter_mut()
+            .find_map(|c| c.bt())
+            .map(|(_, _, bt)| bt.generation);
+        if self.ends.is_some() && bound.is_some_and(|generation| generation != self.serving) {
+            self.withdraw();
+        }
         match (bound, self.ends) {
-            (true, None) => {
+            (Some(generation), None) => {
                 if sys::clock() < self.retry_at {
                     return;
                 }
@@ -70,6 +82,10 @@ impl Server {
                     Ok(()) => {
                         trace::line!(trace::Channel::Usbd, "BT:SERVE name={}", api::NAME);
                         self.ends = Some((published, server));
+                        self.serving = generation;
+                        // Not refused: a controller that leaves and returns
+                        // soon is registered again at once.
+                        self.retry_at = 0;
                     }
                     Err(error) => {
                         trace::line!(trace::Channel::Usbd, "BT:FAIL register {}", error.message());
@@ -78,15 +94,20 @@ impl Server {
                     }
                 }
             }
-            (false, Some((published, server))) => {
-                let _ = registry::unregister(api::NAME);
-                let _ = published.close();
-                let _ = server.close();
-                self.ends = None;
-                trace::line!(trace::Channel::Usbd, "BT:WITHDRAW name={}", api::NAME);
-            }
+            (None, Some(_)) => self.withdraw(),
             _ => {}
         }
+    }
+
+    fn withdraw(&mut self) {
+        let Some((published, server)) = self.ends.take() else {
+            return;
+        };
+        let _ = registry::unregister(api::NAME);
+        let _ = published.close();
+        let _ = server.close();
+        self.retry_at = 0;
+        trace::line!(trace::Channel::Usbd, "BT:WITHDRAW name={}", api::NAME);
     }
 
     /// Answer the queued requests, then send what `btd` queued and collect

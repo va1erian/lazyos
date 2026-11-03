@@ -174,6 +174,8 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         }
     }
     wifi_embed::embed(sink, manifest_dir);
+    // The Bluetooth controllers' firmware, beside the Wi-Fi one (`btd` loads it).
+    wifi_embed::embed_bt(sink, manifest_dir);
     // `gpud`, the Intel GPU service, only on request: `devd` starts it for
     // the HD Graphics 620 it finds (docs/kabylake-gpu-plan.md, stage G1).
     intelgfx_embed::embed(sink, sound || net);

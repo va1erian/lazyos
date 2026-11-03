@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use bthci::BdAddr;
 use btsim::{
-    BrPeer, Controller, HciIn, LePeer, PasskeyBehavior, PeerId, ReconnectStyle, SimConfig,
-    SimController,
+    BrPeer, Controller, HciIn, LePeer, Part, PasskeyBehavior, PeerId, RadioFaults, ReconnectStyle,
+    SimConfig, SimController,
 };
 
 use crate::script::{Action, Base, Step};
@@ -35,6 +35,9 @@ pub struct Options {
     pub state: Option<PathBuf>,
     pub steps: Vec<Step>,
     pub le: LeOptions,
+    /// A vendor radio that needs firmware (`--radio`), instead of a generic
+    /// controller, and what goes wrong with it.
+    pub radio: Option<(Part, RadioFaults)>,
 }
 
 /// The LE peers (docs/bluetooth-plan.md B4). An LE keyboard or mouse takes
@@ -111,6 +114,9 @@ impl World {
             bd_addr: BdAddr::from_msb(options.address),
             ..SimConfig::default()
         });
+        if let Some((part, faults)) = options.radio {
+            sim.set_radio(part, faults);
+        }
         let stored = options.state.as_ref().map(read_state).unwrap_or_default();
         let add = |sim: &mut SimController, mut peer: BrPeer, waits: bool| {
             let remembered = stored
@@ -323,6 +329,10 @@ impl Controller for World {
         self.persist();
         packet
     }
+
+    fn take_detach(&mut self, now_ms: u64) -> Option<u64> {
+        self.sim.take_detach(now_ms)
+    }
 }
 
 #[cfg(test)]
@@ -343,7 +353,46 @@ mod tests {
             state: Some(state),
             steps: Vec::new(),
             le: LeOptions::default(),
+            radio: None,
         }
+    }
+
+    #[test]
+    fn a_radio_world_answers_its_own_version_and_detaches_on_recovery() {
+        use bthci::Command;
+        let mut opts = options(temp("radio"), false);
+        opts.radio = Some((
+            Part::IntelAx201,
+            RadioFaults {
+                reject_downloads: 1,
+                ..RadioFaults::default()
+            },
+        ));
+        let mut world = World::new(opts);
+        // Read_Version in the bootloader: the legacy record, fw_variant 6.
+        world.command(
+            0,
+            &Command::Unknown {
+                opcode: 0xfc05,
+                params: Vec::new(),
+            }
+            .encode(),
+        );
+        let Some(HciIn::Event(event)) = world.poll_in(5) else {
+            panic!("no answer");
+        };
+        assert_eq!(&event[5..], &[0, 0x37, 0x13, 0, 0x06, 4, 0, 0, 0, 0]);
+        // The recovery reset leaves the bus, and only then.
+        assert_eq!(world.take_detach(6), None);
+        world.command(
+            10,
+            &Command::Unknown {
+                opcode: 0xfc01,
+                params: vec![1, 1, 1, 0, 0, 0, 0, 0],
+            }
+            .encode(),
+        );
+        assert!(world.take_detach(11).is_some());
     }
 
     fn temp(name: &str) -> PathBuf {

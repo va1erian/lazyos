@@ -163,6 +163,7 @@ pub struct SimController {
     pub(crate) le_scanning: bool,
     pub(crate) violations: Vec<Violation>,
     pub(crate) log: Vec<Command>,
+    pub(crate) radio: Option<crate::radio::Radio>,
 }
 
 impl SimController {
@@ -191,6 +192,7 @@ impl SimController {
             le_scanning: false,
             violations: Vec::new(),
             log: Vec::new(),
+            radio: None,
         }
     }
 
@@ -364,6 +366,8 @@ impl SimController {
             | Event::CommandStatus { num_commands, .. } => {
                 self.credits = *num_commands;
             }
+            // Vendor events (0xFF) are not under the event mask.
+            _ if code == 0xFF => {}
             _ if code < 1 || self.event_mask >> (code - 1) & 1 == 0 => return,
             _ => {}
         }
@@ -447,5 +451,9 @@ impl Controller for SimController {
     fn poll_in(&mut self, now_ms: u64) -> Option<HciIn> {
         self.run_until(now_ms);
         self.out.pop_front()
+    }
+
+    fn take_detach(&mut self, now_ms: u64) -> Option<u64> {
+        SimController::take_detach(self, now_ms)
     }
 }

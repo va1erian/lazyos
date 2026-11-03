@@ -42,6 +42,18 @@ class BluetoothTests(unittest.TestCase):
             self.assertIn("--bt", demo_argv(bt=True, skip_build=skip_build))
         self.assertNotIn("--bt", demo_argv(skip_build=False))
 
+    def test_a_build_fetches_the_controller_firmware_first(self) -> None:
+        fetch = "tools/firmware/fetch.py"
+        cfg = demo_config(**self.base(), desktop=False, bt=True, mode="Build xui app")
+        steps, env = catalog.image_build(cfg | {"profile": "dev"})
+        at = [i for i, step in enumerate(steps) if fetch in step["argv"]]
+        self.assertEqual(len(at), 1)
+        self.assertIn("bt", steps[at[0]]["argv"])
+        self.assertLess(at[0], len(steps) - 1, "before cargo build")
+        self.assertEqual(env["LAZYOS_BT"], "1")
+        plain, _ = catalog.image_build(cfg | {"bt": False})
+        self.assertFalse(any(fetch in step["argv"] for step in plain))
+
     def test_the_simple_tab_never_turns_it_on(self) -> None:
         # The Advanced tab's switch never leaks into a Simple build.
         for iface in ("CLI", "Desktop"):

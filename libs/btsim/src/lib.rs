@@ -40,6 +40,7 @@ mod lelink;
 mod lepeer;
 mod link;
 pub mod peer;
+mod radio;
 pub mod sdp;
 mod smp_peer;
 mod task;
@@ -50,6 +51,7 @@ pub use gatt::GattServer;
 pub use hid::HidKind;
 pub use lepeer::LePeer;
 pub use peer::{BrPeer, PasskeyBehavior, ReconnectStyle};
+pub use radio::{Part, RadioFaults, RadioStats};
 
 /// A packet from the controller to the host.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,4 +70,11 @@ pub trait Controller {
     fn acl_out(&mut self, now_ms: u64, packet: &[u8]);
     /// The next packet the controller sends the host, if any is due by now.
     fn poll_in(&mut self, now_ms: u64) -> Option<HciIn>;
+    /// The controller dropped off the USB bus (an Intel recovery reset): how
+    /// long it stays off before it comes back as a new device. The transport
+    /// disconnects and reconnects; the controller is already in the state it
+    /// has after the reconnect. Plain controllers never do.
+    fn take_detach(&mut self, _now_ms: u64) -> Option<u64> {
+        None
+    }
 }

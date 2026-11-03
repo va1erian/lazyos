@@ -32,6 +32,7 @@ mod chan;
 pub mod config;
 mod conn;
 pub mod effect;
+mod firmware;
 mod host;
 mod le;
 mod le_gatt;
@@ -46,5 +47,6 @@ mod tests;
 
 pub use config::{Config, PairPolicy};
 pub use effect::{Effect, SourceKind};
+pub use firmware::{UsbIds, MAX_REENUMERATIONS};
 pub use host::{Host, Stats};
 pub use pair::{key_authenticated, key_type_accepted};

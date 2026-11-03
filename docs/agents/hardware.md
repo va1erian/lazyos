@@ -199,6 +199,86 @@ python tools/storage/test_judge.py       # the judge fails when it should
 cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, fuzz seeds)
 ```
 
+## Bluetooth controllers (`btd`, `LAZYOS_BT=1`)
+
+`usbd` binds a USB Bluetooth controller (class `E0/01/01`) and serves it as
+`os.lazy.usb.bt`; `btd` brings it up and runs the HID host
+([`docs/bluetooth-plan.md`](../bluetooth-plan.md)). A real radio needs its
+vendor's firmware first: `btd` picks the loader from the USB ids in `Describe()`
+(`libs/btfw`, `Vendor::from_usb`), reads the file the radio's own version
+answer names through `libs/fwload` (`fhs::FIRMWARE`, the same tree as the
+Wi-Fi blobs), downloads it, and only then runs `bthci::Init` (which starts with
+`HCI_Reset`). The phase is `libs/bthost/src/firmware.rs`; the files are the `bt`
+entries of `tools/firmware/manifest.txt`, fetched by `python tools/firmware/fetch.py
+--switch bt` (`run_demo.py --bt` and the launcher do it) and placed by the
+image build. A build with `LAZYOS_BT=1` fails, with that command, when a
+pinned file is missing.
+
+**In QEMU** (`tools/bt/README.md`): `fakebt` can play the real parts, with the
+real USB ids and the real files from the image.
+
+```bash
+python tools/bt/run.py --fw intel            # AX201 (8087:0026), bootloader: ibt-19-0-4.sfi + .ddc, then --pair
+python tools/bt/run.py --fw intel-tlv        # AX211 (8087:0033): TLV version answer, ibt-0040-0041.sfi
+python tools/bt/run.py --fw intel-recovery   # first image rejected: recovery reset, USB re-enumeration, second try
+python tools/bt/run.py --fw intel-reboot     # the boot reset takes the part off the bus; it returns running the image
+python tools/bt/run.py --fw realtek          # RTL8822C (0bda:c822): rtl8822cu_fw.bin, no config file
+python tools/bt/test_judge.py                # the judges fail when they should
+cargo test -p bthost -p btfw -p btsim        # the firmware phase against the simulated vendor radios
+```
+
+The simulated parts (`libs/btsim/src/radio.rs`) follow the documented download
+protocols and verify no signature; they prove that `btd` finds the part, asks
+for the right file, sends every fragment and carries on, not that a real
+bootloader accepts the image.
+
+**On a real machine** you cannot get this from QEMU. Build a stick image with
+`dbgd` (the `lazyos-dbg` skill has the client; one client at a time):
+
+```bash
+python tools/firmware/fetch.py --switch bt
+LAZYOS_BT=1 LAZYOS_USB=1 LAZYOS_SERVICES=1 \
+  python tools/run_demo.py --desktop --bt --dbgd --usb-image --build-only
+python tools/dbg/dbgctl.py log --follow          # or the MCP log_tail(source="programs")
+```
+
+(`--bt` also starts the fake dongle for a QEMU run; with `--build-only` it
+does not.) The firmware lines are in every build. Pairing needs a way to open
+the window: until Settings has it, build with the harness variables
+`LAZYOS_BT_TRACE=1 LAZYOS_BT_PAIR=any` (any device that pages the host in the
+first minute may pair, and the trace echoes keys: a dev box, nothing typed
+that matters), then hold the pairing button of the keyboard and the mouse.
+
+What to read, in order, from `dbgctl log` (the `USBD:`/`BT:` records of
+`programs`, filter on the tag):
+
+| Line | Means |
+|---|---|
+| `USBD:BT:BIND port= vendor= product= interface=0 ...` | `usbd` bound the radio; compare the ids with the machine table below. A full-speed radio (both boxes' internal ones) has 64-byte bulk and 16-byte interrupt packets, which the high-speed `fakebt` does not exercise |
+| `BT:FW:VENDOR vendor=intel usb=8087:0026 attempt=0` | The loader chosen from the ids; `attempt` is the number of re-enumerations so far |
+| `BT:FW:FILE name=intel/ibt-... required=true` then `... bytes=N` | The file the radio's version answer selected, and that it was read; `missing=1` means the image lacks it (copy the name into the manifest) |
+| `BT:FW:DONE vendor= downloaded=1 config=applied:N ms=` | Download finished; `downloaded=0` means the radio already ran its firmware; `ms` is the whole phase |
+| `BT:FW:REENUM attempt=n ... reason=` | The radio reset itself (Intel's recovery after a rejected image, or its boot reset) and `usbd` will rebind it; the next `FW:VENDOR` shows `attempt=n`. After 3, `BT:FW:FAIL reason=reenumeration-cap` and `btd` touches nothing until the radio is replugged |
+| `BT:FW:FAIL reason=` | `command-failed opcode= status=` (the radio refused), `timeout opcode=` (silence for 5 s), `unsupported ...` (a hardware variant the loader does not cover), `bad-firmware ...`, `file-missing`, `download-rejected result=`, `no-reenumeration` (told to reset, never left the bus in 10 s) |
+| `BT:READY ms=`, `BT:CTRL:PASS:hci= lmp= vendor=` | Init ran: `vendor=0x0002` Intel, `0x005d` Realtek |
+| `USBD:BT:UNBIND` / `USBD:BT:SERVE` pairs | Each re-enumeration is one unbind and one serve; the registry object changes, which is how `btd` notices |
+
+Capture, for comparison with the scripted runs above: the boot's whole `BT:*`
+and `USBD:BT:*` log, `dbgctl usb` (the radio's descriptors, speed, port),
+`dbgctl devices`, the `FW:VENDOR`/`FW:FILE`/`FW:DONE` lines with `ms`, and then
+a keyboard and a mouse paired, a reboot, and typing at the greeter
+(`BT:RECONNECT ms=`, `INPUTD:*`). There is no raw HCI capture yet: a failure
+names the opcode and status, which is the lead. If the radio is an Intel part
+the loader does not know, `FW:FAIL reason=unsupported ...` plus the `Read_Version`
+answer is the thing to file; do not add a hardware variant by guessing.
+
+| Machine | Radio | Loader and file |
+|---|---|---|
+| Alder Lake mini PC ([compat](../compat/alderlake/README.md)) | Intel `8087:0026`, full speed, PCH port 10 (`docs/usb-hotplug-plan.md`) | Intel loader; AX201 names `intel/ibt-19-0-4.sfi`, an AX211/AX210 the `ibt-0040-0041` or `ibt-0041-0041` set (the version answer decides) |
+| Kaby Lake box ([compat](../compat/kabylake/README.md)) | Intel (the survey did not record the id: read it from `dbgctl usb`) | Intel loader; name from its version answer |
+| AMD NUC (the RTL8822CE Wi-Fi card, `docs/wifi-rtw88-plan.md`) | Realtek RTL8822CE Bluetooth, USB `0bda:c822` | Realtek loader; `rtl_bt/rtl8822cu_fw.bin`, no config file in linux-firmware |
+| A USB dongle | Typically RTL8761B (`0bda:8771`) or CSR | `rtl_bt/rtl8761bu_fw.bin` + `_config.bin`; a CSR clone needs nothing |
+
 ## FAT sticks at `/media` (`fatfuse`, `libs/fatvol`)
 
 A FAT12/16/32 stick plugged in while someone is logged in is mounted by

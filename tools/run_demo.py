@@ -101,7 +101,7 @@ from demo_qemu import (  # noqa: E402
 )
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
-    build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
+    build_bt_firmware, build_devtools, build_doom, build_emusic, build_installer, build_lazyrad, build_lazysky,
     build_lazyweb, build_lazyvm, build_rustc,
     build_jsc, build_linuxapps, build_mail, build_modplayer, build_pictures, build_quake, build_rhai,
     build_srb2kart, build_tls, build_webd, webd_built, webd_env, build_webkit_deps, build_webkit_port, build_wifi,
@@ -340,6 +340,7 @@ def main(argv: list[str]) -> int:
                                       (args.lazysky, build_lazysky, "LAZYOS_LAZYSKY"),
                                       (args.devtools, build_devtools, "LAZYOS_DEVTOOLS"),
                                       (args.wifi, build_wifi, "LAZYOS_WIFI"),
+                                      (args.bt, build_bt_firmware, "LAZYOS_BT"),
                                       (args.installer, build_installer, "LAZYOS_INSTALLER")):
             if not wanted:
                 continue

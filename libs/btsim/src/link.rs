@@ -20,6 +20,7 @@ impl SimController {
     pub(crate) fn execute(&mut self, task: Task) {
         match task {
             Task::Emit(ev) => self.emit(ev),
+            Task::RadioVerdict { generation } => self.radio_verdict(generation),
             Task::EmitAcl(packet) => self.emit_acl(packet),
             Task::Connected {
                 peer,

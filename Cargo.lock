@@ -267,6 +267,7 @@ name = "bthost"
 version = "0.1.0"
 dependencies = [
  "btbond",
+ "btfw",
  "btgatt",
  "bthci",
  "bthid",

@@ -24,6 +24,7 @@ use lazyos_crypto::rng::Entropy;
 
 use crate::config::Config;
 use crate::effect::Effect;
+use crate::firmware::Firmware;
 use crate::le::LeState;
 use crate::link::{Link, MAX_LINKS};
 use crate::paging::Pager;
@@ -67,12 +68,23 @@ pub struct Host {
     pub(crate) entropy: Entropy,
     ctrl_reported: bool,
     failed: bool,
+    /// The firmware phase while it runs (`firmware.rs`), and the
+    /// re-enumerations this bring-up has been through so far.
+    pub(crate) fw: Option<Firmware>,
+    pub(crate) fw_reenumerations: u32,
 }
 
 impl Host {
     /// Start the host at `now` (milliseconds on the shell's clock) with the
     /// bonds read from disk. The first command (`HCI_Reset`) is queued.
     pub fn new(cfg: Config, store: BondStore, now: u64) -> Host {
+        let mut host = Host::build(cfg, store, now);
+        host.init_step(now, Input::Start);
+        host
+    }
+
+    /// The host before bring-up starts (`new` and `new_for` start it).
+    pub(crate) fn build(cfg: Config, store: BondStore, now: u64) -> Host {
         let accept_list: Vec<(u8, BdAddr)> = store
             .iter()
             .filter(|b| b.kind.is_le())
@@ -87,7 +99,7 @@ impl Host {
             max_links: MAX_LINKS,
             ..L2Config::default()
         });
-        let mut host = Host {
+        Host {
             cfg,
             store,
             init,
@@ -107,15 +119,18 @@ impl Host {
             entropy: Entropy::new(),
             ctrl_reported: false,
             failed: false,
-        };
-        host.init_step(now, Input::Start);
-        host
+            fw: None,
+            fw_reenumerations: 0,
+        }
     }
 
     // ---- what the shell feeds ------------------------------------------------
 
     /// An HCI event packet (`code, length, parameters`) from the controller.
     pub fn on_event(&mut self, now: u64, packet: &[u8]) {
+        if self.fw.is_some() {
+            return self.fw_event(now, packet);
+        }
         match Event::parse(packet) {
             Ok(event) => {
                 self.queue.on_event(&event);
@@ -131,6 +146,9 @@ impl Host {
 
     /// An HCI ACL data packet from the controller.
     pub fn on_acl(&mut self, now: u64, packet: &[u8]) {
+        if self.fw.is_some() {
+            return;
+        }
         match acl::parse(packet) {
             Ok((header, data)) => {
                 if !self.defer_acl(now, header.handle, header.boundary, data) {
@@ -145,6 +163,9 @@ impl Host {
 
     /// Time has reached (or passed) [`Host::next_deadline`].
     pub fn on_tick(&mut self, now: u64) {
+        if self.fw.is_some() {
+            return self.fw_tick(now);
+        }
         if matches!(self.init.phase(), Phase::FastPath | Phase::SlowPath) {
             self.init_step(now, Input::Tick);
         }
@@ -164,6 +185,9 @@ impl Host {
 
     /// The next HCI command packet, if the controller has a credit for it.
     pub fn poll_command(&mut self, now: u64) -> Option<Vec<u8>> {
+        if self.fw.is_some() {
+            return self.fw_poll_command();
+        }
         let packet = self.queue.pop_ready(now)?;
         self.last_cmd_ms = now;
         Some(packet)
@@ -190,6 +214,7 @@ impl Host {
         let queue = (self.queue.in_flight() > 0).then(|| self.last_cmd_ms + COMMAND_TIMEOUT_MS);
         [
             self.init_deadline,
+            self.fw.as_ref().and_then(Firmware::deadline),
             queue,
             self.l2.next_deadline(),
             self.links.iter().filter_map(Link::deadline).min(),
@@ -329,6 +354,7 @@ impl Host {
         match self.init.phase() {
             Phase::Complete if !self.ctrl_reported => {
                 self.ctrl_reported = true;
+                self.fw_reenumerations = 0;
                 self.report_controller();
                 self.harness_flush_passkeys();
             }
