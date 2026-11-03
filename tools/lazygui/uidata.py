@@ -83,7 +83,7 @@ def advanced_cfg(ui) -> dict:
         "webd_demo": ui.v["webd_demo"].get(),
         "no_webd": ui.v["no_webd"].get(),
         **{name: ui.v[name].get() for name in ("smb", "dbgd", "dbgd_control", "dbgd_mmio", "dbgd_mmio_claimed",
-                                                          "wifi", "wifi_sim")},
+                                                          "wifi", "wifi_sim", "bt")},
         "dbgd_mmio_allow": ui.v["dbgd_mmio_allow"].get().strip(),
         # Mail speaks TLS: its switch brings the HTTPS stack and the card.
         # LazyWeb's ad blocker updates its lists with curl.

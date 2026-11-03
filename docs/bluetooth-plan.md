@@ -1,6 +1,8 @@
 # Plan: a basic Bluetooth stack for keyboards and mice, usable from boot
 
-> **Status: plan (2026-11-03).** Nothing is built. Builds on
+> **Status: plan (2026-11-03); phase B2 built** (the USB transport, `btd`'s
+> skeleton and the `fakebt` harness: [architecture/usb.md](architecture/usb.md),
+> "Bluetooth controllers"). Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (input sources on the raw bus, `inputd`
 > owning keyboard and pointer policy), [architecture/usb.md](architecture/usb.md)
 > (`usbd` and its class dispatch; "Adding a device class"),

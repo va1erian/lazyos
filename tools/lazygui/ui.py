@@ -138,6 +138,8 @@ class Launcher:
                     "no_webd")
         self._check(g, "Wi-Fi simulator: wlan0 against fake APs (LAZYOS_WIFI_SIM; run_demo "
                        "--wifi-sim; implies the stack)", "wifi_sim")
+        self._check(g, "Bluetooth: usbd binds a USB controller, btd brings it up; the demo plugs in a "
+                       "fake dongle (LAZYOS_BT; run_demo --bt; implies the USB driver)", "bt")
         self._check(g, "ext2 journal on the OS volume (LAZYOS_JOURNAL)", "journal")
         self._check(g, "Devices app at boot (desktop; LAZYOS_XUI_AUTOSTART += devices)",
                     "devices")

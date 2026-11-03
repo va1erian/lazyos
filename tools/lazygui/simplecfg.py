@@ -211,6 +211,8 @@ def plain_config(base: dict, build: str, interface: str, lazyrad: bool = False,
         "wifi": wifi,
         # The simulated radio is an Advanced-only test switch.
         "wifi_sim": False,
+        # Bluetooth against the fake dongle is an Advanced-only test switch too.
+        "bt": False,
         "net_forwards": "",
         "net_restrict": False,
         "nics": "1",

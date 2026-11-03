@@ -134,6 +134,9 @@ def make_vars() -> dict:
         # The simulated Wi-Fi radio against fake access points (LAZYOS_WIFI_SIM,
         # run_demo --wifi-sim; implies the stack).
         "wifi_sim": b(value=False),
+        # Bluetooth against a fake USB dongle (LAZYOS_BT, run_demo --bt;
+        # implies the USB driver and a services session).
+        "bt": b(value=False),
         # The remote inspection service `dbgd` (LAZYOS_DBGD, run_demo --dbgd;
         # implies networking). Always built in by catalog/netplan; ticked here to match.
         "dbgd": b(value=True),
