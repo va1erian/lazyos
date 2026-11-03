@@ -20,7 +20,7 @@ from pathlib import Path
 
 # The seed builders, one module per family of targets beside this script.
 from seeds_audio import usbaudio_seeds
-from seeds_bluetooth import btbond_seeds, btl2cap_seeds, bthci_seeds
+from seeds_bluetooth import btbond_seeds, bthid_seeds, btl2cap_seeds, bthci_seeds, btsdp_seeds
 from seeds_btsmp import seeds as btsmp_seeds
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
@@ -80,6 +80,8 @@ TARGETS = {
     "bthci": bthci_seeds,
     "btl2cap": btl2cap_seeds,
     "btbond": btbond_seeds,
+    "btsdp": btsdp_seeds,
+    "bthid": bthid_seeds,
 }
 
 

@@ -1,0 +1,19 @@
+[package]
+name = "btsdp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The host side of Bluetooth SDP for the LazyOS btd service: a bounded client that fetches a HID record"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btsdp"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/btsdp.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

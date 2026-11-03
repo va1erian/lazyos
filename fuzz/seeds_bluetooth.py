@@ -1,4 +1,4 @@
-"""Seeds for the `bthci`, `btl2cap` and `btbond` fuzz targets (`gen_corpus.py`).
+"""Seeds for the `bthci`, `btl2cap`, `btbond`, `btsdp` and `bthid` fuzz targets (`gen_corpus.py`).
 
 `bthci` (libs/bthci/src/fuzz.rs) uses its input as one event packet, one
 command packet, one ACL packet, and as a script of `u8` length-prefixed event
@@ -202,4 +202,100 @@ def btbond_seeds():
         "store_truncated": good[: len(good) // 2],
         # The body of a one-bond file (count, record): the fuzz entry wraps and seals it.
         "body_mouse": struct.pack("<H", 1) + mouse_bond(),
+    }
+
+
+# ---- btsdp -----------------------------------------------------------------
+#
+# `btsdp` (libs/btsdp/src/fuzz.rs) takes attribute lists, a response PDU, and a
+# script of `u8` length-prefixed response PDUs. The encoder here is
+# independent of the Rust one (libs/btsdp/src/tests.rs builds its own).
+
+def sdp_des(body):
+    return b"\x36" + struct.pack(">H", len(body)) + body
+
+
+def sdp_u16(v):
+    return b"\x09" + struct.pack(">H", v)
+
+
+def sdp_u8(v):
+    return b"\x08" + bytes([v])
+
+
+def sdp_bool(v):
+    return b"\x28" + bytes([1 if v else 0])
+
+
+def sdp_text(t):
+    return b"\x26" + struct.pack(">H", len(t)) + t
+
+
+def sdp_hid_record(subclass, descriptor, reconnect_initiate, name):
+    body = sdp_u16(0x0001) + sdp_des(b"\x19\x11\x24")
+    body += sdp_u16(0x0100) + sdp_text(name)
+    body += sdp_u16(0x0202) + sdp_u8(subclass)
+    body += sdp_u16(0x0205) + sdp_bool(reconnect_initiate)
+    body += sdp_u16(0x0206) + sdp_des(sdp_des(sdp_u8(0x22) + sdp_text(descriptor)))
+    body += sdp_u16(0x020D) + sdp_bool(not reconnect_initiate)
+    body += sdp_u16(0x020E) + sdp_bool(True)
+    return sdp_des(body)
+
+
+def sdp_response(tid, data, cont=b""):
+    params = struct.pack(">H", len(data)) + data + bytes([len(cont)]) + cont
+    return b"\x07" + struct.pack(">HH", tid, len(params)) + params
+
+
+KBD_DESC = bytes([
+    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, 0x01, 0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00,
+    0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02, 0x95, 0x01, 0x75, 0x08, 0x81, 0x01, 0x95, 0x06,
+    0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00, 0xC0,
+])
+MOUSE_DESC = bytes([
+    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, 0x02, 0x09, 0x01, 0xA1, 0x00, 0x05, 0x09, 0x19, 0x01,
+    0x29, 0x03, 0x15, 0x00, 0x25, 0x01, 0x95, 0x03, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05,
+    0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08,
+    0x95, 0x03, 0x81, 0x06, 0xC0, 0xC0,
+])
+
+
+def btsdp_seeds():
+    keyboard = sdp_des(sdp_hid_record(0x40, KBD_DESC, True, b"Test Keyboard"))
+    mouse = sdp_des(sdp_hid_record(0x80, MOUSE_DESC, False, b"Test Mouse"))
+    # The same record cut in two responses with a continuation state.
+    cut = len(keyboard) // 2
+    script = b""
+    for pdu in (sdp_response(1, keyboard[:cut], b"\x00\x07"), sdp_response(2, keyboard[cut:])):
+        script += bytes([len(pdu)]) + pdu
+    return {
+        "empty": b"",
+        "lists_keyboard": keyboard,
+        "lists_truncated": keyboard[: len(keyboard) - 9],
+        "response_mouse": sdp_response(1, mouse),
+        "script_continuation": script,
+        "response_error": b"\x01" + struct.pack(">HHH", 1, 2, 3),
+    }
+
+
+# ---- bthid -----------------------------------------------------------------
+#
+# `bthid` (libs/bthid/src/fuzz.rs) takes one input as a control message, an
+# interrupt message, a report descriptor and a script of `u8` length-prefixed
+# reports.
+
+def bthid_seeds():
+    reports = b"".join(bytes([len(r)]) + r for r in (
+        bytes([1, 0, 0, 4, 0, 0, 0, 0, 0]),   # keyboard, id 1: 'a' down
+        bytes([1, 0, 0, 0, 0, 0, 0, 0, 0]),   # all up
+        bytes([2, 1, 5, 0xFD, 0]),            # mouse, id 2: button 1, dx 5, dy -3
+        bytes([0, 0, 1, 1, 1, 1, 1, 1]),      # rollover
+    ))
+    return {
+        "empty": b"",
+        "descriptor_keyboard": KBD_DESC,
+        "descriptor_mouse": MOUSE_DESC,
+        "script_reports": reports,
+        "control_unplug": b"\x15",
+        "interrupt_input": b"\xa1\x01\x00\x00\x04\x00\x00\x00\x00\x00",
     }
