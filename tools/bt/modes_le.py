@@ -40,7 +40,7 @@ TWO_BOOTS = ("le-reboot", "le-rpa")
 
 def mouse_moves(when: str) -> list[str]:
     """Two motions, then a button press and release; `when` is the prefix of
-    each time (`mhid1+` after the mouse is ready, empty after connecting)."""
+    each time (`mhid1+`: after the mouse is ready)."""
     return [
         f"{when}300:move=6,4,0",
         f"{when}400:move=-3,2,0",
@@ -66,7 +66,9 @@ def fakebt_args(mode: str, state: Path, boot: int, pair_text: str, boot_text: st
     else:
         # The user is typing while the machine boots; a bonded peer
         # advertises when touched, so it is touched again every few seconds.
-        steps = [f"200:type={boot_text}", *mouse_moves("")]
+        # The mouse's motion waits for it to be subscribed again (a report
+        # before that is dropped, `notification-unsolicited`).
+        steps = [f"200:type={boot_text}", *mouse_moves("mhid1+")]
         steps += [f"{n * 3000}:wake" for n in range(1, 40)]
         if mode == "le-rpa":
             steps += ["hid1+1500:dropkbd=0x13", f"hid1+2500:type={RPA_TEXT_AFTER}"]

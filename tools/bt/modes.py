@@ -64,7 +64,9 @@ def fakebt_args(mode: str, state: Path, boot: int = 1) -> list[str]:
         # The user is typing while the machine boots; a bonded peer pages the
         # host and its keys wait for the link. Touching it again every few
         # seconds keeps it paging however long the boot takes.
-        steps = [f"200:type={BOOT_TEXT}", "300:move=6,4,0", "400:move=-3,2,0", "500:move=0,0,1", "700:move=0,0,0"]
+        # The mouse's motion waits for its source: a report before the host
+        # has the device back is lost, as it would be with a real mouse.
+        steps = [f"200:type={BOOT_TEXT}", *mouse_moves("mhid1")]
         steps += [f"{n * 3000}:wake" for n in range(1, 40)]
     elif mode == "refuse":
         peers = ["--keyboard", INTRUDER_ADDR, "--forged-bond"]
