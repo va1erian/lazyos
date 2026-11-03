@@ -24,6 +24,9 @@ use crate::le_link::{Fresh, PendingKey};
 
 /// The L2CAP fixed channel of SMP.
 const CID_SMP: u16 = 6;
+/// The company id `btsim` reports in Read_Local_Version: 0xFFFF, which the
+/// Bluetooth SIG reserves for internal testing, so no shipping radio has it.
+const SIMULATOR_MANUFACTURER: u16 = 0xFFFF;
 
 impl Host {
     /// Mix `bytes` into the pairing entropy. The shell calls this once at
@@ -166,11 +169,21 @@ impl Host {
                 red(addr)
             ));
             // The harness plays the user: tell the simulated controller what
-            // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`).
-            self.cmd(Command::Unknown {
-                opcode: opcode::HARNESS_SHOW_PASSKEY,
-                params: passkey.to_le_bytes().to_vec(),
-            });
+            // the screen shows (`bthci::opcode::HARNESS_SHOW_PASSKEY`). Only
+            // to `btsim`, which reports the SIG's testing company id: on a
+            // real radio a harness-built image must never send a vendor
+            // opcode that means something else there, nor the passkey.
+            let simulated = self
+                .init
+                .info()
+                .version
+                .is_some_and(|v| v.manufacturer == SIMULATOR_MANUFACTURER);
+            if simulated {
+                self.cmd(Command::Unknown {
+                    opcode: opcode::HARNESS_SHOW_PASSKEY,
+                    params: passkey.to_le_bytes().to_vec(),
+                });
+            }
         }
     }
 
