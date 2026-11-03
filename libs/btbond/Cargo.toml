@@ -1,0 +1,22 @@
+[package]
+name = "btbond"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The Bluetooth bond store format for the LazyOS btd service: versioned, checksummed, decoded from hostile bytes"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btbond"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte entry point shared by the in-tree seeded tests
+# and the cargo-fuzz target (`fuzz/fuzz_targets/btbond.rs`). Needs `std`.
+fuzz = []
+
+[dependencies]
+bthci = { path = "../bthci" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

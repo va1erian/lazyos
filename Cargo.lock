@@ -220,6 +220,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f4c2ef60a76c1858ef43c30b6b95c2f5ee4d7c4f9bc47409c3a8dc8910adb9"
 
 [[package]]
+name = "btbond"
+version = "0.1.0"
+dependencies = [
+ "bthci",
+ "fuzzkit",
+]
+
+[[package]]
+name = "bthci"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
+name = "btl2cap"
+version = "0.1.0"
+dependencies = [
+ "bthci",
+ "fuzzkit",
+]
+
+[[package]]
 name = "build-support-tests"
 version = "0.1.0"
 dependencies = [

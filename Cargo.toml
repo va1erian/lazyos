@@ -82,6 +82,12 @@ members = [
     # USB descriptors and HID boot reports for `usbd` (docs/usb-hid-plan.md
     # U0): pure `no_std` parsers of hostile device input, with host tests.
     "libs/usbhid",
+    # Bluetooth for keyboards and mice (docs/bluetooth-plan.md B0/B1): HCI
+    # codecs and bring-up, L2CAP, the bond store and the controller simulator;
+    # pure `no_std` + `alloc` logic with host tests.
+    "libs/bthci",
+    "libs/btl2cap",
+    "libs/btbond",
     "libs/usbaudio",
     # xHCI registers, TRBs, contexts and ring state machines for `usbd`
     # (docs/usb-hid-plan.md U0): pure `no_std` logic with host tests.
