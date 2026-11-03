@@ -165,7 +165,7 @@ mode 0700 owned by `_bt`, the same reason the account database has
 |---|---|
 | The stack runs as `_bt` with `CAP_INPUT_SOURCE` and nothing else | `init` (`service_creds.rs`, `BT_CRED`); `libs/btpolicy` |
 | Only `_bt` and root call `os.lazy.usb.bt` | `usbd/bt_service.rs` (`may_use_transport`); the interface is in `devtool::DENY` |
-| Only `usbd` (`_usb`) may register `os.lazy.usb.bt` and only `btd` (`_bt`) `os.lazy.bt`, unlabelled, outside a session, root excluded | `libs/btpolicy/src/names.rs`, asked by the kernel's `OP_REGISTER` gate (`kernel/src/ipc/policy.rs`) |
+| Only `usbd` (`_usb`) may register `os.lazy.usb.bt` and `os.lazy.usb.bt.v1` and only `btd` (`_bt`) `os.lazy.bt` and `os.lazy.bt.v1` (the literal name the script runtime falls back to), unlabelled, outside a session, root excluded | `libs/btpolicy/src/names.rs`, asked by the kernel's `OP_REGISTER` gate (`kernel/src/ipc/policy.rs`) |
 | Only a session user or `elevd` may use `os.lazy.bt.v1` | `btd/api.rs` with `btpolicy::may_use_api`, on the kernel-stamped uid, label and session |
 | `usbd` and `btd` treat each other as hostile: indices and lengths read once and validated, frames copied before use, a breaking peer poisons the ring and the attachment is dropped; a command or ACL packet whose length field disagrees with its frame never reaches the device | `usbd/bt_service.rs`, `bt_out.rs`, `libs/framering` |
 | An unbonded device is refused at the connection request (BR/EDR) or its link dropped (LE), unless a pairing window names it | `libs/bthost` (`conn.rs`, `le.rs`; `BT:REFUSE reason=unbonded`) |
@@ -203,9 +203,21 @@ second. Roughly 160 ms of what is left is the USB reset and debounce.
   key typed before `inputd` attaches or before the greeter takes focus is
   lost.
 - **A dongle plugged in after `btd` started is found by a look once a second**
-  (`WAIT_TICKS` in `btd.rs`), the only timed wake besides deadlines and a
-  10 ms retry while the command ring is full. Messenger has no registry watch
-  to park on instead.
+  (`WAIT_TICKS` in `btd.rs`), the one remaining timed look besides deadlines,
+  a 10 ms retry while the command ring is full and the back-off below.
+  Messenger has no registry watch to park on instead.
+- **Failures are recovered, bounded.** A host that gave up (`Effect::Failed`,
+  e.g. a lost Command Complete) or a broken ring makes `btd` detach, back off
+  (0.5 s, 1 s, 2 s) and attach a new `Host` (`BT:CTRL:RESTART`); after three
+  in a row without a healthy minute it exits non-zero and `init` restarts it.
+  `usbd` keeps events when its backlog is full by evicting the oldest ACL
+  frame, sends an HCI command with a 1 s limit, ends the pass on the first
+  command endpoint 0 does not take, and detaches a controller whose endpoint 0
+  fails three commands in a row. Pairing entropy is the kernel's alone: if
+  `random` fails the host stays unseeded and refuses to pair.
+- **The boot never waits for Bluetooth.** `btd` and `usbd` are exempt from
+  `ready::settled`, and a row whose dependency stopped for good (no xHCI
+  controller: `usbd` exits 0) counts as settled.
 - **SuperSpeed controllers are skipped** (their 1024-byte bulk packets do not
   fit a pipe window). One controller at a time.
 - **Intel parts: TLV hardware variants `0x17` to `0x1b` and the legacy `0x0b`,
