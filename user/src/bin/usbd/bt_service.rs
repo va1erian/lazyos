@@ -81,6 +81,7 @@ impl Server {
                 match registry::register(api::NAME, &published, &[api::INTERFACE], 0) {
                     Ok(()) => {
                         trace::line!(trace::Channel::Usbd, "BT:SERVE name={}", api::NAME);
+                        trace::span(trace::Channel::Usbd, "bt-published");
                         self.ends = Some((published, server));
                         self.serving = generation;
                         // Not refused: a controller that leaves and returns

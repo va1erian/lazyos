@@ -322,6 +322,7 @@ impl BtFn {
             next_ring: 1,
             scratch: Box::new([0; MAX_FRAME]),
         };
+        trace::span(trace::Channel::Usbd, "bt-bound");
         trace::line!(trace::Channel::Usbd, "BT:BIND port={} slot={} vendor={:#06x} product={:#06x} interface={} intr={} bulk_in={} bulk_out={} chunk={}",
             device.name,
             device.slot,

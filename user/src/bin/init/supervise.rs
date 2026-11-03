@@ -71,6 +71,15 @@ fn manifest_cred(name: &str) -> Option<sys::Cred> {
     Some(own)
 }
 
+/// The boot-latency span of the Bluetooth path (docs/bluetooth-plan.md B6):
+/// when `init` started the two services it runs through. Two lines per boot,
+/// not one per service.
+fn span_if_boot_path(name: &str) {
+    if matches!(name, "usbd" | "btd") {
+        trace::span(trace::Channel::Init, &format!("{name}-spawn"));
+    }
+}
+
 /// Start one supervised row as a child of this task: stamped with the row's
 /// credentials for a launched app, with the manifest credentials (or this
 /// supervisor's own identity) for a manifest service.
@@ -99,6 +108,7 @@ pub(super) fn spawn_service(
                 pid,
                 services[index].restarts + 1
             ));
+            span_if_boot_path(services[index].name);
             publish_state(
                 broker,
                 &services[index],

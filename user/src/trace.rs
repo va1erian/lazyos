@@ -97,6 +97,17 @@ pub fn within(budget: &tracefmt::Budget, channel: Channel) -> bool {
     }
 }
 
+/// One boot-latency span: `<CHANNEL>:SPAN step=<step> ms=<since boot>`. The
+/// harnesses (`tools/bt/spans.py`) put these in order to show where a boot
+/// path spends its time; each fires once per process, never in a loop.
+pub fn span(channel: Channel, step: &str) {
+    crate::trace::line!(
+        channel,
+        "SPAN step={step} ms={}",
+        crate::sys::monotonic_ms()
+    );
+}
+
 /// Write one line whatever the mask and the switch say: the output of a
 /// command line tool (`wifictl list`, `ping`), which is its product and not
 /// evidence about it. Same line grammar and one write, so it cannot tear.

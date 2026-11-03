@@ -50,7 +50,10 @@ mod sources;
 use link::{deadline_ticks, Failure, Frame, Link};
 use sources::Sources;
 
-/// Ticks (100 Hz) between looks for a controller while none is bound.
+/// Ticks (100 Hz) between looks for a controller while none is bound. `init`
+/// starts `btd` after `usbd` served the controller, so a boot never waits
+/// here; only a dongle plugged in later does (Messenger has no registry
+/// watch to park on instead).
 const WAIT_TICKS: u64 = 100;
 /// The longest park with nothing due; a doorbell wakes it earlier.
 const IDLE_TICKS: u64 = 6000;
@@ -210,13 +213,9 @@ fn drain(
 /// stops after a few, `bthost::MAX_REENUMERATIONS`).
 fn serve(link: &mut Link, sources: &mut Sources, reenumerations: &mut u32) -> Failure {
     let ids = link.usb_ids();
-    let mut host = Host::new_for(
-        args(),
-        load_bonds(),
-        sys::monotonic_ms(),
-        ids,
-        *reenumerations,
-    );
+    let bonds = load_bonds();
+    trace::span(Channel::Bt, "bonds-loaded");
+    let mut host = Host::new_for(args(), bonds, sys::monotonic_ms(), ids, *reenumerations);
     seed_entropy(&mut host);
     let failure = run(&mut host, link, sources);
     if matches!(failure, Failure::Gone) {
@@ -277,6 +276,7 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources) -> Failure {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
+    trace::span(Channel::Bt, "start");
     match sys::cred_get(None) {
         Ok(cred) => trace::line!(Channel::Bt, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Bt, "CRED unavailable (errno {errno})"),
@@ -285,6 +285,7 @@ pub extern "C" fn _start() -> ! {
     let mut reenumerations = 0;
     loop {
         let mut link = open();
+        trace::span(Channel::Bt, "attached");
         trace::line!(Channel::Bt, "LINK ring={}", link.ring());
         let mut sources = Sources::new(
             args().trace_reports,

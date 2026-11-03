@@ -19,6 +19,9 @@ python tools/bt/run.py --unplug       # pull the dongle out after the bring-up
 python tools/bt/run.py --hotplug      # the dongle appears 20 s after the connection, not at boot
 python tools/bt/run.py --pair         # B3: pair the mouse and the keyboard; text and motion arrive
 python tools/bt/run.py --reboot       # B3: pair, power off, boot the same image: it types at boot
+python tools/bt/run.py --boot-typing      # B6: as --reboot; the boot's spans and their budgets (spans.py)
+python tools/bt/run.py --le-boot-typing   # B6: as --le-reboot, with the spans and budgets
+python tools/bt/run.py --boot-typing --desktop  # B6: a desktop image, the bonded keyboard types at the greeter
 python tools/bt/run.py --refuse       # B3: an unbonded peer pages the host and types: refused
 python tools/bt/run.py --kill         # B3: btd dies holding a key: nothing stuck, it reattaches
 python tools/bt/run.py --le-pair      # B4: an LE keyboard (passkey) and mouse pair; text and motion arrive

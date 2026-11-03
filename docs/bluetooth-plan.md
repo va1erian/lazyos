@@ -1,6 +1,6 @@
 # Plan: a basic Bluetooth stack for keyboards and mice, usable from boot
 
-> **Status: plan (2026-11-03); B0 to B4 built**
+> **Status: plan (2026-11-03); B0 to B4 and B6 built**
 > (`libs/bthci`, `libs/btl2cap`, `libs/btbond`, `libs/btsim`, `libs/btsmp`,
 > P-256 in `libs/crypto`; the USB transport and the `fakebt` harness; `btd`
 > with BR/EDR HID: `libs/bthost`, `libs/btsdp`, `libs/bthid`; LE HID over GATT:
@@ -22,6 +22,16 @@
 > account database moved out for the same reason), and a peer's first L2CAP
 > request can beat the `Encryption_Change` (separate USB endpoints), so the
 > host holds data from a link it has offered its key to for up to 500 ms.
+> B6 (boot latency, [perf/bluetooth-boot.md](perf/bluetooth-boot.md)):
+> `usbd` starts in the first wave and scans one root port per loop pass, so
+> `os.lazy.usb.bt` is served between devices and `init` is told (`Ready`) at
+> once; `init` starts `btd` after `usbd` and `inputd`, so it finds the name on
+> its first look (a dongle plugged in later is still looked for once a second:
+> Messenger has no registry watch). Every step prints `SPAN step= ms=`;
+> `tools/bt/run.py --boot-typing` / `--le-boot-typing` judge them (radio ready
+> 1500 ms after `usbd` started, first report 250 ms after the link, WHPX/KVM):
+> measured about 420 to 620 ms and 75 to 110 ms, against 800 to 1170 ms before.
+> Keys typed before `inputd` or a focused greeter exist are dropped, as on PS/2.
 > Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (input sources on the raw bus, `inputd`
 > owning keyboard and pointer policy), [architecture/usb.md](architecture/usb.md)
@@ -227,7 +237,7 @@ correctness and stress tests per AGENTS.md.
 | **B3** `btd` with BR/EDR HID | `user/src/bin/btd.rs` + `btd/` (event loop, controller bring-up, connection table, the boot fast path of decision 5), `libs/btsdp` (the HID record), `libs/bthid` (HIDP over `0x11`/`0x13`, reports to `usbhid`), SSP pairing (DisplayYesNo host; Just Works for mice, Passkey Entry for keyboards), the bond store, input sources. `init` row (`_bt`, `CAP_INPUT_SOURCE`, `Restart::Always`), `libs/fhs` paths, `Bt` trace channel (`python tools/trace/catalog.py`). Pairing in this phase is a boot argument for the harness (`pair=<addr>`), the interface comes in B5 | Host: full pair, bond, disconnect, reconnect against `btsim`; refusal of an unbonded or unencrypted HID connection (decision 6); stuck-key release on link loss. Harness: pair once, reboot the same image, the peer types during the greeter, `verify_trace`-style check that the text arrived; kill `btd` mid-keypress, nothing stuck |
 | **B4** LE HOGP (built) | `libs/btgatt` (ATT client: MTU exchange, discovery by type, read, read blob, write, CCCD, notifications), `libs/btsmp` (LE SC Just Works and Passkey Entry, key distribution of LTK and IRK, RPA resolution with the IRK), P-256 in `libs/crypto`, LE connection management (accept-list auto-connect, connection parameters suitable for HID, encryption with the LTK on reconnect), `btsim` LE peers; harness modes `--le-pair`, `--le-reboot`, `--le-rpa`, `--le-refuse` | Host: SMP against the Core specification's sample data for `f4`/`f5`/`f6`/`g2`/`ah`; pair and reconnect the LE keyboard and mouse against `btsim`, including a peer using a resolvable private address; a notification before encryption is ignored. Harness: as B3, LE peers |
 | **B5** Pairing interface and UI | `idl/bt.midl` (`os.lazy.bt.v1`), caller checks (session user or elevated), `devtool::DENY` entries; `btctl` (a Rhai script); a Settings -> Bluetooth pane (discover, pair with the passkey shown, connected state, forget) | `midlc --check`, Rhai schema regenerated; host tests of the caller policy; a `qemu_session.py` script pairs the `btsim` LE keyboard from Settings by clicking (`click_at` names), the screenshot is read |
-| **B6** Boot latency | Measure and fix: `BT:READY` and `BT:RECONNECT` timings from the B3/B4 harness at boot; `usbd` binding the radio in the first scan; anything in `btd`'s bring-up that is not on the fast path moved after it. A `--boot-typing` harness mode where the peer presses keys from the moment the controller is up | The harness reports both numbers and fails above a budget (start: radio ready within 1.5 s of `usbd`'s start under KVM/WHPX, first report published within 300 ms of the link; tightened once measured). A row in `docs/perf/` |
+| **B6** Boot latency (built) | Measure and fix: `BT:READY` and `BT:RECONNECT` timings from the B3/B4 harness at boot; `usbd` binding the radio in the first scan; anything in `btd`'s bring-up that is not on the fast path moved after it. A `--boot-typing` harness mode where the peer presses keys from the moment the controller is up | The harness reports both numbers and fails above a budget (start: radio ready within 1.5 s of `usbd`'s start under KVM/WHPX, first report published within 300 ms of the link; tightened once measured). A row in `docs/perf/` |
 | **B7** Real controllers | `libs/btfw`: Intel (read version in bootloader mode, download `ibt-*.sfi` in secure-send fragments, the reset and the USB re-enumeration that follows, `.ddc` config) and Realtek (`rtl_bt/*_fw.bin` + `_config.bin` patch download by the vendor command); firmware entries in `tools/firmware/fetch.py`'s manifest; `btd` loading them through `libs/fwload`; `usbd` tolerating the radio's detach and reattach during download | Host: both download state machines against recorded command/event fixtures (`--pcap`-style captures from the real boxes via `dbgd`). On hardware (Alder Lake / Kaby Lake boxes with Intel radios, the AMD NUC's RTL8822CE, one USB dongle): a real keyboard and mouse pair, and work at the greeter after a reboot, evidenced through `dbgctl log` |
 | **B8** Docs and CI | `docs/architecture/bluetooth.md`, links from `docs/index.md` and `architecture/usb.md`, `docs/agents/hardware.md` section, `.github/workflows/bt.yml` running the host tests and the `tools/bt/run.py` harness | the workflow green |
 

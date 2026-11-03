@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import judge  # noqa: E402
+import spans  # noqa: E402
 
 ADDR = "00:1A:7D:DA:71:13"
 
@@ -437,6 +438,51 @@ class LeJudge(unittest.TestCase):
 
 
 from test_judge_fw import FwJudge  # noqa: E402,F401  (the firmware judge's tests run with these)
+# A boot's spans (B6): a real run's, with the budgets met.
+SPANS = """INIT:SPAN step=usbd-spawn ms=70
+USBD:SPAN step=start ms=72
+USBD:SPAN step=controller-up ms=95
+USBD:SPAN step=bt-bound ms=263
+USBD:SPAN step=bt-published ms=265
+INIT:SPAN step=btd-spawn ms=500
+BT:SPAN step=start ms=501
+BT:SPAN step=attached ms=503
+BT:SPAN step=bonds-loaded ms=509
+BT:SPAN step=reset-done ms=520
+BT:READY ms=610
+BT:RECONNECT ms=60 addr=xx:xx:xx:xx:00:01 link_at=700 report_at=760
+BT:RECONNECT ms=70 addr=xx:xx:xx:xx:00:02 link_at=710 report_at=780
+"""
+
+
+class BootSpans(unittest.TestCase):
+    def failures(self, log: str, relaxed: bool = False) -> str:
+        return "\n".join(spans.judge(log, relaxed)[1])
+
+    def test_a_boot_within_the_budgets_passes(self):
+        self.assertEqual(self.failures(SPANS), "")
+
+    def test_a_late_radio_fails_on_hardware_and_not_under_emulation(self):
+        ready = 72 + spans.READY_BUDGET_MS + 1
+        late = SPANS.replace("BT:READY ms=610", f"BT:READY ms={ready}")
+        late = late.replace("link_at=700 report_at=760", f"link_at={ready + 90} report_at={ready + 150}")
+        late = late.replace("link_at=710 report_at=780", f"link_at={ready + 100} report_at={ready + 170}")
+        self.assertIn("radio ready", self.failures(late))
+        self.assertEqual(self.failures(late, relaxed=True), "")
+
+    def test_a_slow_first_report_fails(self):
+        slow = SPANS.replace("report_at=780", f"report_at={710 + spans.REPORT_BUDGET_MS + 1}")
+        self.assertIn("first report", self.failures(slow))
+        self.assertEqual(self.failures(slow, relaxed=True), "")
+
+    def test_a_missing_span_and_a_backwards_one_fail_even_when_relaxed(self):
+        self.assertIn("no span for 'bonds loaded'", self.failures(SPANS.replace("BT:SPAN step=bonds-loaded ms=509\n", ""), True))
+        self.assertIn("is before", self.failures(SPANS.replace("btd-spawn ms=500", "btd-spawn ms=100"), True))
+
+    def test_the_numbers_are_the_budgeted_distances(self):
+        numbers = spans.judge(SPANS)[2]
+        self.assertEqual(numbers, {"ready_after_usbd_ms": 610 - 72, "report_after_link_ms": 70})
+
 
 if __name__ == "__main__":
     unittest.main()
