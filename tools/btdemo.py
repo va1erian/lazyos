@@ -57,13 +57,17 @@ def _pump(stream: IO[str], log: Path | None) -> None:
 
 
 def start(log: Path | None = None, *, bd_addr: str = BD_ADDR, unplug_after_ms: int | None = None,
-          connect_after_ms: int = 0, build: bool = True) -> tuple[subprocess.Popen, list[str]]:
-    """Start `fakebt` and return it with the QEMU arguments of the dongle."""
+          connect_after_ms: int = 0, build: bool = True,
+          extra: list[str] | None = None) -> tuple[subprocess.Popen, list[str]]:
+    """Start `fakebt` and return it with the QEMU arguments of the dongle.
+    `extra` is more `fakebt` arguments: the peers and their script
+    (`tools/bt/fakebt/src/main.rs`)."""
     exe = build_fakebt() if build else FAKEBT
     command = [str(exe), "--listen", "127.0.0.1:0", "--bd-addr", bd_addr,
                "--connect-after-ms", str(connect_after_ms)]
     if unplug_after_ms is not None:
         command += ["--unplug-after-ms", str(unplug_after_ms)]
+    command += extra or []
     if log:
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_text("")

@@ -98,6 +98,8 @@ or an option must be in the suite file's `test_only` list
 | `LAZYOS_SOUND` | Sound driver and `audiod`. Always on in a desktop. | `--sound` (`--sound-card` only picks the QEMU card) |
 | `LAZYOS_USB` | The `usbd` HID driver and USB mass storage. | - |
 | `LAZYOS_BT` | Bluetooth, phase B2 of the [plan](bluetooth-plan.md): `usbd` binds a USB Bluetooth controller (class `E0/01/01`, interface 0) and serves it as `os.lazy.usb.bt`; `btd` (as `_bt`) brings it up. Needs `LAZYOS_USB=1` and a services session (the build refuses otherwise; the front ends set both). QEMU has no Bluetooth: `tools/bt/run.py` and `--bt` plug in a fake dongle over usbredir. | `--bt` |
+| `LAZYOS_BT_TRACE`, `LAZYOS_BT_PAIR` | Bluetooth harness images only (`tools/bt/run.py`): `init` starts `btd` with `trace=1` (key edges, report contents and the pairing passkey on serial, which would carry typed text) and `pair=<LAZYOS_BT_PAIR>` (`any`, `none` or `AA:BB:CC:DD:EE:FF[,...]`), a bounded pairing window until the real interface (B5) exists. Without `LAZYOS_BT_TRACE` `btd` gets no arguments and nobody can pair. | - |
+| `LAZYOS_BT_CRASH_TEST` | `1` (with `LAZYOS_BT_TRACE`, `run.py --kill`): `btd` exits with status 3 after publishing its first key press, on its first attempt only. | - |
 | `LAZYOS_DEVD` | `0` keeps the static driver rows instead of starting `devd`. | `--no-devd` |
 | `LAZYOS_IRQCHIP` | `pic` keeps the 8259 for legacy lines (default `ioapic`). | `--irqchip` |
 | `LAZYOS_MSI` | `0` keeps every device on INTx. | `--no-msi` |

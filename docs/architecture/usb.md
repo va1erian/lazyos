@@ -20,6 +20,7 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `kernel/src/input/sources.rs`, `rawsys.rs` | Input sources: register/publish/close, kernel-stamped device ids, class checks, a token bucket per slot, release on close and on task death |
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
 | `libs/btusb/`, `libs/btpolicy/`, `user/src/bin/usbd/bt*.rs`, `tools/bt/` | Bluetooth controllers (`LAZYOS_BT=1`, [bluetooth-plan.md](../bluetooth-plan.md) B2): packet framing, the `_bt` uid, the function and its `os.lazy.usb.bt` server, the fake dongle and harness |
+| `libs/bthost/`, `libs/btsdp/`, `libs/bthid/`, `user/src/bin/btd.rs`, `user/src/bin/btd/` | The Bluetooth host (B3): `btd`'s logic and its I/O shell, the SDP client, HIDP and report decoding |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
 | `libs/usbaudio/`, `user/src/bin/usbd/audio*.rs` | USB audio (`LAZYOS_USB_AUDIO=1`, [usb-audio-plan.md](../usb-audio-plan.md)): UAC 1.0/2.0 descriptors, alternate and rate choice, the isochronous OUT ring and explicit feedback, the `os.lazy.usb.audio.v1` server `sndd usb=1` drives; harness `tools/sound/usb_run.py` |
 
@@ -140,11 +141,74 @@ full ring has no room for (bounded, then counted as dropped) and wakes `btd`
 only when it armed the ring, and `btd`'s `Kick` wakes `usbd` the same way, so
 neither polls. Evidence: `USBD:BT:BIND|UNBIND|SERVE|WITHDRAW|ATTACH`.
 
+### `btd`, the host stack (B3)
+
+[bluetooth-plan.md](../bluetooth-plan.md) phase B3. `btd` is a boot service
+(`init`, as `_bt`, `Restart::Always`) that runs the Bluetooth BR/EDR HID host
+against the controller `usbd` serves. Its decisions live in `libs/bthost`, a
+sans-IO state machine (no I/O, no clock, no `unsafe`) built on `bthci` (packets,
+command credits, ACL buffers, the bring-up script), `btl2cap`, `btsdp` (the
+HID record), `bthid` (HIDP framing, report decoding with `usbhid`) and `btbond`.
+The I/O shell, `user/src/bin/btd.rs` and `btd/`, feeds it what arrives (event
+and ACL packets, the time) and carries out what it asks: commands and ACL to the
+rings (`link.rs`), input sources to the kernel (`sources.rs`, syscall 25, the
+same record mapping as `usbd`), the bond file (`disk.rs`, over
+`bthost::store::Fs`) and evidence lines. It sleeps on the transport doorbell
+until `Host::next_deadline`; nothing polls on a timer.
+
+- **Bring-up and the fast path.** `Reset`, buffer sizes, event masks, Secure
+  Simple Pairing and page scan come first (`BT:READY ms=` since boot when the
+  bonded devices can connect), then the cosmetic commands; `BT:CTRL:PASS`
+  follows. The bond file is read before the controller is attached
+  (`BT:BOND:LOAD n=`).
+- **Who may type** (plan decision 6). An unbonded device that pages the host is
+  rejected at the connection request (`BT:REFUSE reason=unbonded`) unless the
+  pairing window names it. A bonded device is admitted; L2CAP then refuses the
+  HID PSMs until the link is authenticated and encrypted with the bond's key
+  (`btl2cap`'s `set_allowed`, `BT:REFUSE reason=psm`). A source is registered
+  only when both HID channels are open on such a link, with the class of the
+  bond's record: a keyboard half only for an authenticated key (type 5, or 8
+  if Secure Connections host support is enabled, which it is not yet), so a
+  Just Works device that presents a keyboard descriptor is refused and its
+  bond dropped (`BT:REFUSE reason=keyboard-unauthenticated`), and a combo
+  device keeps only its pointer. A peer's first L2CAP request can beat the
+  `Encryption_Change` (events and data are different USB endpoints): data from
+  a link that was offered its key is held for up to 500 ms for it, then
+  processed as it is.
+- **Pairing** (harness only until B5). SSP with host IO capability
+  DisplayYesNo: a mouse (NoInputNoOutput) pairs with Just Works, a keyboard
+  (KeyboardOnly) with Passkey Entry, the host showing the passkey (traced only
+  with `trace=1`). Legacy PIN pairing, debug keys and unauthenticated numeric
+  comparison are refused. The record (SDP `ServiceSearchAttribute`, bounded and
+  hostile-safe, with continuation) gives the report descriptor, subclass and
+  `HIDReconnectInitiate`/`HIDNormallyConnectable`; keyboards in report protocol
+  are decoded by `usbhid::report::keyboard` (the boot layout behind a report
+  id), pointers by `usbhid::report`, and a device whose descriptor is not usable
+  is switched to the boot protocol (`SET_PROTOCOL`).
+- **Reconnect.** A device that pages the host is answered from the bond store
+  (`Link_Key_Request`); one that waits to be paged is paged by the host after
+  the fast path, one at a time, five attempts (`BT:RECONNECT:GIVEUP`), and
+  again, three attempts, after a link to it is lost.
+- **Links end cleanly.** On a lost link the decoder releases every held key
+  before the source closes; if `btd` itself dies the kernel releases them.
+- **State.** The bond store is `/btd/bonds` (`fhs::state::BTD_*`), 0600, owned
+  by `_bt`, written to `bonds.new` and renamed. It is a top-level directory
+  because `_bt` is not root and `/conf` is root's alone (0700), the reason the
+  account database has `/accounts`.
+
+Evidence: `BT:BOND:LOAD`, `BT:READY ms=`, `BT:CTRL:PASS`, `BT:CONN`,
+`BT:ENCRYPT`, `BT:PAIR:START|PASSKEY|PASS|FAIL|STALE`, `BT:HID:KBD|MOUSE`,
+`BT:RECONNECT ms=` (link up to first report), `BT:REFUSE reason=`,
+`BT:BOND:SAVE|FORGET`, `BT:CONN:DOWN`, `BT:CTRL:GONE`. Addresses show their last
+two octets; no key is ever printed. A harness build (`LAZYOS_BT_TRACE=1`) adds
+`BT:KEY` (one line per key edge), `BT:REPORT` and the passkey.
+
 QEMU has no Bluetooth emulation, so the harness is `tools/bt/run.py`: QEMU
-with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt` (a host
-program serving a fake dongle over usbredir through a controller model, today
-a stub; `libs/btsim` replaces it). `--unplug` pulls the dongle out after the
-bring-up.
+with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt`, a host
+program serving a fake dongle over usbredir through `libs/btsim`'s controller,
+which also plays a BR/EDR keyboard and mouse that pair, bond, reconnect and
+type on a script. `--unplug` pulls the dongle out after the bring-up; `--pair`,
+`--reboot`, `--refuse` and `--kill` are the HID tests ([tools/bt/README.md](../../tools/bt/README.md)).
 
 ## Security
 

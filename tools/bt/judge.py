@@ -7,7 +7,7 @@ for byte what `tools/bt/fakebt/src/device.rs` serves) and left its isochronous
 interface 1 alone; `btd` ran as `_bt` with the one capability it is meant to
 hold, attached the rings, and brought the controller up through them: the
 version and address in `BT:CTRL:PASS` are the fake controller's answers to
-`HCI_Reset`, `Read_Local_Version` and `Read_BD_ADDR`, which only reached `btd`
+the controller bring-up (`HCI_Reset` through `Read_Local_Version`), which only reached `btd`
 if a command went out as a class request, the event came back on the
 interrupt endpoint and both crossed the rings. The full address must never
 appear in the log (plan decision 9: the last two octets only).
@@ -35,11 +35,8 @@ CONFIG = (
     "010000e00101000904010102e00101000705830109000107050301090001"
 )
 VENDOR, PRODUCT = 0x0A12, 0x0001
-#: What the stub controller reports (`fakebt/src/stub.rs`).
-HCI_VERSION, LMP_VERSION, MANUFACTURER = 9, 9, 0x05F1
-#: Its Read_Local_Name answer: a 254-byte event, sixteen packets of the
-#: events endpoint, so `usbd`'s reassembly is on the path.
-LOCAL_NAME = "LazyOS Fake Controller"
+#: What the simulated controller reports (`libs/btsim`, served by `fakebt`).
+HCI_VERSION, LMP_VERSION, MANUFACTURER = 9, 9, 0xFFFF
 #: `_bt`, and the one capability it holds (`CAP_INPUT_SOURCE`, bit 10).
 BT_UID, BT_CAPS = 916, 1 << 10
 
@@ -51,7 +48,7 @@ BIND = re.compile(
 DESC = re.compile(r"USBD:DESC:(DEVICE|CONFIG) port=(\S+) ([0-9a-f]+)")
 CRED = re.compile(r"BT:CRED uid=(\d+) caps=0x([0-9a-f]+)")
 CTRL = re.compile(
-    r"BT:CTRL:PASS:hci=(\d+) lmp=(\d+) vendor=0x([0-9a-f]+) addr=\*\*:\*\*:\*\*:\*\*:([0-9A-F]{2}):([0-9A-F]{2}) name=(.*)$",
+    r"BT:CTRL:PASS:hci=(\d+) lmp=(\d+) vendor=0x([0-9a-f]+) addr=\*\*:\*\*:\*\*:\*\*:([0-9A-F]{2}):([0-9A-F]{2})$",
     re.MULTILINE,
 )
 DETACH = re.compile(r"USBD:DETACH port=(\S+) slot=\d+ regions=\d+ functions=(\S*)")
@@ -120,11 +117,9 @@ def judge_btd(log: str, address: str) -> list[str]:
     if ctrl is None:
         failures.append("no BT:CTRL:PASS: the controller was not brought up")
         return failures
-    hci, lmp, vendor, tail_high, tail_low, name = ctrl.groups()
+    hci, lmp, vendor, tail_high, tail_low = ctrl.groups()
     if (int(hci), int(lmp), int(vendor, 16)) != (HCI_VERSION, LMP_VERSION, MANUFACTURER):
         failures.append(f"BT:CTRL reports hci={hci} lmp={lmp} vendor=0x{vendor}, not the fake's")
-    if name.strip() != LOCAL_NAME:
-        failures.append(f"BT:CTRL name {name.strip()!r} is not the fake's {LOCAL_NAME!r}")
     octets = address.upper().split(":")
     if [tail_high, tail_low] != octets[-2:]:
         failures.append(f"BT:CTRL address ends {tail_high}:{tail_low}, the fake's is {':'.join(octets[-2:])}")
