@@ -70,6 +70,9 @@ pub(crate) struct Link {
     /// BR/EDR: encryption is on but the controller has not yet said how many
     /// octets of key it uses (KNOB), so the HID PSMs stay closed.
     pub key_size_pending: bool,
+    /// A repeat `Encryption_Change` asked for the key size again on a link
+    /// that is already up: a short answer drops it, a good one changes nothing.
+    pub key_size_recheck: bool,
     /// The host answered the peer's link key request with the bond's key.
     pub key_offered: bool,
     /// ACL fragments held until the link is encrypted (see [`DEFER_MS`]).
@@ -109,6 +112,7 @@ impl Link {
             authenticated: false,
             encrypted: false,
             key_size_pending: false,
+            key_size_recheck: false,
             key_offered: false,
             deferred: Vec::new(),
             deferred_bytes: 0,
@@ -136,7 +140,9 @@ impl Link {
             self.auth_at,
             self.encrypt_at,
             self.open_at,
-            self.defer_until,
+            // While the key size is pending the setup deadline bounds the
+            // wait; a due replay time would only spin the host.
+            self.defer_until.filter(|_| !self.key_size_pending),
             self.le.as_ref().and_then(|le| le.deadline()),
         ]
         .into_iter()

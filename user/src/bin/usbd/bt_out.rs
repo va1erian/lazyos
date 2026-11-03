@@ -16,7 +16,7 @@ use btusb::Outbound;
 use user::messenger::usb_bt::wire;
 
 use super::bt::BtFn;
-use super::device::Device;
+use super::device::{Device, DATA_BYTES};
 use super::hc::Hc;
 use super::pipe::Pipe;
 
@@ -85,6 +85,12 @@ impl BtFn {
             };
             let stats = &mut sink.stats;
             match btusb::outbound(&scratch[..len]) {
+                Ok(Outbound::Command(packet)) if packet.len() > DATA_BYTES => {
+                    // Never reaches endpoint 0, so it says nothing about
+                    // whether endpoint 0 answers: refused, not an EP0 failure
+                    // (which would give the device up).
+                    stats.refused += 1;
+                }
                 Ok(Outbound::Command(packet)) => {
                     let setup = SetupPacket {
                         request_type: 0x20,

@@ -45,6 +45,12 @@ pub struct SimConfig {
     /// Encryption key size `Read_Encryption_Key_Size` reports for a BR/EDR
     /// link (16 for Secure Simple Pairing; less models a KNOB downgrade).
     pub br_key_size: u8,
+    /// The `Read_Encryption_Key_Size` answer comes this much later than a
+    /// command normally completes (a slow controller).
+    pub br_key_size_delay_ms: u64,
+    /// `Read_Encryption_Key_Size` is an unknown command (Command Status with
+    /// status 0x01), as on a controller older than Bluetooth 4.0.
+    pub br_key_size_unknown: bool,
 }
 
 impl Default for SimConfig {
@@ -63,6 +69,8 @@ impl Default for SimConfig {
             extended_inquiry: true,
             passkey_delay_ms: 0,
             br_key_size: 16,
+            br_key_size_delay_ms: 0,
+            br_key_size_unknown: false,
         }
     }
 }

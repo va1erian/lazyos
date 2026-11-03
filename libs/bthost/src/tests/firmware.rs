@@ -11,7 +11,7 @@ use btsim::{Part, RadioFaults};
 
 use super::fw_images::{intel_body, real, realtek_patch};
 use super::fw_rig::{intel_files, FwRig};
-use crate::{Config, Effect, Host, UsbIds, MAX_REENUMERATIONS};
+use crate::{Config, Effect, FailKind, Host, UsbIds, MAX_REENUMERATIONS};
 
 #[test]
 fn an_intel_bootloader_part_gets_its_firmware_before_init_runs() {
@@ -181,9 +181,20 @@ fn a_part_that_keeps_resetting_stops_at_the_cap() {
     rig.up();
     assert_eq!(rig.count("FW:REENUM"), MAX_REENUMERATIONS as usize);
     // The host that gave up could not stop the part leaving; the next one
-    // touches nothing, so the loop ends and the count starts afresh.
+    // touches nothing, so the loop ends. The count stays above the cap: only
+    // a successful bring-up clears it, or the next host would download again.
     assert_eq!(rig.count("FW:FAIL reason=reenumeration-cap"), 2);
-    assert_eq!(rig.host.firmware_attempts(), 0);
+    assert!(rig.host.firmware_attempts() > MAX_REENUMERATIONS);
+    assert_eq!(rig.host.failure_kind(), Some(FailKind::BringUp));
+    let next = Host::new_for(
+        Config::default(),
+        BondStore::new(),
+        0,
+        rig.ids,
+        rig.host.firmware_attempts(),
+    );
+    assert!(next.is_failed(), "a later host still touches nothing");
+    assert!(next.firmware_attempts() > MAX_REENUMERATIONS);
     assert!(
         rig.seen("FW:FAIL reason=reenumeration-cap"),
         "{:?}",

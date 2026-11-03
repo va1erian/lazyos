@@ -114,7 +114,7 @@ impl Host {
             })
             .map(|b| b.addr)
             .collect();
-        for addr in waiting {
+        for addr in waiting.into_iter().filter(|_| !self.key_size_unsupported) {
             self.pager.add(Job {
                 addr,
                 pairing: false,
@@ -142,7 +142,7 @@ impl Host {
         let waits = self.store.find(addr, AddrKind::BrEdr).is_some_and(|b| {
             !b.report_descriptor.is_empty() && b.hid_flags & hid_flag::RECONNECT_INITIATE == 0
         });
-        if waits && self.init.is_armed() {
+        if waits && self.init.is_armed() && !self.key_size_unsupported {
             self.pager.add(Job {
                 addr,
                 pairing: false,
@@ -167,7 +167,12 @@ impl Host {
         }
         // A job whose device has connected by itself is done.
         let linked: Vec<BdAddr> = self.links.iter().map(|l| l.addr).collect();
-        self.pager.jobs.retain(|j| !linked.contains(&j.addr));
+        // A controller that cannot tell the key size refuses every reconnect
+        // (`knob.rs`): paging those devices again would only repeat that.
+        let no_reconnects = self.key_size_unsupported;
+        self.pager
+            .jobs
+            .retain(|j| !linked.contains(&j.addr) && (j.pairing || !no_reconnects));
         let due = self.pager.jobs.iter().position(|j| j.next_at <= now);
         let Some(index) = due else { return };
         let job = self.pager.jobs[index].clone();
@@ -202,7 +207,7 @@ impl Host {
         self.le_command_refused(now, op);
         self.ctl_command_refused(now, op);
         if op == opcode::READ_ENCRYPTION_KEY_SIZE {
-            self.key_size_unavailable();
+            self.key_size_unavailable(code);
         }
         if op != opcode::CREATE_CONNECTION {
             return;

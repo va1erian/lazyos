@@ -270,9 +270,20 @@ impl Host {
             // be trusted any more.
             self.links[idx].encrypted = false;
             self.links[idx].key_size_pending = false;
+            self.links[idx].key_size_recheck = false;
             self.l2.set_allowed(handle, &[]);
             self.release_hid(handle);
             self.disconnect(handle, status::AUTHENTICATION_FAILURE);
+            return;
+        }
+        if self.links[idx].encrypted {
+            // A repeat (the key was refreshed): the link is already gated
+            // or waiting on its answer. Setup is not run again and live
+            // input is not held; the size is only checked once more.
+            if !self.links[idx].key_size_pending {
+                self.links[idx].key_size_recheck = true;
+                self.cmd(Command::ReadEncryptionKeySize { handle });
+            }
             return;
         }
         // Encryption on a BR/EDR link implies authentication: the keys derive
@@ -324,7 +335,10 @@ impl Host {
                 }
                 continue;
             }
-            if link.defer_until.is_some_and(|t| t <= now) {
+            // While the key size is pending the answer replays the data (and
+            // the setup deadline bounds the wait): replaying now would refuse
+            // the peer's connect and kill the link.
+            if !link.key_size_pending && link.defer_until.is_some_and(|t| t <= now) {
                 // No encryption came: the data is processed unencrypted.
                 self.replay_deferred(now, handle);
                 continue;

@@ -207,6 +207,11 @@ impl Host {
         let Some(fresh) = self.links[idx].le.as_mut().and_then(|le| le.fresh.take()) else {
             return;
         };
+        if self.links[idx].closing {
+            // The link is already being dropped (a cancelled pairing): the
+            // bond it would have made is never made.
+            return;
+        }
         let plan = Plan::new(&service.report_map, boot_subclass(&service));
         let Some(plan) = plan else {
             self.refuse("no-hid-descriptor", addr);

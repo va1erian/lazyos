@@ -29,8 +29,12 @@ pub(super) enum Failure {
     Broken(&'static str),
     /// The host stack gave up on the controller (`Effect::Failed`): a lost
     /// command completion or a failed bring-up. The controller itself is
-    /// still there.
+    /// still there. A start-over may help.
     HostFailed,
+    /// Bring-up or firmware failed (or hit the re-enumeration cap). A new host
+    /// would do the same, so the controller is left alone until `usbd`
+    /// withdraws it.
+    BringUpFailed,
 }
 
 /// What one frame from the controller is.

@@ -26,6 +26,7 @@ use crate::config::Config;
 use crate::ctl::Ctl;
 use crate::effect::Effect;
 use crate::firmware::Firmware;
+pub use crate::host_types::{FailKind, Stats};
 use crate::le::LeState;
 use crate::link::{Link, MAX_LINKS};
 use crate::paging::Pager;
@@ -35,19 +36,6 @@ pub const MAX_ACL_QUEUE: usize = 512;
 /// The ACL payload size assumed before `Read_Buffer_Size` has answered (the
 /// smallest an LE-capable controller may report).
 const DEFAULT_ACL_LEN: usize = 27;
-
-/// Counters for what the host refused or dropped, for tests and `dbgd`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Stats {
-    /// Packets that did not parse.
-    pub malformed: u32,
-    /// Connections and channels refused by policy.
-    pub refused: u32,
-    /// Reports dropped because the link was not a registered device.
-    pub dropped_reports: u32,
-    /// Commands or ACL fragments dropped because a queue was full.
-    pub overflow: u32,
-}
 
 pub struct Host {
     pub(crate) cfg: Config,
@@ -73,6 +61,10 @@ pub struct Host {
     pub(crate) clock: u64,
     pub(crate) ctrl_reported: bool,
     failed: bool,
+    /// The controller does not implement `Read_Encryption_Key_Size`, so no
+    /// BR/EDR link can pass the KNOB gate (`knob.rs`).
+    pub(crate) key_size_unsupported: bool,
+    fail_kind: Option<FailKind>,
     /// The firmware phase while it runs (`firmware.rs`), and the
     /// re-enumerations this bring-up has been through so far.
     pub(crate) fw: Option<Firmware>,
@@ -126,6 +118,8 @@ impl Host {
             clock: now,
             ctrl_reported: false,
             failed: false,
+            key_size_unsupported: false,
+            fail_kind: None,
             fw: None,
             fw_reenumerations: 0,
         }
@@ -237,6 +231,11 @@ impl Host {
         self.failed
     }
 
+    /// Why the host failed, once it did (see [`FailKind`]).
+    pub fn failure_kind(&self) -> Option<FailKind> {
+        self.fail_kind
+    }
+
     pub fn poll_effect(&mut self) -> Option<Effect> {
         self.effects.pop_front()
     }
@@ -318,6 +317,14 @@ impl Host {
     pub(crate) fn fail(&mut self, why: alloc::string::String) {
         if !self.failed {
             self.failed = true;
+            // A controller that never finished bring-up (firmware, the
+            // re-enumeration cap, the init sequence) will fail the same way
+            // again; one that did is worth a bounded retry.
+            self.fail_kind = Some(if self.ctrl_reported {
+                FailKind::Runtime
+            } else {
+                FailKind::BringUp
+            });
             self.effects.push_back(Effect::Failed(why));
         }
     }

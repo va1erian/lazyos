@@ -65,8 +65,8 @@ use sources::Sources;
 /// watch to park on instead). This is the one remaining timed look.
 const WAIT_TICKS: u64 = 100;
 /// Starts over (a new `Host`, a fresh attachment) this many times in a row
-/// after a link or host failure, then exits non-zero so `init` restarts `btd`
-/// with its own back-off.
+/// after a link or runtime host failure, then idles until `usbd` withdraws the
+/// controller. It never exits for that: `init` would restart `btd` forever.
 const MAX_RESTARTS: u32 = 3;
 /// Ticks (100 Hz) of back-off before the first start-over, then doubled.
 const RESTART_TICKS: u64 = 50;
@@ -287,9 +287,12 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources, api: &mut Api) -
             Err(failure) => return failure,
         }
         if !alive {
-            // The host gave up (a command never completed): carry on and it
-            // would never recover, so the caller starts over.
-            return Failure::HostFailed;
+            // The host gave up. A controller that never came up fails the
+            // same way again; one that worked may recover with a start-over.
+            return match host.failure_kind() {
+                Some(bthost::FailKind::Runtime) => Failure::HostFailed,
+                _ => Failure::BringUpFailed,
+            };
         }
         if let Err(failure) = link.flush() {
             return failure;
@@ -308,6 +311,25 @@ fn run(host: &mut Host, link: &mut Link, sources: &mut Sources, api: &mut Api) -
             return failure;
         }
     }
+}
+
+/// Whether to start over after `failure`: only for a transport or runtime
+/// failure of a controller that worked, and only `MAX_RESTARTS` times in a
+/// row (a link that lasted `HEALTHY_MS` starts the count over). Counts the
+/// start-over it grants in `restarts`.
+fn restart_wanted(failure: &Failure, restarts: &mut u32, started: u64) -> bool {
+    if matches!(failure, Failure::Gone | Failure::BringUpFailed) {
+        return false;
+    }
+    if sys::monotonic_ms().saturating_sub(started) >= HEALTHY_MS {
+        *restarts = 0;
+    }
+    if *restarts >= MAX_RESTARTS {
+        trace::fail!(Channel::Bt, "LINK", "giving up after {restarts} restarts");
+        return false;
+    }
+    *restarts += 1;
+    true
 }
 
 #[no_mangle]
@@ -338,26 +360,26 @@ pub extern "C" fn _start() -> ! {
             Failure::Gone => trace::line!(Channel::Bt, "CTRL:GONE the controller was unplugged"),
             Failure::Broken(why) => trace::fail!(Channel::Bt, "LINK", "{why}"),
             Failure::HostFailed => trace::line!(Channel::Bt, "CTRL:RESTART the host gave up"),
+            Failure::BringUpFailed => {
+                trace::line!(
+                    Channel::Bt,
+                    "CTRL:IDLE bring-up failed, leaving the controller"
+                )
+            }
         }
         let attached_to = link.object();
         link.close();
-        if !matches!(failure, Failure::Gone) {
-            // The controller is still there: detach (above), back off and
-            // attach to a new host; `usbd` keeps the name. Bounded, then
-            // exit so `init` restarts the whole service.
-            if sys::monotonic_ms().saturating_sub(started) >= HEALTHY_MS {
-                restarts = 0;
-            }
-            if restarts >= MAX_RESTARTS {
-                trace::fail!(Channel::Bt, "LINK", "giving up after {restarts} restarts");
-                sys::exit(1);
-            }
-            api.idle(RESTART_TICKS << restarts);
-            restarts += 1;
+        if restart_wanted(&failure, &mut restarts, started) {
+            // The controller is still there and a start-over may help:
+            // detach (above), back off and attach to a new host; `usbd` keeps
+            // the name. The count lives here, across attachments.
+            api.idle(RESTART_TICKS << (restarts - 1));
             continue;
         }
-        // A controller that fails at once every time must not spin: wait for
-        // `usbd` to withdraw it before looking again. A controller that left
+        // Gone, a controller that cannot come up, or one that failed
+        // `MAX_RESTARTS` times in a row: never exit (`init` would restart
+        // `btd` forever, resetting the controller each time) and never
+        // spin. Wait for `usbd` to withdraw the name; a controller that left
         // and came back within one look is a new registration, which also
         // ends the wait.
         while attached_to.is_some() && link::transport_object() == attached_to {

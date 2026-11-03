@@ -251,8 +251,15 @@ impl Host {
         let Some(addr) = state.addr.filter(|_| state.phase.active()) else {
             return;
         };
+        // A device that already revealed its identity is on a link that
+        // carries the identity address, not the one the caller named. (Read
+        // before `ctl_failed`, which forgets the alias.)
+        let alias = self.ctl.identity_alias;
         self.ctl_failed(addr, FailReason::Cancelled);
-        if let Some(idx) = self.link_idx_by_addr(addr) {
+        let found = self
+            .link_idx_by_addr(addr)
+            .or_else(|| alias.and_then(|a| self.link_idx_by_addr(a)));
+        if let Some(idx) = found {
             let link = &self.links[idx];
             if link.hid.is_none() {
                 let handle = link.handle;

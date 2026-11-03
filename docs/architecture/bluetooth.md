@@ -81,8 +81,9 @@ pairing, more than one controller, a keyboard before the kernel's drivers run
    (`Done::Reenumerate`): `usbd` withdraws and re-registers `os.lazy.usb.bt`
    and `btd` tells the registrations apart by their kernel object and restarts
    from `HCI_Reset`. Re-enumerations are counted in `btd`'s memory; after
-   three, `BT:FW:FAIL reason=reenumeration-cap` and it touches nothing until
-   the radio is replugged.
+   three, `BT:FW:FAIL reason=reenumeration-cap` and it touches nothing: the
+   count stays over the cap in `btd`'s memory (only a `CTRL:PASS` clears it),
+   so no later host downloads again, and `btd` idles instead of exiting.
 6. **The fast path.** `Reset`, buffer sizes, event masks, Secure Simple
    Pairing, page scan and an LE accept-list auto-connect for the bonded
    devices come first; then `BT:READY ms=`. The local name, the full feature
@@ -172,7 +173,7 @@ mode 0700 owned by `_bt`, the same reason the account database has
 | A bonded address grants nothing without the bond's key on an encrypted link: the HID PSMs are refused until then | `libs/btl2cap` `set_allowed` driven by `bthost/chan.rs` (`reason=psm`) |
 | LE ATT is read only on an encrypted link, ATT held across the start of encryption is dropped, a notification counts only after the host's own CCCD write was answered | `bthost/le_gatt.rs` (`att-unencrypted`, `notification-unsolicited`) |
 | SMP data that races `Encryption_Change` is replayed after it; a peer's early L2CAP request is held up to 500 ms for the event, then handled | `bthost/le_sec.rs`, `bthost/link.rs` (`ENCRYPT_GRACE_MS`, `DEFER_MS`) |
-| A BR/EDR link opens no HID PSM until `Read_Encryption_Key_Size` answers 16 (KNOB, CVE-2019-9506); a shorter key is refused and dropped, its fresh bond with it | `bthost/knob.rs` (`BT:REFUSE reason=key-size`) |
+| A BR/EDR link opens no HID PSM until `Read_Encryption_Key_Size` answers 16 (KNOB, CVE-2019-9506); a shorter key is refused and dropped, its fresh bond with it | `bthost/knob.rs` (`BT:REFUSE reason=key-size octets=N`; a controller that refuses the command or answers unreadably: `reason=key-size-unsupported`, and the pager stops paging reconnects once it learned the command is unknown) |
 | A keyboard needs an authenticated key | `bthost/chan.rs`, `bthost/le_gatt.rs` |
 | Hostile input is bounded: 8 links, bounded deferred data, reassembly, discovery results (32), pending commands, ACL queue; hostile parsers are fuzzed | `bthost/link.rs`, `libs/bt*` parsers, `fuzz/fuzz_targets/bt*.rs` |
 | Keys never leave `btd`: no interface returns one, no trace carries one, `Debug` hides them | `btbond`, `btd/api.rs`, `user::trace` |
@@ -207,10 +208,16 @@ second. Roughly 160 ms of what is left is the USB reset and debounce.
   (`WAIT_TICKS` in `btd.rs`), the one remaining timed look besides deadlines,
   a 10 ms retry while the command ring is full and the back-off below.
   Messenger has no registry watch to park on instead.
-- **Failures are recovered, bounded.** A host that gave up (`Effect::Failed`,
-  e.g. a lost Command Complete) or a broken ring makes `btd` detach, back off
-  (0.5 s, 1 s, 2 s) and attach a new `Host` (`BT:CTRL:RESTART`); after three
-  in a row without a healthy minute it exits non-zero and `init` restarts it.
+- **Failures are recovered, bounded.** A host that gave up after a working
+  bring-up (`Effect::Failed`, `Host::failure_kind() == Runtime`, e.g. a lost
+  Command Complete) or a broken ring makes `btd` detach, back off (0.5 s,
+  1 s, 2 s) and attach a new `Host` (`BT:CTRL:RESTART`). A bring-up or
+  firmware failure (`FailKind::BringUp`, including the re-enumeration cap)
+  is terminal (`BT:CTRL:IDLE`): the same controller would fail the same way.
+  After three runtime failures in a row without a healthy minute, or a
+  terminal one, `btd` idles until `usbd` withdraws the name. It never exits
+  for this: `init` would restart it forever, resetting the controller each
+  time.
   `usbd` keeps events when its backlog is full by evicting the oldest ACL
   frame, sends an HCI command with a 1 s limit, ends the pass on the first
   command endpoint 0 does not take, and detaches a controller whose endpoint 0

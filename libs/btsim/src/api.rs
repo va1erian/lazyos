@@ -131,6 +131,16 @@ impl SimController {
         self.cfg.br_key_size = size;
     }
 
+    /// The key size answer comes `ms` later than other command completions.
+    pub fn set_br_key_size_delay(&mut self, ms: u64) {
+        self.cfg.br_key_size_delay_ms = ms;
+    }
+
+    /// `Read_Encryption_Key_Size` becomes an unknown command (or not).
+    pub fn set_br_key_size_unknown(&mut self, unknown: bool) {
+        self.cfg.br_key_size_unknown = unknown;
+    }
+
     /// The link drops without the host asking (out of range, battery out):
     /// the host sees a Disconnection Complete with `reason`.
     pub fn drop_link(&mut self, id: PeerId, now_ms: u64, reason: u8) {

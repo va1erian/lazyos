@@ -227,16 +227,23 @@ impl SimController {
                 // No peer asks the host to type a passkey.
                 self.complete_with_addr(op, status::COMMAND_DISALLOWED, addr);
             }
+            ReadEncryptionKeySize { .. } if self.cfg.br_key_size_unknown => {
+                self.status(op, status::UNKNOWN_COMMAND)
+            }
             ReadEncryptionKeySize { handle } => {
                 let known = self.conn_index(handle).is_some();
-                self.complete(
-                    op,
-                    ret::encode_encryption_key_size(ret::EncryptionKeySize {
-                        status: if known { 0 } else { status::UNKNOWN_CONNECTION },
-                        handle,
-                        key_size: if known { self.cfg.br_key_size } else { 0 },
-                    }),
-                );
+                let rp = ret::encode_encryption_key_size(ret::EncryptionKeySize {
+                    status: if known { 0 } else { status::UNKNOWN_CONNECTION },
+                    handle,
+                    key_size: if known { self.cfg.br_key_size } else { 0 },
+                });
+                let ev = Event::CommandComplete {
+                    num_commands: 1,
+                    opcode: op,
+                    return_params: rp,
+                };
+                let d = self.latency(op) + self.cfg.br_key_size_delay_ms;
+                self.after(d, Task::Emit(ev));
             }
             Disconnect { handle, reason: _ } => {
                 if self.conn_index(handle).is_none() {

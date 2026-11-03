@@ -76,3 +76,26 @@ fn a_refused_rpa_pairing_is_reported_failed_not_left_to_time_out() {
     assert_eq!(last.reason, FailReason::Unsupported);
     assert!(rig.host.store().iter().next().is_none());
 }
+
+#[test]
+fn cancelling_after_the_identity_is_known_stops_the_pairing() {
+    let mut rig = rpa_rig();
+    rig.host.start_discovery(rig.now, 5).unwrap();
+    rig.run_for(1_500);
+    let rpa = rpa_of(&rig);
+    rig.host.pair(rig.now, rpa).unwrap();
+    // Step until the device has revealed its identity: the link is renamed.
+    for _ in 0..10_000 {
+        if rig.host.ctl.identity_alias.is_some() {
+            break;
+        }
+        rig.run_for(1);
+    }
+    assert!(rig.host.ctl.identity_alias.is_some(), "{:?}", rig.traces);
+    assert!(rig.host.store().iter().next().is_none(), "not bonded yet");
+    rig.host.cancel_pairing(rig.now);
+    rig.run_for(10_000);
+    assert!(rig.host.store().iter().next().is_none(), "{:?}", rig.traces);
+    assert!(!rig.host.is_typing(addr(LE_MOUSE)));
+    assert_eq!(rig.host.link_count(), 0);
+}

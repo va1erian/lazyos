@@ -23,6 +23,8 @@ fn a_dropped_command_complete_fails_the_host_within_the_timeout() {
     }
     assert_eq!(failures, 1, "Effect::Failed, once");
     assert!(host.is_failed());
+    // Never got through bring-up: a new host would fail the same way.
+    assert_eq!(host.failure_kind(), Some(crate::FailKind::BringUp));
 
     // Inert: no deadline, no packets, late input is ignored, no second Failed.
     assert_eq!(host.next_deadline(), None);

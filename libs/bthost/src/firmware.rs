@@ -125,9 +125,8 @@ impl Host {
         if reenumerations > MAX_REENUMERATIONS {
             // The last host already gave up and the controller left anyway:
             // touch nothing (a reset would only start the loop again). The
-            // count restarts, so unplugging the controller and plugging it
-            // back in gets a fresh set of attempts.
-            host.fw_reenumerations = 0;
+            // count stays above the cap, so every later host does the same;
+            // only a successful bring-up (`CTRL:PASS`) clears it.
             host.note(format!(
                 "FW:FAIL reason=reenumeration-cap attempts={reenumerations} ms=0"
             ));
