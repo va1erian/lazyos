@@ -25,6 +25,7 @@ two peers; `usbd` binds the controller's interface 0 and serves it as
     python tools/bt/run.py --fw intel         # B7: an Intel radio in its bootloader: btd downloads the firmware, then pairs
     python tools/bt/run.py --fw intel-recovery  # ... whose first image is rejected: recovery reset, re-enumeration, success
     python tools/bt/run.py --fw intel-tlv     # ... an AX211 (TLV version answer, both signature blocks)
+    python tools/bt/run.py --fw intel-reboot   # ... that leaves the bus with the boot reset and returns running the image
     python tools/bt/run.py --fw realtek       # ... a Realtek ROM that takes a patch
     python tools/bt/run.py --no-build         # reuse target/lazyos.img
     python tools/bt/run.py --accel none       # force TCG

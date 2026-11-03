@@ -16,6 +16,8 @@ USB ids, reads the file the part's own version answer names through
 * `intel-recovery`: an AX201 whose bootloader rejects the first image: `btd`
   sends the recovery reset, the dongle leaves the USB bus and returns, and
   the second attempt succeeds (`BT:FW:REENUM attempt=1`).
+* `intel-reboot`: an AX201 that leaves the bus with the reset that boots the
+  image and returns running it (`BT:FW:REENUM attempt=1`, then nothing to load).
 * `realtek`: an RTL8822C (`0bda:c822`): `rtl8822cu_fw.bin`.
 """
 
@@ -27,19 +29,35 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import modes  # noqa: E402
 
-#: kind -> (`fakebt` radio arguments, what the judge expects).
+SFI, DDC = "intel/ibt-19-0-4.sfi", "intel/ibt-19-0-4.ddc"
+RTL, RTL_CONFIG = "rtl_bt/rtl8822cu_fw.bin", "rtl_bt/rtl8822cu_config.bin"
+
+#: kind -> (`fakebt` radio arguments, what the judge expects): the vendor and
+#: USB ids `btd` names, the files it asks for in order, those among them the
+#: image does not carry (optional ones), the re-enumerations, and whether the
+#: last attempt downloaded.
 KINDS: dict[str, tuple[list[str], dict]] = {
     "intel": (["--radio", "intel-ax201"],
-              {"vendor": "intel", "usb": "8087:0026", "files": ["intel/ibt-19-0-4.sfi", "intel/ibt-19-0-4.ddc"],
-               "reenum": 0}),
+              {"vendor": "intel", "usb": "8087:0026", "asked": [SFI, DDC], "absent": [], "reenum": 0,
+               "downloaded": "1"}),
     "intel-tlv": (["--radio", "intel-ax211"],
-                  {"vendor": "intel", "usb": "8087:0033", "files": ["intel/ibt-0040-0041.sfi", "intel/ibt-0040-0041.ddc"],
-                   "reenum": 0}),
+                  {"vendor": "intel", "usb": "8087:0033",
+                   "asked": ["intel/ibt-0040-0041.sfi", "intel/ibt-0040-0041.ddc"], "absent": [], "reenum": 0,
+                   "downloaded": "1"}),
+    # The first image is rejected: the recovery reset, the part leaves and
+    # returns in its bootloader, and the second download succeeds.
     "intel-recovery": (["--radio", "intel-ax201", "--fw-reject", "1"],
-                       {"vendor": "intel", "usb": "8087:0026",
-                        "files": ["intel/ibt-19-0-4.sfi", "intel/ibt-19-0-4.ddc"], "reenum": 1}),
+                       {"vendor": "intel", "usb": "8087:0026", "asked": [SFI, SFI, DDC], "absent": [],
+                        "reenum": 1, "downloaded": "1"}),
+    # The reset that boots the image takes the part off the bus; it returns
+    # running the image, so the second attempt finds nothing to download.
+    "intel-reboot": (["--radio", "intel-ax201", "--fw-reboot"],
+                     {"vendor": "intel", "usb": "8087:0026", "asked": [SFI], "absent": [], "reenum": 1,
+                      "downloaded": "0"}),
+    # linux-firmware has no board configuration file for this chip.
     "realtek": (["--radio", "rtl8822cu"],
-                {"vendor": "realtek", "usb": "0bda:c822", "files": ["rtl_bt/rtl8822cu_fw.bin"], "reenum": 0}),
+                {"vendor": "realtek", "usb": "0bda:c822", "asked": [RTL, RTL_CONFIG], "absent": [RTL_CONFIG],
+                 "reenum": 0, "downloaded": "1"}),
 }
 
 

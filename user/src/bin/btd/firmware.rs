@@ -13,6 +13,9 @@ use user::trace::{self, Channel};
 /// (capped by the host) reads the file again each time.
 const MAX_BYTES: usize = 2 << 20;
 
+/// No such file.
+const ENOENT: i64 = 2;
+
 struct Files;
 
 impl fwload::Reader for Files {
@@ -29,10 +32,14 @@ impl fwload::Reader for Files {
 }
 
 /// The file `name`, or `None` (with the reason on the console) if it cannot
-/// be loaded. A missing optional file is the loader's business, not an error.
+/// be loaded. A missing file is the loader's business (an optional one is
+/// normal), so only other failures are reported here.
 pub(super) fn read(name: &str) -> Option<Vec<u8>> {
     match fwload::load(&mut Files, name, MAX_BYTES) {
         Ok(bytes) => Some(bytes),
+        // Absent files are common (an optional configuration): the host's own
+        // `FW:FILE name= missing=1` line says so.
+        Err(fwload::Error::Io(ENOENT)) => None,
         Err(why) => {
             trace::line!(Channel::Bt, "FW:READ name={name} error={why}");
             None

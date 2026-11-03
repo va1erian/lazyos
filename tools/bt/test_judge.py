@@ -436,5 +436,7 @@ class LeJudge(unittest.TestCase):
         self.assertFails(le.judge_refuse(LE_REFUSE + "INPUTD:KEY code=0x4 sym=0x61 mods=0x40 down\n"), "inputd saw")
 
 
+from test_judge_fw import FwJudge  # noqa: E402,F401  (the firmware judge's tests run with these)
+
 if __name__ == "__main__":
     unittest.main()

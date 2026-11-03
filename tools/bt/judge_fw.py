@@ -55,28 +55,30 @@ def judge_phase(log: str, expect: dict) -> list[str]:
     reenums = [int(n) for n in REENUM.findall(log)]
     if reenums != list(range(1, expect["reenum"] + 1)):
         failures.append(f"BT:FW:REENUM attempts {reenums}, want {expect['reenum']} of them")
-    failures += judge_files(log, expect["files"], attempts)
+    failures += judge_files(log, expect["asked"], expect["absent"])
     done = DONE.findall(log)
     if len(done) != 1:
         failures.append(f"{len(done)} BT:FW:DONE lines, want exactly one")
-    elif done[0][0] != expect["vendor"] or done[0][1] != "1":
-        failures.append(f"BT:FW:DONE {done[0]}: the last attempt should have downloaded")
+    elif done[0][0] != expect["vendor"] or done[0][1] != expect["downloaded"]:
+        failures.append(f"BT:FW:DONE {done[0]}: downloaded should be {expect['downloaded']}")
     failures += judge_order(log)
     return failures
 
 
-def judge_files(log: str, names: list[str], attempts: int) -> list[str]:
-    """Every file the part asked for was found and read, each time."""
+def judge_files(log: str, want: list[str], absent: list[str]) -> list[str]:
+    """The files the part asked for, in order, were found and read, except the
+    optional ones the image does not carry."""
     failures = []
     asked = [name for name, _ in FILE_ASK.findall(log)]
-    if asked != names * attempts:
-        failures.append(f"files asked for {asked}, want {names * attempts}")
+    if asked != want:
+        failures.append(f"files asked for {asked}, want {want}")
     got = {name: int(size) for name, size in FILE_GOT.findall(log)}
-    for name in names:
-        if got.get(name, 0) <= 0:
+    for name in want:
+        if name not in absent and got.get(name, 0) <= 0:
             failures.append(f"{name} was not read from the firmware tree")
-    if "missing=1" in log:
-        failures.append("a firmware file was reported missing")
+    for name in re.findall(r"BT:FW:FILE name=(\S+) missing=1", log):
+        if name not in absent:
+            failures.append(f"{name} was reported missing")
     return failures
 
 
