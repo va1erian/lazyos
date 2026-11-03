@@ -12,8 +12,8 @@ use std::path::PathBuf;
 
 use bthci::BdAddr;
 use btsim::{
-    BrPeer, Controller, HciIn, LePeer, PasskeyBehavior, PeerId, ReconnectStyle, SimConfig,
-    SimController,
+    BrPeer, Controller, HciIn, LePeer, Part, PasskeyBehavior, PeerId, RadioFaults, ReconnectStyle,
+    SimConfig, SimController,
 };
 
 use crate::script::{Action, Base, Step};
@@ -35,6 +35,9 @@ pub struct Options {
     pub state: Option<PathBuf>,
     pub steps: Vec<Step>,
     pub le: LeOptions,
+    /// A vendor radio that needs firmware (`--radio`), instead of a generic
+    /// controller, and what goes wrong with it.
+    pub radio: Option<(Part, RadioFaults)>,
 }
 
 /// The LE peers (docs/bluetooth-plan.md B4). An LE keyboard or mouse takes
@@ -111,6 +114,9 @@ impl World {
             bd_addr: BdAddr::from_msb(options.address),
             ..SimConfig::default()
         });
+        if let Some((part, faults)) = options.radio {
+            sim.set_radio(part, faults);
+        }
         let stored = options.state.as_ref().map(read_state).unwrap_or_default();
         let add = |sim: &mut SimController, mut peer: BrPeer, waits: bool| {
             let remembered = stored
@@ -322,6 +328,10 @@ impl Controller for World {
         self.note_hid(now_ms);
         self.persist();
         packet
+    }
+
+    fn take_detach(&mut self, now_ms: u64) -> Option<u64> {
+        self.sim.take_detach(now_ms)
     }
 }
 

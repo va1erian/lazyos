@@ -82,6 +82,20 @@ class NetTests(unittest.TestCase):
         self.assertEqual(self.builds[-1].get("LAZYOS_NETD"), "1")
         self.assertIn("virtio-net-pci,netdev=n0", command)
 
+    def test_bt_fetches_the_controller_firmware(self) -> None:
+        with mock.patch.object(run_demo, "build_bt_firmware", return_value=True) as firmware,                 mock.patch("btdemo.start", return_value=(None, [])):
+            code, _ = self.run_net("--bt")
+        self.assertEqual(code, 0)
+        firmware.assert_called_once()
+        self.assertEqual(self.builds[-1].get("LAZYOS_BT"), "1")
+        self.assertEqual(self.builds[-1].get("LAZYOS_USB"), "1")
+
+    def test_bt_stops_when_the_firmware_is_unavailable(self) -> None:
+        with mock.patch.object(run_demo, "build_bt_firmware", return_value=False):
+            code, command = self.run_net("--bt")
+        self.assertEqual(code, 1)
+        self.assertEqual(command, [])
+
     def test_wifi_stops_when_the_firmware_is_unavailable(self) -> None:
         with mock.patch.object(run_demo, "build_wifi", return_value=False):
             code, command = self.run_net("--wifi")

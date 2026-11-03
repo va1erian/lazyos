@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 bthci = { path = "../bthci" }
+btfw = { path = "../btfw" }
 btl2cap = { path = "../btl2cap" }
 btgatt = { path = "../btgatt" }
 btsmp = { path = "../btsmp" }

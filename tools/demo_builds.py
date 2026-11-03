@@ -215,6 +215,13 @@ def build_wifi() -> bool:
     return required("the Wi-Fi firmware", "firmware/fetch.py", ("--switch", "wifi"))
 
 
+def build_bt_firmware() -> bool:
+    """The Bluetooth controller firmware (`--bt`, docs/bluetooth-plan.md B7):
+    `tools/firmware/fetch.py` downloads the pinned Intel and Realtek files into
+    `target/firmware` (cached once verified); `btd` loads them at run time."""
+    return required("the Bluetooth firmware", "firmware/fetch.py", ("--switch", "bt"))
+
+
 #: LazySky's client binary (`tools/xui/build.py` builds it with the other apps).
 LAZYSKY_ELF = ROOT / "target" / "xui" / "xui-lazysky.elf"
 

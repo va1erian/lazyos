@@ -7,6 +7,8 @@
 //! held when it closes).
 
 mod config;
+mod firmware;
+mod fw_images;
 mod hostile;
 mod le;
 mod le_flows;
@@ -257,6 +259,7 @@ impl Rig {
             }
             Effect::Trace(text) => self.traces.push(text),
             Effect::Failed(why) => self.failed = Some(why),
+            Effect::LoadFirmware { .. } => {}
         }
     }
 

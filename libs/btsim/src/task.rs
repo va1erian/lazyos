@@ -3,6 +3,10 @@
 use bthci::{BdAddr, Event};
 
 pub(crate) enum Task {
+    /// The Intel bootloader's verdict, if the stream stayed quiet since.
+    RadioVerdict {
+        generation: u32,
+    },
     Emit(Event),
     EmitAcl(Vec<u8>),
     Connected {

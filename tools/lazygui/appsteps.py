@@ -165,6 +165,15 @@ def wifi_step(cfg: dict) -> list[dict]:
              "argv": [PY, "tools/firmware/fetch.py", "--switch", "wifi"]}]
 
 
+def bt_step(cfg: dict) -> list[dict]:
+    """The step that fetches the Bluetooth controller firmware (pinned,
+    hash-checked), when the image carries Bluetooth; the build fails without it."""
+    if not cfg.get("bt"):
+        return []
+    return [{"label": "Fetch the Bluetooth firmware (linux-firmware, pinned)",
+             "argv": [PY, "tools/firmware/fetch.py", "--switch", "bt"]}]
+
+
 def lazysky_step(cfg: dict) -> list[dict]:
     """The step that builds the LazySky client (with the other xui apps and
     their core packages), when the image embeds it."""
@@ -297,4 +306,4 @@ def app_steps(cfg: dict) -> list[dict]:
             + jsc_step(cfg) + webkit_deps_step(cfg) + webkit_port_step(cfg)
             + lazyweb_step(cfg) + webd_step(cfg) + tls_step(cfg) + lazysky_step(cfg) + mail_step(cfg)
             + devtools_step(cfg)
-            + wifi_step(cfg) + installer_step(cfg))
+            + wifi_step(cfg) + bt_step(cfg) + installer_step(cfg))

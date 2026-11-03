@@ -26,6 +26,10 @@ pub enum Effect {
     CloseSources { handle: u16 },
     /// Write the bond store (the encoded file) atomically.
     SaveBonds(Vec<u8>),
+    /// Read this firmware file (`libs/fwload`, relative to the firmware
+    /// tree) and answer with `Host::on_firmware_file`; `None` if it cannot
+    /// be read. `required` is the loader's own concern; it is for the trace.
+    LoadFirmware { name: String, required: bool },
     /// One evidence line, without the `BT:` prefix.
     Trace(String),
     /// The controller is unusable (bring-up failed, or it stopped answering).

@@ -48,6 +48,8 @@ pub struct Session<C: Controller> {
     start: Instant,
     connected: bool,
     unplugged: bool,
+    /// The device left by itself (a firmware reset) and returns at this time.
+    returns_at: Option<u64>,
     first_command_at: Option<u64>,
     configuration: u8,
     alternate: [u8; 2],
@@ -74,6 +76,7 @@ impl<C: Controller> Session<C> {
             start: Instant::now(),
             connected: false,
             unplugged: false,
+            returns_at: None,
             first_command_at: None,
             configuration: 0,
             alternate: [0; 2],
@@ -137,11 +140,21 @@ impl<C: Controller> Session<C> {
     fn tick(&mut self) -> io::Result<()> {
         let now = self.now_ms();
         // Not before the peer's hello: its capabilities shape `ep_info`.
-        if !self.connected && self.got_hello && now >= self.options.connect_after_ms {
+        if !self.connected
+            && self.returns_at.is_none()
+            && self.got_hello
+            && now >= self.options.connect_after_ms
+        {
             self.connect()?;
         }
         if self.connected && !self.unplugged {
             self.pump(now)?;
+            self.leave_if_reset(now)?;
+        }
+        if let Some(back) = self.returns_at.filter(|&back| now >= back) {
+            self.returns_at = None;
+            println!("fakebt: device returns at {now} ms (due {back})");
+            self.connect()?;
         }
         if let (Some(first), Some(after)) = (self.first_command_at, self.options.unplug_after_ms) {
             if !self.unplugged && now >= first + after {
@@ -150,6 +163,25 @@ impl<C: Controller> Session<C> {
                 self.send(kind::DEVICE_DISCONNECT, 0, &[])?;
             }
         }
+        Ok(())
+    }
+
+    /// The controller dropped off the bus (an Intel firmware reset): the
+    /// device disconnects, and a new one with the same ids appears later.
+    fn leave_if_reset(&mut self, now: u64) -> io::Result<()> {
+        let Some(gone_for) = self.controller.take_detach(now) else {
+            return Ok(());
+        };
+        println!("fakebt: re-enumerate at {now} ms, back in {gone_for} ms");
+        self.send(kind::DEVICE_DISCONNECT, 0, &[])?;
+        self.connected = false;
+        self.returns_at = Some(now + gone_for);
+        self.configuration = 0;
+        self.alternate = [0; 2];
+        self.receiving = false;
+        self.events.clear();
+        self.acl.clear();
+        self.bulk_requests.clear();
         Ok(())
     }
 
@@ -166,8 +198,8 @@ impl<C: Controller> Session<C> {
         let ep_info = self.ep_info();
         self.send(kind::EP_INFO, 0, &ep_info)?;
         let mut body = vec![SPEED_HIGH, 0xE0, 0x01, 0x01];
-        body.extend_from_slice(&device::VENDOR.to_le_bytes());
-        body.extend_from_slice(&device::PRODUCT.to_le_bytes());
+        body.extend_from_slice(&device::vendor().to_le_bytes());
+        body.extend_from_slice(&device::product().to_le_bytes());
         if self.has(CAP_CONNECT_DEVICE_VERSION) {
             body.extend_from_slice(&device::VERSION_BCD.to_le_bytes());
         }

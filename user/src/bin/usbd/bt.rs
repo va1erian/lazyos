@@ -20,7 +20,7 @@
 
 use alloc::boxed::Box;
 use alloc::string::String;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use user::trace;
 
 use btusb::{Kind, Reassembler, PACKET_ACL, PACKET_EVENT};
@@ -45,6 +45,10 @@ const PROTOCOL_BLUETOOTH: u8 = 0x01;
 
 /// A Bluetooth controller is bound somewhere (one at a time).
 static BOUND: AtomicBool = AtomicBool::new(false);
+/// Counts the controllers bound since boot: the service tells a controller
+/// that left and came back (Intel re-enumerates after a firmware reset) from
+/// one that never left, even when no loop pass saw it unbound.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// The most one IN chunk (a bulk endpoint's `wMaxPacketSize` at high speed)
 /// and the buffer space of a pipe window (`pipe.rs`: ring, then buffers).
@@ -230,6 +234,8 @@ impl Sink {
 
 pub(super) struct BtFn {
     pub(super) interface: u8,
+    /// Which bind this is (see [`GENERATION`]).
+    pub(super) generation: u64,
     intr: InPipe,
     bulk_in: InPipe,
     pub(super) bulk_out: Pipe,
@@ -295,6 +301,7 @@ impl BtFn {
         BOUND.store(true, Ordering::Release);
         let function = BtFn {
             interface: interface.number,
+            generation: GENERATION.fetch_add(1, Ordering::AcqRel) + 1,
             intr: InPipe::new(intr_pipe, intr_window, &intr, Kind::Event),
             bulk_in: InPipe::new(in_pipe, in_window, &bulk_in, Kind::Acl),
             bulk_out: out_pipe,

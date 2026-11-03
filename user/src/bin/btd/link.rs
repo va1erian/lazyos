@@ -41,16 +41,23 @@ pub(super) struct Link {
     frame: Box<FrameBuf>,
     /// Frames the `Commands` ring had no room for.
     outbox: VecDeque<Vec<u8>>,
+    /// The registration this link was made to (see [`transport_object`]).
+    object: Option<u64>,
 }
 
 /// Whether `os.lazy.usb.bt` is registered by `usbd` (`_usb`, or root on a
 /// kernel-spawned boot): the radio's packets are trusted to no other server.
 pub(super) fn served_by_usbd() -> bool {
-    registry::list().is_ok_and(|entries| {
-        entries.iter().any(|entry| {
-            entry.name == transport::NAME
-                && (entry.owner_uid == u64::from(usbpolicy::USB_UID) || entry.owner_uid == 0)
-        })
+    transport_object().is_some()
+}
+
+/// The kernel object `usbd` registered `os.lazy.usb.bt` as, if `usbd` serves
+/// it. A controller that left and came back is a new object, even when the
+/// name was never seen absent.
+pub(super) fn transport_object() -> Option<u64> {
+    registry::list().ok()?.iter().find_map(|entry| {
+        let trusted = entry.owner_uid == u64::from(usbpolicy::USB_UID) || entry.owner_uid == 0;
+        (entry.name == transport::NAME && trusted).then_some(entry.object_id)
     })
 }
 
@@ -60,6 +67,7 @@ impl Link {
         if !served_by_usbd() {
             return Err("no controller");
         }
+        let object = transport_object();
         let client = Client::connect().map_err(|_| "connect")?;
         match client.attach(transport::SLOTS) {
             Ok(attachment) => Ok(Link {
@@ -67,12 +75,28 @@ impl Link {
                 attachment,
                 frame: Box::new([0; framering::MAX_FRAME]),
                 outbox: VecDeque::new(),
+                object,
             }),
             Err(_) => {
                 client.release();
                 Err("attach")
             }
         }
+    }
+
+    /// The registration this link was made to.
+    pub(super) fn object(&self) -> Option<u64> {
+        self.object
+    }
+
+    /// The controller's USB ids from `Describe()`, for the firmware phase;
+    /// `None` when `usbd` does not say (the host then loads nothing).
+    pub(super) fn usb_ids(&self) -> Option<bthost::UsbIds> {
+        let device = self.client.describe().ok()?;
+        Some(bthost::UsbIds {
+            vendor: u16::try_from(device.vendor).ok()?,
+            product: u16::try_from(device.product).ok()?,
+        })
     }
 
     pub(super) fn ring(&self) -> u32 {

@@ -36,6 +36,9 @@ impl SimController {
         }
         self.credits = self.credits.saturating_sub(1);
         self.log_command(&cmd);
+        if self.radio_command(&cmd) {
+            return;
+        }
         self.dispatch(cmd);
     }
 
@@ -129,13 +132,13 @@ impl SimController {
             }
             ReadBdAddr => self.complete(op, ret::encode_bd_addr(self.cfg.bd_addr)),
             ReadLocalVersion => {
-                let v = ret::LocalVersion {
+                let v = self.radio_version().unwrap_or(ret::LocalVersion {
                     hci_version: 9,
                     hci_revision: 0x1234,
                     lmp_version: 9,
                     manufacturer: 0xFFFF,
                     lmp_subversion: 1,
-                };
+                });
                 self.complete(op, ret::encode_local_version(&v));
             }
             ReadBufferSize => {

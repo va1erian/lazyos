@@ -6,8 +6,28 @@
 //! voice channel (alternate 0 empty, alternate 1 with the two endpoints) that
 //! `usbd` must leave alone.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 pub const VENDOR: u16 = 0x0A12;
 pub const PRODUCT: u16 = 0x0001;
+/// The ids the device presents (`vendor << 16 | product`): a vendor radio
+/// (`--radio`) presents its own, so `btd` picks the loader its USB ids name.
+static IDS: AtomicU32 = AtomicU32::new((VENDOR as u32) << 16 | PRODUCT as u32);
+
+pub fn set_ids(vendor: u16, product: u16) {
+    IDS.store(
+        u32::from(vendor) << 16 | u32::from(product),
+        Ordering::Relaxed,
+    );
+}
+
+pub fn vendor() -> u16 {
+    (IDS.load(Ordering::Relaxed) >> 16) as u16
+}
+
+pub fn product() -> u16 {
+    IDS.load(Ordering::Relaxed) as u16
+}
 /// `bcdDevice` of the device descriptor.
 pub const VERSION_BCD: u16 = 0x0100;
 
@@ -32,7 +52,7 @@ pub fn device_descriptor() -> Vec<u8> {
         18, 1, 0x00, 0x02,
         DEVICE_CLASS[0], DEVICE_CLASS[1], DEVICE_CLASS[2],
         64,
-        VENDOR as u8, (VENDOR >> 8) as u8, PRODUCT as u8, (PRODUCT >> 8) as u8,
+        vendor() as u8, (vendor() >> 8) as u8, product() as u8, (product() >> 8) as u8,
         0x00, 0x01,
         1, 2, 0,
         1,

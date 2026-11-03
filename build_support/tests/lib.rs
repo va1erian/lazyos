@@ -65,6 +65,8 @@ mod assets_tests;
 #[cfg(test)]
 mod bench_tests;
 #[cfg(test)]
+mod bt_firmware_tests;
+#[cfg(test)]
 mod dbgd_tests;
 #[cfg(test)]
 mod devtools_tests;

@@ -21,7 +21,15 @@
 //! starts `wifid`, for the card it found). The front ends set what is needed
 //! (`python tools/run_demo.py --wifi`, the launcher's Wi-Fi checkboxes).
 //!
-//! With the switch unset nothing changes.
+//! **Bluetooth firmware** (`LAZYOS_BT=1`; docs/bluetooth-plan.md B7) is placed
+//! by the same code: [`embed_bt`] puts each file of the manifest marked `bt`
+//! (the Intel `ibt-*.sfi`/`.ddc` and Realtek `rtl_bt/*` files `btd` loads
+//! through `libs/fwload`, with their licences) at `fhs::FIRMWARE/<name>`,
+//! checked against the same pins, failing the build with the same command
+//! when the cache lacks one. The controller loaders choose their file at run
+//! time from what the radio reports, so the whole set ships.
+//!
+//! With the switches unset nothing changes.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -34,6 +42,8 @@ pub const MANIFEST: &str = "tools/firmware/manifest.txt";
 pub const CACHE: &str = "target/firmware";
 /// The manifest's switch name for `LAZYOS_WIFI=1`.
 pub const SWITCH: &str = "wifi";
+/// The manifest's switch name for `LAZYOS_BT=1` (the controller firmware).
+pub const BT_SWITCH: &str = "bt";
 
 /// One pinned firmware file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -207,19 +217,47 @@ pub fn enabled() -> bool {
     wifi
 }
 
-/// Add `wifid` and the Wi-Fi firmware when [`enabled`].
-pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
-    println!("cargo:rerun-if-changed=build_support/wifi_embed.rs");
-    let manifest = manifest_dir.join(MANIFEST);
+/// Watch the pins and the fetched files: a fetch or a bump reruns the build.
+/// The cache only once a fetch has made it (a missing path is always "changed"
+/// to cargo, and nothing is lost: without it a switch that needs firmware
+/// fails the build, and its variable is watched).
+fn watch(manifest_dir: &Path) {
+    crate::os_image::rerun_if_changed(&manifest_dir.join(MANIFEST));
     let cache = manifest_dir.join(CACHE);
-    // Watched even when unused: a fetch or a bump reruns the build. The cache
-    // only once a fetch has made it (a missing path is always "changed" to
-    // cargo, and nothing is lost: without it `LAZYOS_WIFI=1` fails the build,
-    // and its variable is watched).
-    crate::os_image::rerun_if_changed(&manifest);
     if cache.exists() {
         crate::os_image::rerun_if_changed(&cache);
     }
+}
+
+/// Add every firmware file of `switch` to the image, each checked against its
+/// pin; panics (failing the build, with the command to run) if one is missing
+/// or altered. `variable` names the build switch for the message.
+pub fn place_firmware(sink: &mut dyn Sink, manifest_dir: &Path, switch: &str, variable: &str) {
+    let manifest = manifest_dir.join(MANIFEST);
+    let text = std::fs::read_to_string(&manifest)
+        .unwrap_or_else(|error| panic!("{}: {error}", manifest.display()));
+    let pins = parse_manifest(&text).unwrap_or_else(|why| panic!("{}: {why}", manifest.display()));
+    let files = firmware_files(&pins, switch, &manifest_dir.join(CACHE))
+        .unwrap_or_else(|why| panic!("{variable}=1: {why}"));
+    for (dest, source) in files {
+        crate::os_image::rerun_if_changed(&source);
+        sink.add_file(&dest, source);
+    }
+}
+
+/// Add the controller firmware `btd` loads when `LAZYOS_BT=1`.
+pub fn embed_bt(sink: &mut dyn Sink, manifest_dir: &Path) {
+    println!("cargo:rerun-if-changed=build_support/wifi_embed.rs");
+    watch(manifest_dir);
+    if on("LAZYOS_BT") {
+        place_firmware(sink, manifest_dir, BT_SWITCH, "LAZYOS_BT");
+    }
+}
+
+/// Add `wifid` and the Wi-Fi firmware when [`enabled`].
+pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
+    println!("cargo:rerun-if-changed=build_support/wifi_embed.rs");
+    watch(manifest_dir);
     if !enabled() {
         return;
     }
@@ -227,13 +265,5 @@ pub fn embed(sink: &mut dyn Sink, manifest_dir: &Path) {
     // The station manager and its command line (docs/architecture/wifi.md).
     add_program(sink, fhs::bin::WLANMD, "wlanmd");
     add_program(sink, fhs::bin::WIFICTL, "wifictl");
-    let text = std::fs::read_to_string(&manifest)
-        .unwrap_or_else(|error| panic!("{}: {error}", manifest.display()));
-    let pins = parse_manifest(&text).unwrap_or_else(|why| panic!("{}: {why}", manifest.display()));
-    let files =
-        firmware_files(&pins, SWITCH, &cache).unwrap_or_else(|why| panic!("LAZYOS_WIFI=1: {why}"));
-    for (dest, source) in files {
-        crate::os_image::rerun_if_changed(&source);
-        sink.add_file(&dest, source);
-    }
+    place_firmware(sink, manifest_dir, SWITCH, "LAZYOS_WIFI");
 }

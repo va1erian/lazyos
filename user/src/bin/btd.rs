@@ -40,6 +40,8 @@ use user::trace::{self, Channel};
 
 #[path = "btd/disk.rs"]
 mod disk;
+#[path = "btd/firmware.rs"]
+mod firmware;
 #[path = "btd/link.rs"]
 mod link;
 #[path = "btd/sources.rs"]
@@ -151,6 +153,8 @@ fn act(effect: Effect, sources: &mut Sources) -> bool {
             trace::fail!(Channel::Bt, "CTRL", "{why}");
             return false;
         }
+        // Answered where the host is at hand (`drain`).
+        Effect::LoadFirmware { .. } => {}
     }
     true
 }
@@ -187,8 +191,12 @@ fn drain(
             progress = true;
         }
         while let Some(effect) = host.poll_effect() {
-            alive &= act(effect, sources);
             progress = true;
+            if let Effect::LoadFirmware { name, .. } = &effect {
+                host.on_firmware_file(sys::monotonic_ms(), firmware::read(name));
+                continue;
+            }
+            alive &= act(effect, sources);
         }
         if !progress {
             return Ok(alive);
@@ -197,9 +205,34 @@ fn drain(
 }
 
 /// Run the host against an attached controller until it goes away.
-fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
-    let mut host = Host::new(args(), load_bonds(), sys::monotonic_ms());
+/// `reenumerations` is the count of times the controller reset itself during
+/// this bring-up, kept in `btd`'s memory across the re-attachments (the host
+/// stops after a few, `bthost::MAX_REENUMERATIONS`).
+fn serve(link: &mut Link, sources: &mut Sources, reenumerations: &mut u32) -> Failure {
+    let ids = link.usb_ids();
+    let mut host = Host::new_for(
+        args(),
+        load_bonds(),
+        sys::monotonic_ms(),
+        ids,
+        *reenumerations,
+    );
     seed_entropy(&mut host);
+    let failure = run(&mut host, link, sources);
+    if matches!(failure, Failure::Gone) {
+        // A download in progress hears of the departure (it may be the
+        // expected re-enumeration) and says what it makes of it.
+        host.on_detached(sys::monotonic_ms());
+        while let Some(effect) = host.poll_effect() {
+            act(effect, sources);
+        }
+    }
+    *reenumerations = host.firmware_attempts();
+    failure
+}
+
+/// The loop of [`serve`]: feed the host, carry out what it asks, sleep.
+fn run(host: &mut Host, link: &mut Link, sources: &mut Sources) -> Failure {
     let mut alive = true;
     loop {
         let now = sys::monotonic_ms();
@@ -216,7 +249,7 @@ fn serve(link: &mut Link, sources: &mut Sources) -> Failure {
         if host.next_deadline().is_some_and(|due| due <= now) {
             host.on_tick(now);
         }
-        match drain(&mut host, link, sources, now) {
+        match drain(host, link, sources, now) {
             Ok(still) => alive = still && alive,
             Err(failure) => return failure,
         }
@@ -248,6 +281,8 @@ pub extern "C" fn _start() -> ! {
         Ok(cred) => trace::line!(Channel::Bt, "CRED uid={} caps={:#x}", cred.uid, cred.caps),
         Err(errno) => trace::line!(Channel::Bt, "CRED unavailable (errno {errno})"),
     }
+    // Times the controller reset itself during this bring-up (see `serve`).
+    let mut reenumerations = 0;
     loop {
         let mut link = open();
         trace::line!(Channel::Bt, "LINK ring={}", link.ring());
@@ -255,17 +290,20 @@ pub extern "C" fn _start() -> ! {
             args().trace_reports,
             cfg!(lazyos_bt_crash_test) && attempt() == 1,
         );
-        let failure = serve(&mut link, &mut sources);
+        let failure = serve(&mut link, &mut sources, &mut reenumerations);
         // Whatever the devices held is released with their sources.
         sources.close_all();
         match failure {
             Failure::Gone => trace::line!(Channel::Bt, "CTRL:GONE the controller was unplugged"),
             Failure::Broken(why) => trace::fail!(Channel::Bt, "LINK", "{why}"),
         }
+        let attached_to = link.object();
         link.close();
         // A controller that fails at once every time must not spin: wait for
-        // `usbd` to withdraw it before looking again.
-        while link::served_by_usbd() {
+        // `usbd` to withdraw it before looking again. A controller that left
+        // and came back within one look is a new registration, which also
+        // ends the wait.
+        while attached_to.is_some() && link::transport_object() == attached_to {
             sys::wait(sys::clock() + WAIT_TICKS);
         }
     }

@@ -22,6 +22,10 @@ two peers; `usbd` binds the controller's interface 0 and serves it as
     python tools/bt/run.py --le-reboot        # pair over LE, power off, boot the same image: it types at boot
     python tools/bt/run.py --le-rpa           # as --le-reboot, the devices change address each connection
     python tools/bt/run.py --le-refuse        # a Just Works LE keyboard is refused, a stranger never connected
+    python tools/bt/run.py --fw intel         # B7: an Intel radio in its bootloader: btd downloads the firmware, then pairs
+    python tools/bt/run.py --fw intel-recovery  # ... whose first image is rejected: recovery reset, re-enumeration, success
+    python tools/bt/run.py --fw intel-tlv     # ... an AX211 (TLV version answer, both signature blocks)
+    python tools/bt/run.py --fw realtek       # ... a Realtek ROM that takes a patch
     python tools/bt/run.py --no-build         # reuse target/lazyos.img
     python tools/bt/run.py --accel none       # force TCG
     python tools/bt/test_judge.py             # the judges fail when they should
@@ -50,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import btdemo  # noqa: E402
 import judge_hid  # noqa: E402
 import modes  # noqa: E402
+import modes_fw  # noqa: E402
 import modes_le  # noqa: E402
 
 #: The dongle is pulled this long after the first HCI command arrived, when
@@ -61,6 +66,10 @@ HOTPLUG_AFTER_MS = 20_000
 
 
 def build(crash: bool) -> None:
+    # The image carries the controller firmware `btd` loads (LAZYOS_BT=1).
+    fetch = [sys.executable, str(ROOT / "tools/firmware/fetch.py"), "--switch", "bt"]
+    if subprocess.run(fetch, cwd=ROOT).returncode != 0:
+        sys.exit("fetching the Bluetooth firmware failed")
     env = dict(os.environ, LAZYOS_SERVICES="1", LAZYOS_BT_TRACE="1", LAZYOS_BT_PAIR=modes.PAIR_LIST,
                LAZYOS_BT_CRASH_TEST="1" if crash else "0", **btdemo.build_env())
     print("building: LAZYOS_SERVICES=1 LAZYOS_USB=1 LAZYOS_BT=1 LAZYOS_BT_TRACE=1"
@@ -146,6 +155,23 @@ def run_hid(args, mode: str) -> bool:
     return subprocess.run(judge).returncode == 0 and ok
 
 
+def run_fw(args, kind: str) -> bool:
+    """`--fw KIND`: a radio that needs firmware, then the pairing test."""
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    image = out / "disk.img"
+    shutil.copyfile(args.image, image)
+    state = out / "peers.state"
+    state.unlink(missing_ok=True)
+    ok = boot(args, out, image, modes_fw.session_steps(args.timeout), modes_fw.fakebt_args(kind, state))
+    log = out / "serial.log"
+    if not log.exists():
+        print("FAIL: no serial log")
+        return False
+    judge = [sys.executable, str(Path(__file__).parent / "judge_fw.py"), kind, str(log), "--text", modes.PAIR_TEXT]
+    return subprocess.run(judge).returncode == 0 and ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--no-build", action="store_true")
@@ -156,16 +182,22 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=600.0, help="overall seconds")
     parser.add_argument("--unplug", action="store_true", help="the dongle is pulled out after the bring-up")
     parser.add_argument("--hotplug", action="store_true", help="the dongle appears well after boot")
+    parser.add_argument("--fw", choices=sorted(modes_fw.KINDS), help="a radio that needs firmware (B7), then --pair")
     hid_modes = ("pair", "reboot", "refuse", "kill", *modes_le.LE_MODES)
     for mode in hid_modes:
         parser.add_argument(f"--{mode}", action="store_true", help=f"the HID {mode} test (see above)")
     args = parser.parse_args()
     chosen = [m for m in hid_modes if getattr(args, m.replace("-", "_"))]
+    if args.fw and (chosen or args.unplug or args.hotplug):
+        parser.error("--fw is a mode of its own")
     if len(chosen) > 1 or (chosen and (args.unplug or args.hotplug)):
         parser.error("choose one of the HID modes (--pair ... --le-refuse), or the transport options")
     if not args.no_build:
         build(crash=bool(chosen and chosen[0] == "kill"))
-    ok = run_hid(args, chosen[0]) if chosen else run_transport(args)
+    if args.fw:
+        ok = run_fw(args, args.fw)
+    else:
+        ok = run_hid(args, chosen[0]) if chosen else run_transport(args)
     print("bt harness: " + ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

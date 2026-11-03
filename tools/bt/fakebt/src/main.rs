@@ -21,6 +21,8 @@
 //!        [--le-jw-keyboard] [--le-rpa] [--le-early-notify]
 //!        [--le-intruder AA:BB:CC:DD:EE:FF]
 //!        [--passkey correct|wrong|never] [--state FILE] [--at SPEC]...
+//!        [--radio intel-ax201|intel-ax211|rtl8822cu|rtl8761bu]
+//!        [--fw-reject N] [--fw-reboot] [--fw-refuse-fragment N]
 //! ```
 //!
 //! `--pairable` puts a peer that has no stored bond in pairing mode;
@@ -36,6 +38,14 @@
 //! `--le-early-notify` has them send a notification before the link is
 //! encrypted, and `--le-intruder` adds a keyboard with a key the host never
 //! issued (`itype=` types on it). `--at` is a step of `script.rs`.
+//!
+//! `--radio` makes the dongle a vendor radio that needs firmware before it
+//! works (docs/bluetooth-plan.md B7): it presents the real part's USB ids,
+//! so `btd` runs the Intel or Realtek loader against `btsim`'s model of it.
+//! `--fw-reject N` has an Intel bootloader reject the first N images (the
+//! host sends the recovery reset and the dongle re-enumerates in its
+//! bootloader), `--fw-reboot` makes it re-enumerate after the reset that boots
+//! the image, `--fw-refuse-fragment N` has a Realtek ROM refuse fragment N.
 
 mod controller;
 mod device;
@@ -68,6 +78,29 @@ fn parse_address(text: &str) -> Result<[u8; 6], String> {
         .map_err(|_| format!("{text}: want six octets"))
 }
 
+/// `--radio`: which vendor radio the dongle is.
+fn parse_part(text: &str) -> Result<btsim::Part, String> {
+    use btsim::Part;
+    match text {
+        "intel-ax201" | "intel" => Ok(Part::IntelAx201),
+        "intel-ax211" => Ok(Part::IntelAx211),
+        "rtl8822cu" | "realtek" => Ok(Part::Rtl8822cu),
+        "rtl8761bu" => Ok(Part::Rtl8761bu),
+        other => Err(format!(
+            "--radio {other}: want intel-ax201, intel-ax211, rtl8822cu or rtl8761bu"
+        )),
+    }
+}
+
+/// The fault settings of the radio chosen with `--radio` (which must come first).
+fn radio_faults(world: &mut world::Options) -> Result<&mut btsim::RadioFaults, String> {
+    world
+        .radio
+        .as_mut()
+        .map(|(_, faults)| faults)
+        .ok_or_else(|| String::from("--fw-* flags need --radio first"))
+}
+
 fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut parsed = Args {
         listen: String::from("127.0.0.1:0"),
@@ -86,6 +119,7 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
             state: None,
             steps: Vec::new(),
             le: world::LeOptions::default(),
+            radio: None,
         },
     };
     let mut args = args;
@@ -110,6 +144,16 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
             "--le-jw-keyboard" => parsed.world.le.keyboard_just_works = true,
             "--le-rpa" => parsed.world.le.rpa = true,
             "--le-early-notify" => parsed.world.le.early_notify = true,
+            "--radio" => parsed.world.radio = Some((parse_part(&value()?)?, Default::default())),
+            "--fw-reject" => {
+                let times = value()?.parse().map_err(|e| format!("{flag}: {e}"))?;
+                radio_faults(&mut parsed.world)?.reject_downloads = times;
+            }
+            "--fw-reboot" => radio_faults(&mut parsed.world)?.reenumerate_after_load = true,
+            "--fw-refuse-fragment" => {
+                let n = value()?.parse().map_err(|e| format!("{flag}: {e}"))?;
+                radio_faults(&mut parsed.world)?.refuse_fragment = Some(n);
+            }
             "--pairable" => parsed.world.pairable = true,
             "--forged-bond" => parsed.world.forged_bond = true,
             "--mouse-waits" => parsed.world.mouse_waits_to_be_paged = true,
@@ -135,6 +179,10 @@ fn parse(args: impl Iterator<Item = String>) -> Result<Args, String> {
 fn serve(listener: TcpListener, args: Args) -> std::io::Result<()> {
     let (stream, peer) = listener.accept()?;
     println!("fakebt: connected {peer}");
+    if let Some((part, _)) = &args.world.radio {
+        let (vendor, product) = part.usb_ids();
+        device::set_ids(vendor, product);
+    }
     let controller = World::new(args.world);
     let mut session = Session::new(stream, controller, args.options)?;
     let result = session.run();
