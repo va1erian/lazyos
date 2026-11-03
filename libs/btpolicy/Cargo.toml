@@ -1,0 +1,11 @@
+[package]
+name = "btpolicy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Who may use the Bluetooth radio: the _bt system uid and the check usbd applies to os.lazy.usb.bt"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btpolicy"
+path = "src/lib.rs"

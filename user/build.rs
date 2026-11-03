@@ -206,6 +206,19 @@ fn main() {
     {
         println!("cargo:rustc-cfg=lazyos_usb_audio");
     }
+    // `LAZYOS_BT=1` (docs/bluetooth-plan.md B2): `usbd` binds a USB Bluetooth
+    // controller (class `E0/01/01`) and serves it as `os.lazy.usb.bt`, and
+    // `init` runs `btd` as `_bt`. It needs `usbd`.
+    println!("cargo:rerun-if-env-changed=LAZYOS_BT");
+    println!("cargo:rustc-check-cfg=cfg(lazyos_bt)");
+    if env::var_os("LAZYOS_BT").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        assert!(
+            env::var_os("LAZYOS_USB").as_deref() == Some(std::ffi::OsStr::new("1")),
+            "LAZYOS_BT=1 needs LAZYOS_USB=1 (the radio is a USB controller `usbd` drives; \
+             `run_demo.py --bt` sets both)"
+        );
+        println!("cargo:rustc-cfg=lazyos_bt");
+    }
     // `LAZYOS_UI_PROBE=1` (issue #538, debug images): `xuid` prints each
     // window's content rectangle as a `UI:RECT` line for session scripts. A
     // compile-time switch: the compositor never touches the file system for it.

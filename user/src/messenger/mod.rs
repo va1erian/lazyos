@@ -364,6 +364,11 @@ pub mod gpu;
 /// uses.
 pub mod usb_audio;
 
+/// The USB Bluetooth controller `usbd` moves packets for
+/// (docs/bluetooth-plan.md B2): the generated `os.lazy.usb.bt.v1` stubs and
+/// the blocking client `btd` uses.
+pub mod usb_bt;
+
 /// The network mount service `mountd` (docs/smb-plan.md §3.4): the generated
 /// `os.lazy.mount.v1` stubs and its service name.
 pub mod mount;

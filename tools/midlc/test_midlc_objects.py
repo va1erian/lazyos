@@ -300,6 +300,10 @@ class RepositoryTests(unittest.TestCase):
                     ("events", "channel", "os.lazy.webd.view.v1")
                 ],
                 ("os.lazy.usb.audio.v1", "Attach"): [("staging", "buffer", None)],
+                ("os.lazy.usb.bt.v1", "AttachRing"): [
+                    ("rings", "rings", None),
+                    ("notify", "channel", "os.lazy.usb.bt.v1"),
+                ],
             },
         )
 

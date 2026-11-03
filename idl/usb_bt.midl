@@ -1,0 +1,115 @@
+/// A USB Bluetooth controller, as `usbd` moves its packets for `btd`
+/// (docs/bluetooth-plan.md, phase B2).
+///
+/// `usbd` owns every xHCI controller, so only it can reach the radio of a USB
+/// Bluetooth controller (HCI over USB, class `E0/01/01`: commands go out as
+/// class requests on endpoint 0, events come in on the interrupt endpoint,
+/// ACL data moves on the bulk endpoints). It forwards the packets and holds no
+/// Bluetooth knowledge beyond what delimits a packet (an event's length byte,
+/// an ACL header's length field): the host stack that parses what a stranger
+/// in radio range sends is `btd`, a separate process that holds one
+/// capability and no DMA. `usbd` serves this interface as `os.lazy.usb.bt`
+/// while a controller is bound (one at a time) and withdraws it, closing the
+/// endpoint, when the controller is unplugged.
+///
+/// **Packets travel in rings, never in a message body** (the NIC rule, see
+/// `os.lazy.net.nic.v1`). `btd` creates one shared buffer holding both rings
+/// and hands it over with `AttachRing`: the `Commands` ring (frames from
+/// `btd`, `usbd` consumes) at byte 0 and the `Events` ring (frames from the
+/// controller, `usbd` produces) after it, `framering::ring_bytes(slots)` bytes
+/// each. A ring frame is one byte telling the packet kind (the H4 indicator:
+/// 1 command, 2 ACL data, 4 event) and the packet. `Commands` carries
+/// commands and outgoing ACL data in the order `btd` queued them; `Events`
+/// carries events and incoming ACL data in the order they arrived. SCO and
+/// ISO data are not carried.
+///
+/// **Wake-up without polling.** Each direction has one one-way message and the
+/// ring's shared `armed` flag: the consumer arms the ring before it sleeps
+/// (after a last look at it) and the producer sends the doorbell only when it
+/// was armed, so a burst costs one message and an idle `usbd` or `btd` sleeps
+/// until there is work. `btd` sends `Kick` after queueing commands; `usbd`
+/// sends `Notify` into the endpoint `btd` handed over after it produced
+/// events.
+///
+/// **Both sides treat the other as hostile.** Every index and length read
+/// from shared memory is read once and validated; a frame is copied before it
+/// is looked at; a ring whose peer breaks the protocol is poisoned and the
+/// attachment is dropped (`NotifyBit.Gone`). A command whose length field
+/// does not match its frame, an ACL packet likewise, or a frame of any other
+/// kind, is dropped and counted (`Stats.refused`), never sent to the device.
+/// Events a full `Events` ring has no room for wait in a bounded queue in
+/// `usbd` and are dropped past it (`Stats.dropped`).
+///
+/// **Only `_bt` (uid 916) and root may call it**: anyone else gets `EACCES`.
+/// The interface carries authority over the machine's input devices, so it is
+/// denied to developer tools. No controller bound (it was unplugged) is
+/// `ENODEV`; a second attach while one is held is `EBUSY`; a buffer of the
+/// wrong size or a slot count that is not a power of two from 16 to 1024 is
+/// `EINVAL`. Failures are returned as the shared structured error field.
+interface os.lazy.usb.bt.v1 {
+    /// What the bound controller is.
+    struct Device {
+        vendor: U32 = 1,
+        product: U32 = 2,
+        /// The device release number (bcdDevice).
+        version: U32 = 3,
+        /// The product string the device reports, empty when it has none.
+        name: String = 4,
+        /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
+        port: String = 5,
+        /// The controller runs at high speed (microframes) or above.
+        high_speed: Bool = 6
+    }
+
+    /// Counters since the controller was bound.
+    struct Stats {
+        /// Events and ACL packets received from the controller.
+        events: U64 = 1,
+        acl_in: U64 = 2,
+        /// Commands and ACL packets sent to the controller.
+        commands: U64 = 3,
+        acl_out: U64 = 4,
+        /// Packets from the controller dropped because the `Events` ring and
+        /// the queue behind it were full, or no ring was attached.
+        dropped: U64 = 5,
+        /// Frames from `btd` refused (wrong kind, length not matching).
+        refused: U64 = 6,
+        /// Packets from the controller longer than `usbd` carries.
+        oversize: U64 = 7,
+        /// Transfers the controller failed (a stalled endpoint, a command it
+        /// refused).
+        errors: U64 = 8,
+        /// Rings poisoned by a peer that broke the protocol.
+        ring_errors: U64 = 9
+    }
+
+    /// Describe the bound controller.
+    method Describe() -> (device: Device = 1);
+    /// Attach `btd`'s rings and notify endpoint (see the interface notes for
+    /// what the parcel carries). `slots` is the slot count of both rings. The
+    /// reply is the ring id later calls name. Only one attachment at a time:
+    /// `EBUSY`; it is released with `DetachRing`, when the owner exits or when
+    /// its notify endpoint reports the peer gone.
+    method AttachRing(slots: U32 = 1, rings: Ring<Commands, Events> = 2, notify: Channel<os.lazy.usb.bt.v1> = 3) -> (ring: U32 = 1);
+    /// Frames from `btd`: commands and outgoing ACL data.
+    ring Commands : frames producer=client doorbell=Kick;
+    /// Frames from the controller: events and incoming ACL data.
+    ring Events : frames producer=server doorbell=Notify;
+    /// Release the rings; `usbd` stops reading and writing them.
+    method DetachRing(ring: U32 = 1) -> ();
+    /// Packet and error counters.
+    method Stats() -> (stats: Stats = 1);
+    /// Event, client to `usbd`: the client queued frames in the `Commands`
+    /// ring of `ring`. Ignored from anyone but the owner.
+    method Kick(ring: U32 = 1) -> () oneway;
+    /// Event, `usbd` to the client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    method Notify(ring: U32 = 1, events: U32 = 2) -> () oneway;
+
+    /// Reasons for a `Notify`; ordinals are the `events` bit numbers, so new
+    /// ones are append-only. `Packets`: frames arrived in the `Events` ring.
+    /// `Space`: the `Commands` ring gained space after being full. `Gone`:
+    /// the controller was unplugged; the endpoint closes next.
+    enum NotifyBit { Packets, Space, Gone }
+}

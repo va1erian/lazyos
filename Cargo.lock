@@ -220,6 +220,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49f4c2ef60a76c1858ef43c30b6b95c2f5ee4d7c4f9bc47409c3a8dc8910adb9"
 
 [[package]]
+name = "btpolicy"
+version = "0.1.0"
+
+[[package]]
+name = "btusb"
+version = "0.1.0"
+
+[[package]]
 name = "build-support-tests"
 version = "0.1.0"
 dependencies = [
@@ -564,6 +572,10 @@ dependencies = [
  "fuzzkit",
  "spin",
 ]
+
+[[package]]
+name = "fakebt"
+version = "0.1.0"
 
 [[package]]
 name = "fastrand"
@@ -1767,6 +1779,8 @@ dependencies = [
  "accountdb",
  "audioclient",
  "audiomix",
+ "btpolicy",
+ "btusb",
  "confd",
  "cursorgfx",
  "dbgwire",

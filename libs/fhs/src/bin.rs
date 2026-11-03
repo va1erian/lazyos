@@ -70,6 +70,9 @@ programs! {
     /// `gpud`, the Intel GPU service (`LAZYOS_INTELGFX=1` images,
     /// docs/kabylake-gpu-plan.md).
     GPUD = "gpud";
+    /// `btd`, the Bluetooth host service (`LAZYOS_BT=1` images,
+    /// docs/bluetooth-plan.md).
+    BTD = "btd";
     /// `netd`, the network stack service.
     NETD = "netd";
     /// `sysmond`, the system monitor service.

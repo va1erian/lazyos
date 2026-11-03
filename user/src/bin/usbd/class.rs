@@ -31,6 +31,7 @@ use usbhid::report::{self, Pointer};
 use xhci::trb::{request, Trb};
 
 use super::audio::AudioFn;
+use super::bt::{BtFn, CLASS_WIRELESS};
 use super::device::{hex, Device, DATA_BYTES};
 use super::hc::Hc;
 use super::hid::{Hid, ReportLayout};
@@ -48,6 +49,8 @@ pub(super) enum Function {
     Msc(Box<Msc>),
     /// A speaker, headset or DAC (`audio.rs`), driven for `sndd`.
     Audio(Box<AudioFn>),
+    /// A Bluetooth controller (`bt.rs`), served to `btd`.
+    Bt(Box<BtFn>),
 }
 
 /// The audio class code and its AudioControl subclass.
@@ -62,6 +65,7 @@ impl Function {
             Function::Hub(hub) => hub.dci == dci,
             Function::Msc(msc) => msc.owns(dci),
             Function::Audio(audio) => audio.owns(dci),
+            Function::Bt(bt) => bt.owns(dci),
         }
     }
 
@@ -74,8 +78,10 @@ impl Function {
         device: &mut Device,
         event: &Trb,
     ) -> Result<(), Error> {
-        if let Function::Audio(audio) = self {
-            audio.on_transfer(hc, device, event);
+        match self {
+            Function::Audio(audio) => audio.on_transfer(hc, device, event),
+            Function::Bt(bt) => return bt.on_transfer(hc, device, event),
+            _ => {}
         }
         Ok(())
     }
@@ -87,6 +93,7 @@ impl Function {
             Function::Hub(_) => {}
             Function::Msc(msc) => msc.close(),
             Function::Audio(audio) => audio.close(hc),
+            Function::Bt(bt) => bt.close(),
         }
     }
 
@@ -97,6 +104,7 @@ impl Function {
             Function::Hub(_) => "hub",
             Function::Msc(_) => "msc",
             Function::Audio(_) => "audio",
+            Function::Bt(_) => "bt",
         }
     }
 }
@@ -130,6 +138,7 @@ pub(super) fn bind(
             // come up as a disk is dropped (and reported).
             functions.retain_mut(|function| match function {
                 Function::Msc(msc) => msc.start(hc, device),
+                Function::Bt(bt) => bt.start(hc, device),
                 _ => true,
             });
             Ok(functions)
@@ -195,6 +204,11 @@ fn bind_interface(
                 && interface.subclass == SUBCLASS_AUDIO_CONTROL =>
         {
             Ok(AudioFn::bind(hc, device, interface)?.map(|audio| Function::Audio(Box::new(audio))))
+        }
+        // Opt-in: `LAZYOS_BT=1` (docs/bluetooth-plan.md B2). Interface 0 of
+        // the controller only; its isochronous interface 1 is left alone.
+        CLASS_WIRELESS if cfg!(lazyos_bt) && !report_protocol => {
+            Ok(BtFn::bind(hc, device, interface)?.map(|bt| Function::Bt(Box::new(bt))))
         }
         // New classes go here (see the module documentation).
         _ => Ok(None),

@@ -11,7 +11,6 @@
 /// The `_gpu` system user `gpud` runs as: only `CAP_DEV_CLAIM`. (The next
 /// free uid after `_dbgd` 914: `devmatch::DEVD_UID`'s comment lists the rest.)
 pub const GPU_UID: u32 = 915;
-
 /// The ACL device class of a display controller (`dev::class::DISPLAY`, PCI
 /// base class `03`).
 pub const DISPLAY_CLASS: &str = "os.kernel.dev.display";

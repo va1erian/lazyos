@@ -49,6 +49,20 @@ pub(super) const USB_CRED: SysCred = SysCred::new(
 #[cfg(lazyos_usb)]
 pub(super) const USB_UID: u32 = usbpolicy::USB_UID;
 
+/// The Bluetooth host service's identity (docs/bluetooth-plan.md decision 3):
+/// `_bt` holding only `CAP_INPUT_SOURCE`, to publish its keyboards and mice
+/// onto the raw bus. No device claim, no DMA, no read of the bus (that is
+/// `CAP_INPUT_RAW`, `inputd`'s alone): it parses a radio's packets and a bug
+/// there costs this authority, not the machine.
+#[cfg(lazyos_bt)]
+pub(super) const BT_CRED: SysCred = SysCred::new(
+    btpolicy::BT_UID,
+    btpolicy::BT_UID,
+    user::sys::CAP_INPUT_SOURCE,
+    0,
+    0,
+);
+
 /// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
 /// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
 #[cfg(lazyos_net)]
@@ -78,6 +92,17 @@ pub(super) const GPU_CRED: SysCred = SysCred::new(
     gpupolicy::GPU_UID,
     gpupolicy::GPU_UID,
     user::dev::CAP_DEV_CLAIM,
+    0,
+    0,
+);
+
+/// The remote inspection service's identity (docs/dbgd-plan.md): its own
+/// system uid and no capability at all.
+#[cfg(lazyos_dbgd)]
+pub(super) const DBGD_CRED: SysCred = SysCred::new(
+    dbgwire::config::DBGD_UID,
+    dbgwire::config::DBGD_UID,
+    0,
     0,
     0,
 );
@@ -174,7 +199,7 @@ pub(super) const WLAN_CRED: SysCred =
 /// by uid (logind's `Login` takes `_greeter`'s alone, accountsd trusts
 /// `_greeter` and `_elev`), so two services sharing one would let either
 /// pass for the other: the build fails instead.
-const SYSTEM_UIDS: [u32; 15] = [
+const SYSTEM_UIDS: [u32; 16] = [
     sndpolicy::SND_UID,
     netpolicy::NET_UID,
     netpolicy::NETD_UID,
@@ -190,6 +215,7 @@ const SYSTEM_UIDS: [u32; 15] = [
     netpolicy::WLAN_UID,
     netpolicy::WIFISIM_UID,
     gpupolicy::GPU_UID,
+    btpolicy::BT_UID,
 ];
 
 const _: () = {

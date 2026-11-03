@@ -21210,6 +21210,430 @@ pub mod os_lazy_usb_audio_v1 {
     ];
 }
 
+/// `os.lazy.usb.bt.v1` (interface id `0x8e8962f04a3497f6`).
+#[rustfmt::skip]
+pub mod os_lazy_usb_bt_v1 {
+    use alloc::vec::Vec;
+    #[allow(unused_imports)]
+    use alloc::string::String;
+    // Not every interface needs every codec item (`Kind` is only used by nested values).
+    #[allow(unused_imports)]
+    use libmessenger::{Decoder, Encoder, Error, Kind};
+    // Only interfaces that declare topics use the shared topic runtime.
+    #[allow(unused_imports)]
+    use super::topics;
+    // Only interfaces whose requests carry objects use the object kinds.
+    #[allow(unused_imports)]
+    use super::objects;
+    // Only interfaces that declare rings use the ring descriptors.
+    #[allow(unused_imports)]
+    use super::rings;
+
+    /// The interface id: the FNV-1a hash of the `.vN` interface name.
+    pub const INTERFACE_ID: u64 = 0x8e8962f04a3497f6;
+    /// The interface name [`INTERFACE_ID`] hashes, for a registration that
+    /// spells out what it serves (`Register.interface_names`, issue #495).
+    pub const INTERFACE_NAME: &str = "os.lazy.usb.bt.v1";
+
+    /// `NotifyBit::Packets` wire value.
+    pub const NOTIFY_BIT_PACKETS: u32 = 0;
+    /// `NotifyBit::Space` wire value.
+    pub const NOTIFY_BIT_SPACE: u32 = 1;
+    /// `NotifyBit::Gone` wire value.
+    pub const NOTIFY_BIT_GONE: u32 = 2;
+
+    /// What the bound controller is.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Device {
+        pub vendor: u32,
+        pub product: u32,
+        pub version: u32,
+        pub name: alloc::string::String,
+        pub port: alloc::string::String,
+        pub high_speed: bool,
+    }
+
+    pub fn encode_device(value: &Device) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.vendor)?;
+        target.u32(2, value.product)?;
+        target.u32(3, value.version)?;
+        target.string(4, &value.name)?;
+        target.string(5, &value.port)?;
+        target.bool(6, value.high_speed)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_device(body: &[u8]) -> Result<Device, Error> {
+        let mut out = Device::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.vendor = field.as_u32()?;
+                }
+                2 => {
+                    out.product = field.as_u32()?;
+                }
+                3 => {
+                    out.version = field.as_u32()?;
+                }
+                4 => {
+                    out.name = field.as_str()?.into();
+                }
+                5 => {
+                    out.port = field.as_str()?.into();
+                }
+                6 => {
+                    out.high_speed = field.as_bool()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// The device release number (bcdDevice).
+    /// The product string the device reports, empty when it has none.
+    /// The `usbd` port name (`<hc>-<port>[.<hub port>...]`).
+    /// The controller runs at high speed (microframes) or above.
+    /// Counters since the controller was bound.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Stats {
+        pub events: u64,
+        pub acl_in: u64,
+        pub commands: u64,
+        pub acl_out: u64,
+        pub dropped: u64,
+        pub refused: u64,
+        pub oversize: u64,
+        pub errors: u64,
+        pub ring_errors: u64,
+    }
+
+    pub fn encode_stats(value: &Stats) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u64(1, value.events)?;
+        target.u64(2, value.acl_in)?;
+        target.u64(3, value.commands)?;
+        target.u64(4, value.acl_out)?;
+        target.u64(5, value.dropped)?;
+        target.u64(6, value.refused)?;
+        target.u64(7, value.oversize)?;
+        target.u64(8, value.errors)?;
+        target.u64(9, value.ring_errors)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats(body: &[u8]) -> Result<Stats, Error> {
+        let mut out = Stats::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.events = field.as_u64()?;
+                }
+                2 => {
+                    out.acl_in = field.as_u64()?;
+                }
+                3 => {
+                    out.commands = field.as_u64()?;
+                }
+                4 => {
+                    out.acl_out = field.as_u64()?;
+                }
+                5 => {
+                    out.dropped = field.as_u64()?;
+                }
+                6 => {
+                    out.refused = field.as_u64()?;
+                }
+                7 => {
+                    out.oversize = field.as_u64()?;
+                }
+                8 => {
+                    out.errors = field.as_u64()?;
+                }
+                9 => {
+                    out.ring_errors = field.as_u64()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// `Describe` method id.
+    pub const METHOD_DESCRIBE: u32 = 582948360;
+    /// `AttachRing` method id.
+    pub const METHOD_ATTACHRING: u32 = 62355614;
+    /// `DetachRing` method id.
+    pub const METHOD_DETACHRING: u32 = 162562056;
+    /// `Stats` method id.
+    pub const METHOD_STATS: u32 = 267161228;
+    /// `Kick` method id.
+    pub const METHOD_KICK: u32 = 754690623;
+    /// `Notify` method id.
+    pub const METHOD_NOTIFY: u32 = 314575196;
+
+    /// Events and ACL packets received from the controller.
+    /// Commands and ACL packets sent to the controller.
+    /// Packets from the controller dropped because the `Events` ring and
+    /// the queue behind it were full, or no ring was attached.
+    /// Frames from `btd` refused (wrong kind, length not matching).
+    /// Packets from the controller longer than `usbd` carries.
+    /// Transfers the controller failed (a stalled endpoint, a command it
+    /// refused).
+    /// Rings poisoned by a peer that broke the protocol.
+    /// Describe the bound controller.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DescribeReply {
+        pub device: Device,
+    }
+
+    pub fn encode_describe_reply(value: &DescribeReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_device(&value.device)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_describe_reply(body: &[u8]) -> Result<DescribeReply, Error> {
+        let mut out = DescribeReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.device = decode_device(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Attach `btd`'s rings and notify endpoint (see the interface notes for
+    /// what the parcel carries). `slots` is the slot count of both rings. The
+    /// reply is the ring id later calls name. Only one attachment at a time:
+    /// `EBUSY`; it is released with `DetachRing`, when the owner exits or when
+    /// its notify endpoint reports the peer gone.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingArgs {
+        pub slots: u32,
+        pub rings: libmessenger::Buffer,
+        pub notify: u64,
+    }
+
+    /// The body and the object list of `AttachRing`.
+    pub fn encode_attach_ring_args(value: &AttachRingArgs) -> Result<(Vec<u8>, Vec<libmessenger::Object>), Error> {
+        let mut target = Encoder::new();
+        let objects = &mut Vec::new();
+        target.u32(1, value.slots)?;
+        target.buffer(2, &value.rings, objects)?;
+        target.channel(3, value.notify, objects)?;
+        Ok((target.finish(), core::mem::take(objects)))
+    }
+
+    /// `AttachRing` from its body and the objects the kernel installed
+    /// (`ATTACH_RING_OBJECTS`, each claimed by its field).
+    pub fn decode_attach_ring_args(body: &[u8], objects: &[libmessenger::Object]) -> Result<AttachRingArgs, Error> {
+        if objects.len() != 2 {
+            return Err(Error::BadObjectIndex);
+        }
+        let next = &mut 0usize;
+        let mut out = AttachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.slots = field.as_u32()?;
+                }
+                2 => {
+                    out.rings = field.claim_buffer(objects, next)?;
+                }
+                3 => {
+                    out.notify = field.claim_channel(objects, next)?;
+                }
+                _ => {}
+            }
+        }
+        if *next != 2 {
+            return Err(Error::BadObjectIndex);
+        }
+        Ok(out)
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct AttachRingReply {
+        pub ring: u32,
+    }
+
+    pub fn encode_attach_ring_reply(value: &AttachRingReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_attach_ring_reply(body: &[u8]) -> Result<AttachRingReply, Error> {
+        let mut out = AttachRingReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The objects a `AttachRing` request carries, in object-list order:
+    /// `rings`, `objects[0]`, a shared buffer holding the rings `Commands`, `Events` back to back.
+    /// `notify`, `objects[1]`, a channel the receiver sends `os.lazy.usb.bt.v1` on.
+    pub const ATTACH_RING_OBJECTS: &[objects::Kind] = &[objects::Kind::Buffer, objects::Kind::Channel];
+
+    /// The rings of `AttachRing`'s `rings` buffer, in order.
+    pub const ATTACH_RING_RINGS: [rings::RingDecl; 2] = [RING_COMMANDS, RING_EVENTS];
+
+    /// Where each ring of `AttachRing`'s buffer starts, and its total size.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct AttachRingRings {
+        pub commands: u64,
+        pub events: u64,
+        pub total: u64,
+    }
+
+    /// The layout of `AttachRing`'s buffer for rings `ring_bytes` long; `None` on overflow.
+    pub fn attach_ring_rings(ring_bytes: u64) -> Option<AttachRingRings> {
+        Some(AttachRingRings {
+            commands: rings::offset(0, ring_bytes)?,
+            events: rings::offset(1, ring_bytes)?,
+            total: rings::offset(2, ring_bytes)?,
+        })
+    }
+
+    /// Release the rings; `usbd` stops reading and writing them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DetachRingArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_detach_ring_args(value: &DetachRingArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_detach_ring_args(body: &[u8]) -> Result<DetachRingArgs, Error> {
+        let mut out = DetachRingArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Packet and error counters.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct StatsReply {
+        pub stats: Stats,
+    }
+
+    pub fn encode_stats_reply(value: &StatsReply) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.raw(Kind::Struct, 1, &encode_stats(&value.stats)?)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_stats_reply(body: &[u8]) -> Result<StatsReply, Error> {
+        let mut out = StatsReply::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.stats = decode_stats(field.payload)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, client to `usbd`: the client queued frames in the `Commands`
+    /// ring of `ring`. Ignored from anyone but the owner.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct KickArgs {
+        pub ring: u32,
+    }
+
+    pub fn encode_kick_args(value: &KickArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_kick_args(body: &[u8]) -> Result<KickArgs, Error> {
+        let mut out = KickArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            if field.id == 1 {
+                out.ring = field.as_u32()?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Event, `usbd` to the client: something needs the client's attention.
+    /// `events` is a bitmap: bit *n* is set for the `NotifyBit` with ordinal
+    /// *n*. Reserved bits are zero; a client ignores them.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct NotifyArgs {
+        pub ring: u32,
+        pub events: u32,
+    }
+
+    pub fn encode_notify_args(value: &NotifyArgs) -> Result<Vec<u8>, Error> {
+        let mut target = Encoder::new();
+        target.u32(1, value.ring)?;
+        target.u32(2, value.events)?;
+        Ok(target.finish())
+    }
+
+    pub fn decode_notify_args(body: &[u8]) -> Result<NotifyArgs, Error> {
+        let mut out = NotifyArgs::default();
+        let mut decoder = Decoder::new(body);
+        while let Some(field) = decoder.next()? {
+            match field.id {
+                1 => {
+                    out.ring = field.as_u32()?;
+                }
+                2 => {
+                    out.events = field.as_u32()?;
+                }
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every request of this interface that carries objects: its method id
+    /// and the declared kinds, in object-list order.
+    pub const DECLARED_OBJECTS: &[(u32, &[objects::Kind])] = &[
+        (METHOD_ATTACHRING, ATTACH_RING_OBJECTS),
+    ];
+
+    /// Frames from `btd`: commands and outgoing ACL data.
+    pub const RING_COMMANDS: rings::RingDecl = rings::RingDecl {
+        name: "Commands",
+        layout: rings::Layout::Frames,
+        producer: rings::Side::Client,
+        doorbell: Some(METHOD_KICK),
+        advance: None,
+    };
+
+    /// Frames from the controller: events and incoming ACL data.
+    pub const RING_EVENTS: rings::RingDecl = rings::RingDecl {
+        name: "Events",
+        layout: rings::Layout::Frames,
+        producer: rings::Side::Server,
+        doorbell: Some(METHOD_NOTIFY),
+        advance: None,
+    };
+}
+
 /// `os.lazy.webd.view.v1` (interface id `0x4fe4e35a0bc7bd89`).
 #[rustfmt::skip]
 pub mod os_lazy_webd_view_v1 {
@@ -27515,6 +27939,12 @@ pub static DECLARED_OBJECTS: &[objects::ObjectDecl] = &[
     // os.lazy.net.nic.v1.AttachRing
     objects::ObjectDecl {
         interface: 0x6748c83c2024715b,
+        method: 62355614,
+        kinds: &[objects::Kind::Buffer, objects::Kind::Channel],
+    },
+    // os.lazy.usb.bt.v1.AttachRing
+    objects::ObjectDecl {
+        interface: 0x8e8962f04a3497f6,
         method: 62355614,
         kinds: &[objects::Kind::Buffer, objects::Kind::Channel],
     },

@@ -1,0 +1,11 @@
+[package]
+name = "btusb"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Packet framing for the USB Bluetooth transport (H2): HCI event and ACL reassembly out of endpoint chunks, and the checks on packets going out"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btusb"
+path = "src/lib.rs"

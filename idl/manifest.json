@@ -2270,6 +2270,74 @@
     "topics": []
   },
   {
+    "interface": "os.lazy.usb.bt.v1",
+    "interface_id": "0x8e8962f04a3497f6",
+    "methods": [
+      {
+        "name": "Describe",
+        "id": 582948360,
+        "oneway": false
+      },
+      {
+        "name": "AttachRing",
+        "id": 62355614,
+        "oneway": false,
+        "objects": [
+          {
+            "name": "rings",
+            "kind": "rings",
+            "index": 0,
+            "rings": [
+              "Commands",
+              "Events"
+            ]
+          },
+          {
+            "name": "notify",
+            "kind": "channel",
+            "index": 1,
+            "interface": "os.lazy.usb.bt.v1"
+          }
+        ]
+      },
+      {
+        "name": "DetachRing",
+        "id": 162562056,
+        "oneway": false
+      },
+      {
+        "name": "Stats",
+        "id": 267161228,
+        "oneway": false
+      },
+      {
+        "name": "Kick",
+        "id": 754690623,
+        "oneway": true
+      },
+      {
+        "name": "Notify",
+        "id": 314575196,
+        "oneway": true
+      }
+    ],
+    "topics": [],
+    "rings": [
+      {
+        "name": "Commands",
+        "layout": "frames",
+        "producer": "client",
+        "doorbell": "Kick"
+      },
+      {
+        "name": "Events",
+        "layout": "frames",
+        "producer": "server",
+        "doorbell": "Notify"
+      }
+    ]
+  },
+  {
     "interface": "os.lazy.webd.view.v1",
     "interface_id": "0x4fe4e35a0bc7bd89",
     "methods": [

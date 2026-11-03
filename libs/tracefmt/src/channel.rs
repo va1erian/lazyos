@@ -48,6 +48,7 @@ channels! {
     Audiod => "AUDIOD",
     Beep => "BEEP",
     Boot => "BOOT",
+    Bt => "BT",
     Calc => "CALC",
     Clip => "CLIP",
     Clipboard => "CLIPBOARD",
