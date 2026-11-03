@@ -51,9 +51,18 @@ def ordered(log: str, steps: list[tuple[str, str]]) -> list[str]:
     return failures
 
 
-def common(log: str) -> list[str]:
-    """Driver errors, addresses, refusals and the passkey's whereabouts."""
-    failures = hid.judge_common(log)
+def common(log: str, keys: bool = True) -> list[str]:
+    """Driver errors, addresses, refusals and the passkey's whereabouts.
+    `keys`: every key `inputd` saw is one `btd` published (false in the Terminal
+    session, where the session itself types commands through the emulated
+    keyboard too)."""
+    failures = hid.judge_common(log) if keys else [
+        f"error: {line.strip()}" for line in log.splitlines() if hid.FATAL.search(line)
+    ] + [
+        f"a full Bluetooth address in the log: {line.strip()}"
+        for line in log.splitlines()
+        if "BT:" in line and hid.FULL_ADDRESS.search(line)
+    ]
     for bad in ("BT:GATT:FAIL", "BT:PAIR:FAIL", "BT:ENCRYPT:FAIL", "BT:REFUSE"):
         if bad in log:
             failures.append(f"{bad} appears")
@@ -130,7 +139,7 @@ def outputs(log: str) -> dict[str, tuple[int, str]]:
 
 
 def judge_btctl(log: str, text: str) -> list[str]:
-    failures = common(log)
+    failures = common(log, keys=False)
     out = outputs(log)
     for what in ("LIST1", "SCAN", "PAIR", "LIST2", "FORGET", "LIST3"):
         if what not in out:
@@ -163,7 +172,13 @@ def judge_btctl(log: str, text: str) -> list[str]:
     if start < 0:
         failures.append("the keyboard never became a source")
     else:
-        failures += hid.judge_typed(log, text, start)
+        # What the keyboard typed went out as `btd`'s edges, and the Terminal's
+        # command line received it (the text is a command that is not found).
+        want = [(hid.usage(c), state) for c in text for state in ("down", "up")]
+        if hid.edges(log[start:]) != want:
+            failures.append(f"btd published {hid.edges(log[start:])}, the peer typed {text!r} = {want}")
+        if f"TERM:OUT:{text}:" not in log:
+            failures.append(f"the Terminal never received {text!r} from the keyboard")
     return failures
 
 

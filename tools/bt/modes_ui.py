@@ -111,20 +111,36 @@ def ui_steps(timeout: float) -> list[dict]:
     ]
 
 
+#: The helper the session writes to `/tmp/r`: run a command, print one
+#: `BTCTL:<what>:<status>:<output lines joined by |>` line. Each typed line is
+#: short enough not to wrap (the Terminal's `TERM:OUT` matches the echo of a
+#: command by its text, and a wrapped echo loses its trailing space).
+HELPER = [
+    r"""echo 'w=$1;shift;o=$("$@");c=$?' > /tmp/r""",
+    r"""echo 'o=$(echo "$o"|tr "\n" "|")' >> /tmp/r""",
+    r"""echo 'echo "BTCTL:$w:$c:$o"' >> /tmp/r""",
+]
+
+
 def btctl_steps(timeout: float) -> list[dict]:
     """The Terminal session: pair the keyboard with `btctl`, list, forget."""
     wait = lambda marker, **more: {"wait_for": marker, "timeout": timeout, **more}  # noqa: E731
 
-    def run(what: str, command: str) -> list[dict]:
-        text = (f'out=$({command}); rc=$?; echo "BTCTL:{what}:$rc:$(echo "$out" | tr \'\\n\' \'|\')"')
-        return [{"type": text},
-                {"key": "enter", "until": f"TERM:OUT:BTCTL:{what}:", "timeout": 150, "retries": 1}]
+    def command(text: str, until: str, patience: int = 60) -> list[dict]:
+        return [{"type": text}, {"key": "enter", "until": until, "timeout": patience, "retries": 1}]
+
+    def run(what: str, line: str) -> list[dict]:
+        return command(f"sh /tmp/r {what} {line}", f"TERM:OUT:BTCTL:{what}:", 150)
 
     steps = [wait("TERM:UP:PASS"), wait("BT:READY"), {"wait": 2.0}]
+    for line in HELPER:
+        steps += command(line, "TERM:CMD:" + line)
     steps += run("LIST1", "btctl list")
     steps += run("SCAN", "btctl scan 8")
     steps += run("PAIR", f"btctl pair {ADDRESS}")
-    steps += [wait(modes.last_key(TEXT))]
+    # The keyboard's text landed on the Terminal's command line (the proof it
+    # works); run it ("not found") so the next command starts on a clean line.
+    steps += [wait(modes.last_key(TEXT)), {"wait": 1.0}, {"key": "enter"}, {"wait": 2.0}]
     steps += run("LIST2", "btctl list")
     steps += run("FORGET", f"btctl forget {ADDRESS}")
     steps += run("LIST3", "btctl list")

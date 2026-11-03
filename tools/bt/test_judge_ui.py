@@ -63,7 +63,8 @@ BT:ENCRYPT addr={KBD}
 BT:PAIR:PASS addr={KBD} auth=1 class=keyboard
 BT:HID:KBD addr={KBD} auth=1
 TERM:OUT:BTCTL:PAIR:0:passkey: {PASSKEY}|paired: {FULL}|
-""" + keys(TEXT) + f"""TERM:OUT:BTCTL:LIST2:0:{FULL}  connected  le keyboard  Sim Keyboard|
+""" + keys(TEXT) + f"""TERM:OUT:{TEXT}: applet not found
+TERM:OUT:BTCTL:LIST2:0:{FULL}  connected  le keyboard  Sim Keyboard|
 API:FORGET addr={KBD}
 BT:BOND:FORGET addr={KBD}
 TERM:OUT:BTCTL:FORGET:0:forgotten: {FULL}|
@@ -135,6 +136,10 @@ class UiJudge(unittest.TestCase):
 
     def test_btctl_is_judged_by_the_typing_too(self):
         self.assertFails(ui.judge_btctl(BTCTL_GOOD.replace(keys(TEXT), ""), TEXT), "published")
+        self.assertFails(ui.judge_btctl(BTCTL_GOOD.replace(f"TERM:OUT:{TEXT}:", "TERM:OUT:x:"), TEXT), "never received")
+        # The session types its own commands: those keys are not `btd`'s.
+        own = BTCTL_GOOD + "INPUTD:KEY code=0x8 sym=0x65 mods=0x0 down\n"
+        self.assertEqual(ui.judge_btctl(own, TEXT), [])
         self.assertFails(ui.judge_btctl(BTCTL_GOOD.replace("BT:HID:KBD", "BT:NOHID"), TEXT), "never became a source")
 
 

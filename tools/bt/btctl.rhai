@@ -15,9 +15,8 @@
 // `<what>: <value>`; the passkey and the number are printed as they are shown,
 // which is what a person at the machine needs and nothing else.
 
-let POLL_MS = 500;
-// A pairing window is 60 s; leave a little more for the last answer.
-let PAIR_LIMIT_MS = 70000;
+// Poll every 500 ms (a script function cannot see an outer variable: the numbers are inline).
+// A pairing window is 60 s; the loop below waits 70 s for the last answer.
 
 fn usage() {
     print("usage: btctl list | scan [seconds] | pair <address> | confirm <address> yes|no | cancel | forget <address> | status");
@@ -56,8 +55,8 @@ fn scan(seconds) {
     let seen = #{};
     let waited = 0;
     while waited < seconds * 1000 {
-        sleep(POLL_MS);
-        waited += POLL_MS;
+        sleep(500);
+        waited += 500;
         for device in sys::bt::list().devices {
             if !device.bonded && !(device.address in seen) {
                 seen[device.address] = true;
@@ -74,8 +73,8 @@ fn pair(address) {
     sys::bt::pair(address);
     let last = "";
     let waited = 0;
-    while waited < PAIR_LIMIT_MS {
-        let p = sys::bt::status().pairing;
+    while waited < 70000 {
+        let p = sys::bt::status();
         let line = switch p.phase {
             "ShowPasskey" => "passkey: " + format_pad(p.passkey),
             "ConfirmNumber" => "number: " + format_pad(p.number),
@@ -93,8 +92,8 @@ fn pair(address) {
         if p.phase == "Failed" {
             exit(1);
         }
-        sleep(POLL_MS);
-        waited += POLL_MS;
+        sleep(500);
+        waited += 500;
     }
     sys::bt::cancel_pairing();
     print("failed: Timeout");
@@ -126,7 +125,7 @@ try {
         "cancel" => sys::bt::cancel_pairing(),
         "forget" => { if args.len < 2 { usage(); } sys::bt::forget(args[1]); print("forgotten: " + args[1]); }
         "status" => {
-            let p = sys::bt::status().pairing;
+            let p = sys::bt::status();
             print("phase: " + p.phase + (if p.address != "" { " " + p.address } else { "" }));
         }
         _ => usage(),
