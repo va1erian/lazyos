@@ -1,6 +1,6 @@
 # Bluetooth harness
 
-[docs/bluetooth-plan.md](../../docs/bluetooth-plan.md) phases B2, B3 and B4: `usbd`
+[docs/bluetooth-plan.md](../../docs/bluetooth-plan.md) phases B2 to B7 ([architecture](../../docs/architecture/bluetooth.md)): `usbd`
 binds a USB Bluetooth controller and serves it to `btd`, which runs the BR/EDR
 and LE HID host ([docs/architecture/usb.md](../../docs/architecture/usb.md),
 "Bluetooth controllers"). QEMU has had no Bluetooth emulation since `-bt` was

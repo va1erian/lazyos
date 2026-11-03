@@ -1,6 +1,6 @@
 # Display, drivers and hardware
 
-Companion to [`AGENTS.md`](../../AGENTS.md); covers: HiDPI, the Intel GPU service, devd, interrupt routing, USB, sound, FAT sticks and installing beside Linux.
+Companion to [`AGENTS.md`](../../AGENTS.md); covers: HiDPI, the Intel GPU service, devd, interrupt routing, USB, Bluetooth, sound, FAT sticks and installing beside Linux.
 
 ## HiDPI (a 720p desktop at 2x)
 
@@ -203,7 +203,8 @@ cargo test -p usbmsc --features fuzz     # Bulk-Only Transport and SCSI (host, f
 
 `usbd` binds a USB Bluetooth controller (class `E0/01/01`) and serves it as
 `os.lazy.usb.bt`; `btd` brings it up and runs the HID host
-([`docs/bluetooth-plan.md`](../bluetooth-plan.md)). A real radio needs its
+([`docs/bluetooth-plan.md`](../bluetooth-plan.md); the architecture is
+[`docs/architecture/bluetooth.md`](../architecture/bluetooth.md)). A real radio needs its
 vendor's firmware first: `btd` picks the loader from the USB ids in `Describe()`
 (`libs/btfw`, `Vendor::from_usb`), reads the file the radio's own version
 answer names through `libs/fwload` (`fhs::FIRMWARE`, the same tree as the
@@ -243,11 +244,11 @@ python tools/dbg/dbgctl.py log --follow          # or the MCP log_tail(source="p
 ```
 
 (`--bt` also starts the fake dongle for a QEMU run; with `--build-only` it
-does not.) The firmware lines are in every build. Pairing needs a way to open
-the window: until Settings has it, build with the harness variables
-`LAZYOS_BT_TRACE=1 LAZYOS_BT_PAIR=any` (any device that pages the host in the
-first minute may pair, and the trace echoes keys: a dev box, nothing typed
-that matters), then hold the pairing button of the keyboard and the mouse.
+does not.) The firmware lines are in every build. Pairing is done from Settings -> Bluetooth or `btctl` in a session (hold the
+pairing button of the keyboard or mouse). A box with no other keyboard needs the
+harness variables `LAZYOS_BT_TRACE=1 LAZYOS_BT_PAIR=any` once (any device that
+pages the host in the first minute may pair, and the trace echoes keys: a dev
+box, nothing typed that matters).
 
 What to read, in order, from `dbgctl log` (the `USBD:`/`BT:` records of
 `programs`, filter on the tag):

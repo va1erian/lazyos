@@ -1,6 +1,9 @@
 # Plan: a basic Bluetooth stack for keyboards and mice, usable from boot
 
-> **Status: plan (2026-11-03); B0 to B6 built**
+> **Status: plan (2026-11-03); B0 to B8 built** (B8: the architecture page
+> [architecture/bluetooth.md](architecture/bluetooth.md) and the CI workflow
+> `.github/workflows/bt.yml`; B7 is built against the simulated radios only,
+> nothing is verified on a real one yet)
 > (`libs/bthci`, `libs/btl2cap`, `libs/btbond`, `libs/btsim`, `libs/btsmp`,
 > P-256 in `libs/crypto`; the USB transport and the `fakebt` harness; `btd`
 > with BR/EDR HID: `libs/bthost`, `libs/btsdp`, `libs/bthid`; LE HID over GATT:
@@ -40,8 +43,9 @@
 > on the local console) or `elevd`; discovery lists only (Peripheral-class
 > BR/EDR results, HID advertisers on LE) and a `Pair` call opens a 60 s window
 > for one address, with inquiry scan on only while it is open; a number to
-> compare waits for the caller. The registry does not yet reserve the name
-> `os.lazy.bt` to `_bt` (a kernel change, left out).
+> compare waits for the caller. The registry reserves `os.lazy.usb.bt` to
+> `_usb` and `os.lazy.bt` to `_bt` (`libs/btpolicy/src/names.rs`, asked by the
+> kernel's register gate).
 > Builds on
 > [usb-hid-plan.md](usb-hid-plan.md) (input sources on the raw bus, `inputd`
 > owning keyboard and pointer policy), [architecture/usb.md](architecture/usb.md)
@@ -248,8 +252,8 @@ correctness and stress tests per AGENTS.md.
 | **B4** LE HOGP (built) | `libs/btgatt` (ATT client: MTU exchange, discovery by type, read, read blob, write, CCCD, notifications), `libs/btsmp` (LE SC Just Works and Passkey Entry, key distribution of LTK and IRK, RPA resolution with the IRK), P-256 in `libs/crypto`, LE connection management (accept-list auto-connect, connection parameters suitable for HID, encryption with the LTK on reconnect), `btsim` LE peers; harness modes `--le-pair`, `--le-reboot`, `--le-rpa`, `--le-refuse` | Host: SMP against the Core specification's sample data for `f4`/`f5`/`f6`/`g2`/`ah`; pair and reconnect the LE keyboard and mouse against `btsim`, including a peer using a resolvable private address; a notification before encryption is ignored. Harness: as B3, LE peers |
 | **B5** Pairing interface and UI (built) | `idl/bt.midl` (`os.lazy.bt.v1`), caller checks (session user or elevated), `devtool::DENY` entries; `btctl` (a Rhai script); a Settings -> Bluetooth pane (discover, pair with the passkey shown, connected state, forget) | `midlc --check`, Rhai schema regenerated; host tests of the caller policy; a `qemu_session.py` script pairs the `btsim` LE keyboard from Settings by clicking (`click_at` names), the screenshot is read |
 | **B6** Boot latency (built) | Measure and fix: `BT:READY` and `BT:RECONNECT` timings from the B3/B4 harness at boot; `usbd` binding the radio in the first scan; anything in `btd`'s bring-up that is not on the fast path moved after it. A `--boot-typing` harness mode where the peer presses keys from the moment the controller is up | The harness reports both numbers and fails above a budget (start: radio ready within 1.5 s of `usbd`'s start under KVM/WHPX, first report published within 300 ms of the link; tightened once measured). A row in `docs/perf/` |
-| **B7** Real controllers | `libs/btfw`: Intel (read version in bootloader mode, download `ibt-*.sfi` in secure-send fragments, the reset and the USB re-enumeration that follows, `.ddc` config) and Realtek (`rtl_bt/*_fw.bin` + `_config.bin` patch download by the vendor command); firmware entries in `tools/firmware/fetch.py`'s manifest; `btd` loading them through `libs/fwload`; `usbd` tolerating the radio's detach and reattach during download | Host: both download state machines against recorded command/event fixtures (`--pcap`-style captures from the real boxes via `dbgd`). On hardware (Alder Lake / Kaby Lake boxes with Intel radios, the AMD NUC's RTL8822CE, one USB dongle): a real keyboard and mouse pair, and work at the greeter after a reboot, evidenced through `dbgctl log` |
-| **B8** Docs and CI | `docs/architecture/bluetooth.md`, links from `docs/index.md` and `architecture/usb.md`, `docs/agents/hardware.md` section, `.github/workflows/bt.yml` running the host tests and the `tools/bt/run.py` harness | the workflow green |
+| **B7** Real controllers (built against simulated radios) | `libs/btfw`: Intel (read version in bootloader mode, download `ibt-*.sfi` in secure-send fragments, the reset and the USB re-enumeration that follows, `.ddc` config) and Realtek (`rtl_bt/*_fw.bin` + `_config.bin` patch download by the vendor command); firmware entries in `tools/firmware/fetch.py`'s manifest; `btd` loading them through `libs/fwload`; `usbd` tolerating the radio's detach and reattach during download | Host: both download state machines against recorded command/event fixtures (`--pcap`-style captures from the real boxes via `dbgd`). On hardware (Alder Lake / Kaby Lake boxes with Intel radios, the AMD NUC's RTL8822CE, one USB dongle): a real keyboard and mouse pair, and work at the greeter after a reboot, evidenced through `dbgctl log` |
+| **B8** Docs and CI (built) | `docs/architecture/bluetooth.md`, links from `docs/index.md` and `architecture/usb.md`, `docs/agents/hardware.md` section, `.github/workflows/bt.yml` running the host tests and the `tools/bt/run.py` harness | the workflow green |
 
 B0, B2 and the crypto part of B4 (`libs/btsmp` and P-256 in `libs/crypto`)
 are independent and can be built in parallel; B1 follows B0's codecs; B3

@@ -65,7 +65,7 @@ installable app. You rarely need to write Rust.
 | Kernel | [Boot](architecture/boot.md), [tasks](architecture/tasks.md), [memory](architecture/virtual-memory.md), [syscall gates](architecture/arch.md), [limits](architecture/limits.md) |
 | Messenger | [Core](architecture/ipc-core.md), [fabric](architecture/ipc-fabric.md), [security](architecture/ipc-security.md) |
 | Storage | [Filesystem](architecture/filesystem.md), [block cache](architecture/block-cache.md), [journal](architecture/journal.md), [USB storage](architecture/usb-storage.md) |
-| Devices | [Devices](architecture/devices.md), [drivers](architecture/drivers.md), [USB](architecture/usb.md), [audio](architecture/audio.md), [networking](architecture/networking.md), [Wi-Fi](architecture/wifi.md) |
+| Devices | [Devices](architecture/devices.md), [drivers](architecture/drivers.md), [USB](architecture/usb.md), [Bluetooth](architecture/bluetooth.md), [audio](architecture/audio.md), [networking](architecture/networking.md), [Wi-Fi](architecture/wifi.md) |
 | Userland | [Userland](architecture/userland.md), [processes](architecture/processes.md), [display](architecture/display.md), [sandboxing](architecture/process-sandbox.md) |
 | Overview | [Architecture reference](architecture.md) |
 

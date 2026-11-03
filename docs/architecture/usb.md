@@ -119,6 +119,10 @@ bulk endpoint contexts from `xhci::context::EndpointContext::bulk`.
 
 ## Bluetooth controllers (`LAZYOS_BT=1`)
 
+The whole Bluetooth subsystem (key files, boot path, pairing, bonds, security,
+latency, limits) is [bluetooth.md](bluetooth.md); this section is the `usbd` side
+and the first details of `btd`.
+
 [bluetooth-plan.md](../bluetooth-plan.md) phase B2. `class.rs` binds interface
 0 of a USB Bluetooth controller (class `E0/01/01`) to `bt.rs`; interface 1
 (the isochronous voice channel and its alternates) is left alone. HCI commands

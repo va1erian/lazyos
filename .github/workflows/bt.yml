@@ -1,0 +1,256 @@
+name: bt
+
+# Bluetooth (docs/bluetooth-plan.md, docs/architecture/bluetooth.md): host
+# tests and lints for every Bluetooth library, the harness judges' own tests,
+# and the end-to-end harness. QEMU has no Bluetooth, so the harness boots the
+# image with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt`, a host
+# program serving a fake USB dongle through `libs/btsim`; it judges what
+# reached `inputd`, not just `btd`'s markers. `run.py` fetches the `bt`
+# firmware set (`tools/firmware/fetch.py --switch bt`) before it builds the
+# image.
+#
+# Not run here: `--ui-pair` and `--btctl`. They boot a desktop image (the xui
+# apps need zig and the core packages; xui.yml shards its desktop captures
+# because one runner does not build and boot them in a row), which is not
+# affordable per Bluetooth change. Run them by hand
+# (`python tools/bt/run.py --ui-pair`); the Settings page and the caller policy
+# are covered by `cargo test` (`bthost`, `btpolicy`) and by xui.yml.
+#
+# The bounded fuzz runs of the Bluetooth parsers (bthci, btl2cap, btbond,
+# btsmp, btfw, btsdp, bthid, btgatt) live in the fuzz matrix of net.yml, the
+# only cargo-fuzz job in CI.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "libs/bthci/**"
+      - "libs/btl2cap/**"
+      - "libs/btbond/**"
+      - "libs/btsim/**"
+      - "libs/btsmp/**"
+      - "libs/btsdp/**"
+      - "libs/bthid/**"
+      - "libs/bthost/**"
+      - "libs/btgatt/**"
+      - "libs/btfw/**"
+      - "libs/btusb/**"
+      - "libs/btpolicy/**"
+      - "libs/usbhid/**"
+      - "libs/crypto/**"
+      - "libs/framering/**"
+      - "libs/fwload/**"
+      - "user/src/bin/btd.rs"
+      - "user/src/bin/btd/**"
+      - "user/src/bin/usbd/bt*.rs"
+      - "user/src/bin/usbd/class.rs"
+      - "user/src/bin/init/**"
+      - "user/src/messenger/bt.rs"
+      - "idl/bt.midl"
+      - "idl/usb_bt.midl"
+      - "kernel/src/ipc/policy.rs"
+      - "tools/bt/**"
+      - "tools/btdemo.py"
+      - "tools/firmware/**"
+      - "tools/screenshot/**"
+      - "xui-app/crates/settings/src/bluetooth*.rs"
+      - "xui-app/crates/settings/tests/bluetooth.rs"
+      - "xui-app/src/platform/bluetooth.rs"
+      - "build.rs"
+      - "build_support/**"
+      - ".github/workflows/bt.yml"
+      - ".github/actions/**"
+  pull_request:
+    paths:
+      - "libs/bthci/**"
+      - "libs/btl2cap/**"
+      - "libs/btbond/**"
+      - "libs/btsim/**"
+      - "libs/btsmp/**"
+      - "libs/btsdp/**"
+      - "libs/bthid/**"
+      - "libs/bthost/**"
+      - "libs/btgatt/**"
+      - "libs/btfw/**"
+      - "libs/btusb/**"
+      - "libs/btpolicy/**"
+      - "libs/usbhid/**"
+      - "libs/crypto/**"
+      - "libs/framering/**"
+      - "libs/fwload/**"
+      - "user/src/bin/btd.rs"
+      - "user/src/bin/btd/**"
+      - "user/src/bin/usbd/bt*.rs"
+      - "user/src/bin/usbd/class.rs"
+      - "user/src/bin/init/**"
+      - "user/src/messenger/bt.rs"
+      - "idl/bt.midl"
+      - "idl/usb_bt.midl"
+      - "kernel/src/ipc/policy.rs"
+      - "tools/bt/**"
+      - "tools/btdemo.py"
+      - "tools/firmware/**"
+      - "tools/screenshot/**"
+      - "xui-app/crates/settings/src/bluetooth*.rs"
+      - "xui-app/crates/settings/tests/bluetooth.rs"
+      - "xui-app/src/platform/bluetooth.rs"
+      - "build.rs"
+      - "build_support/**"
+      - ".github/workflows/bt.yml"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bt-${{ github.ref }}
+  cancel-in-progress: true
+
+# F2 (docs/filesystem-plan.md): `cargo build` updates target/lazyos.img in place
+# when it exists; CI is hermetic, so every image is created fresh.
+env:
+  LAZYOS_RESET_OS: "1"
+
+jobs:
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: host
+
+      # rust-toolchain.toml pins the nightly toolchain; rustup installs it.
+      # CI=1 makes the corpus replay tests insist that seeds exist.
+      - name: Bluetooth libraries and the fake dongle (host, includes the seeded fuzz tests)
+        run: >-
+          cargo test -p bthci -p btl2cap -p btbond -p btsim -p btsmp -p btsdp
+          -p bthid -p bthost -p btgatt -p btfw -p btusb -p btpolicy -p fakebt
+          -p usbhid -p lazyos-crypto
+          --features bthci/fuzz,btl2cap/fuzz,btbond/fuzz,btsmp/fuzz,btsdp/fuzz,bthid/fuzz,btgatt/fuzz,btfw/fuzz
+        env:
+          FUZZ_CASES: "2000"
+
+      - name: Lints
+        run: >-
+          cargo clippy -p bthci -p btl2cap -p btbond -p btsim -p btsmp -p btsdp
+          -p bthid -p bthost -p btgatt -p btfw -p btusb -p btpolicy -p fakebt
+          -p usbhid -p lazyos-crypto --all-targets
+          --features bthci/fuzz,btl2cap/fuzz,btbond/fuzz,btsmp/fuzz,btsdp/fuzz,bthid/fuzz,btgatt/fuzz,btfw/fuzz
+          -- -D warnings
+
+      - name: Fuzz seed corpus is current
+        run: python fuzz/gen_corpus.py --check
+
+      # The judges must fail when they should (a harness that cannot fail
+      # proves nothing), and the firmware pin must hold.
+      - name: Harness judges and the firmware pin
+        run: |
+          python tools/bt/test_judge.py
+          python tools/bt/test_judge_fw.py
+          python tools/bt/test_judge_ui.py
+          python tools/firmware/test_fetch.py
+
+  harness:
+    name: harness (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: ${{ matrix.flaky || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # B2: the transport. usbd binds the dongle, btd brings it up; the
+          # full address never appears in a trace.
+          - name: transport
+            args: ""
+          # The dongle is pulled out after the bring-up: the function is
+          # withdrawn and btd notices.
+          - name: unplug
+            args: "--unplug"
+          # The dongle appears 20 s after the connection, not at boot.
+          - name: hotplug
+            args: "--hotplug"
+          # B3: BR/EDR keyboard (passkey) and mouse pair, text and motion arrive.
+          - name: pair
+            args: "--pair"
+          # B3: pair, power off, boot the same image: it types at boot.
+          - name: reboot
+            args: "--reboot"
+          # B3: an unbonded peer pages the host and types: refused.
+          - name: refuse
+            args: "--refuse"
+          # B3: btd dies holding a key; nothing stuck, it reattaches.
+          - name: kill
+            args: "--kill"
+          # B4: LE keyboard (passkey) and mouse.
+          - name: le-pair
+            args: "--le-pair"
+          - name: le-reboot
+            args: "--le-reboot"
+          # Bonded devices change their resolvable private address each time.
+          - name: le-rpa
+            args: "--le-rpa"
+          # A Just Works LE keyboard is refused; a stranger is never connected.
+          - name: le-refuse
+            args: "--le-refuse"
+          # B6: the boot's spans against the budgets (radio ready 1500 ms after
+          # usbd started, first report 250 ms after the link). Timing on a
+          # shared runner varies (one 1.7 s outlier was seen on a loaded
+          # host), so a miss is reported but does not fail the workflow.
+          - name: boot-typing
+            args: "--boot-typing"
+            flaky: true
+          - name: le-boot-typing
+            args: "--le-boot-typing"
+            flaky: true
+          # B7: vendor radios that need firmware, with the real USB ids and the
+          # real linux-firmware files; then --pair.
+          - name: fw-intel
+            args: "--fw intel"
+          - name: fw-intel-tlv
+            args: "--fw intel-tlv"
+          - name: fw-intel-recovery
+            args: "--fw intel-recovery"
+          - name: fw-intel-reboot
+            args: "--fw intel-reboot"
+          - name: fw-realtek
+            args: "--fw realtek"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/qemu
+
+      # The fake dongle is a usbredir device; this QEMU build has to carry the
+      # `usb-redir` device. Fail here, with the reason, not in a boot.
+      - name: QEMU has usb-redir
+        run: |
+          qemu-system-x86_64 -device help | grep -q 'usb-redir' || {
+            echo "::error::this QEMU has no usb-redir device (the Bluetooth harness needs usbredir)"
+            exit 1
+          }
+
+      - uses: ./.github/actions/rust-cache
+        with:
+          key: os-image
+
+      - name: Boot against the fake dongle and judge it
+        run: python tools/bt/run.py ${{ matrix.args }}
+
+      # On failure, print the evidence in the log itself.
+      - name: Dump the Bluetooth trace
+        if: ${{ failure() }}
+        run: |
+          grep -aE "BT:|USBD:BT|INPUTD:(KEY|TEXT|READY)|INIT:(SPAN|RESTART)|HANG:" shots/bt/serial.log shots/bt/boot*/serial.log 2>/dev/null | tail -300 || true
+          tail -50 shots/bt/fakebt.log || true
+
+      - name: Upload the session
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bt-${{ matrix.name }}
+          path: shots/bt
+          if-no-files-found: ignore
