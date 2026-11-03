@@ -63,6 +63,19 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual([b.name for b in blobs], ["acme/fw.bin", "acme/LICENCE.acme"])
         self.assertEqual(blobs[0].size, len(BLOB))
 
+    def test_the_bluetooth_firmware_is_pinned_apart_from_the_wifi_files(self) -> None:
+        blobs = fetch.load_manifest()
+        bt = {blob.name: blob for blob in fetch.wanted(blobs, "bt")}
+        for name in ("intel/ibt-19-0-4.sfi", "intel/ibt-0041-0041.sfi", "intel/ibt-0040-0041.sfi",
+                     "rtl_bt/rtl8822cu_fw.bin", "rtl_bt/rtl8761bu_fw.bin", "rtl_bt/rtl8761bu_config.bin"):
+            self.assertIn(name, bt)
+            self.assertIn(bt[name].licence, bt, "the licence travels with the blob")
+            self.assertIn("afabaf773c4c2e2c841429933a6a084a5af4d14d", bt[name].url, "commit-pinned")
+        self.assertFalse(any(name.startswith("rtw88/") for name in bt))
+        wifi = {blob.name for blob in fetch.wanted(blobs, "wifi")}
+        self.assertFalse(any(name.startswith(("intel/", "rtl_bt/")) for name in wifi),
+                         "LAZYOS_WIFI=1 images do not carry the Bluetooth firmware")
+
     def test_bad_lines_are_refused(self) -> None:
         good = line("acme/fw.bin", BLOB, "acme/fw.bin")
         for bad, why in [

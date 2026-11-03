@@ -50,6 +50,7 @@ sntp = { path = "../libs/sntp", features = ["fuzz"] }
 bthci = { path = "../libs/bthci", features = ["fuzz"] }
 btl2cap = { path = "../libs/btl2cap", features = ["fuzz"] }
 btbond = { path = "../libs/btbond", features = ["fuzz"] }
+btfw = { path = "../libs/btfw", features = ["fuzz"] }
 # The Terminal's engine lives in the xui-app workspace (docs/terminal-plan.md).
 lazyterm = { path = "../xui-app/crates/term", features = ["fuzz"] }
 # LazyAgent's SSE parser and chunk reader (docs/ai-agent-plan.md §5.2).
@@ -347,6 +348,13 @@ bench = false
 [[bin]]
 name = "btbond"
 path = "fuzz_targets/btbond.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "btfw"
+path = "fuzz_targets/btfw.rs"
 test = false
 doc = false
 bench = false

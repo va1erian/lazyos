@@ -234,6 +234,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "btfw"
+version = "0.1.0"
+dependencies = [
+ "bthci",
+]
+
+[[package]]
 name = "bthci"
 version = "0.1.0"
 dependencies = [

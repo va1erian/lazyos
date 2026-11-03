@@ -7,7 +7,8 @@
 #   <name> | <switch> | <sha256> | <bytes> | <licence> | <url>
 #
 # name: vendor-relative, by libs/fwload's rules. switch: the build switch
-# that installs it (`wifi`: LAZYOS_WIFI=1). licence: the name of the file
+# that installs it (`wifi`: LAZYOS_WIFI=1; `bt`: the Bluetooth controller
+# loaders of libs/btfw, docs/bluetooth-plan.md B7). licence: the name of the file
 # holding the licence text that must travel with it (itself for a licence).
 # url: a commit-pinned location; bumping a file means a new commit, digest
 # and size, and a THIRD_PARTY.md row to match.
@@ -18,3 +19,16 @@
 
 rtw88/rtw8822c_fw.bin | wifi | 3deecb31210986d98cdbfb000391e08d602a6eee4ffc883969faa2b907ab03ba | 202600 | rtw88/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/rtw88/rtw8822c_fw.bin
 rtw88/LICENCE.rtlwifi_firmware.txt | wifi | a61351665b4f264f6c631364f85b907d8f8f41f8b369533ef4021765f9f3b62e | 2115 | rtw88/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/LICENSES/LICENCE.rtlwifi_firmware.txt
+intel/ibt-19-0-4.sfi | bt | 2e6a2027b9eeb3aa94255f10752bb828077739104b8be6769c7500322edddfd6 | 801412 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-19-0-4.sfi
+intel/ibt-19-0-4.ddc | bt | fe272982577efdc289cfe3e8bedafca607c0b7d6c9df1aab1880e22ef930d077 | 9 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-19-0-4.ddc
+intel/ibt-0041-0041.sfi | bt | 2e5f11ecc302e10dba51e9e07babef1b6d5c2a2359c695f1a23836552271d906 | 713524 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0041-0041.sfi
+intel/ibt-0041-0041.ddc | bt | fe272982577efdc289cfe3e8bedafca607c0b7d6c9df1aab1880e22ef930d077 | 9 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0041-0041.ddc
+intel/ibt-0040-0041.sfi | bt | f14d059858623283f9e1bca3c9f5c5edc272cf538959d8f194327e3a9af5a75a | 721052 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0040-0041.sfi
+intel/ibt-0040-0041.ddc | bt | fe272982577efdc289cfe3e8bedafca607c0b7d6c9df1aab1880e22ef930d077 | 9 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0040-0041.ddc
+intel/ibt-0040-1020.sfi | bt | 609b00758870c7f10141221f73c3798c336305df1d312ced4f6de4ed9624491f | 764772 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0040-1020.sfi
+intel/ibt-0040-1020.ddc | bt | fe272982577efdc289cfe3e8bedafca607c0b7d6c9df1aab1880e22ef930d077 | 9 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/intel/ibt-0040-1020.ddc
+intel/LICENCE.ibt_firmware | bt | 5181b0b51efc79d5acb2c9bb92042878fdbad97a92114d4ab5e32e2b5b52fce4 | 2040 | intel/LICENCE.ibt_firmware | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/LICENSES/LICENCE.ibt_firmware
+rtl_bt/rtl8822cu_fw.bin | bt | bb8b1221b62749baebfa3e60271d6d90b1db5e3a480e3255be82c9fb58fe9577 | 37327 | rtl_bt/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/rtl_bt/rtl8822cu_fw.bin
+rtl_bt/rtl8761bu_fw.bin | bt | 1d7a9597349ad89344fa16c1913d3e39e9a12e966e417ca16871bc79bbe59edb | 44484 | rtl_bt/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/rtl_bt/rtl8761bu_fw.bin
+rtl_bt/rtl8761bu_config.bin | bt | 6c28a3f07c6a30ed208c4b64862a23f02b7d93543ea980edd24df16bab45095f | 6 | rtl_bt/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/rtl_bt/rtl8761bu_config.bin
+rtl_bt/LICENCE.rtlwifi_firmware.txt | bt | a61351665b4f264f6c631364f85b907d8f8f41f8b369533ef4021765f9f3b62e | 2115 | rtl_bt/LICENCE.rtlwifi_firmware.txt | https://gitlab.com/kernel-firmware/linux-firmware/-/raw/afabaf773c4c2e2c841429933a6a084a5af4d14d/LICENSES/LICENCE.rtlwifi_firmware.txt

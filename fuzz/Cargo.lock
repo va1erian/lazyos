@@ -156,6 +156,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "btfw"
+version = "0.1.0"
+dependencies = [
+ "bthci",
+]
+
+[[package]]
 name = "bthci"
 version = "0.1.0"
 
@@ -759,6 +766,7 @@ dependencies = [
  "acpi",
  "ahci",
  "btbond",
+ "btfw",
  "bthci",
  "btl2cap",
  "btsmp",

@@ -245,6 +245,14 @@ each other after B4.
    nothing useful until their firmware is loaded, and the download makes the
    radio re-enumerate on USB. If `usbd`'s detach/reattach does not survive
    it, B7 grows a `usbd` change. Nothing in B0-B6 depends on it.
+   `libs/btfw` (the loader half of B7) narrows this from Linux's documented
+   behaviour: after a successful Intel download the new image announces itself
+   with a "boot up" vendor event on the same USB device; the device leaves the
+   bus only when the loader sends its recovery reset after a failure (and,
+   from the protocol, may on a part that resets on boot). `btfw` reports that
+   as `Done::Reenumerate` / `Failure.reenumerate`, so `btd` restarts from HCI
+   Reset when the interface returns. Realtek parts keep their device across
+   the download. Unverified on hardware until a radio is on the bench.
 2. **Reconnect behaviour differs per device.** BR/EDR keyboards usually page
    the host; some wait to be paged (`HIDReconnectInitiate` false,
    `HIDNormallyConnectable` true), so `btd` also pages bonded BR/EDR devices

@@ -8,8 +8,9 @@ and places them at ``/system/share/firmware/<name>`` (``fhs::FIRMWARE``).
 Firmware is never committed and never compiled into a program
 (docs/wifi-prerequisites-plan.md 3.8).
 
-    python tools/firmware/fetch.py                 # every file (the `wifi` ones today)
+    python tools/firmware/fetch.py                 # every file (`wifi` and `bt`)
     python tools/firmware/fetch.py --switch wifi   # only what LAZYOS_WIFI=1 installs
+    python tools/firmware/fetch.py --switch bt     # the Bluetooth controller firmware (libs/btfw)
     python tools/firmware/fetch.py --check         # download afresh and verify the pins
 
 A download goes to a temporary name and is moved into place only once its
@@ -159,7 +160,7 @@ def check(blobs: list[Blob]) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--switch", help="only the files this build switch installs (`wifi`)")
+    parser.add_argument("--switch", help="only the files this build switch installs (`wifi`, `bt`)")
     parser.add_argument("--check", action="store_true",
                         help="download every file afresh and verify the pins (no cache)")
     parser.add_argument("--manifest", type=Path, default=MANIFEST, help=argparse.SUPPRESS)

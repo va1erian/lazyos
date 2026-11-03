@@ -1,0 +1,19 @@
+[package]
+name = "btfw"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Bluetooth controller firmware loaders (Intel secure-send, Realtek epatch) for the LazyOS btd service, as pure step functions"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btfw"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/btfw.rs`). Needs `std`.
+fuzz = []
+
+[dependencies]
+bthci = { path = "../bthci" }
