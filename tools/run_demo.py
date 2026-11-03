@@ -46,6 +46,7 @@ Examples
     python tools/run_demo.py --desktop --installer --build-only  # a stick that installs beside Linux
     python tools/run_demo.py --desktop --netboot --netboot-key target/netboot/key.sec --build-only  # target/netboot, signed
     python tools/run_demo.py --wifi-sim      # the simulated Wi-Fi radio wlan0 + fake APs (tools/wifi)
+    python tools/run_demo.py --bt            # Bluetooth: a fake USB dongle (tools/bt/fakebt); usbd binds it, btd brings it up
     python tools/run_demo.py --sound wav:out.wav   # ...recorded to a WAV file instead
     python tools/run_demo.py --intelgfx       # gpud: adopt and report the Intel GPU's display state (docs/kabylake-gpu-plan.md)
     python tools/run_demo.py --journal       # the OS volume gets an ext2 journal (LAZYOS_JOURNAL=1)
@@ -95,7 +96,8 @@ import qemu_serial  # noqa: E402
 from lazygui.catalog import lazyrad_samples  # noqa: E402
 from lazygui import osvolume  # noqa: E402
 from demo_qemu import (  # noqa: E402
-    USB_APPS, boot_disk_args, device_env, sound_args, usb_desktop, usb_env, usb_sticks,
+    USB_APPS, boot_disk_args, device_env, sound_args, start_fakes, stop_fakes, usb_desktop, usb_env,
+    usb_sticks,
 )
 import demo_builds  # noqa: E402,F401  (tests patch its paths)
 from demo_builds import (  # noqa: E402
@@ -474,12 +476,8 @@ def main(argv: list[str]) -> int:
             return 1
         command += net_qemu
         print(qemu_net.describe(forwards, args.net_restrict), flush=True)
-    fake_ap = None
-    if args.wifi_sim:
-        log = ROOT / "target" / "wifi-sim-ap.log"
-        fake_ap, air = simnet.start(log=log)
-        command += air
-        print(simnet.describe(log), flush=True)
+    fakes, fake_args = start_fakes(args)  # the Wi-Fi simulator's APs, the Bluetooth dongle
+    command += fake_args
     command += accel_args(args.accel, qemu)
     if args.headless:
         command += ["-display", "none"]
@@ -493,7 +491,7 @@ def main(argv: list[str]) -> int:
     try:
         return qemu_serial.run(command, args)
     finally:
-        simnet.stop(fake_ap)
+        stop_fakes(fakes)
 
 
 if __name__ == "__main__":

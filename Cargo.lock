@@ -249,6 +249,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "btpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "btsim"
 version = "0.1.0"
 dependencies = [
@@ -265,6 +269,10 @@ dependencies = [
  "lazyos-crypto",
  "zeroize",
 ]
+
+[[package]]
+name = "btusb"
+version = "0.1.0"
 
 [[package]]
 name = "build-support-tests"
@@ -658,6 +666,10 @@ dependencies = [
  "fuzzkit",
  "spin",
 ]
+
+[[package]]
+name = "fakebt"
+version = "0.1.0"
 
 [[package]]
 name = "fastrand"
@@ -1917,6 +1929,8 @@ dependencies = [
  "accountdb",
  "audioclient",
  "audiomix",
+ "btpolicy",
+ "btusb",
  "confd",
  "cursorgfx",
  "dbgwire",

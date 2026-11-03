@@ -205,6 +205,12 @@ pub const DENY: &[Deny] = &[
         when: DenyWhen::Always,
         reason: "the person's browser profile: cookies, history and downloads",
     },
+    // The radio of a USB Bluetooth controller carries the machine's keyboard and mouse.
+    Deny {
+        interface: "os.lazy.usb.bt.v1",
+        when: DenyWhen::Always,
+        reason: "the Bluetooth radio, which carries the machine's keyboard and mouse",
+    },
 ];
 
 /// Interface names in [`DENY`] that are kernel ACL scopes: nothing serves

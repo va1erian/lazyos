@@ -229,6 +229,12 @@ def build_env(cfg: dict) -> dict[str, str]:
         # 3.6) is a card of the stack: it brings it, without the harness clients.
         env.update({"LAZYOS_WIFI_SIM": "1", "LAZYOS_NETD": "1"})
         env.setdefault("LAZYOS_NETD_ARGS", "demo=0")
+    if cfg.get("bt"):
+        # Bluetooth (docs/bluetooth-plan.md B2): `usbd` binds a USB controller
+        # and `btd` brings it up. The driver and a session that starts it come
+        # with it (the image build refuses LAZYOS_BT without LAZYOS_USB).
+        env.update({"LAZYOS_BT": "1", "LAZYOS_USB": "1"})
+        env.setdefault("LAZYOS_SERVICES", "1")
     # Kernel limits for `lazyos.cfg` (Advanced tab, `run_demo.py --limit`).
     env.update(cfg_limit_env(cfg))  # the browser's quota too (`limits.WEBKIT_LIMITS`)
     # The kernel screen mode (Simple: HiDPI; Advanced: any) and the Advanced asset trees.
@@ -364,6 +370,10 @@ def build_plan(cfg: dict) -> list[dict]:
             # Also with "Skip build": run_demo starts the fake access points
             # and attaches the air card, not only the build switch.
             argv.append("--wifi-sim")
+        if cfg.get("bt"):
+            # Also with "Skip build": run_demo starts the fake dongle and
+            # plugs it in, not only the build switch.
+            argv.append("--bt")
         if cfg.get("lazysky") and not cfg["skip_build"]:
             # run_demo builds the client and sets the desktop, the stack and
             # LAZYOS_LAZYSKY itself.

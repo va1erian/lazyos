@@ -19,6 +19,7 @@ input policy (no layout, no repeat, no cursor, no clamping).
 | `libs/usbpolicy/` | `_usb` (uid 904) and its ACL rules: claim, map and DMA on `os.kernel.dev.usb` |
 | `kernel/src/input/sources.rs`, `rawsys.rs` | Input sources: register/publish/close, kernel-stamped device ids, class checks, a token bucket per slot, release on close and on task death |
 | `user/src/bin/usbd.rs`, `usbd/` | The driver: `hc.rs` (one controller: handoff, reset, rings, event pump), `port.rs` (root ports: power, debounce, reset, USB 3 training and warm reset), `bus.rs` (one controller's device tree: attach, retry, detach children first), `device.rs` (any device: address at its location, descriptors, control transfers with stall recovery, Configure Endpoint), `pipe.rs` (endpoint rings; interrupt-IN report queues), `class.rs` (class dispatch), `hub.rs` (hub class), `hid.rs` (decoders to bus records), `mem.rs` (BAR and DMA regions) |
+| `libs/btusb/`, `libs/btpolicy/`, `user/src/bin/usbd/bt*.rs`, `tools/bt/` | Bluetooth controllers (`LAZYOS_BT=1`, [bluetooth-plan.md](../bluetooth-plan.md) B2): packet framing, the `_bt` uid, the function and its `os.lazy.usb.bt` server, the fake dongle and harness |
 | `tools/usb/` | The harness: `run.py` (QEMU sessions), `judge.py` (the verdict), `test_judge.py` |
 | `libs/usbaudio/`, `user/src/bin/usbd/audio*.rs` | USB audio (`LAZYOS_USB_AUDIO=1`, [usb-audio-plan.md](../usb-audio-plan.md)): UAC 1.0/2.0 descriptors, alternate and rate choice, the isochronous OUT ring and explicit feedback, the `os.lazy.usb.audio.v1` server `sndd usb=1` drives; harness `tools/sound/usb_run.py` |
 
@@ -111,6 +112,39 @@ a fatal error (`HSE`/`HCE`) is dropped with its devices released
 Endpoint. Descriptors for any class come from `usbhid::desc::Interface`
 (class, subclass, protocol, endpoints with type, direction and burst);
 bulk endpoint contexts from `xhci::context::EndpointContext::bulk`.
+
+## Bluetooth controllers (`LAZYOS_BT=1`)
+
+[bluetooth-plan.md](../bluetooth-plan.md) phase B2. `class.rs` binds interface
+0 of a USB Bluetooth controller (class `E0/01/01`) to `bt.rs`; interface 1
+(the isochronous voice channel and its alternates) is left alone. HCI commands
+go out as class requests on endpoint 0 (`bmRequestType` 0x20, `bRequest` 0),
+events come in on the interrupt-IN endpoint and ACL data on the bulk pair.
+Each IN endpoint keeps chunk-sized transfers queued (a packet longer than
+`wMaxPacketSize` arrives in several) and `libs/btusb` cuts packets out of the
+chunks by the event length byte and the ACL length field: that is all the
+Bluetooth `usbd` knows, because `btd` parses what a stranger in radio range
+sends. One controller at a time; SuperSpeed controllers (1024-byte bulk
+packets) are skipped.
+
+`usbd` serves the controller as `os.lazy.usb.bt` (`idl/usb_bt.midl`) while it
+is bound and withdraws the name (after a `Notify` with `Gone`) when it is
+unplugged. Only `_bt` (uid 916, `libs/btpolicy`) and root may call it. Packets
+never travel in a message body: `btd` creates one shared buffer holding the
+`Commands` ring (frames from `btd`: an H4 indicator byte and an HCI command or
+ACL packet) and the `Events` ring (frames from the controller), the
+`libs/framering` rings of the NIC interface, and a notify endpoint; `usbd`
+validates every index and length, checks that a command's or ACL packet's own
+length field matches its frame before it reaches the device, queues events a
+full ring has no room for (bounded, then counted as dropped) and wakes `btd`
+only when it armed the ring, and `btd`'s `Kick` wakes `usbd` the same way, so
+neither polls. Evidence: `USBD:BT:BIND|UNBIND|SERVE|WITHDRAW|ATTACH`.
+
+QEMU has no Bluetooth emulation, so the harness is `tools/bt/run.py`: QEMU
+with a `qemu-xhci` and `usb-redir` talking to `tools/bt/fakebt` (a host
+program serving a fake dongle over usbredir through a controller model, today
+a stub; `libs/btsim` replaces it). `--unplug` pulls the dongle out after the
+bring-up.
 
 ## Security
 

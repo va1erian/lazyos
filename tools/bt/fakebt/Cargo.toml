@@ -1,0 +1,14 @@
+[package]
+name = "fakebt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A fake USB Bluetooth dongle served to QEMU over usbredir, answering through a Controller (docs/bluetooth-plan.md, phase B2)"
+license = "GPL-3.0-or-later"
+
+# A host tool with no dependencies: std only, so it builds with the plain
+# `cargo build -p fakebt` on Windows, Linux and WSL, and the controller model
+# it serves (`controller.rs`) is the one seam to swap for `libs/btsim`.
+[[bin]]
+name = "fakebt"
+path = "src/main.rs"

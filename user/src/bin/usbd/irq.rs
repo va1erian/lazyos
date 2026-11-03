@@ -144,17 +144,18 @@ pub(super) fn wait_event(hc: &mut Hc, deadline: u64) {
     }
 }
 
-/// Idle: park until a controller interrupts, a request reaches `service`
-/// (the audio function's endpoint) or [`FALLBACK_TICKS`] pass. Without any
-/// armed controller this is the old one-tick nap.
-pub(super) fn park(controllers: &[Controller], service: Option<Endpoint>) {
+/// Idle: park until a controller interrupts, a request reaches one of
+/// `services` (the audio and Bluetooth functions' endpoints, where `Kick`
+/// arrives too) or [`FALLBACK_TICKS`] pass. Without any armed controller
+/// this is the old one-tick nap.
+pub(super) fn park(controllers: &[Controller], services: &[Option<Endpoint>]) {
     let armed = controllers
         .iter()
         .any(|controller| controller.hc.irq.is_some());
     let endpoints: Vec<Endpoint> = controllers
         .iter()
         .filter_map(|controller| controller.hc.irq)
-        .chain(service.filter(|_| armed))
+        .chain(services.iter().flatten().copied().filter(|_| armed))
         .take(wait::MAX_ENDPOINTS)
         .collect();
     if endpoints.is_empty() {

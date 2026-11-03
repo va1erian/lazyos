@@ -42,17 +42,6 @@ pub(super) const AUTOSTART_ATTEMPTS: u64 = 40;
 /// currently holds or will reclaim a slot without another cap check.
 pub(super) const LAUNCH_CAP_PER_SESSION: usize = 256;
 
-/// The remote inspection service's identity (docs/dbgd-plan.md): its own
-/// system uid and no capability at all.
-#[cfg(lazyos_dbgd)]
-const DBGD_CRED: SysCred = SysCred::new(
-    dbgwire::config::DBGD_UID,
-    dbgwire::config::DBGD_UID,
-    0,
-    0,
-    0,
-);
-
 /// Credentials a manifest row is spawned with; `None` inherits this
 /// supervisor's identity, which is what the platform services need.
 pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
@@ -73,6 +62,10 @@ pub(super) fn manifest_cred(name: &str) -> Option<SysCred> {
     #[cfg(lazyos_usb)]
     if name == "usbd" {
         return Some(USB_CRED);
+    }
+    #[cfg(lazyos_bt)]
+    if name == "btd" {
+        return Some(BT_CRED);
     }
     #[cfg(lazyos_net)]
     if name == "netdrv" {
@@ -332,6 +325,19 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
         args: USBD_ARGS,
         restart: Restart::OnFailure,
         deps: &["inputd"],
+    },
+    // The Bluetooth host service (docs/bluetooth-plan.md decision 3): a boot
+    // service, as `_bt` with only `CAP_INPUT_SOURCE`. It waits for `usbd` to
+    // serve the controller on its own (as `sndd-usb` waits for its card), so
+    // it has no start dependency to serialise behind, and `Always` starts it
+    // again after a crash: a dead host stack must not cost the keyboard.
+    #[cfg(lazyos_bt)]
+    ServiceSpec {
+        name: "btd",
+        path: fhs::bin::BTD,
+        args: "",
+        restart: Restart::Always,
+        deps: &[],
     },
     // The USB audio card (docs/usb-audio-plan.md): `sndd` driving the
     // speaker, headset or DAC `usbd` binds. It claims nothing and waits for

@@ -1,6 +1,7 @@
 """QEMU devices `tools/run_demo.py` derives from its flags: the sound card, the
-NIC model, the `devd` switch (issue #497) and a USB audio device
-(docs/usb-audio-plan.md)."""
+NIC model, the `devd` switch (issue #497), a USB audio device
+(docs/usb-audio-plan.md) and the host-side fakes the guest talks to (the
+simulated Wi-Fi access points, the fake Bluetooth dongle)."""
 
 from __future__ import annotations
 
@@ -10,6 +11,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent / "wifi"))
+import btdemo  # noqa: E402
+import simnet  # noqa: E402
 
 #: `--sound-card`: the QEMU devices of each card (`{dev}` is the audiodev id).
 #: QEMU's ICH6 HDA controller works on either machine type.
@@ -64,6 +68,12 @@ def add_device_options(parser: argparse.ArgumentParser) -> None:
                              "and QEMU gets a `usb-audio` device next to the sound card. "
                              "Opt-in until it has run on the Kaby Lake and Alder Lake boxes "
                              "(add --usb-image --dbgd --build-only for their stick)")
+    parser.add_argument("--bt", action="store_true",
+                        help="Bluetooth (LAZYOS_BT=1 with LAZYOS_USB=1, docs/bluetooth-plan.md B2): "
+                             "`usbd` binds a USB Bluetooth controller and serves it to `btd`, which "
+                             "brings it up. QEMU has no Bluetooth, so the guest gets a fake dongle "
+                             "(tools/bt/fakebt over usbredir) on a xHCI controller of its own; "
+                             "`tools/bt/run.py` is the harness")
     parser.add_argument("--nic", choices=NICS, default="virtio",
                         help="with --net: virtio-net (default) or an Intel 8254x (QEMU's "
                              "e1000, issue #497); `netdrv` drives either")
@@ -101,6 +111,12 @@ def device_env(args: argparse.Namespace, env: dict) -> None:
     if args.usb_audio:
         env["LAZYOS_USB"] = "1"
         env["LAZYOS_SOUND"] = "1"
+        if not args.desktop:
+            env.setdefault("LAZYOS_SERVICES", "1")
+    # Either way, so an inherited value never overrides `--bt`.
+    env["LAZYOS_BT"] = "1" if args.bt else "0"
+    if args.bt:
+        env.update(btdemo.build_env())
         if not args.desktop:
             env.setdefault("LAZYOS_SERVICES", "1")
     # Either way, so an inherited value never overrides `--intelgfx`.
@@ -167,7 +183,7 @@ def usb_desktop(args) -> bool:
     """Whether this build ships the USB stack (`LAZYOS_USB=1`), which brings the
     removable-drives tray applet."""
     return (bool(args.usb_stick) or bool(args.usb_image) or bool(args.netboot)
-            or bool(getattr(args, "usb_audio", False)))
+            or bool(getattr(args, "usb_audio", False)) or bool(getattr(args, "bt", False)))
 
 
 def usb_env(sticks: list[str], desktop: bool) -> dict[str, str]:
@@ -186,3 +202,29 @@ def usb_stick_args(sticks: list[Path]) -> list[str]:
         args += ["-drive", f"format=raw,file={stick},if=none,id=ustk{index}",
                  "-device", f"usb-storage,bus=xhci.0,drive=ustk{index},id=usbstick{index}"]
     return args
+
+
+def start_fakes(args) -> tuple[list, list[str]]:
+    """Start the host-side fakes the guest talks to (`--wifi-sim`'s access
+    points, `--bt`'s dongle): the processes, and the QEMU arguments that
+    reach them."""
+    fakes: list = []
+    extra: list[str] = []
+    if args.wifi_sim:
+        log = ROOT / "target" / "wifi-sim-ap.log"
+        process, air = simnet.start(log=log)
+        fakes.append(process)
+        extra += air
+        print(simnet.describe(log), flush=True)
+    if args.bt:
+        log = ROOT / "target" / "fakebt.log"
+        process, dongle = btdemo.start(log)
+        fakes.append(process)
+        extra += dongle
+        print(btdemo.describe(log), flush=True)
+    return fakes, extra
+
+
+def stop_fakes(fakes: list) -> None:
+    for process in fakes:
+        btdemo.stop(process)

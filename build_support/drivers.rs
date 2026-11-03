@@ -88,6 +88,16 @@ pub fn embed(sink: &mut dyn Sink, desktop: bool, manifest_dir: &std::path::Path)
         // `eject`: flush and unmount one of them, so the stick can be pulled.
         add(sink, fhs::bin::EJECT, "eject");
     }
+    // `btd`, the Bluetooth host service (docs/bluetooth-plan.md B2), on
+    // request: it reaches the controller through `usbd`.
+    if enabled("LAZYOS_BT") {
+        assert!(
+            usb,
+            "LAZYOS_BT=1 needs LAZYOS_USB=1 (the radio is a USB controller `usbd` drives; \
+             `run_demo.py --bt` sets both)"
+        );
+        add(sink, fhs::bin::BTD, "btd");
+    }
     if usb || netd {
         // `mountd`: the network mounts' service, and the USB volumes' automount.
         add(sink, fhs::bin::MOUNTD, "mountd");

@@ -259,6 +259,12 @@ pub static MODULES: &[ApiModule] = &[
         topics: &[],
     },
     ApiModule {
+        alias: "usb_bt",
+        interface: "os.lazy.usb.bt.v1",
+        source: include_str!("usb_bt.rhai"),
+        topics: &[],
+    },
+    ApiModule {
         alias: "webd_view",
         interface: "os.lazy.webd.view.v1",
         source: include_str!("webd_view.rhai"),

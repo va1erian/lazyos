@@ -115,6 +115,10 @@ usbpolicy = { path = "../libs/usbpolicy" }
 sndpolicy = { path = "../libs/sndpolicy" }
 # `gpud`'s uid and class rules (LAZYOS_INTELGFX=1, docs/kabylake-gpu-plan.md).
 gpupolicy = { path = "../libs/gpupolicy" }
+# The Bluetooth transport (docs/bluetooth-plan.md B2): `_bt`'s uid and the
+# packet framing `usbd` applies between the radio and `btd`.
+btpolicy = { path = "../libs/btpolicy" }
+btusb = { path = "../libs/btusb" }
 # The Intel Gen9 display decoders `gpud` reads the firmware's state with
 # (docs/kabylake-gpu-plan.md, stage G1).
 intelgfx = { path = "../libs/intelgfx" }
@@ -444,6 +448,14 @@ bench = false
 [[bin]]
 name = "usbd"
 path = "src/bin/usbd.rs"
+test = false
+bench = false
+
+# The Bluetooth host service (docs/bluetooth-plan.md B2/B3): talks to the
+# radio through `usbd`'s `os.lazy.usb.bt`. Embedded with `LAZYOS_BT=1`.
+[[bin]]
+name = "btd"
+path = "src/bin/btd.rs"
 test = false
 bench = false
 

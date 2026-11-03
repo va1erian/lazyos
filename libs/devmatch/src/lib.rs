@@ -33,8 +33,8 @@ use alloc::vec::Vec;
 /// (`dbgwire::config::DBGD_UID`). Reserved for the Wi-Fi plan, defined with
 /// their programs: 912 `_wlan` (`wlanmd`, the station manager), 913
 /// `_wifisim` (`wifisim`, the CI simulator); docs/wifi-prerequisites-plan.md
-/// section 2; 915 `_gpu` (`gpud`, `gpupolicy::GPU_UID`). The next free uid
-/// is 916.)
+/// section 2; 915 `_gpu` (`gpud`, `gpupolicy::GPU_UID`); 916 `_bt` (`btd`,
+/// `btpolicy::BT_UID`). The next free uid is 917.)
 pub const DEVD_UID: u32 = 906;
 
 /// How a manifest entry recognises a function.

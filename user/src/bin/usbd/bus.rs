@@ -21,6 +21,7 @@ use xhci::trb::{kind, Trb};
 use alloc::string::String;
 
 use super::audio::AudioFn;
+use super::bt::BtFn;
 use super::class::{self, Function};
 use super::device::Device;
 use super::hc::Hc;
@@ -123,6 +124,18 @@ impl Controller {
             for function in &mut node.functions {
                 if let Function::Audio(audio) = function {
                     return Some((&mut self.hc, &mut node.device, audio));
+                }
+            }
+        }
+        None
+    }
+
+    /// The Bluetooth function and its device, if one is bound here.
+    pub(super) fn bt(&mut self) -> Option<(&mut Hc, &mut Device, &mut BtFn)> {
+        for node in &mut self.nodes {
+            for function in &mut node.functions {
+                if let Function::Bt(bt) = function {
+                    return Some((&mut self.hc, &mut node.device, bt));
                 }
             }
         }
@@ -411,7 +424,7 @@ impl Controller {
                     hub_changed = true;
                 }
                 // Their pipes are not report pipes: never reached.
-                Function::Msc(_) | Function::Audio(_) => {}
+                Function::Msc(_) | Function::Audio(_) | Function::Bt(_) => {}
             }
         }
         if hub_changed {

@@ -73,6 +73,7 @@ Kernel ACL scopes (interfaces no service receives) have no module.
 | [`sys::shell_tray`](#sysshell_tray) | `os.lazy.shell.tray.v1` |
 | [`sys::shell_tray_events`](#sysshell_tray_events) | `os.lazy.shell.tray.events.v1` |
 | [`sys::usb_audio`](#sysusb_audio) | `os.lazy.usb.audio.v1` |
+| [`sys::usb_bt`](#sysusb_bt) | `os.lazy.usb.bt.v1` |
 | [`sys::webd_view`](#syswebd_view) | `os.lazy.webd.view.v1` |
 | [`sys::webd_net`](#syswebd_net) | `os.lazy.webd.net.v1` |
 | [`sys::webd_browser`](#syswebd_browser) | `os.lazy.webd.browser.v1` |
@@ -975,6 +976,26 @@ A USB audio playback function, as `usbd` drives it
 Not callable from a script (the request carries a kernel object): `Attach`.
 
 - `SYNC` = the `Sync` variants; `SYNC_NONE`, `SYNC_ASYNC`, `SYNC_ADAPTIVE`, `SYNC_SYNCHRONOUS`
+
+## `sys::usb_bt`
+
+Interface `os.lazy.usb.bt.v1`, source [`usb_bt.rhai`](usb_bt.rhai).
+
+A USB Bluetooth controller, as `usbd` moves its packets for `btd`
+
+| Function | IDL | About |
+|---|---|---|
+| `describe()` | `Describe() -> (device: Device)` | Events and ACL packets received from the controller. |
+| `detach_ring(ring)` | `DetachRing(ring: U32) -> ()` | Release the rings; `usbd` stops reading and writing them. |
+| `stats()` | `Stats() -> (stats: Stats)` | Packet and error counters. |
+| `kick(ring)` | `Kick(ring: U32) -> () oneway` | Event, client to `usbd`: the client queued frames in the `Commands` |
+| `notify(ring, events)` | `Notify(ring: U32, events: U32) -> () oneway` | Event, `usbd` to the client: something needs the client's attention. |
+| `new_device()` | struct `Device` | a `Device` at its zero value |
+| `new_stats()` | struct `Stats` | a `Stats` at its zero value |
+
+Not callable from a script (the request carries a kernel object): `AttachRing`.
+
+- `NOTIFY_BIT` = the `NotifyBit` variants; `NOTIFY_BIT_PACKETS`, `NOTIFY_BIT_SPACE`, `NOTIFY_BIT_GONE`
 
 ## `sys::webd_view`
 

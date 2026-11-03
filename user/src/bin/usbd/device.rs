@@ -216,7 +216,10 @@ impl Device {
         self.open_window(endpoint).map(|(pipe, _)| pipe)
     }
 
-    fn open_window(&mut self, endpoint: &Endpoint) -> Result<(Pipe, usize), Error> {
+    /// [`Device::open_pipe`], also giving the offset of the pipe's window in
+    /// the device region: after its ring, the window's buffers are the
+    /// class's to use for transfers it keeps queued (`bt.rs`).
+    pub(super) fn open_window(&mut self, endpoint: &Endpoint) -> Result<(Pipe, usize), Error> {
         if self.windows_used == MAX_PIPES {
             return Err(Error::Descriptor("too many endpoints"));
         }

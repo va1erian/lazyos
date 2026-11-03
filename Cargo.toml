@@ -191,6 +191,12 @@ members = [
     "libs/sndpolicy",
     # The Intel GPU service's device-class rules (`gpud`, LAZYOS_INTELGFX=1).
     "libs/gpupolicy",
+    # The Bluetooth transport (docs/bluetooth-plan.md B2): the `_bt` uid and
+    # who may call `os.lazy.usb.bt`, and the HCI packet framing `usbd` applies.
+    "libs/btpolicy",
+    "libs/btusb",
+    # A fake USB Bluetooth dongle for QEMU (usbredir), host only.
+    "tools/bt/fakebt",
     # init's supervision decisions (restart, backoff, giving up, the desktop's
     # app-failure notice; issue #549): pure `no_std` + `alloc`, host-tested.
     "libs/svcpolicy",

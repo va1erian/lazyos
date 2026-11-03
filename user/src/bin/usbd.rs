@@ -28,7 +28,9 @@
 //! released, slot disabled, children first); with `trace=1`, one `USBD:KEY`
 //! line per key edge; `USBD:AUDIO:*` for a USB speaker, headset or DAC
 //! (`usbd/audio.rs`, `LAZYOS_USB_AUDIO=1`), whose stream `sndd usb=1`
-//! drives over `os.lazy.usb.audio.v1`. Devices come and go at runtime (U3): a port change
+//! drives over `os.lazy.usb.audio.v1`; `USBD:BT:*` for a Bluetooth controller
+//! (`usbd/bt.rs`, `LAZYOS_BT=1`), whose packets `btd` moves over
+//! `os.lazy.usb.bt.v1`. Devices come and go at runtime (U3): a port change
 //! attaches or detaches, and a detached device's DMA memory serves its
 //! slot's next device (`regions=` counts allocations per controller).
 
@@ -50,6 +52,14 @@ mod audio;
 mod audio_ring;
 #[path = "usbd/audio_service.rs"]
 mod audio_service;
+#[path = "usbd/bt.rs"]
+mod bt;
+#[path = "usbd/bt_link.rs"]
+mod bt_link;
+#[path = "usbd/bt_out.rs"]
+mod bt_out;
+#[path = "usbd/bt_service.rs"]
+mod bt_service;
 #[path = "usbd/bus.rs"]
 mod bus;
 #[path = "usbd/class.rs"]
@@ -233,6 +243,7 @@ fn run() -> Result<(), Error> {
     let mut irq_buf = alloc::vec![0u8; irq::MESSAGE_BYTES];
     let mut dump = Dump::new();
     let mut audio = audio_service::Server::new();
+    let mut bt = bt_service::Server::new();
     dump.write(&mut controllers, true);
     loop {
         // Acknowledge interrupts first: the line stays masked until then,
@@ -246,6 +257,10 @@ fn run() -> Result<(), Error> {
         // The audio name follows the device; its requests feed the ring.
         audio.sync(&mut controllers);
         busy |= audio.serve(&mut controllers);
+        // So does the Bluetooth name (`LAZYOS_BT=1`): its rings are served
+        // here and `btd`'s `Kick` wakes the park below.
+        bt.sync(&mut controllers);
+        busy |= bt.serve(&mut controllers);
         // A live stick's request queue is not a Messenger endpoint, so with
         // one plugged in the idle wait stays its one-tick serve.
         dump.write(&mut controllers, busy);
@@ -254,7 +269,7 @@ fn run() -> Result<(), Error> {
                 .iter_mut()
                 .any(|controller| controller.wait_storage(settings.trace))
         {
-            irq::park(&controllers, audio.endpoint());
+            irq::park(&controllers, &[audio.endpoint(), bt.endpoint()]);
         }
     }
 }
