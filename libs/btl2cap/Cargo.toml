@@ -1,0 +1,22 @@
+[package]
+name = "btl2cap"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Bluetooth L2CAP for the LazyOS btd service: basic-mode channels, signalling, LE fixed channels, ACL fragmentation and reassembly"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btl2cap"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/btl2cap.rs`). Needs `std`.
+fuzz = []
+
+[dependencies]
+bthci = { path = "../bthci" }
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }
