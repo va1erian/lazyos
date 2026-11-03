@@ -13,6 +13,7 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use user::trace;
 
+use btusb::PACKET_ACL;
 use framering::{ring_bytes, valid_slots, Consumer, FrameBuf, Producer, PushError, Ring};
 use user::messenger::usb_bt::{self as api, wire};
 use user::messenger::{errno, Endpoint, Error as MsgError};
@@ -205,9 +206,22 @@ impl Backlog {
         self.frames.is_empty()
     }
 
-    /// Keep `frame`; `false` when the backlog is full (the frame is dropped).
-    pub(super) fn push(&mut self, frame: &[u8]) -> bool {
+    /// Keep `frame`; `false` when a frame was lost for it: the backlog was
+    /// full and the frame was dropped, or (`event`) it took the place of the
+    /// oldest ACL frame, which was.
+    pub(super) fn push(&mut self, frame: &[u8], event: bool) -> bool {
         if self.frames.len() >= BACKLOG {
+            let oldest_acl = self
+                .frames
+                .iter()
+                .position(|queued| queued.first() == Some(&PACKET_ACL));
+            match oldest_acl {
+                Some(at) if event => {
+                    self.frames.remove(at);
+                    self.frames.push_back(frame.to_vec());
+                }
+                _ => {}
+            }
             return false;
         }
         self.frames.push_back(frame.to_vec());

@@ -8,11 +8,20 @@
 //! passkey it sends and confirm the pairings it asks about. Both are free while
 //! their owner is away (no radio at boot, a restart), which is exactly when a
 //! squatter would take them.
+//!
+//! The versioned spellings (`os.lazy.bt.v1`, the interface's own name) are
+//! reserved to the same owners: the script runtime (`rhai-lazy`) falls back
+//! to the literal interface name when the plain one is not registered, so a
+//! free `.v1` would let an impostor answer in `btd`'s place.
 
 /// The name `usbd` registers while a Bluetooth controller is bound.
 pub const TRANSPORT_NAME: &str = "os.lazy.usb.bt";
 /// The name `btd` registers.
 pub const API_NAME: &str = "os.lazy.bt";
+/// The interface names (`idl/usb_bt.midl`, `idl/bt.midl`), reserved like the
+/// service names.
+pub const TRANSPORT_NAME_V1: &str = "os.lazy.usb.bt.v1";
+pub const API_NAME_V1: &str = "os.lazy.bt.v1";
 
 /// `_usb`, the uid `usbd` runs as (`usbpolicy::USB_UID`, checked in the tests).
 pub const USB_UID: u32 = 904;
@@ -34,10 +43,10 @@ const fn service(uid: u32, want: u32, label_id: u32, session: u64) -> bool {
 /// kernel-stamped credentials may register it. Root is not an owner: `init`
 /// starts both services under their own uids.
 pub fn register_verdict(name: &str, uid: u32, label_id: u32, session: u64) -> Option<bool> {
-    if in_namespace(name, TRANSPORT_NAME) {
+    if in_namespace(name, TRANSPORT_NAME) || in_namespace(name, TRANSPORT_NAME_V1) {
         return Some(service(uid, USB_UID, label_id, session));
     }
-    if in_namespace(name, API_NAME) {
+    if in_namespace(name, API_NAME) || in_namespace(name, API_NAME_V1) {
         return Some(service(uid, crate::BT_UID, label_id, session));
     }
     None
@@ -57,8 +66,39 @@ mod tests {
     }
 
     #[test]
+    fn the_versioned_names_have_the_same_owners() {
+        assert_eq!(
+            register_verdict(TRANSPORT_NAME_V1, USB_UID, 0, 0),
+            Some(true)
+        );
+        assert_eq!(register_verdict(API_NAME_V1, BT_UID, 0, 0), Some(true));
+        assert_eq!(
+            register_verdict(TRANSPORT_NAME_V1, BT_UID, 0, 0),
+            Some(false)
+        );
+        assert_eq!(register_verdict(API_NAME_V1, USB_UID, 0, 0), Some(false));
+        for name in [TRANSPORT_NAME_V1, API_NAME_V1] {
+            for uid in [0, 1000, 59_999] {
+                assert_eq!(
+                    register_verdict(name, uid, 0, 0),
+                    Some(false),
+                    "{uid} {name}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn nobody_else_and_no_labelled_or_session_owner() {
-        for name in [TRANSPORT_NAME, API_NAME, "os.lazy.bt/x", "os.lazy.usb.bt/0"] {
+        for name in [
+            TRANSPORT_NAME,
+            API_NAME,
+            TRANSPORT_NAME_V1,
+            API_NAME_V1,
+            "os.lazy.bt/x",
+            "os.lazy.usb.bt/0",
+            "os.lazy.bt.v1/x",
+        ] {
             for uid in [0, 1000, 902, 911, 59_999] {
                 assert_eq!(
                     register_verdict(name, uid, 0, 0),
@@ -75,7 +115,8 @@ mod tests {
     fn neighbours_are_not_bluetooth_names() {
         for name in [
             "os.lazy.btx",
-            "os.lazy.bt.v1",
+            "os.lazy.bt.v2",
+            "os.lazy.bt.v1x",
             "os.lazy.usb.btx",
             "os.lazy.usb.audio",
             "os.lazy",

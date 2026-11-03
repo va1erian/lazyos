@@ -125,6 +125,13 @@ impl Controller {
             // The snapshot changed (`USBD:DUMP:DEAD`): report it as an event.
             return true;
         }
+        let wedged = self
+            .nodes
+            .iter()
+            .position(|n| n.functions.iter().any(Function::wedged));
+        if let Some(index) = wedged {
+            self.detach(index, "its endpoint 0 keeps failing", settings);
+        }
         let mut busy = false;
         while let Some(event) = self.hc.next_event() {
             busy = true;

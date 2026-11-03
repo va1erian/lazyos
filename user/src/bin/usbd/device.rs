@@ -17,6 +17,7 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use user::sys;
 use user::trace;
 
 use usbhid::desc::{self, Config, DeviceDescriptor, Endpoint};
@@ -343,6 +344,18 @@ impl Device {
     }
 
     fn control(&mut self, hc: &mut Hc, setup: &SetupPacket) -> Result<(), Error> {
+        self.control_within(hc, setup, None)
+    }
+
+    /// [`Device::control`] with its own wait limit in ticks (`None`: the
+    /// controller's default), for a class whose requests must not hold every
+    /// other device for seconds.
+    pub(super) fn control_within(
+        &mut self,
+        hc: &mut Hc,
+        setup: &SetupPacket,
+        ticks: Option<u64>,
+    ) -> Result<(), Error> {
         if usize::from(setup.length) > DATA_BYTES {
             return Err(Error::Descriptor("request too long"));
         }
@@ -357,8 +370,12 @@ impl Device {
             .map_err(Error::Xhci)?;
         hc.doorbell(self.slot, 1);
         let slot = self.slot;
-        let waited =
-            hc.wait(|e| e.kind() == kind::TRANSFER_EVENT && e.slot() == slot && e.endpoint() == 1);
+        let wanted =
+            |e: &Trb| e.kind() == kind::TRANSFER_EVENT && e.slot() == slot && e.endpoint() == 1;
+        let waited = match ticks {
+            Some(ticks) => hc.wait_until(sys::clock() + ticks, wanted),
+            None => hc.wait(wanted),
+        };
         let failed = match waited {
             Ok(event) if event.parameter == status && event.completion_code() == code::SUCCESS => {
                 return self.ep0.retire(status).map_err(Error::Xhci);

@@ -97,6 +97,12 @@ impl Function {
         }
     }
 
+    /// Whether the function's device stopped answering for good and should be
+    /// detached (a Bluetooth controller whose endpoint 0 keeps timing out).
+    pub(super) fn wedged(&self) -> bool {
+        matches!(self, Function::Bt(bt) if bt.wedged())
+    }
+
     /// What the function is, for the `USBD:DETACH` line.
     pub(super) fn kind(&self) -> &'static str {
         match self {
