@@ -243,6 +243,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "btsim"
+version = "0.1.0"
+dependencies = [
+ "btbond",
+ "bthci",
+ "btl2cap",
+]
+
+[[package]]
 name = "build-support-tests"
 version = "0.1.0"
 dependencies = [

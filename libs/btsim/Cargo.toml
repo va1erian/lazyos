@@ -1,0 +1,18 @@
+[package]
+name = "btsim"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A deterministic Bluetooth controller model with HID keyboard and mouse peers, for host tests of the LazyOS btd stack and the usbredir test harness"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btsim"
+path = "src/lib.rs"
+
+[dependencies]
+bthci = { path = "../bthci" }
+btl2cap = { path = "../btl2cap" }
+
+[dev-dependencies]
+btbond = { path = "../btbond" }

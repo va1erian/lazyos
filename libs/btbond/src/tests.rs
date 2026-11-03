@@ -431,3 +431,35 @@ fn seeded_fuzz_runs() {
         crate::fuzz::run(&data);
     });
 }
+
+fn seed(name: &str) -> Vec<u8> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/btbond");
+    std::fs::read(dir.join(name)).unwrap()
+}
+
+/// The seeds come from an independent Python encoder; the Rust encoder must
+/// write exactly the same bytes for the same bonds.
+#[test]
+fn the_checked_in_seeds_match_the_rust_encoder() {
+    assert_eq!(seed("store_empty"), BondStore::new().encode().unwrap());
+    let mut one = BondStore::new();
+    one.upsert(keyboard()).unwrap();
+    assert_eq!(seed("store_keyboard"), one.encode().unwrap());
+    assert_eq!(seed("store_three"), sample().encode().unwrap());
+    // And every seed runs through the fuzz entry point.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds/btbond");
+    for entry in std::fs::read_dir(dir).unwrap() {
+        crate::fuzz::run(&std::fs::read(entry.unwrap().path()).unwrap());
+    }
+    assert_eq!(
+        BondStore::decode(&seed("store_bad_crc")),
+        Err(Error::Checksum)
+    );
+    // The wrapped one-bond body decodes once the entry point seals it.
+    let mut wrapped = b"LZBT".to_vec();
+    wrapped.extend_from_slice(&1u16.to_le_bytes());
+    wrapped.extend_from_slice(&seed("body_mouse"));
+    wrapped.extend_from_slice(&[0; 4]);
+    seal(&mut wrapped);
+    assert_eq!(BondStore::decode(&wrapped).unwrap().len(), 1);
+}

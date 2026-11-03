@@ -3,9 +3,11 @@
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
+use bthci::Boundary;
 
 use crate::frag::fragments;
 use crate::manager::{Action, Config, Event, L2cap};
+use crate::pdu::{self, Command, Signal, CID_SIGNALLING};
 use crate::LinkKind;
 
 pub const H: u16 = 0x40;
@@ -100,4 +102,14 @@ impl Pair {
             .expect("b opened");
         (cid_a, cid_b)
     }
+}
+
+/// A signalling PDU carrying one command.
+pub fn sig_pdu(ident: u8, signal: Signal) -> Vec<u8> {
+    pdu::encode_basic(CID_SIGNALLING, &Command { ident, signal }.encode()).unwrap()
+}
+
+pub fn inject(p: &mut Pair, to_b: bool, bytes: &[u8]) -> Vec<Action> {
+    let side = if to_b { &mut p.b } else { &mut p.a };
+    side.l2.rx_acl(p.now, H, Boundary::FirstNonFlushable, bytes)
 }

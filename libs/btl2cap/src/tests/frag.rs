@@ -42,7 +42,7 @@ fn every_two_way_split_reassembles() {
                 (Boundary::Continuing, &p[cut..]),
             ],
         );
-        assert_eq!(completed(&out), [p.clone()], "cut {cut}");
+        assert_eq!(completed(&out), std::slice::from_ref(&p), "cut {cut}");
     }
 }
 
@@ -60,7 +60,7 @@ fn every_three_way_split_reassembles() {
                     (Boundary::Continuing, &p[b..]),
                 ],
             );
-            assert_eq!(completed(&out), [p.clone()], "cuts {a} {b}");
+            assert_eq!(completed(&out), std::slice::from_ref(&p), "cuts {a} {b}");
         }
     }
 }

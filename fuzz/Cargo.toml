@@ -46,6 +46,9 @@ libmessenger = { path = "../libs/messenger", features = ["fuzz"] }
 ieee80211 = { path = "../libs/ieee80211", features = ["fuzz"] }
 eapol = { path = "../libs/eapol", features = ["fuzz"] }
 sntp = { path = "../libs/sntp", features = ["fuzz"] }
+bthci = { path = "../libs/bthci", features = ["fuzz"] }
+btl2cap = { path = "../libs/btl2cap", features = ["fuzz"] }
+btbond = { path = "../libs/btbond", features = ["fuzz"] }
 # The Terminal's engine lives in the xui-app workspace (docs/terminal-plan.md).
 lazyterm = { path = "../xui-app/crates/term", features = ["fuzz"] }
 # LazyAgent's SSE parser and chunk reader (docs/ai-agent-plan.md §5.2).
@@ -315,6 +318,27 @@ bench = false
 [[bin]]
 name = "lazyagent_sse"
 path = "fuzz_targets/lazyagent_sse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bthci"
+path = "fuzz_targets/bthci.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "btl2cap"
+path = "fuzz_targets/btl2cap.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "btbond"
+path = "fuzz_targets/btbond.rs"
 test = false
 doc = false
 bench = false

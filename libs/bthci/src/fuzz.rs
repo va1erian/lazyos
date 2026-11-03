@@ -28,7 +28,7 @@ pub fn run(data: &[u8]) {
             Ok((h, payload.to_vec()))
         );
     }
-    run_script(data);
+    let _ = run_script(data);
 }
 
 fn round_trip_event(data: &[u8]) {
@@ -59,7 +59,8 @@ fn frames(mut data: &[u8]) -> Vec<&[u8]> {
     out
 }
 
-fn run_script(data: &[u8]) {
+/// Run the controller-event script; returns where the init machine ended.
+pub fn run_script(data: &[u8]) -> Phase {
     let cfg = InitConfig {
         le_accept_list: std::vec![(0, crate::BdAddr([1, 2, 3, 4, 5, 6]))],
         ..InitConfig::default()
@@ -91,8 +92,10 @@ fn run_script(data: &[u8]) {
         assert!(bufs.free() <= 8);
     }
     let _ = init.step(now + 10_000, Input::Tick);
+    let phase = init.phase();
     assert!(matches!(
-        init.phase(),
+        phase,
         Phase::FastPath | Phase::SlowPath | Phase::Complete | Phase::Failed(_)
     ));
+    phase
 }

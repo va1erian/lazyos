@@ -27,6 +27,7 @@ pub mod acl;
 pub mod addr;
 pub mod command;
 pub mod event;
+mod event_le;
 pub mod flow;
 #[cfg(any(test, feature = "fuzz"))]
 pub mod fuzz;

@@ -23,7 +23,7 @@ const HANDLE: u16 = 0x40;
 
 pub fn run(data: &[u8]) {
     round_trip(data);
-    script(data);
+    let _ = script(data);
 }
 
 fn round_trip(data: &[u8]) {
@@ -38,9 +38,11 @@ fn round_trip(data: &[u8]) {
     }
 }
 
-fn script(data: &[u8]) {
+/// Run the script; returns every event the manager reported.
+pub fn script(data: &[u8]) -> Vec<Event> {
+    let mut events = Vec::new();
     let Some((&head, mut rest)) = data.split_first() else {
-        return;
+        return events;
     };
     let cfg = Config {
         psms: std::vec![0x11, 0x13],
@@ -68,7 +70,7 @@ fn script(data: &[u8]) {
         now += 7;
         let boundary = Boundary::from_bits(u16::from(*b));
         let actions = l2.rx_acl(now, HANDLE, boundary, &tail[..len]);
-        follow_up(&mut l2, now, &actions);
+        events.extend(follow_up(&mut l2, now, &actions));
         assert!(l2.open_channels(HANDLE) <= max_channels);
         rest = &tail[len..];
     }
@@ -78,22 +80,30 @@ fn script(data: &[u8]) {
         0,
         "a long silence closes unfinished channels"
     );
+    events
 }
 
 /// Use what came back: send on opened channels, check PDUs are well-formed.
-fn follow_up(l2: &mut L2cap, now: u64, actions: &[Action]) {
-    let mut opened: Vec<u16> = Vec::new();
+fn follow_up(l2: &mut L2cap, now: u64, actions: &[Action]) -> Vec<Event> {
+    let mut events = Vec::new();
     for a in actions {
         match a {
             Action::Send { pdu: p, .. } => {
                 assert!(pdu::parse_basic(p).is_ok(), "we only emit well-formed PDUs");
             }
-            Action::Event(Event::Opened { cid, .. }) => opened.push(*cid),
-            Action::Event(_) => {}
+            Action::Event(e) => events.push(e.clone()),
         }
     }
+    let opened: Vec<u16> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Opened { cid, .. } => Some(*cid),
+            _ => None,
+        })
+        .collect();
     for cid in opened {
         let _ = l2.send(HANDLE, cid, b"x");
         let _ = l2.disconnect(now, HANDLE, cid);
     }
+    events
 }
