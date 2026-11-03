@@ -87,6 +87,26 @@ pub const KEYD_APPSECRETS_NEW: &str = "/conf/svc/keyd/appsecrets.new";
 /// version, or sealed under another key). Written by `keyd`.
 pub const KEYD_APPSECRETS_BAD: &str = "/conf/svc/keyd/appsecrets.bad";
 
+/// `btd`'s directory (docs/bluetooth-plan.md decision 4), 0700, owned by
+/// `_bt`. Machine state: a keyboard is the machine's device and the greeter
+/// has no user yet. A top-level directory of its own, like [`ACCOUNTS_DIR`]:
+/// `btd` is not root, and [`CONF_ROOT`] stays root's alone (0700), so nothing
+/// under it is reachable by `_bt`. Written by `btd`.
+pub const BTD_DIR: &str = "/btd";
+
+/// The Bluetooth bond store (`libs/btbond`): the link keys of every paired
+/// device, 0600 `_bt`. Read before the controller is brought up, written
+/// atomically (a temporary file renamed over it). Written by `btd`.
+pub const BTD_BONDS: &str = "/btd/bonds";
+
+/// The temporary file `btd` writes before renaming it over [`BTD_BONDS`].
+/// Written by `btd`.
+pub const BTD_BONDS_NEW: &str = "/btd/bonds.new";
+
+/// Where `btd` moves a [`BTD_BONDS`] it refused (damaged or a layout it does
+/// not read), so the next write never destroys it. Written by `btd`.
+pub const BTD_BONDS_BAD: &str = "/btd/bonds.bad";
+
 /// The machine key the secrets are sealed under: 32 random bytes, 0600,
 /// generated on `keyd`'s first start. Written by `keyd`.
 pub const KEYD_MACHINE_KEY: &str = "/conf/svc/keyd/machine.key";
@@ -251,6 +271,12 @@ mod tests {
             assert!(path.starts_with(KEYD_DIR), "{path}");
         }
         assert!(KEYD_DIR.starts_with(CONF_SVC));
+        for path in [BTD_BONDS, BTD_BONDS_NEW, BTD_BONDS_BAD] {
+            assert!(path.starts_with(BTD_DIR), "{path}");
+        }
+        // `_bt` cannot cross confd's private directory.
+        assert!(!BTD_DIR.starts_with(CONF_ROOT));
+        assert_eq!(BTD_DIR.matches('/').count(), 1, "a top-level directory");
         assert!(CONF_SEEDED_MARKER.starts_with(CONF_ROOT));
         assert!(ACCOUNTS_DB.starts_with(ACCOUNTS_DIR));
         assert!(ACCOUNTS_DB_NEW.starts_with(ACCOUNTS_DIR));

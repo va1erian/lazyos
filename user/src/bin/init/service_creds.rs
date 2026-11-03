@@ -63,6 +63,19 @@ pub(super) const BT_CRED: SysCred = SysCred::new(
     0,
 );
 
+/// `btd`'s arguments. Only the Bluetooth harness's images
+/// (`LAZYOS_BT_TRACE=1`, `tools/bt/run.py`) pass any: `trace=1` echoes key
+/// edges and the pairing passkey on serial, which would put typed text on the
+/// console, and `pair=` opens a bounded pairing window for the addresses in
+/// `LAZYOS_BT_PAIR` (or `any`) until B5's real interface exists. A normal
+/// build starts `btd` with nothing, so nobody can pair with it.
+#[cfg(lazyos_bt)]
+pub(super) const BTD_ARGS: &str = if cfg!(lazyos_bt_trace) {
+    concat!("trace=1 pair=", env!("LAZYOS_BT_PAIR"))
+} else {
+    ""
+};
+
 /// The `netdrv` driver's identity (docs/networking-plan.md N1): a dedicated
 /// system uid holding only `CAP_DEV_CLAIM`, exactly like `sndd`'s.
 #[cfg(lazyos_net)]

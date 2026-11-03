@@ -335,7 +335,7 @@ pub(super) const MANIFEST: &[ServiceSpec] = &[
     ServiceSpec {
         name: "btd",
         path: fhs::bin::BTD,
-        args: "",
+        args: BTD_ARGS,
         restart: Restart::Always,
         deps: &[],
     },

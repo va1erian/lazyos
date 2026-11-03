@@ -24,6 +24,8 @@ fatfs = { version = "0.3.6", default-features = false, features = ["std", "alloc
 passwd = { path = "../../libs/passwd" }
 # The account database the image seeds (`accounts_seed.rs`).
 accountdb = { path = "../../libs/accountdb" }
+# `/btd`'s owner (`os_layout.rs`).
+btpolicy = { path = "../../libs/btpolicy" }
 # The Terminal's terminfo entry (`samples_embed.rs`).
 terminfo = { path = "../../libs/terminfo" }
 lazyos-crypto = { path = "../../libs/crypto" }

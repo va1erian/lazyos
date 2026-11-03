@@ -48,6 +48,12 @@ fn layout_has_the_mount_points_and_each_service_s_place() {
     assert!(all
         .iter()
         .all(|dir| !dir.path.starts_with("/conf/accounts")));
+    // The Bluetooth bond store is `_bt`'s alone, outside confd's /conf too.
+    let bt = spec(&all, "/btd");
+    assert_eq!(
+        (bt.mode, bt.uid, bt.gid, bt.seed),
+        (0o700, btpolicy::BT_UID, btpolicy::BT_UID, false)
+    );
     let user = spec(&all, "/home/user");
     assert_eq!((user.mode, user.uid, user.gid), (0o700, 1000, 1000));
     // Exactly the two accounts' homes; nothing is seeded under /data any more.
