@@ -61,3 +61,19 @@ fn addresses_are_read_in_printed_order() {
         assert_eq!(parse_addr(bad), None, "{bad:?}");
     }
 }
+
+#[test]
+fn le_targets_are_the_entries_with_the_le_prefix() {
+    let config =
+        Config::from_args("pair=C0:FF:EE:00:00:01,le:C0:FF:EE:00:01:01,le:C0:FF:EE:00:01:02");
+    assert_eq!(config.pair, PairPolicy::Targets(vec![addr(KBD)]));
+    assert_eq!(config.le_targets, [addr(LE_KBD), addr(LE_MOUSE)]);
+    // Only LE entries: nobody is paged over BR/EDR.
+    let config = Config::from_args("pair=le:C0:FF:EE:00:01:01");
+    assert_eq!(config.pair, PairPolicy::Off);
+    assert_eq!(config.le_targets, [addr(LE_KBD)]);
+    // A bad entry pairs nobody; `any` and `none` name no LE target.
+    assert!(Config::from_args("pair=le:zz").le_targets.is_empty());
+    assert!(Config::from_args("pair=any").le_targets.is_empty());
+    assert!(Config::from_args("").le_targets.is_empty());
+}

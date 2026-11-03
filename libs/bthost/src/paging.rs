@@ -175,6 +175,7 @@ impl Host {
     /// The controller refused a command; a refused `Create_Connection` is a
     /// failed page.
     pub(crate) fn on_command_refused(&mut self, now: u64, op: u16, code: u8) {
+        self.le_command_refused(now, op);
         if op != opcode::CREATE_CONNECTION {
             return;
         }

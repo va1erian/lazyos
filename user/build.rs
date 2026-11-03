@@ -244,8 +244,9 @@ fn main() {
     let pair = env::var("LAZYOS_BT_PAIR").unwrap_or_default();
     assert!(
         pair.bytes().all(|b| b.is_ascii_hexdigit()
-            || matches!(b, b':' | b',' | b'a' | b'n' | b'y' | b'o' | b'e')),
-        "LAZYOS_BT_PAIR is `any`, `none` or a comma separated list of AA:BB:CC:DD:EE:FF"
+            || matches!(b, b':' | b',' | b'a' | b'n' | b'y' | b'o' | b'e' | b'l')),
+        "LAZYOS_BT_PAIR is `any`, `none` or a comma separated list of AA:BB:CC:DD:EE:FF \
+         (LE devices as le:AA:BB:CC:DD:EE:FF)"
     );
     println!("cargo:rustc-env=LAZYOS_BT_PAIR={pair}");
     // `LAZYOS_UI_PROBE=1` (issue #538, debug images): `xuid` prints each

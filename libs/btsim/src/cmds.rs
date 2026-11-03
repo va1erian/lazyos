@@ -3,7 +3,7 @@
 use bthci::opcode::status;
 use bthci::{ret, BdAddr, Command, Event};
 
-use crate::ctrl::{
+use crate::ctrl::{Peer, 
     Auth, SimController, Task, Violation, DEFAULT_EVENT_MASK, DEFAULT_LE_EVENT_MASK,
 };
 
@@ -86,15 +86,19 @@ impl SimController {
         // A peer that is paging the host does not know the host reset, so it
         // keeps paging; everything the controller itself had scheduled is void.
         let paging: Vec<usize> = (0..self.peers.len())
-            .filter(|&i| self.br_at(i).paging_until.is_some())
+            .filter(|&i| matches!(&self.peers[i], Peer::Br(p) if p.paging_until.is_some()))
             .collect();
-        for i in 0..self.peers.len() {
-            self.br_at(i).link_down();
+        for peer in &mut self.peers {
+            match peer {
+                Peer::Br(p) => p.link_down(),
+                Peer::Le(p) => p.link_down(),
+            }
         }
         self.drop_timeline();
         for peer in paging {
             self.after(crate::link::PAGE_RETRY_MS, Task::PeerPage { peer });
         }
+        self.le_resume_advertising();
         self.conns.clear();
         self.pending_requests.clear();
         self.acl_in_use = 0;
@@ -105,7 +109,8 @@ impl SimController {
         self.class_of_device = 0;
         self.local_name.clear();
         self.accept_list.clear();
-        self.le_connecting = false;
+        self.le_create = None;
+        self.le_scanning = false;
     }
 
     fn dispatch(&mut self, cmd: Command) {
@@ -113,6 +118,9 @@ impl SimController {
         let op = cmd.opcode();
         if !self.cfg.le_supported && op >> 10 == bthci::opcode::OGF_LE {
             return self.complete(op, vec![status::UNKNOWN_COMMAND]);
+        }
+        if self.le_command(&cmd) {
+            return;
         }
         match cmd {
             Reset => {
@@ -162,10 +170,6 @@ impl SimController {
                 self.local_name = n;
                 self.complete(op, vec![0]);
             }
-            LeSetScanParameters { .. } | LeSetScanEnable { .. } | LeCreateConnectionCancel => {
-                self.le_connecting = false;
-                self.complete(op, vec![0]);
-            }
             LeClearAcceptList => {
                 self.accept_list.clear();
                 self.complete(op, vec![0]);
@@ -184,11 +188,6 @@ impl SimController {
                     }],
                 );
             }
-            LeCreateConnection { .. } => {
-                self.le_connecting = true;
-                self.status(op, 0);
-            }
-            LeStartEncryption { .. } => self.status(op, status::UNKNOWN_CONNECTION),
             LeLongTermKeyRequestReply { handle, .. }
             | LeLongTermKeyRequestNegativeReply { handle } => {
                 let mut rp = vec![status::UNKNOWN_CONNECTION];
@@ -232,6 +231,12 @@ impl SimController {
                     },
                 );
             }
+            // Taken by `le_command` above.
+            LeSetScanParameters { .. }
+            | LeSetScanEnable { .. }
+            | LeCreateConnection { .. }
+            | LeCreateConnectionCancel
+            | LeStartEncryption { .. } => {}
             Unknown { .. } => self.status(op, status::UNKNOWN_COMMAND),
         }
     }

@@ -1,0 +1,19 @@
+[package]
+name = "btgatt"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The host side of Bluetooth LE ATT and GATT for the LazyOS btd service: a bounded ATT client and HID over GATT (HOGP) discovery"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "btgatt"
+path = "src/lib.rs"
+
+[features]
+# Expose `fuzz::run`, the byte-script entry point shared by the in-tree seeded
+# tests and the cargo-fuzz target (`fuzz/fuzz_targets/btgatt.rs`). Needs `std`.
+fuzz = []
+
+[dev-dependencies]
+fuzzkit = { path = "../fuzzkit" }

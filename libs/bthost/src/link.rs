@@ -6,6 +6,8 @@ use bthci::{BdAddr, Boundary};
 use bthid::decode::Decoder;
 use btsdp::Client;
 
+use crate::le::LeLink;
+
 /// Links the host tracks (the controller and `btl2cap` bound it too).
 pub const MAX_LINKS: usize = 8;
 
@@ -79,6 +81,8 @@ pub(crate) struct Link {
     pub auth_at: Option<u64>,
     pub encrypt_at: Option<u64>,
     pub open_at: Option<u64>,
+    /// The LE half of the link, for an LE link.
+    pub le: Option<alloc::boxed::Box<LeLink>>,
 }
 
 impl Link {
@@ -111,6 +115,7 @@ impl Link {
             auth_at: None,
             encrypt_at: None,
             open_at: None,
+            le: None,
         }
     }
 
@@ -123,6 +128,7 @@ impl Link {
             self.encrypt_at,
             self.open_at,
             self.defer_until,
+            self.le.as_ref().and_then(|le| le.deadline()),
         ]
         .into_iter()
         .flatten()

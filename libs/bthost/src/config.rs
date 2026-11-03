@@ -30,6 +30,9 @@ pub struct Config {
     /// passwords.
     pub trace_reports: bool,
     pub pair: PairPolicy,
+    /// LE devices that may pair while the window is open (`pair=le:AA:..`);
+    /// `pair=any` admits any LE HID advertiser too.
+    pub le_targets: Vec<BdAddr>,
     pub pair_window_ms: u64,
 }
 
@@ -38,6 +41,7 @@ impl Default for Config {
         Config {
             trace_reports: false,
             pair: PairPolicy::Off,
+            le_targets: Vec::new(),
             pair_window_ms: PAIR_WINDOW_MS,
         }
     }
@@ -52,7 +56,10 @@ impl Config {
         for arg in text.split_whitespace() {
             match arg.split_once('=') {
                 Some(("trace", "1")) => config.trace_reports = true,
-                Some(("pair", value)) => config.pair = parse_pair(value),
+                Some(("pair", value)) => {
+                    config.pair = parse_pair(value);
+                    config.le_targets = parse_le_targets(value);
+                }
                 _ => {}
             }
         }
@@ -67,6 +74,7 @@ fn parse_pair(value: &str) -> PairPolicy {
         list => {
             let targets: Vec<BdAddr> = list
                 .split(',')
+                .filter(|item| !item.starts_with("le:"))
                 .filter_map(parse_addr)
                 .take(MAX_TARGETS)
                 .collect();
@@ -77,6 +85,16 @@ fn parse_pair(value: &str) -> PairPolicy {
             }
         }
     }
+}
+
+/// The `le:AA:BB:CC:DD:EE:FF` entries of a `pair=` list: LE pairing targets.
+fn parse_le_targets(value: &str) -> Vec<BdAddr> {
+    value
+        .split(',')
+        .filter_map(|item| item.strip_prefix("le:"))
+        .filter_map(parse_addr)
+        .take(MAX_TARGETS)
+        .collect()
 }
 
 /// `AA:BB:CC:DD:EE:FF` (the printed order).

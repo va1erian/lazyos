@@ -23,6 +23,7 @@ from seeds_audio import usbaudio_seeds
 from seeds_bluetooth import btbond_seeds, bthid_seeds, btl2cap_seeds, bthci_seeds, btsdp_seeds
 from seeds_btfw import seeds as btfw_seeds
 from seeds_btsmp import seeds as btsmp_seeds
+from seeds_btgatt import seeds as btgatt_seeds
 from seeds_accounts import (
     accountdb_seeds, accountwire_seeds, elevpolicy_seeds, passwd_seeds, pkgstore_rules_seeds,
 )
@@ -84,6 +85,7 @@ TARGETS = {
     "btfw": btfw_seeds,
     "btsdp": btsdp_seeds,
     "bthid": bthid_seeds,
+    "btgatt": btgatt_seeds,
 }
 
 

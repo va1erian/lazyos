@@ -6,6 +6,7 @@ use bthci::acl::{self, Boundary};
 use bthci::{BdAddr, Command, Event};
 use btl2cap::frag::fragments;
 
+use crate::lepeer::LePeer;
 use crate::peer::BrPeer;
 use crate::{Controller, HciIn};
 
@@ -31,6 +32,10 @@ pub struct SimConfig {
     pub page_ms: u64,
     /// Seed for pairing keys and passkeys.
     pub seed: u64,
+    /// A race the real transport has: an LE peer's first data after the
+    /// encryption procedure reaches the host before the Encryption Change
+    /// event (they travel on different USB endpoints).
+    pub acl_beats_encryption: bool,
 }
 
 impl Default for SimConfig {
@@ -45,6 +50,7 @@ impl Default for SimConfig {
             reset_latency_ms: 5,
             page_ms: 20,
             seed: 0x5EED,
+            acl_beats_encryption: false,
         }
     }
 }
@@ -71,18 +77,30 @@ pub enum Violation {
     },
 }
 
-/// A simulated remote device. `Le` peers (advertising, ATT, SMP) join here.
+/// A simulated remote device.
 #[non_exhaustive]
 pub enum Peer {
     Br(BrPeer),
+    Le(LePeer),
 }
 
 impl Peer {
+    /// The address the host knows it by (the identity address for LE).
     pub fn addr(&self) -> BdAddr {
         match self {
             Peer::Br(p) => p.addr,
+            Peer::Le(p) => p.addr,
         }
     }
+}
+
+/// A pending `LE_Create_Connection`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LeCreate {
+    /// 0: connect to `peer`; 1: anything on the accept list.
+    pub filter_policy: u8,
+    pub peer_type: u8,
+    pub peer: BdAddr,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,6 +149,25 @@ pub(crate) enum Task {
     },
     PeerChannels {
         handle: u16,
+    },
+    /// One advertising event of an LE peer.
+    LeAdv {
+        peer: usize,
+    },
+    /// The link layer connects the host to an advertising LE peer.
+    LeConnected {
+        peer: usize,
+        address_type: u8,
+        addr: BdAddr,
+    },
+    /// The peer's greeting after the link came up.
+    LeGreet {
+        handle: u16,
+    },
+    /// The encryption procedure the host started with `LE_Start_Encryption`.
+    LeEncrypt {
+        handle: u16,
+        ltk: [u8; 16],
     },
 }
 
@@ -183,7 +220,8 @@ pub struct SimController {
     pub(crate) class_of_device: u32,
     pub(crate) local_name: Vec<u8>,
     pub(crate) accept_list: Vec<(u8, BdAddr)>,
-    pub(crate) le_connecting: bool,
+    pub(crate) le_create: Option<LeCreate>,
+    pub(crate) le_scanning: bool,
     pub(crate) violations: Vec<Violation>,
     pub(crate) log: Vec<Command>,
 }
@@ -210,7 +248,8 @@ impl SimController {
             class_of_device: 0,
             local_name: Vec::new(),
             accept_list: Vec::new(),
-            le_connecting: false,
+            le_create: None,
+            le_scanning: false,
             violations: Vec::new(),
             log: Vec::new(),
         }
@@ -221,10 +260,40 @@ impl SimController {
         PeerId(self.peers.len() - 1)
     }
 
+    pub fn add_le_peer(&mut self, peer: LePeer) -> PeerId {
+        self.peers.push(Peer::Le(peer));
+        PeerId(self.peers.len() - 1)
+    }
+
+    /// The BR/EDR peer `id` (panics if it is an LE peer: a test bug).
     pub fn br(&self, id: PeerId) -> &BrPeer {
         match &self.peers[id.0] {
             Peer::Br(p) => p,
+            Peer::Le(_) => panic!("peer {} is an LE peer", id.0),
         }
+    }
+
+    /// The LE peer `id` (panics if it is a BR/EDR peer: a test bug).
+    pub fn le(&self, id: PeerId) -> &LePeer {
+        match &self.peers[id.0] {
+            Peer::Le(p) => p,
+            Peer::Br(_) => panic!("peer {} is a BR/EDR peer", id.0),
+        }
+    }
+
+    pub fn le_mut(&mut self, id: PeerId) -> &mut LePeer {
+        self.le_at(id.0)
+    }
+
+    pub(crate) fn le_at(&mut self, i: usize) -> &mut LePeer {
+        match &mut self.peers[i] {
+            Peer::Le(p) => p,
+            Peer::Br(_) => panic!("peer {i} is a BR/EDR peer"),
+        }
+    }
+
+    pub fn is_le(&self, id: PeerId) -> bool {
+        matches!(self.peers[id.0], Peer::Le(_))
     }
 
     pub fn br_mut(&mut self, id: PeerId) -> &mut BrPeer {
@@ -234,11 +303,14 @@ impl SimController {
     pub(crate) fn br_at(&mut self, i: usize) -> &mut BrPeer {
         match &mut self.peers[i] {
             Peer::Br(p) => p,
+            Peer::Le(_) => panic!("peer {i} is an LE peer"),
         }
     }
 
     pub(crate) fn peer_index(&self, addr: BdAddr) -> Option<usize> {
-        self.peers.iter().position(|p| p.addr() == addr)
+        self.peers
+            .iter()
+            .position(|p| matches!(p, Peer::Br(_)) && p.addr() == addr)
     }
 
     pub(crate) fn conn_index(&self, handle: u16) -> Option<usize> {
@@ -318,7 +390,7 @@ impl SimController {
     }
 
     pub fn le_connect_pending(&self) -> bool {
-        self.le_connecting
+        self.le_create.is_some()
     }
 
     pub fn credits(&self) -> u8 {
@@ -425,7 +497,10 @@ impl Controller for SimController {
         let peer = self.conns[ci].peer;
         if h.boundary != Boundary::Reserved {
             let now = self.clock;
-            let pdus = self.br_at(peer).rx_acl(now, h.boundary, data);
+            let pdus = match &mut self.peers[peer] {
+                Peer::Br(p) => p.rx_acl(now, h.boundary, data),
+                Peer::Le(p) => p.rx_acl(now, h.boundary, data),
+            };
             self.peer_sends(h.handle, pdus);
         }
     }

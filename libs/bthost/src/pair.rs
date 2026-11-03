@@ -74,7 +74,11 @@ impl Host {
     /// Forget a device (B5's `Forget`, and a device's own virtual cable
     /// unplug): the bond goes, the link is dropped, nothing pages it again.
     pub fn forget(&mut self, now: u64, addr: BdAddr) {
-        if self.store.remove(addr, AddrKind::BrEdr) {
+        let kinds = [AddrKind::BrEdr, AddrKind::LePublic, AddrKind::LeRandom];
+        let removed = kinds
+            .into_iter()
+            .fold(false, |gone, kind| self.store.remove(addr, kind) | gone);
+        if removed {
             self.save_bonds();
             self.note(format!("BOND:FORGET addr={}", red(addr)));
         }

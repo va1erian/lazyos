@@ -13,6 +13,9 @@ path = "src/lib.rs"
 [dependencies]
 bthci = { path = "../bthci" }
 btl2cap = { path = "../btl2cap" }
+btgatt = { path = "../btgatt" }
+btsmp = { path = "../btsmp" }
+lazyos-crypto = { path = "../crypto" }
 
 [dev-dependencies]
 btbond = { path = "../btbond" }

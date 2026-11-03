@@ -241,6 +241,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "btgatt"
+version = "0.1.0"
+dependencies = [
+ "fuzzkit",
+]
+
+[[package]]
 name = "bthci"
 version = "0.1.0"
 dependencies = [
@@ -260,12 +267,15 @@ name = "bthost"
 version = "0.1.0"
 dependencies = [
  "btbond",
+ "btgatt",
  "bthci",
  "bthid",
  "btl2cap",
  "btsdp",
  "btsim",
+ "btsmp",
  "fuzzkit",
+ "lazyos-crypto",
  "usbhid",
 ]
 
@@ -293,8 +303,11 @@ name = "btsim"
 version = "0.1.0"
 dependencies = [
  "btbond",
+ "btgatt",
  "bthci",
  "btl2cap",
+ "btsmp",
+ "lazyos-crypto",
 ]
 
 [[package]]

@@ -205,7 +205,7 @@ fn build_script(cfg: &InitConfig) -> Vec<Item> {
 
 /// Connect to any device on the accept list; intervals suit a HID peripheral
 /// (30 to 50 ms, supervision timeout 4 s).
-pub(crate) fn le_auto_connect() -> Command {
+pub fn le_auto_connect() -> Command {
     Command::LeCreateConnection {
         scan_interval: 0x0060,
         scan_window: 0x0030,

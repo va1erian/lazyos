@@ -40,7 +40,7 @@ impl Host {
     }
 
     pub(crate) fn open_pairing_window(&mut self, now: u64) {
-        if self.cfg.pair != PairPolicy::Off {
+        if self.cfg.pair != PairPolicy::Off || !self.cfg.le_targets.is_empty() {
             self.window_until = Some(now.saturating_add(self.cfg.pair_window_ms));
         }
     }
@@ -94,10 +94,12 @@ impl Host {
         let held = core::mem::take(&mut link.deferred);
         link.deferred_bytes = 0;
         link.defer_until = None;
+        self.set_replaying(handle, true);
         for (boundary, data) in held {
             let actions = self.l2.rx_acl(now, handle, boundary, &data);
             self.apply(now, actions);
         }
+        self.set_replaying(handle, false);
     }
 
     pub(crate) fn on_connection_request(&mut self, now: u64, addr: BdAddr, link_type: u8) {
@@ -189,6 +191,9 @@ impl Host {
         ));
         // A device that waits to be paged is paged again, a few times.
         self.pager_relink(now, link.addr);
+        if link.le.is_some() {
+            self.le_link_down(now);
+        }
     }
 
     pub(crate) fn on_authentication(&mut self, now: u64, code: u8, handle: u16) {
@@ -231,6 +236,9 @@ impl Host {
         let Some(idx) = self.link_idx(handle) else {
             return;
         };
+        if self.links[idx].le.is_some() {
+            return self.on_le_encryption(now, code, handle, enabled);
+        }
         if code != status::SUCCESS {
             let addr = self.links[idx].addr;
             self.note(format!(
@@ -279,6 +287,10 @@ impl Host {
     /// device is dropped.
     pub(crate) fn tick_links(&mut self, now: u64) {
         for idx in 0..self.links.len() {
+            if self.links[idx].le.is_some() {
+                let handle = self.links[idx].handle;
+                self.tick_le(now, handle);
+            }
             let (handle, link) = (self.links[idx].handle, &mut self.links[idx]);
             if link.auth_at.is_some_and(|t| t <= now) {
                 link.auth_at = None;

@@ -185,6 +185,9 @@ impl Host {
         let Some(idx) = self.link_idx(handle) else {
             return;
         };
+        if self.links[idx].le.is_some() {
+            return self.on_le_data(now, handle, cid, data);
+        }
         let link = &self.links[idx];
         if Some(cid) == link.sdp_cid {
             self.on_sdp_data(now, handle, data);
@@ -409,11 +412,16 @@ impl Host {
     }
 
     fn on_interrupt_data(&mut self, now: u64, handle: u16, data: &[u8]) {
+        match hidp::parse_interrupt(data) {
+            Ok(report) => self.feed_report(now, handle, report),
+            Err(_) => self.stats.malformed += 1,
+        }
+    }
+
+    /// One input report of a registered device (BR/EDR: the interrupt
+    /// channel; LE: a notification with the report id put back).
+    pub(crate) fn feed_report(&mut self, now: u64, handle: u16, report: &[u8]) {
         let Some(idx) = self.link_idx(handle) else {
-            return;
-        };
-        let Ok(report) = hidp::parse_interrupt(data) else {
-            self.stats.malformed += 1;
             return;
         };
         let link = &mut self.links[idx];

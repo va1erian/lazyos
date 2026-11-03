@@ -48,6 +48,12 @@ pub const LE_START_ENCRYPTION: u16 = opcode(OGF_LE, 0x19);
 pub const LE_LONG_TERM_KEY_REQUEST_REPLY: u16 = opcode(OGF_LE, 0x1A);
 pub const LE_LONG_TERM_KEY_REQUEST_NEGATIVE_REPLY: u16 = opcode(OGF_LE, 0x1B);
 
+/// Harness builds only (`trace=1`): tell the controller the passkey the host
+/// shows, which the simulator hands to its LE keyboard as "what the user
+/// typed". A vendor-specific opcode (group 0x3F); a real controller answers
+/// Unknown Command, and a normal build never sends it.
+pub const HARNESS_SHOW_PASSKEY: u16 = opcode(0x3F, 0x4C);
+
 pub const EV_CONNECTION_COMPLETE: u8 = 0x03;
 pub const EV_CONNECTION_REQUEST: u8 = 0x04;
 pub const EV_DISCONNECTION_COMPLETE: u8 = 0x05;

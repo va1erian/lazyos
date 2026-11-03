@@ -20,9 +20,11 @@ use bthci::{
 };
 use btl2cap::frag::fragments;
 use btl2cap::{Config as L2Config, L2cap};
+use lazyos_crypto::rng::Entropy;
 
 use crate::config::Config;
 use crate::effect::Effect;
+use crate::le::LeState;
 use crate::link::{Link, MAX_LINKS};
 use crate::paging::Pager;
 
@@ -61,6 +63,8 @@ pub struct Host {
     pub(crate) window_until: Option<u64>,
     pub(crate) pager: Pager,
     pub(crate) stats: Stats,
+    pub(crate) le: LeState,
+    pub(crate) entropy: Entropy,
     ctrl_reported: bool,
     failed: bool,
 }
@@ -99,6 +103,8 @@ impl Host {
             window_until: None,
             pager: Pager::default(),
             stats: Stats::default(),
+            le: LeState::new(),
+            entropy: Entropy::new(),
             ctrl_reported: false,
             failed: false,
         };
@@ -150,6 +156,7 @@ impl Host {
         let actions = self.l2.tick(now);
         self.apply(now, actions);
         self.tick_links(now);
+        self.le_tick(now);
         self.pump(now);
     }
 
@@ -187,6 +194,8 @@ impl Host {
             self.l2.next_deadline(),
             self.links.iter().filter_map(Link::deadline).min(),
             self.pager.deadline(),
+            self.le.deadline(),
+            self.window_until.filter(|_| self.le.scanning),
         ]
         .into_iter()
         .flatten()
@@ -314,6 +323,9 @@ impl Host {
         if !was_armed && self.init.is_armed() {
             self.on_armed(now);
         }
+        if self.init.info().bd_addr.is_some() {
+            self.le_address_ready(now);
+        }
         match self.init.phase() {
             Phase::Complete if !self.ctrl_reported => {
                 self.ctrl_reported = true;
@@ -331,6 +343,7 @@ impl Host {
         self.note(format!("READY ms={now}"));
         self.open_pairing_window(now);
         self.pager_arm(now);
+        self.le_armed(now);
     }
 
     fn report_controller(&mut self) {
@@ -398,21 +411,45 @@ impl Host {
             Event::SimplePairingComplete { status, addr } => {
                 self.on_simple_pairing_complete(status, addr)
             }
+            Event::LeConnectionComplete(c)
+            | Event::LeEnhancedConnectionComplete { conn: c, .. } => self.on_le_connection(now, c),
+            Event::LeAdvertisingReport(reports) => {
+                for report in &reports {
+                    self.le_on_adv(now, report);
+                }
+                self.le_pump(now);
+            }
+            Event::LeLongTermKeyRequest {
+                handle,
+                random,
+                ediv,
+            } => self.on_ltk_request(handle, random, ediv),
             _ => {}
         }
     }
 
     fn on_command_result(&mut self, now: u64, event: &Event) {
         self.init_step(now, Input::Event(event));
-        if let Event::CommandStatus {
-            status: code,
-            opcode,
-            ..
-        } = event
-        {
-            if *code != status::SUCCESS {
-                self.on_command_refused(now, *opcode, *code);
+        match event {
+            Event::CommandStatus {
+                status: code,
+                opcode,
+                ..
+            } if *code != status::SUCCESS => self.on_command_refused(now, *opcode, *code),
+            Event::CommandStatus { opcode, .. }
+                if *opcode == bthci::opcode::LE_CREATE_CONNECTION =>
+            {
+                self.le_create_accepted()
             }
+            Event::CommandComplete {
+                opcode,
+                return_params,
+                ..
+            } if *opcode == bthci::opcode::LE_CREATE_CONNECTION_CANCEL => {
+                let code = return_params.first().copied().unwrap_or(0xFF);
+                self.le_cancel_result(now, code);
+            }
+            _ => {}
         }
     }
 }

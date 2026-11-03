@@ -4,7 +4,7 @@
 use bthci::opcode::status;
 use bthci::Event;
 
-use crate::ctrl::{Auth, Conn, SimController, Task};
+use crate::ctrl::{Auth, Conn, Peer, SimController, Task};
 use crate::peer::PasskeyBehavior;
 
 /// Time between a paging attempt and the next while page scan is off.
@@ -57,6 +57,14 @@ impl SimController {
                     self.emit(Event::NumberOfCompletedPackets(vec![(handle, 1)]));
                 }
             }
+            Task::LeAdv { peer } => self.le_advertise(peer),
+            Task::LeConnected {
+                peer,
+                address_type,
+                addr,
+            } => self.le_connected(peer, address_type, addr),
+            Task::LeGreet { handle } => self.le_greet(handle),
+            Task::LeEncrypt { handle, ltk } => self.le_encrypt(handle, ltk),
             Task::PeerChannels { handle } => {
                 if let Some(ci) = self.conn_index(handle) {
                     let (peer, now) = (self.conns[ci].peer, self.clock);
@@ -334,7 +342,10 @@ impl SimController {
             return;
         };
         let conn = self.conns.remove(ci);
-        self.br_at(conn.peer).link_down();
+        match &mut self.peers[conn.peer] {
+            Peer::Br(p) => p.link_down(),
+            Peer::Le(p) => p.link_down(),
+        }
         self.emit(Event::DisconnectionComplete {
             status: 0,
             handle,

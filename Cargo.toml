@@ -96,6 +96,7 @@ members = [
     # whole host logic (a sans-IO state machine tested against `btsim`).
     "libs/btsdp",
     "libs/bthid",
+    "libs/btgatt",
     "libs/bthost",
     "libs/usbaudio",
     # xHCI registers, TRBs, contexts and ring state machines for `usbd`

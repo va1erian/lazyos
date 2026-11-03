@@ -7,7 +7,10 @@
 //! held when it closes).
 
 mod config;
+mod le_hostile;
 mod hostile;
+mod le;
+mod le_flows;
 mod pairing;
 mod reconnect;
 mod refusal;
@@ -21,7 +24,7 @@ pub use std::{format, vec};
 use btbond::BondStore;
 use bthci::BdAddr;
 use bthid::decode::Event as HidEvent;
-use btsim::{BrPeer, Controller, HciIn, PeerId, SimConfig, SimController};
+use btsim::{BrPeer, Controller, HciIn, LePeer, PeerId, SimConfig, SimController};
 use usbhid::boot::KeyEdge;
 
 use crate::{Config, Effect, Host, PairPolicy, SourceKind};
@@ -29,6 +32,29 @@ use crate::{Config, Effect, Host, PairPolicy, SourceKind};
 pub const KBD: [u8; 6] = [0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x01];
 pub const MOUSE: [u8; 6] = [0xC0, 0xFF, 0xEE, 0x00, 0x00, 0x02];
 pub const KEY_A: u8 = 0x04;
+pub const LE_KBD: [u8; 6] = [0xC0, 0xFF, 0xEE, 0x00, 0x01, 0x01];
+pub const LE_MOUSE: [u8; 6] = [0xC0, 0xFF, 0xEE, 0x00, 0x01, 0x02];
+
+/// A controller with an LE keyboard (Passkey Entry) and an LE mouse (Just
+/// Works), both in pairing mode.
+pub fn le_world() -> (SimController, PeerId, PeerId) {
+    let mut sim = SimController::new(SimConfig::default());
+    let kbd = sim.add_le_peer(LePeer::keyboard(LE_KBD));
+    let mouse = sim.add_le_peer(LePeer::mouse(LE_MOUSE));
+    for id in [kbd, mouse] {
+        sim.enter_pairing_mode(id, 0);
+    }
+    (sim, kbd, mouse)
+}
+
+/// The harness configuration that pairs these LE addresses.
+pub fn le_pair_with(targets: &[[u8; 6]]) -> Config {
+    Config {
+        trace_reports: true,
+        le_targets: targets.iter().map(|a| addr(*a)).collect(),
+        ..Config::default()
+    }
+}
 
 pub fn addr(msb: [u8; 6]) -> BdAddr {
     BdAddr::from_msb(msb)
@@ -79,9 +105,11 @@ pub struct Rig {
 
 impl Rig {
     pub fn boot(sim: SimController, store: BondStore, cfg: Config, now: u64) -> Rig {
+        let mut host = Host::new(cfg, store, now);
+        host.seed_entropy(b"bthost test entropy");
         Rig {
             sim,
-            host: Host::new(cfg, store, now),
+            host,
             now,
             started_at: now,
             traces: Vec::new(),

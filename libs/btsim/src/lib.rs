@@ -34,13 +34,19 @@
 mod api;
 mod cmds;
 mod ctrl;
+mod gatt;
 pub mod hid;
+mod lelink;
+mod lepeer;
 mod link;
 pub mod peer;
 pub mod sdp;
+mod smp_peer;
 
 pub use ctrl::{Peer, PeerId, SimConfig, SimController, Violation};
+pub use gatt::GattServer;
 pub use hid::HidKind;
+pub use lepeer::LePeer;
 pub use peer::{BrPeer, PasskeyBehavior, ReconnectStyle};
 
 /// A packet from the controller to the host.
