@@ -271,6 +271,20 @@ each other after B4.
    as `Done::Reenumerate` / `Failure.reenumerate`, so `btd` restarts from HCI
    Reset when the interface returns. Realtek parts keep their device across
    the download. Unverified on hardware until a radio is on the bench.
+   **Built (B7 wiring):** `libs/bthost/src/firmware.rs` runs the loader between
+   the transport attaching and `bthci::Init` (the vendor from `Describe()`'s USB
+   ids; files through `libs/fwload`; the loader's deadlines are part of
+   `Host::next_deadline`), counts re-enumerations in `btd`'s memory (cap 3, then
+   `BT:FW:FAIL reason=reenumeration-cap` and a bring-up that touches nothing
+   until the radio is replugged), and `usbd` withdraws and re-registers
+   `os.lazy.usb.bt` for a controller that left and came back even within one
+   loop pass (`btd` tells registrations apart by their kernel object). The
+   `bt` firmware set ships in every `LAZYOS_BT=1` image. Exercised against
+   `btsim`'s Intel and Realtek radios (`tools/bt/run.py --fw ...`); the real
+   bench procedure is in [agents/hardware.md](agents/hardware.md), "Bluetooth
+   controllers". Vendor identification uses the USB ids only; a radio that
+   a vendor id does not name but whose `Read_Local_Version` manufacturer does
+   is not loaded yet.
 2. **Reconnect behaviour differs per device.** BR/EDR keyboards usually page
    the host; some wait to be paged (`HIDReconnectInitiate` false,
    `HIDNormallyConnectable` true), so `btd` also pages bonded BR/EDR devices

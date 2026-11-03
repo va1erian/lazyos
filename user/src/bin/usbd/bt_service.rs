@@ -83,6 +83,9 @@ impl Server {
                         trace::line!(trace::Channel::Usbd, "BT:SERVE name={}", api::NAME);
                         self.ends = Some((published, server));
                         self.serving = generation;
+                        // Not refused: a controller that leaves and returns
+                        // soon is registered again at once.
+                        self.retry_at = 0;
                     }
                     Err(error) => {
                         trace::line!(trace::Channel::Usbd, "BT:FAIL register {}", error.message());
@@ -103,6 +106,7 @@ impl Server {
         let _ = registry::unregister(api::NAME);
         let _ = published.close();
         let _ = server.close();
+        self.retry_at = 0;
         trace::line!(trace::Channel::Usbd, "BT:WITHDRAW name={}", api::NAME);
     }
 

@@ -9,6 +9,7 @@
 mod config;
 mod firmware;
 mod fw_images;
+mod fw_rig;
 mod hostile;
 mod le;
 mod le_flows;
